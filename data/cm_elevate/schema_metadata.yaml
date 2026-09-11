@@ -1,0 +1,101 @@
+# schema_metadata.yaml — CM Elevate (pilot scheme for schema retrieval)
+#
+# Source: condensed from app/schema_context.py's hand-curated CM Elevate
+# blocks (_CMELEVATE_TABLES, _CMELEVATE_RULES, _CMELEVATE_VOCAB) and
+# scheme_registry.yaml's table list — this file does not invent new facts,
+# it re-expresses the same SME-reviewed knowledge as embeddable prose for
+# the schema-retrieval node (see openspec/changes/
+# phase-3-schema-retrieval-join-discovery/proposal.md section 2).
+#
+# Read by app/schema_metadata_ingest.py.
+
+scheme:
+  id: CM Elevate
+  content: |
+    CM Elevate is a Meghalaya STATE programme covering 15 individual
+    livelihood and enterprise sub-schemes (Piggery, Poultry, Goat Farming,
+    Warehouse Scheme, Cinema Theatre Scheme, Sports and Wellness Centre,
+    PRIME Small Enterprise Empowerment, and others) under one programme
+    code. One row represents one APPLICATION (a request), not an award or
+    a disbursement. There is no money column and no date column anywhere
+    in this partition — COUNT(*) is the entire aggregate vocabulary.
+    Common phrasings: "CM Elevate applications", "livelihood scheme
+    applications", "enterprise scheme requests", "which schemes are under
+    CM Elevate", "on hold applications", "verification status".
+
+tables:
+  - ref: curated.v_cm_elevate
+    content: |
+      curated.v_cm_elevate is THE query surface for CM Elevate. One row =
+      one application (request_id) under one of 15 CM Elevate schemes.
+      dim_cm_elevate_scheme and dim_geography are pre-joined (both INNER,
+      both keys NOT NULL), so scheme_name/endpoint and
+      lgd_district/lgd_block/lgd_village_name/entity_type are on the row
+      directly. NO year_key, NO date column of any kind exists. NO money
+      column of any kind exists. Significant columns: cm_scheme_key,
+      scheme_name, data_verified (status — "on hold" always means
+      data_verified = 'On Hold', never the separate onhold boolean, which
+      is FALSE on every row), applicant_category, application_mode,
+      current_file_status, current_level, scheme_specific (JSONB;
+      gender lives at scheme_specific ->> 'gender_id').
+
+  - ref: curated.dim_cm_elevate_scheme
+    content: |
+      curated.dim_cm_elevate_scheme has 15 rows, one per individual CM
+      Elevate sub-scheme (Piggery, Poultry, Goat Farming, Warehouse
+      Scheme, Cinema Theatre Scheme, Sports and Wellness Centre, PRIME
+      Small Enterprise Empowerment, etc.). Read this table directly for
+      "how many schemes" / "list the schemes" questions — a scheme with
+      zero applications is invisible in the fact table, so counting the
+      fact would undercount the scheme list.
+
+  - ref: curated.fact_cm_elevate_application
+    content: |
+      curated.fact_cm_elevate_application is the underlying fact table
+      behind curated.v_cm_elevate. Reach for it directly only for a
+      scheme_specific containment query (the @> operator) that needs the
+      GIN index (idx_cm_elevate_specific_gin) — the same predicate
+      against the view cannot use that index. Otherwise always prefer
+      the view.
+
+columns:
+  - ref: curated.v_cm_elevate.data_verified
+    content: |
+      data_verified is the verification-outcome status column on CM
+      Elevate applications: Valid / On Hold / Wrong / Invalid. "On hold"
+      or "pending" or "held" in a question always means
+      data_verified = 'On Hold' — never the separate `onhold` boolean
+      column, which is FALSE on every row and silently returns a
+      confident-looking zero if used by mistake.
+
+  - ref: curated.v_cm_elevate.applicant_category
+    content: |
+      applicant_category classifies a CM Elevate applicant as individual,
+      registered, or unregistered. Group and filter applicant type on
+      this column, never on the separate type_raw column, which is a
+      per-scheme raw label carrying source typos verbatim.
+
+  - ref: curated.v_cm_elevate.scheme_specific
+    content: |
+      scheme_specific is a JSONB column holding sub-scheme-specific
+      fields that vary per CM Elevate scheme. gender lives at
+      scheme_specific ->> 'gender_id' (text despite the _id suffix,
+      populated on every row — the one key that needs no scheme scope).
+      Every other key read from scheme_specific must carry a
+      cm_scheme_key or scheme_name filter, since ->> returns NULL for a
+      missing key, indistinguishable from a genuinely empty value.
+
+  - ref: curated.v_cm_elevate.entity_type
+    content: |
+      entity_type marks the geographic resolution level of a CM Elevate
+      application row. The value 'Unresolved' is a synthetic placeholder,
+      never a real village — add `WHERE entity_type <> 'Unresolved'` to
+      every village-level count or list, but not to district/block/scheme
+      totals (which keep it so they reconcile to source).
+
+  - ref: curated.v_cm_elevate.current_file_status
+    content: |
+      current_file_status and the related current_level column track
+      an application's processing stage. Lowercase both before
+      grouping/filtering — a Title-Case variant of a level is not
+      currently observed but the rule is defensive.

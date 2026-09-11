@@ -1,0 +1,86 @@
+# schema_metadata.yaml — Focus Plus (second scheme, onboarding proof)
+#
+# Source: condensed from app/schema_context.py's hand-curated Focus Plus
+# blocks (_FOCUSPLUS_TABLES, _FOCUSPLUS_RULES, _FOCUSPLUS_VOCAB) and
+# scheme_registry.yaml's table list — re-expressed as embeddable prose for
+# the schema-retrieval node, following the exact same pattern as CM
+# Elevate's schema_metadata.yaml (the pilot). Written to prove
+# docs/scheme-onboarding.md's onboarding flow end to end (task 4.2).
+#
+# Read by app/schema_metadata_ingest.py.
+
+scheme:
+  id: Focus Plus
+  content: |
+    Focus Plus is a Meghalaya STATE farmer cash-benefit / DBT (direct
+    benefit transfer) scheme. One row represents one DISBURSEMENT — a
+    single payment to one member in one tranche — the finest grain in
+    megh_db. The data splits into two structurally different cohorts: a
+    93K legacy PAID cohort (four rows per beneficiary, one per tranche,
+    person-level columns blank) and a 12.5K newer REGISTRATION cohort
+    (one row per person, Tranch 4 only, person-level columns populated).
+    Money unit is UNVERIFIED for the amount_disbursed column. Common
+    phrasings: "Focus Plus disbursements", "farmer cash benefit
+    payments", "DBT amount", "tranche payments", "beneficiaries by
+    batch".
+
+tables:
+  - ref: curated.v_focus_plus
+    content: |
+      curated.v_focus_plus is THE query surface for Focus Plus, and for
+      this scheme that is a PRIVACY boundary, not just a convenience.
+      One row = one disbursement (one payment, to one member, in one
+      tranche). dim_year and dim_geography are pre-joined — lgd_district,
+      lgd_block, lgd_village_name and financial_year/financial_year_short
+      are on the row directly, so no join is needed for any statewide,
+      district-, block- or village-level number. Prefer this view over
+      curated.fact_focus_plus_disbursement directly. There is no
+      mandatory predicate (unlike PMAY-G's is_placeholder filter) — do
+      not copy that pattern here.
+
+  - ref: curated.fact_focus_plus_disbursement
+    content: |
+      curated.fact_focus_plus_disbursement is the underlying fact table
+      behind curated.v_focus_plus. Reach for it only when a column the
+      view doesn't expose is needed — otherwise always prefer the view,
+      since it pre-joins financial_year and district/block/village names
+      and adds the has_geo_conflict flag.
+
+columns:
+  - ref: curated.v_focus_plus.batch_label
+    content: |
+      batch_label splits Focus Plus rows into two structurally different
+      cohorts, and almost every question needs to know which: '93K' is
+      the legacy PAID cohort (four rows per beneficiary, one per
+      tranche; every person-level column is blank on all of them);
+      '12.5K' is the newer REGISTRATION cohort (one row per person,
+      Tranch 4 only, person columns populated, ~3.2% of all rows). Any
+      breakdown by gender/occupation/focus_status/verification_status/
+      member_id/pincode describes the 12.5K cohort only.
+
+  - ref: curated.v_focus_plus.amount_disbursed
+    content: |
+      amount_disbursed's unit is UNVERIFIED — read
+      curated.dim_scheme.money_unit for the Focus Plus row before
+      formatting or converting. Only two values exist: 5,000 (Tranch 1)
+      and 2,500 (later tranches). Never add a Focus Plus amount to a
+      MGNREGA (lakh) or PMAY (rupee) figure without converting through
+      the confirmed unit first.
+
+  - ref: curated.v_focus_plus.member_id
+    content: |
+      member_id and pincode are PII. Never SELECT, GROUP BY, or ORDER BY
+      them as a bare column. COUNT(DISTINCT member_id) is the only
+      permitted use of member_id, and it counts the 12.5K cohort only
+      (~12,527) — never label it "total Focus Plus beneficiaries", since
+      "beneficiaries" has three different readings that differ by an
+      order of magnitude (payments, 12.5K-cohort distinct members, or a
+      legacy file-serial proxy via source_sl_no).
+
+  - ref: curated.v_focus_plus.tranche_label
+    content: |
+      tranche_label ("Tranch 1".."Tranch 4 - Feb-March") is categorical,
+      not a time series — it embeds month words but must never be
+      ORDER BY'd as a date. financial_year/financial_year_short is the
+      finest real time grain; there is no date column at all, and only
+      FY 2022-23 and FY 2025-26 hold data (a three-year gap between).

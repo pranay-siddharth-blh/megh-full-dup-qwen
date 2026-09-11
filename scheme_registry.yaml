@@ -1,0 +1,70 @@
+# scheme_registry.yaml
+#
+# Structural backbone for schema retrieval and join discovery — looked up
+# directly for exact structural facts ("which tables belong to scheme X"),
+# separate from the semantic descriptions embedded into megh_schema_metadata.
+# See openspec/changes/phase-3-schema-retrieval-join-discovery/proposal.md
+# section 4 (Onboarding path) for how a new entry gets added.
+#
+# id           the scheme_id tag used throughout megh_schema_metadata /
+#              megh_sql_examples and this file
+# display_name human-readable name shown in the UI / answers
+# aliases      alternate spellings/phrasings the classifier already
+#              recognises (kept here too so retrieval pre-filtering and the
+#              classifier stay in the same vocabulary)
+# tables       curated/semantic objects this scheme owns (schema-qualified)
+# shared       true for cross-scheme dimension tables — retrieved regardless
+#              of which scheme(s) are active
+
+schemes:
+  - id: MGNREGA
+    display_name: MGNREGA
+    aliases: [mgnrega, nrega, mgnrega scheme, employment guarantee]
+    tables:
+      - curated.fact_mgnrega_employment
+      - curated.fact_mgnrega_expenditure
+      - curated.v_employment
+      - curated.v_expenditure
+      - curated.v_district_year_summary
+    shared: false
+
+  - id: PMAY-G
+    display_name: PMAY-G
+    aliases: [pmay, pmay-g, pmay gramin, pmayg, rural housing]
+    tables:
+      - curated.fact_pmay_house
+      - curated.dim_pmay_house_status
+      - curated.v_pmay
+      - curated.v_pmay_monthly_sanctions
+    shared: false
+
+  - id: Focus Plus
+    display_name: Focus Plus
+    aliases: [focus plus, focus+, focusplus]
+    tables:
+      - curated.fact_focus_plus_disbursement
+      - curated.v_focus_plus
+    shared: false
+
+  - id: CM Elevate
+    display_name: CM Elevate
+    aliases: [cm elevate, cmelevate, cm-elevate]
+    tables:
+      - curated.fact_cm_elevate_application
+      - curated.dim_cm_elevate_scheme
+      - curated.v_cm_elevate
+    shared: false
+
+  # ---- shared / cross-scheme objects, retrieved regardless of active scheme ----
+  - id: shared
+    display_name: Shared dimensions
+    aliases: []
+    tables:
+      - curated.dim_scheme
+      - curated.dim_year
+      - curated.dim_geography
+      - curated.dim_geography_alias
+      - curated.bridge_geography_source
+      - curated.v_cross_scheme_money_district_year
+      - curated.v_cross_scheme_village_coverage
+    shared: true
