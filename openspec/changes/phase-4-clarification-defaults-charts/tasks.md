@@ -47,24 +47,24 @@
 
 ## 1. Defaults engine (§5.5)
 
-- [ ] 1.1 Design and write the per-scheme condition matcher (regex/keyword,
+- [x] 1.1 Design and write the per-scheme condition matcher (regex/keyword,
       following `pipeline.py`'s `_DATA_HINTS`/`_AGGREGATE_CUE` and
       `followups.py`'s `_SCHEME_RX` style) mapping question text +
       resolved entities to zero or more `*_default_rules.yaml` condition
       names. Loader parallels `annotations.py`'s existing YAML-cache
       pattern.
-- [ ] 1.2 Build the collision set: every condition name already covered by
+- [x] 1.2 Build the collision set: every condition name already covered by
       an existing `_needs_*_clarification` predicate in `pipeline.py`.
       Enforce in code (not just by convention) that a matched default
       condition is skipped whenever it's in the collision set — zero
       behavior change to the existing clarification gate is the default
       outcome of this task group.
-- [ ] 1.3 Wire non-colliding conditions into the pipeline: on match, format
+- [x] 1.3 Wire non-colliding conditions into the pipeline: on match, format
       `assumption_text` (interpolating `{placeholder}`s from resolved
       entities/context) and append to the same `notes` list
       `premise_check.check_premises` already writes into, ahead of
       `compose_response`.
-- [ ] 1.4 Write `tests/test_defaults_engine.py`: (a) a question matching a
+- [x] 1.4 Write `tests/test_defaults_engine.py`: (a) a question matching a
       non-colliding condition (e.g. a geography default) produces the
       expected `assumption_text` in `notes`; (b) a question matching a
       colliding condition (`missing_top_n`) produces **no** default and
@@ -73,8 +73,21 @@
       matching no condition leaves `notes` unchanged; (d) malformed/missing
       `*_default_rules.yaml` for a scheme degrades to no defaults, never
       raises.
-- [ ] 1.5 Run the new suite plus `test_security.py`/`test_context_manager.py`
+      Implementation note on (a): `missing_geography` was NOT used as the
+      non-colliding example — it was placed in the collision set instead
+      (see 1.2's implementation), since `_needs_scope_clarification` already
+      owns the "geography missing" topic in at least the fully-unscoped
+      case, and this module's design deliberately treats the whole topic as
+      colliding rather than slicing it into colliding/non-colliding
+      sub-cases. `expenditure_unit_unspecified` was used instead — a
+      condition with no overlapping hardcoded predicate at all — as the
+      demonstrated non-colliding example.
+- [x] 1.5 Run the new suite plus `test_security.py`/`test_context_manager.py`
       for regression; record pass counts here.
+      **Result (2026-09-11):** `test_defaults_engine.py` 9/9 PASS,
+      `test_security.py` 31/31 PASS, `test_context_manager.py` 52/52 PASS.
+      Zero failures, all three run standalone (`python tests/test_*.py`,
+      exit code 0 each).
 - [ ] 1.6 **Separate, explicitly-flagged decision point — do not implement
       as part of 1.1-1.5:** enumerate colliding conditions (starting with
       `missing_top_n`) as candidates for flipping from ask to
@@ -84,27 +97,49 @@
 
 ## 2. Findings (§5.13)
 
-- [ ] 2.1 Refactor `_result_digest` (`pipeline.py:2868-2931`) into a shared
+- [x] 2.1 Refactor `_result_digest` (`pipeline.py:2868-2931`) into a shared
       structured function (typed sum/mean/max+row/min+row per numeric
       column, distinct values per dimension column) consumed by both the
       existing text-formatting call site (behavior-preserving) and the new
       `app/findings.py`.
-- [ ] 2.2 Write `app/findings.py` with detectors: empty result (reuse
+- [x] 2.2 Write `app/findings.py` with detectors: empty result (reuse
       `_no_data_answer`'s trigger condition), extremes (from the shared
       digest), ties (rows sharing the extreme value, within the digest's
       existing tolerance), large-result-set (configurable row-count
       threshold), stale-data (surface each scheme's `dim_year`
       `data_quality_note`/`year_note`, already curated in
       `foreign_key_augmentation.yaml`'s `nodes` section).
-- [ ] 2.3 Author `data/cm_elevate/cmelevate_findings_thresholds.yaml`
-      (pilot scheme only, per proposal.md's Explicitly Out of Scope) for
-      the threshold-breach detector — SME-reviewed values, not invented
-      defaults.
-- [ ] 2.4 Wire `findings.evaluate(...)` into the data route in
+      Implementation note: `foreign_key_augmentation.yaml`'s `nodes` section
+      turned out to hold only PROSE ABOUT `data_quality_note`/`year_note`
+      (that the column exists, what it means), not the note text itself —
+      the actual note is a live database column value on `curated.dim_year`,
+      pre-joined into most scheme views. The stale-data detector therefore
+      reads `data_quality_note`/`year_note` directly off the query's own
+      returned rows, not from a YAML lookup. This is also the *safer* design:
+      `focusplus_foreign_key_augmentation.yaml` line 144 explicitly notes the
+      column is scheme-blind ("do not surface MGNREGA's notes on a Focus
+      Plus answer") — a note copied in from a separate per-scheme YAML
+      lookup could misattribute; reading only what this specific query
+      actually returned cannot.
+- [ ] 2.3 **Blocked — needs SME input, not implemented.** Author
+      `data/cm_elevate/cmelevate_findings_thresholds.yaml` (pilot scheme
+      only, per proposal.md's Explicitly Out of Scope) for the
+      threshold-breach detector — SME-reviewed values, not invented
+      defaults. The detector and its YAML loader are fully implemented and
+      tested (task 2.2/2.5) against a temporary test-fixture thresholds
+      file; no real file exists for any scheme yet, so today every scheme
+      (CM Elevate included) correctly produces zero threshold-breach
+      findings — same posture as task 1.6. Needs a product/SME owner before
+      this checkbox can close.
+- [x] 2.4 Wire `findings.evaluate(...)` into the data route in
       `pipeline.py`, attach the result as the new `findings` field in the
       response dict (empty list when nothing fires — never omitted, so
       consumers can rely on the key always being present).
-- [ ] 2.5 Write `tests/test_findings.py`: (a) empty result produces the
+      Scoped to the DATA route's successful-result return only (per this
+      task's own wording, "the data route") — the pre-existing `_denied()`
+      early return and the KB/edge routes are separate response shapes, out
+      of scope for this phase, and were not touched.
+- [x] 2.5 Write `tests/test_findings.py`: (a) empty result produces the
       empty-result finding and nothing else; (b) a result with a clear
       max/min produces an extremes finding matching `_result_digest`'s own
       numbers exactly (cross-checked against the shared digest function
@@ -115,11 +150,18 @@
       an un-piloted scheme (no thresholds file) produces no threshold
       findings and does not raise; (g) `findings` is always a list, never
       `None`, even when nothing fires.
-- [ ] 2.6 Run the new suite plus `test_security.py`/`test_context_manager.py`
+- [x] 2.6 Run the new suite plus `test_security.py`/`test_context_manager.py`
       and the Phase 3 suites (`test_schema_retrieval.py`,
       `test_pipeline_schema_retrieval.py`, `test_join_graph.py`,
       `test_pipeline_join_discovery.py`) for regression; record pass
       counts here.
+      **Result (2026-09-11):** `test_defaults_engine.py` 9/9,
+      `test_findings.py` 25/25, `test_security.py` 31/31,
+      `test_context_manager.py` 52/52, `test_schema_retrieval.py` 8/8,
+      `test_pipeline_schema_retrieval.py` 9/9, `test_join_graph.py` 5/5,
+      `test_pipeline_join_discovery.py` 8/8. **147/147 checks pass, 0
+      failures across all 8 suites**, each run standalone
+      (`python tests/test_*.py`, exit code 0).
 
 ## 3. Chart spec (§5.14)
 

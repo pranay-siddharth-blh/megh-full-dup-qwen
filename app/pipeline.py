@@ -16,7 +16,7 @@ import httpx
 from rapidfuzz import fuzz
 
 from app import auth, context_manager, edge, followups, llm, premise_check, prompt_builder, rag
-from app import join_graph, schema_retrieval
+from app import defaults_engine, findings, join_graph, schema_retrieval
 from app.config import settings
 from app.db import UnsafeSQLError, run_readonly
 from app.entity_resolver import (
@@ -2854,17 +2854,6 @@ def _answer_covers_metrics(answer: str, row: dict) -> bool:
     return True
 
 
-# Numeric-looking columns that must NOT be summed/averaged — years, codes, ids,
-# rank/serial numbers, resolved *_key columns. Reported as dimension coverage
-# (distinct values) instead. Deliberately narrow: "no"/"sr" are omitted because
-# they collide with "no_of_*" count columns; the real offenders are
-# financial_year, *_code, *_id and pincode.
-_NONSTAT_COL = re.compile(
-    r"(^|_)(year|yr|fy|pincode|rank|serial)($|_)|_key$|_code$|_id$|(^|_)id$",
-    re.IGNORECASE,
-)
-
-
 def _result_digest(rows: list[dict], max_values: int = 40) -> "tuple[str, set[str]]":
     """A deterministic whole-result summary, computed from EVERY row (not just the
     preview the composer is shown): the distinct coverage of each dimension
@@ -2876,56 +2865,36 @@ def _result_digest(rows: list[dict], max_values: int = 40) -> "tuple[str, set[st
     copies out of this block is not flagged as an invented number. Without this,
     any multi-row result (a district x year matrix, a per-block list) could only
     be described one visible cell at a time — never "the total is X" or "Y is
-    highest" — because those figures are not present in the raw rows."""
-    if len(rows) < 2:
+    highest" — because those figures are not present in the raw rows.
+
+    The actual per-column computation lives in app.findings.compute_result_stats
+    (a typed, structured version of what used to be computed inline here) so the
+    new findings module and this text formatting read the exact same numbers,
+    computed by the same code — this function is now just that computation's
+    text rendering, unchanged from its pre-refactor output."""
+    stats = findings.compute_result_stats(rows)
+    if stats is None:
         return "", set()
 
-    dim_order: dict[str, list[str]] = {}
-    dim_seen: dict[str, set[str]] = {}
-    num_cols: list[str] = []
-    for row in rows:
-        for k, v in row.items():
-            is_num = _as_number(v) is not None
-            if is_num and not _NONSTAT_COL.search(k):
-                if k not in num_cols:
-                    num_cols.append(k)
-                continue
-            if v is None:
-                continue
-            s = str(v)
-            if k not in dim_order:
-                dim_order[k], dim_seen[k] = [], set()
-            if s not in dim_seen[k]:
-                dim_seen[k].add(s)
-                dim_order[k].append(s)
-
     def _label(row: dict) -> str:
-        parts = [str(row[k]) for k in dim_order if row.get(k) is not None]
+        parts = [str(row[k]) for k in stats.dimensions if row.get(k) is not None]
         return " / ".join(parts) if parts else "(row)"
 
-    lines: list[str] = [f"total rows: {len(rows)}"]
+    lines: list[str] = [f"total rows: {stats.total_rows}"]
     allowed: set[str] = set()
 
-    for k, vals in dim_order.items():
+    for k, vals in stats.dimensions.items():
         shown = ", ".join(vals) if len(vals) <= max_values else f"{len(vals)} distinct values"
         lines.append(f"{k} ({len(vals)}): {shown}")
 
-    for k in num_cols:
-        pairs = [(r, _as_number(r.get(k))) for r in rows if _as_number(r.get(k)) is not None]
-        if not pairs:
-            continue
-        nums = [n for _r, n in pairs]
-        total = sum(nums)
-        hi_row, hi = max(pairs, key=lambda p: p[1])
-        lo_row, lo = min(pairs, key=lambda p: p[1])
-        mean = total / len(nums)
-        for val in (total, hi, lo, mean):
+    for k, ns in stats.numeric.items():
+        for val in (ns.total, ns.max, ns.min, ns.mean):
             f = float(val)
             allowed.add(str(int(f)) if f.is_integer() else f"{f:g}")
             allowed.add(f"{f:.2f}".rstrip("0").rstrip("."))
         lines.append(
-            f"{k}: sum={_fmt_num(total)}; mean={_fmt_num(round(mean, 2))}; "
-            f"max={_fmt_num(hi)} at [{_label(hi_row)}]; min={_fmt_num(lo)} at [{_label(lo_row)}]"
+            f"{k}: sum={_fmt_num(ns.total)}; mean={_fmt_num(round(ns.mean, 2))}; "
+            f"max={_fmt_num(ns.max)} at [{_label(ns.max_row)}]; min={_fmt_num(ns.min)} at [{_label(ns.min_row)}]"
         )
 
     return "\n".join(f"  - {ln}" for ln in lines), allowed
@@ -3313,9 +3282,33 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
         except Exception:  # noqa: BLE001
             logger.warning("premise check failed — continuing without it", exc_info=True)
 
+    # Silent, disclosed defaults for a detail the question left unspecified —
+    # only for conditions that don't already collide with a hardcoded
+    # `_needs_*_clarification` predicate above (defaults_engine enforces
+    # that itself). Runs after premise_check into the same `notes` channel,
+    # ahead of compose_response, so the composer surfaces it identically to
+    # an existing premise correction.
+    if settings.DEFAULTS_ENGINE_ENABLED:
+        try:
+            notes.extend(defaults_engine.apply_defaults(question, schemes, entity_result["resolved"]))
+        except Exception:  # noqa: BLE001
+            logger.warning("defaults engine failed — continuing without it", exc_info=True)
+
     answer = await compose_response(question, sql, rows, notes=notes,
                                     entities=entity_result.get("display"),
                                     schemes=schemes)
+
+    # Structured, deterministic findings over the full result (node 5.13) —
+    # additive; never omitted, empty list when nothing fires. Isolated from
+    # the answer/notes path above: a findings failure must not affect what
+    # the user is told, only whether this extra field is populated.
+    result_findings: list[dict] = []
+    if settings.FINDINGS_ENABLED:
+        try:
+            result_findings = findings.evaluate(question, schemes, rows, entity_result["resolved"])
+        except Exception:  # noqa: BLE001
+            logger.warning("findings evaluation failed — continuing without it", exc_info=True)
+
     return {
         "route": "data",
         "intent": "DATA",
@@ -3328,6 +3321,7 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
         "rows": rows[:20],
         "data": rows[:200],
         "answer": answer,
+        "findings": result_findings,
     }
 
 

@@ -276,6 +276,24 @@ class Settings(BaseSettings):
     # Deterministic, no model call. Off => premise unchallenged, as before.
     # See backend/premise_check.py.
     PREMISE_CHECK_ENABLED: bool = True
+    # Silently fill a missing detail from the SME-authored *_default_rules.yaml
+    # files (e.g. no currency unit stated -> assume crore) and disclose it as a
+    # note, instead of asking. Only conditions with no overlapping hardcoded
+    # `_needs_*_clarification` predicate are ever defaulted — see
+    # app/defaults_engine.py's collision set. Deterministic, no model call.
+    # Off => no silent defaults; the pre-existing ask/no-ask behavior is
+    # unchanged either way, since colliding conditions never reach this flag.
+    DEFAULTS_ENGINE_ENABLED: bool = True
+    # Compute structured findings (empty result, extremes, ties, large result
+    # set, SME threshold breach, stale-data note) over a query result and
+    # attach them as the additive `findings` field in the /api/query response.
+    # Deterministic, no model call — see app/findings.py. Off => `findings` is
+    # always an empty list; no change to `answer`, `rows`, or `data`.
+    FINDINGS_ENABLED: bool = True
+    # A result with more rows than this trips the large-result-set finding.
+    # Purely informational (nothing is truncated because of it — `rows`/`data`
+    # keep their own separate caps).
+    FINDINGS_LARGE_RESULT_ROWS: int = 100
     # Stop and say "I only have data for FY 2022-23 to FY 2025-26" when a data
     # question names a financial year outside that window — a bare "1999-20",
     # "2010", "FY 2019-20", etc. Both schemes' year coverage is exactly those
