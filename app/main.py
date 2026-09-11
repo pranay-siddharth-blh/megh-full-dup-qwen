@@ -8,13 +8,14 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import appdb, pipeline, schema_introspect
+from app import appdb, join_graph, pipeline, schema_introspect
 from app.annotations import load_all as load_annotations
 from app.config import insecure_secrets, settings
 from app.db import close_pool, init_pool
 from app.deps import current_scope
 from app.entity_resolver import load_all as load_entity_resolver
 from app.kb_ingest import ingest_kb
+from app.scheme_registry import load_all as load_scheme_registry
 from app.llm import close_client, init_client
 from app.middleware.limits import BodyLimitMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -24,7 +25,7 @@ from app.routers.auth import router as auth_router
 from app.routers.history import router as history_router
 from app.routers.query import router as query_router
 from app.routers.rag import router as rag_router
-from app.vectorstore import close_qdrant, collection_count, init_qdrant
+from app.vectorstore import close_pgvector, collection_count, init_pgvector
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL),
@@ -37,13 +38,17 @@ _FRONTEND = Path(__file__).resolve().parents[1] / "web"
 
 
 async def _ingest_kb_bg():
-    """KB ingest runs in the background so a cold Qdrant / slow embed batch
-    never blocks the service from accepting traffic."""
+    """KB ingest runs in the background so a cold pgvector connection / slow
+    embed batch never blocks the service from accepting traffic."""
     try:
         result = await ingest_kb()
         logger.info("scheme KB: %s", result)
     except Exception as e:  # noqa: BLE001
         logger.warning("scheme KB ingest failed (RAG path degraded): %s", e)
+
+
+async def _build_join_graph():
+    join_graph.build()  # curated YAML + schema_introspect.live_fks() cache
 
 
 async def _try(label: str, coro):
@@ -68,18 +73,20 @@ async def lifespan(app: FastAPI):
 
     await init_pool()                     # best-effort; rebuilds lazily on first query
     await init_client()
-    await _try("qdrant", init_qdrant())
+    await _try("vectorstore", init_pgvector())
     load_annotations()                    # local YAML, no network
     load_entity_resolver()                # local YAML, no network
+    load_scheme_registry()                # local YAML, no network
     await _try("app_schema", appdb.ensure_schema())     # app.* tables + seed users
     await _try("schema_catalog", schema_introspect.load())  # semantic.* -> SQL prompt
+    await _try("join_graph", _build_join_graph())
     await _try("scheme_years", pipeline.refresh_scheme_years())  # per-scheme FY coverage from megh_db
     asyncio.create_task(_ingest_kb_bg())
     logger.info("nlp-service startup complete (see /health for component status)")
     yield
     await close_pool()
     await close_client()
-    await close_qdrant()
+    await close_pgvector()
 
 
 # /docs, /redoc and /openapi.json are dev-only — they enumerate every route and
@@ -160,9 +167,9 @@ async def health(authorization: str | None = Header(default=None),
 
     try:
         qcount = await collection_count()
-        components["qdrant"] = "ok" if qcount >= 0 else "collection missing"
+        components["vectorstore"] = "ok" if qcount >= 0 else "table missing"
     except Exception as e:  # noqa: BLE001 — health must never 500
-        components["qdrant"] = f"error: {e}"
+        components["vectorstore"] = f"error: {e}"
 
     # Core dependencies decide the status; the Redis L2 cache is best-effort and
     # reported for visibility only (in-process cache covers a Redis outage).
