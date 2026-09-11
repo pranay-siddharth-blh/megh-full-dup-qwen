@@ -16,7 +16,7 @@ import httpx
 from rapidfuzz import fuzz
 
 from app import auth, context_manager, edge, followups, llm, premise_check, prompt_builder, rag
-from app import defaults_engine, findings, join_graph, schema_retrieval
+from app import chart_spec, defaults_engine, findings, join_graph, pii_guard, schema_retrieval
 from app.config import settings
 from app.db import UnsafeSQLError, run_readonly
 from app.entity_resolver import (
@@ -835,6 +835,36 @@ _BANK_GENERIC_TEXT = (
     "account numbers or IFSC codes. Shall I answer using Focus Plus bank name, "
     "or by scheme, district, block or village instead?"
 )
+
+
+# ── §11.4 PII — generated SQL asked for a blocklisted column (app/pii_guard.py) ─
+# Deliberately never names the blocklisted column in user-facing text (that
+# goes to the log only, in execute_with_repair) — this is a refusal, not a
+# data-availability explanation, so the wording stays generic per scheme.
+_PII_NOT_AVAILABLE_TEXT = {
+    "Focus Plus": (
+        "Focus Plus can't show individual member IDs or pincodes — those are "
+        "personal identifiers. Shall I answer with a count instead, or a "
+        "district/block breakdown?"
+    ),
+    "CM Elevate": (
+        "CM Elevate can't show personal applicant details (date of birth, "
+        "address, ID or account numbers) — only application, scheme, "
+        "geography and status details are available. Shall I answer using "
+        "one of those instead?"
+    ),
+}
+_PII_GENERIC_TEXT = (
+    "That detail includes a personal identifier that can't be shown "
+    "individually. Shall I answer with an aggregate count or a different "
+    "breakdown instead?"
+)
+
+
+def _pii_not_available_clarification(schemes: list[str]) -> "ClarificationNeeded":
+    text = _PII_NOT_AVAILABLE_TEXT[schemes[0]] if len(schemes) == 1 and schemes[0] in _PII_NOT_AVAILABLE_TEXT \
+        else _PII_GENERIC_TEXT
+    return ClarificationNeeded(text, rule="pii-column-blocked")
 
 
 def _named_or_inferred_schemes(question: str) -> list[str]:
@@ -2719,10 +2749,28 @@ async def execute_with_repair(question: str, schemes: list[str], entity_result: 
                     "address that specific problem and keep every other clause (filters, "
                     "year_key, geography, aggregation) that is not implicated."
                 )
+            # §11.4 PII — Layer 1 (app/pii_guard.py): the generated SQL text
+            # itself references a blocklisted column (bare, aliased, or as a
+            # scheme_specific JSONB key). Never executed, never repaired —
+            # a privacy refusal is not a SQL bug to fix and retry.
+            blocked_cols = pii_guard.find_blocked_columns(sql, schemes)
+            if blocked_cols:
+                logger.warning(
+                    "pii_guard: blocked column(s) %s in generated SQL (schemes=%s) — "
+                    "routing to clarification, not repair", blocked_cols, schemes)
+                raise _pii_not_available_clarification(schemes)
             rows = await run_readonly(sql)
+            # §11.4 PII — Layer 2 (app/pii_guard.py): unconditional post-execution
+            # redaction, independent of Layer 1's text scan, so every downstream
+            # consumer of `rows` (the HTTP response, conversation_store.persist_turn,
+            # response_cache, semantic_cache — all four read this same object) never
+            # sees a blocklisted value even if Layer 1 somehow missed it.
+            rows = pii_guard.redact_rows(rows, schemes)
             return sql, rows
         except SQLAuthorizationDenied:
             raise  # denial ends the request — never treated as a repairable error
+        except ClarificationNeeded:
+            raise  # PII refusal ends the request — never treated as a repairable error
         except (UnsafeSQLError, Exception) as e:
             if attempt == max_repairs:
                 raise  # repair budget spent — let the caller fall back
@@ -3309,6 +3357,21 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
         except Exception:  # noqa: BLE001
             logger.warning("findings evaluation failed — continuing without it", exc_info=True)
 
+    # Chart-type selection (node 5.14) — additive; never omitted, `None`
+    # when nothing fires. Computed over the same rows[:200] slice the
+    # `data` field below carries, so the row-count-based gates here (the
+    # 1-row kpi_bar check, the <=6-row doughnut check) always agree with
+    # what web/ai_query.html's buildAnalytics() actually sees when it
+    # reads response["data"], not a count from a differently-truncated
+    # view. Isolated the same way findings is: a selection failure must
+    # not affect the answer, only whether this extra field is populated.
+    result_chart_type: "str | None" = None
+    if settings.CHART_SPEC_ENABLED:
+        try:
+            result_chart_type = chart_spec.select_chart_type(rows[:200], question)
+        except Exception:  # noqa: BLE001
+            logger.warning("chart_spec selection failed — continuing without it", exc_info=True)
+
     return {
         "route": "data",
         "intent": "DATA",
@@ -3322,6 +3385,7 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
         "data": rows[:200],
         "answer": answer,
         "findings": result_findings,
+        "chart_type": result_chart_type,
     }
 
 
