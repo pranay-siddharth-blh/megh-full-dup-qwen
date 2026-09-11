@@ -52,6 +52,8 @@ class ConversationState:
     year: int | None = None                       # year_key, e.g. 2024 for FY2024-25
     previous_year: int | None = None
     metric: str | None = None                     # last metric keyword the user asked about
+    tranche: str | None = None                    # single pinned Focus Plus tranche_label, if any
+    tranche_all_combined: bool = False            # True once "all tranches combined" was chosen
     comparison_entities: list[str] = field(default_factory=list)  # for "the former/latter/other one"
     comparison_kind: str | None = None            # "district" | "block" | "scheme" | "year"
     last_intent: str | None = None                # "DATA" | "KNOWLEDGE" | "EDGE" | "CLARIFY"
@@ -64,7 +66,9 @@ class ConversationState:
         return {
             "scheme": self.scheme, "district": self.district, "block": self.block,
             "village": self.village, "year": self.year, "previous_year": self.previous_year,
-            "metric": self.metric, "comparison_entities": list(self.comparison_entities),
+            "metric": self.metric, "tranche": self.tranche,
+            "tranche_all_combined": self.tranche_all_combined,
+            "comparison_entities": list(self.comparison_entities),
             "comparison_kind": self.comparison_kind, "last_intent": self.last_intent,
             "last_route": self.last_route, "last_question": self.last_question,
             "last_standalone_question": self.last_standalone_question,
@@ -77,7 +81,9 @@ class ConversationState:
         return cls(
             scheme=d.get("scheme"), district=d.get("district"), block=d.get("block"),
             village=d.get("village"), year=d.get("year"), previous_year=d.get("previous_year"),
-            metric=d.get("metric"), comparison_entities=list(d.get("comparison_entities") or []),
+            metric=d.get("metric"), tranche=d.get("tranche"),
+            tranche_all_combined=bool(d.get("tranche_all_combined")),
+            comparison_entities=list(d.get("comparison_entities") or []),
             comparison_kind=d.get("comparison_kind"), last_intent=d.get("last_intent"),
             last_route=d.get("last_route"), last_question=d.get("last_question"),
             last_standalone_question=d.get("last_standalone_question"),
@@ -121,6 +127,17 @@ class Session:
         return self.turns[-1] if self.turns else None
 
 
+class SessionOwnershipError(Exception):
+    """Raised by SessionStore.ensure() when session_id is already bound to a
+    different user_id than the caller's. A session is never resumed for, or
+    silently reassigned to, anyone but its recorded owner — see Phase 1
+    security hardening / session-ownership."""
+
+    def __init__(self, session_id: str):
+        super().__init__(f"session {session_id!r} is owned by a different user")
+        self.session_id = session_id
+
+
 class SessionStore:
     def __init__(self, ttl: float, max_sessions: int, max_turns: int):
         self.ttl = ttl
@@ -149,12 +166,18 @@ class SessionStore:
 
     def ensure(self, session_id: str | None, user_id: str | None) -> Session:
         """Return the live session for this id, creating it if needed. A blank id
-        gets a fresh random one (single-turn — the caller just won't send it back)."""
+        gets a fresh random one (single-turn — the caller just won't send it back).
+
+        Raises SessionOwnershipError if session_id is already bound to a
+        different user_id than the caller's — the caller never resumes,
+        reads, or silently takes over another user's session this way."""
         now = time.monotonic()
         sid = session_id or f"anon-{uuid.uuid4().hex[:16]}"
         with self._lock:
             s = self._store.get(sid)
             if s is not None and not self._expired(s, now):
+                if s.user_id and s.user_id != user_id:
+                    raise SessionOwnershipError(sid)
                 s.last_seen = now
                 if user_id and not s.user_id:
                     s.user_id = user_id

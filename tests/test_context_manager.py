@@ -1,7 +1,7 @@
 """
 Conversation context layer (app/context_manager.py, app/conversation_memory.py,
 app/session_store.ConversationState) — pure-logic + monkeypatched-dependency
-checks. No DB, no model gateway, no Qdrant — same stance as test_security.py:
+checks. No DB, no model gateway, no pgvector — same stance as test_security.py:
 `python tests/test_context_manager.py`, exit code 0 = all pass.
 
 Covers the scenarios called out in the context-layer spec: follow-up entity
@@ -246,39 +246,42 @@ async def _run_async_checks():
 
     captured = {}
 
-    class _FakePoint:
-        def __init__(self, score, payload):
-            self.score = score
-            self.payload = payload
-
-    class _FakeResponse:
-        def __init__(self, points):
-            self.points = points
-
-    class _FakeClient:
-        async def query_points(self, *, collection_name, query, query_filter, limit, with_payload):
-            captured["filter"] = query_filter
-            return _FakeResponse([_FakePoint(0.9, {"question": "q", "standalone_question": "q",
-                                                    "answer": "a", "schemes": ["MGNREGA"],
-                                                    "session_id": "s1"})])
+    class _FakePool:
+        async def fetch(self, sql, *params):
+            captured["sql"] = sql
+            captured["params"] = params
+            return [{"question": "q", "standalone_question": "q", "answer": "a",
+                      "schemes": ["MGNREGA"], "session_id": "s1", "score": 0.9}]
 
     async def _fake_embed(*_a, **_kw):
         return [[0.1, 0.2, 0.3]]
 
-    orig_get_client = conversation_memory.vectorstore.get_client
+    async def _fake_ensure_table(_dim):
+        return True
+
+    orig_get_pool = conversation_memory.vectorstore.get_pool
+    orig_ensure_table = conversation_memory._ensure_table
     conversation_memory.llm.call_embedding = _fake_embed
-    conversation_memory.vectorstore.get_client = lambda: _FakeClient()
+    conversation_memory.vectorstore.get_pool = lambda: _FakePool()
+    conversation_memory._ensure_table = _fake_ensure_table
     try:
         hits = await conversation_memory.search_relevant_turns(
             question="expenditure in west garo hills", tenant_id=7, user_id=42, session_id="sess-a")
-        check("search returns hits when the fake client answers", len(hits) == 1, hits)
-        must_keys = {c.key: c.match.value for c in (captured.get("filter").must or [])}
-        check("query filter scopes by tenant_id", must_keys.get("tenant_id") == 7, must_keys)
-        check("query filter scopes by user_id", must_keys.get("user_id") == 42, must_keys)
-        check("query filter scopes by session_id", must_keys.get("session_id") == "sess-a", must_keys)
+        check("search returns hits when the fake pool answers", len(hits) == 1, hits)
+        sql = captured.get("sql", "")
+        params = captured.get("params", ())
+        # $1 is always the query vector; tenant_id/user_id/session_id are appended
+        # (and referenced as $2/$3/$4) only when given — see search_relevant_turns.
+        check("query filter scopes by tenant_id", "tenant_id = $2" in sql and params[1] == 7,
+              (sql, params))
+        check("query filter scopes by user_id", "user_id = $3" in sql and params[2] == 42,
+              (sql, params))
+        check("query filter scopes by session_id", "session_id = $4" in sql and params[3] == "sess-a",
+              (sql, params))
     finally:
         conversation_memory.llm.call_embedding = orig_embed
-        conversation_memory.vectorstore.get_client = orig_get_client
+        conversation_memory.vectorstore.get_pool = orig_get_pool
+        conversation_memory._ensure_table = orig_ensure_table
 
     # ── 10. Summary generation failure tolerance ───────────────────────────
     print("10. SUMMARY GENERATION FAILURE TOLERANCE")
