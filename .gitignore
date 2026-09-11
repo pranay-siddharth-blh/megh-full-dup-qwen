@@ -26,4 +26,6 @@ NeuralAiGovernanceProject*/
 NeuralAiGovernanceProject*.zip
 
 # Reference material and rotated-secret backups — never part of a deploy.
-archive/
+# Root-anchored: must not shadow nested archive/ dirs elsewhere (e.g.
+# openspec/changes/archive/), which are real project history, not secrets.
+/archive/

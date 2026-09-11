@@ -1,0 +1,147 @@
+# Baseline Audit — Grant Thornton Solution Proposal vs. Actual Codebase
+
+**Status:** Phase 0 deliverable. Audit only — no behavior, schema, dependency, or
+API change ships as part of this document.
+
+**Source documents:**
+- `GrantThornton_Solution_Proposal_1 (1).pdf` (23 pages, v1.0, dated 2026-05-21) —
+  hereafter "the proposal." Extracted to text and read in full for this audit.
+- The live codebase at `meghalaya/app/*.py`, `meghalaya/deploy/`, `meghalaya/docs/`,
+  `meghalaya/data/`, `meghalaya/docker-compose.yml`.
+
+**Correction to the Phase 0 scope statement:** the original brief for this audit
+cited "Section 3" for the security requirements (session ownership, DB privilege
+separation, SQL AST validation, execution controls, repair re-authorization,
+production config hardening). In the actual PDF, **Section 3 is "Solution
+Overview"** — the security and governance requirements are **Section 11**
+(11.1 Read-only enforcement, 11.2 Role-based access, 11.3 Auditability, 11.4 PII
+handling). This audit classifies against Section 11, not Section 3.
+
+**Method:** every claim below cites a file and line number. Claims are marked
+either "confirmed directly" (I read the file myself) or "confirmed via research
+pass" (gathered by a parallel read-only research agent, then reviewed here).
+Nothing is taken from docstrings/comments at face value where a runtime check
+was possible — e.g. dependency manifests were checked to confirm or rule out
+entire subsystems (LangGraph, SQLGlot, NetworkX, pandas, Vega/Altair, ClickHouse,
+Langfuse are **not** dependencies anywhere in `requirements.txt` / `requirements.lock`,
+confirmed directly).
+
+---
+
+## 1. Pipeline nodes (Proposal Section 5, nodes 5.1–5.15)
+
+| # | Node | Status | Evidence |
+|---|------|--------|----------|
+| 5.1 | Scope and scheme classifier | **Implemented, different model** | `classify_scheme` (`app/pipeline.py:1727`) is a single constrained LLM call via `CLASSIFIER_MODEL` (`app/config.py:167`, deployed as `qwen4-deploy`, not the proposal's Qwen2.5 7B). Supplemented by deterministic pre/post-processing not in the proposal: `_fuzzy_named_schemes`, `_correct_scheme_spelling`, `_infer_scheme_from_terms` (`app/pipeline.py:369,386,512`). |
+| 5.2 | Query analyzer | **Partially implemented — architecturally split** | No single structured "analyser" object (query type + metric + entities + time scope + granularity + ambiguous terms + intent summary) exists. The equivalent responsibilities are spread across `extract_entity_mentions` (span-finding LLM call, `app/pipeline.py:1799`), `classify_intent` (`app/pipeline.py:3093`), and ~10 standalone `_needs_*_clarification` predicate functions. Not independently re-verified beyond the function inventory — flagged for closer review in a follow-on phase rather than asserted with full confidence. |
+| 5.3 | Generic clarification gate | **Partially implemented — not the proposed architecture** | Clarification is real and extensive but is **hardcoded Python, not a YAML-driven rule list**: `_needs_scheme_clarification` (`pipeline.py:921`), `_needs_topn_clarification` (`970`), `_needs_scope_clarification` (`1109`), `_needs_year_clarification` (`1335`), `_needs_tranche_clarification` (`1456`), `_admin_expenditure_clarification` (`879`), `_women_share_clarification` (`917`) — each a bespoke predicate with baked-in question text. YAML rule files exist on disk (`data/*/​*_classification_rules.yaml`) but `app/annotations.py:8-13` and `pipeline.py:847-850` explicitly document that these were **never wired into the live pipeline** — orphaned data, not executed code. |
+| 5.4 | Follow-up emitter (pause) | **Partially implemented — bespoke, non-durable** | Pause/resume works via a plain Python exception (`ClarificationNeeded`, caught in `app/routers/query.py:128-163`) plus per-session fields `Session.pending_scope_q` / `Session.pending_village_hint` (`app/session_store.py:104-114`) — **not** LangGraph's `interrupt()`/checkpointer. These pause markers are explicitly documented as "Not persisted, per-worker" (`session_store.py:104,113`) and confirmed **not** rehydrated from Postgres on restart (`conversation_store.load_context_state`, `conversation_store.py:332-354`, only restores `ConversationState`/summary, not the pause text). A clarification pause that outlives a worker restart or session TTL silently loses its resumption context. |
+| 5.5 | Generic defaults | **Missing** | No default-filling logic exists anywhere in `app/pipeline.py`. Where the proposal's own examples call for a silent default (e.g. ranking without N → default top 5), the code instead **asks** — `_topn_clarification` (`pipeline.py:994`). `data/*/*_default_rules.yaml` files exist on disk but `app/annotations.py:8-13` confirms they are unwired, same as the 5.3 rule files. |
+| 5.6 | Entity resolver | **Implemented and verified** | `app/entity_resolver.py` is live, not dead code: `pipeline.py:21-31` imports `resolve_dimension`, `resolve_village`, `detect_region`, `resolve_house_status`, `resolve_tranche_label`, `lookup_geo_term`, etc., called 20+ times inside `resolve_entities` (`pipeline.py:1964-2379`). Implements the proposal's three-way outcome (`resolved` / `ambiguous` / `not_found`, `entity_resolver.py:77`) via RapidFuzz. `pipeline.py`'s own `extract_entity_mentions`/`resolve_entities` are the LLM-span-finding + orchestration layer around it, not a duplicate implementation. |
+| 5.7 | Authorization check | **Implemented and verified** | `app/auth.py` explicitly self-documents as implementing "Spec 5.7" (`auth.py:5`) — three checks in order: scheme scope, geography scope, granularity vs. role cap (`auth.py:223-304`), against a role-to-permissions map (`ROLE_PERMISSIONS`, `auth.py:43-87`). Matches the proposal closely. Caveat: geography/granularity inference reads the *generated SQL text* via regex (`_DISTRICT_LITERAL`, `_GROUPS_VILLAGE`, etc., `auth.py:191-198`) rather than a structured query plan — workable but fragile to SQL phrasing changes, and see the repair-loop finding in §3 below. |
+| 5.8 | Schema retrieval (partitioned) | **Missing as specified** | A real Qdrant + embedding pipeline exists (`app/kb_ingest.py:194-230`, `app/vectorstore.py:70-101`, `app/rag.py:84-110`) but it indexes **narrative FAQ/knowledge-base docs** (`data/reference/*.md`, `data/web/*.md`), never table/column schema — confirmed via research pass. The schema information that actually reaches the SQL-generation prompt comes from direct DB queries (`semantic.table_catalog`, `semantic.glossary`, `semantic.metric_definitions` via `app/schema_introspect.py:48-66`) and static text (`app/schema_context.py`), injected with **no retrieval or ranking step at all** — the opposite of the proposal's "schema linking, not schema dumping" principle (4.2). Embedding model is `BAAI/bge-small-en-v1.5` (local ONNX, `app/local_embed.py:12,31`), not BGE-large. A reranker exists (`qwen3-reranker`) but is **disabled by default** (`RERANKER_ENABLED = False`, `app/config.py:237`) with a code comment noting it "inverts relevance on this KB." |
+| 5.9 | Join discovery | **Missing at runtime; scaffolding present but disconnected** | No NetworkX, no shortest-path search, no graph traversal anywhere in `app/` (confirmed by grep + dependency-manifest absence). A well-structured, SME-shaped curated FK YAML *does* exist per scheme (e.g. `data/mgnrega/foreign_key_augmentation.yaml`, explicitly commented "node 5.9" in its own header) with `nodes`, `edges` (including `on_clause`), and a `join_graph` adjacency list — but at runtime **only the `is_prohibited` deny-list field is ever read** (`app/annotations.py:65-91,208-219`). The `join_graph` and `on_clause` data are never consulted by any code path. Real FKs are introspected from `pg_constraint` (`app/schema_introspect.py:101-124`) and dumped as a **flat text list** into the prompt (`app/prompt_builder.py:88-98`) — the model is shown what it must *not* join and a flat FK list, but no explicit join path is computed per query. The proposal's "the model never invents joins" guarantee is not mechanically enforced. |
+| 5.10 | SQL generation | **Implemented, with a weaker input than specified** | `generate_sql` (`pipeline.py:2387`) is a single LLM call via `SQL_GENERATION_MODEL` (`qwen-model` / qwen3-coder-30b-fp8, `config.py:174-176`), assembling schema + FK text + few-shot examples (`app/prompt_builder.py:211-222`, `app/annotations.py` few-shot loader). Structurally matches the proposal's approach, but because 5.9 doesn't produce real join paths, the generator's join correctness rests on prose warnings rather than a validated graph. |
+| 5.11 | SQL validation | **Present but unsafe / non-conformant** | Confirmed directly: `app/db.py:81-89` (`_assert_safe`) is **regex-based**, not the proposal's "non-negotiable" SQLGlot AST parser. It checks for a single statement, an allowed leading keyword (`select`/`with`), and a forbidden-keyword blocklist — it does **not** check that referenced tables belong to a retrieved/authorized set (impossible without 5.9/5.8 data anyway), and does not validate joins against an FK graph. Separately, `_verify_sql` (`pipeline.py:2577`) is an **LLM-based** "semantic verifier" — the proposal is explicit that 5.11 must have "No LLM here — purely deterministic." LIMIT enforcement (`db.py:135-137`) is a naive case-insensitive substring check for `"limit"`. |
+| 5.12 | Execution | **Present but unsafe — pending live verification** | `run_readonly` (`db.py:130-141`) executes via `asyncpg` (proposal specifies SQLAlchemy/psycopg/pandas — an implementation detail, not a functional gap). The read-only DB-role layer of defense-in-depth is the serious open question: a provisioning script for a SELECT-only role (`megh_app`) exists and is well-built (`deploy/sql/01_create_megh_app_role.sql:52-92`), documented in `docs/SECURITY.md:42`, but **the script's own header comment states "the service currently connects as `postgres` (superuser)"** — i.e. this is a prescribed remediation, not a confirmed live state. `.env` was deliberately not read (real credentials), so whether production's `DATABASE_URL` actually uses the restricted role is **unverified from the repository alone** and must be checked operationally before this layer can be called implemented. |
+| 5.13 | Generic result findings | **Missing** | No findings registry exists anywhere — grepped for `finding`, `outlier`, `stale`, `severity` across `app/` with no matches to a check-function-registry pattern. `app/annotations.py` (despite the name) is a few-shot-example and prohibited-join loader for SQL prompting, **not** a result-findings module. The closest things that exist are single-purpose: `_no_data_answer` (empty-result message only, `pipeline.py:2876`) and `app/premise_check.py` (false-numeric-premise detection, a different concern). Empty result, outliers, threshold breaches, ties, large-result-set, and stale-data detection are all absent. |
+| 5.14 | Chart generator | **Missing** | Confirmed directly: "chart" appears in `app/` only as a code comment (`pipeline.py:3001`) and a keyword-classifier token (`app/edge.py:311`). No chart-type-selection logic, no Vega-Lite/Altair spec builder, no PNG export path exists anywhere in the backend. |
+| 5.15 | Response composer | **Implemented (core function); two of three proposed inputs don't exist** | `compose_response` (`pipeline.py:2940`) is a small LLM call that phrases the answer from the result rows. It includes a genuine strength beyond what the proposal specifies: a **numeric-faithfulness guard** (`_answer_numbers_faithful`, `_data_numbers`, `pipeline.py:2690-2795`) that checks every number the composed answer states against the actual result values and falls back to a deterministic sentence on mismatch — a more rigorous integrity check than the proposal describes. However, it has no findings to surface (5.13 missing) and no chart spec to attach (5.14 missing), so two of its three proposed inputs are structurally absent. |
+
+---
+
+## 2. Security and Governance (Proposal Section 11)
+
+| # | Requirement | Status | Evidence |
+|---|-------------|--------|----------|
+| 11.1 | Read-only enforcement (3 independent layers) | **Present but unsafe — pending live verification** | Layer (a) SQL validator: present, regex-based, not AST (see 5.11 above). Layer (b) SELECT-only Postgres role: provisioning script exists but is **not confirmed active in production** — the script's own comment says the service currently connects as `postgres` superuser (`deploy/sql/01_create_megh_app_role.sql:5`). Layer (c) LIMIT wrapping: present, naive substring check (`db.py:135-137`). If (b) is genuinely inactive in production today, the proposal's "even if one layer is bypassed, the others catch it" guarantee is materially weaker than claimed — effectively down to layer (a) alone for anything beyond what a regex catches. |
+| 11.2 | Role-based access, two layers (app-level + Postgres RLS) | **Partially implemented — one layer only** | App-level (`app/auth.py`) is implemented and verified as strong (see 5.7). The claimed **second layer — Postgres row-level security policies — does not exist**: a whole-repo grep for `CREATE POLICY`, `ROW LEVEL SECURITY`, `ENABLE ROW LEVEL SECURITY` returns zero matches (confirmed via research pass). The only RLS-adjacent string found is a defensive `NOBYPASSRLS` role attribute (`deploy/sql/01_create_megh_app_role.sql:41`) — a precaution for RLS that isn't there. `app/auth.py` is a **single point of failure** for scope enforcement, not one of two independent layers. |
+| 11.3 | Auditability — full per-query trace, stored indefinitely (ClickHouse) | **Partially implemented — materially narrower** | `auth.audit()` (`auth.py:313-324`) is real and is called once per query (`app/routers/query.py:229-247`), logging ~15 fields: tenant/user/role/session id, question, rewritten question, route, schemes, granularity, allow/deny decision, row count, IP, latency. **Missing versus the proposal's list**: no analyser output, no rule-firing trace, no retrieved-table/join-path trace, **no generated or executed SQL text**, no result preview, no findings, no chart spec, no final response text — meaning the audit log cannot reconstruct what query actually ran, undercutting the proposal's own Section 2.3 goal ("audit trail of every generated query"). Storage is JSONL + a Postgres mirror, not ClickHouse (ClickHouse/Langfuse/Prometheus/Grafana/Loki: zero references anywhere in the repo). Retention is **not indefinite** — `deploy/sql/02_retention_policy.sql:34-77` purges `app.query_audit` after a configurable window (365-day placeholder). |
+| 11.4 | PII handling — restrict below-aggregate queries by default, mask names/identifiers in charts | **Not verified in this audit pass** | `auth.py`'s granularity cap (state/district/block/village) provides *some* protection against overly fine geographic aggregation, but the proposal's 11.4 concern is specifically about **individual/beneficiary-level identifiers**, a different axis not checked by any research pass in this audit. The claimed masking "in the chart layer" cannot exist today regardless, since no chart layer exists (5.14 missing). This item needs a dedicated follow-up rather than a guessed classification. |
+
+---
+
+## 3. Cross-cutting findings (not cleanly mapped to one proposal section)
+
+These came up during the audit and matter regardless of which proposal section they'd file under.
+
+1. **Session ownership — confirmed gap, live `/api/query` path.** `SessionStore.ensure()` (`session_store.py:156-174`) has no check that the authenticated caller's `user_id` matches the session's recorded owner; it only ever *sets* `user_id` if the slot is currently empty (`session_store.py:165-166`). `app/routers/query.py:80` calls `session_store.ensure(session_id, scope.user_id)` with a client-supplied `session_id` (validated only by regex, `query.py:37`) — including a guessable default pattern `day-{user_id}-{date}` (`query.py:77`). A caller who supplies another user's session id inherits that user's live in-process turn history, `ConversationState`, and any pending clarification, which then feeds follow-up rewriting. **This is a conversation-context leak, not a data leak**: the final SQL is still re-authorized against the *requesting* caller's own `scope` (see 5.7), so cross-user data access is not possible this way — but cross-user context blending and misattributed `conversation_turns` rows are. The durable Postgres-side history endpoints (`app/routers/history.py`, `conversation_store.py`) are correctly ownership-scoped (`WHERE session_id = $1 AND user_id = $2`); the gap is specific to the live in-process session path.
+
+2. **Repair loop bypasses re-authorization — confirmed, concrete.** `auth.authorize()` is called **exactly once** in the entire pipeline (`pipeline.py:3222-3224`), against the SQL produced by the *first* `generate_sql` call, immediately before `execute_with_repair(..., initial_sql=sql)` is invoked (`pipeline.py:3229`). Inside `execute_with_repair` (`pipeline.py:2606-2667`), a failed query triggers a genuine LLM-driven regeneration (`llm.call_sql_generator` against `build_repair_prompt`, `pipeline.py:2662-2666`) — the SQL text can and does change (different WHERE/JOIN/GROUP BY clauses) — and the new SQL is executed directly (`run_readonly(sql)`, `pipeline.py:2651`) with **no second call to `auth.authorize()`**. A repair that changes the query's granularity or geography scope would execute without being checked against the user's authorization.
+
+3. **Orchestration framework: not LangGraph, and this is a real state, not a placeholder.** No LangGraph, no `interrupt()`, no checkpointer anywhere (confirmed via dependency manifest + code search). Pause/resume is a bespoke exception (`ClarificationNeeded`) plus in-process session fields with no cross-worker or restart durability (see 5.4). The Phase 0 brief already flags that LangGraph adoption is a Phase 2 decision, not a foregone conclusion — this finding is the concrete "current state" that decision should start from.
+
+4. **Rate limiting is per-IP only.** `app/middleware/rate_limit.py:34-42,66-67` keys solely on client IP for both the login-throttle and `/api/query` buckets — no per-user or per-session dimension. A shared NAT/proxy IP shares one bucket; an authenticated user's identity is never used as the rate-limit key.
+
+5. **Auth wiring on routes is solid.** Every data/history/admin route is gated by a FastAPI `Depends` dependency that validates the JWT via `security.decode_token` (`app/deps.py:28-50`, applied at `query.py:63,251`, `history.py:34,48,58,71,82,93`, `admin.py:34,42,75,...`). With `AUTH_ENABLED=True` (the default, `config.py:334`), no route reaches the pipeline without a valid, non-expired, correctly-signed token. This is a genuine strength, not a gap.
+
+6. **Deployment topology does not match the proposal.** Confirmed via research pass: production is **systemd + nginx on two bare VMs** (`deploy/DEPLOYMENT.md:1-8`, `deploy/systemd/megh-nlpservice.service`), not Kubernetes. `docker-compose.yml` defines a single `local-infra` profile (Qdrant + Redis) for local development — not the proposal's `--profile dev`/`--profile staging` split. No Kubernetes manifests exist anywhere in the repo. The proposal's vLLM tier does exist, but as a **separate, pre-existing, externally-managed** inference cluster (`docs/INFERENCE_REQUIREMENTS.md:5-7,51-111`) — this app calls it over HTTP; it does not deploy or orchestrate it.
+
+7. **Production config defaults are sane.** `AUTH_ENABLED` defaults to `True` (`config.py:334`) and CORS defaults to same-origin-only (`CORS_ALLOW_ORIGINS = ""`, `config.py:24`) — no obvious insecure-by-default footguns found in `config.py`.
+
+8. **Join-discovery hard-gate is narrow by design — accepted gap, carries forward to Phase 2.** Phase 3 (`phase-3-schema-retrieval-join-discovery`) closed 5.9's "Missing at runtime" finding above, but only partially: `_join_path_hint` (`app/pipeline.py:2400-2414`) calls `join_graph.find_join_path` — and `generate_sql` (`pipeline.py:2417-2444`) only turns its result into a hard `ClarificationNeeded` gate — when schema-retrieval (`schema_retrieval.retrieve`, §5.8) itself already named **2+ distinct table-granularity candidates**. That is a real pre-generation signal, not an invented one, but it is also the exception today: every piloted scheme (MGNREGA, PMAY-G, Focus Plus, CM Elevate) surfaces at most one fact table per query, so in the common case `_join_path_hint` returns `None` and join discovery degrades to an **additive prompt hint** — the same enforcement tier as the pre-existing PROHIBITED JOINS mechanism (`app/annotations.py:208-219`, itself a prompt instruction, never enforced by parsing the returned SQL). In that common path, the model is *told* which join to use but nothing stops it from inventing a different one; §5.9's original "the model never invents joins" guarantee (cited in the Missing finding above) is still not mechanically enforced there. This was a deliberate, user-confirmed scope decision for Phase 3 (see `phase-3-schema-retrieval-join-discovery/tasks.md` Group 3 preamble and `design.md`), not an oversight — flagged here so it is not later mistaken for a closed item. **Tag: carries forward to Phase 2.** Phase 2's move toward typed intent-parsing before SQL generation (rather than a single free-text LLM call) is what would give join discovery a genuine pre-generation table list on every query, not just the multi-table-retrieval case, and is the mechanism that would let this hard-gate stop being the exception.
+
+9. **2026-09-11 — Phase 1 Group 3: production status and `megh_app` cutover, static-analysis-only.** Read-only reconnaissance (no database connection attempted) into whether the current `DATABASE_URL` target is production and whether the least-privilege `megh_app` role (see finding above and `docs/SECURITY.md`) has actually been applied:
+   - **Production likely confirmed via static analysis.** `.env`'s `DATABASE_URL` points at `10.48.242.4` (a private/internal IP, not `localhost`, not a managed cloud host) connecting as the `postgres` superuser. `app/main.py:51` and `app/db.py:34-35` both refer to this same host in code comments as "the remote box" that "flaps," and `deploy/DEPLOYMENT.md`'s own go-live checklist (line 184: `[ ] DATABASE_URL uses megh_app... not the postgres superuser`) is written against this exact host/role pairing. This is corroborating evidence, not proof — no query was run to confirm live database contents or environment, per this investigation's own read-only constraint.
+   - **`megh_app` is scripted, not applied.** `deploy/sql/01_create_megh_app_role.sql` self-documents as unexecuted ("The service currently connects as `postgres` (superuser)," line 5; "REVIEW BEFORE RUNNING," line 18). No migration log, execution timestamp, GRANT-audit table, or commit message anywhere in the repo or git history references it having been run.
+   - **Conclusion: cutover is pending a scheduled maintenance window, not a code task.** Running `01_create_megh_app_role.sql` and repointing `DATABASE_URL` to `megh_app` is an infra/ops action against a shared production database, requiring a superuser and a coordinated restart — explicitly out of scope for this investigation and not performed. `docs/SECURITY.md`'s SELECT-only-role control entry has been corrected (2026-09-11) to describe this same not-yet-applied status.
+
+---
+
+## 4. Explicitly out of scope (per the Phase 0 brief, not audited here)
+
+Per the Phase 0 proposal's own scope boundary, the legacy Excel ingestion path
+(proposal Section 6: CLI, quarantine tables, backfills) was **not** audited in
+this pass — it is out of scope for this phase and all following phases per the
+original brief. No claim is made here about whether that ingestion path exists
+in the codebase.
+
+---
+
+## 5. Summary table
+
+| Classification | Nodes / items |
+|---|---|
+| Implemented and verified | 5.6 Entity resolver, 5.7 Authorization check, route-level JWT auth wiring |
+| Implemented, minor divergence | 5.1 Scope/scheme classifier (model swap), 5.10 SQL generation (weaker join input), 5.15 Response composer (missing two inputs) |
+| Partially implemented, architecturally divergent | 5.2 Query analyzer (split, unverified in depth), 5.3 Clarification gate (hardcoded vs. YAML), 5.4 Follow-up emitter (bespoke, non-durable), 11.2 Role-based access (one layer, not two) |
+| Present but unsafe / pending live verification | 5.11 SQL validation, 5.12 Execution, 11.1 Read-only enforcement, session ownership (cross-user context leak), repair re-authorization gap |
+| Missing | 5.5 Generic defaults, 5.8 Schema retrieval (as specified), 5.9 Join discovery (at runtime), 5.13 Generic result findings, 5.14 Chart generator |
+| Partially implemented, narrower than specified | 11.3 Auditability |
+| Not verified — needs dedicated follow-up | 11.4 PII handling |
+| Confirmed absent, real divergence from proposal | LangGraph orchestration, Kubernetes deployment, ClickHouse/Langfuse/Prometheus observability stack, SQLGlot/NetworkX/pandas |
+
+---
+
+## 6. Phase 1–6 scope (stubbed for individual approval)
+
+Six follow-on change proposals are stubbed under `openspec/changes/` with a
+one-paragraph scope statement each, derived directly from the findings above.
+Each requires its own approval before work starts; none are implied-approved
+by this audit. See each directory's `proposal.md` for the full statement.
+
+1. **`phase-1-security-hardening`** — close the confirmed, concrete safety gaps:
+   verify/enforce the SELECT-only DB role in production, re-authorize
+   repaired SQL, fix the session-ownership gap, and resolve the 5.11 SQL
+   validator's architecture (regex vs. AST) — plus close out the unverified
+   11.4 PII item.
+2. **`phase-2-orchestration-durability`** — the explicit LangGraph-or-not
+   decision (not a foregone conclusion per the original brief), and, whichever
+   way that lands, making clarification-pause state and audit trace depth
+   durable enough to meet the proposal's own stated goals.
+3. **`phase-3-schema-retrieval-join-discovery`** — decide and implement a real
+   mechanism for nodes 5.8/5.9: either build genuine table/column retrieval
+   and reconnect the already-built (but currently unused) curated FK graph
+   data, or explicitly ratify direct-catalog-injection as the permanent
+   design and document why.
+4. **`phase-4-clarification-defaults-engine`** — decide whether to keep the
+   current hardcoded predicate functions or wire up the orphaned YAML rule
+   files per the proposal's "generic rules over per-use-case logic" principle,
+   and build the entirely-missing "generic defaults" capability (5.5) if desired.
+5. **`phase-5-findings-and-charts`** — build the missing result-findings
+   registry (5.13) and chart-spec generation (5.14), and wire both into the
+   response composer (5.15).
+6. **`phase-6-observability-deployment`** — reconcile the proposal's deployment
+   and observability narrative (Kubernetes, ClickHouse, indefinite retention)
+   against the actual systemd/VM + JSONL/Postgres reality, and decide per-user
+   rate limiting.

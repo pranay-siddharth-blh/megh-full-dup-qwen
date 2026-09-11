@@ -39,7 +39,7 @@ safe default, so local dev is unaffected.
 | Control | Where |
 | --- | --- |
 | LLM-generated SQL is validated: single statement, `SELECT`/`WITH` lead only, no write/DDL keywords, forced `LIMIT` | `app/db.py::_assert_safe`, `run_readonly` |
-| DB connection is a **SELECT-only role** (`megh_app` / `megh_readonly`) — second layer, not a substitute | `deploy/sql/01_create_megh_app_role.sql` |
+| DB connection is a **SELECT-only role** (`megh_app` / `megh_readonly`) — **scripted, not yet applied to production**. The service currently connects as the `postgres` superuser: confirmed by the script's own header ("The service currently connects as `postgres` (superuser)", `deploy/sql/01_create_megh_app_role.sql:5`) and by the live `DATABASE_URL` in `.env`, which uses `postgres`, not `megh_app`. Until this is run against production, this layer does not exist — see the Group 3 finding in `docs/baseline-audit.md` §3 | `deploy/sql/01_create_megh_app_role.sql` (defined, unexecuted) |
 | Our own SQL is always parameter-bound, never interpolated | `app/db.py::fetch_rows` etc. |
 | `question` field length-capped (`MAX_QUESTION_CHARS`) and C0-control-char stripped; `session_id` pattern-restricted; length caps on every admin/auth free-text field and list | `app/routers/*.py` |
 | **OWASP CRS WAF** in front (SQLi/XSS/RCE families), staged rollout | `deploy/nginx/modsecurity/` |

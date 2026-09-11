@@ -14,7 +14,7 @@ WorkingDirectory=/opt/meghalaya
 #
 # .env must define: DATABASE_URL (megh_readonly role), the model roles
 # (CLASSIFIER/SQL_GENERATION/RESPONSE/EMBEDDING/RERANKER/ASR *_API_KEY +
-# *_BASE_URL), and QDRANT_URL / QDRANT_COLLECTION. See .env.example.
+# *_BASE_URL), and VECTOR_DB_URL / RAG_KB_TABLE. See .env.example.
 # 2 workers, not 1 like the archived services — DB access is natively async
 # (asyncpg), so one worker's event loop already handles the 20-40 concurrent
 # target; the second is headroom if a loop ever stalls, negligible cost on a
