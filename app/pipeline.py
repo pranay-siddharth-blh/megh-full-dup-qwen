@@ -87,8 +87,9 @@ class ClarificationNeeded(Exception):
     `question` is a fully-formed standalone question that resumes the flow.
     `rule` (optional) is a short tag for why we paused (shown in the UI).
     `village_hint` (optional) is the exact village-name text the user typed,
-    set only for a village-ambiguity pause — see Session.pending_village_hint
-    for why a free-text resume needs it re-supplied deterministically rather
+    set only for a village-ambiguity pause — see
+    ConversationState.pending_village_hint for why a free-text resume needs
+    it re-supplied deterministically rather
     than trusting the LLM mention-extractor to re-tag it in the merged text."""
 
     def __init__(self, question: str, *, options: list[dict] | None = None,
@@ -2025,8 +2026,8 @@ async def resolve_entities(question: str, schemes: list[str],
     talking about something new for that slot, not carrying the old one over.
 
     `village_hint` (optional): the exact village-name text from a just-resumed
-    village-ambiguity pause (ClarificationNeeded.village_hint / Session.
-    pending_village_hint). Used ONLY when this question's own mention
+    village-ambiguity pause (ClarificationNeeded.village_hint /
+    ConversationState.pending_village_hint). Used ONLY when this question's own mention
     extraction finds no village at all — the merged resume text ("...the one
     in Betasing block") does not reliably make the LLM re-tag the original
     village name, and without it SQL generation has no village_code to filter
@@ -3528,11 +3529,11 @@ async def _run_pipeline(question: str, session: "Session | None" = None,
     #     question that triggered it. A reply that stands on its own as a fresh
     #     question, or an edge case like "thanks", is left alone; either way the
     #     pending state is consumed so it never leaks into a later turn.
-    pending = getattr(session, "pending_scope_q", None) if session is not None else None
-    _village_hint = getattr(session, "pending_village_hint", None) if session is not None else None
+    pending = session.state.pending_scope_q if session is not None else None
+    _village_hint = session.state.pending_village_hint if session is not None else None
     if pending:
-        session.pending_scope_q = None
-        session.pending_village_hint = None
+        session.state.pending_scope_q = None
+        session.state.pending_village_hint = None
         # A scope-pause reply is normally a bare fragment ("Ri Bhoi, 2023-24",
         # "wgh, 1999-20") with no scheme vocabulary of its own, so the edge
         # whitelist would tag it "off_topic" every time — do NOT use that as the

@@ -321,10 +321,37 @@ asyncio.run(_run_async_checks())
 print("11. STATE PERSISTENCE ROUND-TRIP")
 orig = ConversationState(scheme="PMAY-G", district="Ri Bhoi", year=2023, previous_year=2022,
                          comparison_entities=["Ri Bhoi", "East Khasi Hills"], comparison_kind="district",
-                         turn_count=3)
+                         turn_count=3, pending_scope_q="how many houses in", pending_village_hint="Adugre")
 rehydrated = ConversationState.from_dict(orig.to_dict())
 check("to_dict/from_dict round-trips every field", rehydrated == orig, rehydrated)
+check("to_dict/from_dict round-trips pending_scope_q",
+      rehydrated.pending_scope_q == "how many houses in", rehydrated.pending_scope_q)
+check("to_dict/from_dict round-trips pending_village_hint",
+      rehydrated.pending_village_hint == "Adugre", rehydrated.pending_village_hint)
 check("from_dict(None) yields a blank state", ConversationState.from_dict(None) == ConversationState())
+check("from_dict on a dict missing the pending_* keys (old persisted row) "
+      "defaults both to None",
+      ConversationState.from_dict({"scheme": "MGNREGA"}).pending_scope_q is None
+      and ConversationState.from_dict({"scheme": "MGNREGA"}).pending_village_hint is None)
+
+# ── 12. Clarification-pause durability across a "different worker" (phase-2-
+#        orchestration-durability's actual scenario) ───────────────────────
+print("12. CLARIFICATION PAUSE SURVIVES A WORKER BOUNDARY")
+worker_a_session = _session()
+worker_a_session.state.pending_scope_q = "how many houses were sanctioned"
+worker_a_session.state.pending_village_hint = "Adugre"
+# Simulate the L2 mirror: what routers/query.py's save_context_state call
+# would write, and what a fresh worker's load_context_state would read back.
+mirrored_context_state = worker_a_session.state.to_dict()
+worker_b_session = Session(session_id="t1", user_id="u1", created=0.0, last_seen=0.0)
+worker_b_session.state = ConversationState.from_dict(mirrored_context_state)
+check("pending_scope_q survives the round-trip to a fresh Session",
+      worker_b_session.state.pending_scope_q == "how many houses were sanctioned")
+check("pending_village_hint survives the round-trip to a fresh Session",
+      worker_b_session.state.pending_village_hint == "Adugre")
+check("Session itself no longer carries these as bare attributes",
+      not hasattr(Session(session_id="t2", user_id="u2", created=0.0, last_seen=0.0),
+                  "pending_scope_q"))
 
 
 print()

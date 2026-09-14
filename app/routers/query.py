@@ -7,7 +7,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 from pydantic import BaseModel, Field, field_validator
 
-from app import auth, conversation_memory, conversation_store, llm
+from app import auth, conversation_memory, conversation_store, langgraph_followup, llm
 from app.cache import metrics, response_cache
 from app.config import settings
 from app.deps import current_scope, require_user
@@ -121,11 +121,70 @@ async def query(req: QueryRequest, request: Request,
 
     if result is None:
         try:
-            result = await asyncio.wait_for(
-                answer_question(req.question, session=session, scope=scope),
-                timeout=settings.REQUEST_TIMEOUT_SECONDS,
-            )
+            if settings.LANGGRAPH_FOLLOWUP_ENABLED:
+                # Alternative pause/resume path (openspec/changes/phase-2-
+                # orchestration-durability) — app/langgraph_followup.py owns its
+                # own durable resume signal via its checkpointer (is_paused
+                # below reads it), never via session.state.pending_scope_q, so
+                # this branch and the bespoke except-block below can coexist on
+                # the same session without either corrupting the other's merge
+                # logic. See app/langgraph_followup.py's module docstring.
+                paused = await langgraph_followup.is_paused(session_id)
+                lf_result = await asyncio.wait_for(
+                    langgraph_followup.run_with_pause(
+                        session_id=session_id, question=req.question, scope=scope,
+                        resume=req.question if paused else None,
+                    ),
+                    timeout=settings.REQUEST_TIMEOUT_SECONDS,
+                )
+                if lf_result.get("paused"):
+                    clar = lf_result["clarification"]
+                    # Deliberately does NOT set session.state.pending_scope_q/
+                    # pending_village_hint the way the bespoke except-block
+                    # below does for its own pauses — this path's resume state
+                    # already lives durably in the LangGraph checkpointer
+                    # (is_paused above reads it back on the next call).
+                    out = {
+                        "route": "clarification",
+                        "intent": "CLARIFY",
+                        "confidence": "high",
+                        "answer": clar["question"],
+                        "needs_clarification": True,
+                        "question": clar["question"],
+                        "clarification": {"options": clar.get("options"), "rule": clar.get("rule")},
+                        "session_id": session_id,
+                        "denied_by": clar.get("rule"),
+                        **_empty_data_fields(),
+                    }
+                    clarify_latency_ms = (time.monotonic() - started) * 1000
+                    conversation_store.persist_turn(
+                        tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,
+                        result=out, question=req.question, latency_ms=clarify_latency_ms,
+                        username=scope.username or None, ip=ip,
+                    )
+                    # Mirrors session.state durably (e.g. pending_village_hint,
+                    # set internally by the graph node for entity-ambiguous) —
+                    # symmetric with the bespoke path's own save_context_state
+                    # call, even though this path's resume signal lives in the
+                    # checkpointer, not in this blob.
+                    conversation_store.save_context_state(
+                        session_id=session_id, context_state=session.state.to_dict())
+                    _mirror_audit(scope, session_id, req.question, out, started, ip)
+                    return out
+                result = lf_result
+            else:
+                result = await asyncio.wait_for(
+                    answer_question(req.question, session=session, scope=scope),
+                    timeout=settings.REQUEST_TIMEOUT_SECONDS,
+                )
         except ClarificationNeeded as e:
+            # Reached either for the bespoke path's own pause (flag off), or a
+            # non-pause-eligible (terminal) rule propagated by run_with_pause
+            # (flag on) — a pause-eligible rule under the flag never reaches
+            # here, it's handled by the lf_result.get("paused") branch above
+            # instead, so `e.rule in (...)` below is naturally False whenever
+            # the flag is on and this except block still runs.
+            #
             # A scope pause ("which area / year?"), a year pause ("which FY?"), or
             # an entity-ambiguity pause ("which of these villages/districts/blocks?")
             # carries one-tap options where they exist, but the user may still type
@@ -133,8 +192,8 @@ async def query(req: QueryRequest, request: Request,
             # Hills"). Remember the question so the pipeline merges that reply back
             # into it next turn instead of treating it as a brand-new question.
             if e.rule in ("scope-not-specified", "year-not-specified", "entity-ambiguous"):
-                session.pending_scope_q = req.question
-                session.pending_village_hint = e.village_hint
+                session.state.pending_scope_q = req.question
+                session.state.pending_village_hint = e.village_hint
             # Shape it for the frontend clarification renderer (intent CLARIFY +
             # clarification.options), and keep the flat keys older callers read.
             out = {
@@ -151,15 +210,23 @@ async def query(req: QueryRequest, request: Request,
             # A clarification pause is still a turn the user should see when they
             # reopen the thread — persist it durably (L2) exactly like an answered
             # turn, so the conversation appears in the sidebar and replays the
-            # clarifying question + its option chips. L1 follow-up context is left
-            # untouched: the resume already runs off session.pending_scope_q.
+            # clarifying question + its option chips.
             clarify_latency_ms = (time.monotonic() - started) * 1000
             conversation_store.persist_turn(
                 tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,
                 result=out, question=req.question, latency_ms=clarify_latency_ms,
                 username=scope.username or None, ip=ip,
             )
-            _mirror_audit(scope, session_id, req.question, {"route": "clarification"}, started, ip)
+            # Mirror the pause fields (session.state.pending_scope_q/
+            # pending_village_hint) to app.conversations.context_state now, not
+            # just on a successful turn — otherwise a worker restart, a
+            # session-TTL eviction, or the next request landing on a different
+            # worker (routine at this deployment's 2-VM/4-worker scale) silently
+            # loses the resume context and the pause can never be answered.
+            # See openspec/changes/phase-2-orchestration-durability/design.md.
+            conversation_store.save_context_state(
+                session_id=session_id, context_state=session.state.to_dict())
+            _mirror_audit(scope, session_id, req.question, out, started, ip)
             return out
         except ModelBusyError as e:
             metrics.busy_rejections += 1

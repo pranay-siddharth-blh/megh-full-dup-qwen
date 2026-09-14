@@ -61,6 +61,23 @@ class ConversationState:
     last_question: str | None = None              # raw text as typed
     last_standalone_question: str | None = None   # fully resolved/rewritten form
     turn_count: int = 0
+    # Set when the pipeline paused to ask "which area / year?"
+    # (scope-not-specified / year-not-specified / entity-ambiguous). Holds the
+    # original question so the next turn's free-text reply can be merged back
+    # into it. Cleared as soon as it's consumed. Lives here (not directly on
+    # Session) specifically so it rides the same L1/L2 durability this whole
+    # struct already has — see conversation_store.save_context_state/
+    # load_context_state and phase-2-orchestration-durability/design.md.
+    pending_scope_q: str | None = None
+    # Set alongside pending_scope_q when the pause was a village-name ambiguity
+    # ("entity-ambiguous"). Holds the exact text the user typed for the village
+    # (e.g. "Adugre") so the resume can re-run resolve_village on it directly —
+    # the merged reply text ("...the one in Betasing block") does NOT reliably
+    # make the LLM mention-extractor re-tag the village on the merged sentence,
+    # which otherwise leaves village_code unresolved and lets SQL generation
+    # invent one instead of asking again or using the block. Cleared with
+    # pending_scope_q.
+    pending_village_hint: str | None = None
 
     def to_dict(self) -> dict:
         return {
@@ -68,6 +85,8 @@ class ConversationState:
             "village": self.village, "year": self.year, "previous_year": self.previous_year,
             "metric": self.metric, "tranche": self.tranche,
             "tranche_all_combined": self.tranche_all_combined,
+            "pending_scope_q": self.pending_scope_q,
+            "pending_village_hint": self.pending_village_hint,
             "comparison_entities": list(self.comparison_entities),
             "comparison_kind": self.comparison_kind, "last_intent": self.last_intent,
             "last_route": self.last_route, "last_question": self.last_question,
@@ -88,6 +107,8 @@ class ConversationState:
             last_route=d.get("last_route"), last_question=d.get("last_question"),
             last_standalone_question=d.get("last_standalone_question"),
             turn_count=int(d.get("turn_count") or 0),
+            pending_scope_q=d.get("pending_scope_q"),
+            pending_village_hint=d.get("pending_village_hint"),
         )
 
 
@@ -99,21 +120,11 @@ class Session:
     last_seen: float
     turns: list[Turn] = field(default_factory=list)
     scope: object | None = None      # backend.auth.UserScope, cached for the session
-    # Set when the pipeline paused to ask "which area / year?" (scope-not-specified).
-    # Holds the original question so the next turn's free-text reply can be merged
-    # back into it. Cleared as soon as it's consumed. Not persisted, per-worker.
-    pending_scope_q: str | None = None
-    # Set alongside pending_scope_q when the pause was a village-name ambiguity
-    # ("entity-ambiguous"). Holds the exact text the user typed for the village
-    # (e.g. "Adugre") so the resume can re-run resolve_village on it directly —
-    # the merged reply text ("...the one in Betasing block") does NOT reliably
-    # make the LLM mention-extractor re-tag the village on the merged sentence,
-    # which otherwise leaves village_code unresolved and lets SQL generation
-    # invent one instead of asking again or using the block. Cleared with
-    # pending_scope_q.
-    pending_village_hint: str | None = None
     # Structured conversation state (app/context_manager.py) — the L1 copy,
-    # mirrored to app.conversations.context_state (L2) on each turn.
+    # mirrored to app.conversations.context_state (L2) on each turn. Also
+    # carries pending_scope_q/pending_village_hint (a clarification pause) —
+    # see ConversationState's own doc-comments for why those live here rather
+    # than as bare Session attributes.
     state: ConversationState = field(default_factory=ConversationState)
     # Compact rolling summary of the conversation so far (schemes/locations/
     # years/metrics/comparisons/unresolved references) — see

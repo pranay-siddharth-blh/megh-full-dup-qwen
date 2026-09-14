@@ -300,6 +300,18 @@ class Settings(BaseSettings):
     # four years. Off => keep the old behaviour (add a soft note, then fall
     # through to the "which year?" pause or answer across the years that exist).
     YEAR_RANGE_GUARD_ENABLED: bool = True
+    # Route the three resumable clarification pauses (scope-not-specified,
+    # year-not-specified, entity-ambiguous) through app/langgraph_followup.py's
+    # LangGraph interrupt()/AsyncSqliteSaver checkpointer instead of the
+    # bespoke ClarificationNeeded + ConversationState.pending_scope_q/
+    # pending_village_hint mechanism — see
+    # openspec/changes/phase-2-orchestration-durability/design.md. Off
+    # (default) => /api/query behavior is byte-for-byte unchanged, the
+    # bespoke mechanism handles every pause exactly as it always has. On =>
+    # those three rules pause/resume via the LangGraph component instead; a
+    # non-resumable (terminal) ClarificationNeeded still propagates and is
+    # handled the same way either way.
+    LANGGRAPH_FOLLOWUP_ENABLED: bool = False
 
     # ── Authorization (role + scope vs. what the query asks for) ──
     # Checks are pure Python (backend/auth.py). Users, tenants, conversations and
