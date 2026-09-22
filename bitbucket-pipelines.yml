@@ -1,0 +1,146 @@
+# Bitbucket Pipelines — Meghalaya NL Assistant
+#
+# Python 3.11 to match the Dockerfile (`FROM python:3.11-slim`), NOT the 3.12
+# in the local .venv. Production runs 3.11, so CI tests 3.11.
+#
+# Test convention (see CLAUDE.md): there is no pytest. Every tests/test_*.py is
+# a standalone script that sets its own env vars, imports app.* directly, and
+# exits non-zero on failure. The `tests/smoke_*.py` files are deliberately NOT
+# matched by the test_*.py glob — they need a live server, the real Qwen
+# gateway and the real megh_db, so they cannot run on a cloud runner.
+#
+# The sweep runs twice, in parallel: once at default flags, once with
+# PIPELINE_GRAPH_ENABLED + LANGGRAPH_FOLLOWUP_ENABLED + TENANT_SCHEME_RLS_ENABLED
+# all on, which is the standing convention for these three behaviour-changing
+# flags.
+
+image: python:3.11
+
+definitions:
+  caches:
+    # fastembed downloads BAAI/bge-small-en-v1.5 on first use; cache it or
+    # every run re-downloads the ONNX model.
+    fastembed: fastembed_cache
+
+  steps:
+    - step: &syntax-gate
+        name: Syntax gate
+        caches:
+          - pip
+        script:
+          - python --version
+          - pip install --upgrade pip
+          # Fail fast on a syntax error before spending time on deps.
+          - python -m compileall -q app tests
+        after-script:
+          - echo "Syntax gate finished with status $BITBUCKET_EXIT_CODE"
+
+    - step: &test-default
+        name: "Test sweep: default flags"
+        caches:
+          - pip
+          - fastembed
+        script:
+          - pip install --upgrade pip
+          - pip install -r requirements.txt
+          - export PYTHONPATH=.
+          - |
+            fail=0
+            for t in tests/test_*.py; do
+              echo "=== $t"
+              if python "$t"; then
+                echo "PASS $t"
+              else
+                echo "FAIL $t"
+                fail=1
+              fi
+            done
+            exit $fail
+
+    - step: &test-all-flags
+        name: "Test sweep: graph + followup + RLS on"
+        caches:
+          - pip
+          - fastembed
+        script:
+          - pip install --upgrade pip
+          - pip install -r requirements.txt
+          - export PYTHONPATH=.
+          - export PIPELINE_GRAPH_ENABLED=true
+          - export LANGGRAPH_FOLLOWUP_ENABLED=true
+          - export TENANT_SCHEME_RLS_ENABLED=true
+          - |
+            fail=0
+            for t in tests/test_*.py; do
+              echo "=== $t"
+              if python "$t"; then
+                echo "PASS $t"
+              else
+                echo "FAIL $t"
+                fail=1
+              fi
+            done
+            exit $fail
+
+    - step: &docker-build
+        name: Docker image builds
+        services:
+          - docker
+        caches:
+          - docker
+        script:
+          # Proves the Dockerfile is still valid and deps resolve for 3.11-slim.
+          # Does not push anywhere — see the deploy note at the bottom of this file.
+          - docker build -t megh-nlp-service:$BITBUCKET_COMMIT .
+          - docker image ls megh-nlp-service
+
+    - step: &dependency-audit
+        name: Dependency audit
+        caches:
+          - pip
+        script:
+          - pip install --upgrade pip pip-audit
+          # Advisory only: a new CVE in a pinned dep should surface, not block
+          # an unrelated merge. Flip `|| true` off once the backlog is clean.
+          - pip-audit -r requirements.txt || true
+
+pipelines:
+  # Any branch without a more specific rule.
+  default:
+    - step: *syntax-gate
+    - parallel:
+        - step: *test-default
+        - step: *test-all-flags
+
+  pull-requests:
+    '**':
+      - step: *syntax-gate
+      - parallel:
+          - step: *test-default
+          - step: *test-all-flags
+      - step: *docker-build
+
+  branches:
+    # Glob, not a plain `main`, on purpose: Bitbucket branch matching is
+    # CASE-SENSITIVE and this repo's default branch is `Main` (capital M),
+    # while the local clone's branch is lowercase `main`. Matching both means
+    # the pipeline runs whichever of the two the commit lands on.
+    '{main,Main}':
+      - step: *syntax-gate
+      - parallel:
+          - step: *test-default
+          - step: *test-all-flags
+      - step: *docker-build
+      - step: *dependency-audit
+      - step:
+          name: Deploy to application VMs
+          deployment: production
+          trigger: manual
+          script:
+            - echo "Deploy is intentionally manual and not implemented here."
+            - echo "The target VMs sit behind the ESDS vFirewall on a private"
+            - echo "network (10.48.242.x). Bitbucket's cloud runners cannot"
+            - echo "reach them, so this step needs a self-hosted runner inside"
+            - echo "that network before it can do anything real."
+            - echo "See deploy/DEPLOYMENT.md for the current manual procedure."
+            - exit 1
