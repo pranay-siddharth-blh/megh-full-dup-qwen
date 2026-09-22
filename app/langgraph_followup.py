@@ -39,9 +39,9 @@ native `libpq` dependency not being installed — an infra concern this
 module was explicitly told to ignore, not a design limitation.)
 
 Scope: this graph wraps the EXISTING pipeline (`app.pipeline.
-answer_question`) for exactly the three pause-eligible clarification
-rules `app/routers/query.py` already recognizes (`scope-not-specified`,
-`year-not-specified`, `entity-ambiguous`) — it does not reimplement
+answer_question`) for exactly the pause-eligible clarification rules
+`app/routers/query.py` already recognizes (the shared
+`pipeline.RESUMABLE_CLARIFICATION_RULES`) — it does not reimplement
 scope/year/entity resolution, SQL generation, or any other pipeline
 stage as graph nodes. Turning the entire ~3,600-line pipeline into a
 LangGraph graph is a much larger, separate undertaking this instruction
@@ -66,12 +66,12 @@ from app.session_store import session_store
 
 logger = logging.getLogger(__name__)
 
-# The same three rules app/routers/query.py already treats as resumable
+# The rules app/routers/query.py already treats as resumable
 # (it stashes session.pending_scope_q/pending_village_hint for exactly
 # these) — every other ClarificationNeeded rule (e.g. "column-not-held"
 # from app/clarification_engine.py, "pii-column-blocked") is a terminal
 # refusal, not a pause: re-raised, never interrupted.
-_PAUSE_ELIGIBLE_RULES = frozenset({"scope-not-specified", "year-not-specified", "entity-ambiguous"})
+_PAUSE_ELIGIBLE_RULES = pipeline.RESUMABLE_CLARIFICATION_RULES
 
 # Where the SQLite checkpoint file lives — a sibling of the JSONL audit
 # mirror, same "durable local file, no server" posture.
@@ -101,22 +101,35 @@ class FollowupState(TypedDict, total=False):
     session_id: str
     scope: dict
     result: dict | None
+    # Set by _classify_node right before routing to _gate_node; cleared by
+    # _gate_node once consumed. See _gate_node's docstring for why this
+    # field — not a local variable — is what makes the resume-doesn't-
+    # repeat-expensive-work fix below actually work.
+    pending_clarification: dict | None
 
 
-async def _run_pipeline_node(state: FollowupState) -> dict[str, Any]:
-    """Runs the existing pipeline. On a pause-eligible ClarificationNeeded,
-    calls interrupt() — this SUSPENDS the graph (via a GraphInterrupt the
-    LangGraph runtime catches at the graph-execution layer, not this
-    function) and durably checkpoints `state` exactly as it was when
-    interrupt() was called. The next `run_with_pause(..., resume=reply)`
-    call for the same thread_id re-enters this function from the top with
-    that same state; `interrupt()` at the same call site then returns
-    `reply` immediately instead of pausing again — the standard LangGraph
-    replay-to-interrupt model. Side effects before the interrupt() call
-    (session_store.ensure, the pipeline attempt that raises) therefore
-    repeat on every resume up to that point; both are cheap/idempotent
-    here, which is the property a node wrapping interrupt() needs to have.
-    """
+async def _classify_node(state: FollowupState) -> dict[str, Any]:
+    """Runs the existing pipeline. Deliberately does NOT call interrupt()
+    itself — see _gate_node's docstring for why splitting this from the
+    pause into two nodes matters. On success, returns the result; on a
+    pause-eligible ClarificationNeeded, returns the clarification payload
+    via `pending_clarification` (a real node return, so it IS checkpointed)
+    instead of pausing here, and routes to _gate_node next.
+
+    Found and fixed 2026-09-17: the original single-node version called
+    interrupt() itself, right after this same pipeline call, in the same
+    node. LangGraph's interrupt()/replay model re-executes a node IN FULL
+    from its top on every resume — so every resumed clarification was
+    silently re-running this exact (real LLM/DB) pipeline call a second,
+    wasted time with the ORIGINAL unmerged question (re-raising the
+    identical ClarificationNeeded, immediately discarded) before the real,
+    merged-question attempt happened as a third call. Verified empirically
+    with a call-counting instrumentation: one pause + one resume produced
+    3 calls to pipeline.answer_question for 2 logical attempts. Splitting
+    the expensive call (this node, never re-entered on resume — only
+    _gate_node is) from the interrupt() call (below) eliminates the
+    duplicate entirely; tests/test_langgraph_followup.py now asserts the
+    call count directly so this can't silently regress."""
     scope = UserScope(**state["scope"])
     session = session_store.ensure(state["session_id"], scope.user_id)
     session.scope = scope
@@ -129,19 +142,13 @@ async def _run_pipeline_node(state: FollowupState) -> dict[str, Any]:
             # answer this at all"). Propagate exactly as the bespoke path
             # does; this graph makes no pause/resume claim for these.
             raise
-        if e.rule == "entity-ambiguous" and e.village_hint:
-            # Reuses ConversationState.pending_village_hint purely as a
-            # narrow data-passing channel between this merge step and the
-            # next pipeline attempt below — app/pipeline.py's own resume
-            # logic already reads this field unconditionally. This graph
-            # does NOT use ConversationState.pending_scope_q: LangGraph's
-            # checkpointer (via `question` in this state) is what tracks
-            # that a pause is in progress, not that bespoke field.
-            session.state.pending_village_hint = e.village_hint
-        reply = interrupt({"question": e.question, "options": e.options, "rule": e.rule})
-        merged = f"{state['question'].rstrip(' ?.')}, {str(reply).strip()}"
-        logger.info("langgraph_followup: resumed %r -> merged %r", e.rule, merged)
-        return {"question": merged, "result": None}
+        return {
+            "pending_clarification": {
+                "question": e.question, "options": e.options,
+                "rule": e.rule, "village_hint": e.village_hint,
+            },
+            "result": None,
+        }
     # Clear pending_village_hint on every successful pipeline call, not just
     # when this turn itself set it. pipeline._run_pipeline's own top-of-function
     # clearing (session_store.py's ConversationState / pipeline.py:3725-3729)
@@ -152,23 +159,67 @@ async def _run_pipeline_node(state: FollowupState) -> dict[str, Any]:
     # into a real request path, rather than being a one-shot resume signal.
     if session.state.pending_village_hint is not None:
         session.state.pending_village_hint = None
-    return {"result": result}
+    return {"result": result, "pending_clarification": None}
 
 
-def _route_after_pipeline(state: FollowupState) -> str:
-    """'ask_again' when the node just merged a reply and needs another
-    pipeline attempt (result still None); 'done' once a real result
-    exists — the "gate is re-evaluated... if another piece is still
-    missing, the gate asks again" loop from the proposal's own wording."""
-    return "ask_again" if state.get("result") is None else "done"
+async def _gate_node(state: FollowupState) -> dict[str, Any]:
+    """The ONLY node that re-executes on resume — cheap on purpose (no
+    pipeline call, no LLM/DB work): reads the clarification payload
+    _classify_node already computed and returned (so it survived as a
+    genuine checkpointed state field, unlike a local variable would have),
+    then calls interrupt(). On the pausing pass this suspends here; on
+    resume, LangGraph re-enters _gate_node (not _classify_node) from the
+    top with that same `pending_clarification` already in state —
+    interrupt() at this call site returns the reply immediately instead of
+    pausing again, with zero re-execution of _classify_node's pipeline
+    call. This is the actual fix: interrupt() must live in a node that has
+    nothing expensive before it, not bundled into the node that does the
+    expensive work, precisely because LangGraph replays a paused node in
+    full on every resume."""
+    pending = state["pending_clarification"]
+    scope = UserScope(**state["scope"])
+    session = session_store.ensure(state["session_id"], scope.user_id)
+    if pending.get("village_hint"):
+        # Reuses ConversationState.pending_village_hint purely as a narrow
+        # data-passing channel to the next _classify_node attempt —
+        # app/pipeline.py's own resume logic already reads this field
+        # unconditionally. This graph does NOT use
+        # ConversationState.pending_scope_q: LangGraph's checkpointer (via
+        # `question` in this state) is what tracks that a pause is in
+        # progress, not that bespoke field.
+        session.state.pending_village_hint = pending["village_hint"]
+    reply = interrupt({"question": pending["question"], "options": pending["options"],
+                       "rule": pending["rule"]})
+    # pipeline.merge_clarification_reply, not a bare f-string: a one-tap chip
+    # sends the WHOLE rewritten question, so concatenating it onto the paused
+    # one duplicates it (see that function's docstring — app/pipeline_graph.py's
+    # two resume points were already converted; this one was missed). Passing
+    # the options we offered also catches a chip that rewrites the MIDDLE of
+    # the question rather than appending to it (the financial-year chips).
+    merged = pipeline.merge_clarification_reply(
+        state["question"], reply, pending.get("options"))
+    logger.info("langgraph_followup: resumed %r -> merged %r", pending["rule"], merged)
+    return {"question": merged, "result": None, "pending_clarification": None}
+
+
+def _route_after_classify(state: FollowupState) -> str:
+    """'gate' when _classify_node just returned a clarification payload
+    (needs a pause); 'done' once a real result exists."""
+    return "gate" if state.get("pending_clarification") is not None else "done"
 
 
 def _build_graph():
     graph = StateGraph(FollowupState)
-    graph.add_node("run_pipeline", _run_pipeline_node)
-    graph.set_entry_point("run_pipeline")
+    graph.add_node("classify", _classify_node)
+    graph.add_node("gate", _gate_node)
+    graph.set_entry_point("classify")
     graph.add_conditional_edges(
-        "run_pipeline", _route_after_pipeline, {"ask_again": "run_pipeline", "done": END})
+        "classify", _route_after_classify, {"gate": "gate", "done": END})
+    # After a resume merges the reply, go straight back to classify for the
+    # real attempt — "the gate is re-evaluated... if another piece is
+    # still missing, the gate asks again" (proposal's own wording); a
+    # second missing piece routes classify -> gate again, same as before.
+    graph.add_edge("gate", "classify")
     return graph
 
 
@@ -227,7 +278,7 @@ async def run_with_pause(
         else:
             stream_input = FollowupState(
                 question=question, session_id=session_id, scope=dataclasses.asdict(scope),
-                result=None, paused_rule=None)
+                result=None, pending_clarification=None)
         final_state: dict[str, Any] = {}
         async for event in graph.astream(stream_input, config=config, stream_mode="values"):
             final_state = event

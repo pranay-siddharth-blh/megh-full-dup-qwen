@@ -5,7 +5,9 @@ the systemd unit. Capacity budget 20–40 concurrent, 100–200 DAU — see
 [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
 
 The service is a single FastAPI app (`app.main:app`). It talks to Postgres
-(`megh_db`), Qdrant, and the self-hosted Qwen gateway — all on `10.48.242.4`.
+(`megh_db`, on `10.48.242.4`), the self-hosted Qwen gateway (also
+`10.48.242.4`), and a separate Postgres/pgvector instance (`VECTOR_DB_URL`,
+e.g. Neon) for the RAG scheme-knowledge base and conversation memory.
 
 ---
 
@@ -14,7 +16,7 @@ The service is a single FastAPI app (`app.main:app`). It talks to Postgres
 | | |
 | --- | --- |
 | Python | **3.11+** (verified on 3.11.9) |
-| Reachable | `10.48.242.4:5432` (Postgres), `:6333` (Qdrant), `:443` (model gateway) |
+| Reachable | `10.48.242.4:5432` (Postgres), `:443` (model gateway), the `VECTOR_DB_URL` host (pgvector) |
 | User | `ubuntu` (matches `User=` in the unit) |
 
 ## 2. Lay the code down
@@ -60,7 +62,15 @@ Fill in, at minimum:
 - `ADMIN_TOKEN` — same, for the break-glass bootstrap endpoint
 - the six model roles (`CLASSIFIER` / `SQL_GENERATION` / `RESPONSE` /
   `EMBEDDING` / `RERANKER` / `ASR` — each `*_BASE_URL` + `*_API_KEY`)
-- `QDRANT_URL`, `QDRANT_COLLECTION`
+- `VECTOR_DB_URL`, `RAG_KB_TABLE` — Postgres/pgvector connection for the RAG KB
+  (falls back to `DATABASE_URL` if left blank, but a dedicated instance keeps
+  KB writes off the read-only `megh_app`/`megh_readonly` role). **The target
+  instance must have the `pgvector` extension available** — `app/vectorstore.py`
+  runs `CREATE EXTENSION IF NOT EXISTS vector` at startup, which needs a role
+  with privilege to create extensions. Neon (and most managed Postgres) grants
+  this to the database owner role by default; a locked-down self-hosted role
+  may not have it — if so, an admin must run `CREATE EXTENSION vector;` once,
+  manually, as a superuser before first start.
 
 > **`.env` is read by the application, not by systemd.** The unit deliberately
 > does not use `EnvironmentFile=`: systemd keeps inline `#` comments as part of
@@ -125,12 +135,12 @@ curl -s localhost:8300/api/rag/status    # KB point count
 ```
 
 `/health` reports `degraded` with the failing component named when Postgres or
-Qdrant is unreachable — the service still starts, by design, so a dependency
-outage does not take the whole app down.
+the pgvector store (`VECTOR_DB_URL`) is unreachable — the service still starts,
+by design, so a dependency outage does not take the whole app down.
 
 First start also: creates the `app.*` schema, seeds `app.users` from
 `app/users.yaml` **only if that table is empty**, and ingests the scheme KB into
-Qdrant (skipped when the collection is already populated).
+pgvector (skipped when the table is already populated).
 
 ---
 

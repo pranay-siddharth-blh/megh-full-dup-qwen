@@ -6,17 +6,22 @@ proposal — appropriate at 2 schemes and 20-40 concurrent users; revisit if
 either grows a lot.
 """
 import asyncio
+import hashlib
 import itertools
 import json
 import logging
 import numbers
 import re
+from dataclasses import dataclass
 
 import httpx
 from rapidfuzz import fuzz
 
 from app import auth, context_manager, edge, followups, llm, premise_check, prompt_builder, rag
-from app import chart_spec, defaults_engine, findings, join_graph, pii_guard, schema_retrieval
+from app import chart_spec, clarification_engine, defaults_engine, findings, join_graph, pii_guard
+from app import query_analyzer
+from app import schema_retrieval
+from app import sql_join_validator
 from app.config import settings
 from app.db import UnsafeSQLError, run_readonly
 from app.entity_resolver import (
@@ -93,12 +98,56 @@ class ClarificationNeeded(Exception):
     than trusting the LLM mention-extractor to re-tag it in the merged text."""
 
     def __init__(self, question: str, *, options: list[dict] | None = None,
-                 rule: str | None = None, village_hint: str | None = None):
+                 rule: str | None = None, village_hint: str | None = None,
+                 graph_resumable: bool = False, resolved_so_far: dict | None = None):
         super().__init__(question)
         self.question = question
         self.options = options or []
         self.rule = rule
         self.village_hint = village_hint
+        # Everything resolve_entities had ALREADY pinned when it hit this pause
+        # (district/block/village_code/year_key/…). Stashed on
+        # ConversationState.pending_resolved by whichever resume mechanism owns
+        # the pause, and handed back to the resumed turn as `prior_resolved`.
+        #
+        # Without it, a question that needs TWO rounds of clarification (the
+        # live case this was added for: an ambiguous village name AND a bare
+        # "2023") re-derives every dimension from the merged text on every
+        # round — so the village pinned in round 1 survives only as long as the
+        # LLM mention-extractor keeps re-tagging it correctly out of the
+        # resumed sentence, which is precisely what it does not reliably do
+        # (see pending_village_hint's own doc-comment for the narrow, village-
+        # only patch this generalises).
+        self.resolved_so_far = dict(resolved_so_far) if resolved_so_far else {}
+        # openspec/changes/multi-tenant-rls-scheme-scaleout task 5.4: True only
+        # when this pause came from app.pipeline_graph.answer_data_via_graph_compat
+        # called with an explicit, session-scoped thread_id — meaning its
+        # checkpoint was deliberately left alive (not cleaned up as an orphan,
+        # see pipeline_graph.py's own cleanup comment) because a REAL resume
+        # via LangGraph's own resume_via_graph is possible next turn. Tells
+        # app/routers/query.py's except-ClarificationNeeded handler to skip
+        # setting session.state.pending_scope_q/pending_village_hint (the
+        # bespoke resume signal) — this pause's resume state already lives
+        # durably in the graph's checkpointer instead, exactly the same
+        # reasoning app/langgraph_followup.py's own pause branch already
+        # documents for its own, separate checkpointer.
+        self.graph_resumable = graph_resumable
+
+
+# The ClarificationNeeded rules that are a PAUSE (the turn resumes next
+# request, with the user's answer folded back in) rather than a terminal
+# refusal ("column-not-held", "pii-column-blocked", … — re-raised, never
+# resumed). Three separate resume mechanisms key off this exact set:
+# app/routers/query.py's bespoke pending_scope_q stash, app/langgraph_followup.py
+# and app/pipeline_graph.py's checkpointed interrupt(). It lives here, in the
+# one module all three already import, because it used to be hand-copied into
+# all three — and a rule added to only some of them pauses in the UI but can
+# never be resumed (which is how "year-ambiguous" below would have behaved:
+# the chips render, and answering one starts a brand-new question that has
+# forgotten everything the pause was holding).
+RESUMABLE_CLARIFICATION_RULES = frozenset({
+    "scope-not-specified", "year-not-specified", "year-ambiguous", "entity-ambiguous",
+})
 
 
 class SQLAuthorizationDenied(Exception):
@@ -410,19 +459,54 @@ def _correct_scheme_spelling(question: str) -> str:
     if not question:
         return question
 
+    # A scheme already named correctly elsewhere in the question (exact match,
+    # e.g. "CM ELEVATE") must not also be "corrected" word-by-word below — the
+    # lone word "Elevate" fuzzy-matches the "cmelevate" alias on its own
+    # (fuzz.ratio("elevate", "cmelevate") ~= 87.5, over the 80 threshold), so
+    # without this guard "CM ELEVATE" gets the already-present "CM" duplicated
+    # into "CM CM Elevate" (and worse on a second pass, e.g. a resumed
+    # clarification chip, into "CM CM CM Elevate").
+    #
+    # Restored from the pre-LangGraph codebase, where it was present and
+    # working: this rewrite kept only the trailing-duplicate collapse below,
+    # which cannot cover this case — the duplication here is LEADING ("CM CM
+    # Elevate"), not trailing ("Focus Plus plus"). The two fixes are
+    # complementary, not alternatives: this guard skips a scheme that is
+    # already spelled correctly, the collapse below repairs a genuine
+    # misspelling that landed next to a real word. Every correctly-spelled
+    # "CM Elevate" question was mangled without this.
+    # See tests/test_scheme_spelling_no_duplication.py.
+    _already_named = {s for s, pat in _SCHEME_NAME_PATTERN.items() if pat.search(question)}
+
     def _sub(m: "re.Match") -> str:
         word = m.group(0)
         if len(word) < 5:
             return word
         wl = word.lower()
         for scheme, aliases in _SCHEME_FUZZY_ALIASES.items():
+            if scheme in _already_named:
+                continue
             if wl in aliases:
                 return word
             if any(fuzz.ratio(wl, a) >= _FUZZY_SCHEME_ACCEPT for a in aliases):
                 return _SCHEME_CANONICAL_SPELLING[scheme]
         return word
 
-    return re.sub(r"[A-Za-z]+", _sub, question)
+    corrected = re.sub(r"[A-Za-z]+", _sub, question)
+    # A single-word misspelling of a multi-word canonical name ("facus" ->
+    # "Focus Plus") can land directly next to the text's own real occurrence
+    # of that name's trailing word ("facus plus" -> "Focus Plus plus") —
+    # found during a 5.1 end-to-end verification pass, reproducible, not
+    # hypothetical. Collapse the accidental duplicate rather than leave a
+    # doubled word in text this function's own purpose is to clean up for
+    # vector-search relevance.
+    for canon in _SCHEME_CANONICAL_SPELLING.values():
+        if " " in canon:
+            trailing = canon.rsplit(" ", 1)[1]
+            corrected = re.sub(
+                rf"\b{re.escape(canon)}\s+{re.escape(trailing)}\b",
+                canon, corrected, flags=re.IGNORECASE)
+    return corrected
 
 
 # The user explicitly wants a cross-scheme answer — honour it, don't ask.
@@ -487,8 +571,17 @@ _PMAY_ONLY_TERMS = re.compile(
     r"released amounts?|pending amounts?|sanction dates?|sanction numbers?|"
     # "received (any/the/no) amount", "received full/partial amount" — the
     # release-status phrasing PMAY-OFF-008/009/010 use, distinct from the
-    # "amount released" form already covered above.
-    r"receiv\w*\s+(?:any|the|no|full|partial)?\s*(?:sanctioned\s+)?amount)\b",
+    # "amount released" form already covered above. The qualifier
+    # (any/the/no/full/partial) is REQUIRED, not optional — found during a
+    # 5.1 end-to-end verification pass that the optional form let a bare,
+    # scheme-generic "beneficiaries received amount" (equally plausible for
+    # Focus Plus's own disbursement vocabulary) silently infer PMAY-G alone,
+    # which is exactly the mis-routing risk this whole vocabulary block's own
+    # design comment above warns against. "received sanctioned amount" (no
+    # qualifier word) still classifies correctly regardless of this fix —
+    # it's already caught by the "sanctioned amounts?" alternative earlier
+    # in this same pattern.
+    r"receiv\w*\s+(?:any|the|no|full|partial)\s+(?:sanctioned\s+)?amounts?)\b",
     re.IGNORECASE,
 )
 # Focus Plus is a Meghalaya STATE farmer cash-benefit scheme. These terms name it or
@@ -1441,6 +1534,74 @@ def _year_clarification(question: str, schemes: list[str]) -> "ClarificationNeed
     )
 
 
+def _year_chip_question(question: str, raw_year: str, year_key: int) -> str:
+    """The follow-up question text for one financial-year chip: the SAME
+    question, with the ambiguous year token the user typed swapped for an
+    unambiguous "FY 2023-24".
+
+    Deliberately a substitution, not an append (the shape `_year_clarification`
+    uses): by the time a bare "2023" turns out to be ambiguous, the question may
+    already carry the answer to an EARLIER clarification round — the village
+    chip's ", RI MULIANG block, WEST KHASI HILLS" suffix — and appending "for
+    FY 2023-24" after it would both read as a new trailing clause and leave the
+    original "2023" in place, still ambiguous, for the resumed turn to trip on
+    all over again. An "FY " already in front of the token is consumed so the
+    result never reads "FY FY 2023-24"."""
+    stem = question.strip().rstrip(" ?.")
+    label = f"FY {_fy_short(year_key)}"
+    rx = re.compile(r"(?:\bFY\s*)?\b" + re.escape(str(raw_year)) + r"\b", re.IGNORECASE)
+    if rx.search(stem):
+        return rx.sub(label, stem, count=1)
+    # The extractor normalised the token out of recognition — fall back to
+    # naming the year explicitly rather than silently dropping the choice.
+    return f"{stem}, {label}"
+
+
+def _year_ambiguity_clarification(question: str, raw_year: str, candidates: list,
+                                  schemes: list[str], *, village_hint: "str | None" = None,
+                                  resolved_so_far: "dict | None" = None) -> "ClarificationNeeded":
+    """A year the user DID name but which maps to more than one financial year
+    — "2023" is FY 2022-23 or FY 2023-24, and the resolver catalogue's own rule
+    for it is "return ambiguous and ask which financial year. Do not default."
+    (data/mgnrega/mgnrega_entity_resolver.yaml, year.ambiguous_input).
+
+    Asking is right; asking the way this used to — a bare question with no
+    options and no `rule` — was not. No options meant the UI rendered a
+    clarification bubble with nothing to tap, and no rule meant it wasn't in
+    RESUMABLE_CLARIFICATION_RULES, so a typed answer ("2023-24") was not merged
+    back into the paused question either: the pause was a dead end in both
+    directions, on a question the user had already spent one clarification
+    round narrowing. Reported from the live UI, 2026-09-22.
+
+    Distinct from `_year_clarification` (rule "year-not-specified"), which is
+    the different case of a question that pins no year at all."""
+    starts: list[int] = []
+    for c in candidates or []:
+        raw = c.get("canonical") if isinstance(c, dict) else c
+        m = re.search(r"\d{4}", str(raw or ""))
+        if m and int(m.group(0)) not in starts:
+            starts.append(int(m.group(0)))
+    # Never offer a year the scheme(s) in play don't actually hold — the chips
+    # and the out-of-range guard read the same single source of truth
+    # (_SCHEME_DATA_YEARS, refreshed from the live data at startup).
+    held = [_fy_start(y) for y in _year_choices_for(schemes)]
+    if held:
+        starts = [k for k in starts if k in held] or list(held)
+    starts.sort()
+    options = [{"label": f"FY {_fy_short(k)}",
+                "question": _year_chip_question(question, raw_year, k),
+                "pins": {"year_key": k}}
+               for k in starts]
+    listed = " or ".join(f"FY {_fy_short(k)}" for k in starts) if starts else "more than one financial year"
+    return ClarificationNeeded(
+        f"“{raw_year}” could mean {listed}. Which financial year is required?",
+        options=options,
+        rule="year-ambiguous",
+        village_hint=village_hint,
+        resolved_so_far=resolved_so_far,
+    )
+
+
 # ── "Which tranche?" clarification (Focus Plus only) ───────────────────────
 # Focus Plus's amount_disbursed differs sharply by tranche_label (5,000 for
 # Tranch 1, 2,500 for every later tranche — see schema_context.py rule 7), so
@@ -1673,6 +1834,36 @@ def _available_years_for(schemes: list[str]) -> "tuple[list[str], list[str]]":
     return years, live
 
 
+def _scheme_has_no_time_dimension(schemes: "list[str] | None") -> bool:
+    """True when NO scheme in play has any financial year at all — CM Elevate
+    (no year_key, no date column of any kind, see _SCHEME_DATA_YEARS).
+
+    Guards against an unbreakable clarification loop. `_year_out_of_range_
+    clarification` offers exactly ONE option in this case, "Answer without a
+    time filter", whose chip question is the stem with the year stripped — but
+    when the year never came from the question text (the LLM mention-extractor
+    tags one for a question that names none, which it does for CM Elevate),
+    that stem IS the original question. So the chip re-asks the identical
+    question, re-trips the identical guard, and the user can never get an
+    answer. Reported from the live UI 2026-09-21 and reproduced deterministically:
+    "Top 5 CM Elevate schemes by applications" -> chip question
+    "Top 5 CM Elevate schemes by applications" -> same clarification, forever.
+
+    A clarification whose only option changes nothing is not a question worth
+    asking: callers drop the time filter, record a note saying so, and answer.
+    That is exactly what the single chip promised to do anyway.
+    """
+    years, _live = _available_years_for(schemes)
+    return not years
+
+
+def _no_time_dimension_note(schemes: "list[str] | None") -> str:
+    _years, live = _available_years_for(schemes)
+    scheme_word = live[0] if len(live) == 1 else (" and ".join(live) if live else "This scheme")
+    return (f"{scheme_word} has no date field in this data, so records cannot be placed "
+            "in a financial year — answered without a time filter.")
+
+
 def _year_out_of_range_clarification(question: str, raw_year: str,
                                     schemes: list[str]) -> "ClarificationNeeded":
     stem = question.strip().rstrip(" ?.")
@@ -1768,12 +1959,33 @@ def _shortcut_scheme(question: str) -> list[str] | None:
     return _infer_scheme_from_terms(question)
 
 
-async def classify_scheme(question: str) -> list[str]:
-    """Which scheme(s) — MGNREGA, PMAY-G, or both — does this question touch?"""
+@dataclass(frozen=True)
+class ScopeMeta:
+    """How a `classify_scheme` decision was reached — node 5.1's contribution
+    to the query-analyzer's `response.scope` output (5.2). Purely descriptive:
+    never read back by any decision logic."""
+    confidence: float
+    source: str  # "llm" | "shortcut" | "fallback"
+    reason: str
+
+
+async def _classify_scheme_detailed(question: str) -> "tuple[list[str], ScopeMeta]":
+    """Same decision `classify_scheme` makes, plus a trace of how it was
+    reached. Extracted here so `classify_scheme`'s own contract (a bare
+    `list[str]`, asserted by its existing test suite) never has to change."""
     shortcut = _shortcut_scheme(question)
     if shortcut:
         logger.info("classify_scheme: shortcut matched %s, skipping model call", shortcut)
-        return shortcut
+        named = _named_schemes(question)
+        if len(named) >= 2:
+            reason = f"Named schemes: {', '.join(named)}"
+        elif _EXPLICIT_BOTH.search(question):
+            reason = "Question explicitly asks about all schemes together"
+        elif named:
+            reason = f"Named scheme: {named[0]}"
+        else:
+            reason = "Scheme inferred from scheme-specific vocabulary in the question"
+        return shortcut, ScopeMeta(confidence=0.95, source="shortcut", reason=reason)
 
     catalog = "\n".join(f'  - "{name}": {desc}' for name, desc in SCHEME_CATALOG.items())
     scheme_options = " | ".join(f'"{name}"' for name in SCHEME_CATALOG)
@@ -1797,10 +2009,21 @@ JSON:"""
             if s not in schemes:
                 schemes.append(s)
         if schemes:
-            return [s for s in SCHEME_CATALOG if s in schemes]
+            ordered = [s for s in SCHEME_CATALOG if s in schemes]
+            reason = f"Classifier model selected: {', '.join(ordered)}"
+            return ordered, ScopeMeta(confidence=0.8, source="llm", reason=reason)
     # Deterministic fallback if the model call fails or returns unusable JSON.
     logger.warning("classify_scheme: unusable response %r — defaulting to both schemes", raw[:200])
-    return list(SCHEME_CATALOG)
+    return list(SCHEME_CATALOG), ScopeMeta(
+        confidence=0.3, source="fallback",
+        reason="Classifier response was unusable — defaulted to every scheme")
+
+
+async def classify_scheme(question: str) -> list[str]:
+    """Which scheme(s) — any combination of SCHEME_CATALOG's four (MGNREGA,
+    PMAY-G, Focus Plus, CM Elevate) — does this question touch?"""
+    schemes, _meta = await _classify_scheme_detailed(question)
+    return schemes
 
 
 # Bare dimension nouns and the state name are NOT place mentions — "which
@@ -2008,6 +2231,32 @@ def _village_chip_question(question: str, raw_text: str, candidate: dict) -> str
 async def resolve_entities(question: str, schemes: list[str],
                             prior_resolved: "dict | None" = None,
                             village_hint: "str | None" = None) -> dict:
+    """Thin wrapper around `_resolve_entities` (the real body, unchanged)
+    whose only job is to stamp whatever was ALREADY resolved onto a
+    ClarificationNeeded on its way out — see
+    ClarificationNeeded.resolved_so_far for why, and
+    ConversationState.pending_resolved for where it ends up.
+
+    A wrapper rather than a try/except around the body itself: the body is
+    ~400 lines with a dozen raise sites spread through it, and stamping
+    each one by hand is exactly the kind of thing the next branch added to
+    it would quietly forget to do. `resolved` is created here and passed
+    in, so this function still holds a reference to the same dict the body
+    was filling when it paused."""
+    resolved: dict[str, object] = {}
+    try:
+        return await _resolve_entities(question, schemes, prior_resolved,
+                                        village_hint, resolved)
+    except ClarificationNeeded as e:
+        if not e.resolved_so_far:
+            e.resolved_so_far = {k: v for k, v in resolved.items() if v is not None}
+        raise
+
+
+async def _resolve_entities(question: str, schemes: list[str],
+                            prior_resolved: "dict | None",
+                            village_hint: "str | None",
+                            resolved: dict) -> dict:
     """Resolve every extracted mention to a canonical DB value. Ambiguous ->
     raise ClarificationNeeded (ask, per the resolver's own hard rule — never
     guess). Not-found is not an error: it means the value genuinely is not in
@@ -2038,15 +2287,22 @@ async def resolve_entities(question: str, schemes: list[str],
     # comma-joined scope-pause reply like "wgh, 1999-20" does exactly that). A
     # year outside the data window makes the whole question unanswerable
     # regardless of the place, so this must not depend on anything downstream.
+    # A scheme with NO time dimension at all can't offer year chips, and its
+    # single "answer without a time filter" option loops forever — drop the
+    # time filter and say so instead. See _scheme_has_no_time_dimension.
+    _no_time_dim = _scheme_has_no_time_dimension(schemes)
+    _pre_notes: list[str] = []
     if settings.YEAR_RANGE_GUARD_ENABLED:
         _yraw = _out_of_range_year_in(question, schemes)
         if _yraw is not None:
-            raise _year_out_of_range_clarification(question, _yraw, schemes)
+            if _no_time_dim:
+                _pre_notes.append(_no_time_dimension_note(schemes))
+            else:
+                raise _year_out_of_range_clarification(question, _yraw, schemes)
 
     mentions = await extract_entity_mentions(question)
 
-    resolved: dict[str, object] = {}
-    notes: list[str] = []
+    notes: list[str] = list(_pre_notes)
     # Human-readable names for whatever the query ends up filtering on, keyed by
     # dimension. Handed to the response composer so it says "West Garo Hills",
     # not the "wgh" the user typed or the "WEST GARO HILLS" DB literal.
@@ -2062,7 +2318,7 @@ async def resolve_entities(question: str, schemes: list[str],
         _district_canons: list[str] = []
         _district_displays: list[str] = []
         for _dname in mentions["districts"]:
-            r = resolve_dimension(_dname, schemes[0], "district")
+            r = await resolve_dimension(_dname, schemes[0], "district")
             if r.status == "ambiguous":
                 raise ClarificationNeeded(f"Which district is being referred to by “{_dname}”?",
                                            rule="entity-ambiguous")
@@ -2094,7 +2350,7 @@ async def resolve_entities(question: str, schemes: list[str],
         if _mdist and detect_region(_mdist, schemes[0] if schemes else "") is not None:
             _mdist = None
         if _mdist:
-            r = resolve_dimension(_mdist, schemes[0], "district")
+            r = await resolve_dimension(_mdist, schemes[0], "district")
             if r.status == "ambiguous":
                 raise ClarificationNeeded(f"Which district is being referred to by “{_mdist}”?",
                                            rule="entity-ambiguous")
@@ -2142,7 +2398,7 @@ async def resolve_entities(question: str, schemes: list[str],
         _block_canons: list[str] = []
         _block_displays: list[str] = []
         for _bname in mentions["blocks"]:
-            r = resolve_dimension(_bname, schemes[0], "block")
+            r = await resolve_dimension(_bname, schemes[0], "block")
             if r.status == "ambiguous":
                 raise ClarificationNeeded(f"Which block is being referred to by “{_bname}”?",
                                            rule="entity-ambiguous")
@@ -2167,7 +2423,7 @@ async def resolve_entities(question: str, schemes: list[str],
             resolved["block_list"] = _block_canons
             display["block"] = " and ".join(_block_displays)
     elif mentions.get("block"):
-        r = resolve_dimension(mentions["block"], schemes[0], "block")
+        r = await resolve_dimension(mentions["block"], schemes[0], "block")
         if r.status == "ambiguous":
             raise ClarificationNeeded(f"Which block is being referred to by “{mentions['block']}”?",
                                        rule="entity-ambiguous")
@@ -2200,7 +2456,7 @@ async def resolve_entities(question: str, schemes: list[str],
             # not-a-known-block (or, worse, OutOfScope — a real district getting
             # rejected as "not in Meghalaya" is a confusing wrong answer), check
             # whether the same text is actually a district and use it as one.
-            _as_district = resolve_dimension(mentions["block"], schemes[0], "district")
+            _as_district = await resolve_dimension(mentions["block"], schemes[0], "district")
             if _as_district.status == "resolved":
                 # Either newly discovered here, or (commonly) the SAME text was
                 # already captured as the district via the raw-text backstop
@@ -2278,7 +2534,7 @@ async def resolve_entities(question: str, schemes: list[str],
                     notes.append(f"'{mentions['block']}' is not a known block — say so, do not filter on it.")
 
     if mentions.get("assembly_constituency"):
-        r = resolve_dimension(mentions["assembly_constituency"], schemes[0], "assembly_constituency")
+        r = await resolve_dimension(mentions["assembly_constituency"], schemes[0], "assembly_constituency")
         if r.status == "ambiguous":
             raise ClarificationNeeded(
                 f"Which assembly constituency is being referred to by "
@@ -2302,9 +2558,17 @@ async def resolve_entities(question: str, schemes: list[str],
         # MGNREGA has a curated year catalogue (handles aliases like "FY24",
         # "last year"); try it first when MGNREGA is in play.
         if "MGNREGA" in schemes:
-            r = resolve_dimension(raw_year, "MGNREGA", "year")
+            r = await resolve_dimension(raw_year, "MGNREGA", "year")
             if r.status == "ambiguous":
-                raise ClarificationNeeded(f"Which financial year is being referred to by “{raw_year}”?")
+                # A bare "2023" is FY 2022-23 or FY 2023-24 and the year
+                # catalogue's own rule is to ask, never default. Ask with
+                # one-tap chips and a RESUMABLE rule — see
+                # _year_ambiguity_clarification for what the bare raise
+                # this replaces did to the live UI.
+                raise _year_ambiguity_clarification(
+                    question, raw_year, r.candidates, schemes,
+                    village_hint=mentions.get("village") or village_hint,
+                    resolved_so_far=resolved)
             if r.status == "resolved":
                 year_key = r.canonical
         # Fallback / PMAY path — PMAY has no year catalogue, so parse the FY start
@@ -2313,19 +2577,28 @@ async def resolve_entities(question: str, schemes: list[str],
             year_key = _parse_year_key(raw_year)
         if year_key is not None and not _year_in_data_range(year_key, schemes):
             # A real, parseable year — just not one these scheme(s) hold.
-            if settings.YEAR_RANGE_GUARD_ENABLED:
-                raise _year_out_of_range_clarification(question, raw_year, schemes)
-            _yrs, _lv = _available_years_for(schemes)
-            notes.append(f"'{raw_year}' is outside the data "
-                         f"({', '.join(_lv)} cover FY {_yrs[0]} to FY {_yrs[-1]} only).")
+            if _no_time_dim:
+                # No scheme here has ANY year, so there is no coverage range to
+                # quote and no chip worth offering — drop the filter, say so,
+                # and answer. See _scheme_has_no_time_dimension.
+                notes.append(_no_time_dimension_note(schemes))
+            else:
+                if settings.YEAR_RANGE_GUARD_ENABLED:
+                    raise _year_out_of_range_clarification(question, raw_year, schemes)
+                _yrs, _lv = _available_years_for(schemes)
+                notes.append(f"'{raw_year}' is outside the data "
+                             f"({', '.join(_lv)} cover FY {_yrs[0]} to FY {_yrs[-1]} only).")
         elif year_key is None:
             # Couldn't pin it to a year at all. If it was plainly typed as one
             # ("1999-20", "FY 2019-20"), it's an out-of-range year we simply
             # failed to parse — say the coverage, same as above; otherwise it's
             # gibberish in the year slot, so leave a soft note and move on.
-            if settings.YEAR_RANGE_GUARD_ENABLED and _looks_like_year_mention(raw_year):
-                raise _year_out_of_range_clarification(question, raw_year, schemes)
-            notes.append(f"'{raw_year}' is not a recognisable financial year.")
+            if _no_time_dim:
+                notes.append(_no_time_dimension_note(schemes))
+            else:
+                if settings.YEAR_RANGE_GUARD_ENABLED and _looks_like_year_mention(raw_year):
+                    raise _year_out_of_range_clarification(question, raw_year, schemes)
+                notes.append(f"'{raw_year}' is not a recognisable financial year.")
         else:
             # Both v_employment and v_pmay key the year on `year_key` (smallint).
             resolved["year_key"] = year_key
@@ -2364,7 +2637,7 @@ async def resolve_entities(question: str, schemes: list[str],
             # didn't already pin it down (a village resolved WITH a district
             # scope is unambiguous) and the user didn't already say "village".
             if not district_canon and not re.search(r"\bvillage\b", question, re.IGNORECASE):
-                _bcheck = resolve_dimension(_village_text, schemes[0], "block")
+                _bcheck = await resolve_dimension(_village_text, schemes[0], "block")
                 if _bcheck.status == "resolved":
                     stem = question.strip().rstrip(" ?.")
                     raise ClarificationNeeded(
@@ -2434,15 +2707,41 @@ def _join_path_hint(retrieved: list[dict]) -> join_graph.JoinPathResult | None:
     already-computed pre-generation signal, not an invented one (see
     design.md's "Join discovery gates SQL generation only where it has a
     genuine pre-generation signal" decision). Returns None when there are
-    fewer than 2 such tables (the common case today — every piloted scheme
-    has exactly one fact table, so this can only arise across schemes),
-    meaning: no gate, no hint, behavior unchanged."""
-    table_refs = list(dict.fromkeys(
-        r["ref"] for r in retrieved if r.get("granularity") == "table"
-    ))
+    fewer than 2 such tables, meaning: no gate, no hint, behavior unchanged.
+
+    The GATE (a non-"ok" status escalated to ClarificationNeeded by the
+    caller) fires only when the two candidates come from two different
+    schemes — which is what this guard was always scoped to, per the original
+    note that "every piloted scheme has exactly one fact table, so this can
+    only arise across schemes". That premise does not hold for the retrieved
+    set: schema_metadata_ingest tags every curated VIEW with
+    granularity == "table" too, and each scheme declares its top-level views
+    self-contained (empty adjacency / "joins_needed: none" in
+    foreign_key_augmentation.yaml). Two such views from the SAME scheme —
+    e.g. MGNREGA's v_district_year_summary and v_expenditure — are competing
+    ALTERNATIVES for answering one question, never operands of a join, so
+    BFS between them always reports no_path. Gating on that hard-blocked
+    ordinary single-scheme questions behind a clarification the user cannot
+    act on. Same-scheme pairs therefore still produce an additive hint when a
+    real path exists, and simply produce nothing when one does not.
+    "shared" (conformed dimensions such as curated.dim_geography) is not a
+    scheme and never makes a pair cross-scheme on its own."""
+    scheme_of: dict[str, str | None] = {}
+    for r in retrieved:
+        if r.get("granularity") == "table" and r["ref"] not in scheme_of:
+            scheme_of[r["ref"]] = r.get("scheme_id")
+    table_refs = list(scheme_of)
     if len(table_refs) < 2:
         return None
-    return join_graph.find_join_path(table_refs[:2])
+
+    pair = table_refs[:2]
+    result = join_graph.find_join_path(pair)
+    if result.status != "ok":
+        schemes = {scheme_of[t] for t in pair if scheme_of[t] and scheme_of[t] != "shared"}
+        if len(schemes) < 2:
+            # Single-scheme pair: alternative views, not a join. No gate.
+            return None
+    return result
 
 
 async def generate_sql(question: str, schemes: list[str], entity_result: dict) -> str:
@@ -2478,7 +2777,7 @@ async def generate_sql(question: str, schemes: list[str], entity_result: dict) -
     # prohibited joins + retrieved schema notes + required join hint +
     # few-shot + resolved entities — is assembled in one place.
     joins = join_result.joins if join_result is not None and join_result.status == "ok" else None
-    prompt = prompt_builder.build_sql_prompt(question, schemes, entity_result, retrieved, joins)
+    prompt = await prompt_builder.build_sql_prompt(question, schemes, entity_result, retrieved, joins)
     raw = await llm.call_sql_generator(prompt, guided={"guided_regex": _SQL_SHAPE_REGEX})
     return _extract_sql(raw)
 
@@ -2694,80 +2993,172 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
     return data.get("issue") or "the SQL verifier flagged this query as not answering the question"
 
 
+async def _execute_one_attempt(sql: str, question: str, schemes: list[str], entity_result: dict,
+                               scope: "auth.UserScope | None",
+                               retrieved_for_membership_check: list[dict]) -> tuple[str, list[dict]]:
+    """One candidate SQL string through every §5.7/5.9/5.11/5.12 guardrail and,
+    if all pass, execution + redaction. Raises on any failure — the caller
+    (`execute_with_repair`'s loop, or `app.pipeline_graph`'s graph nodes)
+    decides whether that failure is repairable. Extracted verbatim from
+    `execute_with_repair`'s per-attempt try-block (openspec/changes/
+    langgraph-full-pipeline-rewrite) so the graph's execution path can reuse
+    this exact, already-tested logic instead of duplicating safety-critical
+    checks — behavior is unchanged, this is a pure extract-method refactor."""
+    # Re-authorize on every attempt, not just the first — a repaired
+    # query can touch different tables/columns/scope than the one
+    # auth.authorize() originally cleared. Raises rather than falls
+    # into the generic except below, so a denial ends the request
+    # instead of spending a repair attempt on it.
+    if scope is not None and settings.AUTH_ENABLED:
+        decision = auth.authorize(scope, schemes=schemes,
+                                  resolved_entities=entity_result["resolved"], sql=sql)
+        if not decision.allow:
+            raise SQLAuthorizationDenied(decision)
+    bad_code = _village_name_filter_instead_of_code(entity_result, sql)
+    if bad_code is not None:
+        raise ValueError(
+            f"the question resolved to village_code = {bad_code} but this query filters on "
+            "lgd_village_name instead — village name spelling/case is not reliable for "
+            "matching (storage keeps mixed/title case, not upper-case), so that filter can "
+            "silently match zero rows. Replace the lgd_village_name filter with "
+            f"village_code = {bad_code} exactly, and keep every other clause as it was."
+        )
+    if _STATE_PSEUDO_FILTER.search(sql):
+        raise ValueError(
+            "generated SQL filters on a non-existent 'Meghalaya' / entity_type='State' "
+            "pseudo-row — the whole dataset is already Meghalaya; remove that geographic "
+            "filter entirely and keep every other clause"
+        )
+    bad_view = _rowgrain_no_aggregate(question, sql)
+    if bad_view:
+        raise ValueError(
+            f"this is an aggregate question but the query reads raw rows from {bad_view}, "
+            "which is at source-row grain (many rows per village) — a bare "
+            "SELECT <metric> ... LIMIT 1 returns ONE arbitrary row, not a total. Wrap the "
+            "metric in SUM(...): for a statewide total use "
+            "SELECT SUM(<metric>) AS <name> FROM <view> [WHERE year_key = ...] with no "
+            "GROUP BY; add GROUP BY <unit> only if the question asks for a per-district / "
+            "per-block / per-year breakdown. job_cards_issued_total is a STOCK — pin a "
+            "single year_key (the latest if none is named) and SUM across geographies, "
+            "never across years. Keep every other clause exactly as it was."
+        )
+    # §11.4 PII — Layer 1 (app/pii_guard.py): the generated SQL text
+    # itself references a blocklisted column (bare, aliased, or as a
+    # scheme_specific JSONB key), or exposes an entire non-PII-only
+    # JSONB container column whole (bare/aliased scheme_specific, or
+    # SELECT * on a view that includes it — see find_container_exposure's
+    # docstring / openspec/changes/urgent-pii-redaction-followup for why
+    # that column can't just be blocklisted outright). Never executed,
+    # never repaired — a privacy refusal is not a SQL bug to fix and retry.
+    #
+    # Deliberately ordered ahead of the join validator and the paid
+    # semantic verifier below (moved here 2026-09-12; both used to run
+    # first): a PII denial is unconditional and never repaired, so
+    # running repairable/paid checks before it risks spending the one
+    # available repair attempt — or a paid LLM call — on a query that
+    # was always going to be denied for PII regardless of the outcome
+    # of those checks. No data-exposure difference either way (nothing
+    # executes until every check here passes), purely a cost/latency
+    # fix.
+    blocked_cols = pii_guard.find_blocked_columns(sql, schemes)
+    exposed_container = pii_guard.find_container_exposure(sql, schemes)
+    if blocked_cols or exposed_container:
+        logger.warning(
+            "pii_guard: blocked column(s) %s / exposed container %r in generated SQL "
+            "(schemes=%s) — routing to clarification, not repair",
+            blocked_cols, exposed_container, schemes)
+        raise _pii_not_available_clarification(schemes)
+    # Post-generation join validation (PRD §5.11 / follow-up to
+    # join_graph.py's pre-generation-only hint — see
+    # openspec/changes/join-graph-post-generation-validation). Unlike
+    # find_join_path()'s narrow pre-generation gate, this checks the
+    # SQL actually written: a JOIN whose own ON clause connects two
+    # tables the FK graph knows about but has no relationship between
+    # is not a repair candidate for a bug this codebase invented —
+    # it's a repairable generation mistake, same tier as the other
+    # free structural checks above, not a privacy refusal or a hard
+    # denial. sql_join_validator deliberately never flags a CTE-to-CTE
+    # join (this codebase's sanctioned cross-scheme aggregate pattern)
+    # or a table absent from every curated YAML/live_fks() — see its
+    # module docstring.
+    invented_joins = sql_join_validator.find_invented_joins(sql)
+    if invented_joins:
+        a, b = invented_joins[0]
+        path_hint = join_graph.find_join_path([a, b])
+        if path_hint.status == "ok" and path_hint.joins:
+            clauses = "; ".join(f"{j.left} JOIN {j.right} ON {j.on_clause}" for j in path_hint.joins)
+            suggestion = (f"There is no direct relationship between them, but a valid route "
+                         f"exists: {clauses}.")
+        else:
+            suggestion = "No relationship between these two tables exists in the FK graph at all."
+        raise ValueError(
+            f"the query directly joins {a} to {b}, but no foreign-key or curated "
+            f"relationship connects them. {suggestion} If these need to be compared "
+            "independently, aggregate each to a shared, non-key column (e.g. "
+            "village_code) in its own CTE first and join the CTEs — never join the base "
+            "tables directly. Keep every other clause that is not implicated."
+        )
+    # §5.11 "tables must belong to the retrieved set" (baseline-audit
+    # finding 11) — distinct from the join-graph rule just above: that
+    # one asks "are these two tables related at all", this one asks
+    # "was this fact table actually surfaced for this question at
+    # all". Scoped to fact tables only (see
+    # schema_retrieval.find_tables_outside_retrieved_set's docstring
+    # for why dimensions are exempt) and a true no-op whenever
+    # retrieval named no fact-table candidate this query — same
+    # "additive, never gating for an un-indexed scheme" posture as
+    # every other Phase 3 mechanism.
+    if settings.RETRIEVED_SET_GUARD_ENABLED:
+        stray_tables = schema_retrieval.find_tables_outside_retrieved_set(
+            sql, retrieved_for_membership_check)
+        if stray_tables:
+            retrieved_fact_refs = sorted({
+                r["ref"] for r in retrieved_for_membership_check
+                if r.get("granularity") == "table" and join_graph.is_fact(r["ref"])
+            })
+            raise ValueError(
+                f"the query references {', '.join(stray_tables)}, which schema "
+                f"retrieval did not surface as relevant to this question — the fact "
+                f"table(s) actually retrieved for it are: {', '.join(retrieved_fact_refs)}. "
+                "Rewrite the query to use one of those instead, unless the question "
+                "genuinely requires comparing against a different scheme's fact table."
+            )
+    # Last — the free regex guards above catch known bug shapes without
+    # spending a model call; only a query that clears all of them goes to
+    # the semantic verifier, which is the paid check.
+    verify_issue = await _verify_sql(question, schemes, entity_result, sql)
+    if verify_issue:
+        raise ValueError(
+            f"semantic verifier flagged this query: {verify_issue}. Fix the SQL to "
+            "address that specific problem and keep every other clause (filters, "
+            "year_key, geography, aggregation) that is not implicated."
+        )
+    rows = await run_readonly(sql)
+    # §11.4 PII — Layer 2 (app/pii_guard.py): unconditional post-execution
+    # redaction, independent of Layer 1's text scan, so every downstream
+    # consumer of `rows` (the HTTP response, conversation_store.persist_turn,
+    # response_cache, semantic_cache — all four read this same object) never
+    # sees a blocklisted value even if Layer 1 somehow missed it.
+    rows = pii_guard.redact_rows(rows, schemes)
+    return sql, rows
+
+
 async def execute_with_repair(question: str, schemes: list[str], entity_result: dict,
                               initial_sql: str | None = None, *,
                               scope: "auth.UserScope | None" = None,
                               max_repairs: int = 1) -> tuple[str, list[dict]]:
     sql = initial_sql if initial_sql is not None else await generate_sql(question, schemes, entity_result)
+    # §5.11 "tables must belong to the retrieved set" — fetched once, not
+    # per-attempt: unlike the SQL-shape checks below, this depends only on
+    # (question, schemes), not on the candidate SQL itself, so a repair
+    # attempt re-checks against the same retrieved set rather than paying
+    # another embedding call for an answer that can't change.
+    retrieved_for_membership_check = await schema_retrieval.retrieve(question, schemes)
     for attempt in range(max_repairs + 1):
         sql = _uppercase_geo_literals(sql)
         try:
-            # Re-authorize on every attempt, not just the first — a repaired
-            # query can touch different tables/columns/scope than the one
-            # auth.authorize() originally cleared. Raises rather than falls
-            # into the generic except below, so a denial ends the request
-            # instead of spending a repair attempt on it.
-            if scope is not None and settings.AUTH_ENABLED:
-                decision = auth.authorize(scope, schemes=schemes,
-                                          resolved_entities=entity_result["resolved"], sql=sql)
-                if not decision.allow:
-                    raise SQLAuthorizationDenied(decision)
-            bad_code = _village_name_filter_instead_of_code(entity_result, sql)
-            if bad_code is not None:
-                raise ValueError(
-                    f"the question resolved to village_code = {bad_code} but this query filters on "
-                    "lgd_village_name instead — village name spelling/case is not reliable for "
-                    "matching (storage keeps mixed/title case, not upper-case), so that filter can "
-                    "silently match zero rows. Replace the lgd_village_name filter with "
-                    f"village_code = {bad_code} exactly, and keep every other clause as it was."
-                )
-            if _STATE_PSEUDO_FILTER.search(sql):
-                raise ValueError(
-                    "generated SQL filters on a non-existent 'Meghalaya' / entity_type='State' "
-                    "pseudo-row — the whole dataset is already Meghalaya; remove that geographic "
-                    "filter entirely and keep every other clause"
-                )
-            bad_view = _rowgrain_no_aggregate(question, sql)
-            if bad_view:
-                raise ValueError(
-                    f"this is an aggregate question but the query reads raw rows from {bad_view}, "
-                    "which is at source-row grain (many rows per village) — a bare "
-                    "SELECT <metric> ... LIMIT 1 returns ONE arbitrary row, not a total. Wrap the "
-                    "metric in SUM(...): for a statewide total use "
-                    "SELECT SUM(<metric>) AS <name> FROM <view> [WHERE year_key = ...] with no "
-                    "GROUP BY; add GROUP BY <unit> only if the question asks for a per-district / "
-                    "per-block / per-year breakdown. job_cards_issued_total is a STOCK — pin a "
-                    "single year_key (the latest if none is named) and SUM across geographies, "
-                    "never across years. Keep every other clause exactly as it was."
-                )
-            # Last — the free regex guards above catch known bug shapes without
-            # spending a model call; only a query that clears all of them goes to
-            # the semantic verifier, which is the paid check.
-            verify_issue = await _verify_sql(question, schemes, entity_result, sql)
-            if verify_issue:
-                raise ValueError(
-                    f"semantic verifier flagged this query: {verify_issue}. Fix the SQL to "
-                    "address that specific problem and keep every other clause (filters, "
-                    "year_key, geography, aggregation) that is not implicated."
-                )
-            # §11.4 PII — Layer 1 (app/pii_guard.py): the generated SQL text
-            # itself references a blocklisted column (bare, aliased, or as a
-            # scheme_specific JSONB key). Never executed, never repaired —
-            # a privacy refusal is not a SQL bug to fix and retry.
-            blocked_cols = pii_guard.find_blocked_columns(sql, schemes)
-            if blocked_cols:
-                logger.warning(
-                    "pii_guard: blocked column(s) %s in generated SQL (schemes=%s) — "
-                    "routing to clarification, not repair", blocked_cols, schemes)
-                raise _pii_not_available_clarification(schemes)
-            rows = await run_readonly(sql)
-            # §11.4 PII — Layer 2 (app/pii_guard.py): unconditional post-execution
-            # redaction, independent of Layer 1's text scan, so every downstream
-            # consumer of `rows` (the HTTP response, conversation_store.persist_turn,
-            # response_cache, semantic_cache — all four read this same object) never
-            # sees a blocklisted value even if Layer 1 somehow missed it.
-            rows = pii_guard.redact_rows(rows, schemes)
-            return sql, rows
+            return await _execute_one_attempt(
+                sql, question, schemes, entity_result, scope, retrieved_for_membership_check)
         except SQLAuthorizationDenied:
             raise  # denial ends the request — never treated as a repairable error
         except ClarificationNeeded:
@@ -3031,7 +3422,22 @@ def _entity_names_block(entities: dict[str, str] | None) -> str:
 async def compose_response(question: str, sql: str, rows: list[dict],
                            notes: list[str] | None = None,
                            entities: dict[str, str] | None = None,
-                           schemes: list[str] | None = None) -> str:
+                           schemes: list[str] | None = None,
+                           result_findings: list[dict] | None = None) -> str:
+    """`result_findings` (node 5.13, openspec/changes/multi-tenant-rls-scheme-scaleout
+    task under 5.15): deterministic findings over the FULL result — extremes,
+    ties, stale data, large-result-set, threshold breaches — each already
+    carrying a ready-to-read `message` built from the same `rows` this
+    function itself answers from (see app/findings.py). Kept in its OWN
+    block with its OWN instruction (below), deliberately not merged into
+    `notes` — `notes` is framed as "premises to correct," which a finding
+    like "district X has the highest value" isn't; conflating the two
+    would mislabel findings text under a correction instruction it doesn't
+    fit, and risk every finding getting force-quoted into a 1-3-sentence
+    answer meant to describe the result, not enumerate every observation
+    about it. See this function's own findings_block below for the actual
+    "mention at most one, only if relevant" instruction that keeps this
+    additive without turning the answer into a findings dump."""
     if not rows:
         return _no_data_answer(schemes, entities)
     preview = rows[:40]
@@ -3112,6 +3518,21 @@ async def compose_response(question: str, sql: str, rows: list[dict],
         notes_block = "\nContext (question premises to reconcile against the data — " \
                       "correct any the result contradicts):\n" + \
                       "\n".join(f"  - {n}" for n in notes) + "\n"
+    # node 5.13 findings, node 5.15's own input per the GT proposal — a
+    # SEPARATE block from notes_block above, deliberately: these are
+    # observations about the result, not premises to correct, and the
+    # instruction below caps it at "at most one, only if it fits" so a
+    # result with several findings (e.g. one extreme per numeric column)
+    # doesn't turn a 1-3-sentence answer into a findings enumeration.
+    findings_block = ""
+    _finding_msgs = [f["message"] for f in (result_findings or []) if f.get("message")]
+    if _finding_msgs:
+        findings_block = (
+            "\nAdditional observations about this result (weave in AT MOST ONE, "
+            "only if it genuinely adds something beyond what the question asked "
+            "— never force one in, never list more than one):\n" +
+            "\n".join(f"  - {m}" for m in _finding_msgs) + "\n"
+        )
     names_block = _entity_names_block(entities)
     prompt = f"""Answer the user's question in one to three plain sentences, using ONLY the
 numbers in the result and the whole-result summary below — do not invent or round
@@ -3120,7 +3541,7 @@ itself, not with "The data shows..." or a description of what the query returned
 Keep each sentence to one idea — short and declarative, not a chain of clauses
 joined by "so" / "as" / "which means".
 {guidance}
-{metrics_block}{names_block}{summary_block}{notes_block}
+{metrics_block}{names_block}{summary_block}{notes_block}{findings_block}
 Question: "{question}"
 Result ({len(rows)} row(s), showing up to {len(preview)}):
 {json.dumps(preview, default=str)}
@@ -3136,6 +3557,17 @@ Answer:"""
         for _p in premise_check.extract_premises(question):
             data_nums.add(f"{_p.value:g}")
             data_nums.add(re.sub(r"[^\d.]", "", _p.text) or f"{_p.value:g}")
+    # Same reasoning, for findings_block above: a finding can legitimately cite
+    # a number that isn't itself a data CELL value — "This result has 847 rows"
+    # (large_result_set) or a configured threshold ("crossed 50000") — both
+    # deterministically generated (app/findings.py), never LLM output, so
+    # trusting them here can't reintroduce the hallucination risk this guard
+    # exists to catch. Without this, the guard would flag the composer's own
+    # correctly-woven-in finding as an untraceable number and fire the
+    # deterministic fallback below, discarding a good answer.
+    for _m in _finding_msgs:
+        for _tok in _NUM_TOKEN.findall(_m):
+            data_nums.add(_tok.replace(",", ""))
     misquoted = bool(data_nums) and not _answer_numbers_faithful(answer, data_nums)
     # A single aggregate row with 2+ metrics (e.g. a cross-scheme MGNREGA + PMAY
     # count) — the answer must report every one, not just the first scheme.
@@ -3246,7 +3678,8 @@ def _out_of_scope_result(question: str, raw_question: str) -> dict:
 async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
                        skip_scope_clarify: bool = False,
                        prior_resolved: "dict | None" = None,
-                       village_hint: "str | None" = None) -> dict:
+                       village_hint: "str | None" = None,
+                       is_followup: bool = False) -> dict:
     # Named a scheme we don't hold ("CM Elevate", "PM-KISAN", …) — say so plainly
     # instead of the generic "which scheme?" prompt, then offer the three we have.
     _unsupported = _unsupported_scheme_named(question)
@@ -3263,10 +3696,37 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
     if _needs_topn_clarification(question):
         raise _topn_clarification(question)
 
-    schemes = await classify_scheme(question)
+    schemes, _scope_meta = await _classify_scheme_detailed(question)
+    # node 5.2 scope-decision trace — descriptive only, never read by any
+    # decision below. Attached to the response in the final return dict.
+    scope_trace = {
+        "schemes": schemes,
+        "confidence": _scope_meta.confidence,
+        "source": _scope_meta.source,
+        "reason": _scope_meta.reason,
+        "is_followup": is_followup,
+        "in_scope": True,
+    }
     # raises ClarificationNeeded if ambiguous
     entity_result = await resolve_entities(question, schemes, prior_resolved=prior_resolved,
                                             village_hint=village_hint)
+
+    # node 5.3 generic clarification gate — "the source cannot answer this at
+    # all" (Phase 1 scope only, see app/clarification_engine.py). Checked
+    # ahead of the region/scope/year/tranche asks below, matching every
+    # classification-rules.yaml file's own stated ordering intent: requests
+    # the source cannot answer are caught before missing detail is asked
+    # for, so the bot never collects a district/year for a question it can
+    # never answer regardless.
+    if settings.CLARIFICATION_ENGINE_ENABLED:
+        try:
+            _cannot_answer = clarification_engine.check_clarifications(
+                question, schemes, entity_result["resolved"])
+        except Exception:  # noqa: BLE001
+            _cannot_answer = None
+            logger.warning("clarification engine failed — continuing without it", exc_info=True)
+        if _cannot_answer:
+            raise ClarificationNeeded(_cannot_answer, rule="column-not-held")
 
     # "Garo Hills" / "Khasi Hills" name a hill RANGE, not a district. When one is
     # named and no specific district resolved, either offer its districts as one-tap
@@ -3306,6 +3766,17 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
             already_all_combined=bool((prior_resolved or {}).get("tranche_all_combined"))):
         raise _tranche_clarification(question)
 
+    # node 5.2 query analyzer — additive; runs only once every clarification
+    # gate above has passed, so it never fires on a question that's about to
+    # pause anyway. Isolated the same way findings/chart_spec are: a failure
+    # here must not affect the answer, only whether `analysis` is populated.
+    analysis = None
+    if settings.QUERY_ANALYZER_ENABLED:
+        try:
+            analysis = await query_analyzer.analyze_query(question, schemes, entity_result)
+        except Exception:  # noqa: BLE001
+            logger.warning("query analyzer failed — continuing without it", exc_info=True)
+
     sql = await generate_sql(question, schemes, entity_result)
 
     # Authorization — role/scope vs. what the query actually asks for. Checked
@@ -3343,20 +3814,51 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
         except Exception:  # noqa: BLE001
             logger.warning("defaults engine failed — continuing without it", exc_info=True)
 
-    answer = await compose_response(question, sql, rows, notes=notes,
-                                    entities=entity_result.get("display"),
-                                    schemes=schemes)
+    # openspec/changes/query-analyzer-predicate-integration: the analyzer's
+    # own flagged non-entity ambiguity (unclear metric / comparison basis) —
+    # a DISCLOSED NOTE, not a clarification pause. An LLM-judged ambiguity has
+    # no production validation yet, and this codebase's own established bias
+    # (see app/clarification_engine.py's module docstring) is to under-fire
+    # rather than interrupt on an unproven signal — so this surfaces the
+    # gap without stopping the answer. `origin == "entity_note"` entries are
+    # excluded: those already came from entity_result["notes"] above and
+    # would otherwise be disclosed twice.
+    if analysis:
+        for _amb in analysis.get("ambiguous") or []:
+            if _amb.get("origin") == "llm" and _amb.get("term"):
+                notes.append(
+                    f"'{_amb['term']}' may be ambiguous — "
+                    f"{_amb.get('why') or 'consider stating it more specifically'}.")
 
     # Structured, deterministic findings over the full result (node 5.13) —
-    # additive; never omitted, empty list when nothing fires. Isolated from
-    # the answer/notes path above: a findings failure must not affect what
-    # the user is told, only whether this extra field is populated.
+    # additive; never omitted, empty list when nothing fires. Computed BEFORE
+    # compose_response (moved 2026-09-18, was after — see the 2026-09-11
+    # comment this replaces) so the composer can weave a finding's own text
+    # into its prose via the same `notes` channel premise_check/defaults_engine
+    # already use, per Grant Thornton §5.15's spec that the composer take
+    # findings as an input, not just attach them as a sibling field.
+    # **Deliberate trade-off, accepted explicitly, not a silent regression**:
+    # this removes the isolation the prior ordering guaranteed (a findings
+    # failure could never affect the answer text, only whether the separate
+    # `findings` field was populated). Each detector still runs inside its
+    # own try/except in findings.evaluate() itself, so a single detector
+    # raising still can't take down the others or this call — but a
+    # detector that runs successfully and produces an odd/wrong message can
+    # now reach the answer, which it could not before. Findings' `message`
+    # text is built directly from `stats` computed over these same `rows`
+    # (see findings.py's `_finding` callers), so it carries the same
+    # verified-real-numbers property compose_response's own numeric-
+    # faithfulness guard already checks the composed answer against.
     result_findings: list[dict] = []
     if settings.FINDINGS_ENABLED:
         try:
             result_findings = findings.evaluate(question, schemes, rows, entity_result["resolved"])
         except Exception:  # noqa: BLE001
             logger.warning("findings evaluation failed — continuing without it", exc_info=True)
+
+    answer = await compose_response(question, sql, rows, notes=notes,
+                                    entities=entity_result.get("display"),
+                                    schemes=schemes, result_findings=result_findings)
 
     # Chart-type selection (node 5.14) — additive; never omitted, `None`
     # when nothing fires. Computed over the same rows[:200] slice the
@@ -3378,6 +3880,7 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
         "intent": "DATA",
         "confidence": "high" if rows else "low",
         "schemes": schemes,
+        "scope": scope_trace,
         "resolved_entities": entity_result["resolved"],
         "sql": sql,
         "sql_query": sql,
@@ -3387,6 +3890,7 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
         "answer": answer,
         "findings": result_findings,
         "chart_type": result_chart_type,
+        "analysis": analysis,
     }
 
 
@@ -3467,17 +3971,106 @@ def _geo_definition_answer(question: str) -> "dict | None":
     }
 
 
-async def answer_question(question: str, session: "Session | None" = None,
-                          scope: "auth.UserScope | None" = None) -> dict:
-    """Public entry point. Runs the pipeline, then attaches deterministic
-    'Next steps' suggestions to any data/knowledge answer."""
-    raw_question = question
-    result = await _run_pipeline(question, session=session, scope=scope)
+def reply_abandons_clarification(paused_question: str, reply: str) -> bool:
+    """True when a reply to a clarification pause is NOT an answer to it —
+    a greeting/thanks/goodbye/abuse, or a fresh self-standing question — and
+    the pause should therefore be DROPPED and the reply handled as a new turn.
+
+    This is `_run_pipeline`'s own step-0a bail logic (`_bailed` +
+    `_reply_abandons_scope_pause`, with the chip-resume case taking
+    precedence), lifted out so app/routers/query.py's
+    `pipeline_graph.resume_via_graph` branch applies it too. That branch
+    resumed unconditionally on `is_paused()`, so a user who typed "thanks" or
+    asked something completely different at a clarification prompt had it fed
+    to the graph as their answer and glued onto the paused question.
+    """
+    stem = (paused_question or "").rstrip(" ?.")
+    r = (reply or "").strip()
+    # A one-tap chip carries the whole rewritten question — always an answer,
+    # never an abandonment, even though it is long enough to look like one.
+    if stem and r.lower().startswith(stem.lower()):
+        return False
+    hit = edge.detect_edge_case(r)
+    # "off_topic" is the whitelist gate mis-firing on a bare scope fragment
+    # ("wgh", "Ri Bhoi 2023-24") with no scheme words — NOT an abandonment.
+    if bool(hit) and hit.get("type") != "off_topic":
+        return True
+    return _reply_abandons_scope_pause(r)
+
+
+def matching_chip(reply: str, options: "list[dict] | None") -> "dict | None":
+    """The one-tap chip whose own question text is exactly this reply, if any.
+
+    A chip sends its whole `question` as an ordinary user message, so the only
+    thing that distinguishes "the user tapped a chip" from "the user typed a
+    sentence" is that the text matches an option we offered. Comparing against
+    the offered options is exact where the prefix test in
+    `merge_clarification_reply` is a heuristic that only holds for chips which
+    APPEND their choice — a chip that substitutes its choice into the middle of
+    the question (the FY chips, `_village_chip_question`) shares only a prefix
+    with the paused question and would otherwise be merged into it as if it
+    were free text."""
+    target = (reply or "").strip().casefold().rstrip(" ?.")
+    for opt in options or []:
+        if not isinstance(opt, dict):
+            continue
+        q = str(opt.get("question") or "").strip().casefold().rstrip(" ?.")
+        if q and q == target:
+            return opt
+    return None
+
+
+def merge_clarification_reply(paused_question: str, reply: str,
+                              options: "list[dict] | None" = None) -> str:
+    """Fold a clarification reply back into the question that paused.
+
+    A one-tap chip sends the WHOLE rewritten question, which already begins
+    with the paused stem — blindly concatenating duplicates it ("Total MGNREGA
+    person-days in 2023-24, Total MGNREGA person-days in 2023-24 for South Garo
+    Hills"). That mangled text then goes to the SQL generator, which is exactly
+    how a resumed "for South Garo Hills" chip produced SQL with NO district
+    filter at all — a state-wide total silently presented as a district answer.
+    Reported from the live UI, 2026-09-21.
+
+    `_run_pipeline`'s bespoke resume has always detected this (its `_stem` /
+    `_is_chip_resume` check); app/pipeline_graph.py's own two resume points
+    did not, and reimplemented the merge as a bare f-string. Both now call
+    this one function so they cannot drift apart again.
+    """
+    stem = paused_question.rstrip(" ?.")
+    reply = str(reply).strip()
+    # The chip already carries the full question — pass it straight through.
+    # Checked against the offered options first (exact, and correct for a chip
+    # that rewrites the middle of the question), then by the original prefix
+    # test, which still covers every caller that has no options to hand.
+    if matching_chip(reply, options) is not None:
+        return reply
+    if reply.lower().startswith(stem.lower()):
+        return reply
+    return f"{stem}, {reply}"
+
+
+async def apply_post_answer_context(result: dict, raw_question: str,
+                                    session: "Session | None" = None) -> dict:
+    """The post-answer half of `answer_question`: deterministic 'Next steps'
+    suggestions + the Context Updater (fold this turn into the session's
+    structured state, refresh the rolling summary). Both best-effort; see
+    context_manager. Skipped for a clarification pause: nothing was actually
+    answered yet, and `_run_pipeline` never reaches here for one anyway (it
+    raises).
+
+    Extracted from `answer_question` so the ONE caller that deliberately does
+    NOT go through it — app/routers/query.py's `pipeline_graph.resume_via_graph`
+    branch, which must continue a paused graph thread at the node it paused at
+    rather than restart `_run_pipeline` from node 5.1 — can still run the same
+    post-processing. Before this existed, a graph-resumed turn silently skipped
+    the whole context layer: ConversationState (scheme/district/block/village/
+    year/metric) never learned the resumed turn, so the NEXT follow-up had
+    nothing to inherit, and query.py's `save_context_state` then mirrored that
+    stale blob to L2, outliving the worker. See
+    tests/test_graph_resume_context_layer.py.
+    """
     _attach_followups(result, result.get("rewritten_question") or raw_question)
-    # Context Updater — fold this turn into the session's structured state and
-    # refresh the rolling summary (both best-effort; see context_manager).
-    # Skipped for a clarification pause: nothing was actually answered yet,
-    # and _run_pipeline never reaches here for one anyway (it raises).
     if settings.CONTEXT_LAYER_ENABLED and session is not None:
         try:
             context_manager.update_state(
@@ -3486,6 +4079,15 @@ async def answer_question(question: str, session: "Session | None" = None,
         except Exception:  # noqa: BLE001 — the context layer must never break an answer
             logger.warning("context layer post-processing failed (non-fatal)", exc_info=True)
     return result
+
+
+async def answer_question(question: str, session: "Session | None" = None,
+                          scope: "auth.UserScope | None" = None) -> dict:
+    """Public entry point. Runs the pipeline, then attaches deterministic
+    'Next steps' suggestions to any data/knowledge answer."""
+    raw_question = question
+    result = await _run_pipeline(question, session=session, scope=scope)
+    return await apply_post_answer_context(result, raw_question, session=session)
 
 
 def _attach_followups(result: dict, question: str) -> None:
@@ -3510,6 +4112,29 @@ def _attach_followups(result: dict, question: str) -> None:
         result["follow_up"] = opts[0]["question"]
 
 
+def _pipeline_graph_selected(session: "Session | None") -> bool:
+    """True => this call should go through pipeline_graph instead of the
+    bespoke _answer_data path. PIPELINE_GRAPH_ENABLED=True always wins
+    (100% rollout); otherwise a session-sticky canary keyed by
+    PIPELINE_GRAPH_CANARY_PERCENT — bucketed by user_id when the caller is a
+    real user, else session_id, so one conversation never flips paths
+    mid-thread. No stable identity (no session) => stays on the bespoke path,
+    never canaried. See config.py's PIPELINE_GRAPH_CANARY_PERCENT docstring —
+    multi-tenant-rls-scheme-scaleout/tasks.md 5.2."""
+    if settings.PIPELINE_GRAPH_ENABLED:
+        return True
+    pct = max(0, min(100, settings.PIPELINE_GRAPH_CANARY_PERCENT))
+    if pct <= 0:
+        return False
+    if pct >= 100:
+        return True
+    if session is None:
+        return False
+    key = session.user_id or session.session_id
+    bucket = int(hashlib.sha256(key.encode()).hexdigest(), 16) % 100
+    return bucket < pct
+
+
 async def _run_pipeline(question: str, session: "Session | None" = None,
                         scope: "auth.UserScope | None" = None) -> dict:
     raw_question = question
@@ -3531,9 +4156,16 @@ async def _run_pipeline(question: str, session: "Session | None" = None,
     #     pending state is consumed so it never leaks into a later turn.
     pending = session.state.pending_scope_q if session is not None else None
     _village_hint = session.state.pending_village_hint if session is not None else None
+    # The chips that pause offered, and whatever it had already resolved before
+    # it paused — see ConversationState.pending_options / pending_resolved.
+    _pending_options = list(session.state.pending_options) if session is not None else []
+    _resumed_resolved: dict = {}
     if pending:
         session.state.pending_scope_q = None
         session.state.pending_village_hint = None
+        session.state.pending_options = []
+        _resumed_resolved = dict(session.state.pending_resolved or {})
+        session.state.pending_resolved = {}
         # A scope-pause reply is normally a bare fragment ("Ri Bhoi, 2023-24",
         # "wgh, 1999-20") with no scheme vocabulary of its own, so the edge
         # whitelist would tag it "off_topic" every time — do NOT use that as the
@@ -3549,13 +4181,26 @@ async def _run_pipeline(question: str, session: "Session | None" = None,
         # already begins with the paused stem — merging would just duplicate it
         # ("total expenditure for MGNREGA, total expenditure for MGNREGA for FY
         # 2023-24"). Detect that and pass the chip's question straight through.
+        # Two ways to recognise a chip: its text matches an option we actually
+        # offered (exact — and the only test that works for a chip which
+        # rewrites the MIDDLE of the question, e.g. the FY chips swapping a
+        # bare "2023" for "FY 2023-24"), or the older prefix test, kept for a
+        # pause whose options weren't recorded (an L2-rehydrated session from
+        # before pending_options existed). See pipeline.matching_chip.
+        _chip = matching_chip(question, _pending_options)
         _stem = pending.rstrip(" ?.").lower()
-        _is_chip_resume = question.strip().lower().startswith(_stem)
+        _is_chip_resume = _chip is not None or question.strip().lower().startswith(_stem)
         if _is_chip_resume:
             scope_resumed = True
+            # What the chip MEANS, not just what it says: folded into this
+            # turn's prior_resolved below so the choice survives even if the
+            # mention-extractor mis-tags the chip's own sentence.
+            if _chip:
+                _resumed_resolved.update(
+                    {k: v for k, v in (_chip.get("pins") or {}).items() if v is not None})
             logger.info("scope/year clarification resumed via full question -> %r", question)
         elif not _bailed and not _reply_abandons_scope_pause(question):
-            question = f"{pending.rstrip(' ?.')}, {question.strip()}"
+            question = merge_clarification_reply(pending, question, _pending_options)
             scope_resumed = True
             logger.info("scope clarification resumed -> %r", question)
 
@@ -3745,6 +4390,19 @@ async def _run_pipeline(question: str, session: "Session | None" = None,
     # TEXT, so an entity can silently drop if it doesn't literally reappear in
     # the rewritten wording (e.g. a village name the rewrite paraphrases away).
     _prior_resolved = prev.resolved_entities if (is_followup_rewrite and prev is not None) else None
+    if scope_resumed and _resumed_resolved:
+        # A clarification resume is NOT a follow-up rewrite (the merged/chip
+        # text is already standalone), so it used to reach resolve_entities
+        # with prior_resolved=None and re-derive every dimension from that text
+        # alone. Everything the paused turn had already pinned
+        # (ClarificationNeeded.resolved_so_far), plus what the tapped chip
+        # itself stands for, is seeded here instead — still only ever a
+        # FALLBACK inside resolve_entities (a dimension the resumed question
+        # names something for is always re-resolved from that text, never
+        # overridden), so this can restore context but cannot contradict the
+        # user's own words. Without it, answering a SECOND clarification throws
+        # away the answer to the first.
+        _prior_resolved = {**_resumed_resolved, **(_prior_resolved or {})}
     if is_followup_rewrite and ctx_state is not None:
         # Extends the fallback above with session-level structured state, so a
         # KNOWLEDGE/EDGE turn sitting between the last DATA answer and this
@@ -3758,19 +4416,92 @@ async def _run_pipeline(question: str, session: "Session | None" = None,
             logger.warning("context_manager.merged_prior_resolved failed — using turn-level only",
                            exc_info=True)
     try:
-        result = await _answer_data(question, scope=scope, skip_scope_clarify=scope_resumed,
-                                     prior_resolved=_prior_resolved,
-                                     village_hint=_village_hint if scope_resumed else None)
+        # openspec/changes/multi-tenant-rls-scheme-scaleout: the actual
+        # production cutover point for the Grant Thornton proposal's "runtime
+        # pipeline is implemented as a LangGraph agent" requirement (Section 4
+        # of the proposal PDF) — app/pipeline_graph.py's node-decomposed
+        # StateGraph is code-complete and test-verified but was, until this
+        # flag existed as a real branch, never reachable from a live request
+        # (settings.PIPELINE_GRAPH_ENABLED was defined but read nowhere).
+        # answer_data_via_graph_compat has the exact same calling contract as
+        # _answer_data (see its own docstring for the pause/resume design),
+        # so nothing below this line, in app/routers/query.py, or in
+        # app/session_store.py needs to change for this branch to exist.
+        # Local import: app.pipeline_graph imports app.pipeline at module
+        # level, so importing it back at module level here would cycle.
+        # _pipeline_graph_selected also covers the PIPELINE_GRAPH_CANARY_PERCENT
+        # staged rollout (multi-tenant-rls-scheme-scaleout/tasks.md 5.2) —
+        # PIPELINE_GRAPH_ENABLED alone still means "always graph" (pct ignored).
+        if _pipeline_graph_selected(session):
+            from app import pipeline_graph
+            # Task 5.4: real cross-request resume via the graph's own
+            # checkpointer needs a stable, session-scoped thread_id — pass
+            # session.session_id only when LANGGRAPH_FOLLOWUP_ENABLED is off.
+            # The two are deliberately mutually exclusive here: when both
+            # flags are on, LANGGRAPH_FOLLOWUP_ENABLED's own wrapper
+            # (app/langgraph_followup.py) already catches ClarificationNeeded
+            # around this entire call via ITS OWN, separate checkpointer —
+            # if pipeline_graph ALSO kept its checkpoint alive in that case,
+            # two independent checkpointers would both think they own the
+            # same pause, and pipeline_graph's would never actually get
+            # resumed (query.py's LANGGRAPH_FOLLOWUP_ENABLED branch owns the
+            # resume call in that combination, not the one added for this
+            # task) — a real, permanent orphan, the exact bug fixed
+            # 2026-09-17 for the always-fresh-UUID case. Passing thread_id=None
+            # here (the pre-5.4 default) keeps that combination exactly as
+            # tested: fresh UUID, cleaned up on pause, no change.
+            _graph_thread_id = (
+                session.session_id
+                if session is not None and not settings.LANGGRAPH_FOLLOWUP_ENABLED
+                else None
+            )
+            result = await pipeline_graph.answer_data_via_graph_compat(
+                question, scope=scope, skip_scope_clarify=scope_resumed,
+                prior_resolved=_prior_resolved,
+                village_hint=_village_hint if scope_resumed else None,
+                is_followup=is_followup_rewrite, thread_id=_graph_thread_id)
+        else:
+            result = await _answer_data(question, scope=scope, skip_scope_clarify=scope_resumed,
+                                         prior_resolved=_prior_resolved,
+                                         village_hint=_village_hint if scope_resumed else None,
+                                         is_followup=is_followup_rewrite)
         if question != raw_question:
             result["rewritten_question"] = question
         return result
-    except ClarificationNeeded:
-        raise
-    except OutOfScope as e:
+    except Exception as e:  # noqa: BLE001 — sorted by data_path_fallback_or_reraise
+        fallback = await data_path_fallback_or_reraise(e, question, raw_question)
+        if fallback is None:
+            raise
+        return fallback
+
+
+async def data_path_fallback_or_reraise(e: BaseException, question: str,
+                                        raw_question: str) -> "dict | None":
+    """Decide what an exception escaping the DATA path becomes. Returns a
+    result dict to answer with, or None meaning "the caller must re-raise"
+    (the caller does a bare `raise`, so the original traceback is preserved).
+
+    This is `_run_pipeline`'s own DATA-path except-ladder, lifted out verbatim
+    so the ONE caller that does not go through `_run_pipeline` —
+    app/routers/query.py's `pipeline_graph.resume_via_graph` branch, which must
+    continue a paused graph thread at the node it paused at — gets identical
+    behavior instead of none at all.
+
+    Before this existed, ANY non-transient failure on a resumed turn (most
+    commonly `_execute_one_attempt` raising ValueError once the SQL repair
+    budget is spent — e.g. the §5.11 semantic verifier rejecting both the
+    generated and the repaired SQL) escaped raw to query.py's generic handler
+    and surfaced as a bare **502 Bad Gateway** in the chat UI. The bespoke path
+    and the non-resume graph path both turn that same failure into a graceful
+    KB fallback / "try rephrasing" reply. Reported from the live UI, 2026-09-21.
+    """
+    if isinstance(e, ClarificationNeeded):
+        return None
+    if isinstance(e, OutOfScope):
         logger.info("out of scope (%s) — returning Megh One AI scope reply", e)
         return _out_of_scope_result(question, raw_question)
-    except (llm.ModelBusyError, asyncio.TimeoutError, httpx.TimeoutException,
-            httpx.TransportError) as e:
+    if isinstance(e, (llm.ModelBusyError, asyncio.TimeoutError, httpx.TimeoutException,
+                      httpx.TransportError)):
         # The model gateway hiccuped (saturated slot, read timeout, connection
         # reset) part-way through the DATA path — this is NOT "the question can't
         # be answered from the data". Propagate it so the router returns a
@@ -3778,16 +4509,13 @@ async def _run_pipeline(question: str, session: "Session | None" = None,
         # a working query" fallback below, which reads as if the question itself
         # were at fault.
         logger.warning("data path hit a transient gateway error (%s) — re-raising", e)
-        raise
-    except httpx.HTTPStatusError as e:
+        return None
+    if isinstance(e, httpx.HTTPStatusError):
         if e.response is not None and e.response.status_code >= 500:
             logger.warning("data path hit gateway %s — re-raising", e.response.status_code)
-            raise
-        logger.warning("data path failed (%s) — trying KB fallback", e, exc_info=True)
-        return await _data_path_kb_fallback(question)
-    except Exception as e:  # noqa: BLE001
-        logger.warning("data path failed (%s) — trying KB fallback", e, exc_info=True)
-        return await _data_path_kb_fallback(question)
+            return None
+    logger.warning("data path failed (%s) — trying KB fallback", e, exc_info=True)
+    return await _data_path_kb_fallback(question)
 
 
 async def _data_path_kb_fallback(question: str) -> dict:

@@ -2,9 +2,9 @@
 RAG path — answers general scheme-knowledge questions from the data/
 narrative docs (see kb_ingest.py), never from the database.
 
-Flow (the NeuralAiGovernanceProject standard, adapted to Qdrant + qwen3):
+Flow (the NeuralAiGovernanceProject standard, adapted to pgvector + qwen3):
   1. embed the question           -> qwen3-embedding
-  2. vector search the KB         -> Qdrant, RAG_TOP_K candidates
+  2. vector search the KB         -> pgvector, RAG_TOP_K candidates
   3. rerank the candidates        -> qwen3-reranker, keep RAG_RERANK_TOP_N
   4. confidence tiers:
        >= RAG_HIGH_CONFIDENCE   -> return the top chunk verbatim (no compose call)
@@ -33,6 +33,30 @@ _REFUSAL_SENTENCE = re.compile(
     r"(?:that\s+)?isn'?t covered in the (?:scheme )?reference material\.?",
     re.IGNORECASE,
 )
+
+# Safety net for when the composer ignores the instructed refusal sentence
+# above and free-forms its own — seen in the wild as "The provided reference
+# material does not contain a specific status breakdown for X.", which
+# _REFUSAL_SENTENCE doesn't match, so it leaked straight to the user instead
+# of falling back to the pipeline's plain "I don't have information..."
+# message. Any answer matching this is treated as a full refusal (return
+# None), the same as one that's empty after _REFUSAL_SENTENCE stripping.
+_LIKELY_REFUSAL = re.compile(
+    r"reference material|do(?:es)?n'?t (?:contain|have|cover|include)|"
+    r"not (?:covered|available)|no information (?:is )?available",
+    re.IGNORECASE,
+)
+
+
+def _is_whole_refusal(text: str) -> bool:
+    """True when every sentence in `text` reads as a refusal, even though it
+    doesn't match the exact instructed template (_REFUSAL_SENTENCE) — the
+    composer sometimes free-forms its own wording instead of the requested
+    sentence. A partial caveat inside an otherwise substantive answer (e.g.
+    one sentence noting a scheme "doesn't cover private land") has other,
+    non-matching sentences alongside it and is left alone."""
+    sentences = [s.strip() for s in re.split(r"(?<=[.!?])\s+|\n+", text) if s.strip()]
+    return bool(sentences) and all(_LIKELY_REFUSAL.search(s) for s in sentences)
 
 # The general_faq.md sources are flat "### Question?\nAnswer." pairs (see
 # kb_ingest._chunk), so a chunk's own body opens by restating the question as
@@ -69,9 +93,24 @@ async def retrieve(question: str, scheme: str | None = None) -> list[dict]:
     if not candidates:
         return []
 
-    # Reranker is opt-in — the deployed qwen3-reranker inverts relevance on this
-    # KB, so by default we trust the vector order (bge-small) directly.
-    if not settings.RERANKER_ENABLED:
+    # Reranker is opt-in, off by default (RAG_RERANKER_ENABLED — a dedicated
+    # flag, split off from schema retrieval's since 2026-09-14, see
+    # app/config.py). Originally disabled on a claim the deployed
+    # qwen3-reranker "inverts relevance on this KB" (2026-08-29, a specific
+    # "what documents" query where "where to find info" outranked
+    # "application process"). Re-investigated twice (openspec/changes/
+    # rag-knowledge-base-verification/proposal.md, "Reranker investigation"
+    # addendum): a first pass (4 varied real KB queries, one per scheme)
+    # found 3/4 reranked top-1 picks agreeing with cosine order, suggesting
+    # the original failure might not still reproduce. A second, more targeted
+    # pass re-ran the ORIGINAL failure's exact query pattern ("what documents
+    # are required") per scheme: it does NOT reproduce for PMAY-G, MGNREGA,
+    # or Focus Plus (reranked top-1 is the correct chunk in all three) but
+    # DOES still reproduce, close to verbatim, for CM Elevate. Mixed,
+    # corpus-inconsistent evidence — left OFF; this is not a "confirmed
+    # fixed" result, and turning it on would trade a known win on 3 schemes
+    # for a known, reproduced loss on the 4th.
+    if not settings.RAG_RERANKER_ENABLED:
         return [c for c in candidates[: settings.RAG_RERANK_TOP_N]
                 if c.get("score", 0.0) >= settings.RAG_MIN_SCORE] or candidates[: settings.RAG_RERANK_TOP_N]
 
@@ -135,6 +174,8 @@ Answer:"""
         # phrase appeared anywhere — strip just the refusal sentence instead,
         # and only treat it as "no answer" when nothing substantive remains.
         cleaned = _REFUSAL_SENTENCE.sub("", answer).strip()
+        if cleaned and _is_whole_refusal(cleaned):
+            cleaned = ""
         if not cleaned:
             # Not just a stray hedge sentence — the composer refused outright.
             # Runs at non-zero temperature, so on passages that genuinely do
@@ -146,6 +187,8 @@ Answer:"""
             # context is cheap; a second outright refusal is trusted as real.
             answer = await llm.call_response_composer(prompt)
             cleaned = _REFUSAL_SENTENCE.sub("", answer).strip()
+            if cleaned and _is_whole_refusal(cleaned):
+                cleaned = ""
             if not cleaned:
                 return None
         return {
@@ -202,12 +245,16 @@ Reference passages:
 Answer:"""
     answer = await llm.call_response_composer(prompt)
     cleaned = _REFUSAL_SENTENCE.sub("", answer).strip()
+    if cleaned and _is_whole_refusal(cleaned):
+        cleaned = ""
     if not cleaned:
         # Same one-retry tolerance as answer_from_kb — a non-zero-temperature
         # outright refusal on passages that do answer the question is
         # sometimes just a bad sample.
         answer = await llm.call_response_composer(prompt)
         cleaned = _REFUSAL_SENTENCE.sub("", answer).strip()
+        if cleaned and _is_whole_refusal(cleaned):
+            cleaned = ""
         if not cleaned:
             return None
 

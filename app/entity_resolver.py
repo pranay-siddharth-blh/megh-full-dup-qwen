@@ -1,27 +1,35 @@
 """
 Entity resolution — "the user typed some text, which stored database value did
 they mean?" Ported from data/*/*_entity_resolver.yaml (the SME-curated
-alias catalogues), scoped down from that file's full 8-stage pipeline to what's
-implementable without an embedding index: stages 1-3 and 6 (exact, alias,
-squash, RapidFuzz), skipping stage 4 acronym as a separate stage (folded into
-alias matching below) and stage 7 embedding fallback.
+alias catalogues): stages 1-3 and 6 (exact, alias, squash, RapidFuzz), stage 4
+acronym folded into alias matching below, and stage 7 embedding fallback (see
+load_embeddings / _embedding_fallback) for the closed-set catalogues only.
+Stage 5 (whole-word containment) is not a general dimension stage here — only
+partially covered, district-only, by scan_dimension below (see its own
+docstring for why blocks are excluded).
 
 District/block/year are small closed sets (12, ~56, 4) — loaded once from the
 YAML at startup and matched entirely in memory. Village is NOT: the YAML only
 documents the 238 names that collide, not the full ~6,000-village catalogue —
 that lives in curated.dim_geography / curated.dim_geography_alias, so village
 resolution is a live DB query (using the GIN trigram index already built
-there), not a YAML lookup.
+there), not a YAML lookup — cached in Redis, best-effort, see resolve_village.
 """
+import hashlib
+import json
 import logging
+import math
 import re
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import yaml
 from rapidfuzz import fuzz, process
 
+from app.cache import _redis  # shared lazy Redis client — see resolve_village's cache below
+from app.config import settings
 from app.db import fetch_rows
+from app.local_embed import embed as _embed_texts
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +58,34 @@ _house_status_groups: dict[str, list[dict]] = {}
 
 _FUZZY_ACCEPT = 90
 _FUZZY_RUNNER_UP_GAP = 5
+
+# Stage 7 (matching_pipeline in data/*/*_entity_resolver.yaml): embedding
+# nearest-neighbour, tried only after stage 6 (RapidFuzz, above) has already
+# failed to resolve. Closed-set dimensions only — house_status/tranche_label
+# are deliberately excluded (see _load_house_status / resolve_tranche_label's
+# own deny-lists and guards: those exist precisely because a loose semantic
+# match on an overloaded term like "sanctioned" resolves it wrong, and
+# embedding similarity would reopen that same failure mode).
+_EMBED_DIMENSIONS = ("district", "block", "year", "assembly_constituency")
+# Minimum cosine-similarity margin between the top embedding match and its
+# runner-up, on top of clearing ENTITY_RESOLVER_EMBEDDING_ACCEPT. Empirically
+# required (2026-09-14, probed against the real MGNREGA district catalogue
+# via BAAI/bge-small-en-v1.5): a bare "top != runner-up" check is not enough
+# — a genuinely ambiguous phrase like "khasi hills area" (no east/west/south
+# qualifier) still lands a confident-looking top match (West Khasi Hills,
+# 0.9475) with its nearest sibling (South West Khasi Hills, 0.9404) only
+# 0.007 behind — well within noise — while a real, uniquely-resolvable
+# paraphrase like "district with Shillong" clears East Khasi Hills at 0.9584
+# with its nearest sibling almost 0.29 behind. 0.03 separates the two
+# observed cases cleanly; family-name collisions (multiple catalogue values
+# sharing "Khasi"/"Garo"/"Hills") are exactly where this matters, mirroring
+# why stage 6's own _FUZZY_RUNNER_UP_GAP exists.
+_EMBED_RUNNER_UP_GAP = 0.03
+# scheme -> dimension -> [(canonical, unit_vector)], one entry per canonical +
+# alias string (not averaged, so an alias phrased very differently from its
+# canonical can still be the nearest match). Populated by load_embeddings();
+# stays empty (embedding stage silently no-ops) until that has run.
+_embeddings: dict[str, dict[str, list[tuple[str, list[float]]]]] = {}
 
 # Only the construction stages that have NO is_completed / is_in_progress boolean
 # of their own are resolved to a status_name literal. "Completed" and the
@@ -100,6 +136,17 @@ def fold(text: str) -> str:
 
 def _squash(folded: str) -> str:
     return re.sub(r"[^A-Z0-9]", "", folded)
+
+
+def _unit(v: list[float]) -> list[float] | None:
+    """L2-normalise so a nearest-neighbour lookup is one dot product per
+    entry — same pattern app/semantic_cache.py already uses."""
+    n = math.sqrt(sum(x * x for x in v))
+    return [x / n for x in v] if n else None
+
+
+def _dot(a: list[float], b: list[float]) -> float:
+    return sum(x * y for x, y in zip(a, b))
 
 
 def _hs_tokens(text: str) -> list[str]:
@@ -156,6 +203,89 @@ def load_all() -> None:
             scheme, {k: len(v) for k, v in _catalog[scheme].items()}, len(pairs),
             len(_house_status.get(scheme, [])), len(regs),
         )
+
+
+async def load_embeddings() -> None:
+    """Stage 7 catalogue vectors — call once, after load_all() has populated
+    _catalog (startup wires this via app.main's best-effort `_try`, so a
+    model download failure or offline environment degrades to stages 1-6
+    only, never blocks boot). Safe to skip entirely: resolve_dimension's
+    embedding stage no-ops when _embeddings has nothing for a scheme/
+    dimension."""
+    if not settings.ENTITY_RESOLVER_EMBEDDING_ENABLED:
+        logger.info("entity_resolver: embedding fallback disabled (ENTITY_RESOLVER_EMBEDDING_ENABLED=false)")
+        return
+    for scheme, dims in _catalog.items():
+        _embeddings[scheme] = {}
+        for dim_name in _EMBED_DIMENSIONS:
+            values = dims.get(dim_name, [])
+            if not values:
+                continue
+            texts: list[str] = []
+            owners: list[str] = []
+            for v in values:
+                for form in [v["canonical"], *(v.get("aliases", []) or [])]:
+                    texts.append(form)
+                    owners.append(v["canonical"])
+            vecs = await _embed_texts(texts)
+            entries = [(owner, u) for owner, vec in zip(owners, vecs) if (u := _unit(vec)) is not None]
+            if entries:
+                _embeddings[scheme][dim_name] = entries
+        logger.info("entity_resolver: embeddings ready for %s — %s",
+                    scheme, {k: len(v) for k, v in _embeddings[scheme].items()})
+
+
+def _suggestions(folded_input: str, values: list[dict], limit: int = 5) -> list[dict]:
+    """Up to `limit` did-you-mean candidates for a not_found result. RapidFuzz
+    always runs before this is called (stage 6 fires on any non-empty
+    catalogue), so its own ranking is the "furthest stage reached" — no need
+    for a separate embedding-based suggestion path."""
+    if not values:
+        return []
+    pool = {v["canonical"]: fold(v["canonical"]) for v in values}
+    matches = process.extract(folded_input, pool, scorer=fuzz.token_set_ratio, limit=limit)
+    return [{"canonical": m[2]} for m in matches]
+
+
+async def _embedding_fallback(
+    text: str, folded_input: str, scheme: str, dimension: str, values: list[dict],
+) -> "Resolved | None":
+    """Stage 7 (see resolve_dimension) — tried only once stage 6 has already
+    failed to resolve. Returns None (caller falls through to not_found) when
+    the dimension has no catalogue vectors, the nearest neighbour doesn't
+    clear the acceptance bar, or it isn't uniquely the top candidate."""
+    pool = _embeddings.get(scheme, {}).get(dimension)
+    if not pool:
+        return None
+
+    vecs = await _embed_texts([text])
+    qvec = _unit(vecs[0]) if vecs else None
+    if qvec is None:
+        return None
+
+    best_by_canon: dict[str, float] = {}
+    for canon, vec in pool:
+        score = _dot(qvec, vec)
+        if score > best_by_canon.get(canon, -1.0):
+            best_by_canon[canon] = score
+    if not best_by_canon:
+        return None
+
+    ranked = sorted(best_by_canon.items(), key=lambda kv: kv[1], reverse=True)
+    top_canon, top_score = ranked[0]
+    runner_up = ranked[1][1] if len(ranked) > 1 else -1.0
+    if top_score < settings.ENTITY_RESOLVER_EMBEDDING_ACCEPT or top_score - runner_up < _EMBED_RUNNER_UP_GAP:
+        return None  # below the acceptance bar, or too close to its runner-up to trust
+
+    folded_top = fold(top_canon)
+    blocked = _blocked.get(scheme, set())
+    if (folded_input, folded_top) in blocked or (folded_top, folded_input) in blocked:
+        return None  # same guard stage 6 applies — never resolve a known confusable pair
+
+    v = next(v for v in values if v["canonical"] == top_canon)
+    canon = _db_form(v["canonical"], dimension)
+    return Resolved("resolved", dimension, text, canonical=canon, confidence=top_score,
+                    display=_display_form(v["canonical"], dimension))
 
 
 def _load_house_status(scheme: str, hs: dict) -> None:
@@ -266,17 +396,47 @@ _TRANCHE_GUARD_RE = re.compile(r"tranc", re.IGNORECASE)
 # of all of them), which would silently pin a "which tranche" question to
 # whichever canonical happens to sort first. Require an actual number/ordinal
 # in the question before trusting the fuzzy match.
+#
+# CONFIRMED BUG (2026-09-11, from production query_audit.jsonl): the number
+# had to be ANYWHERE in the question, not next to "tranche" — so "What are
+# the top 3 districts ... across all financial years and tranches?" (a
+# follow-up rewrite that pulled "tranches" in from a PRIOR turn's "all
+# tranches" wording, with no tranche of its own in mind at all) matched this
+# guard purely off the unrelated "top 3", then the fuzzy stage below scored
+# "2nd tranche" at 90.9 against the combined "...top 3... tranches" text —
+# just over the 90-point accept bar — and silently pinned tranche_label to
+# "Tranch 2 - August". That value then flowed into both the SQL generator's
+# WHERE-clause hint AND the response composer's "Entity names" block, so the
+# composer reported "within the Tranch 2 - August data" for a query that was
+# never meant to be tranche-scoped at all (see
+# focusplus-tranche-context-not-carried-bug in project memory).
+#
+# Fixed by requiring the number/ordinal to sit immediately next to "tranch"
+# itself (either side, "tranche 2" / "2nd tranche" / "trance 3"), not merely
+# present somewhere in the sentence.
 _TRANCHE_NUMBER_RE = re.compile(
-    r"\b(?:[1-4]|one|two|three|four|first|second|third|fourth|1st|2nd|3rd|4th)\b",
+    r"\btranc\w*\s+(?:no\.?|number|#)?\s*"
+    r"(?:[1-4]|one|two|three|four|first|second|third|fourth|1st|2nd|3rd|4th)\b"
+    r"|\b(?:[1-4]|one|two|three|four|first|second|third|fourth|1st|2nd|3rd|4th)"
+    r"\s+tranc\w*",
     re.IGNORECASE,
 )
+
+
+def tranche_labels(scheme: str = "Focus Plus") -> list[str]:
+    """Every tranche_label canonical value for `scheme`, in catalogue order
+    (empty for a scheme with no tranche_label dimension, e.g. all but Focus
+    Plus). Used to build the "which tranche?" clarification chips."""
+    return [v["canonical"] for v in _catalog.get(scheme, {}).get("tranche_label", [])]
 
 
 def resolve_tranche_label(question: str, scheme: str = "Focus Plus") -> "Resolved | None":
     """Focus Plus tranche_label ("Tranch 1" .. "Tranch 4 - Feb-March") — a closed
     set of 4 the LLM mention-extractor doesn't cover (see resolve_house_status).
-    Scans the whole question and returns the exact stored label, fuzzy-matched
-    so a misspelling or missing space still resolves."""
+    Scans the whole question and returns every stored label it names (not just
+    the first — "compare tranche 1 and tranche 2" must resolve to both, the
+    same multi-value contract resolve_house_status uses), fuzzy-matched so a
+    misspelling or missing space still resolves."""
     values = _catalog.get(scheme, {}).get("tranche_label", [])
     if not values or not _TRANCHE_GUARD_RE.search(question):
         return None
@@ -285,25 +445,33 @@ def resolve_tranche_label(question: str, scheme: str = "Focus Plus") -> "Resolve
     squashed_q = _squash(folded_q)
 
     # Stage 1/2: exact canonical/alias phrase present verbatim in the question.
-    for v in values:
-        for c in [v["canonical"]] + v.get("aliases", []):
-            if fold(c) in folded_q:
-                return Resolved("resolved", "tranche_label", question,
-                                canonical=v["canonical"], confidence=1.0, display=v["canonical"])
+    # Collect every tranche named, not just the first one found, so a question
+    # naming two or more doesn't silently collapse to a single filter.
+    exact_hits = [v["canonical"] for v in values
+                  if any(fold(c) in folded_q for c in [v["canonical"]] + v.get("aliases", []))]
+    if exact_hits:
+        return Resolved("resolved", "tranche_label", question,
+                        canonical=exact_hits[0] if len(exact_hits) == 1 else None,
+                        confidence=1.0, values=exact_hits,
+                        display=" and ".join(exact_hits))
 
     # Stage 3: squashed containment — "tranch-2" / "Tranch 2" against alias "tranch2".
-    for v in values:
-        for c in [v["canonical"]] + v.get("aliases", []):
-            squashed_c = _squash(fold(c))
-            if squashed_c and squashed_c in squashed_q:
-                return Resolved("resolved", "tranche_label", question,
-                                canonical=v["canonical"], confidence=0.95, display=v["canonical"])
+    squash_hits = [v["canonical"] for v in values
+                   if any(_squash(fold(c)) and _squash(fold(c)) in squashed_q
+                          for c in [v["canonical"]] + v.get("aliases", []))]
+    if squash_hits:
+        return Resolved("resolved", "tranche_label", question,
+                        canonical=squash_hits[0] if len(squash_hits) == 1 else None,
+                        confidence=0.95, values=squash_hits,
+                        display=" and ".join(squash_hits))
 
     if not _TRANCHE_NUMBER_RE.search(question):
         return None
 
     # Stage 6: RapidFuzz partial-ratio over the whole question — catches a
     # genuine misspelling of both the word and the number ("3rd trance").
+    # Single-value only: a fuzzy pass over a multi-tranche comparison risks
+    # both mentions converging on the same nearest label.
     best_canon, best_score = None, 0.0
     for v in values:
         for c in [v["canonical"]] + v.get("aliases", []):
@@ -312,7 +480,8 @@ def resolve_tranche_label(question: str, scheme: str = "Focus Plus") -> "Resolve
                 best_score, best_canon = score, v["canonical"]
     if best_canon and best_score >= _FUZZY_ACCEPT:
         return Resolved("resolved", "tranche_label", question,
-                        canonical=best_canon, confidence=best_score / 100, display=best_canon)
+                        canonical=best_canon, confidence=best_score / 100,
+                        values=[best_canon], display=best_canon)
 
     return None
 
@@ -347,8 +516,11 @@ def _db_form(canonical: str, dimension: str):
     return canonical
 
 
-def resolve_dimension(text: str, scheme: str, dimension: str) -> Resolved:
-    """District/block/year — fully in-memory, stages 1/2/3/6."""
+async def resolve_dimension(text: str, scheme: str, dimension: str) -> Resolved:
+    """District/block/year — fully in-memory, stages 1/2/3/6, plus stage 7
+    (embedding fallback) whenever stage 6 doesn't resolve — see
+    _embedding_fallback. Async only because of that last stage; stages
+    1/2/3/6 do no I/O of their own."""
     values = _catalog.get(scheme, {}).get(dimension, [])
     if not values:
         return Resolved("not_found", dimension, text, message=f"no {dimension} catalogue for {scheme}")
@@ -381,7 +553,11 @@ def resolve_dimension(text: str, scheme: str, dimension: str) -> Resolved:
         (_folded, top_score, top_canon), *rest = matches
         blocked = _blocked.get(scheme, set())
         if (folded_input, pool[top_canon]) in blocked or (pool[top_canon], folded_input) in blocked:
-            return Resolved("not_found", dimension, text, message=f"'{text}' does not match a known {dimension}")
+            fallback = await _embedding_fallback(text, folded_input, scheme, dimension, values)
+            if fallback is not None:
+                return fallback
+            return Resolved("not_found", dimension, text, message=f"'{text}' does not match a known {dimension}",
+                            candidates=_suggestions(folded_input, values))
         if top_score >= _FUZZY_ACCEPT:
             runner_up_score = rest[0][1] if rest else 0
             if top_score - runner_up_score >= _FUZZY_RUNNER_UP_GAP:
@@ -395,7 +571,11 @@ def resolve_dimension(text: str, scheme: str, dimension: str) -> Resolved:
                 message=f"'{text}' could mean more than one {dimension}",
             )
 
-    return Resolved("not_found", dimension, text, message=f"'{text}' is not a known {dimension}")
+    fallback = await _embedding_fallback(text, folded_input, scheme, dimension, values)
+    if fallback is not None:
+        return fallback
+    return Resolved("not_found", dimension, text, message=f"'{text}' is not a known {dimension}",
+                    candidates=_suggestions(folded_input, values))
 
 
 def _scannable_forms(value: dict) -> list[str]:
@@ -587,9 +767,64 @@ async def _activity_counts(codes: list[int]) -> dict[int, int]:
     return {r["village_code"]: r["n"] for r in rows}
 
 
+def _village_cache_key(text: str, district: str | None, block: str | None) -> str:
+    """Folded text + district/block scope — the same (text, scope) pair
+    resolve_village's own SQL treats as a distinct lookup (a name scoped to
+    one district can resolve to a different village than the same name
+    scoped to another), so the cache key must carry the scope too."""
+    return f"{fold(text)}|{(district or '').strip().upper()}|{(block or '').strip().upper()}"
+
+
+def _village_cache_redis_key(key: str) -> str:
+    return "megh:villres:" + hashlib.md5(key.encode()).hexdigest()
+
+
+async def _village_cache_get(key: str) -> "Resolved | None":
+    """Best-effort, same posture as app.cache.ResponseCache: any failure
+    (unconfigured, unreachable, bad payload) is swallowed and read as a
+    miss — resolve_village always falls back to the live query. The whole
+    body is inside the try, not just the get() call: app.cache._redis()
+    already catches its own connection errors internally and returns None,
+    but this function must not assume that stays true, or raise if it
+    doesn't — this is the one path where a cache bug could otherwise break
+    a real user-facing lookup, not just degrade it."""
+    try:
+        r = await _redis()
+        if r is None:
+            return None
+        raw = await r.get(_village_cache_redis_key(key))
+        return Resolved(**json.loads(raw)) if raw else None
+    except Exception as e:  # noqa: BLE001
+        logger.debug("village cache get failed: %s", e)
+        return None
+
+
+async def _village_cache_put(key: str, value: Resolved) -> None:
+    try:
+        r = await _redis()
+        if r is None:
+            return
+        await r.setex(_village_cache_redis_key(key), int(settings.VILLAGE_CACHE_TTL_SECONDS),
+                      json.dumps(asdict(value)))
+    except Exception as e:  # noqa: BLE001
+        logger.debug("village cache put failed: %s", e)
+
+
 async def resolve_village(text: str, district: str | None = None, block: str | None = None) -> Resolved:
-    """Village — live DB query against curated.dim_geography / dim_geography_alias.
-    Resolves to village_code, per the YAML's hard rule (name alone is never a key)."""
+    """Village — live DB query against curated.dim_geography / dim_geography_alias,
+    behind a best-effort Redis cache (see _village_cache_get/_put) since this
+    is the one resolution path with no in-memory catalogue of its own. Resolves
+    to village_code, per the YAML's hard rule (name alone is never a key)."""
+    cache_key = _village_cache_key(text, district, block)
+    cached = await _village_cache_get(cache_key)
+    if cached is not None:
+        return cached
+    result = await _resolve_village_live(text, district=district, block=block)
+    await _village_cache_put(cache_key, result)
+    return result
+
+
+async def _resolve_village_live(text: str, district: str | None = None, block: str | None = None) -> Resolved:
     folded = text.strip()
     scope_sql, scope_params = "", []
     if district:

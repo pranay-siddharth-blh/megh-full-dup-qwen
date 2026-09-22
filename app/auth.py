@@ -21,6 +21,7 @@ import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app import scheme_registry
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -40,51 +41,69 @@ def _finer(a: str, b: str) -> bool:
 # ── Role -> permissions ────────────────────────────────────────────────────
 # A user record may narrow these (e.g. pin `districts`), never widen them.
 # `geographies: "all"` = no geographic restriction.
+#
+# `schemes` is deliberately absent from every role below, not a repeated
+# literal — see _role_scheme_cap()'s docstring for why (this used to be the
+# same ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"] list hand-typed 8
+# times, once per role; onboarding scheme #5 meant finding and editing all
+# 8. Removed 2026-09-18). A role that ever needs a NARROWER cap than "every
+# registered scheme" can still set its own "schemes" key here — that
+# explicit override always wins over the dynamic default.
 ROLE_PERMISSIONS: dict[str, dict] = {
     # Platform + tenant administration. is_admin bypasses the three *query*
     # checks (an admin exploring data isn't 5.7's threat model) but stays
     # tenant-scoped for what they can see (conversations, audit, users).
     "super_admin": {
-        "granularity_cap": "village", "schemes": ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"],
+        "granularity_cap": "village",
         "geographies": "all", "is_admin": True, "cross_tenant": True,
     },
     "tenant_admin": {
-        "granularity_cap": "village", "schemes": ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"],
+        "granularity_cap": "village",
         "geographies": "all", "is_admin": True,
     },
     "admin": {
         "granularity_cap": "village",
-        "schemes": ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"],
         "geographies": "all",
         "is_admin": True,
     },
     "state_officer": {
         "granularity_cap": "district",
-        "schemes": ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"],
         "geographies": "all",
     },
     "district_officer": {
         "granularity_cap": "block",
-        "schemes": ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"],
         "geographies": {"districts": [], "blocks": []},  # must be pinned per user
     },
     "block_officer": {
         "granularity_cap": "village",
-        "schemes": ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"],
         "geographies": {"districts": [], "blocks": []},
     },
     "analyst": {
         "granularity_cap": "village",
-        "schemes": ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"],
         "geographies": "all",
     },
     # No identity on the request -> this. Statewide aggregates only.
     "public": {
         "granularity_cap": "state",
-        "schemes": ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"],
         "geographies": "all",
     },
 }
+
+
+def _role_scheme_cap(role_perms: dict) -> list[str]:
+    """The scheme cap for a role dict from ROLE_PERMISSIONS: that role's own
+    explicit "schemes" override if it set one, else every currently-
+    registered scheme (resolved lazily via scheme_registry, NOT baked into
+    ROLE_PERMISSIONS as a literal — that dict is built at module-import
+    time, before app/main.py's startup ever calls
+    scheme_registry.load_all(), so a literal there would freeze at
+    whatever scheme_registry.yaml looked like at the moment auth.py was
+    first imported, or worse, an empty list if nothing had loaded yet).
+    Every role today gets the dynamic default — schemes are differentiated
+    by tenant grant (openspec/changes/multi-tenant-rls-scheme-scaleout),
+    not by role — but a future role can still set its own "schemes" key
+    to override this, same as before."""
+    return list(role_perms["schemes"]) if "schemes" in role_perms else scheme_registry.scheme_ids()
 
 
 @dataclass
@@ -122,19 +141,31 @@ class UserScope:
         fingerprint are guaranteed the same authorization outcome for any given
         question — the auth decision is a pure function of (scope, schemes,
         resolved_entities, sql) — so they may safely share a cached answer.
-        tenant_id is deliberately excluded: the curated warehouse the query path
-        reads is not tenant-partitioned, so it never changes the answer."""
+
+        tenant_id is included only when TENANT_SCHEME_RLS_ENABLED is on
+        (openspec/changes/multi-tenant-rls-scheme-scaleout). Historically it
+        was deliberately excluded — the curated warehouse wasn't
+        tenant-partitioned, so it never changed the answer — but once
+        curated data is tenant/scheme-scoped via RLS, two tenants with
+        otherwise-identical scopes (same role, same schemes list) can get
+        genuinely different result sets for the same question, and sharing
+        a cache entry between them would leak one tenant's data into the
+        other's cached answer. Off (default): unchanged from before,
+        tenant_id excluded."""
         if self.geographies == "all":
             geo = "geo=all"
         else:
             geo = ("d=" + ",".join(sorted(self.allowed_districts()))
                    + "|b=" + ",".join(sorted(self.allowed_blocks())))
-        return ";".join((
+        parts = [
             f"role={self.role}",
             f"gran={self.granularity_cap}",
             f"schemes={','.join(sorted(self.schemes))}",
             geo,
-        ))
+        ]
+        if settings.TENANT_SCHEME_RLS_ENABLED:
+            parts.insert(0, f"tenant={self.tenant_id}")
+        return ";".join(parts)
 
 
 @dataclass
@@ -153,20 +184,36 @@ def anonymous_scope() -> UserScope:
     """AUTH_ENABLED=false dev mode only — real requests always carry a JWT."""
     base = ROLE_PERMISSIONS.get(settings.AUTH_DEFAULT_ROLE, ROLE_PERMISSIONS["analyst"])
     return UserScope(user_id="(anonymous)", role=settings.AUTH_DEFAULT_ROLE,
-                     granularity_cap=base["granularity_cap"], schemes=list(base["schemes"]),
+                     granularity_cap=base["granularity_cap"], schemes=_role_scheme_cap(base),
                      geographies="all", name="anonymous")
 
 
-def scope_from_user(rec: dict) -> UserScope:
+def scope_from_user(rec: dict, tenant_schemes: list[str] | None = None) -> UserScope:
     """Build the effective scope from an app.users row. The role sets the caps;
-    the per-user district/block/scheme lists only narrow them, never widen."""
+    the per-user district/block/scheme lists only narrow them, never widen.
+
+    `tenant_schemes` (openspec/changes/multi-tenant-rls-scheme-scaleout):
+    when TENANT_SCHEME_RLS_ENABLED and this is given (see
+    app/deps.py::current_scope, which resolves it from
+    appdb.tenant_effective_schemes), it further narrows — never widens —
+    the role-cap/user-pin schemes above, replacing ROLE_PERMISSIONS'
+    hardcoded scheme lists as the actual entitlement source. This is the
+    app-layer half of the enforcement; curated-data RLS
+    (deploy/sql/03_tenant_scheme_rls.sql) is the independent DB-layer half
+    — the two don't have to agree for either to work, by design (defense
+    in depth: an app-layer bug here doesn't remove the DB-layer boundary).
+    Flag off, or None (unresolved/anonymous scope): unchanged from before,
+    tenant grants play no role."""
     role = rec.get("role") or settings.AUTH_DEFAULT_ROLE
     base = ROLE_PERMISSIONS.get(role, ROLE_PERMISSIONS[settings.AUTH_DEFAULT_ROLE])
 
-    schemes = list(base["schemes"])
+    schemes = _role_scheme_cap(base)
     if rec.get("schemes"):
         allowed = {str(s).strip() for s in rec["schemes"]}
         schemes = [s for s in schemes if s in allowed] or schemes
+    if settings.TENANT_SCHEME_RLS_ENABLED and tenant_schemes is not None:
+        allowed_by_tenant = set(tenant_schemes)
+        schemes = [s for s in schemes if s in allowed_by_tenant]
 
     districts, blocks = _upper_list(rec.get("districts")), _upper_list(rec.get("blocks"))
     if base["geographies"] == "all" and not districts and not blocks:

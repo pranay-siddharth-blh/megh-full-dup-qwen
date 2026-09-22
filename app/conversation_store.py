@@ -15,6 +15,7 @@ import json
 import logging
 
 from app import db
+from app.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -46,6 +47,19 @@ async def _persist_turn(tenant_id, user_id, session_id, result, question,
         rows = result.get("row_count")
         allowed = route != "denied"
         denied_by = result.get("denied_by")
+        # Compliance-trail fields (openspec/changes/phase-2-audit-trail-enrichment):
+        # a bounded row sample, not the UI's full 200-row `data` cap — see
+        # settings.AUDIT_RESULT_PREVIEW_ROWS for the size tradeoff.
+        result_preview = json.dumps(
+            (result.get("data") or [])[:settings.AUDIT_RESULT_PREVIEW_ROWS], default=str)
+        findings_payload = json.dumps(result.get("findings") or [], default=str)
+        chart_type = result.get("chart_type")
+        # node 5.2 query analyzer + its node 5.1 scope-decision sibling
+        # (openspec/changes/query-analyzer-consolidation) -- None/absent on
+        # any route that doesn't compute them (KNOWLEDGE/EDGE/denied) or when
+        # the analyzer itself failed; see app/query_analyzer.py.
+        analysis_payload = json.dumps(result.get("analysis"), default=str) if result.get("analysis") else None
+        scope_payload = json.dumps(result.get("scope"), default=str) if result.get("scope") else None
 
         # The payload the chat UI needs to redraw this turn when the thread is
         # reopened later — answer text, the result rows the charts are built
@@ -73,6 +87,12 @@ async def _persist_turn(tenant_id, user_id, session_id, result, question,
             # question and its option chips exactly as first shown.
             "clarification": result.get("clarification"),
             "needs_clarification": result.get("needs_clarification", False),
+            # node 5.2 query analyzer + its node 5.1 scope-decision sibling —
+            # kept here too (redundant with the dedicated app.query_audit
+            # columns below) so a reopened thread can redraw the same NODE 1/
+            # NODE 2 badge web/ai_query.html shows on the live turn.
+            "analysis": result.get("analysis"),
+            "scope": result.get("scope"),
         }, default=str)
 
         conv_id = await db.fetchval(
@@ -98,11 +118,14 @@ async def _persist_turn(tenant_id, user_id, session_id, result, question,
         await db.execute(
             """INSERT INTO app.query_audit
                (tenant_id, user_id, username, session_id, question, rewritten_question,
-                route, granularity, schemes, allowed, denied_by, row_count, latency_ms, ip)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)""",
+                route, granularity, schemes, allowed, denied_by, row_count, latency_ms, ip,
+                sql, result_preview, analysis, scope, findings, chart_type, answer)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)""",
             [tenant_id, user_id, username, session_id, question[:2000], rewritten,
              route, infer_granularity(entities, sql), list(schemes), allowed,
-             denied_by, rows, latency_ms, ip],
+             denied_by, rows, latency_ms, ip,
+             sql, result_preview, analysis_payload, scope_payload,
+             findings_payload, chart_type, answer],
         )
     except Exception as e:  # noqa: BLE001 — persistence is best-effort
         logger.warning("conversation_store: persist failed (non-fatal): %s", e)

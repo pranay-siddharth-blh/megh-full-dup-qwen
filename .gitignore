@@ -29,3 +29,12 @@ NeuralAiGovernanceProject*.zip
 # Root-anchored: must not shadow nested archive/ dirs elsewhere (e.g.
 # openspec/changes/archive/), which are real project history, not secrets.
 /archive/
+
+# Broken local virtualenv (323MB) - `.venv/` above does NOT match this name
+.venv_broken_ignore/
+
+# Large reference archives - e.g. "meghalaya (4).zip" (119MB)
+*.zip
+
+# Test cache
+.pytest_cache/

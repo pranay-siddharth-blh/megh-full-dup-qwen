@@ -68,11 +68,26 @@ async def _run() -> None:
         "resolve_entities": pipeline.resolve_entities,
         "generate_sql": pipeline.generate_sql,
         "execute_with_repair": pipeline.execute_with_repair,
+        "_execute_one_attempt": pipeline._execute_one_attempt,
         "compose_response": pipeline.compose_response,
         "query_analyzer": pipeline.query_analyzer,
     }
     orig_check_clarifications = pipeline.clarification_engine.check_clarifications
     pipeline.clarification_engine.check_clarifications = lambda *_a, **_kw: None
+    orig_schema_retrieve = pipeline.schema_retrieval.retrieve
+    # PIPELINE_GRAPH_ENABLED=True (a real deployment combination with
+    # LANGGRAPH_FOLLOWUP_ENABLED, both exercised together for the first time
+    # by multi-tenant-rls-scheme-scaleout tasks.md 7.2's flag-combination
+    # sweep) routes this test's call through app/pipeline_graph.py instead of
+    # the bespoke _answer_data — its node_execute_attempt calls
+    # pipeline._execute_one_attempt directly (not execute_with_repair, which
+    # it doesn't use — see that module's own docstring on why), and its
+    # node_schema_retrieve calls pipeline.schema_retrieval.retrieve, neither
+    # of which this test previously mocked (it only needed to cover
+    # _answer_data's call chain). Same mock shapes as tests/test_pipeline_graph.py.
+    async def _fake_schema_retrieve(*_a, **_kw):
+        return []
+    pipeline.schema_retrieval.retrieve = _fake_schema_retrieve
 
     class _FakeQueryAnalyzer:
         async def analyze_query(self, *_a, **_kw):
@@ -91,6 +106,9 @@ async def _run() -> None:
     async def _fake_execute_with_repair(question, schemes, entity_result, *, initial_sql, scope=None):
         return initial_sql, [dict(r) for r in _FAKE_ROWS]
 
+    async def _fake_execute_one_attempt(sql, *_a, **_kw):
+        return sql, [dict(r) for r in _FAKE_ROWS]
+
     async def _fake_compose_response(*_a, **_kw):
         return "Total disbursement in East Khasi Hills was 12,345."
 
@@ -98,6 +116,7 @@ async def _run() -> None:
     pipeline.resolve_entities = _fake_resolve_entities
     pipeline.generate_sql = _fake_generate_sql
     pipeline.execute_with_repair = _fake_execute_with_repair
+    pipeline._execute_one_attempt = _fake_execute_one_attempt
     pipeline.compose_response = _fake_compose_response
     pipeline.query_analyzer = _FakeQueryAnalyzer()
 
@@ -150,6 +169,7 @@ async def _run() -> None:
         for name, fn in orig.items():
             setattr(pipeline, name, fn)
         pipeline.clarification_engine.check_clarifications = orig_check_clarifications
+        pipeline.schema_retrieval.retrieve = orig_schema_retrieve
 
 
 asyncio.run(_run())

@@ -22,15 +22,17 @@ from four sources with a clear precedence:
         rows, so it is the single most load-bearing part of the prompt.
 
 Public:
-  build_sql_prompt(question, schemes, entity_result)      -> str   (first attempt)
+  build_sql_prompt(question, schemes, entity_result)      -> async str  (first attempt;
+                                                                          §5.10 awaits
+                                                                          sql_examples_retrieval)
   build_repair_prompt(question, schemes, entity_result,
-                      failed_sql, error)                    -> str  (retry)
+                      failed_sql, error)                    -> str  (retry, sync)
 
 The repair prompt now carries the SAME schema + resolved-entities context as the
 first attempt (plus the failure), instead of the thin schema-only prompt used
 before — a repair most often needs exactly the entity block it was missing.
 """
-from app import schema_introspect
+from app import scheme_registry, schema_introspect, sql_examples_retrieval
 from app.annotations import few_shot_examples, prohibited_joins_text
 from app.schema_context import build_schema_context
 
@@ -38,27 +40,31 @@ from app.schema_context import build_schema_context
 # way schema_context.py scopes its hand-written one.
 _SHARED_PREFIXES = ("dim_scheme", "dim_year", "dim_geography")
 _CROSS_PREFIXES = ("v_cross_scheme",)
-_MGNREGA_EXACT = {"v_employment", "v_expenditure", "v_district_year_summary"}
-_FOCUSPLUS_EXACT = {"v_focus_plus"}
-_CMELEVATE_EXACT = {"v_cm_elevate", "dim_cm_elevate_scheme"}
 
 
 def _scheme_of(table: str) -> str:
     """'MGNREGA' | 'PMAY-G' | 'Focus Plus' | 'CM Elevate' | 'shared' | 'cross' for
-    a bare (unqualified) table name."""
+    a bare (unqualified) table name.
+
+    openspec/changes/multi-tenant-rls-scheme-scaleout tasks.md 4.2: this used
+    to be a hand-authored substring/exact-match dict per scheme (the same
+    per-scheme-code-per-onboarding character as app/schema_context.py's 912
+    lines) — flagged as out of scope, then actually fixed 2026-09-15: every
+    scheme already declares its owned tables in scheme_registry.yaml's
+    `tables:` list (schema-qualified) for schema-retrieval/join-discovery
+    purposes, so that's the real source of truth for "which scheme owns this
+    table" too. A newly onboarded scheme now needs zero code here — only its
+    registry entry, which it needs anyway."""
     t = table.lower()
     if t.startswith(_SHARED_PREFIXES):
         return "shared"
     if t.startswith(_CROSS_PREFIXES):
         return "cross"
-    if "focus_plus" in t or "focusplus" in t or t in _FOCUSPLUS_EXACT:
-        return "Focus Plus"
-    if "cm_elevate" in t or "cmelevate" in t or t in _CMELEVATE_EXACT:
-        return "CM Elevate"
-    if "mgnrega" in t or t in _MGNREGA_EXACT:
-        return "MGNREGA"
-    if "pmay" in t:
-        return "PMAY-G"
+    for scheme_id in scheme_registry.scheme_ids():
+        for qualified in scheme_registry.tables_for(scheme_id):
+            _, _, bare = qualified.partition(".")
+            if bare.lower() == t:
+                return scheme_id
     return "shared"  # unknown object -> show it rather than hide it
 
 
@@ -81,7 +87,13 @@ def _live_schema_block(schemes: list[str]) -> str:
         owner = _scheme_of(bare)
         if owner == "cross" and not multi:
             continue
-        if owner in ("MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate") and owner not in want:
+        # openspec/changes/multi-tenant-rls-scheme-scaleout: reads the live
+        # registry instead of a hardcoded 4-scheme tuple, so a newly
+        # onboarded scheme correctly counts as "a real scheme, filter it
+        # out when not wanted" rather than falling through to the "shared,
+        # always show" default below. _scheme_of() itself (above) is now
+        # also registry-driven — see that function's own docstring.
+        if owner in scheme_registry.scheme_ids() and owner not in want:
             continue
         lines.append(f"  {qualified}({', '.join(c['column'] for c in cols)})")
 
@@ -98,8 +110,22 @@ def _live_schema_block(schemes: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
-def _fewshot_block(schemes: list[str], question: str = "") -> str:
-    examples = few_shot_examples(schemes, question, top_k=4)
+async def _fewshot_block(schemes: list[str], question: str = "") -> str:
+    """§5.10 — tries semantic retrieval over megh_sql_examples first
+    (app.sql_examples_retrieval, scheme-prefiltered pgvector); an empty
+    result (table not yet seeded for these schemes, or an embedding
+    failure — retrieve() never raises) falls back unchanged to the
+    original token-overlap ranking over the static YAML pool."""
+    vector_examples = await sql_examples_retrieval.retrieve(question, schemes)
+    if vector_examples:
+        examples = [
+            {"question": ex["question"],
+             "sql": ex["sql"] if ex["is_answerable"] else None,
+             "reason": ex["reason"]}
+            for ex in vector_examples
+        ]
+    else:
+        examples = few_shot_examples(schemes, question, top_k=5)
     if not examples:
         return ""
     parts = []
@@ -182,9 +208,19 @@ def _entities_block(entity_result: dict) -> str:
                         "the entire category and return a false 0. Count status_name over "
                         "all rows.")
             elif k == "tranche_label":
-                lines.append(f"  tranche_label = {v!r}   -- exact stored Focus Plus label "
-                             "(spelled \"Tranch\", not \"Tranche\", plus a month suffix); use "
-                             "it verbatim, do NOT substitute the question's own spelling")
+                vals = v if isinstance(v, list) else [v]
+                quoted = ", ".join(f"'{s}'" for s in vals)
+                if len(vals) == 1:
+                    lines.append(f"  tranche_label = {quoted}   -- exact stored Focus Plus "
+                                 "label (spelled \"Tranch\", not \"Tranche\", plus a month "
+                                 "suffix); use it verbatim, do NOT substitute the question's "
+                                 "own spelling")
+                else:
+                    lines.append(
+                        f"  tranche_label IN ({quoted})   -- the {len(vals)} tranches "
+                        "explicitly named for comparison. Filter on ALL of them with IN and "
+                        "GROUP BY tranche_label so each gets its own row in the result — do "
+                        "NOT sum them into one figure.")
             else:
                 lines.append(f"  {k} = {v!r}")
     if notes:
@@ -198,14 +234,47 @@ def _prohibited_block(schemes: list[str]) -> str:
     return f"\nPROHIBITED JOINS:\n{prohibited}\n" if prohibited else ""
 
 
-def build_sql_prompt(question: str, schemes: list[str], entity_result: dict) -> str:
+def _retrieved_schema_block(retrieved: list[dict] | None) -> str:
+    """Formats app/schema_retrieval.py's output, when non-empty, as a
+    supplementary block — additive only (see design.md's "additive, not
+    gating" decision). A scheme with no indexed schema-metadata rows passes
+    `retrieved=[]` (or omits the argument), so this returns "" and the
+    prompt is byte-for-byte the same as before this capability existed."""
+    if not retrieved:
+        return ""
+    lines = ["\nRETRIEVED SCHEMA NOTES — semantically matched to this question "
+             "(supplements, does not replace, the schema above):"]
+    for r in retrieved:
+        lines.append(f"  [{r['granularity']}] {r['ref']}: {r['content']}")
+    return "\n".join(lines) + "\n"
+
+
+def _required_join_block(joins) -> str:
+    """Formats app/join_graph.py's output, when non-empty, as an additive
+    hint — the same enforcement tier as PROHIBITED JOINS below (a prompt
+    instruction, not a runtime parse of the returned SQL; see design.md).
+    `joins` is a list of join_graph.JoinEdge or None."""
+    if not joins:
+        return ""
+    lines = ["\nREQUIRED JOIN(S) — computed from declared foreign keys / curated "
+             "join edges, use these exact ON clauses if you join these tables:"]
+    for j in joins:
+        lines.append(f"  {j.left} JOIN {j.right} ON {j.on_clause}")
+    return "\n".join(lines) + "\n"
+
+
+async def build_sql_prompt(question: str, schemes: list[str], entity_result: dict,
+                           retrieved: list[dict] | None = None, joins=None) -> str:
     catalog = schema_introspect.catalog_block(schemes)
+    fewshot = await _fewshot_block(schemes, question)
     return "".join([
         build_schema_context(schemes), "\n\n",
         _live_schema_block(schemes),
         (catalog + "\n") if catalog else "",
         _prohibited_block(schemes),
-        _fewshot_block(schemes, question),
+        _retrieved_schema_block(retrieved),
+        _required_join_block(joins),
+        fewshot,
         _entities_block(entity_result),
         f"\nThe user's question is about: {', '.join(schemes)}.\n",
         f'\nQuestion: "{question}"\nSQL:',
@@ -225,4 +294,97 @@ def build_repair_prompt(question: str, schemes: list[str], entity_result: dict,
         f"Previous query:\n{failed_sql}\n",
         f'\nQuestion: "{question}"\n',
         "Return the corrected single read-only SELECT. SQL:",
+    ])
+
+
+_VERIFY_CALIBRATION = """
+CALIBRATION — how strict to be:
+Q: "How many payments were made in Tranch 2?"
+RESOLVED ENTITIES: tranche_label = 'Tranch 2 - August'
+SQL: SELECT COUNT(*) AS payments FROM curated.v_focus_plus WHERE tranche_label = 'Tranch 2 - August';
+{"ok": true}
+  (The resolved value IS the whole tranche — "Tranch 2 - August" is a closed-set
+  label, not a month filter layered on top of "Tranch 2". Using it verbatim is
+  correct, not a narrowing of scope.)
+
+Q: "How many MGNREGA person days in East Garo Hills?"
+RESOLVED ENTITIES: lgd_district = 'EAST GARO HILLS'
+SQL: SELECT SUM(person_days) AS person_days FROM curated.v_employment WHERE lgd_district = 'EAST GARO HILLS';
+{"ok": true}
+  (District-level question, district-level filter, on the resolved column. No
+  finer grain was asked for or required.)
+
+Q: "Compare person days between East Garo Hills and West Garo Hills"
+RESOLVED ENTITIES: lgd_district IN ('EAST GARO HILLS', 'WEST GARO HILLS')
+SQL: SELECT SUM(person_days) AS person_days FROM curated.v_employment WHERE lgd_district = 'EAST GARO HILLS';
+{"ok": false, "issue": "Comparison names two districts but the SQL filters on only one (WEST GARO HILLS is dropped), so the result has no second value to compare against."}
+  (This IS a real violation — a resolved value is silently missing from the SQL.)
+
+Q: "How much has been disbursed in Dalu block for Focus Plus?"
+RESOLVED ENTITIES: lgd_block = 'DALU'
+SQL: SELECT SUM(amount_disbursed) AS amount_raw FROM curated.v_focus_plus WHERE lgd_block = 'DALU' LIMIT 1;
+{"ok": true}
+  (SUM(...) IS the aggregation — a SUM/COUNT/AVG with no GROUP BY always returns
+  exactly one row, so the trailing LIMIT 1 is a harmless no-op, not evidence the
+  query is missing an aggregate. Read whether SUM/COUNT/AVG wraps the metric
+  column, never the presence of "LIMIT 1" by itself, to answer check 3.)
+""".strip()
+
+
+def build_verify_prompt(question: str, schemes: list[str], entity_result: dict, sql: str) -> str:
+    """Second-opinion check on already-generated SQL (app.llm.call_sql_verifier),
+    run before the query touches the database.
+
+    Deliberately narrower than the SQL-generation prompt: earlier versions
+    reused the full hand-written rules backbone (build_schema_context) and
+    told the small verifier model to check the SQL against "every rule" —
+    in testing that made it hallucinate violations on already-correct,
+    already-verified SQL (including the project's own few-shot examples) at
+    a high rate, because most of those rules describe how the ANSWER TEXT
+    should be worded (label multiple readings, state a figure as
+    provisional, read money_unit before formatting) rather than what the
+    SQL must contain, and a small model given a long prose rule list tends
+    to find "a" violation rather than confirm there is none. This version
+    hands it only the mechanical, checkable facts — real tables/columns,
+    prohibited joins, resolved entities — plus a closed checklist and two
+    worked "ok: true" examples so it has a calibration anchor for what a
+    passing query looks like, not just failing ones. Still does NOT include
+    the SQL-generation few-shot: those are for writing SQL, not judging it."""
+    return "".join([
+        _live_schema_block(schemes),
+        _prohibited_block(schemes),
+        _entities_block(entity_result),
+        "\n", _VERIFY_CALIBRATION, "\n",
+        "\nCheck the SQL below against ONLY these four things:\n"
+        "  1. Every PROHIBITED JOIN above — is one of them actually used?\n"
+        "  2. Every RESOLVED ENTITY above — is its exact value present in the "
+        "WHERE clause (not dropped, not substituted with different text from "
+        "the question)? Judge this ONLY against the RESOLVED ENTITIES block "
+        "above — an empty or absent block means there is nothing to check here, "
+        "so answer this check true regardless of the question's own wording. "
+        "A phrase in the QUESTION itself like 'all years', 'all tranches', "
+        "'all financial years', 'combined', 'overall' or 'cumulative' is NEVER "
+        "a resolved entity requiring a WHERE-clause value — it is an "
+        "instruction to filter on NOTHING for that dimension, so a WHERE "
+        "clause that omits it entirely is correct, not a violation. Do not "
+        "invent a resolved entity from question text that isn't in the "
+        "RESOLVED ENTITIES block.\n"
+        "  3. Table/grain — does it read a raw per-row table when the question "
+        "asks for a total (missing SUM/COUNT), or vice versa? Judge this ONLY by "
+        "whether SUM/COUNT/AVG wraps the metric column — a trailing LIMIT clause "
+        "proves nothing either way (a SUM/COUNT/AVG with no GROUP BY always "
+        "returns one row, so LIMIT 1 after one is normal, not a sign the "
+        "aggregate is missing).\n"
+        "  4. Metric column — does it aggregate a column that has nothing to "
+        "do with what the question asks for?\n"
+        "Nothing else is in scope. Do not judge phrasing, labelling, rounding, "
+        "unit formatting, or whether the answer text will explain a caveat — "
+        "those happen after this query runs, in a separate step, and are not "
+        "the SQL's job. If you cannot point to a SPECIFIC one of the four "
+        "checks above that this exact SQL fails, answer ok: true.\n",
+        f'\nQuestion: "{question}"\n',
+        f"\nGenerated SQL:\n{sql}\n",
+        '\nRespond with ONLY a JSON object: {"ok": true} if none of the four '
+        'checks are violated, or {"ok": false, "issue": "<which of the four '
+        'checks it fails, and how>"} if one is.\nJSON:',
     ])

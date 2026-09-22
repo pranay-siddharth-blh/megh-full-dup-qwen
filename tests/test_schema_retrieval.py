@@ -109,6 +109,119 @@ async def _run_sql_shape_check():
 asyncio.run(_run_sql_shape_check())
 
 
+# ── 2b. Two-stage retrieve + optional rerank (§5.8) ─────────────────────────
+print("2b. TWO-STAGE RETRIEVE/RERANK")
+
+
+def _fake_candidates(n: int) -> list[dict]:
+    return [
+        {"score": 1.0 - i * 0.01, "scheme_id": "CM Elevate", "granularity": "table",
+         "ref": f"curated.t{i}", "content": f"content {i}", "shared": False, "metadata": {}}
+        for i in range(n)
+    ]
+
+
+async def _run_candidate_pool_check():
+    fake = _FakePool()
+    orig_get_pool = vectorstore.get_pool
+    orig_call_embedding = llm.call_embedding
+    vectorstore.get_pool = lambda: fake
+    llm.call_embedding = lambda *_a, **_kw: asyncio.sleep(0, result=[[0.1, 0.2]])
+    try:
+        await schema_retrieval.retrieve("any question", ["CM Elevate"])
+    finally:
+        vectorstore.get_pool = orig_get_pool
+        llm.call_embedding = orig_call_embedding
+
+    check("retrieve() requests SCHEMA_RETRIEVAL_CANDIDATE_K rows, not TOP_K",
+          fake.last_params is not None and fake.last_params[2] == vectorstore.settings.SCHEMA_RETRIEVAL_CANDIDATE_K,
+          str(fake.last_params))
+
+
+asyncio.run(_run_candidate_pool_check())
+
+
+async def _run_rerank_disabled_check():
+    orig_call_embedding = llm.call_embedding
+    orig_search = vectorstore.search_schema_metadata
+    llm.call_embedding = lambda *_a, **_kw: asyncio.sleep(0, result=[[0.1, 0.2]])
+    vectorstore.search_schema_metadata = lambda *_a, **_kw: asyncio.sleep(0, result=_fake_candidates(30))
+    orig_enabled = vectorstore.settings.SCHEMA_RETRIEVAL_RERANKER_ENABLED
+    vectorstore.settings.SCHEMA_RETRIEVAL_RERANKER_ENABLED = False
+    try:
+        result = await schema_retrieval.retrieve("any question", ["CM Elevate"])
+        check("reranker disabled -> cosine order truncated to TOP_K",
+              [r["ref"] for r in result] == [f"curated.t{i}" for i in range(vectorstore.settings.SCHEMA_RETRIEVAL_TOP_K)],
+              str([r["ref"] for r in result]))
+    finally:
+        llm.call_embedding = orig_call_embedding
+        vectorstore.search_schema_metadata = orig_search
+        vectorstore.settings.SCHEMA_RETRIEVAL_RERANKER_ENABLED = orig_enabled
+
+
+asyncio.run(_run_rerank_disabled_check())
+
+
+async def _run_rerank_enabled_check():
+    orig_call_embedding = llm.call_embedding
+    orig_search = vectorstore.search_schema_metadata
+    orig_call_reranker = llm.call_reranker
+    llm.call_embedding = lambda *_a, **_kw: asyncio.sleep(0, result=[[0.1, 0.2]])
+    vectorstore.search_schema_metadata = lambda *_a, **_kw: asyncio.sleep(0, result=_fake_candidates(30))
+
+    # Reranker reverses order: last candidate becomes the top hit.
+    async def _reversed_rerank(_q, docs):
+        n = len(docs)
+        return [(n - 1 - i, float(i)) for i in range(n)]
+
+    llm.call_reranker = _reversed_rerank
+    orig_enabled = vectorstore.settings.SCHEMA_RETRIEVAL_RERANKER_ENABLED
+    vectorstore.settings.SCHEMA_RETRIEVAL_RERANKER_ENABLED = True
+    try:
+        result = await schema_retrieval.retrieve("any question", ["CM Elevate"])
+        top_k = vectorstore.settings.SCHEMA_RETRIEVAL_TOP_K
+        expected = [f"curated.t{i}" for i in range(29, 29 - top_k, -1)]
+        check("reranker enabled -> output follows reranked order, not cosine order",
+              [r["ref"] for r in result] == expected, str([r["ref"] for r in result]))
+    finally:
+        llm.call_embedding = orig_call_embedding
+        vectorstore.search_schema_metadata = orig_search
+        llm.call_reranker = orig_call_reranker
+        vectorstore.settings.SCHEMA_RETRIEVAL_RERANKER_ENABLED = orig_enabled
+
+
+asyncio.run(_run_rerank_enabled_check())
+
+
+async def _run_rerank_failure_check():
+    orig_call_embedding = llm.call_embedding
+    orig_search = vectorstore.search_schema_metadata
+    orig_call_reranker = llm.call_reranker
+    llm.call_embedding = lambda *_a, **_kw: asyncio.sleep(0, result=[[0.1, 0.2]])
+    vectorstore.search_schema_metadata = lambda *_a, **_kw: asyncio.sleep(0, result=_fake_candidates(30))
+
+    async def _boom_rerank(*_a, **_kw):
+        raise RuntimeError("reranker route down")
+
+    llm.call_reranker = _boom_rerank
+    orig_enabled = vectorstore.settings.SCHEMA_RETRIEVAL_RERANKER_ENABLED
+    vectorstore.settings.SCHEMA_RETRIEVAL_RERANKER_ENABLED = True
+    try:
+        result = await schema_retrieval.retrieve("any question", ["CM Elevate"])
+        top_k = vectorstore.settings.SCHEMA_RETRIEVAL_TOP_K
+        check("reranker exception -> degrades to pre-rerank cosine order, not raised",
+              [r["ref"] for r in result] == [f"curated.t{i}" for i in range(top_k)],
+              str([r["ref"] for r in result]))
+    finally:
+        llm.call_embedding = orig_call_embedding
+        vectorstore.search_schema_metadata = orig_search
+        llm.call_reranker = orig_call_reranker
+        vectorstore.settings.SCHEMA_RETRIEVAL_RERANKER_ENABLED = orig_enabled
+
+
+asyncio.run(_run_rerank_failure_check())
+
+
 # ── 3. Live section — real Neon pgvector, real CM Elevate rows from task 1.6 ─
 print("3. LIVE — SCHEME SCOPING AGAINST THE REAL megh_schema_metadata TABLE")
 

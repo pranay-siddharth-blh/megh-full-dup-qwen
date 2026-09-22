@@ -1,9 +1,27 @@
 # Phase 1 — Security Hardening
 
 ## Status
-Proposal — awaiting review. Do not implement until approved and until the
-`[cite: ...]` placeholders below are filled in from `docs/baseline-audit.md`
-by a human, not by the implementing session.
+**2 of 3 items implemented and committed** (`c9834a0`, "Phase 1: session
+ownership check, repair re-authorization, max_repairs 2->1") — this header
+was not updated when that work landed; corrected 2026-09-11 after
+re-verifying the claim against the actual diff rather than trusting this
+file at face value.
+
+- Item 1 (session ownership check) — **done.**
+  `app/session_store.py:179-180` raises `SessionOwnershipError` when a
+  session id is already bound to a different `user_id`.
+- Item 2 (repair re-authorization + `max_repairs` cap) — **done.**
+  `app/pipeline.py:2705-2714` calls `auth.authorize()` on every repair
+  attempt via `SQLAuthorizationDenied`; `max_repairs` is `1`
+  (`pipeline.py:2700`).
+- Item 3 (SELECT-only DB role cutover) — **not done, blocked on
+  production infra access.** `deploy/sql/01_create_megh_app_role.sql` is
+  scripted but unapplied; production still connects as the `postgres`
+  superuser (confirmed via static analysis, `docs/baseline-audit.md` §3
+  finding 9). Cutting over requires a superuser session against the live
+  production database and a coordinated restart — out of scope for a
+  coding session; needs a scheduled maintenance window run by whoever
+  holds production DB credentials.
 
 ## Why
 
@@ -127,6 +145,12 @@ above are new)
 - Row-level security policies (11.2) — depends on a stable geography/
   scheme scope model that Phase 3's schema work will formalize; adding
   RLS now against an incomplete scope model risks false security.
+  **Update (2026-09-15)**: picked up by
+  `openspec/changes/multi-tenant-rls-scheme-scaleout` — a tenant↔scheme
+  entitlement model (not the geography model this bullet anticipated) now
+  backs RLS on the curated fact tables. Still shares this item's own
+  blocker: RLS is a no-op against a superuser connection, so production
+  activation is gated on this same DB-role cutover.
 - Replacing `_assert_safe` with a full SQLGlot AST validator — that is
   real, substantial work (CTEs, nested queries, set operations, function
   allowlisting) and deserves its own reviewed proposal, not a bullet in

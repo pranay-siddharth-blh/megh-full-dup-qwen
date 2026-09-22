@@ -26,6 +26,7 @@ Covers tasks.md groups 1 and 2's acceptance scenarios:
         can't see it (a `SELECT *` that doesn't name the column literally).
 """
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -194,6 +195,129 @@ async def _run():
               rows is not None and "member_id" not in rows[0] and "pincode" not in rows[0])
         check("non-blocklisted data in that same backstopped row survives",
               rows is not None and rows[0].get("amount_disbursed") == 2500)
+
+        # ── FOLLOW-UP FIX #1 — scheme_specific WHOLE-COLUMN BYPASS (CM Elevate) ──
+        print("10. LAYER 1b — BARE `SELECT scheme_specific` REJECTED (CM ELEVATE)")
+        pipeline.run_readonly = _fake_run_readonly_plain
+        raised = None
+        try:
+            await pipeline.execute_with_repair(
+                "show CM Elevate scheme specific data", ["CM Elevate"], _ENTITY_RESULT,
+                initial_sql="SELECT scheme_specific FROM curated.v_cm_elevate LIMIT 5")
+        except pipeline.ClarificationNeeded as e:
+            raised = e
+        check("bare `SELECT scheme_specific` raises ClarificationNeeded", raised is not None)
+        check("rule tag is pii-column-blocked", raised is not None and raised.rule == "pii-column-blocked")
+
+        print("11. LAYER 1b — ALIASED `SELECT scheme_specific AS ss` REJECTED")
+        raised = None
+        try:
+            await pipeline.execute_with_repair(
+                "show CM Elevate scheme specific data", ["CM Elevate"], _ENTITY_RESULT,
+                initial_sql="SELECT scheme_specific AS ss, cm_scheme_key FROM curated.v_cm_elevate LIMIT 5")
+        except pipeline.ClarificationNeeded as e:
+            raised = e
+        check("aliased `SELECT scheme_specific AS ss` raises ClarificationNeeded", raised is not None)
+
+        print("12. LAYER 1b — `SELECT *` ON CM ELEVATE REJECTED (view includes scheme_specific)")
+        raised = None
+        try:
+            await pipeline.execute_with_repair(
+                "show me everything about CM Elevate applications", ["CM Elevate"], _ENTITY_RESULT,
+                initial_sql="SELECT * FROM curated.v_cm_elevate LIMIT 5")
+        except pipeline.ClarificationNeeded as e:
+            raised = e
+        check("`SELECT *` on CM Elevate raises ClarificationNeeded", raised is not None)
+
+        print("13. LAYER 1b — REGRESSION: scoped `->> 'gender_id'` extraction NOT rejected "
+              "(the doc's own worked example — a legitimate, non-blocklisted key)")
+        raised = None
+        sql, rows = None, None
+        try:
+            sql, rows = await pipeline.execute_with_repair(
+                "gender split of CM Elevate applicants", ["CM Elevate"], _ENTITY_RESULT,
+                initial_sql="SELECT scheme_specific ->> 'gender_id' AS gender, COUNT(*) AS applications "
+                            "FROM curated.v_cm_elevate GROUP BY 1")
+        except pipeline.ClarificationNeeded as e:
+            raised = e
+        check("scoped non-blocklisted `->> 'gender_id'` is NOT rejected", raised is None)
+        check("query actually executed and returned rows", rows == _FAKE_ROWS)
+
+        print("14. LAYER 1b — scoped `->> 'dob'` (blocklisted key) STILL REJECTED "
+              "(find_blocked_columns' existing literal-name scan, unaffected by the new check)")
+        raised = None
+        try:
+            await pipeline.execute_with_repair(
+                "show CM Elevate applicant date of birth", ["CM Elevate"], _ENTITY_RESULT,
+                initial_sql="SELECT scheme_specific ->> 'dob' AS dob FROM curated.v_cm_elevate LIMIT 5")
+        except pipeline.ClarificationNeeded as e:
+            raised = e
+        check("scoped `->> 'dob'` (blocklisted key) still raises ClarificationNeeded", raised is not None)
+
+        # ── FOLLOW-UP FIX #1, LAYER 2 — JSON-VALUE REDACTION BACKSTOP ───────────
+        print("15. LAYER 2b — JSON-STRING VALUE: BLOCKLISTED KEYS STRIPPED, OTHERS SURVIVE")
+        raw_row = {
+            "cm_scheme_key": 7,
+            "scheme_specific": json.dumps({
+                "dob": "1990-01-01", "member_id": "CME-123",
+                "gender_id": "Female", "village_name": "Zikzak",
+            }),
+        }
+        out3 = pii_guard.redact_rows([raw_row], ["CM Elevate"])
+        parsed_specific = json.loads(out3[0]["scheme_specific"])
+        check("dob is absent from the redacted JSON string value", "dob" not in parsed_specific)
+        check("member_id is absent from the redacted JSON string value", "member_id" not in parsed_specific)
+        check("gender_id (non-blocklisted) survives with its original value",
+              parsed_specific.get("gender_id") == "Female")
+        check("village_name (non-blocklisted) survives with its original value",
+              parsed_specific.get("village_name") == "Zikzak")
+        check("original row's scheme_specific string was not mutated in place",
+              "dob" in json.loads(raw_row["scheme_specific"]))
+
+        print("16. LAYER 2b — INTEGRATION: `SELECT *` ON CM ELEVATE FALLS THROUGH TO LAYER 2 "
+              "(if Layer 1b somehow missed it, the JSON-value backstop still strips it)")
+
+        async def _fake_run_readonly_cm_star(sql):
+            return [dict(r) for r in [{
+                "cm_scheme_key": 3,
+                "scheme_specific": json.dumps({
+                    "dob": "1985-05-05", "email_id": "a@example.com",
+                    "member_id": "CME-999", "family_id": "F-1",
+                    "pds_id": "PDS-1", "account_holder_name": "X",
+                    "ifsc_code": "ABCD0123456", "gender_id": "Male",
+                    "village_name": "Somewhere",
+                }),
+            }]]
+
+        # Force this one row through Layer 2 alone (as if Layer 1b's SQL-text
+        # scan somehow missed it) by calling redact_rows directly on the fake
+        # driver's output — this is the same backstop guarantee section 9
+        # established for Focus Plus, now exercised for CM Elevate specifically,
+        # per proposal.md's note that the original test only covered Focus Plus.
+        star_rows = await _fake_run_readonly_cm_star("SELECT * FROM curated.v_cm_elevate LIMIT 5")
+        redacted_star_rows = pii_guard.redact_rows(star_rows, ["CM Elevate"])
+        nested = json.loads(redacted_star_rows[0]["scheme_specific"])
+        check("no blocklisted key survives at the top level",
+              not ({"dob", "email_id", "member_id", "family_id", "pds_id",
+                    "account_holder_name", "ifsc_code"} & redacted_star_rows[0].keys()))
+        check("no blocklisted key survives inside the nested scheme_specific JSON",
+              not ({"dob", "email_id", "member_id", "family_id", "pds_id",
+                    "account_holder_name", "ifsc_code"} & nested.keys()))
+        check("non-blocklisted nested fields (gender_id, village_name) survive",
+              nested.get("gender_id") == "Male" and nested.get("village_name") == "Somewhere")
+
+        print("16b. LAYER 1b + 2b — FULL END-TO-END: `SELECT *` ON CM ELEVATE THROUGH "
+              "execute_with_repair IS REJECTED AT LAYER 1b (never reaches Layer 2 at all)")
+        pipeline.run_readonly = _fake_run_readonly_cm_star
+        raised = None
+        try:
+            await pipeline.execute_with_repair(
+                "show me everything about this CM Elevate application", ["CM Elevate"], _ENTITY_RESULT,
+                initial_sql="SELECT * FROM curated.v_cm_elevate LIMIT 5")
+        except pipeline.ClarificationNeeded as e:
+            raised = e
+        check("`SELECT *` on CM Elevate is rejected end-to-end via execute_with_repair",
+              raised is not None)
     finally:
         pipeline._verify_sql = orig_verify
         pipeline.run_readonly = orig_run_readonly

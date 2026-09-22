@@ -2,12 +2,13 @@
 #
 #   docker compose build          # build the app image
 #   docker compose up -d          # run just the app (Postgres + Qwen gateway are remote)
-#   docker compose --profile local-infra up -d   # also run Qdrant + Redis locally
+#   docker compose --profile local-infra up -d   # also run Redis locally
 #
 # The app reads its config from .env (same file the bare-metal deploy uses).
-# At minimum set DATABASE_URL, JWT_SECRET, ADMIN_TOKEN and the six model roles.
-# When running the local-infra profile, point QDRANT_URL at http://qdrant:6333
-# and REDIS_URL at redis://redis:6379/0 in .env.
+# At minimum set DATABASE_URL, VECTOR_DB_URL, JWT_SECRET, ADMIN_TOKEN and the
+# six model roles. VECTOR_DB_URL is a Postgres (pgvector-enabled) connection
+# string for the RAG scheme-knowledge base — see .env.example. When running
+# the local-infra profile, point REDIS_URL at redis://redis:6379/0 in .env.
 
 services:
   nlp:
@@ -34,16 +35,6 @@ services:
       start_period: 40s
 
   # ── Optional local infra (opt in with: --profile local-infra) ──────────────
-  qdrant:
-    image: qdrant/qdrant:v1.12.4
-    container_name: megh-qdrant
-    profiles: ["local-infra"]
-    restart: unless-stopped
-    ports:
-      - "6333:6333"
-    volumes:
-      - qdrant_data:/qdrant/storage
-
   redis:
     image: redis:7-alpine
     container_name: megh-redis
@@ -55,4 +46,3 @@ services:
 
 volumes:
   hf_cache:
-  qdrant_data:

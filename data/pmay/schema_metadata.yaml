@@ -1,0 +1,99 @@
+# schema_metadata.yaml — PMAY-G
+#
+# Source: condensed from app/schema_context.py's hand-curated PMAY-G blocks
+# (_PMAY_TABLES, _PMAY_RULES, _PMAY_VOCAB) — this file does not invent new
+# facts, it re-expresses the same SME-reviewed knowledge as embeddable prose
+# for the schema-retrieval node (see openspec/changes/
+# phase-3-schema-retrieval-join-discovery/proposal.md section 2), same
+# pattern as data/cm_elevate/schema_metadata.yaml and
+# data/focus_plus/schema_metadata.yaml.
+#
+# Read by app/schema_metadata_ingest.py.
+
+scheme:
+  id: PMAY-G
+  content: |
+    PMAY-G is the rural housing scheme. One row is one sanctioned house,
+    money in RUPEES (never mixed with MGNREGA's lakhs or Focus Plus's
+    unverified unit). curated.v_pmay is THE query surface for any
+    statewide, district- or block-level number — every row is PMAY-G, so it
+    needs no scheme filter and no join to curated.dim_scheme. Common
+    phrasings: "houses sanctioned", "houses completed", "sanctioned
+    amount", "amount released", "construction stage", "tranche" /
+    "installment".
+
+tables:
+  - ref: curated.v_pmay
+    content: |
+      curated.v_pmay is fact_pmay_house pre-joined to year, geography and
+      house status — one row = one house. Carries lgd_district / lgd_block
+      / lgd_village_name and financial_year / financial_year_short
+      directly, no join needed. Money columns sanctioned_amount,
+      amount_released, amount_pending are RUPEES; there is no single
+      "total expenditure" column like MGNREGA's total_exp — "expenditure" /
+      "spending" / "spent" for PMAY-G means amount_released (money actually
+      disbursed). Always filter WHERE NOT is_placeholder unless the
+      question is explicitly about data completeness. Exclude
+      sanctioned_amount = 0 rows from any utilisation-rate or
+      per-house-average calculation — they are a documented data gap, not
+      real zeros. Financial-year filter: use year_key (a smallint — 2023
+      means FY 2023-24), not the financial_year CHAR column ('2023-2024',
+      fixed-width) or financial_year_short ('2023-24') unless matched
+      exactly — a mismatched literal matches zero rows and returns a false
+      0.
+
+  - ref: curated.dim_pmay_house_status
+    content: |
+      curated.dim_pmay_house_status holds status_key, status_name,
+      is_completed, is_in_progress. status_name is exactly one of (stage
+      order low to high): 'Proposed Site', 'Existing site(Old House)',
+      'House Sanctioned', 'Plinth', 'Roof Cast', 'Completed' (12 rows are
+      NULL). For "completed" / "in progress" questions use the booleans
+      is_completed / is_in_progress, never a string match on status_name —
+      for the other four stages, filter status_name on the exact string.
+
+  - ref: curated.fact_pmay_house
+    content: |
+      curated.fact_pmay_house is the underlying fact behind curated.v_pmay
+      (scheme_key, year_key, geography_key, village_code, status_key,
+      sanction_date, sanctioned_amount, amount_released, amount_pending,
+      is_placeholder, completed_underfunded — RUPEES). Prefer the view —
+      it carries the same columns already joined to year, geography and
+      status.
+
+  - ref: curated.v_pmay_monthly_sanctions
+    content: |
+      curated.v_pmay_monthly_sanctions is statewide monthly totals ONLY —
+      exactly four columns: sanction_month, houses_sanctioned,
+      sanctioned_cr, released_cr (already CRORE, already aggregated). It
+      has NO geography column — selecting lgd_district or lgd_block from
+      it errors with "column does not exist". Never use it for a
+      per-district, per-block, or "top N districts" question; use
+      curated.v_pmay (GROUP BY lgd_district / lgd_block) for those instead.
+
+columns:
+  - ref: curated.v_pmay.status_key
+    content: |
+      "Completed" / "in progress" questions must use status_key's booleans
+      is_completed / is_in_progress, never status_name = 'Completed' as a
+      string match — status_name carries other, differently-worded stage
+      values that a naive string match would miss.
+
+  - ref: curated.v_pmay.sanctioned_amount
+    content: |
+      sanctioned_amount, amount_released and amount_pending are RUPEES —
+      state the unit, never mix with MGNREGA's LAKH RUPEES or Focus Plus's
+      unverified amount_disbursed unit. Exclude sanctioned_amount = 0 rows
+      (a documented data gap, not a real zero) from any utilisation-rate or
+      per-house-average calculation. "Pending" / "utilisation gap" is
+      sanctioned_amount - amount_released, or amount_pending directly;
+      "utilisation rate" is amount_released / sanctioned_amount * 100.
+
+  - ref: curated.v_pmay.financial_year
+    content: |
+      Filter time on year_key (smallint — 2023 means FY 2023-24; data spans
+      year_key 2017 through 2023, plus 126 rows with year_key NULL). Do not
+      filter on financial_year (fixed-width CHAR stored as '2023-2024', not
+      '2023-24') or financial_year_short ('2023-24') unless the exact
+      string form is used — a mismatched literal silently matches zero
+      rows and returns a false 0 rather than an error.

@@ -133,6 +133,10 @@ class Settings(BaseSettings):
     DB_POOL_MIN_SIZE: int = 10
     DB_POOL_MAX_SIZE: int = 30
     DB_POOL_TIMEOUT: int = 30
+    # While megh_db is known-down, fail new pool attempts immediately for this
+    # long instead of re-paying the full DB_POOL_TIMEOUT on every call (e.g.
+    # every /health check) — see app/db.py's ensure_pool().
+    DB_POOL_RETRY_COOLDOWN_SECONDS: int = 5
     SQL_EXECUTION_TIMEOUT_MS: int = 15000
     SQL_MAX_RESULT_ROWS: int = 1000
 
@@ -142,22 +146,29 @@ class Settings(BaseSettings):
     #    network hop to this box. ──
     #
     #    MODEL ROLES (deployment name -> what it does):
-    #      qwen-model  (qwen3-coder-30b-fp8) : SQL GENERATION ONLY. The scarce,
+    #      qwen-model   (qwen3-coder-30b-fp8) : SQL GENERATION ONLY. The scarce,
     #          quality-critical model — a wrong join here is a wrong number. Kept
     #          free of the cheap calls so its whole batch is available for SQL.
-    #      qwen35-9b   (qwen3.5-9b)          : scheme + intent + entity classification
-    #          AND final answer composition. Cheap pattern/format tasks; the 9B
-    #          handles them with guided-JSON decoding without touching the 30B.
-    #      qwen3-embedding / qwen3-reranker  : RAG (scheme-knowledge) path.
-    #      qwen3-asr                         : voice input transcription.
-    #    A dedicated small classifier (Qwen3-4B) is the planned next split — point
-    #    CLASSIFIER_MODEL at it once it is deployed and has GPU room. See
-    #    docs/INFERENCE_REQUIREMENTS.md.
+    #      qwen4-deploy (Qwen3-4B-Instruct)   : scheme + intent + entity classification
+    #          (CLASSIFIER_MODEL) AND the SQL semantic verifier (SQL_VERIFY_MODEL) —
+    #          two distinct roles sharing one small deployment. Cheap pattern/format
+    #          tasks with guided-JSON decoding; keeps them off the 9B and the 30B.
+    #      qwen35-9b    (qwen3.5-9b)          : final answer composition only
+    #          (RESPONSE_MODEL). Freed from classify duty so composition never
+    #          queues behind the classify/entity/follow-up calls.
+    #      qwen3-embedding / qwen3-reranker   : RAG (scheme-knowledge) path.
+    #      qwen3-asr                          : voice input transcription.
+    #    Classifier handoff from the 9B to the 4B done 2026-09-10 (Task 6 in
+    #    docs/INFERENCE_REQUIREMENTS.md), once qwen4-deploy was confirmed reachable
+    #    via SQL_VERIFY_ENABLED. Watch qwen4-deploy queue depth — it now carries
+    #    both roles — and validate classify accuracy against the old 9B baseline
+    #    on ambiguous queries (abbreviations, cross-scheme, follow-ups).
     AI_MODEL_CA_BUNDLE_PATH: str = ""  # certs/enlight-aiops-internal-ca.pem, if verification is required
 
-    # Classify / intent / entity-extract — on the 9B, NOT the 30B, so the trivial
-    # calls never queue behind SQL generation. Repoint at a dedicated qwen3-4b later.
-    CLASSIFIER_MODEL: str = "qwen35-9b"
+    # Classify / intent / entity-extract — on the dedicated 4B, NOT the 9B or the
+    # 30B, so these frequent small calls never queue behind SQL generation or
+    # composition, and composition never queues behind them either.
+    CLASSIFIER_MODEL: str = "qwen4-deploy"
     CLASSIFIER_BASE_URL: str = "https://10.48.242.4/openai/v1"
     CLASSIFIER_API_KEY: str = ""
     CLASSIFIER_TIMEOUT_SECONDS: int = 30
@@ -171,13 +182,43 @@ class Settings(BaseSettings):
     SQL_GENERATION_TEMPERATURE: float = 0.0
     SQL_GENERATION_MAX_RETRIES: int = 1  # one repair attempt on a validation failure
 
-    # qwen35-9b — final natural-language answer composition (same model as the classifier)
+    # qwen35-9b — final natural-language answer composition only. Classify/intent/
+    # entity-extract moved to qwen4-deploy (see CLASSIFIER_MODEL above) on
+    # 2026-09-10, so this deployment now serves only this role.
     RESPONSE_MODEL: str = "qwen35-9b"
     RESPONSE_MODEL_BASE_URL: str = "https://10.48.242.4/openai/v1"
     RESPONSE_MODEL_API_KEY: str = ""
     RESPONSE_TEMPERATURE: float = 0.0
     RESPONSE_MAX_TOKENS: int = 800
     RESPONSE_TIMEOUT_SECONDS: int = 20
+
+    # ── SQL semantic verifier — qwen3-4b (docs/INFERENCE_REQUIREMENTS.md Task 6) ──
+    # Runs after generate_sql, before the query touches the database: a second
+    # opinion asking "does this SQL actually answer the question, per the schema
+    # rules and resolved entities above it?" (see prompt_builder.build_verify_prompt).
+    # The regex guards already in execute_with_repair only catch SQL shapes a past
+    # bug taught them to recognise (bare row read on an aggregate question,
+    # village-name-instead-of-code, a phantom 'Meghalaya' filter, ...). This
+    # catches the same CLASS of bug — syntactically valid, executes cleanly,
+    # answers the wrong question — in a shape nobody has hand-coded a guard for
+    # yet. A flagged query raises straight into the existing repair loop; no new
+    # control flow needed for that part.
+    # Best-effort: any failure (model not deployed, timeout, unparseable JSON)
+    # degrades to "no issue found" — a verifier outage must never block an
+    # answer that would otherwise have worked.
+    # Deployed 2026-09-10 as served model name "qwen4-deploy" (not the "qwen3-4b"
+    # name docs/INFERENCE_REQUIREMENTS.md Task 6 originally planned) — vLLM
+    # runtime, confirmed reachable on /openai/v1. Verified working end to end.
+    # SQL_VERIFY_MODEL and CLASSIFIER_MODEL now both point at this same
+    # qwen4-deploy deployment — a distinct role each (verify runs once per SQL
+    # generation; classify runs several times per turn), sharing one small model
+    # rather than each getting its own GPU allocation.
+    SQL_VERIFY_ENABLED: bool = True
+    SQL_VERIFY_MODEL: str = "qwen4-deploy"
+    SQL_VERIFY_BASE_URL: str = "https://10.48.242.4/openai/v1"
+    SQL_VERIFY_API_KEY: str = ""
+    SQL_VERIFY_TEMPERATURE: float = 0.0
+    SQL_VERIFY_TIMEOUT_SECONDS: int = 15
 
     # KB chunk + query embeddings for the RAG path, and the semantic cache.
     # "local"  -> fastembed CPU model (LOCAL_EMBEDDING_MODEL), no gateway call.
@@ -192,12 +233,57 @@ class Settings(BaseSettings):
     EMBEDDING_TIMEOUT_SECONDS: int = 30
     EMBED_BATCH_SIZE: int = 32
 
-    # qwen3-reranker — reorders the Qdrant candidate set before answer composition.
-    # OFF by default: the deployed qwen3-reranker inverts relevance on this KB
-    # (verified 2026-08-29 — it ranks "where to find info" above "application
-    # process" for a "what documents" query). bge-small vector order is better on
-    # its own. Re-enable once the reranker deployment is fixed/replaced.
-    RERANKER_ENABLED: bool = False
+    # ── Entity resolver — stage 7 embedding fallback (district/block/year/AC
+    # closed-set catalogues only; see app/entity_resolver.py) ──
+    # Kill switch: loading the catalogue vectors at startup is best-effort
+    # already (app/main.py wraps it in _try), but this lets the stage be
+    # disabled outright without touching REDIS_URL/LOCAL_EMBEDDING_MODEL,
+    # which other features (semantic cache, RAG) also depend on.
+    ENTITY_RESOLVER_EMBEDDING_ENABLED: bool = True
+    ENTITY_RESOLVER_EMBEDDING_ACCEPT: float = 0.88   # cosine; matches the resolver YAML's stage 7 spec
+    # A cold box downloads the ~130 MB ONNX model from HuggingFace on first
+    # use; on a box with restricted egress that HTTP call can hang rather
+    # than fail fast, which would otherwise stall startup indefinitely (the
+    # one best-effort step, of all of them, actually capable of doing that).
+    ENTITY_RESOLVER_EMBEDDING_LOAD_TIMEOUT_SECONDS: float = 90.0
+
+    # ── Entity resolver — resolve_village Redis cache (optional, best-effort) ──
+    # Villages are the one dimension resolved via a live Postgres query on
+    # every call (curated.dim_geography has no in-memory catalogue — see
+    # entity_resolver.py's module docstring). Reuses REDIS_URL/the same
+    # degrade-silently posture as app/cache.py; a short TTL because
+    # dim_geography can be corrected by a re-ingest at any time.
+    VILLAGE_CACHE_TTL_SECONDS: float = 600.0
+
+    # qwen3-reranker — reorders the pgvector candidate set before answer
+    # composition. Split into two independent flags (previously one shared
+    # RERANKER_ENABLED) once live re-investigation (2026-09-14, see
+    # openspec/changes/rag-knowledge-base-verification and
+    # schema-retrieval-reranking proposal.md "Reranker investigation"
+    # addenda) found the two corpora do NOT behave the same way — a single
+    # flag could not represent "on for one, off for the other" at all.
+    #
+    # RAG_RERANKER_ENABLED: OFF by default. The original 2026-08-29 failure
+    # ("where to find info" outranks "application process" for a "what
+    # documents" query) was re-tested per scheme on 2026-09-14: it no longer
+    # reproduces for PMAY-G, MGNREGA, or Focus Plus (reranked top-1 is the
+    # correct "documents required" chunk in all three) but DOES still
+    # reproduce, close to verbatim, for CM Elevate ("14. Where to Find
+    # Authoritative, Current Information" beats "7.1 Required Documents").
+    # Mixed, corpus-inconsistent evidence — not a clean "fixed" story — so
+    # this stays OFF pending a real decision by whoever owns the tradeoff,
+    # not flipped on 4-5 queries with one known-reproducing failure among
+    # them.
+    RAG_RERANKER_ENABLED: bool = False
+    # SCHEMA_RETRIEVAL_RERANKER_ENABLED: OFF by default, backed by a
+    # dedicated 2026-09-14 investigation (5 real schema-metadata queries
+    # across all 4 piloted schemes): 0/5 reranked top-1 picks agreed with
+    # cosine order, including two clear degradations (demoted the
+    # exact-match `data_verified` column below a generic dimension table;
+    # demoted the correct fact table to dead last behind a near-irrelevant
+    # status-key column). This is a real, repeatable finding for this
+    # content type, not unverified caution.
+    SCHEMA_RETRIEVAL_RERANKER_ENABLED: bool = False
     RERANKER_MODEL: str = "qwen3-reranker"
     RERANKER_BASE_URL: str = "https://10.48.242.4/openai/v1"
     RERANKER_API_KEY: str = ""
@@ -209,19 +295,52 @@ class Settings(BaseSettings):
     ASR_API_KEY: str = ""
     ASR_TIMEOUT_SECONDS: int = 60
 
-    # ── Vector store (Qdrant on the same data box) — scheme-knowledge base ──
-    QDRANT_URL: str = "http://10.48.242.4:6333"
-    QDRANT_API_KEY: str = ""
-    QDRANT_COLLECTION: str = "megh_scheme_kb"
+    # ── Vector store (PostgreSQL + pgvector, Neon) — scheme-knowledge base ──
+    # Dedicated Postgres instance (pgvector extension) for RAG storage — kept
+    # separate from DATABASE_URL/megh_db so KB ingest and conversation-memory
+    # writes never need anything beyond the read-only megh_readonly role that
+    # DATABASE_URL uses in production. Falls back to DATABASE_URL if blank.
+    VECTOR_DB_URL: str = ""
+    RAG_KB_TABLE: str = "megh_scheme_kb"
     # Thresholds are on the bge-small (local) cosine scale: loosely-related
     # chunks score ~0.66-0.78, so HIGH sits above that — otherwise every
     # knowledge question clears it and returns its nearest chunk verbatim
     # instead of composing. MEDIUM is the real working tier for this KB.
-    RAG_TOP_K: int = 12            # candidates pulled from Qdrant
+    RAG_TOP_K: int = 12            # candidates pulled from pgvector
     RAG_RERANK_TOP_N: int = 8      # chunks handed to the composer as context
     RAG_MIN_SCORE: float = 0.30    # floor on the chunk score
     RAG_HIGH_CONFIDENCE: float = 0.84   # >= this: return top chunk verbatim (rare, near-exact match)
     RAG_MEDIUM_CONFIDENCE: float = 0.55  # >= this: compose an answer from the kept chunks
+
+    # ── Vector store — schema metadata / SQL examples (Phase 3) ──
+    # Two more dedicated pgvector tables on the same VECTOR_DB_URL instance,
+    # following megh_scheme_kb's one-table-per-collection pattern rather than a
+    # kind-discriminated shared table (see openspec/changes/
+    # phase-3-schema-retrieval-join-discovery/design.md).
+    RAG_SCHEMA_METADATA_TABLE: str = "megh_schema_metadata"
+    RAG_SQL_EXAMPLES_TABLE: str = "megh_sql_examples"
+    # §5.10 SQL-generation few-shot retrieval — examples pulled from
+    # megh_sql_examples by cosine match, scheme-prefiltered, no reranking
+    # stage (unlike §5.8, the spec doesn't call for one here). No dedicated
+    # enable flag: app/sql_examples_retrieval.py degrades to [] (falling
+    # back to app/annotations.py's token-overlap ranking) exactly the way
+    # schema_retrieval.retrieve() does when its own table is unseeded —
+    # same "always attempted, safely degrades" posture, not a new knob.
+    SQL_EXAMPLES_TOP_K: int = 5
+    # §5.8 two-stage retrieve/rerank: pull CANDIDATE_K from pgvector, then
+    # (when SCHEMA_RETRIEVAL_RERANKER_ENABLED) rerank down to TOP_K. TOP_K is
+    # also the plain truncation point when reranking is off.
+    SCHEMA_RETRIEVAL_CANDIDATE_K: int = 30
+    SCHEMA_RETRIEVAL_TOP_K: int = 8
+    # §5.9/§5.11 — "tables must belong to the retrieved set" (proposal §5.11,
+    # baseline-audit.md cross-cutting finding 11, distinct from the join-graph
+    # rule sql_join_validator.py already enforces). Scoped to FACT tables only
+    # and only fires when schema_retrieval itself surfaced a fact-table
+    # candidate this query — a scheme with no retrieval coverage yet
+    # (MGNREGA, PMAY-G as of Phase 3) has no retrieved set to check against,
+    # so this is a true no-op for them, same "additive, never gating for an
+    # un-indexed scheme" posture as schema_retrieval.py itself.
+    RETRIEVED_SET_GUARD_ENABLED: bool = True
 
     # ── Multi-turn / follow-up context ──
     # Per-worker, in-process, TTL'd. A short-lived store of the last few turns of
@@ -261,6 +380,14 @@ class Settings(BaseSettings):
     # questions the scope gate itself skips because their place is already pinned.
     # Off => answer across every year silently, as before.
     YEAR_CLARIFY_ENABLED: bool = True
+    # Pause and ask "which tranche?" when a Focus Plus data question (a metric or
+    # per-dimension breakdown) names no tranche — neither in its text (resolved via
+    # resolve_tranche_label) nor via a resolved entity — and doesn't ask for a
+    # per-tranche breakdown or an explicit "all tranches combined". Offers Tranch 1
+    # / 2 / 3 / 4 plus "all tranches combined" as one-tap replies, the same shape as
+    # YEAR_CLARIFY_ENABLED above. Focus Plus only — no other scheme has a
+    # tranche_label column. Off => answer across every tranche silently, as before.
+    TRANCHE_CLARIFY_ENABLED: bool = True
     # Reply with the standard "I'm Megh One AI — I only cover Meghalaya's MGNREGA
     # / PMAY-G" message when a data question names a district or block that is not
     # in Meghalaya (resolver returns not_found), instead of dropping the filter,
@@ -284,6 +411,17 @@ class Settings(BaseSettings):
     # Off => no silent defaults; the pre-existing ask/no-ask behavior is
     # unchanged either way, since colliding conditions never reach this flag.
     DEFAULTS_ENGINE_ENABLED: bool = True
+    # Pause and ask, using the SME-authored *_classification_rules.yaml
+    # question text, when a question requests something the underlying data
+    # genuinely does not hold (node 5.3, Phase 1: only the "source cannot
+    # answer this at all" conditions — see app/clarification_engine.py).
+    # Only conditions with no overlapping hardcoded `_needs_*_clarification`/
+    # `_*_clarification` predicate are ever matched — see
+    # app/clarification_engine.py's collision set. Deterministic, no model
+    # call. Off => no engine-driven pause; the pre-existing ask/no-ask
+    # behavior from the hardcoded predicates is unchanged either way, since
+    # colliding conditions never reach this flag.
+    CLARIFICATION_ENGINE_ENABLED: bool = True
     # Compute structured findings (empty result, extremes, ties, large result
     # set, SME threshold breach, stale-data note) over a query result and
     # attach them as the additive `findings` field in the /api/query response.
@@ -294,24 +432,83 @@ class Settings(BaseSettings):
     # Purely informational (nothing is truncated because of it — `rows`/`data`
     # keep their own separate caps).
     FINDINGS_LARGE_RESULT_ROWS: int = 100
+    # Compute a chart_type string (bar/doughnut/line/grouped_bar/stacked/
+    # kpi_bar, or null) over a query result and attach it as the additive
+    # `chart_type` field in the /api/query response. Deterministic, no
+    # model call — see app/chart_spec.py. web/ai_query.html's
+    # buildAnalytics() already reads this field and already implements
+    # rendering for all six values. Off => `chart_type` is always null;
+    # no change to `answer`, `rows`, or `data`.
+    CHART_SPEC_ENABLED: bool = True
+    # node 5.2 query analyzer — the structured `analysis` field in the
+    # /api/query response (query_type/metric/entities/time_scope/granularity/
+    # ambiguous/intent_summary). See app/query_analyzer.py. Off => `analysis`
+    # is always omitted; no change to `answer`, `rows`, or `data`.
+    QUERY_ANALYZER_ENABLED: bool = True
     # Stop and say "I only have data for FY 2022-23 to FY 2025-26" when a data
     # question names a financial year outside that window — a bare "1999-20",
     # "2010", "FY 2019-20", etc. Both schemes' year coverage is exactly those
     # four years. Off => keep the old behaviour (add a soft note, then fall
     # through to the "which year?" pause or answer across the years that exist).
     YEAR_RANGE_GUARD_ENABLED: bool = True
-    # Route the three resumable clarification pauses (scope-not-specified,
-    # year-not-specified, entity-ambiguous) through app/langgraph_followup.py's
+    # Route the resumable clarification pauses
+    # (pipeline.RESUMABLE_CLARIFICATION_RULES) through app/langgraph_followup.py's
     # LangGraph interrupt()/AsyncSqliteSaver checkpointer instead of the
     # bespoke ClarificationNeeded + ConversationState.pending_scope_q/
     # pending_village_hint mechanism — see
     # openspec/changes/phase-2-orchestration-durability/design.md. Off
     # (default) => /api/query behavior is byte-for-byte unchanged, the
     # bespoke mechanism handles every pause exactly as it always has. On =>
-    # those three rules pause/resume via the LangGraph component instead; a
+    # those rules pause/resume via the LangGraph component instead; a
     # non-resumable (terminal) ClarificationNeeded still propagates and is
     # handled the same way either way.
     LANGGRAPH_FOLLOWUP_ENABLED: bool = False
+    # openspec/changes/langgraph-full-pipeline-rewrite +
+    # multi-tenant-rls-scheme-scaleout: a full node-decomposed LangGraph
+    # StateGraph (app/pipeline_graph.py) covering all 15 §5 nodes — the
+    # architecture the Grant Thornton proposal's Section 4 actually
+    # specifies ("the runtime pipeline is implemented as a LangGraph
+    # agent"). Wired into the real request path as of 2026-09-15: On =>
+    # app/pipeline.py::_run_pipeline calls
+    # pipeline_graph.answer_data_via_graph_compat instead of
+    # app.pipeline._answer_data for the DATA route's SQL-generation chain
+    # (everything else — edge cases, RAG routing, scheme-listing —
+    # unchanged either way). Off (default) => byte-for-byte the same as
+    # before this flag existed; the graph path has been tested with mocked
+    # LLM/DB fixtures (see langgraph-full-pipeline-rewrite/tasks.md) and
+    # against a disposable local Postgres for its checkpointer, but NOT
+    # against a live LLM + live production data across all 4 schemes —
+    # that end-to-end parity check is the remaining gate before flipping
+    # this to True in any real deployment.
+    PIPELINE_GRAPH_ENABLED: bool = False
+    # Staged rollout: when PIPELINE_GRAPH_ENABLED is False, route this
+    # percentage (0-100) of sessions to the graph path instead of the bespoke
+    # one — a canary bucketed by user_id when the caller is a real logged-in
+    # user (so the SAME user always lands in the same bucket across every
+    # session/device/conversation, not just within one thread), falling back
+    # to session_id for an anonymous caller with no user_id. Corrected
+    # 2026-09-17: this comment previously said the opposite priority
+    # (session_id first, user_id fallback) — app/pipeline.py::
+    # _pipeline_graph_selected's own docstring and actual code always did
+    # user_id-first; only this comment was wrong. Not a per-request coin
+    # flip either way. Ignored (treated as 100) once
+    # PIPELINE_GRAPH_ENABLED is True. Default 0 => today's exact behavior.
+    # multi-tenant-rls-scheme-scaleout/tasks.md 5.2: no prior in-app canary
+    # mechanism exists in this codebase to mirror (LANGGRAPH_FOLLOWUP_ENABLED
+    # is also a single global bool) — that task's "mirrors
+    # phase-2-orchestration-durability's validated approach" claim didn't
+    # hold up on re-verification; this is new, not a port of existing code.
+    PIPELINE_GRAPH_CANARY_PERCENT: int = 0
+    # Checkpointer backend for app/pipeline_graph.py. Empty (default) => the
+    # local-file AsyncSqliteSaver (app/logs/pipeline_graph_checkpoints.sqlite),
+    # matching app/langgraph_followup.py's own default. Set to a Postgres DSN
+    # (postgresql://...) to use langgraph.checkpoint.postgres.aio.
+    # AsyncPostgresSaver instead — the production-shape backend design.md
+    # calls for, now installable via the `psycopg[binary]` wheel (bundles
+    # libpq, unlike the plain `psycopg` package that was blocked in this
+    # environment). Deliberately NOT the same variable as DATABASE_URL: this
+    # is a separate, optional checkpoint store, not the application database.
+    PIPELINE_GRAPH_CHECKPOINTER_DSN: str = ""
 
     # ── Authorization (role + scope vs. what the query asks for) ──
     # Checks are pure Python (backend/auth.py). Users, tenants, conversations and
@@ -322,6 +519,19 @@ class Settings(BaseSettings):
     MULTITENANCY_ENABLED: bool = True
     DEFAULT_TENANT_CODE: str = "RD"           # Rural Development — seeded at startup
     DEFAULT_TENANT_NAME: str = "Rural Development Department"
+    # openspec/changes/multi-tenant-rls-scheme-scaleout: DB-enforced tenant
+    # isolation extended to the curated scheme-data warehouse via Postgres
+    # RLS, backed by a real tenant<->scheme grant table (app.tenant_schemes)
+    # that replaces ROLE_PERMISSIONS' hardcoded scheme allowlists as the
+    # actual entitlement source (app/auth.py::scope_from_user). Off
+    # (default) => zero behavior change: no session GUC is set
+    # (app/db.py::set_tenant_context becomes a no-op), scope_from_user
+    # ignores tenant grants entirely, and the RLS migration itself
+    # (deploy/sql/03_tenant_scheme_rls.sql) must not be applied — flag-off
+    # is meant to mean "this mechanism doesn't exist yet", not "exists but
+    # never satisfied" (the latter would deny every row under RLS instead
+    # of preserving today's behavior).
+    TENANT_SCHEME_RLS_ENABLED: bool = False
 
     # JWT (HS256, self-contained — see backend/security.py). CHANGE JWT_SECRET.
     JWT_SECRET: str = "change-me-dev-secret"
@@ -338,6 +548,11 @@ class Settings(BaseSettings):
     USERS_FILE: str = "app/users.yaml"
     # Mirror of the DB audit trail; keep for grep/offline. DB is source of truth.
     AUDIT_FILE: str = "logs/query_audit.jsonl"
+    # Rows kept in the compliance audit trail's result_preview field — deliberately
+    # smaller than the UI's 200-row `data` cap (pipeline.py) so the durable
+    # app.query_audit table stays lean; see openspec/changes/
+    # phase-2-audit-trail-enrichment/design.md for the tradeoff.
+    AUDIT_RESULT_PREVIEW_ROWS: int = 20
     # Role when AUTH_ENABLED=false (local dev only — real requests carry a JWT).
     AUTH_DEFAULT_ROLE: str = "analyst"
 
@@ -367,19 +582,19 @@ class Settings(BaseSettings):
     # time. Best-effort: a summarization failure never breaks the answer.
     CONTEXT_SUMMARY_ENABLED: bool = True
     CONTEXT_SUMMARY_EVERY_N_TURNS: int = 4
-    # Semantic memory: relevant-older-turn retrieval over a dedicated Qdrant
-    # collection (separate from the scheme-KB collection AND from the
-    # semantic response cache — see app/conversation_memory.py). Reuses the
-    # existing Qdrant client + embedding pipeline. Off, or any Qdrant failure,
-    # falls back to PostgreSQL recent history / in-session turns only.
+    # Semantic memory: relevant-older-turn retrieval over a dedicated pgvector
+    # table (separate from the scheme-KB table AND from the semantic response
+    # cache — see app/conversation_memory.py). Reuses the existing pgvector
+    # pool + embedding pipeline. Off, or any pgvector failure, falls back to
+    # PostgreSQL recent history / in-session turns only.
     CONTEXT_SEMANTIC_MEMORY_ENABLED: bool = True
-    CONTEXT_MEMORY_COLLECTION: str = "megh_conversation_memory"
+    CONTEXT_MEMORY_TABLE: str = "megh_conversation_memory"
     CONTEXT_MEMORY_MIN_SCORE: float = 0.55
     CONTEXT_MEMORY_TOP_K: int = 5
     # Only reach for semantic memory when the in-process session has fewer than
     # this many turns of its own (i.e. a resumed/long conversation past the
     # in-memory window) — keeps the common case (recent turn already in
-    # session_store) free of an extra embed + Qdrant round trip.
+    # session_store) free of an extra embed + pgvector round trip.
     CONTEXT_MEMORY_MIN_SESSION_TURNS: int = 2
 
     class Config:

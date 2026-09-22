@@ -9,7 +9,7 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app import appdb, auth, conversation_store, schema_introspect
+from app import appdb, auth, conversation_store, fk_miner, join_graph, schema_introspect
 from app.deps import require_admin, require_super
 
 logger = logging.getLogger(__name__)
@@ -47,6 +47,49 @@ async def create_tenant(body: TenantBody, scope: auth.UserScope = Depends(requir
         raise HTTPException(422, "could not create tenant (code may already exist)") from e
 
 
+# ── scheme entitlements (openspec/changes/multi-tenant-rls-scheme-scaleout) ─
+# The DB-backed replacement for auth.ROLE_PERMISSIONS' hardcoded scheme
+# allowlists — which schemes a tenant's users may query, enforced (once
+# TENANT_SCHEME_RLS_ENABLED is on) both here at the app layer
+# (auth.scope_from_user) and independently at the DB layer via curated-data
+# RLS (deploy/sql/03_tenant_scheme_rls.sql). super_admin only: granting a
+# tenant access to a scheme is a platform-level administrative act, not
+# something a tenant_admin does for their own tenant.
+@router.get("/schemes")
+async def list_schemes(include_inactive: bool = False,
+                       _: auth.UserScope = Depends(require_admin)):
+    return {"schemes": await appdb.list_schemes(include_inactive)}
+
+
+@router.get("/tenants/{tenant_id}/schemes")
+async def tenant_schemes(tenant_id: int, scope: auth.UserScope = Depends(require_admin)):
+    if not scope.cross_tenant and tenant_id != scope.tenant_id:
+        raise HTTPException(403, "tenant belongs to another tenant")
+    return {
+        "granted": await appdb.list_tenant_schemes(tenant_id),
+        "effective": await appdb.tenant_effective_schemes(tenant_id),
+    }
+
+
+@router.post("/tenants/{tenant_id}/schemes/{scheme_id}")
+async def grant_tenant_scheme(tenant_id: int, scheme_id: str,
+                              scope: auth.UserScope = Depends(require_super)):
+    if not await appdb.get_tenant(tenant_id):
+        raise HTTPException(404, "no such tenant")
+    known = {s["scheme_id"] for s in await appdb.list_schemes(include_inactive=True)}
+    if scheme_id not in known:
+        raise HTTPException(422, f"unknown scheme_id {scheme_id!r} (not in app.schemes)")
+    await appdb.grant_tenant_scheme(tenant_id, scheme_id, granted_by=scope.db_user_id)
+    return {"granted": await appdb.list_tenant_schemes(tenant_id)}
+
+
+@router.delete("/tenants/{tenant_id}/schemes/{scheme_id}")
+async def revoke_tenant_scheme(tenant_id: int, scheme_id: str,
+                               _: auth.UserScope = Depends(require_super)):
+    await appdb.revoke_tenant_scheme(tenant_id, scheme_id)
+    return {"granted": await appdb.list_tenant_schemes(tenant_id)}
+
+
 # ── users ───────────────────────────────────────────────────────────────
 class NewUser(BaseModel):
     username: str = Field(min_length=1, max_length=150)
@@ -73,7 +116,15 @@ class UpdateUser(BaseModel):
 
 @router.get("/roles")
 async def roles(_: auth.UserScope = Depends(require_admin)):
-    return {"roles": auth.ROLE_PERMISSIONS}
+    # auth.ROLE_PERMISSIONS no longer carries a "schemes" key per role (that
+    # was the same 4-scheme literal hand-typed 8 times — removed
+    # 2026-09-18, see auth._role_scheme_cap's docstring) — resolve each
+    # role's effective cap dynamically here instead of dumping the now-
+    # sparse dict raw, so this endpoint's response shape is unchanged.
+    return {"roles": {
+        role: {**perms, "schemes": auth._role_scheme_cap(perms)}
+        for role, perms in auth.ROLE_PERMISSIONS.items()
+    }}
 
 
 @router.get("/users")
@@ -194,3 +245,38 @@ async def stats(tenant_id: int | None = None, scope: auth.UserScope = Depends(re
 @router.get("/schema")
 async def schema(_: auth.UserScope = Depends(require_admin)):
     return schema_introspect.snapshot()
+
+
+# ── join discovery: query-log FK mining (§5.9, advisory only) ─────────────
+@router.get("/fk-mining")
+async def fk_mining(scheme: str | None = None,
+                    min_occurrences: int = Query(2, ge=1, le=1000),
+                    log_limit: int = Query(5000, ge=1, le=50000),
+                    _: auth.UserScope = Depends(require_admin)):
+    """Mines app.query_audit for JOIN-ON patterns between known tables with
+    no declared edge between them (see app/fk_miner.py). Read-only report
+    for a human SME to review — never writes to the live join graph or any
+    foreign_key_augmentation.yaml."""
+    candidates = await fk_miner.mine_implicit_fks(
+        log_limit=log_limit, min_occurrences=min_occurrences,
+        schemes=[scheme] if scheme else None,
+    )
+    return {"count": len(candidates), "candidates": [c._asdict() for c in candidates]}
+
+
+@router.post("/reload-join-graph")
+async def reload_join_graph(_: auth.UserScope = Depends(require_admin)):
+    """openspec/changes/multi-tenant-rls-scheme-scaleout (scheme-onboarding
+    scale-out): rebuilds the in-memory FK graph
+    (app/join_graph.py::build(force=True)) from the curated
+    foreign_key_augmentation.yaml files + live_fks() without a process
+    restart — mirrors the existing POST /api/rag/reload-scheme-registry
+    manual-trigger precedent. Before this endpoint existed, onboarding a
+    new scheme's join edges required a full service restart
+    (`app/main.py`'s lifespan only calls `join_graph.build()` once, at
+    startup) — a real operational cost once scheme count grows well past
+    4. Admin-only: rebuilding is cheap (in-memory YAML + cached live_fks()
+    re-read, no DB round-trip) but the graph is shared, request-serving
+    state."""
+    join_graph.build(force=True)
+    return {"reloaded": True, **join_graph.snapshot()}

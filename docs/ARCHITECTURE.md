@@ -99,6 +99,44 @@ startup is idempotent (skips when Qdrant already holds the chunks).
 5. **Fallback** — a hard DATA failure tries the KB once before returning an
    honest "couldn't answer that from the current data".
 
+**Execution engine for step 4.** The above (`app/pipeline.py::_answer_data`,
+current filenames) is one of two interchangeable implementations of the
+same DATA-route chain, selected by `PIPELINE_GRAPH_ENABLED`
+(`app/config.py`, default off). The Grant Thornton proposal's Section 4
+specifies this pipeline as *"implemented as a LangGraph agent"*; the
+LangGraph implementation (`app/pipeline_graph.py`, a node-decomposed
+`StateGraph` covering the same steps) exists and is test-verified but was,
+until `openspec/changes/multi-tenant-rls-scheme-scaleout`, never reachable
+from a live request — the flag was defined and read nowhere. It's now
+wired (`app/pipeline.py::_run_pipeline` calls
+`pipeline_graph.answer_data_via_graph_compat()` when the flag is on,
+otherwise `_answer_data` as before) but still off by default — the actual
+gate before enabling it anywhere real is end-to-end verification against a
+live LLM and live data, which hasn't been run yet. See that change's
+`design.md` §4a for the adapter's design.
+
+**Updated 2026-09-18**: a staged rollout exists alongside the all-or-
+nothing flag — `PIPELINE_GRAPH_CANARY_PERCENT` (0-100, default 0)
+session-stickily routes that percentage of sessions to the graph path,
+bucketed by user_id so the same logged-in user always lands in the same
+bucket across every session/device. Real cross-HTTP-request resume also
+now exists (task 5.4): a paused clarification durably survives to a
+second, independent request and resumes via the graph's own checkpointer
+at the exact node it paused at, rather than restarting the whole pipeline
+— reusing `session_id` as the LangGraph `thread_id`, the same trick
+`app/langgraph_followup.py` already used for its own, separate
+checkpointer; the two mechanisms are deliberately mutually exclusive
+(real graph resume only activates when `LANGGRAPH_FOLLOWUP_ENABLED` is
+off) so they can never both think they own the same pause. Three real
+bugs were found and fixed while building this — a permanent checkpoint-
+row leak on every pause, a wasted duplicate LLM/DB call on every resume
+(`app/pipeline_graph.py`'s own node-decomposed §5.6 had the same
+replay-re-executes-the-expensive-node issue `langgraph_followup.py` was
+fixed for the day before), and two documentation-only bugs — see
+`tasks.md` 5.7/5.4 for the full record. None of this changes the actual
+remaining gate: live-LLM + live-Postgres parity across all 4 schemes has
+still never been run.
+
 Every generated statement is re-checked in `db.py` (`SELECT`/`WITH` only, single
 statement, no DDL/DML keywords) regardless of the DB role.
 
@@ -167,6 +205,33 @@ seeded). `tenant_admin` manages users + sees conversations/audit **for their
 tenant only**; `super_admin` (`cross_tenant`) spans all tenants and creates them.
 Every conversation, turn and audit row is stamped `tenant_id`, and admin reads
 are filtered by it — one department can't see another's officers or chats.
+
+This paragraph describes **app-layer** tenancy — WHERE clauses built in
+Python, no server-side default-deny (a call site that forgets its own
+tenant filter returns every tenant's rows). `openspec/changes/multi-tenant-rls-scheme-scaleout`
+adds a second, DB-level layer: `app.schemes`/`app.tenant_schemes` (which
+schemes a tenant may see, replacing `ROLE_PERMISSIONS`'s hardcoded scheme
+lists as the entitlement source — the role list is now a ceiling the
+tenant grant narrows, never widens) enforced via Postgres RLS on both the
+curated fact tables AND the `app` schema tables named above
+(`deploy/sql/03_tenant_scheme_rls.sql`, both sections now written and
+enabled in the migration script — **updated 2026-09-18**, the app-schema
+half was previously deferred pending an audit of every `app.*` consumer;
+that audit found `admin.py`/`history.py` were already correctly wired via
+`app.deps.tenant_scoped`, and fixed the two genuine gaps that weren't —
+`app/routers/auth.py`'s pre-authentication `login`/`bootstrap`, and
+`app/main.py`'s startup seeding — both of which now explicitly bypass RLS
+via `db.set_tenant_context(None, bypass=True)`, the same trust model
+already used for a verified `super_admin`). Flag-gated
+(`TENANT_SCHEME_RLS_ENABLED`, default off) and **not active in
+production** — blocked on the same DB-role cutover the A03 row in
+`docs/SECURITY.md` describes (a superuser connection bypasses RLS
+regardless of policy), and the migration script itself has never been run
+against the real `megh_db`. Both halves ARE verified against a real,
+disposable (non-production) Postgres — genuine cross-tenant isolation
+confirmed for curated data and for `app.users`/`conversations`/etc. See
+that change's `proposal.md`/`design.md`/`tasks.md` for the full mechanism
+and what's verified vs. still gated on production infra access.
 
 ### Authorization — spec 5.7, `backend/auth.py`
 `scope_from_user(row)` builds a `UserScope` from `ROLE_PERMISSIONS[role]` narrowed

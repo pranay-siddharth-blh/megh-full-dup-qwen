@@ -61,8 +61,8 @@ class ConversationState:
     last_question: str | None = None              # raw text as typed
     last_standalone_question: str | None = None   # fully resolved/rewritten form
     turn_count: int = 0
-    # Set when the pipeline paused to ask "which area / year?"
-    # (scope-not-specified / year-not-specified / entity-ambiguous). Holds the
+    # Set when the pipeline paused for one more detail (any rule in
+    # pipeline.RESUMABLE_CLARIFICATION_RULES). Holds the
     # original question so the next turn's free-text reply can be merged back
     # into it. Cleared as soon as it's consumed. Lives here (not directly on
     # Session) specifically so it rides the same L1/L2 durability this whole
@@ -78,6 +78,32 @@ class ConversationState:
     # invent one instead of asking again or using the block. Cleared with
     # pending_scope_q.
     pending_village_hint: str | None = None
+    # The one-tap chips offered by that same pause, as
+    # [{"question": <the full standalone question the chip sends>,
+    #   "pins": {<canonical values that chip stands for>}}, ...].
+    #
+    # Two jobs, neither of which the prefix test in merge_clarification_reply
+    # can do on its own:
+    #   1. Recognise a chip reply EXACTLY. A chip that substitutes its choice
+    #      into the MIDDLE of the paused question (the FY chips replace a bare
+    #      "2023"; _village_chip_question replaces the village name with the
+    #      candidate's canonical spelling) no longer starts with the paused
+    #      stem, so the prefix test reads it as free text and concatenates the
+    #      two — producing exactly the duplicated, self-contradicting question
+    #      merge_clarification_reply exists to prevent for the prefix case.
+    #   2. Carry what the chip MEANS, not just what it says. `pins` is folded
+    #      into the resumed turn's prior_resolved, so the choice survives even
+    #      when the LLM mention-extractor mis-tags the resumed text — the same
+    #      failure pending_village_hint exists for, generalised to every
+    #      dimension a chip can pin.
+    # Cleared with pending_scope_q.
+    pending_options: list[dict] = field(default_factory=list)
+    # Everything resolve_entities had already pinned on the turn that paused
+    # (ClarificationNeeded.resolved_so_far). Seeds the resumed turn's
+    # prior_resolved so a SECOND clarification round doesn't throw away the
+    # first round's answer — without it every resume re-derives every
+    # dimension from the merged text alone. Cleared with pending_scope_q.
+    pending_resolved: dict = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {
@@ -87,6 +113,8 @@ class ConversationState:
             "tranche_all_combined": self.tranche_all_combined,
             "pending_scope_q": self.pending_scope_q,
             "pending_village_hint": self.pending_village_hint,
+            "pending_options": list(self.pending_options),
+            "pending_resolved": dict(self.pending_resolved),
             "comparison_entities": list(self.comparison_entities),
             "comparison_kind": self.comparison_kind, "last_intent": self.last_intent,
             "last_route": self.last_route, "last_question": self.last_question,
@@ -109,6 +137,8 @@ class ConversationState:
             turn_count=int(d.get("turn_count") or 0),
             pending_scope_q=d.get("pending_scope_q"),
             pending_village_hint=d.get("pending_village_hint"),
+            pending_options=list(d.get("pending_options") or []),
+            pending_resolved=dict(d.get("pending_resolved") or {}),
         )
 
 

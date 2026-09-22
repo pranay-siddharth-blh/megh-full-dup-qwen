@@ -70,6 +70,20 @@ _fact_nodes: set[str] = set()
 _dimension_nodes: set[str] = set()
 _unreadable_nodes: set[str] = set()
 _graph: dict[str, dict[str, str]] = {}
+# Every table named anywhere in the curated YAMLs or live_fks() — a `nodes:`
+# entry, either end of an `edges:` entry (INCLUDING a prohibited one, unlike
+# _graph's keys, which only ever hold tables with at least one non-prohibited
+# edge), or a live_fks() participant. Deliberately broader than _graph: a
+# table can be "known" (an SME looked at it and either declared or explicitly
+# prohibited every relationship it has) while still having zero live edges —
+# curated.v_focus_plus is exactly this today, every one of its 6 declared
+# edges is_prohibited. app/sql_join_validator.py needs this distinction to
+# tell "these two tables were reviewed and found unrelated" (flag it) apart
+# from "this table was never catalogued at all" (skip — don't guess), which
+# matters most when live_fks() is empty (a DB hiccup at startup) and would
+# otherwise make a never-catalogued live-only-FK table look identical to a
+# reviewed-and-prohibited one.
+_known_nodes: set[str] = set()
 _loaded = False
 
 
@@ -98,6 +112,7 @@ def build(force: bool = False) -> None:
     _dimension_nodes.clear()
     _unreadable_nodes.clear()
     _graph.clear()
+    _known_nodes.clear()
 
     for scheme, path in _FK_FILES.items():
         try:
@@ -108,6 +123,7 @@ def build(force: bool = False) -> None:
         fk = (data or {}).get("foreign_key_augmentation", {})
 
         for name, node in (fk.get("nodes") or {}).items():
+            _known_nodes.add(name)
             role = (node or {}).get("role")
             if role in _FACT_ROLES:
                 _fact_nodes.add(name)
@@ -117,9 +133,13 @@ def build(force: bool = False) -> None:
                 _unreadable_nodes.add(name)
 
         for edge in fk.get("edges") or []:
+            from_table, to_table = edge.get("from_table"), edge.get("to_table")
+            if from_table:
+                _known_nodes.add(from_table)
+            if to_table:
+                _known_nodes.add(to_table)
             if edge.get("is_prohibited"):
                 continue
-            from_table, to_table = edge.get("from_table"), edge.get("to_table")
             if not from_table or not to_table:
                 continue
             if from_table in _unreadable_nodes or to_table in _unreadable_nodes:
@@ -132,6 +152,8 @@ def build(force: bool = False) -> None:
 
     for fk_row in schema_introspect.live_fks():
         a, b = fk_row["from"], fk_row["to"]
+        _known_nodes.add(a)
+        _known_nodes.add(b)
         if a in _unreadable_nodes or b in _unreadable_nodes:
             continue
         on_clause = f"{a}.{fk_row['from_column']} = {b}.{fk_row['to_column']}"
@@ -215,9 +237,45 @@ def find_join_path(tables: list[str]) -> JoinPathResult:
     return JoinPathResult(status="ok", joins=joins, tables=uniq)
 
 
+def has_edge(a: str, b: str) -> bool:
+    """True if `a` and `b` have a direct, non-prohibited edge between them —
+    used by app/sql_join_validator.py to flag a JOIN whose own ON clause
+    connects two tables with no declared relationship at all. Not the same
+    question as is_known(): a known-but-unrelated pair (e.g.
+    curated.v_focus_plus and any other scheme's fact — every one of
+    v_focus_plus's edges is is_prohibited) answers False here too."""
+    build()
+    return b in _graph.get(a, {}) or a in _graph.get(b, {})
+
+
+def is_fact(table: str) -> bool:
+    """True if `table` is tagged role: fact / fact_view in its scheme's curated
+    YAML `nodes:` section. Used by the §5.11 "tables must belong to the
+    retrieved set" check to scope itself to fact tables only — a dimension
+    table (e.g. curated.dim_geography) is legitimately joined in via the FK
+    graph without schema-retrieval ever having to name it as a top-K
+    candidate, so checking dimensions here would flag known-good queries."""
+    build()
+    return table in _fact_nodes
+
+
+def is_known(table: str) -> bool:
+    """True if `table` was named anywhere in the curated YAMLs (a `nodes:`
+    entry, or either end of an `edges:` entry — prohibited or not) or by
+    live_fks(). Broader than being a _graph key: a table can be known and
+    still have zero live edges (see has_edge's docstring). A table this
+    returns False for was never reviewed at all — sql_join_validator.py
+    deliberately does not judge those, to avoid a live_fks() outage making
+    an uncatalogued table indistinguishable from a reviewed-and-prohibited
+    one."""
+    build()
+    return table in _known_nodes
+
+
 def snapshot() -> dict:
     return {
         "nodes": len(_graph),
+        "known_nodes": len(_known_nodes),
         "fact_nodes": sorted(_fact_nodes),
         "dimension_nodes": sorted(_dimension_nodes),
         "unreadable_nodes": sorted(_unreadable_nodes),

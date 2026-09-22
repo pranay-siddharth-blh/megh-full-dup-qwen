@@ -106,7 +106,7 @@ covering those years.
 |---|---|---|---|
 | `curated.fact_mgnrega_employment` | one source row | 26,375 | `person_days` (headline), `households_employed`, `persons_employed`, `households_completed_100_days`, `job_cards_issued_total` (STOCK), `women_employment_provided` (⚠ no ratios) |
 | `curated.fact_mgnrega_expenditure` | one source row | 18,818 | **LAKH ₹** — `unskilled_wage_exp`, `semi_skilled_wage_exp`, `material_exp`, `tax_exp`, `total_exp` |
-| `curated.fact_pmay_house` | one sanctioned house | not verified | **₹** — `sanctioned_amount` (≈ per-house constant), `amount_released` (varies), `amount_pending`; `sanction_date` / `sanction_month` (only real dates in the DB); `status_key`; `year_key` **nullable** (sanction outside FY22-26); flags `is_placeholder`, `completed_underfunded`, `mapping_category` |
+| `curated.fact_pmay_house` | one sanctioned house | 171,107 (raw count, live-verified 2026-09-18, no `is_placeholder` filter — see "Verified totals" below) | **₹** — `sanctioned_amount` (≈ per-house constant), `amount_released` (varies), `amount_pending`; `sanction_date` / `sanction_month` (only real dates in the DB); `status_key`; `year_key` **nullable** (sanction outside FY22-26); flags `is_placeholder`, `completed_underfunded`, `mapping_category` |
 
 ### Views — query these, not the raw facts
 
@@ -151,6 +151,14 @@ covering those years.
 | Job-card stock, 2025-26 | 520,999 |
 | Villages with any MGNREGA activity | 6,491 |
 
-**PMAY-G has no verified totals.** Nothing has been double-derived — house counts,
-released/pending crore and completion rates must be measured before they are
-quoted. `SCHEMA_FOR_DEVELOPERS` §8 / §12.
+**PMAY-G has no verified BUSINESS-METRIC totals** (released/pending crore,
+completion rates) — those still need to be measured with the correct
+filters (e.g. `WHERE NOT is_placeholder`) before being quoted.
+`SCHEMA_FOR_DEVELOPERS` §8 / §12. **One real number is now confirmed,
+2026-09-18**: `SELECT count(*) FROM curated.fact_pmay_house` against the
+live database returned **171,107** — a genuine, live-verified row count,
+not derived from a report. This is the RAW table count with no
+`is_placeholder` filter applied, so it is not directly comparable to a
+"how many houses were actually sanctioned" business figure — it closes
+"has anyone ever counted the rows" (yes, now), not "has anyone verified
+the business totals" (still no).

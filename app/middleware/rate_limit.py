@@ -17,6 +17,16 @@ Backend:
   * "redis"  — a shared sorted-set window (reuses REDIS_URL via app.cache), so
     the limit holds across every worker. Any Redis error degrades to memory for
     that request — it never 500s.
+
+Per-user vs. per-IP key (openspec/changes/phase-6-observability-deployment):
+a request carrying a valid, unexpired bearer token is keyed by its
+authenticated user id ("user:<sub>"), not client IP — two users sharing an
+office NAT no longer share one throttle bucket, and one user keeps a
+single bucket across networks. A missing or invalid token (no token,
+malformed, bad signature, wrong issuer, expired) falls back to the
+existing IP-based key ("ip:<ip>") — cheaply, via app.security.decode_token
+(signature/issuer/expiry only, no database call), never rejecting the
+request itself: that stays the route's own auth dependency's job.
 """
 import logging
 import time
@@ -26,7 +36,9 @@ from fastapi import Request
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.responses import JSONResponse
 
+from app import security
 from app.config import settings
+from app.deps import _bearer
 from app.net import client_ip
 
 logger = logging.getLogger(__name__)
@@ -34,11 +46,15 @@ logger = logging.getLogger(__name__)
 MAX_REQUESTS = 30   # /api/query, per window
 WINDOW_SEC   = 60   # rolling window in seconds
 
-# (path prefix, max, window) — first match wins. Order matters: the more specific
-# /api/auth/login prefix is checked before the broad /api/query one.
-_RULES: list[tuple[str, int, int]] = [
-    ("/api/auth/login", settings.LOGIN_RL_MAX, settings.LOGIN_RL_WINDOW_SEC),
-    ("/api/query", MAX_REQUESTS, WINDOW_SEC),
+# (path prefix, max, window, key_by_user) — first match wins. Order matters:
+# the more specific /api/auth/login prefix is checked before the broad
+# /api/query one. `key_by_user=False` for login: a caller authenticating for
+# the first time has no meaningful prior identity, so this bucket stays
+# IP-only regardless of whether a (nonsensical) bearer token is present —
+# per openspec/changes/phase-6-observability-deployment's rate-limiting spec.
+_RULES: list[tuple[str, int, int, bool]] = [
+    ("/api/auth/login", settings.LOGIN_RL_MAX, settings.LOGIN_RL_WINDOW_SEC, False),
+    ("/api/query", MAX_REQUESTS, WINDOW_SEC, True),
 ]
 
 
@@ -51,25 +67,42 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._windows: dict[str, deque] = defaultdict(deque)
 
     @staticmethod
-    def _rule_for(path: str) -> tuple[str, int, int] | None:
-        for prefix, cap, window in _RULES:
+    def _rule_for(path: str) -> tuple[str, int, int, bool] | None:
+        for prefix, cap, window, key_by_user in _RULES:
             if path.startswith(prefix):
-                return prefix, cap, window
+                return prefix, cap, window, key_by_user
         return None
+
+    @staticmethod
+    def _identity(request: Request) -> str | None:
+        """The authenticated user id for this request's bearer token, or
+        None on any missing/invalid token — cheap (signature/issuer/expiry
+        only, no DB call) and never raises; a bad token is not this
+        layer's concern, it just means "no identity", falling back to IP."""
+        token = _bearer(request.headers.get("authorization"))
+        if not token:
+            return None
+        try:
+            claims = security.decode_token(token)
+        except security.JWTError:
+            return None
+        sub = claims.get("sub")
+        return str(sub) if sub is not None else None
 
     async def dispatch(self, request: Request, call_next):
         rule = self._rule_for(request.url.path)
         if rule is None:
             return await call_next(request)
-        bucket, cap, window = rule
+        bucket, cap, window, key_by_user = rule
 
         ip = client_ip(request)
-        key = f"{bucket}|{ip}"
+        user_id = self._identity(request) if key_by_user else None
+        key = f"{bucket}|user:{user_id}" if user_id else f"{bucket}|ip:{ip}"
         now = time.monotonic()
 
         allowed, retry_after, used = await self._check(key, cap, window, now)
         if not allowed:
-            logger.warning("Rate limit hit: bucket=%s ip=%s used=%s", bucket, ip, used)
+            logger.warning("Rate limit hit: bucket=%s key=%s ip=%s used=%s", bucket, key, ip, used)
             return JSONResponse(
                 status_code=429,
                 content={

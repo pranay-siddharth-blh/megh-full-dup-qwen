@@ -25,7 +25,7 @@ print("2. HISTORY (reads app.conversations)")
 st, res = call("GET", "/api/history?limit=3", tok)
 print(f"   GET /api/history -> {st}, {len(res.get('conversations',[]))} thread(s)  {ok(st==200)}")
 
-print("3. RAG STATUS (Qdrant KB built from data/)")
+print("3. RAG STATUS (pgvector KB built from data/)")
 st, res = call("GET", "/api/rag/status", tok)
 print(f"   GET /api/rag/status -> {st}  points={res.get('points')}  {ok(st==200)}")
 

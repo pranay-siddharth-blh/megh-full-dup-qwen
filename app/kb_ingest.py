@@ -10,16 +10,14 @@ Chunking follows the NeuralAiGovernanceProject rag_service._chunk() pattern:
 one chunk per H2 section, split at H3 when a section is too long, each chunk
 prefixed with its heading path so the heading travels into the embedding.
 
-Idempotent: startup calls ingest_kb(), which skips the work if the Qdrant
-collection already holds roughly the expected number of points. POST
+Idempotent: startup calls ingest_kb(), which skips the work if the pgvector
+table already holds roughly the expected number of rows. POST
 /api/rag/reingest forces a full rebuild.
 """
 import logging
 import re
 import uuid
 from pathlib import Path
-
-from qdrant_client import models
 
 from app import llm, vectorstore
 from app.config import settings
@@ -200,7 +198,7 @@ async def _embed_all(texts: list[str]) -> list[list[float]]:
 
 
 async def ingest_kb(force: bool = False) -> dict:
-    """Build (or rebuild) the Qdrant KB collection. Returns a small status dict."""
+    """Build (or rebuild) the pgvector KB table. Returns a small status dict."""
     chunks = _collect_chunks()
     if not chunks:
         logger.warning("kb_ingest: no source chunks found under %s", _DATA_PART)
@@ -220,11 +218,11 @@ async def ingest_kb(force: bool = False) -> dict:
 
     await vectorstore.recreate_collection(dim=len(vectors[0]))
     points = [
-        models.PointStruct(id=str(uuid.uuid4()), vector=vec, payload=chunk)
+        {"id": str(uuid.uuid4()), "vector": vec, "payload": chunk}
         for vec, chunk in zip(vectors, chunks)
     ]
     for i in range(0, len(points), 128):
         await vectorstore.upsert(points[i : i + 128])
 
-    logger.info("kb_ingest: upserted %d points into %s", len(points), settings.QDRANT_COLLECTION)
+    logger.info("kb_ingest: upserted %d rows into %s", len(points), settings.RAG_KB_TABLE)
     return {"ingested": len(points), "skipped": False}

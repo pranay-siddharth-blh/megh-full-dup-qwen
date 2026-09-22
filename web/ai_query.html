@@ -622,6 +622,18 @@
   .sql-copy:hover { background: var(--p-100); }
   .sql-copy.copied { color: #15803d; border-color: #86efac; }
 
+  /* ===== Findings — deterministic result checks (node 5.13), shown under
+     the answer/chart. Severity-styled with the same tokens used elsewhere
+     (--amber for warning, --blue for info); an unrecognized future
+     severity falls back to the neutral .finding-item base. ===== */
+  .findings-block { margin-top: 14px; display: flex; flex-direction: column; gap: 6px; }
+  .finding-item {
+    font-size: 12.5px; line-height: 1.5; padding: 8px 12px; border-radius: 7px;
+    border: 1px solid var(--line); background: var(--hover); color: var(--ink-2);
+  }
+  .finding-item.finding-info { color: var(--blue); background: var(--blue-bg); border-color: transparent; }
+  .finding-item.finding-warning { color: var(--amber); background: var(--amber-bg); border-color: transparent; }
+
   /* ===== NODE 1 — Scope & Scheme Classifier routing badge =====
      Shows which scheme(s) the question was routed to, how the decision was made,
      and the classifier's confidence. Click to expand the full reason. */
@@ -2207,11 +2219,12 @@ function buildSchemePicker(response) {
    and whether it was treated as a follow-up. Clicking expands the plain-English reason. */
 let _routeIdx = 0;
 
-/* Show the routing badge? Turned OFF — the pipeline diagnostics (routed-to scheme, query
-   type, confidence, source, follow-up flag) are developer detail, not something end users
-   need above every answer. The backend still returns `scope` and `analysis`, so flipping
-   this back to true restores the badge with no other change. */
-const SHOW_ROUTE_BADGE = false;
+/* Show the routing badge? Turned ON as of openspec/changes/query-analyzer-consolidation
+   — the backend now actually populates `response.scope` (node 5.1's decision trace) and
+   `response.analysis` (node 5.2's structured query analysis) on every successful DATA-route
+   answer; before that change neither field existed and this badge was permanently empty.
+   Flip back to false to hide it again with no other change. */
+const SHOW_ROUTE_BADGE = true;
 
 function buildRouteBadge(response) {
   if (!SHOW_ROUTE_BADGE) return '';
@@ -2423,6 +2436,21 @@ function buildSqlDisclosure(response) {
     </details>`;
 }
 
+/* ===== Findings — deterministic result checks (node 5.13): empty result,
+   numeric extremes, ties, large result set, threshold breach, stale data.
+   Rendered as a distinct block, not merged into the composed answer text —
+   see openspec/changes/findings-surface-to-user/proposal.md for why. ===== */
+function buildFindings(findings) {
+  if (!Array.isArray(findings) || findings.length === 0) return '';
+  const items = findings.map(f => {
+    const severity = (f && f.severity) || '';
+    const cls = (severity === 'info' || severity === 'warning') ? ` finding-${severity}` : '';
+    const msg = escapeHTML((f && f.message) || '');
+    return `<div class="finding-item${cls}">${msg}</div>`;
+  }).join('');
+  return `<div class="findings-block">${items}</div>`;
+}
+
 function _fallbackCopy(text, done) {
   try {
     const ta = document.createElement('textarea');
@@ -2483,6 +2511,7 @@ function addBotRich(question, response) {
     ? `<div class="mtime">${nowTime()} &middot; ${response.row_count || 0} result${response.row_count === 1 ? '' : 's'} &middot; ${response.execution_time_ms || 0}ms</div>`
     : `<div class="mtime">${nowTime()}</div>`;
   const answerBlock = answerHTML ? `<div class="answer-text">${answerHTML}</div>` : '';
+  const findingsBlock = buildFindings(response.findings);   // node 5.13, below the answer/chart
   const sqlBlock = buildSqlDisclosure(response);   // "SQL query used" dropdown, below the answer
   const routeBadge = buildRouteBadge(response);   // NODE 1 decision, shown above the answer
   const div = document.createElement('div');
@@ -2490,7 +2519,7 @@ function addBotRich(question, response) {
   div.innerHTML = `
     <div class="av">M</div>
     <div>
-      <div class="bubble">${routeBadge}${answerBlock}${analytics.html}${sqlBlock}${followUp}</div>
+      <div class="bubble">${routeBadge}${answerBlock}${analytics.html}${findingsBlock}${sqlBlock}${followUp}</div>
       ${meta}
     </div>`;
   messages.appendChild(div);

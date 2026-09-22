@@ -7,7 +7,7 @@ import logging
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
 from pydantic import BaseModel, Field
 
-from app import appdb, auth, security
+from app import appdb, auth, db, security
 from app.config import settings
 from app.deps import require_user
 from app.net import client_ip as _resolve_ip
@@ -36,27 +36,41 @@ def _client_ip(request: Request) -> str:
 async def login(body: LoginBody, request: Request):
     ua = request.headers.get("user-agent", "")
     ip = _client_ip(request)
-    rec = await appdb.get_user_by_username(body.username.strip())
-    if not rec or not rec.get("is_active") or not security.verify_password(
-        body.password, rec.get("password_hash", "")
-    ):
-        await appdb.log_login(event="login_fail", ok=False, username=body.username,
-                              user_id=(rec or {}).get("user_id"),
-                              tenant_id=(rec or {}).get("tenant_id"), ip=ip, user_agent=ua,
-                              detail="bad credentials or inactive")
-        raise HTTPException(401, "invalid username or password")
+    # openspec/changes/multi-tenant-rls-scheme-scaleout group 2.2: no scope
+    # exists yet at this point (that's what login produces) — there is no
+    # tenant to derive app.db.set_tenant_context() from, and the username
+    # lookup below is *inherently* cross-tenant (you don't know the tenant
+    # until this query tells you). bypass=True here is the same trust model
+    # already used for a verified super_admin (app/deps.py::tenant_scoped) —
+    # this is server code doing its own pre-authentication bookkeeping, never
+    # a client-suppliable value. Without this, once Section B RLS is enabled,
+    # every login would 401 (the app.users SELECT sees zero rows with no
+    # tenant GUC set) regardless of correct credentials.
+    _tok = db.set_tenant_context(None, bypass=True)
+    try:
+        rec = await appdb.get_user_by_username(body.username.strip())
+        if not rec or not rec.get("is_active") or not security.verify_password(
+            body.password, rec.get("password_hash", "")
+        ):
+            await appdb.log_login(event="login_fail", ok=False, username=body.username,
+                                  user_id=(rec or {}).get("user_id"),
+                                  tenant_id=(rec or {}).get("tenant_id"), ip=ip, user_agent=ua,
+                                  detail="bad credentials or inactive")
+            raise HTTPException(401, "invalid username or password")
 
-    scope = auth.scope_from_user(rec)
-    token = security.issue_token({
-        "sub": str(rec["user_id"]),
-        "username": rec["username"],
-        "tenant_id": rec["tenant_id"],
-        "role": rec["role"],
-    })
-    await appdb.touch_login(rec["user_id"])
-    await appdb.log_login(event="login_ok", ok=True, username=rec["username"],
-                          user_id=rec["user_id"], tenant_id=rec["tenant_id"],
-                          ip=ip, user_agent=ua)
+        scope = auth.scope_from_user(rec)
+        token = security.issue_token({
+            "sub": str(rec["user_id"]),
+            "username": rec["username"],
+            "tenant_id": rec["tenant_id"],
+            "role": rec["role"],
+        })
+        await appdb.touch_login(rec["user_id"])
+        await appdb.log_login(event="login_ok", ok=True, username=rec["username"],
+                              user_id=rec["user_id"], tenant_id=rec["tenant_id"],
+                              ip=ip, user_agent=ua)
+    finally:
+        db.reset_tenant_context(_tok)
     return {
         "access_token": token,
         "token_type": "bearer",
@@ -96,21 +110,27 @@ async def me(scope: auth.UserScope = Depends(require_user)):
 async def bootstrap(body: BootstrapBody):
     """Create the first super_admin. Allowed only while app.users is empty
     (or with the correct ADMIN_TOKEN if one is configured)."""
-    count = await appdb.db.fetchval("SELECT count(*) FROM app.users")
-    if int(count or 0) > 0:
-        if not settings.ADMIN_TOKEN or body.admin_token != settings.ADMIN_TOKEN:
-            raise HTTPException(403, "bootstrap is closed (users already exist)")
-    tid = await appdb._seed_default_tenant()
+    # Same reasoning as login() above: no scope/tenant exists yet — this
+    # endpoint's entire job is creating the first one.
+    _tok = db.set_tenant_context(None, bypass=True)
     try:
-        rec = await appdb.create_user(
-            tenant_id=tid, username=body.username.strip(), password=body.password,
-            name=body.name or "Super Admin", role="super_admin", created_by="bootstrap",
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("bootstrap create_user failed: %s", e)
-        raise HTTPException(422, "could not create super_admin") from e
-    await appdb.log_login(event="bootstrap", ok=True, username=rec["username"],
-                          user_id=rec["user_id"], tenant_id=tid)
+        count = await appdb.db.fetchval("SELECT count(*) FROM app.users")
+        if int(count or 0) > 0:
+            if not settings.ADMIN_TOKEN or body.admin_token != settings.ADMIN_TOKEN:
+                raise HTTPException(403, "bootstrap is closed (users already exist)")
+        tid = await appdb._seed_default_tenant()
+        try:
+            rec = await appdb.create_user(
+                tenant_id=tid, username=body.username.strip(), password=body.password,
+                name=body.name or "Super Admin", role="super_admin", created_by="bootstrap",
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("bootstrap create_user failed: %s", e)
+            raise HTTPException(422, "could not create super_admin") from e
+        await appdb.log_login(event="bootstrap", ok=True, username=rec["username"],
+                              user_id=rec["user_id"], tenant_id=tid)
+    finally:
+        db.reset_tenant_context(_tok)
     return {"created": _public_user(rec, auth.scope_from_user(rec))}
 
 

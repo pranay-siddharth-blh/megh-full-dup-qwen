@@ -29,7 +29,26 @@ A live `semantic.column_catalog`-driven blocklist is a flagged fast-follow
 (proposal.md's Explicitly Out of Scope) once that table's existence/shape is
 confirmed against a reachable database.
 """
+import json
 import re
+
+# scheme -> a JSONB container column that is NOT PII-only (holds legitimate,
+# actively-queried non-PII data alongside PII keys), so it can't be
+# blocklisted outright like a column in PII_BLOCKLIST — only *whole-column*
+# exposure is unsafe. CM Elevate's scheme_specific holds ~125 fields, of
+# which only the 8 PII_BLOCKLIST["CM Elevate"] keys are sensitive; the rest
+# includes gender_id, called out in cmelevate_schema_partitions.yaml as "the
+# one genuinely useful demographic on this partition and reachable only
+# through JSONB" — re-confirmed before this check was added (see
+# openspec/changes/urgent-pii-redaction-followup/proposal.md).
+_CONTAINER_COLUMNS: dict[str, str] = {
+    "CM Elevate": "scheme_specific",
+}
+
+_JSON_EXTRACT_OP = re.compile(r"\s*(->>|->|#>>|#>)")
+_SELECT_LIST = re.compile(r"\bselect\b(.*?)\bfrom\b", re.IGNORECASE | re.DOTALL)
+_LEADING_DISTINCT = re.compile(r"(?i)^\s*distinct\s+")
+_BARE_STAR_TOKEN = re.compile(r"^\s*(?:\w+\.)?\*\s*$")
 
 # scheme -> blocklisted column / scheme_specific JSONB key identifiers.
 # Source citations (re-confirm here before editing, per proposal.md's
@@ -81,12 +100,78 @@ def find_blocked_columns(sql: str, schemes: list[str]) -> tuple[str, ...]:
     return tuple(col for col in blocklisted_columns(schemes) if _pattern_for(col).search(sql))
 
 
+def _has_star_select(sql: str) -> bool:
+    """True if any SELECT list in `sql` (there may be more than one, e.g.
+    inside a CTE) selects a bare or qualified wildcard (`*` / `alias.*`) as
+    its own list item — not `a * b` (multiplication), which never appears as
+    a standalone comma-separated token."""
+    for select_list in _SELECT_LIST.findall(sql):
+        for token in select_list.split(","):
+            if _BARE_STAR_TOKEN.match(_LEADING_DISTINCT.sub("", token)):
+                return True
+    return False
+
+
+def find_container_exposure(sql: str, schemes: list[str]) -> str | None:
+    """Layer 1b. `scheme_specific` (CM Elevate) and any future entry in
+    _CONTAINER_COLUMNS is NOT PII-only — see module docstring / proposal.md —
+    so it can't be blocklisted outright the way a PII_BLOCKLIST column is.
+    Only *whole-column* exposure is unsafe: a bare/aliased select of the
+    column, or a `SELECT *` that would include it. A scoped `scheme_specific
+    ->> 'key'` extraction is left alone here; if `key` is itself one of the
+    8 blocklisted names, find_blocked_columns already catches it via the
+    literal-name scan. Returns the exposed container column name, or None."""
+    for scheme in schemes or ():
+        col = _CONTAINER_COLUMNS.get(scheme)
+        if not col:
+            continue
+        if _has_star_select(sql):
+            return col
+        for m in re.finditer(r"\b" + re.escape(col) + r"\b", sql, re.IGNORECASE):
+            if not _JSON_EXTRACT_OP.match(sql[m.end():]):
+                return col
+    return None
+
+
+def _redact_json_value(value, blocked: set[str]):
+    """Layer 2 backstop for a single row value: if `value` is a JSON object
+    — as text (an un-decoded JSONB column, the normal asyncpg shape since
+    app/db.py registers no json/jsonb type codec) or already a dict — strip
+    any blocklisted key found inside it and return the same type back.
+    Non-object / non-JSON values, and objects with nothing to strip, pass
+    through unchanged (including the identical string, to avoid needless
+    re-serialization). This is what catches a whole-container exposure
+    (`SELECT *` on CM Elevate, or any future JSONB container column)
+    regardless of whether Layer 1's SQL-text scan saw it coming."""
+    if isinstance(value, str):
+        stripped = value.strip()
+        if not stripped.startswith("{"):
+            return value
+        try:
+            parsed = json.loads(stripped)
+        except (ValueError, TypeError):
+            return value
+        if not isinstance(parsed, dict) or not (blocked & parsed.keys()):
+            return value
+        return json.dumps({k: v for k, v in parsed.items() if k not in blocked})
+    if isinstance(value, dict):
+        if not (blocked & value.keys()):
+            return value
+        return {k: v for k, v in value.items() if k not in blocked}
+    return value
+
+
 def redact_rows(rows: list[dict], schemes: list[str]) -> list[dict]:
     """Layer 2. Returns new row dicts with every blocklisted key fully
-    removed (not nulled) for the active scheme(s). Rows are always copied,
-    never mutated in place. When no scheme in `schemes` has a blocklist,
-    `rows` is returned unchanged (same objects) — nothing to redact."""
+    removed (not nulled) for the active scheme(s), at the top level and
+    (per _redact_json_value) inside any JSON-object value such as CM
+    Elevate's scheme_specific. Rows are always copied, never mutated in
+    place. When no scheme in `schemes` has a blocklist, `rows` is returned
+    unchanged (same objects) — nothing to redact."""
     blocked = set(blocklisted_columns(schemes))
     if not blocked:
         return rows
-    return [{k: v for k, v in row.items() if k not in blocked} for row in rows]
+    return [
+        {k: _redact_json_value(v, blocked) for k, v in row.items() if k not in blocked}
+        for row in rows
+    ]

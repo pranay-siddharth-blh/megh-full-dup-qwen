@@ -19,7 +19,7 @@
 schemes:
   - id: MGNREGA
     display_name: MGNREGA
-    aliases: [mgnrega, nrega, mgnrega scheme, employment guarantee]
+    aliases: [mgnrega, nrega, mnrega, mgnrega scheme, employment guarantee]
     tables:
       - curated.fact_mgnrega_employment
       - curated.fact_mgnrega_expenditure
@@ -30,7 +30,7 @@ schemes:
 
   - id: PMAY-G
     display_name: PMAY-G
-    aliases: [pmay, pmay-g, pmay gramin, pmayg, rural housing]
+    aliases: [pmay, pmay-g, pmay gramin, pmayg, rural housing, awas, awaas]
     tables:
       - curated.fact_pmay_house
       - curated.dim_pmay_house_status

@@ -14,9 +14,12 @@ asyncpg>=0.31,<1.0
 httpx>=0.28,<1.0
 PyYAML>=6.0,<7.0
 rapidfuzz>=3.14,<4.0
-qdrant-client>=1.19,<2.0
 python-multipart>=0.0.32,<0.1
 fastembed>=0.8,<1.0        # local CPU embeddings (EMBEDDING_PROVIDER=local)
 redis>=8.1,<9.0            # optional shared L2 response cache (REDIS_URL)
+sqlglot>=30.18,<31.0        # post-generation join validation (app/sql_join_validator.py)
 langgraph>=1.2,<2.0                    # interrupt()/checkpointer follow-up emitter (app/langgraph_followup.py, node 5.4)
 langgraph-checkpoint-sqlite>=3.1,<4.0  # zero-infra durable checkpointer backend for the above
+# ── openspec/changes/langgraph-full-pipeline-rewrite (app/pipeline_graph.py) ──
+langgraph-checkpoint-postgres>=3.1,<4.0  # production-shape checkpointer, selected via PIPELINE_GRAPH_CHECKPOINTER_DSN
+psycopg[binary]>=3.2,<4.0                # binary wheel bundles libpq — no system libpq install needed

@@ -30,14 +30,37 @@ own next-step UI (starter chips on edge, the clarification options).
 """
 import re
 
+from app import scheme_registry
+
 _MAX = 3
 
-_SCHEME_RX = {
-    "MGNREGA": re.compile(r"\bmgnrega\b|\bmnrega\b|\bnrega\b", re.IGNORECASE),
-    "PMAY-G": re.compile(r"\bpmay[\s-]?g?\b|\bawa+s?\b", re.IGNORECASE),
-    "Focus Plus": re.compile(r"\bfocus[\s-]?plus\b|\bfocus\s*\+|\bfocusplus\b", re.IGNORECASE),
-    "CM Elevate": re.compile(r"\bcm[\s-]?elevate\b|\bcmelevate\b", re.IGNORECASE),
-}
+
+def _scheme_regexes() -> dict[str, re.Pattern]:
+    """scheme_id -> a compiled name-detection regex, built from
+    scheme_registry.yaml's own `aliases:` field (plus the scheme_id and
+    display_name themselves) rather than a hand-authored pattern per scheme.
+
+    openspec/changes/multi-tenant-rls-scheme-scaleout tasks.md 4.2: this
+    used to be a fixed module-level dict (same per-scheme-code-per-
+    onboarding character as app/schema_context.py's 912 lines) — flagged as
+    out of scope, then actually fixed 2026-09-15. Built fresh on every call
+    (cheap — a handful of scheme entries) instead of cached at import time,
+    so a mid-session registry reload (POST /api/rag/reload-scheme-registry)
+    is picked up immediately, not just after a restart. `scheme_registry.
+    yaml`'s aliases for MGNREGA/PMAY-G were extended in the same change to
+    include "mnrega"/"awas"/"awaas" — variants this module's old hand-typed
+    regex covered but the registry's aliases (the vocabulary the classifier
+    is also meant to share, per that file's own header) didn't yet list."""
+    rx: dict[str, re.Pattern] = {}
+    for scheme_id in scheme_registry.scheme_ids():
+        entry = scheme_registry.entry(scheme_id) or {}
+        forms = {scheme_id, entry.get("display_name", scheme_id), *entry.get("aliases", [])}
+        forms = [f for f in forms if f and f.strip()]
+        if not forms:
+            continue
+        pattern = "|".join(r"\b" + re.escape(f.strip()) + r"\b" for f in forms)
+        rx[scheme_id] = re.compile(pattern, re.IGNORECASE)
+    return rx
 
 
 def _norm(s: str) -> str:
@@ -51,12 +74,19 @@ def _asked(question: str, *needles: str) -> bool:
 
 def _primary_schemes(schemes: list[str], question: str) -> list[str]:
     """The scheme(s) to build follow-ups for: what the answer used, else what
-    the question names, else both."""
-    schemes = [s for s in (schemes or []) if s in _SCHEME_RX]
+    the question names, else both.
+
+    openspec/changes/multi-tenant-rls-scheme-scaleout: the "both" fallback
+    reads the live registry instead of a hardcoded 4-scheme literal, and
+    (2026-09-15) so does name detection itself — see _scheme_regexes()
+    above — so onboarding scheme #5+ needs only a registry entry to get
+    both, not a code change here."""
+    rx = _scheme_regexes()
+    schemes = [s for s in (schemes or []) if s in rx]
     if schemes:
         return schemes
-    named = [s for s, rx in _SCHEME_RX.items() if rx.search(question or "")]
-    return named or ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"]
+    named = [s for s, pattern in rx.items() if pattern.search(question or "")]
+    return named or scheme_registry.scheme_ids()
 
 
 # ── answer grain (read off the generated SQL's GROUP BY) ────────────────────
@@ -457,6 +487,13 @@ def build_followups(route: str, question: str, schemes: list[str],
     ents = resolved_entities or {}
     primary = _primary_schemes(schemes, q)
     grain = _answer_grain(sql) if route == "data" else None
+
+    if not primary:
+        # Only reachable if scheme_registry has nothing loaded at all (e.g. a
+        # test/script that never called scheme_registry.load_all() — the
+        # real app always does at startup, before serving any request) —
+        # genuinely nothing to suggest, not an error.
+        return []
 
     if route == "knowledge":
         opts = _knowledge(q, primary)

@@ -98,11 +98,22 @@ async def _run_checks() -> None:
           r2.get("answer") == "Answer for: total MGNREGA expenditure, West Garo Hills", r2)
     check("the resumed question text ignored on the resume call, not concatenated twice",
           "ignored on resume" not in (r2.get("answer") or ""))
+    # Regression check for the 2026-09-17 fix: LangGraph replays a paused
+    # node in FULL on resume, so before the classify/gate node split, this
+    # single pause+resume cycle cost 3 real pipeline.answer_question calls
+    # (original, a wasted replay of the original, then the real merged
+    # attempt) instead of the 2 a "pause once, answer once" turn actually
+    # needs. `calls` was already being collected here but never asserted on
+    # — this is that assertion.
+    check("exactly 2 real pipeline calls for 1 pause + 1 resume (not 3 — "
+          "the pre-fix duplicate-replay-call bug)", len(calls) == 2, calls)
 
     # ── (c) multi-round pause ────────────────────────────────────────────
     print("2. MULTI-ROUND PAUSE (asks again for a second missing piece)")
+    round_calls: list[str] = []
 
     async def two_round_gate(question, session=None, scope=None):
+        round_calls.append(question)
         if "West Garo Hills" not in question:
             raise ClarificationNeeded("Which area?", rule="scope-not-specified")
         if "2023-24" not in question:
@@ -118,6 +129,9 @@ async def _run_checks() -> None:
     m3 = await lf.run_with_pause(session_id="multi1", question="x", scope=_SCOPE, resume="2023-24")
     check("round 3 completes with both replies merged in",
           m3.get("answer") == "Final: MGNREGA expenditure, West Garo Hills, 2023-24", m3)
+    check("exactly 3 real pipeline calls for 3 logical attempts across 2 "
+          "resumes (not 5 — each resume would have cost 2 pre-fix)",
+          len(round_calls) == 3, round_calls)
 
     # ── (d) entity-ambiguous village_hint passthrough ────────────────────
     print("3. ENTITY-AMBIGUOUS village_hint THREADS THROUGH TO RESUME")

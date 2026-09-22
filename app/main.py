@@ -11,11 +11,14 @@ from fastapi.staticfiles import StaticFiles
 from app import appdb, join_graph, pipeline, schema_introspect
 from app.annotations import load_all as load_annotations
 from app.config import insecure_secrets, settings
-from app.db import close_pool, init_pool
+from app.db import DBUnavailableError, close_pool, init_pool, reset_tenant_context, set_tenant_context
 from app.deps import current_scope
 from app.entity_resolver import load_all as load_entity_resolver
+from app.entity_resolver import load_embeddings as load_entity_resolver_embeddings
 from app.kb_ingest import ingest_kb
 from app.scheme_registry import load_all as load_scheme_registry
+from app.scheme_registry import sync_to_db as sync_scheme_registry_to_db
+from app.scheme_registry import warn_if_scheme_count_high
 from app.llm import close_client, init_client
 from app.middleware.limits import BodyLimitMiddleware
 from app.middleware.rate_limit import RateLimitMiddleware
@@ -51,6 +54,18 @@ async def _build_join_graph():
     join_graph.build()  # curated YAML + schema_introspect.live_fks() cache
 
 
+async def _sync_scheme_entitlements():
+    """openspec/changes/multi-tenant-rls-scheme-scaleout: upsert
+    app.schemes from the just-loaded registry, and (only on a tenant with
+    zero existing grants) seed the default tenant with every currently
+    registered scheme — keeps today's single-tenant deployment's effective
+    permissions unchanged the first time this runs. Must run after both
+    load_scheme_registry() (in-memory registry) and appdb.ensure_schema()
+    (app.schemes/app.tenant_schemes tables exist)."""
+    tid = await appdb.get_default_tenant_id()
+    await sync_scheme_registry_to_db(default_tenant_id=tid)
+
+
 async def _try(label: str, coro):
     """Run one startup step; log and continue if the remote box (10.48.242.4)
     is unreachable, so the server always comes up (degraded, see /health)."""
@@ -76,8 +91,31 @@ async def lifespan(app: FastAPI):
     await _try("vectorstore", init_pgvector())
     load_annotations()                    # local YAML, no network
     load_entity_resolver()                # local YAML, no network
+    # First run downloads the ONNX model (~130 MB); on a box with restricted
+    # egress the HuggingFace Hub metadata check hangs rather than failing
+    # fast (confirmed: >45s with no error), so this is the one _try step
+    # that needs its own timeout to actually honor "never blocks boot".
+    await _try(
+        "entity_resolver_embeddings",
+        asyncio.wait_for(load_entity_resolver_embeddings(),
+                          timeout=settings.ENTITY_RESOLVER_EMBEDDING_LOAD_TIMEOUT_SECONDS),
+    )
     load_scheme_registry()                # local YAML, no network
-    await _try("app_schema", appdb.ensure_schema())     # app.* tables + seed users
+    warn_if_scheme_count_high()           # openspec/changes/multi-tenant-rls-scheme-scaleout
+    # openspec/changes/multi-tenant-rls-scheme-scaleout group 2.2: startup has
+    # no request/scope, so there is no tenant to derive app.db.set_tenant_context()
+    # from — but ensure_schema()'s user-seed and _sync_scheme_entitlements()'s
+    # default-tenant grant-seed both write real tenant_id rows into app.users /
+    # app.tenant_schemes. Same bypass reasoning as app/routers/auth.py's
+    # login()/bootstrap(): server-side bookkeeping with no client input, not a
+    # tenant-scoped read. Without this, once Section B RLS is enabled, first-run
+    # seeding would silently insert nothing (or raise) instead of seeding.
+    _startup_tenant_tok = set_tenant_context(None, bypass=True)
+    try:
+        await _try("app_schema", appdb.ensure_schema())     # app.* tables + seed users
+        await _try("scheme_entitlements", _sync_scheme_entitlements())
+    finally:
+        reset_tenant_context(_startup_tenant_tok)
     await _try("schema_catalog", schema_introspect.load())  # semantic.* -> SQL prompt
     await _try("join_graph", _build_join_graph())
     await _try("scheme_years", pipeline.refresh_scheme_years())  # per-scheme FY coverage from megh_db
@@ -111,6 +149,35 @@ if settings.CORS_ALLOW_ORIGINS.strip():
         max_age=600,
     )
 app.add_middleware(SecurityHeadersMiddleware)
+
+
+@app.exception_handler(DBUnavailableError)
+async def _db_unavailable(request: Request, exc: DBUnavailableError):
+    """Found+fixed 2026-09-18, live-tested by actually running the server
+    against the real (intermittently unreachable) DATABASE_URL: this is a
+    KNOWN, gracefully-detected condition — app/db.py's retry-cooldown
+    mechanism already knows exactly why the request failed and how long
+    until it's worth retrying — but without this handler it fell through
+    to the generic `_unhandled` handler below and looked identical to a
+    genuine crash: a bare 500 with no Retry-After, indistinguishable from
+    an actual bug. Registering a handler for this specific exception type
+    takes precedence over the generic `Exception` one below regardless of
+    definition order (Starlette resolves by exact type first, then MRO),
+    so this fires whenever DBUnavailableError is the exception — including
+    when it's raised during dependency resolution (e.g.
+    app/deps.py::current_scope's DB lookup), which never reaches an
+    individual route's own try/except at all, only a registered handler."""
+    rid = getattr(request.state, "request_id", "-")
+    logger.warning("DB unavailable (request_id=%s) on %s: %s", rid, request.url.path, exc)
+    resp = JSONResponse(
+        status_code=503,
+        content={"detail": "The database is temporarily unreachable. Please retry shortly.",
+                 "request_id": rid},
+        headers={"Retry-After": str(settings.DB_POOL_RETRY_COOLDOWN_SECONDS)},
+    )
+    resp.headers["X-Request-ID"] = rid
+    apply_security_headers(resp.headers, request.url.path)
+    return resp
 
 
 @app.exception_handler(Exception)
