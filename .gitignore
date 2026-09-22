@@ -38,3 +38,8 @@ NeuralAiGovernanceProject*.zip
 
 # Test cache
 .pytest_cache/
+
+# OS / IDE cruft (kept from the Bitbucket starter .gitignore)
+.idea/
+.DS_Store
+Thumbs.db
