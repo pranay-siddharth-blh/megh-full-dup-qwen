@@ -334,9 +334,6 @@ response_templates:
     - condition: "measure_unavailable_in_source"
       suggestion: "See what the data does hold for {scope}?"
 
-    - condition: "producer_group_requested"
-      suggestion: "Use district, block or village as the grouping instead?"
-
     - condition: "account_number_or_ifsc_requested"
       suggestion: "See the payments by bank name instead?"
 

@@ -65,7 +65,11 @@ _BARE_STAR_TOKEN = re.compile(r"^\s*(?:\w+\.)?\*\s*$")
 PII_BLOCKLIST: dict[str, tuple[str, ...]] = {
     "MGNREGA": (),
     "PMAY-G": (),
-    "Focus Plus": ("member_id", "pincode"),
+    # account_no_masked / ifsc_code / bank_details_current come with
+    # curated.v_focus_legacy (producer-group payments, added to Focus Plus
+    # 2026-09-23) — bank account details are never answerable, masked or not.
+    "Focus Plus": ("member_id", "pincode", "account_no_masked", "account_no",
+                   "ifsc_code", "bank_details_current"),
     "CM Elevate": (
         "dob", "email_id", "address", "member_id", "family_id",
         "pds_id", "account_holder_name", "ifsc_code",

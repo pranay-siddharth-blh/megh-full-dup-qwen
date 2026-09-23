@@ -23,9 +23,13 @@ from app import query_analyzer
 from app import schema_retrieval
 from app import sql_join_validator
 from app.config import settings
-from app.db import UnsafeSQLError, run_readonly
+from app.db import UnsafeSQLError, fetch_rows, run_readonly
 from app.entity_resolver import (
     all_districts,
+    canonical_names,
+    collides_across_dimensions,
+    collision_canonical_names,
+    constituency_contents,
     detect_region,
     lookup_geo_term,
     resolve_dimension,
@@ -595,6 +599,9 @@ _FOCUSPLUS_ONLY_TERMS = re.compile(
     r"\bfocus[\s-]?plus\b|\bfocus\s*\+|\bfocusplus\b|"
     r"\btranche?s?\b|"
     r"\bproducer group\b|\bproducer-group\b|\bproducer groups\b|"
+    # "Sakania PG", "PG members", "how many PGs" — the short form users
+    # actually type; PGs exist only in FOCUS (curated.v_focus_legacy).
+    r"\bpgs?\b|\blamps?\b|\bfocus\s+legacy\b|"
     r"\bmeghalayaone\b|\bmbda\b|\bmeghalaya basin development\b|"
     r"\bfocus\+?\s*card\b|\b93k\b|\b12\.5k\b",
     re.IGNORECASE,
@@ -1253,6 +1260,10 @@ def _needs_scope_clarification(question: str, resolved: dict) -> bool:
     if not settings.SCOPE_CLARIFY_ENABLED:
         return False
     q = question or ""
+    # A producer-group question names the group (or asks statewide about PGs)
+    # — the answer lists district/block per group, so there is no area to ask.
+    if _is_producer_group_question(q):
+        return False
     if not (_AGGREGATE_CUE.search(q) or _BARE_METRIC_CUE.search(q)):
         return False
     if _HAS_BREAKDOWN.search(q) or _EXPLICIT_STATEWIDE.search(q):
@@ -1376,7 +1387,127 @@ _SCHEME_DATA_YEARS: dict[str, list[str]] = {
     "PMAY-G":  ["2017-18", "2018-19", "2019-20", "2020-21", "2021-22", "2022-23", "2023-24"],
     "Focus Plus": ["2022-23", "2025-26"],
     "CM Elevate": [],
+    # NOT a scheme — the year coverage of curated.v_focus_legacy (Focus Plus
+    # producer-group payments), used only for producer-group questions via
+    # _year_schemes_for. Excluded from the "every scheme" fallback below.
+    "Focus Legacy": ["2021-22", "2022-23", "2024-25", "2025-26"],
 }
+_YEARS_ONLY_KEYS = frozenset({"Focus Legacy"})
+
+# A question about producer groups (PG / LAMPS / "Focus Legacy"). These live
+# only in curated.v_focus_legacy — a different payee (a group, not a farmer),
+# different years and no tranches — so the Focus Plus farmer-payment
+# clarifications (tranche, "count of what", which year of 2022-23/2025-26) do
+# not apply to them.
+_PRODUCER_GROUP_Q = re.compile(
+    r"\bproducer[\s-]+groups?\b|\bpgs?\b|\blamps?\b|\bfocus\s+legacy\b", re.IGNORECASE)
+
+
+def _is_producer_group_question(question: str) -> bool:
+    return bool(_PRODUCER_GROUP_Q.search(question or ""))
+
+
+_PG_NAME_STOP = frozenset({
+    "in", "of", "the", "a", "an", "are", "is", "was", "there", "for", "members",
+    "member", "how", "many", "much", "does", "do", "has", "have", "had", "named",
+    "called", "to", "by", "what", "which", "total", "number", "under", "from", "at",
+    "with", "and", "or", "focus", "plus", "legacy", "all", "each", "every", "any",
+    "about", "on", "me", "show", "give", "list", "tell", "get", "paid", "amount",
+})
+
+
+def _pg_name_from_question(question: str) -> "str | None":
+    """The producer-group NAME a question asks about ("Sakania" in "members in
+    Sakania PG", "Bak 15 star" in "... in Bak 15 star Producer group?"), or
+    None for a general PG question ("how many PGs in West Garo Hills"). Read
+    deterministically: the name is the run of non-stop words right before the
+    PG keyword, or after "PG named/called". Without this, the place resolver
+    treats the name as a village, fails to find it, and tells SQL generation
+    not to filter on it — so the named-PG query was rejected (2026-09-23)."""
+    toks = re.findall(r"[A-Za-z0-9][\w'-]*|[^\w\s]", question or "")
+    low = [t.lower() for t in toks]
+    for i, t in enumerate(low):
+        kw_end = None
+        if t in ("pg", "pgs", "lamps", "lamp"):
+            kw_end = i
+        elif t == "producer" and i + 1 < len(low) and low[i + 1] in ("group", "groups"):
+            kw_end = i + 1
+        if kw_end is None:
+            continue
+        name: list[str] = []
+        j = i - 1
+        while j >= 0 and len(name) < 6 and re.match(r"\w", toks[j]) and low[j] not in _PG_NAME_STOP:
+            name.insert(0, toks[j])
+            j -= 1
+        if not name:
+            k = kw_end + 1
+            if k < len(low) and low[k] in ("named", "called"):
+                k += 1
+                while k < len(low) and len(name) < 6 and re.match(r"\w", toks[k]) \
+                        and low[k] not in _PG_NAME_STOP:
+                    name.append(toks[k])
+                    k += 1
+        if name:
+            return " ".join(name)
+    return None
+
+
+async def _pg_not_found_clarification(question: str, entity_result: dict) -> "ClarificationNeeded | None":
+    """When a named producer group matched nothing, offer the closest real PG
+    names (trigram similarity, same pg_trgm the village resolver uses) as
+    one-tap chips instead of a bare "no records". Each chip re-asks the same
+    question with the real name — and the real district when the user named a
+    different one. None when nothing is close enough, or on any DB error."""
+    name = _pg_name_from_question(question)
+    if not name:
+        return None
+    try:
+        rows = await fetch_rows(
+            """
+            SELECT pg_name, lgd_district, lgd_block,
+                   MAX(similarity(UPPER(pg_name), UPPER($1))) AS score
+            FROM curated.v_focus_legacy
+            WHERE similarity(UPPER(pg_name), UPPER($1)) > 0.2
+            GROUP BY pg_name, lgd_district, lgd_block
+            ORDER BY score DESC
+            LIMIT 6
+            """,
+            [name],
+        )
+    except Exception as e:  # noqa: BLE001 — suggestions are an enhancement
+        logger.warning("producer-group suggestions failed: %s", e)
+        return None
+    if not rows:
+        return None
+    asked_district = (entity_result.get("display") or {}).get("district") or \
+        (entity_result.get("resolved") or {}).get("district")
+    options = []
+    for r in rows:
+        real = re.sub(r"\s+pg$", "", str(r["pg_name"]).strip(), flags=re.IGNORECASE)
+        dist = str(r["lgd_district"] or "").title()
+        q2 = re.sub(re.escape(name), lambda _m: real, question, count=1, flags=re.IGNORECASE)
+        if asked_district and dist and str(asked_district).lower() != dist.lower():
+            q2 = re.sub(re.escape(str(asked_district)), lambda _m: dist, q2,
+                        count=1, flags=re.IGNORECASE)
+        elif not asked_district and dist:
+            q2 = f"{q2.rstrip(' ?.')} in {dist}"
+        options.append({"label": f"{r['pg_name']} — {str(r['lgd_block'] or '').title()} block, {dist}",
+                        "question": q2})
+    where = f" in {str(asked_district).title()}" if asked_district else ""
+    return ClarificationNeeded(
+        f"No producer group named “{name}” was found{where}. "
+        "Did you mean one of these?",
+        options=options,
+        rule="pg-not-found",
+    )
+
+
+def _year_schemes_for(question: str, schemes: "list[str] | None") -> list[str]:
+    """The year-coverage key(s) to check `question`'s years against: the
+    producer-group years for a Focus-Plus-only PG question, else `schemes`."""
+    if list(schemes or []) == ["Focus Plus"] and _is_producer_group_question(question):
+        return ["Focus Legacy"]
+    return list(schemes or [])
 
 
 def _fy_short(year_key: int) -> str:
@@ -1403,6 +1534,9 @@ async def refresh_scheme_years() -> None:
         "PMAY-G": "SELECT DISTINCT year_key FROM curated.v_pmay WHERE year_key IS NOT NULL",
         "Focus Plus": (
             "SELECT DISTINCT year_key FROM curated.v_focus_plus WHERE year_key IS NOT NULL"
+        ),
+        "Focus Legacy": (
+            "SELECT DISTINCT year_key FROM curated.v_focus_legacy WHERE year_key IS NOT NULL"
         ),
         # CM Elevate deliberately has no entry here — curated.v_cm_elevate has no
         # year_key column at all (not merely NULL), so there is nothing to probe.
@@ -1478,6 +1612,10 @@ def _needs_year_clarification(question: str, schemes: list[str], resolved: dict)
     if not settings.YEAR_CLARIFY_ENABLED:
         return False
     q = question or ""
+    # Producer-group answers are broken out per financial year (members change
+    # between years — FOCUS PLUS RULES rule 13), so no single year is needed.
+    if _year_schemes_for(q, schemes) == ["Focus Legacy"]:
+        return False
     # Schemes with NO time dimension at all (CM Elevate has no year_key, no date
     # column of any kind) can never be asked "which year" — there is nothing to
     # choose. Skip the whole gate when every scheme in play is one of these, so
@@ -1684,6 +1822,9 @@ def _needs_tranche_clarification(question: str, schemes: list[str], resolved: di
         return False
     if (schemes or []) != ["Focus Plus"]:
         return False
+    # Producer-group payments (curated.v_focus_legacy) have no tranches.
+    if _is_producer_group_question(question):
+        return False
     q = question or ""
     if resolved.get("tranche_label"):
         return False
@@ -1822,7 +1963,8 @@ def _available_years_for(schemes: list[str]) -> "tuple[list[str], list[str]]":
     2022-23..2025-26 ahead of PMAY-G's earlier 2017-18..2021-22) rather than
     chronological order. Sort ascending (oldest first) so the year chips read
     in a sane order regardless of scheme combination."""
-    live = [s for s in (schemes or []) if s in _SCHEME_DATA_YEARS] or list(_SCHEME_DATA_YEARS)
+    live = [s for s in (schemes or []) if s in _SCHEME_DATA_YEARS] or \
+        [s for s in _SCHEME_DATA_YEARS if s not in _YEARS_ONLY_KEYS]
     seen: set[str] = set()
     years: list[str] = []
     for s in live:
@@ -2220,12 +2362,278 @@ def _village_chip_question(question: str, raw_text: str, candidate: dict) -> str
     candidate's, so the text never grows past one such suffix."""
     stem = question.strip().rstrip(" ?.")
     stem = re.sub(r"(,\s*[^,]+?\s+block,\s*[^,]+)+$", "", stem, flags=re.IGNORECASE).rstrip()
+    # Same growth problem for the "(NAME)" fallback pin below: strip any pins
+    # a previous round appended so they can't stack ("... (DALMAGRE) (DALDAGRE)").
+    stem = re.sub(r"(\s*\([^()]*\))+$", "", stem).rstrip()
     name = candidate["name"]
-    if raw_text and re.search(re.escape(raw_text), stem, re.IGNORECASE):
-        pinned = re.sub(re.escape(raw_text), name, stem, count=1, flags=re.IGNORECASE)
+    # Whole-word match only — a plain substring replace rewrote "dalu" INSIDE
+    # an earlier round's "DALUAGRE" into "DALUAGREAGRE", a name that exists
+    # nowhere, so every round re-asked the same question (reported 2026-09-23).
+    _raw_word = rf"(?<!\w){re.escape(raw_text)}(?!\w)" if raw_text else None
+    if _raw_word and re.search(_raw_word, stem, re.IGNORECASE):
+        pinned = re.sub(_raw_word, lambda _m: name, stem, count=1, flags=re.IGNORECASE)
+    elif re.search(rf"(?<!\w){re.escape(name)}(?!\w)", stem, re.IGNORECASE):
+        pinned = stem
     else:
         pinned = f"{stem} ({name})"
+    # State the level explicitly, so _explicit_level_in reads the trailing
+    # ", <BLOCK> block, <DISTRICT>" as the village's scope rather than as a
+    # block question (which would drop the village the user just picked).
+    if not re.search(r"\bthe\s+village\b", pinned, re.IGNORECASE):
+        pinned = f"{pinned}, the village"
     return f"{pinned}, {candidate['block']} block, {candidate['district']}"
+
+
+def _village_candidate_named_in(question: str, candidates: list[dict]) -> "dict | None":
+    """The one ambiguity candidate the question text already names outright,
+    or None. A clicked village chip puts the candidate's exact name AND block
+    into the question ("... DALJAGRE ..., RONGRAM block, WEST GARO HILLS"), but
+    the mention extractor / remembered village_hint can still hand
+    resolve_village the original fuzzy fragment ("dalu"), which re-finds the
+    same candidate set — without this check the pause loops forever. Picks
+    only when exactly one distinct village matches by whole-word name
+    (narrowed by block name when several do)."""
+    def _in_text(s: object) -> bool:
+        return bool(s) and re.search(rf"(?<!\w){re.escape(str(s))}(?!\w)", question, re.IGNORECASE) is not None
+
+    # A "(NAME)" pin is _village_chip_question's explicit pick when the raw
+    # fragment wasn't in the text to substitute — it outranks a stale name
+    # left over from an earlier round.
+    pinned = [c for c in candidates if c.get("name") and re.search(
+        rf"\(\s*{re.escape(str(c['name']))}\s*\)", question, re.IGNORECASE)]
+    if len({c.get("village_code") for c in pinned}) == 1:
+        return pinned[0]
+
+    hits = [c for c in candidates if _in_text(c.get("name"))]
+    if len(hits) > 1:
+        narrowed = [c for c in hits if _in_text(c.get("block"))]
+        if narrowed:
+            hits = narrowed
+    codes = {c.get("village_code") for c in hits}
+    return hits[0] if len(codes) == 1 and hits else None
+
+
+# ── "Is that a village, a block, or a constituency?" ────────────────────────
+# Ported from the pre-restructure codebase (Old_meghalaya), which offered every
+# admin level a bare name could mean. This one only ever asked block-vs-
+# village, so "Mawlai" (block, AC 15 and a village) never offered the
+# constituency. Each chip appends an explicit level word that
+# _explicit_level_in reads back, so a resumed chip resolves straight through.
+_DIM_CHIP_WORD = {
+    "district": "district",
+    "block": "block",
+    "assembly_constituency": "assembly constituency",
+    "village": "village",
+}
+_DIM_CHIP_LABEL = {
+    "district": "district",
+    "block": "C&RD block",
+    "assembly_constituency": "assembly constituency",
+    "village": "village",
+}
+
+
+def _dimension_collision_clarification(question: str, name: str,
+                                       dims: "dict[str, str]") -> "ClarificationNeeded":
+    """Ask which ADMIN LEVEL a bare, level-ambiguous place name refers to.
+    `dims` is {dimension: canonical display name} from
+    collides_across_dimensions. Each chip substitutes the canonical name for
+    what the user typed, so a typo is corrected along with the level choice
+    ("malwai" -> "Mawlai"); the village chip keeps the user's own text."""
+    stem = question.strip().rstrip(" ?.")
+    options = []
+    for dim, canonical in dims.items():
+        shown = str(canonical).title() if canonical else name
+        if canonical and canonical.lower() != str(name).lower():
+            resumed = re.sub(rf"(?<!\w){re.escape(str(name))}(?!\w)", lambda _m: canonical,
+                             stem, count=1, flags=re.IGNORECASE)
+        else:
+            resumed = stem
+        options.append({
+            "label": f"The {shown} {_DIM_CHIP_LABEL[dim]}",
+            "question": f"{resumed}, the {_DIM_CHIP_WORD[dim]}, not another area type",
+        })
+    labels = list(dims)
+    listed = ", ".join(_DIM_CHIP_LABEL[d] for d in labels[:-1]) + \
+        f" or {_DIM_CHIP_LABEL[labels[-1]]}"
+    return ClarificationNeeded(
+        f"“{name}” could refer to more than one kind of area in Meghalaya — the "
+        f"{listed}. These cover different places and give different numbers, so "
+        "please pick the one you mean.",
+        options=options,
+        rule="entity-ambiguous",
+    )
+
+
+_EXPLICIT_LEVEL_RE = {
+    "assembly_constituency": re.compile(
+        r"\b(assembly\s+constituenc\w*|constituenc\w*|\bAC\b|assembly|MLA)\b", re.IGNORECASE),
+    "block": re.compile(r"\bblock\b", re.IGNORECASE),
+    "village": re.compile(r"\bvillage\b", re.IGNORECASE),
+    "district": re.compile(r"\bdistrict\b", re.IGNORECASE),
+}
+
+# Assembly constituency is recorded on exactly ONE fact: MGNREGA employment
+# (curated.v_employment). Not on MGNREGA expenditure, nor on PMAY-G / Focus
+# Plus / CM Elevate — so the AC chip is suppressed for questions it could
+# never answer.
+_AC_CAPABLE_METRIC = re.compile(
+    r"\bperson[\s-]?days?\b|\bjob\s?cards?\b|\bmuster\b|"
+    r"\b100[\s-]?days?\b|\bhundred\s+days?\b|"
+    r"\b(?:households?|persons?|people|women|men)\b[^?.!]{0,30}\b"
+    r"(?:employ\w*|work\w*|receiv\w*)\b|"
+    r"\bemploy\w*\b|\bbeneficiar\w*\b|\bworkers?\b",
+    re.IGNORECASE,
+)
+_AC_INCAPABLE_METRIC = re.compile(
+    r"\bexpenditure\b|\bspend(?:ing)?\b|\bspent\b|\bwages?\b|\bwage\s+bill\b|"
+    r"\bmaterial\s+cost\b|\bamount\b|\bcost\b|\butili[sz]ation\b|"
+    r"\bhouses?\b|\bsanction\w*\b|\breleas\w*\b|\bdisburs\w*\b|"
+    r"\binstal{1,2}ments?\b|\bapplications?\b",
+    re.IGNORECASE,
+)
+
+
+def _ac_dimension_available(question: str, schemes: list[str]) -> bool:
+    """True when an assembly-constituency reading of a place name could
+    actually be queried for THIS question. False suppresses the AC chip."""
+    if (schemes or []) != ["MGNREGA"]:
+        return False
+    q = question or ""
+    if _AC_INCAPABLE_METRIC.search(q) and not _AC_CAPABLE_METRIC.search(q):
+        return False
+    if _AC_CAPABLE_METRIC.search(q):
+        return True
+    return not _AC_INCAPABLE_METRIC.search(q)
+
+
+# Step 2: narrowing inside a chosen constituency. An AC is an electoral
+# boundary, not an administrative parent (8 of 56 straddle two districts), so
+# the options come from what it ACTUALLY contains in the data.
+_AC_SCOPED_RE = re.compile(r",\s*within\s+the\s+", re.IGNORECASE)
+_AC_NARROW_RE = re.compile(
+    r",\s*within\s+the\s+(?P<name>.+?)\s+(?P<level>district|block)\s+only\b",
+    re.IGNORECASE,
+)
+
+
+def _ac_drilldown_clarification(question: str, ac_display: str,
+                                contents: dict) -> "ClarificationNeeded | None":
+    """Offer to narrow inside a just-chosen assembly constituency, or None when
+    there is nothing meaningful to narrow to."""
+    districts = contents.get("districts") or []
+    blocks = contents.get("blocks") or []
+    if not districts and not blocks:
+        return None
+    stem = question.strip().rstrip(" ?.")
+    options = [{"label": f"The whole {ac_display} constituency",
+                "question": f"{stem}, the whole constituency"}]
+    if len(districts) > 1:
+        for d in districts:
+            options.append({
+                "label": f"Only the {str(d).title()} part",
+                "question": f"{stem}, within the {d} district only",
+            })
+    for b in blocks[:8]:
+        options.append({
+            "label": f"{str(b).title()} block",
+            "question": f"{stem}, within the {b} block only",
+        })
+    if len(options) < 2:
+        return None
+    where = (f"spans {len(districts)} districts and " if len(districts) > 1 else "covers ")
+    return ClarificationNeeded(
+        f"The {ac_display} assembly constituency {where}"
+        f"{len(blocks)} C&RD block(s), with {contents.get('villages', 0)} villages in the "
+        "employment data. Do you want the whole constituency, or just part of it?",
+        options=options,
+        rule="ac-narrow-scope",
+    )
+
+
+# Candidate place phrases after a preposition ("in X", "for X", "of X") — the
+# grammar that actually introduces a place. Used only to hand the collision
+# gate a name to test when the extractor dropped it.
+_PLACE_PREP_RE = re.compile(
+    r"\b(?:in|for|of|at|from|within|under)\s+"
+    r"(?P<name>[A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){0,3})",
+    re.IGNORECASE,
+)
+_NOT_A_PLACE_WORD = {
+    "mgnrega", "mnrega", "nrega", "pmay", "pmayg", "awaas", "awas",
+    "focus", "focus plus", "focusplus", "cm", "cm elevate", "cmelevate",
+    "meghalaya", "fy", "financial", "financial year", "all", "each", "every",
+    "the", "a", "an", "this", "that", "total", "district", "block", "village",
+    "assembly", "constituency", "state", "india", "government", "scheme",
+}
+
+
+def _place_phrase_candidates(question: str, scheme: str) -> list[str]:
+    """Names following a place preposition, longest phrase first, skipping
+    district names (districts never collide) and non-place words."""
+    districts = {d.strip().upper() for d in canonical_names(scheme, "district")}
+    out: list[str] = []
+    for m in re.finditer(rf"(?={_PLACE_PREP_RE.pattern})", question or "", re.IGNORECASE):
+        words = (m.group("name") or "").strip().rstrip(".,").split()
+        for take in range(len(words), 0, -1):
+            cand = " ".join(words[:take]).strip()
+            if len(cand) < 4 or cand.lower() in _NOT_A_PLACE_WORD:
+                continue
+            if cand.upper() in districts:
+                break
+            if cand not in out:
+                out.append(cand)
+    return out
+
+
+def _canonical_in_question(question: str, scheme: str, dimension: str) -> "str | None":
+    """The catalogue name for `dimension` that appears verbatim in `question`,
+    or None. Longest match wins, so "North Tura" is not shadowed by "Tura"."""
+    best: str | None = None
+    for canon in collision_canonical_names(scheme, dimension):
+        if re.search(rf"(?<![A-Za-z0-9]){re.escape(canon)}(?![A-Za-z0-9])",
+                     question or "", re.IGNORECASE):
+            if best is None or len(canon) > len(best):
+                best = canon
+    return best
+
+
+# A village chip's trailing ", <BLOCK> block, <DISTRICT>" names the CONTAINING
+# area, not the level asked about — stripped before level detection, but only
+# when the question also carries a chip's level phrase.
+_CHIP_SCOPE_SUFFIX_RE = re.compile(
+    r",\s*[A-Z][A-Za-z.'\- ]*\s+block\s*,\s*[A-Z][A-Za-z.'\- ]*\s*$")
+_CHIP_LEVEL_PHRASE_RE = re.compile(
+    r",\s*the\s+(?:village|block|district|assembly\s+constituency)\b", re.IGNORECASE)
+# "by block", "each village", "village-wise" name a GROUPING, not the place.
+_BREAKDOWN_LEVEL_PHRASE_RE = re.compile(
+    r"\b(?:by|per|each|every|all|across)\s+(?:the\s+)?"
+    r"(?:village|block|district|assembly\s+constituenc\w*|constituenc\w*)s?\b|"
+    r"\b(?:village|block|district)[\s-]?wise\b",
+    re.IGNORECASE,
+)
+# The rejected half of a choice chip ("the block, not the village", "not
+# another area type") names the level the user did NOT pick.
+_NEGATED_LEVEL_PHRASE_RE = re.compile(
+    r"\bnot\s+(?:the\s+|a\s+)?(?:village|block|district|assembly\s+constituency|"
+    r"constituency|another\s+area\s+type)\b",
+    re.IGNORECASE,
+)
+
+
+def _explicit_level_in(question: str) -> "str | None":
+    """The admin level the question names outright, or None. Finest-first so a
+    question naming two levels ("village in X district") reports the one being
+    asked about rather than the containing area."""
+    q = question or ""
+    if _CHIP_LEVEL_PHRASE_RE.search(q):
+        q = _CHIP_SCOPE_SUFFIX_RE.sub("", q)
+    q = _NEGATED_LEVEL_PHRASE_RE.sub(" ", q)
+    q = _BREAKDOWN_LEVEL_PHRASE_RE.sub(" ", q)
+    for dim in ("village", "assembly_constituency", "block", "district"):
+        if _EXPLICIT_LEVEL_RE[dim].search(q):
+            return dim
+    return None
 
 
 async def resolve_entities(question: str, schemes: list[str],
@@ -2291,22 +2699,151 @@ async def _resolve_entities(question: str, schemes: list[str],
     # single "answer without a time filter" option loops forever — drop the
     # time filter and say so instead. See _scheme_has_no_time_dimension.
     _no_time_dim = _scheme_has_no_time_dimension(schemes)
+    # Producer-group questions read curated.v_focus_legacy, whose years differ
+    # from v_focus_plus's — check year ranges against those instead.
+    _yschemes = _year_schemes_for(question, schemes)
     _pre_notes: list[str] = []
     if settings.YEAR_RANGE_GUARD_ENABLED:
-        _yraw = _out_of_range_year_in(question, schemes)
+        _yraw = _out_of_range_year_in(question, _yschemes)
         if _yraw is not None:
             if _no_time_dim:
                 _pre_notes.append(_no_time_dimension_note(schemes))
             else:
-                raise _year_out_of_range_clarification(question, _yraw, schemes)
+                raise _year_out_of_range_clarification(question, _yraw, _yschemes)
 
     mentions = await extract_entity_mentions(question)
+
+    # A named producer group ("Sakania PG") is not a place: take its name out of
+    # every place slot and hand it to SQL generation as its own resolved filter.
+    _pg_name = _pg_name_from_question(question) if _yschemes == ["Focus Legacy"] else None
+    if _pg_name:
+        _pgf = _pg_name.lower()
+        for _slot in ("district", "block", "village", "assembly_constituency"):
+            _v = str(mentions.get(_slot) or "").strip().lower()
+            if _v and (_v in _pgf or _pgf in _v):
+                mentions.pop(_slot, None)
+        for _slot in ("districts", "blocks"):
+            if isinstance(mentions.get(_slot), list):
+                mentions[_slot] = [x for x in mentions[_slot]
+                                   if str(x).strip().lower() not in _pgf]
+        resolved["pg_name_pattern"] = "%" + "%".join(
+            re.findall(r"[a-z0-9]+", _pgf)) + "%"
+        logger.info("producer group named %r -> pg_name ILIKE %r",
+                    _pg_name, resolved["pg_name_pattern"])
 
     notes: list[str] = list(_pre_notes)
     # Human-readable names for whatever the query ends up filtering on, keyed by
     # dimension. Handed to the response composer so it says "West Garo Hills",
     # not the "wgh" the user typed or the "WEST GARO HILLS" DB literal.
     display: dict[str, str] = {}
+    # Tell the answer composer what "PG" means here — without it the model
+    # hedged that "PGs" might mean pay grades and its answer was discarded.
+    if _yschemes == ["Focus Legacy"]:
+        display["producer_group"] = (f"{_pg_name} (FOCUS producer group)" if _pg_name
+                                     else "FOCUS producer groups (PG = producer group)")
+
+    # The admin level the question states outright — the user said it ("the
+    # Mawlai constituency") or this is a resumed level-choice chip ("..., the
+    # assembly constituency, not another area type"). When stated, move the
+    # place name into that slot and clear the others, so it resolves at the
+    # chosen level and nowhere else. The name is re-read from the question
+    # TEXT (the chip wrote the canonical name there) because the extractor
+    # often echoes the user's original typo back into the wrong slot.
+    _stated_level = _explicit_level_in(question)
+    if _stated_level in ("district", "block", "assembly_constituency", "village") \
+            and not mentions.get("districts") and not mentions.get("blocks"):
+        _placed = None
+        if _stated_level == "village":
+            _placed = (mentions.get("village") or mentions.get("block")
+                       or mentions.get("assembly_constituency")
+                       or mentions.get("district") or village_hint)
+        else:
+            _placed = _canonical_in_question(question, schemes[0] if schemes else "", _stated_level)
+            if not _placed:
+                for _slot in ("district", "block", "village", "assembly_constituency"):
+                    _v = mentions.get(_slot)
+                    if _v and (await resolve_dimension(
+                            str(_v), schemes[0], _stated_level)).status == "resolved":
+                        _placed = str(_v)
+                        break
+        # Keep the containing scope the question names alongside the place (a
+        # village chip's ", RONGRAM block, WEST GARO HILLS") — only the
+        # ambiguous place name itself is being re-levelled. Scope values are
+        # kept only when they genuinely resolve at their own level.
+        if _placed:
+            _scope_slots = ("district", "block") if _stated_level == "village" else ("district",)
+            _keep: dict[str, object] = {}
+            for _slot in _scope_slots:
+                _v = mentions.get(_slot)
+                if _slot != _stated_level and _v and str(_v).lower() != str(_placed).lower() \
+                        and (await resolve_dimension(str(_v), schemes[0], _slot)).status == "resolved":
+                    _keep[_slot] = _v
+            for _slot in ("district", "block", "village", "assembly_constituency"):
+                mentions.pop(_slot, None)
+            mentions[_stated_level] = _placed
+            mentions.update(_keep)
+            logger.info("explicit level %r — placed %r, cleared other place slots",
+                        _stated_level, _placed)
+
+    # ── Admin-level collision gate ──────────────────────────────────────────
+    # Before resolving any single place name, check whether it names more than
+    # one KIND of area (block vs assembly constituency vs village). The
+    # per-dimension branches below each see one slot in isolation and can only
+    # ever offer block-vs-village, so a bare "Mawlai" (block, AC 15 and a
+    # village) never offered the constituency reading. Skipped when the level
+    # is already stated, for plural comparisons, and while a village_hint
+    # carries a just-resumed village choice.
+    if _stated_level is None and not village_hint \
+            and not mentions.get("districts") and not mentions.get("blocks"):
+        _scheme0 = schemes[0] if schemes else ""
+        if not any(mentions.get(s) for s in
+                   ("district", "block", "village", "assembly_constituency")):
+            # The extractor sometimes drops a plainly-named place; scan the
+            # raw text for a catalogue block/AC name so the gate can see it.
+            _found = None
+            for _dim in ("block", "assembly_constituency"):
+                _found = _canonical_in_question(question, _scheme0, _dim)
+                if _found:
+                    mentions = {**mentions, _dim: _found}
+                    logger.info("admin-level gate: %r scanned from question text", _found)
+                    break
+            # Exact scan misses a MISSPELLED place ("mawlwai"); let the
+            # resolver's fuzzy stage judge the "in <name>" phrases instead.
+            # Whether it actually pauses is still decided below (2+ readings).
+            if not _found:
+                for _cand in _place_phrase_candidates(question, _scheme0):
+                    if _pg_name and _cand.lower() in _pg_name.lower():
+                        continue  # the producer group's own name, not a place
+                    if collides_across_dimensions(_cand, _scheme0, village_hit=True):
+                        mentions = {**mentions, "block": _cand}
+                        logger.info("admin-level gate: %r fuzzy-scanned from question text", _cand)
+                        break
+        for _slot in ("district", "block", "village", "assembly_constituency"):
+            _name = mentions.get(_slot)
+            if not _name:
+                continue
+            # A district name is never level-ambiguous (collides_across_dimensions
+            # returns nothing for one) — don't spend a DB probe on it.
+            if not collides_across_dimensions(str(_name), _scheme0, village_hit=True):
+                break
+            try:
+                _vr_probe = await resolve_village(str(_name))
+                _village_hit = _vr_probe.status in ("resolved", "ambiguous")
+            except Exception as e:  # noqa: BLE001 — the gate only decides whether to ask
+                logger.warning("admin-level gate: village probe for %r failed: %s", _name, e)
+                _village_hit = False
+            _dims = collides_across_dimensions(str(_name), _scheme0, village_hit=_village_hit)
+            # Drop the AC reading when this question's metric has no AC column
+            # (only MGNREGA employment carries one) — offering it would invite
+            # a choice that can never be answered.
+            if "assembly_constituency" in _dims and not _ac_dimension_available(question, schemes):
+                _dims = {k: v for k, v in _dims.items() if k != "assembly_constituency"}
+                if len(_dims) < 2:
+                    _dims = {}
+            if _dims:
+                logger.info("admin-level collision on %r: %s — asking", _name, list(_dims))
+                raise _dimension_collision_clarification(question, str(_name), _dims)
+            break
 
     district_canon = None
     if mentions.get("districts"):
@@ -2364,7 +2901,12 @@ async def _resolve_entities(question: str, schemes: list[str],
                 # model no reliable signal for which admin level it is). Try
                 # village resolution before concluding this is out of scope.
                 _vr = await resolve_village(_mdist)
-                if _vr.status == "ambiguous":
+                _named = (_village_candidate_named_in(question, _vr.candidates)
+                          if _vr.status == "ambiguous" else None)
+                if _named is not None:
+                    resolved["village_code"] = _named["village_code"]
+                    display["village"] = str(_named["name"]).title()
+                elif _vr.status == "ambiguous":
                     listed = ", ".join(
                         f"{c['name']} in {c['block']} block ({c['district']})" for c in _vr.candidates[:5])
                     options = [
@@ -2376,7 +2918,9 @@ async def _resolve_entities(question: str, schemes: list[str],
                         f"“{_mdist}” corresponds to more than one village: {listed}. "
                         "Which of these is intended?",
                         options=options, rule="entity-ambiguous", village_hint=_mdist)
-                if _vr.status == "resolved":
+                if _named is not None:
+                    pass  # already resolved from the question text above
+                elif _vr.status == "resolved":
                     resolved["village_code"] = _vr.canonical
                     display["village"] = _vr.display or str(_mdist).title()
                 elif settings.OUT_OF_SCOPE_GUARD_ENABLED:
@@ -2501,7 +3045,8 @@ async def _resolve_entities(question: str, schemes: list[str],
                     # again, check the raw text deterministically: if exactly one
                     # candidate's own block name appears in it, that already IS the
                     # user's answer.
-                    _text_hits = [
+                    _named = _village_candidate_named_in(question, _vr.candidates)
+                    _text_hits = [_named] if _named is not None else [
                         c for c in _vr.candidates
                         if c.get("block") and re.search(
                             rf"\b{re.escape(c['block'])}\b", question, re.IGNORECASE)
@@ -2542,6 +3087,41 @@ async def _resolve_entities(question: str, schemes: list[str],
         if r.status == "resolved":
             resolved["assembly_constituency"] = r.canonical
             display["assembly_constituency"] = r.display or str(r.canonical).title()
+            # Having settled on the constituency, offer to narrow inside it —
+            # unless the question already narrowed itself (a resumed
+            # drill-down chip, "the whole constituency", or another named
+            # area). A resumed "within the X block only" chip is applied here
+            # deterministically; the extractor has no reason to tag it.
+            _already_narrowed = (
+                _AC_SCOPED_RE.search(question)
+                or re.search(r"\bwhole\s+constituency\b", question, re.IGNORECASE)
+                or any(resolved.get(k) for k in
+                       ("district", "district_list", "block", "block_list",
+                        "village_code", "village_code_list"))
+            )
+            _narrow = _AC_NARROW_RE.search(question)
+            if _narrow:
+                _lvl = _narrow.group("level").lower()
+                _nm = _narrow.group("name").strip()
+                _nr = await resolve_dimension(_nm, schemes[0], _lvl)
+                if _nr.status == "resolved":
+                    _canon, _disp = _nr.canonical, _nr.display or str(_nr.canonical).title()
+                else:
+                    # The chip's value was read live from curated.v_employment,
+                    # so it is a valid (upper-case) literal even when the YAML
+                    # catalogue has no entry for it.
+                    _canon, _disp = _nm.upper(), _nm.title()
+                resolved[_lvl] = _canon
+                display[_lvl] = _disp
+                if _lvl == "district":
+                    district_canon = _canon
+                logger.info("AC drill-down: also filtering %s = %r", _lvl, _canon)
+            elif not _already_narrowed:
+                _contents = await constituency_contents(str(r.canonical))
+                _drill = _ac_drilldown_clarification(
+                    question, display["assembly_constituency"], _contents)
+                if _drill is not None:
+                    raise _drill
         else:
             # assembly_constituency data exists ONLY in mgnrega_employment (no
             # catalogue loaded for other schemes, or the name genuinely isn't
@@ -2575,7 +3155,7 @@ async def _resolve_entities(question: str, schemes: list[str],
         # year straight from the text ("2023", "2023-24", "FY 2023-24" -> 2023).
         if year_key is None:
             year_key = _parse_year_key(raw_year)
-        if year_key is not None and not _year_in_data_range(year_key, schemes):
+        if year_key is not None and not _year_in_data_range(year_key, _yschemes):
             # A real, parseable year — just not one these scheme(s) hold.
             if _no_time_dim:
                 # No scheme here has ANY year, so there is no coverage range to
@@ -2584,8 +3164,8 @@ async def _resolve_entities(question: str, schemes: list[str],
                 notes.append(_no_time_dimension_note(schemes))
             else:
                 if settings.YEAR_RANGE_GUARD_ENABLED:
-                    raise _year_out_of_range_clarification(question, raw_year, schemes)
-                _yrs, _lv = _available_years_for(schemes)
+                    raise _year_out_of_range_clarification(question, raw_year, _yschemes)
+                _yrs, _lv = _available_years_for(_yschemes)
                 notes.append(f"'{raw_year}' is outside the data "
                              f"({', '.join(_lv)} cover FY {_yrs[0]} to FY {_yrs[-1]} only).")
         elif year_key is None:
@@ -2597,7 +3177,7 @@ async def _resolve_entities(question: str, schemes: list[str],
                 notes.append(_no_time_dimension_note(schemes))
             else:
                 if settings.YEAR_RANGE_GUARD_ENABLED and _looks_like_year_mention(raw_year):
-                    raise _year_out_of_range_clarification(question, raw_year, schemes)
+                    raise _year_out_of_range_clarification(question, raw_year, _yschemes)
                 notes.append(f"'{raw_year}' is not a recognisable financial year.")
         else:
             # Both v_employment and v_pmay key the year on `year_key` (smallint).
@@ -2611,7 +3191,12 @@ async def _resolve_entities(question: str, schemes: list[str],
     if _village_text:
         r = await resolve_village(_village_text, district=district_canon,
                                    block=resolved.get("block"))
-        if r.status == "ambiguous":
+        _named = (_village_candidate_named_in(question, r.candidates)
+                  if r.status == "ambiguous" else None)
+        if _named is not None:
+            resolved["village_code"] = _named["village_code"]
+            display["village"] = str(_named["name"]).title()
+        elif r.status == "ambiguous":
             # Two candidates can share the same (name, district) while being
             # genuinely different villages in different blocks with their own
             # data (e.g. two "Adugre"s in SOUTH WEST GARO HILLS — one in
@@ -2631,7 +3216,9 @@ async def _resolve_entities(question: str, schemes: list[str],
                 options=options,
                 rule="entity-ambiguous",
                 village_hint=_village_text)
-        if r.status == "resolved":
+        if _named is not None:
+            pass  # already resolved from the question text above
+        elif r.status == "resolved":
             # Symmetric check to the block branch above: this name might also be
             # a block name. Only worth asking when the district/block scope
             # didn't already pin it down (a village resolved WITH a district
@@ -3791,6 +4378,12 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
         logger.info("auth deny (%s) user=%s: %s", e.decision.check,
                     scope.user_id if scope else None, e.decision.reason)
         return _denied(e.decision, schemes, entity_result["resolved"])
+
+    # A named producer group that matched nothing — offer the closest real names.
+    if not rows and entity_result["resolved"].get("pg_name_pattern"):
+        _pg_clar = await _pg_not_found_clarification(question, entity_result)
+        if _pg_clar is not None:
+            raise _pg_clar
 
     # A number the question states as already-true ("the 1.71 L sanctioned
     # houses") is never part of the SQL — check it against the result so the

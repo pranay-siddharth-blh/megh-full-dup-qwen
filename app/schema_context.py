@@ -64,6 +64,8 @@ SCHEME_METRICS = {
         "tranche breakdown (Tranch 1..4; categorical, never a time series)",
         "gender / occupation / application status — 12.5K cohort only",
         "distinct villages reached (COUNT(DISTINCT village_code))",
+        "producer groups (PG / LAMPS) — count, members, amount paid, product, by "
+        "district/block/village and year (curated.v_focus_legacy)",
     ],
     "CM Elevate": [
         "applications received (COUNT(*), one row per application — a request, not an award)",
@@ -302,6 +304,16 @@ FOCUS PLUS TABLES
   curated.dim_scheme  -- read ON ITS OWN (never joined per row) ONLY to look up
       money_unit for the Focus Plus row. amount_disbursed's unit is UNVERIFIED and
       v_focus_plus does not expose scheme_key.
+  curated.v_focus_legacy  -- FOCUS PRODUCER-GROUP payments (the "Focus Legacy" data;
+      dim_scheme code FOCUS_LEGACY, money in RUPEES). The ONLY place producer groups
+      (PGs), LAMPS cooperatives and PG membership exist. One row = one payment to one
+      producer group in one financial year (FY 2021-22, 2022-23, 2024-25, 2025-26).
+      Columns used for answers:
+        pg_id, pg_name, pg_entity_type, pg_entity_type_name, no_of_pg_members,
+        amount_disbursed, product_raw, programme_variant, financial_year,
+        financial_year_short, village_code, lgd_village_name, lgd_block, lgd_district,
+        on_roster, has_geo_conflict
+      Geography and year are PRE-JOINED — no join needed.
 """.strip()
 
 _FOCUSPLUS_RULES = """
@@ -362,7 +374,7 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      dim_geography also holds wards (entity_type = 'Ward'); do not silently mix them into
      a "top villages" ranking.
  10. NOT HELD — return "not available in this data", never borrow a column from PMAY or
-     MGNREGA: producer groups / PG counts, EPIC-id lookups, beneficiary names, mobile
+     MGNREGA (producer groups ARE held — see rule 13): EPIC-id lookups, beneficiary names, mobile
      numbers, account numbers / IFSC / bank-transfer or DBT status, eligible-population
      denominators (so no coverage %, density or per-capita), constituency / MLA,
      budget / target / forecast, any other scheme's data. bank_name_raw IS held and
@@ -379,6 +391,31 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      JOIN the aggregate.
  12. Every Focus Plus total is unverified against megh_db — state that a figure is
      provisional pending meta.v_reconciliation_focus_plus.
+ 13. PRODUCER GROUPS (PG, LAMPS, "Focus Legacy") -> query curated.v_focus_legacy ONLY.
+     Never mix its rows or totals with v_focus_plus (different payees: groups vs
+     individual farmers).
+       - A PG is identified by pg_id. pg_name is NOT unique (856 names are shared by
+         several PGs), so a lookup by name must return pg_id, lgd_district and
+         lgd_block alongside the figures, one row per pg_id.
+       - Match a named PG with ILIKE on its distinctive word(s), not equality —
+         stored names look like 'Sakania Pg', 'Bak-15 Bura Pg' (users type
+         "Sakania PG", "Bak 15 Bura"). Drop generic words (PG, producer, group) from
+         the pattern. If a district/block is named, filter on it too.
+       - no_of_pg_members is recorded PER PAYMENT ROW and changes between years —
+         for "how many members" return it per financial_year_short (GROUP BY pg_id,
+         pg_name, lgd_district, lgd_block, financial_year_short); never SUM it
+         across years for one PG.
+       - Count groups with COUNT(DISTINCT pg_id), never COUNT(*) (a PG can have a
+         row in several years). Members across many PGs for ONE year:
+         SUM(no_of_pg_members).
+       - amount_disbursed is in RUPEES (always 5,000 per member).
+       - pg_entity_type: 'FOCUS_PG' (newly formed FOCUS producer group), 'LAMP'
+         (LAMPS cooperative), 'EXISTING_COOPERATIVE'. programme_variant: 'FOCUS' or
+         'FOCUS_ADDNL'. product_raw is free text with mixed case ('Piggery' /
+         'PIGGERY') and mostly NULL — compare with UPPER() / ILIKE.
+       - account_no_masked, ifsc_code, bank_details_current: NEVER select them.
+       - If the query returns no rows for a named PG, say no producer group by that
+         name was found (in that district, if one was named) — do not guess another.
 """.strip()
 
 _FOCUSPLUS_VOCAB = """
@@ -389,6 +426,7 @@ FOCUS PLUS BUSINESS VOCABULARY (source: FOCUS+ NLP Use Cases workbook + focusplu
     "tranche" / "installment" / "tranch" -> tranche_label  (categorical, not time)   "batch" / "cohort" -> batch_label
     "farmers" -> occupation = 'Farmer'  (12.5K cohort only)          "women" / "female" -> gender = 'Female'  (12.5K cohort only)
     "pending" -> focus_status = 'Pending'  (12.5K cohort only; an application state, NOT a payment flag)   "distinct villages" -> COUNT(DISTINCT village_code)
+    "PG" / "producer group" / "LAMPS" / "Focus Legacy" -> curated.v_focus_legacy (FOCUS RULES 13)   "PG members" -> no_of_pg_members (per year)   "how many PGs" -> COUNT(DISTINCT pg_id)
 """.strip()
 
 _CMELEVATE_TABLES = """

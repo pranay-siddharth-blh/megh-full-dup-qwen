@@ -746,6 +746,131 @@ def all_districts(scheme: str) -> list[str]:
     return [v["canonical"] for v in _catalog.get(scheme, {}).get("district", [])]
 
 
+def canonical_names(scheme: str, dimension: str) -> list[str]:
+    """Every canonical value name `scheme`'s catalogue holds for `dimension`,
+    in the YAML's declared order. Empty when the scheme or dimension has no
+    catalogue loaded (village is DB-backed and never appears here)."""
+    return [str(v["canonical"]) for v in _catalog.get(scheme, {}).get(dimension, [])
+            if v.get("canonical")]
+
+
+# ── Admin-level collisions (block / assembly constituency / village) ─────────
+# Ported from the pre-restructure codebase (Old_meghalaya). Block, assembly
+# constituency and village names overlap heavily in Meghalaya — "Mawlai" is a
+# block, AC 15 and a village (see cross_dimension_collisions in
+# mgnrega_entity_resolver.yaml) — so a bare name must offer every level it
+# could mean, not just block-vs-village.
+_COLLISION_DIMENSIONS = ("district", "block", "assembly_constituency")
+# Fuzzy floor for "could this name ALSO be a <dimension>?" — looser than
+# _FUZZY_ACCEPT (90) on purpose: a false positive here costs one extra chip, a
+# false negative answers silently about the wrong place ("malwai" → village
+# Mawlwai instead of the Mawlai block/constituency).
+_COLLISION_FUZZY_ACCEPT = 80
+# Blocks and ACs are the same real units whoever asks; only MGNREGA carries an
+# assembly_constituency catalogue, so other schemes borrow it for the
+# collision check.
+_SHARED_ADMIN_DIMENSIONS = ("block", "assembly_constituency")
+
+
+def _collision_values(scheme: str, dim: str) -> list:
+    """Catalogue entries for `dim`, falling back to other schemes' catalogues
+    for the administrative dimensions every scheme shares."""
+    values = _catalog.get(scheme, {}).get(dim, [])
+    if values or dim not in _SHARED_ADMIN_DIMENSIONS:
+        return values
+    for _other, _dims in _catalog.items():
+        if _other == scheme:
+            continue
+        borrowed = _dims.get(dim) or []
+        if borrowed:
+            return borrowed
+    return []
+
+
+def collision_canonical_names(scheme: str, dimension: str) -> list[str]:
+    """Canonical names to scan raw question text with — the same values
+    collides_across_dimensions() matches against."""
+    return [str(v["canonical"]) for v in _collision_values(scheme, dimension)
+            if v.get("canonical")]
+
+
+def collides_across_dimensions(text: str, scheme: str,
+                               village_hit: bool = False) -> dict[str, str]:
+    """Which admin levels the bare name `text` could name, as
+    {dimension: canonical display name} in coarse-to-fine order. Empty when the
+    name is not level-ambiguous (fewer than 2 readings, or it is a district —
+    districts never collide). `village_hit` adds the DB-backed village reading
+    on the caller's evidence; its entry maps to "" (caller uses the user's
+    text). Exact/alias/squash first, then a fuzzy stage at
+    _COLLISION_FUZZY_ACCEPT with resolve_dimension's runner-up gap."""
+    if not text or not str(text).strip():
+        return {}
+    hits: list[str] = []
+    _canonical_by_dim: dict[str, str] = {}
+    folded_input = fold(text)
+    squashed_input = _squash(folded_input)
+    for dim in _COLLISION_DIMENSIONS:
+        values = _collision_values(scheme, dim)
+        if not values:
+            continue
+        matched = False
+        for v in values:
+            forms = _match_forms(v)
+            if folded_input in (fold(c) for c in forms) or \
+                    squashed_input in (_squash(fold(c)) for c in forms):
+                hits.append(dim)
+                _canonical_by_dim[dim] = _display_form(v["canonical"], dim)
+                matched = True
+                break
+        if matched:
+            continue
+        pool = {v["canonical"]: fold(v["canonical"]) for v in values}
+        scored = process.extract(folded_input, pool, scorer=fuzz.token_set_ratio, limit=2)
+        if not scored:
+            continue
+        top_score = scored[0][1]
+        runner_up = scored[1][1] if len(scored) > 1 else 0
+        if top_score >= _COLLISION_FUZZY_ACCEPT and top_score - runner_up >= _FUZZY_RUNNER_UP_GAP:
+            hits.append(dim)
+            _canonical_by_dim[dim] = _display_form(scored[0][2], dim)
+    if village_hit and "village" not in hits:
+        hits.append("village")
+    if "district" in hits or len(hits) < 2:
+        return {}
+    return {d: _canonical_by_dim.get(d, "") for d in hits}
+
+
+async def constituency_contents(ac_name: str) -> dict:
+    """{"districts": [...], "blocks": [...], "villages": n} inside one assembly
+    constituency, read live from curated.v_employment — the only fact that
+    records the dimension. Drives the "whole constituency or part of it?"
+    drill-down chips. Best-effort: any DB failure returns empty lists and the
+    caller offers no drill-down."""
+    try:
+        rows = await fetch_rows(
+            """
+            SELECT DISTINCT lgd_district, lgd_block, village_code
+            FROM curated.v_employment
+            WHERE UPPER(assembly_constituency_name) = UPPER($1)
+            """,
+            [ac_name],
+        )
+    except Exception as e:  # noqa: BLE001 — drill-down is an enhancement, never required
+        logger.warning("constituency_contents(%r) failed: %s", ac_name, e)
+        return {"districts": [], "blocks": [], "villages": 0}
+    districts, blocks, villages = [], [], set()
+    for r in rows:
+        d, b, v = r.get("lgd_district"), r.get("lgd_block"), r.get("village_code")
+        if d and d not in districts:
+            districts.append(d)
+        if b and b not in blocks:
+            blocks.append(b)
+        if v is not None:
+            villages.add(v)
+    return {"districts": sorted(districts), "blocks": sorted(blocks),
+            "villages": len(villages)}
+
+
 _ACTIVITY_VIEWS = (
     "curated.v_employment", "curated.v_expenditure", "curated.v_pmay",
     "curated.v_focus_plus", "curated.v_cm_elevate",

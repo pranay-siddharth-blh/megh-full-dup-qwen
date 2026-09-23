@@ -854,3 +854,63 @@ sql_generation_examples:
     SELECT * FROM meta.v_reconciliation_focus_plus;
   tables:
   - meta.v_reconciliation_focus_plus
+
+# ---- producer groups (curated.v_focus_legacy) ----------------------------
+# Added 2026-09-23. Producer groups / PGs / LAMPS live ONLY in
+# curated.v_focus_legacy (FOCUS_LEGACY, money in rupees, 5,000 per member).
+# pg_name is not unique -> always return pg_id + district + block. Members are
+# recorded per payment year -> never SUM one PG's members across years.
+# Every example below was run against megh_db before being added.
+- question: How many members are there in Sakania PG?
+  sql: |
+    SELECT pg_id, pg_name, lgd_district, lgd_block, financial_year_short,
+           SUM(no_of_pg_members) AS members
+    FROM curated.v_focus_legacy
+    WHERE pg_name ILIKE '%sakania%'
+    GROUP BY pg_id, pg_name, lgd_district, lgd_block, financial_year_short
+    ORDER BY pg_id, financial_year_short;
+  tables:
+  - curated.v_focus_legacy
+
+- question: How many members are in the Bak 15 Bura producer group in East Garo Hills?
+  sql: |
+    SELECT pg_id, pg_name, lgd_district, lgd_block, financial_year_short,
+           SUM(no_of_pg_members) AS members
+    FROM curated.v_focus_legacy
+    WHERE pg_name ILIKE '%bak%15%bura%'
+      AND lgd_district = 'EAST GARO HILLS'
+    GROUP BY pg_id, pg_name, lgd_district, lgd_block, financial_year_short
+    ORDER BY pg_id, financial_year_short;
+  tables:
+  - curated.v_focus_legacy
+
+- question: How many producer groups are there in each district?
+  sql: |
+    SELECT lgd_district, COUNT(DISTINCT pg_id) AS producer_groups
+    FROM curated.v_focus_legacy
+    GROUP BY lgd_district
+    ORDER BY producer_groups DESC;
+  tables:
+  - curated.v_focus_legacy
+
+- question: Producer groups, members and amount paid by PG type in 2025-26
+  sql: |
+    SELECT pg_entity_type_name,
+           COUNT(DISTINCT pg_id) AS producer_groups,
+           SUM(no_of_pg_members) AS members,
+           SUM(amount_disbursed) AS amount_rupees
+    FROM curated.v_focus_legacy
+    WHERE financial_year_short = '2025-26'
+    GROUP BY pg_entity_type_name
+    ORDER BY producer_groups DESC;
+  tables:
+  - curated.v_focus_legacy
+
+- question: How many piggery producer groups are there and how much were they paid?
+  sql: |
+    SELECT COUNT(DISTINCT pg_id) AS producer_groups,
+           SUM(amount_disbursed) AS amount_rupees
+    FROM curated.v_focus_legacy
+    WHERE UPPER(product_raw) = 'PIGGERY';
+  tables:
+  - curated.v_focus_legacy

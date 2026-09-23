@@ -512,24 +512,38 @@ sql_generation_examples:
     tables: [curated.dim_year]
 
   # ---- assembly constituency (employment only) --------------------------
+  # Use curated.v_employment, not curated.fact_mgnrega_employment: the view
+  # carries assembly_constituency_name AND the lgd_district / lgd_block /
+  # village columns, so a constituency narrowed to one block or district still
+  # works. The raw fact table has no lgd_* columns — combining it with a block
+  # filter failed with "column f.lgd_block does not exist" (2026-09-23).
+  # Totals are identical either way (verified live: NONGPOH 2025 = 6310).
   - question: "Person-days by assembly constituency for 2025-26"
     sql: |
-      SELECT f.assembly_constituency_name, SUM(f.person_days) AS person_days
-      FROM curated.fact_mgnrega_employment f
-      WHERE f.year_key = 2025
-        AND f.assembly_constituency_name IS NOT NULL
-      GROUP BY f.assembly_constituency_name
+      SELECT assembly_constituency_name, SUM(person_days) AS person_days
+      FROM curated.v_employment
+      WHERE year_key = 2025
+        AND assembly_constituency_name IS NOT NULL
+      GROUP BY assembly_constituency_name
       ORDER BY person_days DESC
       LIMIT 10;
-    tables: [curated.fact_mgnrega_employment]
+    tables: [curated.v_employment]
 
   - question: "How many persons received employment in Nongpoh assembly constituency in 2025-26?"
     sql: |
-      SELECT SUM(f.persons_employed) AS persons_employed
-      FROM curated.fact_mgnrega_employment f
-      WHERE f.year_key = 2025
-        AND UPPER(f.assembly_constituency_name) = UPPER('NONGPOH');
-    tables: [curated.fact_mgnrega_employment]
+      SELECT SUM(persons_employed) AS persons_employed
+      FROM curated.v_employment
+      WHERE year_key = 2025
+        AND UPPER(assembly_constituency_name) = UPPER('NONGPOH');
+    tables: [curated.v_employment]
+
+  - question: "How many person-days were generated in Mawlai assembly constituency, within the MAWLAI block only, across all financial years?"
+    sql: |
+      SELECT SUM(person_days) AS person_days
+      FROM curated.v_employment
+      WHERE UPPER(assembly_constituency_name) = UPPER('MAWLAI')
+        AND lgd_block = 'MAWLAI';
+    tables: [curated.v_employment]
 
   # ---- bottom-N / lowest (mirror of the top-N examples above, ASC not DESC) --
   - question: "Which district spent the least on MGNREGA overall?"

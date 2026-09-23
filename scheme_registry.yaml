@@ -44,6 +44,8 @@ schemes:
     tables:
       - curated.fact_focus_plus_disbursement
       - curated.v_focus_plus
+      # FOCUS producer-group (PG / LAMPS) payments — the "Focus Legacy" data.
+      - curated.v_focus_legacy
     shared: false
 
   - id: CM Elevate

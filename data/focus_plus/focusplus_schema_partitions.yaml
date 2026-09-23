@@ -963,7 +963,10 @@ semantic_rules:
       Return "not held in this data" and offer the nearest answerable question. Never
       improvise, and never borrow a column from PMAY or MGNREGA.
     items:
-    - {topic: producer_group, detail: "No producer group, PG id, PG type, FOCUS/LAMP split or PG membership exists in the source CSV or in megh_db. The use-case index annotates these as unavailable, yet the workbook still quotes '25,037 producer groups'. Do not repeat that figure."}
+    # producer_group removed from this list 2026-09-23 — producer groups ARE now
+    # held in curated.v_focus_legacy (pg_id, pg_name, pg_entity_type incl. the
+    # FOCUS/LAMP split, no_of_pg_members). Still do not repeat the workbook's
+    # '25,037 producer groups'; count COUNT(DISTINCT pg_id) from the view.
     - {topic: epic_id, detail: "Dropped at ingest. EPIC lookups, Member-360, AC-code derivation from the 3-letter prefix and cross-scheme EPIC overlap are all unanswerable."}
     - {topic: beneficiary_name, detail: "Dropped at ingest. No name lookup, no name-vs-bank-account reconciliation."}
     - {topic: mobile_number, detail: "Dropped at ingest. Missing-mobile data-quality questions are unanswerable."}
@@ -1334,10 +1337,13 @@ few_shot_examples:
 
 - question: How many producer groups are in Focus Plus?
   explanation: >
-    No producer group, PG id, PG type or PG membership column exists in the source or in
-    megh_db. The use-case workbook quotes 25,037 producer groups; that figure has no
-    basis in this data and must not be repeated.
-  sql: null
+    Answerable since 2026-09-23 from curated.v_focus_legacy (producer-group payments).
+    Count groups with COUNT(DISTINCT pg_id) — 11,906 across FY 2021-22 to 2025-26 at
+    the time of writing. The use-case workbook's 25,037 has no basis in this data and
+    must not be repeated.
+  sql: |
+    SELECT COUNT(DISTINCT pg_id) AS producer_groups
+    FROM curated.v_focus_legacy;
 
 - question: Show the Focus Plus disbursement trend by month
   explanation: >

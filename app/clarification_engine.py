@@ -494,12 +494,12 @@ def _match_below_village_geography(question: str, resolved: dict) -> bool:
 
 
 # ---- Focus Plus -----------------------------------------------------------
-_PRODUCER_GROUP = re.compile(
-    r"\bproducer\s+groups?\b|\bpg\s+(?:ids?|types?|membership)\b", re.IGNORECASE)
-
-
-def _match_producer_group(question: str, resolved: dict) -> bool:
-    return bool(_PRODUCER_GROUP.search(question or ""))
+# producer_group_requested was removed 2026-09-23 — producer groups are
+# answerable from curated.v_focus_legacy. Any producer-group question (PG /
+# LAMPS / "Focus Legacy") skips the Focus Plus rules entirely — see
+# check_clarifications. Mirrors pipeline._PRODUCER_GROUP_Q.
+_PG_QUESTION = re.compile(
+    r"\bproducer[\s-]+groups?\b|\bpgs?\b|\blamps?\b|\bfocus\s+legacy\b", re.IGNORECASE)
 
 
 _EPIC_ID = re.compile(r"\bepic\b|\bvoter\s*id\b|\bvoter\s+id\s+cards?\b", re.IGNORECASE)
@@ -1489,7 +1489,6 @@ _MATCHERS: dict[str, Callable[[str, dict], bool]] = {
     "below_village_geography_requested": _match_below_village_geography,
     # villages_without_houses_requested: deliberately NOT wired — see note above.
     # Focus Plus
-    "producer_group_requested": _match_producer_group,
     "epic_id_requested": _match_epic_id,
     "beneficiary_name_requested": _match_beneficiary_name,
     "mobile_number_requested": _match_mobile_number,
@@ -1619,6 +1618,12 @@ def check_clarifications(question: str, schemes: list[str], resolved: dict) -> "
     missing/malformed, or every matched condition collides with an existing
     hardcoded clarification predicate. Never raises."""
     for scheme in schemes or []:
+        # Focus Plus's rules describe individual-farmer payments
+        # (curated.v_focus_plus: beneficiaries, batches, "count of what").
+        # A producer-group question reads curated.v_focus_legacy instead, where
+        # none of them apply; its PII columns stay blocked by pii_guard.
+        if scheme == "Focus Plus" and _PG_QUESTION.search(question or ""):
+            continue
         conditions = _load_scheme_rules(scheme)
         for name, rule in conditions.items():
             if name in _COLLISION_CONDITIONS:

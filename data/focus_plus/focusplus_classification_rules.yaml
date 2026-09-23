@@ -32,8 +32,9 @@
 clarification_rules:
 
   # ---- the source cannot answer this at all -----------------------------
-  - condition: "producer_group_requested"
-    question: "Producer groups are not held in this data - there is no PG id, PG type or PG membership anywhere in the Focus Plus records. Shall I answer by district, block or village instead?"
+  # producer_group_requested removed 2026-09-23: producer groups ARE held now —
+  # curated.v_focus_legacy (pg_id, pg_name, no_of_pg_members, ...). See
+  # app/schema_context.py FOCUS PLUS RULES rule 13.
 
   - condition: "epic_id_requested"
     question: "EPIC / voter ID is not held in the database - it was dropped when the data was loaded. Shall I answer by district, block or village instead?"

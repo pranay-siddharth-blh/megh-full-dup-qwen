@@ -185,7 +185,10 @@ def _entities_block(entity_result: dict) -> str:
             elif k == "assembly_constituency":
                 lines.append(
                     f"  UPPER(assembly_constituency_name) = UPPER({v!r})   -- this column "
-                    "exists ONLY in mgnrega_employment. If the question also needs "
+                    "exists ONLY in MGNREGA employment. Query curated.v_employment for it "
+                    "(it also has lgd_district / lgd_block / village columns for any "
+                    "other filter here); the raw fact_mgnrega_employment table has no "
+                    "lgd_* columns. If the question also needs "
                     "expenditure, say that level isn't available there instead of silently "
                     "switching to a block/district filter.")
             elif k == "year_key":
@@ -207,6 +210,14 @@ def _entities_block(entity_result: dict) -> str:
                         "count do NOT add 'AND NOT is_placeholder' — that guard would drop "
                         "the entire category and return a false 0. Count status_name over "
                         "all rows.")
+            elif k == "pg_name_pattern":
+                lines.append(
+                    f"  pg_name ILIKE {v!r}   -- the producer group named in the question "
+                    "(curated.v_focus_legacy). Use this ILIKE pattern verbatim — PG names "
+                    "are not unique, so return pg_id, pg_name, lgd_district, lgd_block and "
+                    "financial_year_short alongside the figures, one row per pg_id per "
+                    "year. If it returns no rows, say no producer group by that name was "
+                    "found.")
             elif k == "tranche_label":
                 vals = v if isinstance(v, list) else [v]
                 quoted = ", ".join(f"'{s}'" for s in vals)

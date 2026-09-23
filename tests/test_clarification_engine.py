@@ -136,7 +136,6 @@ _POSITIVE_CASES = [
     ("PMAY-G", "below_village_geography_requested", "Which habitation is this house located in?", "village only"),
     ("PMAY-G", "other_scheme_requested", "Is there data for another scheme here?", "PMAY-G only"),
 
-    ("Focus Plus", "producer_group_requested", "Which producer group does this farmer belong to?", "Producer groups"),
     ("Focus Plus", "epic_id_requested", "What is the EPIC number of this beneficiary?", "EPIC / voter ID"),
     ("Focus Plus", "beneficiary_name_requested", "What is the beneficiary name for this payment?", "Beneficiary names"),
     ("Focus Plus", "mobile_number_requested", "What is the mobile number of this farmer?", "Mobile numbers"),
@@ -233,6 +232,12 @@ _NEGATIVE_CASES = [
     ("PMAY-G", "How many PMAY-G houses were sanctioned in Ri Bhoi district?"),
     ("Focus Plus", "How many Focus Plus payments were made in East Khasi Hills?"),
     ("CM Elevate", "How many CM Elevate applications were received for the Piggery scheme?"),
+    # Producer groups are answerable since 2026-09-23 (curated.v_focus_legacy) —
+    # the old producer_group_requested refusal was removed, and no other Focus
+    # Plus farmer-payment rule ("count of what?") may fire on a PG question.
+    ("Focus Plus", "Which producer group does this farmer belong to?"),
+    ("Focus Plus", "How many members are there in Sakania PG?"),
+    ("Focus Plus", "how many producer groups are there in West Garo Hills"),
 ]
 for scheme, question in _NEGATIVE_CASES:
     text = fires(scheme, question)
@@ -487,8 +492,10 @@ check("every Phase 3 wired matcher has at least one positive case above",
       _phase3_wired <= _phase3_covered, sorted(_phase3_wired - _phase3_covered))
 check("Phase 3 added exactly 20 unique matchers to the registry",
       len(_phase3_wired) == 20, len(_phase3_wired))
-check("total registry size is Phase 1 (66) + Phase 2 (27) + Phase 3 (20) = 113",
-      len(ce._MATCHERS) == 113, len(ce._MATCHERS))
+# 112, not 113: Phase 1's producer_group_requested was unwired 2026-09-23
+# (producer groups are answerable from curated.v_focus_legacy).
+check("total registry size is Phase 1 (66 - 1 removed) + Phase 2 (27) + Phase 3 (20) = 112",
+      len(ce._MATCHERS) == 112, len(ce._MATCHERS))
 
 
 # ── 11. Phase 3 negative cases — resolved-state-sensitive conditions must ───
