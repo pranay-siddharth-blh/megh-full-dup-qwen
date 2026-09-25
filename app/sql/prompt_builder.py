@@ -36,7 +36,6 @@ from app.knowledge import scheme_registry
 from app.sql import schema_introspect, sql_examples_retrieval
 from app.knowledge.annotations import few_shot_examples, prohibited_joins_text
 from app.sql.schema_context import build_schema_context
-from app.core.config import settings
 from app.nlu import understand
 
 # Bare table name -> owning scheme, so the LIVE SCHEMA block is scoped the same
@@ -296,7 +295,7 @@ def _required_join_block(joins) -> str:
     return "\n".join(lines) + "\n"
 
 
-# ── REQUIRED FILTERS (FRAME_GATES_ENABLED) ────────────────────────────────
+# ── REQUIRED FILTERS ──────────────────────────────────────────────────────
 # The understood question as explicit constraints: what the SQL must filter on,
 # group by and limit to — from the QueryFrame, the resolved entity values and
 # the defaults the gates applied (entity_result["gate_trace"]). The model gets
@@ -309,7 +308,7 @@ _GROUP_COLUMN = {"district": "lgd_district", "block": "lgd_block", "village": "v
 def _prompt_frame(frame=None):
     if frame is not None:
         return frame
-    return understand.current_frame.get() if settings.FRAME_GATES_ENABLED else None
+    return understand.sql_frame()
 
 
 def effective_top_n(frame, entity_result: dict) -> "int | None":

@@ -61,15 +61,17 @@ class ConversationState:
     last_question: str | None = None              # raw text as typed
     last_standalone_question: str | None = None   # fully resolved/rewritten form
     turn_count: int = 0
-    # Set when the pipeline paused for one more detail (any rule in
-    # pipeline.RESUMABLE_CLARIFICATION_RULES). Holds the
-    # original question so the next turn's free-text reply can be merged back
-    # into it. Cleared as soon as it's consumed. Lives here (not directly on
+    # LEGACY text-glue resume state — no longer written: every pause is now
+    # resumed from pending_frame below (or by a LangGraph checkpointer). Kept
+    # so an older persisted blob still loads. It held the paused question so
+    # the next turn's free-text reply could be merged back into it. Cleared as soon as it's consumed. Lives here (not directly on
     # Session) specifically so it rides the same L1/L2 durability this whole
     # struct already has — see conversation_store.save_context_state/
     # load_context_state and phase-2-orchestration-durability/design.md.
     pending_scope_q: str | None = None
-    # Set alongside pending_scope_q when the pause was a village-name ambiguity
+    # Village-name ambiguity hint — still set/read by the LangGraph
+    # checkpointer resume owners (langgraph_followup / pipeline_graph).
+    # Originally set alongside pending_scope_q when the pause was a village-name ambiguity
     # ("entity-ambiguous"). Holds the exact text the user typed for the village
     # (e.g. "Adugre") so the resume can re-run resolve_village on it directly —
     # the merged reply text ("...the one in Betasing block") does NOT reliably
@@ -104,8 +106,8 @@ class ConversationState:
     # first round's answer — without it every resume re-derives every
     # dimension from the merged text alone. Cleared with pending_scope_q.
     pending_resolved: dict = field(default_factory=dict)
-    # FRAME_GATES_ENABLED only — the frame-based resume (replaces the text-glue
-    # pending_scope_q path above in that mode). The paused turn's QueryFrame +
+    # The pause (app/nlu/frame_merge.py — replaced the text-glue
+    # pending_scope_q path above). The paused turn's QueryFrame +
     # which slot was asked: {"frame": {...}, "slot": "scheme"|"area"|"year"|...,
     # "rule", "asked", "options", "level", "kind": "pause"|"correction"}.
     # A one-tap option fills the slot directly (no LLM call); a typed reply is
@@ -114,7 +116,7 @@ class ConversationState:
     # a reply landing on another worker still resumes. See
     # app/nlu/understand.py "slot-filling resume".
     pending_frame: "dict | None" = None
-    # FRAME_GATES_ENABLED only — the last ANSWERED turn's QueryFrame (the
+    # The last ANSWERED turn's QueryFrame (the
     # model-filled slots + resolved schemes). A follow-up's frame is merged onto
     # it (app/nlu/frame_merge.py): inherited slots, the new message's non-empty
     # slots override. Persisted, so a follow-up on another worker still has it.
@@ -171,7 +173,7 @@ class Session:
     scope: object | None = None      # backend.auth.UserScope, cached for the session
     # Structured conversation state (app/conversation/context_manager.py) — the L1 copy,
     # mirrored to app.conversations.context_state (L2) on each turn. Also
-    # carries pending_scope_q/pending_village_hint (a clarification pause) —
+    # carries pending_frame (a clarification pause) —
     # see ConversationState's own doc-comments for why those live here rather
     # than as bare Session attributes.
     state: ConversationState = field(default_factory=ConversationState)
@@ -181,9 +183,9 @@ class Session:
     # crosses CONTEXT_SUMMARY_EVERY_N_TURNS.
     summary: str | None = None
     summary_turn_count: int = 0   # turn_count as of the last summary update
-    # This turn's shadow QueryFrame ({"frame", "meta"}) from app/nlu/understand.py,
-    # set by pipeline._run_pipeline when settings.UNDERSTAND_SHADOW is on and
-    # read by the router's audit mirror. In-process, per turn, never persisted.
+    # This turn's QueryFrame ({"frame", "meta", "question"}) from
+    # app/nlu/frame_merge.frame_for_turn, read by the router's audit mirror and
+    # the follow-up suggestions. In-process, per turn, never persisted.
     understand_frame: dict | None = None
 
     @property

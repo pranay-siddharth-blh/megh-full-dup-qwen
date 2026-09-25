@@ -1,6 +1,6 @@
 """
 "Understood as" / "Assumed" lines and frame-built next-step suggestions
-(FRAME_GATES_ENABLED) — pipeline._prepend_understanding and
+— understand.prepend_understanding (via frame_merge.after_answer) and
 app/response/followups.build_followups(frame=...).
 
 Covers: the answer is prefixed with "Understood as: <rewritten>" only when it
@@ -9,8 +9,8 @@ every applied default's own assumption_text; the composer's text (and its
 locked numbers) is kept verbatim after the prefix and the defaults are no
 longer ALSO fed to the composer as notes; suggestions are built from the
 frame's metric / scheme / grain (a bare "and block wise?" follow-up gets the
-inherited metric's suggestions); flag off => nothing prefixed, suggestions
-from the question text as before. Model/SQL/DB stubbed.
+inherited metric's suggestions); no model frame (Understand failed) and
+nothing assumed => nothing prefixed. Model/SQL/DB stubbed.
 Run: `python tests/unit/test_understood_as.py`, exit code 0 = pass.
 """
 import os
@@ -50,12 +50,12 @@ scheme_registry.load_all()
 
 print("\n=== when is the reading worth showing? ===")
 check("typo-fixed + scheme-named rewrite differs meaningfully",
-      pipeline._meaningfully_different("total manrega expendture", "What is the total MGNREGA expenditure?"))
+      u.meaningfully_different("total manrega expendture", "What is the total MGNREGA expenditure?"))
 check("near-identical rewrite is NOT shown",
-      not pipeline._meaningfully_different("What is the total MGNREGA expenditure?",
+      not u.meaningfully_different("What is the total MGNREGA expenditure?",
                                            "what is the total mgnrega expenditure"))
 check("a follow-up fragment always differs from its standalone rewrite",
-      pipeline._meaningfully_different("and block wise?", "What is the MGNREGA expenditure in EKH, block wise?"))
+      u.meaningfully_different("and block wise?", "What is the MGNREGA expenditure in EKH, block wise?"))
 
 print("\n=== suggestions from the frame, not the question text ===")
 frame = {"rewritten_question": "What is the total MGNREGA expenditure in EKH, block wise?",
@@ -129,10 +129,9 @@ patches = [
 originals = [(o, n, getattr(o, n)) for o, n, _ in patches]
 for o, n, fn in patches:
     setattr(o, n, fn)
-flag_names = ("FRAME_GATES_ENABLED", "QUERY_ANALYZER_ENABLED", "CONTEXT_SUMMARY_ENABLED",
+flag_names = ("QUERY_ANALYZER_ENABLED", "CONTEXT_SUMMARY_ENABLED",
               "CONTEXT_SEMANTIC_MEMORY_ENABLED", "RESPONSE_CACHE_ENABLED", "SEMANTIC_CACHE_ENABLED")
 flags_before = {n: getattr(settings, n) for n in flag_names}
-settings.FRAME_GATES_ENABLED = True
 settings.QUERY_ANALYZER_ENABLED = False
 settings.CONTEXT_SUMMARY_ENABLED = False
 settings.CONTEXT_SEMANTIC_MEMORY_ENABLED = False
@@ -159,7 +158,10 @@ try:
     check("typed ~= understood and nothing assumed -> no prefix at all",
           (r.get("answer") or "") == COMPOSED and not r.get("understood_as"), r.get("answer"))
 
-    settings.FRAME_GATES_ENABLED = False
+    async def _no_frame(message, ctx):                  # the Understand call failed
+        return {"frame": None, "meta": {"error": "timeout"}}
+    _o0 = u.build_frame
+    u.build_frame = _no_frame
     async def _cls(q):
         return ["MGNREGA"], pipeline.ScopeMeta(1.0, "shortcut", "")
     async def _ment(q):
@@ -175,7 +177,9 @@ try:
     finally:
         pipeline._classify_scheme_detailed, pipeline.extract_entity_mentions = _o1, _o2
         pipeline.classify_intent = _o3
-    check("flag off: answer exactly the composer's, no prefix", (r.get("answer") or "") == COMPOSED, r.get("answer"))
+        u.build_frame = _o0
+    check("no model frame, nothing assumed: answer exactly the composer's, no prefix",
+          (r.get("answer") or "") == COMPOSED, r.get("answer"))
 finally:
     for o, n, fn in originals:
         setattr(o, n, fn)

@@ -15,9 +15,9 @@ already tolerate that in every other TestClient-based test here.
 `python tests/unit/test_query_langgraph_wiring.py`, exit code 0 = all pass.
 
 Covers:
-(a) LANGGRAPH_FOLLOWUP_ENABLED=False (default): unchanged bespoke
-    behavior — a pause sets session.state.pending_scope_q/pending_village_hint,
-    exactly as before this wiring existed.
+(a) LANGGRAPH_FOLLOWUP_ENABLED=False (default): the pause is answer_question's
+    own (Step 10: frame slot filling on pending_frame — the old text-glue
+    pending_scope_q is never written any more).
 (b) LANGGRAPH_FOLLOWUP_ENABLED=True: a pause returns the same response
     shape the bespoke path returns, but deliberately does NOT set
     session.state.pending_scope_q/pending_village_hint — setting those
@@ -102,7 +102,7 @@ try:
     lf._CHECKPOINT_DB_PATH.unlink(missing_ok=True)
 
     # ── (a) flag OFF: unchanged bespoke behavior ─────────────────────────
-    print("1. FLAG OFF (default) — bespoke pause sets pending_scope_q, unchanged")
+    print("1. FLAG OFF (default) — the pause is answer_question's (frame slot filling), never the text-glue pending_scope_q")
     settings.LANGGRAPH_FOLLOWUP_ENABLED = False
     query_router.answer_question = scope_gate
     sid_a = "wire-off-1"
@@ -112,7 +112,8 @@ try:
     check("needs_clarification True", body.get("needs_clarification") is True, body)
     check("clarification rule is scope-not-specified", body.get("clarification", {}).get("rule") == "scope-not-specified")
     sess = session_store.ensure(sid_a, _SCOPE.user_id)
-    check("bespoke path DID set pending_scope_q", sess.state.pending_scope_q == "total MGNREGA expenditure")
+    check("no text-glue resume state written (pending_scope_q is gone from the resume path)",
+          sess.state.pending_scope_q is None)
 
     # ── (b)+(c) flag ON: pause does not touch pending_scope_q, resume works ──
     print("2. FLAG ON — pause via LangGraph, does not set pending_scope_q")

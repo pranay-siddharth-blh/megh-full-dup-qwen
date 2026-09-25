@@ -1,6 +1,6 @@
 """
 app/sql/sql_templates.py — SQL for the most common KPI shape, filled directly
-from the QueryFrame with no model call (FRAME_GATES_ENABLED):
+from the QueryFrame with no model call (understand.sql_frame()):
 
     "value of <metric> for <one scheme> [+ area] [+ year] [+ Focus Plus tranche]"
 

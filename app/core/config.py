@@ -362,7 +362,11 @@ class Settings(BaseSettings):
     SESSION_TTL_SECONDS: int = 1800          # 30 min sliding window
     SESSION_MAX: int = 5000                   # sessions kept before oldest-first eviction
     SESSION_MAX_TURNS: int = 8                # turns retained per session
-    FOLLOWUP_REWRITE_ENABLED: bool = True     # one classifier call when a turn looks like a follow-up
+    # No longer read: follow-ups are decided and merged by the Understand
+    # node's frame (app/nlu/frame_merge.py), which replaced the separate
+    # rewrite_followup model call. Kept only so existing .env files that set
+    # it still load (Settings rejects unknown .env keys).
+    FOLLOWUP_REWRITE_ENABLED: bool = True
     # Deterministic "Next steps" chips under each data/knowledge answer, built
     # from a fixed scheme-aware bank (backend/followups.py) — no model call.
     FOLLOWUP_SUGGEST_ENABLED: bool = True
@@ -459,11 +463,12 @@ class Settings(BaseSettings):
     QUERY_ANALYZER_ENABLED: bool = True
     # Understand node (app/nlu/understand.py) — one guided-JSON model call per
     # message producing a structured QueryFrame (rewritten question, intent,
-    # schemes, metric, geo mentions as typed, year, tranche, query type, ...).
-    # SHADOW mode: the frame is computed in parallel with the normal pipeline
-    # and written to the audit record (JSONL `understand_frame`) only — it
-    # changes NO routing, gate, SQL or answer. Off => no model call at all.
-    UNDERSTAND_SHADOW: bool = False
+    # schemes, metric, geo mentions as typed, year, tranche, query type, ...),
+    # built before the pipeline runs. It drives the clarification gates
+    # (app/nlu/clarify_rules.py), routing, follow-up merge and slot-filling
+    # resume (app/nlu/frame_merge.py) and SQL generation, and is written to the
+    # audit record. A turn the model gives no frame for runs on
+    # understand.fallback_frame (only what the text states).
     # Pinned explicitly, NOT inherited from CLASSIFIER_MODEL (which the live
     # .env overrides to qwen35-9b): the plan assigns understanding to qwen4-deploy.
     # The gateway routes models by API key: the classifier key cannot reach
@@ -475,14 +480,6 @@ class Settings(BaseSettings):
     UNDERSTAND_TIMEOUT_SECONDS: float = 15.0
     UNDERSTAND_MAX_TOKENS: int = 600
     UNDERSTAND_HISTORY_TURNS: int = 3   # most recent session turns shown to the model
-    # Frame-driven clarification gates (app/nlu/clarify_rules.py). On =>
-    # every message's QueryFrame is computed BEFORE the pipeline runs (not in
-    # the background), and _answer_data and the LangGraph nodes decide what to
-    # ask — and which scheme defaults to apply, with a disclosed assumption —
-    # from the frame instead of the _needs_{scheme,topn,scope,year,tranche}_
-    # clarification regexes. A turn whose frame fails falls back to the old
-    # predicates. Off => behaviour identical to before this flag existed.
-    FRAME_GATES_ENABLED: bool = False
     # Stop and say "I only have data for FY 2022-23 to FY 2025-26" when a data
     # question names a financial year outside that window — a bare "1999-20",
     # "2010", "FY 2019-20", etc. Both schemes' year coverage is exactly those

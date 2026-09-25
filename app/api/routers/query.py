@@ -27,7 +27,6 @@ from app.database import db
 from app.database.db import UnsafeSQLError
 from app.clients.llm import ModelBusyError
 from app.orchestration.pipeline import (
-    RESUMABLE_CLARIFICATION_RULES,
     ClarificationNeeded,
     _empty_data_fields,
     answer_question,
@@ -50,7 +49,7 @@ class QueryRequest(BaseModel):
         default=None, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
     )  # continue an existing conversation
     # A one-tap clarification option: which slot it fills and with what
-    # (FRAME_GATES_ENABLED — see pipeline._run_pipeline_frame_mode). Sent
+    # (see app/nlu/frame_merge.py frame_for_turn). Sent
     # alongside `question` (the option's text), which older clients send alone.
     slot: str | None = Field(default=None, max_length=32, pattern=r"^[a-z_]+$")
     value: "int | str | dict | None" = None
@@ -230,11 +229,11 @@ async def _answer_turn(ctx: _TurnCtx, req: QueryRequest,
     answer_question path; the two checkpointer-resume paths run unchanged
     and simply produce no live events."""
     session, scope, session_id = ctx.session, ctx.scope, ctx.session_id
-    # FRAME_GATES_ENABLED owns clarification resume itself (slot filling
-    # on ConversationState.pending_frame, inside answer_question), so the
-    # two checkpointer-based resume owners below stand aside — the same
-    # one-owner-per-pause rule they already follow between themselves.
-    if settings.LANGGRAPH_FOLLOWUP_ENABLED and not settings.FRAME_GATES_ENABLED:
+    # One owner per pause. The two LangGraph checkpointer resume owners below
+    # (each behind its own flag) own the pauses they checkpointed; every other
+    # pause is resumed inside answer_question by slot filling on
+    # ConversationState.pending_frame (app/nlu/frame_merge.py).
+    if settings.LANGGRAPH_FOLLOWUP_ENABLED:
         # Alternative pause/resume path (openspec/changes/phase-2-
         # orchestration-durability) — app/orchestration/langgraph_followup.py owns its
         # own durable resume signal via its checkpointer (is_paused
@@ -260,7 +259,6 @@ async def _answer_turn(ctx: _TurnCtx, req: QueryRequest,
         return lf_result, False
     if (
         not settings.LANGGRAPH_FOLLOWUP_ENABLED
-        and not settings.FRAME_GATES_ENABLED
         and (settings.PIPELINE_GRAPH_ENABLED or settings.PIPELINE_GRAPH_CANARY_PERCENT > 0)
         # should_resume, not is_paused: the thread must be suspended at
         # a REAL interrupt(), and this reply must actually be an answer
@@ -336,40 +334,27 @@ def _clarification_result(ctx: _TurnCtx, req: QueryRequest, e: ClarificationNeed
     _answer_turn instead, so `e.rule in (...)` below is naturally False
     whenever the flag is on and this still runs.
 
-    A scope pause ("which area / year?"), a year pause ("which FY?"), or
-    an entity-ambiguity pause ("which of these villages/districts/blocks?")
-    carries one-tap options where they exist, but the user may still type
-    the answer as free text ("West Garo Hills 2023-24", "East Khasi
-    Hills"). Remember the question so the pipeline merges that reply back
-    into it next turn instead of treating it as a brand-new question.
-    graph_resumable (task 5.4): this pause's resume state already
-    lives durably in pipeline_graph's own checkpointer (the elif
-    branch in _answer_turn resumes it via resume_via_graph next turn) —
-    setting the bespoke fields too would make BOTH mechanisms
-    think they own the resume, and the next request would hit
-    the graph-resume branch first anyway, never reading
-    these fields — same reasoning app/orchestration/langgraph_followup.py's
-    own pause branch already documents for its separate case."""
+    A pause that asks for a slot (scheme / area / year / tranche / top-N /
+    which place / which reading) carries its paused QueryFrame and that slot
+    on e.pending_frame (frame_merge.on_pause). It is stored as
+    ConversationState.pending_frame, so the next turn fills the slot — a
+    one-tap option directly, a typed reply ("West Garo Hills 2023-24") via
+    Understand with the pause as context — instead of treating it as a
+    brand-new question. Not for graph_resumable (task 5.4): that pause's
+    resume state already lives durably in pipeline_graph's own
+    checkpointer (the graph branch in _answer_turn resumes it via
+    resume_via_graph next turn) — storing the frame too would make BOTH
+    mechanisms think they own the resume."""
     session = ctx.session
     request_trace.note("clarification", {
         "asked": e.question, "rule": e.rule,
         "slot": understand.SLOT_FOR_RULE.get(e.rule or ""),
         "options": [o.get("label") for o in (e.options or []) if isinstance(o, dict)]})
-    if settings.FRAME_GATES_ENABLED and getattr(e, "pending_frame", None) is not None:
-        # Frame mode: the paused frame + the slot it asks — the next turn
-        # fills that slot (see pipeline._run_pipeline_frame_mode). Saved
-        # with the state below, so any worker can resume it.
+    if getattr(e, "pending_frame", None) is not None and not e.graph_resumable:
+        # The paused frame + the slot it asks — the next turn fills that slot
+        # (app/nlu/frame_merge.py). Saved with the state below, so any worker
+        # can resume it.
         session.state.pending_frame = e.pending_frame
-    elif e.rule in RESUMABLE_CLARIFICATION_RULES and not e.graph_resumable:
-        session.state.pending_scope_q = req.question
-        session.state.pending_village_hint = e.village_hint
-        # The chips offered, and what the turn had already resolved
-        # when it paused — so the next turn can recognise a tapped chip
-        # exactly and doesn't re-derive the earlier rounds' answers
-        # from the merged text alone. See ConversationState's own
-        # doc-comments for both fields.
-        session.state.pending_options = list(e.options or [])
-        session.state.pending_resolved = dict(e.resolved_so_far or {})
     # Shape it for the frontend clarification renderer (intent CLARIFY +
     # clarification.options), and keep the flat keys older callers read.
     out = {
@@ -401,8 +386,8 @@ def _clarification_result(ctx: _TurnCtx, req: QueryRequest, e: ClarificationNeed
         result=out, question=req.question, latency_ms=clarify_latency_ms,
         username=ctx.scope.username or None, ip=ctx.ip, trace=request_trace.snapshot(),
     )
-    # Mirror the pause fields (session.state.pending_scope_q/
-    # pending_village_hint) to app.conversations.context_state now, not
+    # Mirror the pause (session.state.pending_frame) to
+    # app.conversations.context_state now, not
     # just on a successful turn — otherwise a worker restart, a
     # session-TTL eviction, or the next request landing on a different
     # worker (routine at this deployment's 2-VM/4-worker scale) silently
@@ -590,11 +575,11 @@ async def query_stream(req: QueryRequest, request: Request,
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
-def _shadow_frame_for(session_id, question) -> "dict | None":
-    """This turn's shadow QueryFrame, or None if the session holds a frame for
-    a different message (e.g. this turn was a cache hit and never ran)."""
-    shadow = getattr(session_store.get(session_id), "understand_frame", None)
-    return shadow if shadow and shadow.get("question") == question else None
+def _turn_frame_for(session_id, question) -> "dict | None":
+    """This turn's QueryFrame, or None if the session holds a frame for a
+    different message (e.g. this turn was a cache hit and never ran)."""
+    frame = getattr(session_store.get(session_id), "understand_frame", None)
+    return frame if frame and frame.get("question") == question else None
 
 
 def _mirror_audit(scope, session_id, question, result, started, ip):
@@ -629,14 +614,11 @@ def _mirror_audit(scope, session_id, question, result, started, ip):
         "scope": result.get("scope"),
         # Step 9 diagnostic trace — same object as app.query_audit.trace.
         "trace": request_trace.snapshot(),
-        # Shadow Understand node (settings.UNDERSTAND_SHADOW) — the QueryFrame
-        # computed alongside this turn; key present only while shadowing.
-        # With FRAME_GATES_ENABLED the same frame DROVE the gates; the answer
-        # then also carries the defaults applied and the rule trace.
-        **({"understand_frame": _shadow_frame_for(session_id, question)}
-           if (settings.UNDERSTAND_SHADOW or settings.FRAME_GATES_ENABLED) else {}),
-        **({"assumptions": result.get("assumptions"), "gate_trace": result.get("gate_trace")}
-           if settings.FRAME_GATES_ENABLED else {}),
+        # The turn's QueryFrame (it drove the gates), the defaults applied
+        # and the rule trace.
+        "understand_frame": _turn_frame_for(session_id, question),
+        "assumptions": result.get("assumptions"),
+        "gate_trace": result.get("gate_trace"),
     })
 
 

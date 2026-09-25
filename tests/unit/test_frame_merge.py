@@ -1,6 +1,6 @@
 """
-Follow-ups on the QueryFrame (FRAME_GATES_ENABLED) — app/nlu/frame_merge.py
-and its wiring in pipeline._run_pipeline_frame_mode / _run_pipeline_body.
+Follow-ups on the QueryFrame — app/nlu/frame_merge.py (frame_for_turn,
+merge_followup) and its wiring in pipeline._run_pipeline / _run_pipeline_body.
 
 Unit: a follow-up inherits the previous frame's slots, the new non-empty slots
 win, a scheme change clears metric + tranche, "compare with X" adds X to the
@@ -12,8 +12,8 @@ End to end through POST /api/query, one session:
   "same for 2022-23"     -> year replaced, block breakdown kept
   "what about PMAY"      -> scheme switched, metric cleared, place/year kept
   "compare with EGH"     -> EKH and EGH together
-Frame decides the follow-up (not looks_like_followup) and the separate
-rewrite_followup model call is NOT made; flag off, the old path still is.
+Frame decides the follow-up (not looks_like_followup); the old text-rewrite
+follow-up path (rewrite_followup) no longer exists.
 Model/SQL/DB stubbed; resolver, gates, routing and the router are real.
 Run: `python tests/unit/test_frame_merge.py`, exit code 0 = pass.
 """
@@ -115,12 +115,6 @@ async def _build_frame(message, ctx):
     return {"frame": Q(**FRAMES[message]).model_dump(), "meta": {"flags": []}}
 
 sql_seen: list[dict] = []
-rewrite_calls: list[str] = []
-
-
-async def _rewrite(question, prev, extra_context=""):
-    rewrite_calls.append(question)
-    return "What is the total MGNREGA expenditure in East Khasi Hills by block?"
 
 
 intent_calls: list[str] = []
@@ -162,7 +156,7 @@ async def _no_mentions(q):
     return {}
 
 patches = [
-    (u, "build_frame", _build_frame), (pipeline, "rewrite_followup", _rewrite),
+    (u, "build_frame", _build_frame),
     (pipeline, "classify_intent", _classify_intent), (pipeline, "generate_sql", _generate_sql),
     (pipeline, "execute_with_repair", _execute), (pipeline, "_execute_one_attempt", _one_attempt),
     (pipeline, "compose_response", _compose), (pipeline, "resolve_village", _no_village),
@@ -176,10 +170,9 @@ patches = [
 originals = [(o, n, getattr(o, n)) for o, n, _ in patches]
 for o, n, fn in patches:
     setattr(o, n, fn)
-flag_names = ("FRAME_GATES_ENABLED", "QUERY_ANALYZER_ENABLED", "CONTEXT_SUMMARY_ENABLED",
+flag_names = ("QUERY_ANALYZER_ENABLED", "CONTEXT_SUMMARY_ENABLED",
               "CONTEXT_SEMANTIC_MEMORY_ENABLED", "RESPONSE_CACHE_ENABLED", "SEMANTIC_CACHE_ENABLED")
 flags_before = {n: getattr(settings, n) for n in flag_names}
-settings.FRAME_GATES_ENABLED = True
 settings.QUERY_ANALYZER_ENABLED = False
 settings.CONTEXT_SUMMARY_ENABLED = False
 settings.CONTEXT_SEMANTIC_MEMORY_ENABLED = False
@@ -210,7 +203,8 @@ try:
     check("... same scheme + place, now broken down by block",
           r.get("route") == "data" and s["schemes"] == ["MGNREGA"]
           and s["resolved"].get("district") == "EAST KHASI HILLS" and "block wise" in s["question"], str(s))
-    check("... NO separate rewrite_followup model call", rewrite_calls == [])
+    check("... the text-rewrite follow-up path is gone from the pipeline",
+          not hasattr(pipeline, "rewrite_followup") and not hasattr(pipeline, "_scheme_swap_rewrite"))
 
     r = post("same for 2022-23", SID)
     s = sql_seen[-1]
@@ -235,8 +229,7 @@ try:
     check("... so the comparison asks which PMAY-G figure (not guessed)",
           r.get("route") == "clarification" and (r.get("clarification") or {}).get("rule") == "metric-not-specified",
           str(r)[:200])
-    check("still no rewrite_followup call across the whole chain", rewrite_calls == [])
-    check("routing came from the frame's intent: classify_intent never called in frame mode",
+    check("routing came from the frame's intent: classify_intent never called",
           intent_calls == [], str(intent_calls))
 
     r = post("how many houses completed in wgh", SID)
@@ -246,23 +239,6 @@ try:
           s["resolved"].get("district") == "WEST GARO HILLS" and not f.get("group_by")
           and "followup" not in last_meta(SID), str(s))
 
-    print("\n=== flag OFF: the old looks_like_followup + rewrite_followup path ===")
-    settings.FRAME_GATES_ENABLED = False
-    SID2 = "fu-off"
-    n_understand = len(understand_seen)
-
-    async def _classify_off(q):
-        return ["MGNREGA"], pipeline.ScopeMeta(1.0, "shortcut", "")
-    _orig_cls = pipeline._classify_scheme_detailed
-    pipeline._classify_scheme_detailed = _classify_off
-    try:
-        post("total MGNREGA expenditure in EKH for FY 2023-24", SID2)
-        post("and block wise?", SID2)
-    finally:
-        pipeline._classify_scheme_detailed = _orig_cls
-    check("flag off: rewrite_followup still called for the fragment", rewrite_calls == ["and block wise?"],
-          str(rewrite_calls))
-    check("flag off: no Understand call", len(understand_seen) == n_understand)
 finally:
     for o, n, fn in originals:
         setattr(o, n, fn)

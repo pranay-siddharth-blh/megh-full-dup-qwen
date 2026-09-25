@@ -10,18 +10,17 @@ already writes into ahead of `compose_response`.
 
 Collision rule (enforced here in code, not just documented in the YAML
 header): a matched condition is applied ONLY when it is not already the job
-of an existing hardcoded `_needs_*_clarification` predicate in
-app/orchestration/pipeline.py. `_COLLISION_CONDITIONS` below is that boundary, kept
+of a clarification rule in app/nlu/clarify_rules.py (scheme / metric / top-N
+/ area / year / tranche), which applies those defaults itself, with the
+disclosed assumption. `_COLLISION_CONDITIONS` below is that boundary, kept
 deliberately conservative — a condition stays in the collision set (never
 defaulted) whenever its topic overlaps an existing predicate's domain at
 all, even for the narrower instances where that predicate's own regex
 wouldn't actually have fired for a given phrasing. Erring toward "ask" is
 silent and safe; erring toward "default" silently changes behavior a user
 never asked for — so ties go to asking. `missing_top_n` is the flagship
-example: it always stays in the collision set here, so this module ships
-zero behavior change to `_needs_topn_clarification` by default. Flipping
-that (or any other collision) to a silent default is a separate,
-explicitly-flagged product decision — not made by this module.
+example: it always stays in the collision set here, because clarify_rules
+rule 2 owns it.
 
 Only a subset of each scheme's `*_default_rules.yaml` conditions have a
 matcher wired in below (see `_MATCHERS`). Extending coverage is additive —
@@ -81,17 +80,16 @@ def _load_scheme_rules(scheme: str) -> dict[str, dict]:
     return conditions
 
 
-# ── Collision set — conditions that stay the job of an existing hardcoded ───
-# clarification predicate. Never matched/applied by this module regardless of
-# what the matcher functions below would otherwise say.
+# ── Collision set — conditions that are the job of a clarify_rules rule ─────
+# Never matched/applied by this module regardless of what the matcher
+# functions below would otherwise say.
 _COLLISION_CONDITIONS: frozenset[str] = frozenset({
-    # ranking-count family -> _needs_topn_clarification's domain
+    # ranking-count family -> clarify_rules rule 2 (top-N)
     "missing_top_n",
     "singular_superlative_without_n",
-    # geography family -> _needs_scope_clarification's domain
+    # geography family -> clarify_rules rule 3 (area)
     "missing_geography",
-    # year/time family -> _needs_year_clarification's (and, when geography is
-    # also missing, _needs_scope_clarification's) domain
+    # year/time family -> clarify_rules rule 4 (year)
     "missing_time_period",
     "relative_year_latest",
     "relative_year_previous",
@@ -101,7 +99,7 @@ _COLLISION_CONDITIONS: frozenset[str] = frozenset({
     "comparison_without_second_period",
     "year_range_partly_outside_data",
     "job_cards_without_year",
-    # Focus Plus tranche family -> _needs_tranche_clarification's domain
+    # Focus Plus tranche family -> clarify_rules rule 5 (tranche)
     "tranche_unspecified",
 })
 

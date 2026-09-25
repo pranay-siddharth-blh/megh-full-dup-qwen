@@ -146,14 +146,14 @@ def _patches(scheme: str, district_display: str, district_resolved: str, year_ke
     patches.append(_Patcher(pipeline.schema_retrieval, "retrieve", _retrieve))
     patches.append(_Patcher(pipeline.clarification_engine, "check_clarifications",
                             lambda *_a, **_kw: None))
-    # Focus Plus only: the tranche gate reads a catalogue that is loaded at app
-    # startup from data/focus_plus/*.yaml, which never happens in a test
-    # process — leaving it live makes _tranche_clarification raise IndexError
-    # on an empty label list, which is an artifact of the unloaded catalogue,
-    # not of the context-layer behavior under test here. Stubbed off so all
-    # four schemes exercise the same pause -> resume -> context path.
-    patches.append(_Patcher(pipeline, "_needs_tranche_clarification",
-                            lambda *_a, **_kw: False))
+    # Focus Plus only: the tranche rule (clarify_rules rule 5) reads a
+    # catalogue that is loaded at app startup from data/focus_plus/*.yaml,
+    # which never happens in a test process — leaving it live makes
+    # _tranche_clarification raise IndexError on an empty label list, which is
+    # an artifact of the unloaded catalogue, not of the context-layer behavior
+    # under test here. Switched off so all four schemes exercise the same
+    # pause -> resume -> context path.
+    patches.append(_Patcher(pipeline.settings, "TRANCHE_CLARIFY_ENABLED", False))
     return patches, calls
 
 

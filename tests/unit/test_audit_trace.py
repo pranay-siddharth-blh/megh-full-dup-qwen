@@ -152,10 +152,10 @@ patches = [
 originals = [(o, n, getattr(o, n)) for o, n, _ in patches]
 for o, n, fn in patches:
     setattr(o, n, fn)
-flag_names = ("FRAME_GATES_ENABLED", "QUERY_ANALYZER_ENABLED", "CONTEXT_SUMMARY_ENABLED",
+flag_names = ("QUERY_ANALYZER_ENABLED", "CONTEXT_SUMMARY_ENABLED",
               "CONTEXT_SEMANTIC_MEMORY_ENABLED", "RESPONSE_CACHE_ENABLED", "SEMANTIC_CACHE_ENABLED")
 flags_before = {n: getattr(settings, n) for n in flag_names}
-for n, v in zip(flag_names, (True, False, False, False, False, False)):
+for n, v in zip(flag_names, (False, False, False, False, False)):
     setattr(settings, n, v)
 try:
     r = client.post("/api/query", json={"question": "total manrega expendture", "session_id": "tr-1"}).json()

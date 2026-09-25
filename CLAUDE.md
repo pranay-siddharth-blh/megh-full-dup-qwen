@@ -55,8 +55,15 @@ change in this area:
 - **Where frame code lives** (the original plan names flat paths; this repo
   uses packages): `app/nlu/understand.py` (QueryFrame + Understand node),
   `app/nlu/clarify_rules.py` (ordered gate rules), and
-  `app/nlu/frame_merge.py` (follow-up merge). New settings flags
-  (`UNDERSTAND_SHADOW`, `FRAME_GATES_ENABLED`) go in `app/core/config.py`.
+  `app/nlu/frame_merge.py` (per-turn frame, slot-filling resume and
+  follow-up merge). Step 10 is done: the frame always drives the gates, the
+  `_needs_*_clarification` regex predicates and the text-glue resume in
+  `_run_pipeline_body` are deleted, and the `UNDERSTAND_SHADOW` /
+  `FRAME_GATES_ENABLED` flags no longer exist. A turn with no Understand
+  frame gates on `understand.fallback_frame`. The LangGraph checkpointer
+  resume owners (`LANGGRAPH_FOLLOWUP_ENABLED`, the graph's own
+  `resume_via_graph`) are unchanged and still own the pauses they
+  checkpoint.
 
 ## Planning source of truth: `openspec/`
 

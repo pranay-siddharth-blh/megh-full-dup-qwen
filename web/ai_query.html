@@ -1835,7 +1835,7 @@ function useQuery(text) {
 // a query already in flight (sendQuery would return early and drop it), and a blank/missing text.
 // A clicked clarification chip's {slot, value}, tied to the exact text it
 // sends so a later TYPED message can never carry a stale choice. The backend
-// (FRAME_GATES_ENABLED) fills the paused slot from it directly; older backends
+// fills the paused slot from it directly; older backends
 // ignore the extra fields and use the text, as before.
 let pendingChoice = null;
 

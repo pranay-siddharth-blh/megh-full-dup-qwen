@@ -7,20 +7,20 @@ gateway — same stance as test_security.py / test_join_graph.py:
 Covers tasks.md group 1's acceptance scenarios: (a) a question matching a
 non-colliding condition produces the expected assumption_text in notes;
 (b) a question matching a colliding condition (`missing_top_n`) produces no
-default AND leaves the existing `_needs_topn_clarification` gate firing
-exactly as before — the explicit zero-regression check; (c) a question
+default here — it stays the job of clarify_rules rule 2 (top-N), which
+still handles it; (c) a question
 matching no condition leaves notes unchanged; (d) a missing/malformed
 `*_default_rules.yaml` degrades to no defaults, never raises.
 
 Note on (a): `missing_geography` is NOT used as the non-colliding example
 here, even though the proposal's spec illustrates the mechanism with "a
-missing geography scope". `_needs_scope_clarification` (pipeline.py) already
-owns the "no geography and no year at all" case, and this module's
+missing geography scope". clarify_rules rule 3 (area) already owns the
+"no geography" case, and this module's
 collision set treats the whole geography topic as its domain (see
 defaults_engine.py's module docstring: ties go to asking, not defaulting).
 `expenditure_unit_unspecified` is used instead — a condition with no
-overlapping hardcoded predicate at all (there is no `_needs_unit_
-clarification`), so it is unambiguously safe to default, which is the
+overlapping clarification rule at all (there is no unit rule), so it is
+unambiguously safe to default, which is the
 actual point the acceptance scenario is checking.
 """
 import os
@@ -35,7 +35,9 @@ os.environ.setdefault("JWT_SECRET", "test-secret-at-least-32-characters-long")
 os.environ.setdefault("ENV", "prod")
 
 from app.nlu import defaults_engine  # noqa: E402
-from app.orchestration.pipeline import _needs_topn_clarification  # noqa: E402
+from app.nlu import clarify_rules  # noqa: E402
+from app.nlu.understand import QueryFrame  # noqa: E402
+from app.orchestration.pipeline import ClarificationNeeded  # noqa: E402
 
 _fails: list[str] = []
 
@@ -70,12 +72,24 @@ ranking_q = "Which districts spent the most on MGNREGA?"
 notes_b = defaults_engine.apply_defaults(ranking_q, ["MGNREGA"], {})
 check("missing_top_n produces no assumption text (stays in the collision set)",
       not any("top 5" in n.lower() for n in notes_b), str(notes_b))
-check("_needs_topn_clarification still fires exactly as before this module existed",
-      _needs_topn_clarification(ranking_q) is True)
+_rank = QueryFrame(schemes=["MGNREGA"], resolved_schemes=["MGNREGA"], metric="expenditure",
+                   query_type="ranking", group_by="district")
+
+
+def _topn_outcome(frame, q):
+    try:
+        return [t for t in clarify_rules.before_resolution(frame, q).fired if t.startswith("top_n")]
+    except ClarificationNeeded as e:
+        return [e.rule]
+
+
+_b = _topn_outcome(_rank, ranking_q)
+check("clarify_rules rule 2 still handles the missing count (asks, or applies its disclosed default)",
+      _b == ["ranking-count-not-specified"] or (_b and _b[0].startswith("top_n:default")), str(_b))
 
 explicit_topn_q = "Which are the top 3 districts that spent the most on MGNREGA?"
-check("a question with an explicit count does not trip the topn gate either way",
-      _needs_topn_clarification(explicit_topn_q) is False)
+check("a question with an explicit count does not trip the top-N rule",
+      _topn_outcome(_rank.model_copy(update={"top_n": 3}), explicit_topn_q) == [])
 
 # ── (c) no condition matches -> notes unchanged ─────────────────────────────
 print("3. NO MATCHING CONDITION -> NOTES UNCHANGED")

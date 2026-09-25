@@ -141,20 +141,21 @@ Every generated statement is re-checked in `db.py` (`SELECT`/`WITH` only, single
 statement, no DDL/DML keywords) regardless of the DB role.
 
 **Follow-ups.** With an `X-Session-Id` header, `session_store.py` keeps the last
-few turns per worker (TTL `SESSION_TTL_SECONDS`). When turn *n*+1 reads like a
-fragment (`looks_like_followup` — a lead like "what about…", a bare pronoun, or a
-short anchorless phrase), `rewrite_followup` spends one classifier call to turn it
-into a standalone question using turn *n*, then routes that. The rewrite is
-returned as `rewritten_question`. Caches are bypassed whenever a session id or
+few turns per worker (TTL `SESSION_TTL_SECONDS`). Every message first goes
+through the Understand node (`app/nlu/understand.py`), which reads it with the
+recent turns and returns a QueryFrame; when the frame says it continues turn
+*n* (`is_followup`), `app/nlu/frame_merge.py` merges it onto turn *n*'s frame
+(new slots win) and the frame's standalone question is answered — returned as
+`rewritten_question`. A reply to a clarification fills the paused slot on the
+paused frame instead of being glued onto the question. Caches are bypassed whenever a session id or
 `X-User-Id` is present (a follow-up's meaning is context-dependent; a scoped
 answer must not be served to another role).
 
-The rewrite only fires when turn *n* was an actual scheme answer (`route` in
-`data` / `knowledge`) — a fragment after a greeting, off-topic reply,
-clarification or denial has nothing coherent to attach to. A fragment with a
-bare pronoun ("how launched it?") and no scheme named, arriving with no such
-antecedent, returns a short "name the scheme and what you'd like to know" nudge
-instead of being guessed into a query. Toggle: `FOLLOWUP_REWRITE_ENABLED`.
+A follow-up only inherits turn *n*'s entities when turn *n* was an actual
+scheme answer (`route` in `data` / `knowledge`) — a fragment after a greeting,
+off-topic reply, clarification or denial has nothing coherent to attach to.
+(`FOLLOWUP_REWRITE_ENABLED` is no longer read; it is kept only so existing
+`.env` files still load.)
 
 **Edge handler (`edge.py`).** Rule-based, no model call, kept in step with the
 NeuralAI reference `edge_handler.py`. Order: (0) hard off-topic (weather,

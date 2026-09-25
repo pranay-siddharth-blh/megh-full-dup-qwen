@@ -6,7 +6,6 @@ proposal — appropriate at 2 schemes and 20-40 concurrent users; revisit if
 either grows a lot.
 """
 import asyncio
-import copy
 import hashlib
 import itertools
 import json
@@ -158,8 +157,8 @@ class ClarificationNeeded(Exception):
         # see pipeline_graph.py's own cleanup comment) because a REAL resume
         # via LangGraph's own resume_via_graph is possible next turn. Tells
         # app/api/routers/query.py's except-ClarificationNeeded handler to skip
-        # setting session.state.pending_scope_q/pending_village_hint (the
-        # bespoke resume signal) — this pause's resume state already lives
+        # storing session.state.pending_frame (the frame slot-filling resume
+        # signal) — this pause's resume state already lives
         # durably in the graph's checkpointer instead, exactly the same
         # reasoning app/orchestration/langgraph_followup.py's own pause branch already
         # documents for its own, separate checkpointer.
@@ -194,9 +193,11 @@ class SQLAuthorizationDenied(Exception):
         self.decision = decision
 
 
-# ── Follow-up ("what about East Garo Hills?") rewriting ──────────────────────
-# A cheap heuristic gates the one extra model call: only questions that read
-# like a fragment referring back to the previous turn get rewritten.
+# ── Follow-up ("what about East Garo Hills?") detection ─────────────────────
+# Whether a message continues the previous turn is the Understand node's call
+# (frame.is_followup — app/nlu/frame_merge.py). looks_like_followup() stays as
+# the router's cheap pre-pipeline check: a fragment only means something in its
+# own conversation, so it is never served from the shared response caches.
 _FOLLOWUP_LEAD = re.compile(
     r"^\s*(what about|how about|and |what of |and for |also |ok(ay)? and |"
     r"same for |what if |now |then )", re.IGNORECASE,
@@ -214,7 +215,7 @@ _FOLLOWUP_PRONOUN = re.compile(
 # "scheme" IS kept as an anchor (unlike those): a fresh, contextless question
 # like "Is there any government scheme that can help my family?" uses "that"
 # as an ordinary relative pronoun, not a reference to a prior turn, but
-# _CONTEXTLESS_REF can't tell the difference — without "scheme" anchoring it,
+# the pronoun check can't tell the difference — without "scheme" anchoring it,
 # this read as a fragment needing prior context and got the "I don't have an
 # earlier answer to build on" reply instead of being answered directly (TC-008).
 _STANDALONE_ANCHOR = re.compile(
@@ -243,7 +244,6 @@ _SCHEME_SWAP_FOLLOWUP = re.compile(
 # query — e.g. "how launched it?" right after "what is elon musk?" was being
 # turned into a data question. So the previous turn must be one of these.
 _ANTECEDENT_ROUTES = ("data", "knowledge")
-_CONTEXTLESS_REF = re.compile(r"\b(it|its|that|those|these|them|they|this(?:\s+one)?)\b", re.IGNORECASE)
 
 
 def _mentions_scheme(question: str) -> bool:
@@ -275,80 +275,6 @@ def looks_like_followup(question: str) -> bool:
         return True
     # A bare fragment ("in East Garo Hills", "by block") with no anchor of its own.
     return len(q.split()) <= 6 and not _STANDALONE_ANCHOR.search(q)
-
-
-def _scheme_swap_rewrite(prev_question: str, followup: str) -> "str | None":
-    """Deterministic rewrite for a bare scheme-swap follow-up ("in MGNREGA?",
-    "what about PMAY-G?"). Substitutes the follow-up's scheme for the one named
-    in the previous question, so the intent ("same question, other scheme") is
-    preserved exactly. The LLM rewrite tends to *append* the new scheme instead
-    of replacing the old one ("... in Focus Plus ... in MGNREGA?"), which then
-    reads as a cross-scheme question. Returns None if the fragment names no
-    scheme or the previous question can't be adapted — the caller falls back to
-    the LLM path."""
-    if not _SCHEME_SWAP_FOLLOWUP.match((followup or "").strip()):
-        return None
-    target = next((name for name, pat in _SCHEME_NAME_PATTERN.items()
-                   if pat.search(followup)), None)
-    if not target or not prev_question:
-        return None
-    out = prev_question
-    replaced = False
-    for name, pat in _SCHEME_NAME_PATTERN.items():
-        if name == target:
-            continue
-        if pat.search(out):
-            out = pat.sub(target, out)
-            replaced = True
-    if not replaced:
-        if _SCHEME_NAME_PATTERN[target].search(out):
-            return out  # previous question was already about the target scheme
-        out = f"{out.rstrip(' ?.')} for {target}"
-    out = re.sub(r"\s+,", ",", out).strip()
-    logger.info("follow-up scheme-swap: %r + %r -> %r", prev_question, followup, out)
-    return out
-
-
-async def rewrite_followup(question: str, prev: "object", extra_context: str = "") -> str:
-    """Turn a fragment into a standalone question using the previous turn.
-    Falls back to the original question on any failure — never raises.
-
-    `extra_context` (optional): the context layer's token-budgeted structured
-    state / summary / relevant-older-turns block (see
-    context_manager.build_followup_context) — spliced into the prompt ahead
-    of the previous turn, for a conversation where "the previous turn" alone
-    has lost the thread (e.g. a KNOWLEDGE digression sits between the DATA
-    answer being followed up on and this fragment). Blank by default, so
-    every existing caller is unaffected."""
-    if not settings.FOLLOWUP_REWRITE_ENABLED or prev is None:
-        return question
-    swap = _scheme_swap_rewrite(getattr(prev, "question", "") or "", question)
-    if swap:
-        return swap
-    try:
-        prompt = (
-            "Rewrite the FOLLOW-UP as a complete, standalone question by reusing "
-            "context from the PREVIOUS question. Keep the user's intent; change only "
-            "what the follow-up changes (e.g. a different district, year, or metric). "
-            "Do not introduce any district, year, tranche, scheme, category or other "
-            "filter that is not present in the PREVIOUS question, the PREVIOUS answer, "
-            "the Known context below, or the FOLLOW-UP itself — when in doubt, leave it "
-            "out rather than guess one. "
-            "Return ONLY the rewritten question, nothing else.\n\n"
-            + (f"{extra_context}\n\n" if extra_context else "")
-            + f'PREVIOUS question: "{prev.question}"\n'
-            f'PREVIOUS answer (for context): "{(prev.answer or "")[:300]}"\n'
-            f'FOLLOW-UP: "{question}"\n\n'
-            "Standalone question:"
-        )
-        out = await llm.call_classifier(prompt)
-        out = out.strip().strip('"').splitlines()[0].strip()
-        if 3 <= len(out) <= 300:
-            logger.info("follow-up rewrite: %r -> %r", question, out)
-            return out
-    except Exception as e:  # noqa: BLE001
-        logger.warning("follow-up rewrite failed (%s) — using original", e)
-    return question
 
 
 # ── Guided-decoding schemas ──────────────────────────────────────────────────
@@ -760,7 +686,7 @@ _SCHEME_LISTING_CUE = re.compile(
 # nothing to get wrong about naming all four — so skip the tap and lay them
 # out directly. When the wording DOES carry scheme-specific vocabulary (e.g.
 # "...to help me build a house") _infer_scheme_from_terms already pins it to
-# one scheme and _needs_scheme_clarification never pauses in the first place —
+# one scheme and the "which scheme?" rule never pauses in the first place —
 # this cue only needs to cover the genuinely scheme-agnostic case, so it
 # defers to that inference rather than overriding it.
 _SCHEME_HELP_CUE = re.compile(
@@ -1113,66 +1039,12 @@ def _women_share_clarification(question: str) -> "ClarificationNeeded":
     return ClarificationNeeded(_WOMEN_SHARE_NOT_COMPUTABLE_TEXT, rule="column-not-held")
 
 
-def _needs_scheme_clarification(question: str) -> bool:
-    """True when the question names no scheme, doesn't ask for a cross-scheme
-    view outright, and uses no vocabulary that pins it to one scheme. In that
-    case we ask rather than guess — a wrong scheme guess produces a confident
-    but meaningless answer (e.g. 'PMAY has 0 paid beneficiaries')."""
-    if not settings.SCHEME_CLARIFY_ENABLED:
-        return False
-    if any(p.search(question) for p in _SCHEME_NAME_PATTERN.values()):
-        return False
-    if _EXPLICIT_BOTH.search(question):
-        return False
-    if _infer_scheme_from_terms(question) is not None:
-        return False
-    return True
-
-
 # ── "Top how many?" clarification ───────────────────────────────────────────
 # A ranking question over a dimension ("top districts", "which blocks spent the
 # most", "rank villages by person-days") that names no count. Silently defaulting
 # to a fixed top-N is a guess the user can't see or correct; a one-tap follow-up
 # ("Top 3 / 5 / 10 / all") is cheaper than returning the wrong list length.
-_RANKING_CUE = re.compile(
-    r"\b(top|bottom|highest|lowest|most|least|best|worst|leading|leader|leads?|"
-    r"rank(?:ed|ing)?|largest|smallest|biggest|maximum|minimum)\b",
-    re.IGNORECASE,
-)
-# A plural dimension noun — a ranking only needs a length when it returns rows to
-# cut. "which district spent the most" (singular) already means the single top row.
-_RANK_DIMENSION = re.compile(
-    r"\b(districts|blocks|villages|panchayats|gram panchayats|gps|g\.?p\.?s)\b",
-    re.IGNORECASE,
-)
-# An explicit count is already in the question — nothing to ask.
-_EXPLICIT_COUNT = re.compile(
-    r"\btop[\s-]*\d+\b"
-    r"|\b(?:top|bottom|first|last)\s+(?:one|two|three|four|five|six|seven|eight|nine|ten)\b"
-    r"|\b\d+\s+(?:highest|lowest|largest|biggest|smallest|top|best|worst|most|least)\b",
-    re.IGNORECASE,
-)
-# The user wants the whole list, not a ranked head — also nothing to ask.
-_WANTS_ALL = re.compile(
-    r"\b(all|every|each|entire|complete|full)\b.{0,20}\b(districts?|blocks?|villages?|"
-    r"panchayats?|list|row|rows)\b"
-    r"|\blist\s+(?:of\s+)?all\b|\bfor\s+all\b|\bacross\s+all\b|\bno limit\b|\bevery row\b",
-    re.IGNORECASE,
-)
 _TOPN_CHOICES = (3, 5, 10)
-
-
-def _needs_topn_clarification(question: str) -> bool:
-    """True when the question asks for a ranked list over a dimension but never
-    says how long the list should be."""
-    if not settings.TOPN_CLARIFY_ENABLED:
-        return False
-    q = question or ""
-    if not (_RANKING_CUE.search(q) and _RANK_DIMENSION.search(q)):
-        return False
-    if _EXPLICIT_COUNT.search(q) or _WANTS_ALL.search(q):
-        return False
-    return True
 
 
 def _inject_topn(question: str, n: int) -> str:
@@ -1261,13 +1133,6 @@ _HAS_BREAKDOWN = re.compile(
     r"\bacross (?:the )?(?:districts?|blocks?|villages?|panchayats?|state|years?)\b",
     re.IGNORECASE,
 )
-_EXPLICIT_STATEWIDE = re.compile(
-    r"\b(?:in|for|across|over|of) (?:all of |the (?:whole|entire) )?meghalaya\b|"
-    r"\bstate[\s-]?(?:wide|level|total)\b|\boverall\b|\bin total\b|\bgrand total\b|"
-    r"\ball (?:the )?(?:years|districts|blocks|villages)\b|\bentire state\b|"
-    r"\bevery year\b|\bsince inception\b|\ball[\s-]?time\b|\bto date\b|\bcumulative\b",
-    re.IGNORECASE,
-)
 # A cross-scheme set / overlap question whose answer IS a geography list or its
 # count — "how many common districts in both schemes", "which villages are
 # covered by both", "districts with both MGNREGA and PMAY-G activity". Geography
@@ -1299,32 +1164,6 @@ _CROSS_SCHEME_SET_QUESTION = re.compile(
     r"\b(?:districts?|blocks?|villages?|panchayats?|gps?|areas?)\b[^?]{0,20}\bboth\b",
     re.IGNORECASE,
 )
-
-
-def _needs_scope_clarification(question: str, resolved: dict) -> bool:
-    """True when an aggregate question — an explicit "how many / total …" or a
-    bare metric noun on its own ("show MGNREGA spend") — pins no geography and no
-    year, neither in its text nor via a resolved entity, and doesn't ask for a
-    breakdown or an explicit statewide total. Callers must have run
-    `resolve_entities` first so `resolved` reflects any district/block/village/
-    year actually named."""
-    if not settings.SCOPE_CLARIFY_ENABLED:
-        return False
-    q = question or ""
-    # A producer-group question names the group (or asks statewide about PGs)
-    # — the answer lists district/block per group, so there is no area to ask.
-    if _is_producer_group_question(q):
-        return False
-    if not (_AGGREGATE_CUE.search(q) or _BARE_METRIC_CUE.search(q)):
-        return False
-    if _HAS_BREAKDOWN.search(q) or _EXPLICIT_STATEWIDE.search(q):
-        return False
-    if _CROSS_SCHEME_SET_QUESTION.search(q):
-        return False
-    if any(resolved.get(k) for k in
-           ("district", "district_list", "block", "block_list", "village_code", "year_key")):
-        return False
-    return True
 
 
 # A reply to the scope pause is normally a bare fragment ("Ri Bhoi, 2023-24").
@@ -1430,7 +1269,7 @@ def _scope_clarification(question: str, schemes: list[str]) -> "ClarificationNee
 # purpose. There is no year_key, no FK to dim_year, no date column of any kind
 # anywhere in fact_cm_elevate_application (cmelevate_schema_partitions.yaml
 # semantic_rules.time_rule) — refresh_scheme_years() below does not even probe
-# it. _needs_year_clarification and _year_out_of_range_clarification both treat
+# it. The year rule (_scheme_has_no_time_dimension) and _year_out_of_range_clarification both treat
 # an empty list here as "no time dimension exists" and refuse a time filter
 # outright instead of offering year chips.
 _SCHEME_DATA_YEARS: dict[str, list[str]] = {
@@ -1684,8 +1523,8 @@ async def refresh_scheme_years() -> None:
             logger.warning("scheme years: %s query failed, keeping default %s (%s)",
                            scheme, _SCHEME_DATA_YEARS[scheme], e)
 
-# The question already fixes its time scope — a specific year, an explicit
-# "all years", or a request for a per-year series. Any of these => don't ask.
+# An explicit "all years" ask, and a request for a per-year series — read from
+# the text only for understand.fallback_frame (no Understand frame this turn).
 _ALL_YEARS_CUE = re.compile(
     r"\ball[\s-]?(?:the\s+)?(?:financial |fiscal |fy )?years?\b|"
     r"\bevery (?:financial |fiscal )?year\b|\beach year\b|"
@@ -1701,76 +1540,11 @@ _TIME_SERIES_CUE = re.compile(
     r"\bgrowth\b|\bchange over\b|\beach (?:financial )?year\b",
     re.IGNORECASE,
 )
-# The question is actually about a metric or a per-dimension breakdown — the only
-# shapes where "which year?" is a meaningful missing filter. A pure membership /
-# rules question ("which villages have both schemes", "who is eligible") isn't.
-_METRIC_OR_BREAKDOWN_CUE = re.compile(
-    r"\b(how many|how much|number of|count of|no\.? of|total|sum of|average|avg|mean|"
-    r"person[\s-]?days?|expenditure|spend(?:ing)?|spent|wages?|wage bill|job cards?|"
-    r"muster rolls?|houses?|dwelling units?|sanctioned amount|amount released|"
-    r"instal{1,2}ments?|disbursements?|utili[sz]ation|completion rate|success rate|"
-    # Focus Plus's own metric nouns — same gap as _DATA_HINTS (see 2026-09-11
-    # fix note there): without these, a bare "<scheme> beneficiaries?" matched
-    # neither this cue nor _MENTIONS_TRANCHE_WORD, so both the year AND
-    # tranche clarification gates were skipped and an unscoped question
-    # reached the SQL generator with no year/tranche pin at all — which then
-    # sometimes guessed a specific tranche on its own instead of correctly
-    # reasoning "no tranche named -> every tranche".
-    r"beneficiar\w*|payments?|"
-    r"compare|comparison|versus|\bvs\.?\b|rank(?:ed|ing)?|top \d|highest|lowest|"
-    r"most|least|by district|by block|by village|by panchayat|"
-    r"district[\s-]?wise|block[\s-]?wise|village[\s-]?wise)\b",
-    re.IGNORECASE,
-)
-
-
 def _year_choices_for(schemes: list[str]) -> list[str]:
     """Every financial year the given scheme(s) hold, distinct, oldest first.
     Falls back to the full set when `schemes` is empty or unrecognised."""
     years, _live = _available_years_for(schemes)
     return years
-
-
-def _needs_year_clarification(question: str, schemes: list[str], resolved: dict) -> bool:
-    """True when the question is a metric / breakdown question whose geography is
-    already settled (so the scope gate skipped it) but which pins no financial
-    year — not in its text, not via a resolved `year_key` — and doesn't ask for a
-    time series or an explicit all-years total. Callers must have run
-    `resolve_entities` first so `resolved` reflects any year actually named."""
-    if not settings.YEAR_CLARIFY_ENABLED:
-        return False
-    q = question or ""
-    # Producer-group answers are broken out per financial year (members change
-    # between years — FOCUS PLUS RULES rule 13), so no single year is needed.
-    if _year_schemes_for(q, schemes) == ["Focus Legacy"]:
-        return False
-    # Schemes with NO time dimension at all (CM Elevate has no year_key, no date
-    # column of any kind) can never be asked "which year" — there is nothing to
-    # choose. Skip the whole gate when every scheme in play is one of these, so
-    # _year_clarification never runs on an empty _SCHEME_DATA_YEARS[scheme] list
-    # (which would otherwise crash indexing years[-1]).
-    live = [s for s in (schemes or []) if s in _SCHEME_DATA_YEARS]
-    if live and all(not _SCHEME_DATA_YEARS[s] for s in live):
-        return False
-    # PMAY-G used to be exempted here (beneficiary counts / house status are
-    # cumulative-to-date, so "which year?" felt like an unnecessary interruption
-    # to an earlier QA pass) and silently defaulted to "all years to date"
-    # instead of asking. Reinstated to ask same as MGNREGA, 2026-09-09, by
-    # explicit product decision — a plain PMAY-G question with no year now
-    # pauses for a FY choice too; say "all years" / "cumulative" explicitly
-    # (see _ALL_YEARS_CUE) to get the old default without the prompt.
-    if resolved.get("year_key") or _parse_year_key(q) is not None:
-        return False
-    if _ALL_YEARS_CUE.search(q) or _TIME_SERIES_CUE.search(q):
-        return False
-    # A cross-scheme "which / how many districts are in both schemes" question is
-    # a membership/overlap set question — inherently across the whole data window,
-    # so there is no single financial year to ask for.
-    if _CROSS_SCHEME_SET_QUESTION.search(q):
-        return False
-    if not _METRIC_OR_BREAKDOWN_CUE.search(q):
-        return False
-    return True
 
 
 def _year_clarification(question: str, schemes: list[str]) -> "ClarificationNeeded":
@@ -1872,109 +1646,9 @@ def _year_ambiguity_clarification(question: str, raw_year: str, candidates: list
 # Focus Plus's amount_disbursed differs sharply by tranche_label (5,000 for
 # Tranch 1, 2,500 for every later tranche — see schema_context.py rule 7), so
 # silently summing every tranche together produces a total that reads as a
-# single entitlement when it's actually a mix ratio. Mirrors
-# _needs_year_clarification / _year_clarification in shape: ask with one-tap
-# chips (Tranch 1..4 plus "all combined") rather than guess, unless the
-# question already names a tranche, asks for a per-tranche breakdown, or
-# explicitly wants every tranche combined.
-_TRANCHE_BREAKDOWN_CUE = re.compile(
-    r"\bby tranche\b|\btranche[\s-]?wise\b|\bper tranche\b|\beach tranche\b|"
-    r"\bacross (?:all )?(?:the )?tranches\b|\btranche breakdown\b|"
-    r"\bsplit by tranche\b|\bbreak(?:down|\s+down)? by tranche\b|"
-    # "which tranche has the most X" / "what tranche..." asks the data to
-    # identify one BY comparing across all of them — the opposite of a
-    # question that's missing a tranche pin, so it must not be asked to pick.
-    r"\bwhich tranche\b|\bwhat tranche\b",
-    re.IGNORECASE,
-)
-_ALL_TRANCHES_CUE = re.compile(
-    r"\ball[\s-]?tranches?\b|\btranches? combined\b|\bcombined tranches?\b|"
-    r"\bcumulative\b|\boverall\b|\bin total\b|\bgrand total\b|\ball[\s-]?time\b",
-    re.IGNORECASE,
-)
-# The literal word "tranche"/"tranch" appearing anywhere with no specific
-# tranche resolved (resolve_tranche_label found nothing) is itself the
-# clearest possible signal that the question is tranche-scoped but doesn't
-# say which one — regardless of whether the wording also happens to match
-# _METRIC_OR_BREAKDOWN_CUE. That cue was borrowed from the year gate and is
-# tuned for money/count metrics ("how much", "disbursements"); it has no
-# "status" or "breakdown" vocabulary, so "give me status breakdown for
-# tranche?" matched neither cue and silently fell through to the SQL
-# generator, which picked one tranche (Tranch 4) on its own with nothing
-# to base that choice on.
-_MENTIONS_TRANCHE_WORD = re.compile(r"\btranche?s?\b", re.IGNORECASE)
-
-# focus_status / verification_status / gender / occupation are populated ONLY
-# on the '12.5K' cohort, which per FOCUS PLUS RULES rule 8 exists ONLY at
-# Tranch 4 (schema_context.py _FOCUSPLUS_RULES #4, #8). A question about one of
-# these columns has no real "which tranche?" to ask — every other tranche has
-# zero such rows, so "all tranches combined" and "Tranch 4" are the same
-# answer. Pausing to ask anyway produces a rewritten question ("... across all
-# tranches") that then fights the Tranch-4-only constraint during SQL
-# generation and burns the repair budget for nothing — skip the gate instead
-# and let it hit the existing focus_status few-shots directly (see
-# "How many Focus Plus registrations are still pending?" in
-# data/focus_plus/focusplus_few_shot.yaml).
-_PERSON_LEVEL_COLUMN_CUE = re.compile(
-    r"\bfocus[\s-]?status\b|\bverification[\s-]?status\b|\bverified\b|\bverification\b|"
-    r"\bgender\b|\bfemale\b|\bmale\b|\bwomen\b|\bmen\b|"
-    r"\boccupation\b|\bfarmers?\b|"
-    r"\bpending\b|\bapproved\b|\brejected\b|\bregistrations?\b",
-    re.IGNORECASE,
-)
-
-
-def _needs_tranche_clarification(question: str, schemes: list[str], resolved: dict,
-                                  *, already_all_combined: bool = False) -> bool:
-    """True when Focus Plus is the ONLY scheme in play, the question is a
-    metric / breakdown question, and it pins no tranche — not in its text
-    (resolve_tranche_label found nothing during resolve_entities) and not via
-    a resolved entity — and doesn't ask for a per-tranche breakdown or an
-    explicit "all tranches combined". Callers must have run resolve_entities
-    first so `resolved` reflects any tranche actually named. Scoped to
-    single-scheme Focus Plus questions only, not "Focus Plus" in schemes —
-    a cross-scheme comparison (schemes has more than one entry) wants one
-    row per scheme, not Focus Plus fragmented into its four tranches on top,
-    and that flow already has its own tuned behaviour this must not disturb.
-
-    `already_all_combined` (optional): True when this session already
-    answered a Focus Plus question with "all tranches combined" earlier in
-    the conversation (see context_manager's ConversationState.tranche_all_combined
-    / session_store) and the current turn is a short follow-up that never
-    re-says "tranche" at all — e.g. "give me top 3 only" right after "...
-    across all tranches". Without this, that kind of bare follow-up has no
-    tranche cue of its own, re-trips this gate, and either re-asks a question
-    the user just answered or (worse) falls through to the SQL generator with
-    no tranche signal and no memory of the choice already made."""
-    if not settings.TRANCHE_CLARIFY_ENABLED:
-        return False
-    if (schemes or []) != ["Focus Plus"]:
-        return False
-    # Producer-group payments (curated.v_focus_legacy) have no tranches.
-    if _is_producer_group_question(question):
-        return False
-    q = question or ""
-    if resolved.get("tranche_label"):
-        return False
-    if already_all_combined:
-        return False
-    if _TRANCHE_BREAKDOWN_CUE.search(q) or _ALL_TRANCHES_CUE.search(q):
-        return False
-    # A question about a person-level / cohort-locked column is always
-    # confined to the 12.5K cohort at Tranch 4 regardless of what the user
-    # says about tranche — asking "which tranche?" has no real answer to
-    # collect, so skip straight past the gate.
-    if _PERSON_LEVEL_COLUMN_CUE.search(q):
-        return False
-    # Trigger on either signal: a money/count metric question with no tranche
-    # named (mirrors the year gate), OR the question literally says
-    # "tranche"/"tranch" without pinning which one — covers status/verification
-    # breakdowns and any other phrasing _METRIC_OR_BREAKDOWN_CUE doesn't know.
-    if not (_METRIC_OR_BREAKDOWN_CUE.search(q) or _MENTIONS_TRANCHE_WORD.search(q)):
-        return False
-    return True
-
-
+# single entitlement when it's actually a mix ratio. clarify_rules rule 5
+# asks with these one-tap chips (Tranch 1..4 plus "all combined") when the
+# scheme's rules file has no tranche default.
 def _tranche_clarification(question: str) -> "ClarificationNeeded":
     stem = question.strip().rstrip(" ?.")
     labels = tranche_labels("Focus Plus")
@@ -2209,7 +1883,7 @@ def _shortcut_scheme(question: str) -> list[str] | None:
         is present  -> the whole catalog, or
       * exactly one scheme is named    -> that one, or
       * no scheme is named but the vocabulary pins exactly one (same check
-        _needs_scheme_clarification uses to skip its own pause) -> that one.
+        the "which scheme?" rule uses to skip its own pause) -> that one.
     Without this last case, a vocabulary-only question ("sanctioned amount",
     "person-days") skipped the "which scheme?" pause (correctly inferring
     MGNREGA/PMAY-G) but then still went to the LLM classifier here, which
@@ -3523,12 +3197,12 @@ def _one_scheme_at_a_time_options(question: str, schemes: "list[str] | None") ->
 
 
 async def generate_sql(question: str, schemes: list[str], entity_result: dict) -> str:
-    # FRAME_GATES_ENABLED: the frame drives generation. The most common KPI
-    # shape (one scheme's metric value for an area / year) is filled straight
-    # from an SME-verified template — no model call; everything else is
-    # generated with the frame's standalone question + a REQUIRED FILTERS
-    # block (prompt_builder picks the frame up from the same context).
-    frame = _gate_frame()
+    # The frame drives generation. The most common KPI shape (one scheme's
+    # metric value for an area / year) is filled straight from an SME-verified
+    # template — no model call; everything else is generated with a REQUIRED
+    # FILTERS block from the frame (prompt_builder picks it up from the same
+    # context). No Understand frame this turn => plain generation, as before.
+    frame = understand.sql_frame()
     if frame is not None:
         picked = sql_templates.choose(frame, schemes, entity_result, entity_result.get("gate_trace"))
         if picked is not None:
@@ -3839,50 +3513,6 @@ def _missing_resolved_value(entity_result: dict, sql: str) -> "str | None":
     return None
 
 
-_TABLE_REF = re.compile(r"\b(?:curated|semantic)\.([a-z_][a-z0-9_]*)", re.IGNORECASE)
-_GROUP_BY_CLAUSE = re.compile(r"\bgroup\s+by\b(.*?)(?:\border\s+by\b|\blimit\b|\bhaving\b|\)|;|$)",
-                              re.IGNORECASE | re.DOTALL)
-_LIMIT_N = re.compile(r"\blimit\s+(\d+)\b", re.IGNORECASE)
-_GROUP_COLUMNS = {"district": r"lgd_district|district", "block": r"lgd_block|block",
-                  "year": r"year_key|financial_year|fy\b|year", "tranche": r"tranche"}
-
-
-def _frame_sql_issue(frame, schemes: list[str], entity_result: dict, sql: str) -> "str | None":
-    """Deterministic check of the SQL against the QueryFrame (FRAME_GATES_ENABLED),
-    run before the model verifier: the scheme's own tables, the requested
-    breakdown in GROUP BY, and LIMIT = top_n. Only what the frame states
-    EXPLICITLY is enforced — never a guess — so a correct query cannot be
-    bounced into a repair loop over an assumption."""
-    if frame is None or not sql:
-        return None
-    s = sql.lower()
-    # 1. the question's scheme(s): the SQL must read at least one of their tables.
-    owners = {prompt_builder._scheme_of(t) for t in _TABLE_REF.findall(s)}
-    owners -= {"shared", "cross"}
-    if owners and schemes and not (owners & set(schemes)):
-        return (f"the question is about {', '.join(schemes)} but this query only reads "
-                f"{', '.join(sorted(owners))} tables — use the {schemes[0]} tables.")
-    # 2. the breakdown the question asked for.
-    group = (frame.group_by or "").casefold()
-    if group in _GROUP_COLUMNS and frame.query_type in ("distribution", "ranking", "trend", None):
-        m = _GROUP_BY_CLAUSE.search(s)
-        if m is None:
-            return (f"the question asks for a {group}-wise breakdown but this query has no GROUP BY — "
-                    f"GROUP BY the {group} column and keep every filter.")
-        if not re.search(_GROUP_COLUMNS[group], m.group(1)):
-            return (f"the question asks for a {group}-wise breakdown but this query groups by "
-                    f"something else — GROUP BY the {group} column.")
-    # 3. top-N: LIMIT must be exactly N.
-    n = prompt_builder.effective_top_n(frame, entity_result)
-    if n and frame.query_type == "ranking":
-        limits = [int(x) for x in _LIMIT_N.findall(s)]
-        if not limits:
-            return f"the question asks for the top {n} — ORDER BY the metric DESC and add LIMIT {n}."
-        if limits[-1] != n:
-            return f"the question asks for the top {n} but this query has LIMIT {limits[-1]} — use LIMIT {n}."
-    return None
-
-
 # Verifier-model verdicts to discard: its checks 1 (prohibited joins) and 2
 # (resolved entities) are enforced exactly in code — the post-generation join
 # validator and _missing_resolved_value — and the model's versions of them
@@ -3914,7 +3544,7 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
     if missing:
         request_trace.append("verifier", {"check": "resolved_values", "issue": missing})
         return missing
-    frame_issue = _frame_sql_issue(_gate_frame(), schemes, entity_result, sql)
+    frame_issue = understand.frame_sql_issue(understand.sql_frame(), schemes, entity_result, sql)
     if frame_issue:
         request_trace.append("verifier", {"check": "frame", "issue": frame_issue})
         return frame_issue
@@ -4697,100 +4327,6 @@ def _out_of_scope_result(question: str, raw_question: str) -> dict:
     }
 
 
-# ── Clarification gates: frame-driven (FRAME_GATES_ENABLED) or the regex predicates ──
-# Called from _answer_data AND from the LangGraph nodes (pipeline_graph.py), so
-# both paths gate identically. Flag off, or no usable frame this turn => exactly
-# the original _needs_*_clarification checks, unchanged.
-def _gate_frame() -> "understand.QueryFrame | None":
-    return understand.current_frame.get() if settings.FRAME_GATES_ENABLED else None
-
-
-def _gates_before_resolution(question: str) -> "tuple[str, list[str], list[str]]":
-    """Scheme + metric/top-N gates. Returns (question, assumptions, trace);
-    raises ClarificationNeeded when a gate must ask."""
-    frame = _gate_frame()
-    if frame is None:
-        if _needs_scheme_clarification(question):
-            raise _scheme_clarification(question)
-        if _needs_topn_clarification(question):
-            raise _topn_clarification(question)
-        return question, [], []
-    out = clarify_rules.before_resolution(frame, question)
-    return out.question, out.assumptions, out.fired
-
-
-async def _schemes_for_answer(question: str) -> "tuple[list[str], ScopeMeta]":
-    """The frame's normalised schemes when frame gates are on (no second
-    classifier call); otherwise the classifier, as before."""
-    frame = _gate_frame()
-    if frame is not None and frame.resolved_schemes:
-        return list(frame.resolved_schemes), ScopeMeta(
-            confidence=1.0, source="frame",
-            reason="QueryFrame: " + "; ".join(f"{s} ({'+'.join(src)})"
-                                              for s, src in frame.scheme_sources.items()))
-    return await _classify_scheme_detailed(question)
-
-
-async def _resolve_for_answer(question: str, schemes: list[str],
-                              prior_resolved: "dict | None" = None,
-                              village_hint: "str | None" = None) -> dict:
-    """resolve_entities(), fed the frame's place/year mentions when frame gates
-    are on. Reuses the frame's own normalise-time resolution when nothing
-    turn-specific (a resumed pause's prior/village hint) differs from it."""
-    frame = _gate_frame()
-    if frame is None:
-        with request_trace.stage("entities"):
-            return await resolve_entities(question, schemes, prior_resolved=prior_resolved,
-                                          village_hint=village_hint)
-    if prior_resolved is None and village_hint is None and list(frame.resolved_schemes) == list(schemes):
-        if frame.clarification:
-            c = frame.clarification
-            raise ClarificationNeeded(c["question"], options=c.get("options"), rule=c.get("rule"),
-                                      village_hint=c.get("village_hint"),
-                                      resolved_so_far=c.get("resolved_so_far"))
-        if frame.entity_result is not None:
-            return copy.deepcopy(frame.entity_result)
-    mentions = await understand.frame_mentions(frame, schemes[0], [])
-    return await resolve_entities(question, schemes, prior_resolved=prior_resolved,
-                                  village_hint=village_hint, mentions=mentions)
-
-
-def _gates_after_resolution(question: str, schemes: list[str], entity_result: dict, *,
-                            skip_scope_clarify: bool, prior_resolved: "dict | None",
-                            pre_assumptions: "list[str] | None" = None,
-                            pre_trace: "list[str] | None" = None) -> str:
-    """Area / year / tranche gates. Applies any default's pins to
-    entity_result and appends every assumption to entity_result["notes"] —
-    the channel both paths already feed to compose_response — and to
-    entity_result["assumptions"]. Returns the (possibly defaulted) question;
-    raises ClarificationNeeded when a gate must ask."""
-    frame = _gate_frame()
-    resolved = entity_result["resolved"]
-    if frame is None:
-        if not skip_scope_clarify and _needs_scope_clarification(question, resolved):
-            raise _scope_clarification(question, schemes)
-        if _needs_year_clarification(question, schemes, resolved):
-            raise _year_clarification(question, schemes)
-        if _needs_tranche_clarification(
-                question, schemes, resolved,
-                already_all_combined=bool((prior_resolved or {}).get("tranche_all_combined"))):
-            raise _tranche_clarification(question)
-        return question
-    out = clarify_rules.after_resolution(
-        frame, question, schemes, resolved, skip_scope_clarify=skip_scope_clarify,
-        already_all_combined=bool((prior_resolved or {}).get("tranche_all_combined")))
-    resolved.update(out.pins)
-    entity_result.setdefault("display", {}).update(out.display)
-    # Every default applied, disclosed to the user as the deterministic
-    # "Assumed: ..." line the frame-mode wrapper prepends to the answer (not
-    # through the composer's notes, so it is stated once, verbatim).
-    assumptions = list(pre_assumptions or []) + out.assumptions
-    entity_result["assumptions"] = assumptions
-    entity_result["gate_trace"] = list(pre_trace or []) + out.fired
-    request_trace.note("assumptions", assumptions)
-    return out.question
-
-
 async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
                        skip_scope_clarify: bool = False,
                        prior_resolved: "dict | None" = None,
@@ -4804,12 +4340,12 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
 
     # Ask which scheme before doing anything expensive, when the question could
     # honestly mean either one. Guessing here is worse than a one-tap follow-up.
-    # Then "top how many?" before spending model calls when the question wants a
-    # ranked list over a dimension but never says how long. Frame-driven when
-    # FRAME_GATES_ENABLED (app/nlu/clarify_rules.py rules 1-2), else the regexes.
-    question, _pre_assumptions, _pre_trace = _gates_before_resolution(question)
+    # Then the metric / "top how many?" before spending model calls
+    # (app/nlu/clarify_rules.py rules 1-2, on this turn's QueryFrame).
+    question, _pre_assumptions, _pre_trace = clarify_rules.gates_before_resolution(question)
 
-    schemes, _scope_meta = await _schemes_for_answer(question)
+    schemes, _scope_meta = await understand.schemes_for_answer(
+        clarify_rules.gate_frame(question), question)
     # node 5.2 scope-decision trace — descriptive only, never read by any
     # decision below. Attached to the response in the final return dict.
     scope_trace = {
@@ -4821,8 +4357,9 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
         "in_scope": True,
     }
     # raises ClarificationNeeded if ambiguous
-    entity_result = await _resolve_for_answer(question, schemes, prior_resolved=prior_resolved,
-                                              village_hint=village_hint)
+    entity_result = await understand.resolve_for_answer(
+        clarify_rules.gate_frame(question), question, schemes,
+        prior_resolved=prior_resolved, village_hint=village_hint)
 
     # node 5.3 generic clarification gate — "the source cannot answer this at
     # all" (Phase 1 scope only, see app/nlu/clarification_engine.py). Checked
@@ -4852,15 +4389,13 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
             entity_result["resolved"]["district_list_region"] = region["canonical"]
             entity_result["display"]["district"] = region["canonical"]
 
-    # Ask which district / block / village / year when an aggregate question
-    # pins none of them — unless we're already resuming that very clarification
-    # (a reply that still names no scope must not loop us back here). Then, with
-    # geography settled, which financial year; then (Focus Plus only) which
-    # tranche — `already_all_combined` lets a session that already chose "all
-    # tranches combined" skip a redundant re-ask on a bare follow-up. With
-    # FRAME_GATES_ENABLED these are clarify_rules rules 3-5, which apply the
-    # scheme's disclosed default where one exists instead of asking.
-    question = _gates_after_resolution(
+    # Area, then (with geography settled) financial year, then (Focus Plus
+    # only) tranche — clarify_rules rules 3-5, which apply the scheme's
+    # disclosed default where its rules file has one and ask otherwise.
+    # skip_scope_clarify: a checkpointer resume of that very pause (a reply
+    # that still names no area must not loop back here); `already_all_combined`
+    # lets a session that already chose "all tranches combined" skip a re-ask.
+    question = clarify_rules.gates_after_resolution(
         question, schemes, entity_result, skip_scope_clarify=skip_scope_clarify,
         prior_resolved=prior_resolved, pre_assumptions=_pre_assumptions, pre_trace=_pre_trace)
 
@@ -4908,9 +4443,8 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
             logger.warning("premise check failed — continuing without it", exc_info=True)
 
     # Silent, disclosed defaults for a detail the question left unspecified —
-    # only for conditions that don't already collide with a hardcoded
-    # `_needs_*_clarification` predicate above (defaults_engine enforces
-    # that itself). Runs after premise_check into the same `notes` channel,
+    # only for conditions that aren't already a clarify_rules rule above
+    # (defaults_engine's collision set enforces that itself). Runs after premise_check into the same `notes` channel,
     # ahead of compose_response, so the composer surfaces it identically to
     # an existing premise correction.
     if settings.DEFAULTS_ENGINE_ENABLED:
@@ -4997,9 +4531,8 @@ async def _answer_data(question: str, scope: "auth.UserScope | None" = None,
         "findings": result_findings,
         "chart_type": result_chart_type,
         "analysis": analysis,
-        **({"assumptions": entity_result.get("assumptions") or [],
-            "gate_trace": entity_result.get("gate_trace") or []}
-           if _gate_frame() is not None else {}),
+        "assumptions": entity_result.get("assumptions") or [],
+        "gate_trace": entity_result.get("gate_trace") or [],
     }
 
 
@@ -5085,13 +4618,13 @@ def reply_abandons_clarification(paused_question: str, reply: str) -> bool:
     a greeting/thanks/goodbye/abuse, or a fresh self-standing question — and
     the pause should therefore be DROPPED and the reply handled as a new turn.
 
-    This is `_run_pipeline`'s own step-0a bail logic (`_bailed` +
-    `_reply_abandons_scope_pause`, with the chip-resume case taking
-    precedence), lifted out so app/api/routers/query.py's
-    `pipeline_graph.resume_via_graph` branch applies it too. That branch
-    resumed unconditionally on `is_paused()`, so a user who typed "thanks" or
-    asked something completely different at a clarification prompt had it fed
-    to the graph as their answer and glued onto the paused question.
+    Used only by the LangGraph checkpointer resume owners
+    (app/api/routers/query.py's `pipeline_graph.resume_via_graph` branch) —
+    `_run_pipeline` resumes by slot filling on the frame instead
+    (app/nlu/frame_merge.py). That branch used to resume unconditionally on
+    `is_paused()`, so a user who typed "thanks" or asked something completely
+    different at a clarification prompt had it fed to the graph as their
+    answer and glued onto the paused question.
     """
     stem = (paused_question or "").rstrip(" ?.")
     r = (reply or "").strip()
@@ -5141,10 +4674,10 @@ def merge_clarification_reply(paused_question: str, reply: str,
     filter at all — a state-wide total silently presented as a district answer.
     Reported from the live UI, 2026-09-21.
 
-    `_run_pipeline`'s bespoke resume has always detected this (its `_stem` /
-    `_is_chip_resume` check); app/orchestration/pipeline_graph.py's own two resume points
-    did not, and reimplemented the merge as a bare f-string. Both now call
-    this one function so they cannot drift apart again.
+    Used only by the LangGraph checkpointer resume owners
+    (app/orchestration/pipeline_graph.py's two resume points and
+    app/orchestration/langgraph_followup.py) — `_run_pipeline` never glues
+    reply text: it fills the paused slot on the frame (app/nlu/frame_merge.py).
     """
     stem = paused_question.rstrip(" ?.")
     reply = str(reply).strip()
@@ -5180,10 +4713,10 @@ async def apply_post_answer_context(result: dict, raw_question: str,
     tests/unit/test_graph_resume_context_layer.py.
     """
     _frame = None
-    if settings.FRAME_GATES_ENABLED and session is not None:
-        _shadow = session.understand_frame or {}
-        if _shadow.get("question") == raw_question:
-            _frame = _shadow.get("frame")
+    if session is not None:
+        _turn_frame = session.understand_frame or {}
+        if _turn_frame.get("question") == raw_question:
+            _frame = _turn_frame.get("frame")
     _attach_followups(result, result.get("rewritten_question") or raw_question, frame=_frame)
     if settings.CONTEXT_LAYER_ENABLED and session is not None:
         try:
@@ -5263,346 +4796,82 @@ def _pipeline_graph_selected(session: "Session | None") -> bool:
 
 async def _run_pipeline(question: str, session: "Session | None" = None,
                         scope: "auth.UserScope | None" = None) -> dict:
-    """Runs the pipeline; with settings.UNDERSTAND_SHADOW also runs the
-    Understand node (app/nlu/understand.py) in parallel and stores its
-    QueryFrame on session.understand_frame for the audit record. Shadow only:
-    the frame changes nothing the pipeline does or returns."""
+    """Understand, then answer. The message's QueryFrame is built first
+    (frame_merge.frame_for_turn — which resumes a pending pause by filling its
+    slot, or merges a follow-up onto the previous answer's frame) and is
+    published via understand.current_frame for the gates in _answer_data and
+    the LangGraph nodes. A pause records the frame + the slot it asks
+    (frame_merge.on_pause); an answer gets the "Understood as / Assumed"
+    lines and is remembered for the next follow-up (frame_merge.after_answer)."""
     if session is not None:
         session.understand_frame = None
-    if settings.FRAME_GATES_ENABLED:
-        return await _run_pipeline_frame_mode(question, session=session, scope=scope)
-    if not settings.UNDERSTAND_SHADOW:
-        return await _run_pipeline_body(question, session=session, scope=scope)
-    # Snapshot NOW: the body clears the pending-clarification state before
-    # its first await, and the model must see what the pause was asking.
-    ctx = understand.snapshot_context(session)
-    frame_task = asyncio.create_task(understand.shadow_pass(question, ctx))
-    cancelled = False
+    turn = await frame_merge.frame_for_turn(question, session)
+    token = understand.current_frame.set(turn.frame)
     try:
-        return await _run_pipeline_body(question, session=session, scope=scope)
-    except asyncio.CancelledError:
-        # The request itself is being cancelled (e.g. the router's timeout):
-        # don't hold it up waiting for a shadow frame nobody will log.
-        cancelled = True
-        frame_task.cancel()
-        raise
-    finally:
-        if not cancelled:
-            try:
-                shadow = await asyncio.wait_for(frame_task, settings.UNDERSTAND_TIMEOUT_SECONDS + 5)
-            except Exception as e:  # noqa: BLE001 — shadow must never affect the answer
-                frame_task.cancel()
-                shadow = {"frame": None, "meta": {"error": f"shadow wait: {type(e).__name__}"}}
-            if session is not None:
-                # Tagged with its message, so a later turn served from cache
-                # (no pipeline run) never re-logs this frame as its own.
-                session.understand_frame = {**shadow, "question": question}
-
-
-def _frame_for_audit(frame: "understand.QueryFrame") -> dict:
-    """The normalised frame as the audit record keeps it: model slots plus the
-    canonical values normalise produced (resolved entities, not the whole
-    entity_result payload)."""
-    d = frame.model_dump(include=set(understand.LLM_FIELDS))
-    d.update({"resolved_schemes": frame.resolved_schemes, "scheme_sources": frame.scheme_sources,
-              "year_key": frame.year_key, "normalise_notes": frame.normalise_notes,
-              "resolved": (frame.entity_result or {}).get("resolved"),
-              "clarification_rule": (frame.clarification or {}).get("rule")})
-    return d
-
-
-def _meaningfully_different(typed: str, understood: str) -> bool:
-    """True when the frame's reading is worth showing: after normalising case
-    and punctuation, it is not (nearly) what the user typed."""
-    import difflib
-
-    def norm(t: str) -> str:
-        return " ".join(re.findall(r"[a-z0-9]+", (t or "").casefold()))
-    a, b = norm(typed), norm(understood)
-    if not b or a == b:
-        return False
-    return difflib.SequenceMatcher(None, a, b).ratio() < 0.85
-
-
-def _prepend_understanding(result: dict, typed: str, frame: "understand.QueryFrame") -> None:
-    """Prefix the answer with what the bot understood and assumed, so the user
-    can correct it: an "Understood as: ..." line when the frame's standalone
-    question differs meaningfully from what was typed, and an "Assumed: ..."
-    line carrying every default the gates applied (each default's own
-    assumption_text from *_default_rules.yaml). Deterministic text added AFTER
-    compose_response — the composer's number-faithfulness check
-    (_answer_numbers_faithful) still runs on its own output, untouched."""
-    lines = []
-    understood = (frame.rewritten_question or "").strip()
-    if understood and _meaningfully_different(typed, understood):
-        lines.append(f"_Understood as: {understood}_")
-        result["understood_as"] = understood
-    assumed = [a.strip() for a in (result.get("assumptions") or []) if a and a.strip()]
-    if assumed:
-        lines.append("_Assumed: " + " ".join(assumed) + "_")
-    if lines:
-        result["answer"] = "\n".join(lines) + "\n\n" + (result.get("answer") or "")
-
-
-async def _run_pipeline_frame_mode(question: str, session: "Session | None" = None,
-                                   scope: "auth.UserScope | None" = None) -> dict:
-    """FRAME_GATES_ENABLED: the QueryFrame is computed BEFORE the pipeline runs
-    and drives the gates (published via understand.current_frame for
-    _answer_data and the LangGraph nodes). This is also the ONE owner of
-    clarification resume in this mode — slot filling on the paused frame
-    (ConversationState.pending_frame), instead of gluing reply text onto
-    pending_scope_q:
-
-      - a one-tap option ({slot, value} from the client, see
-        understand.incoming_choice) fills that slot directly — no model call;
-      - a typed reply goes through Understand with the pause as context and,
-        if it answers the pause (answers_pending / is_followup), is merged into
-        the paused frame; a brand-new question drops the pause;
-      - the standalone question comes from the frame, and the gates re-run on it.
-
-    A turn whose frame can't be built runs with no frame (old gates)."""
-    choice = understand.incoming_choice.get()
-    ctx = understand.snapshot_context(session)          # before the pause is consumed
-    pending = session.state.pending_frame if session is not None else None
-    last_frame = session.state.last_frame if session is not None else None
-    if session is not None:
-        session.state.pending_frame = None              # consumed, whatever the reply
-    frame = None
-    body_question = question
-    meta: dict = {}
-    # Follow-up decision for the body: the frame's, once one exists. A resumed
-    # pause is not a follow-up; None (no frame) => the old pattern-based path.
-    frame_followup: "bool | None" = None
-    try:
-        if pending and choice and choice.get("slot") == "area_level" \
-                and choice.get("value") in understand.AREA_LEVELS:
-            # "Change area: District" under an answer (or a level pick): ask for
-            # the name, keeping the frame — the typed name fills the area slot.
-            level = choice["value"]
-            pf = understand.QueryFrame.model_validate(pending["frame"])
-            asked = understand.area_level_question(level)
-            e = ClarificationNeeded(asked, rule="area-level-name")
-            e.pending_frame = understand.pending_record(
-                pf, "area-level-name", asked, [], pending.get("base_question") or pf.rewritten_question,
-                level=level)
-            if session is not None:
-                session.understand_frame = {"frame": pf.model_dump(), "question": question,
-                                            "meta": {"resume": "area_level", "level": level}}
-            raise e
-        if pending and choice and pending.get("kind", "pause") == "pause" \
-                and choice.get("slot") == pending.get("slot"):
-            frame, body_question = understand.fill_slot(pending, choice["slot"], choice.get("value"))
-            meta = {"resume": "click", "slot": choice["slot"]}
-            frame_followup = False
-        else:
-            # Deterministic reference resolution ("the previous year", "the
-            # other one") against the conversation state stays a PRE-step —
-            # Understand then reads the already-substituted message.
-            message = question
-            if session is not None and settings.CONTEXT_LAYER_ENABLED and settings.CONTEXT_STATE_ENABLED:
-                try:
-                    message = context_manager.substitute_references(question, session.state)
-                except context_manager.AmbiguousReference as ex:
-                    raise ClarificationNeeded(ex.question, options=ex.options, rule="entity-ambiguous")
-                except Exception:  # noqa: BLE001
-                    message = question
-            with request_trace.stage("understand"):
-                built = await asyncio.wait_for(understand.build_frame(message, ctx),
-                                               settings.UNDERSTAND_TIMEOUT_SECONDS + 5)
-            request_trace.note("frame_before", built.get("frame"))
-            meta = built.get("meta") or {}
-            reply = understand.QueryFrame.model_validate(built["frame"]) if built.get("frame") else None
-            if reply is not None and pending and pending.get("kind", "pause") == "pause" \
-                    and (reply.answers_pending or reply.is_followup):
-                frame = understand.merge_reply(pending, reply)
-                body_question = frame.rewritten_question or question
-                meta["resume"] = "typed"
-                frame_followup = False
-            else:
-                if pending and pending.get("kind", "pause") == "pause":
-                    meta["resume"] = "dropped"          # a new message: the pause is dropped
-                frame_followup = bool(reply is not None and reply.is_followup)
-                if frame_followup and last_frame:
-                    # Continues the previous answer: inherit its slots, the new
-                    # message's non-empty slots win (app/nlu/frame_merge.py).
-                    frame = frame_merge.merge_followup(last_frame, reply)
-                    body_question = frame.rewritten_question or question
-                    meta["followup"] = "merged"
-                elif frame_followup:
-                    frame = reply
-                    body_question = reply.rewritten_question or question
-                    meta["followup"] = "no previous frame"
-                else:
-                    frame = reply                       # a new question starts fresh
-        if frame is not None:
-            with request_trace.stage("normalise"):
-                frame = await understand.normalise_frame(frame, body_question)
-            request_trace.note("frame_after", _frame_for_audit(frame))
-            request_trace.note("frame_meta", meta)
-    except ClarificationNeeded:
-        raise
-    except Exception as e:  # noqa: BLE001 — never fail the turn on the frame
-        logger.warning("frame mode: frame unavailable this turn (%s) — old gates", e)
-        frame, meta = None, {"error": f"{type(e).__name__}: {e}"[:200]}
-        frame_followup = None
-    if frame is None:
-        frame_followup = None                           # no frame => old follow-up path
-    if session is not None:
-        session.understand_frame = {"frame": frame.model_dump() if frame is not None else None,
-                                    "meta": meta, "question": question}
-
-    token = understand.current_frame.set(frame)
-    try:
-        result = await _run_pipeline_body(body_question, session=session, scope=scope,
-                                          frame_followup=frame_followup,
-                                          frame_intent=frame.intent if frame is not None else None)
+        result = await _run_pipeline_body(turn.question, session=session, scope=scope,
+                                          frame_followup=turn.followup, frame_intent=turn.intent)
     except ClarificationNeeded as e:
-        # Remember the frame + the slot this pause asks, and stamp {slot, value}
-        # on its options; the router persists e.pending_frame with the state.
-        if frame is not None and understand.SLOT_FOR_RULE.get(e.rule or ""):
-            e.options = understand.annotate_options(e.rule, e.options)
-            e.pending_frame = understand.pending_record(
-                frame, e.rule, e.question, e.options,
-                base_question=frame.rewritten_question or body_question)
+        frame_merge.on_pause(e, turn)
         raise
     finally:
         understand.current_frame.reset(token)
-
-    if body_question != question and not result.get("rewritten_question"):
-        result["rewritten_question"] = body_question
-    if frame is not None and result.get("route") in ("data", "knowledge"):
-        _prepend_understanding(result, question, frame)
-    # Remember this answered turn's frame: the next follow-up merges onto it.
-    if frame is not None and session is not None and result.get("route") in ("data", "knowledge"):
-        session.state.last_frame = frame_merge.remember(frame)
-    # The statewide default was applied: offer "Change area" chips instead of
-    # having asked up front, and remember this answer's frame so a chip click
-    # can re-ask just for the name.
-    if frame is not None and "area:default:statewide" in (result.get("gate_trace") or []) \
-            and session is not None:
-        base = frame.rewritten_question or body_question
-        result["correction_options"] = understand.correction_options(base)
-        session.state.pending_frame = understand.pending_record(
-            frame, None, "", result["correction_options"], base_question=base, kind="correction")
+    frame_merge.after_answer(result, question, turn, session)
     return result
 
 
 async def _run_pipeline_body(question: str, session: "Session | None" = None,
                              scope: "auth.UserScope | None" = None,
-                             frame_followup: "bool | None" = None,
+                             frame_followup: bool = False,
                              frame_intent: "str | None" = None) -> dict:
-    """`frame_followup` (FRAME_GATES_ENABLED): the Understand node's decision
-    whether this message continues the previous turn — used instead of
-    looks_like_followup(), and `question` is then ALREADY the frame's
-    standalone rewrite, so the separate rewrite_followup model call is
-    skipped. None => the original pattern-based follow-up path.
+    """`question` is the turn's standalone question from
+    frame_merge.frame_for_turn: the message itself, a pause with its slot
+    filled, or a follow-up merged onto the previous answer's frame.
 
-    `frame_intent` (FRAME_GATES_ENABLED): the frame's DATA / KNOWLEDGE
-    routing decision, used instead of the separate classify_intent model
-    call — the frame read the message WITH its conversation, where a bare
-    continuation ("what about PMAY", a typed "ekh" answering "which
-    district?") looks like a knowledge question to a classifier that sees the
-    sentence alone. EDGE is not taken from the frame: the deterministic edge
-    handling above has already run. None => classify_intent as before."""
+    `frame_followup`: the Understand node's decision that this message
+    continues the previous answer (it saw the recent turns). The question is
+    already standalone; the previous turn's entities only seed resolution as
+    a fallback (prior_resolved).
+
+    `frame_intent`: the frame's DATA / KNOWLEDGE routing decision, used
+    instead of the separate classify_intent model call — the frame read the
+    message WITH its conversation, where a bare continuation ("what about
+    PMAY", a typed "ekh" answering "which district?") looks like a knowledge
+    question to a classifier that sees the sentence alone. EDGE is not taken
+    from the frame: the deterministic edge handling below runs first. None
+    (no Understand frame this turn) => classify_intent as before."""
     raw_question = question
     question = _correct_scheme_spelling(question)
-    scope_resumed = False
 
-    # Computed early (moved ahead of the original follow-up step) so the step-0
-    # edge check below can relax its whitelist gate for a plausible follow-up —
-    # see edge.detect_edge_case's has_context param.
+    # Computed early so the step-0 edge check below can relax its whitelist
+    # gate for a plausible follow-up — see edge.detect_edge_case's has_context.
     prev = session.last_turn if session is not None else None
     has_antecedent = prev is not None and prev.route in _ANTECEDENT_ROUTES
     ctx_state = (session.state if (session is not None and settings.CONTEXT_LAYER_ENABLED
                                    and settings.CONTEXT_STATE_ENABLED) else None)
 
-    # 0a. Resuming a "which area / year?" pause — fold the user's free-text reply
-    #     ("West Garo Hills 2023-24", "all of Meghalaya, all years") back into the
-    #     question that triggered it. A reply that stands on its own as a fresh
-    #     question, or an edge case like "thanks", is left alone; either way the
-    #     pending state is consumed so it never leaks into a later turn.
-    pending = session.state.pending_scope_q if session is not None else None
-    _village_hint = session.state.pending_village_hint if session is not None else None
-    # The chips that pause offered, and whatever it had already resolved before
-    # it paused — see ConversationState.pending_options / pending_resolved.
-    _pending_options = list(session.state.pending_options) if session is not None else []
-    _resumed_resolved: dict = {}
-    if pending:
-        session.state.pending_scope_q = None
-        session.state.pending_village_hint = None
-        session.state.pending_options = []
-        _resumed_resolved = dict(session.state.pending_resolved or {})
-        session.state.pending_resolved = {}
-        # A scope-pause reply is normally a bare fragment ("Ri Bhoi, 2023-24",
-        # "wgh, 1999-20") with no scheme vocabulary of its own, so the edge
-        # whitelist would tag it "off_topic" every time — do NOT use that as the
-        # signal to drop the pause. Only a clearly conversational reply (a
-        # greeting / thanks / goodbye / abuse) or a fresh standalone question
-        # abandons it; everything else is merged back into the paused question.
-        _edge_hit = edge.detect_edge_case(question)
-        # "off_topic" is the whitelist gate mis-firing on a fragment with no
-        # scheme words — NOT a reason to drop the pause. Any other edge verdict
-        # (greeting / thanks / goodbye / abuse / "never mind") genuinely is.
-        _bailed = bool(_edge_hit) and _edge_hit.get("type") != "off_topic"
-        # A one-tap chip (year pause) sends the whole rewritten question, which
-        # already begins with the paused stem — merging would just duplicate it
-        # ("total expenditure for MGNREGA, total expenditure for MGNREGA for FY
-        # 2023-24"). Detect that and pass the chip's question straight through.
-        # Two ways to recognise a chip: its text matches an option we actually
-        # offered (exact — and the only test that works for a chip which
-        # rewrites the MIDDLE of the question, e.g. the FY chips swapping a
-        # bare "2023" for "FY 2023-24"), or the older prefix test, kept for a
-        # pause whose options weren't recorded (an L2-rehydrated session from
-        # before pending_options existed). See pipeline.matching_chip.
-        _chip = matching_chip(question, _pending_options)
-        _stem = pending.rstrip(" ?.").lower()
-        _is_chip_resume = _chip is not None or question.strip().lower().startswith(_stem)
-        if _is_chip_resume:
-            scope_resumed = True
-            # What the chip MEANS, not just what it says: folded into this
-            # turn's prior_resolved below so the choice survives even if the
-            # mention-extractor mis-tags the chip's own sentence.
-            if _chip:
-                _resumed_resolved.update(
-                    {k: v for k, v in (_chip.get("pins") or {}).items() if v is not None})
-            logger.info("scope/year clarification resumed via full question -> %r", question)
-        elif not _bailed and not _reply_abandons_scope_pause(question):
-            question = merge_clarification_reply(pending, question, _pending_options)
-            scope_resumed = True
-            logger.info("scope clarification resumed -> %r", question)
-
     # 0-. "What is EKH?" / "MYLLIEM full form" — spell out a district or block
     #     straight from the resolver catalogue. Must run BEFORE the edge layer
     #     (which bounces a lone abbreviation as off-topic) and before routing
-    #     (KNOWLEDGE / RAG has no glossary for these). Skipped on a scope-pause
-    #     resume — that text is a merged fragment, never a definition request.
-    if not scope_resumed:
-        geo_def = _geo_definition_answer(question)
-        if geo_def:
-            if question != raw_question:
-                geo_def["rewritten_question"] = question
-            return geo_def
+    #     (KNOWLEDGE / RAG has no glossary for these).
+    geo_def = _geo_definition_answer(question)
+    if geo_def:
+        if question != raw_question:
+            geo_def["rewritten_question"] = question
+        return geo_def
 
     # 0-a. "What schemes are available?" / "what's the difference between the
     #      schemes?" — answered directly (see _scheme_listing_answer /
     #      _scheme_comparison_answer) rather than falling through to RAG, which
     #      has no single document covering either and either over-elaborates on
-    #      one scheme or says "not covered". Same scope-pause carve-out as above.
-    if not scope_resumed:
-        direct = _scheme_listing_answer(question) or _scheme_comparison_answer(question)
-        if direct:
-            if question != raw_question:
-                direct["rewritten_question"] = question
-            return direct
+    #      one scheme or says "not covered".
+    direct = _scheme_listing_answer(question) or _scheme_comparison_answer(question)
+    if direct:
+        if question != raw_question:
+            direct["rewritten_question"] = question
+        return direct
 
-    # 0. Edge — greetings, identity, thanks, off-topic, abuse. Checked on the RAW
-    #    text first: the follow-up heuristic treats any short anchorless phrase as
-    #    a fragment, which would otherwise turn "hello" into a bogus follow-up.
-    #    Skipped when we just merged a scope-pause reply: the merged text is a
-    #    bare "<question>, <place>, <year>" fragment that the whitelist gate
-    #    would wrongly flag as off-topic, and the conversational-reply case was
-    #    already handled at the merge above.
-    hit = None if scope_resumed else edge.detect_edge_case(question, has_context=has_antecedent)
+    # 0. Edge — greetings, identity, thanks, off-topic, abuse.
+    hit = edge.detect_edge_case(question, has_context=has_antecedent)
     if hit:
         return {"route": "edge", "intent": "EDGE", "confidence": "high",
                 "answer": hit["response"], "edge_type": hit["type"],
@@ -5612,13 +4881,12 @@ async def _run_pipeline_body(question: str, session: "Session | None" = None,
     # 0f. Deterministic reference resolution ("the previous year", "the
     #     current year", "the former/latter", "the other one", "both") against
     #     the session's structured conversation state — see
-    #     context_manager.substitute_references. Runs before the follow-up
-    #     detector so a bare "compare that with the previous year" already has
-    #     a concrete year by the time it gets there. Ambiguous ("the other
-    #     one" with no recorded comparison) reuses the existing clarification
-    #     mechanism rather than guessing. Any other failure degrades to the
-    #     question unchanged — the pre-existing follow-up path still runs.
-    if not scope_resumed and ctx_state is not None:
+    #     context_manager.substitute_references. frame_for_turn already ran it
+    #     on the message before Understand; re-run on the standalone question
+    #     a merge produced. Ambiguous ("the other one" with no recorded
+    #     comparison) reuses the existing clarification mechanism rather than
+    #     guessing. Any other failure degrades to the question unchanged.
+    if ctx_state is not None:
         try:
             question = context_manager.substitute_references(question, ctx_state)
         except context_manager.AmbiguousReference as e:
@@ -5627,41 +4895,14 @@ async def _run_pipeline_body(question: str, session: "Session | None" = None,
             logger.warning("context_manager.substitute_references failed — continuing unchanged",
                            exc_info=True)
 
-    # 1. Follow-up — rewrite a fragment ("what about EGH?") to a standalone
-    #    question using the previous turn, before routing. Only when the previous
-    #    turn was an actual scheme answer; otherwise the fragment has nothing
-    #    coherent to attach to. (prev / has_antecedent computed above, ahead of
-    #    the step-0 edge check.)
-    is_followup_rewrite = False
-    if frame_followup is not None:
-        # Frame mode: Understand decided (it saw the recent turns), and the
-        # frame's rewritten_question is already standalone — no second rewrite.
-        is_followup_rewrite = bool(frame_followup and has_antecedent)
-    elif looks_like_followup(question):
-        if has_antecedent:
-            _extra_ctx = ""
-            if settings.CONTEXT_LAYER_ENABLED and session is not None:
-                try:
-                    _extra_ctx = await context_manager.build_followup_context(session, question)
-                except Exception:  # noqa: BLE001
-                    logger.warning("context_manager.build_followup_context failed — continuing without it",
-                                   exc_info=True)
-            question = await rewrite_followup(question, prev, extra_context=_extra_ctx)
-            is_followup_rewrite = True
-        elif _CONTEXTLESS_REF.search(question) and not _mentions_scheme(question):
-            # "how launched it?" with no prior scheme answer — don't guess.
-            return {"route": "edge", "intent": "EDGE", "confidence": "high",
-                    "edge_type": "confused",
-                    "answer": ("I don't have an earlier answer to build on, so I'm not "
-                               "sure what that refers to. Tell me the scheme — MGNREGA, "
-                               "PMAY-G, Focus Plus, or CM Elevate — and what you'd like to "
-                               "know."),
-                    "suggestions": list(edge.STARTERS),
-                    **_empty_data_fields()}
+    # 1. Follow-up — decided by the Understand node, whose frame is already
+    #    merged onto the previous answer (app/nlu/frame_merge.py), so `question`
+    #    is standalone. Only a continuation of an actual scheme answer counts:
+    #    a fragment has nothing coherent to attach to otherwise.
+    is_followup_rewrite = bool(frame_followup and has_antecedent)
 
-    # 1b. Re-check edge on the rewrite (cheap, and the rewrite can surface one).
-    #     Same scope-resume carve-out as step 0.
-    hit = None if scope_resumed else edge.detect_edge_case(question, has_context=has_antecedent)
+    # 1b. Re-check edge on the reference-substituted question (cheap).
+    hit = edge.detect_edge_case(question, has_context=has_antecedent)
     if hit:
         return {"route": "edge", "intent": "EDGE", "confidence": "high",
                 "answer": hit["response"], "edge_type": hit["type"],
@@ -5733,8 +4974,11 @@ async def _run_pipeline_body(question: str, session: "Session | None" = None,
         # letting bare vector search pick whichever doc scores highest) is how
         # a vague question came back "not covered" while quietly assuming
         # MGNREGA. Ask which of the four schemes instead, same one-tap chips
-        # the DATA path already uses (see _needs_scheme_clarification).
-        if _kb_scheme is None and _needs_scheme_clarification(question):
+        # the DATA path already uses (clarify_rules rule 1): neither the frame
+        # nor the scheme names / vocabulary in the text pins one.
+        if _kb_scheme is None and settings.SCHEME_CLARIFY_ENABLED \
+                and not clarify_rules.gate_frame(question).resolved_schemes \
+                and not _shortcut_scheme(question):
             raise _scheme_clarification(question)
 
         # Two or more schemes named outright ("how do I apply across MGNREGA,
@@ -5765,19 +5009,6 @@ async def _run_pipeline_body(question: str, session: "Session | None" = None,
     # TEXT, so an entity can silently drop if it doesn't literally reappear in
     # the rewritten wording (e.g. a village name the rewrite paraphrases away).
     _prior_resolved = prev.resolved_entities if (is_followup_rewrite and prev is not None) else None
-    if scope_resumed and _resumed_resolved:
-        # A clarification resume is NOT a follow-up rewrite (the merged/chip
-        # text is already standalone), so it used to reach resolve_entities
-        # with prior_resolved=None and re-derive every dimension from that text
-        # alone. Everything the paused turn had already pinned
-        # (ClarificationNeeded.resolved_so_far), plus what the tapped chip
-        # itself stands for, is seeded here instead — still only ever a
-        # FALLBACK inside resolve_entities (a dimension the resumed question
-        # names something for is always re-resolved from that text, never
-        # overridden), so this can restore context but cannot contradict the
-        # user's own words. Without it, answering a SECOND clarification throws
-        # away the answer to the first.
-        _prior_resolved = {**_resumed_resolved, **(_prior_resolved or {})}
     if is_followup_rewrite and ctx_state is not None:
         # Extends the fallback above with session-level structured state, so a
         # KNOWLEDGE/EDGE turn sitting between the last DATA answer and this
@@ -5824,26 +5055,21 @@ async def _run_pipeline_body(question: str, session: "Session | None" = None,
             # task) — a real, permanent orphan, the exact bug fixed
             # 2026-09-17 for the always-fresh-UUID case. Passing thread_id=None
             # here (the pre-5.4 default) keeps that combination exactly as
-            # tested: fresh UUID, cleaned up on pause, no change.
-            # Same exclusivity for FRAME_GATES_ENABLED: its slot-filling
-            # resume (ConversationState.pending_frame) owns every pause, so
-            # the graph must not ALSO keep a checkpoint claiming it.
+            # tested: fresh UUID, cleaned up on pause, no change. A pause the
+            # graph keeps (graph_resumable) is resumed by the router's graph
+            # branch, not by frame slot filling — the router stores no
+            # pending_frame for it, so exactly one owner holds each pause.
             _graph_thread_id = (
                 session.session_id
                 if session is not None and not settings.LANGGRAPH_FOLLOWUP_ENABLED
-                and not settings.FRAME_GATES_ENABLED
                 else None
             )
             result = await pipeline_graph.answer_data_via_graph_compat(
-                question, scope=scope, skip_scope_clarify=scope_resumed,
-                prior_resolved=_prior_resolved,
-                village_hint=_village_hint if scope_resumed else None,
+                question, scope=scope, prior_resolved=_prior_resolved,
                 is_followup=is_followup_rewrite, thread_id=_graph_thread_id)
         else:
-            result = await _answer_data(question, scope=scope, skip_scope_clarify=scope_resumed,
-                                         prior_resolved=_prior_resolved,
-                                         village_hint=_village_hint if scope_resumed else None,
-                                         is_followup=is_followup_rewrite)
+            result = await _answer_data(question, scope=scope, prior_resolved=_prior_resolved,
+                                        is_followup=is_followup_rewrite)
         if question != raw_question:
             result["rewritten_question"] = question
         return result

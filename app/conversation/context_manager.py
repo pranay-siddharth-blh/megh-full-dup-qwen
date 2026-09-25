@@ -221,7 +221,7 @@ def state_to_resolved_entities(state: "ConversationState | None") -> dict:
         # Not a real stored value — must never be copied into resolve_entities'
         # `resolved` dict (that feeds the SQL prompt's WHERE-clause filter
         # verbatim, see prompt_builder._entities_block). This key exists only
-        # so _answer_data can tell _needs_tranche_clarification "the user
+        # so the tranche rule (clarify_rules rule 5) knows "the user
         # already picked 'all tranches combined' earlier this session" without
         # re-asking on a bare follow-up that doesn't restate "tranche".
         out["tranche_all_combined"] = True
@@ -336,7 +336,7 @@ def update_state(session: "Session | None", raw_question: str, standalone_questi
         # resolve_tranche_label only ever returns something for a SPECIFIC
         # named tranche (see app.nlu.entity_resolver), so a Focus Plus-only turn
         # that reached here with no tranche_label at all only did so because
-        # _needs_tranche_clarification's gate was already satisfied by an
+        # the tranche rule was already satisfied by an
         # explicit "all tranches combined" / breakdown cue (or a prior
         # all-combined choice) — never by silent default. Recording that
         # keeps a later bare follow-up ("top 3 only") from losing the choice

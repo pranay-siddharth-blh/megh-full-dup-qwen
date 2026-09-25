@@ -1,5 +1,5 @@
 """
-SQL generation driven by the QueryFrame (FRAME_GATES_ENABLED):
+SQL generation driven by the QueryFrame (understand.sql_frame()):
 app/sql/sql_templates.py, the REQUIRED FILTERS block in app/sql/prompt_builder.py,
 generate_sql's template-first path and _verify_sql's deterministic frame check.
 
@@ -9,7 +9,8 @@ declining every non-plain shape; generate_sql skipping the model for a
 template and otherwise sending the frame's standalone question + REQUIRED
 FILTERS (also in the repair prompt); the frame check catching wrong-scheme
 tables / missing breakdown / wrong LIMIT BEFORE the model verifier is called;
-flag off => generation exactly as before. No DB, no gateway.
+no model frame (none, or a fallback frame) => generation exactly as before.
+No DB, no gateway.
 Run: `python tests/unit/test_sql_frame.py`, exit code 0 = pass.
 """
 import asyncio
@@ -130,8 +131,8 @@ orig = (llm.call_sql_generator, llm.call_sql_verifier, schema_retrieval.retrieve
 llm.call_sql_generator, llm.call_sql_verifier = _sql_model, _verify_model
 schema_retrieval.retrieve = _no_retrieval
 prompt_builder.sql_examples_retrieval.retrieve = _no_retrieval
-flags_before = (settings.FRAME_GATES_ENABLED, settings.SQL_VERIFY_ENABLED)
-settings.FRAME_GATES_ENABLED, settings.SQL_VERIFY_ENABLED = True, True
+flags_before = settings.SQL_VERIFY_ENABLED
+settings.SQL_VERIFY_ENABLED = True
 try:
     frame = F(rewritten_question="What is the total MGNREGA expenditure in East Khasi Hills?", schemes=["MGNREGA"],
               metric="total expenditure")
@@ -187,32 +188,33 @@ try:
     token = u.current_frame.set(frame)
     er = ER()
     er["gate_trace"] = ["top_n:default:5"]
-    issue = pipeline._frame_sql_issue(frame, ["PMAY-G"], er,
-                                      "SELECT lgd_district, COUNT(*) FROM curated.v_pmay GROUP BY lgd_district "
-                                      "ORDER BY 2 DESC LIMIT 10")
+    issue = u.frame_sql_issue(frame, ["PMAY-G"], er,
+                              "SELECT lgd_district, COUNT(*) FROM curated.v_pmay GROUP BY lgd_district "
+                              "ORDER BY 2 DESC LIMIT 10")
     check("defaulted top-5 ranking with LIMIT 10 is caught", issue and "LIMIT 5" in issue, str(issue))
-    issue = pipeline._frame_sql_issue(frame, ["PMAY-G"], er,
-                                      "SELECT lgd_district, COUNT(*) FROM curated.v_pmay GROUP BY lgd_district "
-                                      "ORDER BY 2 DESC LIMIT 5")
+    issue = u.frame_sql_issue(frame, ["PMAY-G"], er,
+                              "SELECT lgd_district, COUNT(*) FROM curated.v_pmay GROUP BY lgd_district "
+                              "ORDER BY 2 DESC LIMIT 5")
     check("LIMIT 5 passes", issue is None, str(issue))
-    check("no frame -> no frame check", pipeline._frame_sql_issue(None, ["PMAY-G"], er, "SELECT 1") is None)
+    check("no frame -> no frame check", u.frame_sql_issue(None, ["PMAY-G"], er, "SELECT 1") is None)
     u.current_frame.reset(token)
 
-    print("\n=== flag OFF: generation exactly as before ===")
-    settings.FRAME_GATES_ENABLED = False
-    token = u.current_frame.set(F(schemes=["MGNREGA"], metric="total expenditure"))
+    print("\n=== no model frame (Understand gave none -> fallback frame): generation exactly as before ===")
+    q = "total MGNREGA expenditure in EKH for FY 2025-26"
+    token = u.current_frame.set(u.fallback_frame(q))
+    check("a fallback frame is not a SQL frame", u.sql_frame() is None)
     n = len(calls["sql_gen"])
     er = ER(district="EAST KHASI HILLS", year_key=2025)
-    asyncio.run(pipeline.generate_sql("total MGNREGA expenditure in EKH for FY 2025-26", ["MGNREGA"], er))
+    asyncio.run(pipeline.generate_sql(q, ["MGNREGA"], er))
     prompt = calls["sql_gen"][-1]
-    check("flag off: even a templatable question goes to the model", len(calls["sql_gen"]) == n + 1)
-    check("flag off: raw question, no REQUIRED FILTERS",
-          "REQUIRED FILTERS" not in prompt and 'Question: "total MGNREGA expenditure in EKH for FY 2025-26"' in prompt)
-    check("flag off: no gate trace written", "gate_trace" not in er)
+    check("no model frame: even a templatable question goes to the model", len(calls["sql_gen"]) == n + 1)
+    check("no model frame: raw question, no REQUIRED FILTERS",
+          "REQUIRED FILTERS" not in prompt and f'Question: "{q}"' in prompt)
+    check("no model frame: no gate trace written", "gate_trace" not in er)
     u.current_frame.reset(token)
 finally:
     llm.call_sql_generator, llm.call_sql_verifier, schema_retrieval.retrieve = orig[0], orig[1], orig[2]
-    settings.FRAME_GATES_ENABLED, settings.SQL_VERIFY_ENABLED = flags_before
+    settings.SQL_VERIFY_ENABLED = flags_before
 
 print()
 if _fails:

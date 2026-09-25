@@ -254,8 +254,19 @@ async def _run() -> None:
         call_n2["n"] += 1
         return {"resolved": {}, "display": {}, "notes": []} if call_n2["n"] == 1 else {
             "resolved": dict(_ENTITY_RESULT["resolved"]), "display": dict(_ENTITY_RESULT["display"]), "notes": []}
+    # clarify_rules rule 3 ASKS for the area only when the scheme's rules file
+    # has no missing_geography default (otherwise it applies the disclosed
+    # statewide default) — take the default away so node 5.3 pauses.
+    from app.nlu import clarify_rules
+    _orig_default = clarify_rules._default
+    clarify_rules._default = lambda schemes, cond: (
+        None if cond == "missing_geography" else _orig_default(schemes, cond))
+    try:
+        with _Multi(_patches(resolve_entities=_resolve_no_district)):
+            s1 = await pg.answer_data_via_graph("total job cards issued under MGNREGA", scope=_SCOPE)
+    finally:
+        clarify_rules._default = _orig_default
     with _Multi(_patches(resolve_entities=_resolve_no_district)):
-        s1 = await pg.answer_data_via_graph("total job cards issued under MGNREGA", scope=_SCOPE)
         check("pauses on scope-not-specified",
               s1.get("paused") is True and s1["clarification"]["rule"] == "scope-not-specified", detail=str(s1))
         s2 = await pg.resume_via_graph(s1["thread_id"], "East Khasi Hills")

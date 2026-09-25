@@ -1,5 +1,5 @@
 """
-Slot-filling clarification resume (FRAME_GATES_ENABLED) — end to end through
+Slot-filling clarification resume — end to end through
 the real POST /api/query router, across separate requests of one session:
 
   "what is the expenditure"      -> "which scheme?"  (options carry {slot, value})
@@ -14,7 +14,7 @@ the real POST /api/query router, across separate requests of one session:
 
 Plus: the pending frame is persisted with the conversation state and a reply
 landing on ANOTHER worker still resumes; a brand-new question drops the pause;
-flag off keeps the old pending_scope_q text path. Model/SQL/DB are stubbed —
+no text-glue (pending_scope_q) resume path is left. Model/SQL/DB are stubbed —
 resolver, gates, routing and the router are real.
 Run: `python tests/unit/test_slot_resume.py`, exit code 0 = pass.
 """
@@ -139,11 +139,10 @@ patches = [
 originals = [(obj, name, getattr(obj, name)) for obj, name, _ in patches]
 for obj, name, fn in patches:
     setattr(obj, name, fn)
-flag_names = ("FRAME_GATES_ENABLED", "ENTITY_RESOLVER_SQUASH_FUZZY_ENABLED", "QUERY_ANALYZER_ENABLED",
+flag_names = ("ENTITY_RESOLVER_SQUASH_FUZZY_ENABLED", "QUERY_ANALYZER_ENABLED",
               "CONTEXT_SUMMARY_ENABLED", "CONTEXT_SEMANTIC_MEMORY_ENABLED", "RESPONSE_CACHE_ENABLED",
               "SEMANTIC_CACHE_ENABLED", "FOLLOWUP_REWRITE_ENABLED")
 flags_before = {n: getattr(settings, n) for n in flag_names}
-settings.FRAME_GATES_ENABLED = True
 settings.ENTITY_RESOLVER_SQUASH_FUZZY_ENABLED = True       # 'westgaro hils' needs resolver stage 6b
 settings.QUERY_ANALYZER_ENABLED = False
 settings.CONTEXT_SUMMARY_ENABLED = False
@@ -281,28 +280,13 @@ try:
     check("level already stated -> unchanged",
           u._with_level("How many houses in selsella block?", g, "block") == "How many houses in selsella block?")
 
-    print("\n=== flag OFF: the old text path, unchanged ===")
-    settings.FRAME_GATES_ENABLED = False
-    SID4 = "slot-flow-4"
-
-    async def _no_mentions(q):
-        return {}
-    _orig_extract = pipeline.extract_entity_mentions
-    pipeline.extract_entity_mentions = _no_mentions
-    try:
-        st, r = post("total MGNREGA expenditure", SID4)   # old scope pause (resumable by text)
-    finally:
-        pipeline.extract_entity_mentions = _orig_extract
-    s4 = session_store.get(SID4)
-    # Flag off, the pause goes to whichever pre-existing owner the flags select:
-    # langgraph_followup's / pipeline_graph's checkpointer when those are on,
-    # otherwise the bespoke pending_scope_q text path. Never pending_frame.
-    checkpointer_owns = settings.LANGGRAPH_FOLLOWUP_ENABLED or settings.PIPELINE_GRAPH_ENABLED
-    check("flag off: scope pause stored by the pre-existing owner, never pending_frame",
-          (r.get("clarification") or {}).get("rule") == "scope-not-specified" and s4.state.pending_frame is None
-          and (checkpointer_owns or s4.state.pending_scope_q == "total MGNREGA expenditure"), str(r)[:200])
-    check("flag off: options unchanged (no slot/value stamped)",
-          not any("slot" in o for o in (r.get("clarification") or {}).get("options") or []))
+    print("\n=== no text-glue resume left ===")
+    import inspect
+    check("the pipeline body no longer merges a reply into a paused question",
+          "pending_scope_q" not in inspect.getsource(pipeline._run_pipeline_body)
+          and not hasattr(pipeline, "_run_pipeline_frame_mode"))
+    check("the router stores only the frame pause (never pending_scope_q)",
+          "pending_scope_q =" not in inspect.getsource(query_router._clarification_result))
 
     print("\n=== web/ai_query.html sends {slot, value} ===")
     html = (Path(__file__).resolve().parents[2] / "web" / "ai_query.html").read_text(encoding="utf-8")

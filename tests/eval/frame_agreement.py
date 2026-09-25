@@ -1,6 +1,7 @@
 """How often the shadow QueryFrame agrees with what the current pipeline
 detected — schemes, geography, year (and intent vs route) — and every
-disagreement, for a run made with `run_eval.py --understand-shadow`.
+disagreement, for a run recorded with the frame (every run since Step 10;
+earlier runs needed `run_eval.py --understand-shadow`).
 
     python tests/eval/frame_agreement.py tests/eval/results/eval_<run>.json
 

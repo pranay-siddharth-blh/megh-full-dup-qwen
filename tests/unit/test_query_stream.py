@@ -82,7 +82,7 @@ _saved = {
     "is_paused": langgraph_followup.is_paused,
     "settings": {k: getattr(settings, k) for k in (
         "LANGGRAPH_FOLLOWUP_ENABLED", "PIPELINE_GRAPH_ENABLED", "PIPELINE_GRAPH_CANARY_PERCENT",
-        "FRAME_GATES_ENABLED", "UNDERSTAND_SHADOW", "RESPONSE_CACHE_ENABLED", "SEMANTIC_CACHE_ENABLED")},
+        "RESPONSE_CACHE_ENABLED", "SEMANTIC_CACHE_ENABLED")},
 }
 
 # This file tests the answer_question branch of _answer_turn (the one that
@@ -93,8 +93,6 @@ _saved = {
 settings.LANGGRAPH_FOLLOWUP_ENABLED = False
 settings.PIPELINE_GRAPH_ENABLED = False
 settings.PIPELINE_GRAPH_CANARY_PERCENT = 0
-settings.FRAME_GATES_ENABLED = False
-settings.UNDERSTAND_SHADOW = False
 settings.RESPONSE_CACHE_ENABLED = False
 settings.SEMANTIC_CACHE_ENABLED = False
 
@@ -325,10 +323,16 @@ try:
     OPTS = [{"label": "West Garo Hills", "question": "expenditure for West Garo Hills"},
             {"label": "All of Meghalaya", "question": "expenditure for all of Meghalaya"}]
 
+    PAUSE = {"frame": {"rewritten_question": "total MGNREGA expenditure"}, "slot": "area",
+             "rule": "scope-not-specified", "asked": "Which area?", "options": OPTS,
+             "base_question": "total MGNREGA expenditure", "level": None, "kind": "pause"}
+
     async def clarify(question, session=None, scope=None):
         with request_trace.stage("understand"):
             pass
-        raise ClarificationNeeded("Which area?", options=OPTS, rule="scope-not-specified")
+        e = ClarificationNeeded("Which area?", options=OPTS, rule="scope-not-specified")
+        e.pending_frame = PAUSE          # what frame_merge.on_pause records
+        raise e
     pipeline._run_pipeline = clarify
     r, text = stream({"question": "total MGNREGA expenditure", "session_id": "st-7"})
     events, _ = parse_sse(text)
@@ -337,8 +341,8 @@ try:
     check("done: intent CLARIFY, needs_clarification, options passed through",
           d.get("intent") == "CLARIFY" and d.get("needs_clarification") is True
           and d["clarification"]["options"] == OPTS and d["clarification"]["rule"] == "scope-not-specified", str(d))
-    check("pause remembered for the next turn",
-          session_store.get("st-7").state.pending_scope_q == "total MGNREGA expenditure")
+    check("pause remembered for the next turn (the frame + its slot)",
+          session_store.get("st-7").state.pending_frame == PAUSE)
     rq = client.post("/api/query", json={"question": "total MGNREGA expenditure", "session_id": "st-7q"})
     check("same clarification dict as /api/query", without(d, "session_id") == without(rq.json(), "session_id"),
           f"{d} vs {rq.json()}")

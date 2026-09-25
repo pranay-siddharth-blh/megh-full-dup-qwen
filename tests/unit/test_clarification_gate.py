@@ -1,12 +1,12 @@
 """
-Pipeline architecture doc §5.3 ("Generic clarification gate") — per
-docs/baseline-audit.md this is NOT a YAML rule engine as originally proposed;
-it's a set of bespoke, hardcoded predicate functions in app/orchestration/pipeline.py, each
-with baked-in question text. This file covers the pure-logic predicates:
-_needs_scheme_clarification, _needs_topn_clarification,
-_needs_scope_clarification, _admin_expenditure_clarification, and
-_women_share_clarification. No DB, no model gateway — every one of these
-runs on question text (+ a resolved-entities dict) alone.
+Pipeline architecture doc §5.3 ("Generic clarification gate"). The old
+hardcoded _needs_{scheme,topn,scope}_clarification regex predicates were
+replaced by the QueryFrame rules (app/nlu/clarify_rules.py, covered in
+depth by tests/unit/test_clarify_rules.py). This file covers the same
+questions those predicates were tested on, through the no-model path: the
+deterministic understand.fallback_frame + the frame rules — plus the
+column-not-held texts _admin_expenditure_clarification and
+_women_share_clarification. No DB, no model gateway.
 Run: `python tests/unit/test_clarification_gate.py`, exit code 0 = pass.
 """
 import os
@@ -19,6 +19,7 @@ os.environ.setdefault("DATABASE_URL", "postgresql://u:p@127.0.0.1:5/none")
 os.environ.setdefault("JWT_SECRET", "test-secret-at-least-32-characters-long")
 os.environ.setdefault("ENV", "prod")
 
+from app.nlu import clarify_rules, understand  # noqa: E402
 from app.orchestration import pipeline  # noqa: E402
 
 _fails: list[str] = []
@@ -30,54 +31,80 @@ def check(name: str, cond: bool, detail: str = "") -> None:
         _fails.append(name)
 
 
-# ── 1. _needs_scheme_clarification ──────────────────────────────────────────
-print("1. NEEDS_SCHEME_CLARIFICATION")
-
-check("a question naming no scheme and no scheme-pinning vocabulary needs clarification",
-      pipeline._needs_scheme_clarification("how many beneficiaries were there last year?"))
-check("a question naming a scheme outright needs no clarification",
-      not pipeline._needs_scheme_clarification("how many person-days under MGNREGA?"))
-check("an explicit cross-scheme phrase needs no clarification",
-      not pipeline._needs_scheme_clarification("give me numbers across both schemes"))
-check("vocabulary that pins exactly one scheme needs no clarification",
-      not pipeline._needs_scheme_clarification("what is the total sanctioned amount for houses?"))
+def _asks(fn, *args, **kw):
+    try:
+        fn(*args, **kw)
+    except pipeline.ClarificationNeeded as e:
+        return e.rule
+    return None
 
 
-# ── 2. _needs_topn_clarification ────────────────────────────────────────────
-print("2. NEEDS_TOPN_CLARIFICATION")
-
-check("a ranking question over a dimension with no count needs clarification",
-      pipeline._needs_topn_clarification("top districts by expenditure"))
-check("an explicit count in the ranking question needs no clarification",
-      not pipeline._needs_topn_clarification("top 5 districts by expenditure"))
-check("'all districts' explicitly wants the whole list, needs no clarification",
-      not pipeline._needs_topn_clarification("list all districts by expenditure"))
-check("a singular-dimension ranking ('which district...') already means one row",
-      not pipeline._needs_topn_clarification("which district spent the most?"))
-check("no ranking cue at all needs no clarification",
-      not pipeline._needs_topn_clarification("how many houses were completed?"))
+def _after(question, resolved):
+    frame = understand.fallback_frame(question)
+    return _asks(clarify_rules.after_resolution, frame, question,
+                 frame.resolved_schemes or ["MGNREGA"], resolved)
 
 
-# ── 3. _needs_scope_clarification ───────────────────────────────────────────
-print("3. NEEDS_SCOPE_CLARIFICATION")
+# ── 1. scheme (rule 1) ──────────────────────────────────────────────────────
+print("1. SCHEME")
 
-_EMPTY = {}
-check("an aggregate question with no place/year named and none resolved needs clarification",
-      pipeline._needs_scope_clarification("how many person-days were generated?", _EMPTY))
-check("a resolved district satisfies the scope, no clarification needed",
-      not pipeline._needs_scope_clarification("how many person-days were generated?",
-                                              {"district": "EAST GARO HILLS"}))
-check("a resolved year alone also satisfies the scope",
-      not pipeline._needs_scope_clarification("how many person-days were generated?",
-                                              {"year_key": 2023}))
-check("an explicit statewide phrase needs no clarification",
-      not pipeline._needs_scope_clarification("total person-days across all of Meghalaya", _EMPTY))
-check("a breakdown request ('by district') is already scoped, needs no clarification",
-      not pipeline._needs_scope_clarification("person-days by district", _EMPTY))
-check("a cross-scheme geography-overlap question is inherently statewide",
-      not pipeline._needs_scope_clarification("how many districts are common to both schemes?", _EMPTY))
-check("a bare metric noun with no quantity word still needs a scope",
-      pipeline._needs_scope_clarification("show MGNREGA expenditure", _EMPTY))
+fb = understand.fallback_frame
+check("a question naming no scheme and no scheme-pinning vocabulary pins none -> rule 1 asks",
+      fb("how many beneficiaries were there last year?").resolved_schemes == []
+      and _asks(clarify_rules.before_resolution, fb("how many beneficiaries were there last year?"),
+                "how many beneficiaries were there last year?") == "scheme-not-specified")
+check("a question naming a scheme outright pins it",
+      fb("how many person-days under MGNREGA?").resolved_schemes == ["MGNREGA"])
+check("an explicit cross-scheme phrase pins every scheme",
+      len(fb("give me numbers across both schemes").resolved_schemes) >= 2)
+check("vocabulary that pins exactly one scheme pins it",
+      fb("what is the total sanctioned amount for houses?").resolved_schemes == ["PMAY-G"],
+      str(fb("what is the total sanctioned amount for houses?").resolved_schemes))
+
+
+# ── 2. top-N (rule 2) — only what the frame states ─────────────────────────
+print("2. TOP-N")
+
+F = understand.QueryFrame
+rank = F(schemes=["MGNREGA"], resolved_schemes=["MGNREGA"], metric="expenditure",
+         query_type="ranking", group_by="district")
+out = None
+rule = None
+try:
+    out = clarify_rules.before_resolution(rank, "top districts by expenditure")
+except pipeline.ClarificationNeeded as e:
+    rule = e.rule
+check("a ranking over a dimension with no count is handled by the top-N rule (asked or defaulted)",
+      rule == "ranking-count-not-specified" or any(t.startswith("top_n:default") for t in out.fired),
+      str(rule or out.fired))
+out = clarify_rules.before_resolution(rank.model_copy(update={"top_n": 5}), "top 5 districts by expenditure")
+check("an explicit count needs nothing", not any(t.startswith("top_n") for t in out.fired), str(out.fired))
+out = clarify_rules.before_resolution(rank.model_copy(update={"query_type": "list", "metric": "expenditure"}),
+                                      "list all districts by expenditure")
+check("'all districts' (a list) needs nothing", not any(t.startswith("top_n") for t in out.fired))
+out = clarify_rules.before_resolution(fb("which district spent the most under MGNREGA?"),
+                                      "which district spent the most under MGNREGA?")
+check("a fallback frame never guesses a ranking count", not any(t.startswith("top_n") for t in out.fired))
+
+
+# ── 3. area (rule 3) ────────────────────────────────────────────────────────
+print("3. AREA")
+
+check("a resolved district satisfies the area, nothing asked",
+      _after("how many person-days were generated in 2023-24?",
+             {"district": "EAST GARO HILLS", "year_key": 2023}) is None)
+try:
+    _fired = clarify_rules.after_resolution(fb("total person-days in 2023-24"), "total person-days in 2023-24",
+                                            ["MGNREGA"], {"year_key": 2023}).fired
+except pipeline.ClarificationNeeded as e:
+    _fired = [e.rule]
+check("no area named -> the disclosed statewide default, or the area question when there is none",
+      "area:default:statewide" in _fired or "scope-not-specified" in _fired, str(_fired))
+check("a breakdown request ('by district') is already scoped",
+      fb("person-days by district").group_by == "breakdown"
+      and _after("person-days by district in 2023-24", {"year_key": 2023}) is None)
+check("an all-years ask is read as stated",
+      bool(fb("total MGNREGA expenditure across all years").year_text))
 
 
 # ── 4. _admin_expenditure_clarification — scheme-specific vs. generic text ──

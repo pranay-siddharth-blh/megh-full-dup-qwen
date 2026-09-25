@@ -660,14 +660,15 @@ def fallback_frame(question: str) -> QueryFrame:
 # Called by pipeline._answer_data AND the LangGraph nodes (node_scope_scheme,
 # node_entities), so both paths read the frame identically.
 async def schemes_for_answer(frame: QueryFrame, question: str) -> tuple:
-    """(schemes, ScopeMeta): the frame's normalised schemes — no second
-    classifier call. The classifier only runs for a frame that pins none
-    (rule 1 normally asks before this is reached)."""
+    """(schemes, ScopeMeta): a model frame's normalised schemes — no second
+    classifier call. With a fallback frame (no model frame this turn), or a
+    frame that pins none, the pipeline's own scheme classification runs,
+    exactly as it did before the frame existed."""
     from app.orchestration import pipeline
 
-    if frame.resolved_schemes:
+    if frame.source == "model" and frame.resolved_schemes:
         return list(frame.resolved_schemes), pipeline.ScopeMeta(
-            confidence=1.0, source="frame" if frame.source == "model" else "text",
+            confidence=1.0, source="frame",
             reason="QueryFrame: " + "; ".join(f"{s} ({'+'.join(src)})"
                                               for s, src in frame.scheme_sources.items()))
     return await pipeline._classify_scheme_detailed(question)
@@ -748,6 +749,15 @@ def prepend_understanding(result: dict, typed: str, frame: QueryFrame) -> None:
 
 
 # ── deterministic SQL check against the frame ──────────────────────────────
+def sql_frame() -> "QueryFrame | None":
+    """The frame SQL generation reads (templates, REQUIRED FILTERS, the frame
+    SQL check): this turn's frame when the Understand model produced it. A
+    fallback frame states nothing the SQL step can use, so SQL is then
+    generated exactly as without a frame."""
+    frame = current_frame.get()
+    return frame if frame is not None and frame.source == "model" else None
+
+
 _TABLE_REF = re.compile(r"\b(?:curated|semantic)\.([a-z_][a-z0-9_]*)", re.IGNORECASE)
 _GROUP_BY_CLAUSE = re.compile(r"\bgroup\s+by\b(.*?)(?:\border\s+by\b|\blimit\b|\bhaving\b|\)|;|$)",
                               re.IGNORECASE | re.DOTALL)

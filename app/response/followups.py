@@ -502,7 +502,7 @@ def build_followups(route: str, question: str, schemes: list[str],
     to keep suggestions at the grain the answer is already at. `rows` is the
     result set, used to name the largest area when drilling one level deeper.
 
-    `frame` (FRAME_GATES_ENABLED): the turn's QueryFrame. When given, what was
+    `frame`: the turn's QueryFrame. When given, what was
     asked (metric / trend / comparison), which scheme(s) and the answer's grain
     come from the frame's slots instead of re-reading the question text — so a
     fragment follow-up ("and block wise?") still gets suggestions for the

@@ -88,12 +88,10 @@ def _args():
     ap.add_argument("--label", default="", help="suffix for the result file; 'baseline' also writes results/baseline.json")
     ap.add_argument("--compare", help="a previous results JSON to diff against")
     ap.add_argument("--persist", action="store_true", help="keep durable conversation/audit writes")
-    ap.add_argument("--frame-gates", action="store_true",
-                    help="FRAME_GATES_ENABLED=true: the QueryFrame drives the clarification gates "
-                         "(app/nlu/clarify_rules.py); the frame is recorded on every turn too")
-    ap.add_argument("--understand-shadow", action="store_true",
-                    help="UNDERSTAND_SHADOW=true: record the shadow QueryFrame on every turn "
-                         "(then run tests/eval/frame_agreement.py on the result)")
+    # Accepted for old command lines only: since Step 10 the QueryFrame always
+    # drives the gates and is recorded on every turn — there is nothing to switch.
+    ap.add_argument("--frame-gates", action="store_true", help=argparse.SUPPRESS)
+    ap.add_argument("--understand-shadow", action="store_true", help=argparse.SUPPRESS)
     ap.add_argument("--rescore", metavar="RESULTS_JSON",
                     help="re-score a saved run against the current cases.yaml (no live calls)")
     return ap.parse_args()
@@ -109,10 +107,6 @@ os.environ["SEMANTIC_CACHE_ENABLED"] = "false"
 os.environ["REDIS_URL"] = ""
 if not ARGS.persist:
     os.environ["AUDIT_FILE"] = str(RESULTS / f"{RUN_ID}_audit.jsonl")
-if ARGS.understand_shadow:
-    os.environ["UNDERSTAND_SHADOW"] = "true"
-if ARGS.frame_gates:
-    os.environ["FRAME_GATES_ENABLED"] = "true"
 if ARGS.flags_on:
     for k in ("PIPELINE_GRAPH_ENABLED", "LANGGRAPH_FOLLOWUP_ENABLED", "TENANT_SCHEME_RLS_ENABLED"):
         os.environ[k] = "true"
@@ -521,8 +515,7 @@ async def main():
         "git": _git(), "cases_sha256": hashlib.sha256(raw).hexdigest()[:16],
         "flags": {k: getattr(settings, k) for k in ("PIPELINE_GRAPH_ENABLED", "LANGGRAPH_FOLLOWUP_ENABLED",
                                                     "TENANT_SCHEME_RLS_ENABLED", "PIPELINE_GRAPH_CANARY_PERCENT",
-                                                    "UNDERSTAND_SHADOW", "ENTITY_RESOLVER_SQUASH_FUZZY_ENABLED",
-                                                    "FRAME_GATES_ENABLED")},
+                                                    "ENTITY_RESOLVER_SQUASH_FUZZY_ENABLED")},
         "models": {k: getattr(settings, k) for k in ("CLASSIFIER_MODEL", "SQL_GENERATION_MODEL",
                                                      "RESPONSE_MODEL", "SQL_VERIFY_MODEL", "UNDERSTAND_MODEL")},
         "filters": {"filter": ARGS.filter, "source": ARGS.source, "limit": ARGS.limit},

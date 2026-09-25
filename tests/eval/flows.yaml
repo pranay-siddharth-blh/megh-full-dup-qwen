@@ -6,8 +6,7 @@
 #
 # expect.kind "resolved": pass when the final turn is a data answer with rows
 # and every listed resolved entity / scheme matches. These flows exercise the
-# FRAME_GATES_ENABLED slot-filling resume (Step 5); without it the "District"
-# chip does not exist and the flow is expected to fail.
+# frame slot-filling resume (app/nlu/frame_merge.py) and follow-up merge.
 flows:
   - id: flow-expenditure-mgnrega-westgaro
     scheme: MGNREGA

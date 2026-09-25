@@ -78,6 +78,7 @@ except ImportError:  # pragma: no cover
     AsyncPostgresSaver = None  # type: ignore[assignment, misc]
 
 from app.core import auth
+from app.nlu import clarify_rules, understand
 from app.orchestration import pipeline
 from app.core.config import settings
 
@@ -127,9 +128,9 @@ class PipelineGraphState(TypedDict, total=False):
     result_findings: list[dict]
     result_chart_type: "str | None"
     restart: bool                         # True after a §5.4 pause resumes; routes back to 5.1
-    # FRAME_GATES_ENABLED only (app/nlu/clarify_rules.py): the defaults node 5.1's
-    # gates applied (e.g. top-N) and its rule trace, carried to node 5.3 where
-    # they join entity_result["notes"] / ["assumptions"] with its own.
+    # app/nlu/clarify_rules.py: the defaults node 5.1's gates applied (e.g.
+    # top-N) and its rule trace, carried to node 5.3 where they join
+    # entity_result["assumptions"] / ["gate_trace"] with its own.
     gate_assumptions: list[str]
     gate_trace: list[str]
     denial: "dict | None"                 # auth.AuthDecision as a plain dict — see node_execute_attempt
@@ -212,10 +213,11 @@ async def node_scope_scheme(state: PipelineGraphState) -> dict:
     unsupported = pipeline._unsupported_scheme_named(question)
     if unsupported:
         raise pipeline._unsupported_scheme_clarification(question, unsupported)
-    # Scheme + top-N gates — the same shared helper _answer_data calls, so both
-    # paths gate identically (frame-driven under FRAME_GATES_ENABLED).
-    question, gate_assumptions, gate_trace = pipeline._gates_before_resolution(question)
-    schemes, scope_meta = await pipeline._schemes_for_answer(question)
+    # Scheme + metric / top-N gates on the QueryFrame — the same shared helper
+    # _answer_data calls, so both paths gate identically.
+    question, gate_assumptions, gate_trace = clarify_rules.gates_before_resolution(question)
+    schemes, scope_meta = await understand.schemes_for_answer(
+        clarify_rules.gate_frame(question), question)
     scope_trace = {
         "schemes": schemes,
         "confidence": scope_meta.confidence,
@@ -251,15 +253,15 @@ async def node_entities(state: PipelineGraphState) -> dict:
     local variable before interrupt().
 
     node_clarification_gate's own pauses (5.3) are deliberately NOT split
-    the same way — its own pre-interrupt work (detect_region,
-    _needs_scope/_year/_tranche_clarification, clarification_engine) is
+    the same way — its own pre-interrupt work (detect_region, the
+    clarify_rules area/year/tranche rules, clarification_engine) is
     cheap, deterministic, no LLM/DB call, so replaying it on resume costs
     microseconds, not a wasted real request — not the failure mode this
     fix exists for.
     """
     try:
-        entity_result = await pipeline._resolve_for_answer(
-            state["question"], state["schemes"],
+        entity_result = await understand.resolve_for_answer(
+            clarify_rules.gate_frame(state["question"]), state["question"], state["schemes"],
             prior_resolved=state.get("prior_resolved"),
             village_hint=state.get("village_hint"))
     except pipeline.ClarificationNeeded as e:
@@ -320,8 +322,8 @@ async def node_clarification_gate(state: PipelineGraphState) -> dict:
                 entity_result["resolved"]["district_list_region"] = region["canonical"]
                 entity_result["display"]["district"] = region["canonical"]
 
-        # Scope / year / tranche — the same shared helper _answer_data calls.
-        question = pipeline._gates_after_resolution(
+        # Area / year / tranche — the same shared helper _answer_data calls.
+        question = clarify_rules.gates_after_resolution(
             question, schemes, entity_result,
             skip_scope_clarify=bool(state.get("skip_scope_clarify")),
             prior_resolved=state.get("prior_resolved"),
@@ -501,10 +503,9 @@ async def node_assemble(state: PipelineGraphState) -> dict:
         "findings": state["result_findings"],
         "chart_type": state["result_chart_type"],
         "analysis": state.get("analysis"),
-        # Same condition and shape as _answer_data's return (field-for-field parity).
-        **({"assumptions": state["entity_result"].get("assumptions") or [],
-            "gate_trace": state["entity_result"].get("gate_trace") or []}
-           if pipeline._gate_frame() is not None else {}),
+        # Same shape as _answer_data's return (field-for-field parity).
+        "assumptions": state["entity_result"].get("assumptions") or [],
+        "gate_trace": state["entity_result"].get("gate_trace") or [],
     }
     return {"response": response}
 

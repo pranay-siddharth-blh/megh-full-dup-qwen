@@ -1,12 +1,12 @@
 """
 Frame-driven clarification gates — app/nlu/clarify_rules.py and the shared
-pipeline helpers that _answer_data AND the LangGraph nodes call
-(settings.FRAME_GATES_ENABLED).
+gate helpers (clarify_rules.gates_*) that _answer_data AND the LangGraph
+nodes call.
 
 Covers each of the 5 ordered rules (ask vs. default), that defaults come from
 data/*/*_default_rules.yaml with their assumption_text recorded, that asks
 reuse the existing builders' exact questions/options (the UI does not
-change), that the flag OFF path is the original regex predicates untouched,
+change), that a turn with no model frame gates on the fallback frame,
 _answer_data end to end on a frame (frame schemes/entities reused, assumptions
 reach compose_response), LangGraph node parity with _answer_data, and the
 _run_pipeline wrapper publishing/resetting the frame. No DB, no gateway.
@@ -155,28 +155,26 @@ try:
 finally:
     defaults_engine._load_scheme_rules = orig_rules
 
-print("\n=== flag OFF: the original regex predicates, untouched ===")
-settings.FRAME_GATES_ENABLED = False
-token = u.current_frame.set(F(schemes=["MGNREGA"]))           # a frame present must be IGNORED when off
-calls = []
-orig = {n: getattr(pipeline, n) for n in ("_needs_scheme_clarification", "_needs_topn_clarification",
-                                          "_needs_scope_clarification", "_needs_year_clarification",
-                                          "_needs_tranche_clarification")}
-for n in orig:
-    setattr(pipeline, n, (lambda name: (lambda *a, **k: calls.append(name) or False))(n))
+print("\n=== no model frame: the gates read the fallback frame (no regex predicates left) ===")
+check("the old _needs_* regex predicates are gone",
+      not any(hasattr(pipeline, n) for n in ("_needs_scheme_clarification", "_needs_topn_clarification",
+                                             "_needs_scope_clarification", "_needs_year_clarification",
+                                             "_needs_tranche_clarification")))
+check("no frame published this turn", u.current_frame.get() is None)
+q, assumed, trace = clarify_rules.gates_before_resolution("total manrega expenditure")
+check("fallback frame: scheme read from the text (misspelt), nothing guessed",
+      q == "total manrega expenditure" and assumed == [] and trace[:1] == ["scheme:ok"], str(trace))
+e = asks(clarify_rules.gates_before_resolution, "how many beneficiaries were there last year?")
+check("fallback frame: no scheme in the text -> rule 1 asks", e is not None and e.rule == "scheme-not-specified")
+check("gate_frame() with no published frame -> the fallback frame",
+      clarify_rules.gate_frame("anything").source == "fallback")
+_tok = u.current_frame.set(F(schemes=["PMAY-G"], resolved_schemes=["PMAY-G"]))
 try:
-    q, assumed, trace = pipeline._gates_before_resolution("total manrega expenditure")
-    pipeline._gates_after_resolution("q", ["MGNREGA"], {"resolved": {}, "notes": []},
-                                     skip_scope_clarify=False, prior_resolved=None)
-    check("all five old predicates consulted", calls == list(orig), str(calls))
-    check("question unchanged, nothing assumed", q == "total manrega expenditure" and assumed == [] and trace == [])
+    check("... and returns it when one is published", clarify_rules.gate_frame("x").resolved_schemes == ["PMAY-G"])
 finally:
-    for n, fn in orig.items():
-        setattr(pipeline, n, fn)
-    u.current_frame.reset(token)
+    u.current_frame.reset(_tok)
 
-print("\n=== flag ON: _answer_data end to end on a frame ===")
-settings.FRAME_GATES_ENABLED = True
+print("\n=== _answer_data end to end on a frame ===")
 frame = F(rewritten_question="What is the total MGNREGA expenditure in EKH?", schemes=["MGNREGA"],
           metric="total expenditure", query_type="value", geo_mentions=[{"text": "EKH"}])
 frame.entity_result = {"resolved": {"district": "EAST KHASI HILLS"}, "notes": [],
@@ -296,10 +294,9 @@ try:
     check("frame reset after the turn", u.current_frame.get() is None)
     u.build_frame = _build_fail
     asyncio.run(pipeline._run_pipeline("x"))
-    check("frame failed -> body sees None (old gates this turn)", seen_frames[-1] is None)
+    check("frame failed -> body sees None (the gates then read the fallback frame)", seen_frames[-1] is None)
 finally:
     pipeline._run_pipeline_body, u.build_frame, u.normalise_frame = orig_body, orig_build, orig_norm
-    settings.FRAME_GATES_ENABLED = False
 
 print()
 if _fails:

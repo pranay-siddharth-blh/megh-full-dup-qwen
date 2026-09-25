@@ -1,15 +1,18 @@
 """
-Understand node (app/nlu/understand.py) + its SHADOW wiring in
-app/orchestration/pipeline.py::_run_pipeline.
+Understand node (app/nlu/understand.py) + its wiring in
+app/orchestration/pipeline.py::_run_pipeline (frame built first, via
+app/nlu/frame_merge.frame_for_turn).
 
 Covers: vocabulary grounding read from the pipeline's own regexes / registry /
 rule files, prompt contents (schemes, aliases, few-shots, last turns, state,
 pending clarification), the context snapshot being taken before the pipeline
 consumes the pending pause, the guided-JSON call contract (qwen4-deploy via
 the verifier's credentials, temperature 0), field-by-field coercion, the
-deterministic guard flags, never-raise behaviour, and that shadow mode changes
-nothing the pipeline returns — including on a clarification pause, a slow
-frame, and a cancelled request. The model is mocked; no DB, no gateway.
+deterministic guard flags, never-raise behaviour, and that the frame is
+built before the body and recorded on the session — including on a
+clarification pause (which records the frame + slot), a slow frame (the turn
+still answers, on the fallback frame), and a cancelled request. The model is
+mocked; no DB, no gateway.
 Run: `python tests/unit/test_understand.py`, exit code 0 = pass.
 """
 import asyncio
@@ -62,9 +65,12 @@ def _session(pending: str | None = None) -> Session:
                for i in range(5)]
     s.state = ConversationState(scheme="PMAY-G", district="EAST KHASI HILLS")
     if pending:
-        s.state.pending_scope_q = pending
-        s.state.pending_options = [{"label": "FY 2023-24", "question": pending + " for FY 2023-24"},
-                                   {"label": "All financial years combined", "question": pending + " all years"}]
+        s.state.pending_frame = {
+            "frame": {"rewritten_question": pending, "schemes": ["MGNREGA"]}, "slot": "year",
+            "rule": "year-not-specified", "asked": "Which financial year?", "base_question": pending,
+            "options": [{"label": "FY 2023-24", "question": pending + " for FY 2023-24"},
+                        {"label": "All financial years combined", "question": pending + " all years"}],
+            "level": None, "kind": "pause"}
     return s
 
 
@@ -86,9 +92,10 @@ ctx = u.snapshot_context(sess)
 check("only the last UNDERSTAND_HISTORY_TURNS turns", len(ctx["recent_turns"]) == settings.UNDERSTAND_HISTORY_TURNS)
 check("turn entities carried", ctx["recent_turns"][-1].get("entities") == {"district": "EAST KHASI HILLS"})
 check("state carried", ctx["state"].get("scheme") == "PMAY-G")
-check("pending question + option labels captured",
+check("pending question + what was asked + option labels captured",
       ctx["pending"] == {"question": "How many households got employment under MGNREGA",
-                         "options": ["FY 2023-24", "All financial years combined"]})
+                         "asked": "Which financial year?",
+                         "options": ["FY 2023-24", "All financial years combined"]}, str(ctx["pending"]))
 check("no session => empty context", u.snapshot_context(None) == {})
 prompt = u.build_prompt("all of meghalaya, all years", ctx)
 check("prompt carries the message", '"all of meghalaya, all years"' in prompt)
@@ -174,14 +181,14 @@ g = u.guard_flags(u.QueryFrame(**{**GOOD_FRAME, "answers_pending": True, "geo_me
                   "mgnrega", {})
 check("answers_pending with nothing pending is flagged", any("nothing pending" in x for x in g), str(g))
 
-print("\n=== shadow wiring in _run_pipeline ===")
+print("\n=== _run_pipeline: the frame is built first ===")
 RESULT = {"route": "data", "answer": "42", "schemes": ["MGNREGA"]}
 seen_ctx = []
+seen_frame = []
 
 
-async def _body(question, session=None, scope=None, frame_followup=None, frame_intent=None):
-    if session is not None and session.state.pending_scope_q:
-        session.state.pending_scope_q = None          # the real body consumes the pause first
+async def _body(question, session=None, scope=None, frame_followup=False, frame_intent=None):
+    seen_frame.append(u.current_frame.get())
     await asyncio.sleep(0.01)
     return dict(RESULT)
 
@@ -201,26 +208,26 @@ orig_body, orig_build, orig_norm = pipeline._run_pipeline_body, u.build_frame, u
 pipeline._run_pipeline_body = _body
 u.build_frame = _frame
 u.normalise_frame = _normalise_passthrough
-orig_flag, orig_to = settings.UNDERSTAND_SHADOW, settings.UNDERSTAND_TIMEOUT_SECONDS
+orig_to = settings.UNDERSTAND_TIMEOUT_SECONDS
 try:
-    settings.UNDERSTAND_SHADOW = False
     s = _session()
     r = asyncio.run(pipeline._run_pipeline("q", session=s))
-    check("flag off: no Understand call", not seen_ctx)
-    check("flag off: result unchanged", r == RESULT)
-    check("flag off: no frame on session", s.understand_frame is None)
-
-    settings.UNDERSTAND_SHADOW = True
-    s = _session(pending="How many households got employment under MGNREGA")
-    r = asyncio.run(pipeline._run_pipeline("all years", session=s))
-    check("flag on: result identical to the pipeline's own", r == RESULT)
-    check("flag on: frame stored on session, tagged with its message",
+    check("one Understand call per message", len(seen_ctx) == 1)
+    check("the body ran with the frame published", seen_frame[-1] is not None
+          and _llm_part(seen_frame[-1].model_dump()) == GOOD_FRAME)
+    check("the pipeline's answer is kept (after any Understood-as line)",
+          r["route"] == "data" and r["answer"].endswith("42"), r["answer"])
+    check("frame stored on session, tagged with its message",
           s.understand_frame and _llm_part(s.understand_frame["frame"]) == GOOD_FRAME
-          and s.understand_frame["question"] == "all years")
-    check("flag on: context snapshot taken BEFORE the body consumed the pause",
+          and s.understand_frame["question"] == "q")
+    check("frame reset after the turn", u.current_frame.get() is None)
+
+    s = _session(pending="How many households got employment under MGNREGA")
+    asyncio.run(pipeline._run_pipeline("all years", session=s))
+    check("context snapshot taken BEFORE the pause was consumed",
           (seen_ctx[-1].get("pending") or {}).get("question") == "How many households got employment under MGNREGA")
 
-    async def _pause(question, session=None, scope=None, frame_followup=None, frame_intent=None):
+    async def _pause(question, session=None, scope=None, frame_followup=False, frame_intent=None):
         raise pipeline.ClarificationNeeded("Which year?", rule="year-not-specified")
     pipeline._run_pipeline_body = _pause
     s = _session()
@@ -228,7 +235,9 @@ try:
         asyncio.run(pipeline._run_pipeline("mgnrega spend", session=s))
         check("clarification pause still propagates", False, "no exception")
     except pipeline.ClarificationNeeded as e:
-        check("clarification pause still propagates unchanged", e.rule == "year-not-specified")
+        check("clarification pause propagates", e.rule == "year-not-specified")
+        check("... carrying the frame + the slot it asks",
+              (getattr(e, "pending_frame", None) or {}).get("slot") == "year")
     check("frame recorded for a paused turn too",
           s.understand_frame and _llm_part(s.understand_frame["frame"]) == GOOD_FRAME)
 
@@ -239,9 +248,11 @@ try:
     settings.UNDERSTAND_TIMEOUT_SECONDS = 0.05
     s = _session()
     r = asyncio.run(pipeline._run_pipeline("q", session=s))
-    check("slow frame: answer still returned unchanged", r == RESULT)
+    check("slow frame: answer still returned", r["route"] == "data" and r["answer"] == "42", str(r))
+    check("slow frame: no model frame published (the gates read the fallback frame)", seen_frame[-1] is None)
     check("slow frame: recorded as an error, not a frame",
-          s.understand_frame["frame"] is None and "shadow wait" in s.understand_frame["meta"]["error"])
+          s.understand_frame["frame"] is None and "Timeout" in s.understand_frame["meta"]["error"],
+          str(s.understand_frame))
 
     async def _cancel_run():
         t = asyncio.create_task(pipeline._run_pipeline("q", session=_session()))
@@ -255,15 +266,15 @@ try:
     check("cancelled request is not held up waiting for the frame", asyncio.run(_cancel_run()) == "cancelled")
 finally:
     pipeline._run_pipeline_body, u.build_frame, u.normalise_frame = orig_body, orig_build, orig_norm
-    settings.UNDERSTAND_SHADOW, settings.UNDERSTAND_TIMEOUT_SECONDS = orig_flag, orig_to
+    settings.UNDERSTAND_TIMEOUT_SECONDS = orig_to
 
 print("\n=== audit helper ===")
 sess = session_store.ensure("t-audit-frame", "u")
 sess.understand_frame = {"frame": GOOD_FRAME, "meta": {}, "question": "hello"}
 check("audit logs the frame for its own message",
-      query_router._shadow_frame_for("t-audit-frame", "hello") is sess.understand_frame)
+      query_router._turn_frame_for("t-audit-frame", "hello") is sess.understand_frame)
 check("audit ignores a frame from another message (cache-hit turn)",
-      query_router._shadow_frame_for("t-audit-frame", "different") is None)
+      query_router._turn_frame_for("t-audit-frame", "different") is None)
 
 print()
 if _fails:
