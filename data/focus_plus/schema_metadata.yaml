@@ -1,13 +1,13 @@
 # schema_metadata.yaml — Focus Plus (second scheme, onboarding proof)
 #
-# Source: condensed from app/schema_context.py's hand-curated Focus Plus
+# Source: condensed from app/sql/schema_context.py's hand-curated Focus Plus
 # blocks (_FOCUSPLUS_TABLES, _FOCUSPLUS_RULES, _FOCUSPLUS_VOCAB) and
 # scheme_registry.yaml's table list — re-expressed as embeddable prose for
 # the schema-retrieval node, following the exact same pattern as CM
 # Elevate's schema_metadata.yaml (the pilot). Written to prove
 # docs/scheme-onboarding.md's onboarding flow end to end (task 4.2).
 #
-# Read by app/schema_metadata_ingest.py.
+# Read by app/knowledge/schema_metadata_ingest.py.
 
 scheme:
   id: Focus Plus

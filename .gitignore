@@ -43,3 +43,7 @@ NeuralAiGovernanceProject*.zip
 .idea/
 .DS_Store
 Thumbs.db
+
+# Eval run outputs (tests/eval/run_eval.py) — large, and the audit logs carry
+# real megh_db answers/rows. The harness recreates the directory on each run.
+tests/eval/results/

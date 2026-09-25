@@ -26,10 +26,10 @@
 --
 -- SECTION A — curated/semantic scheme data.
 --   Safe to apply once app.schemes/app.tenant_schemes are populated (they
---   are created and seeded automatically by app/appdb.py + a startup call
---   to app/scheme_registry.py::sync_to_db() — no manual step needed for
---   those two tables). The app's query path (app/routers/query.py wraps
---   /api/query in app.db.set_tenant_context()) is wired to set the
+--   are created and seeded automatically by app/database/appdb.py + a startup call
+--   to app/knowledge/scheme_registry.py::sync_to_db() — no manual step needed for
+--   those two tables). The app's query path (app/api/routers/query.py wraps
+--   /api/query in app.database.db.set_tenant_context()) is wired to set the
 --   session GUCs this section's policies read.
 --
 --   IMPORTANT — Postgres cannot enable RLS on a VIEW, only on a real table
@@ -75,9 +75,9 @@
 --
 -- SECTION B — app schema (app.users/conversations/etc).
 --   DO NOT APPLY until every endpoint that reads these tables sets the
---   tenant context (app.db.set_tenant_context()) — as of this writing that
---   is only wired for /api/query. app/routers/admin.py, app/routers/
---   history.py, and the login flow in app/routers/auth.py all read/write
+--   tenant context (app.database.db.set_tenant_context()) — as of this writing that
+--   is only wired for /api/query. app/api/routers/admin.py, app/api/routers/
+--   history.py, and the login flow in app/api/routers/auth.py all read/write
 --   these tables today WITHOUT setting the context; enabling RLS here
 --   before wiring them would make those endpoints see zero rows (a
 --   superadmin's tenant_id=None "all tenants" queries would get nothing
@@ -108,7 +108,7 @@ AS $$
 $$;
 
 COMMENT ON FUNCTION app.tenant_has_scheme_access(TEXT) IS
-    'RLS policy predicate for curated/semantic scheme-owned tables (openspec/changes/multi-tenant-rls-scheme-scaleout). current_setting(..., true) returns NULL when app/db.py has not set the GUC (a code path not yet wired through app.db.set_tenant_context()); NULLIF(...,'''')::bigint on an empty/NULL string is also NULL; the EXISTS check correctly evaluates to false (default-deny) in either case rather than erroring.';
+    'RLS policy predicate for curated/semantic scheme-owned tables (openspec/changes/multi-tenant-rls-scheme-scaleout). current_setting(..., true) returns NULL when app/database/db.py has not set the GUC (a code path not yet wired through app.database.db.set_tenant_context()); NULLIF(...,'''')::bigint on an empty/NULL string is also NULL; the EXISTS check correctly evaluates to false (default-deny) in either case rather than erroring.';
 
 -- ---------------------------------------------------------------------------
 -- Section A.2 — policy generator. Reads curated.table_scheme_map (populate
@@ -122,7 +122,7 @@ COMMENT ON FUNCTION app.tenant_has_scheme_access(TEXT) IS
 -- schema, which megh_app does NOT have (SELECT-only, by design — see
 -- 01_create_megh_app_role.sql section 2) — so, unlike app.schemes/
 -- app.tenant_schemes, this table is created here, by a superuser, not by
--- app/appdb.py's runtime DDL.
+-- app/database/appdb.py's runtime DDL.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS curated.table_scheme_map (
     table_schema TEXT NOT NULL,
@@ -243,12 +243,12 @@ $$;
 --
 -- Re-audited 2026-09-15 (multi-tenant-rls-scheme-scaleout tasks.md 2.2):
 -- this section's own comment ("admin.py/history.py/auth.py are not wired to
--- set_tenant_context() yet") had gone stale — app/routers/admin.py and
--- app/routers/history.py already depend on app.deps.require_admin/
--- require_user, which chain through app.deps.tenant_scoped, which already
+-- set_tenant_context() yet") had gone stale — app/api/routers/admin.py and
+-- app/api/routers/history.py already depend on app.api.deps.require_admin/
+-- require_user, which chain through app.api.deps.tenant_scoped, which already
 -- calls set_tenant_context()/reset_tenant_context() around every request.
 -- The two real gaps found on re-verification, now fixed:
---   1. app/routers/auth.py's login()/bootstrap() — no scope exists yet at
+--   1. app/api/routers/auth.py's login()/bootstrap() — no scope exists yet at
 --      that point (that's what they produce), so there is no tenant to
 --      derive context from; the username lookup is inherently cross-tenant.
 --      Fixed: both now wrap their body in set_tenant_context(None, bypass=True).
@@ -281,7 +281,7 @@ ALTER TABLE app.tenant_schemes     FORCE ROW LEVEL SECURITY;
 -- attempt, or a request that never resolved a user) — a NULL row matches
 -- no tenant under this predicate, same default-deny posture as the
 -- curated-data policy in Section A, not a special case needing its own
--- clause. bypass covers both super_admin (app/deps.py::tenant_scoped) and
+-- clause. bypass covers both super_admin (app/api/deps.py::tenant_scoped) and
 -- the two system-level cases above (login/bootstrap, startup seeding).
 DROP POLICY IF EXISTS tenant_isolation ON app.users;
 CREATE POLICY tenant_isolation ON app.users USING (

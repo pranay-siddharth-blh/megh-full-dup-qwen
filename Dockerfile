@@ -57,12 +57,13 @@ ENV PATH="/opt/venv/bin:$PATH" \
 COPY --from=builder /opt/venv /opt/venv
 COPY --from=builder /opt/hf-cache /opt/hf-cache
 
-# The tree must keep its shape: app/ resolves data/ and web/ as siblings
-# (Path(__file__).resolve().parents[1]). WORKDIR is that parent.
+# The tree must keep its shape: app/ resolves config/, data/ and web/ as siblings
+# (repo root, via Path(__file__).resolve().parents[N]). WORKDIR is that root.
 WORKDIR /opt/meghalaya
-COPY app/   ./app/
-COPY data/  ./data/
-COPY web/   ./web/
+COPY app/    ./app/
+COPY config/ ./config/
+COPY data/   ./data/
+COPY web/    ./web/
 COPY certs/ ./certs/
 
 # logs/ is gitignored (contents only); create it writable for the non-root user.

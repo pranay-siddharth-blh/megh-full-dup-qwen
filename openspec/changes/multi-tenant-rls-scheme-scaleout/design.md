@@ -51,8 +51,8 @@ This directly answers the "25 schemes" scale concern: onboarding scheme
 recommendation rather than separate sign-off): effective access =
 `tenant_schemes ∩ role_scheme_cap` — the role stays a ceiling
 (`ROLE_PERMISSIONS`'s lists are unchanged), the tenant grant only narrows
-it. Implemented in `app/auth.py::scope_from_user`, tested in
-`tests/test_tenant_scheme_entitlements.py` §§1-2.
+it. Implemented in `app/core/auth.py::scope_from_user`, tested in
+`tests/unit/test_tenant_scheme_entitlements.py` §§1-2.
 
 ## 2. Session-GUC mechanism (RLS enforcement point)
 
@@ -61,12 +61,12 @@ Postgres RLS policies read session state via `current_setting(name, true)`
 request, not per pooled connection (connections are reused across
 tenants).
 
-- `app/db.py`'s query-execution helper wraps each request's DB work in an
+- `app/database/db.py`'s query-execution helper wraps each request's DB work in an
   explicit transaction and issues `SELECT set_config('app.current_tenant_id', $1, true)`
   (the `true` = transaction-local, auto-resets — critical for a pooled
   connection reused by the next request) as the **first** statement,
   before any query the request itself issues.
-- `UserScope` (already resolved per-request in `app/auth.py`) is the
+- `UserScope` (already resolved per-request in `app/core/auth.py`) is the
   source of the tenant id — no new resolution logic needed, just threading
   it into the DB call.
 - A second local GUC, `app.tenant_bypass`, is set to `'on'` **only** when
@@ -155,9 +155,9 @@ enabled — always visible, matching `scheme_registry.yaml`'s existing
 `shared` semantics exactly.
 
 **Flag-off fallback — resolved** (`tasks.md` 0.2): option (a). With
-`TENANT_SCHEME_RLS_ENABLED=false`, `app/db.py` never issues the
+`TENANT_SCHEME_RLS_ENABLED=false`, `app/database/db.py` never issues the
 `set_config` call (confirmed: `set_tenant_context()` returns a no-op token
-when the flag is off, see `tests/test_tenant_scheme_entitlements.py` §5),
+when the flag is off, see `tests/unit/test_tenant_scheme_entitlements.py` §5),
 **and** the RLS migration itself
 (`deploy/sql/03_tenant_scheme_rls.sql`) is a standalone script never run
 automatically by app startup — so flag-off means "this mechanism doesn't
@@ -178,9 +178,9 @@ original recommendation here.
   **not** need a `tenant_id` field, and `node_execute_attempt` needs no
   RLS-specific change at all. It calls `pipeline._execute_one_attempt` —
   the exact same function the bespoke path calls — which reaches
-  `app.db.run_readonly()`, and §2's session-GUC mechanism there is a
+  `app.database.db.run_readonly()`, and §2's session-GUC mechanism there is a
   `contextvars.ContextVar` set once per HTTP request
-  (`app/routers/query.py`'s outer wrapper), not an explicit parameter any
+  (`app/api/routers/query.py`'s outer wrapper), not an explicit parameter any
   caller has to thread through. Whichever code path (`_answer_data` or
   `pipeline_graph`) ends up calling `run_readonly()` picks up the same
   request-scoped tenant context automatically. Confirmed by reading
@@ -190,11 +190,11 @@ original recommendation here.
   resolved — until then, SQLite checkpointing is fine for a canary
   rollout since checkpoint state is process-local durability, not a
   security boundary. **Not yet done** — still SQLite by default.
-- `app/langgraph_followup.py` retirement: once `pipeline_graph.py` is
+- `app/orchestration/langgraph_followup.py` retirement: once `pipeline_graph.py` is
   confirmed to handle all 3 pause types (`scope-not-specified`,
   `year-not-specified`, `entity-ambiguous`) at parity, delete the
   `LANGGRAPH_FOLLOWUP_ENABLED` flag and its call sites in
-  `app/routers/query.py:10,133,141,143` in the same task group that
+  `app/api/routers/query.py:10,133,141,143` in the same task group that
   finishes the cutover — not left running in parallel indefinitely.
   **Not yet done** — both flags/modules still coexist; see §4a below for
   why the compat adapter implemented so far doesn't yet establish full
@@ -210,7 +210,7 @@ raises `ClarificationNeeded` for a pause; `answer_data_via_graph` *returns*
 `{"paused": True, "clarification": {...}, "thread_id": ...}`. A naive swap
 would make every pause-eligible clarification silently fall through
 `_run_pipeline`'s `except ClarificationNeeded` handling and reach
-`app/routers/query.py` as if it were a normal, successful answer —
+`app/api/routers/query.py` as if it were a normal, successful answer —
 missing `answer`/`sql`/`data` fields, a broken response for the frontend.
 
 **The fix**: `pipeline_graph.answer_data_via_graph_compat()` — same
@@ -236,9 +236,9 @@ edges looping back to node 5.1 on a resume within the same graph
 invocation) rather than across requests.
 
 Why this boundary, not the "more complete" version: a real cross-request
-LangGraph resume would require `app/routers/query.py` and
-`app/session_store.py` to track a `thread_id` per session (mirroring
-`app/langgraph_followup.py::is_paused`) and branch to `resume_via_graph`
+LangGraph resume would require `app/api/routers/query.py` and
+`app/conversation/session_store.py` to track a `thread_id` per session (mirroring
+`app/orchestration/langgraph_followup.py::is_paused`) and branch to `resume_via_graph`
 instead of a fresh `answer_data_via_graph_compat` call — a second,
 separable piece of work with its own risk (two different resume
 mechanisms would need to agree on which "owns" a given pause) that doesn't
@@ -247,11 +247,11 @@ conditional branches and pause/resume running through LangGraph's own
 primitives, not ad-hoc code — is met. It's tracked as explicit follow-up in
 `tasks.md`, not silently dropped.
 
-**What is and isn't verified**: `tests/test_pipeline_graph_cutover.py`
+**What is and isn't verified**: `tests/unit/test_pipeline_graph_cutover.py`
 confirms (a) the pause→exception conversion in isolation, and (b) that
 `_run_pipeline`'s flag branch actually calls the graph adapter when on and
 `_answer_data` when off, using the same mocked-LLM/DB boundary
-`tests/test_pipeline_graph.py` already established. What is **not**
+`tests/unit/test_pipeline_graph.py` already established. What is **not**
 verified, and cannot be from this environment: real LLM output quality and
 real Postgres data through the graph path, across all 4 schemes — the
 existing test suite for `pipeline_graph.py` is explicitly mocked-only (no
@@ -261,12 +261,12 @@ to `True` in any real deployment, not a formality.
 
 ## 5. Scheme scale-out mechanics — implemented 2026-09-15
 
-- `app/join_graph.py` reload: `POST /admin/reload-join-graph`
-  (`app/routers/admin.py` — matches this repo's actual `/admin` prefix;
+- `app/sql/join_graph.py` reload: `POST /admin/reload-join-graph`
+  (`app/api/routers/admin.py` — matches this repo's actual `/admin` prefix;
   not `/api/admin/...` as first sketched here) calls
   `join_graph.build(force=True)` so a new scheme's FK-augmentation YAML
   doesn't require a process restart.
-- `schema_context.py` growth checkpoint: `app/scheme_registry.py::warn_if_scheme_count_high()`,
+- `schema_context.py` growth checkpoint: `app/knowledge/scheme_registry.py::warn_if_scheme_count_high()`,
   called from `app/main.py`'s startup — a log warning (not a hard limit)
   once the in-memory registry's scheme count exceeds
   `SCHEME_COUNT_WARN_THRESHOLD` (10, a judgment call, not a measured

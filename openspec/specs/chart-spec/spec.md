@@ -15,7 +15,7 @@ methodology gap that produced it). Its `buildAnalytics(question, data,
 hintType)` function (`ai_query.html:2037-2165`) already reads
 `response.chart_type` (`ai_query.html:2479`) and already implements full
 client-side rendering for a closed, six-value vocabulary. This spec does
-not design a new contract — it specifies the value `app/chart_spec.py`
+not design a new contract — it specifies the value `app/response/chart_spec.py`
 must compute to drive rendering logic that already exists and is already
 wired to consume it. Every requirement and scenario below cites the
 exact `ai_query.html` branch it matches, so `buildAnalytics()` is the
@@ -142,7 +142,7 @@ neither case does the client error or fabricate a chart.
 ### Requirement: chart_type is a closed-vocabulary string or None, with no charting-library dependency
 The emitted `chart_type` SHALL be one of the six literal strings `bar`,
 `doughnut`, `line`, `grouped_bar`, `stacked`, `kpi_bar`, or the value
-`None` — never any other string. `app/chart_spec.py` SHALL import no
+`None` — never any other string. `app/response/chart_spec.py` SHALL import no
 charting or visualization library (e.g. no Vega-Lite, Altair, or
 matplotlib import anywhere in that module). An unrecognized string is not
 defined behavior for this module to produce: `buildAnalytics` does not
@@ -156,7 +156,7 @@ just less honest about it.
 - **WHEN** a chart_type is produced for any supported result shape
 - **THEN** it SHALL be one of the six defined string literals, SHALL
   serialize via the standard library `json` module without error, and
-  `app/chart_spec.py`'s import list SHALL contain no
+  `app/response/chart_spec.py`'s import list SHALL contain no
   charting/visualization library
 
 ### Requirement: `chart_type` is always present in the response, `null` when not applicable

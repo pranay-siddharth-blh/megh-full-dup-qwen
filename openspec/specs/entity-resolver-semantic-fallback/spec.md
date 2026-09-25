@@ -1,7 +1,7 @@
 # entity-resolver-semantic-fallback Specification
 
 ## Purpose
-Closes the documented gap between `app/entity_resolver.py`'s implemented
+Closes the documented gap between `app/nlu/entity_resolver.py`'s implemented
 scope (stages 1/2/3/6 of the SME-authored 8-stage matching pipeline in
 `data/*/*_entity_resolver.yaml`) and stage 7 (embedding fallback) and the
 "did-you-mean" half of the `not_found` outcome, both specified in that YAML

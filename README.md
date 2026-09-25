@@ -2,7 +2,7 @@
 
 One FastAPI service (`app/`) that answers natural-language questions about
 Meghalaya's **MGNREGA**, **PMAY-G**, **Focus Plus** and **CM Elevate**
-scheme data (`scheme_registry.yaml` is the source of truth for the active
+scheme data (`config/scheme_registry.yaml` is the source of truth for the active
 scheme list — a 5th scheme has already been proven to onboard with zero
 code changes, see `docs/scheme-onboarding.md`):
 
@@ -25,91 +25,107 @@ Qwen gateway and does no local inference.
 
 ```
 meghalaya/
-├── app/                       the FastAPI service (package `app`) — grown a
-│   │                          lot since this list was last accurate; run
-│   │                          `ls app/` for the current exact file set
-│   │                          rather than trusting this list alone
-│   ├── main.py                app + lifespan (pool, model client, pgvector, KB ingest,
-│   │                          scheme registry / join-graph load, RLS entitlement sync)
-│   ├── pipeline.py            Edge → intent → {SQL path | RAG path}; also the
-│   │                          PIPELINE_GRAPH_ENABLED cutover point to pipeline_graph.py
-│   ├── pipeline_graph.py      the §5.1-5.15 DATA route as a real LangGraph StateGraph
-│   │                          (node-decomposed, checkpointed pause/resume) — behind
-│   │                          settings.PIPELINE_GRAPH_ENABLED, see docs/baseline-audit.md
-│   ├── langgraph_followup.py  a narrower, separate LangGraph interrupt()/checkpointer
-│   │                          component for §5.4 specifically — settings.
-│   │                          LANGGRAPH_FOLLOWUP_ENABLED, mutually exclusive with the above
-│   ├── query_analyzer.py      §5.2 structured query-analysis object (query_type/metric/
-│   │                          entities/time_scope/granularity/ambiguous/intent_summary)
-│   ├── clarification_engine.py YAML-driven clarification rule matcher (§5.3), additive
-│   │                          to the hardcoded _needs_*_clarification predicates
-│   ├── defaults_engine.py     §5.5 silent, disclosed defaults for unspecified details
-│   ├── findings.py            §5.13 deterministic findings (extremes/ties/stale-data/
-│   │                          large-result-set/threshold-breach) over a query's own rows
-│   ├── chart_spec.py          §5.14 deterministic chart-type selection from result shape
-│   ├── join_graph.py          §5.9 join-path lookup from the curated FK graph
-│   ├── sql_join_validator.py  post-generation AST check: flags an invented join
-│   ├── schema_retrieval.py    §5.8 scheme-filtered pgvector retrieval over table/column
-│   │                          descriptions (+ optional rerank), feeds the SQL prompt
-│   ├── sql_examples_retrieval.py  §5.10 vector-retrieved SQL few-shot examples
-│   ├── scheme_registry.py     scheme_registry.yaml loader + app.schemes/tenant_schemes sync
-│   ├── pii_guard.py           §11.4 two-layer PII protection (pre-execution SQL-text
-│   │                          blocklist scan + unconditional post-execution row redaction)
-│   ├── edge.py                regex edge-case handler (no model call)
-│   ├── rag.py                 embed → pgvector search → rerank → answer
-│   ├── kb_ingest.py           chunk data/**/*.md → embed → upsert to pgvector
-│   ├── vectorstore.py         pgvector (Postgres) pool + helpers
-│   ├── llm.py                 one httpx client; classify / SQL-gen / compose / embed / rerank / ASR
-│   ├── db.py                  asyncpg pool; read-only SQL guard (sqlglot AST, not regex);
-│   │                          tenant-context GUCs for curated-data RLS when enabled
-│   ├── appdb.py                app.* schema (users, tenants, conversations, audit,
-│   │                          schemes/tenant_schemes entitlements)
-│   ├── auth.py                role/geography/granularity checks + audit
-│   ├── security.py            HS256 JWT + pbkdf2_sha256 password hashing
-│   ├── deps.py                request identity, role gates, RLS tenant-context wiring
-│   ├── schema_context.py      in-prompt condensation of the data model, per scheme
-│   ├── entity_resolver.py     district / block / year / village resolution (+ embedding
-│   │                          fallback for the closed-set catalogues)
-│   ├── annotations.py         loads few-shot + FK YAML from data/
-│   ├── conversation_store.py  chat history + query audit persistence
-│   ├── users.yaml             one-time seed for app.users
-│   ├── net.py                 client-IP resolution with proxy trust (XFF)
-│   ├── routers/               /api/query, /api/auth, /api/history, /api/rag, /admin
-│   └── middleware/            security headers/CSP, body-size limit, per-user/IP rate limit
-├── web/                       served UI
-│   ├── ai_query.html          chat console          (/ai-query)
-│   ├── admin.html             admin console         (/admin-ui)
-│   └── Meghalaya_UnifiedPortal_UI.html   portal     (/)
-├── data/                      SME-curated inputs, read at startup
-│   ├── mgnrega/               few-shot, FK, entity-resolver, schema-metadata YAML
-│   ├── pmay/                  same, for PMAY-G
-│   ├── focus_plus/            same, for Focus Plus
-│   ├── cm_elevate/            same, for CM Elevate
-│   ├── reference/             scheme reference + FAQ docs, KPI workbooks
-│   ├── schema/                schema_for_developers.md
-│   └── web/                   scraped background docs (KB source)
-├── openspec/                  planning source of truth — see CLAUDE.md's
-│                              "Planning source of truth" section; run
-│                              `openspec list` for current change status
-│   ├── changes/                active (non-archived) change proposals
-│   ├── changes/archive/        completed changes (22 as of this writing)
-│   └── specs/                  capability specs synced from archived changes
-├── docs/                      ARCHITECTURE.md · DATA_MODEL.md · SECURITY.md ·
-│                              INFERENCE_REQUIREMENTS.md · baseline-audit.md
-│                              (node-by-node GT-proposal coverage, kept current)
-├── deploy/                    nginx conf, systemd unit, DEPLOYMENT.md, and
-│                              deploy/sql/ (role/RLS/retention migration scripts)
-├── tests/                     43 test scripts (42 standalone, exit-code-based
-│                              — see CLAUDE.md's "Test convention" section,
-│                              not pytest — plus smoke_restructure.py, which
-│                              needs a live running server)
-├── certs/                     internal CA bundle          (gitignored)
-├── logs/                      audit JSONL + uvicorn out   (gitignored)
-├── archive/                   reference zip, rotated .env backups (gitignored)
-├── requirements.txt
-├── .env                       secrets (gitignored)
+├── app/                          the FastAPI service (package `app`)
+│   ├── main.py                   app + lifespan (pool, model client, pgvector, KB ingest,
+│   │                             scheme registry / join-graph load, RLS entitlement sync)
+│   ├── api/                      HTTP layer
+│   │   ├── deps.py               request identity, role gates, RLS tenant-context wiring
+│   │   ├── routers/              /api/query, /api/auth, /api/history, /api/rag, /admin
+│   │   └── middleware/           security headers/CSP, body-size limit, per-user/IP rate limit
+│   ├── core/                     cross-cutting concerns
+│   │   ├── config.py             settings (pydantic-settings, reads .env)
+│   │   ├── security.py           HS256 JWT + pbkdf2_sha256 password hashing
+│   │   ├── auth.py               role/geography/granularity checks + audit
+│   │   ├── net.py                client-IP resolution with proxy trust (XFF)
+│   │   └── pii_guard.py          §11.4 two-layer PII protection (pre-execution SQL-text
+│   │                             blocklist scan + unconditional post-execution row redaction)
+│   ├── database/                 Postgres access
+│   │   ├── db.py                 asyncpg pool; read-only SQL guard (sqlglot AST, not regex);
+│   │   │                         tenant-context GUCs for curated-data RLS when enabled
+│   │   ├── appdb.py              app.* schema (users, tenants, conversations, audit,
+│   │   │                         schemes/tenant_schemes entitlements)
+│   │   └── vectorstore.py        pgvector (Postgres) pool + helpers
+│   ├── clients/                  model clients
+│   │   ├── llm.py                one httpx client; classify / SQL-gen / compose / embed / rerank / ASR
+│   │   └── local_embed.py        local CPU embeddings (fastembed) when EMBEDDING_PROVIDER=local
+│   ├── caching/                  cache.py (exact-match response cache + metrics),
+│   │                             semantic_cache.py (near-duplicate response cache)
+│   ├── conversation/             session_store.py, conversation_store.py (chat history +
+│   │                             query audit persistence), conversation_memory.py,
+│   │                             context_manager.py (multi-turn context layer)
+│   ├── orchestration/            the pipeline itself
+│   │   ├── pipeline.py           Edge → intent → {SQL path | RAG path}; also the
+│   │   │                         PIPELINE_GRAPH_ENABLED cutover point to pipeline_graph.py
+│   │   ├── pipeline_graph.py     the §5.1-5.15 DATA route as a real LangGraph StateGraph
+│   │   │                         (node-decomposed, checkpointed pause/resume)
+│   │   └── langgraph_followup.py narrower LangGraph interrupt()/checkpointer component for
+│   │                             §5.4 — LANGGRAPH_FOLLOWUP_ENABLED, mutually exclusive with the above
+│   ├── nlu/                      understanding the question
+│   │   ├── edge.py               regex edge-case handler (no model call)
+│   │   ├── query_analyzer.py     §5.2 structured query-analysis object
+│   │   ├── entity_resolver.py    district / block / year / village resolution (+ embedding
+│   │   │                         fallback for the closed-set catalogues)
+│   │   ├── clarification_engine.py  YAML-driven clarification rule matcher (§5.3)
+│   │   ├── defaults_engine.py    §5.5 silent, disclosed defaults for unspecified details
+│   │   └── premise_check.py      catches a false numeric premise in a DATA question
+│   ├── sql/                      SQL generation + validation
+│   │   ├── prompt_builder.py     the single place the SQL-generation prompt is built
+│   │   ├── schema_context.py     in-prompt condensation of the data model, per scheme
+│   │   ├── schema_introspect.py  live semantic.* catalog reader
+│   │   ├── schema_retrieval.py   §5.8 scheme-filtered pgvector retrieval over schema docs
+│   │   ├── sql_examples_retrieval.py  §5.10 vector-retrieved SQL few-shot examples
+│   │   ├── join_graph.py         §5.9 join-path lookup from the curated FK graph
+│   │   ├── fk_miner.py           mines implicit FK candidates from query history
+│   │   ├── sql_join_validator.py post-generation AST check: flags an invented join
+│   │   └── dedup.py              swaps duplicate-holding views for de-duplicated versions
+│   ├── knowledge/                scheme knowledge + RAG
+│   │   ├── scheme_registry.py    config/scheme_registry.yaml loader + app.schemes sync
+│   │   ├── annotations.py        loads few-shot + FK YAML from data/
+│   │   ├── rag.py                embed → pgvector search → rerank → answer
+│   │   ├── kb_ingest.py          chunk data/**/*.md → embed → upsert to pgvector
+│   │   ├── schema_metadata_ingest.py  indexes schema descriptions for schema_retrieval
+│   │   └── sql_examples_ingest.py     indexes few-shot SQL for sql_examples_retrieval
+│   └── response/                 answer presentation
+│       ├── answer_format.py      Markdown answer formatting
+│       ├── findings.py           §5.13 deterministic findings over a query's own rows
+│       ├── chart_spec.py         §5.14 deterministic chart-type selection
+│       └── followups.py          deterministic "Next steps" suggestions
+├── config/                       runtime configuration files
+│   ├── scheme_registry.yaml      source of truth for the active scheme list
+│   └── users.yaml                one-time seed for app.users (USERS_FILE)
+├── web/                          served UI
+│   ├── ai_query.html             chat console          (/ai-query)
+│   └── admin.html                admin console         (/admin-ui)
+├── data/                         SME-curated inputs, read at startup
+│   ├── mgnrega/ pmay/ focus_plus/ cm_elevate/   per-scheme few-shot, FK, entity-resolver,
+│   │                             clarification/default rules, schema-metadata YAML
+│   ├── reference/                scheme reference + FAQ docs, KPI workbooks
+│   ├── schema/                   schema_for_developers.md
+│   └── web/                      scraped background docs (KB source)
+├── tests/                        standalone exit-code scripts — not pytest, see
+│   │                             CLAUDE.md's "Test convention" section
+│   ├── unit/                     run everywhere (no live services needed)
+│   ├── integration/              need a live Postgres; skip cleanly (exit 0) without one
+│   └── smoke/                    need a live running server — never run in CI
+├── docs/                         ARCHITECTURE.md · DATA_MODEL.md · SECURITY.md ·
+│   │                             INFERENCE_REQUIREMENTS.md · scheme-onboarding.md ·
+│   │                             baseline-audit.md (node-by-node GT-proposal coverage)
+│   └── reference/                GrantThornton_Solution_Proposal_1 (1).pdf
+├── deploy/                       nginx conf, systemd unit, DEPLOYMENT.md, and
+│                                 deploy/sql/ (role/RLS/retention migration scripts)
+├── openspec/                     planning source of truth — run `openspec list`
+│   ├── changes/                  active change proposals (archive/ = completed)
+│   └── specs/                    capability specs synced from archived changes
+├── certs/                        internal CA bundle          (gitignored)
+├── logs/                         audit JSONL, LangGraph checkpoints, uvicorn out (gitignored)
+├── Dockerfile · docker-compose.yml · bitbucket-pipelines.yml
+├── requirements.txt · requirements.lock
+├── .env                          secrets (gitignored)
 └── .env.example
 ```
+
+Run a single test: `python tests/unit/test_security.py`. Run the sweep the way CI
+does: `for t in tests/unit/test_*.py tests/integration/test_*.py; do python "$t" || echo "FAIL $t"; done`.
 
 ## Running
 
@@ -142,7 +158,7 @@ Run from the repository root — `.env` is read relative to the working director
 | `POST /admin/reload-join-graph` | rebuild the FK join graph without a redeploy |
 | `GET /health` | `ok` / `degraded` with the failing component named |
 
-Not an exhaustive list — see `app/routers/` for the current, exact route set.
+Not an exhaustive list — see `app/api/routers/` for the current, exact route set.
 
 The scheme KB is ingested into pgvector on startup (idempotent — skipped when the
 table is already populated). Force a rebuild with `POST /api/rag/reingest`.
@@ -166,6 +182,6 @@ the go-live security checklist.
 | KB/schema reranking (off by default — see `docs/baseline-audit.md` §5.8) | `qwen3-reranker` |
 | Voice input | `qwen3-asr` |
 
-Exact current model names/roles live in `app/config.py` (`*_MODEL`
-settings) — this table can drift from that file; treat `app/config.py` as
+Exact current model names/roles live in `app/core/config.py` (`*_MODEL`
+settings) — this table can drift from that file; treat `app/core/config.py` as
 the source of truth if the two ever disagree.

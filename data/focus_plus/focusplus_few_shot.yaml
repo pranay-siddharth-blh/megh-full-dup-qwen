@@ -48,16 +48,35 @@ sql_generation_examples:
 
 - question: How many Focus Plus beneficiaries are there?
   sql: |
-    SELECT COUNT(*)                                  AS payments,
-           COUNT(DISTINCT member_id)                 AS members_with_an_id,
-           COUNT(DISTINCT source_sl_no)              AS source_serials,
-           COUNT(*) FILTER (WHERE member_id IS NULL) AS payments_with_no_member_id
+    SELECT COUNT(DISTINCT (batch_label, source_sl_no)) AS beneficiaries,
+           COUNT(*)                                     AS payments
     FROM curated.v_focus_plus;
   tables:
   - curated.v_focus_plus
-  note: 'Three readings differ by an order of magnitude, so all are returned and labelled.
-    members_with_an_id covers the 12.5K cohort only. The workbook''s 93,286 legacy figure
-    came from epic_id, which was dropped at ingest, and is not derivable here.'
+  note: 'Beneficiaries are counted DISTINCT — one per (batch_label, source_sl_no), which
+    matches the source fact''s beneficiary_key exactly in every district (verified against
+    megh_db 2026-09-23): 1,05,813 beneficiaries = 93,286 legacy + 12,527 newer, over
+    3,85,671 payments. Never report COUNT(*) (payments) as beneficiaries.'
+
+- question: How many Focus Plus beneficiaries are there in West Khasi Hills?
+  sql: |
+    SELECT COUNT(DISTINCT (batch_label, source_sl_no)) AS beneficiaries,
+           COUNT(*)                                     AS payments
+    FROM curated.v_focus_plus
+    WHERE lgd_district = 'WEST KHASI HILLS';
+  tables:
+  - curated.v_focus_plus
+
+- question: Top 5 districts by Focus Plus beneficiary count
+  sql: |
+    SELECT lgd_district,
+           COUNT(DISTINCT (batch_label, source_sl_no)) AS beneficiaries
+    FROM curated.v_focus_plus
+    GROUP BY lgd_district
+    ORDER BY beneficiaries DESC
+    LIMIT 5;
+  tables:
+  - curated.v_focus_plus
 
 - question: How many members are in the legacy paid batch?
   sql: |

@@ -99,16 +99,16 @@ startup is idempotent (skips when Qdrant already holds the chunks).
 5. **Fallback** — a hard DATA failure tries the KB once before returning an
    honest "couldn't answer that from the current data".
 
-**Execution engine for step 4.** The above (`app/pipeline.py::_answer_data`,
+**Execution engine for step 4.** The above (`app/orchestration/pipeline.py::_answer_data`,
 current filenames) is one of two interchangeable implementations of the
 same DATA-route chain, selected by `PIPELINE_GRAPH_ENABLED`
-(`app/config.py`, default off). The Grant Thornton proposal's Section 4
+(`app/core/config.py`, default off). The Grant Thornton proposal's Section 4
 specifies this pipeline as *"implemented as a LangGraph agent"*; the
-LangGraph implementation (`app/pipeline_graph.py`, a node-decomposed
+LangGraph implementation (`app/orchestration/pipeline_graph.py`, a node-decomposed
 `StateGraph` covering the same steps) exists and is test-verified but was,
 until `openspec/changes/multi-tenant-rls-scheme-scaleout`, never reachable
 from a live request — the flag was defined and read nowhere. It's now
-wired (`app/pipeline.py::_run_pipeline` calls
+wired (`app/orchestration/pipeline.py::_run_pipeline` calls
 `pipeline_graph.answer_data_via_graph_compat()` when the flag is on,
 otherwise `_answer_data` as before) but still off by default — the actual
 gate before enabling it anywhere real is end-to-end verification against a
@@ -124,13 +124,13 @@ now exists (task 5.4): a paused clarification durably survives to a
 second, independent request and resumes via the graph's own checkpointer
 at the exact node it paused at, rather than restarting the whole pipeline
 — reusing `session_id` as the LangGraph `thread_id`, the same trick
-`app/langgraph_followup.py` already used for its own, separate
+`app/orchestration/langgraph_followup.py` already used for its own, separate
 checkpointer; the two mechanisms are deliberately mutually exclusive
 (real graph resume only activates when `LANGGRAPH_FOLLOWUP_ENABLED` is
 off) so they can never both think they own the same pause. Three real
 bugs were found and fixed while building this — a permanent checkpoint-
 row leak on every pause, a wasted duplicate LLM/DB call on every resume
-(`app/pipeline_graph.py`'s own node-decomposed §5.6 had the same
+(`app/orchestration/pipeline_graph.py`'s own node-decomposed §5.6 had the same
 replay-re-executes-the-expensive-node issue `langgraph_followup.py` was
 fixed for the day before), and two documentation-only bugs — see
 `tasks.md` 5.7/5.4 for the full record. None of this changes the actual
@@ -218,8 +218,8 @@ curated fact tables AND the `app` schema tables named above
 enabled in the migration script — **updated 2026-09-18**, the app-schema
 half was previously deferred pending an audit of every `app.*` consumer;
 that audit found `admin.py`/`history.py` were already correctly wired via
-`app.deps.tenant_scoped`, and fixed the two genuine gaps that weren't —
-`app/routers/auth.py`'s pre-authentication `login`/`bootstrap`, and
+`app.api.deps.tenant_scoped`, and fixed the two genuine gaps that weren't —
+`app/api/routers/auth.py`'s pre-authentication `login`/`bootstrap`, and
 `app/main.py`'s startup seeding — both of which now explicitly bypass RLS
 via `db.set_tenant_context(None, bypass=True)`, the same trust model
 already used for a verified `super_admin`). Flag-gated

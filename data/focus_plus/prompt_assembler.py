@@ -13,11 +13,11 @@ NOTE ON THE LIVE SERVICE
 ------------------------
 The running service does NOT import this module. Focus Plus is wired into
 the uniform pipeline exactly like MGNREGA and PMAY-G:
-  * app/schema_context.py   - hand-written FOCUS PLUS tables / rules / vocab
-  * app/annotations.py      - loads focusplus_few_shot.yaml + the FK graph
-  * app/entity_resolver.py  - loads focusplus_entity_resolver.yaml
-  * app/pipeline.py         - scheme detection, year coverage, clarification
-  * app/kb_ingest.py        - focusplus_complete_reference.md + FAQ -> RAG
+  * app/sql/schema_context.py   - hand-written FOCUS PLUS tables / rules / vocab
+  * app/knowledge/annotations.py      - loads focusplus_few_shot.yaml + the FK graph
+  * app/nlu/entity_resolver.py  - loads focusplus_entity_resolver.yaml
+  * app/orchestration/pipeline.py         - scheme detection, year coverage, clarification
+  * app/knowledge/kb_ingest.py        - focusplus_complete_reference.md + FAQ -> RAG
 
 This file is kept alongside the YAMLs as an OFFLINE tool: run its
 `--self-test` to sanity-check the YAML contract after an edit, or use it to

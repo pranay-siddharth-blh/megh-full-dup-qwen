@@ -13,8 +13,50 @@ answer over curated Postgres), a RAG route (scheme-knowledge questions
 over a pgvector KB), and an edge route (canned replies, no model call).
 See `README.md` for the architecture and `docs/baseline-audit.md` for a
 node-by-node audit of what the original Grant Thornton proposal
-(`GrantThornton_Solution_Proposal_1 (1).pdf`, repo root) asked for vs. what
+(`docs/reference/GrantThornton_Solution_Proposal_1 (1).pdf`) asked for vs. what
 actually exists in code.
+
+## Project rules — understanding direction (read before touching the pipeline)
+
+The DATA-route pipeline (`app/orchestration/pipeline.py`) is ~6,000 lines
+and has historically been fixed by adding another regex on the raw
+question text. **That pattern stops here.** These rules apply to every
+change in this area:
+
+- **Goal.** Users ask in any phrasing: bad grammar, misspellings,
+  Hinglish, fragments. The bot must understand the question, rephrase it,
+  ask only for details that are truly missing, and return the exact answer
+  via NL→SQL.
+- **Schemes:** MGNREGA, PMAY-G, Focus Plus, CM Elevate.
+- **Models** (all via the Qwen gateway, `app/clients/llm.py`):
+  `qwen4-deploy` for classify / understand / verify, `qwen-model` for SQL,
+  and `qwen35-9b` for compose. Note: `app/core/config.py` defaults
+  `CLASSIFIER_MODEL` to `qwen4-deploy`, but the live `.env` currently
+  overrides it to `qwen35-9b`. The Understand node should use
+  `qwen4-deploy` explicitly rather than inheriting that override.
+- **New direction: one structured `QueryFrame`,** produced once per message
+  by an Understand node, drives all gates. **Do NOT add new regex gates on
+  raw question text to fix phrasing issues.** Fix the Understand
+  prompt/examples or the frame logic instead.
+- **The LLM never guesses missing slots.** Python rules over the frame
+  decide which follow-up question to ask.
+- **Keep** the existing `entity_resolver`, SQL generation, SQL verifier,
+  auth, response composer and RAG. The frame feeds them; it does not
+  replace them.
+- **Every change must be run against the eval harness**
+  (`tests/eval/run_eval.py`, baseline under `tests/eval/results/`) and must
+  not lower the score. Compare against the saved baseline, not memory.
+- **Do not change the LangGraph architecture.** The QueryFrame work is
+  built *inside* the existing `app/orchestration/pipeline_graph.py`
+  StateGraph (its nodes, state, checkpointer and `interrupt()` pause/resume)
+  as new or extended nodes and state fields — never as a replacement
+  orchestration. The work is delivered one plan step at a time, each
+  followed by an eval run.
+- **Where frame code lives** (the original plan names flat paths; this repo
+  uses packages): `app/nlu/understand.py` (QueryFrame + Understand node),
+  `app/nlu/clarify_rules.py` (ordered gate rules), and
+  `app/nlu/frame_merge.py` (follow-up merge). New settings flags
+  (`UNDERSTAND_SHADOW`, `FRAME_GATES_ENABLED`) go in `app/core/config.py`.
 
 ## Planning source of truth: `openspec/`
 
@@ -82,7 +124,7 @@ been committed — the human commits, not a coding session** (see any
 change's tasks.md, which all end with the same "no commit, report and
 stop" convention). Before touching or committing any file, run
 `git diff <path>` yourself rather than trusting a description here —
-several files (`app/config.py`, `app/pipeline.py`, `app/auth.py`,
+several files (`app/core/config.py`, `app/orchestration/pipeline.py`, `app/core/auth.py`,
 `app/main.py` among them) have accumulated layered, unrelated concerns
 across many sessions' worth of work, and any hand-maintained list of which
 file has which concerns goes stale the moment the next session touches
@@ -97,11 +139,11 @@ feature work above.
 
 ## Test convention
 
-No pytest. Every `tests/test_*.py` is a standalone script: sets env vars,
+No pytest. Every `tests/{unit,integration}/test_*.py` is a standalone script: sets env vars,
 imports `app.*` directly, uses a local `check(name, cond, detail)` helper,
-exits 1 on any failure. Run individually: `python tests/test_X.py`. As of
+exits 1 on any failure. Run individually: `python tests/unit/test_X.py`. As of
 this writing there are 42 files; run the full sweep with a simple shell
-loop over `tests/*.py` (excluding `smoke_restructure.py`, which needs a
+loop over `tests/unit/test_*.py tests/integration/test_*.py` (`tests/smoke/` needs a
 live running server) rather than trusting any hand-picked subset list —
 several files here (`test_pipeline_graph_postgres.py`,
 `test_admin_schemes_live_db.py`) also skip cleanly to exit 0 when no live
