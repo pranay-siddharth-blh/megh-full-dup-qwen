@@ -170,9 +170,16 @@ patches = [
 originals = [(o, n, getattr(o, n)) for o, n, _ in patches]
 for o, n, fn in patches:
     setattr(o, n, fn)
-flag_names = ("QUERY_ANALYZER_ENABLED", "CONTEXT_SUMMARY_ENABLED",
+flag_names = ("LANGGRAPH_FOLLOWUP_ENABLED", "PIPELINE_GRAPH_ENABLED", "PIPELINE_GRAPH_CANARY_PERCENT",
+              "QUERY_ANALYZER_ENABLED", "CONTEXT_SUMMARY_ENABLED",
               "CONTEXT_SEMANTIC_MEMORY_ENABLED", "RESPONSE_CACHE_ENABLED", "SEMANTIC_CACHE_ENABLED")
 flags_before = {n: getattr(settings, n) for n in flag_names}
+# This file tests the frame's own resume (app/nlu/frame_merge.py). The two
+# LangGraph checkpointer resume owners own the pauses they checkpoint when
+# their flags are on, so they are pinned off here (as test_query_stream does).
+settings.LANGGRAPH_FOLLOWUP_ENABLED = False
+settings.PIPELINE_GRAPH_ENABLED = False
+settings.PIPELINE_GRAPH_CANARY_PERCENT = 0
 settings.QUERY_ANALYZER_ENABLED = False
 settings.CONTEXT_SUMMARY_ENABLED = False
 settings.CONTEXT_SEMANTIC_MEMORY_ENABLED = False

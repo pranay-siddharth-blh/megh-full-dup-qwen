@@ -139,10 +139,17 @@ patches = [
 originals = [(obj, name, getattr(obj, name)) for obj, name, _ in patches]
 for obj, name, fn in patches:
     setattr(obj, name, fn)
-flag_names = ("ENTITY_RESOLVER_SQUASH_FUZZY_ENABLED", "QUERY_ANALYZER_ENABLED",
+flag_names = ("LANGGRAPH_FOLLOWUP_ENABLED", "PIPELINE_GRAPH_ENABLED", "PIPELINE_GRAPH_CANARY_PERCENT",
+              "ENTITY_RESOLVER_SQUASH_FUZZY_ENABLED", "QUERY_ANALYZER_ENABLED",
               "CONTEXT_SUMMARY_ENABLED", "CONTEXT_SEMANTIC_MEMORY_ENABLED", "RESPONSE_CACHE_ENABLED",
               "SEMANTIC_CACHE_ENABLED", "FOLLOWUP_REWRITE_ENABLED")
 flags_before = {n: getattr(settings, n) for n in flag_names}
+# This file tests the frame's own resume (app/nlu/frame_merge.py). The two
+# LangGraph checkpointer resume owners own the pauses they checkpoint when
+# their flags are on, so they are pinned off here (as test_query_stream does).
+settings.LANGGRAPH_FOLLOWUP_ENABLED = False
+settings.PIPELINE_GRAPH_ENABLED = False
+settings.PIPELINE_GRAPH_CANARY_PERCENT = 0
 settings.ENTITY_RESOLVER_SQUASH_FUZZY_ENABLED = True       # 'westgaro hils' needs resolver stage 6b
 settings.QUERY_ANALYZER_ENABLED = False
 settings.CONTEXT_SUMMARY_ENABLED = False
