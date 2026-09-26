@@ -65,13 +65,15 @@ default_rules:
         counts and village lists.
 
   - condition: "duplicate_request_ids_in_count"
-    default_value: "count_rows"
-    assumption_text: "Counting application records; about 36 application numbers appear more than once, so a distinct-number count would be slightly lower."
-    sql_effect: "COUNT(*)"
+    default_value: "count_distinct"
+    assumption_text: "Counting distinct applications; an application number recorded more than once is counted once."
+    sql_effect: "COUNT(DISTINCT request_id) — enforced in code by app/dedup.py"
     note: >
-      request_id has no unique constraint - 8,400 distinct across 8,436 source
-      rows, all duplicates inside Piggery. State the caveat rather than silently
-      choosing.
+      Changed 2026-09-23 on the product owner's instruction (was count_rows):
+      counts must be distinct applications. Live megh_db: 8,627 rows / 8,600
+      distinct request_id — 27 repeats (Piggery 22, Poultry 5); e.g. Jirang block
+      760 rows / 752 applications. app/dedup.py rewrites every read of
+      curated.v_cm_elevate to one row per request_id before execution.
 
   - condition: "verification_status_null_in_totals"
     default_value: "include_in_totals"

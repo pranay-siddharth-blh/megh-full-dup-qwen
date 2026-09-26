@@ -34,7 +34,7 @@ clarification_rules:
   # ---- the source cannot answer this at all -----------------------------
   # producer_group_requested removed 2026-09-23: producer groups ARE held now —
   # curated.v_focus_legacy (pg_id, pg_name, no_of_pg_members, ...). See
-  # app/schema_context.py FOCUS PLUS RULES rule 13.
+  # app/sql/schema_context.py FOCUS PLUS RULES rule 13.
 
   - condition: "epic_id_requested"
     question: "EPIC / voter ID is not held in the database - it was dropped when the data was loaded. Shall I answer by district, block or village instead?"
@@ -123,8 +123,12 @@ clarification_rules:
     question: "Tranch 4 contains both batches - the legacy batch's fourth payment and the whole newer registration batch. Shall I split the tranche by batch, or report it combined?"
 
   # ---- terms that look answerable but mean several things ----------------
-  - condition: "beneficiary_reading_unclear"
-    question: "'Beneficiaries' can mean three different numbers here - payments made (385,671), members in the newer batch who carry an id (12,527), or the legacy paid members (93,286, which the database can no longer count directly). Which did you mean?"
+  # beneficiary_reading_unclear removed 2026-09-23: "beneficiaries" is no longer
+  # ambiguous. Distinct beneficiaries are countable exactly —
+  # COUNT(DISTINCT (batch_label, source_sl_no)) matches the source fact's
+  # beneficiary_key in every district: 1,05,813 = 93,286 legacy + 12,527 newer
+  # (the old text's "93,286 can no longer be counted" was wrong). See
+  # app/sql/schema_context.py FOCUS PLUS RULES rule 6.
 
   - condition: "count_subject_unclear"
     question: "A count of what - payments, members, villages, blocks or districts?"

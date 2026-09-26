@@ -25,11 +25,11 @@ e.g. Neon) for the RAG scheme-knowledge base and conversation memory.
 sudo mkdir -p /opt/meghalaya
 sudo chown ubuntu:ubuntu /opt/meghalaya
 # copy the repo (git clone / rsync / tarball) so it looks like:
-#   /opt/meghalaya/app/  data/  web/  deploy/  docs/  requirements.txt
+#   /opt/meghalaya/app/  config/  data/  web/  deploy/  docs/  requirements.txt
 ```
 
-The tree must keep its shape: `app/` resolves `data/` and `web/` as siblings
-(`Path(__file__).resolve().parents[1]`). Moving `app/` alone will break KB
+The tree must keep its shape: `app/` resolves `config/`, `data/`, `web/` and `logs/` as siblings
+(repo root via `Path(__file__).resolve().parents[N]`). Moving `app/` alone will break KB
 ingest, the entity resolver, and the static UI routes.
 
 ## 3. Virtualenv
@@ -65,7 +65,7 @@ Fill in, at minimum:
 - `VECTOR_DB_URL`, `RAG_KB_TABLE` — Postgres/pgvector connection for the RAG KB
   (falls back to `DATABASE_URL` if left blank, but a dedicated instance keeps
   KB writes off the read-only `megh_app`/`megh_readonly` role). **The target
-  instance must have the `pgvector` extension available** — `app/vectorstore.py`
+  instance must have the `pgvector` extension available** — `app/database/vectorstore.py`
   runs `CREATE EXTENSION IF NOT EXISTS vector` at startup, which needs a role
   with privilege to create extensions. Neon (and most managed Postgres) grants
   this to the database owner role by default; a locked-down self-hosted role
@@ -115,6 +115,18 @@ placeholder before `nginx -t`:
 - `server_name` — the real FQDN once a domain exists.
 - the `allow … ; deny all;` CIDRs under `/admin`, `/admin-ui`, `/metrics`.
 
+**Streaming route `/api/query/stream`.** The chat answer is sent as
+Server-Sent Events (`text/event-stream`) as it is written. Its own
+`location = /api/query/stream` block turns off proxy buffering, caching and
+gzip. Otherwise nginx holds the whole answer back and the user sees nothing
+until it is finished. It also re-declares the four `proxy_set_header` lines,
+because a location that sets any header stops inheriting the server-level ones.
+The app sends a `: ping` every 15s, so `proxy_read_timeout 180s` only has to
+outlast one idle gap. If an LB or firewall in front of nginx buffers or closes
+idle connections, apply the same rules there: no buffering, idle timeout above
+15s. Check it by watching events arrive one at a time, not all at once:
+`curl -N -k -X POST https://<host>/api/query/stream -H "Content-Type: application/json" -H "Authorization: Bearer <token>" -d '{"question":"PMAY-G houses completed by district"}'`.
+
 ## 7. WAF — ModSecurity + OWASP CRS
 
 Full runbook: [nginx/modsecurity/README.md](nginx/modsecurity/README.md).
@@ -125,6 +137,15 @@ uncomment the two `modsecurity …` lines in the site config, reload. It starts 
 `/var/log/nginx/modsec_audit.log` on real traffic for a week, add any
 false-positive exclusions to `crs-overrides.conf`, then flip to `SecRuleEngine
 On` and roll to the second VM. Rollback is one line + reload.
+
+Keep `SecResponseBodyAccess Off` (it is, in `modsecurity.conf`). With it on,
+the WAF buffers every response body to inspect it, which holds back
+`/api/query/stream` until the whole answer is done. If response-body
+inspection is ever turned on, switch it off for that route only by adding
+`modsecurity_rules 'SecResponseBodyAccess Off';` inside
+`location = /api/query/stream`. Request inspection there stays on. The
+`/api/query` question-field exclusions in `crs-overrides.conf` match by prefix,
+so they already cover the stream route.
 
 ## 8. Verify
 
@@ -139,7 +160,7 @@ the pgvector store (`VECTOR_DB_URL`) is unreachable — the service still starts
 by design, so a dependency outage does not take the whole app down.
 
 First start also: creates the `app.*` schema, seeds `app.users` from
-`app/users.yaml` **only if that table is empty**, and ingests the scheme KB into
+`config/users.yaml` **only if that table is empty**, and ingests the scheme KB into
 pgvector (skipped when the table is already populated).
 
 ---
@@ -193,7 +214,7 @@ psql -d megh_db -f deploy/sql/02_retention_policy.sql
 - [ ] ModSecurity + CRS installed and baked in `DetectionOnly`, then flipped to `On` (section 7)
 - [ ] `.env` is `chmod 600` and owned by `ubuntu`
 - [ ] retention windows set and `app.purge_expired()` scheduled (sql/02)
-- [ ] `python tests/test_security.py` passes against the built venv
+- [ ] `python tests/unit/test_security.py` passes against the built venv
 
 ## Rollback
 

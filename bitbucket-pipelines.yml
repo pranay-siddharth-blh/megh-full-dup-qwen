@@ -3,9 +3,9 @@
 # Python 3.11 to match the Dockerfile (`FROM python:3.11-slim`), NOT the 3.12
 # in the local .venv. Production runs 3.11, so CI tests 3.11.
 #
-# Test convention (see CLAUDE.md): there is no pytest. Every tests/test_*.py is
+# Test convention (see CLAUDE.md): there is no pytest. Every tests/{unit,integration}/test_*.py is
 # a standalone script that sets its own env vars, imports app.* directly, and
-# exits non-zero on failure. The `tests/smoke_*.py` files are deliberately NOT
+# exits non-zero on failure. The `tests/smoke/smoke_*.py` files are deliberately NOT
 # matched by the test_*.py glob — they need a live server, the real Qwen
 # gateway and the real megh_db, so they cannot run on a cloud runner.
 #
@@ -46,7 +46,7 @@ definitions:
           - export PYTHONPATH=.
           - |
             fail=0
-            for t in tests/test_*.py; do
+            for t in tests/unit/test_*.py tests/integration/test_*.py; do
               echo "=== $t"
               if python "$t"; then
                 echo "PASS $t"
@@ -71,7 +71,7 @@ definitions:
           - export TENANT_SCHEME_RLS_ENABLED=true
           - |
             fail=0
-            for t in tests/test_*.py; do
+            for t in tests/unit/test_*.py tests/integration/test_*.py; do
               echo "=== $t"
               if python "$t"; then
                 echo "PASS $t"

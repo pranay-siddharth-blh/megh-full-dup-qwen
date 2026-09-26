@@ -1222,8 +1222,8 @@ sql_generation_examples:
   note: >
     THE SCHEME FILTER IS MANDATORY. Without it, `->>` returns NULL for every scheme that
     lacks the key, and those NULLs are indistinguishable from genuinely empty values.
-    Note also that occupation_id is an UNRESOLVABLE CODE - there is no lookup table
-    anywhere in megh_db, so report the stored value and say it is uncoded.
+    occupation_id stores readable labels despite its name ('Farmer', 'Unemployed',
+    'Business', ... — verified against megh_db 2026-09-23), so report them as-is.
 
 - question: Find applications with a specific scheme-specific value
   sql: |
@@ -1689,3 +1689,56 @@ sql_generation_examples:
   sql: null
   status: UNANSWERABLE
   reason: The read role permits SELECT only. Refuse rather than translating into write SQL.
+
+# ---- applicant flags in scheme_specific (added 2026-09-23) ----------------
+# Recorded across many schemes, so counted statewide WITHOUT a scheme filter
+# (schema_context CM ELEVATE RULES rule 13). Never substitute
+# data_verified = 'On Hold' — that is a verification outcome. Each example was
+# run against megh_db before being added.
+- question: How many applicants are flagged as loan defaulters?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE scheme_specific ->> 'loan_defaulter_id' = 'Yes') AS loan_defaulters,
+           COUNT(scheme_specific ->> 'loan_defaulter_id') AS applications_with_field_recorded
+    FROM curated.v_cm_elevate;
+  tables:
+  - curated.v_cm_elevate
+
+- question: How many applicant families already have a central government scheme benefit?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE scheme_specific ->> 'central_govt_family' = 'Yes') AS central_govt_families,
+           COUNT(scheme_specific ->> 'central_govt_family') AS applications_with_field_recorded
+    FROM curated.v_cm_elevate;
+  tables:
+  - curated.v_cm_elevate
+
+- question: What proportion of applicants are organisations rather than individuals?
+  sql: |
+    SELECT COALESCE(scheme_specific ->> 'type_of_entity', 'Individual') AS applicant_type,
+           COUNT(*) AS applications,
+           ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 2) AS pct
+    FROM curated.v_cm_elevate
+    GROUP BY 1
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_cm_elevate
+
+- question: Are ineligible applicants (loan defaulters) getting past Level 1?
+  sql: |
+    SELECT LOWER(current_level) AS level, COUNT(*) AS applications
+    FROM curated.v_cm_elevate
+    WHERE scheme_specific ->> 'loan_defaulter_id' = 'Yes'
+    GROUP BY 1
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_cm_elevate
+
+- question: What occupations do CM Elevate applicants report?
+  sql: |
+    SELECT scheme_specific ->> 'occupation_id' AS occupation,
+           COUNT(*) AS applications
+    FROM curated.v_cm_elevate
+    WHERE scheme_specific ->> 'occupation_id' IS NOT NULL
+    GROUP BY 1
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_cm_elevate

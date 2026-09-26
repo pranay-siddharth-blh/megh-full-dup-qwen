@@ -193,6 +193,7 @@ function showLogin(){ document.getElementById("appView").classList.add("hide");
 const TABS = [
   ["overview","Overview"], ["users","Users"], ["logins","Login events"],
   ["conversations","Conversations"], ["audit","Query audit"],
+  ["failures","Today's failures"],
 ];
 function renderNav(active){
   document.getElementById("nav").innerHTML = TABS
@@ -225,7 +226,7 @@ window.addEventListener("hashchange", route);
 function route(){
   const tab = (location.hash.replace("#","") || "overview");
   renderNav(tab);
-  ({overview,users,logins,conversations,audit}[tab]||overview)();
+  ({overview,users,logins,conversations,audit,failures}[tab]||overview)();
 }
 
 // ── Overview ──────────────────────────────────────────────
@@ -385,6 +386,34 @@ async function audit(){
      <td>${esc(r.question)}</td><td>${esc(r.route)}</td><td>${esc(r.granularity)}</td>
      <td>${(r.schemes||[]).join(", ")}</td><td>${r.row_count??""}</td><td>${Math.round(r.latency_ms||0)}</td>
      <td>${r.allowed?"<span class='tag ok'>ok</span>":"<span class='tag bad'>denied: "+esc(r.denied_by)+"</span>"}</td></tr>`).join("")}
+   </tbody></table>`;
+}
+
+// ── Today's failures ─────────────────────────────────────
+// Turns that went wrong on a day: zero rows, SQL repair needed, a fallback
+// reply, or more than two clarifications in one conversation. Each is a
+// candidate eval case — `python tests/eval/export_failures.py --day <day>`.
+const FAIL_LABEL = {zero_rows:"zero rows", repair_used:"repair used",
+                    fallback_reply:"fallback reply", clarify_loop:"clarification loop"};
+async function failures(){
+  const m=document.getElementById("main");
+  const today=new Date().toISOString().slice(0,10);
+  const day=(document.getElementById("failDay")||{}).value||today;
+  m.innerHTML=`<div class="card">
+    <b>Today's failures</b>
+    <input type="date" id="failDay" value="${esc(day)}" style="width:auto;margin-left:10px" onchange="failures()">
+    <div id="fc" class="muted" style="margin-top:6px">loading…</div>
+    <div id="fl" class="scroll" style="margin-top:8px"></div></div>`;
+  const r=await api("/admin/failures?day="+encodeURIComponent(day));
+  document.getElementById("fc").innerHTML = `${r.count} failed turn${r.count===1?"":"s"} · `+
+    Object.entries(r.counts||{}).map(([k,v])=>`${FAIL_LABEL[k]||k}: <b>${v}</b>`).join(" · ");
+  document.getElementById("fl").innerHTML=`<table><thead><tr><th>time</th><th>officer</th>
+     <th>question</th><th>route</th><th>rows</th><th>why</th></tr></thead><tbody>
+   ${(r.records||[]).map(x=>`<tr><td class="muted">${fmtTs(x.created_at)}</td><td>${esc(x.username)}</td>
+     <td>${esc(x.question)}${x.rewritten_question&&x.rewritten_question!==x.question?`<div class="muted">understood: ${esc(x.rewritten_question)}</div>`:""}
+       ${x.sql?`<details><summary class="muted">SQL</summary><pre>${esc(x.sql)}</pre></details>`:""}</td>
+     <td>${esc(x.route)}</td><td>${x.row_count??""}</td>
+     <td>${(x.reasons||[]).map(k=>`<span class='tag bad'>${esc(FAIL_LABEL[k]||k)}</span>`).join(" ")}</td></tr>`).join("")}
    </tbody></table>`;
 }
 

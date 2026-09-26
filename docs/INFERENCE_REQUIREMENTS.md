@@ -21,7 +21,7 @@ The application side is already done — see the last section.
 | `qwen3-asr` | qwen3-asr-1.7b | voice input | `/openai/v1` |
 
 Deployed under the served name `qwen4-deploy`, not the `qwen3-4b` name Task 6
-below originally specified — the app config (`app/config.py`) points at
+below originally specified — the app config (`app/core/config.py`) points at
 `qwen4-deploy` for both `CLASSIFIER_MODEL` and `SQL_VERIFY_MODEL`.
 
 ---
@@ -100,7 +100,7 @@ planned below — update any monitoring/acceptance-test references accordingly):
 - Confirmed reachable on `/openai/v1`
 
 App-side: `CLASSIFIER_MODEL=qwen4-deploy` and `SQL_VERIFY_MODEL=qwen4-deploy`
-(`app/config.py`) — both roles share this one deployment. Watch its queue depth
+(`app/core/config.py`) — both roles share this one deployment. Watch its queue depth
 (`vllm:num_requests_waiting`) since it now carries classify traffic (several
 calls per turn) on top of the SQL-verify traffic (one call per SQL generation)
 it already had.
@@ -150,7 +150,7 @@ throughput.
 
 - `CLASSIFIER_MODEL` → `qwen4-deploy` (was `qwen35-9b`, was `qwen-model` before
   that); the 30B does SQL only. `SQL_GENERATION_MODEL` stays `qwen-model`.
-  `RESPONSE_MODEL` stays `qwen35-9b`, now composition-only. Config in `app/config.py`.
+  `RESPONSE_MODEL` stays `qwen35-9b`, now composition-only. Config in `app/core/config.py`.
 - App bounds its own gateway concurrency (`MODEL_MAX_CONCURRENCY`) and sheds with
   HTTP 503 past the limit; exact-match + semantic response caches; sends
   `guided_json` / `guided_regex` constraints (safe if the gateway ignores them).

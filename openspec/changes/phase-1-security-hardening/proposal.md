@@ -8,10 +8,10 @@ re-verifying the claim against the actual diff rather than trusting this
 file at face value.
 
 - Item 1 (session ownership check) — **done.**
-  `app/session_store.py:179-180` raises `SessionOwnershipError` when a
+  `app/conversation/session_store.py:179-180` raises `SessionOwnershipError` when a
   session id is already bound to a different `user_id`.
 - Item 2 (repair re-authorization + `max_repairs` cap) — **done.**
-  `app/pipeline.py:2705-2714` calls `auth.authorize()` on every repair
+  `app/orchestration/pipeline.py:2705-2714` calls `auth.authorize()` on every repair
   attempt via `SQLAuthorizationDenied`; `max_repairs` is `1`
   (`pipeline.py:2700`).
 - Item 3 (SELECT-only DB role cutover) — **not done, blocked on
@@ -32,9 +32,9 @@ depth items (RLS, ClickHouse audit trail) that belong in later phases once
 orchestration exists to feed them.
 
 1. **`SessionStore.ensure()` has no ownership check.**
-   [cite: `app/session_store.py:156-174`, specifically `165-166` — `user_id`
+   [cite: `app/conversation/session_store.py:156-174`, specifically `165-166` — `user_id`
    is only ever set when the slot is empty, never checked against an
-   existing owner. Call site: `app/routers/query.py:80`. Session ID is
+   existing owner. Call site: `app/api/routers/query.py:80`. Session ID is
    sourced from the request body or `X-Session-Id` header
    (`query.py:69,74`), validated only by regex (`query.py:37`) — no
    ownership check. Default session-id pattern is guessable:
@@ -54,10 +54,10 @@ orchestration exists to feed them.
 
 2. **Repaired SQL is never re-authorized, and the repair cap is wider
    than the Grant Thornton proposal specifies.**
-   [cite: `auth.authorize()` defined at `app/auth.py:223-304`; its only
-   call site in the whole pipeline is `app/pipeline.py:3222-3224`,
+   [cite: `auth.authorize()` defined at `app/core/auth.py:223-304`; its only
+   call site in the whole pipeline is `app/orchestration/pipeline.py:3222-3224`,
    immediately before `execute_with_repair(..., initial_sql=sql)` at
-   `pipeline.py:3229`. The repair loop itself is `app/pipeline.py:2606-2667`;
+   `pipeline.py:3229`. The repair loop itself is `app/orchestration/pipeline.py:2606-2667`;
    regeneration happens at `pipeline.py:2662-2666`
    (`build_repair_prompt` → `llm.call_sql_generator`), and the
    regenerated SQL executes at `pipeline.py:2651` with no further
@@ -103,13 +103,13 @@ orchestration exists to feed them.
   authenticated user's `user_id`/tenant, before any state is read or
   returned. Ownership is derived from a database-backed record, not
   trusted from the ID's shape or an unauthenticated claim in the request.
-- The pipeline's repair path (wherever `app/pipeline.py` regenerates SQL
+- The pipeline's repair path (wherever `app/orchestration/pipeline.py` regenerates SQL
   after a validation failure) calls `auth.authorize()` again on the
   repaired candidate, using the same `UserScope` and resolved entities as
   the original call, before that candidate reaches execution. A denial on
   the repaired candidate terminates the request — it does not trigger a
   second repair attempt.
-- `max_repairs` in `app/pipeline.py:2607` is reduced from `2` to `1`,
+- `max_repairs` in `app/orchestration/pipeline.py:2607` is reduced from `2` to `1`,
   matching the Grant Thornton proposal's "one automatic retry." This is
   a one-line change but a real behavior change — confirm with whoever
   owns query quality that dropping the second repair attempt doesn't
@@ -161,7 +161,7 @@ above are new)
   now.
 - Separate connection pools for analytics vs. application-state writes —
   real DB privilege separation belongs with the role-verification work in
-  this phase's item 3, but splitting `app/db.py` into two pools with two
+  this phase's item 3, but splitting `app/database/db.py` into two pools with two
   credentials is enough surface area to warrant its own task group;
   included here as a task, not folded silently into "fix the role."
 - Any legacy ingestion, backfill, or quarantine-table code — permanently
@@ -170,9 +170,9 @@ above are new)
 ## Impact
 
 - Affected files (expected, confirm exact list during implementation):
-  `app/session_store.py`, `app/pipeline.py`, `app/auth.py`, `app/db.py`,
-  `app/deps.py` (if session validation happens at the dependency-injection
-  layer), `app/routers/query.py`, `app/routers/history.py`.
+  `app/conversation/session_store.py`, `app/orchestration/pipeline.py`, `app/core/auth.py`, `app/database/db.py`,
+  `app/api/deps.py` (if session validation happens at the dependency-injection
+  layer), `app/api/routers/query.py`, `app/api/routers/history.py`.
 - No API contract changes expected — ownership enforcement should produce
   a 403/404 on unauthorized session access, not a new response shape.
   Confirm with whoever owns the frontend before changing status codes on

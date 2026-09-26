@@ -4,7 +4,7 @@
 -- WHY THIS EXISTS
 --   The service currently connects as `postgres` (superuser). Every statement
 --   the LLM generates therefore runs with full write and DDL privileges. The
---   SQL guard in app/db.py rejects non-SELECT statements, but that is one
+--   SQL guard in app/database/db.py rejects non-SELECT statements, but that is one
 --   regex layer — not a substitute for the database refusing the write.
 --
 --   The existing `megh_readonly` role cannot be used as-is: it has SELECT on
@@ -86,7 +86,7 @@ ALTER DEFAULT PRIVILEGES IN SCHEMA app
     GRANT USAGE, SELECT ON SEQUENCES TO megh_app;
 
 -- The service runs CREATE TABLE/INDEX IF NOT EXISTS and ALTER TABLE ... ADD
--- COLUMN IF NOT EXISTS in app.appdb.ensure_schema() at every startup, so it
+-- COLUMN IF NOT EXISTS in app.database.appdb.ensure_schema() at every startup, so it
 -- needs CREATE on this schema. Scoped to `app` only — it cannot create objects
 -- in curated or semantic.
 GRANT CREATE ON SCHEMA app TO megh_app;

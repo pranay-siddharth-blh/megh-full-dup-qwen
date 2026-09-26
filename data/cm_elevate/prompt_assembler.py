@@ -16,11 +16,11 @@ NOTE ON THE LIVE SERVICE
 ------------------------
 The running service does NOT import this module. CM Elevate is wired into
 the uniform pipeline exactly like MGNREGA, PMAY-G and Focus Plus:
-  * app/schema_context.py   - hand-written CM ELEVATE tables / rules / vocab
-  * app/annotations.py      - loads cmelevate_few_shot.yaml + the FK graph
-  * app/entity_resolver.py  - loads cmelevate_entity_resolver.yaml
-  * app/pipeline.py         - scheme detection, clarification gate, no-time/no-money refusal
-  * app/kb_ingest.py        - CM_Elevate_Complete_Reference.md -> RAG
+  * app/sql/schema_context.py   - hand-written CM ELEVATE tables / rules / vocab
+  * app/knowledge/annotations.py      - loads cmelevate_few_shot.yaml + the FK graph
+  * app/nlu/entity_resolver.py  - loads cmelevate_entity_resolver.yaml
+  * app/orchestration/pipeline.py         - scheme detection, clarification gate, no-time/no-money refusal
+  * app/knowledge/kb_ingest.py        - CM_Elevate_Complete_Reference.md -> RAG
 
 This file is kept alongside the YAMLs as an OFFLINE tool: run its
 `--self-test` to sanity-check the YAML contract after an edit, or use it to

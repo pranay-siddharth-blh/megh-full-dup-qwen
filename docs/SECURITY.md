@@ -6,7 +6,7 @@ Controls live at **two layers** — the FastAPI app (`app/`) and the nginx edge
 enforces the guarantees that actually matter (read-only SQL, tenant isolation).
 Neither layer trusts the other to be present or correctly configured.
 
-Every app-layer control is config-gated (`app/config.py`, `.env.example`) with a
+Every app-layer control is config-gated (`app/core/config.py`, `.env.example`) with a
 safe default, so local dev is unaffected.
 
 ---
@@ -15,11 +15,11 @@ safe default, so local dev is unaffected.
 
 | Control | Where |
 | --- | --- |
-| JWT-gated `/api/query`, `/api/history/*`, `/admin/*`; role gates `require_user` / `require_admin` / `require_super` | `app/deps.py`, routers |
-| Role + geography + granularity + scheme checks on the **generated SQL** before it runs | `app/auth.py` |
-| Tenant isolation — `tenant_admin` pinned to their own tenant on every admin read | `app/routers/admin.py::_tenant_filter` |
-| **Postgres RLS on curated data AND the app's own bookkeeping tables** (openspec/changes/multi-tenant-rls-scheme-scaleout) — a second, DB-level enforcement layer independent of the app-layer scheme check above: `app.tenant_schemes` grants + `FORCE ROW LEVEL SECURITY` on the 5 real curated fact tables, plus (**added 2026-09-18**, previously deferred) the same on `app.users`/`conversations`/`conversation_turns`/`query_audit`/`login_events`/`tenant_schemes` — so an app-layer bug (a missed check, a bypassed `is_admin`) can't leak another tenant's scheme data OR another tenant's own bookkeeping rows. **Not applied to production** — same DB-role blocker as the A03 row below, plus a separate view-owner `BYPASSRLS` check the migration script itself documents how to run. Flag-gated (`TENANT_SCHEME_RLS_ENABLED`, default off). **Both halves genuinely end-to-end verified** against a disposable (non-production) Postgres — a tenant granted only one scheme confirmed unable to read another scheme's rows, including through views; login/admin/history flows confirmed to keep working with the app-schema half active (the two pre-authentication code paths that needed an explicit RLS bypass — `app/routers/auth.py`'s `login`/`bootstrap`, `app/main.py`'s startup seeding — were found and fixed as part of this) | `deploy/sql/03_tenant_scheme_rls.sql`, `app/db.py::set_tenant_context` |
-| `/api/rag/reingest` (expensive KB rebuild) now **admin-only**; `/api/rag/status` requires a user | `app/routers/rag.py` |
+| JWT-gated `/api/query`, `/api/history/*`, `/admin/*`; role gates `require_user` / `require_admin` / `require_super` | `app/api/deps.py`, routers |
+| Role + geography + granularity + scheme checks on the **generated SQL** before it runs | `app/core/auth.py` |
+| Tenant isolation — `tenant_admin` pinned to their own tenant on every admin read | `app/api/routers/admin.py::_tenant_filter` |
+| **Postgres RLS on curated data AND the app's own bookkeeping tables** (openspec/changes/multi-tenant-rls-scheme-scaleout) — a second, DB-level enforcement layer independent of the app-layer scheme check above: `app.tenant_schemes` grants + `FORCE ROW LEVEL SECURITY` on the 5 real curated fact tables, plus (**added 2026-09-18**, previously deferred) the same on `app.users`/`conversations`/`conversation_turns`/`query_audit`/`login_events`/`tenant_schemes` — so an app-layer bug (a missed check, a bypassed `is_admin`) can't leak another tenant's scheme data OR another tenant's own bookkeeping rows. **Not applied to production** — same DB-role blocker as the A03 row below, plus a separate view-owner `BYPASSRLS` check the migration script itself documents how to run. Flag-gated (`TENANT_SCHEME_RLS_ENABLED`, default off). **Both halves genuinely end-to-end verified** against a disposable (non-production) Postgres — a tenant granted only one scheme confirmed unable to read another scheme's rows, including through views; login/admin/history flows confirmed to keep working with the app-schema half active (the two pre-authentication code paths that needed an explicit RLS bypass — `app/api/routers/auth.py`'s `login`/`bootstrap`, `app/main.py`'s startup seeding — were found and fixed as part of this) | `deploy/sql/03_tenant_scheme_rls.sql`, `app/database/db.py::set_tenant_context` |
+| `/api/rag/reingest` (expensive KB rebuild) now **admin-only**; `/api/rag/status` requires a user | `app/api/routers/rag.py` |
 | `/metrics` requires `X-Metrics-Token` (or an admin JWT); IP-allowlisted at the edge | `app/main.py`, `deploy/nginx/…` |
 | `/health` returns `{"status"}` only to anonymous callers — the per-component breakdown and the `insecure_config` flag need an admin JWT / metrics token | `app/main.py::health` |
 | `/admin` + `/admin-ui` IP-allowlisted to office networks | `deploy/nginx/nginx-nlpservice.conf` |
@@ -28,42 +28,42 @@ safe default, so local dev is unaffected.
 
 | Control | Where |
 | --- | --- |
-| PBKDF2-HMAC-SHA256 password hashing, 200k iterations, constant-time compare | `app/security.py` |
-| HS256 JWT, issuer + expiry checked, constant-time signature compare | `app/security.py` |
+| PBKDF2-HMAC-SHA256 password hashing, 200k iterations, constant-time compare | `app/core/security.py` |
+| HS256 JWT, issuer + expiry checked, constant-time signature compare | `app/core/security.py` |
 | **TLS 1.2/1.3 only**, modern ciphers, OCSP stapling, HTTP→HTTPS redirect | `deploy/nginx/nginx-nlpservice.conf` |
-| HSTS (`max-age=1y; includeSubDomains`) at both app and edge | `app/middleware/security_headers.py`, nginx |
-| Startup **secret guard** — `CRITICAL` log + `/health` `insecure_config` when `JWT_SECRET` / `ADMIN_TOKEN` are still defaults or too short. Does **not** block boot; the deploy checklist owns enforcement | `app/config.py::insecure_secrets`, `app/main.py` |
+| HSTS (`max-age=1y; includeSubDomains`) at both app and edge | `app/api/middleware/security_headers.py`, nginx |
+| Startup **secret guard** — `CRITICAL` log + `/health` `insecure_config` when `JWT_SECRET` / `ADMIN_TOKEN` are still defaults or too short. Does **not** block boot; the deploy checklist owns enforcement | `app/core/config.py::insecure_secrets`, `app/main.py` |
 | `.env` is `chmod 600`, gitignored | `deploy/DEPLOYMENT.md` |
 
 ## A03 — Injection
 
 | Control | Where |
 | --- | --- |
-| LLM-generated SQL is validated: single statement, `SELECT`/`WITH` lead only, no write/DDL keywords, forced `LIMIT` | `app/db.py::_assert_safe`, `run_readonly` |
+| LLM-generated SQL is validated: single statement, `SELECT`/`WITH` lead only, no write/DDL keywords, forced `LIMIT` | `app/database/db.py::_assert_safe`, `run_readonly` |
 | DB connection is a **SELECT-only role** (`megh_app` / `megh_readonly`) — **scripted, not yet applied to production**. The service currently connects as the `postgres` superuser: confirmed by the script's own header ("The service currently connects as `postgres` (superuser)", `deploy/sql/01_create_megh_app_role.sql:5`) and by the live `DATABASE_URL` in `.env`, which uses `postgres`, not `megh_app`. Until this is run against production, this layer does not exist — see the Group 3 finding in `docs/baseline-audit.md` §3. **This same cutover also gates the RLS row above** — a superuser connection bypasses Postgres RLS regardless of any policy defined | `deploy/sql/01_create_megh_app_role.sql` (defined, unexecuted) |
-| Our own SQL is always parameter-bound, never interpolated | `app/db.py::fetch_rows` etc. |
-| `question` field length-capped (`MAX_QUESTION_CHARS`) and C0-control-char stripped; `session_id` pattern-restricted; length caps on every admin/auth free-text field and list | `app/routers/*.py` |
+| Our own SQL is always parameter-bound, never interpolated | `app/database/db.py::fetch_rows` etc. |
+| `question` field length-capped (`MAX_QUESTION_CHARS`) and C0-control-char stripped; `session_id` pattern-restricted; length caps on every admin/auth free-text field and list | `app/api/routers/*.py` |
 | **OWASP CRS WAF** in front (SQLi/XSS/RCE families), staged rollout | `deploy/nginx/modsecurity/` |
 
 ## A04 — Insecure Design
 
 | Control | Where |
 | --- | --- |
-| Global request-body cap (`MAX_REQUEST_BYTES`, 256 KB) — header check + streamed-byte guard; transcribe route exempt (own 10 MB cap) | `app/middleware/limits.py` |
-| Per-IP sliding-window rate limits: `/api/query` (30/60s), `/api/auth/login` (`LOGIN_RL_MAX`/`LOGIN_RL_WINDOW_SEC`) | `app/middleware/rate_limit.py` |
-| Optional **Redis rate-limit backend** so the limit holds across 2 workers × 2 VMs (`RATELIMIT_BACKEND=redis`) | `app/middleware/rate_limit.py` |
-| Model-gateway concurrency cap + queue-shed (503) — `MODEL_MAX_CONCURRENCY` | `app/config.py`, `app/llm.py` |
+| Global request-body cap (`MAX_REQUEST_BYTES`, 256 KB) — header check + streamed-byte guard; transcribe route exempt (own 10 MB cap) | `app/api/middleware/limits.py` |
+| Per-IP sliding-window rate limits: `/api/query` (30/60s), `/api/auth/login` (`LOGIN_RL_MAX`/`LOGIN_RL_WINDOW_SEC`) | `app/api/middleware/rate_limit.py` |
+| Optional **Redis rate-limit backend** so the limit holds across 2 workers × 2 VMs (`RATELIMIT_BACKEND=redis`) | `app/api/middleware/rate_limit.py` |
+| Model-gateway concurrency cap + queue-shed (503) — `MODEL_MAX_CONCURRENCY` | `app/core/config.py`, `app/clients/llm.py` |
 | Edge `limit_req` / `limit_conn` zones, body + header + send timeouts | `deploy/nginx/nginx-nlpservice.conf` |
-| Query-param `limit` bounds on admin/history list endpoints | `app/routers/admin.py`, `app/routers/history.py` |
+| Query-param `limit` bounds on admin/history list endpoints | `app/api/routers/admin.py`, `app/api/routers/history.py` |
 
 ## A05 — Security Misconfiguration
 
 | Control | Where |
 | --- | --- |
-| Security headers on every response: `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`; `Cache-Control: no-store` on `/api/*`; `Server` header stripped | `app/middleware/security_headers.py` + nginx `add_header … always` |
+| Security headers on every response: `Content-Security-Policy`, `X-Content-Type-Options`, `X-Frame-Options`, `Referrer-Policy`, `Permissions-Policy`, `Cross-Origin-Opener-Policy`, `Cross-Origin-Resource-Policy`; `Cache-Control: no-store` on `/api/*`; `Server` header stripped | `app/api/middleware/security_headers.py` + nginx `add_header … always` |
 | `/docs`, `/redoc`, `/openapi.json` disabled unless `ENV=dev` | `app/main.py` |
 | **No stack traces / DB errors in responses** — global exception handler returns `{"detail": "internal error", "request_id": …}`; routers no longer interpolate exception text | `app/main.py::_unhandled`, routers |
-| `X-Request-ID` on every response for log correlation without disclosure | `app/middleware/security_headers.py` |
+| `X-Request-ID` on every response for log correlation without disclosure | `app/api/middleware/security_headers.py` |
 | `server_tokens off`; dotfiles denied at the edge | `deploy/nginx/nginx-nlpservice.conf` |
 
 ### CSP note
@@ -87,11 +87,11 @@ externalise the inline JS, then promote it to `CSP_ENFORCE`.
 
 | Control | Where |
 | --- | --- |
-| Brute-force throttle on `POST /api/auth/login` (app) + stricter `limit_req` zone (edge) | `app/middleware/rate_limit.py`, nginx |
-| Failed logins recorded (`app.login_events`) with IP + user-agent | `app/routers/auth.py`, `app/appdb.py` |
-| Password min length enforced on create/update/bootstrap | `app/security.py`, `app/routers/*` |
-| One-time `bootstrap` endpoint closes as soon as a user exists (or needs `ADMIN_TOKEN`) | `app/routers/auth.py::bootstrap` |
-| Short-ish session TTL (`JWT_TTL_MINUTES`, 12h default) | `app/config.py` |
+| Brute-force throttle on `POST /api/auth/login` (app) + stricter `limit_req` zone (edge) | `app/api/middleware/rate_limit.py`, nginx |
+| Failed logins recorded (`app.login_events`) with IP + user-agent | `app/api/routers/auth.py`, `app/database/appdb.py` |
+| Password min length enforced on create/update/bootstrap | `app/core/security.py`, `app/api/routers/*` |
+| One-time `bootstrap` endpoint closes as soon as a user exists (or needs `ADMIN_TOKEN`) | `app/api/routers/auth.py::bootstrap` |
+| Short-ish session TTL (`JWT_TTL_MINUTES`, 12h default) | `app/core/config.py` |
 
 **Known gap:** JWTs are stateless — logout is advisory, there is no revocation
 list. Acceptable for a 12h officer session; revisit with a `jti` + Redis denylist
@@ -109,10 +109,10 @@ if tokens ever need to be killed mid-session.
 
 | Control | Where |
 | --- | --- |
-| Every query audited (user, tenant, role, route, granularity, allow/deny, row count, IP, latency, executed SQL, a bounded result preview, findings, chart_type, final response text) to `app.query_audit` + a JSONL mirror, kept in parity | `app/conversation_store.py`, `app/routers/query.py::_mirror_audit` |
-| Login / logout / bootstrap events to `app.login_events` | `app/appdb.py::log_login` |
-| Client IP is **proxy-trust aware** — `X-Forwarded-For` only honoured from `TRUSTED_PROXIES`, so the audit trail can't be poisoned by a spoofed header | `app/net.py` |
-| `X-Request-ID` ties a client-visible 500 to the server log line | `app/middleware/security_headers.py` |
+| Every query audited (user, tenant, role, route, granularity, allow/deny, row count, IP, latency, executed SQL, a bounded result preview, findings, chart_type, final response text) to `app.query_audit` + a JSONL mirror, kept in parity | `app/conversation/conversation_store.py`, `app/api/routers/query.py::_mirror_audit` |
+| Login / logout / bootstrap events to `app.login_events` | `app/database/appdb.py::log_login` |
+| Client IP is **proxy-trust aware** — `X-Forwarded-For` only honoured from `TRUSTED_PROXIES`, so the audit trail can't be poisoned by a spoofed header | `app/core/net.py` |
+| `X-Request-ID` ties a client-visible 500 to the server log line | `app/api/middleware/security_headers.py` |
 | WAF audit log for attack traffic | `/var/log/nginx/modsec_audit.log` |
 
 **Follow-up:** ship these logs to a SIEM / alert on `login_fail` spikes and
@@ -143,6 +143,6 @@ See `deploy/DEPLOYMENT.md` for the full list. The essentials:
 
 ## Tests
 
-`python tests/test_security.py` — headers, body/field limits, endpoint gating,
+`python tests/unit/test_security.py` — headers, body/field limits, endpoint gating,
 login throttle, error hygiene, secret guard. Runs without a DB or the model
 gateway.

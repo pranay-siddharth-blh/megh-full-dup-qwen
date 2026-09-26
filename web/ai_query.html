@@ -483,7 +483,29 @@
   .msg.user .bubble { background: var(--p-700); color: #fff; border-color: var(--p-700); }
   .bubble strong, .bubble b { color: var(--p-700); font-weight: 700; }
   .msg.user .bubble strong { color: #fff; }
-  .answer-text { margin-bottom: 4px; }
+  .answer-text { margin-bottom: 4px; line-height: 1.6; }
+  /* Markdown answers (renderMarkdown) — tables, lists, headings. */
+  .answer-text p { margin: 0 0 8px; }
+  .answer-text p:last-child { margin-bottom: 0; }
+  .answer-text .md-h { font-weight: 700; color: var(--ink); margin: 12px 0 6px; font-size: 14.5px; }
+  .answer-text ul, .answer-text ol { margin: 6px 0 10px; padding-left: 20px; }
+  .answer-text li { margin: 4px 0; }
+  /* Keep purple for the headline figures only; list labels read as plain text. */
+  .answer-text li strong { color: var(--ink); font-weight: 600; }
+  .answer-text em { color: var(--ink-3); font-style: normal; font-size: 12.5px; }
+  .answer-text code { font-family: 'JetBrains Mono', Menlo, monospace; font-size: 12.5px;
+    background: var(--p-50); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; }
+  /* Sized to its content (not full width) so each figure sits beside its label. */
+  .md-table-wrap { display: inline-block; max-width: 100%; overflow-x: auto; margin: 12px 0 8px;
+    border: 1px solid var(--line); border-radius: 10px; vertical-align: top; }
+  .md-table { border-collapse: collapse; min-width: 360px; font-size: 13px; }
+  .md-table td:not(.num) { padding-right: 32px; }
+  .md-table th { background: var(--p-50); color: var(--ink-2); font-weight: 600; text-align: left;
+    padding: 8px 12px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+  .md-table td { padding: 7px 12px; border-bottom: 1px solid var(--line); color: var(--ink); }
+  .md-table tr:last-child td { border-bottom: none; }
+  .md-table tbody tr:nth-child(even) td { background: #FCFAFE; }
+  .md-table .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .mtime { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
 
   /* Typing indicator */
@@ -498,6 +520,22 @@
     0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
     30% { transform: translateY(-4px); opacity: 1; }
   }
+
+  /* Streaming answer (/api/query/stream) — stage label beside the dots, then
+     plain text with a blinking cursor until the full answer renders. */
+  .typing-bubble { align-items: center; }
+  .stream-stage { margin-left: 8px; font-size: 12px; color: var(--ink-3); font-style: italic; }
+  .stream-text { white-space: pre-wrap; word-break: break-word; }
+  .stream-cursor {
+    display: inline-block; width: 7px; height: 1.05em; margin-left: 2px;
+    vertical-align: text-bottom; border-radius: 1px; background: var(--p-600);
+    animation: streamBlink 1s steps(1) infinite;
+  }
+  @keyframes streamBlink { 50% { opacity: 0; } }
+  @media (prefers-reduced-motion: reduce) { .stream-cursor { animation: none; } }
+  .send-btn.is-stop { background: var(--surface); color: var(--p-700);
+    border: 1px solid var(--p-300); box-shadow: none; }
+  .send-btn.is-stop svg { display: none; }
   @keyframes fadeUp {
     from { opacity: 0; transform: translateY(8px); }
     to   { opacity: 1; transform: translateY(0); }
@@ -528,6 +566,7 @@
   .rtbl td { padding: 9px 12px; font-size: 13px; border-bottom: 1px solid var(--p-50); }
   .rtbl tr:last-child td { border-bottom: none; }
   .rtbl tr:hover td { background: var(--p-50); }
+  .rtbl th.num, .rtbl td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
   .rtbl.record-card th { text-transform: capitalize; background: var(--p-50); position: static; }
   .rtbl-note { font-size: 11px; color: var(--ink-3); padding: 8px 12px; font-style: italic; }
 
@@ -1512,7 +1551,7 @@
               </span>
               <span data-i18n="micBtn">Speak</span>
             </button>
-            <button class="send-btn" id="sendBtn" onclick="sendQuery()">
+            <button class="send-btn" id="sendBtn" onclick="onSendClick()">
               <span data-i18n="sendBtn">Send</span>
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M5 12h14M12 5l7 7-7 7"></path></svg>
             </button>
@@ -1794,9 +1833,16 @@ function useQuery(text) {
 }
 // Run `text` as the next question. Guards the two ways a click could silently do nothing:
 // a query already in flight (sendQuery would return early and drop it), and a blank/missing text.
-function ask(text) {
+// A clicked clarification chip's {slot, value}, tied to the exact text it
+// sends so a later TYPED message can never carry a stale choice. The backend
+// fills the paused slot from it directly; older backends
+// ignore the extra fields and use the text, as before.
+let pendingChoice = null;
+
+function ask(text, choice) {
   const q = String(text == null ? '' : text).trim();
   if (!q) return;
+  pendingChoice = (choice && choice.slot) ? { text: q, slot: choice.slot, value: choice.value } : null;
   if (typeof isQueryRunning !== 'undefined' && isQueryRunning) {
     // Don't lose the click — put it in the box and retry once the in-flight answer lands.
     useQuery(q);
@@ -1849,6 +1895,113 @@ function escapeHTML(s) {
     .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 
+
+/* Human-readable labels and values for the data table, record card and charts
+   under an answer — mirrors app/response/answer_format.py so the table reads the same
+   way as the answer text: "District", not "lgd_district"; "West Garo Hills",
+   not "WEST GARO HILLS"; 1,05,702 / ₹46.64 Cr / 82.0%, not raw numbers. */
+const _HDR_DROP = new Set(['lgd', 'raw', 'short', 'label']);
+const _HDR_MAP = { id: 'ID', pg: 'PG', ac: 'AC', cm: 'CM', fy: 'FY', pct: '%', exp: 'expenditure' };
+function humanHeader(col) {
+  const words = String(col).split(/[_\s]+/).filter(w => w && !_HDR_DROP.has(w.toLowerCase()))
+    .map(w => _HDR_MAP[w.toLowerCase()] || w.toLowerCase());
+  const h = words.join(' ') || String(col);
+  return h.charAt(0).toUpperCase() + h.slice(1);
+}
+function _isRawCol(col) {
+  const c = String(col);
+  return /(^|_)(year|year_key|code|id|key|pincode|rank)(_|$)|^fy/i.test(c)
+    && !/^(members|beneficiar|applications|applicants|payments|houses|villages|blocks|districts|num|number|count|total|n)_|_count$|^count/i.test(c);
+}
+function humanLabel(v) {
+  const t = String(v ?? '').trim();
+  // ALL-CAPS names (districts, blocks, statuses) -> Title Case; short codes (FPO, LAMP) stay.
+  if (t && t === t.toUpperCase() && /[A-Z]{3,}/.test(t) && (t.includes(' ') || t.length >= 5))
+    return t.toLowerCase().replace(/[a-z]+/g, w => w.charAt(0).toUpperCase() + w.slice(1));
+  return t;
+}
+function _fmtIN(n, dp) { return n.toLocaleString('en-IN', { maximumFractionDigits: dp }); }
+function humanCell(col, v) {
+  if (v === null || v === undefined || v === '' || String(v) === 'None') return '—';
+  const s = String(v).trim();
+  if (!/^-?\d+(?:\.\d+)?$/.test(s) || _isRawCol(col)) return _isRawCol(col) ? s : humanLabel(s);
+  const n = parseFloat(s), c = String(col);
+  if (/pct|percent|share|_rate$|^rate/i.test(c) && Math.abs(n) <= 100) return n.toFixed(1) + '%';
+  if (/crore/i.test(c)) return '₹' + _fmtIN(n, 2) + ' Cr';
+  if (/lakh/i.test(c)) return '₹' + _fmtIN(n, 2) + ' L';
+  if (/rupee|^amount|amount$|amount_raw|amount_disbursed|amount_released|sanctioned_amount|amount_pending|disbursed/i.test(c)) {
+    const a = Math.abs(n);
+    if (a >= 1e7) return '₹' + _fmtIN(n / 1e7, 2) + ' Cr';
+    if (a >= 1e5) return '₹' + _fmtIN(n / 1e5, 2) + ' L';
+    return '₹' + _fmtIN(n, 2);
+  }
+  return _fmtIN(n, 2);
+}
+function _isNumCell(col, v) {
+  return v !== null && v !== undefined && /^-?\d+(?:\.\d+)?$/.test(String(v).trim()) && !_isRawCol(col);
+}
+
+/* Safe Markdown for bot answers: the text is HTML-escaped FIRST, then only a
+   fixed set of structures is turned into markup — tables, bullet / numbered
+   lists, #-headings, **bold**, _notes_ / *emphasis*, `code`, paragraphs.
+   Nothing from the answer can inject HTML. Backend: app/response/answer_format.py. */
+function _mdInline(s) {
+  return s
+    .replace(/`([^`]+)`/g, '<code>$1</code>')
+    .replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>')
+    .replace(/(^|[\s(])\*(?!\s)([^*]+?)\*(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>')
+    .replace(/(^|[\s(])_(?!\s)([^_]+?)_(?=[\s).,;:!?]|$)/g, '$1<em>$2</em>');
+}
+function _mdCells(line) {
+  return line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map(c => c.trim());
+}
+function renderMarkdown(src) {
+  const lines = escapeHTML(src || '').split(/\r?\n/);
+  const out = [];
+  let i = 0;
+  const isRow = l => /^\s*\|.*\|\s*$/.test(l);
+  const isSep = l => /^\s*\|[\s:|-]+\|\s*$/.test(l) && l.includes('-');
+  while (i < lines.length) {
+    const line = lines[i];
+    if (isRow(line) && i + 1 < lines.length && isSep(lines[i + 1])) {
+      const head = _mdCells(line);
+      const align = _mdCells(lines[i + 1]).map(c => /:\s*$/.test(c));
+      i += 2;
+      const body = [];
+      while (i < lines.length && isRow(lines[i])) { body.push(_mdCells(lines[i])); i++; }
+      const th = head.map((c, j) => `<th class="${align[j] ? 'num' : ''}">${_mdInline(c)}</th>`).join('');
+      const tb = body.map(r => '<tr>' + head.map((_, j) =>
+        `<td class="${align[j] ? 'num' : ''}">${_mdInline(r[j] || '')}</td>`).join('') + '</tr>').join('');
+      out.push(`<div class="md-table-wrap"><table class="md-table"><thead><tr>${th}</tr></thead><tbody>${tb}</tbody></table></div>`);
+      continue;
+    }
+    if (/^\s*[-*•]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*[-*•]\s+/.test(lines[i])) {
+        items.push(`<li>${_mdInline(lines[i].replace(/^\s*[-*•]\s+/, ''))}</li>`); i++;
+      }
+      out.push(`<ul>${items.join('')}</ul>`);
+      continue;
+    }
+    if (/^\s*\d+[.)]\s+/.test(line)) {
+      const items = [];
+      while (i < lines.length && /^\s*\d+[.)]\s+/.test(lines[i])) {
+        items.push(`<li>${_mdInline(lines[i].replace(/^\s*\d+[.)]\s+/, ''))}</li>`); i++;
+      }
+      out.push(`<ol>${items.join('')}</ol>`);
+      continue;
+    }
+    const h = line.match(/^\s*#{1,4}\s+(.*)$/);
+    if (h) { out.push(`<div class="md-h">${_mdInline(h[1])}</div>`); i++; continue; }
+    if (!line.trim()) { i++; continue; }
+    const para = [];
+    while (i < lines.length && lines[i].trim() && !isRow(lines[i]) &&
+           !/^\s*([-*•]|\d+[.)]|#{1,4})\s+/.test(lines[i])) { para.push(_mdInline(lines[i])); i++; }
+    out.push(`<p>${para.join('<br>')}</p>`);
+  }
+  return out.join('');
+}
+
 function hideWelcome() {
   if (!welcomeRemoved && welcome) {
     welcome.style.display = 'none';
@@ -1865,7 +2018,11 @@ function addMessage(role, text, isHTML = false) {
   const div = document.createElement('div');
   div.className = 'msg ' + role;
   const avatarText = role === 'user' ? 'U' : 'M';
-  const content = isHTML ? text : escapeHTML(text).replace(/\n/g, '<br>');
+  // Bot text (e.g. a conversation reopened from history) gets the same
+  // Markdown layout as a live answer; user text stays plain.
+  const content = isHTML ? text
+    : role === 'bot' ? `<div class="answer-text">${renderMarkdown(text)}</div>`
+    : escapeHTML(text).replace(/\n/g, '<br>');
   div.innerHTML = `
     <div class="av">${avatarText}</div>
     <div>
@@ -1890,6 +2047,7 @@ function addTyping() {
     </div>`;
   messages.appendChild(div);
   scrollToBottom();
+  return div.querySelector('.bubble');   // the streaming answer is written into it
 }
 function removeTyping() { const t = document.getElementById('typing-indicator'); if (t) t.remove(); }
 
@@ -1900,31 +2058,71 @@ function removeTyping() { const t = document.getElementById('typing-indicator');
 // "loading". The AbortController guarantees the promise always settles.
 const QUERY_TIMEOUT_MS = 75000;
 
-async function fetchNLPResponse(question) {
+// The question in flight: { ctrl, reader, stopped }. Stop / New chat / opening
+// another conversation abort it through stopQuery().
+let activeQuery = null;
+
+function stopQuery(reason) {
+  const q = activeQuery;
+  if (!q) return;
+  q.stopped = reason || 'user';
+  if (q.reader) { try { q.reader.cancel(); } catch (e) {} }
+  q.ctrl.abort();
+}
+
+// `bubble` (optional): the pending bot bubble to stream the answer into.
+async function fetchNLPResponse(question, bubble) {
   // Cheap after the first call (the result is cached), and it guarantees a
   // question typed before boot finished still goes to the right prefix.
   await resolveSchemePrefix();
   const body = { question, language: currentLang, session_id: getSessionId(), include_sql: true };
+  if (pendingChoice && pendingChoice.text === String(question).trim()) {
+    body.slot = pendingChoice.slot;
+    body.value = pendingChoice.value;
+  }
+  pendingChoice = null;
   // The Unified-Data backend auto-routes every question to the right scheme table(s) from the
   // question text itself — no scheme/mode flag needed.
   const ctrl = new AbortController();
   const timer = setTimeout(() => ctrl.abort(), QUERY_TIMEOUT_MS);
+  const q = activeQuery = { ctrl, reader: null, stopped: null };
+  try {
+    if (bubble) {
+      try {
+        return await sendQueryStream(body, bubble, ctrl.signal);
+      } catch (err) {
+        // Only an older server (no /api/query/stream) or a network failure
+        // before the first token falls back; everything else is the answer.
+        if (!err.streamFallback) throw err;
+        console.warn('Streaming unavailable, using /api/query:', err.message);
+      }
+    }
+    return await postQuery(body, ctrl.signal);
+  } catch (err) {
+    if (err.message === 'unauthorized') throw err;
+    if (q.stopped) { const e = new Error('stopped'); e.stopped = q.stopped; throw e; }
+    if (err.name === 'AbortError') {
+      throw new Error('The request took too long and timed out. The service may be busy — please try again in a moment.');
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+    if (activeQuery === q) activeQuery = null;
+  }
+}
+
+async function postQuery(body, signal) {
   let response;
   try {
     response = await apiFetch(`/api/query`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: ctrl.signal
+      signal
     });
   } catch (err) {
-    if (err.message === 'unauthorized') throw err;
-    if (err.name === 'AbortError') {
-      throw new Error('The request took too long and timed out. The service may be busy — please try again in a moment.');
-    }
+    if (err.message === 'unauthorized' || err.name === 'AbortError') throw err;
     throw new Error('Could not reach the server. Please check your connection and try again.');
-  } finally {
-    clearTimeout(timer);
   }
   if (!response.ok) {
     let detail = 'API request failed';
@@ -1932,6 +2130,127 @@ async function fetchNLPResponse(question) {
     throw new Error(detail);
   }
   return await response.json();
+}
+
+/* ============ STREAMING (POST /api/query/stream, Server-Sent Events) ============
+   Events: stage {label} · token {t} · replace {answer} · done {<the /api/query
+   result>} · error {status, detail}. Streamed text is shown as plain text only
+   (textContent); the finished answer is then rendered by addBotRich exactly as
+   a /api/query answer, replacing the streamed bubble. */
+function streamFallbackError(msg) {
+  const e = new Error(msg);
+  e.streamFallback = true;
+  return e;
+}
+
+function parseSSEBlock(block) {
+  let name = 'message';
+  const data = [];
+  for (const line of block.split('\n')) {
+    if (!line || line.startsWith(':')) continue;          // comment / keep-alive ping
+    if (line.startsWith('event:')) name = line.slice(6).trim();
+    else if (line.startsWith('data:')) data.push(line.slice(5).replace(/^ /, ''));
+  }
+  if (!data.length) return null;
+  try { return { name, data: JSON.parse(data.join('\n')) }; } catch (e) { return null; }
+}
+
+// Drives the pending bubble: a stage label under the dots, then the answer text
+// with a blinking cursor.
+function streamView(bubble) {
+  let textNode = null, cursor = null;
+  const nearBottom = () => !scrollArea ||
+    scrollArea.scrollHeight - scrollArea.scrollTop - scrollArea.clientHeight < 80;
+  const keepScrolled = (was) => { if (was) scrollToBottom(); };
+  function toText() {
+    if (textNode) return;
+    bubble.classList.remove('typing-bubble');
+    bubble.textContent = '';
+    const div = document.createElement('div');
+    div.className = 'answer-text stream-text';
+    textNode = document.createTextNode('');
+    cursor = document.createElement('span');
+    cursor.className = 'stream-cursor';
+    div.append(textNode, cursor);
+    bubble.appendChild(div);
+  }
+  return {
+    stage(label) {
+      if (textNode || !label) return;
+      const was = nearBottom();
+      let el = bubble.querySelector('.stream-stage');
+      if (!el) {
+        el = document.createElement('span');
+        el.className = 'stream-stage';
+        bubble.appendChild(el);
+      }
+      el.textContent = label;
+      keepScrolled(was);
+    },
+    set(text) {
+      const was = nearBottom();
+      toText();
+      textNode.data = text;
+      keepScrolled(was);
+    },
+    finish() { if (cursor) cursor.remove(); }
+  };
+}
+
+async function sendQueryStream(body, bubble, signal) {
+  let res;
+  try {
+    res = await apiFetch('/api/query/stream', {       // auth headers + 401 handling
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal
+    });
+  } catch (err) {
+    if (err.message === 'unauthorized' || err.name === 'AbortError') throw err;
+    throw streamFallbackError('network error before the stream opened');
+  }
+  if (res.status === 404 || res.status === 405) throw streamFallbackError(`stream route returned ${res.status}`);
+  if (!res.ok) {
+    let detail = 'API request failed';
+    try { detail = (await res.json()).detail || detail; } catch (e) {}
+    throw new Error(detail);
+  }
+  if (!res.body || !res.body.getReader) throw streamFallbackError('no readable response body');
+
+  const reader = res.body.getReader();
+  if (activeQuery) activeQuery.reader = reader;
+  const decoder = new TextDecoder();
+  const view = streamView(bubble);
+  let buf = '', text = '', gotToken = false;
+  try {
+    for (;;) {
+      let chunk;
+      try {
+        chunk = await reader.read();
+      } catch (err) {
+        if (err.name === 'AbortError' || gotToken) throw err;
+        throw streamFallbackError('connection lost before the first token');
+      }
+      if (chunk.done) break;
+      buf += decoder.decode(chunk.value, { stream: true }).replace(/\r\n/g, '\n');
+      let cut;
+      while ((cut = buf.indexOf('\n\n')) !== -1) {
+        const ev = parseSSEBlock(buf.slice(0, cut));
+        buf = buf.slice(cut + 2);
+        if (!ev) continue;
+        const d = ev.data || {};
+        if (ev.name === 'stage') view.stage(d.label);
+        else if (ev.name === 'token') { gotToken = true; text += d.t || ''; view.set(text); }
+        else if (ev.name === 'replace') { gotToken = true; text = d.answer || ''; view.set(text); }
+        else if (ev.name === 'done') { view.finish(); return d; }
+        else if (ev.name === 'error') throw new Error(d.detail || 'The service could not answer this question.');
+      }
+    }
+  } finally {
+    view.finish();
+  }
+  throw new Error('The answer was cut off before it finished. Please try again.');
 }
 
 /* ============ ANALYTICS RENDERER (Chart.js — purple palette) ============ */
@@ -2014,8 +2333,8 @@ function buildDynTable(data, fullWidth) {
   const cols = Object.keys(data[0]);
   const shown = data.slice(0, 100);
   let html = `<div class="rtwrap"><table class="rtbl"><thead><tr>` +
-    cols.map(c => `<th>${escapeHTML(c.replace(/_/g,' '))}</th>`).join('') + `</tr></thead><tbody>` +
-    shown.map(r => `<tr>` + cols.map(c => `<td>${escapeHTML(String(r[c] ?? '—'))}</td>`).join('') + `</tr>`).join('') +
+    cols.map(c => `<th class="${_isNumCell(c, data[0][c]) ? 'num' : ''}">${escapeHTML(humanHeader(c))}</th>`).join('') + `</tr></thead><tbody>` +
+    shown.map(r => `<tr>` + cols.map(c => `<td class="${_isNumCell(c, r[c]) ? 'num' : ''}">${escapeHTML(humanCell(c, r[c]))}</td>`).join('') + `</tr>`).join('') +
     `</tbody></table></div>`;
   if (data.length > shown.length) html += `<div class="rtbl-note">Showing ${shown.length} of ${data.length} rows.</div>`;
   return html;
@@ -2029,20 +2348,20 @@ function buildPivotTable(data, xKey, sKey, vKey) {
   const colTotals = {}; sVals.forEach(sv => { colTotals[sv] = xVals.reduce((s,x) => s + (parseFloat(lookup[`${x}||${sv}`]) || 0), 0); });
   const grand = xVals.reduce((s,x) => s + rowTotals[x], 0);
   return `<div class="rtwrap" style="overflow-x:auto"><table class="rtbl"><thead><tr>` +
-    `<th>${escapeHTML(xKey.replace(/_/g,' '))}</th>` + sVals.map(sv => `<th>${escapeHTML(sv)}</th>`).join('') + `<th>Total</th></tr></thead><tbody>` +
-    xVals.map(x => `<tr><td><strong>${escapeHTML(String(x))}</strong></td>` +
-      sVals.map(sv => `<td>${escapeHTML(String(lookup[`${x}||${sv}`] ?? '—'))}</td>`).join('') +
-      `<td><strong>${rowTotals[x].toLocaleString('en-IN')}</strong></td></tr>`).join('') +
+    `<th>${escapeHTML(humanHeader(xKey))}</th>` + sVals.map(sv => `<th class="num">${escapeHTML(humanLabel(sv))}</th>`).join('') + `<th>Total</th></tr></thead><tbody>` +
+    xVals.map(x => `<tr><td><strong>${escapeHTML(humanLabel(x))}</strong></td>` +
+      sVals.map(sv => `<td class="num">${escapeHTML(humanCell(vKey, lookup[`${x}||${sv}`]))}</td>`).join('') +
+      `<td class="num"><strong>${escapeHTML(humanCell(vKey, rowTotals[x]))}</strong></td></tr>`).join('') +
     `<tr style="background:var(--p-50);font-weight:600"><td><strong>Total</strong></td>` +
-      sVals.map(sv => `<td>${colTotals[sv].toLocaleString('en-IN')}</td>`).join('') +
-      `<td><strong>${grand.toLocaleString('en-IN')}</strong></td></tr>` +
+      sVals.map(sv => `<td class="num">${escapeHTML(humanCell(vKey, colTotals[sv]))}</td>`).join('') +
+      `<td class="num"><strong>${escapeHTML(humanCell(vKey, grand))}</strong></td></tr>` +
     `</tbody></table></div>`;
 }
 function buildRecordCard(row) {
   const entries = Object.entries(row).filter(([, v]) => v !== null && v !== '' && String(v) !== 'None');
   if (!entries.length) return buildDynTable([row], true);
   return `<div class="rtwrap" style="max-height:none"><table class="rtbl record-card"><tbody>` +
-    entries.map(([k, v]) => `<tr><th style="width:42%">${escapeHTML(k.replace(/_/g,' '))}</th><td>${escapeHTML(String(v))}</td></tr>`).join('') +
+    entries.map(([k, v]) => `<tr><th style="width:42%">${escapeHTML(humanHeader(k))}</th><td>${escapeHTML(humanCell(k, v))}</td></tr>`).join('') +
     `</tbody></table></div>`;
 }
 
@@ -2070,7 +2389,7 @@ function buildAnalytics(question, data, hintType) {
         keys = parts;
       }
     }
-    const labels = keys.map(k => k.replace(/_/g,' '));
+    const labels = keys.map(k => humanHeader(k));
     const values = keys.map(k => parseFloat(row[k]) || 0);
     const html = `<div class="analytics"><div class="dyn-grid single"><div class="dyn-chart-card">
       <div class="chd"><div class="chd-left"><span class="chd-dot"></span><span class="chd-title">Summary</span></div>
@@ -2126,10 +2445,10 @@ function buildAnalytics(question, data, hintType) {
 
   if (hintType === 'grouped_bar') {
     const cid = `dync_${_chartIdx}_g`;
-    const labels = data.map(r => String(r[lc]).length > 18 ? String(r[lc]).slice(0,16)+'…' : String(r[lc]));
-    const datasets = numCols.map(nc => ({ label: nc.replace(/_/g,' '), values: data.map(r => parseFloat(r[nc]) || 0) }));
+    const labels = data.map(r => { const t = humanLabel(r[lc]); return t.length > 18 ? t.slice(0,16)+'…' : t; });
+    const datasets = numCols.map(nc => ({ label: humanHeader(nc), values: data.map(r => parseFloat(r[nc]) || 0) }));
     const html = `<div class="analytics"><div class="dyn-grid single"><div class="dyn-chart-card">
-      <div class="chd"><div class="chd-left"><span class="chd-dot"></span><span class="chd-title">Grouped comparison by ${escapeHTML(lc.replace(/_/g,' '))}</span></div><span class="chd-pill">Grouped Bar</span></div>
+      <div class="chd"><div class="chd-left"><span class="chd-dot"></span><span class="chd-title">Grouped comparison by ${escapeHTML(humanHeader(lc).toLowerCase())}</span></div><span class="chd-pill">Grouped Bar</span></div>
       <div class="chw" style="height:280px"><canvas id="${cid}"></canvas></div>
     </div></div>${buildDynTable(data, true)}</div>`;
     return { html, init: () => groupedBar(cid, labels, datasets) };
@@ -2140,7 +2459,7 @@ function buildAnalytics(question, data, hintType) {
     const cid = `dync_${_chartIdx}_s`;
     const { labels, datasets } = pivotStackedBar(data, xKey, sKey, vKey);
     const html = `<div class="analytics"><div class="dyn-grid single"><div class="dyn-chart-card">
-      <div class="chd"><div class="chd-left"><span class="chd-dot"></span><span class="chd-title">${escapeHTML(vKey.replace(/_/g,' '))} by ${escapeHTML(xKey.replace(/_/g,' '))} &amp; ${escapeHTML(sKey.replace(/_/g,' '))}</span></div><span class="chd-pill">Stacked Bar</span></div>
+      <div class="chd"><div class="chd-left"><span class="chd-dot"></span><span class="chd-title">${escapeHTML(humanHeader(vKey))} by ${escapeHTML(humanHeader(xKey).toLowerCase())} &amp; ${escapeHTML(humanHeader(sKey).toLowerCase())}</span></div><span class="chd-pill">Stacked Bar</span></div>
       <div class="chw" style="height:320px"><canvas id="${cid}"></canvas></div>
     </div></div>${buildPivotTable(data, xKey, sKey, vKey)}</div>`;
     return { html, init: () => stackedBar(cid, labels, datasets) };
@@ -2152,7 +2471,7 @@ function buildAnalytics(question, data, hintType) {
   chartsToRender.forEach((vc, i) => {
     const cid = `dync_${_chartIdx}_${i}`;
     html += `<div class="dyn-chart-card">
-      <div class="chd"><div class="chd-left"><span class="chd-dot"></span><span class="chd-title">${escapeHTML(vc.replace(/_/g,' '))} by ${escapeHTML(lc.replace(/_/g,' '))}</span></div>
+      <div class="chd"><div class="chd-left"><span class="chd-dot"></span><span class="chd-title">${escapeHTML(humanHeader(vc))} by ${escapeHTML(humanHeader(lc).toLowerCase())}</span></div>
         <div class="qctog">
           <button class="ctb${defType==='bar'?' on':''}" onclick="swDyn('${cid}','bar',this)">Bar</button>
           <button class="ctb${defType==='doughnut'?' on':''}" onclick="swDyn('${cid}','doughnut',this)">Donut</button>
@@ -2167,7 +2486,7 @@ function buildAnalytics(question, data, hintType) {
   const init = () => {
     chartsToRender.forEach((vc, i) => {
       const cid = `dync_${_chartIdx}_${i}`;
-      const labels = data.map(r => String(r[lc]).length > 18 ? String(r[lc]).slice(0,16)+'…' : String(r[lc]));
+      const labels = data.map(r => { const t = humanLabel(r[lc]); return t.length > 18 ? t.slice(0,16)+'…' : t; });
       const values = data.map(r => parseFloat(r[vc]) || 0);
       window._QD[cid] = { labels, values };
       rQC(cid, defType);
@@ -2313,6 +2632,25 @@ function bindRouteBadges(root) {
   });
 }
 
+// data-slot / data-value for a chip that fills one clarification slot.
+function choiceAttrs(o) {
+  if (!o || !o.slot) return '';
+  return ` data-slot="${escapeHTML(String(o.slot))}" data-value="${escapeHTML(JSON.stringify(o.value === undefined ? null : o.value))}"`;
+}
+
+/* "Change area" chips under an answer that used the statewide default: the
+   user corrects the assumption (District / Block / Village), then types the name. */
+function buildCorrections(response) {
+  const opts = Array.isArray(response && response.correction_options) ? response.correction_options : [];
+  const chips = opts.map(o => {
+    const q = String((o && o.question) || '').trim();
+    const label = String((o && o.label) || '').trim();
+    if (!q || !label) return '';
+    return `<button class="clarify-opt" data-ask="${escapeHTML(q)}"${choiceAttrs(o)}>${escapeHTML(label)}</button>`;
+  }).join('');
+  return chips ? `<div class="clarify-box"><div class="clarify-lbl">Change area</div><div class="clarify-opts">${chips}</div></div>` : '';
+}
+
 /* ===== NODE 3 — Clarification pause =====
    When the gate pauses, the answer text IS the question and `clarification.options`
    are the clickable replies. Clicking one re-asks the rewritten question, which the
@@ -2325,7 +2663,7 @@ function buildClarify(response) {
     const q = String((o && o.question) || '').trim();
     const label = String((o && o.label) || '').trim();
     if (!q || !label) return '';
-    return `<button class="clarify-opt" data-ask="${escapeHTML(q)}">${escapeHTML(label)}</button>`;
+    return `<button class="clarify-opt" data-ask="${escapeHTML(q)}"${choiceAttrs(o)}>${escapeHTML(label)}</button>`;
   }).join('');
   const rule = c.rule ? `<div class="clarify-rule">rule: ${escapeHTML(String(c.rule))}</div>` : '';
   return `<div class="clarify-box">
@@ -2491,18 +2829,24 @@ function bindRichActions(root) {
   root.querySelectorAll('[data-ask]').forEach(el => {
     const q = el.getAttribute('data-ask');
     if (!q) return;
+    let choice = null;
+    const slot = el.getAttribute('data-slot');
+    if (slot) {
+      try { choice = { slot, value: JSON.parse(el.getAttribute('data-value') || 'null') }; }
+      catch (_) { choice = null; }   // fall back to sending the text alone
+    }
     el.style.cursor = 'pointer';
     el.addEventListener('click', (e) => {
       e.preventDefault();
       e.stopPropagation();
-      ask(q);
+      ask(q, choice);
     });
   });
 }
 
 function addBotRich(question, response) {
   hideWelcome();
-  const answerHTML = escapeHTML(response.answer || '').replace(/\*\*(.+?)\*\*/g, '<strong>$1</strong>').replace(/\n/g, '<br>');
+  const answerHTML = renderMarkdown(response.answer || '');
   const wantsAnalytics = response.intent !== 'EDGE' && Array.isArray(response.data) && response.data.length >= 1;
   const analytics = wantsAnalytics ? buildAnalytics(question, response.data, response.chart_type) : { html: '', init: () => {} };
   const followUp = buildFollowUp(question, response);
@@ -2519,7 +2863,7 @@ function addBotRich(question, response) {
   div.innerHTML = `
     <div class="av">M</div>
     <div>
-      <div class="bubble">${routeBadge}${answerBlock}${analytics.html}${findingsBlock}${sqlBlock}${followUp}</div>
+      <div class="bubble">${routeBadge}${answerBlock}${analytics.html}${findingsBlock}${sqlBlock}${buildCorrections(response)}${followUp}</div>
       ${meta}
     </div>`;
   messages.appendChild(div);
@@ -2791,6 +3135,7 @@ async function openConversation(sid) {
     const data = await res.json();
     const turns = data.turns || [];
 
+    stopQuery('switch');      // an answer still streaming belongs to the thread being left
     Object.keys(CI).forEach(killChart);
     window._QD = {};
     messages.innerHTML = '';
@@ -3067,6 +3412,7 @@ function showGreeting(immediate) {
   // Greeting bubble removed — the chat starts without the "Khublei! I'm your ... assistant" message.
 }
 function newChat() {
+  stopQuery('newchat');     // abandon an answer still streaming into the old thread
   resetSession();           // fresh session_id → no prior district/context bleed
   Object.keys(CI).forEach(killChart);
   window._QD = {};
@@ -3181,6 +3527,32 @@ function renderUnifiedSamples() {
 // sample-question clicks, double-clicks) — not just the Send button.
 let isQueryRunning = false;
 
+// The Send button doubles as Stop while a question is being answered. Only the
+// button stops — Enter / sample clicks still go through sendQuery(), which
+// ignores them while a question runs.
+function onSendClick() {
+  if (isQueryRunning) stopQuery('user');
+  else sendQuery();
+}
+
+function setSendAsStop(btn, on) {
+  const label = btn.querySelector('[data-i18n="sendBtn"]');
+  if (on) {
+    btn.classList.add('is-stop');
+    btn.title = 'Stop generating';
+    btn.setAttribute('aria-label', 'Stop generating');
+    if (label) { btn.dataset.sendLabel = label.textContent; label.textContent = 'Stop'; }
+  } else {
+    btn.classList.remove('is-stop');
+    btn.removeAttribute('title');
+    btn.removeAttribute('aria-label');
+    if (label && btn.dataset.sendLabel !== undefined) {
+      label.textContent = (UI_STRINGS[currentLang] && UI_STRINGS[currentLang].sendBtn) || btn.dataset.sendLabel;
+    }
+  }
+  btn.disabled = false;
+}
+
 async function sendQuery() {
   if (isQueryRunning) return;            // a question is already being answered — ignore
   const q = inp.value.trim();
@@ -3192,21 +3564,24 @@ async function sendQuery() {
   inp.style.height = 'auto';
 
   const sendBtn = document.getElementById('sendBtn');
-  sendBtn.disabled = true;               // block only the SEND action — input stays typeable (like ChatGPT)
-  addTyping();
+  setSendAsStop(sendBtn, true);          // SEND becomes STOP while answering — input stays typeable (like ChatGPT)
+  const bubble = addTyping();
 
   try {
-    const response = await fetchNLPResponse(q);
-    removeTyping();
+    const response = await fetchNLPResponse(q, bubble);
+    removeTyping();                      // drops the streamed bubble; the full render replaces it
     if (response.answer) addBotRich(q, response);
     else addMessage('bot', `Error: ${response.detail || 'Unable to process your query'}`);
   } catch (err) {
     removeTyping();
-    addMessage('bot', `Sorry, I encountered an error: ${err.message}`);
-    console.error('Query error:', err);
+    if (err.stopped === 'user') addMessage('bot', 'Stopped. Ask again whenever you are ready.');
+    else if (!err.stopped) {
+      addMessage('bot', `Sorry, I encountered an error: ${err.message}`);
+      console.error('Query error:', err);
+    }
   } finally {
     isQueryRunning = false;
-    sendBtn.disabled = false;
+    setSendAsStop(sendBtn, false);
     inp.focus();
     // The turn is persisted fire-and-forget server-side; give it a moment
     // before re-reading so the new/updated row is visible.

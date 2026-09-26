@@ -17,12 +17,12 @@ product decision, and can revisit any of them if wrong:
 
 - [x] 0.1 `design.md` §1: effective scheme access = `tenant_schemes ∩
       role_scheme_cap` (the tenant grant narrows, never replaces, the role
-      cap) — implemented in `app/auth.py::scope_from_user`.
+      cap) — implemented in `app/core/auth.py::scope_from_user`.
 - [x] 0.2 `design.md` §3: option (a) — the RLS migration itself
       (`deploy/sql/03_tenant_scheme_rls.sql`) is a separate script, not run
       automatically by app startup, so flag-off means "doesn't exist yet,"
       not "exists but unsatisfied."
-- [x] 0.3 Seed data: `app/scheme_registry.py::sync_to_db()` grants the
+- [x] 0.3 Seed data: `app/knowledge/scheme_registry.py::sync_to_db()` grants the
       default tenant every currently-registered scheme, but **only when
       that tenant has zero existing grants** (first run only) — implemented
       and wired into startup (`app/main.py`).
@@ -30,19 +30,19 @@ product decision, and can revisit any of them if wrong:
 ## 1. Tenant↔scheme entitlement data model — DONE 2026-09-15
 
 - [x] 1.1 `app.schemes`/`app.tenant_schemes` — idempotent DDL in
-      `app/appdb.py` (not a separate `deploy/sql` file as originally
+      `app/database/appdb.py` (not a separate `deploy/sql` file as originally
       sketched: these two tables live in the `app` schema, where `megh_app`
       already has `CREATE` per `01_create_megh_app_role.sql`, so they
       follow this repo's existing runtime-DDL pattern instead of needing a
       superuser script). `curated.table_scheme_map` — DOES need a superuser
       script (curated schema is SELECT-only for `megh_app`) —
       `deploy/sql/03_tenant_scheme_rls.sql`.
-- [x] 1.2 `app/scheme_registry.py::sync_to_db()` populates `app.schemes`
+- [x] 1.2 `app/knowledge/scheme_registry.py::sync_to_db()` populates `app.schemes`
       from the loaded YAML; seeds `app.tenant_schemes` per 0.3.
       `curated.table_scheme_map` seeded separately in the SQL script (see
       group 3 — different privilege boundary, see 1.1's note).
 - [x] 1.3 `POST /api/rag/reload-scheme-registry` now also calls
-      `sync_to_db()` (`app/routers/rag.py`).
+      `sync_to_db()` (`app/api/routers/rag.py`).
 - [x] 1.3b **Real bug found and fixed 2026-09-15**, discovered while
       running `appdb.ensure_schema()` connected as `megh_app` (not
       postgres) for the first time in this repo's history — every
@@ -54,24 +54,24 @@ product decision, and can revisit any of them if wrong:
       schema-scoped `CREATE ON SCHEMA app`, never database-level
       `CREATE`, so this would have crashed **every app startup** the
       moment the DB-role cutover ([[project-db-role-cutover-blocked]])
-      happens. Fixed in `app/appdb.py`: wrapped in a `DO $$ IF NOT EXISTS
+      happens. Fixed in `app/database/appdb.py`: wrapped in a `DO $$ IF NOT EXISTS
       (SELECT 1 FROM pg_namespace ...) THEN CREATE SCHEMA app; END IF;
       END $$;` guard, so the common case (schema already exists, created
       by `01_create_megh_app_role.sql` beforehand) needs no privilege at
       all. Verified against the disposable Postgres: failed before the
       fix (`permission denied for database megh_db`), succeeded after.
 - [x] 1.4 `GET /admin/schemes`, `GET/POST/DELETE /admin/tenants/{id}/schemes/{scheme_id}`
-      (`app/routers/admin.py`) — super_admin-gated for grant/revoke.
-- [x] 1.5 **Done 2026-09-18**: `tests/test_tenant_scheme_entitlements.py`
+      (`app/api/routers/admin.py`) — super_admin-gated for grant/revoke.
+- [x] 1.5 **Done 2026-09-18**: `tests/unit/test_tenant_scheme_entitlements.py`
       covers the pure-Python half (scope intersection, cache fingerprint,
-      contextvar mechanics); new `tests/test_admin_schemes_live_db.py`
+      contextvar mechanics); new `tests/integration/test_admin_schemes_live_db.py`
       closes the DB-backed half this row previously left open — a real
       `sync_to_db()` call and the actual `/admin/schemes`,
       `/admin/tenants/{id}/schemes/{scheme_id}` (GET/POST/DELETE) HTTP
       endpoints, run against the same disposable Postgres 3.3/3.4/6.4
       used (`postgres:16-alpine`, not the shared `megh-one-db`).
       Skips cleanly when no live Postgres DSN is configured, same
-      convention as `tests/test_pipeline_graph_postgres.py`. **A real
+      convention as `tests/integration/test_pipeline_graph_postgres.py`. **A real
       test-infrastructure bug found and fixed while writing this**:
       mixing `asyncio.run()` for bootstrap with Starlette's synchronous
       `TestClient` for the HTTP calls broke with `InterfaceError:
@@ -91,24 +91,24 @@ product decision, and can revisit any of them if wrong:
 
 ## 2. RLS on app schema tables — mechanism done, policies deliberately NOT enabled yet
 
-- [x] 2.1 `app/db.py::set_tenant_context()`/`reset_tenant_context()` —
+- [x] 2.1 `app/database/db.py::set_tenant_context()`/`reset_tenant_context()` —
       contextvar-based (not a held connection — see the function's own
       docstring for why), consulted by `fetch_rows`/`fetchrow`/`fetchval`/
-      `execute`/`run_readonly`. Wired into `app/routers/query.py`'s
+      `execute`/`run_readonly`. Wired into `app/api/routers/query.py`'s
       `/api/query` (the primary curated-data query path) only —
       **not yet wired into `admin.py`/`history.py`/the login flow in
       `auth.py`**, which is exactly why 2.2 is deliberately not applied.
 - [x] 2.2 **Actually done 2026-09-15** — re-audit found this item's own
-      premise had gone stale: `app/routers/admin.py` and
-      `app/routers/history.py` already depend on `app.deps.require_admin`/
-      `require_user`, which already chain through `app.deps.tenant_scoped`
+      premise had gone stale: `app/api/routers/admin.py` and
+      `app/api/routers/history.py` already depend on `app.api.deps.require_admin`/
+      `require_user`, which already chain through `app.api.deps.tenant_scoped`
       (calls `set_tenant_context()`/`reset_tenant_context()` around every
       request) — likely fixed by uncommitted work after this task's text
       was written, never re-verified since. The two **real** gaps, found
       by tracing every `app.users`/`app.conversations`/`app.login_events`/
       `app.query_audit`/`app.tenant_schemes` write path instead of trusting
       the stale comment, both fixed:
-      1. `app/routers/auth.py`'s `login()`/`bootstrap()` — no scope exists
+      1. `app/api/routers/auth.py`'s `login()`/`bootstrap()` — no scope exists
          yet at that point (that's what they produce), and the username
          lookup is inherently cross-tenant. Both now wrap their body in
          `db.set_tenant_context(None, bypass=True)` — same trust model
@@ -132,9 +132,9 @@ product decision, and can revisit any of them if wrong:
       with Section B already active** (the realistic ongoing-operations
       case, not just first boot) thanks to the `main.py` bypass fix. Full
       40-file regression sweep re-run after these changes: still 40/40.
-- [x] 2.3 `TENANT_SCHEME_RLS_ENABLED` added to `app/config.py`, default
+- [x] 2.3 `TENANT_SCHEME_RLS_ENABLED` added to `app/core/config.py`, default
       `False`.
-- [x] 2.4 Tests: `tests/test_tenant_scheme_entitlements.py` §5 covers the
+- [x] 2.4 Tests: `tests/unit/test_tenant_scheme_entitlements.py` §5 covers the
       contextvar mechanics directly (flag-off no-op, flag-on round-trip,
       concurrent-task isolation) — pure Python, no DB, so it can't yet
       prove actual cross-tenant row leakage is blocked (that needs 2.2,
@@ -213,8 +213,8 @@ human-gated-task rule, same as `phase-1-security-hardening` item 3).
 
 ## 4. Replace hardcoded scheme allowlists with tenant grants
 
-- [x] 4.1 `app/auth.py::scope_from_user()`: tenant grant (resolved in
-      `app/deps.py::current_scope` via `appdb.tenant_effective_schemes`)
+- [x] 4.1 `app/core/auth.py::scope_from_user()`: tenant grant (resolved in
+      `app/api/deps.py::current_scope` via `appdb.tenant_effective_schemes`)
       now intersects with the role cap, never widens it. `ROLE_PERMISSIONS`
       itself was unchanged at the time (still the cap/ceiling) — the ask
       was to stop treating its literal lists as the *entitlement source*,
@@ -228,12 +228,12 @@ human-gated-task rule, same as `phase-1-security-hardening` item 3).
       curated data is genuinely tenant-scoped.
 - [x] 4.2 **Actually fixed 2026-09-15** (previously flagged-not-fixed —
       re-scoped after re-verification found it was smaller than it
-      looked): `app/prompt_builder.py::_scheme_of()` no longer uses
+      looked): `app/sql/prompt_builder.py::_scheme_of()` no longer uses
       hand-authored substring/exact-match dicts (`_MGNREGA_EXACT` etc.) —
       it now looks up the bare table name against every scheme's
       `tables:` list from `scheme_registry.tables_for()`, the same data
       each scheme must already declare for schema-retrieval to work.
-      `app/followups.py`'s `_SCHEME_RX` is now `_scheme_regexes()`, built
+      `app/response/followups.py`'s `_SCHEME_RX` is now `_scheme_regexes()`, built
       from each scheme's `id`/`display_name`/`aliases` in
       `scheme_registry.yaml` instead of a fixed module-level dict — two
       alias variants the old hand-typed regex covered but the registry
@@ -243,20 +243,20 @@ human-gated-task rule, same as `phase-1-security-hardening` item 3).
       and the classifier stay in the same vocabulary"). A newly onboarded
       scheme now needs zero changes to either file — only its registry
       entry, which it needs anyway. **Deliberately left alone**:
-      `app/pipeline.py::_SCHEME_FUZZY_ALIASES` — a separate, real
+      `app/orchestration/pipeline.py::_SCHEME_FUZZY_ALIASES` — a separate, real
       hand-authored dict for typo-tolerant fuzzy matching (`fuzz.ratio`
       against short single-word forms) discovered while re-verifying this
       task; architecturally distinct from the two exact-match cases above
       (registry aliases mix multi-word phrases that don't fit a
       single-word fuzzy model) and never named by this task — flagging
       it here rather than silently expanding scope.
-- [x] 4.3 `tests/test_tenant_scheme_entitlements.py` §§1-4 (intersection,
-      cross-scheme authorization) and `tests/test_scheme_scaleout_fallbacks.py`
+- [x] 4.3 `tests/unit/test_tenant_scheme_entitlements.py` §§1-4 (intersection,
+      cross-scheme authorization) and `tests/unit/test_scheme_scaleout_fallbacks.py`
       (the two swapped literals) — confirms today's 1-tenant/4-scheme seed
       produces identical effective permissions to the old hardcoded lists.
 - [x] 4.4 Regression: `test_security.py` + full sweep pass.
 - [x] 4.5 **Found and fixed 2026-09-18, the one hardcoded-list instance
-      4.1/4.2 didn't cover**: `app/auth.py::ROLE_PERMISSIONS` hand-typed
+      4.1/4.2 didn't cover**: `app/core/auth.py::ROLE_PERMISSIONS` hand-typed
       `["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"]` once per role, 8
       times — the exact "shotgun surgery per onboarded scheme" pattern
       this group exists to eliminate, just missed in the first pass
@@ -267,7 +267,7 @@ human-gated-task rule, same as `phase-1-security-hardening` item 3).
       its own explicit `"schemes"` override if a future one ever needs a
       narrower cap than "every registered scheme" — none does today).
       **Ordering hazard found and handled**: `ROLE_PERMISSIONS` is a
-      module-level dict built at `app/auth.py` import time, before
+      module-level dict built at `app/core/auth.py` import time, before
       `app/main.py`'s startup ever calls `scheme_registry.load_all()` — a
       literal `scheme_registry.scheme_ids()` call baked into the dict
       itself would have frozen at an empty list. `_role_scheme_cap()` is
@@ -275,11 +275,11 @@ human-gated-task rule, same as `phase-1-security-hardening` item 3).
       `anonymous_scope()`), after startup has loaded the registry, so
       this doesn't apply — but it broke two tests that construct a
       `UserScope` via `scope_from_user()` without ever loading the
-      registry first (`tests/test_authorization.py`,
-      `tests/test_tenant_scheme_entitlements.py`) — fixed by adding the
+      registry first (`tests/unit/test_authorization.py`,
+      `tests/unit/test_tenant_scheme_entitlements.py`) — fixed by adding the
       same `scheme_registry.load_all()` call the real app always makes
       before serving a request. **Also fixed**: `GET /admin/roles`
-      (`app/routers/admin.py`) dumped `ROLE_PERMISSIONS` raw — now
+      (`app/api/routers/admin.py`) dumped `ROLE_PERMISSIONS` raw — now
       missing `schemes` entirely per role — now resolves each role's
       effective cap via `_role_scheme_cap()` before returning, so the
       endpoint's response shape is unchanged. **Verified the actual
@@ -296,21 +296,21 @@ Thornton proposal (`GrantThornton_Solution_Proposal_1 (1).pdf`, repo root)
 Section 4 states *"The runtime pipeline is implemented as a LangGraph
 agent"* — not an optional enhancement. Before this group, that was not
 true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
-`app/config.py` and read nowhere (confirmed by grep). See `proposal.md`'s
+`app/core/config.py` and read nowhere (confirmed by grep). See `proposal.md`'s
 "Why" §3 and `design.md` §4a for the full finding and the adapter design.
 
 - [x] 5.0 **Re-scoped from the original 5.1**: no `tenant_id` field needed
       on `PipelineGraphState` — `node_execute_attempt` already calls
       `pipeline._execute_one_attempt`, the same function the bespoke path
-      calls, which reaches `app.db.run_readonly()` where group 2's
+      calls, which reaches `app.database.db.run_readonly()` where group 2's
       contextvar-based tenant context applies automatically regardless of
       caller. Verified by reading the implementation, not assumed.
 - [x] 5.1 **The actual cutover**: `pipeline_graph.answer_data_via_graph_compat()`
-      (new) — same calling contract as `app.pipeline._answer_data`
+      (new) — same calling contract as `app.orchestration.pipeline._answer_data`
       (raises `ClarificationNeeded` for a pause, returns a dict otherwise)
-      — wired into `app/pipeline.py::_run_pipeline`'s single call site
+      — wired into `app/orchestration/pipeline.py::_run_pipeline`'s single call site
       behind `settings.PIPELINE_GRAPH_ENABLED`. Zero changes to
-      `app/routers/query.py` or `app/session_store.py`. See `design.md`
+      `app/api/routers/query.py` or `app/conversation/session_store.py`. See `design.md`
       §4a for why a naive direct swap to `answer_data_via_graph` would
       have been wrong (return-shape mismatch on the pause case) and the
       deliberate scope boundary (no cross-request graph resume — see 5.4).
@@ -321,15 +321,15 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
       canary mechanism exists anywhere in this codebase to mirror. Built
       new instead: `app/pipeline._pipeline_graph_selected(session)` —
       `PIPELINE_GRAPH_CANARY_PERCENT` (0-100, default 0, new in
-      `app/config.py`) gives a session-sticky canary (bucketed by
+      `app/core/config.py`) gives a session-sticky canary (bucketed by
       `user_id`, falling back to `session_id`, via a stable SHA-256 hash —
       so one conversation never flips paths mid-thread), ignored (treated
       as 100) once `PIPELINE_GRAPH_ENABLED` itself is `True`. Wired into
       the one call site in `_run_pipeline`. Tests: new §3 in
-      `tests/test_pipeline_graph_cutover.py` (17 checks total in that
+      `tests/unit/test_pipeline_graph_cutover.py` (17 checks total in that
       file now, all passing) — 0%/100%/no-session/determinism/override/
       spread-across-40-distinct-users all covered.
-- [x] 5.3a Mocked-boundary parity tests: `tests/test_pipeline_graph_cutover.py`
+- [x] 5.3a Mocked-boundary parity tests: `tests/unit/test_pipeline_graph_cutover.py`
       (new) confirms the pause→exception conversion and that the flag
       branch actually reroutes `_run_pipeline` to the graph adapter (and
       not, when off) — same mocking boundary as `test_pipeline_graph.py`.
@@ -341,9 +341,9 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
       real deployment before this runs.
 - [x] 5.4 **Done 2026-09-18**: real cross-HTTP-request resume through
       LangGraph's own checkpointer (`resume_via_graph`), previously unused
-      by the compat adapter. Turned out to need no `app/session_store.py`
+      by the compat adapter. Turned out to need no `app/conversation/session_store.py`
       changes — `session_id` is reused directly as the LangGraph
-      `thread_id`, the exact same trick `app/langgraph_followup.py::
+      `thread_id`, the exact same trick `app/orchestration/langgraph_followup.py::
       is_paused` already used for its own, separate checkpointer, so no
       new field was needed anywhere.
       **What changed**: `pipeline_graph.answer_data_via_graph_compat()`
@@ -376,17 +376,17 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
       replays a paused node IN FULL on resume, so every resumed entity-
       ambiguous/scope pause wasted a second real `resolve_entities()` call
       with the STALE pre-merge question before the real attempt. Same bug
-      class, same fix shape, as `app/langgraph_followup.py`'s 2026-09-17
+      class, same fix shape, as `app/orchestration/langgraph_followup.py`'s 2026-09-17
       fix: split into `node_entities` (the expensive call, never re-
       entered on resume) and `node_entities_gate` (cheap — just
-      `interrupt()` + merge). Existing `tests/test_pipeline_graph.py`
+      `interrupt()` + merge). Existing `tests/unit/test_pipeline_graph.py`
       scenario 8 never caught this because its mock only counted calls,
       never checked which question text each call received — strengthened
       alongside this fix. `node_clarification_gate` (§5.3) was
       deliberately NOT split the same way — its own pre-interrupt checks
       are cheap/deterministic, no LLM/DB call, so replaying it on resume
       costs microseconds, not a wasted real request.
-      **Verified for real**: new `tests/test_query_pipeline_graph_resume.py`
+      **Verified for real**: new `tests/unit/test_query_pipeline_graph_resume.py`
       drives the actual HTTP route end to end — pause via `/api/query`,
       checkpoint survives, second request on the same session resumes via
       `resume_via_graph` (not a bespoke merge-and-restart), exactly 2 real
@@ -396,21 +396,21 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
       exactly one mechanism owns the pause, never both). Full 41-file
       regression sweep passes at default flags, with `PIPELINE_GRAPH_ENABLED`
       alone, and with all three feature flags on simultaneously.
-      **Still not done, unchanged**: retiring `app/langgraph_followup.py`
+      **Still not done, unchanged**: retiring `app/orchestration/langgraph_followup.py`
       still doesn't make sense yet — it covers durable resume across a
       worker restart via a config-driven Postgres checkpointer path this
       task didn't touch, and 5.3b (live-LLM/Postgres parity) is still the
       actual gate before any of this goes live in production.
 - [ ] 5.5 Postgres checkpointer cutover: only after the DB-role cutover
       (shared blocker); leave unchecked until then, matching group 3.5.
-- [x] 5.6 Regression: `tests/test_query_langgraph_wiring.py`,
-      `tests/test_pipeline_graph.py`, `tests/test_pipeline_graph_cutover.py`,
+- [x] 5.6 Regression: `tests/unit/test_query_langgraph_wiring.py`,
+      `tests/unit/test_pipeline_graph.py`, `tests/unit/test_pipeline_graph_cutover.py`,
       full 40-file sweep — all pass, flag at its default `False`.
 - [x] 5.7 **Three real bugs found and fixed 2026-09-17**, via a fresh
       code-review pass (not re-running old tests — those all already
-      passed) specifically targeting `app/pipeline_graph.py`,
-      `app/langgraph_followup.py`, and the cutover/canary logic in
-      `app/pipeline.py`. All three re-verified: reproduced the bug, fixed
+      passed) specifically targeting `app/orchestration/pipeline_graph.py`,
+      `app/orchestration/langgraph_followup.py`, and the cutover/canary logic in
+      `app/orchestration/pipeline.py`. All three re-verified: reproduced the bug, fixed
       it, then proved the fix with a new test assertion against real
       behavior (not just "tests still pass"):
       1. **Orphaned checkpoint rows, unbounded growth**:
@@ -425,8 +425,8 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
          call happens with the right thread_id, AND a fully real
          end-to-end run (real graph, real SQLite file) confirming zero
          checkpoint rows remain on disk afterward —
-         `tests/test_pipeline_graph_cutover.py` checks 1b/1c.
-      2. **`app/langgraph_followup.py` re-ran the full, real
+         `tests/unit/test_pipeline_graph_cutover.py` checks 1b/1c.
+      2. **`app/orchestration/langgraph_followup.py` re-ran the full, real
          `pipeline.answer_question` call a wasted second time on every
          resume** — LangGraph replays an interrupted node in FULL on
          resume, and the original single-node design called `interrupt()`
@@ -438,7 +438,7 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
          the only node LangGraph re-executes on replay), with the
          clarification payload passed between them via a real
          checkpointed state field (`pending_clarification`), not a local
-         variable. `tests/test_langgraph_followup.py` now asserts the
+         variable. `tests/unit/test_langgraph_followup.py` now asserts the
          exact call count (2 for one pause+resume, 3 for a 3-round
          multi-clarification exchange — was 3 and 5 before the fix) so
          this can't silently regress. Only affects
@@ -447,10 +447,10 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
          `run_with_pause` (a `FollowupState` field that was never declared
          in the TypedDict and never read anywhere — silently accepted, not
          a runtime bug, just leftover cruft; removed, replaced with the
-         now-real `pending_clarification` field), and `app/config.py`'s
+         now-real `pending_clarification` field), and `app/core/config.py`'s
          `PIPELINE_GRAPH_CANARY_PERCENT` comment claiming the canary
          buckets by session_id-first when the actual code (and
-         `app/pipeline.py::_pipeline_graph_selected`'s own docstring)
+         `app/orchestration/pipeline.py::_pipeline_graph_selected`'s own docstring)
          always bucketed by user_id-first — the code was right, the
          comment was wrong; corrected to match.
       **Also found, deliberately NOT fixed** (checked, not a real bug): a
@@ -478,19 +478,19 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
 
 ## 6. Scheme onboarding scale-out — 6.1-6.3 done 2026-09-15
 
-- [x] 6.1 `POST /admin/reload-join-graph` (`app/routers/admin.py` — same
+- [x] 6.1 `POST /admin/reload-join-graph` (`app/api/routers/admin.py` — same
       `/admin` prefix as this repo's other admin routes; `design.md`'s
       original `/api/admin/...` sketch didn't match the actual prefix,
       corrected here) calls `join_graph.build(force=True)`, returns the
       rebuilt graph's node counts.
-- [x] 6.2 `app/scheme_registry.py::warn_if_scheme_count_high()` — logs
+- [x] 6.2 `app/knowledge/scheme_registry.py::warn_if_scheme_count_high()` — logs
       (never blocks boot) once the registered non-shared scheme count
       exceeds `SCHEME_COUNT_WARN_THRESHOLD` (10), pointing at
       `schema-retrieval-reranking`/`sql-generation-vector-fewshot` as the
       real fix. Wired into `app/main.py`'s startup, right after
       `load_scheme_registry()`. Uses the in-memory registry count, not a
       DB query against `app.schemes` — no new startup DB dependency for a
-      log line. Tested in `tests/test_scheme_scaleout_fallbacks.py` §3
+      log line. Tested in `tests/unit/test_scheme_scaleout_fallbacks.py` §3
       (does not raise at today's count or when simulated over threshold).
 - [x] 6.3 `docs/scheme-onboarding.md` updated: step 1 notes the DB-sync
       side effect of the registry reload; step 5 now points at the real
@@ -512,7 +512,7 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
       anywhere in the sequence — the actual claim this task exists to
       prove.
       **Bonus finding, not part of this task's original scope**: the same
-      bootstrap run also exercised `app.appdb.ensure_schema()` connected
+      bootstrap run also exercised `app.database.appdb.ensure_schema()` connected
       as `megh_app` (not postgres) for the first time anywhere in this
       repo's tests, and caught a real bug — see the new note under group 1.
 
@@ -539,8 +539,8 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
       - **`PIPELINE_GRAPH_ENABLED=True` alone**: all pass.
       - **All three flags on together** (`TENANT_SCHEME_RLS_ENABLED` ×
         `PIPELINE_GRAPH_ENABLED` × `LANGGRAPH_FOLLOWUP_ENABLED`) — first
-        pass found **2 genuine failures**: `tests/test_langgraph_query_analyzer.py`
-        and `tests/test_pii_audit_trail.py`. Root-caused precisely, not
+        pass found **2 genuine failures**: `tests/unit/test_langgraph_query_analyzer.py`
+        and `tests/unit/test_pii_audit_trail.py`. Root-caused precisely, not
         guessed at:
         1. `test_langgraph_query_analyzer.py` mocked `execute_with_repair`
            and never mocked `schema_retrieval.retrieve` — but
@@ -551,10 +551,10 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
            calls `schema_retrieval.retrieve` for real. Neither was in this
            test's mock list because it only ever needed to cover
            `_answer_data`'s call chain before. Fixed: added both mocks
-           (same shapes `tests/test_pipeline_graph.py` already uses).
+           (same shapes `tests/unit/test_pipeline_graph.py` already uses).
         2. `test_pii_audit_trail.py` patched `query_router.answer_question`
-           (a name bound via `from app.pipeline import answer_question` in
-           `app/routers/query.py`) — but with `LANGGRAPH_FOLLOWUP_ENABLED`
+           (a name bound via `from app.orchestration.pipeline import answer_question` in
+           `app/api/routers/query.py`) — but with `LANGGRAPH_FOLLOWUP_ENABLED`
            on, `query.py` calls `langgraph_followup.run_with_pause`
            instead, which calls `pipeline.answer_question` via its own
            separate `from app import pipeline` binding, completely
@@ -562,7 +562,7 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
            `pipeline.answer_question` directly, restored in the same
            `finally`.
         **Bonus, caught while fixing #1**: the mock fix let the pipeline
-        run far enough to reach `app/followups.py::build_followups` for
+        run far enough to reach `app/response/followups.py::build_followups` for
         the first time in this test, which crashed
         (`IndexError: list index out of range` on `primary[0]`) — a real
         latent bug in group 4.2's same-day refactor: the new
@@ -589,13 +589,13 @@ true of the running system: `PIPELINE_GRAPH_ENABLED` was defined in
       groups 5.2/7.2 done in an earlier pass same day, everything below
       genuinely completed in this pass, not just re-described):
 
-      **Files changed this pass**: `app/appdb.py` (privilege bug fix),
-      `app/routers/auth.py` + `app/main.py` (login/bootstrap/startup
+      **Files changed this pass**: `app/database/appdb.py` (privilege bug fix),
+      `app/api/routers/auth.py` + `app/main.py` (login/bootstrap/startup
       tenant-context bypass), `deploy/sql/03_tenant_scheme_rls.sql`
-      (Section B written and enabled), `app/prompt_builder.py` +
-      `app/followups.py` + `scheme_registry.yaml` (4.2's registry-driven
+      (Section B written and enabled), `app/sql/prompt_builder.py` +
+      `app/response/followups.py` + `scheme_registry.yaml` (4.2's registry-driven
       rewrite, plus the empty-`primary` guard found while fixing 7.2),
-      `tests/test_langgraph_query_analyzer.py` + `tests/test_pii_audit_trail.py`
+      `tests/unit/test_langgraph_query_analyzer.py` + `tests/unit/test_pii_audit_trail.py`
       (7.2's mock-boundary fixes), this file.
 
       **Groups closed for real, with genuine verification, not just

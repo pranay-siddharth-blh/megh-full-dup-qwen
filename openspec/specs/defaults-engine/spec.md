@@ -32,7 +32,7 @@ condition names.
 ### Requirement: A matched condition already covered by a hardcoded clarification predicate is never defaulted
 Before applying any matched condition, the system SHALL check it against
 the set of conditions already covered by an existing hardcoded
-`_needs_*_clarification` predicate in `app/pipeline.py`. If the condition
+`_needs_*_clarification` predicate in `app/orchestration/pipeline.py`. If the condition
 is in that collision set, the existing predicate's ask-behavior SHALL win
 and the default SHALL be skipped — the collision SHALL be enforced in
 code, not left as a documentation-only convention.
@@ -49,7 +49,7 @@ code, not left as a documentation-only convention.
 When a matched condition is not in the collision set, the system SHALL
 format that condition's `assumption_text` (interpolating `{placeholder}`s
 from the resolved entities/context) and append it to the same `notes`
-list `app/premise_check.py`'s `check_premises` already writes into, ahead
+list `app/nlu/premise_check.py`'s `check_premises` already writes into, ahead
 of `compose_response`.
 
 #### Scenario: A non-colliding default appends its assumption text to notes

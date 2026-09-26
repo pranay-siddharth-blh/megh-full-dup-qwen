@@ -8,27 +8,30 @@ from fastapi import FastAPI, Header, HTTPException, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from app import appdb, join_graph, pipeline, schema_introspect
-from app.annotations import load_all as load_annotations
-from app.config import insecure_secrets, settings
-from app.db import DBUnavailableError, close_pool, init_pool, reset_tenant_context, set_tenant_context
-from app.deps import current_scope
-from app.entity_resolver import load_all as load_entity_resolver
-from app.entity_resolver import load_embeddings as load_entity_resolver_embeddings
-from app.kb_ingest import ingest_kb
-from app.scheme_registry import load_all as load_scheme_registry
-from app.scheme_registry import sync_to_db as sync_scheme_registry_to_db
-from app.scheme_registry import warn_if_scheme_count_high
-from app.llm import close_client, init_client
-from app.middleware.limits import BodyLimitMiddleware
-from app.middleware.rate_limit import RateLimitMiddleware
-from app.middleware.security_headers import SecurityHeadersMiddleware, apply_security_headers
-from app.routers.admin import router as admin_router
-from app.routers.auth import router as auth_router
-from app.routers.history import router as history_router
-from app.routers.query import router as query_router
-from app.routers.rag import router as rag_router
-from app.vectorstore import close_pgvector, collection_count, init_pgvector
+from app.database import appdb
+from app.sql import join_graph
+from app.orchestration import pipeline
+from app.sql import schema_introspect
+from app.knowledge.annotations import load_all as load_annotations
+from app.core.config import insecure_secrets, settings
+from app.database.db import DBUnavailableError, close_pool, init_pool, reset_tenant_context, set_tenant_context
+from app.api.deps import current_scope
+from app.nlu.entity_resolver import load_all as load_entity_resolver
+from app.nlu.entity_resolver import load_embeddings as load_entity_resolver_embeddings
+from app.knowledge.kb_ingest import ingest_kb
+from app.knowledge.scheme_registry import load_all as load_scheme_registry
+from app.knowledge.scheme_registry import sync_to_db as sync_scheme_registry_to_db
+from app.knowledge.scheme_registry import warn_if_scheme_count_high
+from app.clients.llm import close_client, init_client
+from app.api.middleware.limits import BodyLimitMiddleware
+from app.api.middleware.rate_limit import RateLimitMiddleware
+from app.api.middleware.security_headers import SecurityHeadersMiddleware, apply_security_headers
+from app.api.routers.admin import router as admin_router
+from app.api.routers.auth import router as auth_router
+from app.api.routers.history import router as history_router
+from app.api.routers.query import router as query_router
+from app.api.routers.rag import router as rag_router
+from app.database.vectorstore import close_pgvector, collection_count, init_pgvector
 
 logging.basicConfig(
     level=getattr(logging, settings.LOG_LEVEL),
@@ -103,10 +106,10 @@ async def lifespan(app: FastAPI):
     load_scheme_registry()                # local YAML, no network
     warn_if_scheme_count_high()           # openspec/changes/multi-tenant-rls-scheme-scaleout
     # openspec/changes/multi-tenant-rls-scheme-scaleout group 2.2: startup has
-    # no request/scope, so there is no tenant to derive app.db.set_tenant_context()
+    # no request/scope, so there is no tenant to derive app.database.db.set_tenant_context()
     # from — but ensure_schema()'s user-seed and _sync_scheme_entitlements()'s
     # default-tenant grant-seed both write real tenant_id rows into app.users /
-    # app.tenant_schemes. Same bypass reasoning as app/routers/auth.py's
+    # app.tenant_schemes. Same bypass reasoning as app/api/routers/auth.py's
     # login()/bootstrap(): server-side bookkeeping with no client input, not a
     # tenant-scoped read. Without this, once Section B RLS is enabled, first-run
     # seeding would silently insert nothing (or raise) instead of seeding.
@@ -155,7 +158,7 @@ app.add_middleware(SecurityHeadersMiddleware)
 async def _db_unavailable(request: Request, exc: DBUnavailableError):
     """Found+fixed 2026-09-18, live-tested by actually running the server
     against the real (intermittently unreachable) DATABASE_URL: this is a
-    KNOWN, gracefully-detected condition — app/db.py's retry-cooldown
+    KNOWN, gracefully-detected condition — app/database/db.py's retry-cooldown
     mechanism already knows exactly why the request failed and how long
     until it's worth retrying — but without this handler it fell through
     to the generic `_unhandled` handler below and looked identical to a
@@ -165,7 +168,7 @@ async def _db_unavailable(request: Request, exc: DBUnavailableError):
     definition order (Starlette resolves by exact type first, then MRO),
     so this fires whenever DBUnavailableError is the exception — including
     when it's raised during dependency resolution (e.g.
-    app/deps.py::current_scope's DB lookup), which never reaches an
+    app/api/deps.py::current_scope's DB lookup), which never reaches an
     individual route's own try/except at all, only a registered handler."""
     rid = getattr(request.state, "request_id", "-")
     logger.warning("DB unavailable (request_id=%s) on %s: %s", rid, request.url.path, exc)
@@ -225,7 +228,7 @@ async def health(authorization: str | None = Header(default=None),
     components: dict[str, str] = {}
 
     try:
-        from app.db import fetch_rows
+        from app.database.db import fetch_rows
 
         await fetch_rows("SELECT 1")
         components["db"] = "ok"
@@ -242,7 +245,7 @@ async def health(authorization: str | None = Header(default=None),
     # reported for visibility only (in-process cache covers a Redis outage).
     status = "ok" if all(v == "ok" for v in components.values()) else "degraded"
 
-    from app.cache import redis_healthy
+    from app.caching.cache import redis_healthy
 
     rh = await redis_healthy()
     if rh is not None:
@@ -268,9 +271,9 @@ async def metrics_endpoint(authorization: str | None = Header(default=None),
     Gated (A01): send X-Metrics-Token (when METRICS_TOKEN is set) or an admin JWT."""
     if not await _privileged_view(authorization, x_metrics_token):
         raise HTTPException(401, "metrics require X-Metrics-Token or an admin token")
-    from app.cache import metrics, response_cache
-    from app.semantic_cache import semantic_cache
-    from app.session_store import session_store
+    from app.caching.cache import metrics, response_cache
+    from app.caching.semantic_cache import semantic_cache
+    from app.conversation.session_store import session_store
 
     return {
         **metrics.snapshot(),
@@ -284,19 +287,25 @@ async def metrics_endpoint(authorization: str | None = Header(default=None),
 if _FRONTEND.is_dir():
     app.mount("/static", StaticFiles(directory=str(_FRONTEND)), name="static")
 
+    # The HTML pages change with each release (e.g. the Markdown answer renderer
+    # added 2026-09-23). Without this, browsers reused a cached copy and showed
+    # new Markdown answers as raw "| --- |" text. "no-cache" = always revalidate
+    # (cheap: the ETag makes an unchanged page a 304).
+    _NO_CACHE = {"Cache-Control": "no-cache"}
+
     @app.get("/", include_in_schema=False)
     async def portal():
         f = _FRONTEND / "Meghalaya_UnifiedPortal_UI.html"
-        return FileResponse(f) if f.exists() else JSONResponse({"app": settings.APP_NAME})
+        return FileResponse(f, headers=_NO_CACHE) if f.exists() else JSONResponse({"app": settings.APP_NAME})
 
     @app.get("/ai-query", include_in_schema=False)
     async def ai_query():
         f = _FRONTEND / "ai_query.html"
-        return FileResponse(f) if f.exists() else JSONResponse({"app": settings.APP_NAME})
+        return FileResponse(f, headers=_NO_CACHE) if f.exists() else JSONResponse({"app": settings.APP_NAME})
 
     @app.get("/admin-ui", include_in_schema=False)
     async def admin_ui():
         f = _FRONTEND / "admin.html"
-        return FileResponse(f) if f.exists() else JSONResponse({"error": "admin.html missing"})
+        return FileResponse(f, headers=_NO_CACHE) if f.exists() else JSONResponse({"error": "admin.html missing"})
 else:
     logger.warning("web/ not found at %s — API-only mode", _FRONTEND)

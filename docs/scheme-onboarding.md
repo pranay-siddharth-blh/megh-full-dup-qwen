@@ -9,7 +9,7 @@ pilot.
 
 ## Steps
 
-1. **Add a `scheme_registry.yaml` entry** (repo root). One block under
+1. **Add a `config/scheme_registry.yaml` entry**. One block under
    `schemes:` — `id`, `display_name`, `aliases`, `tables` (the scheme's
    curated/semantic objects), `shared: false`. Reload without a redeploy
    via `POST /api/rag/reload-scheme-registry` (admin-only). Since
@@ -38,13 +38,13 @@ pilot.
 
 3. **Run the indexer**: `POST /api/rag/reingest-schema-metadata` with
    `{"schemes": ["<scheme>"]}` in the body (admin-only), or call
-   `app.schema_metadata_ingest.ingest_schema_metadata(["<scheme>"],
+   `app.knowledge.schema_metadata_ingest.ingest_schema_metadata(["<scheme>"],
    force=True)` directly. This embeds the new scheme's
    `schema_metadata.yaml` into `megh_schema_metadata`, tagged with the
    scheme's `scheme_id`.
 
 4. **SME reviews auto-mined FK candidates** for the new scheme's tables
-   (informal step today — `app/join_graph.py` reads
+   (informal step today — `app/sql/join_graph.py` reads
    `data/<scheme>/*foreign_key_augmentation.yaml` directly; there is no
    separate mining tool yet, so this step is "write/extend that curated
    YAML file," following the existing four schemes' format: `nodes`
@@ -74,9 +74,9 @@ pilot.
 
 ## What must NOT change
 
-`app/pipeline.py`, `app/schema_retrieval.py`, and `app/join_graph.py` —
+`app/orchestration/pipeline.py`, `app/sql/schema_retrieval.py`, and `app/sql/join_graph.py` —
 zero edits to any of these for scheme N+1. Every scheme-specific fact
-lives in `scheme_registry.yaml`, `data/<scheme>/schema_metadata.yaml`,
+lives in `config/scheme_registry.yaml`, `data/<scheme>/schema_metadata.yaml`,
 and `data/<scheme>/*foreign_key_augmentation.yaml`.
 
 ## Proof (task 4.2, and again at task 6.4)
@@ -96,7 +96,7 @@ registry entry → `scheme_registry.load_all()` picked it up →
 the RLS `ENABLE`/`FORCE`/`CREATE POLICY` statements applied → a tenant
 without the new scheme's grant saw 0 rows, a tenant granted it saw the
 real rows. The same pass also proved every one of the 8 roles in
-`app/auth.py::ROLE_PERMISSIONS` picks up a newly-onboarded scheme
+`app/core/auth.py::ROLE_PERMISSIONS` picks up a newly-onboarded scheme
 automatically (`GET /admin/roles`), after a redundant hand-typed
 4-scheme literal in that file (the one hardcoded list step 6 above didn't
 already cover) was found and removed — see that task's entry in

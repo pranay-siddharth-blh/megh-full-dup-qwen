@@ -34,7 +34,7 @@ entangled once you follow the actual code, not three independent asks:
 
 They're one proposal because (1)+(2) require a tenant↔scheme entitlement
 model that (4) also needs as its scaling mechanism, and because (2)'s
-implementation touches `app/db.py`'s connection-acquisition path — the
+implementation touches `app/database/db.py`'s connection-acquisition path — the
 same place a LangGraph checkpointer/state cutover (3) naturally lands.
 
 ## Decision: RLS scope (confirmed with user, 2026-09-15)
@@ -43,7 +43,7 @@ Two options were possible reading the current code:
 
 - **A. RLS only on `app`'s own tenant-owned tables** (users, conversations,
   audit, login_events) — matches today's design intent exactly
-  (`app/auth.py:120-126` states the curated warehouse is deliberately
+  (`app/core/auth.py:120-126` states the curated warehouse is deliberately
   *not* tenant-partitioned).
 - **B. RLS extended to the curated/`semantic` scheme-data warehouse**, with
   a real tenant↔scheme grant table replacing the hardcoded per-role scheme
@@ -51,8 +51,8 @@ Two options were possible reading the current code:
 
 **User confirmed option B.** This is a real, deliberate reversal of the
 "curated data is shared/global, tenant_id never enters the query path"
-design recorded in `app/auth.py:120-126` and implicitly assumed throughout
-`app/pipeline.py`/`app/db.py`. It is being made explicitly here, the same
+design recorded in `app/core/auth.py:120-126` and implicitly assumed throughout
+`app/orchestration/pipeline.py`/`app/database/db.py`. It is being made explicitly here, the same
 way `langgraph-full-pipeline-rewrite/proposal.md:14-22` records its own
 reversal of `phase-2-orchestration-durability`'s prior "do not adopt
 LangGraph" decision — a deliberate, human-approved scope expansion, not a
@@ -62,20 +62,20 @@ correction of a prior mistake.
 
 ### 1–2. Tenancy is real in schema but decorative in enforcement
 
-- `app/appdb.py:26-32`, `app/config.py:489-493`: tenant = department/
+- `app/database/appdb.py:26-32`, `app/core/config.py:489-493`: tenant = department/
   directorate; `app.tenants`/`users`/`conversations`/`conversation_turns`/
   `query_audit`/`login_events` all carry `tenant_id`.
 - Every read of those tables is an app-level `WHERE tenant_id = $N` built
-  in Python (`app/appdb.py:287-293,361-368`,
-  `app/conversation_store.py:200-251`). Every one of these functions
+  in Python (`app/database/appdb.py:287-293,361-368`,
+  `app/conversation/conversation_store.py:200-251`). Every one of these functions
   accepts `tenant_id: int | None = None` — passing `None` returns **all
   tenants**. There is no server-side default-deny; isolation is 100%
   contingent on every call site remembering to pass the right value.
-- `MULTITENANCY_ENABLED` (`app/config.py:491`) is a flag nothing branches
+- `MULTITENANCY_ENABLED` (`app/core/config.py:491`) is a flag nothing branches
   on — dead config.
-- `app/auth.py:47-60`: `tenant_admin`/`super_admin` are `is_admin: True`
+- `app/core/auth.py:47-60`: `tenant_admin`/`super_admin` are `is_admin: True`
   and bypass all three query-time checks (scheme, geography, granularity)
-  — `app/auth.py:230-231`. So today, tenant boundaries restrict *nothing*
+  — `app/core/auth.py:230-231`. So today, tenant boundaries restrict *nothing*
   about what a query can return; they only partition which conversations/
   audit rows an admin's list view shows. Two `tenant_admin`s from
   different departments get byte-identical DATA-route answers to the same
@@ -121,16 +121,16 @@ architecture**, the same category of gap `docs/baseline-audit.md` already
 documents elsewhere for this project (proposal-vs-actual mismatches).
 
 Prior state, re-verified before this proposal's implementation pass:
-- `app/pipeline_graph.py` — full 15-node `StateGraph` decomposition of the
+- `app/orchestration/pipeline_graph.py` — full 15-node `StateGraph` decomposition of the
   answer pipeline, using LangGraph's real `interrupt()` primitive (the
   exact tool the GT proposal names). `langgraph-full-pipeline-rewrite/tasks.md`:
   every task across all 8 groups checked, including Postgres-checkpointer
   verification against a disposable local Docker Postgres. **But**
-  `PIPELINE_GRAPH_ENABLED` (`app/config.py`) was defined and read
+  `PIPELINE_GRAPH_ENABLED` (`app/core/config.py`) was defined and read
   *nowhere* (confirmed by a repo-wide grep before this pass) — a fully
   inert flag. Zero references to `pipeline_graph` existed in
-  `app/routers/query.py` or `app/main.py`.
-- `app/langgraph_followup.py` — an earlier, narrower module (wraps the
+  `app/api/routers/query.py` or `app/main.py`.
+- `app/orchestration/langgraph_followup.py` — an earlier, narrower module (wraps the
   *whole* existing pipeline as one opaque node, handles only 3
   clarification-pause types, SQLite-only checkpointer). **Was** wired into
   `/api/query`, flag-gated (`LANGGRAPH_FOLLOWUP_ENABLED`, default `False`).
@@ -141,7 +141,7 @@ Prior state, re-verified before this proposal's implementation pass:
   entirely as ordinary Python inside the one opaque node it wraps.
 
 **Implemented in this pass** (see "What Changes" below): `PIPELINE_GRAPH_ENABLED`
-now gates a real branch in `app/pipeline.py::_run_pipeline` that routes the
+now gates a real branch in `app/orchestration/pipeline.py::_run_pipeline` that routes the
 DATA route's §5.1-5.15 chain through `pipeline_graph.py`'s actual
 `StateGraph` instead of the bespoke `_answer_data`, closing the gap for
 that flag's own request path. Deliberately scoped to only the DATA-route
@@ -155,7 +155,7 @@ Changes" for exactly what was and wasn't verified.
   third parallel pause mechanism" — that absorption has not happened.
 - This proposal is where the deferred go/no-go decision gets made,
   because RLS's `SET LOCAL app.current_tenant_id` hook (see `design.md`)
-  needs to land in `app/db.py`'s connection path regardless — the natural
+  needs to land in `app/database/db.py`'s connection path regardless — the natural
   point to also decide the production checkpointer backend and retire the
   narrow module.
 
@@ -170,16 +170,16 @@ Changes" for exactly what was and wasn't verified.
   the second scheme — not a 25-scheme rollout."*
 - Concrete things that do not scale linearly to 25, found by reading the
   actual code (not stated in any prior doc):
-  - `app/auth.py`'s `ROLE_PERMISSIONS` hardcodes
+  - `app/core/auth.py`'s `ROLE_PERMISSIONS` hardcodes
     `["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"]` **8 separate
     times** (once per role). Same literal list recurs in
-    `app/prompt_builder.py` and `app/followups.py`.
-  - `app/schema_context.py` is 912 lines of hand-curated per-scheme Python
+    `app/sql/prompt_builder.py` and `app/response/followups.py`.
+  - `app/sql/schema_context.py` is 912 lines of hand-curated per-scheme Python
     (the pre-Phase-3 legacy path, still primary for MGNREGA/PMAY-G) — this
     is the exact "stuffing schema into a prompt" growth pattern Phase 3's
     own proposal warned about; the vector schema-retrieval path is
     additive/supplemental, not a replacement.
-  - `app/join_graph.py` only rebuilds at process startup
+  - `app/sql/join_graph.py` only rebuilds at process startup
     (`app/main.py` lifespan) — onboarding scheme N requires a full service
     restart, a real operational cost at 25 vs. 4.
   - Steps 2 and 4 of `docs/scheme-onboarding.md` (SME-authored
@@ -198,7 +198,7 @@ policy shape. Summary:
 2. RLS enabled on `app.users`, `app.login_events`, `app.conversations`,
    `app.conversation_turns`, `app.query_audit`, `app.tenant_schemes`, keyed
    off a per-transaction session GUC (`app.current_tenant_id`) set in
-   `app/db.py`'s connection-acquisition path.
+   `app/database/db.py`'s connection-acquisition path.
 3. RLS + `FORCE ROW LEVEL SECURITY` enabled on the 5 real curated FACT
    tables (not the views built over them — Postgres cannot enable RLS on a
    view; see `design.md`'s correction note), policy-checked against
@@ -219,9 +219,9 @@ policy shape. Summary:
    `pipeline_graph.answer_data_via_graph_compat()` adapter has the exact
    same calling contract as `_answer_data` (raises `ClarificationNeeded`
    for a pause, returns a plain dict otherwise), so
-   `app/pipeline.py::_run_pipeline`'s single call site swaps to it behind
-   the flag with zero changes anywhere else (`app/routers/query.py`,
-   `app/session_store.py` untouched). Deliberately does not attempt
+   `app/orchestration/pipeline.py::_run_pipeline`'s single call site swaps to it behind
+   the flag with zero changes anywhere else (`app/api/routers/query.py`,
+   `app/conversation/session_store.py` untouched). Deliberately does not attempt
    LangGraph's own cross-HTTP-request resume (`resume_via_graph`) — each
    call gets a fresh, throwaway `thread_id`, and a pause is converted
    straight back to `ClarificationNeeded`, letting the existing, tested
@@ -232,7 +232,7 @@ policy shape. Summary:
    Still open: production checkpointer choice (SQLite vs.
    `AsyncPostgresSaver`, same DB-role-cutover dependency as item 3), a
    staged/canary rollout mechanism, retirement of
-   `app/langgraph_followup.py` once parity is confirmed, and — the actual
+   `app/orchestration/langgraph_followup.py` once parity is confirmed, and — the actual
    remaining gate — end-to-end verification against a live LLM and live
    data across all 4 schemes, which cannot be done from this environment
    (no reachable LLM gateway or production Postgres here).
@@ -278,7 +278,7 @@ repo's existing convention (`LANGGRAPH_FOLLOWUP_ENABLED`,
   proposal depends on it for production activation but does not re-scope
   or re-attempt it. Development/staging proceeds against a disposable
   local Postgres.
-- **Migrating `app/schema_context.py`'s hand-curated per-scheme blocks**
+- **Migrating `app/sql/schema_context.py`'s hand-curated per-scheme blocks**
   to the vector schema-retrieval path — tracked by the existing
   `schema-retrieval-reranking` change. This proposal only documents the
   growth risk and sets a revisit checkpoint.
@@ -297,10 +297,10 @@ repo's existing convention (`LANGGRAPH_FOLLOWUP_ENABLED`,
 ## Impact
 
 - Affected files (expected; confirm exact list during implementation):
-  `app/appdb.py`, `app/db.py`, `app/auth.py`, `app/deps.py`,
-  `app/scheme_registry.py`, `app/join_graph.py`, `app/prompt_builder.py`,
-  `app/followups.py`, `app/pipeline_graph.py`, `app/langgraph_followup.py`,
-  `app/routers/query.py`, `app/routers/admin.py`, `app/main.py`,
+  `app/database/appdb.py`, `app/database/db.py`, `app/core/auth.py`, `app/api/deps.py`,
+  `app/knowledge/scheme_registry.py`, `app/sql/join_graph.py`, `app/sql/prompt_builder.py`,
+  `app/response/followups.py`, `app/orchestration/pipeline_graph.py`, `app/orchestration/langgraph_followup.py`,
+  `app/api/routers/query.py`, `app/api/routers/admin.py`, `app/main.py`,
   `deploy/sql/` (new migration files), `scheme_registry.yaml`,
   `docs/scheme-onboarding.md`.
 - Schema migration required (new tables + `ENABLE ROW LEVEL SECURITY` +
@@ -312,7 +312,7 @@ repo's existing convention (`LANGGRAPH_FOLLOWUP_ENABLED`,
   migration itself (`deploy/sql/03_tenant_scheme_rls.sql`) is a separate
   script, never auto-applied, so flag-off means "the RLS mechanism doesn't
   exist yet in that database," not "exists but silently denies everything
-  because the GUC is unset." The app-code side (`app/db.py::set_tenant_context`,
+  because the GUC is unset." The app-code side (`app/database/db.py::set_tenant_context`,
   `auth.py::scope_from_user`'s tenant intersection) is already a true no-op
   when `TENANT_SCHEME_RLS_ENABLED=false` — confirmed by the full regression
   sweep passing unchanged at the flag's default. Rollback of the SQL

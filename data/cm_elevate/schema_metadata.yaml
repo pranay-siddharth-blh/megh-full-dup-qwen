@@ -1,13 +1,13 @@
 # schema_metadata.yaml — CM Elevate (pilot scheme for schema retrieval)
 #
-# Source: condensed from app/schema_context.py's hand-curated CM Elevate
+# Source: condensed from app/sql/schema_context.py's hand-curated CM Elevate
 # blocks (_CMELEVATE_TABLES, _CMELEVATE_RULES, _CMELEVATE_VOCAB) and
 # scheme_registry.yaml's table list — this file does not invent new facts,
 # it re-expresses the same SME-reviewed knowledge as embeddable prose for
 # the schema-retrieval node (see openspec/changes/
 # phase-3-schema-retrieval-join-discovery/proposal.md section 2).
 #
-# Read by app/schema_metadata_ingest.py.
+# Read by app/knowledge/schema_metadata_ingest.py.
 
 scheme:
   id: CM Elevate

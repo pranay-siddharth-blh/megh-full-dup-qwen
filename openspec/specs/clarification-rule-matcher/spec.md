@@ -5,7 +5,7 @@
 Closes the gap between the clarification rules SME-authored in
 `*_classification_rules.yaml` (341 conditions across four schemes) and
 what the runtime pipeline actually enforces (~7, via hand-written
-predicates in `app/pipeline.py`). Scoped to the 75 conditions in the
+predicates in `app/orchestration/pipeline.py`). Scoped to the 75 conditions in the
 highest-risk "source cannot answer this at all" category first — the
 class already proven, in production, to produce a wrong or empty answer
 rather than a clarifying question when unguarded.
@@ -131,7 +131,7 @@ rather than returning a technically-valid but semantically wrong figure.
 ### Requirement: A condition already covered by an existing hardcoded predicate is never re-wired, and the collision set is kept accurate as new sections are wired
 The system SHALL NOT register a matcher for a classification-rules
 condition name already handled end-to-end by an existing hardcoded
-predicate in `app/pipeline.py`. Before wiring any new section, the
+predicate in `app/orchestration/pipeline.py`. Before wiring any new section, the
 condition names in that section SHALL be cross-checked against every
 existing hardcoded predicate's actual trigger logic (not name similarity
 alone), and any condition found to be already covered SHALL be added to
