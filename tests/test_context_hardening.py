@@ -35,6 +35,7 @@ from app import context_budget, context_manager as cm, context_policy as cp  # n
 from app import entity_resolver, llm, pipeline as p, prompt_builder, session_sync  # noqa: E402
 from app.routers import query as router  # noqa: E402
 from app.session_store import ConversationState, Session, SessionStore, Turn  # noqa: E402
+from _graph_turn import data_stage_from, graph_turn, stub_data_path  # noqa: E402
 
 Q1 = "How much was disbursed under Focus Plus in West Garo Hills in FY 2024-25?"
 R1 = {"route": "data", "intent": "DATA", "schemes": ["Focus Plus"], "sql": "SELECT 1",
@@ -128,8 +129,8 @@ def test_state_crosses_workers_a_b_c(monkeypatch):
                                       "year_key": 2024}}
 
     monkeypatch.setattr(llm, "call_classifier", classifier)
-    monkeypatch.setattr(p, "_answer_data", fake_answer_data)
-    r2 = _run(p._run_pipeline("What about Dalu block?", session=b))
+    stub_data_path(monkeypatch, fake_answer_data)
+    r2 = _run(graph_turn("What about Dalu block?", session=b))
     assert "Dalu" in seen["q"] and "West Garo Hills" in seen["q"]
     assert seen["prior"]["district"] == "WEST GARO HILLS" and seen["prior"]["year_key"] == 2024
     _answered(b, "What about Dalu block?", r2)
@@ -208,9 +209,9 @@ def test_pending_clarification_crosses_workers(monkeypatch):
     async def classifier(prompt, **_kw):
         return '{"intent": "DATA"}'
 
-    monkeypatch.setattr(p, "_answer_data", fake_answer_data)
+    stub_data_path(monkeypatch, fake_answer_data)
     monkeypatch.setattr(llm, "call_classifier", classifier)
-    _run(p._run_pipeline("Focus Plus", session=b))
+    _run(graph_turn("Focus Plus", session=b))
     assert seen["q"] == "Show beneficiaries for Focus Plus"
     assert b.turn_context["clarification_reply"] == "Focus Plus"
 
@@ -273,7 +274,7 @@ def test_ambiguous_reference_requires_clarification_and_the_pipeline_asks(monkey
     s.state = ConversationState(**{**STATE.to_dict(), "comparison_entities": []})
     s.turns = [PREV]
     with pytest.raises(p.ClarificationNeeded) as e:
-        _run(p._run_pipeline("How about the other one?", session=s))
+        _run(graph_turn("How about the other one?", session=s))
     assert e.value.rule == "entity-ambiguous"
 
 
@@ -316,12 +317,12 @@ def _pipeline_prior(monkeypatch, prev_turn, followup, rewrite):
                 "sql": "S", "rows": [], "data": [], "resolved_entities": {}}
 
     monkeypatch.setattr(llm, "call_classifier", classifier)
-    monkeypatch.setattr(p, "_answer_data", fake_answer_data)
+    stub_data_path(monkeypatch, fake_answer_data)
     s = Session(session_id="t", user_id="u", created=time.time(), last_seen=time.time())
     s.turns = [prev_turn]
     s.state = ConversationState(scheme="Focus Plus", district="WEST GARO HILLS",
                                 block=prev_turn.resolved_entities.get("block"), year=2024)
-    _run(p._run_pipeline(followup, session=s))
+    _run(graph_turn(followup, session=s))
     return seen
 
 
@@ -616,12 +617,12 @@ def test_cleared_filter_is_told_to_the_rewrite_and_enforced(monkeypatch):
                 "sql": "S", "rows": [], "data": [], "resolved_entities": {}}
 
     monkeypatch.setattr(llm, "call_classifier", classifier)
-    monkeypatch.setattr(p, "_answer_data", fake_answer_data)
+    stub_data_path(monkeypatch, fake_answer_data)
     s = Session(session_id="t", user_id="u", created=0.0, last_seen=0.0)
     s.turns = [Turn(question=Q1, raw_question=Q1, route="data", schemes=["Focus Plus"],
                     resolved_entities={"district": "WEST GARO HILLS", "year_key": 2024})]
     s.state = ConversationState(scheme="Focus Plus", district="WEST GARO HILLS", year=2024)
-    _run(p._run_pipeline("Show it by district.", session=s))
+    _run(graph_turn("Show it by district.", session=s))
     rewrite_prompt = next(x for x in prompts if "Standalone question:" in x)
     assert "REMOVED by the follow-up (do NOT include these): district=WEST GARO HILLS" in rewrite_prompt
     assert "West Garo Hills" not in seen["q"]          # the re-added district was rejected

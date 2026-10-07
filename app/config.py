@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     APP_NAME: str = "NLP Service - MGNREGA / PMAY-G / Focus Plus / CM Elevate"
-    PORT: int = 8300
+    PORT: int = 8400
     LOG_LEVEL: str = "INFO"
     REQUEST_TIMEOUT_SECONDS: int = 60  # hard ceiling on one /api/query, enforced in the router
 
@@ -192,7 +192,7 @@ class Settings(BaseSettings):
     # Runs after generate_sql, before the query touches the database: a second
     # opinion asking "does this SQL actually answer the question, per the schema
     # rules and resolved entities above it?" (see prompt_builder.build_verify_prompt).
-    # The regex guards already in execute_with_repair only catch SQL shapes a past
+    # The regex guards already in _execute_one_attempt only catch SQL shapes a past
     # bug taught them to recognise (bare row read on an aggregate question,
     # village-name-instead-of-code, a phantom 'Meghalaya' filter, ...). This
     # catches the same CLASS of bug — syntactically valid, executes cleanly,
@@ -268,7 +268,7 @@ class Settings(BaseSettings):
     ASR_DEBUG_DIR: str = ""
 
     # ── Vector store (Qdrant on the same data box) — scheme-knowledge base ──
-    QDRANT_URL: str = "http://10.48.242.4:6333"
+    QDRANT_URL: str = "http://115.124.102.167:6335"
     QDRANT_API_KEY: str = ""
     QDRANT_COLLECTION: str = "megh_scheme_kb"
     # Thresholds are on the bge-small (local) cosine scale: loosely-related
@@ -290,6 +290,16 @@ class Settings(BaseSettings):
     SESSION_MAX: int = 5000                   # sessions kept before oldest-first eviction
     SESSION_MAX_TURNS: int = 8                # turns retained per session
     FOLLOWUP_REWRITE_ENABLED: bool = True     # one classifier call when a turn looks like a follow-up
+    # Query rephraser (graph node `rephrase`, D-037): a messy NEW question
+    # (typos, Hinglish, voice-to-text, no question shape) is rewritten into one
+    # clean question before routing. One classifier call, only when the
+    # question looks messy; follow-ups and pause replies skip it. The rewrite is
+    # rejected (original kept) if it adds, drops or changes a scheme, place,
+    # year, number or measure. Never blocks: a slow or failed call keeps the
+    # original question.
+    QUERY_REPHRASE_ENABLED: bool = True
+    QUERY_REPHRASE_TIMEOUT_SECONDS: int = 8
+    QUERY_REPHRASE_MAX_CHARS: int = 400
     # Deterministic "Next steps" chips under each data/knowledge answer, built
     # from a fixed scheme-aware bank (backend/followups.py) — no model call.
     FOLLOWUP_SUGGEST_ENABLED: bool = True
@@ -433,6 +443,35 @@ class Settings(BaseSettings):
     CONTEXT_STATE_SYNC_TIMEOUT_SECONDS: float = 1.0
     CONTEXT_PREV_RESULT_MAX_TOKENS: int = 120
     CONTEXT_PREV_ANSWER_MAX_TOKENS: int = 120
+
+    # ── LangGraph orchestrator (app/pipeline_graph.py, D-032, D-036) ──
+    # The only driver of the pipeline stages: per-node logs, an explicit SQL
+    # repair loop, and clarification pauses as interrupt() with a checkpoint
+    # keyed by thread_id = session_id. There is no sequential path and no
+    # on/off switch (D-036).
+    # Checkpoint backend: Postgres only. "postgres" (the default; blank means the
+    # same) reuses DATABASE_URL; a postgresql:// DSN names another database.
+    # Either way the four checkpoint tables live in app.* (search_path=app),
+    # shared by every worker on both VMs (KI-184/185). "memory" is an
+    # in-process saver for tests and offline dev only. If Postgres cannot be
+    # opened the worker falls back to memory and a pause still resumes from the
+    # Session snapshot (docs/LANGGRAPH_PAUSE_RESUME.md §4).
+    PIPELINE_GRAPH_CHECKPOINTER_DSN: str = "postgres"
+    # Postgres checkpointer pool, per worker. The saver runs one statement at a
+    # time per worker (its own lock), so 2 = one for the saver plus one for the
+    # advisory lock held during setup/sweep. 2 workers x 2 VMs x 2 = 8 conns.
+    # Values below 2 are raised to 2 (1 would deadlock setup).
+    PIPELINE_GRAPH_PG_POOL_MAX: int = 2
+    # "exit": one checkpoint write per run (at a pause or the end). "async" /
+    # "sync": one per node, for crash forensics, at a write per node.
+    PIPELINE_GRAPH_DURABILITY: str = "exit"
+    # A finished run's thread is deleted; only paused threads persist. True
+    # keeps finished threads for debugging (they then grow without bound).
+    PIPELINE_GRAPH_KEEP_THREADS: bool = False
+    # An unanswered pause's thread is swept after this long (the Session's own
+    # pending pause expires with SESSION_TTL_SECONDS).
+    PIPELINE_GRAPH_PAUSE_TTL_SECONDS: int = 1800
+    PIPELINE_GRAPH_SWEEP_EVERY_SECONDS: int = 600
 
     # ── Prompt budgets (approximate input tokens; app/context_budget.py) ──
     # Each is the served --max-model-len minus that call's max_tokens

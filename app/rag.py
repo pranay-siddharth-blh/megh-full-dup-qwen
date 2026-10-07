@@ -144,8 +144,18 @@ async def retrieve(question: str, scheme: str | None = None) -> list[dict]:
     except Exception as e:  # noqa: BLE001
         logger.warning("rag.retrieve: embedding failed — %s", e)
         return []
-    candidates = await vectorstore.search(vecs[0], top_k=settings.RAG_TOP_K,
-                                          scheme=kb_scheme(scheme))
+    try:
+        candidates = await vectorstore.search(vecs[0], top_k=settings.RAG_TOP_K,
+                                              scheme=kb_scheme(scheme))
+    except Exception as e:  # noqa: BLE001
+        # The Qdrant server closes idle keep-alive connections; the next request
+        # on a stale one fails with "Server disconnected without sending a
+        # response" and the user got HTTP 502 (two knowledge turns in the test
+        # run of 2026-10-06). One retry opens a fresh connection; a real outage
+        # still raises.
+        logger.warning("rag.retrieve: vector search failed (%s) — retrying once", e)
+        candidates = await vectorstore.search(vecs[0], top_k=settings.RAG_TOP_K,
+                                              scheme=kb_scheme(scheme))
     if not candidates:
         return []
 

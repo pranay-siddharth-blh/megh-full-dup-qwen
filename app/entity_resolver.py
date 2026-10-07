@@ -1384,10 +1384,16 @@ _AC_CONTENTS_SQL = {
     "CM Elevate Legacy": ("SELECT DISTINCT v.lgd_district, v.lgd_block, g.village_code "
                           "FROM curated.v_cm_elevate_disbursement v JOIN curated.dim_geography g "
                           "ON g.geography_key = v.geography_key WHERE UPPER(g.ac_name) = UPPER($1)"),
+    # CM Elevate reaches ac_name the same way since D-035 (2026-10-06); without this
+    # entry its drill-down counted MGNREGA's villages and named "MGNREGA employment data".
+    "CM Elevate": ("SELECT DISTINCT v.lgd_district, v.lgd_block, g.village_code "
+                   "FROM curated.v_cm_elevate v JOIN curated.dim_geography g "
+                   "ON g.geography_key = v.geography_key WHERE UPPER(g.ac_name) = UPPER($1)"),
 }
 # How the drill-down names each scheme's data ("190 villages in the <this>").
 AC_CONTENTS_SOURCE = {"MGNREGA": "MGNREGA employment data", "Focus Legacy": "Focus Legacy data",
-                      "CM Elevate Legacy": "CM Elevate Legacy data"}
+                      "CM Elevate Legacy": "CM Elevate Legacy data",
+                      "CM Elevate": "CM Elevate applications data"}
 
 
 async def constituency_contents(ac_name: str, scheme: "str | None" = None) -> dict:

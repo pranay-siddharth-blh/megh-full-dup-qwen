@@ -1,8 +1,19 @@
 # Current State
 
-**Last updated:** 2026-09-29 (early morning), by the conversational scheme-swap session (KI-180; code changed, uncommitted). Before that: 2026-09-29 (late night), by the CM Elevate Legacy use-case re-test session (no code changed; KI-166..168 opened). Before that: 2026-09-29 (night), by the Focus Legacy all-levels fix session (KI-020, KI-145..165, D-031; code changed, uncommitted). Before that: 2026-09-29, by the context-relevance / semantic-contract session (code changed, uncommitted; D-030, KI-030/032/034 and KI-130 to KI-135; **offline-verified only**, VPN down). Before that: 2026-09-28 (evening), by the CM Elevate all-blocks / all-villages fix session (code changed in `app/pipeline.py`, tests; uncommitted). Before that: 2026-09-28, by the PMAY-G fix session (code changed, uncommitted; D-029, KI-089 to KI-097). Before that: 2026-09-27 night, by the Focus Plus all-blocks / all-villages session (code changed in `app/pipeline.py`, tests in `tests/test_focusplus_usecase_fixes.py` and `tests/test_mgnrega_usecase_fixes.py`; **uncommitted**). Earlier the same day: the CM Elevate use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/schema_context.py`, plus a new test file; **uncommitted**). Before that, the same day: the Focus Plus use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/routers/query.py`, **uncommitted**, on top of the uncommitted 2026-09-26 MGNREGA and context work).
-**Branch / commit:** `main` @ `7064ab6` ("Added two new schemes", 2026-09-25). The working tree
-was clean before this session; this session added and changed Markdown only.
+**Last updated:** 2026-10-03 (early morning), by the all-schemes all-places QA + fix session (KI-188..199, D-034; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-02, by the LangGraph integration session (D-032; code changed, uncommitted; **offline-verified only**, VPN down). Before that: 2026-09-29 (early morning), by the conversational scheme-swap session (KI-180; code changed, uncommitted). Before that: 2026-09-29 (late night), by the CM Elevate Legacy use-case re-test session (no code changed; KI-166..168 opened). Before that: 2026-09-29 (night), by the Focus Legacy all-levels fix session (KI-020, KI-145..165, D-031; code changed, uncommitted). Before that: 2026-09-29, by the context-relevance / semantic-contract session (code changed, uncommitted; D-030, KI-030/032/034 and KI-130 to KI-135; **offline-verified only**, VPN down). Before that: 2026-09-28 (evening), by the CM Elevate all-blocks / all-villages fix session (code changed in `app/pipeline.py`, tests; uncommitted). Before that: 2026-09-28, by the PMAY-G fix session (code changed, uncommitted; D-029, KI-089 to KI-097). Before that: 2026-09-27 night, by the Focus Plus all-blocks / all-villages session (code changed in `app/pipeline.py`, tests in `tests/test_focusplus_usecase_fixes.py` and `tests/test_mgnrega_usecase_fixes.py`; **uncommitted**). Earlier the same day: the CM Elevate use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/schema_context.py`, plus a new test file; **uncommitted**). Before that, the same day: the Focus Plus use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/routers/query.py`, **uncommitted**, on top of the uncommitted 2026-09-26 MGNREGA and context work).
+**Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
+
+## Side-by-side deploy identifiers (2026-10-04)
+- This build deploys to `/opt/meghalaya-langgraph` as `megh-langgraph.service` (port 8410) or compose project
+  `megh-langgraph` (host 8411). The existing deploy (`/opt/meghalaya`, `megh-nlpservice.service`, port 8300,
+  containers `megh-nlp`/`megh-qdrant`/`megh-redis`) is untouched and keeps running. Table: deploy/DEPLOYMENT.md.
+- Fixed in passing: the Dockerfile served 8300 while compose mapped 8400. VERIFIED (`docker compose config`).
+
+## Chat route and port (2026-10-04)
+- Chat console is **`/megh-chat`** (was `/ai-query`, which now 301-redirects). Service port **8400** (was 8300). Config/routing only — the pipeline, API paths (`/api/*`) and `ai_query.html` itself are unchanged. VERIFIED offline. Details: HANDOFF.md.
+
+## Qdrant server move (2026-10-03, afternoon)
+- `QDRANT_URL` now `http://115.124.102.167:6335` (was `10.48.242.4:6333`). Config only. `megh_scheme_kb` rebuilt there (201 points, VERIFIED) and `megh_conversation_memory` created. Open security item KI-200 (no API key on a public IP). Details: HANDOFF.md.
 
 ## Project status
 - **Stage (INFERRED):** internal UAT with live QA passes per scheme.
@@ -32,6 +43,63 @@ was clean before this session; this session added and changed Markdown only.
 - Voice input with no-speech and prompt-echo guards (2026-09-25).
 - Auth, multi-tenancy, admin console, history (pin, archive, rename, delete), audit, caches,
   health and metrics.
+
+## Latest: all six schemes, every district / block / village (2026-10-02 night → 10-03). Code changed, uncommitted. LIVE-VERIFIED.
+- **Live bulk: 30,280 / 30,280 pass on the final code** (truth computed read-only from `megh_db` per question):
+  MGNREGA 6,378 · PMAY-G 5,256 · PMAY-G officer cases 5,833 · Focus Plus 3,651 · CM Elevate 2,165 ·
+  CM Elevate OFF-009/017/018 2,284 · CM Elevate Legacy 1,193 · Focus Legacy 3,520. 1,667 questions
+  failed on their first run; every one was traced to a cause, fixed and re-run.
+- **Fixed (all in `app/pipeline.py`, each with regression tests):** KI-188 village dropped from the SQL
+  (non-MGNREGA); KI-189 village written as a CML programme; KI-190 Focus Legacy + CM Elevate Legacy join
+  the village gate (D-034); KI-191 Focus Plus LGD-only blocks; KI-192 spelled-out figures → digits;
+  KI-193 PMAY-G village comparisons; KI-194 CM Elevate applicants = distinct request_id; KI-195
+  "Sports & Wellness"; KI-196 district/block literal beside a village in any UPPER/LOWER/TRIM form;
+  KI-197 village named by truncated text → its code; KI-198 doubled bracket in the CML spelling fix.
+  KI-182: full OFF-009 1,260/1,260.
+- **Reports (docs/):** `All_Schemes_LangGraph_Test_Results_Summary.xlsx` and one
+  `<Scheme>_LangGraph_Test_Results.xlsx` per scheme (MGNREGA, PMAY_G, Focus_Plus, CM_Elevate,
+  CM_Elevate_Legacy, Focus_Legacy), plus `PMAY_G_Officer_Cases_LangGraph_Test_Results.xlsx` and
+  `CM_Elevate_Officer_Sets_LangGraph_Test_Results.xlsx` (all runs on the LangGraph path).
+- **Tests:** pytest **1,453 passed, 0 failed** (27 files) with the graph off AND on; scripts **14/14**; live context suite **43/43 on both paths** (follow-up 29/29).
+- **Not covered:** one question shape per place (KI-199). Still open: KI-184/185 (Postgres checkpointer
+  unverified live), canary G5.
+
+## Latest: live verification + fixes (2026-10-02, evening, VPN up). Code changed, uncommitted. LIVE-VERIFIED.
+- **LangGraph live gates passed:** context suite 43/43 on both paths; 36/36 live turns identical across all six schemes; all 21 nodes ran on live traffic with 0 errors. Flag still off by default (next gate: canary, G5).
+- **Fixed:** KI-187 (verifier false positive: 'What about Dalu block?' went to the KB; pre-existing, reproduced on the pre-refactor code), KI-182 (CM Elevate OFF-009: a 0-applicant programme left out — live re-test 49/49), KI-183 (repaired SQL now re-authorized, D-033), 2 stale verifier tests.
+- **Tests:** pytest 1,419 passed, 0 failed, flag off and on; scripts 14/14.
+- **Still open:** KI-184/185 (shared Postgres checkpointer needs approval and a non-production DB); the full 1,260-question OFF-009 set was not re-run (49-question sample was).
+- **Report:** https://claude.ai/artifact/Q2Mb7ynLwebbjcRebHkYmq (nodes + per-scheme results).
+
+## Earlier the same day: LangGraph orchestrator (2026-10-02, D-032). Code changed, uncommitted. OFFLINE-VERIFIED ONLY (VPN down).
+- **What:** `app/pipeline.py`'s `_run_pipeline`, `_answer_data` and `execute_with_repair` are split,
+  verbatim, into stage functions. A new opt-in 21-node LangGraph graph (`app/pipeline_graph.py`)
+  runs the same stages, with an explicit SQL repair loop, clarification pauses as `interrupt()`, a
+  checkpoint under `thread_id = session_id` (Postgres `app.checkpoint*` since 2026-10-06), and shape-only per-node logs. **Off by
+  default** (`PIPELINE_GRAPH_ENABLED=false`, `PIPELINE_GRAPH_CANARY_PERCENT=0`); the router and the
+  API are unchanged.
+- **Works (VERIFIED offline):**
+  - the stage split is behaviour-neutral: 1,371 → 1,371 passed, the same 2 known failures;
+  - 27 graph tests: the same conversations on both orchestrators give identical results, pauses,
+    session state and model/DB call counts (answer, follow-up, scheme switch, pause → resume,
+    "thanks" / new question abandon a pause, digression, repair, repair budget, DB outage,
+    denial, edge);
+  - pause → checkpoint → resume; correct even with the thread deleted;
+  - every intermediate state serializes; no question text in graph logs; TTL sweep;
+  - full pytest flag on: 1,397 passed (the only extra failure was a test reading the live flag,
+    since fixed). No existing test calls `answer_question`, so this sweep adds no graph coverage;
+    the graph evidence is the 27 dedicated tests. Scripts 14/14.
+- **Not verified:**
+  - live context suite and live use cases on the graph path (KI-186);
+  - the Postgres checkpointer (KI-185);
+  - cross-VM resume on the Postgres checkpointer, to confirm on the VMs (KI-184).
+- **Cost:** +45 to +120 ms per turn of orchestration, measured offline (≈3–7% of a live turn);
+  no extra model or DB calls.
+- **Found:** repaired SQL is never re-authorized (KI-183, pre-existing, left unchanged on both
+  paths).
+- **Dependencies:** `langgraph` 1.2.12, `langgraph-checkpoint-postgres` 3.1.2 + `psycopg` 3 (SQLite package removed 2026-10-06) (+ `langchain-core`,
+  `langsmith`; `websockets` downgraded 17.1 → 16.1.1 by `langgraph-sdk`). Installed in `.venv`;
+  `requirements.txt` / `.lock` updated.
 
 ## Latest: typed replies resume every chip pause (2026-09-29, morning, KI-181). Code changed, uncommitted. LIVE-VERIFIED.
 - Before: only the area/year/entity/ranking pauses and the which-scheme pauses were remembered. Any other pause with chips

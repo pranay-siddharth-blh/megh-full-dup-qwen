@@ -17,7 +17,7 @@ not recorded.*
   cross-scheme questions), not per URL.
 - **Alternatives:** per-scheme microservices behind a gateway (the predecessor design).
 - **Consequences:** schemes are hand-registered in about 14 places (see SCHEMES.md), and
-  `pipeline.py` has grown to about 8,400 lines.
+  `pipeline.py` has grown to about 15,000 lines (2026-10-02; about 8,400 when this was first recorded).
 - **Status:** Active.
 
 ### D-002 — No LLM or ORM framework
@@ -497,3 +497,163 @@ not recorded.*
   catch a correct number attached to the wrong noun).
 - **Revisit if:** a reload lets one pg_id span two places — the "together" sum would then over-count.
 
+### D-032 — LangGraph as an opt-in orchestrator over the same stage functions
+- **Date:** 2026-10-02 (`app/pipeline_graph.py`; `tests/test_pipeline_graph.py`; docs
+  `LANGGRAPH_ARCHITECTURE.md`, `CONTEXT_AND_LANGGRAPH.md`, `LANGGRAPH_PAUSE_RESUME.md`,
+  `LANGGRAPH_MIGRATION.md`, `MEGHALAYA_LANGGRAPH_ARCHITECTURE.md`).
+- **Decision:**
+  - `_run_pipeline`, `_answer_data` and `execute_with_repair` are split, verbatim, into stage
+    functions (`_turn_*_stage`, `_data_*_stage`, `_scheme_sql_rewrites`, `_execute_one_attempt`,
+    `_repair_sql`, `_data_path_error_result`). The sequential path is now a driver over them, with
+    behaviour unchanged (the full suite gives the same result before and after the split).
+  - A 21-node LangGraph graph runs the same stages: explicit SQL repair loop, pauses as
+    `interrupt()` in a separate `pause_gate`, a checkpoint under `thread_id = session_id`
+    (SQLite by default; Postgres optional and unverified), and per-node shape-only logs.
+  - **Off by default** (`PIPELINE_GRAPH_ENABLED=false`, `PIPELINE_GRAPH_CANARY_PERCENT=0`).
+    `answer_question` is the only switch point; the router is unchanged.
+  - The Session snapshot (D-023) stays the source of truth for conversation context and the
+    pending pause. The checkpoint holds only the paused execution, and correctness never depends
+    on it.
+- **Reason:** the user asked for LangGraph orchestration, checkpointable pauses and node-by-node
+  diagnosis, without a second pipeline and without changing behaviour. This amends D-002
+  ("no LLM framework") for orchestration only: no LangChain model, prompt or retriever
+  abstractions are used, and every model call is still the raw `httpx` call in `llm.py`.
+- **Alternatives rejected:**
+  - wrapping only the DATA route (the guide's design): the context window, edge layer and most
+    pauses would stay outside the graph;
+  - a graph with its own nodes' logic: it would drift from the sequential path;
+  - a router-level "does the reply continue the pause?" check: it would duplicate step 0a;
+  - nodes for a query analyzer, schema retrieval, findings or charts: none exist in this codebase.
+- **Consequences:**
+  - New dependencies: `langgraph`, `langgraph-checkpoint-sqlite`, `langchain-core`, `langsmith`
+    (tracing off unless `LANGSMITH_TRACING` is set). `langgraph-sdk` pins `websockets<17`
+    (downgraded 17.1 → 16.1.1; unused by this app, `pip check` is clean).
+  - Stage boundaries are now an API between the two orchestrators: a new step goes into a stage.
+  - A source-pin test moved from `_answer_data` to `_data_clarification_stage`.
+- **Status:** Active, opt-in. Not live-verified (VPN down 2026-10-02); see
+  `LANGGRAPH_MIGRATION.md` for the rollout gates.
+
+### D-033 — Re-authorize every repaired SQL query
+- **Date:** 2026-10-02 (`pipeline._repaired_sql_denial`, `RepairedSQLDenied`, `execute_with_repair(scope=…)`,
+  `pipeline_graph.node_execute_attempt`; KI-183).
+- **Decision:** the up to `MAX_SQL_REPAIRS` queries the repair model writes each pass the same
+  `auth.authorize(scope, schemes, resolved_entities, sql)` as the first query, after the deterministic
+  rewrites and before execution. A denial ends the turn with the standard `_denied` result. The first
+  query's check is unchanged (`_data_authorize_stage`).
+- **Reason:** authorization ran on the generated SQL only; a repair that added a district / block
+  literal or a finer GROUP BY than the first query reached the database without a scope check for a
+  capped role. The user asked for all open issues to be fixed (2026-10-02).
+- **Consequences:** a capped officer whose question needs a repair can now get a denial where the
+  repaired SQL exceeds the posting (correct). Admin roles are unaffected (`is_admin` bypass).
+  No extra model or DB call: `authorize` is a local regex check.
+- **Status:** Active on both orchestrators.
+
+
+### D-034 — Every single-village question is pinned to its resolved `village_code`
+- **Date:** 2026-10-02 (all-blocks / all-villages runs for all six schemes; KI-188 to KI-197).
+- **Decision:**
+  - Focus Legacy and CM Elevate Legacy join the village gate. `_VILLAGE_NARROW_SCHEMES` now holds
+    Focus Plus, PMAY-G, CM Elevate, Focus Legacy and CM Elevate Legacy (MGNREGA keeps its own path).
+  - When ONE village is resolved, the SQL must filter that `village_code`. Every scheme gets a
+    deterministic rewrite on a simple one-SELECT query:
+    - no village filter → the code is added (`_pin_missing_village_code`);
+    - the village named only by text → that condition becomes the code (`_village_name_cond_to_code`);
+    - a block / district literal beside the code is dropped (`_mgnrega_drop_geo_beside_village`,
+      `_drop_geo_beside_pinned_village`).
+  - Anything more complex (a join, a CTE, a subquery, two villages) is left to the guard and the repair.
+- **Reason:** the 30B generator dropped the village, wrote its name into the district or programme
+  column, or truncated it ("TEPORPARA ( UPPER )" → 'TEPORPARA'). Each answered a wrong figure
+  silently. Prose rules had not held (CLAUDE.md §5), and every curated view carries `village_code`.
+- **Consequences:** a village figure is exact by construction for the common query shape. A user
+  who really wants a district-wide figure must not name a village. Two-village comparisons keep
+  the generator's SQL.
+- **Status:** Active on both orchestrators.
+
+### D-035 — CM Elevate (applications) answers assembly-constituency questions
+- **Date:** 2026-10-06 (six-scheme tester sheet run; KI-210).
+- **Decision:** `CM Elevate` joins `_AC_CAPABLE_SCHEMES`. A constituency is reached the same way as
+  CM Elevate Legacy: `curated.v_cm_elevate v JOIN curated.dim_geography g ON g.geography_key =
+  v.geography_key`, filter `UPPER(g.ac_name)`, applicants counted `COUNT(DISTINCT v.request_id)`.
+  The area-type chip now offers "assembly constituency" for a CM Elevate place name that is one.
+- **Reason:** the earlier comment ("PMAY-G, Focus Plus and CM Elevate have no route to it") was wrong
+  for CM Elevate: every v_cm_elevate row carries geography_key (417 applications join to the
+  Umsning AC). "How many CM-ELEVATE applications are mapped to Umsning?" offered only block or
+  village and answered the block.
+- **Consequences:** prompt line in `prompt_builder._entities_block`, a note in the CM ELEVATE TABLES
+  schema text, `_cm_legacy_qualify_shared_geo_cols` also qualifies v_cm_elevate's place columns
+  after the join; `entity_resolver._AC_CONTENTS_SQL` / `AC_CONTENTS_SOURCE` give the constituency
+  drill-down CM Elevate's own villages. `tests/test_ac_focus_legacy.py` / `test_ac_flow_focus_legacy.py` updated.
+  PMAY-G and Focus Plus still refuse (no geography_key route documented for them).
+- **Status:** Active on both orchestrators.
+
+### D-036 — LangGraph is the only orchestrator; the sequential driver is removed
+- **Date:** 2026-10-06 (`app/pipeline.py`, `app/pipeline_graph.py`, `app/main.py`, `app/config.py`,
+  `.env` / `.env.example`, `Dockerfile`, `docker-compose.yml`; `tests/_graph_turn.py`,
+  `tests/test_pipeline_graph.py` and the eight test files that drove `_run_pipeline`).
+- **Decision:** the user asked for LangGraph only: "no backup, nothing".
+  - Removed: `_run_pipeline`, `_answer_data`, `execute_with_repair`, `RepairedSQLDenied`,
+    `_pipeline_graph_selected`, and the `PIPELINE_GRAPH_ENABLED` / `PIPELINE_GRAPH_CANARY_PERCENT`
+    settings. `answer_question` always calls `pipeline_graph.answer_question_via_graph`;
+    `main.py` always starts the pause sweeper and always reports `components.pipeline_graph`.
+  - Kept: every stage function (the graph's nodes call them) and the whole conversation-context layer
+    for all six schemes, which runs inside the graph (`context`, `followup`, `data_context`,
+    `context_update`).
+  - Tests: `tests/_graph_turn.py` (`graph_turn`, `stub_data_path`) replaces direct `_run_pipeline`
+    calls; a stubbed DATA path now plugs into the `scope_scheme` stage. `test_pipeline_graph.py` no
+    longer compares two orchestrators: each conversation runs twice on the graph and must repeat
+    exactly, with call counts asserted. `test_the_graph_is_the_only_orchestrator` keeps the removed
+    names and settings out.
+- **Reason:** one orchestrator, one code path to read, test and debug.
+- **Consequences:**
+  - No configuration rollback: going back means restoring the removed code from version control.
+  - The extra-forbidding settings loader rejects the removed keys, so they had to leave `.env` too:
+    any other `.env` (the VMs) must drop `PIPELINE_GRAPH_ENABLED` / `PIPELINE_GRAPH_CANARY_PERCENT`
+    before the new code starts, or startup fails with "Extra inputs are not permitted".
+  - Supersedes the "opt-in" and rollback parts of D-032 and rollout gates G5 / G8
+    (`LANGGRAPH_MIGRATION.md`).
+- **Status:** Active. pytest 1,583 passed, 0 failed; scripts 14/14; live conversation (data,
+  follow-up, knowledge, pause and resume) correct on the graph.
+
+### D-037 — A query rephraser node cleans messy new questions before routing
+- **Date:** 2026-10-07 (`app/pipeline.py` `_turn_rephrase_stage`, `rephrase_question`,
+  `_needs_rephrase`, `_rephrase_violation`; `app/prompt_builder.py` `build_rephrase_prompt`;
+  `app/llm.py` `call_rephraser`; `app/pipeline_graph.py` `node_rephrase`; `app/config.py`
+  `QUERY_REPHRASE_*`; `tests/test_query_rephraser.py`).
+- **Decision:** a 22nd graph node, `rephrase`, between `followup` and `route`. A messy NEW question
+  (typos, Hinglish, voice-to-text, no question shape) is rewritten by the classifier model into one
+  clean English question, which every later stage reads. Skipped for follow-ups (already rewritten),
+  pause replies (must reach the merge as typed), clean questions and over-long text, so most turns
+  make no extra model call.
+- **Guard:** `_rephrase_violation` rejects a rewrite that adds, drops or changes a scheme, a place
+  (canonical), a year, a number, a measure (`_MEASURE_HOLDERS`), a metric family or category, or any
+  name / unknown word the user typed, or that is not a usable question. Hinglish is glossed for the
+  check only. A rejected, failed or slow rewrite keeps the original question; the node never answers
+  and never pauses.
+- **Reason:** only follow-ups were ever rewritten; a messy new question reached the classifiers, the
+  entity extractor and the SQL generator as typed.
+- **Consequences:** +1 classifier call (about 150–200 ms) on messy turns only. A paused rephrased
+  turn is remembered as the clean question (`turn_context["standalone_question"]`).
+- **Status:** Active.
+
+### D-038 — The UI is a React app (frontend/), replacing the vanilla HTML pages
+- **Date:** 2026-10-07 (`frontend/` new; `web/ai_query.html`, `web/admin.html`, `web/vendor/`
+  removed; `app/main.py` serves `web/app/index.html` and `web/app/admin.html`).
+- **Decision:** the user asked for the whole front end in React.js with every existing function
+  kept and connected to the same backend. React 18 + Vite; the chat console (`src/chat`) and the
+  admin console (`src/admin`) are two entry pages of one build. The CSS is the original, copied
+  verbatim, and the markup keeps the original class names, so the look is unchanged. Chart.js
+  4.4.1 now comes from npm (bundled) instead of `web/vendor/`.
+- **Kept:** every API call and its contract, the JWT keys (`megh_jwt`, `megh_admin_jwt`), the
+  session id (`focusSessionId`), the sign-in gate and splash, history (pin, archive with undo,
+  rename, delete, search), thread replay with charts, the scheme carousel, voice input (WAV
+  conversion, silence and too-short guards, `no_speech`), the rail (Ctrl+B), the mobile drawer,
+  language tabs, glossary, use cases, the admin console's five tabs.
+- **Changed on purpose:** the admin sign-in no longer prints the seeded super-admin password
+  (CLAUDE.md §6 forbids repeating it). Charts are created on their own canvas (React ref), so the
+  2026-09-18 replay-chart id bug cannot recur by construction.
+- **Consequences:** a build step. `npm run build` in `frontend/` must run after any UI change; the
+  output `web/app/` is kept in the repo so deploys need no Node. `tests/test_asr_transcribe.py`,
+  `test_history_charts.py` and `test_ac_full_results.py` now read the React source. CLAUDE.md's
+  "No React" rule is superseded.
+- **Status:** Active. Browser test (headless Chrome, scratchpad `uitest/ui_test.mjs`): 53/53
+  checks; real backend sign-in errors verified; signed-in flows verified with stand-in replies.

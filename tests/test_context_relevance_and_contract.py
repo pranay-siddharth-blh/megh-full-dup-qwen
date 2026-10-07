@@ -19,7 +19,7 @@ stayed in the committed state (KI-032); an all-years choice was not carried
 (KI-030).
 
 Every test calls the real function. The model, RAG and DB are stubbed where a
-test drives _run_pipeline; nothing here needs the VPN.
+test drives the LangGraph orchestrator (_graph_turn); nothing here needs the VPN.
     .venv/Scripts/python.exe -m pytest tests/test_context_relevance_and_contract.py -q
 """
 import asyncio
@@ -51,7 +51,7 @@ def _session(prev_turn, state):
 
 
 def _run(followup, prev_turn=None, state=None):
-    """_run_pipeline with the 4B model, RAG and the DATA path stubbed. The stub
+    """One graph turn with the 4B model, RAG and the DATA path stubbed. The stub
     rewrite behaves like the live model did: it glues the previous scheme on."""
     prev_turn = prev_turn or Turn(question=Q1, raw_question=Q1, route="data", schemes=["Focus Plus"],
                                   answer="Focus+ shows 105,813 beneficiaries across all financial years.")
@@ -77,18 +77,18 @@ def _run(followup, prev_turn=None, state=None):
         return ""
 
     import app.rag as rag
-    orig = (llm.call_classifier, p._answer_data, rag.answer_from_kb, cm.build_followup_context)
-    llm.call_classifier, p._answer_data, rag.answer_from_kb, cm.build_followup_context = (
-        classifier, fake_answer_data, kb, no_ctx)
+    orig = (llm.call_classifier, p._data_scheme_stage, rag.answer_from_kb, cm.build_followup_context)
+    llm.call_classifier, p._data_scheme_stage, rag.answer_from_kb, cm.build_followup_context = (
+        classifier, data_stage_from(fake_answer_data), kb, no_ctx)
     s = _session(prev_turn, state)
     try:
         try:
-            res = asyncio.run(p._run_pipeline(followup, session=s))
+            res = asyncio.run(graph_turn(followup, session=s))
             seen["route"], seen["edge"] = res.get("route"), res.get("edge_type")
         except p.ClarificationNeeded as e:
             seen["route"], seen["rule"] = "clarification", e.rule
     finally:
-        llm.call_classifier, p._answer_data, rag.answer_from_kb, cm.build_followup_context = orig
+        llm.call_classifier, p._data_scheme_stage, rag.answer_from_kb, cm.build_followup_context = orig
     seen["plan"] = s.turn_context.get("plan") or {}
     return seen
 
@@ -299,7 +299,7 @@ def test_scope_guard_does_not_over_validate(question, schemes, er, sql):
 def test_scope_guard_runs_before_the_verifier():
     # a guard failure must become a repair instruction, not reach the paid verifier
     src = Path(p.__file__).read_text(encoding="utf-8")
-    body = src[src.index("async def execute_with_repair"):src.index("# ── Numeric faithfulness guard")]
+    body = src[src.index("async def _execute_one_attempt"):src.index("# ── Numeric faithfulness guard")]
     assert body.index("_resolved_scope_missing(") < body.index("await _verify_sql(")
     assert body.index("_focusplus_stated_amount_missing(") < body.index("await _verify_sql(")
 
@@ -690,6 +690,7 @@ def test_give_me_for_pmay_end_to_end_pauses_with_pmay_offers_not_kb():
 # sanctioned" continued the last ANSWERED turn (MGNREGA): only the scope and
 # scheme pauses were remembered.
 from app.routers import query as router  # noqa: E402
+from _graph_turn import data_stage_from, graph_turn, stub_data_path  # noqa: E402
 
 _GAP_OPTS = [{"label": "Houses sanctioned", "question": "How many PMAY-G houses were sanctioned in FY 2023-24?"},
              {"label": "Houses completed", "question": "How many PMAY-G houses were completed in FY 2023-24?"},
@@ -775,7 +776,7 @@ def test_measure_gap_pause_is_remembered_as_its_first_offer():
     llm.call_classifier = classifier
     try:
         with pytest.raises(p.ClarificationNeeded) as e:
-            asyncio.run(p._run_pipeline("give me for pmay", session=s))
+            asyncio.run(graph_turn("give me for pmay", session=s))
     finally:
         llm.call_classifier = orig
     assert router.pause_question(s, "give me for pmay") == _GAP_OPTS[0]["question"]
@@ -797,15 +798,15 @@ def _resume(reply, rule, options, paused):
         seen["data"] = question
         return {"route": "data", "intent": "DATA", "answer": "ok", "schemes": ["PMAY-G"],
                 "sql": "S", "rows": [], "data": [], "resolved_entities": {}}
-    orig = (llm.call_classifier, p._answer_data)
-    llm.call_classifier, p._answer_data = classifier, fake_answer_data
+    orig = (llm.call_classifier, p._data_scheme_stage)
+    llm.call_classifier, p._data_scheme_stage = classifier, data_stage_from(fake_answer_data)
     try:
         try:
-            asyncio.run(p._run_pipeline(reply, session=s))
+            asyncio.run(graph_turn(reply, session=s))
         except p.ClarificationNeeded as e:
             seen["rule"] = e.rule
     finally:
-        llm.call_classifier, p._answer_data = orig
+        llm.call_classifier, p._data_scheme_stage = orig
     return seen, s
 
 

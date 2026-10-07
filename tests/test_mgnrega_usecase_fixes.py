@@ -85,9 +85,9 @@ def test_other_schemes_keep_the_old_level_reading():
     # same chip bug; KNOWN_ISSUES KI-079), PMAY-G on 2026-09-28 (KI-096) and CM
     # Elevate on 2026-09-28 (KI-106); every other scheme is unchanged.
     assert p._explicit_level_in(CHIP_Q) == "village"
-    # CM Elevate joined the village gate on 2026-09-28 (KI-106); CM Elevate Legacy did not
+    # CM Elevate joined the village gate on 2026-09-28 (KI-106), CM Elevate Legacy on 2026-10-02
     assert p._explicit_level_in(CHIP_Q, ["CM Elevate"]) == "block"
-    assert p._explicit_level_in(CHIP_Q, ["CM Elevate Legacy"]) == "village"
+    assert p._explicit_level_in(CHIP_Q, ["CM Elevate Legacy"]) == "block"
     assert p._explicit_level_in(CHIP_Q, ["Focus Plus"]) == "block"
     assert p._explicit_level_in(CHIP_Q, ["PMAY-G"]) == "block"
 
@@ -524,8 +524,10 @@ def test_verifier_complaint_on_correct_village_sql_is_discarded():
     assert not p._verifier_village_code_complaint_is_false(issue, MG, resolved, good.replace("2024", "2023"))
     # Focus Legacy joined this guard on 2026-09-29 (KI-161: the "district dropped"
     # complaint beside a pinned village_code sent answers to the KB fallback);
-    # CM Elevate Legacy is still outside it.
-    assert not p._verifier_village_code_complaint_is_false(issue, ["CM Elevate Legacy"], resolved, good)
+    # CM Elevate Legacy joined it the same night (KI-173, live 2,614/2,614). A
+    # multi-scheme question that does not start with MGNREGA is still outside it.
+    assert p._verifier_village_code_complaint_is_false(issue, ["CM Elevate Legacy"], resolved, good)
+    assert not p._verifier_village_code_complaint_is_false(issue, ["PMAY-G", "Focus Plus"], resolved, good)
 
 
 # ── all-villages QA: qualified names and "Garo" inside a village name ───────
@@ -550,7 +552,9 @@ def test_qualified_village_name_is_not_truncated(monkeypatch):
 
 def test_garo_region_check_is_skipped_once_a_village_is_resolved():
     import inspect
-    src = inspect.getsource(p._answer_data)
+    # The region check moved, verbatim, from _answer_data into its clarification
+    # stage when the DATA path was split into stages (D-032).
+    src = inspect.getsource(p._data_clarification_stage)
     assert "_mg_place_settled" in src
 
 
@@ -588,8 +592,10 @@ def test_unresolved_placeholder_is_not_a_village_choice_for_mgnrega(monkeypatch)
     monkeypatch.setattr(p, "resolve_village", _village)
     r = asyncio.run(p._resolve_village_for(MG, "BLOCK CAMPUS"))
     assert r.status == "resolved" and r.canonical == 274903
-    r = asyncio.run(p._resolve_village_for(["Focus Legacy"], "BLOCK CAMPUS"))
-    assert r.status == "ambiguous"                  # other schemes unchanged
+    # Focus Legacy became a village scheme on 2026-10-02 and drops the placeholder too;
+    # CM Elevate Legacy became a village scheme on 2026-10-02 and drops the placeholder too
+    r = asyncio.run(p._resolve_village_for(["CM Elevate Legacy"], "BLOCK CAMPUS"))
+    assert r.status == "resolved" and r.canonical == 274903
 
 
 # ── all-villages QA: a village in the block slot, and place words in village names ─
@@ -637,8 +643,9 @@ def test_real_out_of_area_and_other_schemes_unchanged(monkeypatch):
     # in the PMAY-G all-villages run (KI-096), so a bare PMAY-G "Manipur" now ASKS —
     # see test_pmay_bare_manipur_asks. Schemes outside the change are unchanged.
     # CM Elevate joined too on 2026-09-28 (its MANIPUR village, KI-118) — see
-    # test_cm_elevate_bare_manipur_asks; CM Elevate Legacy stays outside.
-    for q in ("What is MGNREGA expenditure in Assam?", "How many CM Elevate Legacy sanctions in Manipur?"):
+    # test_cm_elevate_bare_manipur_asks. CM Elevate Legacy joined on 2026-10-02 (its
+    # village MANIPUR) — a bare Legacy "Manipur" now asks too.
+    for q in ("What is MGNREGA expenditure in Assam?",):
         assert not asyncio.run(p._mgnrega_village_not_out_of_area(q, p.edge.detect_edge_case(q)))
 
 
@@ -847,3 +854,40 @@ def test_generator_women_sql_over_all_years_is_restricted(_women_years):
     with_year = sql + " AND year_key = 2024"
     assert p._mgnrega_women_years_only(MG, with_year) == with_year
     assert p._mgnrega_women_years_only(["PMAY-G"], sql) == sql
+
+
+# ── Verifier false positive: a resolved block "not listed" (live 2026-10-02) ──
+_DALU_ISSUE = ("Check 2: The RESOLVED ENTITIES block explicitly lists 'lgd_district = WEST GARO HILLS' "
+               "as a required filter. The SQL includes this filter, which is correct. However, the SQL "
+               "also includes 'lgd_block = DALU'. While the question asks for Dalu block, the RESOLVED "
+               "ENTITIES block does NOT list 'lgd_block = DALU'.")
+_DALU_RESOLVED = {"district": "WEST GARO HILLS", "block": "DALU", "year_key": 2024}
+_DALU_SQL = ("SELECT SUM(person_days) AS person_days FROM curated.v_employment "
+             "WHERE lgd_district = 'WEST GARO HILLS' AND lgd_block = 'DALU' AND year_key = 2024")
+
+
+def test_verifier_unlisted_resolved_block_on_correct_sql_is_discarded():
+    assert p._verifier_unlisted_geo_is_false(_DALU_ISSUE, _DALU_RESOLVED, _DALU_SQL)
+
+
+@pytest.mark.parametrize("sql", [
+    _DALU_SQL.replace(" AND lgd_block = 'DALU'", ""),                         # block really missing
+    _DALU_SQL.replace("AND year_key", "AND lgd_block = 'GAMBEGRE' AND year_key"),  # another place too
+])
+def test_verifier_unlisted_complaint_stands_when_the_sql_is_wrong(sql):
+    assert not p._verifier_unlisted_geo_is_false(_DALU_ISSUE, _DALU_RESOLVED, sql)
+
+
+def test_verifier_unlisted_rule_needs_a_resolved_place_named():
+    assert not p._verifier_unlisted_geo_is_false("the query sums across years", _DALU_RESOLVED, _DALU_SQL)
+    assert not p._verifier_unlisted_geo_is_false(_DALU_ISSUE, {"year_key": 2024}, _DALU_SQL)
+
+
+def test_verify_sql_discards_the_unlisted_block_complaint(monkeypatch):
+    async def fake(prompt, **_k):
+        import json
+        return json.dumps({"ok": False, "issue": _DALU_ISSUE})
+    monkeypatch.setattr(p.llm, "call_sql_verifier", fake)
+    out = asyncio.run(p._verify_sql("person-days in Dalu block of West Garo Hills in FY 2024-25",
+                                    ["MGNREGA"], {"resolved": _DALU_RESOLVED}, _DALU_SQL))
+    assert out is None

@@ -1,0 +1,21 @@
+{
+  "name": "megh-one-ai-frontend",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "description": "Megh One AI chat console and admin console (React). Built into ../web/app and served by the FastAPI app at /megh-chat and /admin-ui.",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "chart.js": "4.4.1",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
+  },
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.0"
+  }
+}

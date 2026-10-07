@@ -13,8 +13,10 @@ and CM Elevate Legacy.
 - **"How does the scheme work"** questions → RAG over Qdrant (reference docs in `data/reference/`).
 - **Greetings / off-topic / abuse** → regex edge layer, with no model call.
 
-All model inference is remote, on a self-hosted vLLM gateway (`10.48.242.4`). The UI is vanilla
-HTML/JS in `web/`, served by the same app. **No React, no WebSocket, no streaming.**
+All model inference is remote, on a self-hosted vLLM gateway (`10.48.242.4`). The UI is a **React**
+app in `frontend/` (Vite; D-038), built into `web/app/` and served by the same app at `/megh-chat`
+and `/admin-ui`. **No WebSocket, no streaming.** After any change in `frontend/src`, run
+`npm run build` in `frontend/` (the app serves the build, not the source).
 
 ## 2. Architecture in one breath
 
@@ -25,8 +27,13 @@ deterministic pre-routing and edge → follow-up rewrite → intent (DATA/KNOWLE
   3 repairs) → `compose_response` (numeric-faithfulness checks).
 - **KNOWLEDGE:** `rag.answer_from_kb`.
 
-The orchestration lives in [app/pipeline.py](app/pipeline.py), which is about 8,400 lines.
-Full map: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/AI_PIPELINE.md](docs/AI_PIPELINE.md).
+The orchestration lives in [app/pipeline.py](app/pipeline.py), which is about 15,000 lines, written as
+**stage functions** (`_turn_*_stage`, `_data_*_stage`, `_execute_one_attempt`, …). **LangGraph is the only
+orchestrator** ([app/pipeline_graph.py](app/pipeline_graph.py), D-032, D-036): there is no sequential driver,
+no on/off switch and no canary, and none may be added back. **Change behaviour in a stage, never in a graph
+node.** Tests drive turns through the graph with `tests/_graph_turn.py`.
+Full map: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md), [docs/AI_PIPELINE.md](docs/AI_PIPELINE.md),
+[docs/LANGGRAPH_ARCHITECTURE.md](docs/LANGGRAPH_ARCHITECTURE.md).
 
 ## 3. Documentation map
 
@@ -43,12 +50,17 @@ Full map: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) and [docs/AI_PIPELINE.md]
 | [docs/DECISIONS.md](docs/DECISIONS.md) | **Before proposing any architectural replacement** |
 | [docs/TESTING.md](docs/TESTING.md) | Before and after changing code |
 | [docs/SECURITY.md](docs/SECURITY.md) | OWASP control map, deploy security checklist |
+| [docs/LANGGRAPH_ARCHITECTURE.md](docs/LANGGRAPH_ARCHITECTURE.md) | The LangGraph orchestrator: nodes, state, checkpointing, logs, adding a node |
+| [docs/CONTEXT_AND_LANGGRAPH.md](docs/CONTEXT_AND_LANGGRAPH.md) | How the context window runs inside the graph |
+| [docs/LANGGRAPH_PAUSE_RESUME.md](docs/LANGGRAPH_PAUSE_RESUME.md) | Clarification pauses as `interrupt()`; resume; the two stores |
+| [docs/LANGGRAPH_MIGRATION.md](docs/LANGGRAPH_MIGRATION.md) | Flags, rollout gates, rollback, measured overhead |
 | [deploy/DEPLOYMENT.md](deploy/DEPLOYMENT.md) | Deploying to the VMs |
 | `data/<scheme>/README.md` | The SME contract for one scheme's YAMLs (authoritative for that scheme) |
 
 Historical and reference documents: `docs/TECHNICAL_BRIEF.md` (a 2026-09-24 analysis snapshot
 whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.md` (QA records)
-`docs/INFERENCE_REQUIREMENTS.md` (the AIOps handoff) and
+`docs/INFERENCE_REQUIREMENTS.md` (the AIOps handoff), `docs/MEGHALAYA_LANGGRAPH_ARCHITECTURE.md`
+(the 2026-10-02 pre-implementation analysis for the LangGraph work) and
 `docs/Context_Validation_Report_2026-09-26.md` (the live end-to-end context validation).
 
 ## 4. Development principles
@@ -128,10 +140,12 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
 
 - Use the repo venv: `.venv/Scripts/python.exe` (Windows). System Python lacks `fastembed`, and
   RAG answers silently degrade under it.
-- Run pytest on the **26 pytest-style files only**, then the **14 plain-script suites**
+- Run pytest on the **27 pytest-style files only**, then the **14 plain-script suites**
   (`python tests/test_X.py`). The exact commands are in [docs/TESTING.md](docs/TESTING.md).
   Do **not** run bare `pytest tests`: it crashes with INTERNALERROR (KNOWN_ISSUES KI-018).
-- Baseline (2026-09-29, after the Focus Legacy all-levels fixes KI-145 to KI-165 and the PMAY-G calendar-year change): 1,266 pytest passed (26 files), 14/14 scripts passed, and the live context suite 43/43 on the final code.
+- Baseline (2026-10-03, after the all-places fixes KI-188..198): 1,453 pytest passed, 0 failed (27 files),
+  with the graph off AND on; 14/14 scripts. Live context suite 43/43 on both the sequential and the
+  LangGraph path. Live all-places bulk 30,280/30,280 (docs/SCHEMES.md "All-places QA").
   The live multi-turn suite `tests/live_context_validation.py` (needs the VPN) passed 43/43 on
   2026-09-26 and again on 2026-09-27 after the Focus Plus and the CM Elevate fixes. Re-run it after any routing, rewrite or state change.
 - Every bug fix gets a regression test that calls the **real function**, never a
@@ -197,8 +211,12 @@ above instead.
 
 - Windows dev box. Run from the repo root, because `.env` is read relative to the working
   directory.
-- Start the app: `.venv/Scripts/python.exe -m uvicorn app.main:app --port 8300`, then open
-  `/ai-query` (chat), `/admin-ui` and `/health`.
-- `megh_db`, Qdrant and the model gateway are all on `10.48.242.4`, which needs the Fortinet VPN.
+- Start the app: `.venv/Scripts/python.exe -m uvicorn app.main:app --port 8400`, then open
+  `/megh-chat` (chat), `/admin-ui` and `/health`. `/` redirects to `/megh-chat`.
+- UI work: `cd frontend && npm install && npm run dev` (hot reload on :5173, API proxied to :8400);
+  `npm run build` writes `web/app/`, which is what the app serves.
+- `megh_db` and the model gateway are on `10.48.242.4`, which needs the Fortinet VPN.
   The DB connection sometimes times out briefly, so retry.
+- Qdrant moved on 2026-10-03 to `http://115.124.102.167:6335` (no VPN). It also holds six
+  `Metadata_*` collections that are NOT ours (1024-dim schema metadata); never write to or delete them.
 - `.env` is gitignored and holds real secrets. Never print or commit it.

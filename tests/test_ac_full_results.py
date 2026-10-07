@@ -97,11 +97,11 @@ _src = (Path(__file__).resolve().parents[1] / "app" / "pipeline.py").read_text(e
 check("the API returns the full result, not data[:200]",
       '"data": rows,' in _src and '"data": rows[:200],' not in _src)
 
-_ui = (Path(__file__).resolve().parents[1] / "web" / "ai_query.html").read_text(encoding="utf-8")
+# The chat UI is the React app (frontend/, D-038); DynTable renders the rows.
+_ui = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "chat" / "components" / "Charts.jsx").read_text(encoding="utf-8")
+_table = _ui[_ui.index("export function DynTable("):_ui.index("export function PivotTable(")]
 check("the table renders every row, not data.slice(0, 100)",
-      "const shown = data;" in _ui and not re.search(r"const shown = data\.slice\(0,\s*100\)", _ui))
-check("  and still reports a trim if one ever happens",
-      "Showing ${shown.length} of ${data.length} rows." in _ui)
+      "data.map((r, i)" in _table and ".slice(" not in _table)
 
 print()
 if _fails:

@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
 from app import appdb, pipeline, schema_introspect
@@ -75,8 +75,15 @@ async def lifespan(app: FastAPI):
     await _try("schema_catalog", schema_introspect.load())  # semantic.* -> SQL prompt
     await _try("scheme_years", pipeline.refresh_scheme_years())  # per-scheme FY coverage from megh_db
     asyncio.create_task(_ingest_kb_bg())
+    # LangGraph orchestrator (D-032, D-036), the only one. The checkpointer
+    # opens lazily on the first request; this sweeps paused threads nobody
+    # answered (the Session's own pending pause expires anyway).
+    from app import pipeline_graph
+    _sweep = asyncio.create_task(pipeline_graph.sweep_loop())
     logger.info("nlp-service startup complete (see /health for component status)")
     yield
+    _sweep.cancel()
+    await pipeline_graph.close()
     await close_pool()
     await close_client()
     await close_qdrant()
@@ -174,6 +181,9 @@ async def health(authorization: str | None = Header(default=None),
     if rh is not None:
         components["redis_cache"] = "ok" if rh else "unreachable (in-process cache active)"
 
+    from app import pipeline_graph
+    components["pipeline_graph"] = pipeline_graph.status()["checkpointer"]
+
     if not privileged:
         return {"status": status}
 
@@ -206,28 +216,39 @@ async def metrics_endpoint(authorization: str | None = Header(default=None),
     }
 
 
-# ── Static UI — the one service also serves the portal + chat console ─────────
+# ── Static UI — the one service also serves the chat console and admin UI ─────
+# Both are a React app (frontend/, D-038), built by `npm run build` into web/app:
+# web/app/index.html is the chat console, web/app/admin.html the admin console,
+# and their bundles load from /static/app/assets/ (content-hashed file names).
 # The pages are served with no-cache (revalidate every load; the ETag keeps it a
-# cheap 304). Without it Chrome heuristically reused a stale ai_query.html after
-# a fix shipped, so the user kept running the old voice-input code.
+# cheap 304), so a new build is picked up on the next load.
 _NO_CACHE = {"Cache-Control": "no-cache"}
+_UI_BUILD = _FRONTEND / "app"
 
 if _FRONTEND.is_dir():
     app.mount("/static", StaticFiles(directory=str(_FRONTEND)), name="static")
 
+    # The portal landing page was removed on 2026-10-07; the bare address opens the chat.
     @app.get("/", include_in_schema=False)
-    async def portal():
-        f = _FRONTEND / "Meghalaya_UnifiedPortal_UI.html"
-        return FileResponse(f, headers=_NO_CACHE) if f.exists() else JSONResponse({"app": settings.APP_NAME})
+    async def root():
+        return RedirectResponse("/megh-chat", status_code=302)
+
+    # Renamed /ai-query -> /megh-chat on 2026-10-04. The old path stays as a
+    # redirect for officers' bookmarks.
+    @app.get("/megh-chat", include_in_schema=False)
+    async def megh_chat():
+        f = _UI_BUILD / "index.html"
+        return FileResponse(f, headers=_NO_CACHE) if f.exists() else JSONResponse(
+            {"app": settings.APP_NAME, "error": "UI not built: run `npm run build` in frontend/"})
 
     @app.get("/ai-query", include_in_schema=False)
     async def ai_query():
-        f = _FRONTEND / "ai_query.html"
-        return FileResponse(f, headers=_NO_CACHE) if f.exists() else JSONResponse({"app": settings.APP_NAME})
+        return RedirectResponse("/megh-chat", status_code=301)
 
     @app.get("/admin-ui", include_in_schema=False)
     async def admin_ui():
-        f = _FRONTEND / "admin.html"
-        return FileResponse(f, headers=_NO_CACHE) if f.exists() else JSONResponse({"error": "admin.html missing"})
+        f = _UI_BUILD / "admin.html"
+        return FileResponse(f, headers=_NO_CACHE) if f.exists() else JSONResponse(
+            {"error": "admin UI not built: run `npm run build` in frontend/"})
 else:
     logger.warning("web/ not found at %s — API-only mode", _FRONTEND)

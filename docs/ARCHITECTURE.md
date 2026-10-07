@@ -17,7 +17,8 @@ meghalaya/
 ├── app/                       the FastAPI service (package `app`)
 │   ├── main.py                app, lifespan startup, /health, /metrics, static UI routes
 │   ├── config.py              every setting (pydantic-settings, reads .env)
-│   ├── pipeline.py            ~8,400 lines — the whole routing + NL→SQL orchestration
+│   ├── pipeline.py            ~15,000 lines — the whole routing + NL→SQL orchestration, as stage functions
+│   ├── pipeline_graph.py      opt-in LangGraph orchestrator over the same stages (D-032)
 │   ├── edge.py                regex edge layer (greetings, off-topic, harmful, identity)
 │   ├── prompt_builder.py      SQL / repair / verifier prompt assembly
 │   ├── schema_context.py      hand-written per-scheme TABLES / RULES / VOCAB prompt blocks
@@ -38,7 +39,8 @@ meghalaya/
 │   ├── users.yaml             one-time seed for app.users
 │   ├── routers/               query, auth, history, rag, admin
 │   └── middleware/            security headers, body limit, rate limit
-├── web/                       served UI (vanilla HTML/JS; Chart.js vendored)
+├── frontend/                  React UI source (Vite): src/chat (chat console), src/admin
+├── web/app/                   the built UI the app serves (`npm run build` in frontend/)
 ├── data/                      SME inputs read at startup: data/<scheme>/*.yaml + README,
 │                              data/reference/*.md (KB), data/web/*.md (KB), data/schema/
 ├── docs/                      project documentation (this folder)
@@ -58,12 +60,12 @@ tree shape must be kept intact.
 
 ```
 browser ──HTTPS──► nginx (per app VM; TLS, WAF, rate zones)       deploy/nginx/nginx-nlpservice.conf
-                     │ proxy_pass http://127.0.0.1:8300 (single upstream, no stickiness)
+                     │ proxy_pass http://127.0.0.1:8400 (single upstream, no stickiness)
                      ▼
                 uvicorn app.main:app --workers 2                  deploy/systemd/megh-nlpservice.service
                      ├─ asyncpg pool (10–30/worker) ─► PostgreSQL 18.4 megh_db   10.48.242.4:5432
                      ├─ httpx AsyncClient ───────────► vLLM gateway             https://10.48.242.4/openai/v1
-                     ├─ AsyncQdrantClient ───────────► Qdrant                   http://10.48.242.4:6333
+                     ├─ AsyncQdrantClient ───────────► Qdrant                   http://115.124.102.167:6335
                      └─ fastembed (CPU, in-process) — bge-small-en-v1.5 embeddings
 ```
 
@@ -73,7 +75,7 @@ browser ──HTTPS──► nginx (per app VM; TLS, WAF, rate zones)       depl
   24 vCores and 256 GB RAM each. VM #1 has 2× H200 GPUs, which this service does not use.
 - **UNKNOWN — NEEDS VERIFICATION:** whether production is live, and whether the Docker path or
   the systemd path is used.
-- **VERIFIED:** `docker-compose.yml` binds `127.0.0.1:8301:8300` and has an optional
+- **VERIFIED:** `docker-compose.yml` binds `127.0.0.1:8401:8400` and has an optional
   `local-infra` profile (Qdrant + Redis).
 
 ## 3. Components
@@ -102,7 +104,8 @@ and output, and how it fails.
   4. security headers (the outermost layer).
 - **Global exception handler:** returns `{"detail":"internal error","request_id":…}` and never
   exposes stack traces.
-- **Static routes:** `/` (the portal), `/ai-query` (chat), `/admin-ui`, `/static/*`. These are
+- **Static routes:** `/` (the portal), `/megh-chat` (chat; `/ai-query` 301-redirects to it since
+  2026-10-04), `/admin-ui`, `/static/*`. These are
   served `Cache-Control: no-cache`.
 - `/docs` and `/openapi.json` are only available when `ENV=dev`.
 
@@ -154,6 +157,20 @@ matches `websocket` or `StreamingResponse`).
 The routing and NL→SQL chain. It is documented stage by stage in
 [AI_PIPELINE.md](AI_PIPELINE.md). Public entry points: `answer_question`,
 `looks_like_followup`, `ClarificationNeeded`, `_empty_data_fields`.
+
+Since 2026-10-02 (D-032) the pipeline is a set of **stage functions** (`_turn_*_stage`,
+`_data_*_stage`, `_scheme_sql_rewrites`, `_execute_one_attempt`, `_repair_sql`) with two
+orchestrators:
+- `_run_pipeline`, the sequential driver (the default);
+- `app/pipeline_graph.py`, a 21-node LangGraph graph (`PIPELINE_GRAPH_ENABLED` or
+  `PIPELINE_GRAPH_CANARY_PERCENT`).
+
+`answer_question` picks one; the router does not know which ran. Graph, state, checkpointing and
+pause/resume: [LANGGRAPH_ARCHITECTURE.md](LANGGRAPH_ARCHITECTURE.md),
+[LANGGRAPH_PAUSE_RESUME.md](LANGGRAPH_PAUSE_RESUME.md). The checkpointer (Postgres
+`app.checkpoint*` tables shared by both VMs; Postgres is the only store) is opened lazily on the first graph request. `app.main`
+starts the paused-thread sweep and closes the checkpointer only when the graph is in use;
+`/health` then reports `components.pipeline_graph`.
 
 ### 3.5 LLM client — `app/llm.py` (VERIFIED)
 - **Client:** one shared `httpx.AsyncClient`.
@@ -250,23 +267,32 @@ The routing and NL→SQL chain. It is documented stage by stage in
   which reuses the pipeline's embedding.
 - **Neither cache** stores clarifications or follow-up fragments.
 
-### 3.11 Frontend — `web/` (VERIFIED)
-- `ai_query.html` (about 4,160 lines), the chat console:
-  - calls `/api/query`, `/api/query/transcribe`, `/api/history*` and `/api/auth/*`;
-  - keeps the JWT in `localStorage` (`megh_jwt`);
-  - renders clarification chips, follow-up chips, charts (Chart.js, vendored) and tables.
-- `admin.html`: the admin SPA.
-- `Meghalaya_UnifiedPortal_UI.html`: the portal landing page.
-- There is no build step, no framework and no client-side router.
-- `ai_query.html` accepts an optional **`?api=<base-url>`** query parameter (`API_BASE`), which
+### 3.11 Frontend — `frontend/` (React), served from `web/app/` (VERIFIED)
+- A React 18 app built with Vite (D-038, 2026-10-07). It replaced the vanilla `web/ai_query.html`
+  and `web/admin.html` with the same behaviour and the same CSS (copied verbatim into
+  `frontend/src/styles/`). Two entry pages:
+  - `frontend/index.html` → `src/chat/` — the chat console, served at `/megh-chat`:
+    - `api.js`: every backend call (`/api/query`, `/api/query/transcribe`, `/api/history*`,
+      `/api/auth/*`), the JWT in `localStorage` (`megh_jwt`), 401 → sign-in gate;
+    - `App.jsx`: sign-in and session check, sending, history, rail, keyboard, language tabs;
+    - `components/`: `Messages.jsx` (answer, clarification and follow-up chips, SQL disclosure;
+      per-message actions: Copy and Edit on a question — an edit removes that question and the
+      turns after it from the screen and asks the edited text in the same conversation — and
+      Copy and Read aloud (browser `speechSynthesis`, no server call) on an answer),
+      `Charts.jsx` (Chart.js 4.4.1 from npm, tables), `Sidebar.jsx`, `WelcomeCard.jsx`
+      (scheme carousel), `Overlays.jsx` (sign-in, modal, mic overlay, undo toast);
+    - `useVoice.js`: recording → 16 kHz mono WAV → transcribe; `analytics.js`: chart choice.
+  - `frontend/admin.html` → `src/admin/AdminApp.jsx` — the admin console, served at `/admin-ui`.
+- `npm run build` writes `web/app/index.html`, `web/app/admin.html` and hashed bundles under
+  `web/app/assets/` (loaded from `/static/app/assets/`). The build output is kept in the repo so
+  the app (and the Docker image) serves the UI without Node.
+- `/` redirects to `/megh-chat`. The portal landing page (`Meghalaya_UnifiedPortal_UI.html`) was
+  removed on 2026-10-07.
+- The chat accepts an optional **`?api=<base-url>`** query parameter (`API_BASE`), which
   prefixes every API call.
   - The default is same-origin.
   - A cross-origin base is blocked by the enforced CSP (`connect-src 'self'`) unless CSP and
     CORS are changed.
-  - The `PRODUCTS` object is a leftover of the per-scheme era. It now holds a single
-    `unified_auto` entry.
-- The greeting text lists all six schemes, but a code comment above `PRODUCTS` still says
-  "Scheme selection (MGNREGA / PMAY-G / both)". Cosmetic, and stale.
 
 ### 3.13 Unused code in `data/` (VERIFIED)
 `data/cm_elevate/prompt_assembler.py` and `data/focus_plus/prompt_assembler.py` are tracked in
@@ -342,6 +368,9 @@ data fields `schemes`, `resolved_entities`, `sql`, `sql_query`, `row_count`, `ro
   - `llm_call` lines, one per model call: role, model, queue ms, latency ms, and the gateway's
     `prompt_tokens` / `completion_tokens`.
   - The SQL of a failed attempt is **not logged** (KI-003).
+  - With the LangGraph orchestrator on: `pipeline_graph_node` (one per node: shapes, outcome,
+    ms) and `pipeline_graph_run` (one per request: node path, outcome, repairs, pause outcome),
+    both carrying `request_id` and no question text (D-032).
 - Audit: `app.query_audit` (DB) plus the `logs/query_audit.jsonl` mirror.
   - Recorded: user, tenant, role, route, schemes, granularity, allow/deny, row count, IP,
     latency.
@@ -375,7 +404,7 @@ data fields `schemes`, `resolved_entities`, `sql`, `sql_query`, `row_count`, `ro
 |---|---|---|
 | vLLM model gateway | `https://10.48.242.4/openai/v1` | self-signed "Enlight AIOps" CA; microk8s/KServe (per `docs/INFERENCE_REQUIREMENTS.md`) |
 | PostgreSQL 18.4 `megh_db` | `10.48.242.4:5432` | shared box; pgAdmin on :8080 |
-| Qdrant | `10.48.242.4:6333` | shared collection `megh_scheme_kb` |
+| Qdrant 1.18.3 | `115.124.102.167:6335` (since 2026-10-03) | collections `megh_scheme_kb`, `megh_conversation_memory`; the `Metadata_*` collections there are not ours |
 | Redis | optional (`REDIS_URL`) | blank in local `.env`; production value UNKNOWN |
 
 The `10.48.242.4` host requires the office Fortinet VPN from dev machines (source: earlier

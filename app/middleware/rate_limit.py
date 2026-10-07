@@ -4,6 +4,10 @@ Rate limiting middleware (OWASP A04 / A07)
 Per-IP sliding-window limits:
 
   * /api/query   — MAX_REQUESTS / WINDOW_SEC   (normal traffic shaping)
+  * /api/query/transcribe — TRANSCRIBE_MAX_REQUESTS / WINDOW_SEC (live voice
+                      dictation: one partial transcription about every 2 s
+                      while the officer speaks, on its own counter so dictating
+                      never uses up the question allowance)
   * /api/auth/login — settings.LOGIN_RL_MAX / settings.LOGIN_RL_WINDOW_SEC
                       (brute-force throttle; much stricter)
 
@@ -33,11 +37,14 @@ logger = logging.getLogger(__name__)
 
 MAX_REQUESTS = 30   # /api/query, per window
 WINDOW_SEC   = 60   # rolling window in seconds
+TRANSCRIBE_MAX_REQUESTS = 90   # /api/query/transcribe, per window (live dictation)
 
 # (path prefix, max, window) — first match wins. Order matters: the more specific
-# /api/auth/login prefix is checked before the broad /api/query one.
+# prefixes (/api/auth/login, /api/query/transcribe) are checked before the broad
+# /api/query one, so each has its own counter.
 _RULES: list[tuple[str, int, int]] = [
     ("/api/auth/login", settings.LOGIN_RL_MAX, settings.LOGIN_RL_WINDOW_SEC),
+    ("/api/query/transcribe", TRANSCRIBE_MAX_REQUESTS, WINDOW_SEC),
     ("/api/query", MAX_REQUESTS, WINDOW_SEC),
 ]
 

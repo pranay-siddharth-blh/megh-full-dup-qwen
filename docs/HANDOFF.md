@@ -3,6 +3,103 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**Latest (2026-10-06): six-scheme tester sheet ('Test Case Results - 30th Sep 26.xlsx', 206 cases) run live; all 16 Fail/Partial cases fixed. Code changed, uncommitted.**
+- Before the fixes: 190/206 correct (82 pass, 108 after a clarification), 7 partial, 9 fail (TC-015's helpline number turned out to be fabricated). Report: `reference_documents/Test_Results_2026-10-06.xlsx`
+  (+ `Test_Screenshots_2026-10-06/`). After: `reference_documents/Test_Results_2026-10-06_after_fixes.xlsx` (+ `..._after_fixes/`).
+- Fixes KI-201..KI-217 (KNOWN_ISSUES; KI-214 = a FABRICATED helpline number in the first run, now blocked) and D-035 (CM Elevate answers constituency questions). Files: `app/pipeline.py`,
+  `app/prompt_builder.py`, `app/schema_context.py`, `app/rag.py` (one retry on a dropped Qdrant connection),
+  `data/reference/pmay_gramin_general_faq.md`, tests `tests/test_qa_2026_10_06_fixes.py` (new) and the two `test_ac_*focus_legacy.py`.
+- **Deploy note:** the PMAY-G FAQ changed — re-ingest the shared `megh_scheme_kb` collection (admin `POST /api/rag/reingest`).
+  It was verified on a temporary collection `megh_scheme_kb_qa20261006` on the same Qdrant server (safe to delete).
+- Tests: pytest 28 files **1,496 passed, 0 failed** with the graph off AND on; scripts 14/14.
+- Live after the fixes: **206/206** (91 pass, 115 pass after a clarification, 0 partial, 0 fail).
+
+**Latest (2026-10-04, later): deploy identifiers renamed so this build cannot overwrite the existing deploy.**
+- An earlier build is already deployed from a directory of the same name. Every identifier Docker/systemd/nginx keys on was
+  changed here; the old `deploy/systemd/megh-nlpservice.service` and `deploy/nginx/nginx-nlpservice.conf` were REVERTED to
+  their committed state so the running deploy keeps its port 8300 and `/opt/meghalaya`.
+- New names: compose project `megh-langgraph` (`name:` key — this also prefixes the volumes), image `megh-langgraph:latest`,
+  containers `megh-langgraph-nlp` / `-qdrant` / `-redis`, host ports 8411 (app), 6343 (Qdrant), 6389 (Redis);
+  new unit `deploy/systemd/megh-langgraph.service` (port **8410**, `WorkingDirectory=/opt/meghalaya-langgraph`);
+  new vhost `deploy/nginx/nginx-megh-langgraph.conf` (upstream 8410, rate-limit zones renamed `*_lg` — nginx refuses two
+  enabled vhosts that declare the same zone name).
+- **Dockerfile bug found and fixed:** it still had `EXPOSE 8300`, a 8300 healthcheck and `--port 8300` in CMD while compose
+  mapped to 8400 — the container would have published nothing reachable. Now 8400 throughout; `WORKDIR` is
+  `/opt/meghalaya-langgraph` and the compose log mount follows it.
+- Deploy to `/opt/meghalaya-langgraph`, never `/opt/meghalaya`. Full table + commands: DEPLOYMENT.md "Side-by-side".
+- `docker compose config` validates. Tests: 36 passed (`test_pipeline_graph`, `test_ac_full_results`, `test_history_charts`).
+  Docker Desktop is not running on this dev box, so nothing was built or started here.
+
+**Latest (2026-10-04): chat route renamed and service port changed. Config + routing only; no pipeline change.**
+- `/ai-query` → **`/megh-chat`** (`app/main.py`: new `megh_chat()` serves `web/ai_query.html`; `/ai-query` now returns a 301 to it, so bookmarks keep working). The file name `ai_query.html` is unchanged.
+- Port **8300 → 8400**: `app/config.py` default, `.env`, `.env.example`, `deploy/systemd/megh-nlpservice.service`, all 9 nginx `proxy_pass` lines, `docker-compose.yml` (host 8401→container 8400), README, DEPLOYMENT, ARCHITECTURE, TESTING, CLAUDE.md §9.
+- In-page links updated: `web/admin.html` (2), `web/Meghalaya_UnifiedPortal_UI.html` (3). `web/ai_query.html` `_prefixCandidates()` regex now also matches `megh-chat` — without this the UI would derive the wrong API prefix when served from a sub-path.
+- Verified offline (VPN down) with `starlette.testclient`: `/megh-chat` 200 (serves the chat page), `/ai-query` 301 → `/megh-chat`, `/admin-ui` 200, `/` 200, unknown path 404, `settings.PORT == 8400`. Tests: 90 passed (`test_ac_full_results`, `test_asr_transcribe`, `test_history_charts`, `test_pipeline_graph`).
+- **Deploy note:** the VMs need the new `.env` PORT, the new nginx conf and the new systemd unit, then `systemctl daemon-reload` + `nginx -t` + reload. Not done from here.
+
+**Latest (2026-10-03, afternoon): Qdrant moved to a new server. Config only, no code change. KB INGESTED and verified.**
+- `.env` `QDRANT_URL` changed `http://10.48.242.4:6333` → `http://115.124.102.167:6335` (collection names unchanged: `megh_scheme_kb`, `megh_conversation_memory`). `.env.example`, `deploy/DEPLOYMENT.md`, `CLAUDE.md` §9 updated.
+- New server checked read-only: Qdrant 1.18.3 (client 1.19.0, compatible); reachable without the VPN; **no API key** (KI-200); holds six `Metadata_*` collections (1024-dim schema metadata, not ours, not used: our KB is 384-dim bge-small) — never touch them.
+- **Done (2026-10-03):** `ingest_kb` built `megh_scheme_kb` on the new server: 201 points from 12 docs, 384-dim, five scheme tags (CM Elevate Legacy maps to CM Elevate by design). `megh_conversation_memory` created (384-dim, empty). Retrieval checked per scheme (top cosine 0.77–0.85). The `Metadata_*` collections are unchanged (e.g. Metadata_MGNREGA 360, Metadata_CMElevate 917 points).
+- **Still open:** the user sets `QDRANT_API_KEY` (KI-200); the two VMs' `.env` need the same `QDRANT_URL`; a full KNOWLEDGE answer end to end needs the VPN (the composer model is on 10.48.242.4).
+- **The old Qdrant (10.48.242.4:6333) is retired for this app:** no code, config default or doc points to it. `app/config.py` default `QDRANT_URL` is now `http://115.124.102.167:6335`.
+
+**Latest (2026-10-03, early morning): all six schemes × every place, all failures fixed. Code changed, uncommitted. LIVE-VERIFIED.**
+- Result: 30,280 / 30,280 live bulk questions pass (see SCHEMES.md "All-places QA"); reports in `docs/*_LangGraph_Test_Results*.xlsx`.
+- Code: `app/pipeline.py` only — `_VILLAGE_NARROW_SCHEMES` (5 schemes), `_focus_legacy_village_names`, `_cm_legacy_village_names`,
+  `_village_filter_missing`, `_pin_missing_village_code` → `_village_name_cond_to_code` / `_drop_geo_beside_pinned_village` /
+  `_PINNED_GEO_COND`, `_GEO_BESIDE_VILLAGE_RE` (UPPER/LOWER/TRIM), `_cm_unasked_programme_beside_village` (non-programme literal),
+  `_focusplus_lgd_only_block`, `_FPL_BLOCKS`, `_cm_elevate_applicants_distinct`, `_NUMBER_TENS`, `_cml_fix_place_spelling`,
+  `_YEAR_AFTER_CHIP_TAIL_RE`, `_mgnrega_village_not_out_of_area` (BURMA; both Legacy schemes for MANIPUR), `_pmay_two_villages`.
+- Tests changed with reasons (CML is now a village scheme): `test_focusplus_usecase_fixes.py`, `test_mgnrega_usecase_fixes.py`,
+  `test_focus_legacy_usecase_fixes.py`; new tests in those and `test_cm_elevate_legacy.py`, `test_cmelevate_usecase_fixes.py`, `test_pmay_usecase_fixes.py`.
+- Tests: pytest **1,453 passed, 0 failed** (27 files) with the graph off AND on; scripts **14/14**; live context suite **43/43 on both paths** (follow-up 29/29).
+- Harness: scratchpad `7be462aa-…/scratchpad/bulk` (`bulk.py gen|run|judge [--only-failed f --out f]`, `pmay_sets.py`, `cme_sets.py`,
+  `make_reports.py <docs dir>` with system Python + openpyxl). Background jobs die at 2 h: run villages in batches (resumable).
+- Next: canary (G5); decide KI-184/185; broaden QA beyond one shape per place (KI-199); commit when the user asks.
+
+**Latest (2026-10-02, evening): live verification + fixes. Code changed, uncommitted. LIVE-VERIFIED.**
+- Live: context suite 43/43 both paths; G4 36/36 identical; OFF-009 re-test 49/49 both paths; 21/21 nodes ran live.
+- Fixed: KI-187 (`_verifier_unlisted_geo_is_false`), KI-182 (`_cme_asked_programmes`, `_cme_all_zero_answer`, `_cme_multi_scheme_total`), KI-183 (`_repaired_sql_denial`, `RepairedSQLDenied`, `execute_with_repair(scope=)`, graph `node_execute_attempt`; D-033); stale tests in `test_focus_legacy_usecase_fixes.py` / `test_mgnrega_usecase_fixes.py`.
+- Tests: pytest 1,419 passed, 0 failed, flag off and on; scripts 14/14.
+- Harnesses (session scratchpad `7be462aa-…/scratchpad`): `live_q.py` (ad-hoc live questions), `g4.py` (six-scheme old-vs-graph), `off009.py [graph]` (OFF-009 vs DB), `g4cov.py` (live node coverage), `live_q_orig.py` (runs the pre-refactor `pipeline_orig.py` for A/B). Set `DB_POOL_MIN_SIZE=2 DB_POOL_MAX_SIZE=6`.
+- GOTCHA: writing Python through a bash heredoc turned `\\b` into a literal backspace (0x08) in regexes — silently matching nothing. Use the Edit tool or a script file; check with `chr(8) in source`.
+- Next: canary (G5); decide KI-184/185; optionally re-run the full OFF-009 1,260 set; commit when the user asks.
+
+**Earlier (2026-10-02): LangGraph orchestrator (D-032). Code changed, uncommitted. OFFLINE-VERIFIED ONLY (VPN down all session).**
+- Read first: `docs/LANGGRAPH_ARCHITECTURE.md`, `docs/LANGGRAPH_PAUSE_RESUME.md`, `docs/LANGGRAPH_MIGRATION.md` (rollout gates G1–G8).
+- Files:
+  - `app/pipeline.py`: the verbatim stage split (`_turn_*_stage`, `_data_*_stage`, `_scheme_sql_rewrites`,
+    `_execute_one_attempt`, `_repair_sql`, `_data_path_error_result`, `_update_context`, `MAX_SQL_REPAIRS`,
+    `_pipeline_graph_selected` in `answer_question`);
+  - new `app/pipeline_graph.py`;
+  - `app/config.py` (8 `PIPELINE_GRAPH_*` / `LANGGRAPH_*` flags);
+  - `app/main.py` (pause sweep + checkpointer close + `/health` component, only when the graph is in use);
+  - `requirements.txt`, `requirements.lock`;
+  - new `tests/test_pipeline_graph.py` (27);
+  - `tests/test_mgnrega_usecase_fixes.py` (one source pin moved to `_data_clarification_stage`).
+- The split was done with a splice script (scratchpad `7be462aa-…/scratchpad/splice.py`, from `pipeline_orig.py`),
+  so every moved body is byte-for-byte the original. Live-in variables per boundary were checked with `ast` (`live.py`, `undef.py`).
+- Tests:
+  - baseline 1,371 passed / 2 failed; after the split, the same;
+  - flag off 1,398 / 2; flag on 1,397 / 3 (one test fixed since). NOTE: no existing test calls
+    `answer_question`, so only `test_pipeline_graph.py` exercises the graph;
+  - `test_pipeline_graph.py` 27/27 in both modes; scripts 14/14.
+  The 2 failures are the pre-existing verifier tests.
+- NEXT (in order):
+  1. With the VPN up: `PIPELINE_GRAPH_ENABLED=true .venv/Scripts/python.exe tests/live_context_validation.py` (expect 43/43),
+     plus a per-scheme use-case sample flag on vs off (G3, G4).
+  2. Decide KI-183 (re-authorize repaired SQL).
+  3. Canary 10% on one VM (G5).
+  4. Commit when the user asks.
+- Gotchas:
+  - LangGraph reads a node's *unwrapped* signature: never set `__wrapped__` on `_observed` nodes (it stops
+    passing `runtime`). The wrapped function is exposed as `.stage_fn`.
+  - `from tests.test_pipeline_graph import *` skips the `_loaded` fixture (underscore), and the resolver
+    catalogue is then empty: import it explicitly.
+
+**Latest (2026-10-01): CM Elevate OFF-009 all pairs — TEST ONLY, no code changed.** 1,260 questions (12 districts x 105 programme pairs): PASS 552, PASS-with-remark 141 (both 0 → 'no matching records'), FAIL 567 (one programme 0 → omitted, KI-182). Bot SQL data correct 1,260/1,260; raw = DB. Report docs/CM_Elevate_OFF009_AllPairs_2026-09-30.xlsx. On 2026-09-30 the gateway was down (timeouts) and its TLS cert failed verification; both fine on 2026-10-01.
+
 **Latest (2026-09-29, morning): typed replies resume every chip pause (KI-181). Code changed, uncommitted. LIVE-VERIFIED.**
 - Files: `app/routers/query.py` (`remember_pause` generic branch, uses `SCOPE_MERGE_RULES`), `app/pipeline.py` (`SCOPE_MERGE_RULES`,
   `_resume_option_pause`, `_option_tokens`, `_paused_thread_antecedent`, step 0a'' in `_run_pipeline`, `_paused_state` thread override,

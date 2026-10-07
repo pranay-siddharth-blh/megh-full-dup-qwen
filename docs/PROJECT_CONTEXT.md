@@ -69,8 +69,11 @@ Legacy. Details: [SCHEMES.md](SCHEMES.md).
 ## Major technologies
 
 - **Backend:** Python 3.11, FastAPI + uvicorn, `asyncpg` (no ORM), `httpx` (hand-built
-  OpenAI-compatible calls; no LangChain), `qdrant-client`, `fastembed` (local
+  OpenAI-compatible calls; no LangChain model or prompt abstractions), `qdrant-client`, `fastembed` (local
   `BAAI/bge-small-en-v1.5`), `rapidfuzz`, PyYAML, optional Redis. Source: `requirements.txt`.
+- **Orchestration (opt-in, 2026-10-02, D-032):** `langgraph` runs the same pipeline stages as a
+  graph with checkpointed clarification pauses (`app/pipeline_graph.py`), **off by default**; see
+  [LANGGRAPH_ARCHITECTURE.md](LANGGRAPH_ARCHITECTURE.md).
 - **Models** (a remote vLLM gateway at `10.48.242.4`):
   - `qwen-model` (Qwen3-Coder-30B FP8) for SQL generation;
   - `qwen4-deploy` (Qwen3-4B) for classification and SQL verification;
@@ -98,6 +101,9 @@ Browser (web/ai_query.html) ──POST /api/query──► FastAPI (app/routers/
    ClarificationNeeded → route "clarification" (chips)   auth deny → route "denied"
    persist turn + audit (Postgres app.*), index memory (Qdrant), cache write
 ```
+
+Both orchestrators (the sequential `_run_pipeline`, default, and the opt-in LangGraph graph) run
+this same flow.
 
 Details: [ARCHITECTURE.md](ARCHITECTURE.md), [AI_PIPELINE.md](AI_PIPELINE.md).
 

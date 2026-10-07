@@ -28,7 +28,7 @@ Always use the repo venv, and run from the repo root (`.env` is read relative to
 directory):
 
 ```bash
-# 1) pytest-style suites (26 files). Do NOT run `pytest tests` — see KI-018.
+# 1) pytest-style suites (27 files). Do NOT run `pytest tests` — see KI-018.
 .venv/Scripts/python.exe -m pytest -q $(grep -lE "^\s*(async )?def test_" tests/test_*.py)
 
 # 2) plain-script suites (14 files) — each prints "ALL … PASSED" and exits 0/1
@@ -43,10 +43,17 @@ for f in tests/test_ac_full_results.py tests/test_admin_level_collision.py \
 ```
 
 - Set `PYTHONIOENCODING=utf-8` on Windows, because the scripts print non-ASCII characters.
+- **LangGraph is the only orchestrator (D-036): one pytest run covers it.** There is no
+  sequential path and no flag to sweep. Tests that need a whole turn use `tests/_graph_turn.py`:
+  `graph_turn(question, session=…)` runs `answer_question` (the graph) with an in-process
+  checkpointer, and `stub_data_path(monkeypatch, fake)` stubs the DATA path at the `scope_scheme`
+  stage. `tests/test_pipeline_graph.py` drives whole conversations through the graph (results, pauses,
+  session state and model / DB call counts) and fails if a sequential driver or on/off setting comes
+  back. Live: `tests/live_context_validation.py`.
 - The script suites are slow when the DB is unreachable. Some entity-resolution paths wait for
   connect timeouts.
 - `tests/smoke_restructure.py` is an end-to-end smoke test against a **running server** at
-  `http://127.0.0.1:8502` (hardcoded `BASE`, not the default 8300). It was not run.
+  `http://127.0.0.1:8502` (hardcoded `BASE`, not the default 8400). It was not run.
 
 ### Live context validation (needs the VPN)
 
@@ -95,6 +102,10 @@ the report's Summary sheet.
 
 | Date | Suite | Result | Notes |
 |---|---|---|---|
+| 2026-10-06 (six-scheme tester sheet, 206 cases; KI-201..217, D-035) | pytest 28 files flag off and on, scripts, live | pytest **1,496 passed, 0 failed** with the graph off AND on (+45 in the new `tests/test_qa_2026_10_06_fixes.py`; 3 AC tests updated for D-035); scripts **14/14**. Live: all 206 cases of 'Test Case Results - 30th Sep 26.xlsx' through the real `/megh-chat` UI (headless Edge, screenshots), each figure checked against independent SQL: before the fixes 190/206 (7 partial, 9 fail), after **206/206**; reports `reference_documents/Test_Results_2026-10-06.xlsx` and `..._after_fixes.xlsx` | VPN up (DB port flapped once) |
+| 2026-10-02 night → 10-03 (all six schemes, all districts / blocks / villages + officer sets; KI-188..198, D-034) | pytest 27 files flag off and on, scripts, live bulk | pytest: pytest **1,453 passed, 0 failed** (27 files) with the graph off AND on; scripts **14/14**; live context suite **43/43 on both paths** (follow-up 29/29). Live bulk **30,280 / 30,280** on the latest run of each question (MGNREGA 6,378; PMAY-G 5,256; PMAY-G officer cases 5,833; Focus Plus 3,651; CM Elevate 2,165; CM Elevate OFF-009/017/018 2,284; CM Elevate Legacy 1,193; Focus Legacy 3,520). 1,667 failed on a first run; each failure was fixed and re-run (8 re-run rounds, the last 29 → 3 → 0 on the final code). Harness: scratchpad `7be462aa-…/scratchpad/bulk` (`bulk.py gen/run/judge`, `pmay_sets.py`, `cme_sets.py`, `make_reports.py` → `docs/<Scheme>_LangGraph_Test_Results.xlsx`). Run with `DB_POOL_MIN_SIZE=2 DB_POOL_MAX_SIZE=12`, concurrency 10, resumable; background jobs stop at 2 h, so run villages in bounded batches | VPN up (drops handled by `_wait_for_vpn`) |
+| 2026-10-02, evening (VPN up; KI-182, KI-183, KI-187 fixed; live gates G3/G4) | pytest 27 files flag off and flag on, scripts, live | **1,419 passed, 0 failed in BOTH modes** (the 2 long-standing verifier tests were stale after the CM Elevate Legacy guard extension and were updated); scripts **14/14**. Live: context suite **43/43 on both paths** (42/43 on both before the KI-187 fix; the failure reproduced on the pre-refactor code too); six-scheme sample **36/36 turns identical** sequential vs graph (scratchpad `g4.py`); CM Elevate OFF-009 re-test **49/49 on both paths** vs the DB (`off009.py`; first attempt 42/49 until the LIMIT 1000 case was handled); OFF-017 Piggery SGH correct on both paths (no code change); live node coverage: 21/21 nodes ran, 0 errors (`g4cov.py`). Report artifact: https://claude.ai/artifact/Q2Mb7ynLwebbjcRebHkYmq | VPN up from 19:17 IST after a drop |
+| 2026-10-02 (LangGraph orchestrator, D-032) | pytest 27 files (flag off), pytest 27 files (`PIPELINE_GRAPH_ENABLED=true`), scripts | **Baseline before any change: 1,371 passed, 2 failed.** After the verbatim stage split: **1,371 passed, the same 2 failed** (behaviour-neutral). With the graph: flag off **1,398 passed, 2 failed** (+27 in the new `tests/test_pipeline_graph.py`); flag on **1,397 passed, 3 failed** (the same 2, plus `test_default_is_the_sequential_path`, which read the live flag; fixed to read the declared default, now 27/27 in both modes). Scripts **14/14**. Graph-path coverage comes from the 27 new tests only (no existing test calls `answer_question`). The 2 failures are the pre-existing verifier tests owned by the CM Elevate Legacy session (see the 2026-09-29 rows). One source-pin test moved from `_answer_data` to `_data_clarification_stage`. **OFFLINE ONLY**: live context suite and use cases NOT run on either path | VPN down (5432, 443, 6333 unreachable) |
 | 2026-09-29, morning (typed reply to any chip pause, KI-181) | pytest 26 files + live | **1,371 passed, 2 failed** (+33 in `test_context_relevance_and_contract.py`, now 177; the same 2 verifier tests owned by the parallel CM Elevate Legacy session, see the row below). Scripts **14/14**; live context suite **43/43** (follow-up 29/29); live replay: measure gap -> "houses sanctioned" (106,527) / "the second one" (410,200 households) / "houses completed in west garo hills" (stays PMAY-G), Focus Plus year-out-of-range -> "2022-23", Sericulture -> "weaving", Garo Hills region -> "west garo hills" (5,489,616) | VPN up |
 | 2026-09-29, early morning ("give me for pmay" scheme swap + measure gap, KI-180) | pytest 26 files + live | **1,338 passed, 2 failed** (+26 in `test_context_relevance_and_contract.py`, now 144). The 2 failures (`test_verifier_district_complaint_beside_village_code_is_discarded`, `test_verifier_complaint_on_correct_village_sql_is_discarded`) pin `_verifier_village_code_complaint_is_false` OUTSIDE CM Elevate Legacy; a parallel CM Elevate Legacy session widened that gate while this session ran — not caused by KI-180, left to that session. Scripts **14/14**; live context suite **43/43** (follow-up 29/29); live replay (scratchpad `119975e8-…/scratchpad/live_convo.py`): reported pair, "give me for pmay please", PMAY-G houses -> "give me for mgnrega", money swap (EKH ₹221.26 cr, unchanged), "tell me about pmay" still KNOWLEDGE, chip 106,527 houses | VPN up |
 | 2026-09-29, night (Focus Legacy all blocks / villages / ACs / PGs, KI-020 + KI-145..165) | pytest 26 files + live | **1,265 passed**; scripts **14/14**; live context suite **43/43** (follow-up 29/29); use cases **28/28 on 3 of 3 runs** (final code, month names now checked); bulk **32,560/32,560** (56 blocks x3 + 12 district breakdowns, 55 ACs x3, 3,384 villages x2, 11,906 PGs x2, 1,635 older raw spellings) on the latest run of each question, with a final-code regression pass of 5,215 (all block/AC questions, every question that ever failed, 4,300 random) 5,214/5,215 then 5/5 after KI-165. Harness: scratchpad `2ca0226e-…/scratchpad/bulk` (`gen_bulk.py`, `bulk_run.py`, `bulk_judge.py`), `build_bulk_report.py` | VPN up |

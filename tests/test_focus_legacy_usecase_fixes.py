@@ -495,6 +495,8 @@ def _stub_village(monkeypatch, extractor_village, exact_names):
     monkeypatch.setattr(p, "village_names_exact", exact)
     monkeypatch.setattr(p, "_scan_village_in_question", nothing)
     monkeypatch.setattr(p, "_mgnrega_village_names", no_names)
+    # Focus Legacy is a village scheme since 2026-10-02 and has its own name list
+    monkeypatch.setattr(p, "_focus_legacy_village_names", no_names)
     return seen
 
 
@@ -690,7 +692,10 @@ def test_verifier_district_complaint_beside_village_code_is_discarded():
              "WHERE clause filters on village_code = '272807' and omits the required lgd_district filter.")
     sql = "SELECT DISTINCT pg_id, MAX(pg_name) AS pg_name FROM curated.v_focus_legacy WHERE village_code = '272807' GROUP BY pg_id"
     assert p._verifier_village_code_complaint_is_false(issue, FL, {"village_code": 272807, "district": "WEST GARO HILLS"}, sql)
-    assert not p._verifier_village_code_complaint_is_false(issue, ["CM Elevate Legacy"], {"village_code": 272807}, sql)
+    # CM Elevate Legacy joined this guard on 2026-09-29 (KI-173, live 2,614/2,614);
+    # a multi-scheme question that does not start with MGNREGA is still outside it.
+    assert p._verifier_village_code_complaint_is_false(issue, ["CM Elevate Legacy"], {"village_code": 272807}, sql)
+    assert not p._verifier_village_code_complaint_is_false(issue, ["PMAY-G", "Focus Plus"], {"village_code": 272807}, sql)
 
 
 @pytest.mark.parametrize("q,name", [
@@ -750,3 +755,56 @@ def test_id_only_group_list_gets_names(monkeypatch):
     # a result that already has names, or carries figures, is left alone
     assert asyncio.run(p._fl_add_group_names([{"pg_id": "X", "pg_name": "Y"}])) == [{"pg_id": "X", "pg_name": "Y"}]
     assert asyncio.run(p._fl_add_group_names([{"pg_id": "X", "amount": 5}])) == [{"pg_id": "X", "amount": 5}]
+
+
+# ── Bare village names (all-villages run 2026-10-02) ─────────────────────────
+def test_focus_legacy_is_a_village_scheme():
+    # "producer groups in BOLDAMGRE" (no word "village") was answered with Selsella block's 399
+    assert p._village_scheme(["Focus Legacy"]) == "Focus Legacy"
+
+
+def test_village_name_in_the_district_column_beside_its_code_is_dropped():
+    er_ = {"resolved": {"village_code": 272897}}
+    sql = ("SELECT COUNT(DISTINCT pg_id) AS producer_groups FROM curated.v_focus_legacy "
+           "WHERE village_code = 272897 AND UPPER(TRIM(lgd_district)) = 'KASHARIPARA' LIMIT 1000")
+    assert p._mgnrega_drop_geo_beside_village(["Focus Legacy"], er_, sql) == (
+        "SELECT COUNT(DISTINCT pg_id) AS producer_groups FROM curated.v_focus_legacy "
+        "WHERE village_code = 272897 LIMIT 1000")
+    # a question outside the village guards (several schemes) keeps its SQL
+    keep = "SELECT 1 FROM t WHERE village_code = 272897 AND lgd_block = 'X'"
+    assert p._mgnrega_drop_geo_beside_village(["PMAY-G", "Focus Plus"], er_, keep) == keep
+
+
+def test_pinned_village_drops_a_trimmed_district_literal():
+    # "WHERE UPPER(TRIM(lgd_district)) = 'KASHARIPARA'": the code was pinned but the
+    # village-name-as-district literal stayed -> 0 for a village with 11 (2026-10-02)
+    sql = ("SELECT COUNT(DISTINCT pg_id) AS producer_groups\nFROM curated.v_focus_legacy\n"
+           "WHERE UPPER(TRIM(lgd_district)) = 'KASHARIPARA'\nLIMIT 1")
+    out = p._pin_missing_village_code(["Focus Legacy"], {"resolved": {"village_code": 272897}}, sql)
+    assert "lgd_district" not in out and "WHERE village_code = 272897" in out
+    blk = sql.replace("UPPER(TRIM(lgd_district))", "f.lgd_block")
+    assert "lgd_block" not in p._pin_missing_village_code(["Focus Legacy"], {"resolved": {"village_code": 272897}}, blk)
+
+
+def test_hyphenated_number_word_becomes_digits():
+    # "Twenty-one producer groups received payments under Focus Legacy in Khliehriat East"
+    # (all-villages run 2026-10-02): a compound number word was left spelled out
+    f = p._cme_digits_for_number_words
+    assert f("Twenty-one producer groups received payments.", [{"producer_groups": 21}]).startswith("21 producer")
+    assert f("Forty two applicants", [{"n": 42}]) == "42 applicants"
+    assert f("Twenty producer groups", [{"n": 20}]) == "20 producer groups"
+    # a value not in the result stays spelled out, for the faithfulness checks to see
+    assert f("Twenty-one producer groups", [{"n": 20}]) == "Twenty-one producer groups"
+
+
+def test_lowered_district_literal_beside_village_is_dropped():
+    # "village_code = 277038 AND LOWER(lgd_district) = 'nongthylep'" -> 0 for a village
+    # with 1 (all-villages run 2026-10-02, 3 villages)
+    er_ = {"resolved": {"village_code": 277038}}
+    sql = ("SELECT COUNT(DISTINCT pg_id) AS producer_groups FROM curated.v_focus_legacy "
+           "WHERE village_code = 277038 AND LOWER(lgd_district) = 'nongthylep' LIMIT 1")
+    assert "lgd_district" not in p._mgnrega_drop_geo_beside_village(["Focus Legacy"], er_, sql)
+    bare = ("SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy "
+            "WHERE LOWER(TRIM(lgd_district)) = LOWER('nongthylep') AND financial_year = '2024-25' LIMIT 1")
+    out = p._pin_missing_village_code(["Focus Legacy"], er_, bare)
+    assert "lgd_district" not in out and "village_code = 277038" in out and "financial_year = '2024-25'" in out

@@ -875,7 +875,7 @@ def detect_harmful(question: str) -> dict | None:
 
 def detect_edge_case(question: str, has_context: bool = False) -> dict | None:
     """`has_context`: True when there's a live prior scheme answer this turn
-    could plausibly be a follow-up to (see pipeline._run_pipeline's
+    could plausibly be a follow-up to (see pipeline._turn_context_stage's
     `has_antecedent`). Only relaxes step 6, the blanket "no domain vocabulary
     anywhere -> off-topic" whitelist gate — every explicit block above it
     (hard off-topic, out-of-area, greeting/silly/profanity/etc.) still fires

@@ -818,3 +818,95 @@ def test_verifier_block_district_complaint_on_a_pinned_village_is_discarded():
     sql = f"SELECT COUNT(*) AS records FROM {_V} WHERE village_code = 273879"
     assert p._verifier_village_code_complaint_is_false(issue, [LEGACY], {"village_code": 273879}, sql)
     assert not p._verifier_village_code_complaint_is_false(issue, [LEGACY], {"village_code": 1}, sql)
+
+
+# ── A village read as a programme, and the village dropped (all-villages run 2026-10-02) ──
+_NOAGRE_ER = {"resolved": {"village_code": 273728}}
+_NOAGRE_Q = "How many applications are there under CM Elevate Legacy in NOAGRE across all financial years"
+_NOAGRE_BAD = ("SELECT COUNT(*) AS records FROM curated.v_cm_elevate_disbursement "
+               "WHERE scheme_name = 'Meghalaya New Agriculture and Allied Activities Scheme' LIMIT 1")
+
+
+def test_village_read_as_a_programme_is_corrected_to_the_village():
+    sql = p._cm_unasked_programme_beside_village(_NOAGRE_Q, ["CM Elevate Legacy"], _NOAGRE_ER, _NOAGRE_BAD)
+    sql = p._pin_missing_village_code(["CM Elevate Legacy"], _NOAGRE_ER, sql)
+    assert "scheme_name" not in sql and "village_code = 273728" in sql
+
+
+def test_village_guard_now_covers_every_scheme():
+    for s in (["CM Elevate Legacy"], ["CM Elevate"], ["PMAY-G"], ["Focus Plus"], ["Focus Legacy"], ["MGNREGA"]):
+        assert p._village_filter_missing(s, _NOAGRE_ER, "SELECT COUNT(*) FROM t WHERE lgd_block = 'X'") == 273728
+        assert p._village_filter_missing(s, _NOAGRE_ER, "SELECT COUNT(*) FROM t WHERE village_code = 273728") is None
+    assert p._village_filter_missing(["PMAY-G", "Focus Plus"], _NOAGRE_ER, "SELECT 1") is None
+
+
+def test_named_programme_beside_a_village_is_kept():
+    sql = ("SELECT COUNT(*) FROM curated.v_cm_elevate_disbursement "
+           "WHERE scheme_name = 'Meghalaya Piggery Development Scheme'")
+    assert p._cm_unasked_programme_beside_village(
+        "applications under Piggery in NOAGRE", ["CM Elevate Legacy"], _NOAGRE_ER, sql) == sql
+
+
+def test_village_pin_drops_block_and_district_beside_it_and_skips_complex_sql():
+    out = p._pin_missing_village_code(["PMAY-G"], _NOAGRE_ER,
+                                      "SELECT COUNT(*) FROM curated.v_pmay WHERE NOT is_placeholder "
+                                      "AND lgd_block = 'X' AND lgd_district = 'Y'")
+    assert out == "SELECT COUNT(*) FROM curated.v_pmay WHERE village_code = 273728 AND NOT is_placeholder"
+    join = "SELECT 1 FROM a JOIN b ON a.x = b.x"
+    assert p._pin_missing_village_code(["CM Elevate"], _NOAGRE_ER, join) == join
+
+
+def test_year_chip_after_village_chip_pins_for_cm_elevate_legacy_too():
+    # "MAWTNUM — UMLING block" then "All financial years combined" answered all of Umling (224, not 4)
+    import inspect
+    src = inspect.getsource(p.resolve_entities)
+    assert "_year_after_tail = bool(_pin_scheme and _YEAR_AFTER_CHIP_TAIL_RE" in src
+    assert p._YEAR_AFTER_CHIP_TAIL_RE.search(
+        "How many applications are there under CM Elevate Legacy in MAWTNUM, UMLING block, RI BHOI "
+        "across all financial years")
+
+
+def test_village_name_written_as_a_programme_is_dropped():
+    # "…WHERE village_code = 279360 AND scheme_name = 'AMLARI MODEL'" answered 0 (2026-10-02)
+    from app import entity_resolver as er
+    er.load_all()
+    er_ = {"resolved": {"village_code": 279360}}
+    sql = ("SELECT COUNT(*) AS records FROM curated.v_cm_elevate_disbursement "
+           "WHERE village_code = 279360 AND scheme_name = 'AMLARI MODEL' LIMIT 1")
+    out = p._cm_unasked_programme_beside_village(
+        "How many applications are there under CM Elevate Legacy in AMLARI MODEL?", ["CM Elevate Legacy"], er_, sql)
+    assert "scheme_name" not in out and "village_code = 279360" in out
+    real = ("SELECT COUNT(*) FROM curated.v_cm_elevate_disbursement "
+            "WHERE village_code = 279360 AND scheme_name = 'Meghalaya Piggery Development Scheme'")
+    assert p._cm_unasked_programme_beside_village(
+        "applications under Piggery in AMLARI MODEL", ["CM Elevate Legacy"], er_, real) == real
+
+
+def test_cm_elevate_legacy_is_a_village_scheme():
+    assert p._village_scheme(["CM Elevate Legacy"]) == "CM Elevate Legacy"
+
+
+def test_village_named_by_truncated_text_is_replaced_by_its_code():
+    # "TEPORPARA ( UPPER )" (273637) written as UPPER(lgd_village_name) = 'TEPORPARA'
+    # matched another village: 2 applications for 1 (all-villages re-run 2026-10-02)
+    sql = ("SELECT COUNT(*) AS records\nFROM curated.v_cm_elevate_disbursement\n"
+           "WHERE UPPER(lgd_village_name) = 'TEPORPARA' AND financial_year_short = '2024-25'\nLIMIT 1")
+    out = p._pin_missing_village_code(["CM Elevate Legacy"], {"resolved": {"village_code": 273637}}, sql)
+    assert "lgd_village_name" not in out
+    assert "WHERE village_code = 273637 AND financial_year_short = '2024-25'" in out
+    # nothing resolved, or the SQL already filters the code: unchanged
+    assert p._pin_missing_village_code(["CM Elevate Legacy"], {"resolved": {}}, sql) == sql
+    coded = sql.replace("UPPER(lgd_village_name) = 'TEPORPARA'", "village_code = 273637")
+    assert p._pin_missing_village_code(["CM Elevate Legacy"], {"resolved": {"village_code": 273637}},
+                                       coded) == coded
+    # two villages resolved: left to the generator
+    assert p._pin_missing_village_code(["CM Elevate Legacy"], {"resolved": {"village_code": [1, 2]}},
+                                       sql) == sql
+
+
+def test_place_spelling_fix_keeps_a_name_that_ends_in_a_bracket():
+    d = {"village": "TEPORPARA ( UPPER )"}
+    ok = "There are 1 applications in Teporpara ( Upper ) across all financial years."
+    assert p._cml_fix_place_spelling(ok, d) == ok        # was "( Upper ) )"
+    assert p._cml_fix_place_spelling("in Teporpra ( Upper ) block", d) == "in Teporpara ( Upper ) block"
+    assert p._cml_fix_place_spelling("the Sellsella block", {"block": "SELSELLA"}) == "the Selsella block"

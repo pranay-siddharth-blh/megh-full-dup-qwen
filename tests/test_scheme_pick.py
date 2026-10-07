@@ -19,6 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import llm, pipeline as p, rag  # noqa: E402
 from app.session_store import Session, Turn  # noqa: E402
+from _graph_turn import data_stage_from, graph_turn, stub_data_path  # noqa: E402
 
 PICK = [
     "pick any scheme out of these and explain clearly with key points",
@@ -76,7 +77,7 @@ def _conversation(monkeypatch):
     sess = Session(session_id="t", user_id="u", created=time.time(), last_seen=time.time())
 
     def ask(q):
-        r = asyncio.run(p._run_pipeline(q, session=sess))
+        r = asyncio.run(graph_turn(q, session=sess))
         sess.turns.append(Turn(question=r.get("rewritten_question") or q, raw_question=q,
                                route=r["route"], schemes=r.get("schemes", []), answer=r["answer"]))
         return r

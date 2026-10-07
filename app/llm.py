@@ -290,6 +290,21 @@ async def call_classifier(
     )
 
 
+async def call_rephraser(prompt: str) -> str:
+    """The query rephraser (pipeline.rephrase_question): the classifier model,
+    a short output and a short timeout, so a slow gateway costs little."""
+    return await call_model(
+        base_url=settings.CLASSIFIER_BASE_URL,
+        model=settings.CLASSIFIER_MODEL,
+        api_key=settings.CLASSIFIER_API_KEY,
+        prompt=prompt,
+        temperature=0.0,
+        max_tokens=120,
+        timeout=settings.QUERY_REPHRASE_TIMEOUT_SECONDS,
+        role="rephrase",
+    )
+
+
 async def call_sql_generator(
     prompt: str,
     *,

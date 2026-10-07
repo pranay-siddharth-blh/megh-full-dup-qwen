@@ -44,7 +44,7 @@ We can also add a table/column allowlist on our side. But a privilege revoke is 
 
 **No.** None of the 222 rows in `semantic.v_embedding_documents` has been embedded.
 
-- The vector index is a Qdrant collection on `10.48.242.4:6333`.
+- The vector index is a Qdrant collection on `115.124.102.167:6335` (moved from the data box on 2026-10-03).
 - It is built only from SME-written markdown files:
   - `data/reference/*.md`: one reference document and one FAQ per scheme (MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy);
   - `data/web/*.md`: collected public background material.

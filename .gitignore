@@ -27,3 +27,7 @@ NeuralAiGovernanceProject*.zip
 
 # Reference material and rotated-secret backups — never part of a deploy.
 archive/
+
+# React front-end (frontend/, D-038): dependencies are installed, not committed.
+# The build output web/app/ IS kept, so the app serves the UI without Node.
+frontend/node_modules/

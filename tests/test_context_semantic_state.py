@@ -43,6 +43,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from app import context_manager as cm  # noqa: E402
 from app import entity_resolver, llm, pipeline as p, prompt_builder  # noqa: E402
 from app.session_store import ConversationState, Session, Turn  # noqa: E402
+from _graph_turn import data_stage_from, graph_turn, stub_data_path  # noqa: E402
 
 Q1 = "How much was disbursed under Focus Plus in West Garo Hills in FY 2024-25?"
 LONG_ANSWER = ("Focus Plus disbursed Rs 12,34,567 in West Garo Hills in FY 2024-25. "
@@ -289,13 +290,13 @@ def test_scheme_pause_resume_end_to_end(monkeypatch):
     async def classifier(prompt, **_kw):
         return '{"intent": "DATA"}'
 
-    monkeypatch.setattr(p, "_answer_data", fake_answer_data)
+    stub_data_path(monkeypatch, fake_answer_data)
     monkeypatch.setattr(llm, "call_classifier", classifier)
     sess = Session(session_id="t", user_id="u", created=time.time(), last_seen=time.time())
     clar = p._scheme_clarification("Show beneficiaries")
     sess.pending_scope_q, sess.pending_scope_rule = "Show beneficiaries", clar.rule
     sess.pending_scope_options = clar.options
-    asyncio.run(p._run_pipeline("Focus Plus", session=sess))
+    asyncio.run(graph_turn("Focus Plus", session=sess))
     assert seen["q"] == "Show beneficiaries for Focus Plus"
     assert seen["kw"]["skip_scope_clarify"] is False    # same as clicking the chip
     assert sess.pending_scope_q is None and sess.pending_scope_rule is None

@@ -29,7 +29,18 @@ No. A core eligibility condition is that the family must not have previously ava
 PMAY-G applications are typically processed through Gram Panchayats using the Awaas+ beneficiary list; eligible households are identified from the SECC/Awaas+ data rather than through an individual online application in the usual sense.
 
 ### What documents are typically required for PMAY-Gramin?
-Commonly required details include Aadhaar details, proof of not owning a pucca house, and bank account details. PMAY-G applicants may also need to link their MGNREGA job card and Swachh Bharat Mission registration, since house construction assistance under PMAY-G is often converged with these schemes.
+There is no individual application form: eligible households are identified from the SECC 2011 / Awaas+ list, and the Gram Panchayat / Gram Sabha verifies that the household does not own a pucca house. When the beneficiary is registered on AwaasSoft, these details are captured:
+
+**Required for every beneficiary**
+- Aadhaar number (used for identity verification and to remove duplicate beneficiaries)
+- Bank account details (every instalment is paid into this account)
+- Nominee name
+
+**Required where applicable**
+- MGNREGA job card number (house construction under PMAY-G is converged with MGNREGA)
+- Swachh Bharat Mission (SBM-G) registration, for the toilet built with the house
+
+A geo-tagged photograph of the beneficiary in front of the current dwelling and of the proposed construction site is also taken with the AwaasApp at registration.
 
 ### How is the house construction assistance funded?
 PMAY-Gramin is funded jointly by the central and state governments, with the exact cost-sharing ratio differing between general-category and hilly/northeastern/special-category states.

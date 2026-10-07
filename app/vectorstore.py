@@ -5,8 +5,8 @@ One module-level AsyncQdrantClient, opened at startup and closed at shutdown —
 same reasoning as the shared httpx client and the asyncpg pool: a fresh client
 per request wastes connections at the 20-40 concurrent target.
 
-Qdrant runs on the data box (10.48.242.4:6333), alongside PostgreSQL and the
-model gateway. It is only used for scheme-knowledge retrieval; all numeric
+Qdrant runs on its own server (115.124.102.167:6335, since 2026-10-03; no VPN needed). It
+is only used for scheme-knowledge retrieval; all numeric
 answers come from megh_db, never from here.
 """
 import logging

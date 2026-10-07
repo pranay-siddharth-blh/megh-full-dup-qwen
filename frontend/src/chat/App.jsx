@@ -1,0 +1,579 @@
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
+import {
+  adoptSessionId, archiveConversationApi, deleteConversationApi, fetchMe, fetchNLPResponse, getConversation,
+  getToken, listHistory, login, logoutRemote, pinConversationApi, renameConversationApi, resetSessionId,
+  setToken, setUnauthorizedHandler, storedSessionId,
+} from './api.js';
+import { GLOSSARY, LANGS, UI_STRINGS, UNIFIED_SAMPLES, USE_CASES } from './constants.js';
+import { nowTime, todayLabel } from './format.js';
+import { useVoice } from './useVoice.js';
+import { BotMessage, TextMessage, TypingMessage } from './components/Messages.jsx';
+import { LoginScreen, Modal, UndoToast } from './components/Overlays.jsx';
+import { Sidebar } from './components/Sidebar.jsx';
+import { WelcomeCard } from './components/WelcomeCard.jsx';
+
+/* The chat console (was web/ai_query.html). Every behaviour of the original is
+   kept: sign-in gate with a session check, server-backed chat history (pin,
+   archive with undo, rename, delete, search), replay of a saved thread with its
+   charts, the scheme carousel, voice input, the collapsible sidebar rail
+   (Ctrl+B), the mobile drawer, language tabs and the admin entry point. */
+
+const RAIL_KEY = 'megh_sidebar_rail';
+const ARCH_OPEN_KEY = 'megh_archive_open';
+const readFlag = (k) => { try { return localStorage.getItem(k) === '1'; } catch (e) { return false; } };
+const writeFlag = (k, on) => { try { localStorage.setItem(k, on ? '1' : '0'); } catch (e) { /* ignore */ } };
+
+export default function App() {
+  // ── Auth ────────────────────────────────────────────────────────────────
+  const [auth, setAuth] = useState(getToken() ? 'pending' : 'locked');   // pending | locked | unlocked
+  const [user, setUser] = useState(null);
+  const [loginError, setLoginError] = useState('');
+  const [loginInvalid, setLoginInvalid] = useState([]);
+  const [loginBusy, setLoginBusy] = useState(false);
+  const [loginKey, setLoginKey] = useState(0);
+  const usernameRef = useRef(null);
+  const appStarted = useRef(false);
+
+  // ── Conversation ────────────────────────────────────────────────────────
+  const [sessionId, setSessionIdState] = useState(storedSessionId);
+  const sessionRef = useRef(sessionId);
+  const setSessionId = (sid) => { sessionRef.current = sid; setSessionIdState(sid); };
+  const [messages, setMessages] = useState([]);
+  const msgId = useRef(0);
+  const [running, setRunning] = useState(false);
+  const runningRef = useRef(false);
+  const [input, setInputState] = useState('');
+  const inputRef = useRef('');
+  const setInput = (v) => { inputRef.current = v; setInputState(v); };
+  const textareaRef = useRef(null);
+  const chatAreaRef = useRef(null);
+  const [lang, setLang] = useState('en');
+  const strings = UI_STRINGS[lang] || UI_STRINGS.en;
+  const [prompts, setPrompts] = useState({ title: 'Try a question', items: [] });
+
+  // ── History ─────────────────────────────────────────────────────────────
+  const [history, setHistory] = useState([]);
+  const historyRef = useRef([]);
+  const [filter, setFilter] = useState('');
+  const filterRef = useRef('');
+  const [searchOpen, setSearchOpenState] = useState(false);
+  const [archOpen, setArchOpen] = useState(() => readFlag(ARCH_OPEN_KEY));
+  const histTimer = useRef(0);
+
+  // ── Chrome ──────────────────────────────────────────────────────────────
+  const [navOpen, setNavOpen] = useState(false);
+  const [rail, setRail] = useState(() => readFlag(RAIL_KEY));
+  const [modal, setModal] = useState(null);
+  const [toast, setToast] = useState(null);
+  const toastTimer = useRef(0);
+  const [scrollTopShow, setScrollTopShow] = useState(false);
+  const [speakingId, setSpeakingId] = useState(null);
+  const speakingRef = useRef(null);
+
+  const nextId = () => ++msgId.current;
+  const closeNav = useCallback(() => setNavOpen(false), []);
+
+  // Body classes drive the boot splash / sign-in gate (see chat.css).
+  useLayoutEffect(() => {
+    const b = document.body.classList;
+    b.toggle('locked', auth !== 'unlocked');
+    b.toggle('auth-pending', auth === 'pending');
+  }, [auth]);
+
+  // ── History ─────────────────────────────────────────────────────────────
+  // Silent on failure: the chat stays usable when the history table is down.
+  const loadHistory = useCallback(async () => {
+    if (!getToken()) { historyRef.current = []; setHistory([]); return; }
+    let list = [];
+    try {
+      list = await listHistory(filterRef.current);
+    } catch (e) {
+      if (String(e.message) === 'unauthorized') return;
+      list = [];
+    }
+    historyRef.current = list;
+    setHistory(list);
+  }, []);
+
+  const onFilter = (v) => {
+    setFilter(v);
+    filterRef.current = (v || '').trim();
+    clearTimeout(histTimer.current);
+    histTimer.current = setTimeout(loadHistory, 250);   // debounce — search hits the DB
+  };
+  // Closing the search box with an active filter clears it.
+  const setSearchOpen = useCallback((open) => {
+    setSearchOpenState(open);
+    if (!open && filterRef.current) {
+      setFilter(''); filterRef.current = '';
+      clearTimeout(histTimer.current);
+      histTimer.current = setTimeout(loadHistory, 250);
+    }
+  }, [loadHistory]);
+
+  // ── Undo toast ──────────────────────────────────────────────────────────
+  const hideUndo = useCallback(() => setToast(null), []);
+  const showUndo = (message, fn) => {
+    setToast({ message, fn: fn || null });
+    clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(hideUndo, 7000);
+  };
+  const runUndo = async () => {
+    const fn = toast && toast.fn;
+    hideUndo();
+    if (fn) await fn();
+  };
+
+  // ── Auth flow ───────────────────────────────────────────────────────────
+  const lockApp = useCallback(() => {
+    setAuth('locked');
+    setTimeout(() => usernameRef.current && usernameRef.current.focus(), 0);
+  }, []);
+
+  const handleLogout = useCallback((message) => {
+    logoutRemote();
+    try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+    speakingRef.current = null; setSpeakingId(null);
+    setToken('');
+    setUser(null);
+    // Clear the previous officer's threads: shared terminals must not leak
+    // one user's conversation titles to the next.
+    historyRef.current = []; setHistory([]);
+    setFilter(''); filterRef.current = '';
+    setSearchOpenState(false);
+    hideUndo();
+    setLoginKey((k) => k + 1);           // resets the sign-in form
+    setLoginInvalid([]);
+    setLoginError(typeof message === 'string' ? message : '');
+    lockApp();
+  }, [hideUndo, lockApp]);
+
+  useEffect(() => { setUnauthorizedHandler((msg) => handleLogout(msg)); }, [handleLogout]);
+
+  const addMessages = (items) => setMessages((m) => [...m, ...items.map((x) => ({ id: nextId(), time: nowTime(), ...x }))]);
+
+  // Replay a stored thread and continue it (the session id is adopted).
+  const openConversation = useCallback(async (sid) => {
+    try {
+      const turns = await getConversation(sid);
+      const replay = [];
+      for (const t of turns) {
+        replay.push({ id: nextId(), time: nowTime(), kind: 'user', text: t.question });
+        // A turn saved with its full payload replays through the rich renderer
+        // (charts, SQL, follow-ups); older turns fall back to text.
+        if (t.response && typeof t.response === 'object') {
+          replay.push({ id: nextId(), time: nowTime(), kind: 'rich', question: t.question, response: t.response });
+        } else {
+          replay.push({ id: nextId(), time: nowTime(), kind: 'bot', text: t.answer || '(no answer recorded)' });
+        }
+      }
+      try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+      speakingRef.current = null; setSpeakingId(null);
+      setMessages(replay);
+      setSessionId(sid);
+      adoptSessionId(sid);
+      closeNav();
+    } catch (e) {
+      if (String(e.message) !== 'unauthorized') alert('Could not open that conversation.');
+    }
+  }, [closeNav]);
+
+  // Reveal the app and run the one-time boot work. The splash / gate stays up
+  // until a resumed chat has been replayed, so a refresh never flashes empty.
+  const unlockApp = useCallback(async (u) => {
+    setUser(u || null);
+    await loadHistory();
+    if (!appStarted.current) {
+      appStarted.current = true;
+      setPrompts({ title: 'Try a question', items: UNIFIED_SAMPLES });
+      // A refresh keeps the tab's session id: if it has recorded turns, replay it.
+      const existing = historyRef.current.find((c) => c.session_id === sessionRef.current);
+      if (existing) await openConversation(sessionRef.current);
+    }
+    setAuth('unlocked');
+  }, [loadHistory, openConversation]);
+
+  // On load: a stored JWT is confirmed with /api/auth/me before unlocking.
+  useEffect(() => {
+    (async () => {
+      if (!getToken()) { lockApp(); return; }
+      try {
+        const me = await fetchMe();
+        unlockApp(me);
+      } catch (e) {
+        // A network blip must not discard a token that may still be valid.
+        if (!(e && e.name === 'AbortError')) setToken('');
+        lockApp();
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const handleLogin = async (username, password) => {
+    setLoginError(''); setLoginInvalid([]);
+    if (!username || !password) {
+      setLoginError('Enter both your username and password.');
+      setLoginInvalid([!username && 'user', !password && 'pass'].filter(Boolean));
+      return null;
+    }
+    setLoginBusy(true);
+    try {
+      const { ok, data } = await login(username, password);
+      if (!ok) {
+        setLoginError(data.detail || 'Incorrect username or password.');
+        setLoginInvalid(['user', 'pass']);
+        return 'clear-password';
+      }
+      setToken(data.access_token);
+      await unlockApp(data.user || null);
+    } catch (e) {
+      setLoginError('Could not reach the sign-in service. Check your connection and try again.');
+    } finally {
+      setLoginBusy(false);
+    }
+    return null;
+  };
+
+  // ── Sending ─────────────────────────────────────────────────────────────
+  const sendQuery = useCallback(async () => {
+    if (runningRef.current) return;           // one question at a time
+    const q = inputRef.current.trim();
+    if (!q) return;
+    runningRef.current = true; setRunning(true);
+    const typingId = nextId();
+    setMessages((m) => [...m, { id: nextId(), time: nowTime(), kind: 'user', text: q }, { id: typingId, kind: 'typing' }]);
+    setInput('');
+    const dropTyping = (m) => m.filter((x) => x.id !== typingId);
+    try {
+      const response = await fetchNLPResponse(q, lang, sessionRef.current);
+      setMessages((m) => [...dropTyping(m), response.answer
+        ? { id: nextId(), time: nowTime(), kind: 'rich', question: q, response }
+        : { id: nextId(), time: nowTime(), kind: 'bot', text: `Error: ${response.detail || 'Unable to process your query'}` }]);
+    } catch (err) {
+      setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), kind: 'bot', text: `Sorry, I encountered an error: ${err.message}` }]);
+      console.error('Query error:', err);
+    } finally {
+      runningRef.current = false; setRunning(false);
+      if (textareaRef.current) textareaRef.current.focus();
+      // The turn is persisted server-side; re-read the history shortly after.
+      setTimeout(loadHistory, 600);
+    }
+  }, [lang, loadHistory]);
+
+  // Run `text` as the next question. A click while an answer is in flight is
+  // kept in the box and sent once the current answer lands.
+  const ask = useCallback((text) => {
+    const q = String(text == null ? '' : text).trim();
+    if (!q) return;
+    setInput(q);
+    if (textareaRef.current) textareaRef.current.focus();
+    if (runningRef.current) {
+      const retry = setInterval(() => {
+        if (!runningRef.current) { clearInterval(retry); setInput(q); sendQuery(); }
+      }, 250);
+      setTimeout(() => clearInterval(retry), 90000);
+      return;
+    }
+    sendQuery();
+  }, [sendQuery]);
+
+  // ── Chat pane ───────────────────────────────────────────────────────────
+  // ── Read aloud (browser speech, no server call) ─────────────────────────
+  const stopSpeaking = useCallback(() => {
+    speakingRef.current = null;
+    setSpeakingId(null);
+    try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
+  }, []);
+  const onSpeak = useCallback((id, text) => {
+    const synth = window.speechSynthesis;
+    if (!synth) return;
+    if (speakingRef.current === id) { stopSpeaking(); return; }     // second tap stops it
+    speakingRef.current = id;                                       // before cancel: the old
+    synth.cancel();                                                 // utterance's onend sees it
+    const u = new SpeechSynthesisUtterance(text);
+    const voices = synth.getVoices();
+    const voice = voices.find((v) => v.lang === 'en-IN') || voices.find((v) => (v.lang || '').startsWith('en'));
+    if (voice) u.voice = voice;
+    u.lang = voice ? voice.lang : 'en-IN';
+    u.onend = u.onerror = () => { if (speakingRef.current === id) { speakingRef.current = null; setSpeakingId(null); } };
+    setSpeakingId(id);
+    synth.speak(u);
+  }, [stopSpeaking]);
+  useEffect(() => () => { try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ } }, []);
+
+  const newChat = useCallback(() => {
+    stopSpeaking();
+    setSessionId(resetSessionId());          // fresh session -> no context bleed
+    setMessages([]);
+  }, [stopSpeaking]);
+
+  // Edit a sent question: it and everything after it leave the screen, and the
+  // edited text is asked in its place (in the same conversation).
+  const editQuestion = useCallback((id, q) => {
+    if (runningRef.current) return;
+    stopSpeaking();
+    setMessages((m) => {
+      const i = m.findIndex((x) => x.id === id);
+      return i < 0 ? m : m.slice(0, i);
+    });
+    setInput(q);
+    sendQuery();
+  }, [sendQuery, stopSpeaking]);
+
+  useEffect(() => {
+    const el = chatAreaRef.current;
+    if (el && messages.length) el.scrollTop = el.scrollHeight + 9999;
+  }, [messages]);
+
+  // Composer auto-grows up to 160px; the scrollbar shows only when the text
+  // is longer than that, never on an empty or short box.
+  useLayoutEffect(() => {
+    const t = textareaRef.current;
+    if (!t) return;
+    t.style.height = 'auto';
+    t.style.height = Math.min(t.scrollHeight, 160) + 'px';
+    t.style.overflowY = t.scrollHeight > 160 ? 'auto' : 'hidden';
+  }, [input]);
+
+  // ── History actions (row menu) ──────────────────────────────────────────
+  const archiveConversation = async (sid, archived, quiet) => {
+    const conv = historyRef.current.find((c) => c.session_id === sid) || {};
+    const name = conv.title || 'Chat';
+    try {
+      await archiveConversationApi(sid, archived);
+      // Archiving the open thread starts a clean chat, matching the sidebar.
+      if (archived && sid === sessionRef.current) newChat();
+      await loadHistory();
+      if (!quiet) {
+        showUndo(archived ? `“${name}” moved to Archived chats` : `“${name}” restored to your chats`,
+          () => archiveConversation(sid, !archived, true));
+      }
+    } catch (e) {
+      if (String(e.message) !== 'unauthorized') alert('Could not ' + (archived ? 'archive' : 'unarchive') + ' that chat.');
+    }
+  };
+
+  const onHistAction = async (act, sid, conv) => {
+    if (act === 'rename') {
+      const title = prompt('Rename conversation', conv.title || '');
+      if (title === null || !title.trim()) return;
+      try { await renameConversationApi(sid, title.trim()); await loadHistory(); }
+      catch (e) { if (String(e.message) !== 'unauthorized') alert('Rename failed.'); }
+    } else if (act === 'pin') {
+      try { await pinConversationApi(sid, !conv.pinned); await loadHistory(); }
+      catch (e) { if (String(e.message) !== 'unauthorized') alert('Could not ' + (!conv.pinned ? 'pin' : 'unpin') + ' that chat.'); }
+    } else if (act === 'archive') {
+      await archiveConversation(sid, !conv.archived);
+    } else {
+      // Delete is irreversible: confirmed up front, naming the reversible option.
+      const nm = conv.title || 'this chat';
+      if (!confirm(`Delete “${nm}” permanently?\n\nThis cannot be undone. If you only want it out of your list, `
+        + 'cancel and choose Archive instead — that keeps the chat and can be reversed.\n\n'
+        + '(The audit record is retained for compliance.)')) return;
+      try {
+        await deleteConversationApi(sid);
+        if (sid === sessionRef.current) newChat();
+        await loadHistory();
+      } catch (e) {
+        if (String(e.message) !== 'unauthorized') alert('Delete failed.');
+      }
+    }
+  };
+
+  const toggleArch = () => { const v = !archOpen; setArchOpen(v); writeFlag(ARCH_OPEN_KEY, v); };
+
+  // ── Sidebar rail ────────────────────────────────────────────────────────
+  const toggleRail = useCallback(() => {
+    setRail((r) => { writeFlag(RAIL_KEY, !r); return !r; });
+    // Let the 180ms grid transition finish, then let Chart.js re-measure.
+    setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
+  }, []);
+
+  // ── Voice dictation ─────────────────────────────────────────────────────
+  // Whatever was already typed stays; the spoken words are added after it, live
+  // while speaking (onPartial) and finally as the full transcript (onTranscript).
+  const dictBase = useRef('');
+  const withBase = (t) => { const b = dictBase.current.trim(); return b ? b + ' ' + t : t; };
+  const voice = useVoice({
+    lang,
+    onPartial: (t) => setInput(withBase(t)),
+    onTranscript: (t) => { setInput(withBase(t)); if (textareaRef.current) textareaRef.current.focus(); },
+    onUnauthorized: () => handleLogout(),
+  });
+  const onMic = () => {
+    if (!voice.busy) dictBase.current = inputRef.current;
+    voice.toggleMic();
+  };
+
+  // ── Modals ──────────────────────────────────────────────────────────────
+  const closeModal = useCallback(() => setModal(null), []);
+  const openGlossary = () => setModal({
+    title: 'Glossary', sub: 'Domain terms across all schemes',
+    body: Object.entries(GLOSSARY).map(([section, terms]) => (
+      <div key={section}>
+        <div className="modal-section">{section}</div>
+        {terms.map((t) => (
+          <div key={t.term} className="glossary-term">
+            <div className="glossary-term-name">{t.term}</div>
+            <div className="glossary-term-def">{t.def}</div>
+          </div>
+        ))}
+      </div>
+    )),
+  });
+  const openUseCases = () => setModal({
+    title: 'Use cases', sub: 'Example questions you can ask',
+    body: Object.entries(USE_CASES).map(([section, items]) => (
+      <div key={section}>
+        <div className="modal-section">{section}</div>
+        {items.map((q) => (
+          <div key={q} className="modal-row" onClick={() => { closeModal(); ask(q); }}>
+            <span className="modal-row-text">{q}</span>
+          </div>
+        ))}
+      </div>
+    )),
+  });
+
+  // ── Keyboard ────────────────────────────────────────────────────────────
+  const voiceRef = useRef(voice);
+  voiceRef.current = voice;
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'B')) {
+        const t = e.target;
+        if (t && /^(INPUT|TEXTAREA)$/.test(t.tagName)) return;   // don't hijack typing
+        e.preventDefault();
+        toggleRail();
+        return;
+      }
+      if (e.key === 'Escape') {
+        closeNav();
+        closeModal();
+        if (voiceRef.current.recordingRef.current) voiceRef.current.stopMic();
+        else if (!voiceRef.current.busy) voiceRef.current.clearStatus();
+      }
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [toggleRail, closeNav, closeModal]);
+
+  const onComposerKey = (e) => {
+    // While dictating the box is filling itself: Enter waits for the final text.
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!voice.busy) sendQuery(); }
+  };
+
+  const signedIn = auth === 'unlocked' && !!getToken();
+
+  return (
+    <>
+      <div className="boot-splash" aria-hidden="true">
+        <div className="mark">M</div>
+        <div className="bar"><i /></div>
+      </div>
+
+      <LoginScreen key={loginKey} ref={usernameRef} error={loginError} invalid={loginInvalid} busy={loginBusy}
+                   onSubmit={handleLogin} onInput={() => { setLoginError(''); setLoginInvalid([]); }} />
+
+      <Modal modal={modal} onClose={closeModal} />
+
+      <div className={'app' + (navOpen ? ' nav-open' : '') + (rail ? ' rail' : '')}>
+        <Sidebar
+          signedIn={signedIn} user={user} history={history} filter={filter} onFilter={onFilter}
+          searchOpen={searchOpen} setSearchOpen={setSearchOpen} archOpen={archOpen} onToggleArch={toggleArch}
+          activeSid={sessionId} onOpen={openConversation} onHistAction={onHistAction}
+          onNewChat={newChat} onGlossary={openGlossary} onUseCases={openUseCases}
+          onToggleRail={toggleRail} rail={rail} onLogout={(e) => { if (e) e.preventDefault(); handleLogout(); }}
+          onCloseNav={closeNav}
+        />
+        <div className="sidebar-backdrop" onClick={closeNav} />
+
+        <UndoToast toast={toast} onUndo={runUndo} />
+
+        <main className="main">
+          <div className="topbar">
+            <button className="menu-btn" type="button" onClick={() => setNavOpen(!navOpen)} aria-label="Open menu">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="3" y1="6" x2="21" y2="6" /><line x1="3" y1="12" x2="21" y2="12" /><line x1="3" y1="18" x2="21" y2="18" /></svg>
+            </button>
+            <div className="scheme-switch" />
+            <div className="actions">
+              <div className="date-pill">{todayLabel()}</div>
+              <div className="lang-tabs">
+                {LANGS.map((l) => (
+                  <button key={l.code} type="button" className={'lang-tab' + (lang === l.code ? ' active' : '')}
+                          data-lang={l.code} onClick={() => setLang(l.code)}>{l.label}</button>
+                ))}
+              </div>
+            </div>
+          </div>
+
+          <div className="chat-area" ref={chatAreaRef} onScroll={(e) => setScrollTopShow(e.currentTarget.scrollTop > 200)}>
+            <div className={'chat-inner' + (messages.length ? '' : ' is-welcome')}>
+              <WelcomeCard strings={strings} prompts={prompts} setPrompts={setPrompts} onAsk={ask} />
+              <div>
+                {messages.map((m) => {
+                  if (m.kind === 'typing') return <TypingMessage key={m.id} />;
+                  if (m.kind === 'rich') {
+                    return <BotMessage key={m.id} id={m.id} question={m.question} response={m.response} time={m.time}
+                                       onAsk={ask} speakingId={speakingId} onSpeak={onSpeak} />;
+                  }
+                  if (m.kind === 'user') {
+                    return <TextMessage key={m.id} id={m.id} role="user" text={m.text} time={m.time}
+                                        busy={running} onEdit={(q) => editQuestion(m.id, q)} />;
+                  }
+                  return <TextMessage key={m.id} id={m.id} role="bot" text={m.text} time={m.time}
+                                      speakingId={speakingId} onSpeak={onSpeak} />;
+                })}
+              </div>
+            </div>
+          </div>
+
+          <button className={'scroll-top' + (scrollTopShow ? ' show' : '')} type="button" title="Scroll to top"
+                  onClick={() => chatAreaRef.current && chatAreaRef.current.scrollTo({ top: 0, behavior: 'smooth' })}>
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6" /></svg>
+          </button>
+
+          <div className="composer-wrap">
+            <div className="composer-inner">
+              <div className="composer">
+                <textarea className={'composer-input' + (voice.busy ? ' dictating' : '')} ref={textareaRef} rows={1}
+                          placeholder={voice.isRecording ? 'Listening…' : strings.composerPh}
+                          readOnly={voice.busy}
+                          value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onComposerKey} />
+                <div className="composer-bar">
+                  {(voice.busy || voice.status) && (
+                    <div className={'voice-status' + (voice.status && voice.status.error ? ' error' : '')}
+                         role="status" aria-live="polite">
+                      {voice.phase === 'finishing' && <span className="voice-spin" />}
+                      {voice.isRecording && <span className="voice-bars" ref={voice.levelRef}><i /><i /><i /><i /><i /></span>}
+                      {voice.status && (
+                        <span className="vs-text" title={voice.status.sub}>
+                          <b>{voice.status.text}</b>
+                          {voice.status.sub && <span className="vs-sub"> — {voice.status.sub}</span>}
+                        </span>
+                      )}
+                    </div>
+                  )}
+                  <button className={'mic-btn' + (voice.isRecording ? ' recording' : '')} type="button"
+                          onClick={onMic} disabled={voice.phase === 'finishing'}
+                          title={voice.isRecording ? 'Stop recording' : 'Speak your question'}
+                          aria-label={voice.isRecording ? 'Stop recording' : 'Speak your question'}>
+                    {voice.isRecording
+                      ? <svg className="orb-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+                      : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></svg>}
+                  </button>
+                  <button className="send-btn" type="button" onClick={sendQuery} disabled={running || voice.busy}>
+                    <span>{strings.sendBtn}</span>
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
+      </div>
+
+      <footer><div>&copy; 2026 Government of Meghalaya — Megh One AI NLP Dashboard</div></footer>
+    </>
+  );
+}

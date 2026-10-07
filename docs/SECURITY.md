@@ -81,6 +81,10 @@ externalise the inline JS, then promote it to `CSP_ENFORCE`.
   fully-locked `requirements.lock` for reproducible builds.
 - Run `pip-audit -r requirements.lock` (or `pip install pip-audit && pip-audit`)
   on a schedule / in CI. Not yet wired — tracked as follow-up.
+- 2026-10-02 (D-032): `langgraph` brings `langchain-core` and `langsmith`. LangSmith tracing would
+  send prompts and answers to an external service: it stays off unless `LANGSMITH_TRACING` /
+  `LANGCHAIN_TRACING_V2` is set. **Never set these in this deploy.** `langgraph-sdk` pins
+  `websockets<17`.
 
 ## A07 — Identification & Authentication Failures
 
@@ -100,6 +104,13 @@ if tokens ever need to be killed mid-session.
 
 - No deserialization of untrusted objects; request bodies are JSON via Pydantic
   models only.
+- Exception (2026-10-02, D-032, only with the LangGraph orchestrator on): the checkpoint
+  serializer uses `pickle_fallback=True` for result-cell types msgpack cannot encode. The pickles
+  are written and read only by the app, in its own checkpoint store
+  (the `app.checkpoint*` tables in Postgres). Anyone who can write those tables can
+  run code as the service, so keep write access to them to the service's role only. Checkpoints hold
+  paused-turn state (question, entities, possibly result rows): treat the file like
+  `app.conversation_turns`.
 - `frame-ancestors 'none'` + `X-Frame-Options: DENY` prevent UI redress.
 - CORS is closed by default (`CORS_ALLOW_ORIGINS` blank ⇒ no CORS middleware);
   opening it requires an explicit exact-origin allowlist.
@@ -119,8 +130,8 @@ if tokens ever need to be killed mid-session.
 
 ## A10 — Server-Side Request Forgery
 
-- The only outbound calls are to fixed, config-pinned hosts (the model gateway,
-  Qdrant, Postgres on `10.48.242.4`). No user input controls a URL, host, or
+- The only outbound calls are to fixed, config-pinned hosts (the model gateway and
+  Postgres on `10.48.242.4`, Qdrant on `115.124.102.167:6335`). No user input controls a URL, host, or
   port anywhere in the request path.
 
 ---

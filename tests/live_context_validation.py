@@ -3,7 +3,7 @@ LIVE multi-turn context validation against the real model gateway and megh_db.
 
 Not collected by pytest (not named test_*.py). The offline counterparts are
 tests/test_context_semantic_state.py and tests/test_context_hardening.py.
-Needs the office VPN: the gateway, the DB and Qdrant are on 10.48.242.4.
+Needs the office VPN: the gateway and the DB are on 10.48.242.4 (Qdrant is on 115.124.102.167:6335).
 
     .venv/Scripts/python.exe tests/live_context_validation.py
     .venv/Scripts/python.exe tests/live_context_validation.py --legacy       # pre-2026-09-26 rewrite, for A/B

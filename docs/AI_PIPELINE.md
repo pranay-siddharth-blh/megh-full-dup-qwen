@@ -44,7 +44,22 @@ Source of truth: [app/pipeline.py](../app/pipeline.py), [app/prompt_builder.py](
 ## 1. Top-level control flow — `_run_pipeline(question, session, scope)` (VERIFIED)
 
 Called by `answer_question`, which then runs `_attach_followups`, `context_manager.update_state`
-and `maybe_update_summary`, all best-effort. The order matters: many steps exist to run
+and `maybe_update_summary` (`_update_context`), all best-effort.
+
+**Stages (2026-10-02, D-032).** The steps below are grouped, verbatim, into stage functions, run
+in order by the sequential driver `_run_pipeline`, or as nodes by the LangGraph orchestrator (§8):
+- `_turn_context_stage`: a–c'';
+- `_turn_edge_stage`: d–g;
+- `_turn_followup_stage`: reference substitution, rewrite, edge re-check, hints;
+- `_turn_route_stage`: not-held checks, village search, intent;
+- `_turn_knowledge_stage`: the KNOWLEDGE route;
+- `_turn_data_context_stage`: `prior_resolved`.
+
+The DATA path (§2) is `_data_scheme_stage` → `_data_entity_stage` →
+`_data_clarification_stage` → `_data_deterministic_stage` → `_data_sql_stage` →
+`_data_authorize_stage` → execution → `_data_post_rows_stage` → `_data_compose_stage` →
+`_data_guarantees_stage` → `_data_assemble`. Change behaviour inside a stage, never in a graph
+node. The order matters: many steps exist to run
 *before* a later step that would otherwise misroute.
 
 | # | Step | Function(s) | Model? | Returns early with |
@@ -234,9 +249,11 @@ In order:
   - `OutOfScope` when a place is outside Meghalaya (`OUT_OF_SCOPE_GUARD_ENABLED`);
   - otherwise a not-found note is added.
 
-#### Village-grained schemes (MGNREGA, Focus Plus, PMAY-G, CM Elevate) — VERIFIED 2026-09-28
+#### Village-grained schemes (all six since 2026-10-02, D-034) — VERIFIED 2026-10-02
 `_village_scheme(schemes)` is set when the question is about MGNREGA (first scheme), or about exactly
-one of Focus Plus, PMAY-G or CM Elevate (`_VILLAGE_NARROW_SCHEMES`).
+one of Focus Plus, PMAY-G, CM Elevate, Focus Legacy or CM Elevate Legacy (`_VILLAGE_NARROW_SCHEMES`;
+the two Legacy schemes joined 2026-10-02, KI-190, with `_focus_legacy_village_names` /
+`_cm_legacy_village_names` in `_scheme_village_names`).
 Those are the facts with `village_code` on every row. It turns on these guards, which were
 MGNREGA-only until the Focus Plus all-villages run (D-028, KI-079 to KI-083):
 - the negated-level chip reading and the chip-tail level fix;
@@ -451,9 +468,17 @@ the SQL.
 - Checks scheme, geography and granularity using regexes over the SQL.
 - A deny returns `route:"denied"` and **no SQL runs**.
 
-### 2.8 Validate → execute → repair — `execute_with_repair(..., max_repairs=3)` (Flow C)
-The budget is 4 attempts in total (the initial one plus 3 repairs). Each attempt runs these
-steps in order.
+### 2.8 Validate → execute → repair — `execute_with_repair(..., max_repairs=MAX_SQL_REPAIRS)` (Flow C)
+The budget is 4 attempts in total (the initial one plus `MAX_SQL_REPAIRS = 3` repairs). Each attempt
+runs these steps in order. Since 2026-10-02 one attempt is three functions:
+- the rewrites (1) are `_scheme_sql_rewrites`;
+- the guards, verifier, execution and post-check (2–4) are `_execute_one_attempt`;
+- the repair call is `_repair_sql`.
+
+`execute_with_repair` loops over them. The LangGraph path runs them as its `execute_attempt` ⇄
+`repair` nodes, with the same budget and the same DB / budget re-raises. **Authorization:** the first
+SQL is checked by `_data_authorize_stage`, and since 2026-10-02 every repaired SQL is checked too, after
+the rewrites and before it runs (`_repaired_sql_denial`; D-033, KI-183). A denial returns `_denied`.
 
 **1. In-place rewrites:**
 - `_focus_legacy_geo_columns`
@@ -508,6 +533,7 @@ instruction:
 | `_focusplus_stated_amount_missing` (Focus Plus, KI-132, 2026-09-29) | a stated payment amount ("a loan of five thousand", "₹2,500 payments") with no `amount_disbursed = N` filter |
 | `_resolved_scope_missing` (all schemes, KI-034, 2026-09-29) | a resolved district / block / comparison list / year_key absent from the SQL. Not required: geography beside a resolved village_code, a hill-range expansion, a year for CM Elevate or an all-years question; LIKE on the distinctive word counts |
 | `_mgnrega_village_filter_missing` (MGNREGA, KI-054) | a village was resolved but the SQL filters no village (it would return a block or statewide total) |
+| `_village_filter_missing` (every single-scheme question, KI-188, 2026-10-02) | the same for the other five schemes. Its deterministic half, `_pin_missing_village_code` (in `_scheme_sql_rewrites`), first rewrites a simple one-SELECT query: adds `village_code = <code>`, or replaces a lone `lgd_village_name` text condition with the code (`_village_name_cond_to_code`, KI-197), and drops a block / district literal beside it in any UPPER / TRIM form (`_drop_geo_beside_pinned_village`, KI-196). D-034 |
 | `_mgnrega_village_list_issue` (MGNREGA, KI-045) | "which villages …" SQL with no `lgd_village_name`, or "received employment" without `HAVING SUM(persons_employed) > 0` |
 | `_mgnrega_comparison_without_figures` (MGNREGA, KI-047; checked on the result, after execution) | a comparison ("more on wages or materials?") whose rows hold no number, only a CASE label |
 | `_focus_legacy_group_size_summed` | SUM of `no_of_pg_members` for a group-size question (must be MAX per `pg_id`) |
@@ -748,6 +774,9 @@ JSON body (VERIFIED).
 | anything else (incl. a spent repair budget, `UnsafeSQLError`, DB connection errors, programming errors) | `_data_path_kb_fallback`: tries RAG once, else "couldn't build a working query" (`route:"data"`, `confidence:"low"`, empty `schemes`) |
 
 The broad catch also hides programming bugs as "couldn't answer" (KI-009).
+
+This except-chain is `_data_path_error_result` (2026-10-02). The LangGraph DATA nodes map errors
+through the same function.
 
 ---
 
@@ -1179,3 +1208,23 @@ all financial years" means the **same operation on another scheme**.
 | A stated constraint missing from the SQL | `_resolved_scope_missing`, `_focusplus_stated_amount_missing` (§2.8); `pipeline_decision` `"stage": "sql_guard"` |
 | Follow-up broke after a worker switch | `session_sync.sync_in/sync_out` log lines, `app.conversations.context_state->>'rev'` |
 | KB answer wrong scheme | `_kb_scheme` selection, `rag._SCHEME_DOC_NAMES`, KB tags |
+
+## 8. LangGraph orchestrator (2026-10-02, D-032; opt-in, offline-verified only)
+
+The same stages, run as a 21-node graph:
+
+```
+context → edge → followup → route → (knowledge | data_context → scope_scheme → entities →
+clarification_gate → deterministic → sql_generate → authorize → execute_attempt ⇄ repair →
+post_rows → compose → guarantees → assemble) → finalize → context_update
+```
+
+- Any `ClarificationNeeded` → `pause_gate` (`interrupt()`), with a checkpoint under
+  `thread_id = session_id`. The resume loops to `context`, where step c/c'/c'' decides.
+- No prompt, model role, guard, gate or composer check changed. The graph spends exactly the
+  model and DB calls of the sequential path (tested).
+- Details: [LANGGRAPH_ARCHITECTURE.md](LANGGRAPH_ARCHITECTURE.md),
+  [CONTEXT_AND_LANGGRAPH.md](CONTEXT_AND_LANGGRAPH.md),
+  [LANGGRAPH_PAUSE_RESUME.md](LANGGRAPH_PAUSE_RESUME.md),
+  [LANGGRAPH_MIGRATION.md](LANGGRAPH_MIGRATION.md).
+

@@ -43,7 +43,20 @@ import pytest
 from app import llm
 from app.llm import _ASR_LANGUAGES, _asr_language
 
-_UI = Path(__file__).resolve().parents[1] / "web" / "ai_query.html"
+# The chat UI is the React app (frontend/, D-038). Its voice code, API calls,
+# overlay markup and stylesheet are read together, as the one page used to be.
+_FRONT = Path(__file__).resolve().parents[1] / "frontend" / "src"
+_UI_FILES = [_FRONT / "chat" / "useVoice.js", _FRONT / "chat" / "api.js", _FRONT / "chat" / "constants.js",
+             _FRONT / "chat" / "App.jsx", _FRONT / "styles" / "chat.css"]
+
+
+class _UiSource:
+    @staticmethod
+    def read_text(encoding="utf-8"):
+        return "\n".join(p.read_text(encoding=encoding) for p in _UI_FILES)
+
+
+_UI = _UiSource()
 
 
 def _fn(name: str, end_marker: str) -> str:
@@ -59,11 +72,11 @@ def _fn(name: str, end_marker: str) -> str:
 
 
 def _blob_to_wav() -> str:
-    return _fn("async function blobToWav(", "async function startMic(")
+    return _fn("async function blobToWav(", "export function useVoice(")
 
 
 def _send_audio() -> str:
-    return _fn("async function sendAudioToGemini(", "function authHeaders(")
+    return _fn("const sendAudio = useCallback(", "const startMic = useCallback(")
 
 
 # ── the real fault: the shared AudioContext must survive a conversion ───────
@@ -84,7 +97,7 @@ def test_blob_to_wav_does_not_close_the_shared_audio_context():
 def test_get_audio_ctx_is_still_the_single_shared_context():
     """The fix relies on getAudioCtx()'s reuse contract; keep it intact."""
     html = _UI.read_text(encoding="utf-8")
-    assert "let _audioCtx = null;" in html
+    assert "let audioCtx = null;" in html
     assert "function getAudioCtx()" in html
     # blobToWav must go through it rather than constructing its own.
     body = _blob_to_wav()
@@ -246,7 +259,7 @@ def test_transcribe_returns_a_real_transcript(monkeypatch):
 
 def test_ui_reports_no_speech_instead_of_typing_it():
     body = _send_audio()
-    i_flag, i_fill = body.index("data.no_speech"), body.index("inp.value = transcript")
+    i_flag, i_fill = body.index("data.no_speech"), body.index("onTranscript(transcript)")
     assert i_flag < i_fill, "no_speech must be handled before the transcript is typed"
     assert "micHint()" in body, "the message should name the input device in use"
 
@@ -314,7 +327,7 @@ def test_debug_capture_saves_wav_and_answer(monkeypatch, tmp_path):
 
 def test_ui_waits_for_live_audio_before_saying_speak_now():
     html = _UI.read_text(encoding="utf-8")
-    start = _fn("async function startMic(", "function stopMic(")
+    start = _fn("const startMic = useCallback(", "const toggleMic = useCallback(")
     assert "Starting microphone" in start and "startMeter(stream)" in start
     assert "rms > 1e-4" in html, "readiness must be decided by real samples arriving"
     assert "openMicStream()" in start, "the remembered microphone choice must be used"
@@ -330,17 +343,41 @@ def test_fragments_under_a_second_are_not_uploaded():
     body = _send_audio()
     m = re.search(r"const secs = \(blob\.size - 44\) / 32000;\s*if \(secs < ([0-9.]+)\)", body)
     assert m and float(m.group(1)) >= 1.0
-    assert body.index("secs < ") < body.index("fetch(url"), "the guard must run before upload"
+    assert body.index("secs < ") < body.index("transcribe(blob"), "the guard must run before upload"
 
 
-def test_orb_is_a_stop_button_while_recording():
+def test_mic_is_a_stop_button_while_recording():
+    """The 0.48 s capture came from a button that read as tap-to-talk. The mic
+    in the composer turns into an explicit stop button while recording."""
     html = _UI.read_text(encoding="utf-8")
-    assert 'class="orb-stop"' in html and 'aria-label="Stop recording"' in html
-    assert ".mic-overlay.open:not(.processing) .mic-orb .orb-mic { display: none; }" in html
+    assert 'className="orb-stop"' in html and "'Stop recording'" in html
+    assert ".mic-btn.recording" in html
     assert "Tap the mic or press Esc to stop" not in html
+
+
+def test_live_dictation_is_one_request_at_a_time_and_never_after_stop():
+    """Live text transcribes the recording so far while it grows; it must not
+    pile up requests, and a late reply must not overwrite the final text."""
+    body = _UI.read_text(encoding="utf-8")
+    live = body[body.index("partialTimer.current = setInterval("):body.index("stopTimer.current = setTimeout(")]
+    assert "if (busy ||" in live and "busy = true" in live and "busy = false" in live
+    assert "session !== sessionRef.current || !recordingRef.current" in live
+    assert "blobToWav(new Blob(chunks, { type: type() }), true)" in live   # keeps the meter's context running
+
+
+def test_transcribe_has_its_own_rate_limit_bucket():
+    """Live dictation sends a transcription about every 2 s; on the shared
+    /api/query counter (30/min) it would use up the officer's questions."""
+    from app.middleware import rate_limit
+    prefixes = [r[0] for r in rate_limit._RULES]
+    assert prefixes.index("/api/query/transcribe") < prefixes.index("/api/query")
+    assert rate_limit.RateLimitMiddleware._rule_for("/api/query/transcribe")[0] == "/api/query/transcribe"
+    assert rate_limit.RateLimitMiddleware._rule_for("/api/query")[0] == "/api/query"
+    assert rate_limit.TRANSCRIBE_MAX_REQUESTS >= 60
 
 
 def test_pages_are_served_no_cache():
     src = (Path(__file__).resolve().parents[1] / "app" / "main.py").read_text(encoding="utf-8")
     assert '_NO_CACHE = {"Cache-Control": "no-cache"}' in src
-    assert src.count("FileResponse(f, headers=_NO_CACHE)") == 3
+    # /megh-chat and /admin-ui (the portal page was removed 2026-10-07)
+    assert src.count("FileResponse(f, headers=_NO_CACHE)") == 2

@@ -555,3 +555,98 @@ def test_status_rule_and_vocab_say_current_file_status():
     from app import schema_context as sc
     src = open(sc.__file__, encoding="utf-8").read()
     assert "ALWAYS means current_file_status" in src and '"status" (default) -> data_verified' not in src
+
+
+# ── KI-182: a named programme with 0 applicants in the place is stated, not dropped ──
+_OFF009_SQL = (
+    "SELECT scheme_name, COUNT(DISTINCT request_id) AS applicants "
+    "FROM curated.v_cm_elevate WHERE lgd_district = 'EAST KHASI HILLS' "
+    "AND scheme_name IN ('PRIME Small Enterprise Empowerment and Development (SEED)', "
+    "'Meghalaya Cinema Theatre Scheme') GROUP BY scheme_name")
+_SEED = "PRIME Small Enterprise Empowerment and Development (SEED)"
+
+
+def test_ki182_absent_programme_is_stated_as_zero_with_the_combined_total():
+    # live 2026-10-02: "PRIME Small Enterprise ... (SEED): 524 applicants." and nothing else
+    out = p._cme_multi_scheme_total(
+        "How many applicants are there in East Khasi Hills under PRIME SEED and Cinema Theatre?",
+        _OFF009_SQL, [{"scheme_name": _SEED, "applicants": 524}],
+        f"{_SEED}: 524 applicants.")
+    assert "Cinema Theatre: 0" in out
+    assert "Combined across these 2 programmes: 524 applicants." in out
+
+
+def test_ki182_complete_answer_is_left_alone():
+    ans = "PRIME SEED has 524 applicants and Cinema Theatre has 2, 526 combined."
+    rows = [{"scheme_name": _SEED, "applicants": 524},
+            {"scheme_name": "Meghalaya Cinema Theatre Scheme", "applicants": 2}]
+    assert p._cme_multi_scheme_total("q", _OFF009_SQL, rows, ans) == ans
+
+
+@pytest.mark.parametrize("tail", [" LIMIT 1", " HAVING COUNT(*) > 5"])
+def test_ki182_no_zero_is_invented_when_a_row_could_be_cut(tail):
+    # a LIMIT or HAVING could have removed the programme: absence is not 0
+    ans = f"{_SEED}: 524 applicants."
+    out = p._cme_multi_scheme_total("q", _OFF009_SQL + tail, [{"scheme_name": _SEED, "applicants": 524}], ans)
+    assert out == ans
+
+
+def test_ki182_no_zero_without_a_programme_only_grouping():
+    sql = _OFF009_SQL.replace("GROUP BY scheme_name", "GROUP BY scheme_name, lgd_block")
+    assert p._cme_asked_programmes(sql) == []
+
+
+def test_ki182_both_programmes_zero_are_stated():
+    sql = _OFF009_SQL.replace("EAST KHASI HILLS", "RI BHOI")
+    out = p._cme_all_zero_answer(sql, "I couldn't find any matching records ...", {"district": "Ri Bhoi"})
+    assert out.startswith("In Ri Bhoi, none of these 2 programmes has any applicants")
+    assert "PRIME SEED: 0" in out and "Cinema Theatre: 0" in out and "0 applicants." in out
+
+
+def test_ki182_guarantee_runs_on_an_empty_result():
+    out = asyncio.run(p._cm_elevate_answer_guarantees(
+        "How many applicants are there in Ri Bhoi under PRIME SEED and Cinema Theatre?",
+        _OFF009_SQL.replace("EAST KHASI HILLS", "RI BHOI"), [], "no matching records", {"district": "Ri Bhoi"}))
+    assert "Cinema Theatre: 0" in out
+
+
+def test_ki182_auto_limit_does_not_disable_the_zero_fill():
+    # live 2026-10-02: the executed SQL usually ends "LIMIT 1000" (run_readonly / the model)
+    sql = ("SELECT scheme_name, COUNT(DISTINCT request_id) AS applicants FROM curated.v_cm_elevate "
+           "WHERE lgd_district = 'WEST JAINTIA HILLS' AND scheme_name IN "
+           "('Chief Minister''s Green Taxi Scheme', 'Meghalaya Poultry Farming Scheme') "
+           "GROUP BY scheme_name\nLIMIT 1000")
+    assert p._cme_asked_programmes(sql) == ["Chief Minister's Green Taxi Scheme", "Meghalaya Poultry Farming Scheme"]
+    out = p._cme_multi_scheme_total(
+        "How many applicants are there in West Jaintia Hills under Chief Minister's Green Taxi Scheme "
+        "and Meghalaya Poultry Farming Scheme?", sql,
+        [{"scheme_name": "Meghalaya Poultry Farming Scheme", "applicants": 15}],
+        "Meghalaya Poultry Farming Scheme: 15 applicants.")
+    assert "Green Taxi: 0" in out and "Combined across these 2 programmes: 15 applicants." in out
+
+
+def test_ki182_ampersand_programme_both_zero():
+    sql = ("SELECT scheme_name, COUNT(DISTINCT request_id) AS applicants FROM curated.v_cm_elevate "
+           "WHERE lgd_district = 'WEST GARO HILLS' AND scheme_name IN "
+           "('Meghalaya Goat Farming Scheme', 'Meghalaya Sericulture & Weaving Scheme') GROUP BY scheme_name LIMIT 1000")
+    out = p._cme_multi_scheme_total("q", sql, [{"scheme_name": "Meghalaya Goat Farming Scheme", "applicants": 22}],
+                                    "Meghalaya Goat Farming Scheme: 22 applicants.")
+    assert "Sericulture & Weaving: 0" in out or "Sericulture & Weaving Scheme: 0" in out
+
+
+# ── "applicants" are distinct request ids (OFF-009 full re-run 2026-10-02) ───
+def test_applicants_counted_distinct_not_rows():
+    sql = ("SELECT scheme_name, COUNT(*) AS applicants FROM curated.v_cm_elevate WHERE lgd_district = 'RI BHOI' "
+           "AND scheme_name IN ('Meghalaya Goat Farming Scheme', 'Meghalaya Poultry Farming Scheme') GROUP BY scheme_name")
+    out = p._cm_elevate_applicants_distinct(
+        "How many applicants are there in Ri Bhoi under Meghalaya Goat Farming Scheme and Meghalaya Poultry Farming Scheme?",
+        ["CM Elevate"], sql)
+    assert "COUNT(DISTINCT request_id) AS applicants" in out and "COUNT(*)" not in out
+
+
+def test_applications_stay_a_row_count():
+    sql = "SELECT COUNT(*) AS applications FROM curated.v_cm_elevate WHERE current_level = 'level2'"
+    assert p._cm_elevate_applicants_distinct("How many CM ELEVATE applications are pending at level 2?",
+                                             ["CM Elevate"], sql) == sql
+    legacy = "SELECT COUNT(*) AS records FROM curated.v_cm_elevate_disbursement"
+    assert p._cm_elevate_applicants_distinct("How many applicants?", ["CM Elevate"], legacy) == legacy

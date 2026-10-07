@@ -256,7 +256,7 @@ def state_to_resolved_entities(state: "ConversationState | None") -> dict:
         # Not a real stored value — must never be copied into resolve_entities'
         # `resolved` dict (that feeds the SQL prompt's WHERE-clause filter
         # verbatim, see prompt_builder._entities_block). This key exists only
-        # so _answer_data can tell _needs_tranche_clarification "the user
+        # so the DATA stages can tell _needs_tranche_clarification "the user
         # already picked 'all tranches combined' earlier this session" without
         # re-asking on a bare follow-up that doesn't restate "tranche".
         out["tranche_all_combined"] = True

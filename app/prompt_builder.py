@@ -278,6 +278,19 @@ def _entities_block(entity_result: dict, question: str = "",
                         "block of the same name — never filter lgd_block for it. Records "
                         "with no village carry no constituency; say the constituency comes "
                         "from the geography registry.")
+                elif list(schemes or []) == ["CM Elevate"]:
+                    # Same route as CM Elevate Legacy: v_cm_elevate has no
+                    # constituency column but every row carries geography_key,
+                    # a key of dim_geography, which holds ac_name (CM Elevate
+                    # Legacy TC-31, test run 2026-10-06).
+                    lines.append(
+                        f"  the {v!r} assembly constituency   -- v_cm_elevate has NO "
+                        "constituency column. Join it: FROM curated.v_cm_elevate v JOIN "
+                        "curated.dim_geography g ON g.geography_key = v.geography_key, then "
+                        f"filter UPPER(g.ac_name) = UPPER({v!r}). Count applicants as "
+                        "COUNT(DISTINCT v.request_id). This is the constituency, NOT a block of "
+                        "the same name — never filter lgd_block for it; qualify every place "
+                        "column with v. (dim_geography has columns of the same names).")
                 elif _focus_legacy_only(schemes):
                     # v_focus_legacy has NO constituency column. The AC is
                     # reached through the documented dimension join on
@@ -661,3 +674,45 @@ def build_verify_prompt(question: str, schemes: list[str], entity_result: dict, 
                   'checks are violated, or {"ok": false, "issue": "<which of the four '
                   'checks it fails, and how>"} if one is.\nJSON:'),
     ], schemes=schemes)
+
+
+# ── Query rephraser (pipeline.rephrase_question, graph node `rephrase`) ──────
+# Rewrites a messy NEW question into one clean English question. The rules
+# below are also enforced in code (pipeline._rephrase_violation): a rewrite
+# that adds, drops or changes a scheme, place, year, number or measure is
+# thrown away and the original question goes on unchanged.
+_REPHRASE_RULES = """You clean up questions asked to a government data assistant for Meghalaya.
+The schemes are MGNREGA, PMAY-G, Focus Plus, Focus Legacy, CM Elevate and CM Elevate Legacy.
+Rewrite the user's message as ONE clear, grammatical English question that means exactly the same thing.
+
+Rules:
+1. Fix spelling, grammar and word order. Translate Hindi / Hinglish words into English.
+2. Keep every scheme, place, year, number and amount the user gave. Add none of your own.
+3. Copy place names (districts, blocks, villages, abbreviations like ekh or wgh) EXACTLY as written.
+   Do not expand, correct or guess them.
+4. Keep what the user is asking for (person-days, houses, payments, applications, amount,
+   women, ...). Never swap it for a different measure, even if you think the scheme does not
+   have it. Keep a vague word vague ("money" stays "money").
+5. A short year like 23-24 means FY 2023-24.
+6. If something is unclear, keep the user's words for it. Never ask a question back. Never answer.
+7. If the message is already a clear question, return it unchanged.
+Return ONLY the rewritten question on one line.
+
+Examples:
+Message: manrega persondays ekh 23-24 how much
+Rephrased question: How many MGNREGA person-days were generated in ekh in FY 2023-24?
+Message: pmay mein kitne ghar sanction hue ri bhoi 2022-23
+Rephrased question: How many PMAY-G houses were sanctioned in ri bhoi in FY 2022-23?
+Message: how many aplications under cm elevate in shillong
+Rephrased question: How many applications are there under CM Elevate in shillong?
+Message: focus plus wgh paisa kitna diya
+Rephrased question: How much money was given under Focus Plus in wgh?
+Message: focus plus person days mawlwai all years
+Rephrased question: How many person-days are there under Focus Plus in mawlwai across all financial years?
+Message: mahila ko kaam ke din mgnrega west garo hills 2024-25
+Rephrased question: How many person-days were given to women under MGNREGA in west garo hills in FY 2024-25?
+"""
+
+
+def build_rephrase_prompt(question: str) -> str:
+    return f"{_REPHRASE_RULES}\nMessage: {question.strip()}\nRephrased question:"

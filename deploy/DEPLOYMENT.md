@@ -5,7 +5,7 @@ the systemd unit. Capacity budget 20–40 concurrent, 100–200 DAU — see
 [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
 
 The service is a single FastAPI app (`app.main:app`). It talks to Postgres
-(`megh_db`), Qdrant, and the self-hosted Qwen gateway — all on `10.48.242.4`.
+(`megh_db`) and the self-hosted Qwen gateway on `10.48.242.4`, and Qdrant on `115.124.102.167:6335`.
 
 ---
 
@@ -14,7 +14,7 @@ The service is a single FastAPI app (`app.main:app`). It talks to Postgres
 | | |
 | --- | --- |
 | Python | **3.11+** (verified on 3.11.9) |
-| Reachable | `10.48.242.4:5432` (Postgres), `:6333` (Qdrant), `:443` (model gateway) |
+| Reachable | `10.48.242.4:5432` (Postgres), `:443` (model gateway); `115.124.102.167:6335` (Qdrant, since 2026-10-03) |
 | User | `ubuntu` (matches `User=` in the unit) |
 
 ## 2. Lay the code down
@@ -119,21 +119,105 @@ On` and roll to the second VM. Rollback is one line + reload.
 ## 8. Verify
 
 ```bash
-curl -s localhost:8300/health            # anonymous: {"status":"ok"} only
-curl -s -H "X-Metrics-Token: $METRICS_TOKEN" localhost:8300/health    # + "components"
-curl -s -H "X-Metrics-Token: $METRICS_TOKEN" localhost:8300/metrics   # or an admin JWT
-curl -s -H "Authorization: Bearer <user JWT>" localhost:8300/api/rag/status   # KB point count
+curl -s localhost:8400/health            # anonymous: {"status":"ok"} only
+curl -s -H "X-Metrics-Token: $METRICS_TOKEN" localhost:8400/health    # + "components"
+curl -s -H "X-Metrics-Token: $METRICS_TOKEN" localhost:8400/metrics   # or an admin JWT
+curl -s -H "Authorization: Bearer <user JWT>" localhost:8400/api/rag/status   # KB point count
 ```
 
 `/health` reports `degraded` with the failing component named when Postgres or
 Qdrant is unreachable — the service still starts, by design, so a dependency
 outage does not take the whole app down.
 
+Checkpointer: Postgres only (`PIPELINE_GRAPH_CHECKPOINTER_DSN=postgres`, the
+default). The first graph request on each worker opens a pool of
+`PIPELINE_GRAPH_PG_POOL_MAX` (default 2) connections: 2 VMs x 2 workers x 2 =
+8 connections. `/health` -> `components.pipeline_graph` must read `postgres`;
+`memory` means the pool could not open (check `DATABASE_URL` / role). The
+tables `app.checkpoints`, `app.checkpoint_blobs`, `app.checkpoint_writes`,
+`app.checkpoint_migrations` already exist in megh_db (owner `postgres`, v9);
+`setup()` is a no-op on them. If the app ever runs as `megh_app`, those four
+tables need its grants (sql/01's default privileges cover tables created later
+by the granting role only). The `public.checkpoint*` tables belong to another
+service; leave them alone. There is no SQLite checkpoint any more; old
+`logs/langgraph_checkpoints.sqlite*` files are unused. If Postgres cannot be
+opened a worker uses in-process memory and answers stay correct (see
+docs/LANGGRAPH_PAUSE_RESUME.md §4).
+
 First start also: creates the `app.*` schema, seeds `app.users` from
 `app/users.yaml` **only if that table is empty**, and ingests the scheme KB into
 Qdrant (skipped when the collection is already populated).
 
 ---
+
+## Side-by-side with an existing deploy (2026-10-04)
+
+An earlier build of this project is already deployed. Nothing in this tree may
+overwrite it, so **every name this build uses is different**. Deploy it to its
+own directory and the two run in parallel; you switch over only when ready.
+
+| Thing | Existing deploy | This (LangGraph) build |
+|---|---|---|
+| Directory | `/opt/meghalaya` | **`/opt/meghalaya-langgraph`** |
+| systemd unit | `megh-nlpservice.service` | **`megh-langgraph.service`** |
+| App port (bare metal) | 8300 | **8410** |
+| nginx vhost file | `nginx-nlpservice.conf` | **`nginx-megh-langgraph.conf`** |
+| nginx rate-limit zones | `api_rl`, `login_rl`, `conn_per_ip` | **`*_lg`** (must be unique per file) |
+| compose project | default (`meghalaya`) | **`megh-langgraph`** (`name:` in compose) |
+| Image | `megh-nlp:latest` | **`megh-langgraph:latest`** |
+| Containers | `megh-nlp`, `megh-qdrant`, `megh-redis` | **`megh-langgraph-nlp`, `-qdrant`, `-redis`** |
+| Container port / host port | 8300 / 8401 | **8400 / 8411** |
+| Local Qdrant / Redis host ports | 6333 / 6379 | **6343 / 6389** |
+| Named volumes | `meghalaya_hf_cache`, `meghalaya_qdrant_data` | **`megh-langgraph_hf_cache`, `megh-langgraph_qdrant_data`** |
+
+**Why each one matters.** Docker identifies containers, images, networks and
+volumes *by name*: re-using a name makes `docker compose up` adopt and replace
+the running stack instead of starting a second one. Volume names are prefixed
+with the compose project, so `name: megh-langgraph` separates the data too.
+systemd keys services by unit filename. Two processes cannot bind one port, and
+nginx refuses to start if two enabled vhosts declare the same `limit_req_zone`
+name or both claim `default_server`.
+
+### Bare metal
+
+```bash
+sudo mkdir -p /opt/meghalaya-langgraph && sudo chown ubuntu:ubuntu /opt/meghalaya-langgraph
+# copy THIS tree there (never into /opt/meghalaya), then:
+cd /opt/meghalaya-langgraph
+python3.11 -m venv .venv && ./.venv/bin/pip install -r requirements.txt
+cp /opt/meghalaya/.env .env     # start from the live config, then edit
+# .env MUST differ: PORT=8410, and any path/port the old one owns.
+
+sudo cp deploy/systemd/megh-langgraph.service /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now megh-langgraph
+systemctl status megh-langgraph --no-pager      # old service must still be active
+curl -s localhost:8410/health                   # new
+curl -s localhost:8300/health                   # old, unchanged
+
+sudo cp deploy/nginx/nginx-megh-langgraph.conf /etc/nginx/sites-available/megh-langgraph
+# Set a distinct server_name (e.g. chat-new.<domain>) and drop `default_server`
+# unless you have removed it from the old vhost.
+sudo ln -s /etc/nginx/sites-available/megh-langgraph /etc/nginx/sites-enabled/
+sudo nginx -t && sudo systemctl reload nginx
+```
+
+### Docker
+
+```bash
+cd /opt/meghalaya-langgraph
+docker compose build && docker compose up -d
+docker ps --format '{{.Names}}	{{.Ports}}'    # old megh-nlp must still be listed
+curl -s 127.0.0.1:8411/health
+```
+
+`docker compose down` here only stops this project, because of the `name:` key.
+Run it from `/opt/meghalaya-langgraph`, never from the old directory.
+
+### Switching over / rolling back
+
+Switch: point the DNS name (or the old vhost's `proxy_pass`) at `8410` / `8411`.
+Roll back: point it back. Both stacks keep running, so a rollback needs no
+rebuild. Retire the old one only after the new build has run cleanly.
 
 ## Database roles and retention
 

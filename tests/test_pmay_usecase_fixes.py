@@ -505,3 +505,48 @@ def test_calendar_year_zero_is_a_genuine_zero():
                                {"district": "RI BHOI"}, calendar_year=2016)
     assert "No PMAY-G houses were sanctioned" in p._pmay_facts_answer(spec, [])
 
+
+
+# ── PMAY-G officer cases, every place (2026-10-02) ───────────────────────────
+@pytest.mark.parametrize("q,expected", [
+    ("How many PMAY-G beneficiaries in UMSAW have received their full sanctioned amount, JIRANG block, RI BHOI "
+     "across all financial years", True),
+    ("How many houses in UMSAW, JIRANG block, RI BHOI for FY 2022-23", True),
+    ("How many houses in UMSAW, JIRANG block, RI BHOI", False),            # the village hint covers this one
+    ("houses in Jirang block across all financial years", False),          # no village chip tail
+])
+def test_a_year_chip_after_a_village_chip_is_recognised(q, expected):
+    # the year pause replaced the remembered village hint; without this the
+    # village was re-asked forever (UMSAW, JIRANG block)
+    assert bool(p._YEAR_AFTER_CHIP_TAIL_RE.search(q)) is expected
+
+
+def test_two_village_comparison_settles_the_place():
+    # "MALANG KHASI or SIDAKANDI" asked "which Khasi Hills district?"
+    import inspect
+    assert '"village_code_list"' in inspect.getsource(p._data_clarification_stage)
+
+
+def test_burma_beside_another_village_is_the_village(monkeypatch):
+    async def names(scheme):
+        return {"BURMA": [{"village_code": 278981}], "JEWILGRE": [{"village_code": 1}]}
+
+    async def scan(q, scheme):
+        return ("JEWILGRE", [{"village_code": 1, "block": "X", "district": "Y"}])
+    monkeypatch.setattr(p, "_scheme_village_names", names)
+    monkeypatch.setattr(p, "_scan_village_in_question", scan)
+    hit = {"type": "off_topic"}
+    q = "Which has more completed PMAY-G houses: JEWILGRE or BURMA?"
+    assert asyncio.run(p._mgnrega_village_not_out_of_area(q, hit)) is True
+
+
+def test_chosen_village_reading_lets_a_block_named_village_compare(monkeypatch):
+    async def names():
+        return {"PECHUA": [{"village_code": 273011, "name": "PECHUA"}],
+                "LASKEIN": [{"village_code": 279237, "name": "LASKEIN"}]}
+    monkeypatch.setattr(p, "_pmay_village_names", names)
+    monkeypatch.setattr(p, "canonical_names", lambda s, d: ["LASKEIN"] if d == "block" else [])
+    bare = "Which has more completed PMAY-G houses: PECHUA or LASKEIN?"
+    chosen = bare.rstrip("?") + ", the village, not the block across all financial years"
+    assert asyncio.run(p._pmay_two_villages(bare)) is None           # LASKEIN is also a block: ask first
+    assert {c["village_code"] for c in asyncio.run(p._pmay_two_villages(chosen))} == {273011, 279237}

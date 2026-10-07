@@ -52,7 +52,9 @@ def test_mgnrega_is_unchanged():
     assert _ac_dimension_available(REPORTED, ["MGNREGA"]) is True
 
 
-@pytest.mark.parametrize("scheme", ["PMAY-G", "Focus Plus", "CM Elevate"])
+# CM Elevate left this list on 2026-10-06: v_cm_elevate carries geography_key,
+# the same route to dim_geography.ac_name CM Elevate Legacy uses (TC-31).
+@pytest.mark.parametrize("scheme", ["PMAY-G", "Focus Plus"])
 def test_schemes_with_no_ac_column_still_refuse(scheme):
     """These genuinely have no route to a constituency, so offering the chip
     would invite a choice that can never be answered."""
@@ -62,7 +64,15 @@ def test_schemes_with_no_ac_column_still_refuse(scheme):
 def test_the_capable_set_is_exactly_the_schemes_with_a_route():
     # CM Elevate Legacy joined 2026-09-25: geography_key -> dim_geography.ac_name,
     # which reproduces the source's mapped_constituency_name exactly.
-    assert set(_AC_CAPABLE_SCHEMES) == {"MGNREGA", "Focus Legacy", "CM Elevate Legacy"}
+    # CM Elevate (applications) joined 2026-10-06 by the same join (TC-31).
+    assert set(_AC_CAPABLE_SCHEMES) == {"MGNREGA", "Focus Legacy", "CM Elevate Legacy", "CM Elevate"}
+
+
+def test_cm_elevate_applications_offer_the_constituency_reading():
+    """"How many CM-ELEVATE applications are mapped to Umsning?" offered only
+    block or village and answered the block (CM Elevate Legacy TC-31)."""
+    assert _ac_dimension_available("How many CM-ELEVATE applications are mapped to Umsning?",
+                                   ["CM Elevate"]) is True
 
 
 def test_a_cross_scheme_question_does_not_offer_ac():

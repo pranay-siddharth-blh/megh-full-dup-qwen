@@ -288,6 +288,26 @@ Notes on the table:
   (`_SCHEME_FIT`, copied from the reference FAQs).
 - Unsupported named schemes (PM-KISAN, Ujjwala, …) → `_unsupported_scheme_clarification`.
 
+### All-places QA, all six schemes (2026-10-02, VERIFIED live vs `megh_db`)
+Every district, block and village of each scheme, plus the PMAY-G and CM Elevate officer case sets.
+Verdict = the latest run on the final code. Reports: `docs/<Scheme>_LangGraph_Test_Results.xlsx`,
+summary `docs/All_Schemes_LangGraph_Test_Results_Summary.xlsx` (all runs on the LangGraph path).
+
+| Set | Cases | Pass | Truth rule |
+|---|---|---|---|
+| MGNREGA (12 districts, 56 blocks, villages) | 6,378 | 6,378 | `SUM(person_days)` / `total_exp` (lakh) |
+| PMAY-G | 5,256 | 5,256 | `COUNT(*)` where `NOT is_placeholder` |
+| PMAY-G officer cases (PMAY-OFF-001..028, all places) | 5,833 | 5,833 | per case |
+| Focus Plus | 3,651 | 3,651 | `COUNT(DISTINCT beneficiary_key)`; block = `block_name_raw`, else `lgd_block` (KI-191) |
+| CM Elevate | 2,165 | 2,165 | `COUNT(DISTINCT request_id)` |
+| CM Elevate officer sets (OFF-009 1,260; OFF-017 192; OFF-018 832) | 2,284 | 2,284 | per set |
+| CM Elevate Legacy | 1,193 | 1,193 | `COUNT(*)` |
+| Focus Legacy | 3,520 | 3,520 | `COUNT(DISTINCT pg_id)` |
+| **Total** | **30,280** | **30,280** | 1,667 failed on their first run and were fixed (KI-182, KI-187..198) |
+
+Limits: one question shape per place and scheme (KI-199). Since 2026-10-02 every scheme is a
+village scheme, and a single-village query is pinned to its `village_code` (D-034).
+
 ## Adding a scheme
 
 Schemes are hand-registered. As of 2026-09-26, missing any one registry leaves the scheme

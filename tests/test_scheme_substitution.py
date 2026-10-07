@@ -37,6 +37,7 @@ from app import context_policy as cp  # noqa: E402
 from app import entity_resolver, llm, pipeline as p  # noqa: E402
 from app.routers import query as router  # noqa: E402
 from app.session_store import ConversationState, Session, Turn  # noqa: E402
+from _graph_turn import data_stage_from, graph_turn, stub_data_path  # noqa: E402
 
 SCHEMES = list(p.SCHEME_CATALOG)
 CUES = ["same for {s}", "do the same for {s}", "same thing for {s}", "give me same for {s}",
@@ -147,15 +148,16 @@ def _run(prev_turn, state, followup, *, model_rewrite="unused"):
         return {"answer": "general info", "confidence": "medium", "sources": []}
 
     import app.rag as rag
-    orig = (llm.call_classifier, p._answer_data, rag.answer_from_kb)
-    llm.call_classifier, p._answer_data, rag.answer_from_kb = classifier, fake_answer_data, kb
+    orig = (llm.call_classifier, p._data_scheme_stage, rag.answer_from_kb)
+    llm.call_classifier, p._data_scheme_stage, rag.answer_from_kb = (
+        classifier, data_stage_from(fake_answer_data), kb)
     try:
         s = Session(session_id="t", user_id="u", created=time.time(), last_seen=time.time())
         s.turns, s.state = [prev_turn], state
-        res = asyncio.run(p._run_pipeline(followup, session=s))
+        res = asyncio.run(graph_turn(followup, session=s))
         seen["route"], seen["plan"] = res.get("route"), s.turn_context.get("plan") or {}
     finally:
-        llm.call_classifier, p._answer_data, rag.answer_from_kb = orig
+        llm.call_classifier, p._data_scheme_stage, rag.answer_from_kb = orig
     return seen
 
 

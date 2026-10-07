@@ -305,7 +305,7 @@ _LEAD_RX = re.compile(
 def continuation_signals(question: str) -> list[str]:
     """Why `question` may continue the previous turn, as a list of signal
     names (empty = it shares nothing with a scheme conversation). Read by
-    pipeline._run_pipeline before the edge check and the follow-up rewrite,
+    pipeline._turn_context_stage before the edge check and the follow-up rewrite,
     and logged, so "why did this turn inherit the scheme?" has an answer."""
     q = (question or "").strip()
     if not q:

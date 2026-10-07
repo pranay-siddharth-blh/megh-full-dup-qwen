@@ -593,6 +593,9 @@ CM ELEVATE TABLES
       lgd_district/lgd_block/lgd_village_name/entity_type are on the row directly.
       NO year_key, NO date column of any kind — see CM ELEVATE RULES rule 2.
       NO money column of any kind — see CM ELEVATE RULES rule 1.
+      NO constituency column: for an assembly constituency JOIN curated.dim_geography g
+      ON g.geography_key = v.geography_key and filter UPPER(g.ac_name) = UPPER('<name>')
+      (qualify the view's place columns with v.); it is NOT the block of the same name.
   curated.dim_cm_elevate_scheme  -- 15 rows, one per individual scheme. Read this
       directly (never a DISTINCT over the fact) for "how many schemes" / "list the
       schemes" — a scheme with zero applications is invisible in the fact.

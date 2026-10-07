@@ -18,3 +18,12 @@ qdrant-client>=1.19,<2.0
 python-multipart>=0.0.32,<0.1
 fastembed>=0.8,<1.0        # local CPU embeddings (EMBEDDING_PROVIDER=local)
 redis>=8.1,<9.0            # optional shared L2 response cache (REDIS_URL)
+# LangGraph orchestrator (app/pipeline_graph.py, D-032; off unless
+# PIPELINE_GRAPH_ENABLED / _CANARY_PERCENT). Pulls langchain-core and langsmith
+# (LangSmith tracing stays off unless LANGSMITH_TRACING is set), and
+# langgraph-sdk pins websockets<17.
+langgraph>=1.2,<2.0
+# The checkpointer, shared across workers and VMs (PIPELINE_GRAPH_CHECKPOINTER_DSN=postgres,
+# tables in app.*; verified live 2026-10-02). psycopg 3 is used only for this.
+langgraph-checkpoint-postgres>=3.1,<4.0
+psycopg[binary,pool]>=3.2,<4.0

@@ -30,6 +30,7 @@ import pytest
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import pipeline as p  # noqa: E402
+from _graph_turn import data_stage_from, graph_turn, stub_data_path  # noqa: E402
 
 
 def run(coro):
@@ -281,13 +282,13 @@ def test_typed_scheme_resume_is_remembered_whole_when_it_pauses_again(monkeypatc
 
     async def classifier(prompt, **_kw):
         return '{"intent": "DATA"}'
-    monkeypatch.setattr(p, "_answer_data", scope_pause)
+    stub_data_path(monkeypatch, scope_pause)
     monkeypatch.setattr(llm, "call_classifier", classifier)
     sess = Session(session_id="t", user_id="u", created=time.time(), last_seen=time.time())
     bank_q = "Which bank processed the highest total disbursement?"
     router.remember_pause(sess, bank_q, p._bank_clarification(bank_q))
     with pytest.raises(p.ClarificationNeeded) as e:
-        run(p._run_pipeline("Focus Plus", session=sess))
+        run(graph_turn("Focus Plus", session=sess))
     remembered = router.pause_question(sess, "Focus Plus")
     assert remembered == "Which bank processed the highest total disbursement for Focus Plus"
     router.remember_pause(sess, remembered, e.value)
@@ -366,8 +367,10 @@ def test_village_scheme_is_single_village_grained_scheme():
     # CM Elevate joined on 2026-09-28 (CM Elevate all-villages run, KI-106: block
     # total for a village, village name in the district slot, a neighbour's code).
     assert p._village_scheme(["CM Elevate"]) == "CM Elevate"
-    assert p._village_scheme(["CM Elevate Legacy"]) is None
-    assert p._village_scheme(["Focus Legacy"]) is None
+    assert p._village_scheme(["CM Elevate Legacy"]) == "CM Elevate Legacy"   # joined 2026-10-02
+    # Focus Legacy joined on 2026-10-02 (bare village names, all-villages run)
+    assert p._village_scheme(["Focus Legacy"]) == "Focus Legacy"
+    assert p._village_scheme(["PMAY-G", "Focus Plus"]) is None   # several schemes: outside the gate
     # MGNREGA keeps its exact old gate (schemes[0] == "MGNREGA", any length)
     assert p._village_scheme(["MGNREGA", "PMAY-G"]) == "MGNREGA"
     assert p._village_scheme(["Focus Plus", "MGNREGA"]) is None
@@ -438,9 +441,10 @@ def test_twin_village_chips_carry_the_lgd_code():
 
 
 def test_twin_tag_only_for_village_grained_schemes_and_real_twins():
-    # a scheme outside the village gate gets no tag (PMAY-G and CM Elevate are inside it
-    # since 2026-09-28; CM Elevate Legacy is not)
-    assert p._village_chip_label(_TWINS[0], _TWINS, ["CM Elevate Legacy"]) == "BOLDAMGRE — SELSELLA block, WEST GARO HILLS"
+    # a question outside the village gate gets no tag (PMAY-G and CM Elevate are inside it
+    # since 2026-09-28, Focus Legacy and CM Elevate Legacy since 2026-10-02)
+    assert p._village_chip_label(_TWINS[0], _TWINS, ["PMAY-G", "Focus Plus"]) == "BOLDAMGRE — SELSELLA block, WEST GARO HILLS"
+    assert "(LGD" in p._village_chip_label(_TWINS[0], _TWINS, ["CM Elevate Legacy"])
     assert "(LGD" in p._village_chip_label(_TWINS[0], _TWINS, ["CM Elevate"])
     assert "(LGD" in p._village_chip_label(_TWINS[0], _TWINS, ["PMAY-G"])
     assert p._village_chip_label(_TWINS[2], _TWINS, ["Focus Plus"]) == "BOLDAMGRE — DADENGGIRI block, WEST GARO HILLS"
@@ -551,7 +555,7 @@ def test_connection_errors_are_classified():
     assert not db.is_connection_error(asyncio.TimeoutError())  # slow query keeps its 504 path
 
 
-def test_execute_with_repair_does_not_repair_a_dropped_connection(monkeypatch):
+def test_execute_attempt_does_not_repair_a_dropped_connection(monkeypatch):
     repairs = []
 
     async def verify(*_a, **_k):
@@ -566,14 +570,18 @@ def test_execute_with_repair_does_not_repair_a_dropped_connection(monkeypatch):
     monkeypatch.setattr(p, "_verify_sql", verify)
     monkeypatch.setattr(p, "run_readonly", down)
     monkeypatch.setattr(p.llm, "call_sql_generator", generator)
+    from app import pipeline_graph as pg
+    state = {**pg.fresh_turn_state("How many beneficiaries in NANDICHAR II?"),
+             "data_question": "How many beneficiaries in NANDICHAR II?", "schemes": ["Focus Plus"],
+             "entity_result": {"resolved": {"village_code": 273993}},
+             "sql": "SELECT COUNT(*) FROM curated.v_focus_plus WHERE village_code = 273993",
+             "sql_attempt": 0}
     with pytest.raises(p.DatabaseUnavailableError):
-        run(p.execute_with_repair("How many beneficiaries in NANDICHAR II?", ["Focus Plus"],
-                                  {"resolved": {"village_code": 273993}},
-                                  initial_sql="SELECT COUNT(*) FROM curated.v_focus_plus WHERE village_code = 273993"))
+        run(pg.node_execute_attempt.stage_fn(state, pg.GraphContext()))
     assert repairs == []                                      # no 30B repair spent
 
 
-def test_run_pipeline_does_not_answer_a_database_outage_from_the_kb(monkeypatch):
+def test_graph_does_not_answer_a_database_outage_from_the_kb(monkeypatch):
     import time
     from app import llm
     from app.session_store import Session
@@ -588,10 +596,42 @@ def test_run_pipeline_does_not_answer_a_database_outage_from_the_kb(monkeypatch)
 
     async def classifier(prompt, **_kw):
         return '{"intent": "DATA"}'
-    monkeypatch.setattr(p, "_answer_data", answer_data)
+    stub_data_path(monkeypatch, answer_data)
     monkeypatch.setattr(p, "_data_path_kb_fallback", fallback)
     monkeypatch.setattr(llm, "call_classifier", classifier)
     sess = Session(session_id="t", user_id="u", created=time.time(), last_seen=time.time())
     with pytest.raises(p.DatabaseUnavailableError):
-        run(p._run_pipeline("How many Focus Plus beneficiaries are there in NANDICHAR II?", session=sess))
+        run(graph_turn("How many Focus Plus beneficiaries are there in NANDICHAR II?", session=sess))
     assert kb == []
+
+
+# ── Ten LGD blocks the Focus Plus source file never names (all-blocks run 2026-10-02) ──
+@pytest.mark.parametrize("sql,expected", [
+    ("SELECT COUNT(DISTINCT beneficiary_key) AS b FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'ADOKGRE' LIMIT 1",
+     "SELECT COUNT(DISTINCT beneficiary_key) AS b FROM curated.v_focus_plus WHERE lgd_block = 'ADOKGRE' LIMIT 1"),
+    ("SELECT SUM(amount_disbursed) FROM curated.v_focus_plus WHERE block_name_raw ILIKE 'Siju' AND financial_year_short = '2025-26'",
+     "SELECT SUM(amount_disbursed) FROM curated.v_focus_plus WHERE lgd_block = 'SIJU' AND financial_year_short = '2025-26'"),
+    # a block the source file does name keeps block_name_raw (lgd_block is NULL on 15% of rows)
+    ("SELECT COUNT(*) FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'SONGSAK'",
+     "SELECT COUNT(*) FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'SONGSAK'"),
+])
+def test_focusplus_lgd_only_block_is_filtered_on_lgd_block(monkeypatch, sql, expected):
+    monkeypatch.setattr(p, "_FOCUSPLUS_RAW_BLOCKS", {"SONGSAK", "KHARKUTTA", "BAGHMARA"})
+    assert asyncio.run(p._focusplus_lgd_only_block(["Focus Plus"], sql)) == expected
+
+
+def test_focusplus_block_rewrite_is_focus_plus_only(monkeypatch):
+    monkeypatch.setattr(p, "_FOCUSPLUS_RAW_BLOCKS", {"SONGSAK"})
+    sql = "SELECT 1 FROM t WHERE UPPER(block_name_raw) = 'ADOKGRE'"
+    assert asyncio.run(p._focusplus_lgd_only_block(["Focus Legacy"], sql)) == sql
+
+
+# ── A spelled-out figure becomes digits, every scheme (all-blocks run 2026-10-02) ──
+@pytest.mark.parametrize("answer,rows,expected", [
+    ("Eighteen producer groups received payments under Focus Legacy in Shella Bholaganj block.",
+     [{"producer_groups": 18}], "18 producer groups received payments under Focus Legacy in Shella Bholaganj block."),
+    ("Twelve houses were sanctioned in the village.", [{"houses": 12}], "12 houses were sanctioned in the village."),
+    ("Two houses were sanctioned.", [{"houses": 3}], "Two houses were sanctioned."),     # not the result's value
+])
+def test_number_words_become_digits_for_every_scheme(answer, rows, expected):
+    assert p._cme_digits_for_number_words(answer, rows) == expected
