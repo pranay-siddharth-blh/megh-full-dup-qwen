@@ -657,3 +657,122 @@ not recorded.*
   "No React" rule is superseded.
 - **Status:** Active. Browser test (headless Chrome, scratchpad `uitest/ui_test.mjs`): 53/53
   checks; real backend sign-in errors verified; signed-in flows verified with stand-in replies.
+
+### D-039 — Answers stream to the chat UI, with live progress steps, Stop and Regenerate
+- **Date:** 2026-10-07 (`app/turn_events.py` new; `app/routers/query.py` `query_stream`, `_answer`,
+  `QueryRequest.skip_cache`; `app/llm.py` `stream_model`, `call_response_composer`;
+  `app/pipeline_graph.py` `_observed`; `app/config.py` `STREAM_COMPOSER_ENABLED`,
+  `STREAM_PING_SECONDS`; `frontend/src/chat/api.js` `streamNLPResponse`, `App.jsx`, `Messages.jsx`;
+  `deploy/nginx/nginx-megh-langgraph.conf`; `tests/test_query_stream.py`).
+- **Decision:** the user asked for four UI improvements: streaming answers, live progress steps,
+  a Stop button and Regenerate / Retry. This supersedes CLAUDE.md's "No WebSocket, no streaming"
+  rule for the chat answer (still no WebSocket).
+  - `POST /api/query/stream` runs the SAME turn as `/api/query` (the body moved verbatim into
+    `_answer`) and sends Server-Sent Events: `step` (a graph node started, from `_observed`),
+    `draft_reset` / `token` (the composer's text as the model writes it), then `done` with exactly
+    the `/api/query` result, or `error` with the status `/api/query` would have raised.
+  - The composer streams only when a live client is bound (`turn_events`, a ContextVar). Every
+    other caller (`/api/query`, tests, scripts, harnesses) makes the unchanged, non-streamed call.
+  - **The streamed text is a draft, never the answer.** Number faithfulness, the strict retry,
+    the per-scheme guarantees and the deterministic rewrites still run on the full text; `done`
+    carries the checked answer and the UI replaces the draft with it. A strict retry sends
+    `draft_reset` and streams again. The draft is shown muted with a cursor until `done`.
+  - Stop aborts the request; the server sees the disconnect and cancels the turn (no turn is
+    saved). `skip_cache: true` (Regenerate, and Retry after an error or Stop) answers afresh and
+    writes the fresh answer back over the cached one.
+- **Fallbacks:** a stream that fails before any token falls back to the plain composer call;
+  a client that gets 404/405 or a network error before the first event falls back to
+  `/api/query`. `STREAM_COMPOSER_ENABLED=false` keeps the progress steps but sends the answer only
+  when complete.
+- **Reason:** answers take 2–3 s (up to 75 s at worst) with no sign of progress; officers could not
+  stop a wrong question or get a fresh answer when one looked wrong.
+- **Consequences:** a composer call holds its gateway slot for the length of the stream (as before:
+  the slot was held for the whole round trip). A draft figure that a guard later corrects is
+  visible for a moment before `done` replaces it; it is styled as provisional. The earlier
+  version of this app made the same draft-then-replace choice (outer repo, `dde9337`).
+  nginx: `/api/query/stream` has its own unbuffered location; the app also sends
+  `X-Accel-Buffering: no`. Regenerate appears on the latest answer only, and a regenerated
+  question is saved as a new turn, so a replayed thread shows it twice.
+- **Status:** Active. OFFLINE-VERIFIED (tests with the gateway and pipeline stubbed); not yet run
+  against the live gateway (VPN).
+
+### D-040 — Input guardrails: rules plus a model check, before any routing
+- **Date:** 2026-10-08 (`app/guardrails.py` new; `app/edge.py` `detect_harmful`, `guardrail_reply`;
+  `app/pipeline.py` `_turn_edge_stage`, `_needs_model_guard`; `app/config.py` `GUARDRAIL_MODEL_*`;
+  `tests/conftest.py`; `tests/test_guardrails.py`).
+- **Decision:** every question passes two guardrail layers at the top of the edge stage, before
+  the scheme pick, recommendation, routing or any pause (KI-218).
+  - **Rules** (deterministic, no model call) for ten categories: self-harm (a supportive reply
+    with Tele-MANAS 14416 and 112, never a refusal), violence, weapons, sexual content, hate,
+    drugs, hacking, a private person's identifiers, manipulation (prompt injection, SQL
+    statements), plus the existing illegal-request bank (`harmful`). Phrased on intent and target,
+    so questions about the same subjects pass ("people killed in floods", "how to kill pests").
+    Run on the typed text and on the routed one (a pause merge or rewrite can assemble a
+    harmful sentence). `edge.detect_harmful` runs them, so `detect_edge_case` and the pause-reply
+    bail check see them too.
+  - **Model** (`guardrails.check_model`): one classifier-model call on the typed text that judges
+    meaning, so wording, misspelling, speech transcription and Khasi / Garo / Hindi phrasings no
+    rule lists are still caught. The message is fenced as data inside the prompt. Skipped for a
+    pause reply and for a canned conversational turn ("hi", "thanks").
+- **Fallbacks:** the model check fails OPEN on a gateway error, timeout or unusable reply (the
+  rules already ran; logged as `pipeline_decision stage=guardrail outcome=error`).
+  `GUARDRAIL_MODEL_FAIL_CLOSED=true` refuses instead. `GUARDRAIL_MODEL_ENABLED=false` keeps the
+  rules only.
+- **Reason:** a single word list only moves the gap; the reported question was missed because one
+  verb was not listed.
+- **Consequences:** one extra classifier call (max 40 output tokens, 6 s timeout) on every new
+  question. A model false positive refuses a legitimate question; the prompt lists what is SAFE
+  (statistics about harm, fraud detection, farming) to keep that rare. Guardrail decisions are
+  logged with category and layer only, never the question text. Output (the composed answer) is
+  not checked; the input check is what stops a harmful request reaching the composer.
+- **Status:** Active. OFFLINE-VERIFIED (rules replayed over 3,033 audited questions: 9 blocked, all
+  violent; model layer tested with the gateway stubbed); not yet run against the live gateway.
+
+### D-041 — Out-of-scope requests are refused even when they name a scheme
+- **Date:** 2026-10-08 (`app/guardrails.py` `check_scope_rules`, `_SCOPE_RULES`, scope replies,
+  the model prompt's OUT_OF_SCOPE verdict; `app/pipeline.py` `_guardrail_check`, `_GENERIC_EDGE`;
+  `tests/test_guardrails.py`).
+- **Decision:** a request that is not harmful but is not this assistant's job is refused with a
+  plain "Sorry, I can't help with that — it's outside what I'm allowed to do", what it does not do,
+  and what it does (official figures and scheme information, with two example questions). This
+  holds EVEN WHEN the request is wrapped in scheme words ("write an Instagram post on MGNREGA
+  expenditure"), which the edge whitelist used to let through on the scheme word (KI-219).
+  Seven categories: `scope_content` (posts, captions, hashtags, essays, poems, letters,
+  presentations), `scope_code`, `scope_task` (booking, buying, applying or filling forms for the
+  user, approving or releasing money), `scope_politics`, `scope_academic`, `scope_advice`
+  (medical, legal), `scope_general`.
+  - Rules (`check_scope_rules`) are phrased on the TASK, never on a data word: "give me CM Elevate
+    applications", "village code", "MGNREGA programme", "translate the answer into Khasi",
+    "summary of PMAY-G progress" all pass.
+  - The guardrail model call (D-040) now also returns OUT_OF_SCOPE with a category; no second
+    call. Its prompt lists what is in scope (figures, how schemes work, scheme fit, follow-ups and
+    formatting, greetings) and says "when unsure, SAFE".
+  - A scope verdict replaces only edge's generic off-topic reply; edge's specific replies
+    (out-of-area, money advice, a loan request, capability) stand. A harm verdict always wins.
+  - Harm replies now open "I can't help with that — it goes against the rules I follow."
+- **Consequences:** a model false positive refuses an in-scope question with a polite reply; the
+  rules replayed over the 3,033 audited questions blocked 2 more (both "give me python code").
+- **Status:** Active. OFFLINE-VERIFIED (gateway stubbed); not yet run against the live gateway.
+
+### D-042 — The backend sends a chart hint; charts and tables expand full screen
+- **Date:** 2026-10-08 (`app/pipeline.py` `_chart_hint`, `_attach_chart_hint`; `app/pipeline_graph.py`
+  `node_finalize`; `frontend/src/chat/analytics.js`; `frontend/src/chat/components/Charts.jsx`,
+  `Messages.jsx`; `frontend/src/styles/chat.css`; `tests/test_chart_hint.py`).
+- **Decision:** charts stay client-side (Chart.js 4.4.1, rows from `data`), and the backend now
+  sets `chart_type` on a DATA result in the finalize node (KI-220):
+  - words the user typed or the rewrite kept win: pie, donut, stacked, grouped / side by side,
+    line chart / over the years, bar chart / histogram;
+  - otherwise the rows decide: one row with two or more figures -> `kpi_bar`; two label columns
+    and one additive measure with at most 8 series -> `stacked`; else no hint (the UI's own rule:
+    line for time, donut for six rows or fewer, bar otherwise).
+  - Numbers that are labels (year_key, codes, ids) are never charted as measures, on both sides.
+- **UI:** a real Pie type next to Bar / Donut / Line. Every chart and table card has an Expand
+  button that opens it full screen (Esc / backdrop closes; focus returns). An expanded chart uses
+  the full labels; an expanded bar chart with more than 12 categories turns horizontal and grows
+  24 px per category, so 100+ villages are readable. An expanded table has search and sortable
+  columns, and the row count shows above every table.
+- **Consequences:** frontend-only for Expand; `web/app/` was rebuilt (`npm run build`). The
+  follow-up "show that as a pie chart" gets the pie only if the follow-up rewrite re-runs the
+  previous query; untested against the live pipeline.
+- **Status:** Active. OFFLINE-VERIFIED (pytest for the hint; a Node check of analytics.js; build
+  passes); not yet checked in a browser.

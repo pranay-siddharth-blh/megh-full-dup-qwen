@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  adoptSessionId, archiveConversationApi, deleteConversationApi, fetchMe, fetchNLPResponse, getConversation,
+  adoptSessionId, archiveConversationApi, checkHealth, ConnectionError, deleteConversationApi, fetchMe, getConversation,
   getToken, listHistory, login, logoutRemote, pinConversationApi, renameConversationApi, resetSessionId,
-  setToken, setUnauthorizedHandler, storedSessionId,
+  setToken, setUnauthorizedHandler, StoppedError, storedSessionId, streamNLPResponse,
 } from './api.js';
 import { GLOSSARY, LANGS, UI_STRINGS, UNIFIED_SAMPLES, USE_CASES } from './constants.js';
-import { nowTime, todayLabel } from './format.js';
+import { nowTime, stampTime, todayLabel } from './format.js';
 import { useVoice } from './useVoice.js';
 import { BotMessage, TextMessage, TypingMessage } from './components/Messages.jsx';
 import { LoginScreen, Modal, UndoToast } from './components/Overlays.jsx';
@@ -47,6 +47,12 @@ export default function App() {
   const setInput = (v) => { inputRef.current = v; setInputState(v); };
   const textareaRef = useRef(null);
   const chatAreaRef = useRef(null);
+  const chatInnerRef = useRef(null);
+  // Smart auto-scroll: the chat follows new content only while the officer is
+  // at the bottom. Scrolled up to read, nothing moves; a "New answer" pill
+  // appears instead. Sending a question or opening a chat always goes down.
+  const followRef = useRef(true);
+  const [newBelow, setNewBelow] = useState(null);   // null | 'writing' | 'answer'
   const [lang, setLang] = useState('en');
   const strings = UI_STRINGS[lang] || UI_STRINGS.en;
   const [prompts, setPrompts] = useState({ title: 'Try a question', items: [] });
@@ -158,17 +164,26 @@ export default function App() {
       const turns = await getConversation(sid);
       const replay = [];
       for (const t of turns) {
-        replay.push({ id: nextId(), time: nowTime(), kind: 'user', text: t.question });
+        // The times the officer actually asked and got the answer, not "now":
+        // the turn is saved when the answer is ready (created_at), and
+        // latency_ms is how long that took, so the question was asked that
+        // much earlier.
+        const answeredAt = t.created_at ? new Date(t.created_at) : null;
+        const askedAt = answeredAt ? new Date(answeredAt.getTime() - (Number(t.latency_ms) || 0)) : null;
+        const askedTime = askedAt ? stampTime(askedAt) : nowTime();
+        const answerTime = answeredAt ? stampTime(answeredAt) : nowTime();
+        replay.push({ id: nextId(), time: askedTime, kind: 'user', text: t.question });
         // A turn saved with its full payload replays through the rich renderer
         // (charts, SQL, follow-ups); older turns fall back to text.
         if (t.response && typeof t.response === 'object') {
-          replay.push({ id: nextId(), time: nowTime(), kind: 'rich', question: t.question, response: t.response });
+          replay.push({ id: nextId(), time: answerTime, kind: 'rich', question: t.question, response: t.response });
         } else {
-          replay.push({ id: nextId(), time: nowTime(), kind: 'bot', text: t.answer || '(no answer recorded)' });
+          replay.push({ id: nextId(), time: answerTime, kind: 'bot', text: t.answer || '(no answer recorded)' });
         }
       }
       try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
       speakingRef.current = null; setSpeakingId(null);
+      followRef.current = true;
       setMessages(replay);
       setSessionId(sid);
       adoptSessionId(sid);
@@ -235,30 +250,138 @@ export default function App() {
   };
 
   // ── Sending ─────────────────────────────────────────────────────────────
-  const sendQuery = useCallback(async () => {
+  // The in-flight message shows the pipeline's steps and the answer as it is
+  // written (/api/query/stream, D-039). Stop aborts the request, which also
+  // cancels the turn on the server. `skipCache` (Regenerate) answers afresh.
+  const stopRef = useRef(null);
+  // ── Connection ──────────────────────────────────────────────────────────
+  // 'online' | 'down' (the server can't be reached, or it can't reach megh_db:
+  // the VPN dropped) | 'back' (just recovered; the banner says so briefly).
+  // A question that failed on the connection waits (waitingRef) and is asked
+  // again, once, when /health says the service is back.
+  const [conn, setConn] = useState('online');
+  const waitingRef = useRef(null);            // { msgId, q }
+  const messagesRef = useRef([]);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  const backTimer = useRef(0);
+  const connBack = useCallback(() => {
+    setConn((c) => (c === 'online' ? c : 'back'));
+    clearTimeout(backTimer.current);
+    backTimer.current = setTimeout(() => setConn((c) => (c === 'back' ? 'online' : c)), 4000);
+  }, []);
+
+  const runQuestion = useCallback(async (q, { skipCache = false, addUser = true } = {}) => {
     if (runningRef.current) return;           // one question at a time
-    const q = inputRef.current.trim();
-    if (!q) return;
     runningRef.current = true; setRunning(true);
+    followRef.current = true;                 // the officer just asked: show it
+    waitingRef.current = null;                // a new question replaces any waiting one
     const typingId = nextId();
-    setMessages((m) => [...m, { id: nextId(), time: nowTime(), kind: 'user', text: q }, { id: typingId, kind: 'typing' }]);
-    setInput('');
+    setMessages((m) => [
+      ...m,
+      ...(addUser ? [{ id: nextId(), time: nowTime(), kind: 'user', text: q }] : []),
+      { id: typingId, kind: 'typing', steps: [], draft: '' },
+    ]);
+    const patchTyping = (fn) => setMessages((m) => m.map((x) => (x.id === typingId ? { ...x, ...fn(x) } : x)));
+    const onEvent = (ev) => {
+      if (ev.type === 'step') patchTyping((x) => ({ steps: [...x.steps, ev.node] }));
+      else if (ev.type === 'draft_reset') patchTyping(() => ({ draft: '' }));
+      else if (ev.type === 'token') patchTyping((x) => ({ draft: x.draft + ev.text }));
+    };
+    const stop = new AbortController();
+    stopRef.current = stop;
     const dropTyping = (m) => m.filter((x) => x.id !== typingId);
     try {
-      const response = await fetchNLPResponse(q, lang, sessionRef.current);
+      const response = await streamNLPResponse(q, lang, sessionRef.current, { skipCache, signal: stop.signal, onEvent });
       setMessages((m) => [...dropTyping(m), response.answer
-        ? { id: nextId(), time: nowTime(), kind: 'rich', question: q, response }
-        : { id: nextId(), time: nowTime(), kind: 'bot', text: `Error: ${response.detail || 'Unable to process your query'}` }]);
+        ? { id: nextId(), time: nowTime(), kind: 'rich', question: q, response, animate: true, streamKey: typingId }
+        : { id: nextId(), time: nowTime(), kind: 'bot', retryQ: q, text: `Error: ${response.detail || 'Unable to process your query'}` }]);
+      connBack();                             // an answer arrived: the connection is fine
     } catch (err) {
-      setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), kind: 'bot', text: `Sorry, I encountered an error: ${err.message}` }]);
-      console.error('Query error:', err);
+      if (err instanceof ConnectionError) {
+        // Not an error with the question: the banner explains, and the
+        // question is asked again by itself when the connection is back.
+        const msgId = nextId();
+        waitingRef.current = { msgId, q };
+        setConn('down');
+        setMessages((m) => [...dropTyping(m), { id: msgId, time: nowTime(), kind: 'bot', retryQ: q, waiting: true,
+          text: 'Waiting for the connection. This question will be asked again as soon as it is back.' }]);
+      } else if (err instanceof StoppedError) {
+        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), kind: 'bot', retryQ: q, text: 'Stopped.' }]);
+      } else if (String(err.message) !== 'unauthorized') {
+        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), kind: 'bot', retryQ: q, text: `Sorry, I encountered an error: ${err.message}` }]);
+        console.error('Query error:', err);
+      } else {
+        setMessages(dropTyping);
+      }
     } finally {
+      if (stopRef.current === stop) stopRef.current = null;
       runningRef.current = false; setRunning(false);
       if (textareaRef.current) textareaRef.current.focus();
       // The turn is persisted server-side; re-read the history shortly after.
       setTimeout(loadHistory, 600);
     }
-  }, [lang, loadHistory]);
+  }, [lang, loadHistory, connBack]);
+
+  const sendQuery = useCallback(() => {
+    if (runningRef.current) return;
+    const q = inputRef.current.trim();
+    if (!q) return;
+    setInput('');
+    runQuestion(q);
+  }, [runQuestion]);
+
+  const stopQuery = useCallback(() => { if (stopRef.current) stopRef.current.abort(); }, []);
+
+  // Retry (after an error or Stop) and Regenerate (the last answer): the same
+  // question again in place of that message, never from the cache.
+  const rerun = useCallback((msgId, q) => {
+    if (runningRef.current || !q) return;
+    stopSpeaking();
+    setMessages((m) => m.filter((x) => x.id !== msgId));
+    runQuestion(q, { skipCache: true, addUser: false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [runQuestion]);
+  const rerunRef = useRef(rerun);
+  rerunRef.current = rerun;
+
+  // While the connection is down: poll /health (3 s, backing off to 15 s; at
+  // once when the browser reports it is online again). When it is back, ask
+  // the waiting question again if it is still the latest message.
+  const pollNow = useRef(() => {});
+  const connDown = conn === 'down';
+  useEffect(() => {
+    if (!connDown) return undefined;
+    let stopped = false;
+    let delay = 3000;
+    let timer = 0;
+    const tick = async () => {
+      clearTimeout(timer);
+      const h = navigator.onLine === false ? 'down' : await checkHealth();
+      if (stopped) return;
+      if (h === 'ok') {
+        connBack();
+        const w = waitingRef.current;
+        const msgs = messagesRef.current;
+        if (w && msgs.length && msgs[msgs.length - 1].id === w.msgId && !runningRef.current) {
+          rerunRef.current(w.msgId, w.q);
+        }
+        waitingRef.current = null;
+        return;
+      }
+      delay = Math.min(delay * 1.5, 15000);
+      timer = setTimeout(tick, delay);
+    };
+    pollNow.current = tick;
+    timer = setTimeout(tick, delay);
+    window.addEventListener('online', tick);
+    return () => { stopped = true; clearTimeout(timer); window.removeEventListener('online', tick); pollNow.current = () => {}; };
+  }, [connDown, connBack]);
+  // The browser knows first when the machine itself goes offline.
+  useEffect(() => {
+    const onOffline = () => setConn('down');
+    window.addEventListener('offline', onOffline);
+    return () => window.removeEventListener('offline', onOffline);
+  }, []);
 
   // Run `text` as the next question. A click while an answer is in flight is
   // kept in the box and sent once the current answer lands.
@@ -320,10 +443,33 @@ export default function App() {
     sendQuery();
   }, [sendQuery, stopSpeaking]);
 
-  useEffect(() => {
+  const scrollToEnd = useCallback((smooth) => {
     const el = chatAreaRef.current;
-    if (el && messages.length) el.scrollTop = el.scrollHeight + 9999;
-  }, [messages]);
+    if (!el) return;
+    if (smooth) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' });
+    else el.scrollTop = el.scrollHeight + 9999;
+  }, []);
+  useEffect(() => {
+    if (!messages.length) { setNewBelow(null); return; }
+    if (followRef.current) { scrollToEnd(false); setNewBelow(null); return; }
+    const last = messages[messages.length - 1];
+    setNewBelow(last.kind === 'typing' ? 'writing' : 'answer');
+  }, [messages, scrollToEnd]);
+  // Late growth (charts, tables, the draft) keeps a following view pinned.
+  useEffect(() => {
+    const inner = chatInnerRef.current;
+    if (!inner || typeof ResizeObserver === 'undefined') return undefined;
+    const ro = new ResizeObserver(() => { if (followRef.current) scrollToEnd(false); });
+    ro.observe(inner);
+    return () => ro.disconnect();
+  }, [scrollToEnd]);
+  const onChatScroll = (e) => {
+    const el = e.currentTarget;
+    setScrollTopShow(el.scrollTop > 200);
+    const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    followRef.current = atBottom;
+    if (atBottom) setNewBelow(null);
+  };
 
   // Composer auto-grows up to 160px; the scrollbar shows only when the text
   // is longer than that, never on an empty or short box.
@@ -507,22 +653,43 @@ export default function App() {
             </div>
           </div>
 
-          <div className="chat-area" ref={chatAreaRef} onScroll={(e) => setScrollTopShow(e.currentTarget.scrollTop > 200)}>
-            <div className={'chat-inner' + (messages.length ? '' : ' is-welcome')}>
+          {conn !== 'online' && (
+            <div className={'conn-banner ' + conn} role="status" aria-live="polite">
+              {conn === 'down' ? (
+                <>
+                  <span className="conn-spin" aria-hidden="true" />
+                  <span className="conn-text"><b>Can't reach the server — retrying…</b>
+                    <span className="conn-sub"> Usually the VPN or network. Your question is kept.</span></span>
+                  <button type="button" className="conn-retry" onClick={() => pollNow.current()}>Retry now</button>
+                </>
+              ) : (
+                <span className="conn-text"><b>Connected again.</b></span>
+              )}
+            </div>
+          )}
+
+          <div className="chat-area" ref={chatAreaRef} onScroll={onChatScroll}>
+            <div className={'chat-inner' + (messages.length ? '' : ' is-welcome')} ref={chatInnerRef}>
               <WelcomeCard strings={strings} prompts={prompts} setPrompts={setPrompts} onAsk={ask} />
               <div>
-                {messages.map((m) => {
-                  if (m.kind === 'typing') return <TypingMessage key={m.id} />;
+                {messages.map((m, i) => {
+                  // Regenerate / Try again sit on the latest answer only: an
+                  // older one would come back below newer turns, out of place.
+                  const isLast = i === messages.length - 1 && !running;
+                  if (m.kind === 'typing') return <TypingMessage key={m.id} steps={m.steps} draft={m.draft} streamKey={m.id} />;
                   if (m.kind === 'rich') {
                     return <BotMessage key={m.id} id={m.id} question={m.question} response={m.response} time={m.time}
-                                       onAsk={ask} speakingId={speakingId} onSpeak={onSpeak} />;
+                                       animate={m.animate} streamKey={m.streamKey}
+                                       onAsk={ask} speakingId={speakingId} onSpeak={onSpeak}
+                                       onRegenerate={isLast && m.question ? () => rerun(m.id, m.question) : null} />;
                   }
                   if (m.kind === 'user') {
                     return <TextMessage key={m.id} id={m.id} role="user" text={m.text} time={m.time}
                                         busy={running} onEdit={(q) => editQuestion(m.id, q)} />;
                   }
                   return <TextMessage key={m.id} id={m.id} role="bot" text={m.text} time={m.time}
-                                      speakingId={speakingId} onSpeak={onSpeak} />;
+                                      speakingId={speakingId} onSpeak={onSpeak}
+                                      onRetry={isLast && m.retryQ ? () => rerun(m.id, m.retryQ) : null} />;
                 })}
               </div>
             </div>
@@ -534,6 +701,16 @@ export default function App() {
           </button>
 
           <div className="composer-wrap">
+            {newBelow && (
+              <button type="button" className="new-below" onClick={() => {
+                // Smooth there, then snap: the answer may have grown meanwhile.
+                followRef.current = true; setNewBelow(null); scrollToEnd(true);
+                setTimeout(() => { followRef.current = true; scrollToEnd(false); }, 450);
+              }}>
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M12 5v14M5 12l7 7 7-7" /></svg>
+                {newBelow === 'writing' ? 'Answer is being written' : 'New answer'}
+              </button>
+            )}
             <div className="composer-inner">
               <div className="composer">
                 <textarea className={'composer-input' + (voice.busy ? ' dictating' : '')} ref={textareaRef} rows={1}
@@ -562,10 +739,18 @@ export default function App() {
                       ? <svg className="orb-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
                       : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></svg>}
                   </button>
-                  <button className="send-btn" type="button" onClick={sendQuery} disabled={running || voice.busy}>
-                    <span>{strings.sendBtn}</span>
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
-                  </button>
+                  {running ? (
+                    <button className="send-btn stop" type="button" onClick={stopQuery}
+                            title="Stop this answer" aria-label="Stop this answer">
+                      <span>Stop</span>
+                      <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+                    </button>
+                  ) : (
+                    <button className="send-btn" type="button" onClick={sendQuery} disabled={voice.busy}>
+                      <span>{strings.sendBtn}</span>
+                      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
+                    </button>
+                  )}
                 </div>
               </div>
             </div>

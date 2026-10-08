@@ -7,6 +7,13 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
     REQUEST_TIMEOUT_SECONDS: int = 60  # hard ceiling on one /api/query, enforced in the router
 
+    # POST /api/query/stream (D-039): live progress steps and the composer's
+    # text as it is written. STREAM_COMPOSER_ENABLED=false keeps the progress
+    # steps but sends the answer only when it is complete (the composer then
+    # makes its ordinary call). The ping keeps proxies from closing a quiet stream.
+    STREAM_COMPOSER_ENABLED: bool = True
+    STREAM_PING_SECONDS: float = 10.0
+
     # ── OWASP hardening (see docs/SECURITY.md) ─────────────────────────────
     # "prod" (default) or "dev". dev re-enables /docs + /openapi.json and drops
     # the secret guard to a warning; every other value is treated as prod.
@@ -472,6 +479,16 @@ class Settings(BaseSettings):
     # pending pause expires with SESSION_TTL_SECONDS).
     PIPELINE_GRAPH_PAUSE_TTL_SECONDS: int = 1800
     PIPELINE_GRAPH_SWEEP_EVERY_SECONDS: int = 600
+
+    # ── Input guardrails (app/guardrails.py) ──
+    # Layer 1 (rules) always runs. Layer 2 is one classifier-model call per new
+    # question that judges its meaning, so a harmful request phrased in words
+    # no rule lists is still refused. A gateway failure fails open (the
+    # question goes on; layer 1 already ran) unless FAIL_CLOSED is set.
+    GUARDRAIL_MODEL_ENABLED: bool = True
+    GUARDRAIL_MODEL_TIMEOUT_SECONDS: float = 6.0
+    GUARDRAIL_MODEL_FAIL_CLOSED: bool = False
+    GUARDRAIL_MODEL_MAX_CHARS: int = 1000
 
     # ── Prompt budgets (approximate input tokens; app/context_budget.py) ──
     # Each is the served --max-model-len minus that call's max_tokens

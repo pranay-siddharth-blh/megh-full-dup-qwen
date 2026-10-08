@@ -3,6 +3,49 @@
 **Last updated:** 2026-10-03 (early morning), by the all-schemes all-places QA + fix session (KI-188..199, D-034; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-02, by the LangGraph integration session (D-032; code changed, uncommitted; **offline-verified only**, VPN down). Before that: 2026-09-29 (early morning), by the conversational scheme-swap session (KI-180; code changed, uncommitted). Before that: 2026-09-29 (late night), by the CM Elevate Legacy use-case re-test session (no code changed; KI-166..168 opened). Before that: 2026-09-29 (night), by the Focus Legacy all-levels fix session (KI-020, KI-145..165, D-031; code changed, uncommitted). Before that: 2026-09-29, by the context-relevance / semantic-contract session (code changed, uncommitted; D-030, KI-030/032/034 and KI-130 to KI-135; **offline-verified only**, VPN down). Before that: 2026-09-28 (evening), by the CM Elevate all-blocks / all-villages fix session (code changed in `app/pipeline.py`, tests; uncommitted). Before that: 2026-09-28, by the PMAY-G fix session (code changed, uncommitted; D-029, KI-089 to KI-097). Before that: 2026-09-27 night, by the Focus Plus all-blocks / all-villages session (code changed in `app/pipeline.py`, tests in `tests/test_focusplus_usecase_fixes.py` and `tests/test_mgnrega_usecase_fixes.py`; **uncommitted**). Earlier the same day: the CM Elevate use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/schema_context.py`, plus a new test file; **uncommitted**). Before that, the same day: the Focus Plus use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/routers/query.py`, **uncommitted**, on top of the uncommitted 2026-09-26 MGNREGA and context work).
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
+## Latest: every fresh answer is revealed word by word (2026-10-08, frontend only). Code changed, uncommitted. OFFLINE-VERIFIED.
+- Why: on the live app (VPN up, 2026-10-08) the composer DID stream (no `composer stream failed`), but most turns never
+  reach it (clarification pauses, edge replies, deterministic row answers), and its answers are short (28–32 tokens in
+  0.25–0.9 s), so answers still looked like they arrived all at once.
+- Now `frontend/src/chat/reveal.js` (`useReveal`) reveals every fresh answer at ~30 words/s, more words per step on a long
+  one (about 2 s at most); the final answer continues from the streamed draft (shared key) and resumes from the first
+  changed word when a guard corrected it. Charts / SQL / chips appear after the text. Replays and `prefers-reduced-motion`
+  show at once. Browser 28/28 (`e2e/ui_format_scroll_test.mjs`), streaming 17/17, banner 20/20.
+
+## Latest: answer formatting + smart auto-scroll (2026-10-07, frontend only). Code changed, uncommitted. OFFLINE-VERIFIED.
+- Answers render a safe Markdown subset (`frontend/src/chat/components/Markdown.jsx`, React elements only, never innerHTML):
+  bullet and numbered lists (one nested level; numbered items keep the number written), simple `|` tables (scroll inside
+  their box on a phone), `**bold**`, `` `code` ``, `#` headings, and LABEL headings: an all-bold line, or a short
+  "Documents required:" line right before a list. The streamed draft uses the same renderer. Copy / Read aloud use
+  `plainText` (no `**` / `#`; list markers kept).
+- Knowledge answers still arrive WITHOUT `#` headings: `app/rag.py` strips them (`_MD_HEADING`) and both RAG prompts say
+  "No Markdown headings". Allowing real headings is a backend change, not done (label lines cover the common cases).
+- Smart auto-scroll (`App.jsx`): the chat follows new content only while the officer is at the bottom (within 80 px; a
+  ResizeObserver keeps late charts/tables pinned). Scrolled up, nothing moves and a pill shows "Answer is being written" /
+  "New answer"; clicking it goes to the end. Sending a question or opening a chat always goes to the bottom.
+- Tests: browser 23/23 (scratchpad `e2e/ui_format_scroll_test.mjs`); streaming 17/17 and banner 20/20 still pass.
+
+## Latest: connection banner (2026-10-07, frontend only). Code changed, uncommitted. OFFLINE-VERIFIED.
+- When the server can't be reached (network error, nginx 502/503/504 without the app's JSON, the app's "Couldn't reach the
+  Megh One data service" 503 = VPN/megh_db, or a stream cut mid-answer) the chat shows "Can't reach the server — retrying…"
+  instead of an error under the question. The question shows "Waiting for the connection" and is asked again, once,
+  automatically when `GET /health` returns `ok` (polled 3 s → 15 s backoff; at once on the browser's `online` event; a
+  "Retry now" button). "Busy" (503) and "took too long" stay ordinary errors. Browser offline shows the banner at once.
+- Files: `frontend/src/chat/api.js` (`ConnectionError`, `httpFailure`, `checkHealth`), `App.jsx`, `styles/chat.css`; rebuilt `web/app/`.
+- Tests: browser 20/20 (scratchpad `8ef3c696-…/scratchpad/e2e/ui_conn_test.mjs`); streaming browser test still 17/17.
+- Limit: an anonymous `/health` says only ok/degraded. If Qdrant alone is down, health stays "degraded" and the banner stays
+  up after a drop until an answer succeeds (any successful answer clears it).
+
+## Latest: streamed answers, live progress steps, Stop, Regenerate (2026-10-07, D-039). Code changed, uncommitted. OFFLINE-VERIFIED.
+- `POST /api/query/stream` (SSE) runs the same turn as `/api/query` (`routers/query.py` `_answer`): `step` events from
+  each graph node (`pipeline_graph._observed` → `app/turn_events.py`), the composer's text as a draft (`llm.stream_model`),
+  then `done` with the checked result. Every faithfulness check still runs on the full text; the UI replaces the draft.
+- UI: steps ("Understanding your question → … → Writing the answer"), the draft with a cursor, Send → **Stop** (cancels the
+  turn on the server), ↻ **Regenerate** on the latest answer and **Try again** after an error or Stop (`skip_cache: true`).
+- nginx (`nginx-megh-langgraph.conf`): unbuffered `location = /api/query/stream`. `STREAM_COMPOSER_ENABLED=false` turns the draft off.
+- Tests: new `tests/test_query_stream.py` 14/14; pytest **1,648 passed, 0 failed** (1 skipped); scripts **14/14**; browser test
+  against the real app + middleware with the turn stubbed **17/17**. NOT yet run against the live gateway (needs the VPN).
+
 ## Side-by-side deploy identifiers (2026-10-04)
 - This build deploys to `/opt/meghalaya-langgraph` as `megh-langgraph.service` (port 8410) or compose project
   `megh-langgraph` (host 8411). The existing deploy (`/opt/meghalaya`, `megh-nlpservice.service`, port 8300,

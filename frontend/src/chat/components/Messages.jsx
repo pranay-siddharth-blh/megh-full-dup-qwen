@@ -2,6 +2,8 @@ import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnalytics } from '../analytics.js';
 import { prettyName } from '../format.js';
 import { DynTable, GroupedChart, PivotTable, RecordCard, StackedChart, SwitchableChart } from './Charts.jsx';
+import { Markdown, plainText } from './Markdown.jsx';
+import { useReveal } from '../reveal.js';
 
 /* One chat message. A bot answer (`response` from /api/query) renders the same
    blocks as addBotRich() in web/ai_query.html: routing badge (off), answer text,
@@ -33,7 +35,7 @@ function Analytics({ question, response }) {
     return (
       <div className="analytics">
         <div className="dyn-grid single">
-          <SwitchableChart title="Summary" labels={a.labels} values={a.values} types={['bar', 'doughnut']} initial="bar" />
+          <SwitchableChart title="Summary" labels={a.labels} values={a.values} types={['bar', 'pie', 'doughnut']} initial={a.defType} />
         </div>
         <RecordCard row={a.row} />
       </div>
@@ -44,7 +46,7 @@ function Analytics({ question, response }) {
   if (a.kind === 'grouped') {
     return (
       <div className="analytics">
-        <div className="dyn-grid single"><GroupedChart title={a.title} labels={a.labels} datasets={a.datasets} /></div>
+        <div className="dyn-grid single"><GroupedChart title={a.title} labels={a.labels} fullLabels={a.fullLabels} datasets={a.datasets} /></div>
         <DynTable data={a.data} />
       </div>
     );
@@ -62,8 +64,8 @@ function Analytics({ question, response }) {
     <div className="analytics">
       <div className={'dyn-grid' + (single ? ' single' : '')}>
         {a.charts.map((c, i) => (
-          <SwitchableChart key={i} title={c.title} labels={c.labels} values={c.values}
-                           types={['bar', 'doughnut', 'line']} initial={a.defType} />
+          <SwitchableChart key={i} title={c.title} labels={c.labels} fullLabels={c.fullLabels} values={c.values}
+                           types={['bar', 'pie', 'doughnut', 'line']} initial={a.defType} />
         ))}
       </div>
       <DynTable data={a.data} />
@@ -281,6 +283,7 @@ const ICONS = {
   edit: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" /></svg>,
   speak: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.5 8.5a5 5 0 010 7" /><path d="M19 5a10 10 0 010 14" /></svg>,
   stop: <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>,
+  regen: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36" /><polyline points="21 3 21 9 15 9" /></svg>,
 };
 
 function CopyAction({ text, label = 'Copy' }) {
@@ -305,8 +308,8 @@ function SpeakAction({ id, text, speakingId, onSpeak }) {
   );
 }
 
-// The answer as plain text: what Copy and Read aloud use (no ** markers).
-export const plainAnswer = (text) => String(text || '').replace(/\*\*(.+?)\*\*/g, '$1').trim();
+// The answer as plain text: what Copy and Read aloud use (no ** / # markers).
+export const plainAnswer = plainText;
 
 // ── Message shells ──────────────────────────────────────────────────────────
 // A question the officer sent: Copy and Edit. Edit opens the text in place;
@@ -376,7 +379,7 @@ function UserMessage({ text, time, onEdit, busy }) {
   );
 }
 
-export function TextMessage({ id, role, text, time, onEdit, busy, speakingId, onSpeak }) {
+export function TextMessage({ id, role, text, time, onEdit, busy, speakingId, onSpeak, onRetry }) {
   if (role === 'user') return <UserMessage text={text} time={time} onEdit={onEdit} busy={busy} />;
   return (
     <div className="msg bot">
@@ -388,6 +391,7 @@ export function TextMessage({ id, role, text, time, onEdit, busy, speakingId, on
           <div className="msg-actions">
             <CopyAction text={text} label="Copy answer" />
             {onSpeak && <SpeakAction id={id} text={text} speakingId={speakingId} onSpeak={onSpeak} />}
+            {onRetry && <RegenerateAction onRegenerate={onRetry} label="Try again" />}
           </div>
         </div>
       </div>
@@ -395,20 +399,94 @@ export function TextMessage({ id, role, text, time, onEdit, busy, speakingId, on
   );
 }
 
-export function TypingMessage() {
+// ── An answer in flight ─────────────────────────────────────────────────────
+// What the officer sees while waiting: the steps the pipeline has reached (from
+// the LangGraph nodes as they start, /api/query/stream) and, once the composer
+// writes, its text as it arrives. The draft is replaced by the checked answer.
+const STEP_LABELS = {
+  context: 'Understanding your question', edge: 'Understanding your question',
+  followup: 'Understanding your question', rephrase: 'Understanding your question',
+  route: 'Understanding your question',
+  knowledge: 'Searching the scheme documents',
+  data_context: 'Identifying the scheme', scope_scheme: 'Identifying the scheme',
+  entities: 'Finding the district, block or village', clarification_gate: 'Finding the district, block or village',
+  deterministic: 'Building the database query', sql_generate: 'Building the database query',
+  authorize: 'Checking access',
+  execute_attempt: 'Querying the database', repair: 'Fixing the query and retrying',
+  post_rows: 'Reading the results',
+  compose: 'Writing the answer',
+  guarantees: 'Checking the figures', assemble: 'Checking the figures',
+  finalize: 'Checking the figures', context_update: 'Checking the figures',
+};
+
+// Node names -> the distinct labels, in the order first reached.
+export function stepTrail(nodes) {
+  const out = [];
+  for (const n of nodes || []) {
+    const label = STEP_LABELS[n];
+    if (label && out[out.length - 1] !== label) {
+      const seen = out.indexOf(label);
+      if (seen >= 0) out.splice(seen, 1);   // a repair loop returns to "Querying"
+      out.push(label);
+    }
+  }
+  return out;
+}
+
+export function TypingMessage({ steps, draft, streamKey }) {
+  const trail = stepTrail(steps);
+  const [shownDraft] = useReveal(draft, streamKey);
+  if (!trail.length && !draft) {
+    return (
+      <div className="msg bot">
+        <div className="av">M</div>
+        <div>
+          <div className="bubble typing-bubble">
+            <span className="dot" /><span className="dot" /><span className="dot" />
+          </div>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="msg bot">
       <div className="av">M</div>
       <div>
-        <div className="bubble typing-bubble">
-          <span className="dot" /><span className="dot" /><span className="dot" />
+        <div className="bubble pending-bubble">
+          {trail.length > 0 && (
+            <ol className="progress-steps" aria-live="polite">
+              {trail.map((label, i) => (
+                <li key={label} className={i === trail.length - 1 ? 'current' : 'done'}>
+                  {i === trail.length - 1 ? <span className="step-spin" /> : <span className="step-tick">{ICONS.check}</span>}
+                  {label}
+                </li>
+              ))}
+            </ol>
+          )}
+          {draft && (
+            <div className="answer-text md draft-text">
+              <Markdown text={shownDraft} /><span className="draft-cursor" aria-hidden="true" />
+            </div>
+          )}
         </div>
       </div>
     </div>
   );
 }
 
-export function BotMessage({ id, question, response, time, onAsk, speakingId, onSpeak }) {
+function RegenerateAction({ onRegenerate, label = 'Regenerate answer' }) {
+  return (
+    <button type="button" className="msg-act" title={label} aria-label={label}
+            onClick={(e) => { e.stopPropagation(); onRegenerate(); }}>
+      {ICONS.regen}
+    </button>
+  );
+}
+
+export function BotMessage({ id, question, response, time, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey }) {
+  // A fresh answer is revealed word by word (reveal.js); the charts, SQL and
+  // chips follow once the text is all there. A replayed one shows at once.
+  const [shown, revealed] = useReveal(response.answer, streamKey, !!animate);
   const wantsAnalytics = response.intent !== 'EDGE' && Array.isArray(response.data) && response.data.length >= 1;
   // A CLARIFY pause fetched nothing, so a "0 results" meta line would mislead.
   const showMeta = response.intent && response.intent !== 'EDGE' && response.intent !== 'CLARIFY';
@@ -419,10 +497,18 @@ export function BotMessage({ id, question, response, time, onAsk, speakingId, on
       <div>
         <div className="bubble">
           <RouteBadge response={response} />
-          {response.answer && <div className="answer-text"><RichText text={response.answer} bold /></div>}
-          {wantsAnalytics && <Analytics question={question} response={response} />}
-          <SqlDisclosure response={response} />
-          <FollowUp response={response} onAsk={onAsk} />
+          {response.answer && (
+            <div className="answer-text md">
+              <Markdown text={shown} />{!revealed && <span className="draft-cursor" aria-hidden="true" />}
+            </div>
+          )}
+          {revealed && (
+            <div className="answer-extras">
+              {wantsAnalytics && <Analytics question={question} response={response} />}
+              <SqlDisclosure response={response} />
+              <FollowUp response={response} onAsk={onAsk} />
+            </div>
+          )}
         </div>
         <div className="msg-foot">
           <div className="mtime">
@@ -434,6 +520,7 @@ export function BotMessage({ id, question, response, time, onAsk, speakingId, on
             <div className="msg-actions">
               <CopyAction text={answer} label="Copy answer" />
               {onSpeak && <SpeakAction id={id} text={answer} speakingId={speakingId} onSpeak={onSpeak} />}
+              {onRegenerate && <RegenerateAction onRegenerate={onRegenerate} />}
             </div>
           )}
         </div>

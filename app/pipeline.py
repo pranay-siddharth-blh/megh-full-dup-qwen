@@ -20,7 +20,7 @@ import httpx
 from rapidfuzz import fuzz
 
 from app import annotations, auth, context_manager, edge, followups, llm, premise_check, prompt_builder, rag
-from app import context_budget, context_policy
+from app import context_budget, context_policy, guardrails
 from app.config import settings
 from app.db import UnsafeSQLError, fetch_rows, run_readonly
 from app.db import DatabaseUnavailableError, is_connection_error as db_is_connection_error
@@ -15461,6 +15461,69 @@ async def _update_context(session: "Session | None", raw_question: str, result: 
             logger.warning("context layer post-processing failed (non-fatal)", exc_info=True)
 
 
+# ── Chart hint (D-042) ──────────────────────────────────────────────────────
+# `chart_type` on a DATA result tells the chat UI (frontend/src/chat/analytics.js)
+# which chart to draw. The UI always had grouped / stacked / KPI charts, but no
+# backend code ever sent the hint, so they never appeared and "show it as a pie
+# chart" changed nothing. Explicit words win; otherwise the rows' shape decides.
+
+_CHART_ASKED = [   # first match wins
+    ("pie", re.compile(r"\bpie\b", re.I)),
+    ("doughnut", re.compile(r"\b(?:donut|doughnut|ring)\s*(?:chart|graph)?\b", re.I)),
+    ("stacked", re.compile(r"\bstack(?:ed)?\b", re.I)),
+    ("grouped_bar", re.compile(r"\b(?:grouped|clustered|side[\s-]by[\s-]side)\b", re.I)),
+    ("line", re.compile(r"\b(?:line\s*(?:chart|graph|plot)|trend\s*(?:line|chart|graph)|over\s+the\s+years)\b", re.I)),
+    ("bar", re.compile(r"\b(?:bar|column)\s*(?:chart|graph|plot)s?\b|\bhistogram\b", re.I)),
+]
+# Columns that hold numbers but are labels, not measures (years, codes, ids).
+_CHART_LABEL_COL = re.compile(r"(?:^|_)(?:year|yr|fy|code|id|lgd|pin|pincode|key|rank|sl|serial)(?:_|$)", re.I)
+# Measures that must not be stacked: parts of a rate or an average do not add up.
+_CHART_NON_ADDITIVE = re.compile(r"(?:pct|percent|percentage|rate|ratio|avg|average|mean|median|per_|share)", re.I)
+
+
+def _chart_is_number(v) -> bool:
+    if isinstance(v, bool) or v is None:
+        return False
+    if isinstance(v, (int, float, Decimal)):
+        return True
+    return isinstance(v, str) and re.fullmatch(r"-?\d+(?:,\d{3})*(?:\.\d+)?", v.strip()) is not None
+
+
+def _chart_hint(question: str, raw_question: str, rows: list) -> "str | None":
+    """The chart the UI should draw for these rows, or None (the UI decides)."""
+    asked = " ".join(q for q in (raw_question, question) if q)
+    for hint, pattern in _CHART_ASKED:
+        if pattern.search(asked):
+            return hint
+    if not rows or not isinstance(rows[0], dict):
+        return None
+    cols = list(rows[0])
+    num_cols = [c for c in cols if not _CHART_LABEL_COL.search(str(c))
+                and any(r.get(c) is not None for r in rows)
+                and all(r.get(c) is None or _chart_is_number(r.get(c)) for r in rows)]
+    label_cols = [c for c in cols if c not in num_cols]
+    if len(rows) == 1:
+        # One row of several figures ("wages vs material"): a bar per figure.
+        return "kpi_bar" if len(num_cols) >= 2 else None
+    if len(label_cols) >= 2 and len(num_cols) == 1 and not _CHART_NON_ADDITIVE.search(str(num_cols[0])):
+        # district x year -> one bar per district, stacked by year, when the
+        # second label has few values (otherwise the legend is unreadable).
+        if len({str(r.get(label_cols[1])) for r in rows}) <= 8:
+            return "stacked"
+    return None
+
+
+def _attach_chart_hint(result: dict, question: str, raw_question: str) -> None:
+    """Set `chart_type` on a DATA result that has rows. Best-effort."""
+    try:
+        if result.get("route") == "data" and result.get("data"):
+            hint = _chart_hint(question, raw_question, result["data"])
+            if hint:
+                result["chart_type"] = hint
+    except Exception:  # noqa: BLE001 — a chart hint must never break an answer
+        logger.warning("chart hint failed (non-fatal)", exc_info=True)
+
+
 def _attach_followups(result: dict, question: str) -> None:
     """Add `follow_up_options` (+ back-compat `follow_ups` / `follow_up`) to a
     data/knowledge result. Best-effort — a failure here never breaks the answer."""
@@ -15733,6 +15796,35 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
     return None
 
 
+# A canned conversational turn ("hi", "thanks", "who are you"): no request to
+# judge, so the guardrail model call is skipped (it would only add latency).
+_CONVERSATIONAL_EDGE = frozenset({"greeting", "thanks", "goodbye", "identity", "capability", "confused"})
+# Edge's generic off-topic replies. An out-of-scope guardrail verdict replaces
+# them with a more specific one ("I don't write Instagram posts"); every other
+# edge reply (out-of-area, money advice, a loan request) is already specific.
+_GENERIC_EDGE = frozenset({"off_topic", "silly"})
+
+
+async def _guardrail_check(raw_question: str, question: str, scope_resumed: bool) -> "tuple[dict, str] | None":
+    """The guardrail refusal for this turn and the layer that made it, or None
+    (app/guardrails.py, D-040 / D-041)."""
+    harm = edge.detect_harmful(raw_question) or edge.detect_harmful(question)
+    if harm:
+        return harm, "rules"
+    edge_hit = edge.detect_edge_case(raw_question)
+    edge_type = (edge_hit or {}).get("type")
+    scope_ok = edge_hit is None or edge_type in _GENERIC_EDGE
+    scope = guardrails.check_scope_rules(raw_question) if scope_ok else None
+    if scope:
+        return edge.guardrail_reply(scope.category), "rules"
+    if scope_resumed or edge_type in _CONVERSATIONAL_EDGE:
+        return None
+    verdict = await guardrails.check_model(raw_question)
+    if verdict and (not verdict.is_scope or scope_ok):
+        return edge.guardrail_reply(verdict.category), "model"
+    return None
+
+
 async def _turn_edge_stage(t: dict, session: "Session | None" = None,
                            scope: "auth.UserScope | None" = None) -> "dict | None":
     """Harmful requests, definitions, scheme listing / pick, and the edge layer (graph: edge)."""
@@ -15742,8 +15834,17 @@ async def _turn_edge_stage(t: dict, session: "Session | None" = None,
     #      give me suggestions") is refused FIRST — before the recommendation /
     #      pick / listing steps below, any of which could otherwise claim it on a
     #      word like "suggestions" and answer with an unrelated scheme.
-    _harm = edge.detect_harmful(question)
-    if _harm:
+    #      The guardrails (app/guardrails.py) run here too: the harm rules on the
+    #      typed text and on the routed one (a pause merge or a rewrite can
+    #      assemble a harmful sentence), the out-of-scope rules ("write an
+    #      Instagram post on MGNREGA"), then the model check on the typed text,
+    #      which judges meaning rather than words. The model check is skipped for
+    #      a pause reply ("2023", a chip) and for a canned conversational turn
+    #      ("hi", "thanks"), neither of which can carry a new request.
+    _guard = await _guardrail_check(raw_question, question, scope_resumed)
+    if _guard:
+        _harm, _layer = _guard
+        context_budget.log_decision("guardrail", layer=_layer, category=_harm["type"], blocked=True)
         return {"route": "edge", "intent": "EDGE", "confidence": "high",
                 "answer": _harm["response"], "edge_type": _harm["type"],
                 "suggestions": [], **_empty_data_fields()}

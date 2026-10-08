@@ -9,6 +9,12 @@ const label18 = (v) => (String(v).length > 18 ? String(v).slice(0, 16) + '…' :
 // too lenient: parseFloat("2017-08-01") === 2017 would chart a date column.
 const isNumeric = (v) => v !== null && v !== '' && v !== undefined
   && /^-?\d+(?:,\d{3})*(?:\.\d+)?$/.test(String(v).trim());
+// Numbers that are labels, not measures: year_key 2024, an LGD code, an id.
+// Kept in step with pipeline._CHART_LABEL_COL.
+const LABEL_COL = /(?:^|_)(?:year|yr|fy|code|id|lgd|pin|pincode|key|rank|sl|serial)(?:_|$)/i;
+const toNumber = (v) => (isNumeric(v) ? Number(String(v).trim().replace(/,/g, '')) : 0);
+// The chart types the backend can ask for (pipeline._chart_hint, D-042).
+const SINGLE_TYPES = ['bar', 'pie', 'doughnut', 'line'];
 
 export function pivotStacked(data, xKey, sKey, vKey) {
   const xLabels = [...new Set(data.map((r) => r[xKey]))];
@@ -17,7 +23,7 @@ export function pivotStacked(data, xKey, sKey, vKey) {
     label: sl,
     data: xLabels.map((xl) => {
       const row = data.find((r) => r[xKey] === xl && r[sKey] === sl);
-      return row ? Number(row[vKey]) : 0;
+      return row ? toNumber(row[vKey]) : 0;
     }),
   }));
   return { labels: xLabels, datasets };
@@ -27,12 +33,15 @@ export function buildAnalytics(question, rawData, hintType) {
   if (!Array.isArray(rawData) || rawData.length === 0) return null;
   const data = rawData.slice();
 
-  if (data.length === 1 && hintType === 'kpi_bar') {
+  // One row of several figures: a bar (or the pie / donut asked for) per figure.
+  const oneRowTypes = ['kpi_bar', 'bar', 'pie', 'doughnut'];
+  if (data.length === 1 && oneRowTypes.includes(hintType)) {
     const row = data[0];
     // Chart the compared parts only: when the row carries a derived total equal
     // to the sum of the parts, its bar would dwarf the comparison. The record
     // card below still shows every column.
-    let keys = Object.keys(row);
+    let keys = Object.keys(row).filter((k) => isNumeric(row[k]) && !LABEL_COL.test(k));
+    if (keys.length < 2) return { kind: 'record', row };
     const isTotalKey = (k) => /(^|_)(total|overall|sum)(_|$)/i.test(k);
     const totalKeys = keys.filter(isTotalKey);
     if (keys.length >= 3 && totalKeys.length === 1) {
@@ -44,7 +53,8 @@ export function buildAnalytics(question, rawData, hintType) {
     return {
       kind: 'kpi',
       labels: keys.map((k) => k.replace(/_/g, ' ')),
-      values: keys.map((k) => parseFloat(row[k]) || 0),
+      values: keys.map((k) => toNumber(row[k])),
+      defType: hintType === 'kpi_bar' ? 'bar' : hintType,
       row,
     };
   }
@@ -53,6 +63,7 @@ export function buildAnalytics(question, rawData, hintType) {
 
   const cols = Object.keys(data[0]);
   const numCols = cols.filter((c) => {
+    if (LABEL_COL.test(c)) return false;
     let seen = false;
     for (const r of data) {
       const v = r[c];
@@ -73,15 +84,16 @@ export function buildAnalytics(question, rawData, hintType) {
     data.sort((a, b) => String(a[lc]).localeCompare(String(b[lc])));
   }
   const isFew = data.length <= 6;
-  const defType = (hintType === 'bar' || hintType === 'doughnut' || hintType === 'line')
+  const defType = SINGLE_TYPES.includes(hintType)
     ? hintType : (isTime ? 'line' : isFew ? 'doughnut' : 'bar');
 
-  if (hintType === 'grouped_bar') {
+  if (hintType === 'grouped_bar' && numCols.length >= 2) {
     return {
       kind: 'grouped',
       title: `Grouped comparison by ${lc.replace(/_/g, ' ')}`,
       labels: data.map((r) => label18(r[lc])),
-      datasets: numCols.map((nc) => ({ label: nc.replace(/_/g, ' '), values: data.map((r) => parseFloat(r[nc]) || 0) })),
+      fullLabels: data.map((r) => String(r[lc])),
+      datasets: numCols.map((nc) => ({ label: nc.replace(/_/g, ' '), values: data.map((r) => toNumber(r[nc])) })),
       data,
     };
   }
@@ -101,7 +113,8 @@ export function buildAnalytics(question, rawData, hintType) {
   const charts = numCols.slice(0, 3).map((vc) => ({
     title: `${vc.replace(/_/g, ' ')} by ${lc.replace(/_/g, ' ')}`,
     labels: data.map((r) => label18(r[lc])),
-    values: data.map((r) => parseFloat(r[vc]) || 0),
+    fullLabels: data.map((r) => String(r[lc])),
+    values: data.map((r) => toNumber(r[vc])),
   }));
   return { kind: 'multi', charts, defType, data };
 }

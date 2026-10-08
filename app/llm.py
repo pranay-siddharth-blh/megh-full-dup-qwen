@@ -14,6 +14,7 @@ SSL behavior:
 
 import asyncio
 import contextvars
+import json
 import logging
 import time
 import os
@@ -22,6 +23,7 @@ from contextlib import asynccontextmanager
 
 import httpx
 
+from app import turn_events
 from app.config import settings
 
 
@@ -160,8 +162,9 @@ async def _slot():
 # ── Per-call measurement ─────────────────────────────────────────────────────
 # One `llm_call` log line per chat completion: the role, the model, the time
 # spent waiting for a concurrency slot, the gateway round trip, and the
-# gateway's own token counts (`usage`, when it returns one). There is no
-# streaming here (see CLAUDE.md), so time-to-first-token equals the round trip.
+# gateway's own token counts (`usage`, when it returns one). Only the composer
+# streams, and only on POST /api/query/stream (D-039); everywhere else
+# time-to-first-token equals the round trip.
 # A caller that wants the numbers themselves (tests/live_context_validation.py)
 # sets llm_calls_var to a list for the duration of a request.
 llm_calls_var: "contextvars.ContextVar[list | None]" = contextvars.ContextVar(
@@ -325,8 +328,7 @@ async def call_sql_generator(
 
 
 async def call_response_composer(prompt: str) -> str:
-
-    return await call_model(
+    composer = dict(
         base_url=settings.RESPONSE_MODEL_BASE_URL,
         model=settings.RESPONSE_MODEL,
         api_key=settings.RESPONSE_MODEL_API_KEY,
@@ -336,6 +338,83 @@ async def call_response_composer(prompt: str) -> str:
         timeout=settings.RESPONSE_TIMEOUT_SECONDS,
         role="compose",
     )
+    # A streamed turn (POST /api/query/stream, D-039) shows the composer's text
+    # as it is written. The caller still gets the full text back and runs every
+    # check on it; the streamed pieces are only a draft for the UI.
+    if settings.STREAM_COMPOSER_ENABLED and turn_events.streaming():
+        try:
+            return await stream_model(**composer)
+        except ModelBusyError:
+            raise
+        except Exception as e:  # noqa: BLE001 — the plain call below is the fallback
+            logger.warning("composer stream failed (%s) — falling back to a plain call", type(e).__name__)
+            turn_events.emit({"type": "draft_reset"})
+    return await call_model(**composer)
+
+
+async def stream_model(
+    *,
+    base_url: str,
+    model: str,
+    api_key: str,
+    prompt: str,
+    temperature: float = 0.0,
+    max_tokens: int = 1024,
+    timeout: float = 30.0,
+    role: str = "",
+) -> str:
+    """call_model with `stream: true`: each content delta goes to the turn's
+    event sink as a "token" event, and the full text is returned. Holds one
+    concurrency slot for the whole stream. `timeout` bounds the whole call,
+    as it does for call_model."""
+    if _client is None:
+        raise RuntimeError(
+            "llm client not initialized — call init_client() at startup"
+        )
+    payload = {
+        "model": model,
+        "messages": [{"role": "user", "content": prompt}],
+        "temperature": temperature,
+        "max_tokens": max_tokens,
+        "chat_template_kwargs": {"enable_thinking": False},
+        "stream": True,
+        "stream_options": {"include_usage": True},
+    }
+    parts: list[str] = []
+    usage: dict = {}
+
+    async def _run() -> None:
+        async with _client.stream(
+            "POST", f"{base_url.rstrip('/')}/chat/completions",
+            headers={"Authorization": f"Bearer {api_key}"},
+            json=payload, timeout=timeout,
+        ) as resp:
+            resp.raise_for_status()
+            async for line in resp.aiter_lines():
+                if not line.startswith("data:"):
+                    continue
+                data = line[5:].strip()
+                if data == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(data)
+                except ValueError:
+                    continue
+                if chunk.get("usage"):
+                    usage.update(chunk["usage"])
+                for choice in chunk.get("choices") or ():
+                    piece = (choice.get("delta") or {}).get("content")
+                    if piece:
+                        parts.append(piece)
+                        turn_events.emit({"type": "token", "text": piece})
+
+    t_wait = time.perf_counter()
+    async with _slot():
+        t_start = time.perf_counter()
+        turn_events.emit({"type": "draft_reset"})
+        await asyncio.wait_for(_run(), timeout=timeout)
+    _record_call(role or model, model, t_wait, t_start, usage)
+    return "".join(parts)
 
 
 async def call_sql_verifier(

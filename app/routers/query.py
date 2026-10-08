@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import time
 import uuid
@@ -6,10 +7,12 @@ from datetime import date
 
 from fastapi import (APIRouter, Depends, File, Form, HTTPException,
                      Request, UploadFile)
+from fastapi.encoders import jsonable_encoder
+from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app import (asr_guard, auth, context_manager, conversation_memory, conversation_store, llm,
-                 session_sync)
+                 session_sync, turn_events)
 from app.cache import metrics, response_cache
 from app.config import settings
 from app.deps import current_scope, require_user
@@ -42,6 +45,10 @@ class QueryRequest(BaseModel):
     session_id: str | None = Field(
         default=None, max_length=128, pattern=r"^[A-Za-z0-9._:-]+$"
     )  # continue an existing conversation
+    # Regenerate (the ↻ under an answer): answer afresh instead of from the
+    # response / semantic caches. The fresh answer is written back as usual,
+    # so it replaces the cached one for everyone in the same scope.
+    skip_cache: bool = False
 
     @field_validator("question")
     @classmethod
@@ -67,6 +74,70 @@ async def _identity(scope: auth.UserScope = Depends(current_scope)) -> auth.User
 @router.post("/api/query")
 async def query(req: QueryRequest, request: Request,
                 scope: auth.UserScope = Depends(_identity)):
+    return await _answer(req, request, scope)
+
+
+@router.post("/api/query/stream")
+async def query_stream(req: QueryRequest, request: Request,
+                       scope: auth.UserScope = Depends(_identity)):
+    """The same turn as POST /api/query, as Server-Sent Events (D-039):
+      data: {"type": "step", "node": "entities"}     a graph node started
+      data: {"type": "draft_reset"}                  the composer starts (again)
+      data: {"type": "token", "text": "..."}         the composer's text, as written
+      data: {"type": "done", "result": {...}}        exactly what /api/query returns
+      data: {"type": "error", "status": 503, "detail": "..."}   what it would raise
+    A ": ping" comment every STREAM_PING_SECONDS keeps proxies from closing a
+    quiet stream. The draft is never the answer: `done` carries the checked
+    text. A client that disconnects (the Stop button) cancels the turn."""
+    if not req.question or not req.question.strip():
+        raise HTTPException(400, "question must not be empty")
+    queue: asyncio.Queue = asyncio.Queue()
+
+    async def run() -> None:
+        token = turn_events.bind(queue.put_nowait)
+        try:
+            result = await _answer(req, request, scope)
+            queue.put_nowait({"type": "done", "result": result})
+        except HTTPException as e:
+            queue.put_nowait({"type": "error", "status": e.status_code, "detail": e.detail})
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 — _answer maps its own; this is the last net
+            logger.exception("query stream failed")
+            queue.put_nowait({"type": "error", "status": 502,
+                              "detail": "upstream error while answering the question"})
+        finally:
+            turn_events.unbind(token)
+
+    async def events():
+        task = asyncio.create_task(run())
+        try:
+            while True:
+                try:
+                    ev = await asyncio.wait_for(queue.get(), timeout=settings.STREAM_PING_SECONDS)
+                except asyncio.TimeoutError:
+                    if await request.is_disconnected():
+                        break
+                    yield ": ping\n\n"
+                    continue
+                yield "data: " + json.dumps(jsonable_encoder(ev), ensure_ascii=False) + "\n\n"
+                if ev.get("type") in ("done", "error"):
+                    break
+        finally:
+            if not task.done():
+                # The client went away (Stop, closed tab): nothing will read
+                # this answer, so stop spending model and DB time on it.
+                task.cancel()
+                logger.info("query stream: client disconnected, turn cancelled")
+
+    return StreamingResponse(events(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) -> dict:
+    """One turn, for both endpoints: caches, the pipeline, the pause, and the
+    bookkeeping (L1/L2 context, memory, audit, cache write-back). Raises the
+    HTTPException the endpoint returns."""
     if not req.question or not req.question.strip():
         raise HTTPException(400, "question must not be empty")
 
@@ -113,7 +184,7 @@ async def query(req: QueryRequest, request: Request,
     result = None
     served_from = None  # metrics route tag when the answer came from a cache
 
-    if cacheable:
+    if cacheable and not req.skip_cache:
         cached = await response_cache.get(req.question, scope_key)
         if cached is not None:
             result = {**cached, "session_id": session_id}

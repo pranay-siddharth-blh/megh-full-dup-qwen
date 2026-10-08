@@ -3,7 +3,45 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
-**Latest (2026-10-06): six-scheme tester sheet ('Test Case Results - 30th Sep 26.xlsx', 206 cases) run live; all 16 Fail/Partial cases fixed. Code changed, uncommitted.**
+**Latest (2026-10-08): word-by-word reveal of every fresh answer. Frontend only, uncommitted.** See CURRENT_STATE.md.
+- New `frontend/src/chat/reveal.js`; `Messages.jsx` (`TypingMessage` / `BotMessage` take `streamKey`, `animate`);
+  `App.jsx` marks fresh answers `animate: true, streamKey: typingId`. The app was running on :8400 (pid 5768, venv
+  `%TEMP%\megh-sv`, started from `meghalaya/`); the new build is served from disk, no restart needed.
+- `app/config.py` has ~10 more uncommitted lines that are NOT from this work (someone else's); left as they are.
+
+**Earlier (2026-10-07, latest): answer formatting (headings, lists, tables) + smart auto-scroll. Frontend only, uncommitted. OFFLINE-VERIFIED (browser 23/23).**
+- New `frontend/src/chat/components/Markdown.jsx` (`parseBlocks`, `Markdown`, `plainText`); `Messages.jsx` uses it for answers
+  and the draft; `App.jsx` `followRef` / `newBelow` / `onChatScroll` / ResizeObserver; `styles/chat.css` `.md-*`, `.new-below`.
+- Open choice for the user: let knowledge answers carry real `#` headings (remove the strip in `app/rag.py` and the
+  "No Markdown headings" prompt lines). Not done: backend + prompt change; needs a live check of answer quality.
+- Browser suites (scratchpad `e2e/`, stub server `ui_server.py` on :8498): `ui_format_scroll_test.mjs` 23,
+  `ui_stream_test.mjs` 17, `ui_conn_test.mjs` 20. Give the stub server ~2 s after stopping before restarting it.
+
+**Earlier (2026-10-07, later): connection banner. Frontend only, uncommitted. OFFLINE-VERIFIED (browser 20/20).**
+- `api.js`: `ConnectionError` for unreachable server / nginx 5xx without the app's JSON / the data-service 503 / a stream cut
+  mid-answer; `checkHealth()`. `App.jsx`: `conn` state, `/health` poller, the waiting question re-asked once on recovery
+  (only if it is still the latest message). Details: CURRENT_STATE.md. Test: scratchpad `e2e/ui_conn_test.mjs` (routes simulate
+  each drop; needs `e2e/ui_server.py` on :8498).
+- NEXT (with the VPN): drop the VPN mid-question in the real UI and confirm the banner and the automatic re-ask.
+
+**Latest (2026-10-07): streamed answers, live progress steps, Stop, Regenerate / Retry (D-039). Code changed, uncommitted. OFFLINE-VERIFIED.**
+- Files: new `app/turn_events.py`, `tests/test_query_stream.py`; `app/routers/query.py` (body of `query()` moved verbatim into
+  `_answer()`, new `query_stream`, `QueryRequest.skip_cache`); `app/llm.py` (`stream_model`, `call_response_composer`);
+  `app/pipeline_graph.py` (`_observed` emits `step`); `app/config.py` (`STREAM_COMPOSER_ENABLED`, `STREAM_PING_SECONDS`);
+  `frontend/src/chat/api.js`, `App.jsx`, `components/Messages.jsx`, `styles/chat.css` (+ rebuilt `web/app/`);
+  `deploy/nginx/nginx-megh-langgraph.conf`; `tests/test_context_hardening.py` (one source pin follows the body to `_answer`);
+  docs CLAUDE.md §1, DECISIONS D-039, ARCHITECTURE, AI_PIPELINE §3.3, TESTING, DEPLOYMENT.
+- Untouched: the uncommitted history-timestamp edits already in `App.jsx` / `format.js` (`stampTime`) from an earlier session.
+- Tests: pytest 1,648 passed, 0 failed; scripts 14/14; new 14/14; browser 17/17 (scratchpad `8ef3c696-…/scratchpad/e2e`:
+  `ui_server.py` = real app with the turn stubbed on :8498, `ui_stream_test.mjs`, `stream_e2e.py` = SSE timing check).
+- ENVIRONMENT: the repo `.venv` was created on another machine (`C:\Users\dell\…\Python311`) and does not run on this box.
+  Tests ran in `%TEMP%\megh-sv` (Python 3.12 + requirements.lock + pytest + pytest-asyncio). Install into a SHORT path:
+  onnxruntime's file names exceed Windows' 260-char limit under the scratchpad.
+- NEXT: with the VPN up, ask a few real questions in `/megh-chat` and watch the draft and steps; confirm the vLLM gateway
+  accepts `stream: true` + `stream_options` (if not, the composer falls back to the plain call; look for
+  `composer stream failed` in the log). Deploy: the new nginx location + `nginx -t` + reload. Commit when the user asks.
+
+**Earlier (2026-10-06): six-scheme tester sheet ('Test Case Results - 30th Sep 26.xlsx', 206 cases) run live; all 16 Fail/Partial cases fixed. Code changed, uncommitted.**
 - Before the fixes: 190/206 correct (82 pass, 108 after a clarification), 7 partial, 9 fail (TC-015's helpline number turned out to be fabricated). Report: `reference_documents/Test_Results_2026-10-06.xlsx`
   (+ `Test_Screenshots_2026-10-06/`). After: `reference_documents/Test_Results_2026-10-06_after_fixes.xlsx` (+ `..._after_fixes/`).
 - Fixes KI-201..KI-217 (KNOWN_ISSUES; KI-214 = a FABRICATED helpline number in the first run, now blocked) and D-035 (CM Elevate answers constituency questions). Files: `app/pipeline.py`,

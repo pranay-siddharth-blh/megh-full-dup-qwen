@@ -105,6 +105,12 @@ placeholder before `nginx -t`:
 - `server_name` — the real FQDN once a domain exists.
 - the `allow … ; deny all;` CIDRs under `/admin`, `/admin-ui`, `/metrics`.
 
+**Streamed answers (D-039, 2026-10-07):** `nginx-megh-langgraph.conf` has an unbuffered
+`location = /api/query/stream` (`proxy_buffering off`, 120 s read timeout; the app pings every 10 s).
+Do not add `proxy_set_header` inside that location: it would replace the server-level
+`X-Real-IP` / `X-Forwarded-*` headers. The app also sends `X-Accel-Buffering: no`, so the older
+`nginx-nlpservice.conf` (left unchanged for the running deploy) streams too.
+
 ## 7. WAF — ModSecurity + OWASP CRS
 
 Full runbook: [nginx/modsecurity/README.md](nginx/modsecurity/README.md).

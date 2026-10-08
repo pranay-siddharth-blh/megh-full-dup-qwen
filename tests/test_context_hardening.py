@@ -243,7 +243,9 @@ def test_summary_is_not_persisted_behind_the_versioned_write(monkeypatch):
 
 def test_router_uses_shared_state_on_every_request():
     import inspect
-    src = inspect.getsource(router.query)
+    # The turn body moved to _answer (D-039) so /api/query and
+    # /api/query/stream run the same bookkeeping; the pin follows it.
+    src = inspect.getsource(router._answer)
     assert "await session_sync.sync_in(session, session_id)" in src
     assert src.count("await session_sync.sync_out(") == 2      # answered + clarification paths
     assert "if not session.turns and client_session" not in src

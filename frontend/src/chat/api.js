@@ -93,34 +93,165 @@ export function logoutRemote() {
 // Hard client-side ceiling on a single question, so a stalled backend can never
 // leave the typing dots up forever.
 const QUERY_TIMEOUT_MS = 75000;
+const TIMED_OUT = 'The request took too long and timed out. The service may be busy — please try again in a moment.';
+const UNREACHABLE = 'Could not reach the server. Please check your connection and try again.';
 
-export async function fetchNLPResponse(question, language, sessionId) {
-  const body = { question, language, session_id: sessionId, include_sql: true };
+// Thrown when the officer pressed Stop (not a failure: the UI says "Stopped").
+export class StoppedError extends Error {
+  constructor() { super('stopped'); this.name = 'StoppedError'; }
+}
+
+// The network, not the question: the server can't be reached, the proxy
+// answers for an app that is gone, or the app can't reach megh_db (the VPN
+// dropped). The UI shows the connection banner and asks again once it's back,
+// instead of an error under the question. "Busy" and "took too long" are not
+// connection errors: the server answered.
+export class ConnectionError extends Error {
+  constructor(message) { super(message || UNREACHABLE); this.name = 'ConnectionError'; }
+}
+// The router's 503 for an unreachable megh_db (DatabaseUnavailableError, KI-025).
+const DATA_SERVICE_DOWN = /couldn.t reach the megh one data service/i;
+const isConnectionStatus = (status, detail, fromApp) =>
+  (status === 503 && DATA_SERVICE_DOWN.test(detail || ''))
+  // 502/503/504 without the app's own JSON detail come from nginx: the app is down or unreachable.
+  || ([502, 503, 504].includes(status) && !fromApp);
+
+// One AbortController for a question: the 75 s ceiling, or the caller's Stop
+// (`stopSignal`). `stopped()` tells the two apart after an abort.
+function questionAbort(stopSignal) {
   const ctrl = new AbortController();
+  let byUser = false;
   const timer = setTimeout(() => ctrl.abort(), QUERY_TIMEOUT_MS);
+  const onStop = () => { byUser = true; ctrl.abort(); };
+  if (stopSignal) {
+    if (stopSignal.aborted) onStop();
+    else stopSignal.addEventListener('abort', onStop, { once: true });
+  }
+  return {
+    signal: ctrl.signal,
+    stopped: () => byUser,
+    done: () => { clearTimeout(timer); if (stopSignal) stopSignal.removeEventListener('abort', onStop); },
+  };
+}
+
+// The error for a non-2xx response: a ConnectionError when it means the
+// network or the data service, else the app's own message.
+async function httpFailure(response) {
+  let detail = '';
+  let fromApp = false;
+  try { detail = (await response.json()).detail || ''; fromApp = !!detail; } catch (e) { /* not the app's JSON */ }
+  if (isConnectionStatus(response.status, detail, fromApp)) return new ConnectionError();
+  return new Error(detail || 'API request failed');
+}
+
+// opts: { skipCache, signal } — skipCache answers afresh (Regenerate); signal is Stop.
+export async function fetchNLPResponse(question, language, sessionId, opts = {}) {
+  const body = { question, language, session_id: sessionId, include_sql: true, skip_cache: !!opts.skipCache };
+  const ab = questionAbort(opts.signal);
   let response;
   try {
     response = await apiFetch('/api/query', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
-      signal: ctrl.signal,
+      signal: ab.signal,
     });
+    if (!response.ok) throw await httpFailure(response);
+    return await response.json();
   } catch (err) {
     if (err.message === 'unauthorized') throw err;
-    if (err.name === 'AbortError') {
-      throw new Error('The request took too long and timed out. The service may be busy — please try again in a moment.');
+    if (err.name === 'AbortError') throw ab.stopped() ? new StoppedError() : new Error(TIMED_OUT);
+    if (err instanceof TypeError) throw new ConnectionError();
+    throw err;
+  } finally {
+    ab.done();
+  }
+}
+
+// The same question over POST /api/query/stream (Server-Sent Events, D-039).
+// onEvent gets every live event: {type:'step', node}, {type:'draft_reset'},
+// {type:'token', text}. Resolves with the same result /api/query returns.
+// A server without the stream route (404/405), or a stream that fails before
+// any event arrived, falls back to the plain request.
+export async function streamNLPResponse(question, language, sessionId, opts = {}) {
+  const onEvent = opts.onEvent || (() => {});
+  const body = { question, language, session_id: sessionId, include_sql: true, skip_cache: !!opts.skipCache };
+  const ab = questionAbort(opts.signal);
+  let gotEvent = false;
+  let response;
+  try {
+    response = await apiFetch('/api/query/stream', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+      body: JSON.stringify(body),
+      signal: ab.signal,
+    });
+    if (response.status === 404 || response.status === 405 || !response.body) {
+      ab.done();
+      return fetchNLPResponse(question, language, sessionId, opts);
     }
-    throw new Error('Could not reach the server. Please check your connection and try again.');
+    if (!response.ok) throw Object.assign(await httpFailure(response), { fromServer: true });
+
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    for (;;) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let cut;
+      while ((cut = buf.indexOf('\n\n')) >= 0) {
+        const frame = buf.slice(0, cut);
+        buf = buf.slice(cut + 2);
+        const data = frame.split('\n').filter((l) => l.startsWith('data:')).map((l) => l.slice(5).trimStart()).join('\n');
+        if (!data) continue;                 // ": ping" keep-alive
+        let ev;
+        try { ev = JSON.parse(data); } catch (e) { continue; }
+        gotEvent = true;
+        if (ev.type === 'done') return ev.result;
+        if (ev.type === 'error') {
+          if (ev.status === 401) { onUnauthorized('Your session has expired — please sign in again.'); throw new Error('unauthorized'); }
+          const e = isConnectionStatus(ev.status, ev.detail, true) ? new ConnectionError() : new Error(ev.detail || 'API request failed');
+          throw Object.assign(e, { fromServer: true });
+        }
+        onEvent(ev);
+      }
+    }
+    // The stream ended without `done`: the connection dropped mid-answer.
+    throw new ConnectionError('The connection dropped before the answer finished.');
+  } catch (err) {
+    if (err.message === 'unauthorized' || err.fromServer) throw err;
+    if (err.name === 'AbortError') throw ab.stopped() ? new StoppedError() : new Error(TIMED_OUT);
+    if (!gotEvent && err instanceof TypeError) {
+      // The stream never started (a proxy that drops it, a network blip):
+      // the plain request still answers.
+      ab.done();
+      return fetchNLPResponse(question, language, sessionId, opts);
+    }
+    if (err instanceof TypeError) throw new ConnectionError('The connection dropped before the answer finished.');
+    throw err;
+  } finally {
+    ab.done();
+  }
+}
+
+// Is the service back? GET /health (anonymous: {status}). 'ok' when the app
+// and its database answer; 'degraded' when the app answers but a dependency
+// (megh_db behind the VPN, Qdrant) does not; 'down' when the app can't be
+// reached. Bounded, so a hung connection can't stall the retry loop.
+export async function checkHealth(timeoutMs = 6000) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), timeoutMs);
+  try {
+    const res = await fetch(`${API_BASE}/health`, { cache: 'no-store', signal: ctrl.signal });
+    if (!res.ok) return 'down';
+    const data = await res.json().catch(() => ({}));
+    return data.status === 'ok' ? 'ok' : 'degraded';
+  } catch (e) {
+    return 'down';
   } finally {
     clearTimeout(timer);
   }
-  if (!response.ok) {
-    let detail = 'API request failed';
-    try { detail = (await response.json()).detail || detail; } catch (e) { /* ignore */ }
-    throw new Error(detail);
-  }
-  return response.json();
 }
 
 // ── Conversation history (server-backed, per officer) ───────────────────────

@@ -16,6 +16,8 @@ reference docs).
 """
 import re
 
+from app import guardrails
+
 # ── Pattern banks ───────────────────────────────────────────────────────────
 _GREETINGS = [
     r"^(hi|hello|hey|hii+|helo|namaste|namaskar|khublei|kumno|good\s*(morning|afternoon|evening|day|night))"
@@ -862,11 +864,24 @@ def has_domain_vocabulary(question: str) -> bool:
             or any(re.search(p, ql) for p in _SCHEME_STRONG))
 
 
+def guardrail_reply(category: str) -> dict:
+    """The edge result for a guardrail category ("harmful" is this module's
+    illegal-request reply; the rest are app.guardrails.RESPONSES)."""
+    if category == "harmful":
+        return {"type": "harmful", "response": _RESPONSES["harmful"]}
+    return {"type": category, "response": guardrails.Verdict(category, "rules").response}
+
+
 def detect_harmful(question: str) -> dict | None:
-    """The refusal for a request for help with something illegal or harmful,
-    or None. Separate from detect_edge_case so the pipeline can run it FIRST —
-    ahead of its own recommendation / pick steps, which otherwise claim
-    "give me some suggestions" before the edge layer is reached."""
+    """The refusal for a request for help with something harmful or out of
+    bounds, or None. Separate from detect_edge_case so the pipeline can run it
+    FIRST — ahead of its own recommendation / pick steps, which otherwise claim
+    "give me some suggestions" before the edge layer is reached. The guardrail
+    rules (self-harm, violence, weapons, ... see app.guardrails) run before the
+    illegal-request bank, so "how to poison myself" gets the self-harm reply."""
+    verdict = guardrails.check_rules(question)
+    if verdict:
+        return guardrail_reply(verdict.category)
     ql = (question or "").lower()
     if any(re.search(p, ql) for p in _HARMFUL):
         return {"type": "harmful", "response": _RESPONSES["harmful"]}

@@ -759,9 +759,20 @@ Checked, in order:
 
 Edge replies carry `suggestions` (the `edge.STARTERS` chips). No model call is made.
 
-### 3.3 Flow F — streaming
-**Not implemented.** There is no `response_start`/`delta`/`complete`. Every route returns one
-JSON body (VERIFIED).
+### 3.3 Flow F — streaming (D-039, 2026-10-07)
+`POST /api/query/stream` runs the same turn as `/api/query` and streams Server-Sent Events:
+- `step`: a graph node started (`pipeline_graph._observed`); the UI maps nodes to labels
+  ("Understanding your question → Finding the district… → Querying the database → Writing the
+  answer");
+- `draft_reset`, `token`: `llm.call_response_composer` streams from the gateway (`stream_model`)
+  **only** when a live client is bound (`turn_events.streaming()`); otherwise it makes the plain call;
+- `done` (the full result) or `error`.
+
+**The streamed text is a draft.** `compose_response`, `rag.answer_from_kb` and every guard receive
+the full text exactly as before and run unchanged; the strict retry streams again after a
+`draft_reset`; the UI replaces the draft with `done`'s answer. A stream failure before completion
+falls back to the plain call (`draft_reset` first); `ModelBusyError` is never swallowed.
+`STREAM_COMPOSER_ENABLED=false` keeps the steps and turns the draft off.
 
 ### 3.4 Exception handling around DATA (in `_run_pipeline`)
 

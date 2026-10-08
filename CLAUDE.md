@@ -15,8 +15,10 @@ and CM Elevate Legacy.
 
 All model inference is remote, on a self-hosted vLLM gateway (`10.48.242.4`). The UI is a **React**
 app in `frontend/` (Vite; D-038), built into `web/app/` and served by the same app at `/megh-chat`
-and `/admin-ui`. **No WebSocket, no streaming.** After any change in `frontend/src`, run
-`npm run build` in `frontend/` (the app serves the build, not the source).
+and `/admin-ui`. **No WebSocket.** Answers stream over SSE (`POST /api/query/stream`, D-039):
+the streamed text is a draft, and every faithfulness check still runs on the full answer. After
+any change in `frontend/src`, run `npm run build` in `frontend/` (the app serves the build, not
+the source).
 
 ## 2. Architecture in one breath
 

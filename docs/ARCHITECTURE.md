@@ -273,9 +273,13 @@ starts the paused-thread sweep and closes the checkpointer only when the graph i
   `frontend/src/styles/`). Two entry pages:
   - `frontend/index.html` → `src/chat/` — the chat console, served at `/megh-chat`:
     - `api.js`: every backend call (`/api/query`, `/api/query/transcribe`, `/api/history*`,
-      `/api/auth/*`), the JWT in `localStorage` (`megh_jwt`), 401 → sign-in gate;
+      `/api/auth/*`), the JWT in `localStorage` (`megh_jwt`), 401 → sign-in gate; a
+      `ConnectionError` for a network / proxy / data-service (VPN) failure, which `App.jsx` shows as
+      the "Can't reach the server — retrying…" banner while it polls `GET /health`, then re-asks
+      the waiting question once (2026-10-07);
     - `App.jsx`: sign-in and session check, sending, history, rail, keyboard, language tabs;
-    - `components/`: `Messages.jsx` (answer, clarification and follow-up chips, SQL disclosure;
+    - `components/`: `Markdown.jsx` (answer text as a safe Markdown subset: lists, tables, headings,
+      bold, code; React elements only), `Messages.jsx` (answer, clarification and follow-up chips, SQL disclosure;
       per-message actions: Copy and Edit on a question — an edit removes that question and the
       turns after it from the screen and asks the edited text in the same conversation — and
       Copy and Read aloud (browser `speechSynthesis`, no server call) on an answer),

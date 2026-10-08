@@ -4,6 +4,16 @@ export function nowTime() {
   return new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
 
+// The time a message was asked / answered, for messages replayed from history.
+// Today: "06:29 pm"; an earlier day also names the date: "06 Oct, 06:29 pm".
+export function stampTime(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return nowTime();
+  const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+  if (d.toDateString() === new Date().toDateString()) return time;
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ', ' + time;
+}
+
 export function todayLabel() {
   return new Date().toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
 }

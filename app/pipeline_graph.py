@@ -50,7 +50,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.runtime import Runtime
 from langgraph.types import Command, interrupt
 
-from app import context_budget, pipeline
+from app import context_budget, pipeline, turn_events
 from app.config import settings
 from app.context_policy import MergePlan
 from app.db import DatabaseUnavailableError, UnsafeSQLError, is_connection_error as db_is_connection_error
@@ -267,6 +267,8 @@ def _observed(name: str, *, inputs: tuple = (), outputs: tuple = (), data: bool 
     def deco(fn):
         async def node(state: MeghalayaGraphState, runtime: Runtime[GraphContext]) -> dict:
             ctx = runtime.context or GraphContext()
+            # The streamed UI's progress line (D-039); a no-op without a live client.
+            turn_events.emit({"type": "step", "node": name})
             t0 = time.perf_counter()
             token = None
             if data:
@@ -516,6 +518,7 @@ async def node_finalize(state, ctx):
     result = state["response"]
     if state.get("response_origin") == "data":
         result = pipeline._with_rewritten_question(result, state["question"], state["raw_question"])
+        pipeline._attach_chart_hint(result, state["question"], state["raw_question"])
     pipeline._attach_followups(result, result.get("rewritten_question") or state["raw_question"])
     return {"response": result}
 
