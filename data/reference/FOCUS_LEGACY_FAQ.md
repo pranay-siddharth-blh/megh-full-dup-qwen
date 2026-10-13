@@ -24,6 +24,13 @@ No. Government representatives have repeatedly clarified that the financial assi
 ### 8. How is the money given out?
 Funds have been disbursed both through **cheques distributed at public events** (especially in the scheme's earlier years) and through **direct transfer to beneficiaries' bank accounts**. The amount is credited to individual members of each registered Producer Group.
 
+### 8a. How do I apply for FOCUS?
+FOCUS is applied for as a **Producer Group**, not as an individual. The steps are:
+1. **Form or join a Producer Group** — farmers (or, since October 2022, an urban group of 10 or more members doing a shared income-generating activity) organise into a Producer Group.
+2. **Register at the C&RD Block office** — the group registers with its local Community & Rural Development Block office during a registration window; windows are announced periodically. The **MeghalayaOne portal** (meghalayaone.gov.in) is also used for registration and status tracking.
+3. **Verification** — local officials verify the group's members and activity.
+4. **Fund release** — once verified, the group is included in the next disbursal round and ₹5,000 per member is credited to the members' bank accounts (or, in earlier years, given by cheque at a public event).
+
 ### 9. How do I register a Producer Group?
 Farmers or eligible groups can register at their local **C&RD Block office**. Registration windows are announced periodically, and once a group is verified, funds are released in the subsequent disbursal round. The **MeghalayaOne portal** (meghalayaone.gov.in) is also used for registration and status tracking.
 

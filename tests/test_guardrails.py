@@ -323,6 +323,54 @@ def test_a_harm_verdict_overrides_any_edge_reply(monkeypatch):
     assert r["edge_type"] == "violence"
 
 
+# ── Chart / table requests are the assistant's job (reported 2026-10-12) ─────
+# The live classifier answered OUT_OF_SCOPE "content" / "code" for these, so
+# a model scope verdict on a presentation request is overruled.
+
+CHART_REQUESTS = [
+    "So compare PMay beneficiaries in all financial years given that chart. Yeah.",
+    "show it as a pie chart",
+    "make a bar chart of PMAY-G houses by district",
+    "draw a graph for Focus Plus payments by tranche",
+    "give me a line graph of MGNREGA person-days by year",
+    "can you plot CM Elevate applications by district",
+    "show this in a table",
+    "visualise Focus Legacy payments by block",
+]
+
+
+@pytest.mark.parametrize("q", CHART_REQUESTS)
+@pytest.mark.parametrize("model_says", ['{"verdict": "OUT_OF_SCOPE", "category": "content"}',
+                                        '{"verdict": "OUT_OF_SCOPE", "category": "code"}',
+                                        '{"verdict": "OUT_OF_SCOPE", "category": "general"}'])
+def test_a_chart_request_is_never_refused_as_out_of_scope(monkeypatch, q, model_says):
+    _fake_model(monkeypatch, model_says)
+    assert guardrails.check_rules(q) is None and guardrails.check_scope_rules(q) is None
+    assert asyncio.run(guardrails.check_model(q)) is None
+    assert _edge_stage(q) is None or _edge_stage(q).get("edge_type", "").startswith("scope_") is False
+
+
+def test_a_harm_verdict_on_a_chart_request_still_refuses(monkeypatch):
+    _fake_model(monkeypatch, '{"verdict": "UNSAFE", "category": "violence"}')
+    v = asyncio.run(guardrails.check_model("make a chart of how to hurt my neighbour"))
+    assert v is not None and v.category == "violence"
+
+
+@pytest.mark.parametrize("q,category", [
+    ("write an instagram post with a chart of MGNREGA expenditure", "scope_content"),
+    ("write python code to plot PMAY-G houses by district", "scope_code"),
+    ("create a presentation with charts on CM Elevate", "scope_content"),
+])
+def test_content_or_code_that_mentions_a_chart_is_still_refused_by_the_rules(q, category):
+    v = guardrails.check_scope_rules(q)
+    assert v is not None and v.category == category
+
+
+def test_the_prompt_says_charts_of_scheme_data_are_safe():
+    assert "charts, graphs and tables OF SCHEME DATA" in guardrails._PROMPT
+    assert "NOT a chart, graph or table of the data" in guardrails._PROMPT
+
+
 # ── Through the whole graph ─────────────────────────────────────────────────
 
 def test_the_reported_question_through_the_graph_is_refused():

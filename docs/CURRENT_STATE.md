@@ -1,7 +1,93 @@
 # Current State
 
-**Last updated:** 2026-10-03 (early morning), by the all-schemes all-places QA + fix session (KI-188..199, D-034; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-02, by the LangGraph integration session (D-032; code changed, uncommitted; **offline-verified only**, VPN down). Before that: 2026-09-29 (early morning), by the conversational scheme-swap session (KI-180; code changed, uncommitted). Before that: 2026-09-29 (late night), by the CM Elevate Legacy use-case re-test session (no code changed; KI-166..168 opened). Before that: 2026-09-29 (night), by the Focus Legacy all-levels fix session (KI-020, KI-145..165, D-031; code changed, uncommitted). Before that: 2026-09-29, by the context-relevance / semantic-contract session (code changed, uncommitted; D-030, KI-030/032/034 and KI-130 to KI-135; **offline-verified only**, VPN down). Before that: 2026-09-28 (evening), by the CM Elevate all-blocks / all-villages fix session (code changed in `app/pipeline.py`, tests; uncommitted). Before that: 2026-09-28, by the PMAY-G fix session (code changed, uncommitted; D-029, KI-089 to KI-097). Before that: 2026-09-27 night, by the Focus Plus all-blocks / all-villages session (code changed in `app/pipeline.py`, tests in `tests/test_focusplus_usecase_fixes.py` and `tests/test_mgnrega_usecase_fixes.py`; **uncommitted**). Earlier the same day: the CM Elevate use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/schema_context.py`, plus a new test file; **uncommitted**). Before that, the same day: the Focus Plus use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/routers/query.py`, **uncommitted**, on top of the uncommitted 2026-09-26 MGNREGA and context work).
+**Last updated:** 2026-10-13 (evening), by the Cross Scheme sheet session (KI-280..290, D-044; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-03 (early morning), by the all-schemes all-places QA + fix session (KI-188..199, D-034; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-02, by the LangGraph integration session (D-032; code changed, uncommitted; **offline-verified only**, VPN down). Before that: 2026-09-29 (early morning), by the conversational scheme-swap session (KI-180; code changed, uncommitted). Before that: 2026-09-29 (late night), by the CM Elevate Legacy use-case re-test session (no code changed; KI-166..168 opened). Before that: 2026-09-29 (night), by the Focus Legacy all-levels fix session (KI-020, KI-145..165, D-031; code changed, uncommitted). Before that: 2026-09-29, by the context-relevance / semantic-contract session (code changed, uncommitted; D-030, KI-030/032/034 and KI-130 to KI-135; **offline-verified only**, VPN down). Before that: 2026-09-28 (evening), by the CM Elevate all-blocks / all-villages fix session (code changed in `app/pipeline.py`, tests; uncommitted). Before that: 2026-09-28, by the PMAY-G fix session (code changed, uncommitted; D-029, KI-089 to KI-097). Before that: 2026-09-27 night, by the Focus Plus all-blocks / all-villages session (code changed in `app/pipeline.py`, tests in `tests/test_focusplus_usecase_fixes.py` and `tests/test_mgnrega_usecase_fixes.py`; **uncommitted**). Earlier the same day: the CM Elevate use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/schema_context.py`, plus a new test file; **uncommitted**). Before that, the same day: the Focus Plus use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/routers/query.py`, **uncommitted**, on top of the uncommitted 2026-09-26 MGNREGA and context work).
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
+
+## Latest: Cross Scheme sheet test + fixes (2026-10-13). Code changed, uncommitted. LIVE-VERIFIED.
+CROSS-1..CROSS-20: 9th run 0/20 (18 paused, 2 wrong), after the fixes 20/20; 8,649/8,649 conversations (every scheme
+combination, level, FY and village). New `app/cross_scheme.py` (D-044): comparisons of 2+ schemes answered
+deterministically, each scheme by its single-scheme rule, never summed. KI-280..288 fixed; KI-289 ("FY2022-23" not read
+by the shared resolver for single-scheme questions) and KI-290 (low) open.
+
+## Latest: CM Elevate Legacy sheet test + fixes (2026-10-12). Code changed, uncommitted. LIVE-VERIFIED.
+TC-01..TC-36: 9th run 25 Pass / 11 Fail, after the fixes 36/36 (300/300 cases; every CM Elevate Legacy village
+1,051/1,051). User decision: a bare "CM-ELEVATE" data question defaults to CM Elevate Legacy unless it uses
+applications-only words. Other fixes KI-274..278: who-is-it-for questions are knowledge; application breakdowns
+ranked descending; Tura Municipal Board stored name corrected in the rules; HQ-town constituency names; village
+names kept whole by the rephraser. All seven workbook sheets are done.
+
+## Latest: Focus Legacy sheet test + fixes (2026-10-12). Code changed, uncommitted. LIVE-VERIFIED.
+FOCUS TC-01..TC-28: 9th run 19 Pass / 9 Fail, after the fixes 28/28 (231/231 cases; every Focus Legacy village
+3,384/3,384). Fixes KI-264..272: "FOCUS" is the scheme, not a variant / group-type filter; overview, list and
+date-range requests not refused; duplicates state the repeat payments; constituencies offered for HQ-town names and
+"North Tura"; calendar months read correctly; FY comparisons per year; Rs 5,000 per member stated; a village name is
+never a producer-group / product filter; unselected GROUP BY dropped; village names masked for the harm checks.
+
+## Latest: Focus + sheet test + fixes (2026-10-11). Code changed, uncommitted. LIVE-VERIFIED.
+FOCUS-001..030: 9th run 27 Pass / 3 Fail, after the fixes 30/30 (163/163 cases; every Focus Plus village
+3,513/3,513). Fixes KI-260..263: a block tagged as a district read as the block; tranche / batch status breakdowns
+count beneficiaries incl. "status not recorded"; "(GARO)" in a village name is not the region; a ward named in full
+beats the district-alias question.
+
+## Latest: CM Elevate sheet test + fixes (2026-10-10). Code changed, uncommitted. LIVE-VERIFIED.
+CM-ELEVATE-OFF-001..030: 9th run 20 Pass / 10 Fail, after the fixes 30/30 (529/529 cases; every CM Elevate village
+2,087/2,087). Fixes KI-253..259: applicants never rephrased to applications; CM Elevate wording routed to the data;
+deterministic sector answers; block-also-village asks which; every named district kept; programme x sector totals;
+programme word never taken as the village.
+
+## Latest: PMAY-G sheet test + fixes (2026-10-10). Code changed, uncommitted. LIVE-VERIFIED.
+- PMAY-OFF-001..028: first run 25/28 TCs clean; after the fixes 28/28 — sheet cases 678/678 and every PMAY-G village
+  5,121/5,121 on the final code. KI-249..252 (placeholder registrations in counts, rephrase-driven knowledge routing,
+  place names tripping guards, chip questions rephrased).
+
+## Latest: full-hierarchy pass, General + MGNREGA (2026-10-10). Code changed, uncommitted. LIVE-VERIFIED.
+- All 6,491 MGNREGA villages 6,491/6,491; MGNREGA sheet 783/783 (30/30 TCs); General 24/24. KI-244..248 fixed
+  (look-alike block/AC pause for exact village names, rephraser name suffixes, bracket-tolerant chips, wages-vs-materials
+  with no rows, duplicate village rows, a village name read as violence).
+
+## Latest: MGNREGA sheet test + fixes (2026-10-09). Code changed, uncommitted. LIVE-VERIFIED.
+- MGNREGA sheet (DATA-001..030) run through the LangGraph pipeline: 783 conversations across all districts, blocks,
+  constituencies, 2 villages per district and all years, every figure checked against megh_db. First run 13/30 Pass;
+  after the fixes 30/30 (every case clean). KI-236..243: expenditure asked "which scheme?", the guardrail model refused
+  village figure questions, the rephraser split two-word villages / dropped "expenditure" / widened to all schemes, the
+  constituency whole-or-part pause, HQ-town blocks answered as districts, AVG/SUM ratio, dropped/merged figures in the
+  combined and breakdown answers, village lists truncated (LIMIT 100) or miscounted.
+
+## Latest: General sheet test + fixes (2026-10-09). Code changed, uncommitted. LIVE-VERIFIED.
+- Ran the General sheet of `reference_documents/Test Case Results - 30th Sep 26.xlsx` (TC-001..024) through the LangGraph
+  pipeline with live models and megh_db: 262 conversations, data cases checked against the DB, TC-023 across all 12
+  districts, 55 blocks and 24 villages (182/182). First run 15 Pass / 9 Fail; after the fixes all 24 Pass.
+- Fixed (KI-228..234): listing said five schemes; Focus Legacy "how to apply" answered with documents; knowledge answers
+  named "reference material"; document lists had no required/optional split; "the two schemes" read only the last turn;
+  rule questions with "how many / how much" went to DATA; guardrail model SCOPE verdicts refused how-to, unknown-scheme and
+  short follow-up questions (also fixes KI-225); "which year was the highest?" paused or kept the previous year;
+  "show it year-wise" during the year pause; village top-1 called "top-ranked in Meghalaya".
+- KI-235 (cosmetic fallback wording) fixed later the same day.
+
+## Latest: conversation layer (2026-10-08, D-043, KI-222). Code changed, uncommitted. LIVE-VERIFIED.
+- New `app/conversation_layer.py`, called once in `routers.query._answer` before the caches. Pipeline,
+  graph and DB unchanged. It adds: idle expiry (30 min, `CONTEXT_IDLE_EXPIRY_SECONDS`; the durable snapshot
+  used to come back at any age), reset ("start a new topic", "forget the previous question", "let's start
+  again"), plain-words returns ("what was the PMAY-G information again?"), and the KI-222 fix: "How many
+  beneficiaries are there?" after "Tell me about PMAY-G" now continues with PMAY-G instead of "which scheme?".
+- Topic memory (`app/topic_memory.py`, written earlier the same day, kept) is now in the durable snapshot
+  (`Session.topics`, `context_at`), and an explicit topic switch is never cached (`is_cacheable`).
+- Tests: pytest **1,926 passed, 0 failed**; scripts 14/14; live: 15 multi-turn scenarios through `_answer`.
+- Live test cases 36/38 (follow-up, switch, return, pronoun, clarification, override, general, reset, expiry all pass);
+  KI-226 fixed in the layer (thanks / hi mid-topic no longer ends the topic). The 2 failures are KI-225: the new guardrail
+  model check refuses the scheme swap "give me for pmay" (pre-existing regression, not the layer).
+- Open: KI-223 (pre-existing: "What about MGNREGA?" while an area pause waits is merged into the pause),
+  KI-224 (semantic memory can still surface pre-reset turns, low).
+
+## Latest: "⋯" menu under answers (2026-10-09, frontend only). Uncommitted. OFFLINE-VERIFIED (browser 9/9).
+- A "⋯" button beside ↻ under every answer opens a small menu with when the answer was given ("Today, 11:34 AM",
+  "Yesterday, 4:10 PM", "Tue, 6 Oct, 9:05 AM"; replayed answers use the saved `created_at`). No "Branch in new chat"
+  (the user did not want it). Files: `format.js` `fullStamp`, `Messages.jsx` `MoreAction`, `App.jsx` (`at` on every
+  message), `chat.css` `.msg-menu`. Test: scratchpad `e2e/ui_more_test.mjs`.
+
+## Latest: Qdrant stays on 115.124.102.167:6335 (2026-10-09). No net change.
+- A switch to `10.48.242.4:6335` was made and reverted the same day at the user's request: that port did not answer.
+  `115.124.102.167:6335` checked 2026-10-09: `megh_scheme_kb` 201 points, `megh_conversation_memory` 765. KI-200 still open.
 
 ## Latest: every fresh answer is revealed word by word (2026-10-08, frontend only). Code changed, uncommitted. OFFLINE-VERIFIED.
 - Why: on the live app (VPN up, 2026-10-08) the composer DID stream (no `composer stream failed`), but most turns never

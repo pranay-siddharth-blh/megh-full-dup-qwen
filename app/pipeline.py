@@ -20,7 +20,7 @@ import httpx
 from rapidfuzz import fuzz
 
 from app import annotations, auth, context_manager, edge, followups, llm, premise_check, prompt_builder, rag
-from app import context_budget, context_policy, guardrails
+from app import context_budget, context_policy, cross_scheme, guardrails, topic_memory
 from app.config import settings
 from app.db import UnsafeSQLError, fetch_rows, run_readonly
 from app.db import DatabaseUnavailableError, is_connection_error as db_is_connection_error
@@ -45,6 +45,8 @@ from app.entity_resolver import (
     resolve_tranche_label,
     resolve_village,
     scan_dimension,
+    scan_districts,
+    fold,
     tranche_labels,
     village_names_exact,
 )
@@ -1170,11 +1172,24 @@ def _expand_short_fy(text: str) -> str:
     return _SHORT_FY.sub(repl, text or "")
 
 
-@functools.lru_cache(maxsize=1)
+_PLACE_WORDS_CACHE: "list[frozenset]" = []
+
+
 def _place_words() -> frozenset:
     """Every word of every catalogued district / block / constituency name and
     alias ("ri", "bhoi", "mawlai", "garo", "hills"): a place the user typed is
-    not an unknown word. Village names are not here; they stay names."""
+    not an unknown word. Village names are not here; they stay names. Cached
+    only once non-empty: a call before the catalogues load must not pin an
+    empty set for the life of the process."""
+    if _PLACE_WORDS_CACHE:
+        return _PLACE_WORDS_CACHE[0]
+    words = _load_place_words()
+    if words:
+        _PLACE_WORDS_CACHE.append(words)
+    return words
+
+
+def _load_place_words() -> frozenset:
     words: set[str] = set()
     try:
         from app import entity_resolver as er
@@ -1221,9 +1236,17 @@ def _measure_labels(text: str) -> set[str]:
     return {label for label, rx, _h in _MEASURE_HOLDERS if rx.search(text or "")}
 
 
+# Ordinary connecting words the vocabulary lists did not hold: "during" read as
+# an unknown NAME, so every rewrite of "… during 2025-26" was rejected as having
+# dropped a name (MGNREGA all-villages run, 2026-10-09).
+_COMMON_WORDS = frozenset(
+    "during between across within among since until till per each every both either "
+    "into onto upon over under above below after before about against along around".split())
+
+
 def _is_known_word(word: str) -> bool:
     w = word.lower().strip("'-")
-    if len(w) < 3 or w in _REPHRASE_VOCAB or w in _HINGLISH_GLOSS or w in _place_words():
+    if len(w) < 3 or w in _REPHRASE_VOCAB or w in _HINGLISH_GLOSS or w in _COMMON_WORDS or w in _place_words():
         return True
     if any(p.search(w) for p in _SCHEME_NAME_PATTERN.values()) or _fuzzy_named_schemes(w):
         return True
@@ -1253,6 +1276,14 @@ def _needs_rephrase(question: str) -> bool:
     return not _REPHRASE_START.search(q)
 
 
+_REPHRASE_COUNT_NOUNS = (re.compile(r"\bapplicants?\b", re.IGNORECASE),
+                         re.compile(r"\bapplications?\b", re.IGNORECASE),
+                         re.compile(r"\bbeneficiar(?:y|ies)\b", re.IGNORECASE))
+_REPHRASE_COMPARE_WORD = re.compile(r"\bcompar\w*|\bvs\.?(?!\w)|\bversus\b|\bdifference\b|\bwhich\s+(?:is\s+)?(?:higher|"
+                                    r"lower|more|less|greater|bigger)\b", re.IGNORECASE)
+_REPHRASE_SPEND_WORD = re.compile(r"\b(?:expenditures?|expenses?|spent|spend\w*|costs?)\b", re.IGNORECASE)
+
+
 def _rephrase_violation(original: str, rephrased: str) -> "str | None":
     """What the rephrased question changed that it must not, else None:
     'shape' (not a usable question), 'scheme', 'place', 'year', 'number',
@@ -1273,6 +1304,11 @@ def _rephrase_violation(original: str, rephrased: str) -> "str | None":
     named = _exact_schemes(gloss) | set(_fuzzy_named_schemes(unnamed))
     if _exact_schemes(out) != named:
         return "scheme"
+    # ...nor widen to every scheme: "Compare total expenditure and employment
+    # generated in East Khasi Hills during 25-26" came back "…under all schemes…",
+    # was classified to all six and failed (MGNREGA sheet DATA-030, 2026-10-09).
+    if _EXPLICIT_BOTH.search(out) and not _EXPLICIT_BOTH.search(gloss):
+        return "scheme"
     # Places: the same districts / blocks, compared canonically ("ekh" = East Khasi Hills).
     if set(context_policy._places(out)) != set(context_policy._places(gloss)):
         return "place"
@@ -1288,6 +1324,36 @@ def _rephrase_violation(original: str, rephrased: str) -> "str | None":
     # Measures: the same ones (person-days stays person-days, never payments).
     if _measure_labels(out) != _measure_labels(gloss):
         return "measure"
+    # A spend word is MGNREGA's measure: "Compare expenditure and person-days in
+    # Gambegre block" came back "How much money and how many person-days…", which
+    # no longer reads as expenditure and missed the deterministic query (MGNREGA
+    # sheet DATA-029, run 2026-10-09).
+    if _REPHRASE_SPEND_WORD.search(gloss) and not _REPHRASE_SPEND_WORD.search(out):
+        return "measure"
+    # "applicants" (distinct people) is not "applications" (rows): "How many
+    # applicants … under each CM ELEVATE program?" came back "…applications…" and
+    # was counted with COUNT(*) (Piggery 3,032 for 3,010; CM Elevate sheet run
+    # 2026-10-10).
+    for _rx in _REPHRASE_COUNT_NOUNS:
+        if bool(_rx.search(gloss)) != bool(_rx.search(out)):
+            return "measure"
+    # An "&" belongs to a name: "mawkohmit & mawkynsah village" (ONE village) came back
+    # "mawkohmit and mawkynsah villages" and was asked "which area?" (Focus Legacy
+    # all-villages run 2026-10-12).
+    if (original or "").count("&") > out.count("&"):
+        return "name:&"
+    # The name written before "village" stays whole and in order: "for kyrdemkulai 6 km
+    # village" came back "for 6 km village in kyrdemkulai" and asked which "6 km village"
+    # (CM Elevate Legacy all-villages run 2026-10-12).
+    _vm = re.search(r"\b(?:in|for|at|of|to)\s+(.+?)\s+village\b", original or "", re.IGNORECASE)
+    if _vm and re.sub(r"\s+", " ", _vm.group(1)).lower() not in re.sub(r"\s+", " ", out).lower():
+        return "name:village"
+    # A comparison stays a comparison: "Compare the total remittance between FY 2022-23
+    # and FY 2025-26" came back "What is the total remittance … in FY 2022-23 and FY
+    # 2025-26?" and was answered with one combined total (Focus Legacy sheet TC-24,
+    # 2026-10-12).
+    if _REPHRASE_COMPARE_WORD.search(gloss) and not _REPHRASE_COMPARE_WORD.search(out):
+        return "shape"
     # Families, minus the question shape: "how many" / "how much" / "number of"
     # is how a question is asked, and a shapeless message ("persondays ekh
     # 23-24") legitimately gains one. The measures themselves are compared above.
@@ -1308,7 +1374,79 @@ def _rephrase_violation(original: str, rephrased: str) -> "str | None":
         if typo and typo in out_words:
             continue   # a typo of an ordinary word ("aplications"), fixed
         return f"name:{lw}"
+    # A multi-word name must survive as one phrase: "in MAWNGAP MAWSMAI" came
+    # back "under MAWNGAP in MAWSMAI" — both words kept, the village lost (it
+    # then resolved to the five MAWSMAI villages; MGNREGA sheet run 2026-10-09).
+    for phrase in _unknown_word_runs(original):
+        if phrase not in re.sub(r"\s+", " ", out_text):
+            return f"name:{phrase}"
     return None
+
+
+_NAME_SUFFIX_TOKEN = re.compile(r"^(?:[a-z]|i{1,3}|iv|vi{0,3}|ix|x)$")
+_NAME_SUFFIX_FOLLOW = frozenset("during in for of under from block village district year fy".split())
+
+
+def _unknown_word_runs(text: str) -> list[str]:
+    """Runs of two or more consecutive words the vocabulary does not know — a
+    multi-word place or name ("mawngap mawsmai", "nongkhlaw mawkyrwat") — with
+    any part-marker that belongs to the name: a bracketed qualifier ("ramjonggre
+    ( r )") or a trailing letter / roman numeral ("rimrangpara a", "nokatgre i").
+    The rephraser dropped "a" (Rimrangpara A became RIMRANGPARA, another village)
+    and compacted "( R )" to "(R)" (no longer the exact name) in the MGNREGA
+    all-villages run, 2026-10-09."""
+    toks = re.findall(r"[A-Za-z][A-Za-z'-]*|\S", _expand_short_fy(text or ""))
+    runs, cur, i = [], [], 0
+    unknown_in_cur = 0
+    places = _place_words()
+
+    def _unknown(tok: str) -> bool:
+        lt = tok.lower().strip("'-")
+        return bool(_WORD.fullmatch(tok)) and not _is_known_word(lt) and not _vocab_typo(lt)
+
+    def _flush():
+        nonlocal cur, unknown_in_cur
+        if len(cur) >= 2 and unknown_in_cur:
+            runs.append(" ".join(cur))
+        cur, unknown_in_cur = [], 0
+
+    while i < len(toks):
+        w = toks[i]
+        lw = w.lower().strip("'-")
+        if _unknown(w):
+            cur.append(lw)
+            unknown_in_cur += 1
+            i += 1
+            continue
+        # A block / constituency word inside a village name ("MYNRI UMSNING" came
+        # back "MYNRI in Umsning", MGNREGA all-villages run 2026-10-09) belongs to
+        # the name when it touches an unknown word.
+        if _WORD.fullmatch(w) and lw in places and (
+                cur or (i + 1 < len(toks) and _unknown(toks[i + 1]))):
+            cur.append(lw)
+            i += 1
+            continue
+        if cur and w == "-" and i + 1 < len(toks) and _NAME_SUFFIX_TOKEN.match(toks[i + 1].lower()):
+            # "chisakgre - a" (PMAY-G all-villages run 2026-10-10)
+            cur.extend(["-", toks[i + 1].lower()])
+            i += 2
+            continue
+        if cur and w == "(":
+            j = toks.index(")", i) if ")" in toks[i:i + 6] else -1
+            if j > i:
+                cur.extend(t.lower() for t in toks[i:j + 1])
+                i = j + 1
+                continue
+        if cur and _NAME_SUFFIX_TOKEN.match(lw) and (
+                i + 1 >= len(toks) or not _WORD.fullmatch(toks[i + 1])
+                or toks[i + 1].lower() in _NAME_SUFFIX_FOLLOW):
+            cur.append(lw)
+            i += 1
+            continue
+        _flush()
+        i += 1
+    _flush()
+    return runs
 
 
 async def rephrase_question(question: str) -> str:
@@ -1701,7 +1839,14 @@ _CMELEVATE_ONLY_TERMS = re.compile(
     # absent from CM Elevate Legacy. Without it every SEED question paused on
     # "which scheme?" (KI-075, CM Elevate QA 2026-09-27: 006b, 007b, 008b …).
     # A bare "seed" is NOT added: Focus Legacy uses "seed money".
-    r"\bprime[\s-]+seed\b|\bseed\s+(?:scheme|programme|program)\b|\(seed\)",
+    r"\bprime[\s-]+seed\b|\bseed\s+(?:scheme|programme|program)\b|\(seed\)|"
+    # The sheet's own wording names no scheme: "How many applicants have completed data
+    # verification in East Khasi Hills?", "How many applications are pending in each
+    # sector in <district>?" asked "which scheme?" (CM Elevate sheet run 2026-10-10).
+    # Data verification (data_verified) and the applicant sector (sector_id) are CM
+    # Elevate's alone (Focus Plus's verification_status is blank on every row).
+    r"\bdata[\s-]+verif\w*|\bcompleted\s+(?:the\s+)?(?:data\s+)?verification\b|"
+    r"\b(?:applicants?|applications?)\b[^?.]{0,50}\bsectors?\b|\bsectors?\b[^?.]{0,30}\b(?:applicants?|applications?)\b",
     re.IGNORECASE,
 )
 
@@ -1783,13 +1928,30 @@ _CMELEVATE_APPLICATIONS_ONLY = re.compile(
 )
 
 
+# The user's decision (2026-10-12, CM Elevate Legacy sheet): a bare "CM-ELEVATE" data
+# question that uses no applications-only word defaults to CM Elevate Legacy ("How many
+# CM-ELEVATE applications are recorded in each district?" -> the 2,823 sanction records,
+# not the 8,627 applications). The applications dataset keeps every question in its own
+# vocabulary: applicants, pending, sent back, status, level, sector, verification, on hold …
+_CME_APPLICATIONS_VOCAB = re.compile(
+    r"\bapplicants?\b|\bpending\b|\bpendency\b|\bsent[\s-]?back\b|\bsend[\s-]?back\b|\bstatus\b|"
+    r"\blevel[\s-]*\d\b|\bforwarded?\b|\brejected\b|\bprograms?\b", re.IGNORECASE)
+_CME_DATA_REQUEST = re.compile(
+    r"\bhow\s+many\b|\bnumber\s+of\b|\bcount\b|\btotal\b|\beach\b|\bper\b|\bwise\b|\bcompare\b|"
+    r"\bsummary\b|\bshow\b|\blist\b|\bhighest\b|\blowest\b|\bmost\b|\btop\b|\brecorded\b|\bmapped\b|"
+    r"\bdistricts?\b|\bblocks?\b|\bvillages?\b|\bconstituenc\w*", re.IGNORECASE)
+
+
 def _prefers_cm_elevate_legacy(question: str) -> bool:
     """A CM Elevate question whose vocabulary only the sanction-and-disbursement
-    dataset can answer (and none that only the applications dataset holds)."""
+    dataset can answer (and none that only the applications dataset holds) — or,
+    by the user's default, a data request in neither dataset's own vocabulary."""
     q = question or ""
     if _CMELEVATE_APPLICATIONS_ONLY.search(q):
         return False
-    return bool(_CMELEVATELEGACY_FORCING.search(q) or _CMELEVATELEGACY_ONLY_TERMS.search(q))
+    if _CMELEVATELEGACY_FORCING.search(q) or _CMELEVATELEGACY_ONLY_TERMS.search(q):
+        return True
+    return bool(_CME_DATA_REQUEST.search(q)) and not _CME_APPLICATIONS_VOCAB.search(q)
 
 
 def _pin_cm_elevate_dataset(question: str) -> str:
@@ -1830,8 +1992,22 @@ def _unpin_cm_elevate(question: str) -> str:
 _MGNREGA_AC_TERM = re.compile(r"\bassembly constituenc\w*|\bAC\s*\d+\b", re.IGNORECASE)
 
 
+# "Expenditure" is MGNREGA's word: it is the only loaded scheme with an
+# expenditure column (PMAY-G sanctions and releases, Focus and CM Elevate Legacy
+# disburse). "What was the total expenditure in <village> during 2024-25?" and
+# "Which district had the highest expenditure?" asked "which scheme?" on every
+# run (MGNREGA sheet DATA-001/002/022/024, 2026-10-09). A question that talks
+# about schemes ("which scheme had the highest expenditure?") still asks.
+_MGNREGA_EXPENDITURE_WORD = re.compile(r"\bexpenditures?\b", re.IGNORECASE)
+_TALKS_ABOUT_SCHEMES = re.compile(r"\bschemes?\b|\bprogramm?es?\b", re.IGNORECASE)
+
+
 def _mgnrega_terms(question: str) -> bool:
-    return bool(_MGNREGA_ONLY_TERMS.search(_MGNREGA_AC_TERM.sub(" ", question or "")))
+    q = _MGNREGA_AC_TERM.sub(" ", question or "")
+    if _MGNREGA_ONLY_TERMS.search(q):
+        return True
+    return bool(_MGNREGA_EXPENDITURE_WORD.search(q) and not _TALKS_ABOUT_SCHEMES.search(q)
+                and not _EXPLICIT_BOTH.search(q))
 
 
 def _infer_scheme_from_terms(question: str) -> list[str] | None:
@@ -2948,6 +3124,108 @@ async def _focus_legacy_list_total(sql: str, rows: list[dict]) -> "tuple[int, st
     return int(n), subject
 
 
+# FOCUS sheet TC-12 (testers 2026-09-29, re-run 2026-10-12): the numbers were right but the
+# answer did not say how many payments the repeat-paid groups account for ("user will not
+# subtract"), and the figures came from model SQL. One fixed query, one fixed answer.
+_FL_DUP_SQL_RE = re.compile(r"/\*\s*fl-duplicates\s*\*/", re.IGNORECASE)
+
+
+def _focus_legacy_duplicates_query(question: str, schemes: list[str], resolved: dict) -> "tuple[str, list, str] | None":
+    if schemes != ["Focus Legacy"] or not _DUPLICATE_Q.search(question or ""):
+        return None
+    where, params = [], []
+    for key, col in (("district", "lgd_district"), ("block", "lgd_block")):
+        if (resolved or {}).get(key):
+            params.append(str(resolved[key]).upper())
+            where.append(f"UPPER({col}) = ${len(params)}")
+    if any((resolved or {}).get(k) for k in ("village_code", "village_code_list", "district_list", "block_list",
+                                             "assembly_constituency", "year_key", "financial_year")):
+        return None
+    w = ("WHERE " + " AND ".join(where)) if where else ""
+    w2 = (w + " AND " if w else "WHERE ") + "date_of_remittance IS NOT NULL"
+    sql = (f"/* fl-duplicates */ WITH g AS (SELECT pg_id, COUNT(*) AS n FROM curated.v_focus_legacy {w} GROUP BY pg_id), "
+           f"s AS (SELECT pg_id, date_of_remittance FROM curated.v_focus_legacy {w2} "
+           "GROUP BY pg_id, date_of_remittance HAVING COUNT(*) > 1) "
+           "SELECT (SELECT COALESCE(SUM(n), 0) FROM g) AS payments, (SELECT COUNT(*) FROM g) AS producer_groups, "
+           "(SELECT COUNT(*) FROM g WHERE n > 1) AS groups_paid_more_than_once, "
+           "(SELECT COALESCE(SUM(n - 1), 0) FROM g WHERE n > 1) AS repeat_payments, "
+           "(SELECT COUNT(*) FROM s) AS duplicate_records")
+    return sql, params, sql
+
+
+def _focus_legacy_duplicates_answer(rows: list[dict], display: dict) -> "str | None":
+    if not rows:
+        return None
+    r = {k: int(_as_number(v) or 0) for k, v in rows[0].items()}
+    place = display.get("block") or display.get("district")
+    where = f" in {place}" if place else ""
+    dup = r["duplicate_records"]
+    head = ("No — there are no duplicate records: no producer group was paid twice on the same date."
+            if dup == 0 else f"There are {dup:,} duplicate records (the same producer group paid twice on the same date).")
+    return (f"{head} Under Focus Legacy{where}, {r['payments']:,} payments went to {r['producer_groups']:,} producer "
+            f"groups. {r['groups_paid_more_than_once']:,} groups were paid more than once — repeat payments in later "
+            f"tranches, not duplicates — and those repeats account for {r['repeat_payments']:,} of the "
+            f"{r['payments']:,} payments ({r['payments']:,} − {r['producer_groups']:,}).")
+
+
+# Focus Legacy sheet TC-24 (2026-10-12): "Compare the total FOCUS remittance between FY 2022-23
+# and FY 2025-26" was answered with ONE combined total (₹32.69 crore) instead of each year's.
+_FL_FY_COMPARE_RE = re.compile(r"\bcompar\w*|\bvs\.?\b|\bversus\b|\bdifference\b", re.IGNORECASE)
+_FL_FY_COMPARE_SQL_RE = re.compile(r"/\*\s*fl-fy-compare\s*\*/", re.IGNORECASE)
+
+
+def _focus_legacy_fy_compare_query(question: str, schemes: list[str], resolved: dict) -> "tuple[str, list, str] | None":
+    if schemes != ["Focus Legacy"] or not _FL_FY_COMPARE_RE.search(question or ""):
+        return None
+    ok, bad = _years_in_question(question, schemes)
+    if bad or len(ok) < 2:
+        return None
+    fys = []
+    for tok in ok:
+        y = _parse_year_key(tok)
+        if y is not None and f"{y}-{(y + 1) % 100:02d}" not in fys:
+            fys.append(f"{y}-{(y + 1) % 100:02d}")
+    if len(fys) < 2:
+        return None
+    if any((resolved or {}).get(k) for k in ("village_code", "village_code_list", "block_list", "district_list",
+                                             "assembly_constituency")):
+        return None
+    where, params = ["financial_year_short = ANY($1::text[])"], [fys]
+    for key, col in (("district", "lgd_district"), ("block", "lgd_block")):
+        if (resolved or {}).get(key):
+            params.append(str(resolved[key]).upper())
+            where.append(f"UPPER({col}) = ${len(params)}")
+    sql = ("/* fl-fy-compare */ SELECT financial_year_short, SUM(amount_disbursed) AS amount_disbursed, "
+           "SUM(no_of_pg_members) AS memberships, COUNT(*) AS payments, COUNT(DISTINCT pg_id) AS producer_groups "
+           f"FROM curated.v_focus_legacy WHERE {' AND '.join(where)} GROUP BY 1 ORDER BY 1")
+    return sql, params, sql
+
+
+def _focus_legacy_fy_compare_answer(rows: list[dict], params: list, display: dict) -> "str | None":
+    if not rows or not params:
+        return None
+    by = {r["financial_year_short"]: r for r in rows}
+    place = display.get("block") or display.get("district")
+    where = f" in {place}" if place else ""
+    lines, amts = [], []
+    for fy in params[0]:
+        r = by.get(fy)
+        if r is None:
+            lines.append(f"- **FY {fy}**: no Focus Legacy payments recorded{where}.")
+            continue
+        a = float(_as_number(r["amount_disbursed"]) or 0)
+        amts.append((fy, a))
+        lines.append(f"- **FY {fy}**: {_pmay_money(a)} to {int(_as_number(r['producer_groups']) or 0):,} producer "
+                     f"groups ({int(_as_number(r['payments']) or 0):,} payments, "
+                     f"{int(_as_number(r['memberships']) or 0):,} memberships x ₹5,000)")
+    out = f"Focus Legacy remittance{where}, by financial year:\n" + "\n".join(lines)
+    if len(amts) == 2:
+        (f1, a1), (f2, a2) = amts
+        hi = f1 if a1 >= a2 else f2
+        out += (f"\n\nFY {hi} is higher by {_pmay_money(abs(a1 - a2))}.")
+    return out
+
+
 def _focus_legacy_answer_notes(question: str) -> list[str]:
     if not _DUPLICATE_Q.search(question or ""):
         return []
@@ -3665,19 +3943,23 @@ def _count_word(n: int) -> str:
 
 
 def _scheme_listing_lines() -> list[str]:
-    folded = {d for ds in _PROGRAMME_DATASETS.values() for d in ds}
+    # All six, each on its own line: folding CM Elevate Legacy into the CM Elevate
+    # line made the reply say "I cover five schemes" while the scheme picker and
+    # every refusal message say six (General TC-001/016, test run 2026-10-09).
+    # The two CM-ELEVATE lines say plainly that they are one programme.
     lines = []
     for name, desc in _SCHEME_USER_SUMMARY.items():
-        if name in folded:
-            continue
         if name == "CM Elevate":
             desc = (
                 "Meghalaya livelihood & enterprise support programme (CM-ELEVATE) — "
                 "piggery, poultry, dairy, small enterprise, tourism vehicles and more. "
-                "Its data comes in two parts: the **applications** (15 schemes — status, "
-                "verification, applicant type; no amounts) and **CM Elevate Legacy**, the "
-                "sanctions and disbursements (13 schemes — amount sanctioned, subsidy and "
-                "loans paid, FY 2024-25 and 2025-26)."
+                "Holds the **applications** (15 schemes — status, verification, applicant "
+                "type; no amounts)."
+            )
+        elif name == "CM Elevate Legacy":
+            desc = (
+                "the same CM-ELEVATE programme's **sanctions and disbursements** (13 "
+                "schemes — amount sanctioned, subsidy and loans paid, FY 2024-25 and 2025-26)."
             )
         lines.append(f"- **{name}** — {desc}")
     return lines
@@ -4137,7 +4419,7 @@ def _why_choice_answer(question: str, session: "Session | None") -> "dict | None
                     + f" ranked above {x} in that same list.")
             alts = [a for a in alts if a not in ranked_above]
     else:
-        why = (f"My last answer drew only on **{x}**'s reference material because our "
+        why = (f"My last answer drew only on **{x}**'s published information because our "
                f"conversation was about {x} at that point — I didn't compare it with the "
                "other schemes.")
     parts = [why]
@@ -4236,9 +4518,17 @@ _SCHEME_COMPARISON_METRIC_GUARD = re.compile(
     r"\b(beneficiar\w*|amount|amounts|expenditure|spend\w*|wages?|"
     r"person[\s-]?days?|job\s?cards?|houses?|disburs\w*|payments?|"
     r"number of|how many|how much|count of|total|percentage|per ?cent|"
-    r"\brate\b)\b",
+    r"\brate\b|"
+    # a breakdown by place is a data request too: "Compare the schemes
+    # district-wise" drew the "which schemes?" pause (cross-scheme run 2026-10-13)
+    r"(?:district|block|village|year|constituency)[\s-]?wise|districts?|blocks?|villages?|constituenc\w*)\b",
     re.IGNORECASE,
 )
+# "Compare all six schemes" names every scheme; asking "which schemes?" back is a
+# needless pause (cross-scheme run 2026-10-13).
+_ALL_SCHEMES_NAMED = re.compile(
+    r"\ball\s+(?:the\s+)?(?:six\s+|6\s+)?schemes\b|\bevery\s+scheme\b|\beach\s+scheme\b|"
+    r"\b(?:six|6)\s+schemes\b", re.IGNORECASE)
 
 
 def _scheme_comparison_clarification() -> "ClarificationNeeded":
@@ -4278,6 +4568,27 @@ def _previous_turn_schemes(session: "Session | None") -> list[str]:
         return own
     text = getattr(prev, "raw_question", None) or getattr(prev, "question", "") or ""
     return _named_schemes(text) or own
+
+
+def _recent_compared_schemes(session: "Session | None", n: int = 4) -> list[str]:
+    """The schemes "the two schemes" points back at. One turn that named both
+    wins; otherwise the distinct schemes of the last few turns, most recent
+    first. "What is Focus Plus?" -> "What is Focus Legacy?" -> "What is the
+    difference between the two schemes?" asked the user to pick a pair from 15,
+    because only the LAST turn was read (General TC-007, test run 2026-10-09)."""
+    own = _previous_turn_schemes(session)
+    if len(own) >= 2:
+        return own
+    seen: list[str] = []
+    for t in reversed((getattr(session, "turns", None) or [])[-n:]):
+        names = [s for s in (getattr(t, "schemes", None) or []) if s in SCHEME_CATALOG]
+        names = names or _named_schemes(getattr(t, "raw_question", None) or getattr(t, "question", "") or "")
+        for s in names:
+            if s not in seen:
+                seen.append(s)
+        if len(seen) >= 2:
+            break
+    return list(reversed(seen[:2])) if len(seen) >= 2 else own
 
 
 # Inside a CM Elevate conversation, "each scheme" means that dataset's own
@@ -4322,10 +4633,24 @@ def _scheme_comparison_answer(question: str, prev_schemes: "list[str] | None" = 
         # raised the 4-way clarification instead of running the sub-scheme
         # comparison in cmelevate_few_shot.yaml). Let normal DATA routing handle it.
         return None
+    if len(named) < 2 and _ALL_SCHEMES_NAMED.search(question or ""):
+        named = list(SCHEME_CATALOG)
     if len(named) < 2:
         raise _scheme_comparison_clarification()
     targets = named
-    lines = [f"- **{name}** — {_SCHEME_USER_SUMMARY.get(name, '')}" for name in targets]
+    folded = {d: p for p, ds in _PROGRAMME_DATASETS.items() for d in ds}
+    lines = []
+    for name in targets:
+        line = f"- **{name}** — {_SCHEME_USER_SUMMARY.get(name, '')}"
+        fit = _SCHEME_FIT.get(name)
+        if name in folded:
+            line += (f" Same programme and eligibility as {folded[name]}; this is its "
+                     "sanction and disbursement data.")
+        elif fit:
+            # Who it is for and what it gives, from the same FAQ-derived table the
+            # recommendations use — the summary alone did not say who qualifies.
+            line += f" Who it is for: {fit[1]}"
+        lines.append(line)
     answer = (
         "Here's a high-level comparison:\n\n" + "\n".join(lines) +
         "\n\nAsk about a specific one — eligibility, benefits, or the application "
@@ -5016,6 +5341,24 @@ _BACKREF_FOLLOWUP_RE = re.compile(
     re.IGNORECASE)
 
 
+# "show it year-wise", "by year", "each year please", "break it down yearly" —
+# a reply to the year pause that asks for every year, one row each.
+_YEARWISE_REPLY_CUE = re.compile(
+    r"\byear[\s-]?wise\b|\bby\s+(?:financial\s+)?years?\b|\b(?:each|every)\s+(?:financial\s+)?year\b|"
+    r"\bper\s+year\b|\byearly\b|\bannual(?:ly)?\b|\byear[\s-]?by[\s-]?year\b|\bfor\s+all\s+(?:the\s+)?years\b",
+    re.IGNORECASE)
+
+
+def _is_yearwise_reply(reply: str) -> bool:
+    r = (reply or "").strip()
+    if len(r.split()) > 8 or not _YEARWISE_REPLY_CUE.search(r):
+        return False
+    # Anything beyond the cue and filler that names a measure or a scheme is a
+    # new question ("show person-days year-wise"), not a reply.
+    rest = _YEARWISE_REPLY_CUE.sub(" ", r)
+    return not (_DATA_HINTS.search(rest) or _named_schemes(rest))
+
+
 def _reply_abandons_scope_pause(reply: str) -> bool:
     """True when the reply to a 'which area / year?' pause is itself a new,
     self-standing question rather than the scope fragment we asked for."""
@@ -5225,8 +5568,22 @@ _YEARS_LIST_FIGURE = re.compile(
     re.IGNORECASE)
 
 
+# "across all financial years" / "all financial years combined" is the year chip's
+# SCOPE, not a request for the list: "Give me the overall PMAY performance of East
+# Khasi Hills across all financial years" was answered with the seven FYs (PMAY-G
+# sheet run 2026-10-10). Summary words ask for figures too.
+_YEARS_SCOPE_PHRASE = re.compile(
+    r"\b(?:across|for|over|in)\s+all\s+(?:the\s+)?(?:financial\s+|fiscal\s+)?years(?:\s+combined)?\b|"
+    r"\ball\s+(?:the\s+)?(?:financial\s+|fiscal\s+)?years\s+combined\b", re.IGNORECASE)
+_YEARS_LIST_SUMMARY = re.compile(
+    r"\b(?:performance|summary|overview|breakdown|status|progress|report|figures?|position|"
+    r"complet\w*|utili[sz]\w*|percent\w*)\b", re.IGNORECASE)
+
+
 def _is_years_list_question(question: str) -> bool:
-    q = question or ""
+    q = _YEARS_SCOPE_PHRASE.sub(" ", question or "")
+    if _YEARS_LIST_SUMMARY.search(q):
+        return False
     return (bool(_YEARS_LIST_QUESTION.search(q)) and not _YEARS_LIST_FIGURE.search(q)
             and not _GAP_YEAR.search(q) and not re.search(r"\b(?:19|20)\d\d\b", q))
 
@@ -5306,11 +5663,21 @@ _ALL_YEARS_CUE = re.compile(
     r"\ball years combined\b|\boverall\b|\bin total\b|\bgrand total\b",
     re.IGNORECASE,
 )
+# The YEAR is what is asked for — "which year was the highest?", "in which FY
+# did it peak?". Asking "which financial year?" back answers nothing, and a year
+# carried over from the previous turn would pin the answer to that one year
+# (General TC-022, test run 2026-10-09: after "What was it in 2023-24?", "which
+# year was the highest?" answered "FY 2023-24, 8.71 lakh" instead of 2024-25).
+_WHICH_YEAR_PATTERN = (
+    r"\b(?:which|what)\s+(?:financial\s+)?(?:years?|fys?)\b|\bin\s+which\s+(?:financial\s+)?(?:years?|fys?)\b|"
+    r"\b(?:years?|fys?)\s+(?:had|has|with|saw|recorded)\s+(?:the\s+)?(?:highest|lowest|most|least|max\w*|min\w*|peak)\b")
+_WHICH_YEAR_CUE = re.compile(_WHICH_YEAR_PATTERN, re.IGNORECASE)
 _TIME_SERIES_CUE = re.compile(
     r"\btrend\b|\bover time\b|\bover (?:the )?(?:last|past) \w+ (?:years?|fys?)\b|"
     r"\byear[\s-]?on[\s-]?year\b|\byear[\s-]?wise\b|\bby year\b|\bby financial year\b|"
     r"\bper year\b|\bannually\b|\bannual\b|\bhistory\b|\bhistorical\b|"
-    r"\bgrowth\b|\bchange over\b|\beach (?:financial )?year\b",
+    r"\bgrowth\b|\bchange over\b|\beach (?:financial )?year\b|"
+    + _WHICH_YEAR_PATTERN,
     re.IGNORECASE,
 )
 # The question is actually about a metric or a per-dimension breakdown — the only
@@ -5940,6 +6307,25 @@ _MALFORMED_YEAR_CUE_RE = re.compile(
 )
 
 
+_MONTH_ABBR = ["jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "oct", "nov", "dec"]
+_MONTH_YEAR_IN_Q = re.compile(_MONTH_NAME + r"\.?,?\s+(?:19|20)\d\d\b", re.IGNORECASE)
+
+
+def _calendar_month_fy_key(text: str, m: "re.Match") -> "int | None":
+    """FY start year for a bare year written right after a calendar month ("between
+    January and March 2026" -> 2025, "June 2025" -> 2025), else None. Jan-Mar belong to
+    the FY that started the April before: "2026" alone read as FY 2026-27 and the Focus
+    Legacy question was told no data is held (Focus Legacy sheet TC-20, 2026-10-12)."""
+    tok = m.group(1)
+    if not re.fullmatch(r"(?:19|20)\d\d", tok or ""):
+        return None
+    mo = re.search(_MONTH_NAME + r"\.?,?\s*$", (text or "")[: m.start(1)], re.IGNORECASE)
+    if not mo:
+        return None
+    month = _MONTH_ABBR.index(mo.group(0).strip(" .,").lower()[:3]) + 1
+    return int(tok) if month >= 4 else int(tok) - 1
+
+
 def _years_in_question(text: str, schemes: "list[str] | None" = None
                        ) -> "tuple[list[str], list[str]]":
     """(available, unavailable) raw year tokens named in `text`.
@@ -5954,7 +6340,7 @@ def _years_in_question(text: str, schemes: "list[str] | None" = None
     bad: list[str] = []
     for m in _YEAR_RANGE_TOKEN_RE.finditer(text or ""):
         tok = m.group(1)
-        yk = _parse_year_key(tok)
+        yk = _calendar_month_fy_key(text, m) or _parse_year_key(tok)
         if yk is not None:
             (ok if _year_in_data_range(yk, schemes) else bad).append(tok)
         elif _YEAR_SHAPED_RE.search(tok):
@@ -6094,7 +6480,7 @@ def _out_of_range_year_in(text: str, schemes: "list[str] | None" = None) -> "str
     mentioned. Runs on raw text only — no LLM, no DB."""
     for m in _YEAR_RANGE_TOKEN_RE.finditer(text or ""):
         tok = m.group(1)
-        yk = _parse_year_key(tok)
+        yk = _calendar_month_fy_key(text, m) or _parse_year_key(tok)
         if yk is not None:
             if not _year_in_data_range(yk, schemes):
                 return tok
@@ -6743,6 +7129,21 @@ def _village_chip_label(candidate: dict, peers: "list[dict] | None" = None,
             f"{candidate['block']} block, {candidate['district']}")
 
 
+def _loose_name_pattern(name: str) -> str:
+    """A regex for a place name that ignores the spacing around brackets and
+    hyphens and collapses runs of spaces ("DATHBANGA ( KOCH )" also matches
+    "Dathbanga (Koch)")."""
+    out = []
+    for ch in re.sub(r"\s+", " ", name.strip()):
+        if ch in "()-":
+            out.append(r"\s*" + re.escape(ch) + r"\s*")
+        elif ch == " ":
+            out.append(r"\s*")
+        else:
+            out.append(re.escape(ch))
+    return "".join(out)
+
+
 def _village_chip_question_text(question: str, raw_text: str, candidate: dict,
                                 schemes: "list[str] | None" = None) -> str:
     stem = question.strip().rstrip(" ?.")
@@ -6755,9 +7156,18 @@ def _village_chip_question_text(question: str, raw_text: str, candidate: dict,
     # resumed text no longer began with the paused question, the router did not
     # treat it as a chip resume, and the village was lost (all-villages QA
     # 2026-09-26).
-    if _village_scheme(schemes) and re.search(
-            rf"(?<![A-Za-z0-9]){re.escape(str(name))}(?![A-Za-z0-9])", stem, re.IGNORECASE):
-        return f"{stem}, {candidate['block']} block, {candidate['district']}"
+    if _village_scheme(schemes):
+        # Bracket spacing is not part of the name: a stem holding "DATHBANGA
+        # (KOCH)" for the village "DATHBANGA ( KOCH )" was not recognised, only
+        # "DATHBANGA" was replaced, and the chip read "DATHBANGA ( KOCH ) (KOCH)"
+        # (MGNREGA all-villages run 2026-10-09). The typed form is rewritten to
+        # the exact stored name so the resumed chip resolves it exactly.
+        _nm_rx = re.compile(r"(?<![A-Za-z0-9])" + _loose_name_pattern(str(name)) + r"(?![A-Za-z0-9])", re.IGNORECASE)
+        _hit = _nm_rx.search(stem)
+        if _hit:
+            if re.sub(r"\s+", " ", _hit.group(0)).upper() != re.sub(r"\s+", " ", str(name)).upper():
+                stem = stem[:_hit.start()] + str(name) + stem[_hit.end():]   # spacing differs: exact name
+            return f"{stem}, {candidate['block']} block, {candidate['district']}"
     if raw_text and re.search(re.escape(raw_text), stem, re.IGNORECASE):
         pinned = re.sub(re.escape(raw_text), name, stem, count=1, flags=re.IGNORECASE)
     else:
@@ -7149,20 +7559,55 @@ async def _focusplus_alias_district_collision(name: str, scheme: str = "Focus Pl
     all-villages run 2026-09-27). Focus Plus has no constituency data, so no AC
     reading is offered."""
     d = resolve_dimension(name, scheme, "district")
-    if d.status != "resolved" or not d.canonical:
+    # Without a district alias, a scheme with constituency data still has the question
+    # when the village name is also a constituency: CM Elevate Legacy's "Khliehriat"
+    # offered three villages only (CM Elevate Legacy sheet TC-31, 2026-10-12).
+    _alias = d.status == "resolved" and bool(d.canonical)
+    if not _alias and scheme not in _AC_CAPABLE_SCHEMES:
         return {}
-    if re.sub(r"\s+", " ", str(name)).strip().upper() == str(d.canonical).strip().upper():
+    if _alias and re.sub(r"\s+", " ", str(name)).strip().upper() == str(d.canonical).strip().upper():
         return {}          # the district's own name — never level-ambiguous
     try:
         names = await _scheme_village_names(scheme)
     except Exception:  # noqa: BLE001
         return {}
     if re.sub(r"\s+", " ", str(name)).strip().upper() not in names:
+        # Not a village of THIS scheme, but exactly a constituency of a scheme that holds
+        # constituency data: that is the only reading with data. "Khliehriat" offered three
+        # statewide villages, none with a CM Elevate Legacy record (sheet TC-31, 2026-10-12).
+        # A district HQ-town alias that is also a constituency asks district or constituency.
+        if scheme in _AC_CAPABLE_SCHEMES:
+            _want = re.sub(r"\s+", " ", str(name)).strip().upper()
+            _ac = next((c for c in collision_canonical_names(scheme, "assembly_constituency")
+                        if re.sub(r"\s+", " ", str(c)).strip().upper() == _want), None)
+            if _ac:
+                _dims = {"district": d.display or str(d.canonical).title()} if _alias else {}
+                # the block of that name too: CM Elevate's "Mairang" / "Nongstoin" (blocks the sheet
+                # asks about) lost their block reading here (final round 2026-10-13, OFF-002/007)
+                _b = resolve_dimension(name, scheme, "block")
+                if _b.status == "resolved" and str(_b.canonical).strip().upper() == _want:
+                    _dims["block"] = _b.display or str(_b.canonical)
+                elif scheme == "CM Elevate" and (_cb := await _cm_elevate_block_from_mention(str(name), [scheme])):
+                    _dims["block"] = _place_title(_cb)
+                _dims["assembly_constituency"] = _place_title(_ac)
+                return _dims
         return {}
-    dims = {"district": d.display or str(d.canonical).title()}
+    dims = {"district": d.display or str(d.canonical).title()} if _alias else {}
     b = resolve_dimension(name, scheme, "block")
     if b.status == "resolved" and str(b.canonical).strip().upper() == str(name).strip().upper():
         dims["block"] = b.display or str(b.canonical)
+    # A scheme that holds constituency data offers the constituency too: Focus Legacy's
+    # "Khliehriat", "Mairang", "Nongstoin", "Resubelpara" (HQ towns that are also
+    # constituencies) offered district / block / village only, so the constituency
+    # could not be chosen (FOCUS sheet TC-28, 2026-10-12).
+    if scheme in _AC_CAPABLE_SCHEMES:
+        _want = re.sub(r"\s+", " ", str(name)).strip().upper()
+        _ac = next((c for c in collision_canonical_names(scheme, "assembly_constituency")
+                    if re.sub(r"\s+", " ", str(c)).strip().upper() == _want), None)
+        if _ac:
+            dims["assembly_constituency"] = _place_title(_ac)
+    if not dims:
+        return {}          # a plain village name: the village branches handle it
     dims["village"] = ""
     return dims
 
@@ -7766,7 +8211,13 @@ async def _mgnrega_admin_reading_of_village_mention(name: str, scheme: str = "MG
         return {}
     hits: dict[str, str] = {}
     for dim in ("block", "assembly_constituency"):
-        for canon in canonical_names(scheme, dim):
+        # Focus Legacy's own catalogue holds no constituency names; its data does (through
+        # dim_geography), so "Mairang" offered block / village only (Focus Legacy sheet
+        # TC-28, 2026-10-12). Schemes with constituency data read the shared list.
+        _names = (collision_canonical_names(scheme, dim)
+                  if dim == "assembly_constituency" and scheme in _AC_CAPABLE_SCHEMES
+                  else canonical_names(scheme, dim))
+        for canon in _names:
             if re.sub(r"\s+", " ", str(canon)).strip().upper() == want:
                 hits[dim] = canon
                 break
@@ -7785,10 +8236,13 @@ def _mgnrega_ac_reading(name: str, schemes: "list[str] | None") -> "str | None":
     spacing aside), or None. Exact only — never fuzzy — because it is used to
     rescue a mention that would otherwise be refused as out of scope, and a
     fuzzy hit there would silently answer about a different place."""
-    if not name or not schemes or schemes[0] != "MGNREGA":
+    # Every scheme that holds constituency data, not MGNREGA only: Focus Legacy's "How many
+    # FOCUS Producer Groups are mapped to North Tura?" was refused as outside Meghalaya
+    # (FOCUS sheet TC-28, 2026-10-12).
+    if not name or not schemes or len(schemes) != 1 or schemes[0] not in _AC_CAPABLE_SCHEMES:
         return None
     want = re.sub(r"\s+", " ", str(name)).strip().upper()
-    for canon in canonical_names("MGNREGA", "assembly_constituency"):
+    for canon in collision_canonical_names(schemes[0], "assembly_constituency"):
         if re.sub(r"\s+", " ", str(canon)).strip().upper() == want:
             return canon
     return None
@@ -7834,6 +8288,12 @@ _AC_SCOPED_RE = re.compile(r",\s*within\s+the\s+", re.IGNORECASE)
 # in a question that already names a constituency, and when it doesn't, the
 # narrowing is silently lost and the answer covers the whole constituency
 # again (the very thing the user just declined).
+# "<X> constituency" / "<X> AC" in the user's own words (see the drill-down skip
+# in resolve_entities), versus the which-area-type chip that made a bare name a
+# constituency.
+_USER_NAMED_CONSTITUENCY = re.compile(r"\bconstituenc(?:y|ies)\b|\bAC\b|\bAC\s*-?\s*\d+\b")
+_AC_COLLISION_CHIP = re.compile(r",\s*the\s+assembly\s+constituency,\s+not\s+another\s+area\s+type\b",
+                                re.IGNORECASE)
 _AC_NARROW_RE = re.compile(
     r",\s*within\s+the\s+(?P<name>.+?)\s+(?P<level>district|block)\s+only\b",
     re.IGNORECASE,
@@ -8279,7 +8739,20 @@ async def resolve_entities(question: str, schemes: list[str],
         if _stated_level == "village":
             # Village is DB-backed — its own branch resolves it. Keep whatever
             # name is already in hand (extractor value, else the hint).
-            _placed = mentions.get("village") or mentions.get("block")                 or mentions.get("district") or village_hint
+            _placed = mentions.get("village") or mentions.get("block") \
+                or mentions.get("district") or village_hint
+            # A CM Elevate programme word is not a village: "…under Piggery scheme in
+            # Manipur, the village, …" placed "Piggery" here and the question then
+            # asked "which area?" (CM Elevate all-villages run 2026-10-10). Drop it
+            # unless a village really has that name; the village scan finds MANIPUR.
+            if _placed and schemes == ["CM Elevate"] and _cme_named_programmes(str(_placed)):
+                try:
+                    if not (await village_names_exact([str(_placed)])).get(str(_placed).strip().upper()):
+                        logger.info("village slot %r is a CM Elevate programme word — dropped", _placed)
+                        _placed = None
+                        mentions.pop("village", None)
+                except Exception:  # noqa: BLE001 — keep the extractor's value
+                    logger.warning("programme-word village check failed", exc_info=True)
             # The extractor can return a FRAGMENT of a multi-word name that is
             # itself another village: "…for PAKREGRE CHIKAMA village" came back
             # "CHIKAMA" (274919, same block) and the answer counted that village
@@ -8351,6 +8824,28 @@ async def resolve_entities(question: str, schemes: list[str],
         _fp_m = next((str(mentions[s]) for s in ("district", "block", "village") if mentions.get(s)), None)
         _fp_dims = await _focusplus_alias_district_collision(_fp_m, _village_scheme(schemes)) if _fp_m else {}
         if _fp_dims:
+            # The extractor's name can be only the head of a longer village named whole
+            # in the text: "Baghmara (MB) - Ward No.13" came back "Baghmara" and asked
+            # district / block / village (Focus + sheet all-villages run 2026-10-10).
+            try:
+                _whole = await _scan_village_in_question(question, _village_scheme(schemes))
+            except Exception:  # noqa: BLE001 — keep the question
+                _whole = None
+            if _whole and len(_whole[0].strip()) > len(_fp_m.strip()) \
+                    and _fp_m.strip().upper() in _whole[0].upper():
+                logger.info("Focus Plus: %r is part of the village %r named in full — no level question",
+                            _fp_m, _whole[0])
+                mentions = {**{k: v for k, v in mentions.items() if k not in ("district", "block")},
+                            "village": _whole[0]}
+                _fp_dims = {}
+        if list(_fp_dims) == ["assembly_constituency"]:
+            # the constituency is the only reading with data for this scheme — no question
+            logger.info("%s: %r read as the constituency %r (not one of its villages)",
+                        _village_scheme(schemes), _fp_m, _fp_dims["assembly_constituency"])
+            mentions = {**{k: v for k, v in mentions.items() if k not in ("district", "block", "village")},
+                        "assembly_constituency": _fp_dims["assembly_constituency"]}
+            _fp_dims = {}
+        if _fp_dims:
             logger.info("Focus Plus: %r is a district alias AND a village — asking", _fp_m)
             raise _dimension_collision_clarification(question, _fp_m, _fp_dims)
     if _stated_level is None and not village_hint and not _chip_pinned \
@@ -8407,6 +8902,26 @@ async def resolve_entities(question: str, schemes: list[str],
                             break
                     if _found:
                         break
+        # A district reached only through its HQ-town alias: the extractor tags
+        # "Mairang" / "Resubelpara" as a district, the alias resolves it to
+        # Eastern West Khasi Hills / North Garo Hills, and a district hit ends the
+        # gate by design — so the bare BLOCK name was answered with the whole
+        # district's figure (2,259.91 lakh for the Mairang block's 1,497.62;
+        # MGNREGA sheet DATA-013/029, 2026-10-09). When the typed text is exactly
+        # a block or constituency name, test it at that level instead; whether
+        # it pauses (block vs constituency vs village) is still the gate's call.
+        _d_typed = mentions.get("district")
+        if isinstance(_d_typed, str) and _d_typed.strip() and not _stated_level:
+            _dr = resolve_dimension(_d_typed, _scheme0, "district")
+            _typed_up = re.sub(r"\s+", " ", _d_typed).strip().upper()
+            if _dr.status == "resolved" and _typed_up != str(_dr.canonical).strip().upper():
+                for _dim in ("block", "assembly_constituency"):
+                    _br = resolve_dimension(_d_typed, _scheme0, _dim)
+                    if _br.status == "resolved" and str(_br.canonical).strip().upper() == _typed_up:
+                        mentions = {**{k: v for k, v in mentions.items() if k != "district"}, _dim: _d_typed}
+                        logger.info("admin-level gate: %r is %s only by alias but IS the %s %r — "
+                                    "testing it at that level", _d_typed, _dr.canonical, _dim, _br.canonical)
+                        break
         for _slot in ("district", "block", "village", "assembly_constituency"):
             _name = mentions.get(_slot)
             if not _name:
@@ -8432,6 +8947,16 @@ async def resolve_entities(question: str, schemes: list[str],
             # that resolves to exactly one village, that is the real mention:
             # nothing is ambiguous, so the gate must stand down.
             _scanned = await _scan_village_in_question(_scan_q, _scheme0)
+            if _scanned and len(_scanned[1]) > 1:
+                # "PHULBARI (ISLAMPUR)" also scans a punctuation twin "Phulbari
+                # Islampur" (904639, no scheme rows), so the exact-name test below
+                # never fired and the bot asked "Phulbari constituency or Phulbari
+                # village?" with neither being the village typed (MGNREGA all-villages
+                # run 2026-10-09). The candidate spelled exactly as typed wins.
+                _exact = [c for c in _scanned[1]
+                          if str(c.get("name") or "").strip().upper() == _scanned[0].strip().upper()]
+                if len(_exact) == 1:
+                    _scanned = (_scanned[0], _exact)
             if _scanned and len(_scanned[1]) == 1 \
                     and str(_name).strip().lower() in _scanned[0].strip().lower() \
                     and len(_scanned[0]) > len(str(_name)):
@@ -8439,9 +8964,19 @@ async def resolve_entities(question: str, schemes: list[str],
                             "to one village — not ambiguous", _name, _scanned[0])
                 break
             _vr_probe = await _resolve_village_for(schemes, str(_name))
+            try:
+                # Trailing punctuation is not part of the comparison: every chip
+                # stem strips a final "." ("…BETASING BLOCK HQ." -> "…BETASING BLOCK
+                # HQ for FY 2022-23"), which made the village look like a look-alike of
+                # the BETASING block (MGNREGA all-villages run 2026-10-09).
+                _exact_vil = bool(_scheme0) and _strip_end_punct(str(_name)) in \
+                    _village_name_keys(await _scheme_village_names(_scheme0))
+            except Exception:  # noqa: BLE001 — without the catalogue, keep the fuzzy check
+                _exact_vil = False
             _dims = collides_across_dimensions(
                 str(_name), _scheme0,
-                village_hit=_vr_probe.status in ("resolved", "ambiguous"))
+                village_hit=_vr_probe.status in ("resolved", "ambiguous"),
+                exact_village=_exact_vil)
             # CM Elevate's block catalogue lacks 21 of its 66 stored blocks, so a
             # bare "Mawhati" (a block with 204 applications AND two villages) was
             # offered the two villages only (CM Elevate all-blocks run 2026-09-28,
@@ -8553,6 +9088,14 @@ async def resolve_entities(question: str, schemes: list[str],
             mentions = {**{k: v for k, v in mentions.items() if k != "village"}, _dim: _canon}
 
     district_canon = None
+    if not mentions.get("districts") and schemes:
+        # The extractor sometimes returns one district (or none) for a question that
+        # names two to compare ("... across Eastern West Khasi Hills and East Garo
+        # Hills"); the second was then lost and the SQL compared the wrong district.
+        _scanned = scan_districts(question, schemes[0])
+        if len(_scanned) >= 2:
+            logger.info("resolve_entities: question names districts %s", _scanned)
+            mentions = {**{k: v for k, v in mentions.items() if k != "district"}, "districts": _scanned}
     if mentions.get("districts"):
         # Two-or-more named districts to compare against each other (see
         # extract_entity_mentions) — resolve each independently and carry the
@@ -8639,6 +9182,15 @@ async def resolve_entities(question: str, schemes: list[str],
                     # branch below, which also offers the drill-down.
                     mentions = {**mentions, "assembly_constituency": _mgnrega_ac_reading(_mdist, schemes)}
                     logger.info("district mention %r re-read as MGNREGA assembly constituency", _mdist)
+                elif schemes and (_blk_r := resolve_dimension(_mdist, schemes[0], "block")).status == "resolved" \
+                        and fold(str(_blk_r.canonical)) == fold(str(_mdist)):
+                    # The same for any scheme's own block list: "SHILLONG-MUNICIPAL BOARD"
+                    # (a Focus Plus block) tagged as a district was refused as outside
+                    # Meghalaya (Focus + sheet FOCUS-004, 2026-10-10). Exact
+                    # names only, and after the constituency reading ("SOUTH TURA").
+                    logger.info("district mention %r re-read as block %r", _mdist, _blk_r.canonical)
+                    resolved["block"] = _blk_r.canonical
+                    display["block"] = _blk_r.display or _place_title(_blk_r.canonical)
                 elif settings.OUT_OF_SCOPE_GUARD_ENABLED:
                     # Genuinely not a district, block, or village of ours — almost
                     # always a place in another state ("districts in Guwahati").
@@ -8802,6 +9354,17 @@ async def resolve_entities(question: str, schemes: list[str],
             elif not re.search(r"\bblock\b", question, re.IGNORECASE) \
                     and not (_cme_urban_block and mentions["block"] == _cme_urban_block):
                 _vcheck = await _resolve_village_for(schemes, mentions["block"])
+                # Also a constituency of a scheme that holds constituency data: "How many
+                # FOCUS Producer Groups are mapped to Mairang?" offered block / village only
+                # (Focus Legacy sheet TC-28, 2026-10-12).
+                _ac_also = _mgnrega_ac_reading(str(mentions["block"]), schemes) \
+                    if _ac_dimension_available(question, schemes) else None
+                if _ac_also:
+                    _dims3 = {"block": r.display or str(r.canonical).title(),
+                              "assembly_constituency": _place_title(_ac_also)}
+                    if _vcheck.status in ("resolved", "ambiguous"):
+                        _dims3["village"] = ""
+                    raise _dimension_collision_clarification(question, str(mentions["block"]), _dims3)
                 if _vcheck.status in ("resolved", "ambiguous"):
                     stem = question.strip().rstrip(" ?.")
                     raise ClarificationNeeded(
@@ -8962,6 +9525,14 @@ async def resolve_entities(question: str, schemes: list[str],
             _already_narrowed = (
                 _AC_SCOPED_RE.search(question)
                 or re.search(r"\bwhole\s+constituency\b", question, re.IGNORECASE)
+                # The user typed "<X> constituency" themselves: they asked for the
+                # constituency, so "the whole constituency, or part of it?" is a
+                # needless extra tap (all 56 constituencies paused on every
+                # DATA-004 / DATA-014 question, MGNREGA sheet run 2026-10-09).
+                # The drill-down stays for a name that only became a
+                # constituency through the which-area-type chip.
+                or (_USER_NAMED_CONSTITUENCY.search(question)
+                    and not _AC_COLLISION_CHIP.search(question))
                 or any(resolved.get(k) for k in
                        ("district", "district_list", "block", "block_list",
                         "village_code", "village_code_list"))
@@ -9080,6 +9651,15 @@ async def resolve_entities(question: str, schemes: list[str],
                 _vhits = await _mgnrega_villages_with_data(_vhits)
             logger.info("village backstop: %r matched %d village(s) in the question text "
                         "the extractor dropped", _vname, len(_vhits))
+            # The village found IS the block already placed ("in Rambrai under Piggery,
+            # SEED and Poultry": block RAMBRAI and village Rambrai) — the level was
+            # never stated, so ask instead of silently narrowing the block to the
+            # village (11 applicants for the block's 106; CM Elevate sheet OFF-010,
+            # run 2026-10-10).
+            _blk0 = resolved.get("block")
+            if _blk0 and _vhits and re.sub(r"\s+", " ", str(_vname)).strip().upper() == str(_blk0).strip().upper():
+                raise _dimension_collision_clarification(
+                    question, str(_vname), {"block": display.get("block") or _place_title(str(_blk0)), "village": ""})
             # Narrow by a district the question already pinned before deciding
             # whether this is still ambiguous — "ASIMGRE ... for East Garo
             # Hills" has exactly one ASIMGRE in that district.
@@ -9185,7 +9765,14 @@ async def resolve_entities(question: str, schemes: list[str],
             # scope is unambiguous) and the user didn't already say "village".
             if not district_canon and not re.search(r"\bvillage\b", question, re.IGNORECASE):
                 _bcheck = resolve_dimension(_village_text, schemes[0], "block")
-                if _bcheck.status == "resolved":
+                # Only a block of the SAME name competes: "MYNRI UMSNING" (a village)
+                # fuzzy-resolves to the UMSNING block because one name holds the
+                # other, and was asked "the village or the block?" (MGNREGA
+                # all-villages run 2026-10-09).
+                _same_block = _bcheck.status == "resolved" and re.sub(
+                    r"\s+", " ", str(_bcheck.canonical)).strip().upper() == re.sub(
+                    r"\s+", " ", str(_village_text)).strip().upper()
+                if _same_block:
                     stem = question.strip().rstrip(" ?.")
                     raise ClarificationNeeded(
                         f"“{_village_text}” could mean either the village or a block "
@@ -9625,12 +10212,28 @@ _MGNREGA_AVG_OF_RATIO_RE = re.compile(
     + "|".join(_MGNREGA_INT_MEASURES) + r"))(?:\s*::\s*\w+)?(\s*,\s*0\s*\))?\s*\)", re.IGNORECASE)
 
 
+# The same question also came back as AVG(person_days)::numeric /
+# NULLIF(SUM(households_employed), 0) = 0.19 — one row's mean over the whole
+# district's households — where SUM / SUM is 58.51 (South West Khasi Hills FY
+# 2024-25, MGNREGA sheet DATA-021 run 2026-10-09). A mixed AVG / SUM (or AVG /
+# AVG) of two additive measures is rewritten to the ratio of the sums as well.
+_MGNREGA_MEASURE_ALT = r"(?:[A-Za-z_]\w*\.)?(?:" + "|".join(_MGNREGA_INT_MEASURES) + r")"
+_MGNREGA_MIXED_AGG_RATIO_RE = re.compile(
+    r"\b(?P<fa>AVG|SUM)\s*\(\s*(?P<a>" + _MGNREGA_MEASURE_ALT + r")\s*\)(?:\s*::\s*\w+)?\s*/\s*"
+    r"(?P<nullif>NULLIF\s*\(\s*)?(?P<fb>AVG|SUM)\s*\(\s*(?P<b>" + _MGNREGA_MEASURE_ALT
+    + r")\s*\)(?(nullif)\s*,\s*0\s*\))", re.IGNORECASE)
+
+
 def _mgnrega_avg_of_ratio(schemes: list[str], sql: str) -> str:
-    """AVG(a / b) over two MGNREGA measures -> SUM(a)::numeric / NULLIF(SUM(b), 0)."""
+    """AVG(a / b) over two MGNREGA measures -> SUM(a)::numeric / NULLIF(SUM(b), 0);
+    likewise AVG(a) / SUM(b), SUM(a) / AVG(b) and AVG(a) / AVG(b)."""
     if "MGNREGA" not in schemes or not sql:
         return sql
     out = _MGNREGA_AVG_OF_RATIO_RE.sub(
         lambda m: f"SUM({m.group(1)})::numeric / NULLIF(SUM({m.group(2)}), 0)", sql)
+    out = _MGNREGA_MIXED_AGG_RATIO_RE.sub(
+        lambda m: m.group(0) if (m.group("fa").upper(), m.group("fb").upper()) == ("SUM", "SUM")
+        else f"SUM({m.group('a')})::numeric / NULLIF(SUM({m.group('b')}), 0)", out)
     if out != sql:
         logger.info("MGNREGA: AVG of a per-row ratio rewritten as the ratio of the sums")
     return out
@@ -9666,6 +10269,50 @@ _VILLAGE_LIST_ASK_RE = re.compile(
 _RECEIVED_EMPLOYMENT_RE = re.compile(
     r"\b(?:receiv\w*|got|get|provided|given)\s+(?:any\s+)?employment\b|\bwere\s+employed\b",
     re.IGNORECASE)
+
+
+# "Which villages in <AC> received employment?" came back with LIMIT 100 from
+# the model, so constituencies of 105-234 villages were listed as "the 100
+# results" (MGNREGA sheet DATA-014, run 2026-10-09). A "which villages" list
+# that asks for no top-N is the whole list; run_readonly still caps at 1000.
+_TOP_N_ASK_RE = re.compile(r"\b(?:top|first|last|bottom|highest|lowest|best|worst|leading)\s*\d+\b|"
+                           r"\b\d+\s+(?:villages|blocks|districts)\b|\blimit\b", re.IGNORECASE)
+_TRAILING_LIMIT_RE = re.compile(r"\s+LIMIT\s+\d+\s*;?\s*$", re.IGNORECASE)
+
+
+def _order_by_cols_selected(sql: str) -> bool:
+    """True when every ORDER BY term is in the SELECT list (or is a position) —
+    the condition for SELECT DISTINCT to stay valid SQL in PostgreSQL."""
+    m_sel = re.search(r"\bSELECT\b(.*?)\bFROM\b", sql, re.IGNORECASE | re.DOTALL)
+    m_ord = re.search(r"\bORDER\s+BY\b(.*?)(?:\bLIMIT\b|;|$)", sql, re.IGNORECASE | re.DOTALL)
+    if not m_ord:
+        return True
+    sel = m_sel.group(1).lower() if m_sel else ""
+    for term in m_ord.group(1).split(","):
+        t = re.sub(r"\b(?:asc|desc|nulls\s+(?:first|last))\b", "", term, flags=re.IGNORECASE).strip().lower()
+        if t and not t.isdigit() and t not in sel and t.split(".")[-1] not in sel:
+            return False
+    return True
+
+
+def _mgnrega_village_list_no_limit(question: str, schemes: list[str], sql: str) -> str:
+    if schemes != ["MGNREGA"] or not sql or not _VILLAGE_LIST_ASK_RE.search(question or ""):
+        return sql
+    out = sql
+    # A row-level list with no GROUP BY / DISTINCT names a village once per source
+    # row: Mawryngkneng FY 2025-26 listed 32 rows for 28 villages (MGNREGA sheet
+    # DATA-014, run 2026-10-09). Each village is named once.
+    if not re.search(r"\bGROUP\s+BY\b|\bSELECT\s+DISTINCT\b|\b(?:SUM|COUNT|AVG|MAX|MIN)\s*\(", out, re.IGNORECASE) \
+            and _order_by_cols_selected(out):
+        out = re.sub(r"^\s*SELECT\b", "SELECT DISTINCT", out, count=1, flags=re.IGNORECASE)
+        if out != sql:
+            logger.info("MGNREGA: 'which villages' row list made DISTINCT — each village once")
+    if _TOP_N_ASK_RE.search(question or ""):
+        return out
+    trimmed = _TRAILING_LIMIT_RE.sub("", out)
+    if trimmed != out:
+        logger.info("MGNREGA: 'which villages' list — model LIMIT dropped, the whole list is the answer")
+    return trimmed
 
 
 def _mgnrega_village_list_issue(question: str, schemes: list[str], sql: str) -> "str | None":
@@ -9784,6 +10431,352 @@ def _mgnrega_combined_facts_query(question: str, schemes: list[str], resolved: d
                 f"SELECT exp.total_expenditure_lakh, {', '.join('emp.' + n for n in emp_names)}\n"
                 "FROM exp CROSS JOIN emp")
     return build(where), params, build(shown)
+
+
+# "Give me the expenditure breakdown for <area> during <FY>" — every component
+# and the total. Left to the model it sometimes merged unskilled + semi-skilled
+# into one "wages" figure (Myriem FY 2023-24: "22.10 lakh in wages"; MGNREGA
+# sheet DATA-022, run 2026-10-09), dropping the components the case asks for.
+_MG_BREAKDOWN_RE = re.compile(r"\b(?:breakdown|break[\s-]?up|components?|split|head[\s-]?wise)\b", re.IGNORECASE)
+_MG_BREAKDOWN_COLS = (("unskilled_wage_exp", "unskilled wages"), ("semi_skilled_wage_exp", "semi-skilled wages"),
+                      ("material_exp", "materials"), ("tax_exp", "tax"), ("admin_total_exp", "administrative"),
+                      ("total_exp", "total"))
+_MG_BREAKDOWN_EXCLUDE_RE = re.compile(r"\b(?:each|every|by|district[\s-]?wise|block[\s-]?wise|village[\s-]?wise|"
+                                       r"year[\s-]?wise|trend|top|highest|lowest|rank\w*|which|compare|vs\.?|versus)\b",
+                                       re.IGNORECASE)
+_MG_BREAKDOWN_SQL_RE = re.compile(r"AS\s+unskilled_wages_lakh\b.*AS\s+total_lakh\b", re.IGNORECASE | re.DOTALL)
+
+
+def _mgnrega_breakdown_query(question: str, schemes: list[str], resolved: dict
+                             ) -> "tuple[str, list, str] | None":
+    q = question or ""
+    if schemes != ["MGNREGA"] or not _MG_BREAKDOWN_RE.search(q) or not _MG_SPEND_WORD_RE.search(q):
+        return None
+    if _MG_EMPLOYMENT_WORD_RE.search(q) or _MG_BREAKDOWN_EXCLUDE_RE.search(q):
+        return None                      # "by district" / with employment: the model path
+    f = _mgnrega_filters(resolved)
+    if f is None:
+        return None
+    where, params, shown = f
+    sel = ", ".join(f"ROUND(SUM({c})::numeric, 2) AS {_mg_breakdown_alias(c)}" for c, _l in _MG_BREAKDOWN_COLS)
+
+    def build(w: list[str]) -> str:
+        return f"SELECT {sel} FROM curated.v_expenditure" + ((" WHERE " + " AND ".join(w)) if w else "")
+    return build(where), params, build(shown)
+
+
+def _mg_breakdown_alias(col: str) -> str:
+    return {"unskilled_wage_exp": "unskilled_wages_lakh", "semi_skilled_wage_exp": "semi_skilled_wages_lakh",
+            "material_exp": "materials_lakh", "tax_exp": "tax_lakh", "admin_total_exp": "administrative_lakh",
+            "total_exp": "total_lakh"}[col]
+
+
+def _mgnrega_breakdown_answer(row: dict, display: dict) -> "str | None":
+    vals = [(label, _as_number(row.get(_mg_breakdown_alias(c)))) for c, label in _MG_BREAKDOWN_COLS]
+    if any(v is None for _l, v in vals):
+        return None
+    place = (f"{display['village']} village" if display.get("village") else
+             f"{display['block']} block" if display.get("block") else display.get("district") or "Meghalaya")
+    year = display.get("year")
+    total = vals[-1][1]
+    lines = [f"- **{label.capitalize()}** — {float(v):,.2f} lakh" for label, v in vals[:-1]]
+    return (f"MGNREGA expenditure breakdown for {place}{' in ' + year if year else ''}: "
+            f"**{float(total):,.2f} lakh** in total.\n\n" + "\n".join(lines))
+
+
+# "Was more spent on wages or materials in <area>?" — DATA-023. Left to the
+# model, a village with no expenditure rows for the year came back as a CASE
+# label with no figures, every repair kept it, and the officer got "couldn't
+# build a working query" (Upper / Lower Wadagokgre FY 2024-25, MGNREGA
+# all-villages run 2026-10-09). Both figures are read here, for one area.
+_MG_WAGE_MATERIAL_RE = re.compile(r"\bwages?\b[^?.]{0,20}\b(?:or|vs\.?|versus|than|and)\b[^?.]{0,10}\bmaterials?\b|"
+                                  r"\bmaterials?\b[^?.]{0,20}\b(?:or|vs\.?|versus|than|and)\b[^?.]{0,10}\bwages?\b",
+                                  re.IGNORECASE)
+_MG_WAGE_MATERIAL_SQL_RE = re.compile(r"AS\s+wage_exp_lakh\b.*AS\s+material_exp_lakh\b", re.IGNORECASE | re.DOTALL)
+
+
+def _mgnrega_wage_material_query(question: str, schemes: list[str], resolved: dict
+                                 ) -> "tuple[str, list, str] | None":
+    q = question or ""
+    if schemes != ["MGNREGA"] or not _MG_WAGE_MATERIAL_RE.search(q) or _MG_BREAKDOWN_EXCLUDE_RE.search(
+            re.sub(r"\bwages?\s+(?:or|vs\.?|versus)\s+materials?\b", " ", q, flags=re.IGNORECASE)):
+        return None
+    f = _mgnrega_filters(resolved)
+    if f is None:
+        return None
+    where, params, shown = f
+
+    def build(w: list[str]) -> str:
+        return ("SELECT ROUND(SUM(unskilled_wage_exp + semi_skilled_wage_exp)::numeric, 2) AS wage_exp_lakh, "
+                "ROUND(SUM(material_exp)::numeric, 2) AS material_exp_lakh, COUNT(*) AS source_rows "
+                "FROM curated.v_expenditure" + ((" WHERE " + " AND ".join(w)) if w else ""))
+    return build(where), params, build(shown)
+
+
+def _mgnrega_wage_material_answer(row: dict, display: dict) -> str:
+    place = (f"{display['village']} village" if display.get("village") else
+             f"{display['block']} block" if display.get("block") else display.get("district") or "Meghalaya")
+    year = display.get("year")
+    when = f" in {year}" if year else ""
+    w, m = _as_number(row.get("wage_exp_lakh")), _as_number(row.get("material_exp_lakh"))
+    if not row.get("source_rows") or (w in (None, 0) and m in (None, 0)):
+        return (f"No MGNREGA wage or material expenditure is recorded for {place}{when} — both are 0 lakh "
+                "in the data, so neither was higher.")
+    w, m = float(w or 0), float(m or 0)
+    if w == m:
+        return f"Under MGNREGA, {place}{when} spent the same on wages and materials: {w:,.2f} lakh each."
+    more, less = (("wages", w), ("materials", m)) if w > m else (("materials", m), ("wages", w))
+    return (f"More was spent on {more[0]} than on {less[0]} in {place}{when} under MGNREGA: "
+            f"{more[1]:,.2f} lakh on {more[0]} against {less[1]:,.2f} lakh on {less[0]}.")
+
+
+# ── CM Elevate sector facts (deterministic) ──────────────────────────────────
+# Two fixed shapes of the CM Elevate sheet that the model path kept getting wrong
+# (CM Elevate sheet run 2026-10-10):
+#   OFF-012 "applicants associated with the Piggery sector in North Garo Hills" was
+#   tied to the Piggery SCHEME (0, "sector isn't tracked") — but sector_id is a
+#   field on Poultry, Dairy and Goat applications, and 3 of them there say Piggery;
+#   OFF-028 "applications pending in each sector in East Khasi Hills" answered
+#   "Poultry 2" for a true 90 pending with no sector recorded and Poultry 0.
+_CME_SECTOR_VALUE_RE = re.compile(r"\b(piggery|poultry|dairy|goatery|goat)\s+sectors?\b", re.IGNORECASE)
+_CME_SECTOR_EACH_RE = re.compile(r"\b(?:each|every|all|by|per)\s+(?:the\s+)?sectors?\b|\bsectors?[\s-]*wise\b", re.IGNORECASE)
+_CME_PENDING_RE = re.compile(r"\bpending\b|\bon[\s-]?hold\b", re.IGNORECASE)
+_CME_SECTOR_FACT_SQL_RE = re.compile(r"/\*\s*cme-sector-(?:count|pending|programmes)\s*\*/", re.IGNORECASE)
+
+
+def _cme_programme_named(question: str) -> bool:
+    q = _CME_SECTOR_VALUE_RE.sub(" ", question or "")
+    return any(re.search(rx, q, re.IGNORECASE) for rx in _CME_PROGRAMME_WORDS.values())
+
+
+def _cme_sector_filters(resolved: dict, alias: str = "") -> "tuple[list[str], list] | None":
+    # cm_scheme is NOT a blocker: the resolver reads the "Piggery" of "Piggery sector"
+    # as the programme; _cme_sector_query has already checked that no programme is named.
+    if any(resolved.get(k) for k in ("village_code_list", "block_list", "district_list", "assembly_constituency")):
+        return None
+    where, params = [], []
+    for key, col in (("village_code", "village_code"), ("block", "lgd_block"), ("district", "lgd_district")):
+        v = resolved.get(key)
+        if v in (None, ""):
+            continue
+        if isinstance(v, (list, dict, tuple, set)):
+            return None
+        params.append(v)
+        where.append(f"UPPER({alias}{col}) = UPPER(${len(params)})" if isinstance(v, str)
+                     else f"{alias}{col} = ${len(params)}")
+    if resolved.get("village_code") is not None:
+        where.append(f"{alias}entity_type <> 'Unresolved'")
+    return where, params
+
+
+def _cme_named_programmes(question: str) -> list[str]:
+    q = _CME_SECTOR_VALUE_RE.sub(" ", question or "")
+    return [p for p, rx in _CME_PROGRAMME_WORDS.items() if re.search(rx, q, re.IGNORECASE)]
+
+
+def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tuple[str, list, str] | None":
+    if schemes != ["CM Elevate"]:
+        return None
+    q = question or ""
+    m = _CME_SECTOR_VALUE_RE.search(q)
+    progs = _cme_named_programmes(q)
+    f = _cme_sector_filters(resolved or {}, "v." if progs else "")
+    if f is None:
+        return None
+    where, params = f
+    if progs:
+        # "applicants under Dairy and Poultry associated with Poultry sector in <district>"
+        # (OFF-014): every named programme gets a row, a programme with none shows 0.
+        if not m or _CME_SECTOR_EACH_RE.search(q):
+            return None
+        sec = "goat%" if m.group(1).lower().startswith("goat") else m.group(1).lower()
+        params = params + [progs, sec]
+        np_, ns = len(params) - 1, len(params)
+        cond = (" AND " + " AND ".join(where)) if where else ""
+        sql = ("/* cme-sector-programmes */ SELECT p.scheme_name, "
+               f"COUNT(DISTINCT v.request_id) FILTER (WHERE v.scheme_specific ->> 'sector_id' ILIKE ${ns}) AS sector_applicants, "
+               "COUNT(DISTINCT v.request_id) FILTER (WHERE v.scheme_specific ->> 'sector_id' IS NOT NULL) AS sector_recorded, "
+               "COUNT(DISTINCT v.request_id) AS programme_total "
+               f"FROM UNNEST(${np_}::text[]) AS p(scheme_name) "
+               f"LEFT JOIN curated.v_cm_elevate v ON v.scheme_name = p.scheme_name{cond} "
+               "GROUP BY p.scheme_name ORDER BY p.scheme_name")
+        return sql, params, sql
+    wh = (" WHERE " + " AND ".join(where)) if where else ""
+    if m and not _CME_SECTOR_EACH_RE.search(q):
+        sec = "goat%" if m.group(1).lower().startswith("goat") else m.group(1).lower()
+        params = params + [sec]
+        n = len(params)
+        sql = ("/* cme-sector-count */ SELECT scheme_name, "
+               f"COUNT(DISTINCT request_id) FILTER (WHERE scheme_specific ->> 'sector_id' ILIKE ${n}) AS sector_applicants, "
+               "COUNT(DISTINCT request_id) FILTER (WHERE scheme_specific ->> 'sector_id' IS NOT NULL) AS sector_recorded "
+               f"FROM curated.v_cm_elevate{wh} GROUP BY scheme_name "
+               "HAVING COUNT(*) FILTER (WHERE scheme_specific ->> 'sector_id' IS NOT NULL) > 0 ORDER BY scheme_name")
+        return sql, params, sql
+    if _CME_SECTOR_EACH_RE.search(q) and _CME_PENDING_RE.search(q):
+        sql = ("/* cme-sector-pending */ SELECT COALESCE(scheme_specific ->> 'sector_id', '(not recorded)') AS sector, "
+               "COUNT(*) FILTER (WHERE data_verified = 'On Hold') AS pending_on_hold, COUNT(*) AS applications "
+               f"FROM curated.v_cm_elevate{wh} GROUP BY 1 ORDER BY 2 DESC, 1")
+        return sql, params, sql
+    return None
+
+
+def _cme_place_words(display: dict) -> str:
+    if display.get("village"):
+        return f" in {display['village']} village"
+    if display.get("block"):
+        return f" in {display['block']} block"
+    if display.get("district"):
+        return f" in {display['district']}"
+    return " across Meghalaya"
+
+
+# Focus + sheet FOCUS-018 / 019 (2026-10-10): "status breakdown for <tranche / batch>".
+# The 12.5K cohort alone carries focus_status; the 93K cohort is on Tranches 1-4 with the
+# status blank. Tranch 1-3 got a "no status data" note without the 93,286 people it
+# covers, Tranch 4 only the 12,527 with a status, and "the 93K batch" was answered
+# "373,144 registrations" (payment rows, mislabelled). One fixed query: beneficiaries
+# by status for the named tranche(s) or batch, blanks counted as "(not recorded)".
+_FP_STATUS_BREAKDOWN_RE = re.compile(
+    r"\bstatus[\s-]*(?:wise|breakdown|distribution|split)\b|\b(?:breakdown|distribution|split)\b[^?]*\bstatus\b|"
+    r"\bby\s+(?:focus\s+)?status\b", re.IGNORECASE)
+_FP_STATUS_COHORT_SQL_RE = re.compile(r"/\*\s*fp-status-cohort\s*\*/", re.IGNORECASE)
+
+
+def _fp_status_cohort_query(question: str, schemes: list[str], resolved: dict) -> "tuple[str, list, str] | None":
+    if schemes != ["Focus Plus"] or not _FP_STATUS_BREAKDOWN_RE.search(question or "") \
+            or re.search(r"\bverif", question or "", re.IGNORECASE):
+        return None
+    if any((resolved or {}).get(k) for k in ("district", "block", "village", "village_code", "district_list",
+                                             "block_list", "assembly_constituency")):
+        return None
+    tr = (resolved or {}).get("tranche_label")
+    m = _FOCUSPLUS_BATCH_WORD.search(question or "")
+    if tr:
+        col, val = "tranche_label", list(tr) if isinstance(tr, list) else [tr]
+    elif m:
+        col, val = "batch_label", ["12.5K" if m.group(0).lower().startswith("12") else "93K"]
+    else:
+        return None
+    sql = ("/* fp-status-cohort */ SELECT COALESCE(focus_status, '(not recorded)') AS focus_status, "
+           "COUNT(DISTINCT beneficiary_key) AS beneficiaries FROM curated.v_focus_plus "
+           f"WHERE {col} = ANY($1::text[]) GROUP BY 1 ORDER BY 2 DESC")
+    return sql, [val], sql.replace("$1::text[]", "ARRAY[" + ", ".join(f"'{v}'" for v in val) + "]")
+
+
+def _fp_status_cohort_answer(sql: str, rows: list[dict], params: list) -> str:
+    scope = " and ".join(params[0]) if params and params[0] else "that selection"
+    scope = scope if "tranche_label" in sql else f"the {scope} batch"
+    total = sum(int(_as_number(r.get("beneficiaries")) or 0) for r in rows)
+    parts = [f"{r['focus_status'] if r['focus_status'] != '(not recorded)' else 'status not recorded'} "
+             f"{int(_as_number(r.get('beneficiaries')) or 0):,}" for r in rows]
+    blank = sum(int(_as_number(r.get("beneficiaries")) or 0) for r in rows if r["focus_status"] == "(not recorded)")
+    out = f"Focus Plus status breakdown for {scope} — {total:,} beneficiaries: " + "; ".join(parts) + "."
+    if blank:
+        out += (f" Status is recorded only for the 12.5K registration cohort (Tranch 4); the {blank:,} "
+                "beneficiaries of the 93K legacy cohort have no status on their records.")
+    return out
+
+
+def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict) -> "str | None":
+    where = _cme_place_words(display or {})
+    if "cme-sector-programmes" in sql:
+        m = _CME_SECTOR_VALUE_RE.search(question or "")
+        sector = m.group(1).title() if m else "that"
+        lines = [f"- **{_cme_short(r['scheme_name'])}**: {int(_as_number(r.get('sector_applicants')) or 0):,} with sector "
+                 f"{sector} (sector recorded on {int(_as_number(r.get('sector_recorded')) or 0):,} of "
+                 f"{int(_as_number(r.get('programme_total')) or 0):,} applicants)" for r in rows]
+        total = sum(int(_as_number(r.get("sector_applicants")) or 0) for r in rows)
+        return (f"CM Elevate applicants associated with the {sector} sector{where}, by programme:\n"
+                + "\n".join(lines) + f"\n\nCombined: {total:,}.")
+    if "cme-sector-count" in sql:
+        m = _CME_SECTOR_VALUE_RE.search(question or "")
+        sector = m.group(1).title() if m else "that"
+        total = sum(int(_as_number(r.get("sector_applicants")) or 0) for r in rows)
+        recorded = sum(int(_as_number(r.get("sector_recorded")) or 0) for r in rows)
+        parts = [f"{_cme_short(r['scheme_name'])} {int(_as_number(r.get('sector_applicants')) or 0):,}" for r in rows]
+        out = (f"{total:,} CM Elevate applicant{'s' if total != 1 else ''}{where} "
+               f"{'have' if total != 1 else 'has'} their sector recorded as {sector}")
+        if parts:
+            out += " (" + "; ".join(parts) + ")"
+        out += (f". Sector is recorded only on Poultry, Dairy and Goat Farming applications — {recorded:,} "
+                f"of them{where} have it recorded.")
+        return out
+    if "cme-sector-pending" in sql:
+        items = [f"{r['sector']} {int(_as_number(r.get('pending_on_hold')) or 0):,}" for r in rows]
+        total = sum(int(_as_number(r.get("pending_on_hold")) or 0) for r in rows)
+        return (f"Pending (verification on hold) CM Elevate applications by sector{where}: " + "; ".join(items)
+                + f". Total {total:,}. Sector is recorded only on Poultry, Dairy and Goat Farming applications, "
+                  "so most applications fall under (not recorded).")
+    return None
+
+
+def _cme_programme_sector_answer(rows: list[dict], display: dict) -> "str | None":
+    """OFF-025: rows grouped by programme AND sector. When the composer gave up, the
+    plain row list stated each sector's figures but never a programme's own total
+    ("Poultry Farming" was 233 + 8 = 241 applicants across two sector rows). One line
+    per programme: its total (when it spans 2+ sectors), then each sector. A request
+    has one sector, so the sector figures add up to the programme's."""
+    if not rows or len(rows) > 60:
+        return None
+    sec_col = next((k for k in rows[0] if "sector" in k.lower()), None)
+    if sec_col is None or "scheme_name" not in rows[0]:
+        return None
+    nums = [k for k, _ in _row_metrics(rows[0])]
+    if not nums or any(set(r) != set(rows[0]) for r in rows) \
+            or set(rows[0]) - set(nums) - {sec_col, "scheme_name"}:
+        return None
+    groups: dict[str, list[dict]] = {}
+    for r in rows:
+        groups.setdefault(str(r["scheme_name"]), []).append(r)
+    if not any(len(g) > 1 for g in groups.values()):
+        return None
+
+    def _figs(vals: dict) -> str:
+        return ", ".join(f"{_metric_label(k)} {_fmt_num(v)}" for k, v in vals.items())
+
+    lines = []
+    for prog, g in groups.items():
+        per = [(str(r[sec_col] if r[sec_col] is not None else "(not recorded)"),
+                {k: _as_number(r.get(k)) or 0 for k in nums}) for r in g]
+        if len(per) == 1:
+            lines.append(f"- **{_cme_short(prog)}** — {_figs(per[0][1])} (sector: {per[0][0]}).")
+            continue
+        tot = {k: sum(v[k] for _, v in per) for k in nums}
+        lines.append(f"- **{_cme_short(prog)}** — total {_figs(tot)}. By sector: "
+                     + "; ".join(f"{sec}: {_figs(v)}" for sec, v in per) + ".")
+    where = _cme_place_words(display or {})
+    return (f"CM Elevate{where}, by programme and sector:\n" + "\n".join(lines)
+            + "\n\nSector is recorded only on Poultry, Dairy and Goat Farming applications, so the rest "
+              "fall under (not recorded).")
+
+
+_MG_COMBINED_SQL_RE = re.compile(r"\bWITH\s+exp\s+AS\b.*\bCROSS\s+JOIN\s+emp\b", re.IGNORECASE | re.DOTALL)
+
+
+def _mgnrega_combined_facts_answer(row: dict, display: dict) -> "str | None":
+    """The answer to a _mgnrega_combined_facts_query row, every figure stated."""
+    exp = _as_number(row.get("total_expenditure_lakh"))
+    pd = _as_number(row.get("person_days"))
+    if exp is None or pd is None:
+        return None
+    if display.get("village"):
+        place = f"{display['village']} village"
+    elif display.get("block"):
+        place = f"{display['block']} block"
+    elif display.get("assembly_constituency"):
+        place = f"{display['assembly_constituency']} constituency"
+    else:
+        place = display.get("district") or "Meghalaya"
+    year = display.get("year")
+    parts = [f"total expenditure of {float(exp):,.2f} lakh", f"{int(pd):,} person-days"]
+    hh = _as_number(row.get("households_employed"))
+    if hh is not None:
+        parts.append(f"{int(hh):,} households employed")
+    pe = _as_number(row.get("persons_employed"))
+    if pe is not None:
+        parts.append(f"{int(pe):,} persons employed")
+    listed = ", ".join(parts[:-1]) + " and " + parts[-1]
+    return f"Under MGNREGA, {place}{' in ' + year if year else ''} recorded {listed}."
 
 
 def _mgnrega_admin_expenditure_query(question: str, schemes: list[str], resolved: dict
@@ -10141,6 +11134,39 @@ def _pmay_facts_query(question: str, schemes: list[str], resolved: dict,
             "question": question}
 
 
+async def _pmay_attach_placeholders(spec: dict, rows: list[dict]) -> None:
+    """Add each place's placeholder count to its row, for a beneficiary / house
+    count with no year, date or stage (placeholders carry none of those).
+
+    Placeholders are registrations whose status is "Existing site(Old House)":
+    no sanction number, no year, ₹0 sanctioned. The SME rule leaves them out of
+    every count, but the testers count registrations: "How many PMAY beneficiaries
+    are there in Demdema block?" was failed for 6,122 against their 6,125
+    (PMAY-G sheet PMAY-OFF-011/015, 30 Sep). The answer now gives both."""
+    if "houses" not in (spec.get("metrics") or []) or spec.get("year_key") is not None \
+            or spec.get("date") is not None or spec.get("calendar_year") is not None or spec.get("stages"):
+        return
+    dim, ents = spec["dim"], spec["entities"]
+    if dim == "village":
+        key, cond, param = "village_code", "village_code = ANY($1::int[])", [int(e) for e in ents]
+    elif dim == "block":
+        key, cond, param = "UPPER(lgd_block)", "UPPER(lgd_block) = ANY($1::text[])", [str(e).upper() for e in ents]
+    elif dim == "district":
+        key, cond, param = "UPPER(lgd_district)", "UPPER(lgd_district) = ANY($1::text[])", [str(e).upper() for e in ents]
+    else:
+        key, cond, param = "'MEGHALAYA'", "TRUE", None
+    sql = (f"SELECT {key} AS entity_key, COUNT(*) AS placeholders FROM curated.v_pmay "
+           f"WHERE is_placeholder AND {cond} GROUP BY 1")
+    try:
+        got = {str(r["entity_key"]).upper(): int(r["placeholders"])
+               for r in await fetch_rows(sql, [param] if param is not None else [])}
+    except Exception:  # noqa: BLE001 — the count without the note is still right
+        logger.warning("PMAY-G placeholder count failed — answering without it", exc_info=True)
+        return
+    for r in rows:
+        r["placeholders"] = got.get(str(r.get("entity_key")).upper(), 0)
+
+
 def _pmay_money(v) -> str:
     """₹ with Indian digit grouping, plus lakh / crore — exact, never rounded away
     (KI-095: a village's ₹9,40,000 was printed "0.09 crore")."""
@@ -10224,10 +11250,13 @@ def _pmay_lines(spec: dict, row: dict) -> list[str]:
     L: list[str] = []
     for m in spec["metrics"]:
         if m == "houses":
-            L.append(f"PMAY-G {word}: {h:,}"
-                     if word == "beneficiaries" or (spec.get("date") is None and spec.get("year_key") is None
-                                                    and spec.get("calendar_year") is None)
-                     else f"PMAY-G houses sanctioned: {h:,}")
+            ph = int(row.get("placeholders") or 0)
+            L.append((f"PMAY-G {word}: {h:,}"
+                      if word == "beneficiaries" or (spec.get("date") is None and spec.get("year_key") is None
+                                                     and spec.get("calendar_year") is None)
+                      else f"PMAY-G houses sanctioned: {h:,}")
+                     + (f" with a sanctioned house, plus {ph:,} registered with an existing old house and no "
+                        f"sanction ({h + ph:,} registrations in all)" if ph else ""))
         elif m == "sanctioned":
             L.append(f"Total amount sanctioned: {_pmay_money(row['sanctioned'])}")
         elif m == "released":
@@ -10323,6 +11352,24 @@ def _pmay_display_rows(spec: dict, rows: list[dict]) -> list[dict]:
                 d[col] = fn(r)
         out.append(d)
     return out
+
+
+# "Expenditure" / "spent" on PMAY-G is answered with the amount released (the
+# nearest money PMAY-G holds; docs/SCHEMES.md). "Total expenditure for MGNREGA"
+# -> "give for pmay" came back as "Amount released …" with no word that PMAY-G
+# records no expenditure, which read as a different question answered (user
+# report 2026-10-08). Say so first, then give the released figure.
+_PMAY_SPEND_WORD_RE = re.compile(r"\b(?:expenditures?|expenses?|spent|spend\w*|outlay|costs?)\b", re.IGNORECASE)
+
+
+def _pmay_expenditure_not_held(spec: dict, answer: str) -> str:
+    """Prefix the 'PMAY-G records no expenditure' note to an answer that gives
+    the amount released for an expenditure question."""
+    if "released" not in (spec.get("metrics") or []) or not _PMAY_SPEND_WORD_RE.search(spec.get("question") or ""):
+        return answer
+    return ("PMAY-G does not record a total expenditure figure, so total expenditure is not available "
+            "for PMAY-G. The closest figure it holds is the amount released to beneficiaries against "
+            "their sanctioned houses:\n\n" + answer)
 
 
 def _pmay_facts_answer(spec: dict, rows: list[dict]) -> "str | None":
@@ -10541,9 +11588,10 @@ _TOP_ONE_RE = re.compile(r"\bORDER\s+BY\b[^;]*?\bDESC\b[^;]*?\bLIMIT\s+1\b", re.
 # A WHERE clause (read only up to GROUP BY / ORDER BY) that pins a district or
 # block: the top row is then the top WITHIN that area, not statewide. Scanning
 # past the WHERE clause matched "GROUP BY lgd_district" and made every ranking
-# look scoped.
+# look scoped. A village filter scopes it too: ABAGRE's top YEAR was called
+# "the top-ranked year in Meghalaya" (General TC-022, test run 2026-10-09).
 _WHERE_SCOPED_RE = re.compile(
-    r"\bWHERE\b(?:(?!\bGROUP\s+BY\b|\bORDER\s+BY\b)[^;])*?\blgd_(?:district|block)\b",
+    r"\bWHERE\b(?:(?!\bGROUP\s+BY\b|\bORDER\s+BY\b)[^;])*?\b(?:lgd_(?:district|block|village\w*)|village_code)\b",
     re.IGNORECASE | re.DOTALL)
 
 
@@ -10582,12 +11630,17 @@ def _mgnrega_top_one_wording(answer: str, sql: str, rows: list[dict]) -> str:
     composer ignored on 2 of 2 live runs ("This is the only block recorded for
     that financial year in the result", DATA-025/027): drop that sentence from a
     statewide top-1 answer and say what the row actually is."""
-    if not (len(rows) == 1 and _TOP_ONE_RE.search(sql or "")) or _WHERE_SCOPED_RE.search(sql or ""):
+    if not (len(rows) == 1 and _TOP_ONE_RE.search(sql or "")):
         return answer
     sentences = re.split(r"(?<=[.!?])\s+", (answer or "").strip())
     kept = [s for s in sentences if not _ONLY_ONE_SENTENCE_RE.search(s)]
     if len(kept) == len(sentences) or not kept:
         return answer
+    # Inside one area (a village's top YEAR) the sentence is just dropped — "No
+    # other years are available in the result" was false: the query kept one
+    # row of four (General TC-022, test run 2026-10-09).
+    if _WHERE_SCOPED_RE.search(sql or ""):
+        return " ".join(kept)
     return " ".join(kept) + " It is the highest in Meghalaya."
 
 
@@ -10943,7 +11996,8 @@ _STATE_PSEUDO_FILTER = re.compile(
 # compared with `=` / `!=` / `IN` against those two columns — nothing else is
 # touched, and an already-uppercase or ILIKE clause is left as-is.
 _GEO_LITERAL_RE = re.compile(
-    r"(?P<pre>\blgd_(?:district|block)\s*(?:=|!=|<>|\bIN\b)\s*\(?\s*)"
+    # also UPPER(lgd_block) = '...': the FOCUS sheet run (2026-10-12) got 'NONGstoin' there -> 0 groups
+    r"(?P<pre>\blgd_(?:district|block)\s*\)?\s*(?:=|!=|<>|\bIN\b)\s*\(?\s*)"
     r"(?P<lits>'(?:[^']|'')*'(?:\s*,\s*'(?:[^']|'')*')*)",
     re.IGNORECASE,
 )
@@ -11275,6 +12329,56 @@ def _cm_elevate_unasked_programme_filter(question: str, schemes: list[str], sql:
 
 _CME_PERSON_COUNT_Q = re.compile(r"\b(?:applicants?|beneficiar(?:y|ies)|unique\s+applications?|distinct\s+applications?)\b",
                                  re.IGNORECASE)
+
+
+def _resolved_district_list_literals(resolved: dict, sql: str) -> str:
+    """The districts the question resolved are the districts the SQL filters.
+    "…across Eastern West Khasi Hills and East Garo Hills" resolved both, and the
+    30B wrote lgd_district IN ('EASTERN WEST KHASI HILLS', 'EAST KHASI HILLS')
+    (CM Elevate sheet OFF-027, 2026-10-10). An IN-list of the same size naming
+    other districts is replaced by the resolved list."""
+    want = [str(d).upper() for d in (resolved.get("district_list") or [])]
+    if len(want) < 2 or not sql:
+        return sql
+    m = _CME_DISTRICT_IN_RE.search(sql)
+    if not m:
+        return sql
+    have = [x.replace("''", "'").upper() for x in _SQL_LITERAL.findall(m.group(1))]
+    if len(have) != len(want) or set(have) == set(want):
+        return sql
+    lits = ", ".join("'" + d.replace("'", "''") + "'" for d in want)
+    logger.info("district IN-list %s replaced by the resolved districts %s", have, want)
+    return sql[:m.start(1)] + lits + sql[m.end(1):]
+
+
+_CME_DISTRICT_IN_RE = re.compile(r"\blgd_district\s+IN\s*\(([^)]*)\)", re.IGNORECASE)
+
+
+def _cm_elevate_compare_by_district(question: str, schemes: list[str], sql: str) -> str:
+    """"Compare applicant counts for Poultry and Tourism Vehicle across East Jaintia
+    Hills and East Khasi Hills" grouped by scheme_name only, merging the two
+    districts into one figure per programme (rule 16 in the prompt did not hold;
+    CM Elevate sheet OFF-027, 3 of 6 runs, 2026-10-10). A query that filters two
+    or more districts and groups without lgd_district gets it added to both the
+    SELECT list and the GROUP BY."""
+    if schemes != ["CM Elevate"] or not sql:
+        return sql
+    m = _CME_DISTRICT_IN_RE.search(sql)
+    if not m or len(_SQL_LITERAL.findall(m.group(1))) < 2:
+        return sql
+    masked = _mask_sql_literals(sql)
+    g = re.search(r"\bGROUP\s+BY\b(.*?)(?=\bORDER\s+BY\b|\bLIMIT\b|\bHAVING\b|;|$)", masked, re.IGNORECASE | re.DOTALL)
+    if not g or re.search(r"\blgd_district\b", g.group(1), re.IGNORECASE):
+        return sql
+    sel = re.search(r"^\s*SELECT\s+(?:DISTINCT\s+)?", sql, re.IGNORECASE)
+    if not sel:
+        return sql
+    out = sql[:sel.end()] + "lgd_district, " + sql[sel.end():]
+    shift = len("lgd_district, ")
+    gend = g.end(1) + shift
+    out = out[:gend].rstrip() + ", lgd_district " + out[gend:]
+    logger.info("CM Elevate: multi-district comparison grouped by lgd_district too")
+    return out
 
 
 def _cm_elevate_applicants_distinct(question: str, schemes: list[str], sql: str) -> str:
@@ -11642,7 +12746,11 @@ _CML_GROUP_TAIL_RE = re.compile(r"\s+GROUP\s+BY\s+(?P<g>.*?)(?P<rest>\s+(?:HAVIN
 
 
 def _cm_legacy_unselected_group_by(schemes: list[str], sql: str) -> str:
-    if schemes != ["CM Elevate Legacy"] or not sql:
+    # Focus Legacy too: "amount disbursed for Bangranggre" came back GROUP BY pg_id ORDER BY
+    # amount DESC LIMIT 1 — one group's total, not the village's (Rs 40,000 of Rs 1,05,000);
+    # an unselected GROUP BY financial_year_short split a count into unlabelled rows
+    # (Focus Legacy all-villages run 2026-10-12).
+    if schemes not in (["CM Elevate Legacy"], ["Focus Legacy"]) or not sql:
         return sql
     masked = _mask_sql_literals(sql)
     if not _simple_select(masked) or re.search(r"\bHAVING\b", masked, re.IGNORECASE):
@@ -11658,8 +12766,34 @@ def _cm_legacy_unselected_group_by(schemes: list[str], sql: str) -> str:
         return sql
     rest = re.sub(r"^\s*ORDER\s+BY\b.*?(?=\s+LIMIT\b|\s*;?\s*$)", "", sql[m.start("rest"):],
                   flags=re.IGNORECASE | re.DOTALL)
-    logger.info("CM Elevate Legacy: dropped a GROUP BY on unselected %s", sorted(cols))
+    logger.info("%s: dropped a GROUP BY on unselected %s", schemes[0], sorted(cols))
     return sql[:m.start()] + rest
+
+
+# CM Elevate Legacy sheet TC-26 / TC-36 (testers: "The response should be in descending
+# order"): "a district-wise summary of applications, sanctioned cases and total
+# disbursement" came back ORDER BY total_disbursed_cr DESC. When applications are the first
+# measure asked for, the rows are ranked by the application count (the roll-up row last).
+_CML_MONEY_WORD = re.compile(r"\bdisburs\w*|\bsanctioned\s+amount|\bsubsid\w*|\bloans?\b|\bamount\b", re.IGNORECASE)
+
+
+def _cm_legacy_order_by_records(question: str, schemes: list[str], sql: str) -> str:
+    if schemes != ["CM Elevate Legacy"] or not sql or not re.search(r"\bAS\s+records\b", sql, re.IGNORECASE):
+        return sql
+    q = question or ""
+    m_apps = re.search(r"\b(?:applications?|records|cases)\b", q, re.IGNORECASE)
+    m_money = _CML_MONEY_WORD.search(q)
+    if not m_apps or (m_money and m_money.start() < m_apps.start()):
+        return sql
+    if not re.search(r"\bGROUP\s+BY\b", sql, re.IGNORECASE):
+        return sql
+    om = re.search(r"\bORDER\s+BY\b(?P<o>.*?)(?=\s+LIMIT\b|\s*;?\s*\Z)", sql, re.IGNORECASE | re.DOTALL)
+    if not om or re.match(r"\s*records\s+DESC\b", om.group("o"), re.IGNORECASE):
+        return sql
+    g = re.search(r"GROUPING\s*\([^)]*\)", om.group("o"), re.IGNORECASE)
+    new_order = (g.group(0) + ", " if g else "") + "records DESC"
+    logger.info("CM Elevate Legacy: ranked the breakdown by records (applications asked first)")
+    return sql[:om.start("o")] + " " + new_order + sql[om.end("o"):]
 
 
 def _cm_legacy_unrequested_limit(question: str, schemes: list[str], sql: str) -> str:
@@ -11749,6 +12883,90 @@ def _focus_legacy_village_code_only(schemes: list[str], resolved: dict, sql: str
 _DATE_TRUNC_RE = re.compile(
     r"(DATE_TRUNC\s*\(\s*'(?:year|quarter|month|week|day)'\s*,\s*[\w.]*date_of_remittance\s*\))(?!\s*::\s*date)",
     re.IGNORECASE)
+
+
+# FOCUS sheet TC-26 (2026-10-12): "...under FOCUS" (the scheme's own name) made the model
+# add programme_variant = 'FOCUS', which drops the 'Focus (Addnl)' top-up payments:
+# Wapung 380 groups became 218. The variant filter only belongs to a question about the
+# variant itself.
+_FL_VARIANT_ASKED = re.compile(r"\bvariant|\baddnl\b|\badditional\b|\btop[\s-]?up\b|\bprogramme\s+type\b",
+                               re.IGNORECASE)
+_FL_FOCUS_VARIANT_PRED = re.compile(
+    r"\s+AND\s+(?:\w+\.)?programme_variant\s*=\s*'FOCUS'|(?:\w+\.)?programme_variant\s*=\s*'FOCUS'\s+AND\s+",
+    re.IGNORECASE)
+
+
+# Focus Legacy all-villages run (2026-10-12): "What is the total amount disbursed for
+# Charbatapara?" became `WHERE village_code = 272773 AND pg_name ILIKE '%charbatapara%'`
+# — the village name read as a group name — and returned null or a fraction (140 of 603
+# money questions). A pg_name filter that only repeats the resolved place's name is dropped.
+# pg_name or product_raw (the village name as a "product": product_raw = 'KYNSHI RASHAN'),
+# compared with =, LIKE or ILIKE, wildcards inside the name too ('%gandigiri%barman%').
+_FL_NAME_COL = (r"(?:(?:LOWER|UPPER)\s*\(\s*(?:TRIM\s*\(\s*)?)?(?:\w+\.)?(?:pg_name|product_raw)\s*\)?\s*\)?"
+                r"\s*(?:=|\bI?LIKE\b)\s*")
+_FL_PG_NAME_PRED = re.compile(
+    r"\s+AND\s+" + _FL_NAME_COL + r"'%?(?P<a>[^']+?)%?'"
+    r"|" + _FL_NAME_COL + r"'%?(?P<b>[^']+?)%?'\s+AND\s+"
+    r"|(?P<w>\bWHERE\s+)" + _FL_NAME_COL + r"'%?(?P<c>[^']+?)%?'",
+    re.IGNORECASE)
+
+
+def _focus_legacy_place_not_group_name(schemes: list[str], entity_result: dict, sql: str) -> str:
+    resolved, display = entity_result.get("resolved") or {}, entity_result.get("display") or {}
+    if schemes != ["Focus Legacy"] or not sql or not any(
+            resolved.get(k) for k in ("village_code", "village_code_list", "block", "district")):
+        return sql
+    places = [fold(str(v)) for v in (display.get("village"), display.get("block"), display.get("district"),
+                                     resolved.get("block"), resolved.get("district")) if v]
+
+    def _drop(m: "re.Match") -> str:
+        name = fold((m.group("a") or m.group("b") or m.group("c") or "").replace("%", " "))
+        # fuzzy too: the model misspells the village it copies ('choklogkittim' for
+        # Choklokgittim, 'madan jaiew' for Madan Jaiaw)
+        if name and any(name in p_ or p_ in name or fuzz.ratio(name, p_) >= 80 for p_ in places):
+            logger.info("Focus Legacy: dropped pg_name filter %r — it is the place's name", name)
+            if m.group("c"):
+                # the only predicate: filter on the resolved place itself, never a bare TRUE
+                if isinstance(resolved.get("village_code"), int):
+                    return m.group("w") + f"village_code = {resolved['village_code']}"
+                for key, col in (("block", "lgd_block"), ("district", "lgd_district")):
+                    if isinstance(resolved.get(key), str):
+                        return m.group("w") + f"{col} = '" + resolved[key].upper().replace("'", "''") + "'"
+                return m.group(0)
+            return " " if m.group("a") else ""
+        return m.group(0)
+    _had_product = bool(re.search(r"\bproduct_raw\s*\)*\s*(?:=|\bI?LIKE\b)", sql, re.IGNORECASE))
+    sql = _FL_PG_NAME_PRED.sub(_drop, sql)
+    if _had_product and not re.search(r"\bproduct_raw\s*\)*\s*(?:=|\bI?LIKE\b)", sql, re.IGNORECASE):
+        # the companion "product recorded" filter goes with the dropped place-as-product one
+        sql = re.sub(r"\s+AND\s+(?:\w+\.)?product_raw\s+IS\s+NOT\s+NULL|(?:\w+\.)?product_raw\s+IS\s+NOT\s+NULL\s+AND\s+",
+                     " ", sql, flags=re.IGNORECASE)
+    # "How many FOCUS Producer Groups are mapped to NONGLYNKIEN village?" became
+    # `lgd_village_name <> 'NONGLYNKIEN'` — every OTHER village, 14,558 groups (Focus Legacy
+    # all-villages run 2026-10-12). The resolved village is the filter, never its negation.
+    if isinstance(resolved.get("village_code"), int):
+        def _neg(m: "re.Match") -> str:
+            if any(fold(m.group("n")) == p_ or fuzz.ratio(fold(m.group("n")), p_) >= 80 for p_ in places):
+                logger.info("Focus Legacy: replaced a negated filter on the resolved village %r", m.group("n"))
+                return f"village_code = {resolved['village_code']}"
+            return m.group(0)
+        sql = re.sub(r"(?:\w+\.)?lgd_village_name\s*(?:<>|!=)\s*'(?P<n>[^']+)'", _neg, sql, flags=re.IGNORECASE)
+    return sql
+
+
+def _focus_legacy_scheme_name_not_variant(question: str, schemes: list[str], sql: str) -> str:
+    if schemes != ["Focus Legacy"] or _FL_VARIANT_ASKED.search(question or "") or not sql:
+        return sql
+    new = _FL_FOCUS_VARIANT_PRED.sub(" ", sql)
+    # the same mistake on the group-type column: LOWER(pg_entity_type_name) = 'focus' gave KSEH
+    # 0 groups (all-villages run 2026-10-12) — unless the question asks about the group type
+    if not re.search(r"\btype\b|\bLAMP\b|\bexisting\b", question or "", re.IGNORECASE):
+        new = re.sub(r"\s+AND\s+(?:(?:LOWER|UPPER)\s*\(\s*)?(?:\w+\.)?pg_entity_type(?:_name)?\s*\)?\s*=\s*'focus'"
+                     r"|(?:(?:LOWER|UPPER)\s*\(\s*)?(?:\w+\.)?pg_entity_type(?:_name)?\s*\)?\s*=\s*'focus'\s+AND\s+",
+                     " ", new, flags=re.IGNORECASE)
+    if new != sql:
+        logger.info("Focus Legacy: dropped programme_variant = 'FOCUS' (the scheme name, not a variant)")
+    return new
 
 
 def _focus_legacy_date_trunc_as_date(schemes: list[str], sql: str) -> str:
@@ -12902,6 +14120,14 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
             "SQL verifier claimed RESOLVED ENTITIES is empty when resolved=%r says otherwise "
             "— discarding as a known verifier hallucination: %s", entity_result["resolved"], issue)
         return None
+    # "remittances made between January and March 2026": the date filter IS the answer, but
+    # the verifier said a year_key / financial_year filter was missing and the repair
+    # answered for the whole FY 2025-26 (Focus Legacy sheet TC-20, 2026-10-12).
+    if _MONTH_YEAR_IN_Q.search(question or "") and re.search(r"\bdate_of_remittance\b", sql or "", re.IGNORECASE) \
+            and re.search(r"date|time|year_key|financial_year|month", issue, re.IGNORECASE):
+        logger.warning("SQL verifier disputed a calendar-month date filter the question asks for "
+                       "— discarding: %s", issue)
+        return None
     if _verifier_complaint_is_cosmetic(issue, entity_result.get("resolved") or {}, sql):
         logger.warning(
             "SQL verifier complained about the FORM of an assembly-constituency filter that "
@@ -12994,17 +14220,22 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _focus_legacy_geo_columns(schemes, sql)
     sql = _focus_legacy_village_code_only(schemes, entity_result.get("resolved") or {}, sql)
     sql = _focus_legacy_date_trunc_as_date(schemes, sql)
+    sql = _focus_legacy_scheme_name_not_variant(question, schemes, sql)
+    sql = _focus_legacy_place_not_group_name(schemes, entity_result, sql)
     sql = _uppercase_geo_literals(sql)
     sql = _focusplus_drop_unrequested_verification_status(question, schemes, sql)
     sql = _cm_legacy_keep_unresolved_off_village(question, schemes, sql)
     sql = _cm_legacy_sanctioned_count(question, schemes, sql)
     sql = _cm_legacy_unselected_group_by(schemes, sql)
     sql = _cm_legacy_unrequested_limit(question, schemes, sql)
+    sql = _cm_legacy_order_by_records(question, schemes, sql)
     sql = await _cm_elevate_fix_literals(schemes, sql)
     sql = _cm_elevate_split_scheme_in_list(schemes, sql)
     sql = _cm_elevate_sector_all_programmes(question, schemes, sql)
     sql = _cm_elevate_unasked_programme_filter(question, schemes, sql)
     sql = _cm_elevate_applicants_distinct(question, schemes, sql)
+    sql = _cm_elevate_compare_by_district(question, schemes, sql)
+    sql = _resolved_district_list_literals(entity_result.get("resolved") or {}, sql)
     sql = _cm_elevate_sector_zero_groups(schemes, sql)
     sql = _cm_elevate_level_pending(question, schemes, sql)
     sql = _cm_elevate_pending_without_level(question, schemes, sql)
@@ -13013,6 +14244,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_elevate_decision_status_column(schemes, sql)
     sql = _cm_legacy_qualify_shared_geo_cols(schemes, sql)
     sql = _mgnrega_avg_of_ratio(schemes, sql)
+    sql = _mgnrega_village_list_no_limit(question, schemes, sql)
     sql = _mgnrega_numeric_division(schemes, sql)
     sql = _mgnrega_lakh_not_divided(schemes, sql)
     sql = _mgnrega_pin_village_code(schemes, entity_result, sql)
@@ -13476,6 +14708,14 @@ def _deterministic_answer(rows: list[dict]) -> str:
         prefix = ", ".join(labels) + ": " if labels else ""
         if len(nums) == 1:
             k, v = nums[0]
+            # A unit-suffixed column reads "<measure> <value> <unit>": the old
+            # "<value> <column name>" gave "2023-24: 8.71 lakh total expenditure
+            # lakh." once the MGNREGA unit pass added its own "lakh" (KI-235).
+            unit = _unit_suffix(k)
+            if unit:
+                name, word, rupee = unit
+                sep = "" if word in ("", "%") else " "
+                return f"{prefix}{name} {rupee}{_fmt_num(v)}{sep}{word}."
             return f"{prefix}{_fmt_num(v)} {k.replace('_', ' ')}."
         if len(nums) >= 2:
             return prefix + "; ".join(f"{k.replace('_', ' ')}: {_fmt_num(v)}" for k, v in nums) + "."
@@ -13496,6 +14736,17 @@ def _deterministic_answer(rows: list[dict]) -> str:
 
 
 _DETERMINISTIC_MAX_ROWS = 15
+
+
+def _unit_suffix(col: str) -> "tuple[str, str, str] | None":
+    """(measure name, unit word, ₹ prefix) for a money / percentage column by its
+    SQL-prompt suffix (total_expenditure_lakh -> ("total expenditure", "lakh", "")),
+    else None."""
+    for suffix, word, rupee in (("_lakh", "lakh", ""), ("_cr", "crore", "₹"), ("_crore", "crore", "₹"),
+                                ("_rupees", "", "₹"), ("_pct", "%", "")):
+        if col.endswith(suffix) and len(col) > len(suffix):
+            return col[: -len(suffix)].replace("_", " "), word, rupee
+    return None
 
 
 def _metric_label(col: str) -> str:
@@ -14450,7 +15701,7 @@ Answer:"""
             and not _answer_covers_metrics(answer, preview[0]))
         if still_bad:
             logger.warning("compose_response: retry still wrong — using deterministic answer")
-            answer = _deterministic_answer(preview)
+            answer = _deterministic_answer(rows if len(rows) > 1 else preview)
 
     # Deterministic safety net for the opposite failure: the query DID return a
     # real, non-zero number, but the composer hedged with a "not covered / no
@@ -14478,8 +15729,42 @@ Answer:"""
             # chart/table built from the same rows showed real data.
             logger.warning("compose_response: hedged over a %d-row breakdown %r — "
                            "deterministic answer", len(preview), answer[:160])
-            answer = _deterministic_answer(preview)
+            answer = _deterministic_answer(rows)
+    # A list answer must state the list's true size: "Ten villages in the
+    # Dadenggre constituency received employment" for 135 villages, and the
+    # fallback's "Here are the 40 results" for 114 (it was handed only the
+    # 40-row preview) — MGNREGA sheet DATA-014, run 2026-10-09. A spelled-out
+    # count escapes the digit faithfulness check above.
+    if len(rows) > 1 and _states_wrong_list_count(answer, len(rows)):
+        logger.warning("compose_response: answer states a list size other than %d — deterministic answer",
+                       len(rows))
+        answer = _deterministic_answer(rows)
     return answer
+
+
+_LIST_NOUNS = r"(?:villages?|blocks?|districts?|constituenc(?:y|ies)|results?|records?|rows?|entries|groups?|beneficiar(?:y|ies))"
+_LIST_COUNT_WORDS = {w: i for i, w in enumerate(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen sixteen "
+    "seventeen eighteen nineteen twenty".split())}
+_LIST_COUNT_RE = re.compile(r"\b(\d[\d,]*|" + "|".join(_LIST_COUNT_WORDS) + r")\s+(?:\w+\s+){0,2}?" + _LIST_NOUNS + r"\b",
+                            re.IGNORECASE)
+
+
+_SUBSET_LEAD_RE = re.compile(r"\b(?:top|first|last|bottom|leading|largest|highest|lowest|best|worst|"
+                             r"other|remaining|only|another|these|those)\s*$", re.IGNORECASE)
+
+
+def _states_wrong_list_count(answer: str, n: int) -> bool:
+    """True when the answer gives the number of items in the list as anything
+    other than n ("Ten villages…", "Here are the 40 results" for 135 rows)."""
+    for m in _LIST_COUNT_RE.finditer(answer or ""):
+        if _SUBSET_LEAD_RE.search((answer or "")[max(0, m.start() - 16):m.start()]):
+            continue                         # "the top 5 districts" names a subset, not the list
+        tok = m.group(1).lower().replace(",", "")
+        val = _LIST_COUNT_WORDS.get(tok, None) if not tok.isdigit() else int(tok)
+        if val is not None and val != n and val < n:
+            return True
+    return False
 
 
 _CONTACT_INFO_CUE = re.compile(
@@ -14777,7 +16062,8 @@ def _new_data_turn(question: str, *, skip_scope_clarify: bool = False,
             "schemes": None, "fp_amount": None, "entity_result": None,
             "mg_admin": None, "mg_women": None, "mg_det": None,
             "sql": None, "rows": None, "notes": None, "style": "",
-            "fl_total": None, "fl_unplaced": None, "fl_breakdown": None, "answer": None}
+            "fl_total": None, "fl_unplaced": None, "fl_breakdown": None, "answer": None,
+            "cross": None, "pre_rephrase_question": None}
 
 
 async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> "dict | None":
@@ -14788,6 +16074,34 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     _unsupported = _unsupported_scheme_named(question)
     if _unsupported:
         raise _unsupported_scheme_clarification(question, _unsupported)
+
+    # A comparison ACROSS schemes ("Compare Focus+, FOCUS and CM-ELEVATE in East
+    # Khasi Hills", "which scheme has the highest beneficiary count in each
+    # district?") is answered by cross_scheme after the places resolve — never by
+    # the SQL generator, and never after a merged nine-year "which FY?" pause, a
+    # "which area?" pause or a "which scheme?" pause (Cross Scheme sheet, 18 of 20
+    # cases paused, 2026-10-13). The place gates of the entity stage still run.
+    # Read on the user's own words: the rephrase node (a sampled model call) turned
+    # "Compare the coverage of …" into "How does the coverage of … compare …" on
+    # some runs and dropped "coverage" on others (cross-scheme run 2026-10-13).
+    _cross_text = d.get("pre_rephrase_question") or question
+    _named = [s for s, pat in _SCHEME_NAME_PATTERN.items() if pat.search(_cross_text)]
+    # A bare "CM-ELEVATE" beside other schemes is CM Elevate Legacy unless the
+    # question uses the applications dataset's own words — the user's default
+    # (2026-10-12). _pin_cm_elevate_dataset only fires on its data words, and
+    # "performance of MGNREGA, PMAY-G, Focus+ and CM-ELEVATE" has none of them.
+    if "CM Elevate" in _named and "CM Elevate Legacy" not in _named \
+            and not _CMELEVATE_APPLICATIONS_ONLY.search(_cross_text) \
+            and not _CME_APPLICATIONS_VOCAB.search(_cross_text):
+        _named = [("CM Elevate Legacy" if s == "CM Elevate" else s) for s in _named]
+    _cross_q = await _mask_scheme_words_in_village_name(_cross_text)
+    _cross = cross_scheme.detect(
+        _cross_q, _named,
+        measure_text=(await _mask_village_names(_cross_q)) if cross_scheme.other_measure(_cross_q) else None)
+    if _cross:
+        logger.info("cross-scheme comparison %r -> %s", _cross_text, _cross)
+        d["schemes"], d["cross"] = _cross, {"schemes": _cross, "text": _cross_text}
+        return None
 
     # Ask which scheme before doing anything expensive, when the question could
     # honestly mean either one. Guessing here is worse than a one-tap follow-up.
@@ -14844,7 +16158,10 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
             raise _not_held
     # A measure none of the chosen schemes records — typed or carried by a
     # rewrite — is said plainly, never answered with another figure (2026-10-06).
-    _gap = _measure_not_held_gap(question, schemes, scan_text=_scheme_q)
+    # Place names are masked first: the village "Bijasik Wage Apal" read as a
+    # wage-expenditure question under PMAY-G (all-villages run 2026-10-10).
+    _gap = _measure_not_held_gap(await _mask_village_names(question), schemes,
+                                 scan_text=await _mask_village_names(_scheme_q) if _scheme_q else _scheme_q)
     if _gap is not None:
         raise _gap
     # "Which financial years does MGNREGA have?" — the scheme's own years from
@@ -14873,8 +16190,36 @@ async def _data_entity_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     if _fp_amount is not None and int(_fp_amount.value) not in _FOCUSPLUS_PAYMENT_AMOUNTS:
         raise _focusplus_amount_clarification(question, _fp_amount)
     # raises ClarificationNeeded if ambiguous
-    entity_result = await resolve_entities(question, schemes, prior_resolved=prior_resolved,
-                                            village_hint=village_hint)
+    # A cross-scheme comparison resolves its places and year against all six
+    # schemes: a year only some of the named schemes hold ("NREGA, PMAY and CM
+    # Elevate Legacy in FY 2022-23") is still the year asked, and each scheme
+    # that lacks it is reported as such by cross_scheme rather than refused or
+    # silently dropped (cross-scheme run 2026-10-13).
+    # A cross-scheme chip resume ("… in rangsagre village, SELSELLA block, WEST GARO
+    # HILLS") is the bot's own village choice: pin it deterministically. Left to the
+    # mention extractor it re-asked the same pause (22 of 6,978 villages) or took the
+    # block for the village ("Dilma Songgital" -> "Resubelpara - Ward No.11"),
+    # cross-scheme final run 2026-10-13.
+    # The chip's own text, not the rephrased one: the rephrase node can turn the
+    # ", CHOKPOT block, SOUTH GARO HILLS" tail into prose, and the pin reads the tail.
+    _chip_text = d["cross"]["text"] if d.get("cross") else question
+    if d.get("cross") and not village_hint and re.search(r"\bvillage\b", _chip_text or "", re.IGNORECASE) \
+            and _CHIP_TAIL_PARSE_RE.search(_chip_text or ""):
+        try:
+            _cpin = await _mgnrega_village_chip_pin(_chip_text, "MGNREGA")
+        except Exception:  # noqa: BLE001 — normal resolution below
+            _cpin = None
+        if _cpin:
+            village_hint = str(_cpin["lgd_village_name"])
+            question = _chip_text
+    try:
+        entity_result = await resolve_entities(
+            question, cross_scheme.ORDER if d.get("cross") else schemes,
+            prior_resolved=prior_resolved, village_hint=village_hint)
+    except ClarificationNeeded as e:
+        if d.get("cross") and e.rule == "entity-ambiguous":
+            raise await _cross_split_twin_chips(e, d["cross"]["schemes"])
+        raise
     if _fp_amount is not None:
         entity_result.setdefault("notes", []).append(_focusplus_amount_note(_fp_amount))
     # A year-gap rewrite (see resolve_entities) replaces the question for
@@ -14889,6 +16234,8 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     """Region, overall-summary and scope / year / tranche gates (graph: clarification_gate)."""
     question, schemes, entity_result = d["question"], d["schemes"], d["entity_result"]
     prior_resolved, skip_scope_clarify = d["prior_resolved"], d["skip_scope_clarify"]
+    if d.get("cross"):
+        return await _cross_scheme_answer(d, scope)
     # "Garo Hills" / "Khasi Hills" name a hill RANGE, not a district. When one is
     # named and no specific district resolved, either offer its districts as one-tap
     # chips ("which Garo Hills district?") or, if the question already says "all of
@@ -14910,8 +16257,10 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # A two-village comparison too (village_code_list): "Which has more completed
     # PMAY-G houses: MALANG KHASI or SIDAKANDI?" asked "which Khasi Hills
     # district?" (PMAY-G officer cases run 2026-10-02).
+    # Focus Plus too: "SHYAMDING ( GARO )" asked "which Garo Hills district?" (Focus + sheet
+    # all-villages run 2026-10-10).
     _mg_place_settled = schemes in (["MGNREGA"], ["PMAY-G"], ["CM Elevate"], ["Focus Legacy"],
-                                    ["CM Elevate Legacy"]) and any(
+                                    ["CM Elevate Legacy"], ["Focus Plus"]) and any(
         entity_result["resolved"].get(k) for k in ("village_code", "village_code_list", "block",
                                                    "assembly_constituency"))
     if not entity_result["resolved"].get("district") and not entity_result["resolved"].get("district_list") \
@@ -14967,10 +16316,122 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # gender/occupation/verification) can never match any row — that data
     # exists only on the 12.5K cohort, which is entirely Tranch 4. Explain why
     # instead of running SQL that is guaranteed to come back empty.
-    if _person_level_tranche_conflict(question, schemes, entity_result["resolved"]):
+    if _person_level_tranche_conflict(question, schemes, entity_result["resolved"])             and not _fp_status_cohort_query(question, schemes, entity_result["resolved"]):
         return _person_level_tranche_conflict_answer(question, schemes, entity_result)
     d["entity_result"] = entity_result
     return None
+
+
+def _literal_sql(sql: str, params: list) -> str:
+    """A display / authorization copy of parameter-bound SQL with the values inlined."""
+    def lit(v) -> str:
+        if isinstance(v, (list, tuple)):
+            return "ARRAY[" + ", ".join(lit(x) for x in v) + "]"
+        if isinstance(v, (int, float)):
+            return str(v)
+        return "'" + str(v).replace("'", "''") + "'"
+    return re.sub(r"\$(\d+)", lambda m: lit(params[int(m.group(1)) - 1]), sql)
+
+
+_VILLAGE_CHIP_LABEL_RE = re.compile(r"^(?P<name>.+?) — (?P<block>.+?) block, (?P<district>.+)$")
+
+
+async def _cross_split_twin_chips(e: "ClarificationNeeded", schemes: list[str]) -> "ClarificationNeeded":
+    """A which-village pause for a cross-scheme question: a chip standing for two
+    same-name villages of one block that BOTH hold data is split into one chip per
+    village, told apart by LGD code. Untouched, the chip "BOLDAMGRE — SELSELLA
+    block" resumed into the same pause again (cross-scheme village run 2026-10-13)."""
+    opts = list(e.options or [])
+    out: list[dict] = []
+    changed = False
+    for o in opts:
+        m = _VILLAGE_CHIP_LABEL_RE.match(str(o.get("label") or ""))
+        if not m or _CHIP_LGD_CODE_RE.search(o.get("label") or ""):
+            out.append(o)
+            continue
+        try:
+            rows = await fetch_rows(
+                "SELECT village_code, lgd_village_name, lgd_block, lgd_district FROM curated.dim_geography "
+                "WHERE UPPER(lgd_village_name) = UPPER($1) AND UPPER(lgd_block) = UPPER($2) "
+                "AND UPPER(lgd_district) = UPPER($3) ORDER BY village_code",
+                [m.group("name").strip(), m.group("block").strip(), m.group("district").strip()])
+            active = await cross_scheme.villages_with_records(schemes, [r["village_code"] for r in rows]) \
+                if len(rows) > 1 else set()
+        except Exception:  # noqa: BLE001 — keep the chip as it was
+            rows, active = [], set()
+        cands = [{"village_code": r["village_code"], "name": r["lgd_village_name"], "block": r["lgd_block"],
+                  "district": r["lgd_district"]} for r in rows if r["village_code"] in active]
+        if len(cands) < 2:
+            out.append(o)
+            continue
+        changed = True
+        for c in cands:
+            tag = f" (LGD {c['village_code']})"
+            q = str(o.get("question") or "")
+            nm = re.compile(r"(?<![A-Za-z0-9])" + _loose_name_pattern(str(m.group("name"))) + r"(?![A-Za-z0-9])",
+                            re.IGNORECASE)
+            q = nm.sub(lambda x: x.group(0) + tag, q, count=1) if nm.search(q) else q + tag
+            out.append({"label": f"{m.group('name')}{tag} — {m.group('block')} block, {m.group('district')}",
+                        "question": q})
+    if not changed:
+        return e
+    return ClarificationNeeded(e.question, options=out, rule=e.rule, village_hint=e.village_hint)
+
+
+async def _cross_twin_village_pause(d: dict, schemes: list[str], resolved: dict) -> None:
+    """Two villages can share a name, a block and a district and BOTH hold data —
+    BOLDAMGRE 272895 (MGNREGA) and 272933 (Focus Plus, CM Elevate), SELSELLA
+    block. resolve_village collapses such a pair to the busier one (it is
+    usually an ingestion duplicate), so "compare … in boldamgre village" answered
+    for 272895 and the other village could not be reached (cross-scheme village
+    run 2026-10-13). A cross-scheme question reads every scheme, so both are
+    offered, told apart by their LGD code (_village_code_tag)."""
+    code = resolved.get("village_code")
+    text = d["cross"]["text"] or ""
+    if not code or isinstance(code, (list, tuple)) or _CHIP_LGD_CODE_RE.search(text) \
+            or _CHIP_LGD_CODE_RE.search(d["question"] or ""):
+        return
+    rows = await fetch_rows(
+        "SELECT g2.village_code, g2.lgd_village_name, g2.lgd_block, g2.lgd_district "
+        "FROM curated.dim_geography g1 JOIN curated.dim_geography g2 "
+        "ON UPPER(g2.lgd_village_name) = UPPER(g1.lgd_village_name) "
+        "AND g2.lgd_block IS NOT DISTINCT FROM g1.lgd_block "
+        "AND g2.lgd_district IS NOT DISTINCT FROM g1.lgd_district "
+        "WHERE g1.village_code = $1 ORDER BY g2.village_code", [int(code)])
+    if len(rows) < 2:
+        return
+    active = await cross_scheme.villages_with_records(schemes, [r["village_code"] for r in rows])
+    cands = [{"village_code": r["village_code"], "name": r["lgd_village_name"], "block": r["lgd_block"],
+              "district": r["lgd_district"]} for r in rows if r["village_code"] in active]
+    if len(cands) < 2:
+        return
+    _s = ["MGNREGA"]   # the village-grained chip shape (code-tagged twins)
+    raise ClarificationNeeded(
+        f"“{cands[0]['name']}” is {len(cands)} different villages in {str(cands[0]['block']).title()} block "
+        f"with the same name — which one do you mean?",
+        options=[{"label": _village_chip_label(c, cands, _s),
+                  "question": _village_chip_question(text, c["name"], c, _s, cands)} for c in cands],
+        rule="entity-ambiguous", village_hint=str(cands[0]["name"]))
+
+
+async def _cross_scheme_answer(d: dict, scope: "auth.UserScope | None" = None) -> dict:
+    """The deterministic cross-scheme comparison (app/cross_scheme.py), with the
+    same authorization a generated query gets."""
+    schemes, entity_result = d["cross"]["schemes"], d["entity_result"]
+    resolved = entity_result["resolved"]
+    await _cross_twin_village_pause(d, schemes, resolved)
+    out = await cross_scheme.answer(d["cross"]["text"], schemes, entity_result, _SCHEME_DATA_YEARS)
+    sql = "\n;\n".join(_literal_sql(q, prm) for q, prm in out.pop("sql_pairs", []))
+    out["sql"] = out["sql_query"] = sql
+    # Authorized on the literal SQL (its place values and GROUP BY visible), the
+    # same check a generated query gets; nothing is returned on a deny.
+    if scope is not None and settings.AUTH_ENABLED:
+        decision = auth.authorize(scope, schemes=schemes, resolved_entities=resolved, sql=sql)
+        if not decision.allow:
+            logger.info("auth deny (%s) user=%s: %s", decision.check, scope.user_id, decision.reason)
+            return _denied(decision, schemes, resolved)
+    out["resolved_entities"] = resolved
+    return out
 
 
 async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = None) -> "dict | None":
@@ -15018,6 +16479,7 @@ async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = No
         _pm_rows = [dict(r) for r in await fetch_rows(_pm_det["sql"], _pm_det["params"])]
         logger.info("PMAY-G deterministic query (%s): %s", ",".join(_pm_det["metrics"]),
                     _pm_det["shown"].replace("\n", " ")[:400])
+        await _pmay_attach_placeholders(_pm_det, _pm_rows)
         _pm_answer = _pmay_facts_answer(_pm_det, _pm_rows)
         if _pm_answer and _pm_det.get("bare_year") and _pm_det.get("year_key") == _pm_det["bare_year"]:
             # A plain year ("during 2017") is the CALENDAR year: the answer, the result table
@@ -15042,6 +16504,7 @@ async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = No
                                             for ln in _fy_lines) + ".)")
                     _pm_det, _pm_rows, _pm_answer = _cal, _cal_rows, _cal_answer
         if _pm_answer:
+            _pm_answer = _pmay_expenditure_not_held(_pm_det, _pm_answer)
             _pm_rows = _pmay_display_rows(_pm_det, _pm_rows)
             return {
                 "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
@@ -15065,7 +16528,10 @@ async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = No
         logger.info("PMAY-G deterministic query found no houses for the place — model path")
     _mg_det = _mg_admin or (
         (_mg_women["sql"], _mg_women["params"], _mg_women["shown"]) if _mg_women else None
-    ) or _mgnrega_combined_facts_query(question, schemes, entity_result["resolved"])
+    ) or _mgnrega_combined_facts_query(question, schemes, entity_result["resolved"]) \
+        or _mgnrega_breakdown_query(question, schemes, entity_result["resolved"]) \
+        or _mgnrega_wage_material_query(question, schemes, entity_result["resolved"]) \
+        or _cme_sector_query(question, schemes, entity_result["resolved"])         or _fp_status_cohort_query(question, schemes, entity_result["resolved"])         or _focus_legacy_duplicates_query(question, schemes, entity_result["resolved"])         or _focus_legacy_fy_compare_query(question, schemes, entity_result["resolved"])
     d.update(mg_admin=_mg_admin, mg_women=_mg_women, mg_det=_mg_det)
     return None
 
@@ -15126,6 +16592,78 @@ async def _data_post_rows_stage(d: dict, scope: "auth.UserScope | None" = None) 
             "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,
             "row_count": len(rows), "rows": rows[:20], "data": rows, "answer": answer,
         }
+    if schemes == ["CM Elevate"] and _CME_SECTOR_FACT_SQL_RE.search(sql or ""):
+        _cs = _cme_sector_answer(question, sql, rows, entity_result.get("display") or {})
+        if _cs:
+            return {
+                "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
+                "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,
+                "row_count": len(rows), "rows": rows[:20], "data": rows, "answer": _cs,
+            }
+    if schemes == ["Focus Legacy"] and _FL_FY_COMPARE_SQL_RE.search(sql or "") and rows:
+        _fc = _focus_legacy_fy_compare_answer(rows, (d.get("mg_det") or (None, []))[1],
+                                              entity_result.get("display") or {})
+        # A gap year the user named (FY 2023-24) was swapped for the nearest year with
+        # data by _apply_year_gap; its note says so and must lead the answer.
+        _gap = [n for n in entity_result.get("notes") or [] if "holds no data" in n]
+        if _fc and _gap:
+            _fc = " ".join(_gap) + "\n\n" + _fc
+        if _fc:
+            return {
+                "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
+                "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,
+                "row_count": len(rows), "rows": rows[:20], "data": rows, "answer": _fc,
+            }
+    if schemes == ["Focus Legacy"] and _FL_DUP_SQL_RE.search(sql or "") and rows:
+        _fd = _focus_legacy_duplicates_answer(rows, entity_result.get("display") or {})
+        if _fd:
+            return {
+                "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
+                "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,
+                "row_count": len(rows), "rows": rows[:20], "data": rows, "answer": _fd,
+            }
+    if schemes == ["Focus Plus"] and _FP_STATUS_COHORT_SQL_RE.search(sql or "") and rows:
+        return {
+            "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
+            "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,
+            "row_count": len(rows), "rows": rows[:20], "data": rows,
+            "answer": _fp_status_cohort_answer(sql, rows, (d.get("mg_det") or (None, []))[1]),
+        }
+    if schemes == ["CM Elevate"]:
+        _ps = _cme_programme_sector_answer(rows, entity_result.get("display") or {})
+        if _ps:
+            return {
+                "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
+                "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,
+                "row_count": len(rows), "rows": rows[:20], "data": rows, "answer": _ps,
+            }
+    if schemes == ["MGNREGA"] and not _mg_women and _MG_WAGE_MATERIAL_SQL_RE.search(sql or "") and len(rows) == 1:
+        return {
+            "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
+            "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,
+            "row_count": len(rows), "rows": rows[:20], "data": rows,
+            "answer": _mgnrega_wage_material_answer(rows[0], entity_result.get("display") or {}),
+        }
+    if schemes == ["MGNREGA"] and not _mg_women and _MG_BREAKDOWN_SQL_RE.search(sql or "") and len(rows) == 1:
+        _bd = _mgnrega_breakdown_answer(rows[0], entity_result.get("display") or {})
+        if _bd:
+            return {
+                "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
+                "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,
+                "row_count": len(rows), "rows": rows[:20], "data": rows, "answer": _bd,
+            }
+    if schemes == ["MGNREGA"] and not _mg_women and _MG_COMBINED_SQL_RE.search(sql or "") and len(rows) == 1:
+        # The combined expenditure + employment answer is written here from the
+        # one row: the composer dropped the person-days figure ("24.54 crore. No
+        # expenditure…" for West Khasi Hills FY 2025-26, MGNREGA sheet DATA-030,
+        # run 2026-10-09) — a figure the question asked for, silently missing.
+        _combined = _mgnrega_combined_facts_answer(rows[0], entity_result.get("display") or {})
+        if _combined:
+            return {
+                "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
+                "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,
+                "row_count": len(rows), "rows": rows[:20], "data": rows, "answer": _combined,
+            }
     if schemes == ["MGNREGA"]:
         _empty = await _mgnrega_empty_answer(sql, rows, entity_result.get("display") or {},
                                              entity_result["resolved"])
@@ -15618,6 +17156,14 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
     """Spelling, dataset pin, turn facts, a pending pause's reply, and whether
     this message continues the conversation at all (graph: context)."""
     question = t["question"]
+    # Topic memory (app/topic_memory.py): an explicit return to an earlier
+    # topic ("go back to MGNREGA") puts that topic's state and last turn back
+    # in place before anything below reads them; a bare one is answered here.
+    # Every other message comes back unchanged.
+    _topic = topic_memory.resolve_turn(session, question)
+    if _topic.response is not None:
+        return _topic.response
+    question = _topic.question
     raw_question = question
     question = _correct_place_spelling(_correct_scheme_spelling(question))
     # "total amount disbursed under CM Elevate" can only be answered by CM
@@ -15748,6 +17294,16 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
             question = f"{pending.rstrip(' ?.')}, {question.strip()}"
             scope_resumed = True
             logger.info("scope clarification resumed -> %r", question)
+        elif not _bailed and _pending_rule == "year-not-specified" and _is_yearwise_reply(question):
+            # "Show it year-wise" to "which financial year?" IS an answer: every
+            # year, one row each. Read as a fresh imperative, it had nothing to
+            # refer to ("I don't have an earlier answer"; General TC-022, test
+            # run 2026-10-09).
+            session.turn_context["clarification_reply"] = question
+            question = f"{pending.rstrip(' ?.')}, year-wise for each financial year"
+            scope_resumed = True
+            context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="year-wise")
+            logger.info("year clarification answered year-wise -> %r", question)
         elif not _bailed and _pending_rule == "year-not-specified" \
                 and _BACKREF_FOLLOWUP_RE.search(question):
             # "What was the total MGNREGA expenditure in ABAGRE?" paused for the
@@ -15805,9 +17361,94 @@ _CONVERSATIONAL_EDGE = frozenset({"greeting", "thanks", "goodbye", "identity", "
 _GENERIC_EDGE = frozenset({"off_topic", "silly"})
 
 
-async def _guardrail_check(raw_question: str, question: str, scope_resumed: bool) -> "tuple[dict, str] | None":
+def _strip_end_punct(name: str) -> str:
+    return re.sub(r"[\s.,;:!?]+$", "", re.sub(r"\s+", " ", name or "").strip()).upper()
+
+
+_VILLAGE_KEY_CACHE: "dict[int, frozenset]" = {}
+
+
+def _village_name_keys(names: dict) -> frozenset:
+    """The catalogue's village names compared without trailing punctuation."""
+    k = id(names)
+    if k not in _VILLAGE_KEY_CACHE:
+        _VILLAGE_KEY_CACHE.clear()
+        _VILLAGE_KEY_CACHE[k] = frozenset(_strip_end_punct(n) for n in names)
+    return _VILLAGE_KEY_CACHE[k]
+
+
+async def _mask_village_names(text: str) -> str:
+    """`text` with an exact village name (the longest one found) replaced by
+    "the village", for the guardrail checks only."""
+    out = text or ""
+    found = None
+    # Every scheme's villages, not MGNREGA's only: the Focus Legacy village "CHOKCHAKIA"
+    # was refused as violence ("chok…") — Focus Legacy all-villages run 2026-10-12.
+    for _vs in ("MGNREGA", "Focus Legacy", "PMAY-G", "Focus Plus", "CM Elevate", "CM Elevate Legacy"):
+        try:
+            found = await _scan_village_in_question(out, _vs)
+        except Exception:  # noqa: BLE001 — no catalogue: check the text as typed
+            found = None
+        if found and found[0]:
+            break
+    if not (found and found[0]):
+        # The scan above reads only after a place preposition ("in", "for"); "mapped to
+        # CHOKCHAKIA village" has none. Any 1-4 word run that IS a scheme's village name.
+        words = re.findall(r"[A-Za-z][A-Za-z().'-]*", out)
+        runs = [" ".join(words[i:i + n]) for n in (4, 3, 2, 1) for i in range(len(words) - n + 1)]
+        runs = [r for r in runs if len(r) >= 5 and r.lower() not in _NOT_A_PLACE_WORD]
+        for _vs in ("MGNREGA", "Focus Legacy", "PMAY-G", "Focus Plus", "CM Elevate", "CM Elevate Legacy"):
+            try:
+                _names = await _scheme_village_names(_vs)
+            except Exception:  # noqa: BLE001
+                continue
+            _hit = next((r for r in runs if r.strip().upper() in _names), None)
+            if _hit:
+                found = (_hit, [])
+                break
+    if found and found[0]:
+        out = re.sub(r"(?<![A-Za-z0-9])" + _loose_name_pattern(found[0]) + r"(?![A-Za-z0-9])", "the village",
+                     out, flags=re.IGNORECASE)
+    # Block / district / constituency names too: "Give me the PMAY financial
+    # summary for Chokpot" was refused as violence ("chok…"), PMAY-G sheet run
+    # 2026-10-10.
+    for _dim, _word in (("block", "the block"), ("assembly_constituency", "the constituency"),
+                        ("district", "the district")):
+        for _ in range(3):
+            try:
+                _nm = _canonical_in_question(out, "MGNREGA", _dim)
+            except Exception:  # noqa: BLE001
+                _nm = None
+            if not _nm:
+                break
+            out = re.sub(r"(?<![A-Za-z0-9])" + re.escape(_nm) + r"(?![A-Za-z0-9])", _word, out, flags=re.IGNORECASE)
+    return out
+
+
+_HARM_EDGE_TYPES = frozenset(guardrails.HARM_CATEGORIES) | {"harmful", "unsafe"}
+
+
+async def _harm_only_from_place_name(question: str, hit: dict) -> bool:
+    """True when an edge HARM verdict disappears once the place names are masked:
+    "Chokpot" (a block) tripped the violence rules on "chok…" in the edge re-checks
+    after the guardrail stage had already cleared the masked text (PMAY-G sheet
+    run 2026-10-10)."""
+    if (hit or {}).get("type") not in _HARM_EDGE_TYPES:
+        return False
+    masked = await _mask_village_names(question)
+    return masked != question and not edge.detect_harmful(masked)
+
+
+async def _guardrail_check(raw_question: str, question: str, scope_resumed: bool,
+                           has_context: bool = False) -> "tuple[dict, str] | None":
     """The guardrail refusal for this turn and the layer that made it, or None
     (app/guardrails.py, D-040 / D-041)."""
+    # A village NAME is not intent: "Give me the expenditure breakdown for CHOTTA
+    # KILLING during 2023-24" was refused as violence (MGNREGA all-villages run,
+    # 2026-10-09). An exact village name is masked for the checks; any harmful
+    # wording around it is still judged.
+    raw_question = await _mask_village_names(raw_question)
+    question = await _mask_village_names(question)
     harm = edge.detect_harmful(raw_question) or edge.detect_harmful(question)
     if harm:
         return harm, "rules"
@@ -15820,9 +17461,117 @@ async def _guardrail_check(raw_question: str, question: str, scope_resumed: bool
     if scope_resumed or edge_type in _CONVERSATIONAL_EDGE:
         return None
     verdict = await guardrails.check_model(raw_question)
+    if verdict and verdict.is_scope and _overrules_scope_verdict(raw_question, has_context):
+        context_budget.log_decision("guardrail", layer="model", outcome="scope_overruled",
+                                    category=verdict.category)
+        return None
     if verdict and (not verdict.is_scope or scope_ok):
         return edge.guardrail_reply(verdict.category), "model"
     return None
+
+
+# A model OUT_OF_SCOPE verdict that is wrong by construction (General TC-011 /
+# TC-012, test run 2026-10-09): "How do I get this?" was refused as "I can't do
+# things on your behalf", "What is PM-KISAN?" got the generic off-topic reply
+# and "Tell me about the Jal Jeevan Mission scheme" got "I don't write social
+# media posts". How to get / apply for a scheme is the assistant's job (the
+# guardrail prompt lists it as SAFE), and a scheme we don't hold has its own,
+# clearer "not one of the schemes I cover" reply. Harm verdicts are never
+# overruled — only scope ones.
+_SCHEME_HOWTO_SHAPE = re.compile(
+    r"^\W*(?:so\s+|ok(?:ay)?\s+|and\s+|then\s+)?how\s+(?:do|can|could|should|will|would|to)\s+"
+    r"(?:i|we|one|someone|my\s+\w+)?\s*(?:get|avail|apply|register|enrol\w*|join|qualify|receive)\b"
+    r"[^.?!]{0,30}?\b(?:this|it|that|them|these|the\s+(?:scheme|benefits?|assistance|money))?\W*$",
+    re.IGNORECASE)
+
+
+_DATA_MEASURE_WORD = re.compile(
+    r"\b(?:expenditure|spent|spend\w*|breakdown|person[\s-]?days?|job\s*cards?|households?|persons?|"
+    r"employment|employed|wages?|materials?|beneficiar\w*|houses?|sanction\w*|disburs\w*|applications?|"
+    r"payments?|amount|percentage|average|highest|lowest|summary|performance|status|completed|released)\b",
+    re.IGNORECASE)
+# "Which has more completed houses: DILBOT or UMKAIT?" names its places with no
+# preposition (refused as a general question, PMAY-G sheet run 2026-10-10).
+_COUNT_SHAPE_RE = re.compile(r"\b(?:how\s+many|number\s+of|count\s+of|total)\b", re.IGNORECASE)
+_COMPARE_PLACES_RE = re.compile(r"(?::\s*|\bcompare\b.{0,60}?\b|\bbetween\s+)[A-Za-z][\w'() -]*?\s+(?:or|and|vs\.?|versus)\s+[A-Za-z]",
+                                re.IGNORECASE)
+_PLACE_SLOT = re.compile(
+    r"\b(?:in|for|of|at|from)\s+(?:the\s+)?(?!(?:my|your|his|her|our|their|me|us|a|an|this|that|it|them)\b)"
+    r"[A-Za-z][\w'-]+", re.IGNORECASE)
+
+
+def _is_data_shaped(question: str) -> bool:
+    """A question or data request (by its opening words) with a measure plus a
+    year or a place slot ("in <name>"): a figure question. "craft some lines for
+    my page praising PMAY-G houses" opens with no question word and stays the
+    model's call."""
+    q = question or ""
+    if not _REPHRASE_START.search(q):
+        return False
+    if not (_DATA_MEASURE_WORD.search(q) or context_policy.metric_families(q)):
+        return False
+    return bool(context_policy.extract_year_keys(q) or named_places(q) or _PLACE_SLOT.search(q)
+                or _COMPARE_PLACES_RE.search(q)
+                # a count over a named scheme / programme: "How many applicants under Meghalaya
+                # Dairy Development Scheme belong to Piggery sector?" (CM Elevate sheet 2026-10-10)
+                or (_COUNT_SHAPE_RE.search(q) and (_named_schemes(q) or _infer_scheme_from_terms(q))))
+
+
+_SCHEME_DATA_NOUN_RE = re.compile(r"\bremit\w*|\bproducer\s+groups?\b|\bPGs?\b|\bmembers?\b|\bmemberships?\b|"
+                                  r"\bpayments?\b|\bdisburs\w*|\bbeneficiar\w*|\bapplicants?\b",
+                                  re.IGNORECASE)
+# A message about the PREVIOUS answer — questioning it, asking to re-check or
+# correct it — is a follow-up, not a request to act for the officer: "Okay,
+# MGNREGA in the above query, whatever you have given … only one year … in our
+# database it is coming three years … Please cross verify and give it to me"
+# was refused by the guardrail model as "I can't do things on your behalf"
+# (UI 2026-10-12). Content / task requests are still caught by
+# check_scope_rules first, and harm verdicts are never overruled.
+_ABOUT_PREVIOUS_ANSWER = re.compile(
+    r"\b(?:above|previous|last|earlier|that|this|your|same)\s+(?:query|queries|question|answer|result|results|"
+    r"reply|response|output|table|chart|figures?|numbers?|data|count|total)\b"
+    r"|\byou\s+(?:have\s+|had\s+|just\s+)?(?:gave|given|give|showed|shown|said|told|returned|provided)\b"
+    r"|\bcross[\s-]?(?:verify|check)\w*|\bre[\s-]?(?:check|verify)\w*|\bdouble[\s-]?check\w*"
+    r"|\bcheck\s+(?:it\s+|this\s+|that\s+|them\s+)?again\b|\bverify\b"
+    r"|\b(?:wrong|incorrect|mismatch\w*|not\s+(?:correct|right|matching|tallying))\b"
+    r"|\bwhy\s+(?:are\s+|is\s+|did\s+)?(?:you\s+)?(?:giving|showing|only|missing|not)\b",
+    re.IGNORECASE)
+
+
+_SCHEME_SUMMARY_RE = re.compile(r"\boverview\b|\bsummary\b|\bsummar[iy][sz]e\b|\bbriefing\b", re.IGNORECASE)
+
+
+def _overrules_scope_verdict(question: str, has_context: bool = False) -> bool:
+    q = question or ""
+    if guardrails.check_scope_rules(q):
+        return False                          # a clear rule phrasing ("apply for me") stands
+    if _SCHEME_HOWTO_SHAPE.search(q) or _unsupported_scheme_named(q):
+        return True
+    # A figure question about a place or a year is the assistant's job however the
+    # model reads an unfamiliar village name: "Give me the expenditure breakdown
+    # for Myriem during 2023-24" was refused as "I can't do things on your behalf",
+    # "What was the total expenditure in MAWJYRSIM during 2022-23?" as a general
+    # question (MGNREGA sheet run 2026-10-09, 9 cases). Content / task requests in
+    # scheme words are still caught by check_scope_rules above.
+    if _is_data_shaped(q):
+        return True
+    # A request about a named scheme's own data or an overview of it: "Show me all FOCUS
+    # remittances made between April and June 2025" (refused as acting on the user's
+    # behalf), "List top 5 FOCUS PGs which has more than 20 members", "Give me a short
+    # overview of FOCUS … for an official briefing" (refused as content writing) —
+    # FOCUS sheet run 2026-10-12. Bare "FOCUS" counts as a scheme name here.
+    if _REPHRASE_START.search(q) and (_named_schemes(q) or _infer_scheme_from_terms(q)
+                                      or re.search(r"\bfocus\b", q, re.IGNORECASE)) \
+            and (_SCHEME_DATA_NOUN_RE.search(q) or _SCHEME_SUMMARY_RE.search(q)):
+        return True
+    if _ABOUT_PREVIOUS_ANSWER.search(q) and (has_context or _named_schemes(q) or _infer_scheme_from_terms(q)):
+        return True
+    # A short fragment that continues a scheme answer ("And the lowest?" after
+    # "Which year was the highest?") was refused as a general question (General
+    # TC-022, test run 2026-10-09). has_context already requires a continuation
+    # signal (context_policy.continuation_signals), so "who is harshit" after an
+    # answer still gets the model's verdict.
+    return has_context and len(q.split()) <= 6
 
 
 async def _turn_edge_stage(t: dict, session: "Session | None" = None,
@@ -15841,7 +17590,7 @@ async def _turn_edge_stage(t: dict, session: "Session | None" = None,
     #      which judges meaning rather than words. The model check is skipped for
     #      a pause reply ("2023", a chip) and for a canned conversational turn
     #      ("hi", "thanks"), neither of which can carry a new request.
-    _guard = await _guardrail_check(raw_question, question, scope_resumed)
+    _guard = await _guardrail_check(raw_question, question, scope_resumed, has_context)
     if _guard:
         _harm, _layer = _guard
         context_budget.log_decision("guardrail", layer=_layer, category=_harm["type"], blocked=True)
@@ -15885,7 +17634,7 @@ async def _turn_edge_stage(t: dict, session: "Session | None" = None,
         if picked:
             return picked
         direct = (_scheme_listing_answer(question)
-                  or _scheme_comparison_answer(question, _previous_turn_schemes(session)))
+                  or _scheme_comparison_answer(question, _recent_compared_schemes(session)))
         if direct:
             if question != raw_question:
                 direct["rewritten_question"] = question
@@ -15900,6 +17649,8 @@ async def _turn_edge_stage(t: dict, session: "Session | None" = None,
     #    already handled at the merge above.
     hit = None if scope_resumed else edge.detect_edge_case(question, has_context=has_context)
     if hit and await _mgnrega_village_not_out_of_area(question, hit):
+        hit = None
+    if hit and await _harm_only_from_place_name(question, hit):
         hit = None
     if hit:
         context_budget.log_decision("edge", edge_type=hit["type"], has_context=has_context)
@@ -16026,6 +17777,14 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
             _cm_pinned = _pinned != question
             question = _pinned
             is_followup_rewrite = True
+            # "Which year was the highest?" ranks the years: a year the rewrite
+            # carried over from the previous turn would leave only that one
+            # (see _WHICH_YEAR_CUE). A year the user typed is kept.
+            if _WHICH_YEAR_CUE.search(raw_question):
+                _no_year = _drop_inherited_time(question, raw_question)
+                if _no_year != question:
+                    context_budget.log_decision("followup", rewrite="which-year-drops-inherited-year")
+                    question = _no_year
             # "give me for pmay" after MGNREGA person-days: PMAY-G has no
             # person-days. Offer PMAY-G's own measures for the same scope
             # instead of a query that cannot be built (_swap_measure_gap).
@@ -16057,6 +17816,8 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
     #     Same scope-resume carve-out as step 0.
     hit = None if scope_resumed else edge.detect_edge_case(question, has_context=has_context)
     if hit and await _mgnrega_village_not_out_of_area(question, hit):
+        hit = None
+    if hit and await _harm_only_from_place_name(question, hit):
         hit = None
     if hit:
         context_budget.log_decision("edge", edge_type=hit["type"], has_context=has_context,
@@ -16111,6 +17872,10 @@ async def _turn_rephrase_stage(t: dict, session: "Session | None" = None,
     question = t["question"]
     if (not settings.QUERY_REPHRASE_ENABLED or t["is_followup_rewrite"] or t["scope_resumed"]
             or (session is not None and (session.turn_context or {}).get("clarification_reply"))
+            # A chip's own question is system-built and exact: "…in SEINDULI I …,
+            # MAWSHYNRUT block, WEST KHASI HILLS" lost its " I" to the rephraser and
+            # was answered for the whole block (PMAY-G all-villages run 2026-10-10).
+            or _CHIP_SCOPE_SUFFIX_RE.search(question.strip().rstrip("?. ")) or _CHIP_LEVEL_PHRASE_RE.search(question)
             or not _needs_rephrase(question)):
         return None
     out = await rephrase_question(question)
@@ -16121,6 +17886,55 @@ async def _turn_rephrase_stage(t: dict, session: "Session | None" = None,
             # resumes it rather than the messy original (routers.query.pause_question).
             session.turn_context["standalone_question"] = out
     return None
+
+
+# A question about a scheme's RULES that happens to say "how many" / "how much":
+# "How many days of work are guaranteed?", "How are wages paid?", "How much
+# assistance is given?". The DATA keywords won the split, so after "What is
+# MGNREGA?" -> "Who can apply?" the third question asked "which scheme?" and the
+# PMAY-G one asked for a district and year (General TC-010, test run
+# 2026-10-09). It is an entitlement the reference docs state, not a figure in
+# megh_db — unless a place, year, grouping or ranking makes it one ("how much
+# assistance was given in Ri Bhoi in 2023-24?" stays DATA).
+_ENTITLEMENT_QUESTION = re.compile(
+    r"\bguarantee[ds]?\b|\bentitle(?:d|ment)\b|"
+    r"\bhow\s+(?:are|is)\s+(?:the\s+)?(?:wages?|payments?|money|funds?|assistance|subsid(?:y|ies)|"
+    r"benefits?|instal(?:l)?ments?)\s+(?:paid|given|released|transferred|credited|disbursed)\b|"
+    r"\bhow\s+much\s+(?:financial\s+)?(?:assistance|subsidy|money|help|support|benefit|amount|wage|wages|loan)\s+"
+    r"(?:is|are|will|would|does|do|can|could)\b(?![^?]*\b(?:disbursed|sanctioned|spent|released|paid\s+out)\b)|"
+    r"\bwage\s+rate\b|\bper\s+(?:house|household|family|member|beneficiary|unit|day)\b[^?]*\b(?:given|provided|paid|get)\b",
+    re.IGNORECASE)
+_ENTITLEMENT_DATA_SIGNALS = frozenset({"place", "year", "group_by", "rank", "compare"})
+# Figure summaries of a place (see the route stage): never a reference-docs question.
+_FIGURE_SUMMARY_RE = re.compile(
+    r"\bfinancial\s+(?:summary|position|status|overview)|\bperformance\b|\b(?:house\s+)?status\s+breakdown|"
+    r"\bhouse\s+status\b|\bexpenditure\s+breakdown|\bbreakdown\s+(?:of|for)\b|\bkey\s+figures\b|"
+    r"\bstatus\s+distribution\b|\bstatus[\s-]wise\b|\bpendency\b", re.IGNORECASE)
+_DEFINITION_ASK_RE = re.compile(
+    r"\b(?:mean|means|meaning|define|definition|explain\s+what|what\s+is\s+an?\b|what\s+are\s+the\s+(?:stages|categories))",
+    re.IGNORECASE)
+_WHO_BENEFITS_RE = re.compile(
+    r"^\s*who\s+(?:are|is|can|will|should|may)\b[^?]*\b(?:beneficiar\w*|eligib\w*|benefit\w*|target\w*|intended|"
+    r"apply|covered)\b", re.IGNORECASE)
+_AREA_CHIP_MARKER_RE = re.compile(
+    r",\s*the\s+(?:c&rd\s+)?(?:block|village|district|assembly\s+constituency)\b", re.IGNORECASE)
+# A count of people or things is a figure even when it says "guaranteed":
+# "how many households completed 100 days of guaranteed employment?".
+_ENTITLEMENT_COUNT_VETO = re.compile(
+    r"\bhow\s+many\s+(?:\w+\s+)?(?:households?|persons?|people|workers?|beneficiar\w+|families|"
+    r"job\s*cards?|works?|villages?|blocks?|districts?|applications?|applicants?|houses?|records?|"
+    r"groups?|members?|farmers?)\b|\bcompleted\b|\btotal\b|\bnumber\s+of\b",
+    re.IGNORECASE)
+
+
+def _is_entitlement_question(question: str) -> bool:
+    q = question or ""
+    if not _ENTITLEMENT_QUESTION.search(q) or _ENTITLEMENT_COUNT_VETO.search(q):
+        return False
+    if named_places(q) or context_policy.extract_year_keys(q):
+        return False
+    signals = set(context_policy.continuation_signals(q))
+    return not (signals & _ENTITLEMENT_DATA_SIGNALS)
 
 
 async def _turn_route_stage(t: dict, session: "Session | None" = None,
@@ -16198,8 +18012,41 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
     #    follow-up, the user's own words decide when they are decisive — the
     #    rewrite's phrasing ("What are the beneficiaries of…") must not turn a
     #    count request into a reference-docs question (live 2026-09-29).
-    intent = (_typed_intent(raw_question) if is_followup_rewrite else None) \
-        or await classify_intent(question)
+    # A rephrased question is routed by the user's own words when those decide
+    # it: the rephraser turned "Compare expenditure and person-days in Songsak
+    # block during 2022-23" into "What is the comparison between…", whose "what
+    # is" read as a reference-docs question (MGNREGA sheet DATA-029, 2026-10-09).
+    intent = (_typed_intent(raw_question) if (is_followup_rewrite or question != raw_question) else None)
+    if intent is None and not is_followup_rewrite and question != raw_question \
+            and _KNOWLEDGE_HINTS.search(question) and not _KNOWLEDGE_HINTS.search(raw_question):
+        # The rephrase brought in the knowledge cue: "Give me the overall PMAY
+        # performance of East Khasi Hills" -> "What is the overall PMAY-G
+        # performance…" went to the reference docs (PMAY-G sheet run 2026-10-10).
+        # The user's own words are classified instead.
+        intent = await classify_intent(raw_question)
+    intent = intent or await classify_intent(question)
+    if intent == "DATA" and _is_entitlement_question(raw_question):
+        intent = "KNOWLEDGE"
+    # "Who are the intended beneficiaries of CM-ELEVATE?" asks who the scheme is FOR, not
+    # how many there are; it was answered "8,600 applicants" (CM Elevate Legacy sheet TC-03,
+    # 2026-10-12). A count shape keeps it data.
+    if intent == "DATA" and _WHO_BENEFITS_RE.search(raw_question) \
+            and not re.search(r"\bhow\s+many\b|\bnumber\s+of\b|\bcount\b|\btotal\b", raw_question, re.IGNORECASE):
+        intent = "KNOWLEDGE"
+    _no_scheme = question
+    for _pat in _SCHEME_NAME_PATTERN.values():
+        _no_scheme = _pat.sub(" ", _no_scheme)
+    if intent == "KNOWLEDGE" and _FIGURE_SUMMARY_RE.search(question) and not _DEFINITION_ASK_RE.search(question) and (
+            _AREA_CHIP_MARKER_RE.search(question) or named_places(question)
+            or _PLACE_SLOT.search(_KNOWLEDGE_HINTS.sub(" ", _no_scheme))
+            # "…status distribution across CM ELEVATE": the scheme itself is the scope
+            or (_named_schemes(question) and re.search(r"\b(?:across|under|in|for)\b", question, re.IGNORECASE))):
+        # A figure summary of a named place is data: the which-area chip for "Give
+        # me the PMAY financial summary for Amlarem" carried the rephrased "What is
+        # the PMAY-G financial summary for Amlarem, the block, …" and the reference
+        # docs answered "no published summary" — 26 of 56 blocks (PMAY-G sheet
+        # PMAY-OFF-012, run 2026-10-10).
+        intent = "DATA"
     context_budget.log_decision("intent", intent=intent, followup=is_followup_rewrite,
                                 kind=_plan.kind if _plan else None,
                                 schemes_named=sorted(_named_schemes(question)))
@@ -16312,12 +18159,29 @@ async def _turn_knowledge_stage(t: dict, session: "Session | None" = None,
                     "schemes": [_kb_scheme] if _kb_scheme else []}
         if kb:
             return {"route": "knowledge", "intent": "RAG", "confidence": kb["confidence"],
-                    "answer": kb["answer"], "sources": kb["sources"],
-                    **_empty_data_fields(), **base}
+                    "answer": _focus_legacy_rate_line(question, _kb_scheme, kb["answer"]),
+                    "sources": kb["sources"], **_empty_data_fields(), **base}
         return {"route": "knowledge", "intent": "RAG", "confidence": "low", "sources": [],
                 "answer": _knowledge_not_covered_answer(question, _kb_scheme),
                 **_empty_data_fields(), **base}
     return None
+
+
+# Focus Legacy sheet TC-03 / 06 / 09 (2026-10-12): "Who can benefit…", "What kind of support…",
+# "a short overview … for an official briefing" were answered from the scheme documents
+# without the one figure the testers expect — the Rs 5,000 per member mobilisation fund,
+# which the documents state (FOCUS_LEGACY_FAQ.md, FOCUS_legacy_Complete_Reference.md).
+_FL_RATE_TOPIC = re.compile(r"\bbenefit|\beligib|\bsupport|\bassistance|\bfinancial|\boverview|\bbriefing|"
+                            r"\bsummary|\bwho\s+can|\bfund(?:s|ing)?\b|\bgrant|\bentitle", re.IGNORECASE)
+_FL_RATE_STATED = re.compile(r"5,?000")
+
+
+def _focus_legacy_rate_line(question: str, scheme: "str | None", answer: str) -> str:
+    if scheme != "Focus Legacy" or not answer or _FL_RATE_STATED.search(answer) \
+            or not _FL_RATE_TOPIC.search(question or ""):
+        return answer
+    return (answer.rstrip() + "\n\nEach Producer Group member receives an initial mobilisation fund of "
+            "₹5,000, credited to the members' bank accounts (by cheque in the earliest rounds).")
 
 
 async def _turn_data_context_stage(t: dict, session: "Session | None" = None,
@@ -16351,6 +18215,12 @@ async def _turn_data_context_stage(t: dict, session: "Session | None" = None,
         # district in "...by district"), and "what about South Garo Hills?"
         # after a Dalu turn kept block DALU under the new district.
         _prior_resolved = context_policy.apply_merge_plan(_prior_resolved, _plan)
+    if _prior_resolved and t["raw_question"] and _WHICH_YEAR_CUE.search(t["raw_question"]) \
+            and not context_policy.extract_year_keys(t["raw_question"]):
+        # "Which year was the highest?" ranks the years — the previous turn's
+        # year would leave just that one (see _WHICH_YEAR_CUE). Dropped here as
+        # well as from the rewritten text, since resolve_entities seeds from it.
+        _prior_resolved = {k: v for k, v in _prior_resolved.items() if k not in ("year_key", "year_all")}
     t["prior_resolved"] = _prior_resolved
 
 
@@ -16428,17 +18298,21 @@ def _knowledge_not_covered_answer(question: str, scheme: "str | None") -> str:
         # Name the reference material actually searched — CM Elevate Legacy has
         # none of its own, it reads CM Elevate's (rag.kb_scheme). Identity for
         # every other scheme.
+        # Never name internal sources ("reference material", "knowledge base") to
+        # the user (General TC-015, test run 2026-10-09): say what is not
+        # published and where an officer would get it instead.
         return (
-            f"I don't have that detail in the {rag.kb_scheme(scheme)} reference material. I can "
-            f"cover {scheme}'s eligibility, benefits, documents and how to apply, "
-            "and its data by district, block, village or financial year — so it may "
-            "just be worth rephrasing. If you meant a different scheme, tell me which."
+            f"That specific detail isn't part of the published information I have on "
+            f"{rag.kb_scheme(scheme)} — your Block office or the district "
+            f"{scheme} cell can give it. I can cover {scheme}'s eligibility, benefits, "
+            "documents and how to apply, and its data by district, block, village or "
+            "financial year. If you meant a different scheme, tell me which."
         )
     return (
-        "That isn't something I hold. I cover five Meghalaya schemes — MGNREGA "
+        "That isn't something I hold. I cover six Meghalaya schemes — MGNREGA "
         "(rural employment), PMAY-G (rural housing), Focus Plus (farmer cash "
-        "benefit), CM Elevate (livelihood and enterprise support — its applications, "
-        "and as CM Elevate Legacy its sanctions and disbursements) and Focus Legacy "
+        "benefit), CM Elevate (livelihood and enterprise support — its applications), "
+        "CM Elevate Legacy (CM Elevate's sanctions and disbursements) and Focus Legacy "
         "(producer group payments) — both how "
         "each one works and its actual data. If your question is about one of "
         "those, name it and I'll answer; if it's about another scheme or another "
@@ -16450,7 +18324,11 @@ async def _data_path_kb_fallback(question: str) -> dict:
     """The DATA path genuinely couldn't produce a query (bad/uncoverable question,
     not an infra blip) — try the knowledge base once, then give the 'rephrase it'
     reply. Transient gateway errors are handled by the caller and never reach here."""
-    kb = await rag.answer_from_kb(question)
+    # A figure question about a place or year cannot be answered from the scheme
+    # documents: they replied "the published scheme information does not contain
+    # figures for Gambegre block…", which reads as if the data did not exist
+    # (MGNREGA sheet DATA-005/014/029, run 2026-10-09). Say the query failed.
+    kb = None if _is_data_shaped(question) else await rag.answer_from_kb(question)
     if kb:
         return {"route": "knowledge", "intent": "RAG", "confidence": kb["confidence"],
                 "answer": kb["answer"], "sources": kb["sources"], **_empty_data_fields()}

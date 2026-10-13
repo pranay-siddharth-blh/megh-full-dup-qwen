@@ -296,6 +296,17 @@ class Settings(BaseSettings):
     SESSION_TTL_SECONDS: int = 1800          # 30 min sliding window
     SESSION_MAX: int = 5000                   # sessions kept before oldest-first eviction
     SESSION_MAX_TURNS: int = 8                # turns retained per session
+    # Conversation layer (app/conversation_layer.py), run by the router before
+    # the caches and the pipeline: idle expiry, "start a new topic" / "forget
+    # the previous question", and "what was the PMAY-G information again?".
+    # Off = every message runs exactly as before the layer existed.
+    CONVERSATION_LAYER_ENABLED: bool = True
+    # A conversation idle longer than this starts afresh: the next question
+    # inherits no scheme, place, year, topic or pending clarification. The
+    # chat history itself is kept. 0 = never expire. Same window as the
+    # in-process session (SESSION_TTL_SECONDS), which the durable snapshot
+    # used to outlive.
+    CONTEXT_IDLE_EXPIRY_SECONDS: int = 1800
     FOLLOWUP_REWRITE_ENABLED: bool = True     # one classifier call when a turn looks like a follow-up
     # Query rephraser (graph node `rephrase`, D-037): a messy NEW question
     # (typos, Hinglish, voice-to-text, no question shape) is rewritten into one

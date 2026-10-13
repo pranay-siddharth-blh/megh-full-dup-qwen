@@ -1,9 +1,10 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnalytics } from '../analytics.js';
-import { prettyName } from '../format.js';
+import { fullStamp, prettyName } from '../format.js';
 import { DynTable, GroupedChart, PivotTable, RecordCard, StackedChart, SwitchableChart } from './Charts.jsx';
 import { Markdown, plainText } from './Markdown.jsx';
 import { useReveal } from '../reveal.js';
+import { themeFor } from '../chartTheme.js';
 
 /* One chat message. A bot answer (`response` from /api/query) renders the same
    blocks as addBotRich() in web/ai_query.html: routing badge (off), answer text,
@@ -30,12 +31,14 @@ function Analytics({ question, response }) {
     () => buildAnalytics(question, response.data, response.chart_type),
     [question, response],
   );
+  // The answer's scheme picks the charts' hue (chartTheme.js, D-043).
+  const theme = useMemo(() => themeFor(response.schemes), [response.schemes]);
   if (!a) return null;
   if (a.kind === 'kpi') {
     return (
       <div className="analytics">
         <div className="dyn-grid single">
-          <SwitchableChart title="Summary" labels={a.labels} values={a.values} types={['bar', 'pie', 'doughnut']} initial={a.defType} />
+          <SwitchableChart title="Summary" labels={a.labels} values={a.values} types={['bar', 'pie', 'doughnut']} initial={a.defType} theme={theme} />
         </div>
         <RecordCard row={a.row} />
       </div>
@@ -46,7 +49,7 @@ function Analytics({ question, response }) {
   if (a.kind === 'grouped') {
     return (
       <div className="analytics">
-        <div className="dyn-grid single"><GroupedChart title={a.title} labels={a.labels} fullLabels={a.fullLabels} datasets={a.datasets} /></div>
+        <div className="dyn-grid single"><GroupedChart title={a.title} labels={a.labels} fullLabels={a.fullLabels} datasets={a.datasets} theme={theme} /></div>
         <DynTable data={a.data} />
       </div>
     );
@@ -54,7 +57,7 @@ function Analytics({ question, response }) {
   if (a.kind === 'stacked') {
     return (
       <div className="analytics">
-        <div className="dyn-grid single"><StackedChart title={a.title} labels={a.labels} datasets={a.datasets} /></div>
+        <div className="dyn-grid single"><StackedChart title={a.title} labels={a.labels} datasets={a.datasets} theme={theme} /></div>
         <PivotTable data={a.data} xKey={a.xKey} sKey={a.sKey} vKey={a.vKey} />
       </div>
     );
@@ -65,7 +68,7 @@ function Analytics({ question, response }) {
       <div className={'dyn-grid' + (single ? ' single' : '')}>
         {a.charts.map((c, i) => (
           <SwitchableChart key={i} title={c.title} labels={c.labels} fullLabels={c.fullLabels} values={c.values}
-                           types={['bar', 'pie', 'doughnut', 'line']} initial={a.defType} />
+                           types={['bar', 'pie', 'doughnut', 'line']} initial={a.defType} theme={theme} />
         ))}
       </div>
       <DynTable data={a.data} />
@@ -283,6 +286,7 @@ const ICONS = {
   edit: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 20h9" /><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z" /></svg>,
   speak: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M15.5 8.5a5 5 0 010 7" /><path d="M19 5a10 10 0 010 14" /></svg>,
   stop: <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>,
+  more: <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>,
   regen: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36" /><polyline points="21 3 21 9 15 9" /></svg>,
 };
 
@@ -314,9 +318,14 @@ export const plainAnswer = plainText;
 // ── Message shells ──────────────────────────────────────────────────────────
 // A question the officer sent: Copy and Edit. Edit opens the text in place;
 // sending it replaces this question (and what followed it) and asks it again.
-function UserMessage({ text, time, onEdit, busy }) {
+function UserMessage({ text, time, onEdit, busy, editRequest = 0 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(text);
+  // ↑ in an empty question box (keyboard shortcut) opens the last question for editing.
+  useEffect(() => {
+    if (editRequest && !busy) { setDraft(text); setEditing(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editRequest]);
   const ref = useRef(null);
   useEffect(() => {
     if (!editing || !ref.current) return;
@@ -379,8 +388,8 @@ function UserMessage({ text, time, onEdit, busy }) {
   );
 }
 
-export function TextMessage({ id, role, text, time, onEdit, busy, speakingId, onSpeak, onRetry }) {
-  if (role === 'user') return <UserMessage text={text} time={time} onEdit={onEdit} busy={busy} />;
+export function TextMessage({ id, role, text, time, at, onEdit, busy, speakingId, onSpeak, onRetry, editRequest }) {
+  if (role === 'user') return <UserMessage text={text} time={time} onEdit={onEdit} busy={busy} editRequest={editRequest} />;
   return (
     <div className="msg bot">
       <div className="av">M</div>
@@ -392,6 +401,7 @@ export function TextMessage({ id, role, text, time, onEdit, busy, speakingId, on
             <CopyAction text={text} label="Copy answer" />
             {onSpeak && <SpeakAction id={id} text={text} speakingId={speakingId} onSpeak={onSpeak} />}
             {onRetry && <RegenerateAction onRegenerate={onRetry} label="Try again" />}
+            <MoreAction at={at} />
           </div>
         </div>
       </div>
@@ -474,6 +484,36 @@ export function TypingMessage({ steps, draft, streamKey }) {
   );
 }
 
+// "⋯" under an answer: a small menu with when it was given ("Today, 11:34 AM").
+// Closes on a click outside it or Esc.
+function MoreAction({ at }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef(null);
+  useEffect(() => {
+    if (!open) return undefined;
+    const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey, true);
+    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey, true); };
+  }, [open]);
+  const stamp = fullStamp(at);
+  if (!stamp) return null;
+  return (
+    <span className="msg-more" ref={ref}>
+      <button type="button" className={'msg-act' + (open ? ' active' : '')} title="More" aria-label="More"
+              aria-haspopup="true" aria-expanded={open} onClick={(e) => { e.stopPropagation(); setOpen(!open); }}>
+        {ICONS.more}
+      </button>
+      {open && (
+        <div className="msg-menu" role="menu">
+          <div className="msg-menu-stamp">{stamp}</div>
+        </div>
+      )}
+    </span>
+  );
+}
+
 function RegenerateAction({ onRegenerate, label = 'Regenerate answer' }) {
   return (
     <button type="button" className="msg-act" title={label} aria-label={label}
@@ -483,7 +523,7 @@ function RegenerateAction({ onRegenerate, label = 'Regenerate answer' }) {
   );
 }
 
-export function BotMessage({ id, question, response, time, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey }) {
+export function BotMessage({ id, question, response, time, at, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey }) {
   // A fresh answer is revealed word by word (reveal.js); the charts, SQL and
   // chips follow once the text is all there. A replayed one shows at once.
   const [shown, revealed] = useReveal(response.answer, streamKey, !!animate);
@@ -521,6 +561,7 @@ export function BotMessage({ id, question, response, time, onAsk, speakingId, on
               <CopyAction text={answer} label="Copy answer" />
               {onSpeak && <SpeakAction id={id} text={answer} speakingId={speakingId} onSpeak={onSpeak} />}
               {onRegenerate && <RegenerateAction onRegenerate={onRegenerate} />}
+              <MoreAction at={at} />
             </div>
           )}
         </div>

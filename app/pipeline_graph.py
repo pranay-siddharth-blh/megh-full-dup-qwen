@@ -115,6 +115,7 @@ class MeghalayaGraphState(TypedDict, total=False):
     fl_unplaced: Any
     fl_breakdown: str | None
     answer: str | None
+    cross: dict | None                # cross-scheme comparison: {schemes, text} (app/cross_scheme.py)
     # ── outcome ──
     response: dict | None
     response_origin: str | None       # "turn" | "data" | "data_error"
@@ -132,9 +133,10 @@ _DATA_KEY = {"question": "data_question", "skip_scope_clarify": "scope_resumed",
              "village_hint": "data_village_hint"}
 _DATA_KEYS = ("question", "skip_scope_clarify", "prior_resolved", "village_hint", "schemes",
               "fp_amount", "entity_result", "mg_admin", "mg_women", "mg_det", "sql", "rows", "notes",
-              "style", "fl_total", "fl_unplaced", "fl_breakdown", "answer")
+              "style", "fl_total", "fl_unplaced", "fl_breakdown", "answer", "cross",
+              "pre_rephrase_question")
 # Read by the data stages but owned by the turn stages: never written back.
-_DATA_READ_ONLY = ("skip_scope_clarify", "prior_resolved")
+_DATA_READ_ONLY = ("skip_scope_clarify", "prior_resolved", "pre_rephrase_question")
 
 
 def fresh_turn_state(question: str, *, session_id: str = "", thread_id: str = "",

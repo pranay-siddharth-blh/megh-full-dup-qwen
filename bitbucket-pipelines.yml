@@ -1,18 +1,25 @@
-# Bitbucket Pipelines — Meghalaya NL Assistant
+# Bitbucket Pipelines — Megh One AI (Meghalaya NL assistant)
 #
-# Python 3.11 to match the Dockerfile (`FROM python:3.11-slim`), NOT the 3.12
-# in the local .venv. Production runs 3.11, so CI tests 3.11.
+# Python 3.11 to match the Dockerfile (`FROM python:3.11-slim`); production
+# runs 3.11, so CI tests 3.11.
 #
-# Test convention (see CLAUDE.md): there is no pytest. Every tests/{unit,integration}/test_*.py is
-# a standalone script that sets its own env vars, imports app.* directly, and
-# exits non-zero on failure. The `tests/smoke/smoke_*.py` files are deliberately NOT
-# matched by the test_*.py glob — they need a live server, the real Qwen
-# gateway and the real megh_db, so they cannot run on a cloud runner.
+# Tests (docs/TESTING.md §2). There are no tests/unit or tests/integration
+# folders; every suite is a flat tests/test_*.py, in two kinds:
+#   1) pytest-style: any file with a `def test_` (34 today). Run in ONE pytest
+#      call over that list, never `pytest tests` (crashes on the scripts, KI-018).
+#   2) plain scripts: every other tests/test_*.py (14 today). Each prints its
+#      results and exits 0/1, so each is run with `python`.
+# Both lists are found by grep, so a new test file is picked up automatically.
+# Not run: tests/live_context_validation.py and tests/smoke_*.py (the glob
+# does not match them) — they need the office VPN, the real gateway and megh_db.
 #
-# The sweep runs twice, in parallel: once at default flags, once with
-# PIPELINE_GRAPH_ENABLED + LANGGRAPH_FOLLOWUP_ENABLED + TENANT_SCHEME_RLS_ENABLED
-# all on, which is the standing convention for these three behaviour-changing
-# flags.
+# The cloud runner has no .env, no database and no model gateway. The
+# LangGraph checkpointer uses memory (tests/conftest.py pins it for pytest; the
+# env var below covers the scripts), and the guardrail model check is off (its
+# rules layer still runs; tests/test_guardrails.py fakes the model).
+#
+# LangGraph is the only orchestrator (D-036): there are no behaviour flags to
+# sweep, so the old second "graph + followup + RLS on" run is gone.
 
 image: python:3.11
 
@@ -21,6 +28,7 @@ definitions:
     # fastembed downloads BAAI/bge-small-en-v1.5 on first use; cache it or
     # every run re-downloads the ONNX model.
     fastembed: fastembed_cache
+    npm: frontend/node_modules
 
   steps:
     - step: &syntax-gate
@@ -29,24 +37,28 @@ definitions:
           - pip
         script:
           - python --version
-          - pip install --upgrade pip
           # Fail fast on a syntax error before spending time on deps.
           - python -m compileall -q app tests
-        after-script:
-          - echo "Syntax gate finished with status $BITBUCKET_EXIT_CODE"
 
-    - step: &test-default
-        name: "Test sweep: default flags"
+    - step: &tests
+        name: Tests (pytest suites + script suites)
         caches:
           - pip
           - fastembed
         script:
           - pip install --upgrade pip
-          - pip install -r requirements.txt
+          - pip install -r requirements.txt pytest pytest-asyncio
           - export PYTHONPATH=.
+          - export PYTHONIOENCODING=utf-8
+          - export PIPELINE_GRAPH_CHECKPOINTER_DSN=memory
+          - export GUARDRAIL_MODEL_ENABLED=false
+          - PYTEST_FILES=$(grep -lE '^\s*(async )?def test_' tests/test_*.py)
+          - SCRIPT_FILES=$(grep -LE '^\s*(async )?def test_' tests/test_*.py || true)
+          - echo "pytest files:" $(echo "$PYTEST_FILES" | wc -w) " script files:" $(echo "$SCRIPT_FILES" | wc -w)
+          - python -m pytest -q -p no:cacheprovider $PYTEST_FILES
           - |
             fail=0
-            for t in tests/unit/test_*.py tests/integration/test_*.py; do
+            for t in $SCRIPT_FILES; do
               echo "=== $t"
               if python "$t"; then
                 echo "PASS $t"
@@ -57,30 +69,16 @@ definitions:
             done
             exit $fail
 
-    - step: &test-all-flags
-        name: "Test sweep: graph + followup + RLS on"
+    - step: &frontend-build
+        name: Frontend builds
+        image: node:20
         caches:
-          - pip
-          - fastembed
+          - npm
         script:
-          - pip install --upgrade pip
-          - pip install -r requirements.txt
-          - export PYTHONPATH=.
-          - export PIPELINE_GRAPH_ENABLED=true
-          - export LANGGRAPH_FOLLOWUP_ENABLED=true
-          - export TENANT_SCHEME_RLS_ENABLED=true
-          - |
-            fail=0
-            for t in tests/unit/test_*.py tests/integration/test_*.py; do
-              echo "=== $t"
-              if python "$t"; then
-                echo "PASS $t"
-              else
-                echo "FAIL $t"
-                fail=1
-              fi
-            done
-            exit $fail
+          - cd frontend
+          - npm ci
+          # Builds into ../web/app, the bundle FastAPI serves at /megh-chat.
+          - npm run build
 
     - step: &docker-build
         name: Docker image builds
@@ -109,15 +107,15 @@ pipelines:
   default:
     - step: *syntax-gate
     - parallel:
-        - step: *test-default
-        - step: *test-all-flags
+        - step: *tests
+        - step: *frontend-build
 
   pull-requests:
     '**':
       - step: *syntax-gate
       - parallel:
-          - step: *test-default
-          - step: *test-all-flags
+          - step: *tests
+          - step: *frontend-build
       - step: *docker-build
 
   branches:
@@ -128,8 +126,8 @@ pipelines:
     '{main,Main}':
       - step: *syntax-gate
       - parallel:
-          - step: *test-default
-          - step: *test-all-flags
+          - step: *tests
+          - step: *frontend-build
       - step: *docker-build
       - step: *dependency-audit
       - step:

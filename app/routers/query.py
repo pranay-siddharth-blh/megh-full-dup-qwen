@@ -11,8 +11,8 @@ from fastapi.encoders import jsonable_encoder
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
-from app import (asr_guard, auth, context_manager, conversation_memory, conversation_store, llm,
-                 session_sync, turn_events)
+from app import (asr_guard, auth, context_manager, conversation_layer, conversation_memory,
+                 conversation_replies, conversation_store, llm, session_sync, topic_memory, turn_events)
 from app.cache import metrics, response_cache
 from app.config import settings
 from app.deps import current_scope, require_user
@@ -166,6 +166,12 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     durable_session = not session_id.startswith("one-")
     if durable_session:
         await session_sync.sync_in(session, session_id)
+    # Conversation layer (app/conversation_layer.py): an idle conversation
+    # starts afresh, "start a new topic" clears the context, and "what was the
+    # PMAY-G information again?" becomes a return to that topic. Before the
+    # caches: such a turn only means something in its own conversation.
+    layer = await conversation_layer.prepare_turn(session, req.question)
+    question = layer.question
 
     # Response + semantic caches are keyed on (question + authorization
     # fingerprint): safe to share across users who resolve to the same scope,
@@ -179,12 +185,14 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     # words, and written back it would poison the cache for everyone else. A
     # scope fragment usually already looked like a follow-up; a bare scheme
     # name does not.
-    cacheable = is_cacheable(req.question, session)
+    cacheable = is_cacheable(req.question, session) and not layer.changed
     sem_vec = None
     result = None
     served_from = None  # metrics route tag when the answer came from a cache
 
-    if cacheable and not req.skip_cache:
+    if layer.response is not None:
+        result = {**layer.response, "session_id": session_id}
+    elif cacheable and not req.skip_cache:
         cached = await response_cache.get(req.question, scope_key)
         if cached is not None:
             result = {**cached, "session_id": session_id}
@@ -197,9 +205,13 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
 
     if result is None:
         try:
+            # "Each year, for all schemes": one question per scheme, answered
+            # one after another and merged (conversation_layer.answer_many).
             result = await asyncio.wait_for(
-                answer_question(req.question, session=session, scope=scope),
-                timeout=settings.REQUEST_TIMEOUT_SECONDS,
+                conversation_layer.answer_many(
+                    layer.multi, lambda q: answer_question(q, session=session, scope=scope))
+                if layer.multi else answer_question(question, session=session, scope=scope),
+                timeout=settings.REQUEST_TIMEOUT_SECONDS * (len(layer.multi) if layer.multi else 1),
             )
         except ClarificationNeeded as e:
             # A scope pause ("which area / year?"), a year pause ("which FY?"), or
@@ -208,7 +220,7 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
             # the answer as free text ("West Garo Hills 2023-24", "East Khasi
             # Hills"). Remember the question so the pipeline merges that reply back
             # into it next turn instead of treating it as a brand-new question.
-            remember_pause(session, pause_question(session, req.question), e)
+            remember_pause(session, pause_question(session, question), e)
             # Shape it for the frontend clarification renderer (intent CLARIFY +
             # clarification.options), and keep the flat keys older callers read.
             out = {
@@ -265,6 +277,14 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
             logger.exception("query failed")
             raise HTTPException(502, "upstream error while answering the question") from e
 
+    # A refusal said conversationally (app/conversation_replies.py): its kind,
+    # the current topic, a fresh wording each time. It depends on this chat,
+    # so it is never written to the shared answer caches.
+    styled = conversation_replies.restyle(session, req.question, result)
+    if styled is not None:
+        result = styled
+        cacheable = False
+
     latency_ms = (time.monotonic() - started) * 1000
     result["session_id"] = session_id
     # Surface the real end-to-end time to the UI meta line. On a cache hit this
@@ -273,7 +293,9 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
 
     # L1 follow-up context — recorded even on a cache hit, so the next turn's
     # follow-up rewrite still has this question as its antecedent.
-    session_store.add_turn(session_id, build_turn(req.question, result))
+    # The question the pipeline ran (the conversation layer's), so a reset's
+    # "Forget that." or a recall's wording never becomes the antecedent.
+    session_store.add_turn(session_id, build_turn(question, result))
     # L2 durable — conversation + turn + audit (fire-and-forget)
     conversation_store.persist_turn(
         tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,
@@ -329,7 +351,12 @@ def is_cacheable(question: str, session) -> bool:
     prev = getattr(session, "last_turn", None)
     # Likewise a scheme substitution ("give me the same for MGNREGA in 2023-24"):
     # its scope is the previous turn's (pipeline.is_scheme_substitution).
-    return not (is_scopeless_followup(question, prev) or is_scheme_substitution(question, prev))
+    if is_scopeless_followup(question, prev) or is_scheme_substitution(question, prev):
+        return False
+    # An explicit topic switch ("go back to MGNREGA, what about 2023-24?") runs
+    # in the restored topic's context (app/topic_memory.py), so it is this
+    # conversation's alone.
+    return not topic_memory.is_topic_command(question)
 
 
 def pause_question(session, raw_question: str) -> str:

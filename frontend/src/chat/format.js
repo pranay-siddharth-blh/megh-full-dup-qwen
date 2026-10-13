@@ -14,6 +14,22 @@ export function stampTime(date) {
   return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ', ' + time;
 }
 
+// The full time of a message, for its "⋯" menu: "Today, 11:34 AM",
+// "Yesterday, 4:10 PM", "Tue, 6 Oct, 4:10 PM" (with the year when not this year).
+export function fullStamp(date) {
+  const d = date instanceof Date ? date : new Date(date);
+  if (!date || isNaN(d.getTime())) return '';
+  const time = d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+  const today = new Date();
+  const yesterday = new Date(today.getFullYear(), today.getMonth(), today.getDate() - 1);
+  if (d.toDateString() === today.toDateString()) return `Today, ${time}`;
+  if (d.toDateString() === yesterday.toDateString()) return `Yesterday, ${time}`;
+  const weekday = d.toLocaleDateString('en-GB', { weekday: 'short' });
+  const month = d.toLocaleDateString('en-GB', { month: 'short' });
+  const year = d.getFullYear() !== today.getFullYear() ? ` ${d.getFullYear()}` : '';
+  return `${weekday}, ${d.getDate()} ${month}${year}, ${time}`;
+}
+
 export function todayLabel() {
   return new Date().toLocaleDateString('en-GB', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' });
 }

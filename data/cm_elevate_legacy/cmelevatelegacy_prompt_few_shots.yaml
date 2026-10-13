@@ -1273,7 +1273,7 @@ sql_generation_examples:
     SELECT lgd_block, lgd_district, COUNT(*) AS records
     FROM curated.v_cm_elevate_disbursement
     WHERE lgd_block IN ('RESUBELPARA-MUNICIPAL BOARD', 'WILLIAM NAGAR-MUNICIPAL BOARD',
-                        'TURA MUNICIPAL BOARD-MUNICIPAL BOARD')
+                        'TURA MUNICIPAL BOARD')
     GROUP BY lgd_block, lgd_district
     ORDER BY records DESC;
   caveats: [municipal_block_note]

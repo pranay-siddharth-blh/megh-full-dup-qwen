@@ -243,5 +243,9 @@ def test_the_cleaned_question_reaches_route_and_the_data_path(monkeypatch):
     monkeypatch.setattr(settings, "CONTEXT_SUMMARY_ENABLED", False)
     monkeypatch.setattr(settings, "CONTEXT_SEMANTIC_MEMORY_ENABLED", False)
     r = asyncio.run(graph_turn("pmay mein kitne ghar sanction hue ri bhoi 2022-23", session=_session()))
-    assert seen["routed"] == clean and seen["data"] == clean
+    # The typed words may decide the route on their own (2026-10-09: a rephrased
+    # question is routed by the user's own words when they are decisive); when the
+    # classifier is asked, it gets the clean question. Either way the DATA path
+    # receives the clean question.
+    assert seen.get("routed") in (None, clean) and seen["data"] == clean
     assert r["rewritten_question"] == clean

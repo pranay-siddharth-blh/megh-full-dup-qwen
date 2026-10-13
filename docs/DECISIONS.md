@@ -776,3 +776,64 @@ not recorded.*
   previous query; untested against the live pipeline.
 - **Status:** Active. OFFLINE-VERIFIED (pytest for the hint; a Node check of analytics.js; build
   passes); not yet checked in a browser.
+
+### D-043 — A conversation layer in the router, around the pipeline (not inside it)
+- **Date:** 2026-10-08 (`app/conversation_layer.py` new; `app/routers/query.py` one call in `_answer`
+  plus the topic-switch line in `is_cacheable`; `app/session_store.py` `topics` and `context_at` in
+  the snapshot; `app/config.py` `CONVERSATION_LAYER_ENABLED`, `CONTEXT_IDLE_EXPIRY_SECONDS`;
+  `app/topic_memory.py` kept as written earlier the same day; `tests/test_conversation_layer.py`).
+- **Context:** a conversational-feature spec asked for follow-ups, topic switch and return, reset,
+  expiry and clarification resume, with the pipeline, the LangGraph graph and the database left
+  unchanged. Most of it already existed (follow-up rewrite D-022, structured state, scheme swap
+  KI-180, pause resume, edge greetings, topic memory). Missing: reset, idle expiry, plain-words
+  returns, topic memory across workers, and a measure after a knowledge answer (KI-222).
+- **Decision:** one module that runs in `routers.query._answer` after `session_sync.sync_in` and
+  before the caches, and hands the pipeline a question (or answers itself, for a bare reset):
+  1. idle expiry: older than `CONTEXT_IDLE_EXPIRY_SECONDS` (1800, the same as the in-process
+     session) -> state, turns, summary, pending pause and topics cleared, and a paused LangGraph
+     run for the thread deleted. Chat history is never touched. `context_at` 0 (older snapshot)
+     never expires;
+  2. reset ("start a new topic", "forget the previous question", "let's start again") -> the same
+     clearing; bare = a short edge acknowledgement (`edge_type` `context_reset`), with a question =
+     only the question runs;
+  3. plain-words return ("what was the PMAY-G information again?", "remind me about PMAY-G") to a
+     topic this chat already holds and is not on -> `"Go back to PMAY-G, <its last question>"`,
+     which topic_memory restores. "What about PMAY-G?" stays the existing scheme swap;
+  4. a measure-only question after a single-scheme KNOWLEDGE answer -> the pipeline's own
+     `_measure_after_knowledge` rewrite (KI-222).
+  A turn the layer answered or rewrote is not cached. The question the pipeline ran (not the raw
+  text) is what the router records as the follow-up antecedent and as a pause's question; for an
+  untouched turn they are the same string.
+- **Rejected:** a new graph node (CLAUDE.md: change behaviour in a stage, never a graph node, and
+  the spec forbade changing the graph); fixing KI-222 inside `pipeline.py` (outside the approved
+  edit list; noted as the in-pipeline alternative).
+- **Status:** Active. LIVE-VERIFIED 2026-10-08 (15 multi-turn scenarios through `_answer` with the
+  live gateway and DB); pytest 1,926 passed, 0 failed; scripts 14/14.
+
+### D-044 — Cross-scheme comparisons are answered deterministically (`app/cross_scheme.py`)
+- **Date:** 2026-10-13 (Cross Scheme Test Cases sheet session; `app/cross_scheme.py` new;
+  `app/pipeline.py` hooks in `_data_scheme_stage`, `_data_entity_stage`,
+  `_data_clarification_stage`; `app/pipeline_graph.py` DATA keys `cross`, `pre_rephrase_question`;
+  `tests/test_cross_scheme_sheet_fixes.py`; live harness `tests/sheet_runs/cross/`).
+- **Context:** a question comparing two or more schemes went to the SQL generator with every named
+  scheme's schema. On the testers' 20 cases it paused 18 times and answered 2 wrongly (KI-280):
+  several figures of different kinds in one answer is exactly where the generator and the composer
+  misattribute numbers, and DATA_MODEL forbids adding the schemes' different measures together.
+- **Decision:** detect a comparison (2+ named schemes, or "which / each / all schemes" with a
+  figure, ranking or compare word) and answer it from fixed, parameter-bound SQL, one query per
+  scheme and measure, each scheme by the rule its own single-scheme answer uses:
+  MGNREGA `SUM(persons_employed)` / `SUM(total_exp)` (lakh); PMAY-G `COUNT(*)` not placeholder /
+  `SUM(amount_released)`; Focus Plus `COUNT(DISTINCT beneficiary_key)` / `SUM(amount_disbursed)`;
+  Focus Legacy `SUM(no_of_pg_members)` (+ producer groups) / `SUM(amount_disbursed)`; CM Elevate
+  `COUNT(DISTINCT request_id)`, no money, no year; CM Elevate Legacy `COUNT(*)` /
+  `SUM(total_disbursement)`. The answer is a table built from the rows (never composed by a model):
+  per scheme, or per district / block, with what each figure counts, each scheme's years, "no data
+  for FY …" / "not recorded by constituency" / "no money recorded" instead of a zero, rankings,
+  the leading scheme per district and the top district per scheme. Nothing is summed across
+  schemes. No year means each scheme's whole data window (no merged-FY pause); no place means
+  statewide (no area pause). The SQL is authorized (`auth.authorize`) on a literal copy.
+- **Rejected:** more prompt rules / few-shots for the generator (prose rules fail under sampling,
+  CLAUDE.md §5); answering through `v_cross_scheme_money_district_year` (MGNREGA and PMAY-G only,
+  district grain).
+- **Status:** Active. LIVE-VERIFIED 2026-10-13 (see TESTING.md: sheet + every scheme combination
+  at every level + every village).

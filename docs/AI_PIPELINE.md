@@ -115,6 +115,11 @@ near-miss pause uses `entity-ambiguous`.
 ### 2.1 Pre-classification gates (no model call)
 In order:
 1. `_unsupported_scheme_named` → a clarification naming the scheme we don't hold.
+1a. `cross_scheme.detect` (on `pre_rephrase_question`) → a comparison of 2+ schemes, or "which /
+   each / all schemes" with a figure, ranking or compare word. Sets `d["cross"]` and skips the
+   rest of this list; the entity stage then resolves against all six schemes, and
+   `_data_clarification_stage` answers it with `_cross_scheme_answer` BEFORE the scope / year
+   gates (deterministic, D-044; KI-280..288). **Returns.**
 2. `_wants_cross_scheme_money_ranking` → `_cross_scheme_money_answer`: deterministic SQL across
    every money-bearing scheme. **Returns.**
 3. `_is_ambiguous_focus` → the "which Focus?" two-way ask.
@@ -1193,6 +1198,26 @@ all financial years" means the **same operation on another scheme**.
   resumes the chip.
 
 ---
+
+### 5.8 Conversation layer and topic memory (2026-10-08, D-043; LIVE-VERIFIED)
+
+Runs in `routers.query._answer` after `session_sync.sync_in`, before the caches
+(`conversation_layer.prepare_turn`). It hands the pipeline a question, or answers a bare reset itself.
+Off with `CONVERSATION_LAYER_ENABLED=false` (every message then runs exactly as before).
+
+| Message | What happens |
+|---|---|
+| any, idle > `CONTEXT_IDLE_EXPIRY_SECONDS` (1800) | state, turns, summary, pending pause and topics cleared; a paused LangGraph run for the thread deleted; then the message runs fresh (cacheable) |
+| "start a new topic", "forget the previous question", "let's start again", "reset" | the same clearing; bare -> edge reply `edge_type: context_reset`; "Forget that. How many …?" -> only the question runs |
+| "what was the PMAY-G information again?", "remind me about PMAY-G" (a topic this chat holds, not the active one) | -> `Go back to PMAY-G, <PMAY-G's last question>` for topic_memory |
+| "How many beneficiaries are there?" right after a single-scheme KNOWLEDGE answer (also after "go back to X", and inside "coming back to X, …") | -> `… under PMAY-G?`, the pipeline's own `_measure_after_knowledge` rewrite (KI-222) |
+| "What about PMAY-G?" | untouched: the existing scheme swap (§5.6) |
+
+Topic memory (`app/topic_memory.py`, called first thing in `_turn_context_stage`) keeps one record per
+scheme topic (state, last turn, last 5 questions, summary) and restores it on "go back to / coming back
+to / back to / switch back to …"; an unnamed "the previous topic" with two or more candidates asks
+which. `session.topics` and `session.context_at` are in the durable snapshot, so both work on any
+worker. A topic switch, a reset and a rewritten turn are never cached.
 
 ## 6. Post-answer
 - `followups.build_followups(route, question, schemes, resolved, sql, rows)`: up to 3

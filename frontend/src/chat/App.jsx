@@ -4,12 +4,20 @@ import {
   getToken, listHistory, login, logoutRemote, pinConversationApi, renameConversationApi, resetSessionId,
   setToken, setUnauthorizedHandler, StoppedError, storedSessionId, streamNLPResponse,
 } from './api.js';
-import { GLOSSARY, LANGS, UI_STRINGS, UNIFIED_SAMPLES, USE_CASES } from './constants.js';
+import { GLOSSARY, LANGS, UI_STRINGS, UNIFIED_SAMPLES } from './constants.js';
 import { nowTime, stampTime, todayLabel } from './format.js';
 import { useVoice } from './useVoice.js';
+import { useSidebarResize } from './useSidebarResize.js';
+import { useComposerHeight } from './useComposerHeight.js';
 import { BotMessage, TextMessage, TypingMessage } from './components/Messages.jsx';
 import { LoginScreen, Modal, UndoToast } from './components/Overlays.jsx';
+import { USE_CASE_GROUPS, UseCases } from './components/UseCases.jsx';
 import { Sidebar } from './components/Sidebar.jsx';
+import { ChatExport } from './components/ChatExport.jsx';
+import { ShortcutsHelp } from './components/ShortcutsHelp.jsx';
+import { plainText } from './components/Markdown.jsx';
+import { copyText } from './components/Messages.jsx';
+import { IS_MAC, SHORTCUTS, isTyping, keyLabel, matches } from './shortcuts.js';
 import { WelcomeCard } from './components/WelcomeCard.jsx';
 
 /* The chat console (was web/ai_query.html). Every behaviour of the original is
@@ -70,6 +78,7 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(() => readFlag(RAIL_KEY));
   const [modal, setModal] = useState(null);
+  const [useCaseScheme, setUseCaseScheme] = useState(null);   // Use cases popup: open scheme, or null
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(0);
   const [scrollTopShow, setScrollTopShow] = useState(false);
@@ -156,7 +165,7 @@ export default function App() {
 
   useEffect(() => { setUnauthorizedHandler((msg) => handleLogout(msg)); }, [handleLogout]);
 
-  const addMessages = (items) => setMessages((m) => [...m, ...items.map((x) => ({ id: nextId(), time: nowTime(), ...x }))]);
+  const addMessages = (items) => setMessages((m) => [...m, ...items.map((x) => ({ id: nextId(), time: nowTime(), at: new Date().toISOString(), ...x }))]);
 
   // Replay a stored thread and continue it (the session id is adopted).
   const openConversation = useCallback(async (sid) => {
@@ -172,13 +181,13 @@ export default function App() {
         const askedAt = answeredAt ? new Date(answeredAt.getTime() - (Number(t.latency_ms) || 0)) : null;
         const askedTime = askedAt ? stampTime(askedAt) : nowTime();
         const answerTime = answeredAt ? stampTime(answeredAt) : nowTime();
-        replay.push({ id: nextId(), time: askedTime, kind: 'user', text: t.question });
+        replay.push({ id: nextId(), time: askedTime, at: askedAt && askedAt.toISOString(), kind: 'user', text: t.question });
         // A turn saved with its full payload replays through the rich renderer
         // (charts, SQL, follow-ups); older turns fall back to text.
         if (t.response && typeof t.response === 'object') {
-          replay.push({ id: nextId(), time: answerTime, kind: 'rich', question: t.question, response: t.response });
+          replay.push({ id: nextId(), time: answerTime, at: answeredAt && answeredAt.toISOString(), kind: 'rich', question: t.question, response: t.response });
         } else {
-          replay.push({ id: nextId(), time: answerTime, kind: 'bot', text: t.answer || '(no answer recorded)' });
+          replay.push({ id: nextId(), time: answerTime, at: answeredAt && answeredAt.toISOString(), kind: 'bot', text: t.answer || '(no answer recorded)' });
         }
       }
       try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
@@ -278,7 +287,7 @@ export default function App() {
     const typingId = nextId();
     setMessages((m) => [
       ...m,
-      ...(addUser ? [{ id: nextId(), time: nowTime(), kind: 'user', text: q }] : []),
+      ...(addUser ? [{ id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'user', text: q }] : []),
       { id: typingId, kind: 'typing', steps: [], draft: '' },
     ]);
     const patchTyping = (fn) => setMessages((m) => m.map((x) => (x.id === typingId ? { ...x, ...fn(x) } : x)));
@@ -293,8 +302,8 @@ export default function App() {
     try {
       const response = await streamNLPResponse(q, lang, sessionRef.current, { skipCache, signal: stop.signal, onEvent });
       setMessages((m) => [...dropTyping(m), response.answer
-        ? { id: nextId(), time: nowTime(), kind: 'rich', question: q, response, animate: true, streamKey: typingId }
-        : { id: nextId(), time: nowTime(), kind: 'bot', retryQ: q, text: `Error: ${response.detail || 'Unable to process your query'}` }]);
+        ? { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'rich', question: q, response, animate: true, streamKey: typingId }
+        : { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Error: ${response.detail || 'Unable to process your query'}` }]);
       connBack();                             // an answer arrived: the connection is fine
     } catch (err) {
       if (err instanceof ConnectionError) {
@@ -303,12 +312,12 @@ export default function App() {
         const msgId = nextId();
         waitingRef.current = { msgId, q };
         setConn('down');
-        setMessages((m) => [...dropTyping(m), { id: msgId, time: nowTime(), kind: 'bot', retryQ: q, waiting: true,
+        setMessages((m) => [...dropTyping(m), { id: msgId, time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, waiting: true,
           text: 'Waiting for the connection. This question will be asked again as soon as it is back.' }]);
       } else if (err instanceof StoppedError) {
-        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), kind: 'bot', retryQ: q, text: 'Stopped.' }]);
+        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: 'Stopped.' }]);
       } else if (String(err.message) !== 'unauthorized') {
-        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), kind: 'bot', retryQ: q, text: `Sorry, I encountered an error: ${err.message}` }]);
+        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Sorry, I encountered an error: ${err.message}` }]);
         console.error('Query error:', err);
       } else {
         setMessages(dropTyping);
@@ -330,6 +339,8 @@ export default function App() {
     runQuestion(q);
   }, [runQuestion]);
 
+  const sendQueryRef = useRef(null);
+  sendQueryRef.current = sendQuery;
   const stopQuery = useCallback(() => { if (stopRef.current) stopRef.current.abort(); }, []);
 
   // Retry (after an error or Stop) and Regenerate (the last answer): the same
@@ -534,19 +545,51 @@ export default function App() {
     // Let the 180ms grid transition finish, then let Chart.js re-measure.
     setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
   }, []);
+  // Drag-to-resize (useSidebarResize.js). Dragging it shut collapses to the rail.
+  const collapseToRail = useCallback(() => {
+    setRail(true);
+    writeFlag(RAIL_KEY, true);
+  }, []);
+  const sidebarResize = useSidebarResize({ onCollapse: collapseToRail });
+  // --composer-h keeps the scroll-to-top button above the composer on every screen.
+  useComposerHeight();
 
   // ── Voice dictation ─────────────────────────────────────────────────────
   // Whatever was already typed stays; the spoken words are added after it, live
   // while speaking (onPartial) and finally as the full transcript (onTranscript).
   const dictBase = useRef('');
+  // One click to finish: Send (or Enter) while dictating stops the mic and sends
+  // the final transcript as soon as it arrives. The mic button alone only
+  // stops, leaving the text in the box to check (2026-10-13).
+  const sendAfterVoice = useRef(false);
   const withBase = (t) => { const b = dictBase.current.trim(); return b ? b + ' ' + t : t; };
   const voice = useVoice({
     lang,
     onPartial: (t) => setInput(withBase(t)),
-    onTranscript: (t) => { setInput(withBase(t)); if (textareaRef.current) textareaRef.current.focus(); },
+    onTranscript: (t) => {
+      setInput(withBase(t));
+      if (sendAfterVoice.current) { sendAfterVoice.current = false; sendQueryRef.current(); return; }
+      if (textareaRef.current) textareaRef.current.focus();
+    },
     onUnauthorized: () => handleLogout(),
   });
+  // Send was pressed but the final transcription gave nothing (no speech,
+  // network, ASR error): the live text already in the box is what the officer
+  // saw and meant to send, so it is sent. An empty box sends nothing and the
+  // reason stays on screen.
+  useEffect(() => {
+    if (voice.phase !== 'idle' || !sendAfterVoice.current) return;
+    sendAfterVoice.current = false;
+    if (inputRef.current.trim()) { voice.clearStatus(); sendQueryRef.current(); }
+  }, [voice.phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sendOrFinishVoice = () => {
+    if (!voice.busy) { sendQuery(); return; }
+    if (voice.recordingRef.current) { sendAfterVoice.current = true; voice.stopMic(); return; }
+    if (voice.phase === 'finishing') sendAfterVoice.current = true;
+    // still opening the microphone: nothing recorded yet, nothing to send
+  };
   const onMic = () => {
+    sendAfterVoice.current = false;   // the mic button only stops: the text stays to check
     if (!voice.busy) dictBase.current = inputRef.current;
     voice.toggleMic();
   };
@@ -567,31 +610,92 @@ export default function App() {
       </div>
     )),
   });
-  const openUseCases = () => setModal({
-    title: 'Use cases', sub: 'Example questions you can ask',
-    body: Object.entries(USE_CASES).map(([section, items]) => (
-      <div key={section}>
-        <div className="modal-section">{section}</div>
-        {items.map((q) => (
-          <div key={q} className="modal-row" onClick={() => { closeModal(); ask(q); }}>
-            <span className="modal-row-text">{q}</span>
-          </div>
-        ))}
-      </div>
-    )),
-  });
+  // Use cases: an accordion of schemes; `useCaseScheme` is the one open (or
+  // null). Built on every render so the popup follows it; reopening the popup
+  // starts with all schemes closed. A picked question goes through ask(),
+  // exactly like a typed question and Send.
+  const openUseCases = () => { setUseCaseScheme(null); setModal({ kind: 'use-cases' }); };
+  const pickUseCase = useCallback((q) => { closeModal(); ask(q); }, [closeModal, ask]);
+  const useCaseGroup = USE_CASE_GROUPS.find((g) => g.key === useCaseScheme) || null;
+  const modalView = modal && modal.kind === 'use-cases'
+    ? {
+      title: 'Use cases',
+      sub: useCaseGroup
+        ? `${useCaseGroup.name} · click a question to ask it`
+        : 'Open a scheme to see its example questions',
+      body: <UseCases selected={useCaseScheme} onSelect={setUseCaseScheme} onPick={pickUseCase} />,
+    }
+    : modal;
+
+  // ── Keyboard shortcuts (shortcuts.js) ────────────────────────────────────
+  // Each action returns false when it does not apply right now (no answer to
+  // copy, nothing running to stop…), so the key keeps its normal meaning.
+  const [editRequest, setEditRequest] = useState(null);     // {id, n}: open that question for editing
+  const [exportSignal, setExportSignal] = useState(0);      // opens the Download chat menu
+  const shortcutsOn = useRef(false);
+  shortcutsOn.current = auth === 'unlocked';
+  const lastOf = (kinds) => [...messages].reverse().find((m) => kinds.includes(m.kind));
+  const focusComposer = () => { const t = textareaRef.current; if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } };
+  const openShortcuts = () => setModal((m) => (m && m.kind === 'shortcuts' ? null : {
+    kind: 'shortcuts', title: 'Keyboard shortcuts',
+    sub: IS_MAC ? '⌘ is the Command key' : 'Works anywhere in the chat',
+    body: <ShortcutsHelp />,
+  }));
+  const shortcutActions = useRef({});
+  shortcutActions.current = {
+    newChat: () => { newChat(); setTimeout(focusComposer, 0); },
+    search: () => {
+      if (window.matchMedia('(max-width: 880px)').matches) setNavOpen(true);
+      else if (rail) toggleRail();
+      setSearchOpen(true);
+      setTimeout(() => { const el = document.querySelector('.hist-search'); if (el) el.focus(); }, 60);
+    },
+    focus: () => { if (modal) return false; focusComposer(); },
+    focusSlash: () => { if (modal) return false; focusComposer(); },
+    stop: () => { if (!runningRef.current || modal || navOpen) return false; stopQuery(); },
+    editLast: (e) => {
+      if (e.target !== textareaRef.current || input || runningRef.current) return false;
+      const last = lastOf(['user']);
+      if (!last) return false;
+      setEditRequest({ id: last.id, n: Date.now() });
+    },
+    copyLast: () => {
+      const last = lastOf(['rich', 'bot']);
+      if (!last) { showUndo('No answer to copy yet'); return; }
+      const text = last.kind === 'rich' ? plainText((last.response && last.response.answer) || '') : (last.text || '');
+      copyText(text, () => showUndo('Answer copied'));
+    },
+    regenerate: () => {
+      if (runningRef.current) return;
+      const last = messages.filter((m) => m.kind !== 'typing').slice(-1)[0];
+      if (last && last.kind === 'rich' && last.question) rerun(last.id, last.question);
+      else if (last && last.kind === 'bot' && last.retryQ) rerun(last.id, last.retryQ);
+      else showUndo('Nothing to regenerate yet');
+    },
+    download: () => {
+      if (!messages.some((m) => m.kind === 'user' || m.kind === 'rich')) { showUndo('Nothing to download yet'); return; }
+      setExportSignal((n) => n + 1);
+    },
+    mic: () => onMic(),
+    sidebar: () => toggleRail(),
+    help: () => openShortcuts(),
+  };
 
   // ── Keyboard ────────────────────────────────────────────────────────────
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
   useEffect(() => {
     const onKey = (e) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'B')) {
-        const t = e.target;
-        if (t && /^(INPUT|TEXTAREA)$/.test(t.tagName)) return;   // don't hijack typing
-        e.preventDefault();
-        toggleRail();
-        return;
+      // Keyboard shortcuts (shortcuts.js): one table, also shown by Ctrl + /.
+      if (shortcutsOn.current) {
+        for (const sc of SHORTCUTS) {
+          if (!matches(e, sc)) continue;
+          if (isTyping(e.target) && !sc.whileTyping) continue;
+          const act = shortcutActions.current[sc.id];
+          if (!act || act(e) === false) continue;   // not applicable now: the key does its usual thing
+          e.preventDefault();
+          return;
+        }
       }
       if (e.key === 'Escape') {
         closeNav();
@@ -606,7 +710,7 @@ export default function App() {
 
   const onComposerKey = (e) => {
     // While dictating the box is filling itself: Enter waits for the final text.
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!voice.busy) sendQuery(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendOrFinishVoice(); }
   };
 
   const signedIn = auth === 'unlocked' && !!getToken();
@@ -621,9 +725,11 @@ export default function App() {
       <LoginScreen key={loginKey} ref={usernameRef} error={loginError} invalid={loginInvalid} busy={loginBusy}
                    onSubmit={handleLogin} onInput={() => { setLoginError(''); setLoginInvalid([]); }} />
 
-      <Modal modal={modal} onClose={closeModal} />
+      <Modal modal={modalView} onClose={closeModal} />
 
-      <div className={'app' + (navOpen ? ' nav-open' : '') + (rail ? ' rail' : '')}>
+      <div className={'app' + (navOpen ? ' nav-open' : '') + (rail ? ' rail' : '')
+                      + (sidebarResize.dragging ? ' resizing' : '')}
+           style={rail ? undefined : { '--sidebar-w': sidebarResize.width + 'px' }}>
         <Sidebar
           signedIn={signedIn} user={user} history={history} filter={filter} onFilter={onFilter}
           searchOpen={searchOpen} setSearchOpen={setSearchOpen} archOpen={archOpen} onToggleArch={toggleArch}
@@ -632,6 +738,7 @@ export default function App() {
           onToggleRail={toggleRail} rail={rail} onLogout={(e) => { if (e) e.preventDefault(); handleLogout(); }}
           onCloseNav={closeNav}
         />
+        {!rail && <div className="sidebar-resizer" {...sidebarResize.handleProps} />}
         <div className="sidebar-backdrop" onClick={closeNav} />
 
         <UndoToast toast={toast} onUndo={runUndo} />
@@ -643,6 +750,8 @@ export default function App() {
             </button>
             <div className="scheme-switch" />
             <div className="actions">
+              <ChatExport messages={messages} openSignal={exportSignal}
+                          title={(history.find((c) => c.session_id === sessionId) || {}).title} />
               <div className="date-pill">{todayLabel()}</div>
               <div className="lang-tabs">
                 {LANGS.map((l) => (
@@ -679,15 +788,16 @@ export default function App() {
                   if (m.kind === 'typing') return <TypingMessage key={m.id} steps={m.steps} draft={m.draft} streamKey={m.id} />;
                   if (m.kind === 'rich') {
                     return <BotMessage key={m.id} id={m.id} question={m.question} response={m.response} time={m.time}
-                                       animate={m.animate} streamKey={m.streamKey}
+                                       animate={m.animate} streamKey={m.streamKey} at={m.at}
                                        onAsk={ask} speakingId={speakingId} onSpeak={onSpeak}
                                        onRegenerate={isLast && m.question ? () => rerun(m.id, m.question) : null} />;
                   }
                   if (m.kind === 'user') {
                     return <TextMessage key={m.id} id={m.id} role="user" text={m.text} time={m.time}
-                                        busy={running} onEdit={(q) => editQuestion(m.id, q)} />;
+                                        busy={running} onEdit={(q) => editQuestion(m.id, q)}
+                                        editRequest={editRequest && editRequest.id === m.id ? editRequest.n : 0} />;
                   }
-                  return <TextMessage key={m.id} id={m.id} role="bot" text={m.text} time={m.time}
+                  return <TextMessage key={m.id} id={m.id} role="bot" text={m.text} time={m.time} at={m.at}
                                       speakingId={speakingId} onSpeak={onSpeak}
                                       onRetry={isLast && m.retryQ ? () => rerun(m.id, m.retryQ) : null} />;
                 })}
@@ -733,7 +843,7 @@ export default function App() {
                   )}
                   <button className={'mic-btn' + (voice.isRecording ? ' recording' : '')} type="button"
                           onClick={onMic} disabled={voice.phase === 'finishing'}
-                          title={voice.isRecording ? 'Stop recording' : 'Speak your question'}
+                          title={(voice.isRecording ? 'Stop recording' : 'Speak your question') + ` (${keyLabel('mic')})`}
                           aria-label={voice.isRecording ? 'Stop recording' : 'Speak your question'}>
                     {voice.isRecording
                       ? <svg className="orb-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
@@ -741,12 +851,13 @@ export default function App() {
                   </button>
                   {running ? (
                     <button className="send-btn stop" type="button" onClick={stopQuery}
-                            title="Stop this answer" aria-label="Stop this answer">
+                            title="Stop this answer (Esc)" aria-label="Stop this answer">
                       <span>Stop</span>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
                     </button>
                   ) : (
-                    <button className="send-btn" type="button" onClick={sendQuery} disabled={voice.busy}>
+                    <button className={'send-btn' + (voice.busy ? ' voice-send' : '')} type="button" onClick={sendOrFinishVoice}
+                            title={voice.busy ? 'Stop recording and send (Enter)' : 'Send (Enter)'}>
                       <span>{strings.sendBtn}</span>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                     </button>

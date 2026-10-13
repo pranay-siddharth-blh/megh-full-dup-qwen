@@ -1,4 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react';
+import { keyLabel } from '../shortcuts.js';
 import { createPortal } from 'react-dom';
 import { histAgo, histBucket, initialsFor } from '../format.js';
 import { ADMIN_ROLES } from '../constants.js';
@@ -134,7 +135,7 @@ export function Sidebar({
       <div className="brand">
         <button className="rail-btn" onClick={onToggleRail} type="button"
                 aria-label={rail ? 'Expand sidebar' : 'Collapse sidebar'} aria-expanded={rail ? 'false' : 'true'}
-                title={(rail ? 'Expand' : 'Collapse') + ' sidebar (Ctrl+B)'}>
+                title={(rail ? 'Expand' : 'Collapse') + ` sidebar (${keyLabel('sidebar')})`}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
             <rect x="3" y="4" width="18" height="16" rx="2.5" /><line x1="9.5" y1="4" x2="9.5" y2="20" />
           </svg>
@@ -147,7 +148,7 @@ export function Sidebar({
       </div>
 
       <div className="nav-section">Conversations</div>
-      <div className="nav-item" onClick={onNewChat}>
+      <div className="nav-item" onClick={onNewChat} title={`New chat (${keyLabel('newChat')})`}>
         <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
         New chat
       </div>
@@ -177,7 +178,7 @@ export function Sidebar({
       <div className="nav-section hist-head">
         <span>Chat history</span>
         <button type="button" className="hist-search-btn" onClick={() => setSearchOpen(!searchOpen)}
-                aria-label="Search chats" aria-expanded={searchOpen ? 'true' : 'false'} title="Search chats">
+                aria-label="Search chats" aria-expanded={searchOpen ? 'true' : 'false'} title={`Search chats (${keyLabel('search')})`}>
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
             <circle cx="11" cy="11" r="7" /><line x1="20" y1="20" x2="16.65" y2="16.65" />
           </svg>
