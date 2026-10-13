@@ -17,6 +17,12 @@ finished only when **every test case passes, at every level of the hierarchy**.
 
 ---
 
+## Final round (2026-10-13)
+
+Every test case of all seven sheets re-run on the final code: **206/206 test cases, 2,946/2,946 conversations**.
+One report: `Final_Test_Report_2026-10-13.xlsx` (Summary, one tab per sheet, every conversation). Scripts:
+`tests/sheet_runs/final_round.sh` (runs all seven, waits for the VPN) and `final_report.py`.
+
 ## Step 1 — Read the sheet
 
 1. Back up the workbook before writing anything to it.
@@ -163,3 +169,45 @@ truth queries (Step 2).
   Legacy unless it uses applications-only words; who-is-it-for questions are knowledge; application breakdowns
   ranked descending; the Tura Municipal Board stored name corrected; HQ-town constituency names offered.
 - **Rule:** work only on the scheme the user names; finished sheets are not re-run live.
+
+---
+
+## Cross Scheme sheet (`Cross Scheme Test Cases.xlsx`, CROSS-1..CROSS-20) — done 2026-10-13
+
+The same steps as the scheme sheets, applied to questions that compare schemes. Backup of the workbook:
+`backup/Cross Scheme Test Cases.backup-2026-10-13.xlsx`. Results: Sheet1 columns D..H (9th Run, After Fix),
+tabs `Coverage` and `All conversations`.
+
+| | 9th run | After fix |
+|---|---|---|
+| Sheet cases | 0 Pass / 20 Fail (18 paused, 2 wrong) | 20/20 Pass |
+| Conversations | — | **8,649 / 8,649** |
+
+**How the names are read.** FOCUS = Focus Legacy when Focus+ is also named; a bare CM-ELEVATE = CM Elevate Legacy
+(user decision 2026-10-12) unless the applications words are used; "CM Elevate applicants" with money or FY words =
+Legacy as well.
+
+**What each scheme's figure is** (the rule its own sheet passed on; never added together): MGNREGA persons employed
+/ expenditure; PMAY-G houses sanctioned / amount released; Focus Plus beneficiaries / disbursed; Focus Legacy
+producer-group memberships (and groups) / remitted; CM Elevate applications, no money, no FY; CM Elevate Legacy
+sanctioned applicants / disbursed.
+
+**Generated cases (our own permutations)**, every one checked cell by cell against `megh_db`:
+1. the 20 sheet questions, with `[district]` = every district (CROSS-8/11/14), `[block]` = every block (CROSS-9),
+   20 district trios (CROSS-16) — 138;
+2. all 57 combinations of the six schemes (15 pairs, 20 triples, 15 fours, 6 fives, all six) x count / money / both,
+   statewide — 171; which is higher (count, money) — 114; coverage — 57;
+3. every FY 2017-18..2025-26 (incl. a year only some of the schemes hold, and "FY2022-23" without a space) — 171;
+4. district-wise, leading scheme per district, top district per scheme, block-wise in every district — 69;
+5. every district x every combination — 684; every block (incl. municipal / town committee blocks) — 134;
+   every assembly constituency — 120; **every village any scheme holds — 6,978**;
+6. wording: vs / & / lowercase / nrega / pmay g / FocusPlus / "all six schemes" / "scheme-wise" — 13.
+
+**Pass rule.** The right figure for every scheme asked (and no other), at the right level, labelled; "no data for
+FY …", "not recorded by constituency" or "no money recorded" where true — never a false 0; no needless pause (a year,
+area or scheme pause, or the same which-village pause twice, is a fail); rankings, leader and top district right.
+
+**Run it again** (repo root): `python tests/sheet_runs/cross/cross_run.py sheet state rank coverage year dwise words
+district block ac village` (resumable; `CROSS_ONLY=<ids file>` re-runs a list; `failed.py` writes the failed ids),
+then `python tests/sheet_runs/cross/write_report.py`. If Postgres says "too many clients", lower `CROSS_CONC` and
+`DB_POOL_MAX_SIZE`.

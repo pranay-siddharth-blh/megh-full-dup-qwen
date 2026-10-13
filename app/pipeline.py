@@ -20,7 +20,7 @@ import httpx
 from rapidfuzz import fuzz
 
 from app import annotations, auth, context_manager, edge, followups, llm, premise_check, prompt_builder, rag
-from app import context_budget, context_policy, guardrails, topic_memory
+from app import context_budget, context_policy, cross_scheme, guardrails, topic_memory
 from app.config import settings
 from app.db import UnsafeSQLError, fetch_rows, run_readonly
 from app.db import DatabaseUnavailableError, is_connection_error as db_is_connection_error
@@ -4518,9 +4518,17 @@ _SCHEME_COMPARISON_METRIC_GUARD = re.compile(
     r"\b(beneficiar\w*|amount|amounts|expenditure|spend\w*|wages?|"
     r"person[\s-]?days?|job\s?cards?|houses?|disburs\w*|payments?|"
     r"number of|how many|how much|count of|total|percentage|per ?cent|"
-    r"\brate\b)\b",
+    r"\brate\b|"
+    # a breakdown by place is a data request too: "Compare the schemes
+    # district-wise" drew the "which schemes?" pause (cross-scheme run 2026-10-13)
+    r"(?:district|block|village|year|constituency)[\s-]?wise|districts?|blocks?|villages?|constituenc\w*)\b",
     re.IGNORECASE,
 )
+# "Compare all six schemes" names every scheme; asking "which schemes?" back is a
+# needless pause (cross-scheme run 2026-10-13).
+_ALL_SCHEMES_NAMED = re.compile(
+    r"\ball\s+(?:the\s+)?(?:six\s+|6\s+)?schemes\b|\bevery\s+scheme\b|\beach\s+scheme\b|"
+    r"\b(?:six|6)\s+schemes\b", re.IGNORECASE)
 
 
 def _scheme_comparison_clarification() -> "ClarificationNeeded":
@@ -4625,6 +4633,8 @@ def _scheme_comparison_answer(question: str, prev_schemes: "list[str] | None" = 
         # raised the 4-way clarification instead of running the sub-scheme
         # comparison in cmelevate_few_shot.yaml). Let normal DATA routing handle it.
         return None
+    if len(named) < 2 and _ALL_SCHEMES_NAMED.search(question or ""):
+        named = list(SCHEME_CATALOG)
     if len(named) < 2:
         raise _scheme_comparison_clarification()
     targets = named
@@ -7571,8 +7581,16 @@ async def _focusplus_alias_district_collision(name: str, scheme: str = "Focus Pl
             _ac = next((c for c in collision_canonical_names(scheme, "assembly_constituency")
                         if re.sub(r"\s+", " ", str(c)).strip().upper() == _want), None)
             if _ac:
-                return ({"district": d.display or str(d.canonical).title()} if _alias else {}) | \
-                    {"assembly_constituency": _place_title(_ac)}
+                _dims = {"district": d.display or str(d.canonical).title()} if _alias else {}
+                # the block of that name too: CM Elevate's "Mairang" / "Nongstoin" (blocks the sheet
+                # asks about) lost their block reading here (final round 2026-10-13, OFF-002/007)
+                _b = resolve_dimension(name, scheme, "block")
+                if _b.status == "resolved" and str(_b.canonical).strip().upper() == _want:
+                    _dims["block"] = _b.display or str(_b.canonical)
+                elif scheme == "CM Elevate" and (_cb := await _cm_elevate_block_from_mention(str(name), [scheme])):
+                    _dims["block"] = _place_title(_cb)
+                _dims["assembly_constituency"] = _place_title(_ac)
+                return _dims
         return {}
     dims = {"district": d.display or str(d.canonical).title()} if _alias else {}
     b = resolve_dimension(name, scheme, "block")
@@ -16044,7 +16062,8 @@ def _new_data_turn(question: str, *, skip_scope_clarify: bool = False,
             "schemes": None, "fp_amount": None, "entity_result": None,
             "mg_admin": None, "mg_women": None, "mg_det": None,
             "sql": None, "rows": None, "notes": None, "style": "",
-            "fl_total": None, "fl_unplaced": None, "fl_breakdown": None, "answer": None}
+            "fl_total": None, "fl_unplaced": None, "fl_breakdown": None, "answer": None,
+            "cross": None, "pre_rephrase_question": None}
 
 
 async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> "dict | None":
@@ -16055,6 +16074,34 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     _unsupported = _unsupported_scheme_named(question)
     if _unsupported:
         raise _unsupported_scheme_clarification(question, _unsupported)
+
+    # A comparison ACROSS schemes ("Compare Focus+, FOCUS and CM-ELEVATE in East
+    # Khasi Hills", "which scheme has the highest beneficiary count in each
+    # district?") is answered by cross_scheme after the places resolve — never by
+    # the SQL generator, and never after a merged nine-year "which FY?" pause, a
+    # "which area?" pause or a "which scheme?" pause (Cross Scheme sheet, 18 of 20
+    # cases paused, 2026-10-13). The place gates of the entity stage still run.
+    # Read on the user's own words: the rephrase node (a sampled model call) turned
+    # "Compare the coverage of …" into "How does the coverage of … compare …" on
+    # some runs and dropped "coverage" on others (cross-scheme run 2026-10-13).
+    _cross_text = d.get("pre_rephrase_question") or question
+    _named = [s for s, pat in _SCHEME_NAME_PATTERN.items() if pat.search(_cross_text)]
+    # A bare "CM-ELEVATE" beside other schemes is CM Elevate Legacy unless the
+    # question uses the applications dataset's own words — the user's default
+    # (2026-10-12). _pin_cm_elevate_dataset only fires on its data words, and
+    # "performance of MGNREGA, PMAY-G, Focus+ and CM-ELEVATE" has none of them.
+    if "CM Elevate" in _named and "CM Elevate Legacy" not in _named \
+            and not _CMELEVATE_APPLICATIONS_ONLY.search(_cross_text) \
+            and not _CME_APPLICATIONS_VOCAB.search(_cross_text):
+        _named = [("CM Elevate Legacy" if s == "CM Elevate" else s) for s in _named]
+    _cross_q = await _mask_scheme_words_in_village_name(_cross_text)
+    _cross = cross_scheme.detect(
+        _cross_q, _named,
+        measure_text=(await _mask_village_names(_cross_q)) if cross_scheme.other_measure(_cross_q) else None)
+    if _cross:
+        logger.info("cross-scheme comparison %r -> %s", _cross_text, _cross)
+        d["schemes"], d["cross"] = _cross, {"schemes": _cross, "text": _cross_text}
+        return None
 
     # Ask which scheme before doing anything expensive, when the question could
     # honestly mean either one. Guessing here is worse than a one-tap follow-up.
@@ -16143,8 +16190,36 @@ async def _data_entity_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     if _fp_amount is not None and int(_fp_amount.value) not in _FOCUSPLUS_PAYMENT_AMOUNTS:
         raise _focusplus_amount_clarification(question, _fp_amount)
     # raises ClarificationNeeded if ambiguous
-    entity_result = await resolve_entities(question, schemes, prior_resolved=prior_resolved,
-                                            village_hint=village_hint)
+    # A cross-scheme comparison resolves its places and year against all six
+    # schemes: a year only some of the named schemes hold ("NREGA, PMAY and CM
+    # Elevate Legacy in FY 2022-23") is still the year asked, and each scheme
+    # that lacks it is reported as such by cross_scheme rather than refused or
+    # silently dropped (cross-scheme run 2026-10-13).
+    # A cross-scheme chip resume ("… in rangsagre village, SELSELLA block, WEST GARO
+    # HILLS") is the bot's own village choice: pin it deterministically. Left to the
+    # mention extractor it re-asked the same pause (22 of 6,978 villages) or took the
+    # block for the village ("Dilma Songgital" -> "Resubelpara - Ward No.11"),
+    # cross-scheme final run 2026-10-13.
+    # The chip's own text, not the rephrased one: the rephrase node can turn the
+    # ", CHOKPOT block, SOUTH GARO HILLS" tail into prose, and the pin reads the tail.
+    _chip_text = d["cross"]["text"] if d.get("cross") else question
+    if d.get("cross") and not village_hint and re.search(r"\bvillage\b", _chip_text or "", re.IGNORECASE) \
+            and _CHIP_TAIL_PARSE_RE.search(_chip_text or ""):
+        try:
+            _cpin = await _mgnrega_village_chip_pin(_chip_text, "MGNREGA")
+        except Exception:  # noqa: BLE001 — normal resolution below
+            _cpin = None
+        if _cpin:
+            village_hint = str(_cpin["lgd_village_name"])
+            question = _chip_text
+    try:
+        entity_result = await resolve_entities(
+            question, cross_scheme.ORDER if d.get("cross") else schemes,
+            prior_resolved=prior_resolved, village_hint=village_hint)
+    except ClarificationNeeded as e:
+        if d.get("cross") and e.rule == "entity-ambiguous":
+            raise await _cross_split_twin_chips(e, d["cross"]["schemes"])
+        raise
     if _fp_amount is not None:
         entity_result.setdefault("notes", []).append(_focusplus_amount_note(_fp_amount))
     # A year-gap rewrite (see resolve_entities) replaces the question for
@@ -16159,6 +16234,8 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     """Region, overall-summary and scope / year / tranche gates (graph: clarification_gate)."""
     question, schemes, entity_result = d["question"], d["schemes"], d["entity_result"]
     prior_resolved, skip_scope_clarify = d["prior_resolved"], d["skip_scope_clarify"]
+    if d.get("cross"):
+        return await _cross_scheme_answer(d, scope)
     # "Garo Hills" / "Khasi Hills" name a hill RANGE, not a district. When one is
     # named and no specific district resolved, either offer its districts as one-tap
     # chips ("which Garo Hills district?") or, if the question already says "all of
@@ -16243,6 +16320,118 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
         return _person_level_tranche_conflict_answer(question, schemes, entity_result)
     d["entity_result"] = entity_result
     return None
+
+
+def _literal_sql(sql: str, params: list) -> str:
+    """A display / authorization copy of parameter-bound SQL with the values inlined."""
+    def lit(v) -> str:
+        if isinstance(v, (list, tuple)):
+            return "ARRAY[" + ", ".join(lit(x) for x in v) + "]"
+        if isinstance(v, (int, float)):
+            return str(v)
+        return "'" + str(v).replace("'", "''") + "'"
+    return re.sub(r"\$(\d+)", lambda m: lit(params[int(m.group(1)) - 1]), sql)
+
+
+_VILLAGE_CHIP_LABEL_RE = re.compile(r"^(?P<name>.+?) — (?P<block>.+?) block, (?P<district>.+)$")
+
+
+async def _cross_split_twin_chips(e: "ClarificationNeeded", schemes: list[str]) -> "ClarificationNeeded":
+    """A which-village pause for a cross-scheme question: a chip standing for two
+    same-name villages of one block that BOTH hold data is split into one chip per
+    village, told apart by LGD code. Untouched, the chip "BOLDAMGRE — SELSELLA
+    block" resumed into the same pause again (cross-scheme village run 2026-10-13)."""
+    opts = list(e.options or [])
+    out: list[dict] = []
+    changed = False
+    for o in opts:
+        m = _VILLAGE_CHIP_LABEL_RE.match(str(o.get("label") or ""))
+        if not m or _CHIP_LGD_CODE_RE.search(o.get("label") or ""):
+            out.append(o)
+            continue
+        try:
+            rows = await fetch_rows(
+                "SELECT village_code, lgd_village_name, lgd_block, lgd_district FROM curated.dim_geography "
+                "WHERE UPPER(lgd_village_name) = UPPER($1) AND UPPER(lgd_block) = UPPER($2) "
+                "AND UPPER(lgd_district) = UPPER($3) ORDER BY village_code",
+                [m.group("name").strip(), m.group("block").strip(), m.group("district").strip()])
+            active = await cross_scheme.villages_with_records(schemes, [r["village_code"] for r in rows]) \
+                if len(rows) > 1 else set()
+        except Exception:  # noqa: BLE001 — keep the chip as it was
+            rows, active = [], set()
+        cands = [{"village_code": r["village_code"], "name": r["lgd_village_name"], "block": r["lgd_block"],
+                  "district": r["lgd_district"]} for r in rows if r["village_code"] in active]
+        if len(cands) < 2:
+            out.append(o)
+            continue
+        changed = True
+        for c in cands:
+            tag = f" (LGD {c['village_code']})"
+            q = str(o.get("question") or "")
+            nm = re.compile(r"(?<![A-Za-z0-9])" + _loose_name_pattern(str(m.group("name"))) + r"(?![A-Za-z0-9])",
+                            re.IGNORECASE)
+            q = nm.sub(lambda x: x.group(0) + tag, q, count=1) if nm.search(q) else q + tag
+            out.append({"label": f"{m.group('name')}{tag} — {m.group('block')} block, {m.group('district')}",
+                        "question": q})
+    if not changed:
+        return e
+    return ClarificationNeeded(e.question, options=out, rule=e.rule, village_hint=e.village_hint)
+
+
+async def _cross_twin_village_pause(d: dict, schemes: list[str], resolved: dict) -> None:
+    """Two villages can share a name, a block and a district and BOTH hold data —
+    BOLDAMGRE 272895 (MGNREGA) and 272933 (Focus Plus, CM Elevate), SELSELLA
+    block. resolve_village collapses such a pair to the busier one (it is
+    usually an ingestion duplicate), so "compare … in boldamgre village" answered
+    for 272895 and the other village could not be reached (cross-scheme village
+    run 2026-10-13). A cross-scheme question reads every scheme, so both are
+    offered, told apart by their LGD code (_village_code_tag)."""
+    code = resolved.get("village_code")
+    text = d["cross"]["text"] or ""
+    if not code or isinstance(code, (list, tuple)) or _CHIP_LGD_CODE_RE.search(text) \
+            or _CHIP_LGD_CODE_RE.search(d["question"] or ""):
+        return
+    rows = await fetch_rows(
+        "SELECT g2.village_code, g2.lgd_village_name, g2.lgd_block, g2.lgd_district "
+        "FROM curated.dim_geography g1 JOIN curated.dim_geography g2 "
+        "ON UPPER(g2.lgd_village_name) = UPPER(g1.lgd_village_name) "
+        "AND g2.lgd_block IS NOT DISTINCT FROM g1.lgd_block "
+        "AND g2.lgd_district IS NOT DISTINCT FROM g1.lgd_district "
+        "WHERE g1.village_code = $1 ORDER BY g2.village_code", [int(code)])
+    if len(rows) < 2:
+        return
+    active = await cross_scheme.villages_with_records(schemes, [r["village_code"] for r in rows])
+    cands = [{"village_code": r["village_code"], "name": r["lgd_village_name"], "block": r["lgd_block"],
+              "district": r["lgd_district"]} for r in rows if r["village_code"] in active]
+    if len(cands) < 2:
+        return
+    _s = ["MGNREGA"]   # the village-grained chip shape (code-tagged twins)
+    raise ClarificationNeeded(
+        f"“{cands[0]['name']}” is {len(cands)} different villages in {str(cands[0]['block']).title()} block "
+        f"with the same name — which one do you mean?",
+        options=[{"label": _village_chip_label(c, cands, _s),
+                  "question": _village_chip_question(text, c["name"], c, _s, cands)} for c in cands],
+        rule="entity-ambiguous", village_hint=str(cands[0]["name"]))
+
+
+async def _cross_scheme_answer(d: dict, scope: "auth.UserScope | None" = None) -> dict:
+    """The deterministic cross-scheme comparison (app/cross_scheme.py), with the
+    same authorization a generated query gets."""
+    schemes, entity_result = d["cross"]["schemes"], d["entity_result"]
+    resolved = entity_result["resolved"]
+    await _cross_twin_village_pause(d, schemes, resolved)
+    out = await cross_scheme.answer(d["cross"]["text"], schemes, entity_result, _SCHEME_DATA_YEARS)
+    sql = "\n;\n".join(_literal_sql(q, prm) for q, prm in out.pop("sql_pairs", []))
+    out["sql"] = out["sql_query"] = sql
+    # Authorized on the literal SQL (its place values and GROUP BY visible), the
+    # same check a generated query gets; nothing is returned on a deny.
+    if scope is not None and settings.AUTH_ENABLED:
+        decision = auth.authorize(scope, schemes=schemes, resolved_entities=resolved, sql=sql)
+        if not decision.allow:
+            logger.info("auth deny (%s) user=%s: %s", decision.check, scope.user_id, decision.reason)
+            return _denied(decision, schemes, resolved)
+    out["resolved_entities"] = resolved
+    return out
 
 
 async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = None) -> "dict | None":

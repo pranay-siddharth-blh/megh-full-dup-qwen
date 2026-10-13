@@ -3,7 +3,23 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
-**Latest (2026-10-12, evening): CM Elevate Legacy sheet test + fixes (KI-273..278). Code changed, uncommitted. LIVE-VERIFIED.**
+**Latest (2026-10-13, evening): Cross Scheme sheet + generated cross-scheme permutations. Code changed, uncommitted. LIVE-VERIFIED.**
+- `reference_documents/Cross Scheme Test Cases.xlsx` (backup in `reference_documents/backup/`): Sheet1 D..H = 9th Run (0/20) and
+  After Fix (20/20); tabs `Coverage` and `All conversations` (8,649/8,649). Process in `reference_documents/README.md`.
+- New `app/cross_scheme.py` (D-044) + hooks in `_data_scheme_stage` / `_data_entity_stage` / `_data_clarification_stage`;
+  graph DATA keys `cross`, `pre_rephrase_question`. KI-280..288 fixed. Tests `tests/test_cross_scheme_sheet_fixes.py` (28).
+  pytest 2,258 passed; scripts 14/14. Re-run: `tests/sheet_runs/cross/cross_run.py <families>`, then `write_report.py`.
+- OPEN: KI-289 "FY2022-23" (no space) not read for single-scheme questions — needs a decision (shared resolver; the finished
+  sheets would need a re-run). KI-290 low.
+- Env: `.venv` rebuilt on Python 3.12 (the old one pointed at another machine); pytest, pytest-asyncio, openpyxl installed.
+
+**Earlier (2026-10-13): FINAL ROUND — all seven sheets 206/206 test cases, 2,946/2,946 conversations. LIVE-VERIFIED.**
+- Report: `reference_documents/Final_Test_Report_2026-10-13.xlsx`. Workbook tabs FOCUS Legacy (renamed by the user from
+  FOCUS) and CM Elevate Legacy now carry their 9th / After Fix columns.
+- Regression found and fixed in the round: KI-279 (CM Elevate "Mairang"/"Nongstoin" block reading). pytest 2,230 passed;
+  scripts 14/14. Code uncommitted.
+
+**Earlier (2026-10-12, evening): CM Elevate Legacy sheet test + fixes (KI-273..278). Code changed, uncommitted. LIVE-VERIFIED.**
 - USER DECISION: a bare "CM-ELEVATE" data question defaults to CM Elevate Legacy unless it uses applications-only words
   (applicants, pending, status, sector, sent back, level, on hold, verification …). None of the 529 CM Elevate sheet
   questions change dataset. Test sample questions updated accordingly.

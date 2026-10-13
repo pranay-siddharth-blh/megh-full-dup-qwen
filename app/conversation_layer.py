@@ -513,7 +513,11 @@ def resume_after_small_talk(session) -> bool:
     """Put the last answered turn back after a greeting / thanks. True when
     it did. The structured state was never changed by the edge reply."""
     last = session.last_turn
-    if last is None or last.route != "edge" or not _is_small_talk(last.raw_question):
+    # a greeting / thanks, or any other aside the refusal styler noted
+    # (conversation_replies.restyle: "who is the PM?" mid-topic)
+    aside = topic_memory._memory(session).get("aside")
+    if last is None or last.route != "edge" or not (_is_small_talk(last.raw_question)
+                                                    or (aside and last.raw_question == aside)):
         return False
     prev = next((t for t in reversed(session.turns[:-1]) if t.route in ("data", "knowledge")), None)
     if prev is None:
@@ -636,6 +640,15 @@ async def prepare_turn(session, question: str) -> LayerTurn:
                 return LayerTurn(question=question, action="reset", response=_reset_answer(expired),
                                  changed=True)
             return LayerTurn(question=remainder, action="reset", changed=True)
+
+        # "How are you?" mid-topic was read by the pipeline as a follow-up and
+        # re-answered the last figure (live 2026-10-13): a pure pleasantry is
+        # answered here, and the topic carries on after it.
+        from app import conversation_replies
+        chat = conversation_replies.small_talk_reply(session, question)
+        if chat is not None:
+            context_budget.log_decision("conversation", action="small-talk")
+            return LayerTurn(question=question, action="small-talk", response=chat, changed=True)
 
         listing = listing_question(question) or (
             pipeline._SCHEME_LISTING_CUE.search(question or "") and LISTING_QUESTION

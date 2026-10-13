@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { plainText } from './Markdown.jsx';
 import { downloadBlob, fileName, headerLabel, toXLSXBook } from '../exporters.js';
+import { keyLabel } from '../shortcuts.js';
 
 /* "Download chat": the whole conversation in one file, from the top bar.
 
@@ -44,9 +45,15 @@ function workbook(messages) {
     ...tables];
 }
 
-export function ChatExport({ messages, title }) {
+export function ChatExport({ messages, title, openSignal = 0 }) {
   const [open, setOpen] = useState(false);
   const box = useRef(null);
+  // Ctrl + Shift + D (keyboard shortcut) opens the menu and focuses its first item.
+  useEffect(() => {
+    if (!openSignal) return;
+    setOpen(true);
+    setTimeout(() => { const b = box.current && box.current.querySelector('.dl-menu button'); if (b) b.focus(); }, 30);
+  }, [openSignal]);
   const has = messages.some((m) => m.kind === 'user' || m.kind === 'rich');
   useEffect(() => {
     if (!open) return undefined;
@@ -82,7 +89,7 @@ export function ChatExport({ messages, title }) {
   return (
     <div className="dl-wrap chat-export" ref={box}>
       <button type="button" className="chat-export-btn" aria-haspopup="menu" aria-expanded={open}
-              title="Download this chat" aria-label="Download this chat" onClick={() => setOpen((o) => !o)}>
+              title={`Download this chat (${keyLabel('download')})`} aria-label="Download this chat" onClick={() => setOpen((o) => !o)}>
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
           <path d="M12 3v12" /><polyline points="7 10 12 15 17 10" /><path d="M5 21h14" />
         </svg>

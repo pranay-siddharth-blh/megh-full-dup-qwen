@@ -115,6 +115,11 @@ near-miss pause uses `entity-ambiguous`.
 ### 2.1 Pre-classification gates (no model call)
 In order:
 1. `_unsupported_scheme_named` → a clarification naming the scheme we don't hold.
+1a. `cross_scheme.detect` (on `pre_rephrase_question`) → a comparison of 2+ schemes, or "which /
+   each / all schemes" with a figure, ranking or compare word. Sets `d["cross"]` and skips the
+   rest of this list; the entity stage then resolves against all six schemes, and
+   `_data_clarification_stage` answers it with `_cross_scheme_answer` BEFORE the scope / year
+   gates (deterministic, D-044; KI-280..288). **Returns.**
 2. `_wants_cross_scheme_money_ranking` → `_cross_scheme_money_answer`: deterministic SQL across
    every money-bearing scheme. **Returns.**
 3. `_is_ambiguous_focus` → the "which Focus?" two-way ask.

@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app import (asr_guard, auth, context_manager, conversation_layer, conversation_memory,
-                 conversation_store, llm, session_sync, topic_memory, turn_events)
+                 conversation_replies, conversation_store, llm, session_sync, topic_memory, turn_events)
 from app.cache import metrics, response_cache
 from app.config import settings
 from app.deps import current_scope, require_user
@@ -276,6 +276,14 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
             metrics.model_errors += 1
             logger.exception("query failed")
             raise HTTPException(502, "upstream error while answering the question") from e
+
+    # A refusal said conversationally (app/conversation_replies.py): its kind,
+    # the current topic, a fresh wording each time. It depends on this chat,
+    # so it is never written to the shared answer caches.
+    styled = conversation_replies.restyle(session, req.question, result)
+    if styled is not None:
+        result = styled
+        cacheable = False
 
     latency_ms = (time.monotonic() - started) * 1000
     result["session_id"] = session_id

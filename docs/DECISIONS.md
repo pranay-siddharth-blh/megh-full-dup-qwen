@@ -809,3 +809,31 @@ not recorded.*
   edit list; noted as the in-pipeline alternative).
 - **Status:** Active. LIVE-VERIFIED 2026-10-08 (15 multi-turn scenarios through `_answer` with the
   live gateway and DB); pytest 1,926 passed, 0 failed; scripts 14/14.
+
+### D-044 — Cross-scheme comparisons are answered deterministically (`app/cross_scheme.py`)
+- **Date:** 2026-10-13 (Cross Scheme Test Cases sheet session; `app/cross_scheme.py` new;
+  `app/pipeline.py` hooks in `_data_scheme_stage`, `_data_entity_stage`,
+  `_data_clarification_stage`; `app/pipeline_graph.py` DATA keys `cross`, `pre_rephrase_question`;
+  `tests/test_cross_scheme_sheet_fixes.py`; live harness `tests/sheet_runs/cross/`).
+- **Context:** a question comparing two or more schemes went to the SQL generator with every named
+  scheme's schema. On the testers' 20 cases it paused 18 times and answered 2 wrongly (KI-280):
+  several figures of different kinds in one answer is exactly where the generator and the composer
+  misattribute numbers, and DATA_MODEL forbids adding the schemes' different measures together.
+- **Decision:** detect a comparison (2+ named schemes, or "which / each / all schemes" with a
+  figure, ranking or compare word) and answer it from fixed, parameter-bound SQL, one query per
+  scheme and measure, each scheme by the rule its own single-scheme answer uses:
+  MGNREGA `SUM(persons_employed)` / `SUM(total_exp)` (lakh); PMAY-G `COUNT(*)` not placeholder /
+  `SUM(amount_released)`; Focus Plus `COUNT(DISTINCT beneficiary_key)` / `SUM(amount_disbursed)`;
+  Focus Legacy `SUM(no_of_pg_members)` (+ producer groups) / `SUM(amount_disbursed)`; CM Elevate
+  `COUNT(DISTINCT request_id)`, no money, no year; CM Elevate Legacy `COUNT(*)` /
+  `SUM(total_disbursement)`. The answer is a table built from the rows (never composed by a model):
+  per scheme, or per district / block, with what each figure counts, each scheme's years, "no data
+  for FY …" / "not recorded by constituency" / "no money recorded" instead of a zero, rankings,
+  the leading scheme per district and the top district per scheme. Nothing is summed across
+  schemes. No year means each scheme's whole data window (no merged-FY pause); no place means
+  statewide (no area pause). The SQL is authorized (`auth.authorize`) on a literal copy.
+- **Rejected:** more prompt rules / few-shots for the generator (prose rules fail under sampling,
+  CLAUDE.md §5); answering through `v_cross_scheme_money_district_year` (MGNREGA and PMAY-G only,
+  district grain).
+- **Status:** Active. LIVE-VERIFIED 2026-10-13 (see TESTING.md: sheet + every scheme combination
+  at every level + every village).

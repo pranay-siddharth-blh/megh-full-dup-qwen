@@ -278,7 +278,25 @@ Notes on the table:
 ---
 
 ## Cross-scheme behaviour (VERIFIED)
-- "Which scheme paid out the most?" → `_cross_scheme_money_answer`, deterministic SQL across
+- **Any comparison of 2+ schemes** (or "which / each / all schemes" with a figure, ranking or
+  compare word) → `app/cross_scheme.py` (D-044, 2026-10-13), deterministic, at state, district,
+  block, village or constituency level, any FY, per scheme or per district / block:
+  - measures = each scheme's single-scheme rule (MGNREGA persons employed / expenditure; PMAY-G
+    houses sanctioned / released; Focus Plus beneficiaries / disbursed; Focus Legacy memberships
+    (+ groups) / remitted; CM Elevate applications, no money; CM Elevate Legacy sanctioned
+    applicants / disbursed). Never summed across schemes;
+  - names: a bare "FOCUS" beside "Focus+" = Focus Legacy; a bare "CM-ELEVATE" = CM Elevate Legacy
+    unless applications words are used; "CM Elevate applicants" + money / FY words = Legacy
+    (`_pin_cm_elevate_dataset`);
+  - constituency: MGNREGA counts via `assembly_constituency_name`; Focus Legacy and CM Elevate
+    Legacy via `dim_geography.ac_name`; PMAY-G, Focus Plus, CM Elevate and MGNREGA money say "not
+    recorded by constituency";
+  - places are resolved against all six schemes, plus `refine_block` (urban blocks),
+    `refine_constituency` (Shillong ACs) and twin-village LGD chips (KI-284..288).
+  - QA: `tests/sheet_runs/cross/` (`cross_run.py`, `truth.py`), report in
+    `reference_documents/Cross Scheme Test Cases.xlsx`.
+- "Which scheme paid out the most?" with no place → also cross_scheme now (it runs first);
+  `_cross_scheme_money_answer`, deterministic SQL across
   every money-bearing scheme (`_CROSS_SCHEME_MONEY_SQL`). Test: `test_cross_scheme_money.py`.
 - MGNREGA + PMAY: `v_cross_scheme_money_district_year` (crore) and
   `v_cross_scheme_village_coverage`. Focus Plus's presence in the money view is unconfirmed;

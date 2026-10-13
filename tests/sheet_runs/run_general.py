@@ -10,7 +10,7 @@ sys.path.insert(0, ".")
 from harness import Conv, fetch, has_value  # noqa: E402
 from app import main as app_main  # noqa: E402
 
-OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "general_results.json")
+OUT = os.path.join(os.path.dirname(os.path.abspath(__file__)), os.environ.get("GEN_OUT", "general_results.json"))
 SCHEMES = ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy"]
 RESULTS = {}
 SEM = asyncio.Semaphore(3)
@@ -109,7 +109,9 @@ async def main():
                                        "AND lgd_district = 'RI BHOI' AND year_key = 2022"))[0]["v"])
         tasks.append(data_case("TC-017", "pmay housess sanctiond ri bhoi 2022-23",
                                "pmay housess sanctiond in ri bhoi in 2022-23", rb_houses))
-        ekh_cme = float((await fetch("SELECT COUNT(*) AS v FROM curated.v_cm_elevate WHERE lgd_district = 'EAST KHASI HILLS'"))[0]["v"])
+        # user decision 2026-10-12: a bare "CM Elevate applications" count is read as CM Elevate Legacy
+        ekh_cme = float((await fetch("SELECT COUNT(*) AS v FROM curated.v_cm_elevate_disbursement "
+                                     "WHERE lgd_district = 'EAST KHASI HILLS'"))[0]["v"])
         tasks.append(data_case("TC-017", "cm elevat aplications east khasi hils",
                                "how many cm elevat aplications in east khasi hils", ekh_cme))
         tasks.append(conv("TC-017", "eligibilty for pmay-g", ["who is eligble for pmay-g"]))

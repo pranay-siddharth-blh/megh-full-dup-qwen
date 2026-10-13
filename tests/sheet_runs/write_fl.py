@@ -79,7 +79,7 @@ def tally(d, tc):
 
 
 wb = openpyxl.load_workbook(P)
-ws = wb["FOCUS"]
+ws = wb["FOCUS Legacy"]
 hdr = ws.cell(1, 6)
 for col, title in ((7, "9th Result"), (8, "9th Remarks"), (9, "After Fix"), (10, "After Fix Remarks")):
     c = ws.cell(1, col, title)

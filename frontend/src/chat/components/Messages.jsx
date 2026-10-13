@@ -318,9 +318,14 @@ export const plainAnswer = plainText;
 // ── Message shells ──────────────────────────────────────────────────────────
 // A question the officer sent: Copy and Edit. Edit opens the text in place;
 // sending it replaces this question (and what followed it) and asks it again.
-function UserMessage({ text, time, onEdit, busy }) {
+function UserMessage({ text, time, onEdit, busy, editRequest = 0 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(text);
+  // ↑ in an empty question box (keyboard shortcut) opens the last question for editing.
+  useEffect(() => {
+    if (editRequest && !busy) { setDraft(text); setEditing(true); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [editRequest]);
   const ref = useRef(null);
   useEffect(() => {
     if (!editing || !ref.current) return;
@@ -383,8 +388,8 @@ function UserMessage({ text, time, onEdit, busy }) {
   );
 }
 
-export function TextMessage({ id, role, text, time, at, onEdit, busy, speakingId, onSpeak, onRetry }) {
-  if (role === 'user') return <UserMessage text={text} time={time} onEdit={onEdit} busy={busy} />;
+export function TextMessage({ id, role, text, time, at, onEdit, busy, speakingId, onSpeak, onRetry, editRequest }) {
+  if (role === 'user') return <UserMessage text={text} time={time} onEdit={onEdit} busy={busy} editRequest={editRequest} />;
   return (
     <div className="msg bot">
       <div className="av">M</div>

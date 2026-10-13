@@ -14,6 +14,10 @@ import { LoginScreen, Modal, UndoToast } from './components/Overlays.jsx';
 import { USE_CASE_GROUPS, UseCases } from './components/UseCases.jsx';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ChatExport } from './components/ChatExport.jsx';
+import { ShortcutsHelp } from './components/ShortcutsHelp.jsx';
+import { plainText } from './components/Markdown.jsx';
+import { copyText } from './components/Messages.jsx';
+import { IS_MAC, SHORTCUTS, isTyping, keyLabel, matches } from './shortcuts.js';
 import { WelcomeCard } from './components/WelcomeCard.jsx';
 
 /* The chat console (was web/ai_query.html). Every behaviour of the original is
@@ -335,6 +339,8 @@ export default function App() {
     runQuestion(q);
   }, [runQuestion]);
 
+  const sendQueryRef = useRef(null);
+  sendQueryRef.current = sendQuery;
   const stopQuery = useCallback(() => { if (stopRef.current) stopRef.current.abort(); }, []);
 
   // Retry (after an error or Stop) and Regenerate (the last answer): the same
@@ -552,14 +558,38 @@ export default function App() {
   // Whatever was already typed stays; the spoken words are added after it, live
   // while speaking (onPartial) and finally as the full transcript (onTranscript).
   const dictBase = useRef('');
+  // One click to finish: Send (or Enter) while dictating stops the mic and sends
+  // the final transcript as soon as it arrives. The mic button alone only
+  // stops, leaving the text in the box to check (2026-10-13).
+  const sendAfterVoice = useRef(false);
   const withBase = (t) => { const b = dictBase.current.trim(); return b ? b + ' ' + t : t; };
   const voice = useVoice({
     lang,
     onPartial: (t) => setInput(withBase(t)),
-    onTranscript: (t) => { setInput(withBase(t)); if (textareaRef.current) textareaRef.current.focus(); },
+    onTranscript: (t) => {
+      setInput(withBase(t));
+      if (sendAfterVoice.current) { sendAfterVoice.current = false; sendQueryRef.current(); return; }
+      if (textareaRef.current) textareaRef.current.focus();
+    },
     onUnauthorized: () => handleLogout(),
   });
+  // Send was pressed but the final transcription gave nothing (no speech,
+  // network, ASR error): the live text already in the box is what the officer
+  // saw and meant to send, so it is sent. An empty box sends nothing and the
+  // reason stays on screen.
+  useEffect(() => {
+    if (voice.phase !== 'idle' || !sendAfterVoice.current) return;
+    sendAfterVoice.current = false;
+    if (inputRef.current.trim()) { voice.clearStatus(); sendQueryRef.current(); }
+  }, [voice.phase]); // eslint-disable-line react-hooks/exhaustive-deps
+  const sendOrFinishVoice = () => {
+    if (!voice.busy) { sendQuery(); return; }
+    if (voice.recordingRef.current) { sendAfterVoice.current = true; voice.stopMic(); return; }
+    if (voice.phase === 'finishing') sendAfterVoice.current = true;
+    // still opening the microphone: nothing recorded yet, nothing to send
+  };
   const onMic = () => {
+    sendAfterVoice.current = false;   // the mic button only stops: the text stays to check
     if (!voice.busy) dictBase.current = inputRef.current;
     voice.toggleMic();
   };
@@ -597,17 +627,75 @@ export default function App() {
     }
     : modal;
 
+  // ── Keyboard shortcuts (shortcuts.js) ────────────────────────────────────
+  // Each action returns false when it does not apply right now (no answer to
+  // copy, nothing running to stop…), so the key keeps its normal meaning.
+  const [editRequest, setEditRequest] = useState(null);     // {id, n}: open that question for editing
+  const [exportSignal, setExportSignal] = useState(0);      // opens the Download chat menu
+  const shortcutsOn = useRef(false);
+  shortcutsOn.current = auth === 'unlocked';
+  const lastOf = (kinds) => [...messages].reverse().find((m) => kinds.includes(m.kind));
+  const focusComposer = () => { const t = textareaRef.current; if (t) { t.focus(); t.setSelectionRange(t.value.length, t.value.length); } };
+  const openShortcuts = () => setModal((m) => (m && m.kind === 'shortcuts' ? null : {
+    kind: 'shortcuts', title: 'Keyboard shortcuts',
+    sub: IS_MAC ? '⌘ is the Command key' : 'Works anywhere in the chat',
+    body: <ShortcutsHelp />,
+  }));
+  const shortcutActions = useRef({});
+  shortcutActions.current = {
+    newChat: () => { newChat(); setTimeout(focusComposer, 0); },
+    search: () => {
+      if (window.matchMedia('(max-width: 880px)').matches) setNavOpen(true);
+      else if (rail) toggleRail();
+      setSearchOpen(true);
+      setTimeout(() => { const el = document.querySelector('.hist-search'); if (el) el.focus(); }, 60);
+    },
+    focus: () => { if (modal) return false; focusComposer(); },
+    focusSlash: () => { if (modal) return false; focusComposer(); },
+    stop: () => { if (!runningRef.current || modal || navOpen) return false; stopQuery(); },
+    editLast: (e) => {
+      if (e.target !== textareaRef.current || input || runningRef.current) return false;
+      const last = lastOf(['user']);
+      if (!last) return false;
+      setEditRequest({ id: last.id, n: Date.now() });
+    },
+    copyLast: () => {
+      const last = lastOf(['rich', 'bot']);
+      if (!last) { showUndo('No answer to copy yet'); return; }
+      const text = last.kind === 'rich' ? plainText((last.response && last.response.answer) || '') : (last.text || '');
+      copyText(text, () => showUndo('Answer copied'));
+    },
+    regenerate: () => {
+      if (runningRef.current) return;
+      const last = messages.filter((m) => m.kind !== 'typing').slice(-1)[0];
+      if (last && last.kind === 'rich' && last.question) rerun(last.id, last.question);
+      else if (last && last.kind === 'bot' && last.retryQ) rerun(last.id, last.retryQ);
+      else showUndo('Nothing to regenerate yet');
+    },
+    download: () => {
+      if (!messages.some((m) => m.kind === 'user' || m.kind === 'rich')) { showUndo('Nothing to download yet'); return; }
+      setExportSignal((n) => n + 1);
+    },
+    mic: () => onMic(),
+    sidebar: () => toggleRail(),
+    help: () => openShortcuts(),
+  };
+
   // ── Keyboard ────────────────────────────────────────────────────────────
   const voiceRef = useRef(voice);
   voiceRef.current = voice;
   useEffect(() => {
     const onKey = (e) => {
-      if ((e.ctrlKey || e.metaKey) && !e.shiftKey && !e.altKey && (e.key === 'b' || e.key === 'B')) {
-        const t = e.target;
-        if (t && /^(INPUT|TEXTAREA)$/.test(t.tagName)) return;   // don't hijack typing
-        e.preventDefault();
-        toggleRail();
-        return;
+      // Keyboard shortcuts (shortcuts.js): one table, also shown by Ctrl + /.
+      if (shortcutsOn.current) {
+        for (const sc of SHORTCUTS) {
+          if (!matches(e, sc)) continue;
+          if (isTyping(e.target) && !sc.whileTyping) continue;
+          const act = shortcutActions.current[sc.id];
+          if (!act || act(e) === false) continue;   // not applicable now: the key does its usual thing
+          e.preventDefault();
+          return;
+        }
       }
       if (e.key === 'Escape') {
         closeNav();
@@ -622,7 +710,7 @@ export default function App() {
 
   const onComposerKey = (e) => {
     // While dictating the box is filling itself: Enter waits for the final text.
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); if (!voice.busy) sendQuery(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendOrFinishVoice(); }
   };
 
   const signedIn = auth === 'unlocked' && !!getToken();
@@ -662,7 +750,7 @@ export default function App() {
             </button>
             <div className="scheme-switch" />
             <div className="actions">
-              <ChatExport messages={messages}
+              <ChatExport messages={messages} openSignal={exportSignal}
                           title={(history.find((c) => c.session_id === sessionId) || {}).title} />
               <div className="date-pill">{todayLabel()}</div>
               <div className="lang-tabs">
@@ -706,7 +794,8 @@ export default function App() {
                   }
                   if (m.kind === 'user') {
                     return <TextMessage key={m.id} id={m.id} role="user" text={m.text} time={m.time}
-                                        busy={running} onEdit={(q) => editQuestion(m.id, q)} />;
+                                        busy={running} onEdit={(q) => editQuestion(m.id, q)}
+                                        editRequest={editRequest && editRequest.id === m.id ? editRequest.n : 0} />;
                   }
                   return <TextMessage key={m.id} id={m.id} role="bot" text={m.text} time={m.time} at={m.at}
                                       speakingId={speakingId} onSpeak={onSpeak}
@@ -754,7 +843,7 @@ export default function App() {
                   )}
                   <button className={'mic-btn' + (voice.isRecording ? ' recording' : '')} type="button"
                           onClick={onMic} disabled={voice.phase === 'finishing'}
-                          title={voice.isRecording ? 'Stop recording' : 'Speak your question'}
+                          title={(voice.isRecording ? 'Stop recording' : 'Speak your question') + ` (${keyLabel('mic')})`}
                           aria-label={voice.isRecording ? 'Stop recording' : 'Speak your question'}>
                     {voice.isRecording
                       ? <svg className="orb-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
@@ -762,12 +851,13 @@ export default function App() {
                   </button>
                   {running ? (
                     <button className="send-btn stop" type="button" onClick={stopQuery}
-                            title="Stop this answer" aria-label="Stop this answer">
+                            title="Stop this answer (Esc)" aria-label="Stop this answer">
                       <span>Stop</span>
                       <svg width="12" height="12" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
                     </button>
                   ) : (
-                    <button className="send-btn" type="button" onClick={sendQuery} disabled={voice.busy}>
+                    <button className={'send-btn' + (voice.busy ? ' voice-send' : '')} type="button" onClick={sendOrFinishVoice}
+                            title={voice.busy ? 'Stop recording and send (Enter)' : 'Send (Enter)'}>
                       <span>{strings.sendBtn}</span>
                       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M5 12h14M12 5l7 7-7 7" /></svg>
                     </button>

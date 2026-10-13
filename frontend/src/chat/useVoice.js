@@ -135,7 +135,7 @@ export function useVoice({ lang, onPartial, onTranscript, onUnauthorized }) {
   const markLive = useCallback(() => {
     if (!recordingRef.current) return;
     setPhase('listening');
-    say('Listening — speak now', 'Say your whole question, then tap Stop (or press Esc)');
+    say('Listening — speak now', 'When you finish, tap Send to send it — or ■ to stop and check the text first');
   }, [say]);
 
   // A Bluetooth mic delivers ~0.9 s of nothing while switching profile, so
@@ -196,7 +196,7 @@ export function useVoice({ lang, onPartial, onTranscript, onUnauthorized }) {
       const secs = (blob.size - 44) / 32000;
       if (secs < 1.0) {
         say('Recording stopped too soon (' + secs.toFixed(1) + ' s)',
-          'Tap the mic, wait for “speak now”, say the whole question, then tap Stop.', true, 4000);
+          'Tap the mic, wait for “speak now”, say the whole question, then tap Send.', true, 4000);
         done(); return;
       }
     }
