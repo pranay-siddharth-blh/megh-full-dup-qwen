@@ -48,7 +48,43 @@ async function api(path, opts = {}) {
 }
 
 const Loading = () => <div className="card"><div className="muted">loading…</div></div>;
-const Tag = ({ ok, children }) => <span className={'tag ' + (ok ? 'ok' : 'bad')}>{children}</span>;
+const Tag = ({ ok, children }) => <span className={'tag ' + (ok ? 'ok' : 'bad')}><i className="tag-dot" />{children}</span>;
+const num = (v) => Number(v || 0).toLocaleString('en-IN');
+
+// Line icons (24px grid, stroke = currentColor).
+const Ico = ({ children }) => (
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">{children}</svg>
+);
+const ICONS = {
+  overview: <Ico><rect x="3" y="3" width="7" height="8" rx="1.5" /><rect x="14" y="3" width="7" height="5" rx="1.5" /><rect x="14" y="12" width="7" height="9" rx="1.5" /><rect x="3" y="15" width="7" height="6" rx="1.5" /></Ico>,
+  users: <Ico><circle cx="9" cy="8" r="3.5" /><path d="M2.5 20a6.5 6.5 0 0113 0" /><path d="M16 4.5a3.5 3.5 0 010 7" /><path d="M21.5 20a6.5 6.5 0 00-4-6" /></Ico>,
+  logins: <Ico><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4" /><polyline points="10 17 15 12 10 7" /><line x1="15" y1="12" x2="3" y2="12" /></Ico>,
+  conversations: <Ico><path d="M21 12a8 8 0 01-11.6 7.1L4 21l1.9-5.4A8 8 0 1121 12z" /><line x1="8.5" y1="10.5" x2="15.5" y2="10.5" /><line x1="8.5" y1="14" x2="13" y2="14" /></Ico>,
+  audit: <Ico><path d="M12 3l8 3v6c0 4.5-3.4 8.3-8 9-4.6-.7-8-4.5-8-9V6z" /><polyline points="8.5 12 11 14.5 15.5 10" /></Ico>,
+  back: <Ico><path d="M21 11.5a8.4 8.4 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.4 8.4 0 01-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.4 8.4 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" /></Ico>,
+  queries: <Ico><circle cx="11" cy="11" r="7" /><line x1="20" y1="20" x2="16.2" y2="16.2" /></Ico>,
+  denied: <Ico><circle cx="12" cy="12" r="9" /><line x1="5.6" y1="5.6" x2="18.4" y2="18.4" /></Ico>,
+};
+// Navigation groups and each page's heading.
+const NAV = [
+  ['Menu', ['overview', 'users']],
+  ['Activity', ['logins', 'conversations', 'audit']],
+];
+const PAGE = {
+  overview: ['Overview', 'Usage of Megh One AI at a glance'],
+  users: ['Users', 'Create officers and manage their access'],
+  logins: ['Login events', 'Sign-ins, sign-outs and failed attempts'],
+  conversations: ['Conversations', 'Officer chat threads and every turn in them'],
+  audit: ['Query audit', 'Every question, how it was answered and whether it was allowed'],
+};
+const initials = (s) => String(s || '?').trim().split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+// A card's title row: heading, an optional count and anything on the right.
+const CardHead = ({ title, count, children }) => (
+  <div className="card-head">
+    <h2>{title}{count != null && <span className="count-pill">{num(count)}</span>}</h2>
+    {children && <div className="card-tools">{children}</div>}
+  </div>
+);
 
 function LogTable({ events }) {
   return (
@@ -78,14 +114,24 @@ function Overview() {
   if (!stats) return <Loading />;
   return (
     <>
-      <div className="grid4">
-        <div className="card"><div className="muted">Queries</div><div className="stat">{stats.queries ?? 0}</div></div>
-        <div className="card"><div className="muted">Denied</div><div className="stat" style={{ color: 'var(--bad)' }}>{stats.denied ?? 0}</div></div>
-        <div className="card"><div className="muted">Active officers</div><div className="stat">{stats.active_users ?? 0}</div></div>
-        <div className="card"><div className="muted">Conversations</div><div className="stat">{stats.conversations ?? 0}</div></div>
+      <div className="kpis">
+        {[
+          ['queries', 'Queries', stats.queries, 'Questions asked by officers', ''],
+          ['denied', 'Denied', stats.denied, stats.queries
+            ? `${((100 * (stats.denied || 0)) / stats.queries).toFixed(1)}% of all queries` : 'No queries yet', 'bad'],
+          ['users', 'Active officers', stats.active_users, 'Accounts in use', ''],
+          ['conversations', 'Conversations', stats.conversations, 'Chat threads started', ''],
+        ].map(([icon, label, value, note, tone]) => (
+          <div key={label} className={'kpi ' + tone}>
+            <div className="kpi-top"><span className="kpi-label">{label}</span><span className="kpi-ico">{ICONS[icon]}</span></div>
+            <div className="kpi-value">{num(value)}</div>
+            <div className="kpi-note">{note}</div>
+          </div>
+        ))}
       </div>
-      <div className="card"><b>Recent logins</b>
-        <div className="scroll" style={{ marginTop: 8 }}>{events && <LogTable events={events} />}</div>
+      <div className="card">
+        <CardHead title="Recent logins" count={events ? events.length : null} />
+        <div className="scroll">{events && <LogTable events={events} />}</div>
       </div>
     </>
   );
@@ -163,8 +209,8 @@ function Users({ me }) {
   return (
     <>
       <div className="card">
-        <b>Create officer / admin</b>
-        <div className="muted" style={{ fontSize: 12, marginTop: 4 }}>All fields marked {req} are required.</div>
+        <CardHead title="Create officer / admin" />
+        <div className="muted" style={{ fontSize: 12, marginTop: -6 }}>All fields marked {req} are required.</div>
         <div className="row" style={{ marginTop: 8 }}>
           <div><label>Username {req}</label><input value={form.username} onChange={set('username')} /></div>
           <div><label>Name {req}</label><input value={form.name} onChange={set('name')} /></div>
@@ -179,26 +225,29 @@ function Users({ me }) {
           <div><label>Schemes (comma) {req}</label><input placeholder="MGNREGA, PMAY-G" value={form.schemes} onChange={set('schemes')} /></div>
           {me.is_super && <div><label>Tenant id</label><input placeholder="(caller tenant)" value={form.tenant} onChange={set('tenant')} /></div>}
         </div>
-        <div style={{ marginTop: 10 }}>
+        <div className="form-foot">
           <button className="primary" type="button" onClick={createUser}>Create</button>
           <span className="err"> {err}</span>
         </div>
       </div>
-      <div className="card"><b>Users ({users.length})</b>
-        <div className="scroll" style={{ marginTop: 8 }}>
+      <div className="card">
+        <CardHead title="Users" count={users.length} />
+        <div className="scroll">
           <table>
             <thead><tr><th>id</th><th>username</th><th>name</th><th>role</th><th>districts</th><th>schemes</th><th>active</th><th>last login</th><th /></tr></thead>
             <tbody>
               {users.map((u) => (
                 <tr key={u.user_id}>
-                  <td>{u.user_id}</td><td>{u.username}</td><td>{u.name}</td><td>{u.role}</td>
+                  <td className="muted">{u.user_id}</td>
+                  <td><span className="who-cell"><span className="mini-av">{initials(u.name || u.username)}</span>{u.username}</span></td>
+                  <td>{u.name}</td><td><span className="chip">{u.role}</span></td>
                   <td>{(u.districts || []).join(', ')}</td><td>{(u.schemes || []).join(', ')}</td>
                   <td><Tag ok={isOnline(u)}>{isOnline(u) ? 'yes' : 'no'}</Tag></td>
                   <td className="muted">{fmtTs(u.last_login_at)}</td>
-                  <td>
-                    <button className="danger" type="button" onClick={() => deactivate(u.user_id)}>Deactivate</button>{' '}
-                    <button type="button" onClick={() => resetPw(u.user_id)}>Reset pw</button>{' '}
-                    {me.is_super && <button className="danger" type="button" onClick={() => deleteUser(u.user_id, u.username)}>Delete</button>}
+                  <td className="actions-cell">
+                    <button className="danger sm" type="button" onClick={() => deactivate(u.user_id)}>Deactivate</button>{' '}
+                    <button className="sm" type="button" onClick={() => resetPw(u.user_id)}>Reset pw</button>{' '}
+                    {me.is_super && <button className="danger sm" type="button" onClick={() => deleteUser(u.user_id, u.username)}>Delete</button>}
                   </td>
                 </tr>
               ))}
@@ -215,8 +264,9 @@ function Logins() {
   const [events, setEvents] = useState(null);
   useEffect(() => { api('/admin/logins?limit=300').then((l) => setEvents(l.events)).catch(() => {}); }, []);
   return (
-    <div className="card"><b>Login events</b>
-      <div className="scroll" style={{ marginTop: 8 }}>{events ? <LogTable events={events} /> : 'loading…'}</div>
+    <div className="card">
+      <CardHead title="Login events" count={events ? events.length : null} />
+      <div className="scroll">{events ? <LogTable events={events} /> : 'loading…'}</div>
     </div>
   );
 }
@@ -233,8 +283,9 @@ function Conversations() {
   };
   return (
     <>
-      <div className="card"><b>Officer conversations</b>
-        <div className="scroll" style={{ marginTop: 8 }}>
+      <div className="card">
+        <CardHead title="Officer conversations" count={convs ? convs.length : null} />
+        <div className="scroll">
           {!convs ? 'loading…' : (
             <table>
               <thead><tr><th>started</th><th>last</th><th>officer</th><th>turns</th><th>title</th><th /></tr></thead>
@@ -243,7 +294,7 @@ function Conversations() {
                   <tr key={c.conv_id}>
                     <td className="muted">{fmtTs(c.started_at)}</td><td className="muted">{fmtTs(c.last_at)}</td>
                     <td>{c.username || c.user_id}</td><td>{c.turn_count}</td><td>{c.title}</td>
-                    <td><button type="button" onClick={() => open(c.conv_id)}>Open</button></td>
+                    <td><button className="sm" type="button" onClick={() => open(c.conv_id)}>Open</button></td>
                   </tr>
                 ))}
               </tbody>
@@ -255,9 +306,9 @@ function Conversations() {
         <div className="card">
           {!detail.turns ? 'loading…' : (
             <>
-              <b>Conversation #{detail.id}</b> — {detail.turns.length} turns
+              <CardHead title={`Conversation #${detail.id}`} count={detail.turns.length} />
               {detail.turns.map((t, i) => (
-                <div key={i} style={{ margin: '10px 0', borderLeft: '2px solid var(--line)', paddingLeft: 10 }}>
+                <div key={i} className="turn">
                   <div><b>Q:</b> {t.question} {t.rewritten_question && <span className="muted">→ {t.rewritten_question}</span>}</div>
                   <div><b>A:</b> {t.answer}</div>
                   <div className="muted">
@@ -285,11 +336,13 @@ function Audit() {
   }, [deniedOnly]);
   return (
     <div className="card">
-      <b>Query audit</b>
-      <label style={{ display: 'inline-block', marginLeft: 10 }}>
-        <input type="checkbox" style={{ width: 'auto' }} checked={deniedOnly} onChange={(e) => setDeniedOnly(e.target.checked)} /> denied only
-      </label>
-      <div className="scroll" style={{ marginTop: 8 }}>
+      <CardHead title="Query audit" count={records ? records.length : null}>
+        <label className="toggle">
+          <input type="checkbox" checked={deniedOnly} onChange={(e) => setDeniedOnly(e.target.checked)} />
+          <span className="toggle-track"><span className="toggle-knob" /></span> Denied only
+        </label>
+      </CardHead>
+      <div className="scroll">
         {!records ? 'loading…' : (
           <table>
             <thead><tr><th>time</th><th>officer</th><th>question</th><th>route</th><th>grain</th><th>schemes</th><th>rows</th><th>ms</th><th>result</th></tr></thead>
@@ -299,7 +352,7 @@ function Audit() {
                   <td className="muted">{fmtTs(r.created_at)}</td><td>{r.username}</td><td>{r.question}</td>
                   <td>{r.route}</td><td>{r.granularity}</td><td>{(r.schemes || []).join(', ')}</td>
                   <td>{r.row_count ?? ''}</td><td>{Math.round(r.latency_ms || 0)}</td>
-                  <td>{r.allowed ? <Tag ok>ok</Tag> : <span className="tag bad">denied: {r.denied_by}</span>}</td>
+                  <td>{r.allowed ? <Tag ok>ok</Tag> : <span className="tag bad"><i className="tag-dot" />denied: {r.denied_by}</span>}</td>
                 </tr>
               ))}
             </tbody>
@@ -378,9 +431,9 @@ export default function AdminApp() {
 
   if (view === 'login') {
     return (
-      <div className="login card">
-        <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 16 }}>
-          <div className="brand-logo">M</div>
+      <div className="login-page"><div className="login card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 11, marginBottom: 18 }}>
+          <div className="brand-logo lg">M</div>
           <div>
             <h1 style={{ margin: 0, fontSize: 16 }}>Admin Console</h1>
             <div className="muted" style={{ fontSize: 12 }}>Megh One AI · MGNREGA / PMAY-G</div>
@@ -397,30 +450,52 @@ export default function AdminApp() {
         <div className="muted" style={{ fontSize: 12, marginTop: 10 }}>
           First run: <code>POST /api/auth/bootstrap</code> to create a super_admin.
         </div>
-      </div>
+      </div></div>
     );
   }
 
   const Panel = { overview: Overview, users: Users, logins: Logins, conversations: Conversations, audit: Audit }[tab] || Overview;
+  const label = Object.fromEntries(TABS);
+  const [title, subtitle] = PAGE[tab] || PAGE.overview;
+  const tenant = me.tenant ? me.tenant.name : '—';
   return (
-    <>
-      <header>
-        <div className="brand-logo">M</div>
-        <h1>Megh One AI · Admin Console</h1>
-        <span className="who">{me.username} · {me.role} · {me.tenant ? me.tenant.name : '—'}</span>
-        <button className="primary" type="button" title="Return to the chat console" onClick={() => { window.location.href = '/megh-chat'; }}>
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-               style={{ width: 14, height: 14, verticalAlign: -2, marginRight: 6 }}>
-            <path d="M21 11.5a8.4 8.4 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.4 8.4 0 01-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.4 8.4 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" />
-          </svg>Back to chat
-        </button>
-      </header>
-      <div className="wrap">
-        <nav>
-          {TABS.map(([k, label]) => <a key={k} href={'#' + k} className={k === tab ? 'active' : ''}>{label}</a>)}
+    <div className="adm">
+      <aside className="adm-side">
+        <div className="adm-brand">
+          <div className="brand-logo">M</div>
+          <div><div className="adm-brand-name">Megh One AI</div><div className="adm-brand-sub">Admin Console</div></div>
+        </div>
+        <nav className="adm-nav" aria-label="Admin sections">
+          {NAV.map(([section, keys]) => (
+            <div className="adm-sec" key={section}>
+              <div className="adm-sec-label">{section}</div>
+              {keys.map((k) => (
+                <a key={k} href={'#' + k} className={'adm-link' + (k === tab ? ' active' : '')} aria-current={k === tab ? 'page' : undefined}>
+                  {ICONS[k]}<span>{label[k]}</span>
+                </a>
+              ))}
+            </div>
+          ))}
+          <div className="adm-sec">
+            <div className="adm-sec-label">General</div>
+            <a className="adm-link" href="/megh-chat" title="Return to the chat console">{ICONS.back}<span>Back to chat</span></a>
+          </div>
         </nav>
-        <main><Panel key={tab} me={me} /></main>
+        <div className="adm-me">
+          <span className="mini-av lg">{initials(me.name || me.username)}</span>
+          <div className="adm-me-text"><div className="adm-me-name">{me.username}</div><div className="adm-me-role">{me.role} · {tenant}</div></div>
+        </div>
+      </aside>
+      <div className="adm-main">
+        <header className="adm-top">
+          <div className="adm-title"><h1>{title}</h1><p>{subtitle}</p></div>
+          <div className="adm-user">
+            <span className="mini-av">{initials(me.name || me.username)}</span>
+            <div><div className="adm-user-name">{me.username}</div><div className="adm-user-role">{me.role}</div></div>
+          </div>
+        </header>
+        <main className="adm-content"><Panel key={tab} me={me} /></main>
       </div>
-    </>
+    </div>
   );
 }

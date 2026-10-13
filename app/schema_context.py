@@ -1097,7 +1097,7 @@ CM ELEVATE LEGACY RULES (breaking these produces a wrong number, not just an ugl
   8. GEOGRAPHY. lgd_district and lgd_block are UPPERCASE literals ('WEST GARO HILLS',
      'UMLING'); Title Case returns zero rows silently. Municipal Board areas are separate
      block values: 'RESUBELPARA-MUNICIPAL BOARD', 'WILLIAM NAGAR-MUNICIPAL BOARD',
-     'TURA MUNICIPAL BOARD-MUNICIPAL BOARD'. Regions are not a column: Garo Hills = EAST,
+     'TURA MUNICIPAL BOARD'. Regions are not a column: Garo Hills = EAST,
      NORTH, SOUTH, SOUTH WEST and WEST GARO HILLS; Khasi Hills = EAST KHASI HILLS, EASTERN
      WEST KHASI HILLS, SOUTH WEST KHASI HILLS, WEST KHASI HILLS; Jaintia Hills = EAST and
      WEST JAINTIA HILLS; Ri Bhoi is its own group. "WKH" is WEST KHASI HILLS, not Eastern

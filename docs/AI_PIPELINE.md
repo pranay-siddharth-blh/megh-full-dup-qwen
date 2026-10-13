@@ -1194,6 +1194,26 @@ all financial years" means the **same operation on another scheme**.
 
 ---
 
+### 5.8 Conversation layer and topic memory (2026-10-08, D-043; LIVE-VERIFIED)
+
+Runs in `routers.query._answer` after `session_sync.sync_in`, before the caches
+(`conversation_layer.prepare_turn`). It hands the pipeline a question, or answers a bare reset itself.
+Off with `CONVERSATION_LAYER_ENABLED=false` (every message then runs exactly as before).
+
+| Message | What happens |
+|---|---|
+| any, idle > `CONTEXT_IDLE_EXPIRY_SECONDS` (1800) | state, turns, summary, pending pause and topics cleared; a paused LangGraph run for the thread deleted; then the message runs fresh (cacheable) |
+| "start a new topic", "forget the previous question", "let's start again", "reset" | the same clearing; bare -> edge reply `edge_type: context_reset`; "Forget that. How many …?" -> only the question runs |
+| "what was the PMAY-G information again?", "remind me about PMAY-G" (a topic this chat holds, not the active one) | -> `Go back to PMAY-G, <PMAY-G's last question>` for topic_memory |
+| "How many beneficiaries are there?" right after a single-scheme KNOWLEDGE answer (also after "go back to X", and inside "coming back to X, …") | -> `… under PMAY-G?`, the pipeline's own `_measure_after_knowledge` rewrite (KI-222) |
+| "What about PMAY-G?" | untouched: the existing scheme swap (§5.6) |
+
+Topic memory (`app/topic_memory.py`, called first thing in `_turn_context_stage`) keeps one record per
+scheme topic (state, last turn, last 5 questions, summary) and restores it on "go back to / coming back
+to / back to / switch back to …"; an unnamed "the previous topic" with two or more candidates asks
+which. `session.topics` and `session.context_at` are in the durable snapshot, so both work on any
+worker. A topic switch, a reset and a rewritten turn are never cached.
+
 ## 6. Post-answer
 - `followups.build_followups(route, question, schemes, resolved, sql, rows)`: up to 3
   deterministic `follow_up_options`, from per-scheme banks. No model call.

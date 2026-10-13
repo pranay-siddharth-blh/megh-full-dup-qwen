@@ -70,7 +70,31 @@ _LEADING_QUESTION_HEADING = re.compile(r"\A#{1,6}[ \t]+.*\?[ \t]*\n+")
 
 
 def _clean_for_display(text: str) -> str:
-    return _MD_HEADING.sub("", text).strip()
+    return _hide_internal_sources(_MD_HEADING.sub("", text).strip())
+
+
+# The user must never be told about the bot's own sources — "The provided
+# reference material does not contain a helpline number", "the passages do not
+# specify..." (General TC-006/015, test run 2026-10-09: the expected reply is a
+# user-friendly limitation, not a knowledge-base one). The prompt says so too,
+# but prose rules fail under sampling, so every displayed answer is rewritten
+# here: the internal source becomes "the published scheme information", which
+# keeps the sentence grammatical ("...does not contain X, but notes that...").
+_INTERNAL_SOURCE = re.compile(
+    r"\b(?:the\s+)?(?:(?:provided|available|given|above|retrieved)\s+)?(?:scheme\s+)?"
+    r"(?:reference\s+(?:material|passages?|documents?|docs?|text)|"
+    r"(?:provided|given|above|retrieved)\s+(?:passages?|documents?|context|text)|"
+    r"passages?(?:\s+(?:provided|above|given))?|knowledge[\s-]?base|"
+    r"source\s+(?:data|documents?|material))\b",
+    re.IGNORECASE)
+_SENTENCE_START = re.compile(r"(?:(?:\A|\n)\s*(?:[-*]\s+)?|[.!?]\s+)\Z")
+
+
+def _hide_internal_sources(text: str) -> str:
+    def repl(m: re.Match) -> str:
+        at_start = bool(_SENTENCE_START.search(m.string[: m.start()]))
+        return "The published scheme information" if at_start else "the published scheme information"
+    return _INTERNAL_SOURCE.sub(repl, text or "")
 
 
 def _strip_heading(text: str) -> str:
@@ -176,6 +200,22 @@ async def retrieve(question: str, scheme: str | None = None) -> list[dict]:
     return reranked or candidates[: settings.RAG_RERANK_TOP_N]
 
 
+_DOCS_QUESTION = re.compile(r"\bdocuments?\b|\bdocs\b|\bpapers?\b|\bproofs?\b|\bcertificates?\b|"
+                            r"\bwhat\s+(?:do\s+i|should\s+i|to)\s+(?:carry|bring|submit)\b",
+                            re.IGNORECASE)
+_LIST_QUESTION = re.compile(_DOCS_QUESTION.pattern + r"|\bhow\s+(?:do|can|should|to|does)\s+"
+                            r"(?:i\s+|we\s+|one\s+|someone\s+|a\s+\w+\s+)?(?:apply|register|enrol|get)\b|"
+                            r"\bapplication\s+(?:process|steps|procedure)\b|\bsteps\b",
+                            re.IGNORECASE)
+_DOCS_RULE = """
+Documents question — split the list into two groups, each with its own short intro
+line: "Required:" for documents the passages present as needed for everyone, and
+"May also be asked for:" for those the passages qualify ("where required", "may",
+"if applicable", "for urban groups", "any additional form"). Where the passages say a
+document is NOT needed (e.g. "no income certificate is required"), add one closing
+line saying so. Never move a document into "Required" that the passages qualify."""
+
+
 async def answer_from_kb(question: str, scheme: str | None = None,
                          retrieval_query: str | None = None) -> dict | None:
     """Answer a scheme-knowledge question, or None if the KB doesn't cover it.
@@ -190,7 +230,11 @@ async def answer_from_kb(question: str, scheme: str | None = None,
     sources = [{"doc": c["doc"], "heading": c["heading"],
                 "source_type": c.get("source_type", "sme")} for c in chunks]
 
-    if top_score >= settings.RAG_HIGH_CONFIDENCE:
+    # A documents or how-to-apply question is always composed, never the top
+    # chunk verbatim: verbatim, MGNREGA's "documents?" was one run-on sentence
+    # and nothing marked which documents are required (General TC-006, test
+    # run 2026-10-09). The composer's list and required/optional rules apply.
+    if top_score >= settings.RAG_HIGH_CONFIDENCE and not _LIST_QUESTION.search(question or ""):
         return {
             "answer": _strip_heading(top["text"]),
             "confidence": "high",
@@ -199,9 +243,16 @@ async def answer_from_kb(question: str, scheme: str | None = None,
 
     if top_score >= settings.RAG_MEDIUM_CONFIDENCE:
         context = "\n\n---\n\n".join(_strip_heading(c["text"]) for c in chunks)
+        docs_rule = _DOCS_RULE if _DOCS_QUESTION.search(question or "") else ""
         prompt = f"""{_naming_note(scheme)}Answer the question using ONLY the reference passages below. If they do
 not contain the answer, say "That isn't covered in the scheme reference material."
 Do not invent numbers, dates, or amounts. No Markdown headings ("#", "##", "###").
+Speak to the user directly. Never mention "reference material", "passages",
+"documents provided", "context" or a knowledge base in your answer; when a detail is
+not published, say so plainly (e.g. "There is no single published checklist") and
+say where to confirm it (the Block office, Gram Panchayat or the scheme portal).
+Answer exactly what is asked: a "how to apply" question gets the application steps
+in order, not a list of documents.{docs_rule}
 
 Formatting — this is read in a chat bubble, so structure it for a quick scan:
 - If the answer is a single fact, give it in one to two plain sentences.
@@ -328,7 +379,7 @@ Answer:"""
 
     missing = [s for s in schemes if s not in covered]
     if missing:
-        cleaned += ("\n\nI don't have reference material covering this for "
+        cleaned += ("\n\nI don't have published information covering this for "
                     f"{', '.join(missing)}.")
 
     return {

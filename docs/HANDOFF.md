@@ -3,7 +3,101 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
-**Latest (2026-10-08): word-by-word reveal of every fresh answer. Frontend only, uncommitted.** See CURRENT_STATE.md.
+**Latest (2026-10-12, evening): CM Elevate Legacy sheet test + fixes (KI-273..278). Code changed, uncommitted. LIVE-VERIFIED.**
+- USER DECISION: a bare "CM-ELEVATE" data question defaults to CM Elevate Legacy unless it uses applications-only words
+  (applicants, pending, status, sector, sent back, level, on hold, verification …). None of the 529 CM Elevate sheet
+  questions change dataset. Test sample questions updated accordingly.
+- Workbook "CM Elevate Legacy" sheet G/H (9th: 25 Pass / 11 Fail) and I/J (After Fix 36/36) — written only when the
+  workbook is not open in Excel (it was locked; FOCUS G..J likewise pending: `write_fl.py`, `write_cl.py`).
+- Live on the final code: sheet 300/300 (13 schemes, 12 districts, 59 blocks, 55 constituencies, both FYs) and EVERY
+  CM Elevate Legacy village 1,051/1,051. New tests `tests/test_cmelevate_legacy_sheet_fixes.py`.
+- ALL SEVEN SHEETS DONE: General, MGNREGA, PMAY-G, CM Elevate, Focus +, FOCUS (Focus Legacy), CM Elevate Legacy.
+
+**Earlier (2026-10-12): Focus Legacy ("FOCUS" tab) sheet test + fixes (KI-264..272). Code changed, uncommitted. LIVE-VERIFIED.**
+- Workbook FOCUS sheet: G/H "9th Result/Remarks" (19 Pass / 9 Fail, judged on the bot), I/J "After Fix" (28/28 Pass).
+  Live on the final code: sheet cases 231/231 (every district, block 56, constituency 55, all FYs + the 2023-24 gap)
+  and EVERY Focus Legacy village 3,384/3,384 (`tests/sheet_runs/fl_run.py`, `fl_all.py`, `fl_drive.sh`, `write_fl.py`).
+  New tests `tests/test_focuslegacy_sheet_fixes.py`.
+- Finished sheets: General, MGNREGA, PMAY-G, CM Elevate, Focus +, FOCUS (Focus Legacy). NEXT: CM Elevate Legacy when
+  the user names it.
+
+**Earlier (2026-10-11): Focus + sheet test + fixes (KI-260..263). Code changed, uncommitted. LIVE-VERIFIED.**
+- Workbook Focus + sheet: N/O "9th Result/Remarks" (27 Pass / 3 Fail), P/Q "After Fix" (30/30 Pass). Live on the final
+  code: sheet cases 163/163 (every district 12, block 50, both FYs x 4 formats, batches, tranches, district pairs)
+  and EVERY Focus Plus village 3,513/3,513 (`tests/sheet_runs/fp_run.py`, `fp_all.py`, `write_fp.py`; the VPN
+  flapped, `fp_drive.sh`-style resume). New tests `tests/test_focusplus_sheet_fixes.py`.
+- Finished sheets: General, MGNREGA, PMAY-G, CM Elevate, Focus +. NEXT: the user names FOCUS or CM Elevate Legacy.
+
+**Earlier (2026-10-10, evening): CM Elevate sheet test + fixes (KI-253..259). Code changed, uncommitted. LIVE-VERIFIED.**
+- Workbook CM Elevate sheet: N/O "9th Result/Remarks" (20 Pass / 10 Fail), P/Q "After Fix" (30/30 Pass). Live on the
+  final code: sheet cases 529/529 (every block 66, district 12, programme 15) and EVERY CM Elevate village
+  2,087/2,087 (`tests/sheet_runs/ce_run.py`, `ce_all.py`, `write_ce.py`). New tests `tests/test_cme_sheet_fixes.py`.
+- The user's rule: test only the scheme they name; General, MGNREGA, PMAY-G and CM Elevate are finished.
+- NEXT: the user names the next sheet (Focus +, FOCUS, CM Elevate Legacy).
+
+**Earlier (2026-10-10, later): PMAY-G sheet test + fixes (KI-249..252). Code changed, uncommitted. LIVE-VERIFIED.**
+- Workbook PMAY-G sheet: Q/R "9th Result/Remarks" (25 Pass / 3 Fail), S/T "After Fix" (28/28 Pass). Live: sheet cases
+  678/678 (every block, district, pairs, all FYs, dates) and EVERY PMAY-G village 5,121/5,121 on the final code
+  (`tests/sheet_runs/pm_run.py`, `pm_all.py`). New tests `tests/test_pmay_sheet_fixes.py`.
+- The user's rule: test only the scheme they name; General and MGNREGA are finished and are not re-run live.
+- NEXT: the user names the next sheet (CM Elevate, Focus +, FOCUS, CM Elevate Legacy).
+
+**Earlier (2026-10-10): full-hierarchy pass for General + MGNREGA (KI-244..248). Code changed, uncommitted. LIVE-VERIFIED.**
+- Every MGNREGA village (6,491) through the pipeline, one sheet question each (`tests/sheet_runs/mg_all.py`, resumable;
+  stopped once by a VPN drop at 2,200 and resumed): 6,491/6,491 pass on the final code. Sheet cases re-run 783/783
+  (all blocks, districts, constituencies, FYs); General re-run 24/24 (TC-023 182/182). Workbook After Fix remarks
+  carry the hierarchy evidence. Process documented in `reference_documents/README.md`; scripts in `tests/sheet_runs/`.
+- NEXT: the user names the next sheet (PMAY-G, CM Elevate, Focus +, FOCUS, CM Elevate Legacy) — same process,
+  including EVERY village / block / district / constituency of that scheme.
+
+**Earlier (2026-10-09, latest): MGNREGA sheet test + fixes (KI-236..243). Code changed, uncommitted. LIVE-VERIFIED.**
+- Workbook MGNREGA sheet (DATA-001..030): Q "9th Result", R "9th Remarks" (13 Pass / 17 Fail), S "After Fix",
+  T "After Fix Remarks" (30/30 Pass). Next: the user names the next sheet (PMAY-G, CM Elevate, Focus +, FOCUS, CM Elevate Legacy).
+- Method (scratchpad `gentest/mg_run.py`, `mg_score.py`): 783 live conversations — 24 villages (2 per district, all 4 FYs,
+  4 year formats), 8 same-name villages, all 55 blocks (blocks that are also villages asked bare and as "X block"),
+  all 12 districts, all 56 constituencies, rankings for every FY; every expected figure from megh_db.
+- Fixes in `app/pipeline.py`: `_MGNREGA_EXPENDITURE_WORD` (expenditure = MGNREGA), `_is_data_shaped` (guardrail scope
+  overrule), `_unknown_word_runs` + spend-word + all-schemes checks in `_rephrase_violation`, `_place_words` no longer caches
+  an empty set, `_USER_NAMED_CONSTITUENCY` (no AC drill-down when typed), HQ-town district alias -> block/AC test in the
+  admin-level gate, `_MGNREGA_MIXED_AGG_RATIO_RE`, deterministic `_mgnrega_combined_facts_answer` and
+  `_mgnrega_breakdown_query/_answer`, `_mgnrega_village_list_no_limit`, `_states_wrong_list_count`, fallbacks get all rows,
+  `_data_path_kb_fallback` skips the KB for figure questions, a rephrased question is routed by `_typed_intent(raw)`.
+- Tests: new `tests/test_mgnrega_sheet_fixes.py` (29); updated `test_mgnrega_usecase_fixes.py` (expenditure now pins
+  MGNREGA), `test_query_rephraser.py`. pytest 2,034 passed, 0 failed; scripts 14/14.
+
+**Earlier (2026-10-09, later): General sheet test + fixes (KI-228..235; KI-225 fixed). Code changed, uncommitted. LIVE-VERIFIED.**
+- Workbook `reference_documents/Test Case Results - 30th Sep 26.xlsx`, General sheet: columns J "9th Result", K "9th Remarks"
+  (15 Pass / 9 Fail), then L "After Fix", M "After Fix Remarks" (all 24 Pass after the fixes). Other sheets untouched.
+  The user will name the next sheet (MGNREGA, PMAY-G, CM Elevate, Focus +, FOCUS, CM Elevate Legacy), one at a time, same method.
+- Files: `app/pipeline.py` (`_scheme_listing_lines`, `_recent_compared_schemes`, `_is_entitlement_question`,
+  `_overrules_scope_verdict`, `_WHICH_YEAR_CUE`, `_is_yearwise_reply`, `_WHERE_SCOPED_RE`, `_mgnrega_top_one_wording`,
+  `_knowledge_not_covered_answer`), `app/rag.py` (`_hide_internal_sources`, `_LIST_QUESTION`, `_DOCS_RULE`), `app/guardrails.py`
+  (two SAFE prompt lines), `app/edge.py` (money_advice names six), `data/reference/FOCUS_LEGACY_FAQ.md` (§8a; KB re-ingested,
+  202 points), tests `test_general_sheet_fixes.py` (new, 42), `test_cm_elevate_legacy.py`, `test_scheme_recommendation.py`.
+- Harness (scratchpad `0505c350-…/scratchpad/gentest/`): `harness.py`, `run_general.py` (262 conversations incl. 182
+  hierarchy cases), `rerun_failed.py`, `trace.py "q1" "q2"` (TRACE_LOG=1 for node logs, REINGEST=1 to rebuild the KB).
+- Tests: pytest 1,962 + 42 new passed, 0 failed; scripts 14/14.
+
+**Earlier (2026-10-08, later): conversation layer (D-043, KI-222). Code changed, uncommitted. LIVE-VERIFIED.**
+- The user asked for the conversational-feature spec WITHOUT changing existing code; they approved small additive edits
+  to `routers/query.py`, `session_store.py`, `config.py` and docs only, and asked to keep the earlier topic-memory work.
+  **`pipeline.py` was not edited in this session** (its one uncommitted hunk for topic memory predates it).
+- Files: new `app/conversation_layer.py`, `tests/test_conversation_layer.py` (69); `app/routers/query.py` (`prepare_turn`
+  call; `question` replaces `req.question` for answer_question / pause_question / build_turn; `is_cacheable` rejects
+  `topic_memory.is_topic_command`); `app/session_store.py` (`topics`, `context_at` + snapshot keys); `app/config.py`
+  (`CONVERSATION_LAYER_ENABLED`, `CONTEXT_IDLE_EXPIRY_SECONDS`); `app/topic_memory.py` docstring only.
+- Live harness: scratchpad `8e45ba45-…/scratchpad/live_conv.py [S1 S7 …]` (env `%TEMP%\megh-sv`, run from repo root,
+  `DB_POOL_MIN_SIZE=2 DB_POOL_MAX_SIZE=6`); writes nothing.
+- Live test cases: scratchpad `live_cases.py [FU TS RT …]` -> 36/38. KI-226 fixed in the layer. **KI-225 (High, open):** the
+  guardrail MODEL check (commit `856044a`) refuses "give me for pmay" after MGNREGA data; ask the user before touching `guardrails.py`.
+- NEXT: re-run `tests/live_context_validation.py` (not run this session; it does not go through `_answer`, so it does not
+  exercise the layer); decide KI-223 (needs a `pipeline.py` change, ask the user); optionally move the KI-222 fix into the
+  pipeline's follow-up branch; restart the server; commit when the user asks.
+
+**Latest (2026-10-09): Qdrant stays `http://115.124.102.167:6335`.** A switch to `10.48.242.4:6335` was reverted the same
+day (that port did not answer). No net config change.
+
+**Earlier (2026-10-08): word-by-word reveal of every fresh answer. Frontend only, uncommitted.** See CURRENT_STATE.md.
 - New `frontend/src/chat/reveal.js`; `Messages.jsx` (`TypingMessage` / `BotMessage` take `streamKey`, `animate`);
   `App.jsx` marks fresh answers `animate: true, streamKey: typingId`. The app was running on :8400 (pid 5768, venv
   `%TEMP%\megh-sv`, started from `meghalaya/`); the new build is served from disk, no restart needed.

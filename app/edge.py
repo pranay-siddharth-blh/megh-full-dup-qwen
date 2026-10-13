@@ -575,8 +575,8 @@ _RESPONSES = {
     "money_advice": (
         "I can't advise on investing or saving your own money — I'm not a financial "
         "adviser, and that's outside what I do. I'm Megh One AI: I answer questions "
-        "about Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate and Focus Legacy "
-        "schemes — who "
+        "about Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy and "
+        "CM Elevate Legacy schemes — who "
         "is eligible, what benefits they pay, how to apply, and the actual figures by "
         "district, block or year. If you'd like to know what any of those schemes "
         "offers, ask away."

@@ -166,6 +166,14 @@ class Session:
     # substitution, the pause reply, the merge plan). Reset every request and
     # never persisted.
     turn_context: dict = field(default_factory=dict)
+    # Topic memory (app/topic_memory.py): one record per topic of this
+    # conversation, so "go back to MGNREGA" restores MGNREGA's place and year.
+    # Part of the durable snapshot, so a return works on any worker.
+    topics: dict = field(default_factory=dict)
+    # Wall-clock time (time.time()) of this conversation's last message, for
+    # the idle expiry in app/conversation_layer.py. Wall clock, not monotonic:
+    # it is compared across workers and VMs. 0 = unknown (an older snapshot).
+    context_at: float = 0.0
 
     @property
     def last_turn(self) -> Turn | None:
@@ -198,6 +206,8 @@ class Session:
                 "options": list(self.pending_scope_options or []) or None,
             },
             "recent_questions": [t.question for t in self.turns[-8:] if t.question],
+            "topics": self.topics or None,
+            "context_at": self.context_at or None,
         }
         return snap
 
@@ -224,6 +234,10 @@ class Session:
         self.pending_village_hint = pending.get("village_hint")
         self.pending_scope_rule = pending.get("rule")
         self.pending_scope_options = pending.get("options")
+        # Absent in a snapshot written before topic memory / the idle expiry
+        # were stored: no topics, age unknown.
+        self.topics = dict(extra.get("topics") or {})
+        self.context_at = float(extra.get("context_at") or 0.0)
         if summary is not None:
             self.summary = summary
             self.summary_turn_count = self.state.turn_count

@@ -973,7 +973,7 @@ def collision_canonical_names(scheme: str, dimension: str) -> list[str]:
 
 
 def collides_across_dimensions(text: str, scheme: str,
-                               village_hit: bool = False) -> dict[str, str]:
+                               village_hit: bool = False, exact_village: bool = False) -> dict[str, str]:
     """Which admin levels the bare name `text` could name, as
     {dimension: canonical display name} in coarse-to-fine order ("district",
     "block", "assembly_constituency", "village"). Empty when the name is not
@@ -1033,6 +1033,13 @@ def collides_across_dimensions(text: str, scheme: str,
                 matched = True
                 break
         if matched:
+            continue
+        # A name that IS a village of the scheme, spelled exactly, is no typo of
+        # a block or constituency: "AMOKGRE" asked "the ADOKGRE block or the
+        # Amokgre village?", "KATALBARI" offered the BATABARI block, "RONGJENG
+        # BAZAR" the RONGJENG constituency — 50+ villages in the MGNREGA
+        # all-villages run (2026-10-09). Only exact / alias readings compete then.
+        if exact_village:
             continue
         # Fuzzy stage — same scorer and runner-up gap as resolve_dimension's
         # stage 6, at the looser floor explained above.
@@ -1134,6 +1141,29 @@ def scan_dimension(question: str, scheme: str, dimension: str, *,
     return Resolved("resolved", dimension, question,
                     canonical=_db_form(hit, dimension), confidence=0.9,
                     display=_display_form(hit, dimension))
+
+
+def scan_districts(question: str, scheme: str) -> list[str]:
+    """Every catalogue district named as a whole phrase in the question, in the
+    order they appear. A name inside a longer matched name ("West Khasi Hills"
+    inside "Eastern West Khasi Hills") does not count. Used when the
+    mention-extractor returned at most one district for a question that names
+    two ("compare ... across Eastern West Khasi Hills and East Garo Hills"), so
+    the second one is not silently dropped."""
+    padded = f" {fold(question)} "
+    spans: list[tuple[int, int, str]] = []
+    for v in _catalog.get(scheme, {}).get("district", []):
+        for form in _scannable_forms(v):
+            ff = fold(form)
+            for m in re.finditer(rf"(?<![A-Z0-9]){re.escape(ff)}(?![A-Z0-9])", padded):
+                spans.append((m.start(), m.end(), v["canonical"]))
+    kept = [s for s in spans
+            if not any(o[0] <= s[0] and s[1] <= o[1] and (o[1] - o[0]) > (s[1] - s[0]) for o in spans)]
+    out: list[str] = []
+    for _, _, c in sorted(kept):
+        if c not in out:
+            out.append(c)
+    return out
 
 
 # Words next to a region name that mean "give me the whole region", i.e. expand it to

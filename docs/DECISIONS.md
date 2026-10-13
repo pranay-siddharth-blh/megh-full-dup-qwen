@@ -776,3 +776,36 @@ not recorded.*
   previous query; untested against the live pipeline.
 - **Status:** Active. OFFLINE-VERIFIED (pytest for the hint; a Node check of analytics.js; build
   passes); not yet checked in a browser.
+
+### D-043 — A conversation layer in the router, around the pipeline (not inside it)
+- **Date:** 2026-10-08 (`app/conversation_layer.py` new; `app/routers/query.py` one call in `_answer`
+  plus the topic-switch line in `is_cacheable`; `app/session_store.py` `topics` and `context_at` in
+  the snapshot; `app/config.py` `CONVERSATION_LAYER_ENABLED`, `CONTEXT_IDLE_EXPIRY_SECONDS`;
+  `app/topic_memory.py` kept as written earlier the same day; `tests/test_conversation_layer.py`).
+- **Context:** a conversational-feature spec asked for follow-ups, topic switch and return, reset,
+  expiry and clarification resume, with the pipeline, the LangGraph graph and the database left
+  unchanged. Most of it already existed (follow-up rewrite D-022, structured state, scheme swap
+  KI-180, pause resume, edge greetings, topic memory). Missing: reset, idle expiry, plain-words
+  returns, topic memory across workers, and a measure after a knowledge answer (KI-222).
+- **Decision:** one module that runs in `routers.query._answer` after `session_sync.sync_in` and
+  before the caches, and hands the pipeline a question (or answers itself, for a bare reset):
+  1. idle expiry: older than `CONTEXT_IDLE_EXPIRY_SECONDS` (1800, the same as the in-process
+     session) -> state, turns, summary, pending pause and topics cleared, and a paused LangGraph
+     run for the thread deleted. Chat history is never touched. `context_at` 0 (older snapshot)
+     never expires;
+  2. reset ("start a new topic", "forget the previous question", "let's start again") -> the same
+     clearing; bare = a short edge acknowledgement (`edge_type` `context_reset`), with a question =
+     only the question runs;
+  3. plain-words return ("what was the PMAY-G information again?", "remind me about PMAY-G") to a
+     topic this chat already holds and is not on -> `"Go back to PMAY-G, <its last question>"`,
+     which topic_memory restores. "What about PMAY-G?" stays the existing scheme swap;
+  4. a measure-only question after a single-scheme KNOWLEDGE answer -> the pipeline's own
+     `_measure_after_knowledge` rewrite (KI-222).
+  A turn the layer answered or rewrote is not cached. The question the pipeline ran (not the raw
+  text) is what the router records as the follow-up antecedent and as a pause's question; for an
+  untouched turn they are the same string.
+- **Rejected:** a new graph node (CLAUDE.md: change behaviour in a stage, never a graph node, and
+  the spec forbade changing the graph); fixing KI-222 inside `pipeline.py` (outside the approved
+  edit list; noted as the in-pipeline alternative).
+- **Status:** Active. LIVE-VERIFIED 2026-10-08 (15 multi-turn scenarios through `_answer` with the
+  live gateway and DB); pytest 1,926 passed, 0 failed; scripts 14/14.

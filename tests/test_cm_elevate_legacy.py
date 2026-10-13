@@ -83,7 +83,7 @@ def test_policy_gated_clarify_shots_stay_out_of_the_sql_pool():
 # ── 2. Which CM Elevate dataset a question lands on ─────────────────────────
 @pytest.mark.parametrize("question", [
     "how many CM Elevate applications are on hold",
-    "CM Elevate applications by district",
+    "how many CM Elevate applicants are there in each district",
     "what is the gender split of CM Elevate applicants",
     "how many piggery applications are pending",   # "pending" = on hold there
 ])
@@ -97,6 +97,10 @@ def test_application_questions_stay_on_cm_elevate(question):
     "what is the total amount disbursed under CM Elevate",
     "CM-ELEVATE loans by lender",
     "how many CM Elevate records in FY 2024-25",
+    # the user's decision (2026-10-12): a bare "CM-ELEVATE" data question in neither
+    # dataset's own vocabulary defaults to CM Elevate Legacy
+    "CM Elevate applications by district",
+    "How many CM-ELEVATE applications are recorded in each district?",
 ])
 def test_money_year_lender_questions_move_to_legacy(question):
     q = p._pin_cm_elevate_dataset(question)
@@ -304,8 +308,11 @@ def test_legacy_tagged_docs_fold_into_the_shared_tag():
 
 
 def test_not_covered_reply_names_the_material_actually_searched():
-    assert "CM Elevate reference material" in p._knowledge_not_covered_answer("x", LEGACY)
-    assert "Focus Legacy reference material" in p._knowledge_not_covered_answer("x", "Focus Legacy")
+    assert "published information I have on CM Elevate " in p._knowledge_not_covered_answer("x", LEGACY)
+    assert "published information I have on Focus Legacy " in p._knowledge_not_covered_answer("x", "Focus Legacy")
+    # General TC-015 (2026-10-09): never name internal sources to the user.
+    for s in (LEGACY, "Focus Legacy", "MGNREGA", None):
+        assert "reference material" not in p._knowledge_not_covered_answer("x", s)
 
 
 # ── 9. "by scheme" inside CM Elevate Legacy means its own 13 sub-schemes ─────
@@ -325,14 +332,16 @@ def test_by_scheme_without_legacy_is_unchanged():
 
 
 # ── 10. "What schemes do you have?" — one programme, two datasets ───────────
-def test_scheme_listing_shows_cm_elevate_once_and_counts_correctly():
+def test_scheme_listing_shows_all_six_and_counts_correctly():
+    # General TC-001 (2026-10-09): "I cover five schemes" against six in the picker.
     ans = p._scheme_listing_answer("what schemes do you have?")["answer"]
     bullets = [line for line in ans.splitlines() if line.startswith("- **")]
-    assert ans.startswith(f"I cover {p._count_word(len(bullets))} ")
-    assert len(bullets) == 5
-    assert not any(b.startswith("- **CM Elevate Legacy**") for b in bullets)
+    assert ans.startswith("I cover six ")
+    assert len(bullets) == 6
     cm = next(b for b in bullets if b.startswith("- **CM Elevate**"))
-    assert "CM Elevate Legacy" in cm and "applications" in cm
+    assert "applications" in cm
+    legacy = next(b for b in bullets if b.startswith("- **CM Elevate Legacy**"))
+    assert "same CM-ELEVATE programme" in legacy and "disbursements" in legacy
     # every other scheme's line is exactly its summary
     for name in ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy"):
         assert f"- **{name}** — {p._SCHEME_USER_SUMMARY[name]}" in bullets
@@ -765,7 +774,8 @@ def test_a_correct_village_breakdown_is_left_alone():
 def test_raw_fallback_row_dump_becomes_a_sentence():
     # all-constituencies run: the officer got "0.58 total disbursed cr."
     row = {"total_disbursed_cr": 0.58}
-    assert p._deterministic_answer([row]) == "0.58 total disbursed cr."
+    # KI-235 (2026-10-09): the unit follows the figure, the column name is a label
+    assert p._deterministic_answer([row]) == "total disbursed ₹0.58 crore."
     assert p._cml_single_row_sentence(row, {"constituency": "MAWKYNREW"}) == \
         "Mawkynrew constituency: ₹0.58 crore disbursed under CM Elevate Legacy across all financial years."
     assert p._cml_single_row_sentence({"records": 95, "total_disbursed_cr": 2.8},

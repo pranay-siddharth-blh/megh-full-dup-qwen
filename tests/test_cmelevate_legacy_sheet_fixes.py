@@ -1,0 +1,56 @@
+"""CM Elevate Legacy sheet test run 2026-10-12 (Test Case Results - 30th Sep 26.xlsx, TC-01..TC-36):
+regression tests for the failures, against the real functions."""
+import pytest
+
+from app import pipeline as p
+
+
+# ── the user's decision: a bare "CM-ELEVATE" data question defaults to CM Elevate Legacy ──
+@pytest.mark.parametrize("q", ["How many total applications are recorded under CM-ELEVATE?",
+                               "How many CM-ELEVATE applications are recorded in each district?",
+                               "Which districts have the highest number of CM-ELEVATE applications?",
+                               "How many CM-ELEVATE applications are mapped to Amlarem constituency?",
+                               "Show me the number of CM-ELEVATE applications in each block of West Garo Hills."])
+def test_bare_cm_elevate_data_question_goes_to_legacy(q):
+    assert "CM Elevate Legacy" in p._pin_cm_elevate_dataset(q)
+
+
+@pytest.mark.parametrize("q", ["How many CM ELEVATE applicants are there in East Khasi Hills?",
+                               "How many CM ELEVATE applications are pending at level 1?",
+                               "What is the current application status distribution across CM ELEVATE?",
+                               "How many applications are currently on hold under CM Elevate?",
+                               "How many applications under Piggery scheme are currently sent back in Ri Bhoi?",
+                               "What is the CM-ELEVATE programme in Meghalaya?"])
+def test_applications_vocabulary_and_knowledge_stay_on_cm_elevate(q):
+    assert "CM Elevate Legacy" not in p._pin_cm_elevate_dataset(q)
+
+
+# ── "who are the intended beneficiaries" is a knowledge question (TC-03) ──
+def test_who_benefits_is_knowledge():
+    assert p._WHO_BENEFITS_RE.search("Who are the intended beneficiaries of CM-ELEVATE?")
+    assert p._WHO_BENEFITS_RE.search("Who can apply under CM Elevate?")
+    assert not p._WHO_BENEFITS_RE.search("How many beneficiaries are there in Ri Bhoi?")
+
+
+# ── a breakdown that asks for applications first is ranked by applications (TC-26 / TC-36) ──
+def test_order_by_records_when_applications_asked_first():
+    sql = ("SELECT COALESCE(lgd_district, 'ALL DISTRICTS') AS lgd_district, COUNT(*) AS records, "
+           "ROUND(SUM(total_disbursement)/1e7,2) AS total_disbursed_cr FROM curated.v_cm_elevate_disbursement "
+           "GROUP BY ROLLUP (lgd_district) ORDER BY GROUPING(lgd_district), total_disbursed_cr DESC")
+    out = p._cm_legacy_order_by_records("Give me a district-wise summary of applications, sanctioned cases and "
+                                        "total disbursement under CM-ELEVATE.", ["CM Elevate Legacy"], sql)
+    assert out.endswith("ORDER BY GROUPING(lgd_district), records DESC")
+    money_first = "What is the total disbursement and number of applications for each district?"
+    assert p._cm_legacy_order_by_records(money_first, ["CM Elevate Legacy"], sql) == sql
+    assert p._cm_legacy_order_by_records("x applications", ["CM Elevate"], sql) == sql
+
+
+# ── the name before "village" survives the rephraser whole and in order (all-villages run) ──
+def test_rephrase_keeps_village_name_order():
+    assert p._rephrase_violation(
+        "What is the total CM Elevate Legacy disbursement amount for kyrdemkulai 6 km village?",
+        "What is the total disbursement amount under CM Elevate Legacy for 6 km village in kyrdemkulai?") \
+        == "name:village"
+    assert p._rephrase_violation(
+        "How many cm elevate legacy applications are recorded in kyrdemkulai 6 km village?",
+        "How many CM Elevate Legacy applications are recorded in kyrdemkulai 6 km village?") is None

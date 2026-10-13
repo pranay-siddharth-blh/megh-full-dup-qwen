@@ -143,7 +143,10 @@ def test_mgnrega_only_measures_need_no_scheme_pause(q):
 
 
 @pytest.mark.parametrize("q, want", [
-    ("What was the total expenditure in DAMASH during 2024-25?", []),   # generic money word: still asks
+    # "expenditure" is MGNREGA's word — the only scheme with an expenditure column
+    # (MGNREGA sheet DATA-001/002/024, 2026-10-09); it used to ask "which scheme?".
+    ("What was the total expenditure in DAMASH during 2024-25?", ["MGNREGA"]),
+    ("Which scheme had the highest expenditure?", []),                  # about schemes: still asks
     ("how many houses sanctioned in Tura", ["PMAY-G"]),
     ("What is the PMAY administrative expenditure?", ["PMAY-G"]),       # a named scheme still wins
 ])
@@ -752,7 +755,8 @@ def test_scheme_word_inside_a_village_name_is_not_a_scheme_signal(monkeypatch):
     _stub_village_names(monkeypatch, [(277913, "UMRAN DAIRY", "UMLING", "RI BHOI")])
     q = "What was the total expenditure in UMRAN DAIRY during 2024-25?"
     masked = asyncio.run(p._mask_scheme_words_in_village_name(q))
-    assert "UMRAN DAIRY" not in masked and p._infer_scheme_from_terms(masked) is None
+    # "dairy" inside the village name is no CM Elevate signal; "expenditure" pins MGNREGA.
+    assert "UMRAN DAIRY" not in masked and p._infer_scheme_from_terms(masked) == ["MGNREGA"]
     # an explicit dairy-scheme question keeps its meaning
     q2 = "How many dairy scheme applicants in UMRAN DAIRY?"
     assert p._infer_scheme_from_terms(asyncio.run(p._mask_scheme_words_in_village_name(q2))) == ["CM Elevate"]

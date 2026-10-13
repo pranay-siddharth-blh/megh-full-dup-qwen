@@ -31,7 +31,7 @@ from app.config import settings  # noqa: E402
 from app.routers.query import build_turn, pause_question, remember_pause  # noqa: E402
 from app.session_store import Session  # noqa: E402
 
-CME = "How many applications under CM Elevate in East Khasi Hills?"
+CME = "How many applicants under CM Elevate in East Khasi Hills?"
 SQL_OK = ("SELECT SUM(no_of_applications) AS applications FROM curated.v_cm_elevate "
           "WHERE lgd_district = 'EAST KHASI HILLS'")
 _DISTRICTS = ("East Khasi Hills", "West Khasi Hills", "West Garo Hills", "Ri Bhoi")
@@ -119,7 +119,7 @@ def env(monkeypatch, tmp_path):
                     base = base.replace(old, d)
                 return base
         if "mgnrega" in question.lower():
-            return base.replace("applications under CM Elevate", "MGNREGA person-days")
+            return base.replace("applicants under CM Elevate", "MGNREGA person-days")
         return base
 
     async def kb(question, scheme=None, **_k):
@@ -292,20 +292,20 @@ def test_scheme_switch_does_not_keep_the_old_scheme(env, monkeypatch):
 
 
 def test_pause_then_reply_resumes(env, monkeypatch):
-    out = run_conv(env, monkeypatch, ["How many applications under CM Elevate?", "East Khasi Hills"])
+    out = run_conv(env, monkeypatch, ["How many applicants under CM Elevate?", "East Khasi Hills"])
     assert out[0][0] == "pause" and out[0][1]["rule"]
     assert out[1][0] == "answer" and out[1][1]["resolved_entities"].get("district") == "EAST KHASI HILLS"
 
 
 def test_thanks_abandons_a_pause(env, monkeypatch):
-    out = run_conv(env, monkeypatch, ["How many applications under CM Elevate?", "thanks"])
+    out = run_conv(env, monkeypatch, ["How many applicants under CM Elevate?", "thanks"])
     assert out[0][0] == "pause"
     assert out[1][0] == "answer" and out[1][1]["route"] == "edge"
     assert out[1][3] is None             # the pending pause is consumed
 
 
 def test_new_question_abandons_a_pause(env, monkeypatch):
-    out = run_conv(env, monkeypatch, ["How many applications under CM Elevate?", "What is CM Elevate?"])
+    out = run_conv(env, monkeypatch, ["How many applicants under CM Elevate?", "What is CM Elevate?"])
     assert out[1][0] == "answer" and out[1][1]["route"] == "knowledge"
 
 
@@ -357,7 +357,7 @@ def test_pause_is_checkpointed_and_the_thread_dropped_after_the_answer(env, monk
 
     async def between(i, session):
         seen[i] = await pg.pending_pause(session.session_id)
-    out, _ = converse(["How many applications under CM Elevate?", "East Khasi Hills", CME],
+    out, _ = converse(["How many applicants under CM Elevate?", "East Khasi Hills", CME],
                       monkeypatch=monkeypatch, between=between)
     assert seen[0] is None
     assert seen[1] and seen[1]["rule"] == out[0][1]["rule"] and seen[1]["node"]
@@ -371,9 +371,9 @@ def test_reply_resumes_even_when_the_checkpoint_is_gone(env, monkeypatch):
         if i == 1:
             rt = await pg._runtime()
             await rt.saver.adelete_thread(session.session_id)
-    kept, _ = converse(["How many applications under CM Elevate?", "East Khasi Hills"],
+    kept, _ = converse(["How many applicants under CM Elevate?", "East Khasi Hills"],
                        monkeypatch=monkeypatch)
-    lost, _ = converse(["How many applications under CM Elevate?", "East Khasi Hills"],
+    lost, _ = converse(["How many applicants under CM Elevate?", "East Khasi Hills"],
                        monkeypatch=monkeypatch, between=drop)
     assert lost == kept and lost[1][0] == "answer"
 
@@ -410,7 +410,7 @@ def test_turn_objects_round_trip():
 
 
 def test_run_trace_and_logs_carry_no_question_text(env, monkeypatch, caplog):
-    secret = "How many applications under CM Elevate in Ri Bhoi?"
+    secret = "How many applicants under CM Elevate in Ri Bhoi?"
     with caplog.at_level(logging.INFO, logger="app.pipeline_graph"):
         out, _ = converse([secret], monkeypatch=monkeypatch)
     graph_logs = [r.getMessage() for r in caplog.records if r.name == "app.pipeline_graph"]
@@ -425,7 +425,7 @@ def test_expired_pause_threads_are_swept(env, monkeypatch):
     async def main():
         s = _session("t-sweep")
         with pytest.raises(p.ClarificationNeeded):
-            await p.answer_question("How many applications under CM Elevate?", session=s)
+            await p.answer_question("How many applicants under CM Elevate?", session=s)
         assert await pg.pending_pause("t-sweep")
         assert await pg.sweep_expired_pauses(now=time.time()) == 0
         assert await pg.sweep_expired_pauses(now=time.time() + settings.PIPELINE_GRAPH_PAUSE_TTL_SECONDS + 5) == 1
@@ -446,7 +446,7 @@ def test_dataclass_shapes_the_graph_relies_on():
 # ── Pauses raised by other nodes (2026-10-02, node coverage) ─────────────────
 @pytest.mark.parametrize("question,node", [
     # entities: a district acronym with its letters reordered (KI-130 rule)
-    ("Compare CM Elevate applications in WHK and EKH", "entities"),
+    ("Compare CM Elevate applicants in WHK and EKH", "entities"),
     # scope_scheme: a bare "Focus" names neither Focus scheme (D-009)
     ("How many beneficiaries under Focus in East Khasi Hills?", "scope_scheme"),
     # route: a bank question that names no scheme asks which one (_bank_clarification)

@@ -131,7 +131,8 @@ def test_place_name_with_measure_words_is_masked():
 
 def test_scheme_stage_runs_the_gate_after_classification():
     src = inspect.getsource(p._data_scheme_stage)
-    assert "_measure_not_held_gap(question, schemes, scan_text=_scheme_q)" in src
+    # 2026-10-10: place names are masked before the gate ("Bijasik Wage Apal" is a village)
+    assert "_measure_not_held_gap(await _mask_village_names(question), schemes," in src
     assert src.index("classify_scheme(") < src.index("_measure_not_held_gap(")
 
 

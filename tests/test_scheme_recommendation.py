@@ -127,7 +127,7 @@ def test_why_after_an_ordinary_answer_compares_the_alternative(monkeypatch):
                            route="knowledge", schemes=["MGNREGA"], answer="As a farmer, MGNREGA ..."))
     r = ask("why you have given mgnrega instead of focus")
     a = r["answer"]
-    assert "drew only on **MGNREGA**'s reference material" in a
+    assert "drew only on **MGNREGA**'s published information" in a
     assert "**Focus Plus** is for" in a and "**Focus Legacy** is for" in a
     assert "the best match is **Focus Plus**" in a
 

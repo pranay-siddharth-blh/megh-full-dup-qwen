@@ -31,6 +31,26 @@
      .nav-open, which is the <=880px slide-in drawer. */
   .app.rail { --sidebar-w: 56px; }
 
+  /* Drag-to-resize handle on the sidebar's right edge (useSidebarResize.js).
+     Fixed, so it takes no grid cell; it follows --sidebar-w. A 2px line shows
+     on hover / focus / drag, like ChatGPT and Claude. */
+  .sidebar-resizer {
+    position: fixed; top: 0; bottom: 0; z-index: 90;
+    left: calc(var(--sidebar-w) - 4px); width: 8px;
+    cursor: col-resize; touch-action: none; outline: none;
+  }
+  .sidebar-resizer::after {
+    content: ''; position: absolute; top: 0; bottom: 0; left: 3px; width: 2px;
+    background: transparent; transition: background .15s ease;
+  }
+  .sidebar-resizer:hover::after,
+  .sidebar-resizer:focus-visible::after,
+  .app.resizing .sidebar-resizer::after { background: var(--p-400); }
+  /* While dragging: no grid animation (the column follows the pointer 1:1),
+     no text selection, and the resize cursor everywhere. */
+  .app.resizing { transition: none; user-select: none; -webkit-user-select: none; }
+  .app.resizing, .app.resizing * { cursor: col-resize !important; }
+
   /* ============== SIDEBAR ============== */
   .sidebar {
     background: linear-gradient(180deg, var(--p-900) 0%, var(--p-800) 100%);
@@ -607,6 +627,14 @@
   .md-table tr:last-child td { border-bottom: 0; }
   .draft-text .md-p:last-of-type { display: inline; }
 
+  /* "⋯" menu under an answer: when it was given */
+  .msg-more { position: relative; display: inline-flex; }
+  .msg-actions:has(.msg-menu) { opacity: 1; }
+  .msg-menu { position: absolute; bottom: calc(100% + 6px); left: 50%; transform: translateX(-50%); z-index: 60;
+              min-width: 180px; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+              box-shadow: 0 8px 28px rgba(26,22,38,.14); padding: 10px 14px; animation: fadeUp .12s ease-out; }
+  .msg-menu-stamp { font-size: 13px; color: var(--ink-3); white-space: nowrap; }
+
   /* "New answer" pill: shown when the officer has scrolled up to read */
   .new-below { position: absolute; top: -38px; left: 50%; transform: translateX(-50%);
                display: inline-flex; align-items: center; gap: 6px; padding: 7px 14px; border-radius: 999px;
@@ -1088,6 +1116,8 @@
     .app, .app.rail { grid-template-columns: 1fr; }
     /* The drawer is the mobile pattern — never render the rail here. */
     .rail-btn { display: none; }
+    /* ...nor the resize handle: the drawer has its own fixed width. */
+    .sidebar-resizer { display: none; }
 
     /* Slide-in drawer */
     .sidebar {
@@ -1448,4 +1478,352 @@
   .xv-backdrop { padding: 0; }
   .xv-panel { border-radius: 0; }
   .xv-body { padding: 12px; }
+}
+
+/* ============== USE CASES POPUP: accordion of schemes ============== */
+/* Plain white text cards in the console's purple: neutral borders and
+   shadows, a slightly stronger border when open. */
+
+
+/* Accordion items */
+.uc-acc { display: flex; flex-direction: column; gap: 10px; outline: none; padding: 2px; }
+.uc-item {
+  border-radius: 16px;
+  border: 1px solid var(--line);
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(30,10,60,.05);
+  transition: box-shadow .18s ease, border-color .18s ease;
+}
+.uc-item:hover { border-color: var(--p-200); box-shadow: 0 4px 14px -8px rgba(30,10,60,.18); }
+.uc-item.open { border-color: var(--p-300); box-shadow: 0 6px 18px -10px rgba(30,10,60,.22); }
+.uc-item-h { margin: 0; font: inherit; }
+.uc-card {
+  display: flex; align-items: center; gap: 14px; width: 100%; padding: 14px;
+  text-align: left; font: inherit; color: var(--ink-1); cursor: pointer;
+  background: transparent; border: 0; border-radius: 16px;
+}
+.uc-card-text { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.uc-card-name { font-size: 14.5px; font-weight: 700; letter-spacing: -.1px; color: var(--ink-1); }
+.uc-card-desc {
+  font-size: 12px; color: var(--ink-3); line-height: 1.35;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.uc-card-side { display: flex; align-items: center; gap: 10px; flex-shrink: 0; }
+.uc-count {
+  height: 24px; padding: 0 10px; border-radius: 999px;
+  display: inline-flex; align-items: center; justify-content: center; white-space: nowrap;
+  font-size: 11.5px; font-weight: 700; color: var(--p-700);
+  background: var(--p-50);
+}
+.uc-go {
+  width: 30px; height: 30px; border-radius: 50%; display: inline-flex; align-items: center; justify-content: center;
+  color: var(--ink-3); background: var(--p-50); transition: background .18s, color .18s, transform .22s ease;
+}
+.uc-card:hover .uc-go { color: var(--p-700); background: var(--p-100); }
+.uc-item.open .uc-go { color: #fff; background: var(--p-700); transform: rotate(90deg); }
+
+/* The questions panel */
+.uc-panel-inner { padding: 0 14px 14px; }
+.uc-panel:not([hidden]) .uc-panel-inner { animation: ucOpen .2s ease-out; }
+@keyframes ucOpen { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+.uc-qlist {
+  display: flex; flex-direction: column; gap: 8px; padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+.uc-q {
+  display: flex; align-items: center; gap: 12px; width: 100%; padding: 10px 12px;
+  text-align: left; font: inherit; color: var(--ink-1); cursor: pointer;
+  border-radius: 12px; border: 1px solid var(--line); background: #fff;
+  box-shadow: 0 1px 2px rgba(30,10,60,.04);
+  transition: border-color .15s, box-shadow .15s, background .15s;
+}
+.uc-q:hover { border-color: var(--p-200); background: var(--p-50); }
+.uc-q-text { flex: 1; min-width: 0; font-size: 13.5px; line-height: 1.45; overflow-wrap: anywhere; }
+.uc-q-ask {
+  display: inline-flex; align-items: center; gap: 4px; flex-shrink: 0;
+  font-size: 11.5px; font-weight: 700; color: var(--p-700);
+  opacity: 0; transform: translateX(-4px); transition: opacity .15s, transform .15s;
+}
+.uc-q:hover .uc-q-ask, .uc-q:focus-visible .uc-q-ask { opacity: 1; transform: none; }
+
+/* Keyboard focus only (no ring when the popup opens or after a click). */
+.uc-card:focus-visible, .uc-q:focus-visible, .modal-close:focus-visible {
+  outline: 2px solid var(--p-500); outline-offset: 2px;
+}
+
+@media (max-width: 640px) {
+  .uc-card { padding: 12px; gap: 12px; }
+  .uc-count { padding: 0 8px; min-width: 26px; }
+  .uc-count-word { display: none; }
+  .uc-card-side { gap: 6px; }
+  .uc-panel-inner { padding: 0 12px 12px; }
+  .uc-q-ask { display: none; }
+}
+@media (hover: none) { .uc-q-ask { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .uc-item, .uc-go, .uc-q-ask { transition: none; }
+  .uc-panel:not([hidden]) .uc-panel-inner { animation: none; }
+}
+
+/* ============== RESPONSIVE CHARTS + TABLES (2026-10-09) ==============
+   Every screen size and every sidebar width (rail, 200-480 px drag, phone
+   drawer). Last in the file on purpose: it overrides the older rules above.
+
+   Charts. Grid and flex children default to min-width:auto, so once Chart.js
+   had drawn a canvas at, say, 600 px, its card could never shrink below that:
+   on a phone, with a wider sidebar or with the rail at 1024 px the cards stuck
+   out of the chat column, were clipped on the right and overlapped each other
+   (an Expand button lay under the next card). min-width:0 down the chain lets
+   the box shrink, and Chart.js (responsive) redraws to the box it is given. */
+.analytics, .dyn-grid, .dyn-grid > *, .dyn-chart-card, .chw, .rt-block, .rtwrap { min-width: 0; max-width: 100%; }
+.dyn-grid { grid-template-columns: repeat(auto-fit, minmax(min(260px, 100%), 1fr)); }
+.dyn-grid.single { grid-template-columns: minmax(0, 1fr); }
+.chw { width: 100%; }
+.chw canvas, .xv-chart canvas { max-width: 100%; }
+
+/* Card header: title and the Bar / Pie / Donut / Line switch share a line while
+   they fit; on a narrow card the switch moves under the title instead of
+   squeezing it to a word per line. */
+.chd { flex-wrap: wrap; gap: 6px 10px; }
+.chd-left { flex: 1 1 140px; min-width: 0; }
+.chd-title { overflow-wrap: anywhere; line-height: 1.3; }
+.chd-right { flex: 0 1 auto; margin-left: auto; flex-wrap: wrap; justify-content: flex-end; }
+.qctog { flex-wrap: wrap; }
+
+/* Tables. Figures never wrap; the first column (district / block / village)
+   wraps within sensible limits and stays pinned on the left while the other
+   columns scroll sideways inside the table's own box, so a wide table never
+   widens the page and the row name is always visible. A small table fits the
+   column with no scrolling at all (the old forced 460 px phone width is gone). */
+.rtbl th, .rtbl td { white-space: nowrap; }
+.rtbl th { white-space: normal; min-width: 6.5em; vertical-align: bottom; }
+.rtbl td:first-child, .rtbl th:first-child {
+  white-space: normal; min-width: 8.5em; max-width: 15em;
+  position: sticky; left: 0; z-index: 1; background: var(--surface);
+  box-shadow: 1px 0 0 var(--line);
+}
+.rtbl th:first-child { z-index: 3; background: var(--p-50); }
+.rtbl tr:hover td:first-child { background: var(--p-50); }
+.rtbl.record-card th, .rtbl.record-card td { position: static; white-space: normal; box-shadow: none; min-width: 0; }
+.rtwrap { overscroll-behavior-x: contain; }
+/* The pinned column's z-index must stay inside its own table: without its own
+   stacking context it drew over the fixed composer (and the scroll-top
+   button) when a table scrolled under them. */
+.rtwrap { isolation: isolate; }
+@media (max-width: 880px) {
+  .rtwrap .rtbl { min-width: 0; }
+  .rtbl td, .rtbl th { padding: 8px 10px; }
+}
+
+/* The scroll-to-top button floats just above the composer, whatever its
+   height (useComposerHeight.js sets --composer-h). */
+.scroll-top { bottom: calc(var(--composer-h, 120px) + 12px); }
+
+/* ============== CHART CARDS (D-043: per-scheme hue, reference look) ============== */
+.dyn-chart-card {
+  border-radius: 16px; padding: 16px 16px 12px;
+  border: 1px solid var(--line);
+  box-shadow: 0 1px 2px rgba(30,10,60,.04), 0 12px 28px -22px rgba(30,10,60,.28);
+}
+.dyn-chart-card .chd { flex-wrap: wrap; gap: 8px 12px; margin-bottom: 12px; }
+.dyn-chart-card .chd-left { min-width: 0; flex: 1 1 220px; }
+.dyn-chart-card .chd-dot { width: 9px; height: 9px; flex-shrink: 0; }
+.dyn-chart-card .chd-title { font-size: 13px; font-weight: 700; color: var(--ink-1); overflow-wrap: anywhere; }
+.chd-scheme {
+  font-size: 10.5px; font-weight: 700; letter-spacing: .2px; white-space: nowrap;
+  color: var(--ink-2); background: var(--p-50); border: 1px solid var(--line);
+  padding: 2px 8px; border-radius: 999px;
+}
+.dyn-chart-card .chw { height: 260px; }
+.dyn-chart-card .qctog { border-radius: 9px; padding: 3px; }
+.dyn-chart-card .ctb { border-radius: 7px; }
+@media (max-width: 640px) {
+  .dyn-chart-card { padding: 12px 10px 8px; border-radius: 14px; }
+  .dyn-chart-card .chw { height: 230px; }
+}
+
+/* ============== DOWNLOADS (tables: Excel / CSV, charts: PNG) ==============
+   exporters.js builds the files; these are the buttons. The menu opens under
+   its button, right-aligned so it stays on screen at every width. */
+.rt-actions { display: flex; align-items: center; gap: 6px; }
+.dl-wrap { position: relative; display: inline-flex; }
+.dl-menu {
+  position: absolute; top: calc(100% + 6px); right: 0; z-index: 70;
+  min-width: 150px; max-width: calc(100vw - 24px);
+  background: var(--surface); border: 1px solid var(--line); border-radius: 10px;
+  box-shadow: 0 10px 28px rgba(36,16,56,.18); padding: 4px; display: flex; flex-direction: column;
+}
+.dl-menu button {
+  border: 0; background: transparent; font: inherit; font-size: 13px; color: var(--ink);
+  text-align: left; padding: 8px 12px; border-radius: 7px; cursor: pointer; white-space: nowrap;
+}
+.dl-menu button:hover, .dl-menu button:focus-visible { background: var(--p-50); color: var(--p-700); outline: none; }
+/* the expanded table's toolbar: search, download and the count share a row, wrapping on a phone */
+.xv-toolbar .dl-wrap { order: 2; }
+@media (pointer: coarse) {
+  .dl-menu button { padding: 11px 14px; font-size: 14px; }
+}
+
+/* ============== DOWNLOAD CHAT (top bar) ==============
+   One button for the whole conversation (ChatExport.jsx): PDF or Excel.
+   The label hides on narrow screens; the icon stays. */
+.chat-export-btn {
+  display: inline-flex; align-items: center; gap: 7px; height: 32px; padding: 0 12px;
+  border: 1px solid var(--line); border-radius: 8px; background: var(--surface);
+  color: var(--p-700); font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer; white-space: nowrap;
+}
+.chat-export-btn:hover { background: var(--p-50); border-color: var(--p-300); }
+.chat-export-btn:focus-visible { outline: 2px solid var(--p-500); outline-offset: 2px; }
+.chat-export .dl-menu { min-width: 250px; }
+@media (max-width: 1024px) {
+  .chat-export-label { display: none; }
+  .chat-export-btn { padding: 0 8px; }
+}
+
+/* ============== PRINT: the "Download chat → PDF" layout ==============
+   Only the conversation: no sidebar, top bar, composer or buttons. Every
+   answer, chart and table at full length; a card is not split across pages
+   where it can be avoided. */
+@media print {
+  @page { size: A4; margin: 14mm 12mm; }
+  html, body { height: auto !important; overflow: visible !important; background: #fff !important; }
+  .app, .app.rail { display: block !important; height: auto !important; }
+  .main { display: block !important; height: auto !important; overflow: visible !important; }
+  .chat-area { overflow: visible !important; height: auto !important; background: #fff !important; }
+  .chat-inner { max-width: none !important; padding: 0 !important; }
+  .sidebar, .sidebar-resizer, .sidebar-backdrop, .topbar, .composer-wrap, .scroll-top, .new-below,
+  .conn-banner, .boot-splash, .hero, .scheme-carousel, .prompts-section, .prompt-grid,
+  .msg-actions, .msg-more, .msg-menu, .xv-btn, .qctog, .rt-bar .xv-btn, .next-step-group, .suggest-box,
+  .clarify-opts, .orb-stop, .draft-cursor, .dl-menu, .modal-overlay, .xv-backdrop { display: none !important; }
+  .msg { animation: none !important; padding: 8px 0; break-inside: avoid-page; }
+  .msg.user .bubble { background: #f4ebfc !important; color: #1a1626 !important; border-color: #e5d2f6 !important; }
+  .bubble { box-shadow: none !important; }
+  .dyn-grid { grid-template-columns: 1fr 1fr !important; }
+  .dyn-grid.single { grid-template-columns: 1fr !important; }
+  .dyn-chart-card, .rt-block, .rtwrap { break-inside: avoid; box-shadow: none !important; }
+  .chw { height: auto !important; }
+  .chw canvas, .xv-chart canvas { width: 100% !important; height: auto !important; }
+  .rtwrap { max-height: none !important; overflow: visible !important; }
+  .rtbl td:first-child, .rtbl th:first-child { position: static !important; box-shadow: none !important; }
+  .rtbl th { position: static !important; }
+  .sql-disc { display: none !important; }
+  * { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+}
+
+/* Phones: the export button sits mid-way along the top bar, so a menu hung
+   from it would run off the left edge. There it opens as a full-width panel
+   just under the top bar instead. */
+@media (max-width: 640px) {
+  .chat-export .dl-menu {
+    position: fixed; top: 62px; left: 12px; right: 12px; min-width: 0; max-width: none; z-index: 130;
+  }
+  .chat-export .dl-menu button { white-space: normal; }
+}
+
+/* Chart cards, polish: a scheme-hue stripe on the top edge, and the one-line
+   insight under the title (Charts.jsx CardHead / insightFor). */
+.dyn-chart-card { position: relative; overflow: hidden; }
+.dyn-chart-card::before {
+  content: ""; position: absolute; left: 0; right: 0; top: 0; height: 3px;
+  background: linear-gradient(90deg, var(--chart-accent, var(--p-500)), var(--chart-accent-2, var(--p-700)));
+  opacity: .9;
+}
+.chd-insight {
+  display: inline-flex; align-items: center; gap: 6px; max-width: 100%;
+  margin: -4px 0 10px; padding: 4px 10px; border-radius: 8px;
+  font-size: 12px; font-weight: 600; color: var(--ink-2); background: var(--p-50);
+  overflow-wrap: anywhere;
+}
+.chd-insight::before {
+  content: ""; width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0;
+  background: var(--chart-accent, var(--p-500));
+}
+.dyn-chart-card canvas { cursor: default; }
+
+/* Chart card header: the title never gets crushed by a long scheme chip
+   (reported 2026-10-12, "Value By Scheme" one word per line). The left side
+   wraps: title first, the chip drops below it when there is no room. */
+.dyn-chart-card .chd-left { flex-wrap: wrap; row-gap: 6px; flex: 1 1 260px; }
+.dyn-chart-card .chd-title { flex: 0 1 auto; min-width: min(12ch, 100%); }
+.dyn-chart-card .chd-scheme { max-width: 100%; overflow: hidden; text-overflow: ellipsis; }
+.dyn-chart-card .chd-right { flex: 0 0 auto; margin-left: auto; }
+
+/* ============== CHAT ALIGNMENT: officer on the right, assistant on the left ==============
+   The officer's question sits on the right with the "U" icon at the right
+   edge; the assistant's answer stays on the left with the "M" icon. The
+   question bubble fits its text (up to ~80% of the column) and its time and
+   actions line up under it on the right. Editing a question uses the full width. */
+.msg.user { flex-direction: row-reverse; }
+.msg.user > div:last-child { display: flex; flex-direction: column; align-items: flex-end; }
+.msg.user .bubble { max-width: min(80%, 680px); width: fit-content; border-radius: 16px 4px 16px 16px;
+  overflow-wrap: anywhere; text-align: left; }
+.msg.bot .bubble { border-radius: 4px 16px 16px 16px; }
+.msg.user .msg-foot { justify-content: flex-end; flex-direction: row-reverse; }
+.msg.user .msg-edit { align-self: stretch; }
+@media (max-width: 620px) {
+  .msg.user .bubble { max-width: 88%; }
+}
+@media print {
+  .msg.user .bubble { max-width: 80%; }
+}
+
+/* ============== CONVERSATION WIDTH (ChatGPT-like proportions) ==============
+   One centred reading column, the composer exactly as wide, the officer's
+   question a right-aligned bubble of up to ~78% of it, the answer the full
+   column. Wider than the old 920px on large screens; on narrower ones the
+   column already fills the space, so nothing changes there. */
+.chat-inner, .composer-inner { max-width: 960px; }
+@media (min-width: 1600px) {
+  .chat-inner, .composer-inner { max-width: 1020px; }
+}
+.msg.user .bubble { max-width: min(78%, 740px); }
+.bubble { font-size: 15px; line-height: 1.6; }
+.msg.user .bubble { padding: 11px 18px; }
+@media (max-width: 620px) {
+  .msg.user .bubble { max-width: 88%; }
+  .bubble { font-size: 14.5px; }
+}
+
+/* ============== COMPACT COMPOSER (2026-10-12) ==============
+   One rounded bar like ChatGPT / Claude: the text and the round mic / send
+   buttons share a single row (~54px instead of ~110px); the bar grows only
+   with a longer question (App.jsx caps it at 160px). While dictating, the
+   voice status takes its own row under the text. Markup unchanged. */
+.composer-wrap { padding: 10px 24px 16px; }
+.composer {
+  display: flex; align-items: flex-end; gap: 6px;
+  border-radius: 28px; padding: 6px 7px 6px 6px; border: 1.5px solid var(--line);
+  box-shadow: 0 6px 24px -10px rgba(62,31,102,0.28), 0 1px 2px rgba(62,31,102,0.06);
+}
+.composer:focus-within { border-color: var(--p-400); box-shadow: 0 0 0 4px rgba(178,127,224,.16), 0 6px 24px -10px rgba(62,31,102,0.3); }
+.composer-input {
+  flex: 1 1 auto; min-width: 0; width: auto;
+  min-height: 42px; padding: 10px 6px 10px 16px; line-height: 1.5; font-size: 15px;
+}
+.composer-input::placeholder { color: var(--ink-3); }
+.composer-bar { padding: 0; border-top: 0; gap: 6px; flex-shrink: 0; align-items: center; min-height: 42px; }
+.mic-btn { margin-left: 0; width: 40px; height: 40px; border-color: transparent; background: transparent; color: var(--ink-3); }
+.mic-btn:hover { background: var(--p-50); border-color: var(--p-200); }
+.send-btn, .send-btn.stop {
+  width: 40px; height: 40px; padding: 0; border-radius: 50%; justify-content: center; flex-shrink: 0;
+}
+.send-btn svg { width: 17px; height: 17px; }
+.send-btn.stop svg { width: 13px; height: 13px; }
+.send-btn:hover { transform: none; filter: brightness(1.08); }
+/* the button's word stays for screen readers, the icon shows */
+.send-btn > span {
+  position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap;
+}
+/* dictating: the status gets its own row under the text */
+.composer:has(.voice-status) { flex-wrap: wrap; border-radius: 22px; }
+.composer:has(.voice-status) .composer-input { flex-basis: 100%; }
+.composer:has(.voice-status) .composer-bar { width: 100%; padding: 0 0 2px 10px; }
+.composer:has(.voice-status) .mic-btn { margin-left: auto; }
+@media (max-width: 880px) {
+  .composer-wrap { padding: 8px 12px; padding-bottom: max(12px, env(safe-area-inset-bottom)); }
+}
+@media (max-width: 480px) {
+  .composer { padding: 5px 6px 5px 5px; }
+  .composer-input { padding: 9px 4px 9px 13px; font-size: 16px; }   /* 16px: no iOS zoom on focus */
+  .mic-btn, .send-btn, .send-btn.stop { width: 38px; height: 38px; }
 }

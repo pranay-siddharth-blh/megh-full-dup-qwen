@@ -4,12 +4,16 @@ import {
   getToken, listHistory, login, logoutRemote, pinConversationApi, renameConversationApi, resetSessionId,
   setToken, setUnauthorizedHandler, StoppedError, storedSessionId, streamNLPResponse,
 } from './api.js';
-import { GLOSSARY, LANGS, UI_STRINGS, UNIFIED_SAMPLES, USE_CASES } from './constants.js';
+import { GLOSSARY, LANGS, UI_STRINGS, UNIFIED_SAMPLES } from './constants.js';
 import { nowTime, stampTime, todayLabel } from './format.js';
 import { useVoice } from './useVoice.js';
+import { useSidebarResize } from './useSidebarResize.js';
+import { useComposerHeight } from './useComposerHeight.js';
 import { BotMessage, TextMessage, TypingMessage } from './components/Messages.jsx';
 import { LoginScreen, Modal, UndoToast } from './components/Overlays.jsx';
+import { USE_CASE_GROUPS, UseCases } from './components/UseCases.jsx';
 import { Sidebar } from './components/Sidebar.jsx';
+import { ChatExport } from './components/ChatExport.jsx';
 import { WelcomeCard } from './components/WelcomeCard.jsx';
 
 /* The chat console (was web/ai_query.html). Every behaviour of the original is
@@ -70,6 +74,7 @@ export default function App() {
   const [navOpen, setNavOpen] = useState(false);
   const [rail, setRail] = useState(() => readFlag(RAIL_KEY));
   const [modal, setModal] = useState(null);
+  const [useCaseScheme, setUseCaseScheme] = useState(null);   // Use cases popup: open scheme, or null
   const [toast, setToast] = useState(null);
   const toastTimer = useRef(0);
   const [scrollTopShow, setScrollTopShow] = useState(false);
@@ -156,7 +161,7 @@ export default function App() {
 
   useEffect(() => { setUnauthorizedHandler((msg) => handleLogout(msg)); }, [handleLogout]);
 
-  const addMessages = (items) => setMessages((m) => [...m, ...items.map((x) => ({ id: nextId(), time: nowTime(), ...x }))]);
+  const addMessages = (items) => setMessages((m) => [...m, ...items.map((x) => ({ id: nextId(), time: nowTime(), at: new Date().toISOString(), ...x }))]);
 
   // Replay a stored thread and continue it (the session id is adopted).
   const openConversation = useCallback(async (sid) => {
@@ -172,13 +177,13 @@ export default function App() {
         const askedAt = answeredAt ? new Date(answeredAt.getTime() - (Number(t.latency_ms) || 0)) : null;
         const askedTime = askedAt ? stampTime(askedAt) : nowTime();
         const answerTime = answeredAt ? stampTime(answeredAt) : nowTime();
-        replay.push({ id: nextId(), time: askedTime, kind: 'user', text: t.question });
+        replay.push({ id: nextId(), time: askedTime, at: askedAt && askedAt.toISOString(), kind: 'user', text: t.question });
         // A turn saved with its full payload replays through the rich renderer
         // (charts, SQL, follow-ups); older turns fall back to text.
         if (t.response && typeof t.response === 'object') {
-          replay.push({ id: nextId(), time: answerTime, kind: 'rich', question: t.question, response: t.response });
+          replay.push({ id: nextId(), time: answerTime, at: answeredAt && answeredAt.toISOString(), kind: 'rich', question: t.question, response: t.response });
         } else {
-          replay.push({ id: nextId(), time: answerTime, kind: 'bot', text: t.answer || '(no answer recorded)' });
+          replay.push({ id: nextId(), time: answerTime, at: answeredAt && answeredAt.toISOString(), kind: 'bot', text: t.answer || '(no answer recorded)' });
         }
       }
       try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
@@ -278,7 +283,7 @@ export default function App() {
     const typingId = nextId();
     setMessages((m) => [
       ...m,
-      ...(addUser ? [{ id: nextId(), time: nowTime(), kind: 'user', text: q }] : []),
+      ...(addUser ? [{ id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'user', text: q }] : []),
       { id: typingId, kind: 'typing', steps: [], draft: '' },
     ]);
     const patchTyping = (fn) => setMessages((m) => m.map((x) => (x.id === typingId ? { ...x, ...fn(x) } : x)));
@@ -293,8 +298,8 @@ export default function App() {
     try {
       const response = await streamNLPResponse(q, lang, sessionRef.current, { skipCache, signal: stop.signal, onEvent });
       setMessages((m) => [...dropTyping(m), response.answer
-        ? { id: nextId(), time: nowTime(), kind: 'rich', question: q, response, animate: true, streamKey: typingId }
-        : { id: nextId(), time: nowTime(), kind: 'bot', retryQ: q, text: `Error: ${response.detail || 'Unable to process your query'}` }]);
+        ? { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'rich', question: q, response, animate: true, streamKey: typingId }
+        : { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Error: ${response.detail || 'Unable to process your query'}` }]);
       connBack();                             // an answer arrived: the connection is fine
     } catch (err) {
       if (err instanceof ConnectionError) {
@@ -303,12 +308,12 @@ export default function App() {
         const msgId = nextId();
         waitingRef.current = { msgId, q };
         setConn('down');
-        setMessages((m) => [...dropTyping(m), { id: msgId, time: nowTime(), kind: 'bot', retryQ: q, waiting: true,
+        setMessages((m) => [...dropTyping(m), { id: msgId, time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, waiting: true,
           text: 'Waiting for the connection. This question will be asked again as soon as it is back.' }]);
       } else if (err instanceof StoppedError) {
-        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), kind: 'bot', retryQ: q, text: 'Stopped.' }]);
+        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: 'Stopped.' }]);
       } else if (String(err.message) !== 'unauthorized') {
-        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), kind: 'bot', retryQ: q, text: `Sorry, I encountered an error: ${err.message}` }]);
+        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Sorry, I encountered an error: ${err.message}` }]);
         console.error('Query error:', err);
       } else {
         setMessages(dropTyping);
@@ -534,6 +539,14 @@ export default function App() {
     // Let the 180ms grid transition finish, then let Chart.js re-measure.
     setTimeout(() => window.dispatchEvent(new Event('resize')), 220);
   }, []);
+  // Drag-to-resize (useSidebarResize.js). Dragging it shut collapses to the rail.
+  const collapseToRail = useCallback(() => {
+    setRail(true);
+    writeFlag(RAIL_KEY, true);
+  }, []);
+  const sidebarResize = useSidebarResize({ onCollapse: collapseToRail });
+  // --composer-h keeps the scroll-to-top button above the composer on every screen.
+  useComposerHeight();
 
   // ── Voice dictation ─────────────────────────────────────────────────────
   // Whatever was already typed stays; the spoken words are added after it, live
@@ -567,19 +580,22 @@ export default function App() {
       </div>
     )),
   });
-  const openUseCases = () => setModal({
-    title: 'Use cases', sub: 'Example questions you can ask',
-    body: Object.entries(USE_CASES).map(([section, items]) => (
-      <div key={section}>
-        <div className="modal-section">{section}</div>
-        {items.map((q) => (
-          <div key={q} className="modal-row" onClick={() => { closeModal(); ask(q); }}>
-            <span className="modal-row-text">{q}</span>
-          </div>
-        ))}
-      </div>
-    )),
-  });
+  // Use cases: an accordion of schemes; `useCaseScheme` is the one open (or
+  // null). Built on every render so the popup follows it; reopening the popup
+  // starts with all schemes closed. A picked question goes through ask(),
+  // exactly like a typed question and Send.
+  const openUseCases = () => { setUseCaseScheme(null); setModal({ kind: 'use-cases' }); };
+  const pickUseCase = useCallback((q) => { closeModal(); ask(q); }, [closeModal, ask]);
+  const useCaseGroup = USE_CASE_GROUPS.find((g) => g.key === useCaseScheme) || null;
+  const modalView = modal && modal.kind === 'use-cases'
+    ? {
+      title: 'Use cases',
+      sub: useCaseGroup
+        ? `${useCaseGroup.name} · click a question to ask it`
+        : 'Open a scheme to see its example questions',
+      body: <UseCases selected={useCaseScheme} onSelect={setUseCaseScheme} onPick={pickUseCase} />,
+    }
+    : modal;
 
   // ── Keyboard ────────────────────────────────────────────────────────────
   const voiceRef = useRef(voice);
@@ -621,9 +637,11 @@ export default function App() {
       <LoginScreen key={loginKey} ref={usernameRef} error={loginError} invalid={loginInvalid} busy={loginBusy}
                    onSubmit={handleLogin} onInput={() => { setLoginError(''); setLoginInvalid([]); }} />
 
-      <Modal modal={modal} onClose={closeModal} />
+      <Modal modal={modalView} onClose={closeModal} />
 
-      <div className={'app' + (navOpen ? ' nav-open' : '') + (rail ? ' rail' : '')}>
+      <div className={'app' + (navOpen ? ' nav-open' : '') + (rail ? ' rail' : '')
+                      + (sidebarResize.dragging ? ' resizing' : '')}
+           style={rail ? undefined : { '--sidebar-w': sidebarResize.width + 'px' }}>
         <Sidebar
           signedIn={signedIn} user={user} history={history} filter={filter} onFilter={onFilter}
           searchOpen={searchOpen} setSearchOpen={setSearchOpen} archOpen={archOpen} onToggleArch={toggleArch}
@@ -632,6 +650,7 @@ export default function App() {
           onToggleRail={toggleRail} rail={rail} onLogout={(e) => { if (e) e.preventDefault(); handleLogout(); }}
           onCloseNav={closeNav}
         />
+        {!rail && <div className="sidebar-resizer" {...sidebarResize.handleProps} />}
         <div className="sidebar-backdrop" onClick={closeNav} />
 
         <UndoToast toast={toast} onUndo={runUndo} />
@@ -643,6 +662,8 @@ export default function App() {
             </button>
             <div className="scheme-switch" />
             <div className="actions">
+              <ChatExport messages={messages}
+                          title={(history.find((c) => c.session_id === sessionId) || {}).title} />
               <div className="date-pill">{todayLabel()}</div>
               <div className="lang-tabs">
                 {LANGS.map((l) => (
@@ -679,7 +700,7 @@ export default function App() {
                   if (m.kind === 'typing') return <TypingMessage key={m.id} steps={m.steps} draft={m.draft} streamKey={m.id} />;
                   if (m.kind === 'rich') {
                     return <BotMessage key={m.id} id={m.id} question={m.question} response={m.response} time={m.time}
-                                       animate={m.animate} streamKey={m.streamKey}
+                                       animate={m.animate} streamKey={m.streamKey} at={m.at}
                                        onAsk={ask} speakingId={speakingId} onSpeak={onSpeak}
                                        onRegenerate={isLast && m.question ? () => rerun(m.id, m.question) : null} />;
                   }
@@ -687,7 +708,7 @@ export default function App() {
                     return <TextMessage key={m.id} id={m.id} role="user" text={m.text} time={m.time}
                                         busy={running} onEdit={(q) => editQuestion(m.id, q)} />;
                   }
-                  return <TextMessage key={m.id} id={m.id} role="bot" text={m.text} time={m.time}
+                  return <TextMessage key={m.id} id={m.id} role="bot" text={m.text} time={m.time} at={m.at}
                                       speakingId={speakingId} onSpeak={onSpeak}
                                       onRetry={isLast && m.retryQ ? () => rerun(m.id, m.retryQ) : null} />;
                 })}
