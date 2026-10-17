@@ -146,12 +146,24 @@ cm.update_state(s, "what about 2023-24?", "MGNREGA expenditure in West Garo Hill
 check("Q2 updates year, keeps district/scheme",
       s.state.year == 2023 and s.state.district == "West Garo Hills" and s.state.scheme == "MGNREGA")
 
-cm.update_state(s, "who is eligible for PMAY-G?", "who is eligible for PMAY-G?",
-                {"route": "knowledge", "intent": "RAG", "schemes": ["PMAY-G"], "resolved_entities": {}})
+cm.update_state(s, "what is a job card?", "what is a job card?",
+                {"route": "knowledge", "intent": "RAG", "schemes": ["MGNREGA"], "resolved_entities": {}})
 check("KNOWLEDGE digression does NOT overwrite scheme/district/year (context-bleed prevention)",
       s.state.scheme == "MGNREGA" and s.state.district == "West Garo Hills" and s.state.year == 2023)
 check("...but last_route/last_intent DO reflect the digression",
       s.state.last_route == "knowledge" and s.state.last_intent == "RAG")
+
+# WI-1: a knowledge turn that names ANOTHER scheme is a topic switch, not a digression.
+s_wi1 = _session()
+cm.update_state(s_wi1, "MGNREGA expenditure in West Garo Hills 2023-24?",
+                "MGNREGA expenditure in West Garo Hills 2023-24?",
+                {"route": "data", "intent": "DATA", "schemes": ["MGNREGA"],
+                 "resolved_entities": {"district": "West Garo Hills", "year_key": 2023}})
+cm.update_state(s_wi1, "who is eligible for PMAY-G?", "who is eligible for PMAY-G?",
+                {"route": "knowledge", "intent": "RAG", "schemes": ["PMAY-G"], "resolved_entities": {}})
+check("KNOWLEDGE turn naming another scheme switches topic and drops the old filters (WI-1)",
+      s_wi1.state.scheme == "PMAY-G" and s_wi1.state.district is None and s_wi1.state.year is None,
+      (s_wi1.state.scheme, s_wi1.state.district, s_wi1.state.year))
 
 cm.update_state(s, "and person-days?", "MGNREGA person-days in West Garo Hills 2023-24?",
                 {"route": "data", "intent": "DATA", "schemes": ["MGNREGA"],
@@ -272,7 +284,9 @@ async def _run_async_checks():
         hits = await conversation_memory.search_relevant_turns(
             question="expenditure in west garo hills", tenant_id=7, user_id=42, session_id="sess-a")
         check("search returns hits when the fake client answers", len(hits) == 1, hits)
-        must_keys = {c.key: c.match.value for c in (captured.get("filter").must or [])}
+        # The `ts` freshness window is a range condition (no `match`); skip it here.
+        must_keys = {c.key: c.match.value for c in (captured.get("filter").must or [])
+                     if c.match is not None}
         check("query filter scopes by tenant_id", must_keys.get("tenant_id") == 7, must_keys)
         check("query filter scopes by user_id", must_keys.get("user_id") == 42, must_keys)
         check("query filter scopes by session_id", must_keys.get("session_id") == "sess-a", must_keys)
