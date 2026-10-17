@@ -1,15 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { isSpace, splitRuns } from '../chat/text.js';
 
 /* The admin console (was web/admin.html): sign-in (adopting the chat console's
-   session when it is an admin one), and five hash-routed tabs — Overview,
-   Users, Login events, Conversations, Query audit — over the /admin/* API. */
+   session when it is an admin one), and six hash-routed tabs — Overview,
+   Users, Login events, Conversations, Query audit, Answer feedback — over the
+   /admin/* API. */
 
 const ADMIN_KEY = 'megh_admin_jwt';
 const CHAT_KEY = 'megh_jwt';
 const ADMIN_ROLES = ['admin', 'tenant_admin', 'super_admin'];
 const TABS = [
   ['overview', 'Overview'], ['users', 'Users'], ['logins', 'Login events'],
-  ['conversations', 'Conversations'], ['audit', 'Query audit'],
+  ['conversations', 'Conversations'], ['audit', 'Query audit'], ['feedback', 'Answer feedback'],
 ];
 const ls = {
   get: (k) => { try { return localStorage.getItem(k); } catch (e) { return null; } },
@@ -64,11 +66,12 @@ const ICONS = {
   back: <Ico><path d="M21 11.5a8.4 8.4 0 01-.9 3.8 8.5 8.5 0 01-7.6 4.7 8.4 8.4 0 01-3.8-.9L3 21l1.9-5.7a8.4 8.4 0 01-.9-3.8 8.5 8.5 0 014.7-7.6 8.4 8.4 0 013.8-.9h.5a8.48 8.48 0 018 8v.5z" /></Ico>,
   queries: <Ico><circle cx="11" cy="11" r="7" /><line x1="20" y1="20" x2="16.2" y2="16.2" /></Ico>,
   denied: <Ico><circle cx="12" cy="12" r="9" /><line x1="5.6" y1="5.6" x2="18.4" y2="18.4" /></Ico>,
+  feedback: <Ico><path d="M7 10v11H4a1 1 0 01-1-1v-9a1 1 0 011-1h3z" /><path d="M7 10l4-8a2.5 2.5 0 012.5 2.5V8h5.3a2 2 0 012 2.3l-1.2 8A2 2 0 0117.6 20H7" /></Ico>,
 };
 // Navigation groups and each page's heading.
 const NAV = [
   ['Menu', ['overview', 'users']],
-  ['Activity', ['logins', 'conversations', 'audit']],
+  ['Activity', ['logins', 'conversations', 'audit', 'feedback']],
 ];
 const PAGE = {
   overview: ['Overview', 'Usage of Megh One AI at a glance'],
@@ -76,8 +79,9 @@ const PAGE = {
   logins: ['Login events', 'Sign-ins, sign-outs and failed attempts'],
   conversations: ['Conversations', 'Officer chat threads and every turn in them'],
   audit: ['Query audit', 'Every question, how it was answered and whether it was allowed'],
+  feedback: ['Answer feedback', 'What officers marked 👍 helpful or 👎 not helpful, with their note'],
 };
-const initials = (s) => String(s || '?').trim().split(/[\s._-]+/).filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
+const initials = (s) => splitRuns(String(s || '?').trim(), (c) => isSpace(c) || c === '.' || c === '_' || c === '-').filter(Boolean).slice(0, 2).map((w) => w[0].toUpperCase()).join('') || '?';
 // A card's title row: heading, an optional count and anything on the right.
 const CardHead = ({ title, count, children }) => (
   <div className="card-head">
@@ -363,6 +367,59 @@ function Audit() {
   );
 }
 
+// ── Answer feedback (RAG upgrade Phase 6) ───────────────────────────────────
+// The 👍 / 👎 officers gave in the chat. A 👎 on a knowledge answer is the
+// lead for a wrong or incomplete answer (and a new tests/rag_eval question).
+function Feedback() {
+  const [downOnly, setDownOnly] = useState(false);
+  const [data, setData] = useState(null);
+  const [err, setErr] = useState('');
+  useEffect(() => {
+    setData(null); setErr('');
+    api('/admin/feedback?limit=300' + (downOnly ? '&rating=-1' : ''))
+      .then(setData).catch((e) => setErr(String(e.message || e)));
+  }, [downOnly]);
+  const rows = data ? data.feedback : null;
+  return (
+    <>
+      <div className="fb-totals">
+        <div className="fb-total up"><span className="fb-total-n">{data ? data.up : '–'}</span><span>👍 Helpful</span></div>
+        <div className="fb-total down"><span className="fb-total-n">{data ? data.down : '–'}</span><span>👎 Not helpful</span></div>
+      </div>
+      <div className="card">
+        <CardHead title="Votes" count={rows ? rows.length : null}>
+          <label className="toggle">
+            <input type="checkbox" checked={downOnly} onChange={(e) => setDownOnly(e.target.checked)} />
+            <span className="toggle-track"><span className="toggle-knob" /></span> 👎 only
+          </label>
+        </CardHead>
+        <div className="scroll">
+          {err ? <div className="muted">Could not load feedback: {err}</div> : !rows ? 'loading…' : !rows.length ? (
+            <div className="muted">No feedback yet.</div>
+          ) : (
+            <table className="fb-table">
+              <thead><tr><th>time</th><th>officer</th><th>vote</th><th>question</th><th>answer</th><th>source</th><th>note</th></tr></thead>
+              <tbody>
+                {rows.map((r) => (
+                  <tr key={r.feedback_id}>
+                    <td className="muted">{fmtTs(r.updated_at)}</td>
+                    <td>{r.username}</td>
+                    <td>{r.rating > 0 ? <Tag ok>👍</Tag> : <span className="tag bad"><i className="tag-dot" />👎</span>}</td>
+                    <td className="fb-cell">{r.question}</td>
+                    <td className="fb-cell fb-ans" title={r.answer}>{(r.answer || '').slice(0, 220)}{(r.answer || '').length > 220 ? '…' : ''}</td>
+                    <td className="fb-cell muted">{(r.citations || []).map((c) => c.title + (c.section ? ' › ' + c.section : '')).join('; ') || r.route || ''}</td>
+                    <td className="fb-cell">{r.comment || ''}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          )}
+        </div>
+      </div>
+    </>
+  );
+}
+
 // ── Shell ───────────────────────────────────────────────────────────────────
 export default function AdminApp() {
   const [view, setView] = useState('boot');   // boot | login | app
@@ -454,7 +511,7 @@ export default function AdminApp() {
     );
   }
 
-  const Panel = { overview: Overview, users: Users, logins: Logins, conversations: Conversations, audit: Audit }[tab] || Overview;
+  const Panel = { overview: Overview, users: Users, logins: Logins, conversations: Conversations, audit: Audit, feedback: Feedback }[tab] || Overview;
   const label = Object.fromEntries(TABS);
   const [title, subtitle] = PAGE[tab] || PAGE.overview;
   const tenant = me.tenant ? me.tenant.name : '—';

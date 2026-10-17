@@ -12,7 +12,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app import (asr_guard, auth, context_manager, conversation_layer, conversation_memory,
-                 conversation_replies, conversation_store, llm, session_sync, topic_memory, turn_events)
+                 context_budget, conversation_replies, conversation_store, llm, session_sync,
+                 topic_memory, translate, turn_events, turn_trace)
 from app.cache import metrics, response_cache
 from app.config import settings
 from app.deps import current_scope, require_user
@@ -49,6 +50,10 @@ class QueryRequest(BaseModel):
     # response / semantic caches. The fresh answer is written back as usual,
     # so it replaces the cached one for everyone in the same scope.
     skip_cache: bool = False
+    # The chat's language button (en / kha / gar). Sent by the UI all along but
+    # ignored until the RAG upgrade Phase 4: a Khasi or Garo question is now
+    # translated to English first (app/translate.py).
+    language: str = Field(default="en", max_length=8)
 
     @field_validator("question")
     @classmethod
@@ -143,6 +148,17 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
 
     started = time.monotonic()
     ip = _client_ip(request)
+    # What the DATA path did this turn (few-shot ids, repaired errors, the final
+    # error) — recorded by the pipeline stages, written to the audit below.
+    trace = turn_trace.start(context_budget.request_id_var.get())
+    # Khasi / Garo (KHA / GAR selected): everything after this reads English —
+    # the caches, the conversation layer, routing, retrieval and SQL. The words
+    # the officer typed go back on the result as `translated_from`.
+    translated_from = None
+    if (req.language or "en").lower() in translate.LANGUAGE_NAMES:
+        english = await translate.to_english(req.question, req.language)
+        if english.strip() and english.strip() != req.question.strip():
+            translated_from, req.question = req.question, english.strip()
     client_session = req.session_id or request.headers.get("x-session-id")
     # The client owns conversation identity: the chat UI mints a session_id per
     # "New chat" so each thread is its own row in app.conversations. Only a
@@ -244,8 +260,10 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
                 tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,
                 result=out, question=req.question, latency_ms=clarify_latency_ms,
                 username=scope.username or None, ip=ip,
+                audit=turn_trace.audit_fields(trace, out),
             )
-            _mirror_audit(scope, session_id, req.question, {"route": "clarification"}, started, ip)
+            _mirror_audit(scope, session_id, req.question, {"route": "clarification"}, started, ip, trace)
+            turn_trace.finish(trace, out)
             # The pending clarification must reach whichever worker receives the
             # reply (KI-001): it is part of the durable snapshot.
             if durable_session:
@@ -284,6 +302,8 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     if styled is not None:
         result = styled
         cacheable = False
+    if translated_from:
+        result = {**result, "translated_from": translated_from}
 
     latency_ms = (time.monotonic() - started) * 1000
     result["session_id"] = session_id
@@ -301,7 +321,11 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
         tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,
         result=result, question=req.question, latency_ms=latency_ms,
         username=scope.username or None, ip=ip,
+        audit=turn_trace.audit_fields(trace, result),
     )
+    # live accuracy / repair counters (/metrics) — computed answers only, not cache hits
+    if served_from is None:
+        turn_trace.finish(trace, result)
     # Semantic conversation memory — indexes this turn for later "relevant
     # older turns" retrieval (see app.context_manager.build_followup_context).
     # Fire-and-forget, scoped to this tenant/user/session; never blocks or
@@ -318,10 +342,13 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     if durable_session:
         await session_sync.sync_out(session, session_id, tenant_id=scope.tenant_id,
                                     user_id=scope.db_user_id, title=req.question)
-    _mirror_audit(scope, session_id, req.question, result, started, ip)
+    _mirror_audit(scope, session_id, req.question, result, started, ip, trace)
 
-    # Only write back a freshly computed answer, and only under this caller's scope.
-    if cacheable and served_from is None:
+    # Only write back a freshly computed answer, and only under this caller's scope —
+    # never one the pipeline built from this conversation's context (WI-5,
+    # node_finalize's context_dependent): cached under the raw words, another user
+    # typing them would get an answer scoped by someone else's conversation.
+    if cacheable and served_from is None and not result.get("context_dependent"):
         await response_cache.put(req.question, result, scope_key)
         await semantic_cache.put(req.question, result, vec=sem_vec, scope_key=scope_key)
 
@@ -429,9 +456,11 @@ def build_turn(question: str, result: dict) -> Turn:
     )
 
 
-def _mirror_audit(scope, session_id, question, result, started, ip):
-    """JSONL mirror of the DB audit trail — offline grep / belt-and-braces."""
+def _mirror_audit(scope, session_id, question, result, started, ip, trace=None):
+    """JSONL mirror of the DB audit trail — offline grep / belt-and-braces. Carries
+    the SQL that ran, the error, the few-shot ids and repair counts (turn_trace)."""
     auth.audit({
+        **turn_trace.audit_fields(trace, result),
         "tenant_id": scope.tenant_id,
         "user_id": scope.db_user_id,
         "username": scope.username or "(anonymous)",

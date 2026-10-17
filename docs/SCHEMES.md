@@ -37,7 +37,7 @@ Notes on the table:
 - They share the name and **no key**:
   - Focus Plus pays individual beneficiaries.
   - Focus Legacy pays producer groups.
-- `_SCHEME_NAME_PATTERN` requires a qualifier. A **bare "Focus"** matches neither pattern on
+- `_SCHEME_NAME_MATCHER` requires a qualifier. A **bare "Focus"** matches neither pattern on
   purpose, and triggers a two-way ask (`_is_ambiguous_focus` → `_focus_ambiguity_clarification`)
   on both the DATA and the KNOWLEDGE paths.
 - "Producer group" / "PG" vocabulary belongs to Focus Legacy only.
@@ -150,18 +150,21 @@ Notes on the table:
 ## CM Elevate
 - **Purpose:** **applications** to 15 livelihood/enterprise schemes under one programme.
 - **Surface:**
-  - `v_cm_elevate` (22 columns);
+  - `v_cm_elevate` (24 columns; `scheme_specific` is **locked** from `megh_readonly` since
+    2026-10-16 and never used; `sector_id` is a plain column);
   - `dim_cm_elevate_scheme` (15 rows; use it for "list the schemes");
-  - `fact_cm_elevate_application`, only for `scheme_specific @>` queries that use the GIN
-    index.
+  - `fact_cm_elevate_application`: never queried.
 - **Rules:**
   - **no money and no time**: COUNT is the only aggregate, and any year or amount question is
     unanswerable;
   - "on hold" = `data_verified = 'On Hold'`, never the `onhold` boolean, which is always FALSE;
-  - applicants = `COUNT(DISTINCT request_id)` (about 36 duplicates, all in Piggery);
+  - applications AND applicants = `COUNT(DISTINCT request_id)` (27 applications, 22 Piggery and 5
+    Poultry, have two identical records: 8,840 applications, 8,867 records; D-049);
   - `applicant_category`, not `type_raw`;
   - `LOWER()` levels and statuses;
-  - gender is in `scheme_specific ->> 'gender_id'`;
+  - gender and Approved / Rejected are **not available** (they were only in `scheme_specific`):
+    the measure-not-held pause answers them; "pending" stays On Hold (user decision 2026-10-16);
+  - `current_file_status` holds `forward`, `resubmit`, `sendback to vdv/citizen` only;
   - exclude `'Unresolved'` only for village counts;
   - a multi-sub-scheme ask gets a breakdown.
 - **Year handling:** `_SCHEME_DATA_YEARS["CM Elevate"] = []` means "no time dimension", so a
@@ -170,7 +173,8 @@ Notes on the table:
   collision and follow-up suites.
 - **Deterministic guards (2026-09-27, D-027):**
   - SQL rewrites: the programme split, zero-count sectors, pending at a level, plain "pending"
-    = On Hold, and approved/rejected on `file_status`;
+    = On Hold (also `current_file_status = 'pending'`), every `COUNT(*)` over the view counted as
+    `COUNT(DISTINCT request_id)`;
   - answer guarantees after the composer: `_cm_elevate_answer_guarantees`;
   - "PRIME SEED" routes to CM Elevate.
   - "Pending" is still On Hold. A single-figure pending answer also states the file-status
@@ -338,7 +342,7 @@ half-wired. The symbols below were VERIFIED to exist.
 4. `app/schema_context.py`: `SCHEME_CATALOG`, `SCHEME_METRICS`, `_<X>_TABLES/_RULES/_VOCAB`,
    `_SCHEME_BLOCKS`.
 5. `app/pipeline.py`:
-   - `_SCHEME_NAME_PATTERN`, `_SCHEME_FUZZY_ALIASES`, the canonical spelling map;
+   - `_SCHEME_NAME_MATCHER`, `_SCHEME_FUZZY_ALIASES`, the canonical spelling map;
    - `_<X>_ONLY_TERMS` + `_infer_scheme_from_terms`;
    - `_SCHEME_DATA_YEARS` + `refresh_scheme_years`;
    - `_scheme_clarification`, the scheme blurbs, `_SCHEME_FIT`;

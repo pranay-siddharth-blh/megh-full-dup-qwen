@@ -77,6 +77,8 @@ def test_the_reported_conversation(monkeypatch):
         return {"answer": f"KB:{','.join(schemes)}", "confidence": "medium", "sources": []}
 
     monkeypatch.setattr(llm, "call_classifier", classifier)
+
+    monkeypatch.setattr(llm, "call_rewriter", classifier)
     monkeypatch.setattr(rag, "answer_from_kb", one)
     monkeypatch.setattr(rag, "answer_from_kb_multi", multi)
     monkeypatch.setattr(p.settings, "CONTEXT_LAYER_ENABLED", False)

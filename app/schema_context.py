@@ -6,7 +6,7 @@ scheme-scoped. This matters more as scheme count grows: at 2 schemes the waste
 from including everything is mild; it does not stay mild at 6.
 
 The BUSINESS_VOCABULARY blocks are reconciled from the two source-of-truth
-business documents — data/reference/{mgnrega,pmay}_kpi_use_cases.xlsx
+business documents — the KPI use-case workbooks ({mgnrega,pmay}_kpi_use_cases.xlsx, formerly data/reference/; now only in meghalaya.zip)
 (Glossary + Query Logic columns) — against the real curated schema. Only the
 COLUMN NAMES and TERM DEFINITIONS were carried over; the Excel's numeric
 "Expected Answer" values were deliberately NOT used as ground truth (several
@@ -24,16 +24,16 @@ SCHEME_CATALOG = {
     "Focus Plus": "Meghalaya STATE farmer cash-benefit / DBT scheme — one row per "
                   "disbursement (a payment to one member in one tranche), person-level, "
                   "split into a 93K legacy paid cohort and a 12.5K registration cohort. "
-                  "Money UNIT IS UNVERIFIED — read curated.dim_scheme.money_unit.",
+                  "Money is in RUPEES (semantic.column_catalog UNIT, confirmed by the ingestion team 2026-10-16).",
     "CM Elevate": "Meghalaya PROGRAMME covering 15 individual livelihood/enterprise "
                   "schemes under one scheme_code — one row per application. NO money "
                   "column and NO date column exist anywhere in this partition; "
-                  "COUNT(*) is the entire aggregate vocabulary.",
+                  "COUNT(DISTINCT request_id) is the entire aggregate vocabulary.",
     "Focus Legacy": "Meghalaya STATE legacy producer-group disbursement programme (the "
                     "'FOCUS' scheme) — one row per payment to a PRODUCER GROUP, the only "
                     "group-grained fact in megh_db (no individual exists in it at all). "
-                    "amount_disbursed = no_of_pg_members x 5000 on every row. Money UNIT "
-                    "IS UNVERIFIED — read curated.dim_scheme.money_unit. NOT Focus Plus: "
+                    "amount_disbursed = no_of_pg_members x 5000 on every row. Money is in "
+                    "RUPEES (semantic.column_catalog UNIT, confirmed by the ingestion team 2026-10-16). NOT Focus Plus: "
                     "the two share a name and no key.",
     "CM Elevate Legacy": "Meghalaya CM-ELEVATE SANCTION-AND-DISBURSEMENT records (the DB "
                          "calls it CM Elevate Disbursement) — one row per applicant's "
@@ -57,6 +57,8 @@ SCHEME_METRICS = {
         "wage expenditure (unskilled and semi-skilled) and material expenditure",
         "total expenditure (in lakh rupees)",
         "women employment provided, and its percentage share of persons employed",
+        "men employed — derived as persons_employed - women_employment_provided "
+        "(there is no men / male column)",
         "cost per person-day",
     ],
     "PMAY-G": [
@@ -69,8 +71,7 @@ SCHEME_METRICS = {
     ],
     "Focus Plus": [
         "disbursements / payments made (COUNT(*), one row per payment)",
-        "amount disbursed (SUM — UNIT UNVERIFIED, read curated.dim_scheme.money_unit; "
-        "only two values exist, 5,000 and 2,500)",
+        "amount disbursed (SUM, in rupees; only two values exist, 5,000 and 2,500)",
         "members with an id (COUNT(DISTINCT member_id) — 12.5K registration cohort only, "
         "~3.2% of rows; NOT the scheme total)",
         "batch split — 93K legacy paid cohort vs 12.5K newer registration cohort",
@@ -79,12 +80,13 @@ SCHEME_METRICS = {
         "distinct villages reached (COUNT(DISTINCT village_code))",
     ],
     "CM Elevate": [
-        "applications received (COUNT(*), one row per application — a request, not an award)",
+        "applications received (COUNT(DISTINCT request_id) — a request, not an award)",
         "applications by scheme (15 sub-schemes under cm_scheme_key / scheme_name)",
         "applications by verification outcome (data_verified: Valid / On Hold / Wrong / Invalid)",
         "applications by applicant type (applicant_category: individual / registered / unregistered)",
         "applications by application mode (online / cmconnectcenter)",
-        "applications by gender (scheme_specific ->> 'gender_id' — populated on every row)",
+        "applications by sector (sector_id — Poultry / Dairy / Goat schemes only, mostly empty)",
+        "NO gender the chatbot may read (it was only inside scheme_specific, locked since 2026-10-16)",
         "distinct villages / blocks / districts reached",
         "NO sanctioned amount, subsidy, loan, disbursement, or any rupee figure exists",
         "NO application date, month, or financial year exists",
@@ -95,8 +97,8 @@ SCHEME_METRICS = {
         "only 10,678 distinct names)",
         "memberships paid for (SUM(no_of_pg_members) — memberships, NOT distinct people; "
         "there is no person record anywhere in this partition)",
-        "amount disbursed (SUM — UNIT UNVERIFIED, read curated.dim_scheme.money_unit; it is "
-        "exactly memberships x Rs 5,000 on every row, so it is a membership figure)",
+        "amount disbursed (SUM, in rupees; it is exactly memberships x Rs 5,000 on "
+        "every row, so it is a membership figure)",
         "producer group type (PG-FOCUS / PG-LAMP / PG-EXISTING, via pg_entity_type)",
         "programme variant ('FOCUS' vs 'Focus (Addnl)', the latter a single top-up day)",
         "product / commodity the group works on (FY2021-22 and FY2022-23 ONLY — 21% of rows)",
@@ -160,11 +162,9 @@ WHERE scheme_key / scheme_code EXIST — read before adding any scheme filter:
   that scheme's own object directly. A scheme filter is needed ONLY on
   curated.v_cross_scheme_money_district_year, i.e. only for a question that spans more
   than one scheme at once.
-  (Exception: for Focus Plus or CM Elevate you MAY read curated.dim_scheme on its own —
-  never joined per row — purely to look up money_unit, because both amount units are
-  unverified/nonexistent and neither view exposes scheme_key. For CM Elevate,
-  dim_scheme.money_unit describes NOTHING — the column is NOT NULL but there is no
-  amount on the fact for it to describe.)
+  Money units need no lookup: every money column carries its UNIT in the LIVE CATALOG
+  (2026-10-16) — MGNREGA lakh rupees, every other scheme rupees, *_crore / *_cr columns
+  crore. CM Elevate has no amount at all; its dim_scheme.money_unit describes nothing.
 
 SCHEME_CODE LITERALS — when you DO filter curated.v_cross_scheme_money_district_year
   (a multi-scheme question), these are the values stored in scheme_code:
@@ -174,12 +174,10 @@ SCHEME_CODE LITERALS — when you DO filter curated.v_cross_scheme_money_distric
                                    scheme_code = 'PMAY-G' matches ZERO rows and returns a
                                    false 0 for the PMAY side while an unfiltered SUM still
                                    looks right — always write scheme_code = 'PMAY'.
-      Focus Plus -> PRESENCE UNCONFIRMED. Run `SELECT DISTINCT scheme_code FROM
-                                   curated.v_cross_scheme_money_district_year` first.
-                                   If Focus Plus is absent, say the money comparison
-                                   covers MGNREGA and PMAY-G only — do NOT guess a
-                                   literal. If present, use the exact string that query
-                                   returns.
+      Focus Plus -> ABSENT (checked 2026-10-16: the view holds 'MGNREGA' and 'PMAY'
+                                   only). Say the money comparison covers MGNREGA and
+                                   PMAY-G only. Elsewhere its code is 'FOCUS_PLUS', and
+                                   Focus Legacy's 'FOCUS_LEGACY' — there is NO 'FOCUS'.
       CM Elevate -> CONFIRMED ABSENT, not merely unconfirmed. The view definition is a
                                    two-branch UNION ALL over MGNREGA and PMAY only —
                                    verified from the live view definition, not inferred.
@@ -216,6 +214,30 @@ _SHARED_RULES = """
     top 10% -> NTILE(10); top 25% / quartile -> NTILE(4); top 5% -> NTILE(20). For "top N
     <units>" (a count, not a percentage) rank with ROW_NUMBER() OVER (ORDER BY m DESC) and
     divide the sum of rows <= N by the grand total instead.
+  * COUNTING PEOPLE / HOUSEHOLDS ACROSS YEARS (business definition — a wrong sum here
+    looks perfectly plausible). A count of distinct people or households for one year
+    CANNOT be added to another year's: the same person appears in both. So:
+      - A question with no year ("how many beneficiaries", "in total", "all years",
+        "overall", "till date") about PEOPLE: if the scheme has a person identifier, count
+        it ONCE over all rows — COUNT(DISTINCT <person id>) with no year GROUP BY. Never
+        GROUP BY year and then sum the rows (Focus Plus: 93,286 + 105,813 = 199,099 is
+        WRONG; the true all-years figure is 105,813).
+      - A per-year breakdown ("by year", "year-wise", "each year") returns one row per
+        year AND, when an all-years total is also wanted, the cross-year distinct count
+        in its own column — never a sum of the yearly rows.
+      - If the scheme has NO person / household identifier (MGNREGA: households_employed
+        and persons_employed are per-year tallies), no all-years unique count exists.
+        "All years" is still answered as ONE combined figure (the user's standing
+        instruction), but a multi-year SUM is aliased household_years / person_years and
+        called "household-years" / "person-years" — never households, persons or
+        beneficiaries. Split by year only when a year-wise breakdown is asked for.
+      - Money (amounts, expenditure) and events (payments, houses, person-days) DO add up
+        across years — the rule is only for counts of distinct people / households.
+  * GENDER (business definition): use only the gender data a scheme actually records —
+    MGNREGA: women_employment_provided only (men = persons_employed -
+    women_employment_provided; MGNREGA rule 6); Focus Plus: gender, 12.5K cohort only;
+    PMAY-G, Focus Legacy and CM Elevate Legacy record NO gender, and CM Elevate's
+    (scheme_specific ->> 'gender_id') is locked from the chatbot — answer "not available". Never label a total of all persons as "men" or "women".
 """.strip()
 
 _CLOSING = """
@@ -226,7 +248,9 @@ Generate a single read-only SELECT statement only — no comments, no explanatio
 _MGNREGA_TABLES = """
 MGNREGA TABLES
   curated.fact_mgnrega_employment(year_key, geography_key, person_days, households_employed,
-      persons_employed, households_completed_100_days, job_cards_issued_total)
+      persons_employed, households_completed_100_days, job_cards_issued_total,
+      women_employment_provided)
+      -- women_employment_provided is the ONLY gender column; there is no men / male column
   curated.fact_mgnrega_expenditure(year_key, geography_key, unskilled_wage_exp,
       semi_skilled_wage_exp, material_exp, total_exp)  -- LAKH RUPEES
   curated.v_employment / curated.v_expenditure  -- facts pre-joined to year+geography
@@ -281,6 +305,43 @@ MGNREGA RULES (breaking these produces a wrong number, not just an ugly query):
      women in employment is: ROUND(100.0 * SUM(women_employment_provided)
      / NULLIF(SUM(persons_employed), 0), 2) — women_employment_provided is a persons count,
      over the same persons_employed denominator used everywhere else in this schema.
+  6a. MEN: there is NO men / male column. "Men" / "male workers" / "how many men worked" =
+     SUM(persons_employed) - SUM(women_employment_provided), computed over the SAME filters,
+     and the query returns all three columns so the answer can show its working:
+       SELECT SUM(persons_employed) AS persons_employed,
+              SUM(women_employment_provided) AS women_employed,
+              SUM(persons_employed) - SUM(women_employment_provided) AS men_employed
+       FROM curated.v_employment WHERE <filters>;
+     NEVER alias SUM(persons_employed) on its own as men (Ri Bhoi FY 2023-24: persons
+     53,700 is NOT men; men = 53,700 - 29,942 = 23,758). Subtract the SUMs, never per row,
+     and never wrap it in GREATEST(..., 0): a few villages and two block-years record more
+     women than persons at source, and a negative result must be reported as a source
+     inconsistency, not hidden. "Gender breakdown" / "men vs women" returns women_employed
+     and men_employed side by side (with persons_employed).
+     WOMEN ARE RECORDED ONLY FOR FY 2022-23, 2023-24 AND 2024-25 (year_key 2022-2024).
+     For FY 2025-26 women_employment_provided is 0 on every row (not populated at
+     source), so men CANNOT be derived for 2025-26 — persons minus zero would call every
+     worker a man. For a 2025-26 gender / men / women question say it is not recorded for
+     that year. With no year named, restrict to year_key IN (2022, 2023, 2024) and say so.
+ 11. HOUSEHOLDS vs PERSONS (business definition):
+       households_employed = households provided employment (one job-card household,
+         however many of its members worked). This is what "beneficiaries",
+         "beneficiary households", "families" and "households" mean for MGNREGA.
+       persons_employed = individual workers. Use it for "persons", "people",
+         "individuals", "workers", "labourers" and for gender (rule 6 / 6a).
+     When the question says "beneficiaries" return households_employed AS
+     beneficiary_households (add persons_employed alongside only if people are also asked
+     about). Never pick persons_employed for "beneficiaries" in one answer and
+     households_employed in another.
+ 12. ACROSS YEARS (business definition): households_employed and persons_employed are
+     per-year tallies with no household / person id, so the same household is counted
+     again every year it works. For "all years" / "in total" / no year named, return ONE
+     combined SUM aliased household_years / person_years (never beneficiary_households,
+     households, persons or beneficiaries) — the answer calls it household-years and says
+     distinct households over all years are not recorded. Return one row per financial
+     year only when a year-wise breakdown is asked for ("by year", "each year").
+     person_days, households_completed_100_days (counted per year) and money DO add up
+     across years; job cards are a stock (rule 3).
   7. cost_per_person_day_rupees: use the precomputed column on v_district_year_summary, or,
      if computing it inline, SUM(total_exp) * 100000 / NULLIF(SUM(person_days), 0) — total_exp
      is LAKH and person_days is a raw count. NEVER divide the crore figure (total_exp / 100)
@@ -299,7 +360,8 @@ MGNREGA RULES (breaking these produces a wrong number, not just an ugly query):
 _MGNREGA_VOCAB = """
 MGNREGA BUSINESS VOCABULARY (source: data/ KPI Use Cases workbook, Glossary sheet)
     "spending" / "expenditure" -> total_exp                "wages" -> unskilled_wage_exp + semi_skilled_wage_exp
-    "material cost" -> material_exp                         "people employed" / "beneficiaries" -> households_employed or persons_employed (ask which if ambiguous)
+    "material cost" -> material_exp                         "beneficiaries" / "households" / "families" -> households_employed (rule 11)
+    "people" / "persons" / "workers" / "individuals" -> persons_employed        "women" -> women_employment_provided   "men" -> persons_employed - women_employment_provided (rule 6a)
     "work days" / "man-days" -> person_days                 "job cards" -> job_cards_issued_total (STOCK, rule 3)
     "100-day completion" -> households_completed_100_days   "wage compliance" / "60:40 ratio" -> unskilled_wage_exp / total_exp (statutory formula, NOT (unskilled+semi)/total)
 """.strip()
@@ -372,6 +434,7 @@ PMAY-G BUSINESS VOCABULARY (source: data/ KPI Use Cases workbook, Glossary sheet
     "completion rate" -> COUNT(*) FILTER (WHERE is_completed) / COUNT(*) * 100
     "tranche" / "installment" -> installments_paid           "construction stage" -> status_name / is_completed / is_in_progress
     "sanction order" -> sanction_no                          "LGD code" -> village_code (district/block have no code column in curated, name only)
+    "women" / "men" / "gender" / "female-headed" -> NOT RECORDED: PMAY-G holds no gender column; say so, never answer with a total of all houses
 """.strip()
 
 _FOCUSPLUS_TABLES = """
@@ -412,9 +475,8 @@ FOCUS PLUS TABLES
       join is needed for any statewide, district-, block- or village-level number.
       Prefer this view over curated.fact_focus_plus_disbursement directly — it carries
       the same bank_name_raw plus the geography/time joins already done.
-  curated.dim_scheme  -- read ON ITS OWN (never joined per row) ONLY to look up
-      money_unit for the Focus Plus row. amount_disbursed's unit is UNVERIFIED and
-      v_focus_plus does not expose scheme_key.
+  curated.dim_scheme  -- not needed for Focus Plus: amount_disbursed is in rupees
+      (semantic.column_catalog UNIT, 2026-10-16) and v_focus_plus has no scheme_key.
 """.strip()
 
 _FOCUSPLUS_RULES = """
@@ -476,9 +538,20 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      source_sl_no repeats across the two cohorts and needs a batch_label scope
      to mean anything on its own (rule 7 covers the one place that scoped reading
      is still needed: a per-tranche/per-batch breakdown).
-  7. amount_disbursed: UNIT IS UNVERIFIED. Read curated.dim_scheme.money_unit for the
-     Focus Plus row before formatting or converting; if it does not resolve, say the
-     unit is unconfirmed. Do NOT divide by 1e7 / 1e5 on an assumption and NEVER add a
+  6a. ACROSS YEARS: a beneficiary is paid in more than one financial year (FY 2022-23 holds
+     93,286 beneficiaries, FY 2025-26 holds 105,813, and all 93,286 recur in 2025-26), so
+     per-year beneficiary counts must NEVER be added. "How many beneficiaries" with no
+     year, "in total" or "across all years" = ONE `COUNT(DISTINCT beneficiary_key)` over
+     all rows, with no year GROUP BY (105,813 — not 93,286 + 105,813 = 199,099). A
+     "by financial year" breakdown returns the per-year counts plus the all-years distinct
+     count in its own column (see the example), so a total is never made by summing rows.
+  6b. GENDER: `gender` is filled only for the 12.5K registration cohort (12,527
+     beneficiaries: Female 10,263, Male 2,264); it is NULL for all 93,286 legacy
+     beneficiaries. A gender count is COUNT(DISTINCT beneficiary_key) GROUP BY gender and
+     must say it covers the 12.5K cohort only — never present Female/Male as the split of
+     all 105,813 beneficiaries, and never treat NULL as either gender.
+  7. amount_disbursed is in RUPEES (semantic.column_catalog UNIT, 2026-10-16). Convert
+     to lakh / crore only for display, stating the unit, and NEVER add a
      Focus Plus amount to a MGNREGA (lakh) or PMAY (rupee) figure. Only two values exist
      — 5,000 (Tranch 1) and 2,500 (later tranches) — so AVG(amount_disbursed) is a mix
      ratio, not an entitlement: a "per beneficiary" figure divides SUM(amount_disbursed)
@@ -552,8 +625,8 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      UNCONFIRMED — SELECT DISTINCT scheme_code first); for village coverage that view has
      NO Focus Plus column, so aggregate v_focus_plus to village_code in a CTE and FULL
      JOIN the aggregate.
- 12. Every Focus Plus total is unverified against megh_db — state that a figure is
-     provisional pending meta.v_reconciliation_focus_plus.
+ 12. Focus Plus has data for FY2022-23 and FY2025-26 only (curated.v_data_coverage):
+     a question about FY2023-24 or FY2024-25 is NO DATA for that year, never 0.
  13. UNQUALIFIED "status" / "status-wise" / "status breakdown" / "status distribution"
      — with NO other qualifier — ALWAYS means focus_status alone
      (`GROUP BY focus_status`, scoped `WHERE batch_label = '12.5K'` per rule 4). Do
@@ -570,7 +643,7 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
 
 _FOCUSPLUS_VOCAB = """
 FOCUS PLUS BUSINESS VOCABULARY (source: FOCUS+ NLP Use Cases workbook + focusplus_schema_partitions.yaml)
-    "payments" / "disbursements" / "records" -> COUNT(*)              "amount" / "disbursed" / "paid" / "DBT amount" -> SUM(amount_disbursed)  (UNIT UNVERIFIED — read dim_scheme.money_unit)
+    "payments" / "disbursements" / "records" -> COUNT(*)              "amount" / "disbursed" / "paid" / "DBT amount" -> SUM(amount_disbursed)  (rupees)
     "members with an id" -> COUNT(DISTINCT member_id)  (12.5K cohort only, NOT a beneficiary count)   "beneficiaries" (any shape — statewide, one district, "each district", a comparison) -> COUNT(DISTINCT beneficiary_key), no batch_label or has_geo_conflict filter (rule 6)
     "legacy" / "paid cohort" -> batch_label = '93K'                  "newer" / "registration cohort" / "unpaid" -> batch_label = '12.5K'  (an inference from the batch, NOT a status column)
     "tranche" / "installment" / "tranch" -> tranche_label  (categorical, not time)   "batch" / "cohort" -> batch_label
@@ -581,13 +654,16 @@ FOCUS PLUS BUSINESS VOCABULARY (source: FOCUS+ NLP Use Cases workbook + focusplu
 
 _CMELEVATE_TABLES = """
 CM ELEVATE TABLES
-  curated.v_cm_elevate  -- THE query surface. One row = one application (request_id)
-      under one of 15 CM Elevate schemes. 22 columns:
+  curated.v_cm_elevate  -- THE query surface. One row = one application RECORD under
+      one of 15 CM Elevate schemes; 27 applications have two identical records, so
+      always count COUNT(DISTINCT request_id) (rule 8). Columns you may read:
         cm_elevate_fact_id, request_id, cm_scheme_key, scheme_name, endpoint,
         geography_key, village_code, lgd_village_name, lgd_block, lgd_district,
         on_roster, has_geo_conflict, entity_type, applicant_category, type_raw,
         current_file_status, current_level, application_mode, data_verified,
-        onhold, is_withdraw, scheme_specific
+        onhold, is_withdraw, sector_id, district_name_raw
+      scheme_specific is LOCKED: the chatbot's database role may not read it
+      (2026-10-16), so a query naming it is refused. Never write it.
       dim_cm_elevate_scheme and dim_geography are PRE-JOINED (both INNER, both keys
       NOT NULL — the view is lossless), so scheme_name/endpoint and
       lgd_district/lgd_block/lgd_village_name/entity_type are on the row directly.
@@ -601,15 +677,14 @@ CM ELEVATE TABLES
       schemes" — a scheme with zero applications is invisible in the fact.
   curated.dim_scheme  -- read ON ITS OWN (never joined per row); constant within this
       partition (always the CM_ELEVATE row). Its money_unit describes nothing here.
-  curated.fact_cm_elevate_application  -- underlying fact. Reach for it ONLY for a
-      scheme_specific containment query (@>) that needs the GIN index
-      (idx_cm_elevate_specific_gin) — the same predicate against the view cannot use it.
+  curated.fact_cm_elevate_application  -- underlying fact. Never query it: the view
+      carries every readable column.
 """.strip()
 
 _CMELEVATE_RULES = """
 CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query):
   1. THERE IS NO MEASURE. No sanctioned amount, subsidy, loan, disbursement, unit cost
-     or tranche exists anywhere in this partition. COUNT(*) is the entire aggregate
+     or tranche exists anywhere in this partition. COUNT(DISTINCT request_id) is the entire aggregate
      vocabulary. NEVER emit SUM/AVG over a v_cm_elevate column, and NEVER answer a
      money question with an application count — refuse and offer the count as an
      explicitly different question.
@@ -640,101 +715,56 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
      typos preserved verbatim.
   7. LOWER() current_level and current_file_status before grouping/filtering — a
      Title-Case variant of a level (e.g. 'Level1' alongside 'level1') is not currently
-     observed but the rule is defensive; 'sendback' and 'sendback to vdv/citizen' are
-     two genuinely different stored values for a related idea and must be combined
-     with a LIKE, not an exact match.
-  8. request_id is NOT unique (about 36 numbers repeat, all inside Piggery) — never
-     assume LIMIT 1 is safe on a request_id lookup. This also means a bare COUNT(*)
-     overcounts "applicants"/"beneficiaries" by those ~36 duplicate rows: any question
-     asking how many APPLICANTS (as opposed to how many APPLICATIONS/requests) must use
-     COUNT(DISTINCT request_id), e.g.
-       SELECT COUNT(DISTINCT request_id) AS applicants
+     observed but the rule is defensive. current_file_status holds exactly 'forward',
+     'resubmit' and 'sendback to vdv/citizen' (2026-10-16); test send-back with
+     LIKE 'sendback%', never an exact match. It NEVER holds pending / approved /
+     rejected. API DRIFT: since the 2026-10-13 re-pull, 89 applications read 'forward'
+     although the client API calls them sent back — never read 'forward' as "not sent back".
+  8. COUNT APPLICATIONS AND APPLICANTS WITH COUNT(DISTINCT request_id), NEVER COUNT(*)
+     (decided 2026-10-16, semantic.metric_definitions cm_elevate_applications). 27
+     applications (22 Piggery, 5 Poultry) appear on two records identical on every
+     visible field, so COUNT(*) gives 8,867 records against 8,840 applications. Never
+     assume LIMIT 1 is safe on a request_id lookup. e.g.
+       SELECT COUNT(DISTINCT request_id) AS applications
        FROM curated.v_cm_elevate
        WHERE lgd_district = 'WEST GARO HILLS';
-  9. gender lives in scheme_specific ->> 'gender_id' (text despite the _id suffix,
-     populated on every row — the one scheme_specific key that needs no scheme scope).
-     Every OTHER scheme_specific read MUST carry a cm_scheme_key or scheme_name filter
-     — `->>` returns NULL for a missing key, indistinguishable from a genuinely empty
-     value.
-  9a. NEVER GUESS A scheme_specific KEY NAME. `->>` and `?` are silent on a missing
-     key — a wrong guess returns 0 rows / NULL and reads exactly like "no data
-     exists" (confirmed live 2026-09-11: a question about Poultry applicants "by
-     sector" was answered "no matching records" because the generator wrote
-     `scheme_specific ->> 'sector'`, when the real, populated key for Poultry is
-     `sector_id` — one keystroke off, and 501 real rows silently became zero). Known
-     real keys, verified live against megh_db, all holding TEXT despite the `_id`
-     suffix: gender_id (all 15 schemes), sector_id (Poultry, Dairy, Goat only —
-     'Poultry'/'Piggery'/etc., mostly NULL), occupation_id (uncoded, no lookup
-     table), file_status (all 15 schemes, every row: 'Pending' 8,472 / 'Send Back'
-     90 / 'Rejected' 64 / 'Approved' 1 — the application's decision state,
-     verified live 2026-09-27). For any OTHER scheme_specific field the question names, either match it
-     to a key already confirmed in this prompt, or run
-     `SELECT DISTINCT jsonb_object_keys(scheme_specific)` scoped to that one scheme
-     first and use exactly what comes back — never a plausible-sounding shortened or
-     lengthened form of the word the user typed.
-  9b. When the question's own wording explicitly names a scheme_specific dimension
-     word ("sector", "gender", ...) ALONGSIDE a scheme it already resolved to (e.g.
-     "poultry sector"), the user is asking about THAT SUB-FIELD, not just repeating
-     the scheme name — answer with the sub-field, don't silently drop it and return
-     the bare scheme total (confirmed live 2026-09-11: returning the plain 501
-     scheme-wide count for "applicants associated with poultry sector" was reported
-     back as ignoring "sector" entirely). But two traps stack here, and both must be
-     handled in ONE query, not chosen between:
-       - CASE: sector_id values are stored Title Case ('Poultry', 'Piggery'). Compare
-         with `ILIKE` (or `LOWER(...) = LOWER(...)`), never an exact match on a
-         lowercase guess — that was the original bug (0 rows on 'poultry').
-       - SPARSITY: sector_id is recorded on only a small fraction of rows even for
-         the schemes that have it (26 of 501 Poultry rows; 475 are NULL). A filtered
-         count alone, with no denominator, reads as either "the whole scheme" or "a
-         data error" depending which way it's wrong. Always return THREE numbers
-         together so the answer is self-explanatory — the sector-matched count, how
-         many rows have sector_id recorded at all, and the scheme's total applicant
-         count — e.g.:
-           SELECT COUNT(*) FILTER (WHERE scheme_specific ->> 'sector_id' ILIKE 'poultry')
-                    AS poultry_sector_applicants,
-                  COUNT(*) FILTER (WHERE scheme_specific ->> 'sector_id' IS NOT NULL)
-                    AS sector_recorded,
-                  COUNT(*) AS scheme_total
-           FROM curated.v_cm_elevate
-           WHERE scheme_name = 'Meghalaya Poultry Farming Scheme';
-         THE "RECORDED" TEST MUST BE `->> 'key' IS NOT NULL`, NEVER `? 'key'`. The `?`
-         (has-key) operator checks whether the JSON key is PRESENT, not whether its
-         value is non-null — sector_id is present as a key on every one of the 501
-         rows (with a JSON null value on 475 of them), so `scheme_specific ?
-         'sector_id'` returns TRUE for all 501 and silently makes "sector_recorded"
-         equal the scheme total (confirmed live 2026-09-11: this exact mistake was
-         shipped once already, in this very rule, before being caught). `->>` returns
-         SQL NULL for both a missing key and a JSON-null value, which is exactly the
-         "not really recorded" test wanted here.
-         State all three: "21 applicants have sector recorded as Poultry (out of 26
-         rows where sector is recorded at all; 501 total applicants under the
-         scheme)" — never just the 21, and never just the 501. When a MULTI-scheme
-         question includes a scheme that never carries sector_id at all (anything
-         other than Poultry/Dairy/Goat — e.g. Piggery), say plainly that sector
-         isn't tracked for that scheme rather than reporting a bare "0" that reads
-         as "checked and found none".
-       - NEVER PUT `scheme_specific ->> 'sector_id' IS NOT NULL` (or any sector
-         filter) IN THE OUTER WHERE CLAUSE of a multi-scheme/GROUP BY version of
-         this query — it silently corrupts "scheme_total" into "sector-recorded
-         count" AND drops every scheme with no sector_id at all (e.g. Piggery)
-         from the result entirely, both at once (confirmed live 2026-09-12: "Piggery
-         and Poultry ... poultry sector in Ri Bhoi" returned Poultry's scheme_total
-         as 8 — its actual Ri Bhoi total is 238 — and Piggery vanished from the
-         output instead of showing 0/0/1950). The sector test belongs ONLY inside
-         the two COUNT(*) FILTER(...) clauses; the outer WHERE filters just
-         scheme_name (+ any named geography), so every named scheme — sector-
-         tracked or not — gets its own row with its real, unfiltered scheme_total:
-           SELECT scheme_name,
-                  COUNT(*) FILTER (WHERE scheme_specific ->> 'sector_id' ILIKE 'poultry')
-                    AS poultry_sector_applicants,
-                  COUNT(*) FILTER (WHERE scheme_specific ->> 'sector_id' IS NOT NULL)
-                    AS sector_recorded,
-                  COUNT(*) AS scheme_total
-           FROM curated.v_cm_elevate
-           WHERE scheme_name IN ('Meghalaya Piggery Development Scheme',
-                                 'Meghalaya Poultry Farming Scheme')
-             AND lgd_district = 'RI BHOI'
-           GROUP BY scheme_name;
+  9. scheme_specific (the JSON column that held gender_id, file_status and
+     occupation_id) is LOCKED from the chatbot's database role since 2026-10-16. Never
+     write scheme_specific, ->>, ? or @> against it — the query is refused. Gender and
+     the Approved / Rejected decision are therefore NOT AVAILABLE for CM Elevate.
+  9a. SECTOR is the plain column sector_id (Poultry, Dairy and Goat schemes only;
+     mostly NULL — 38 of 8,867 records). Stored values are Title Case ('Poultry',
+     'Piggery', 'Dairy', 'Goatery'): compare with ILIKE, never an exact lowercase guess.
+  9b. When the question names a sector ALONGSIDE a scheme ("poultry sector"), answer
+     with the sector, not the bare scheme total, and return THREE numbers in one query
+     — the sector-matched count, how many records have sector_id at all, and the
+     scheme's total — because sector_id is so sparse that one number alone reads as
+     either "the whole scheme" or "a data error":
+       SELECT COUNT(DISTINCT request_id) FILTER (WHERE sector_id ILIKE 'poultry')
+                AS poultry_sector_applicants,
+              COUNT(DISTINCT request_id) FILTER (WHERE sector_id IS NOT NULL)
+                AS sector_recorded,
+              COUNT(DISTINCT request_id) AS scheme_total
+       FROM curated.v_cm_elevate
+       WHERE scheme_name = 'Meghalaya Poultry Farming Scheme';
+     NEVER put the sector test (or `sector_id IS NOT NULL`) in the OUTER WHERE of a
+     multi-scheme / GROUP BY version: it turns scheme_total into the sector-recorded
+     count AND drops every scheme with no sector (e.g. Piggery) from the result
+     (confirmed live 2026-09-12). The sector test belongs ONLY inside the FILTER
+     clauses; the outer WHERE filters scheme_name and any named place, so every named
+     scheme gets its own row. For a scheme that never records sector (anything but
+     Poultry / Dairy / Goat), say sector isn't tracked for it rather than a bare 0:
+       SELECT scheme_name,
+              COUNT(DISTINCT request_id) FILTER (WHERE sector_id ILIKE 'poultry')
+                AS poultry_sector_applicants,
+              COUNT(DISTINCT request_id) FILTER (WHERE sector_id IS NOT NULL)
+                AS sector_recorded,
+              COUNT(DISTINCT request_id) AS scheme_total
+       FROM curated.v_cm_elevate
+       WHERE scheme_name IN ('Meghalaya Piggery Development Scheme',
+                             'Meghalaya Poultry Farming Scheme')
+         AND lgd_district = 'RI BHOI'
+       GROUP BY scheme_name;
  10. Applicant names, mobile numbers, PAN and bank account fields were stripped at
      ingest — a name lookup returns "not held in this data", never a guessed join.
  11. NEVER row-join v_cm_elevate to a PMAY, MGNREGA or Focus Plus fact/view — all such
@@ -749,8 +779,8 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
  13. UNQUALIFIED "status" / "status distribution" / "status-wise" / "current status" /
      "application status" / "status breakdown" ALWAYS means current_file_status
      (product decision 2026-09-28 — NOT data_verified). Its stored values: 'forward',
-     'sendback', 'sendback to vdv/citizen', 'resubmit' (mixed case). Group them with
-     exactly this expression, which merges the two send-back spellings (rule 7):
+     'resubmit', 'sendback to vdv/citizen' (rule 7). Group them with exactly this
+     expression, which keeps any send-back spelling in one bucket:
        CASE WHEN LOWER(current_file_status) LIKE 'sendback%' THEN 'Sent back'
             WHEN current_file_status IS NULL THEN '(not recorded)'
             ELSE INITCAP(LOWER(current_file_status)) END AS status
@@ -769,7 +799,7 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
      the verified % of total when useful) in one query — never just one side, per the
      same self-explanatory-numbers reasoning as rule 9b.
  15. "withdrawn" / "withdrawal" -> the is_withdraw boolean column
-     (COUNT(*) FILTER (WHERE is_withdraw)). It is FALSE on every one of the 8,543 rows
+     (COUNT(DISTINCT request_id) FILTER (WHERE is_withdraw)). It is FALSE on every row
      today — CM Elevate currently has zero recorded withdrawals at any scope. Answer
      with the real (zero) count from a live query — NEVER refuse this as "not
      tracked"/"not available"; the column exists and is queryable, it is simply
@@ -778,7 +808,7 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
      Piggery and Poultry across Ri Bhoi and East Khasi Hills") is a single GROUP BY
      scheme_name, lgd_district query (optionally pivoted), never two separate
      unrelated queries and never a refusal:
-       SELECT scheme_name, lgd_district, COUNT(*) AS applications
+       SELECT scheme_name, lgd_district, COUNT(DISTINCT request_id) AS applications
        FROM curated.v_cm_elevate
        WHERE scheme_name IN ('Meghalaya Piggery Development Scheme','Meghalaya Poultry Farming Scheme')
          AND lgd_district IN ('RI BHOI','EAST KHASI HILLS')
@@ -788,18 +818,17 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
 
 _CMELEVATE_VOCAB = """
 CM ELEVATE BUSINESS VOCABULARY (source: cmelevate_schema_partitions.yaml + cmelevate_entity_resolver.yaml)
-    "applications" / "records" / "requests" -> COUNT(*)   (an application is a REQUEST, not an award — say "applications")
-    "applicants" / "beneficiaries" / "distinct applications" / "unique applications" -> COUNT(DISTINCT request_id)   (request_id is NOT unique — about 36 numbers repeat, all inside Piggery — so a bare COUNT(*) overcounts "applicants"/"beneficiaries" by those duplicates; only "applications"/"requests" itself means the raw row count)
+    "applications" / "applicants" / "beneficiaries" / "requests" / "records" -> COUNT(DISTINCT request_id)   (an application is a REQUEST, not an award — say "applications"; never COUNT(*): 27 applications have two identical records, rule 8)
     "on hold" / "pending" / "held" -> data_verified = 'On Hold'   (NEVER the onhold boolean)
     ONLY when the question itself names a level ("pending at level 2", "pending in level1"): -> LOWER(current_level) = 'levelN' alone — the level IS the scope; do NOT also add data_verified = 'On Hold' (no level-2 application is on hold, so that AND returns a false 0). A plain "pending" with NO level named is still data_verified = 'On Hold' — never a current_level filter
-    "pending in each sector" / "<status> by sector" / "<status> by <dimension>" -> keep the status test INSIDE COUNT(*) FILTER (WHERE data_verified = '...') and GROUP BY the dimension with NO status test in the WHERE, so a group with none still shows 0
-    "approved" / "rejected" / "decision" -> scheme_specific ->> 'file_status' = 'Approved' / 'Rejected' (exact Title Case) — current_file_status NEVER holds approved/rejected/pending (only forward / sendback / resubmit), so filtering it for those returns a false 0   "sanctioned" / "cleared" / "funded" -> NOT AVAILABLE here (sanction lives in CM Elevate Legacy)   "status" / "status distribution" / "status-wise" / "application status" (default) -> current_file_status, send-back spellings merged (rule 13; decided 2026-09-28)   "verification status" -> data_verified
+    "pending in each sector" / "<status> by sector" / "<status> by <dimension>" -> keep the status test INSIDE COUNT(DISTINCT request_id) FILTER (WHERE data_verified = '...') and GROUP BY the dimension with NO status test in the WHERE, so a group with none still shows 0
+    "approved" / "rejected" / "decision" -> NOT AVAILABLE: that decision lived only in scheme_specific, locked from the chatbot since 2026-10-16 — current_file_status NEVER holds approved/rejected/pending (only forward / resubmit / sendback to vdv/citizen), so filtering it for those returns a false 0   "sanctioned" / "cleared" / "funded" -> NOT AVAILABLE here (sanction lives in CM Elevate Legacy)   "status" / "status distribution" / "status-wise" / "application status" (default) -> current_file_status, send-back spellings merged (rule 13; decided 2026-09-28)   "verification status" -> data_verified
     "villages" -> COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')   "districts" / "blocks" -> COUNT(DISTINCT lgd_district) / COUNT(DISTINCT lgd_block)
-    "amount" / "money" / "disbursed" / "subsidy" / "loan" / "sanctioned amount" -> NOT AVAILABLE, no money column exists   "gender" -> scheme_specific ->> 'gender_id'
+    "amount" / "money" / "disbursed" / "subsidy" / "loan" / "sanctioned amount" -> NOT AVAILABLE, no money column exists   "gender" / "women" -> NOT AVAILABLE (locked inside scheme_specific)
     "type" (default) -> applicant_category   "mode" -> application_mode (online / cmconnectcenter)   "schemes" -> COUNT(*) FROM curated.dim_cm_elevate_scheme  (= 15)
-    "sector" -> scheme_specific ->> 'sector_id'   (Poultry/Dairy/Goat only — NEVER 'sector', that key does not exist and silently returns zero rows)
+    "sector" -> the sector_id column   (Poultry/Dairy/Goat only, mostly NULL — rules 9a/9b)
     "verified" / "verification completed" -> data_verified = 'Valid'   "not verified" / "verification pending" -> data_verified IS DISTINCT FROM 'Valid'   (NEVER a 'Completed' literal — does not exist)
-    "withdrawn" / "withdrawal" -> COUNT(*) FILTER (WHERE is_withdraw)   (boolean, FALSE on every row today — answer is 0, NEVER a refusal)
+    "withdrawn" / "withdrawal" -> COUNT(DISTINCT request_id) FILTER (WHERE is_withdraw)   (boolean, FALSE on every row today — answer is 0, NEVER a refusal)
 """.strip()
 
 _FOCUSLEGACY_TABLES = """
@@ -833,9 +862,8 @@ FOCUS LEGACY TABLES
   curated.dim_pg_entity_type  -- 3 rows (type_code, type_name, source_id_prefix).
       Read it to ENUMERATE the three group types; the stored type_code strings are
       NOT documented, so never filter on a guessed 'FOCUS' / 'LAMP' / 'EXISTING'.
-  curated.dim_scheme  -- read ON ITS OWN (never joined per row) ONLY to look up
-      money_unit for the Focus Legacy row. amount_disbursed's unit is UNVERIFIED and
-      v_focus_legacy does not expose scheme_key.
+  curated.dim_scheme  -- not needed for Focus Legacy: amount_disbursed is in rupees
+      (semantic.column_catalog UNIT, 2026-10-16) and v_focus_legacy has no scheme_key.
   NEVER QUERY, NEVER JOIN: curated.fact_focus_legacy_disbursement and
       curated.bridge_pg_bank_history. Both hold the unmasked account_no; the fact
       also holds name_on_the_account. Reaching either through a join is the same
@@ -964,9 +992,8 @@ FOCUS LEGACY RULES (breaking these produces a wrong number, not just an ugly que
  14. NO STATUS DIMENSION EXISTS. Every row is a payment that HAPPENED — there is no
      pending, approved, rejected or in-progress population, and none can be derived
      from a NULL date or a missing product.
- 15. MONEY UNIT IS UNVERIFIED. Read curated.dim_scheme.money_unit for the Focus Legacy
-     row before printing a currency symbol. Magnitudes (Rs 5,000/member, 950,000 max)
-     corroborate rupees; nothing in the extract confirms it.
+ 15. MONEY IS RUPEES (semantic.column_catalog UNIT, confirmed by the ingestion team
+     2026-10-16; Rs 5,000/member, 950,000 max).
   Worked shapes:
     -- the three counts together (the default shape for a bare "how many")
     SELECT COUNT(*) AS payments, COUNT(DISTINCT pg_id) AS producer_groups,
@@ -1069,7 +1096,7 @@ CM ELEVATE LEGACY RULES (breaking these produces a wrong number, not just an ugl
      (desanctioned_reason_raw Refused / Duplicate) beside it as withdrawn sanctions,
      never as the "not sanctioned" figure. There is NO mandatory row filter (no
      is_placeholder): do not invent one.
-  3. MONEY IS RUPEES (unverified — dim_scheme.money_unit is authoritative). Totals in crore:
+  3. MONEY IS RUPEES (semantic.column_catalog UNIT, 2026-10-16). Totals in crore:
      ROUND(SUM(x) / 1e7, 2) AS <name>_cr. Per-record averages stay in rupees
      (ROUND(AVG(x)) AS avg_<name>_rupees). Never confuse with MGNREGA's lakh.
   4. STORED TOTALS ONLY. total_disbursement = subsidy + loan, total_subsidy_disbursement and
@@ -1180,9 +1207,11 @@ FOCUS PLUS IN A CROSS-SCHEME QUESTION — read first:
     village_code — NEVER join the fact.
   * curated.v_cross_scheme_money_district_year: run
     `SELECT DISTINCT scheme_code FROM curated.v_cross_scheme_money_district_year` FIRST.
-    If Focus Plus is absent, say the money comparison covers MGNREGA and PMAY-G only.
+    It holds MGNREGA and PMAY only (scheme_code 'MGNREGA' / 'PMAY'; 2026-10-16), so say
+    the money comparison covers MGNREGA and PMAY-G only. There is no scheme_code 'FOCUS':
+    the codes are FOCUS_PLUS and FOCUS_LEGACY.
   * Focus Plus amount_disbursed is a THIRD, different kind of number (money disbursed to
-    individuals, UNIT UNVERIFIED). Never add it into a combined total with MGNREGA lakh
+    individuals, in rupees). Never add it into a combined total with MGNREGA lakh
     or PMAY rupee figures, and never row-join v_focus_plus to a PMAY / MGNREGA object
     (all such fact pairs are prohibited — aggregate each side to a shared grain first).
   * FAMILY C metric (beneficiaries / persons / "how many benefited") including Focus Plus:

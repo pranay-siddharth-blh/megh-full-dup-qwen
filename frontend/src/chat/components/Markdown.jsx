@@ -1,4 +1,5 @@
 import { Fragment } from 'react';
+import { inlineSpans, isDigit, isLineEnd, isSpace, runEnd, splitSpaces, unwrapSpans } from '../text.js';
 
 /* Answer text as a small, safe subset of Markdown: headings, bullet and
    numbered lists (one level of nesting), simple tables, paragraphs with their
@@ -13,23 +14,105 @@ import { Fragment } from 'react';
    that is all bold ("**Eligibility**"), or a short "Documents required:"
    right before a list. */
 
-const HEADING = /^\s{0,3}(#{1,6})\s+(.+?)\s*#*\s*$/;
-const BULLET = /^(\s*)[-*•]\s+(.*)$/;
-const NUMBERED = /^(\s*)(\d{1,3})[.)]\s+(.*)$/;
-const ALL_BOLD = /^\s*\*\*([^*]+?)\*\*\s*:?\s*$/;
-const SHORT_LABEL = /^\s*([A-Z][^.!?:]{0,40}):\s*$/;
-const TABLE_SEP = /^\s*\|?\s*:?-{2,}:?\s*(\|\s*:?-{2,}:?\s*)*\|?\s*$/;
+const hasLineEnd = (s) => Array.from(s).some(isLineEnd);
+const isHash = (c) => c === '#';
+
+// "## Title ##": up to 3 leading spaces, 1-6 '#', at least one space, the title,
+// then optional closing '#'s and spaces. -> { level, text } or null.
+function heading(line) {
+  const lead = runEnd(line, 0, isSpace);
+  if (lead > 3) return null;
+  const hashEnd = runEnd(line, lead, isHash);
+  const level = hashEnd - lead;
+  if (level < 1 || level > 6) return null;
+  const spaceEnd = runEnd(line, hashEnd, isSpace);
+  if (spaceEnd === hashEnd) return null;
+  // Where the closing run (spaces, '#'s, spaces) starts.
+  let close = line.length;
+  while (close > 0 && isSpace(line[close - 1])) close--;
+  while (close > 0 && line[close - 1] === '#') close--;
+  while (close > 0 && isSpace(line[close - 1])) close--;
+  // The title is as short as possible and starts after as many spaces as possible.
+  for (let start = spaceEnd; start > hashEnd; start--) {
+    const end = Math.max(start + 1, close);
+    if (end <= line.length && !hasLineEnd(line.slice(start, end))) return { level, text: line.slice(start, end) };
+  }
+  return null;
+}
+
+// "- item" / "* item" / "• item" -> { indent, text }; the text runs to the line's end.
+function bulletItem(line) {
+  const indent = runEnd(line, 0, isSpace);
+  if (!['-', '*', '•'].includes(line[indent])) return null;
+  const textStart = runEnd(line, indent + 1, isSpace);
+  if (textStart === indent + 1 || hasLineEnd(line.slice(textStart))) return null;
+  return { indent, text: line.slice(textStart) };
+}
+
+// "12. item" / "3) item" (1-3 digits) -> { indent, value, text }.
+function numberedItem(line) {
+  const indent = runEnd(line, 0, isSpace);
+  const digitsEnd = runEnd(line, indent, isDigit);
+  const nd = digitsEnd - indent;
+  if (nd < 1 || nd > 3 || (line[digitsEnd] !== '.' && line[digitsEnd] !== ')')) return null;
+  const textStart = runEnd(line, digitsEnd + 1, isSpace);
+  if (textStart === digitsEnd + 1 || hasLineEnd(line.slice(textStart))) return null;
+  return { indent, value: Number(line.slice(indent, digitsEnd)), text: line.slice(textStart) };
+}
+
+// A line that is all bold: "**Eligibility**" or "**Eligibility**:" -> the bold text.
+function allBold(line) {
+  const s = line.slice(runEnd(line, 0, isSpace));
+  if (!s.startsWith('**')) return null;
+  const star = s.indexOf('*', 2);
+  if (star <= 2 || !s.startsWith('**', star)) return null;
+  const rest = s.slice(star + 2).trim();
+  return rest === '' || rest === ':' ? s.slice(2, star) : null;
+}
+
+// A short label line: a capital letter, at most 40 more characters (no . ! ? :),
+// then ':' and nothing else. -> the label without the ':'.
+function shortLabel(line) {
+  const s = line.slice(runEnd(line, 0, isSpace));
+  if (!(s[0] >= 'A' && s[0] <= 'Z')) return null;
+  let k = 1;
+  while (k < s.length && !'.!?:'.includes(s[k])) k++;
+  if (s[k] !== ':' || k - 1 > 40 || s.slice(k + 1).trim() !== '') return null;
+  return s.slice(0, k);
+}
+
+// A table's |---|:--:| separator row: cells of 2+ dashes, optionally ':'-ended.
+function isTableSep(line) {
+  let t = line.trim();
+  if (t.startsWith('|')) t = t.slice(1);
+  if (t.endsWith('|')) t = t.slice(0, -1);
+  return t.split('|').every((cell) => {
+    let c = cell.trim();
+    if (c.startsWith(':')) c = c.slice(1);
+    if (c.endsWith(':')) c = c.slice(0, -1);
+    return c.length >= 2 && runEnd(c, 0, (ch) => ch === '-') === c.length;
+  });
+}
 
 const listItem = (line) => {
-  let m = BULLET.exec(line);
-  if (m) return { ordered: false, indent: m[1].length, text: m[2] };
-  m = NUMBERED.exec(line);
-  if (m) return { ordered: true, indent: m[1].length, value: Number(m[2]), text: m[3] };
+  const b = bulletItem(line);
+  if (b) return { ordered: false, indent: b.indent, text: b.text };
+  const n = numberedItem(line);
+  if (n) return { ordered: true, indent: n.indent, value: n.value, text: n.text };
   return null;
 };
 
-const isTableRow = (line) => /^\s*\|.*\|\s*$/.test(line);
-const cells = (line) => line.trim().replace(/^\|/, '').replace(/\|$/, '').split('|').map((c) => c.trim());
+const isTableRow = (line) => {
+  const t = line.trim();
+  return t.length >= 2 && t.startsWith('|') && t.endsWith('|') && !hasLineEnd(t.slice(1, -1));
+};
+const cells = (line) => {
+  let t = line.trim();
+  if (t.startsWith('|')) t = t.slice(1);
+  if (t.endsWith('|')) t = t.slice(0, -1);
+  return t.split('|').map((c) => c.trim());
+};
+const normalizeNewlines = (s) => s.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 
 function nextNonBlank(lines, i) {
   for (let j = i; j < lines.length; j++) if (lines[j].trim()) return lines[j];
@@ -39,7 +122,7 @@ function nextNonBlank(lines, i) {
 // Text -> blocks: {type:'h', level, text} | {type:'p', lines} | {type:'list', ordered, items}
 // | {type:'table', head, rows}. Exported for tests.
 export function parseBlocks(text) {
-  const lines = String(text || '').replace(/\r\n?/g, '\n').split('\n');
+  const lines = normalizeNewlines(String(text || '')).split('\n');
   const blocks = [];
   let para = null;
   let list = null;
@@ -56,7 +139,7 @@ export function parseBlocks(text) {
       continue;
     }
     // Table: a header row followed by a |---| separator row.
-    if (isTableRow(line) && i + 1 < lines.length && TABLE_SEP.test(lines[i + 1])) {
+    if (isTableRow(line) && i + 1 < lines.length && isTableSep(lines[i + 1])) {
       endPara(); endList();
       const head = cells(line);
       const rows = [];
@@ -66,8 +149,8 @@ export function parseBlocks(text) {
       blocks.push({ type: 'table', head, rows });
       continue;
     }
-    const h = HEADING.exec(line);
-    if (h) { endPara(); endList(); blocks.push({ type: 'h', level: h[1].length, text: h[2] }); continue; }
+    const h = heading(line);
+    if (h) { endPara(); endList(); blocks.push({ type: 'h', level: h.level, text: h.text }); continue; }
     const item = listItem(line);
     if (item) {
       endPara();
@@ -84,17 +167,19 @@ export function parseBlocks(text) {
       continue;
     }
     // An indented line under a list item continues that item.
-    if (list && /^\s{2,}\S/.test(line)) {
+    const indent = runEnd(line, 0, isSpace);
+    if (list && indent >= 2 && indent < line.length) {
       const last = list.items[list.items.length - 1];
       last.text += '\n' + line.trim();
       continue;
     }
     const nextIsList = !!listItem(nextNonBlank(lines, i + 1));
-    const bold = ALL_BOLD.exec(line);
-    const label = SHORT_LABEL.exec(line);
-    if ((bold && bold[1].length <= 80) || (label && nextIsList && label[1].split(/\s+/).length <= 4)) {
+    const bold = allBold(line);
+    const label = shortLabel(line);
+    if ((bold !== null && bold.length <= 80) || (label !== null && nextIsList && splitSpaces(label).length <= 4)) {
       endPara(); endList();
-      blocks.push({ type: 'h', level: 0, text: (bold ? bold[1] : label[1]).replace(/:$/, '') });
+      const title = bold !== null ? bold : label;
+      blocks.push({ type: 'h', level: 0, text: title.endsWith(':') ? title.slice(0, -1) : title });
       continue;
     }
     endList();
@@ -107,13 +192,11 @@ export function parseBlocks(text) {
 // **bold** and `code` inside one line.
 function Inline({ text }) {
   const out = [];
-  const re = /\*\*(.+?)\*\*|`([^`]+)`/g;
   let last = 0;
-  let m;
-  while ((m = re.exec(text))) {
-    if (m.index > last) out.push(text.slice(last, m.index));
-    out.push(m[1] != null ? <strong key={m.index}>{m[1]}</strong> : <code key={m.index}>{m[2]}</code>);
-    last = re.lastIndex;
+  for (const m of inlineSpans(text, { code: true })) {
+    if (m.start > last) out.push(text.slice(last, m.start));
+    out.push(m.code ? <code key={m.start}>{m.inner}</code> : <strong key={m.start}>{m.inner}</strong>);
+    last = m.end;
   }
   if (last < text.length) out.push(text.slice(last));
   return out.map((x, i) => <Fragment key={i}>{x}</Fragment>);
@@ -161,11 +244,56 @@ export function Markdown({ text }) {
 // The answer as plain text for Copy and Read aloud: no ** / ` / # markers,
 // list markers kept as "- " / "1. " so a pasted answer still reads as a list.
 export function plainText(text) {
-  return String(text || '')
-    .replace(/\r\n?/g, '\n')
-    .replace(/^\s{0,3}#{1,6}\s+/gm, '')
-    .replace(/^(\s*)[*•]\s+/gm, '$1- ')
-    .replace(/\*\*(.+?)\*\*/g, '$1')
-    .replace(/`([^`]+)`/g, '$1')
-    .trim();
+  let t = normalizeNewlines(String(text || ''));
+  t = dropHeadingMarks(t);
+  t = dashBullets(t);
+  t = unwrapSpans(t, inlineSpans(t));
+  t = unwrapSpans(t, inlineSpans(t, { bold: false, code: true }));
+  return t.trim();
+}
+
+const isLineStart = (t, p) => p === 0 || isLineEnd(t[p - 1]);
+
+// At each line start: up to 3 spaces, 1-6 '#' and the spaces after them go.
+// (Spaces include line breaks, so a marker may swallow the blank lines after it.)
+function dropHeadingMarks(t) {
+  let out = '';
+  let last = 0;
+  let p = 0;
+  while (p < t.length) {
+    if (isLineStart(t, p)) {
+      const lead = runEnd(t, p, isSpace);
+      const hashEnd = runEnd(t, lead, isHash);
+      const n = hashEnd - lead;
+      const spaceEnd = runEnd(t, hashEnd, isSpace);
+      if (lead - p <= 3 && n >= 1 && n <= 6 && spaceEnd > hashEnd) {
+        out += t.slice(last, p);
+        last = p = spaceEnd;
+        continue;
+      }
+    }
+    p++;
+  }
+  return out + t.slice(last);
+}
+
+// At each line start: a '*' or '•' bullet (and the spaces after it) becomes "- ",
+// keeping the indent.
+function dashBullets(t) {
+  let out = '';
+  let last = 0;
+  let p = 0;
+  while (p < t.length) {
+    if (isLineStart(t, p)) {
+      const lead = runEnd(t, p, isSpace);
+      const spaceEnd = runEnd(t, lead + 1, isSpace);
+      if ((t[lead] === '*' || t[lead] === '•') && spaceEnd > lead + 1) {
+        out += t.slice(last, lead) + '- ';
+        last = p = spaceEnd;
+        continue;
+      }
+    }
+    p++;
+  }
+  return out + t.slice(last);
 }

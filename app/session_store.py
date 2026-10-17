@@ -174,6 +174,11 @@ class Session:
     # the idle expiry in app/conversation_layer.py. Wall clock, not monotonic:
     # it is compared across workers and VMs. 0 = unknown (an older snapshot).
     context_at: float = 0.0
+    # Wall-clock time the context was last cleared ("start a new topic", reset,
+    # idle expiry). Semantic memory (app/conversation_memory.py) returns only
+    # turns after it, so a cleared conversation stays cleared (KI-224). 0 =
+    # never cleared.
+    memory_since: float = 0.0
 
     @property
     def last_turn(self) -> Turn | None:
@@ -208,6 +213,7 @@ class Session:
             "recent_questions": [t.question for t in self.turns[-8:] if t.question],
             "topics": self.topics or None,
             "context_at": self.context_at or None,
+            "memory_since": self.memory_since or None,
         }
         return snap
 
@@ -238,6 +244,7 @@ class Session:
         # were stored: no topics, age unknown.
         self.topics = dict(extra.get("topics") or {})
         self.context_at = float(extra.get("context_at") or 0.0)
+        self.memory_since = float(extra.get("memory_since") or 0.0)
         if summary is not None:
             self.summary = summary
             self.summary_turn_count = self.state.turn_count

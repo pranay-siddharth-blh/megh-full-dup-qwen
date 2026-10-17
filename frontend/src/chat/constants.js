@@ -42,7 +42,10 @@ export const LANGS = [
 // language set, so both are transcribed as English.
 export const VOICE_LANG = { en: 'en', kha: 'en', gar: 'en' };
 
-// Scheme overview cards. ORDER MATTERS — oldest scheme first, newest last: the
+// Scheme overview cards. The `stats` are FALLBACKS only: the welcome card replaces them
+// with live figures from GET /api/scheme-stats (computed from megh_db), so the cards follow
+// every data refresh. Keep these close to the data anyway — last synced 2026-10-15.
+// ORDER MATTERS — oldest scheme first, newest last: the
 // carousel pages this list in order, so a new scheme goes at the END.
 export const SCHEME_CARDS = [
   {
@@ -53,7 +56,7 @@ export const SCHEME_CARDS = [
   {
     key: 'pmay_g', cls: 'unified-card', ico: '🏠', name: 'PMAY-G',
     meta: 'Rural housing · one row per sanctioned house · sanctions FY 2017-18 to 2023-24',
-    stats: [['1,71,107', 'Houses sanctioned'], ['1,29,941', 'Houses completed'], ['₹2,185.26 Cr', 'Funds released']],
+    stats: [['1,70,981', 'Houses sanctioned'], ['1,29,941', 'Houses completed'], ['₹2,185.26 Cr', 'Funds released']],
   },
   {
     key: 'focus_plus', cls: 'elevate-card', ico: '🌾', name: 'FOCUS+',
@@ -63,17 +66,17 @@ export const SCHEME_CARDS = [
   {
     key: 'cm_elevate', cls: 'cmelevate-card', ico: '🚀', name: 'CM Elevate',
     meta: 'Entrepreneurship & livelihood programme · one row per application across 15 schemes · no date/amount data',
-    stats: [['8,543', 'Applications'], ['15', 'Schemes'], ['12', 'Districts covered']],
+    stats: [['8,867', 'Applications'], ['15', 'Schemes'], ['12', 'Districts covered']],
   },
   {
     key: 'focus_legacy', cls: 'focus-card', ico: '🤝', name: 'Focus Legacy',
     meta: 'Meghalaya producer-group scheme (original FOCUS) · one row per payment to a PG · FY 2021-22 to 2025-26, no FY 2023-24 · figures provisional',
-    stats: [['11,904', 'Producer Groups'], ['1,02,021', 'Memberships paid'], ['₹51.01 Cr*', 'Amount remitted*']],
+    stats: [['11,906', 'Producer Groups'], ['1,02,021', 'Memberships paid'], ['₹51.01 Cr*', 'Amount remitted*']],
   },
   {
     key: 'cm_elevate_legacy', cls: 'cmelevate-card', ico: '💼', name: 'CM Elevate Legacy',
     meta: 'CM-ELEVATE sanctions & disbursements · one row per sanctioned applicant across 13 schemes · FY 2024-25 & 2025-26 · figures provisional',
-    stats: [['2,822', 'Sanction records'], ['13', 'Schemes'], ['₹82.90 Cr*', 'Disbursed (subsidy + loan)*']],
+    stats: [['2,823', 'Sanction records'], ['13', 'Schemes'], ['₹82.90 Cr*', 'Disbursed (subsidy + loan)*']],
   },
 ];
 

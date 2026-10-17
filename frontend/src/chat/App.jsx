@@ -790,7 +790,8 @@ export default function App() {
                     return <BotMessage key={m.id} id={m.id} question={m.question} response={m.response} time={m.time}
                                        animate={m.animate} streamKey={m.streamKey} at={m.at}
                                        onAsk={ask} speakingId={speakingId} onSpeak={onSpeak}
-                                       onRegenerate={isLast && m.question ? () => rerun(m.id, m.question) : null} />;
+                                       onRegenerate={isLast && m.question ? () => rerun(m.id, m.question) : null}
+                                       sessionId={sessionId} />;
                   }
                   if (m.kind === 'user') {
                     return <TextMessage key={m.id} id={m.id} role="user" text={m.text} time={m.time}

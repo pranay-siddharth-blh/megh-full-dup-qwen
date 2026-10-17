@@ -66,11 +66,12 @@ Best-effort like the rest of the context layer: any failure in the
 bookkeeping leaves the turn exactly as it would have run without this module.
 """
 import logging
-import re
 from dataclasses import dataclass
 
 from app import context_budget
 from app.config import settings
+from app.context_policy import _CpSep, _CpStart, _cp_ws
+from app.text_match import Alt, Matcher, Opt, Rep, Seq, W
 
 logger = logging.getLogger(__name__)
 
@@ -92,36 +93,93 @@ _FOCUS_TOPICS = ("Focus Plus", "Focus Legacy")
 # to", "return to", "switch back to", "let's continue (with)", "resume",
 # "now regarding". Anchored at the start: a switch is what the message opens
 # with. Fillers before it ("ok, now", "so") are allowed.
-_SWITCH_LEAD = re.compile(
-    r"^\s*(?:(?:ok(?:ay)?|now|so|and|alright|right|fine|then|well)\b[\s,]*)*"
-    r"(?:(?:let'?s|let\s+us|can\s+we|could\s+we|please|i\s+want\s+to|i'?d\s+like\s+to)\s+)?"
-    r"(?:"
-    r"(?:go(?:ing)?|get(?:ting)?|come|coming|came|turn(?:ing)?|jump(?:ing)?|head(?:ing)?|switch(?:ing)?|move|moving)"
-    r"\s+back\s+(?:to|on)"
-    r"|back\s+to|return(?:ing)?\s+to|revisit(?:ing)?"
-    r"|switch(?:ing)?\s+(?:over\s+)?to"
-    r"|continu(?:e|ing)(?:\s+(?:with|on))?|resum(?:e|ing)"
-    r"|(?:now\s+)?regarding|now\s+about|now\s+for|again\s+(?:on|about)"
-    r")\b[\s,:-]*",
-    re.IGNORECASE,
-)
-# The topic part ends at the first clause break; what follows is the question.
-_CLAUSE_BREAK = re.compile(r"\s*(?:[,.:;?!]|\s-\s|\s+and\s+(?=(?:what|how|which|who|when|where|show|give|tell|list)\b))\s*",
-                           re.IGNORECASE)
+def _tm_filler_gap(g: str) -> bool:
+    """Whitespace and commas only (the old [\\s,]*)."""
+    return g.replace(",", " ").strip() == ""
+
+
+_TM_GO = ("go", "going", "get", "getting", "come", "coming", "came", "turn", "turning", "jump", "jumping",
+          "head", "heading", "switch", "switching", "move", "moving")
+_SWITCH_LEAD = Matcher(Seq(
+    _CpStart(_cp_ws),
+    Rep(Seq(W("ok", "okay", "now", "so", "and", "alright", "right", "fine", "then", "well"),
+            _CpSep(_tm_filler_gap))),
+    Opt(Alt(W("lets"), Seq("let", "s"), "let us", "can we", "could we", W("please"), "i want to",
+            Seq("id", "like", "to"), Seq("i", "d", "like", "to"))),
+    Alt(Seq(W(*_TM_GO), "back", W("to", "on")),
+        "back to",
+        Seq(W("return", "returning"), "to"),
+        W("revisit", "revisiting"),
+        Seq(W("switch", "switching"), Opt("over"), "to"),
+        Seq(W("continue", "continuing"), Opt(W("with", "on"))),
+        W("resume", "resuming"),
+        Seq(Opt("now"), "regarding"),
+        "now about", "now for",
+        Seq("again", W("on", "about")))))
+# What the lead may be followed by before the topic (the old [\s,:-]*).
+_TM_LEAD_TAIL = " \t\n\r\f\v,:-"
+_TM_BREAK_WORDS = ("what", "how", "which", "who", "when", "where", "show", "give", "tell", "list")
+
+
+def _tm_is_word_char(ch: str) -> bool:
+    return ch.isalnum() or ch == "_"
+
+
+def _tm_clause_break(text: str) -> "tuple[int, int] | None":
+    """(start, end) of the first clause break in `text`: a , . : ; ? ! mark, a
+    spaced dash " - ", or " and " before a question word ("and what …"), with
+    the whitespace around it. None when there is none."""
+    n = len(text)
+
+    def ws_back(k):
+        while k > 0 and text[k - 1].isspace():
+            k -= 1
+        return k
+
+    def ws_fwd(k):
+        while k < n and text[k].isspace():
+            k += 1
+        return k
+
+    for k, ch in enumerate(text):
+        if ch in ",.:;?!":
+            return ws_back(k), ws_fwd(k + 1)
+        if ch == "-" and 0 < k < n - 1 and text[k - 1].isspace() and text[k + 1].isspace():
+            return ws_back(k - 1), ws_fwd(k + 2)
+        if (text[k:k + 3].lower() == "and" and k > 0 and text[k - 1].isspace()
+                and k + 3 < n and text[k + 3].isspace()):
+            after = ws_fwd(k + 3)
+            j = after
+            while j < n and _tm_is_word_char(text[j]):
+                j += 1
+            if text[after:j].lower() in _TM_BREAK_WORDS:
+                return ws_back(k - 1), after
+    return None
+
+
 # "the previous topic / question / scheme", "the earlier one", "where we were".
-_UNNAMED_TOPIC = re.compile(
-    r"^(?:the\s+|that\s+|our\s+)?(?:previous|earlier|last|other|old(?:er)?|first|before)\s+"
-    r"(?:topic|question|scheme|one|discussion|subject|conversation|thing)s?$"
-    r"|^(?:where\s+we\s+(?:were|left\s+off)|what\s+we\s+were\s+(?:discussing|talking\s+about))$",
-    re.IGNORECASE,
-)
+# Matched on the whole (stripped) topic part, which must hold words and
+# spaces only.
+_TM_UNNAMED_NOUNS = ("topic", "question", "scheme", "one", "discussion", "subject", "conversation", "thing")
+_UNNAMED_TOPIC = Matcher(Alt(
+    Seq(Opt(W("the", "that", "our")), W("previous", "earlier", "last", "other", "old", "older", "first", "before"),
+        W(*_TM_UNNAMED_NOUNS, *(w + "s" for w in _TM_UNNAMED_NOUNS)), sep="space"),
+    Seq("where", "we", Alt("were", Seq("left", "off", sep="space")), sep="space"),
+    Seq("what", "we", "were", Alt("discussing", Seq("talking", "about", sep="space")), sep="space")))
+
+
+def _tm_unnamed_topic(target: str) -> bool:
+    return (all(_tm_is_word_char(c) or c.isspace() for c in target)
+            and _UNNAMED_TOPIC.fullmatch(target) is not None)
+
+
 # Words that may sit around a named topic: "the previous MGNREGA question",
 # "the MGNREGA one", "MGNREGA scheme please".
-_TOPIC_FILLER = re.compile(
-    r"\b(?:the|that|our|previous|earlier|last|old(?:er)?|question|questions|topic|discussion|"
-    r"scheme|schemes|one|data|please|pls|again|thing|conversation|subject)\b",
-    re.IGNORECASE,
-)
+_TOPIC_FILLER = Matcher(W(
+    "the", "that", "our", "previous", "earlier", "last", "old", "older", "question", "questions", "topic",
+    "discussion", "scheme", "schemes", "one", "data", "please", "pls", "again", "thing", "conversation",
+    "subject"))
+_TM_FOCUS = Matcher(W("focus"))
 
 
 @dataclass
@@ -141,9 +199,9 @@ def parse_switch(question: str) -> "TopicSwitch | None":
     m = _SWITCH_LEAD.match(q)
     if not m:
         return None
-    rest = q[m.end():]
-    brk = _CLAUSE_BREAK.search(rest)
-    target, remainder = (rest[:brk.start()], rest[brk.end():]) if brk else (rest, "")
+    rest = q[m.end():].lstrip(_TM_LEAD_TAIL)
+    brk = _tm_clause_break(rest)
+    target, remainder = (rest[:brk[0]], rest[brk[1]:]) if brk else (rest, "")
     target = target.strip()
     remainder = remainder.strip()
     if not target:
@@ -156,9 +214,9 @@ def parse_switch(question: str) -> "TopicSwitch | None":
             return None
         return TopicSwitch(names=list(names), bare_focus=False, remainder=remainder)
     if pipeline._is_ambiguous_focus(target) and not _TOPIC_FILLER.sub(
-            " ", re.sub(r"\bfocus\b", " ", target, flags=re.I)).strip(" ,.-"):
+            " ", _TM_FOCUS.sub(" ", target)).strip(" ,.-"):
         return TopicSwitch(names=[], bare_focus=True, remainder=remainder)
-    if _UNNAMED_TOPIC.match(target):
+    if _tm_unnamed_topic(target):
         return TopicSwitch(names=[], bare_focus=False, remainder=remainder)
     return None
 
@@ -166,7 +224,7 @@ def parse_switch(question: str) -> "TopicSwitch | None":
 def _strip_scheme_words(text: str) -> str:
     from app import pipeline
     out = text
-    for pattern in pipeline._SCHEME_NAME_PATTERN.values():
+    for pattern in pipeline._SCHEME_NAME_MATCHER.values():
         out = pattern.sub(" ", out)
     # Misspelled names (_named_schemes' fuzzy fallback) leave one short word.
     words = [w for w in out.split() if w.strip(" ,.-")]

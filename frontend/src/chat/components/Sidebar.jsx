@@ -96,7 +96,7 @@ export function Sidebar({
 
   const u = user || {};
   const name = u.name || u.username || 'Officer';
-  const role = (u.role || '').replace(/_/g, ' ') || 'officer';
+  const role = (u.role || '').replaceAll('_', ' ') || 'officer';
   const isAdmin = ADMIN_ROLES.includes(u.role);
 
   const pinned = history.filter((c) => c.pinned && !c.archived);

@@ -264,7 +264,7 @@ def test_retrieval_filters_on_the_shared_tag(monkeypatch):
     async def fake_embed(q):
         return [[0.0]]
 
-    async def fake_search(vec, top_k, scheme=None):
+    async def fake_search(vec, top_k, scheme=None, sparse=None):
         seen.append(scheme)
         return []
 
@@ -473,7 +473,7 @@ def test_exact_total_is_requeried_without_the_group_by(monkeypatch):
     notes = asyncio.run(p._cm_legacy_exact_totals(_DISTRICT_SQL, _TWO_ROWS))
     assert sent == ["SELECT ROUND(SUM(sanctioned_amount) / 1e7, 2) AS sanctioned_cr, "
                     "ROUND(SUM(total_disbursement) / 1e7, 2) AS total_disbursed_cr "
-                    "FROM curated.v_cm_elevate_disbursement\nWHERE financial_year = '2024-25'"]
+                    "FROM curated.v_cm_elevate_disbursement WHERE financial_year = '2024-25'"]
     assert "total_disbursed_cr = 82.90" in notes[0]
 
 
@@ -508,7 +508,7 @@ def test_sanctioned_count_star_is_rewritten_to_count_sanctioned_amount():
     out = p._cm_legacy_sanctioned_count(
         "How many applications have been sanctioned under CM Elevate Legacy for all of Meghalaya "
         "across all financial years", [LEGACY], sql)
-    assert out == f"SELECT COUNT(sanctioned_amount) AS sanctioned_records\nFROM {_V}\nLIMIT 1"
+    assert out == f"SELECT COUNT(sanctioned_amount) AS sanctioned_records FROM {_V} LIMIT 1"
 
 
 def test_sanctioned_question_with_a_plain_record_count_gets_the_sanctioned_count():
@@ -543,7 +543,7 @@ def test_unrequested_limit_on_a_scheme_ranking_is_dropped():
            "GROUP BY scheme_name\nORDER BY records DESC\nLIMIT 10")
     out = p._cm_legacy_unrequested_limit(
         "Which schemes have the highest number of applications in CM Elevate Legacy?", [LEGACY], sql)
-    assert out == sql[:sql.index("\nLIMIT 10")]
+    assert out == f"SELECT scheme_name, COUNT(*) AS records FROM {_V} GROUP BY scheme_name ORDER BY records DESC"
 
 
 @pytest.mark.parametrize("question,sql", [
@@ -591,8 +591,8 @@ def test_no_village_records_are_requeried_in_the_same_scope_and_stated(monkeypat
     ans = asyncio.run(p._cm_legacy_answer_guarantees(
         "Show me the no of applications mapped to each village in Tikrikilla block", sql, _TIK_ROWS,
         "Tikrikilla block has 89 applications in 42 villages.", {"block": "TIKRIKILLA"}))
-    assert sent[0] == (f"SELECT COUNT(*) AS n FROM {_V}\nWHERE lgd_block = 'TIKRIKILLA'\n"
-                       "  AND entity_type = 'Unresolved'")
+    assert sent[0] == (f"SELECT COUNT(*) AS n FROM {_V} WHERE lgd_block = 'TIKRIKILLA' "
+                       "AND entity_type = 'Unresolved'")
     assert ans.endswith("A further 6 records in Tikrikilla block have no village code, so they are not in "
                         "the village list (counted in block and district totals).")
 
@@ -870,8 +870,8 @@ def test_year_chip_after_village_chip_pins_for_cm_elevate_legacy_too():
     # "MAWTNUM — UMLING block" then "All financial years combined" answered all of Umling (224, not 4)
     import inspect
     src = inspect.getsource(p.resolve_entities)
-    assert "_year_after_tail = bool(_pin_scheme and _YEAR_AFTER_CHIP_TAIL_RE" in src
-    assert p._YEAR_AFTER_CHIP_TAIL_RE.search(
+    assert "_year_after_tail = bool(_pin_scheme and _YEAR_AFTER_CHIP_TAIL_MATCH" in src
+    assert p._YEAR_AFTER_CHIP_TAIL_MATCH.search(
         "How many applications are there under CM Elevate Legacy in MAWTNUM, UMLING block, RI BHOI "
         "across all financial years")
 

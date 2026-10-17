@@ -14,7 +14,6 @@ resolution is a live DB query (using the GIN trigram index already built
 there), not a YAML lookup.
 """
 import logging
-import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
@@ -22,8 +21,234 @@ import yaml
 from rapidfuzz import fuzz, process
 
 from app.db import fetch_rows
+from app.text_match import Alt, Hit, Matcher, Node, Opt, Pred, Seq, W, collapse_ws
 
 logger = logging.getLogger(__name__)
+
+
+# ── regex-free text helpers (D-047: no regular expressions) ────────────────
+# Also imported by the pipeline's mention / village / entity files (c07-c09),
+# which need the same character-level scans.
+
+_ASCII_ALNUM = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789")
+_ASCII_LETTERS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz")
+
+
+class _CharScan:
+    """A Matcher-like object for patterns that care about punctuation, which
+    word-level text_match patterns cannot see. `at(text, i)` tries a match
+    starting at character i and returns (end, groups) or None, where `groups`
+    is a list of (start, end) | None for numbered groups, or a dict
+    {name: (start, end) | None} for named ones. Offers the calls the old
+    compiled patterns were used with: search / match / fullmatch / finditer /
+    findall / sub / subn / __call__, all returning text_match Hits."""
+
+    def __init__(self, at):
+        self._at = at
+
+    def _hit(self, text: str, i: int, res) -> Hit:
+        end, groups = res
+        if isinstance(groups, dict):
+            named = {k: v for k, v in groups.items() if v is not None}
+            return Hit(text, i, end, list(groups.values()), named)
+        return Hit(text, i, end, list(groups or []), {})
+
+    def search(self, text, pos: int = 0):
+        text = text or ""
+        for i in range(pos, len(text) + 1):
+            res = self._at(text, i)
+            if res is not None:
+                return self._hit(text, i, res)
+        return None
+
+    def match(self, text):
+        text = text or ""
+        res = self._at(text, 0)
+        return self._hit(text, 0, res) if res is not None else None
+
+    def fullmatch(self, text):
+        h = self.match(text)
+        return h if h is not None and h.end() == len(text or "") else None
+
+    def finditer(self, text):
+        text = text or ""
+        i, n = 0, len(text)
+        while i <= n:
+            res = self._at(text, i)
+            if res is None:
+                i += 1
+                continue
+            yield self._hit(text, i, res)
+            i = res[0] if res[0] > i else i + 1
+
+    def findall(self, text) -> list:
+        out = []
+        for h in self.finditer(text):
+            g = h._groups
+            if not g:
+                out.append(h.group(0))
+            elif len(g) == 1:
+                out.append(h.group(1) or "")
+            else:
+                out.append(tuple(x or "" for x in h.groups()))
+        return out
+
+    def sub(self, repl, text, count: int = 0) -> str:
+        text = text or ""
+        out, last, k = [], 0, 0
+        for h in self.finditer(text):
+            out.append(text[last:h.start()])
+            out.append(repl(h) if callable(repl) else repl)
+            last = h.end()
+            k += 1
+            if count and k >= count:
+                break
+        out.append(text[last:])
+        return "".join(out)
+
+    def subn(self, repl, text, count: int = 0) -> tuple[str, int]:
+        n = sum(1 for _ in self.finditer(text))
+        if count:
+            n = min(n, count)
+        return self.sub(repl, text, count), n
+
+    def __call__(self, text) -> bool:
+        return self.search(text) is not None
+
+
+class _GapIs(Node):
+    """Zero-width text_match piece: the separator text right before the current
+    word (from the previous word's end, or the text start, up to this word's
+    start, or the text end) satisfies `fn`. Lets a word pattern say exactly
+    which punctuation may sit between two words (regex `a\\s+b`, `a b`, ...)."""
+
+    def __init__(self, fn):
+        self.fn = fn
+
+    def ends(self, ctx, i, caps):
+        toks = ctx.toks
+        prev_end = toks[i - 1].end if 0 < i <= len(toks) else 0
+        start = toks[i].start if i < len(toks) else len(ctx.text)
+        if self.fn(ctx.text[prev_end:start]):
+            yield i, caps
+
+
+def _gap_ws(g: str) -> bool:
+    """Separator is one or more whitespace characters (regex \\s+)."""
+    return g != "" and g.isspace()
+
+
+def _ws_run_end(text: str, i: int) -> int:
+    """Index just past the whitespace run starting at i (regex \\s*)."""
+    n = len(text)
+    while i < n and text[i].isspace():
+        i += 1
+    return i
+
+
+def _ws1(s: str) -> str:
+    """Every whitespace run -> one space, NOT trimmed (regex sub(r"\\s+", " "))."""
+    out, prev_ws = [], False
+    for ch in s or "":
+        if ch.isspace():
+            if not prev_ws:
+                out.append(" ")
+            prev_ws = True
+        else:
+            out.append(ch)
+            prev_ws = False
+    return "".join(out)
+
+
+def _ci_find(text: str, needle: str, start: int = 0) -> int:
+    """Case-insensitive str.find (regex search(escape(needle), flags=I))."""
+    text, needle = text or "", needle or ""
+    low_t, low_n = text.lower(), needle.lower()
+    if len(low_t) == len(text) and len(low_n) == len(needle):
+        return low_t.find(low_n, start)
+    n = len(needle)
+    for i in range(start, len(text) - n + 1):
+        if text[i:i + n].lower() == low_n:
+            return i
+    return -1
+
+
+def _ci_replace(text: str, needle: str, repl: str, count: int = 0) -> str:
+    """Case-insensitive literal replace of the first `count` (0 = every)
+    occurrence (regex sub(escape(needle), repl, flags=I))."""
+    text = text or ""
+    if not needle:
+        return text.replace("", repl, count if count else -1)
+    out, last, k = [], 0, 0
+    while True:
+        i = _ci_find(text, needle, last)
+        if i < 0:
+            break
+        out.append(text[last:i])
+        out.append(repl)
+        last = i + len(needle)
+        k += 1
+        if count and k >= count:
+            break
+    out.append(text[last:])
+    return "".join(out)
+
+
+def _bounded_spans(text: str, needle: str, *, ci: bool = False) -> list[tuple[int, int]]:
+    """Non-overlapping occurrences of `needle` not touching an ASCII letter or
+    digit on either side (regex (?<![A-Za-z0-9])NEEDLE(?![A-Za-z0-9]))."""
+    text = text or ""
+    out: list[tuple[int, int]] = []
+    n, m = len(text), len(needle)
+    pos = 0
+    while pos <= n:
+        i = _ci_find(text, needle, pos) if ci else text.find(needle, pos)
+        if i < 0:
+            break
+        e = i + m
+        if (i == 0 or text[i - 1] not in _ASCII_ALNUM) and (e >= n or text[e] not in _ASCII_ALNUM):
+            out.append((i, e))
+            pos = e if e > i else i + 1
+        else:
+            pos = i + 1
+    return out
+
+
+def _bounded_find(text: str, needle: str, *, ci: bool = False) -> "tuple[int, int] | None":
+    """The first _bounded_spans hit, or None."""
+    text = text or ""
+    n, m = len(text), len(needle)
+    pos = 0
+    while pos <= n:
+        i = _ci_find(text, needle, pos) if ci else text.find(needle, pos)
+        if i < 0:
+            return None
+        e = i + m
+        if (i == 0 or text[i - 1] not in _ASCII_ALNUM) and (e >= n or text[e] not in _ASCII_ALNUM):
+            return (i, e)
+        pos = i + 1
+    return None
+
+
+_ROMAN_OR_DIGIT = frozenset("IVXLCDMivxlcdm")
+
+
+def _paren_roman_upper(s: str) -> str:
+    """Upper-case every "(<roman numerals / digits>)" run, e.g. "(Ii)" -> "(II)"
+    (regex sub(r"\\(([IVXLCDM\\d]+)\\)", upper, flags=I))."""
+    out, i, n = [], 0, len(s)
+    while i < n:
+        if s[i] == "(":
+            j = i + 1
+            while j < n and (s[j] in _ROMAN_OR_DIGIT or s[j].isdecimal()):
+                j += 1
+            if j > i + 1 and j < n and s[j] == ")":
+                out.append("(" + s[i + 1:j].upper() + ")")
+                i = j + 1
+                continue
+        out.append(s[i])
+        i += 1
+    return "".join(out)
 
 _DATA_PART = Path(__file__).resolve().parents[1] / "data"
 _RESOLVER_FILE = {
@@ -136,12 +361,19 @@ def fold(text: str) -> str:
     """normalisation.fold from the YAML: trim, collapse space, uppercase, drop
     trailing qualifier words, & -> AND, hyphen/slash/parens -> space."""
     t = text.strip().upper()
-    t = re.sub(r"[.,']", "", t)
-    t = re.sub(r"\s+(BLOCK|DISTRICT|VILLAGE|C&RD|AC|CONSTITUENCY)$", "", t)
+    t = t.translate(_FOLD_DROP)
+    for q in _FOLD_QUALIFIERS:          # one trailing " BLOCK" etc. (after whitespace)
+        if t.endswith(q) and len(t) > len(q) and t[-len(q) - 1].isspace():
+            t = t[:-len(q)].rstrip()
+            break
     t = t.replace("&", "AND")
-    t = re.sub(r"[-/()]", " ", t)
-    t = re.sub(r"\s+", " ", t).strip()
-    return t
+    t = t.translate(_FOLD_SPACE)
+    return collapse_ws(t)
+
+
+_FOLD_DROP = str.maketrans("", "", ".,'")
+_FOLD_SPACE = str.maketrans("-/()", "    ")
+_FOLD_QUALIFIERS = ("BLOCK", "DISTRICT", "VILLAGE", "C&RD", "AC", "CONSTITUENCY")
 
 
 def _place_title(value: str) -> str:
@@ -150,19 +382,20 @@ def _place_title(value: str) -> str:
     Meghalaya has NONGCHRAM (I) and NONGCHRAM (II) as two distinct villages in
     one block (reported 2026-09-17). Any parenthesised run of roman numerals or
     digits keeps its own casing."""
-    out = str(value or "").title()
-    return re.sub(r"\(([IVXLCDM\d]+)\)", lambda m: "(" + m.group(1).upper() + ")",
-                  out, flags=re.IGNORECASE)
+    return _paren_roman_upper(str(value or "").title())
+
+
+_SQUASH_KEEP = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
 
 
 def _squash(folded: str) -> str:
-    return re.sub(r"[^A-Z0-9]", "", folded)
+    return "".join(ch for ch in folded if ch in _SQUASH_KEEP)
 
 
 def _hs_tokens(text: str) -> list[str]:
     """Fold + split to bare alnum tokens — the unit house_status matching works
     in (order-independent token containment, not substring)."""
-    return [w for w in re.sub(r"[^A-Z0-9]+", " ", fold(text)).split() if w]
+    return "".join(ch if ch in _SQUASH_KEEP else " " for ch in fold(text)).split()
 
 
 def load_all() -> None:
@@ -344,7 +577,7 @@ def resolve_house_status(question: str, scheme: str = "PMAY-G") -> "Resolved | N
 # the common cases, then a RapidFuzz partial-ratio pass so a genuine
 # misspelling ("tranch2", "3rd trance") still resolves instead of falling
 # through to the SQL generator's own guess.
-_TRANCHE_GUARD_RE = re.compile(r"tranc", re.IGNORECASE)
+_TRANCHE_GUARD_MATCH = Matcher(Pred(lambda w: "tranc" in w.lower()))
 
 # The fuzzy stage below must NOT fire on a bare "tranche" mention with no
 # number ("break it down by tranche", "how many tranches") — partial-ratio
@@ -370,13 +603,22 @@ _TRANCHE_GUARD_RE = re.compile(r"tranc", re.IGNORECASE)
 # Fixed by requiring the number/ordinal to sit immediately next to "tranch"
 # itself (either side, "tranche 2" / "2nd tranche" / "trance 3"), not merely
 # present somewhere in the sentence.
-_TRANCHE_NUMBER_RE = re.compile(
-    r"\btranc\w*\s+(?:no\.?|number|#)?\s*"
-    r"(?:[1-4]|one|two|three|four|first|second|third|fourth|1st|2nd|3rd|4th)\b"
-    r"|\b(?:[1-4]|one|two|three|four|first|second|third|fourth|1st|2nd|3rd|4th)"
-    r"\s+tranc\w*",
-    re.IGNORECASE,
-)
+# regex: \btranc\w*\s+(?:no\.?|number|#)?\s*NUM\b | \bNUM\s+tranc\w*  (NUM = 1-4 /
+# one..four / first..fourth / 1st..4th), case-insensitive.
+_TRANCHE_NUM_WORD = W("1", "2", "3", "4", "one", "two", "three", "four", "first", "second",
+                      "third", "fourth", "1st", "2nd", "3rd", "4th")
+_TRANCHE_WORD = W("tranc", prefix=True)
+_TRANCHE_NUMBER_MATCH = Matcher(Alt(
+    # "tranche 2" / "tranche #2" — whitespace, then an optional "#"
+    Seq(_TRANCHE_WORD,
+        _GapIs(lambda g: g[:1].isspace() and g.strip() in ("", "#")), _TRANCHE_NUM_WORD),
+    # "tranche no. 2" / "tranche number 2"
+    Seq(_TRANCHE_WORD, _GapIs(_gap_ws), W("no"),
+        _GapIs(lambda g: (g == "." or g[1:].isspace()) if g.startswith(".") else g.isspace()), _TRANCHE_NUM_WORD),
+    Seq(_TRANCHE_WORD, _GapIs(_gap_ws), W("number"), _GapIs(str.isspace), _TRANCHE_NUM_WORD),
+    # "2nd tranche"
+    Seq(_TRANCHE_NUM_WORD, _GapIs(_gap_ws), _TRANCHE_WORD),
+))
 
 
 def tranche_labels(scheme: str = "Focus Plus") -> list[str]:
@@ -394,7 +636,7 @@ def resolve_tranche_label(question: str, scheme: str = "Focus Plus") -> "Resolve
     same multi-value contract resolve_house_status uses), fuzzy-matched so a
     misspelling or missing space still resolves."""
     values = _catalog.get(scheme, {}).get("tranche_label", [])
-    if not values or not _TRANCHE_GUARD_RE.search(question):
+    if not values or not _TRANCHE_GUARD_MATCH.search(question):
         return None
 
     folded_q = fold(question)
@@ -431,7 +673,7 @@ def resolve_tranche_label(question: str, scheme: str = "Focus Plus") -> "Resolve
                         confidence=hit_confidence, values=hits,
                         display=" and ".join(hits))
 
-    if not _TRANCHE_NUMBER_RE.search(question):
+    if not _TRANCHE_NUMBER_MATCH.search(question):
         return None
 
     # Stage 6: RapidFuzz partial-ratio over the whole question — catches a
@@ -486,7 +728,7 @@ def resolve_cm_scheme(question: str, scheme: str = "CM Elevate") -> "Resolved | 
     for v in values:
         for form in _forms(v):
             ff = fold(form)
-            if ff and re.search(rf"(?<![A-Z0-9]){re.escape(ff)}(?![A-Z0-9])", padded):
+            if ff and _bounded_find(padded, ff):
                 exact_hits.append(v["canonical"])
                 break
     exact_hits = list(dict.fromkeys(exact_hits))
@@ -569,12 +811,11 @@ def resolve_cm_scheme(question: str, scheme: str = "CM Elevate") -> "Resolved | 
 # different, already-answerable group-breakdown question (cmelevate_few_shot.yaml
 # has worked IN-list examples for "vehicle schemes"/"livestock schemes") and must
 # not be redirected into a clarification pause.
-_CM_GROUP_SINGULAR_CUE: dict[str, re.Pattern] = {
-    "vehicles": re.compile(r"\bvehicle scheme(?!s)\b", re.IGNORECASE),
-    "tourism": re.compile(r"\btourism scheme(?!s)\b", re.IGNORECASE),
-    "PRIME": re.compile(r"\bprime scheme(?!s)\b", re.IGNORECASE),
-    "livestock": re.compile(r"\blivestock scheme(?!s)\b", re.IGNORECASE),
-    "enterprise": re.compile(r"\benterprise scheme(?!s)\b", re.IGNORECASE),
+# regex \b<word> scheme(?!s)\b: one plain space between, and "scheme" a whole word.
+_CM_GROUP_SINGULAR_CUE: dict[str, Matcher] = {
+    group: Matcher(Seq(W(word), _GapIs(lambda g: g == " "), W("scheme")))
+    for group, word in (("vehicles", "vehicle"), ("tourism", "tourism"), ("PRIME", "prime"),
+                        ("livestock", "livestock"), ("enterprise", "enterprise"))
 }
 
 
@@ -603,7 +844,7 @@ def resolve_cm_scheme_group(question: str, scheme: str = "CM Elevate") -> "dict 
     for g in _scheme_groups.get(scheme, []):
         for alias in g.get("aliases", []):
             fa = fold(alias)
-            if fa and re.search(rf"(?<![A-Z0-9]){re.escape(fa)}(?![A-Z0-9])", padded):
+            if fa and _bounded_find(padded, fa):
                 return {"group": g["name"], "schemes": g["schemes"]}
     return None
 
@@ -617,7 +858,8 @@ def _display_form(canonical: str, dimension: str) -> str:
     form for district/block (Title/Mixed case), a tidy "FY 2024-25" for year.
     Distinct from `_db_form`, which is the literal used in the WHERE clause."""
     if dimension == "year":
-        digits = re.findall(r"\d{4}", canonical)
+        digits = [canonical[i:i + 4] for i in range(len(canonical) - 3)
+                  if canonical[i:i + 4].isdecimal()]
         if digits:
             start = int(digits[0])
             return f"FY {start}-{(start + 1) % 100:02d}"
@@ -835,11 +1077,24 @@ def _scannable_forms(value: dict) -> list[str]:
     # TC-31). The alias still resolves through resolve_dimension when the
     # extractor tags it as a district.
     forms += [a for a in value.get("aliases", [])
-              if " " in a and len(a) >= 7 and not _HQ_ALIAS_RE.match(a)]
+              if " " in a and len(a) >= 7 and not _HQ_ALIAS_MATCH.match(a)]
     return forms
 
 
-_HQ_ALIAS_RE = re.compile(r"^(.+?)\s+district$", re.IGNORECASE)
+def _hq_alias_at(text: str, i: int):
+    r"""regex ^(.+?)\s+district$ (case-insensitive), as a _CharScan step."""
+    if i != 0 or len(text) < 8 or text[-8:].lower() != "district":
+        return None
+    body = text[:-8]
+    if not body or not body[-1].isspace():
+        return None
+    k = max(len(body.rstrip()), 1)          # the lazy (.+?): shortest head, at least one char
+    if k >= len(body) or "\n" in body[:k]:
+        return None
+    return len(text), [(0, k)]
+
+
+_HQ_ALIAS_MATCH = _CharScan(_hq_alias_at)
 
 
 def _match_forms(value: dict) -> list[str]:
@@ -874,7 +1129,7 @@ def lookup_geo_term(text: str) -> "dict | None":
                         squashed_input in {_squash(fold(f)) for f in forms}:
                     hq = None
                     for a in v.get("aliases", []) or []:
-                        m = _HQ_ALIAS_RE.match(str(a).strip())
+                        m = _HQ_ALIAS_MATCH.match(str(a).strip())
                         if m and fold(m.group(1)) != fold(v["canonical"]):
                             hq = m.group(1).strip()
                             break
@@ -1112,7 +1367,7 @@ def scan_dimension(question: str, scheme: str, dimension: str, *,
         for v in values:
             for form in _scannable_forms(v):
                 ff = fold(form)
-                if re.search(rf"(?<![A-Z0-9]){re.escape(ff)}(?![A-Z0-9])", padded):
+                if _bounded_find(padded, ff) is not None:
                     if best is None or len(ff) > best[0]:
                         best = (len(ff), v["canonical"])
         return best[1] if best else None
@@ -1155,8 +1410,8 @@ def scan_districts(question: str, scheme: str) -> list[str]:
     for v in _catalog.get(scheme, {}).get("district", []):
         for form in _scannable_forms(v):
             ff = fold(form)
-            for m in re.finditer(rf"(?<![A-Z0-9]){re.escape(ff)}(?![A-Z0-9])", padded):
-                spans.append((m.start(), m.end(), v["canonical"]))
+            for s0, e0 in _bounded_spans(padded, ff):
+                spans.append((s0, e0, v["canonical"]))
     kept = [s for s in spans
             if not any(o[0] <= s[0] and s[1] <= o[1] and (o[1] - o[0]) > (s[1] - s[0]) for o in spans)]
     out: list[str] = []
@@ -1168,11 +1423,10 @@ def scan_districts(question: str, scheme: str) -> list[str]:
 
 # Words next to a region name that mean "give me the whole region", i.e. expand it to
 # every district rather than pausing to ask which one.
-_REGION_ALL_CUE = re.compile(
-    r"\ball\b|\bwhole\b|\bentire\b|\bcombined\b|\beach\b|\bevery\b|\bacross\b|"
-    r"\bfull\b|\btotal\b|\boverall\b|\bput together\b",
-    re.IGNORECASE,
-)
+_REGION_ALL_CUE = Matcher(Alt(
+    W("all", "whole", "entire", "combined", "each", "every", "across", "full", "total", "overall"),
+    Seq(W("put"), _GapIs(lambda g: g == " "), W("together")),
+))
 
 
 def detect_region(question: str, scheme: str) -> "dict | None":
@@ -1193,7 +1447,7 @@ def detect_region(question: str, scheme: str) -> "dict | None":
     # embedded range word ("Garo Hills" inside "West Garo Hills") as a region.
     for v in _catalog.get(scheme, {}).get("district", []):
         ff = fold(v["canonical"])
-        if re.search(rf"(?<![A-Z0-9]){re.escape(ff)}(?![A-Z0-9])", padded):
+        if _bounded_find(padded, ff) is not None:
             return None
 
     best: tuple[str, dict] | None = None
@@ -1202,15 +1456,15 @@ def detect_region(question: str, scheme: str) -> "dict | None":
             ff = fold(form)
             if len(ff) < 3:                       # skip bare "GH" / "KH" — too collision-prone
                 continue
-            if re.search(rf"(?<![A-Z0-9]){re.escape(ff)}(?![A-Z0-9])", padded):
+            if _bounded_find(padded, ff) is not None:
                 if best is None or len(ff) > len(best[0]):
                     best = (ff, r)
     if best is None:
         return None
 
     ff, r = best
-    m = re.search(re.escape(ff), padded)
-    around = padded[max(0, m.start() - 26): m.end() + 10] if m else padded
+    at = padded.find(ff)
+    around = padded[max(0, at - 26): at + len(ff) + 10] if at >= 0 else padded
     return {
         "canonical": r["canonical"],
         "districts": list(r["districts"]),
@@ -1235,14 +1489,14 @@ def named_places(text: str) -> dict[str, str]:
     catalogue, so they are not checked here."""
     padded = f" {fold(text or '')} "
     found: dict[str, str] = {}
-    for ff, pat, canon, dim in _place_patterns():
+    for ff, pat, canon, dim in _place_matchers():
         if ff in padded and pat.search(padded):
             found.setdefault(canon, dim)
             padded = pat.sub(lambda m: " " * len(m.group(0)), padded)
     return found
 
 
-_ACRONYM_TOKEN_RE = re.compile(r"\b[A-Za-z]{3,5}\b")
+_ACRONYM_TOKEN_MATCH = Matcher(Pred(lambda w: 3 <= len(w) <= 5 and all(ch in _ASCII_LETTERS for ch in w)))
 
 
 def acronym_near_misses(text: str) -> dict[str, list[str]]:
@@ -1265,7 +1519,7 @@ def acronym_near_misses(text: str) -> dict[str, list[str]]:
         return {}
     known = named_places(text)
     out: dict[str, list[str]] = {}
-    for m in _ACRONYM_TOKEN_RE.finditer(text or ""):
+    for m in _ACRONYM_TOKEN_MATCH.finditer(text or ""):
         tok = m.group(0).upper()
         if tok in acronyms or named_places(tok):
             continue
@@ -1278,20 +1532,51 @@ def acronym_near_misses(text: str) -> dict[str, list[str]]:
     return out
 
 
-_place_patterns_cache: "tuple[tuple, list] | None" = None
+_place_matchers_cache: "tuple[tuple, list] | None" = None
 
 
-def _place_patterns() -> list:
+class _BoundedPhrase:
+    """A literal phrase not touching an ASCII letter/digit on either side —
+    the .search / .sub the old compiled (?<![A-Z0-9])PHRASE(?![A-Z0-9])
+    pattern offered, done with str.find."""
+
+    __slots__ = ("phrase",)
+
+    def __init__(self, phrase: str):
+        self.phrase = phrase
+
+    def search(self, text: str):
+        sp = _bounded_find(text, self.phrase)
+        return Hit(text, sp[0], sp[1]) if sp else None
+
+    def finditer(self, text: str):
+        for s0, e0 in _bounded_spans(text, self.phrase):
+            yield Hit(text, s0, e0)
+
+    def sub(self, repl, text: str, count: int = 0) -> str:
+        out, last, k = [], 0, 0
+        for h in self.finditer(text):
+            out.append(text[last:h.start()])
+            out.append(repl(h) if callable(repl) else repl)
+            last = h.end()
+            k += 1
+            if count and k >= count:
+                break
+        out.append(text[last:])
+        return "".join(out)
+
+
+def _place_matchers() -> list:
     """(folded form, compiled whole-phrase pattern, CANONICAL, dimension) for
     every district/block name form, longest first. Compiled once per loaded
     catalogue: there are over a thousand forms, more than re's own pattern
     cache holds, and recompiling them made each follow-up rewrite spend about
     20 ms of CPU on the event loop."""
-    global _place_patterns_cache
+    global _place_matchers_cache
     key = tuple((s, id(d), len(d.get("district") or []), len(d.get("block") or []))
                 for s, d in _catalog.items())
-    if _place_patterns_cache is not None and _place_patterns_cache[0] == key:
-        return _place_patterns_cache[1]
+    if _place_matchers_cache is not None and _place_matchers_cache[0] == key:
+        return _place_matchers_cache[1]
     forms: list[tuple[str, str, str]] = []
     for dims in _catalog.values():
         for dim in ("district", "block"):
@@ -1301,9 +1586,8 @@ def _place_patterns() -> list:
                     if len(ff) >= 3:
                         forms.append((ff, str(v["canonical"]).upper(), dim))
     forms = sorted(set(forms), key=lambda f: len(f[0]), reverse=True)
-    compiled = [(ff, re.compile(rf"(?<![A-Z0-9]){re.escape(ff)}(?![A-Z0-9])"), canon, dim)
-                for ff, canon, dim in forms]
-    _place_patterns_cache = (key, compiled)
+    compiled = [(ff, _BoundedPhrase(ff), canon, dim) for ff, canon, dim in forms]
+    _place_matchers_cache = (key, compiled)
     return compiled
 
 

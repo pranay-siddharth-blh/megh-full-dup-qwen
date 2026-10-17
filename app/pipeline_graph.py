@@ -105,6 +105,7 @@ class MeghalayaGraphState(TypedDict, total=False):
     mg_admin: Any
     mg_women: dict | None
     mg_det: Any
+    per_scheme: list | None           # [[scheme, sql, error], ...] — one query per scheme (KI-011)
     sql: str | None
     sql_attempt: int                  # repairs done so far (0..MAX_SQL_REPAIRS)
     attempt_error: str | None         # the last attempt's error, for the repair call
@@ -132,7 +133,7 @@ _TURN_KEYS = ("raw_question", "question", "cm_pinned", "scope_resumed", "prev", 
 _DATA_KEY = {"question": "data_question", "skip_scope_clarify": "scope_resumed",
              "village_hint": "data_village_hint"}
 _DATA_KEYS = ("question", "skip_scope_clarify", "prior_resolved", "village_hint", "schemes",
-              "fp_amount", "entity_result", "mg_admin", "mg_women", "mg_det", "sql", "rows", "notes",
+              "fp_amount", "entity_result", "mg_admin", "mg_women", "mg_det", "per_scheme", "sql", "rows", "notes",
               "style", "fl_total", "fl_unplaced", "fl_breakdown", "answer", "cross",
               "pre_rephrase_question")
 # Read by the data stages but owned by the turn stages: never written back.
@@ -444,6 +445,10 @@ async def node_execute_attempt(state, ctx):
     if d["mg_det"]:
         await pipeline._data_deterministic_rows(d, ctx.scope)
         return {"rows": d["rows"], "attempt_error": None}
+    if d.get("per_scheme"):
+        # one query per scheme (KI-011): each runs its own guards and repairs
+        await pipeline._data_per_scheme_rows(d, ctx.scope)
+        return {"rows": d["rows"], "sql": d["sql"], "per_scheme": d["per_scheme"], "attempt_error": None}
     question, schemes, entity_result = d["question"], d["schemes"], d["entity_result"]
     attempt = int(state.get("sql_attempt") or 0)
     sql = await pipeline._scheme_sql_rewrites(question, schemes, entity_result, d["sql"])
@@ -522,6 +527,9 @@ async def node_finalize(state, ctx):
         result = pipeline._with_rewritten_question(result, state["question"], state["raw_question"])
         pipeline._attach_chart_hint(result, state["question"], state["raw_question"])
     pipeline._attach_followups(result, result.get("rewritten_question") or state["raw_question"])
+    pipeline._mark_context_dependent(result, ctx.session, raw_question=state.get("raw_question"),
+                                     followup=state.get("is_followup_rewrite"), plan=state.get("plan"),
+                                     scope_resumed=state.get("scope_resumed"))
     return {"response": result}
 
 

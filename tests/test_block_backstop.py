@@ -104,7 +104,7 @@ check("an unknown dimension is still refused",
 
 # ── 4. The pipeline actually consults the backstop ─────────────────────────
 print("4. THE BACKSTOP IS WIRED INTO resolve_entities")
-_SRC = (_ROOT / "app" / "pipeline.py").read_text(encoding="utf-8")
+_SRC = "".join(((_ROOT / "app" / "pipeline") / (n + ".py")).read_text(encoding="utf-8") for n in __import__("app.pipeline", fromlist=["_PIPELINE_FILES"])._PIPELINE_FILES)  # the pipeline package's files, in load order
 check("resolve_entities scans for a block when the level is explicit",
       'scan_dimension(question, schemes[0], "block",' in _SRC)
 check("  gated on level_is_explicit=True",

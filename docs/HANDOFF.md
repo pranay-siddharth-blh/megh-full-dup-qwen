@@ -3,7 +3,45 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
-**Latest (2026-10-13, evening): Cross Scheme sheet + generated cross-scheme permutations. Code changed, uncommitted. LIVE-VERIFIED.**
+**Latest (2026-10-16, evening, D-049):** chatbot side of the ingestion team's DB changes — see CURRENT_STATE "Latest"
+and `docs/Chatbot_Answers_to_Ingestion_Team_2026-10-16.md`. NEXT: (1) get the megh_readonly password, set
+`READONLY_DATABASE_URL`, `READONLY_DB_ALLOW_SUPERUSER=false`, restart every server (KI-304); (2) restart the Docker
+deploy so the smaller pool takes effect; (3) live-check the note's "known answers" (CM Elevate 8,840; on hold 908;
+approved -> not available; Mawlai asks). **WARNING: another session edited this tree in parallel (17:10-17:35:
+mgnrega.py, c11, questions.yaml, test_general_sql_rewrites_2026_10_16.py).** Eval PM-04 ("Counting every financial
+year ... Roof Cast") now loops between `_breakdown_missing_issue` (wants per-year) and the "ONE combined figure"
+guard (c11 ~L1835) and falls to the KB — correct at 17:11, not caused by D-049; for that session to resolve.
+
+**Latest (2026-10-16, D-047 / D-048):** the codebase has NO regex at all (text: `app/text_match.py`; SQL:
+`app/sql_ast.py`). Business definitions for gender / people across years / households vs persons are in
+`app/schema_context.py`, the MGNREGA and Focus Plus few-shots (executed), and `_mgnrega_people_years_alias`.
+SME to confirm "MGNREGA beneficiaries = households". pytest 2,606 / 0 failed.
+
+**Also 2026-10-15 (D-046, KI-303): no regex on SQL anywhere.** All SQL reading/rewriting uses SQLGlot via
+`app/sql_ast.py` (auth, every pipeline guard/rewrite, `_extract_sql`, offline validator, test harnesses). Never add a
+regex that touches SQL. pytest 2,585 passed / 0 failed. Open: `tests/test_context_manager.py` (script) fails on the
+separate memory-retention change in `app/conversation_memory.py`; the stale nested copy `meghalaya/meghalaya/` still
+holds the old regex code (not run by anything).
+
+**Also 2026-10-15 (KI-302):** cross-scheme answers no longer show an empty second table ("—" / 0) under the
+answer: `Messages.jsx` skips analytics when `response.cross_scheme` is set, and `conversation_store` stores the flag.
+UI rebuilt. Next: check one district-wise cross-scheme question in the browser.
+
+**Latest (2026-10-15): `app/pipeline.py` no longer exists.** It is the `app/pipeline/` package: `common/` (shared steps
+c01..c14) + `schemes/` (one file per scheme), one namespace via `__init__.py`. Edit the file that holds the function;
+a `pipeline.py` recreated next to the package is silently ignored. Behaviour-identical (pytest 2,372 pass, 14/14 scripts).
+
+**Latest (2026-10-14): answer, don't ask (D-045) + hierarchy matrix. Code changed, uncommitted.**
+- ANSWER_DEFAULTS_ENABLED (config.py) replaces the scope / year / tranche / scheme pauses with the chip text; real
+  ambiguity still asks. Tests `tests/test_answer_defaults_2026_10_14.py`; graph pause tests turn the flag off.
+- Matrix harness `tests/sheet_runs/matrix/matrix_run.py [state district block ac village]` (resumable; truth from
+  megh_db). state/district/block/AC 2,150/2,150. Village family (21,632) run as a detached process
+  (Start-Process; background shells die with the session) — resume with the same command.
+- NEXT: finish villages + re-run their failures; re-run the six finished sheets (tests/sheet_runs/*_run.py) since
+  the defaults change every scheme; decide with the user which line (this branch vs GitHub main with NRLM) to merge.
+- `.venv` is Python 3.12 (rebuilt 2026-10-13); pytest / pytest-asyncio / openpyxl installed.
+
+**Earlier (2026-10-13, evening): Cross Scheme sheet + generated cross-scheme permutations. Code changed, uncommitted. LIVE-VERIFIED.**
 - `reference_documents/Cross Scheme Test Cases.xlsx` (backup in `reference_documents/backup/`): Sheet1 D..H = 9th Run (0/20) and
   After Fix (20/20); tabs `Coverage` and `All conversations` (8,649/8,649). Process in `reference_documents/README.md`.
 - New `app/cross_scheme.py` (D-044) + hooks in `_data_scheme_stage` / `_data_entity_stage` / `_data_clarification_stage`;
@@ -198,7 +236,7 @@ day (that port did not answer). No net config change.
   `_village_filter_missing`, `_pin_missing_village_code` → `_village_name_cond_to_code` / `_drop_geo_beside_pinned_village` /
   `_PINNED_GEO_COND`, `_GEO_BESIDE_VILLAGE_RE` (UPPER/LOWER/TRIM), `_cm_unasked_programme_beside_village` (non-programme literal),
   `_focusplus_lgd_only_block`, `_FPL_BLOCKS`, `_cm_elevate_applicants_distinct`, `_NUMBER_TENS`, `_cml_fix_place_spelling`,
-  `_YEAR_AFTER_CHIP_TAIL_RE`, `_mgnrega_village_not_out_of_area` (BURMA; both Legacy schemes for MANIPUR), `_pmay_two_villages`.
+  `_YEAR_AFTER_CHIP_TAIL_MATCH`, `_mgnrega_village_not_out_of_area` (BURMA; both Legacy schemes for MANIPUR), `_pmay_two_villages`.
 - Tests changed with reasons (CML is now a village scheme): `test_focusplus_usecase_fixes.py`, `test_mgnrega_usecase_fixes.py`,
   `test_focus_legacy_usecase_fixes.py`; new tests in those and `test_cm_elevate_legacy.py`, `test_cmelevate_usecase_fixes.py`, `test_pmay_usecase_fixes.py`.
 - Tests: pytest **1,453 passed, 0 failed** (27 files) with the graph off AND on; scripts **14/14**; live context suite **43/43 on both paths** (follow-up 29/29).
@@ -448,8 +486,8 @@ day (that port did not answer). No net config change.
   (correct, checked in megh_db), but the answer said "not the 11 or 28 figures assumed" and
   "applies to FY 2017-18".
 - **Fixed (only this; nothing else changed):**
-  - `app/pipeline.py`: `_EXPLICIT_FY_RANGE_RE` no longer matches the head of a date;
-    `_needs_scope_clarification` accepts a full date as the time pin (`_CALENDAR_DATE_RE`).
+  - `app/pipeline.py`: `_EXPLICIT_FY_RANGE_MATCH` no longer matches the head of a date;
+    `_needs_scope_clarification` accepts a full date as the time pin (`_CALENDAR_DATE_MATCH`).
   - `app/premise_check.py`: `extract_premises` blanks dates (`_DATE_RE`).
 - **Tests:** new `tests/test_calendar_date_filter.py` (18); pytest 915 (24 files); scripts 14/14;
   live context suite **43/43** (follow-up 29/29, SQL 20/20); live probes 4/4.

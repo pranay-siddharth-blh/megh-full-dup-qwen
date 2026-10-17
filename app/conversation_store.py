@@ -28,14 +28,18 @@ def _spawn(coro) -> None:
 
 
 def persist_turn(*, tenant_id, user_id, session_id, result: dict, question: str,
-                 latency_ms: float, username: str | None, ip: str | None) -> None:
-    """Fire-and-forget: upsert the conversation, append the turn + audit row."""
+                 latency_ms: float, username: str | None, ip: str | None,
+                 audit: "dict | None" = None) -> None:
+    """Fire-and-forget: upsert the conversation, append the turn + audit row.
+    `audit` (app/turn_trace.audit_fields): the SQL, the error, few-shot ids,
+    repairs, verifier rejections, outcome and request id for app.query_audit."""
     _spawn(_persist_turn(tenant_id, user_id, session_id, result, question,
-                         latency_ms, username, ip))
+                         latency_ms, username, ip, audit))
 
 
 async def _persist_turn(tenant_id, user_id, session_id, result, question,
-                        latency_ms, username, ip):
+                        latency_ms, username, ip, audit=None):
+    a = audit or {}
     try:
         route = result.get("route", "data")
         answer = (result.get("answer") or "")[:4000]
@@ -59,6 +63,10 @@ async def _persist_turn(tenant_id, user_id, session_id, result, question,
             "confidence": result.get("confidence"),
             "rewritten_question": rewritten,
             "data": result.get("data") or [],
+            # A reopened thread must not redraw a cross-scheme answer's rows as
+            # a second, empty pivot table under the answer's own tables (the
+            # chat UI skips its charts when this is set).
+            "cross_scheme": bool(result.get("cross_scheme")),
             "row_count": rows,
             "sql": sql,
             "sql_query": sql,
@@ -98,11 +106,16 @@ async def _persist_turn(tenant_id, user_id, session_id, result, question,
         await db.execute(
             """INSERT INTO app.query_audit
                (tenant_id, user_id, username, session_id, question, rewritten_question,
-                route, granularity, schemes, allowed, denied_by, row_count, latency_ms, ip)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)""",
+                route, granularity, schemes, allowed, denied_by, row_count, latency_ms, ip,
+                sql_text, error_text, few_shot_ids, repairs, verifier_rejections, outcome, request_id)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
+                       $15,$16,$17::jsonb,$18,$19,$20,$21)""",
             [tenant_id, user_id, username, session_id, question[:2000], rewritten,
              route, infer_granularity(entities, sql), list(schemes), allowed,
-             denied_by, rows, latency_ms, ip],
+             denied_by, rows, latency_ms, ip,
+             (a.get("sql") or None) and str(a["sql"])[:20000], a.get("error"),
+             json.dumps(a.get("few_shot_ids") or []), int(a.get("repairs") or 0),
+             int(a.get("verifier_rejections") or 0), a.get("outcome"), a.get("request_id")],
         )
     except Exception as e:  # noqa: BLE001 — persistence is best-effort
         logger.warning("conversation_store: persist failed (non-fatal): %s", e)

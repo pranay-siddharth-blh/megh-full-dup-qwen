@@ -1,0 +1,1027 @@
+# NL->SQL accuracy set — HELD OUT from the fix loop (tests/nl2sql_eval/holdout.py).
+#
+# NEVER copy one of these questions, or a paraphrase, into a few-shot bank,
+# rule file, prompt, test or scheme sheet, and never "fix" a failure by
+# special-casing its wording: the score would stop measuring accuracy.
+# Fix the general cause instead, then re-run tests/nl2sql_eval/run_eval.py.
+#
+# Each item: the question, the gold SQL (run fresh on the read-only pool at
+# every run, so a data refresh never makes the gold stale) and `ordered`
+# (true only for ranked lists). A gold query returns only what the question
+# asks for, plus the grouping keys a correct answer must show — extra columns
+# in the pipeline's answer are fine (compare.py).
+#
+# Drafted 2026-10-15 against the documented rules in app/schema_context.py and
+# data/<scheme>/*.yaml, every gold run on the live DB. Changing a gold answer
+# is a decision, not a fix: note why in `note`.
+
+- id: MG-01
+  scheme: MGNREGA
+  difficulty: easy
+  ordered: false
+  question: Under MGNREGA, how much was spent on materials in South Garo Hills district during FY 2023-24? Give
+    the figure in lakh rupees.
+  gold_sql: |
+    SELECT SUM(material_exp) AS material_exp_lakh
+    FROM curated.v_expenditure
+    WHERE lgd_district = 'SOUTH GARO HILLS' AND year_key = 2023
+    LIMIT 1
+  note: Material cost -> material_exp on v_expenditure (LAKH, rule 4 keeps lakh); FY 2023-24 -> year_key 2023 (start
+    year); source-row grain so SUM.
+- id: MG-02
+  scheme: MGNREGA
+  difficulty: easy
+  ordered: false
+  question: What number of persons got work under MGNREGA in Jirang block in financial year 2022-23?
+  gold_sql: |
+    SELECT SUM(persons_employed) AS persons_employed
+    FROM curated.v_employment
+    WHERE lgd_block = 'JIRANG' AND year_key = 2022
+    LIMIT 1
+  note: '''Persons'' disambiguates persons_employed vs households_employed; block filter on UPPER lgd_block; year_key
+    2022 = FY 2022-23.'
+- id: MG-03
+  scheme: MGNREGA
+  difficulty: easy
+  ordered: false
+  question: What was the cumulative MGNREGA job card count for East Jaintia Hills district as at FY 2024-25?
+  gold_sql: |
+    SELECT SUM(job_cards_issued_total) AS job_card_stock
+    FROM curated.v_employment
+    WHERE lgd_district = 'EAST JAINTIA HILLS' AND year_key = 2024
+    LIMIT 1
+  note: 'job_cards_issued_total is a STOCK (rule 3): pin the single named year, SUM over source rows of the area,
+    never sum across years.'
+- id: MG-04
+  scheme: MGNREGA
+  difficulty: easy
+  ordered: false
+  question: In Mawkyrwat block, how many households finished the full 100 days of MGNREGA work in FY 2023-24?
+  gold_sql: |
+    SELECT SUM(households_completed_100_days) AS households_completed_100_days
+    FROM curated.v_employment
+    WHERE lgd_block = 'MAWKYRWAT' AND year_key = 2023
+    LIMIT 1
+  note: '''100-day completion'' -> households_completed_100_days (vocab); flow measure summed over source rows for
+    one block-year.'
+- id: MG-05
+  scheme: MGNREGA
+  difficulty: medium
+  ordered: false
+  question: Give me the MGNREGA semi-skilled wage spend for every block of North Garo Hills in FY 2024-25, in lakh
+    rupees.
+  gold_sql: |
+    SELECT lgd_block, SUM(semi_skilled_wage_exp) AS semi_skilled_wage_exp_lakh
+    FROM curated.v_expenditure
+    WHERE lgd_district = 'NORTH GARO HILLS' AND year_key = 2024
+    GROUP BY lgd_block
+    ORDER BY semi_skilled_wage_exp_lakh DESC
+    LIMIT 50
+  note: Explicit 'semi-skilled' -> semi_skilled_wage_exp only (not the bare-wages default); per-block GROUP BY in
+    LAKH; 4 blocks.
+- id: MG-06
+  scheme: MGNREGA
+  difficulty: medium
+  ordered: true
+  question: Which three blocks in South West Garo Hills gave MGNREGA employment to the most households in FY 2025-26?
+  gold_sql: |
+    SELECT lgd_block, SUM(households_employed) AS households_employed
+    FROM curated.v_employment
+    WHERE lgd_district = 'SOUTH WEST GARO HILLS' AND year_key = 2025
+    GROUP BY lgd_block
+    ORDER BY households_employed DESC
+    LIMIT 3
+  note: '''Households'' -> households_employed; top-3 ranking so ordered; year_key 2025 = FY 2025-26.'
+- id: MG-07
+  scheme: MGNREGA
+  difficulty: medium
+  ordered: true
+  question: List the 5 villages of Umling block with the largest MGNREGA total expenditure in FY 2023-24, amounts
+    in lakh.
+  gold_sql: |
+    SELECT lgd_village_name, SUM(total_exp) AS total_exp_lakh
+    FROM curated.v_expenditure
+    WHERE lgd_block = 'UMLING' AND year_key = 2023
+    GROUP BY lgd_village_name, village_code
+    ORDER BY total_exp_lakh DESC
+    LIMIT 5
+  note: 'Rule 9: villages returned by name AND village_code (duplicate names), SUM over source rows; total_exp in
+    LAKH. Gold trimmed to the asked-for columns (review 2026-10-15).'
+- id: MG-08
+  scheme: MGNREGA
+  difficulty: medium
+  ordered: false
+  question: Show MGNREGA person-days in West Jaintia Hills for each financial year from 2022-23 through 2025-26.
+  gold_sql: |
+    SELECT SUM(person_days) AS person_days
+    FROM curated.v_employment
+    WHERE lgd_district = 'WEST JAINTIA HILLS' AND year_key BETWEEN 2022 AND 2025
+    GROUP BY year_key
+  note: person_days is a flow, so per-year SUM is valid; all four available FYs (year_key 2022-2025); one row per
+    year. Gold trimmed to the asked-for columns (review 2026-10-15).
+- id: MG-09
+  scheme: MGNREGA
+  difficulty: medium
+  ordered: false
+  question: How many distinct villages in East Garo Hills recorded at least one MGNREGA person-day in FY 2024-25?
+  gold_sql: |
+    SELECT COUNT(*) AS villages
+    FROM (
+      SELECT village_code
+      FROM curated.v_employment
+      WHERE lgd_district = 'EAST GARO HILLS' AND year_key = 2024
+      GROUP BY village_code
+      HAVING SUM(person_days) > 0
+    ) v
+    LIMIT 1
+  note: Villages counted by village_code, not name (shared rule); a village can have several source rows, so test
+    SUM(person_days) > 0 per village.
+- id: MG-10
+  scheme: MGNREGA
+  difficulty: medium
+  ordered: false
+  question: What was the MGNREGA wage compliance ratio (unskilled wages as a percentage of total expenditure) for
+    each block in Ri Bhoi in FY 2024-25?
+  gold_sql: |
+    SELECT lgd_block,
+           ROUND(100.0 * SUM(unskilled_wage_exp) / NULLIF(SUM(total_exp), 0), 2) AS unskilled_wage_share_pct
+    FROM curated.v_expenditure
+    WHERE lgd_district = 'RI BHOI' AND year_key = 2024
+    GROUP BY lgd_block
+    ORDER BY lgd_block
+    LIMIT 50
+  note: 'Vocab: wage compliance / 60:40 = unskilled_wage_exp / total_exp (statutory, NOT (unskilled+semi)/total);
+    ratio of sums per block.'
+- id: MG-11
+  scheme: MGNREGA
+  difficulty: hard
+  ordered: false
+  question: Which districts had an MGNREGA cost per person-day above Rs 400 in FY 2022-23?
+  gold_sql: |
+    SELECT lgd_district
+    FROM curated.v_district_year_summary
+    WHERE year_key = 2022 AND cost_per_person_day_rupees > 400
+  note: 'Rule 7: use precomputed cost_per_person_day_rupees on v_district_year_summary (= total_exp*100000/person_days);
+    district x year grain; 2 districts qualify. Gold trimmed to the asked-for columns (review 2026-10-15).'
+- id: MG-12
+  scheme: MGNREGA
+  difficulty: hard
+  ordered: false
+  question: By what percentage did MGNREGA person-days in West Garo Hills fall or rise between FY 2023-24 and FY
+    2024-25?
+  gold_sql: |
+    WITH y AS (
+      SELECT SUM(person_days) FILTER (WHERE year_key = 2023) AS pd_2023_24,
+             SUM(person_days) FILTER (WHERE year_key = 2024) AS pd_2024_25
+      FROM curated.v_employment
+      WHERE lgd_district = 'WEST GARO HILLS' AND year_key IN (2023, 2024)
+    )
+    SELECT ROUND(100.0 * (pd_2024_25 - pd_2023_24) / NULLIF(pd_2023_24, 0), 2) AS pct_change
+    FROM y
+  note: Two-year comparison returns both figures plus the % change ((new-old)/old, numeric to avoid integer truncation,
+    rule 8). Gold trimmed to the asked-for columns (review 2026-10-15).
+- id: MG-13
+  scheme: MGNREGA
+  difficulty: hard
+  ordered: false
+  question: For Mairang block in FY 2022-23, what was MGNREGA total expenditure in lakh rupees alongside the person-days
+    generated?
+  gold_sql: |
+    WITH emp AS (
+      SELECT SUM(person_days) AS person_days
+      FROM curated.v_employment
+      WHERE lgd_block = 'MAIRANG' AND year_key = 2022
+    ),
+    exp AS (
+      SELECT SUM(total_exp) AS total_exp_lakh
+      FROM curated.v_expenditure
+      WHERE lgd_block = 'MAIRANG' AND year_key = 2022
+    )
+    SELECT exp.total_exp_lakh, emp.person_days
+    FROM emp, exp
+    LIMIT 1
+  note: 'Rule 1: never join the two facts; block grain is not on v_district_year_summary, so aggregate each fact
+    in its own CTE with identical filters and cross-join the scalars.'
+- id: PM-01
+  scheme: PMAY-G
+  difficulty: easy
+  ordered: false
+  question: Across all years of PMAY-G data, how many houses in South West Khasi Hills district are completed?
+  gold_sql: |
+    SELECT COUNT(*) AS completed_houses
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND is_completed AND lgd_district = 'SOUTH WEST KHASI HILLS'
+    LIMIT 1
+  note: Rule 1 excludes placeholders; rule 2 uses is_completed boolean, not status_name; one row = one house so
+    COUNT(*).
+- id: PM-02
+  scheme: PMAY-G
+  difficulty: easy
+  ordered: false
+  question: How many PMAY-G houses were sanctioned in Songsak block in FY 2020-21?
+  gold_sql: |
+    SELECT COUNT(*) AS houses_sanctioned
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND lgd_block = 'SONGSAK' AND year_key = 2020
+    LIMIT 1
+  note: '''Sanctioned in <FY>'' is a sanction-date/year filter over all houses, not the ''House Sanctioned'' stage
+    (default sanctioned_word_with_year); year_key 2020 = FY 2020-21.'
+- id: PM-03
+  scheme: PMAY-G
+  difficulty: easy
+  ordered: false
+  question: What total amount in rupees was released under PMAY-G for houses in Dadenggiri block sanctioned in FY
+    2023-24?
+  gold_sql: |
+    SELECT SUM(COALESCE(amount_released, 0)) AS amount_released_rupees
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND lgd_block = 'DADENGGIRI' AND year_key = 2023
+    LIMIT 1
+  note: Released -> amount_released (RUPEES, rule 4), COALESCE NULL to 0 (rule 8); placeholders excluded.
+- id: PM-04
+  scheme: PMAY-G
+  difficulty: easy
+  ordered: false
+  question: Counting every financial year, how many PMAY-G houses in East Jaintia Hills have reached the Roof Cast
+    stage?
+  gold_sql: |
+    SELECT COUNT(*) AS roof_cast_houses
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND status_name = 'Roof Cast' AND lgd_district = 'EAST JAINTIA HILLS'
+    LIMIT 1
+  note: Non-completed/in-progress stages filter status_name on the exact string ('Roof Cast') per the dim_pmay_house_status
+    note; houses currently at that stage.
+- id: PM-05
+  scheme: PMAY-G
+  difficulty: medium
+  ordered: false
+  question: Break down, block by block, the PMAY-G houses still under construction in South Garo Hills (all years).
+  gold_sql: |
+    SELECT lgd_block, COUNT(*) AS houses_in_progress
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND is_in_progress AND lgd_district = 'SOUTH GARO HILLS'
+    GROUP BY lgd_block
+    ORDER BY houses_in_progress DESC
+    LIMIT 50
+  note: '''Under construction'' -> is_in_progress boolean (rule 2 / in_progress_houses default); grouped by lgd_block.'
+- id: PM-06
+  scheme: PMAY-G
+  difficulty: medium
+  ordered: true
+  question: Name the top 5 villages in West Jaintia Hills by count of PMAY-G houses sanctioned during FY 2020-21.
+  gold_sql: |
+    SELECT lgd_village_name, COUNT(*) AS houses
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND lgd_district = 'WEST JAINTIA HILLS' AND year_key = 2020
+    GROUP BY lgd_village_name, village_code
+    ORDER BY houses DESC
+    LIMIT 5
+  note: Village grain keyed by village_code alongside name (198 shared names); year_key filter for FY; top-N so
+    ordered. Gold trimmed to the asked-for columns (review 2026-10-15).
+- id: PM-07
+  scheme: PMAY-G
+  difficulty: medium
+  ordered: false
+  question: How many PMAY-G houses in North Garo Hills were allotted to women, counting all woman categories (married,
+    widowed, unmarried and plain 'Woman') but not joint husband-and-wife allotments, across all years?
+  gold_sql: |
+    SELECT COUNT(*) AS houses_to_women
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND lgd_district = 'NORTH GARO HILLS'
+      AND house_alloted_to IN ('Woman-Married', 'Woman-Widow', 'Woman-Unmarried', 'Woman')
+    LIMIT 1
+  note: 'Default women_reference: women = Woman-Married, Woman-Widow, Woman-Unmarried, Woman; joint allotments counted
+    separately (excluded).'
+- id: PM-08
+  scheme: PMAY-G
+  difficulty: medium
+  ordered: false
+  question: District-wise, how many PMAY-G houses sanctioned in FY 2022-23 have been paid exactly two installments?
+  gold_sql: |
+    SELECT lgd_district, COUNT(*) AS houses_two_installments
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND year_key = 2022 AND installments_paid = 2
+    GROUP BY lgd_district
+    ORDER BY houses_two_installments DESC
+    LIMIT 20
+  note: 'installment_stage_term default: count houses at that installment stage (installments_paid = 2), not sum
+    installments.'
+- id: PM-09
+  scheme: PMAY-G
+  difficulty: medium
+  ordered: false
+  question: In how many distinct villages of Mawkynrew block does PMAY-G have at least one house, over all financial
+    years?
+  gold_sql: |
+    SELECT COUNT(DISTINCT village_code) AS villages
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND lgd_block = 'MAWKYNREW'
+    LIMIT 1
+  note: 'village_count_requested default: count DISTINCT village_code (198 names shared), placeholders excluded.'
+- id: PM-10
+  scheme: PMAY-G
+  difficulty: medium
+  ordered: true
+  question: Which three blocks of East Khasi Hills received the highest PMAY-G releases (in rupees) for houses sanctioned
+    in FY 2023-24?
+  gold_sql: |
+    SELECT lgd_block, SUM(COALESCE(amount_released, 0)) AS amount_released_rupees
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND lgd_district = 'EAST KHASI HILLS' AND year_key = 2023
+    GROUP BY lgd_block
+    ORDER BY amount_released_rupees DESC
+    LIMIT 3
+  note: 'Rule 6: per-block from v_pmay (not monthly view); amount_released in RUPEES with COALESCE; top-3 ordered.'
+- id: PM-11
+  scheme: PMAY-G
+  difficulty: hard
+  ordered: false
+  question: What is the PMAY-G completion rate, in percent, for each block of West Khasi Hills, considering houses
+    sanctioned in FY 2022-23?
+  gold_sql: |
+    SELECT lgd_block,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE is_completed) / NULLIF(COUNT(*), 0), 2) AS completion_rate_pct
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND lgd_district = 'WEST KHASI HILLS' AND year_key = 2022
+    GROUP BY lgd_block
+    ORDER BY lgd_block
+    LIMIT 50
+  note: Vocab completion rate = COUNT FILTER (is_completed) / COUNT(*) * 100 over non-placeholder houses; per block,
+    one FY.
+- id: PM-12
+  scheme: PMAY-G
+  difficulty: hard
+  ordered: false
+  question: Compare PMAY-G fund utilisation (released as a % of sanctioned) between Ri Bhoi and West Garo Hills
+    for houses sanctioned in FY 2023-24.
+  gold_sql: |
+    SELECT lgd_district,
+           ROUND(100.0 * SUM(COALESCE(amount_released, 0)) / NULLIF(SUM(sanctioned_amount), 0), 2) AS utilisation_pct
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND sanctioned_amount <> 0
+      AND lgd_district IN ('RI BHOI', 'WEST GARO HILLS') AND year_key = 2023
+    GROUP BY lgd_district
+  note: 'Rule 8: utilisation is ONE ratio of totals with COALESCE; rule 3 drops sanctioned_amount = 0; rule 9: one
+    row per named area, never LIMIT 1. Scoring should key on utilisation_pct per district. Gold trimmed to the asked-for
+    columns (review 2026-10-15).'
+- id: PM-13
+  scheme: PMAY-G
+  difficulty: hard
+  ordered: false
+  question: Which blocks in West Garo Hills have over 1,000 PMAY-G houses that are not yet completed, taking all
+    sanction years together?
+  gold_sql: |
+    SELECT lgd_block
+    FROM curated.v_pmay
+    WHERE NOT is_placeholder AND lgd_district = 'WEST GARO HILLS'
+      AND is_completed IS DISTINCT FROM TRUE
+    GROUP BY lgd_block
+    HAVING COUNT(*) > 1000
+  note: 'Default incomplete_or_pending_houses: is_completed IS DISTINCT FROM TRUE (keeps NULL-status houses, unlike
+    NOT is_completed); HAVING threshold per block. Gold trimmed to the asked-for columns (review 2026-10-15).'
+- id: FP-01
+  scheme: Focus Plus
+  difficulty: easy
+  ordered: false
+  question: What is the total Focus Plus amount disbursed in South Garo Hills district?
+  gold_sql: |
+    SELECT SUM(amount_disbursed) AS amount_disbursed
+    FROM curated.v_focus_plus
+    WHERE lgd_district = 'SOUTH GARO HILLS'
+  note: Money = SUM(amount_disbursed) over both cohorts (no batch filter, rule 4); district literal UPPERCASE on
+    lgd_district; no has_geo_conflict filter (rule 9).
+- id: FP-02
+  scheme: Focus Plus
+  difficulty: easy
+  ordered: false
+  question: How many distinct Focus Plus beneficiaries (individual people, not payments) are recorded in Ri Bhoi
+    district?
+  gold_sql: |
+    SELECT COUNT(DISTINCT beneficiary_key) AS beneficiaries
+    FROM curated.v_focus_plus
+    WHERE lgd_district = 'RI BHOI'
+  note: Person count = COUNT(DISTINCT beneficiary_key) with no batch or geo-conflict filter (rule 6); question says
+    people, not payments, so no payment-count reading.
+- id: FP-03
+  scheme: Focus Plus
+  difficulty: easy
+  ordered: false
+  question: In the Focus Plus 12.5K registration batch, how many registrants currently have a focus status of Approved?
+  gold_sql: |
+    SELECT COUNT(DISTINCT beneficiary_key) AS registrants
+    FROM curated.v_focus_plus
+    WHERE batch_label = '12.5K'
+      AND focus_status = 'Approved'
+  note: focus_status is a person-level column populated only on the 12.5K cohort (rule 4); one row per person there,
+    so COUNT(DISTINCT beneficiary_key) = COUNT(*).
+- id: FP-04
+  scheme: Focus Plus
+  difficulty: easy
+  ordered: false
+  question: How much Focus Plus money was paid out in Haripur village of Selsella block, West Garo Hills?
+  gold_sql: |
+    SELECT SUM(amount_disbursed) AS amount_disbursed
+    FROM curated.v_focus_plus
+    WHERE lgd_village_name = 'HARIPUR'
+      AND lgd_district = 'WEST GARO HILLS'
+      AND UPPER(block_name_raw) = 'SELSELLA'
+  note: Village filtered on lgd_village_name as stored (HARIPUR, one village_code 272849); block via UPPER(block_name_raw)
+    (rule 9), district uppercase; money = SUM(amount_disbursed).
+- id: FP-05
+  scheme: Focus Plus
+  difficulty: medium
+  ordered: false
+  question: Give me the Focus Plus amount disbursed in each block of North Garo Hills district.
+  gold_sql: |
+    SELECT block_name_raw AS block, SUM(amount_disbursed) AS amount_disbursed
+    FROM curated.v_focus_plus
+    WHERE lgd_district = 'NORTH GARO HILLS'
+    GROUP BY block_name_raw
+    ORDER BY amount_disbursed DESC
+  note: Block breakdown must GROUP BY block_name_raw, never lgd_block (15% NULL, rule 9); both cohorts included
+    (no person-level column).
+- id: FP-06
+  scheme: Focus Plus
+  difficulty: medium
+  ordered: true
+  question: Which five blocks have the highest number of distinct Focus Plus beneficiaries statewide? Rank them.
+  gold_sql: |
+    SELECT block_name_raw AS block, COUNT(DISTINCT beneficiary_key) AS beneficiaries
+    FROM curated.v_focus_plus
+    GROUP BY block_name_raw
+    ORDER BY beneficiaries DESC
+    LIMIT 5
+  note: Block = block_name_raw (rule 9); beneficiaries = COUNT(DISTINCT beneficiary_key) across both cohorts (rule
+    6); explicit top-5 ranking.
+- id: FP-07
+  scheme: Focus Plus
+  difficulty: medium
+  ordered: true
+  question: List the top 5 villages in West Khasi Hills by number of Focus Plus payments made, highest first.
+  gold_sql: |
+    SELECT lgd_village_name, COUNT(*) AS payments
+    FROM curated.v_focus_plus
+    WHERE lgd_district = 'WEST KHASI HILLS'
+      AND entity_type = 'Village'
+    GROUP BY village_code, lgd_village_name
+    ORDER BY payments DESC
+    LIMIT 5
+  note: Payments = COUNT(*) (rule 3); villages identified by village_code; wards and Unresolved placeholders kept
+    out of a 'top villages' ranking via entity_type = 'Village' (rule 9). Gold trimmed to the asked-for columns
+    (review 2026-10-15).
+- id: FP-08
+  scheme: Focus Plus
+  difficulty: medium
+  ordered: false
+  question: For the Focus Plus 12.5K registration cohort in East Garo Hills, how many registrants are female and
+    how many are male?
+  gold_sql: |
+    SELECT gender, COUNT(DISTINCT beneficiary_key) AS registrants
+    FROM curated.v_focus_plus
+    WHERE batch_label = '12.5K'
+      AND lgd_district = 'EAST GARO HILLS'
+    GROUP BY gender
+  note: Gender exists only on the 12.5K cohort, so the breakdown is scoped batch_label = '12.5K' (rule 4); person
+    count via beneficiary_key.
+- id: FP-09
+  scheme: Focus Plus
+  difficulty: medium
+  ordered: false
+  question: For Mylliem block, show the number of Focus Plus payments and the amount disbursed in each tranche,
+    split by batch.
+  gold_sql: |
+    SELECT batch_label, tranche_label, COUNT(*) AS payments, SUM(amount_disbursed) AS amount_disbursed
+    FROM curated.v_focus_plus
+    WHERE UPPER(block_name_raw) = 'MYLLIEM'
+    GROUP BY batch_label, tranche_label
+    ORDER BY batch_label, tranche_label
+  note: Tranche breakdown is categorical and must also group by batch_label because Tranch 4 mixes cohorts (rule
+    8); block via UPPER(block_name_raw) (rule 9).
+- id: FP-10
+  scheme: Focus Plus
+  difficulty: hard
+  ordered: false
+  question: What percentage of the total Focus Plus amount disbursed across Meghalaya went to West Garo Hills district?
+  gold_sql: |
+    SELECT ROUND(100.0 * SUM(amount_disbursed) FILTER (WHERE lgd_district = 'WEST GARO HILLS')
+                 / SUM(amount_disbursed), 2) AS pct_of_state_amount
+    FROM curated.v_focus_plus
+  note: Share-of-state-total is the one place the 100.0 * multiplier belongs (rule 7); whole table, both cohorts,
+    denominator includes the 4 NULL-district rows; 2-dp default precision.
+- id: FP-11
+  scheme: Focus Plus
+  difficulty: hard
+  ordered: false
+  question: 'Compare Tikrikilla and Selsella blocks on Focus Plus: number of distinct beneficiaries, total amount
+    disbursed, and amount disbursed per beneficiary.'
+  gold_sql: |
+    SELECT block_name_raw AS block,
+           COUNT(DISTINCT beneficiary_key) AS beneficiaries,
+           SUM(amount_disbursed) AS amount_disbursed,
+           ROUND(SUM(amount_disbursed) / COUNT(DISTINCT beneficiary_key), 2) AS amount_per_beneficiary
+    FROM curated.v_focus_plus
+    WHERE UPPER(block_name_raw) IN ('TIKRIKILLA', 'SELSELLA')
+    GROUP BY block_name_raw
+  note: Per-beneficiary = SUM(amount_disbursed)/COUNT(DISTINCT beneficiary_key) with no 100x multiplier and no batch/geo-conflict
+    scoping (rules 6-7); blocks on block_name_raw.
+- id: FP-12
+  scheme: Focus Plus
+  difficulty: hard
+  ordered: false
+  question: In which districts do 12.5K registration batch payments make up more than 4% of that district's Focus
+    Plus payment records? Show each district's percentage.
+  gold_sql: |
+    SELECT lgd_district,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE batch_label = '12.5K') / COUNT(*), 2) AS pct_payments_12_5k
+    FROM curated.v_focus_plus
+    WHERE lgd_district IS NOT NULL
+    GROUP BY lgd_district
+    HAVING 100.0 * COUNT(*) FILTER (WHERE batch_label = '12.5K') / COUNT(*) > 4
+  note: Payment records = COUNT(*) (rule 3); cohort = batch_label (vocabulary); ratio per district over both cohorts
+    with HAVING; NULL district excluded from a district list (null_district_rows default). Reworded 2026-10-16 -
+    "more than 4% of all Focus Plus payment records" also read as a share of the state or of the batch (it was
+    answered both ways in different runs), the same flaw as FL-12.
+- id: FL-01
+  scheme: Focus Legacy
+  difficulty: easy
+  ordered: false
+  question: How many distinct producer groups received Focus Legacy payments in Ri Bhoi district?
+  gold_sql: |
+    SELECT COUNT(DISTINCT pg_id) AS producer_groups
+    FROM curated.v_focus_legacy
+    WHERE lgd_district = 'RI BHOI'
+  note: Groups are counted on pg_id, never pg_name (rules 4-5); district from lgd_district uppercase, never parsed
+    from pg_id (rule 6).
+- id: FL-02
+  scheme: Focus Legacy
+  difficulty: easy
+  ordered: false
+  question: What was the total Focus Legacy amount remitted to producer groups in FY 2024-25?
+  gold_sql: |
+    SELECT SUM(amount_disbursed) AS amount_disbursed
+    FROM curated.v_focus_legacy
+    WHERE financial_year_short = '2024-25'
+  note: Money = SUM(amount_disbursed) filtered on financial_year_short; every money SELECT carries SUM(no_of_pg_members)
+    beside it (rule 3). Gold trimmed to the asked-for columns (review 2026-10-15).
+- id: FL-03
+  scheme: Focus Legacy
+  difficulty: easy
+  ordered: false
+  question: How many Focus Legacy payments were made into Meghalaya Rural Bank accounts?
+  gold_sql: |
+    SELECT COUNT(*) AS payments
+    FROM curated.v_focus_legacy
+    WHERE bank_name = 'Meghalaya Rural Bank'
+  note: Payments = COUNT(*) (rule 4); bank_name is clean and institution-level, so a bank filter is legitimate here
+    (rule 12).
+- id: FL-04
+  scheme: Focus Legacy
+  difficulty: easy
+  ordered: false
+  question: How many distinct villages in West Jaintia Hills have a Focus Legacy producer group that was paid?
+  gold_sql: |
+    SELECT COUNT(DISTINCT village_code) AS villages
+    FROM curated.v_focus_legacy
+    WHERE lgd_district = 'WEST JAINTIA HILLS'
+      AND entity_type <> 'Unresolved'
+  note: Villages = COUNT(DISTINCT village_code) and the Unresolved placeholder is excluded on village counts only
+    (rule 10).
+- id: FL-05
+  scheme: Focus Legacy
+  difficulty: medium
+  ordered: false
+  question: Block-wise for North Garo Hills, what Focus Legacy amount was disbursed and how many PG memberships
+    did it cover?
+  gold_sql: |
+    SELECT lgd_block, SUM(amount_disbursed) AS amount_disbursed, SUM(no_of_pg_members) AS memberships
+    FROM curated.v_focus_legacy
+    WHERE lgd_district = 'NORTH GARO HILLS'
+    GROUP BY lgd_block
+    ORDER BY amount_disbursed DESC
+  note: '''Block-wise'' = GROUP BY lgd_block and select it (rule 5b); Legacy blocks are lgd_block UPPERCASE; money
+    carries memberships (rule 3); Unresolved rows kept in money totals (rule 10).'
+- id: FL-06
+  scheme: Focus Legacy
+  difficulty: medium
+  ordered: true
+  question: What were the top 5 products by number of Focus Legacy payments in FY 2022-23, ranked highest first?
+  gold_sql: |
+    SELECT UPPER(TRIM(product_raw)) AS product, COUNT(*) AS payments
+    FROM curated.v_focus_legacy
+    WHERE financial_year_short = '2022-23'
+      AND product_raw IS NOT NULL
+    GROUP BY UPPER(TRIM(product_raw))
+    ORDER BY payments DESC
+    LIMIT 5
+  note: Products must be case/space-folded with UPPER(TRIM(product_raw)) (rule 9); FY 2022-23 is one of the two
+    years where product is captured; payments = COUNT(*).
+- id: FL-07
+  scheme: Focus Legacy
+  difficulty: medium
+  ordered: false
+  question: For FY 2025-26, how many distinct producer groups of each group type received Focus Legacy money?
+  gold_sql: |
+    SELECT COUNT(DISTINCT pg_id) AS producer_groups
+    FROM curated.v_focus_legacy
+    WHERE financial_year_short = '2025-26'
+    GROUP BY pg_entity_type
+  note: Group type = pg_entity_type (+ name for display), enumerated not guessed; groups = COUNT(DISTINCT pg_id)
+    (rule 4); both programme variants of FY 2025-26 included. Gold trimmed to the asked-for columns (review 2026-10-15).
+- id: FL-08
+  scheme: Focus Legacy
+  difficulty: medium
+  ordered: false
+  question: Year by year, how many Focus Legacy payments were made and how many distinct producer groups were paid
+    in West Garo Hills?
+  gold_sql: |
+    SELECT financial_year_short, COUNT(*) AS payments, COUNT(DISTINCT pg_id) AS producer_groups
+    FROM curated.v_focus_legacy
+    WHERE lgd_district = 'WEST GARO HILLS'
+    GROUP BY financial_year_short
+    ORDER BY financial_year_short
+  note: Two distinct counting subjects, both labelled (rule 4); year grouping on financial_year_short, FY 2023-24
+    simply absent, no zero row (rule 7).
+- id: FL-09
+  scheme: Focus Legacy
+  difficulty: medium
+  ordered: true
+  question: Which three producer groups in West Jaintia Hills received the largest total Focus Legacy amount? Rank
+    them.
+  gold_sql: |
+    SELECT SUM(amount_disbursed) AS amount_disbursed
+    FROM curated.v_focus_legacy
+    WHERE lgd_district = 'WEST JAINTIA HILLS'
+    GROUP BY pg_id
+    ORDER BY amount_disbursed DESC
+    LIMIT 3
+  note: Groups ranked by GROUP BY pg_id with MAX(pg_name) for display, never GROUP BY pg_name (rule 5); memberships
+    beside money (rule 3); no ties within the top 3 (155k/145k/140k, 4th 135k). Gold trimmed to the asked-for columns
+    (review 2026-10-15).
+- id: FL-10
+  scheme: Focus Legacy
+  difficulty: hard
+  ordered: false
+  question: In FY 2025-26, what percentage of the Focus Legacy amount disbursed came from the additional top-up
+    (Focus Addnl) round?
+  gold_sql: |
+    SELECT ROUND(100.0 * SUM(amount_disbursed) FILTER (WHERE programme_variant = 'FOCUS_ADDNL')
+                 / SUM(amount_disbursed), 2) AS pct_amount_addnl
+    FROM curated.v_focus_legacy
+    WHERE financial_year_short = '2025-26'
+  note: Top-up = programme_variant (stored value 'FOCUS_ADDNL', only in FY 2025-26); share of FY money, 2-dp default
+    precision. A pure percentage has no money figure to pair memberships with (identical ratio either way).
+- id: FL-11
+  scheme: Focus Legacy
+  difficulty: hard
+  ordered: false
+  question: 'Compare Umsning and Umling blocks of Ri Bhoi on Focus Legacy: number of producer groups paid, total
+    PG memberships, and amount disbursed.'
+  gold_sql: |
+    SELECT lgd_block,
+           COUNT(DISTINCT pg_id) AS producer_groups,
+           SUM(no_of_pg_members) AS memberships,
+           SUM(amount_disbursed) AS amount_disbursed
+    FROM curated.v_focus_legacy
+    WHERE lgd_district = 'RI BHOI'
+      AND lgd_block IN ('UMSNING', 'UMLING')
+    GROUP BY lgd_block
+  note: 'Multi-measure comparison: groups on pg_id, memberships via SUM(no_of_pg_members), money with memberships
+    (rules 3-4); block literals UPPERCASE on lgd_block.'
+- id: FL-12
+  scheme: Focus Legacy
+  difficulty: hard
+  ordered: false
+  question: In FY 2025-26, in which districts were LAMPS cooperatives paid in more than 25% of that district's Focus
+    Legacy payment records? Give each district's share.
+  gold_sql: |
+    SELECT lgd_district,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE pg_entity_type = 'LAMP') / COUNT(*), 2) AS pct_payments_lamp
+    FROM curated.v_focus_legacy
+    WHERE financial_year_short = '2025-26'
+    GROUP BY lgd_district
+    HAVING 100.0 * COUNT(*) FILTER (WHERE pg_entity_type = 'LAMP') / COUNT(*) > 25
+  note: Payments = COUNT(*); LAMPS cooperative = pg_entity_type 'LAMP' as enumerated in dim_pg_entity_type (not
+    guessed); per-district ratio with HAVING; district from lgd_district (rule 6). Reworded 2026-10-15 - "more than
+    25% of all Focus Legacy payments" also read as a share of the state total (baseline run).
+- id: CE-01
+  scheme: CM Elevate
+  difficulty: easy
+  ordered: false
+  question: How many CM Elevate applications from South Garo Hills have their data verification marked On Hold?
+  gold_sql: |
+    SELECT COUNT(*) AS applications_on_hold
+    FROM curated.v_cm_elevate
+    WHERE lgd_district = 'SOUTH GARO HILLS'
+      AND data_verified = 'On Hold'
+  note: On hold = data_verified = 'On Hold' (rule 3), never the dead onhold boolean; 'applications' = COUNT(*);
+    district as uppercase LGD literal.
+- id: CE-02
+  scheme: CM Elevate
+  difficulty: easy
+  ordered: false
+  question: Under the CM Elevate Goat Farming scheme, how many applications were filed at a CM Connect Centre instead
+    of online?
+  gold_sql: |
+    SELECT COUNT(*) AS cm_connect_centre_applications
+    FROM curated.v_cm_elevate
+    WHERE scheme_name = 'Meghalaya Goat Farming Scheme'
+      AND application_mode = 'cmconnectcenter'
+  note: '''mode'' -> application_mode, CM Connect Centre is the stored value ''cmconnectcenter''; scoped to the
+    one named sub-scheme.'
+- id: CE-03
+  scheme: CM Elevate
+  difficulty: easy
+  ordered: false
+  question: How many CM Elevate applications currently sit at level 2 of the processing workflow?
+  gold_sql: |
+    SELECT COUNT(*) AS applications_at_level2
+    FROM curated.v_cm_elevate
+    WHERE LOWER(current_level) = 'level2'
+  note: 'Named level -> LOWER(current_level) = ''level2'' alone (rule 7 case-fold; vocab: the level IS the scope,
+    no data_verified filter).'
+- id: CE-04
+  scheme: CM Elevate
+  difficulty: easy
+  ordered: false
+  question: How many applications under the CM Elevate Warehouse scheme came from registered bodies?
+  gold_sql: |
+    SELECT COUNT(*) AS registered_applications
+    FROM curated.v_cm_elevate
+    WHERE scheme_name = 'Meghalaya Warehouse Scheme'
+      AND applicant_category = 'registered'
+  note: Applicant type is applicant_category (rule 6), never type_raw; Warehouse is the scheme where registered
+    bodies are a large share.
+- id: CE-05
+  scheme: CM Elevate
+  difficulty: medium
+  ordered: false
+  question: For East Garo Hills, how many CM Elevate applications have been verified as Valid and how many are still
+    not verified?
+  gold_sql: |
+    SELECT COUNT(*) FILTER (WHERE data_verified = 'Valid') AS verified,
+           COUNT(*) FILTER (WHERE data_verified IS DISTINCT FROM 'Valid') AS not_verified
+    FROM curated.v_cm_elevate
+    WHERE lgd_district = 'EAST GARO HILLS'
+  note: 'Rule 14: verified = ''Valid''; not verified = IS DISTINCT FROM ''Valid'' (On Hold, Invalid, Wrong and NULL
+    together — NULL is large here, 231 rows); both sides in one query.'
+- id: CE-06
+  scheme: CM Elevate
+  difficulty: medium
+  ordered: true
+  question: Which 3 blocks of Ri Bhoi have the most applicants under the CM Elevate Piggery Development scheme?
+  gold_sql: |
+    SELECT lgd_block, COUNT(DISTINCT request_id) AS applicants
+    FROM curated.v_cm_elevate
+    WHERE lgd_district = 'RI BHOI'
+      AND scheme_name = 'Meghalaya Piggery Development Scheme'
+    GROUP BY lgd_block
+    ORDER BY applicants DESC
+    LIMIT 3
+  note: '''applicants'' -> COUNT(DISTINCT request_id) (rule 8; all duplicate request_ids are inside Piggery); explicit
+    N -> LIMIT 3, descending.'
+- id: CE-07
+  scheme: CM Elevate
+  difficulty: medium
+  ordered: false
+  question: Which CM Elevate schemes have applications on hold in East Khasi Hills, and how many on-hold applications
+    does each one have?
+  gold_sql: |
+    SELECT scheme_name, COUNT(*) AS applications_on_hold
+    FROM curated.v_cm_elevate
+    WHERE lgd_district = 'EAST KHASI HILLS'
+      AND data_verified = 'On Hold'
+    GROUP BY scheme_name
+  note: Asks only for schemes that HAVE on-hold applications, so the status test goes in WHERE (no zero rows wanted);
+    on hold = data_verified = 'On Hold'.
+- id: CE-08
+  scheme: CM Elevate
+  difficulty: medium
+  ordered: false
+  question: In how many different villages of Ri Bhoi has at least one applicant applied under the CM Elevate Poultry
+    Farming scheme?
+  gold_sql: |
+    SELECT COUNT(DISTINCT village_code) AS villages
+    FROM curated.v_cm_elevate
+    WHERE lgd_district = 'RI BHOI'
+      AND scheme_name = 'Meghalaya Poultry Farming Scheme'
+      AND entity_type <> 'Unresolved'
+  note: Village count = COUNT(DISTINCT village_code) with entity_type <> 'Unresolved' (rule 5 / village_count_scope).
+- id: CE-09
+  scheme: CM Elevate
+  difficulty: medium
+  ordered: false
+  question: District by district, how many CM Elevate Dairy Development applications were submitted online and how
+    many through CM Connect Centres?
+  gold_sql: |
+    SELECT lgd_district,
+           COUNT(*) FILTER (WHERE application_mode = 'online') AS online_applications,
+           COUNT(*) FILTER (WHERE application_mode = 'cmconnectcenter') AS cm_connect_centre_applications
+    FROM curated.v_cm_elevate
+    WHERE scheme_name = 'Meghalaya Dairy Development Scheme'
+    GROUP BY lgd_district
+  note: Two-mode split per district with FILTER columns; Dairy is the scheme with the low online share; district
+    totals keep Unresolved rows.
+- id: CE-10
+  scheme: CM Elevate
+  difficulty: hard
+  ordered: true
+  question: Which three districts have the lowest percentage of CM Elevate applications verified as Valid?
+  gold_sql: |
+    SELECT lgd_district
+    FROM curated.v_cm_elevate
+    GROUP BY lgd_district
+    ORDER BY 100.0 * COUNT(*) FILTER (WHERE data_verified = 'Valid') / NULLIF(COUNT(*), 0) ASC
+    LIMIT 3
+  note: Verified = 'Valid' (rule 14); NULL verification stays in the denominator (verification_status_null_in_totals);
+    1-decimal % (percentage_precision); ascending, LIMIT 3. Gold trimmed to the asked-for columns (review 2026-10-15).
+- id: CE-11
+  scheme: CM Elevate
+  difficulty: hard
+  ordered: false
+  question: Among CM Elevate schemes with at least 100 applications, what share of each scheme's applications was
+    submitted online, as a percentage?
+  gold_sql: |
+    SELECT scheme_name,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE application_mode = 'online') / COUNT(*), 1) AS online_pct
+    FROM curated.v_cm_elevate
+    GROUP BY scheme_name
+    HAVING COUNT(*) >= 100
+  note: Online = application_mode 'online' (the other value is 'cmconnectcenter'); per-scheme share of COUNT(*)
+    applications; HAVING for the size threshold. Replaced 2026-10-16 - the earlier item (share of Female applicants)
+    read scheme_specific ->> 'gender_id', which the chatbot's DB role may no longer read (ingestion team,
+    CHATBOT_DB_CHANGES_2026-10-16), so the pipeline correctly pauses on it ("CM Elevate doesn't record gender").
+    Same shape and difficulty, held-out wording checked with holdout.leak().
+- id: CE-12
+  scheme: CM Elevate
+  difficulty: hard
+  ordered: false
+  question: Which CM Elevate schemes have more applicants in West Garo Hills than in Ri Bhoi?
+  gold_sql: |
+    SELECT scheme_name
+    FROM curated.v_cm_elevate
+    WHERE lgd_district IN ('WEST GARO HILLS', 'RI BHOI')
+    GROUP BY scheme_name
+    HAVING COUNT(DISTINCT request_id) FILTER (WHERE lgd_district = 'WEST GARO HILLS')
+         > COUNT(DISTINCT request_id) FILTER (WHERE lgd_district = 'RI BHOI')
+  note: '''applicants'' -> COUNT(DISTINCT request_id) (rule 8); one GROUP BY scheme_name over both districts (rule
+    16) with a HAVING comparison. Gold trimmed to the asked-for columns (review 2026-10-15).'
+- id: CL-01
+  scheme: CM Elevate Legacy
+  difficulty: easy
+  ordered: false
+  question: What is the total sanctioned amount under CM Elevate Legacy in West Jaintia Hills district, in crore?
+  gold_sql: |
+    SELECT ROUND(SUM(sanctioned_amount) / 1e7, 2) AS sanctioned_cr
+    FROM curated.v_cm_elevate_disbursement
+    WHERE lgd_district = 'WEST JAINTIA HILLS'
+  note: Money is rupees; totals in crore = ROUND(SUM(x)/1e7, 2) (rule 3); sanctioned is SUM(sanctioned_amount),
+    not disbursed.
+- id: CL-02
+  scheme: CM Elevate Legacy
+  difficulty: easy
+  ordered: false
+  question: How many CM Elevate Legacy records does the Goat Farming scheme have in financial year 2024-25?
+  gold_sql: |
+    SELECT COUNT(*) AS records
+    FROM curated.v_cm_elevate_disbursement
+    WHERE scheme_name = 'Meghalaya Goat Farming Scheme'
+      AND financial_year_short = '2024-25'
+  note: Records = COUNT(*) (rule 2); FY is the stored label financial_year_short (rule 7), never derived from a
+    date.
+- id: CL-03
+  scheme: CM Elevate Legacy
+  difficulty: easy
+  ordered: false
+  question: How much subsidy has been disbursed altogether under the CM Elevate Legacy Poultry Farming scheme, in
+    crore?
+  gold_sql: |
+    SELECT ROUND(SUM(total_subsidy_disbursement) / 1e7, 2) AS subsidy_cr
+    FROM curated.v_cm_elevate_disbursement
+    WHERE scheme_name = 'Meghalaya Poultry Farming Scheme'
+  note: '''Subsidy'' -> stored total_subsidy_disbursement (rules 4-5), never the tranche columns re-added; no FY
+    named so all years.'
+- id: CL-04
+  scheme: CM Elevate Legacy
+  difficulty: easy
+  ordered: false
+  question: How many CM Elevate Legacy records were desanctioned with Duplicate as the reason?
+  gold_sql: |
+    SELECT COUNT(*) AS records
+    FROM curated.v_cm_elevate_disbursement
+    WHERE desanctioned_reason_raw = 'Duplicate'
+  note: Desanction reason lives in desanctioned_reason_raw ('Refused' / 'Duplicate'); 'Duplicate' is a recorded
+    outcome, not repeated rows (rule 12).
+- id: CL-05
+  scheme: CM Elevate Legacy
+  difficulty: medium
+  ordered: false
+  question: In FY 2024-25, how many CM Elevate Legacy records received a loan from each lender, and how much loan
+    did each lender disburse in crore?
+  gold_sql: |
+    SELECT COUNT(*) AS records_with_loan,
+           ROUND(SUM(total_loan_disbursement) / 1e7, 2) AS loan_cr
+    FROM curated.v_cm_elevate_disbursement
+    WHERE financial_year_short = '2024-25'
+      AND total_loan_disbursement > 0
+    GROUP BY loan_entity
+  note: '''Received a loan'' = total_loan_disbursement > 0 (rule 11); lender grouped with COALESCE(loan_entity,
+    ''(not recorded)''); loan money from the stored total, in crore. Gold trimmed to the asked-for columns (review
+    2026-10-15).'
+- id: CL-06
+  scheme: CM Elevate Legacy
+  difficulty: medium
+  ordered: true
+  question: Name the top 3 districts by total disbursement (subsidy plus loan) under the CM Elevate Legacy Piggery
+    Development scheme.
+  gold_sql: |
+    SELECT lgd_district, ROUND(SUM(total_disbursement) / 1e7, 2) AS total_disbursed_cr
+    FROM curated.v_cm_elevate_disbursement
+    WHERE scheme_name = 'Meghalaya Piggery Development Scheme'
+    GROUP BY lgd_district
+    ORDER BY SUM(total_disbursement) DESC
+    LIMIT 3
+  note: '''Subsidy plus loan'' -> stored total_disbursement (rule 5), not re-added; explicit N -> LIMIT 3; record
+    count kept beside the money ranking (rule 15). Gold trimmed to the asked-for columns (review 2026-10-15).'
+- id: CL-07
+  scheme: CM Elevate Legacy
+  difficulty: medium
+  ordered: false
+  question: 'Give me the CM Elevate Legacy Prime Tourism Vehicle scheme year-wise: number of records and sanctioned
+    amount in crore for each financial year.'
+  gold_sql: |
+    SELECT COUNT(*) AS records,
+           ROUND(SUM(sanctioned_amount) / 1e7, 2) AS sanctioned_cr
+    FROM curated.v_cm_elevate_disbursement
+    WHERE scheme_name = 'Prime Tourism Vehicle Scheme'
+    GROUP BY financial_year_short
+  note: Year grouping per rule 7 (stored financial_year_short, COALESCE label, NULLS LAST); this scheme has both
+    FY2024-25 and FY2025-26 rows. Gold trimmed to the asked-for columns (review 2026-10-15).
+- id: CL-08
+  scheme: CM Elevate Legacy
+  difficulty: medium
+  ordered: false
+  question: How many distinct villages does the CM Elevate Legacy Dairy Development scheme reach in each district?
+  gold_sql: |
+    SELECT lgd_district, COUNT(DISTINCT village_code) AS villages
+    FROM curated.v_cm_elevate_disbursement
+    WHERE scheme_name = 'Meghalaya Dairy Development Scheme'
+      AND entity_type <> 'Unresolved'
+    GROUP BY lgd_district
+  note: Villages = COUNT(DISTINCT village_code) with entity_type <> 'Unresolved' (rule 9).
+- id: CL-09
+  scheme: CM Elevate Legacy
+  difficulty: medium
+  ordered: false
+  question: How many records under the CM Elevate Legacy Sericulture weaving scheme have had nothing disbursed so
+    far (total disbursement of zero)?
+  gold_sql: |
+    SELECT COUNT(*) AS records
+    FROM curated.v_cm_elevate_disbursement
+    WHERE scheme_name = 'Meghalaya Sericulture & Weaving Scheme(weaving)'
+      AND total_disbursement = 0
+  note: 'Zero is not NULL: nothing paid = total_disbursement = 0 (rule 13); weaving literal has NO space before
+    the bracket (rule 10).'
+- id: CL-10
+  scheme: CM Elevate Legacy
+  difficulty: hard
+  ordered: false
+  question: For each Garo Hills district, what percentage of the total amount disbursed under CM Elevate Legacy
+    was paid out as loan?
+  gold_sql: |
+    SELECT lgd_district,
+           ROUND(100.0 * SUM(total_loan_disbursement) / NULLIF(SUM(total_disbursement), 0), 1) AS loan_pct
+    FROM curated.v_cm_elevate_disbursement
+    WHERE lgd_district IN ('EAST GARO HILLS', 'NORTH GARO HILLS', 'SOUTH GARO HILLS',
+                           'SOUTH WEST GARO HILLS', 'WEST GARO HILLS')
+    GROUP BY lgd_district
+  note: Garo Hills = the five Garo districts (rule 8, no region column); loan share = stored loan total over stored
+    total_disbursement, numerator and denominator shown (rule 6 style). Gold trimmed to the asked-for columns (review
+    2026-10-15).
+- id: CL-11
+  scheme: CM Elevate Legacy
+  difficulty: hard
+  ordered: false
+  question: For the CM Elevate Legacy Agriculture Warehouse scheme in FY 2025-26, how much sanctioned money is still
+    yet to be disbursed in each district, in crore?
+  gold_sql: |
+    SELECT lgd_district,
+           ROUND((SUM(sanctioned_amount) - SUM(total_disbursement)) / 1e7, 2) AS pending_cr
+    FROM curated.v_cm_elevate_disbursement
+    WHERE scheme_name = 'Meghalaya Agriculture Warehouse Scheme'
+      AND financial_year_short = '2025-26'
+    GROUP BY lgd_district
+  note: '''Yet to be disbursed'' = SUM(sanctioned_amount) - SUM(total_disbursement), a derived pending_cr, negatives
+    kept (rule 6); FY via stored label. Gold trimmed to the asked-for columns (review 2026-10-15).'
+- id: CL-12
+  scheme: CM Elevate Legacy
+  difficulty: hard
+  ordered: false
+  question: In FY 2024-25, which CM Elevate Legacy schemes have disbursed less than half of the amount they sanctioned?
+  gold_sql: |
+    SELECT scheme_name
+    FROM curated.v_cm_elevate_disbursement
+    WHERE financial_year_short = '2024-25'
+    GROUP BY scheme_name
+    HAVING SUM(total_disbursement) < 0.5 * SUM(sanctioned_amount)
+  note: Utilisation = SUM(total_disbursement) / SUM(sanctioned_amount) (rule 6), threshold in HAVING on unrounded
+    sums; desanctioned records stay in money totals (rule 5). Gold trimmed to the asked-for columns (review 2026-10-15).

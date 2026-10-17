@@ -6,6 +6,8 @@
    Excel opens ₹ and place names correctly. A chart PNG is drawn on white with
    its title above, so it pastes cleanly into a report. */
 
+import { capitalizeWords, isDigit, isLowerAlnum, isPlainNumber, isSpace, replaceRuns } from './text.js';
+
 // ── File names ──────────────────────────────────────────────────────────────
 
 function stamp(d = new Date()) {
@@ -14,8 +16,9 @@ function stamp(d = new Date()) {
 }
 
 export function fileName(title, ext) {
-  const slug = String(title || 'megh-one')
-    .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'megh-one';
+  const lower = String(title || 'megh-one')
+    .toLowerCase();
+  const slug = trimDashes(replaceRuns(lower, (c) => !isLowerAlnum(c), '-')).slice(0, 60) || 'megh-one';
   return `${slug}_${stamp()}.${ext}`;
 }
 
@@ -29,25 +32,34 @@ export function downloadBlob(blob, name) {
 
 // ── Cells ───────────────────────────────────────────────────────────────────
 
-const NUMERIC = /^-?\d+(?:,\d{2,3})*(?:\.\d+)?$/;
+// Leading / trailing '-' off a slug.
+function trimDashes(s) {
+  let a = 0;
+  let b = s.length;
+  while (a < b && s[a] === '-') a++;
+  while (b > a && s[b - 1] === '-') b--;
+  return s.slice(a, b);
+}
 // "12,000" / "1,71,107" / "131.54" -> a number; codes with a leading zero stay text.
 function asNumber(v) {
   if (typeof v === 'number' && Number.isFinite(v)) return v;
   if (v === null || v === undefined) return null;
   const s = String(v).trim();
-  if (!NUMERIC.test(s) || /^-?0\d/.test(s)) return null;
-  const n = Number(s.replace(/,/g, ''));
+  const unsigned = s.startsWith('-') ? s.slice(1) : s;
+  if (!isPlainNumber(s, 2, 3) || (unsigned[0] === '0' && isDigit(unsigned[1]))) return null;
+  const n = Number(s.replaceAll(',', ''));
   return Number.isFinite(n) ? n : null;
 }
 const cellText = (v) => (v === null || v === undefined ? '' : String(v));
-export const headerLabel = (c) => String(c).replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+export const headerLabel = (c) => capitalizeWords(String(c).replaceAll('_', ' '));
 
 // ── CSV ─────────────────────────────────────────────────────────────────────
 
 export function toCSV(header, rows) {
   const esc = (v) => {
     const s = cellText(v);
-    return /[",\r\n]/.test(s) || /^\s|\s$/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+    const quote = ['"', ',', '\r', '\n'].some((ch) => s.includes(ch)) || isSpace(s[0]) || isSpace(s[s.length - 1]);
+    return quote ? `"${s.replaceAll('"', '""')}"` : s;
   };
   const lines = [header.map(esc).join(','), ...rows.map((r) => r.map((v) => {
     const n = asNumber(v);
@@ -58,9 +70,10 @@ export function toCSV(header, rows) {
 
 // ── XLSX ────────────────────────────────────────────────────────────────────
 
-const xmlEsc = (s) => cellText(s)
-  .replace(/[\u0000-\u0008\u000B\u000C\u000E-\u001F]/g, '')
-  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+// Control characters XML 1.0 forbids (all below U+0020 except tab, LF and CR) are dropped.
+const xmlAllowed = (ch) => { const c = ch.charCodeAt(0); return c > 0x1f || c === 0x09 || c === 0x0a || c === 0x0d; };
+const xmlEsc = (s) => Array.from(cellText(s)).filter(xmlAllowed).join('')
+  .replaceAll('&', '&amp;').replaceAll('<', '&lt;').replaceAll('>', '&gt;').replaceAll('"', '&quot;');
 
 function colName(i) {
   let s = '';
@@ -111,7 +124,8 @@ export function toXLSX(sheetName, header, rows) {
 export function toXLSXBook(sheets) {
   const used = new Set();
   const names = sheets.map((sh, i) => {
-    let base = String(sh.name || `Sheet${i + 1}`).replace(/[\\/?*[\]:]/g, ' ').trim().slice(0, 31) || `Sheet${i + 1}`;
+    let base = Array.from(String(sh.name || `Sheet${i + 1}`)).map((ch) => ('\\/?*[]:'.includes(ch) ? ' ' : ch)).join('')
+      .trim().slice(0, 31) || `Sheet${i + 1}`;
     let n = base, k = 2;
     while (used.has(n.toLowerCase())) { const suf = ` (${k++})`; n = base.slice(0, 31 - suf.length) + suf; }
     used.add(n.toLowerCase());
@@ -201,7 +215,7 @@ export function chartPNG(chart, title, subtitle) {
   g.fillStyle = '#1A1626'; g.textBaseline = 'top';
   g.font = `700 ${Math.round(16 * ratio)}px Inter, Segoe UI, Arial, sans-serif`;
   // Title Case, as the card shows it (.chd-title is text-transform: capitalize)
-  g.fillText(String(title || 'Chart').replace(/\b\w/g, (m) => m.toUpperCase()), pad, pad);
+  g.fillText(capitalizeWords(String(title || 'Chart')), pad, pad);
   if (subtitle) {
     g.fillStyle = '#6B6478';
     g.font = `500 ${Math.round(12 * ratio)}px Inter, Segoe UI, Arial, sans-serif`;

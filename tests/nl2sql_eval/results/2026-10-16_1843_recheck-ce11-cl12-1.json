@@ -1,0 +1,146 @@
+{
+ "label": "recheck-ce11-cl12-1",
+ "when": "2026-10-16T18:43:57",
+ "git": {
+  "commit": "3ce3065",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b"
+ },
+ "readonly_login": "postgres",
+ "superuser_allowed": true,
+ "holdout_checked": null,
+ "selection": {
+  "scheme": null,
+  "ids": "CE-11,CL-12"
+ },
+ "minutes": 0.2,
+ "summary": {
+  "items": 2,
+  "scored": 2,
+  "outcomes": {
+   "wrong": 1,
+   "correct": 1
+  },
+  "accuracy": 50.0,
+  "by": {
+   "CM Elevate": {
+    "accuracy": 0.0,
+    "wrong": 1
+   },
+   "CM Elevate Legacy": {
+    "accuracy": 100.0,
+    "correct": 1
+   },
+   "difficulty:hard": {
+    "accuracy": 50.0,
+    "wrong": 1,
+    "correct": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "CE-11",
+   "scheme": "CM Elevate",
+   "difficulty": "hard",
+   "question": "Among CM Elevate schemes with at least 100 applications, what share of each scheme's applications was submitted online, as a percentage?",
+   "gold_rows": 8,
+   "outcome": "wrong",
+   "route": "data",
+   "schemes": [
+    "MGNREGA",
+    "PMAY-G",
+    "Focus Plus",
+    "CM Elevate",
+    "Focus Legacy",
+    "CM Elevate Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT scheme_name,\n       COUNT(DISTINCT request_id) AS total_applications,\n       COUNT(DISTINCT request_id) FILTER (WHERE application_mode = 'online') AS online_applications,\n       ROUND(100.0 * COUNT(DISTINCT request_id) FILTER (WHERE application_mode = 'online') / NULLIF(COUNT(DISTINCT request_id), 0), 2) AS online_percentage\nFROM curated.v_cm_elevate\nGROUP BY scheme_name\nHAVING COUNT(DISTINCT request_id) >= 100\nORDER BY total_applications DESC\nLIMIT 100\n;\nSELECT scheme_name, ROUND(CAST(100.0 * COUNT(*) FILTER(WHERE application_number ILIKE 'CME%') / NULLIF(COUNT(*), 0) AS DECIMAL), 2) AS online_submission_pct FROM curated.v_cm_elevate_disbursement WHERE scheme_name IN (SELECT scheme_name FROM curated.v_cm_elevate_disbursement GROUP BY scheme_name HAVING COUNT(*) >= 100) GROUP BY scheme_name ORDER BY scheme_name",
+   "seconds": 11.6,
+   "answer": "Here are the 14 results:\n- PRIME Small Enterprise Empowerment and Development (SEED) / CM Elevate \u2014 total applications: 3,672, online applications: 3,635, online percentage: 98.99\n- Meghalaya Piggery Development Scheme / CM Elevate \u2014 total applications: 3,064, online applications: 2,738, online percentage: 89.36\n- Meghalaya Poultry Farming Scheme / CM Elevate \u2014 total applications: 580, online appl",
+   "detail": "row count: gold 8, got 14",
+   "mapping": {},
+   "pred_rows": 14,
+   "gold_sample": [
+    {
+     "scheme_name": "Meghalaya Piggery Development Scheme",
+     "online_pct": "89.4"
+    },
+    {
+     "scheme_name": "Meghalaya Any Business Venture Scheme",
+     "online_pct": "74.3"
+    },
+    {
+     "scheme_name": "Meghalaya Goat Farming Scheme",
+     "online_pct": "60.0"
+    }
+   ],
+   "pred_sample": [
+    {
+     "scheme_name": "PRIME Small Enterprise Empowerment and Development (SEED)",
+     "total_applications": 3672,
+     "online_applications": 3635,
+     "online_percentage": "98.99",
+     "scheme": "CM Elevate"
+    },
+    {
+     "scheme_name": "Meghalaya Piggery Development Scheme",
+     "total_applications": 3064,
+     "online_applications": 2738,
+     "online_percentage": "89.36",
+     "scheme": "CM Elevate"
+    },
+    {
+     "scheme_name": "Meghalaya Poultry Farming Scheme",
+     "total_applications": 580,
+     "online_applications": 509,
+     "online_percentage": "87.76",
+     "scheme": "CM Elevate"
+    }
+   ]
+  },
+  {
+   "id": "CL-12",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "hard",
+   "question": "In FY 2024-25, which CM Elevate Legacy schemes have disbursed less than half of the amount they sanctioned?",
+   "gold_rows": 4,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": "Which CM Elevate Legacy schemes have disbursed less than half of the sanctioned amount in FY 2024-25?",
+   "resolved": {
+    "year_key": 2024
+   },
+   "sql": "SELECT scheme_name, ROUND(SUM(sanctioned_amount) / 1e7, 2) AS sanctioned_cr, ROUND(SUM(total_disbursement) / 1e7, 2) AS disbursed_cr, ROUND(100.0 * SUM(total_disbursement) / NULLIF(SUM(sanctioned_amount), 0), 1) AS disbursed_pct FROM curated.v_cm_elevate_disbursement WHERE financial_year_short = '2024-25' AND sanctioned_amount > 0 GROUP BY scheme_name HAVING SUM(total_disbursement) < 0.5 * SUM(sanctioned_amount) ORDER BY disbursed_pct ASC",
+   "seconds": 6.4,
+   "answer": "Four schemes in Meghalaya disbursed less than half of their sanctioned amount in FY 2024-25: Meghalaya Dairy Development Scheme (32.1%), Meghalaya Goat Farming Scheme (40.0%), Meghalaya Agriculture Warehouse Scheme (46.2%), and Meghalaya Sports & Wellness Scheme (49.9%).",
+   "detail": "same rows",
+   "mapping": {
+    "scheme_name": [
+     "scheme_name",
+     1.0
+    ]
+   },
+   "pred_rows": 4
+  }
+ ],
+ "compared_with": "2026-10-16_1842_after-followup-fixes.json",
+ "delta": {
+  "regressions": [],
+  "fixed": [
+   "CL-12"
+  ]
+ }
+}

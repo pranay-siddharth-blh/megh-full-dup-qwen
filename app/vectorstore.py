@@ -86,13 +86,39 @@ async def distinct_schemes() -> set[str]:
     return schemes
 
 
-async def recreate_collection(dim: int) -> None:
+SPARSE_NAME = "bm25"   # the keyword vector's name; the meaning vector stays unnamed
+
+# Per collection: does it carry the keyword vector? Read once (a v2 collection
+# built before Phase 3 has none, and its search stays meaning-only).
+_has_sparse: dict[str, bool] = {}
+
+
+async def recreate_collection(dim: int, sparse: bool = False) -> None:
+    """(Re)create the KB collection: the unnamed meaning vector, plus — with
+    `sparse` — the BM25 keyword vector (IDF weighting done by Qdrant)."""
     client = get_client()
-    await client.recreate_collection(
-        collection_name=settings.QDRANT_COLLECTION,
+    name = settings.QDRANT_COLLECTION
+    if await client.collection_exists(name):
+        await client.delete_collection(name)
+    await client.create_collection(
+        collection_name=name,
         vectors_config=models.VectorParams(size=dim, distance=models.Distance.COSINE),
+        sparse_vectors_config=(
+            {SPARSE_NAME: models.SparseVectorParams(modifier=models.Modifier.IDF)} if sparse else None),
     )
-    logger.info("qdrant collection %s (re)created, dim=%d", settings.QDRANT_COLLECTION, dim)
+    _has_sparse[name] = sparse
+    logger.info("qdrant collection %s (re)created, dim=%d, keyword vector=%s", name, dim, sparse)
+
+
+async def has_sparse() -> bool:
+    name = settings.QDRANT_COLLECTION
+    if name not in _has_sparse:
+        try:
+            info = await get_client().get_collection(name)
+            _has_sparse[name] = SPARSE_NAME in (info.config.params.sparse_vectors or {})
+        except Exception:  # noqa: BLE001 — unknown: search meaning-only this time
+            return False
+    return _has_sparse[name]
 
 
 async def upsert(points: list[models.PointStruct]) -> None:
@@ -100,8 +126,27 @@ async def upsert(points: list[models.PointStruct]) -> None:
     await client.upsert(collection_name=settings.QDRANT_COLLECTION, points=points, wait=True)
 
 
-async def search(vector: list[float], top_k: int, scheme: str | None = None) -> list[dict]:
-    """Returns [{score, text, doc, heading, scheme}, ...] best score first.
+def _cosine(a: list[float], b) -> float:
+    b = list(b or [])
+    if not b or len(a) != len(b):
+        return 0.0
+    dot = sum(x * y for x, y in zip(a, b))
+    na = sum(x * x for x in a) ** 0.5
+    nb = sum(y * y for y in b) ** 0.5
+    return dot / (na * nb) if na and nb else 0.0
+
+
+async def search(vector: list[float], top_k: int, scheme: str | None = None,
+                 sparse: tuple[list[int], list[float]] | None = None) -> list[dict]:
+    """Returns [{score, text, doc, heading, scheme}, ...] best first.
+
+    With `sparse` (the question's BM25 vector) on a collection that holds the
+    keyword vector, meaning search and keyword search each fetch `top_k`
+    candidates and Qdrant fuses the two lists by rank (RRF) — a piece that
+    literally contains "SECC" or "job card" is found even when the meaning
+    model reads the question poorly. The order is the fused one, but `score`
+    stays the meaning (cosine) similarity, so the confidence tiers in rag.py
+    keep the scale they were tuned on.
     `scheme`, when given, restricts the search to chunks payload-tagged with
     that exact scheme — every chunk carries a `scheme` tag at ingest time
     (kb_ingest.py), but without this filter search runs unscoped across the
@@ -112,6 +157,33 @@ async def search(vector: list[float], top_k: int, scheme: str | None = None) -> 
         query_filter = models.Filter(
             must=[models.FieldCondition(key="scheme", match=models.MatchValue(value=scheme))]
         )
+    if sparse and sparse[0] and await has_sparse():
+        response = await client.query_points(
+            collection_name=settings.QDRANT_COLLECTION,
+            prefetch=[
+                models.Prefetch(query=vector, filter=query_filter, limit=top_k),
+                models.Prefetch(query=models.SparseVector(indices=sparse[0], values=sparse[1]),
+                                using=SPARSE_NAME, filter=query_filter, limit=top_k),
+            ],
+            query=models.FusionQuery(fusion=models.Fusion.RRF),
+            limit=top_k,
+            with_payload=True,
+            with_vectors=[""],
+        )
+        out = []
+        for rank, h in enumerate(response.points, 1):
+            vec = h.vector.get("") if isinstance(h.vector, dict) else h.vector
+            out.append({
+                "score": _cosine(vector, vec),
+                "fused_rank": rank,
+                "text": h.payload.get("text", ""),
+                "doc": h.payload.get("doc", ""),
+                "heading": h.payload.get("heading", ""),
+                "scheme": h.payload.get("scheme", ""),
+                "source_type": h.payload.get("source_type", "sme"),
+            })
+        return out
+
     # qdrant-client >= 1.10 replaced .search() with .query_points().
     response = await client.query_points(
         collection_name=settings.QDRANT_COLLECTION,

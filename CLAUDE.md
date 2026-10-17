@@ -29,7 +29,19 @@ deterministic pre-routing and edge → follow-up rewrite → intent (DATA/KNOWLE
   3 repairs) → `compose_response` (numeric-faithfulness checks).
 - **KNOWLEDGE:** `rag.answer_from_kb`.
 
-The orchestration lives in [app/pipeline.py](app/pipeline.py), which is about 15,000 lines, written as
+The orchestration lives in the **[app/pipeline/](app/pipeline/) package** (one 18,700-line `pipeline.py`
+until 2026-10-15):
+- [app/pipeline/common/](app/pipeline/common/) — the shared steps every scheme goes through,
+  `c01_followups.py` … `c14_turn_stages.py`;
+- [app/pipeline/schemes/](app/pipeline/schemes/) — **one file per scheme** (`mgnrega.py`, `pmay_g.py`,
+  `focus_plus.py`, `cm_elevate.py`, `focus_legacy.py`, `cm_elevate_legacy.py`): that scheme's village
+  rules, fixed queries, SQL rewrites and answer checks. A scheme-only fix goes in its scheme file.
+
+`app/pipeline/__init__.py` executes the files in `_PIPELINE_FILES` order into ONE shared namespace, so
+`from app import pipeline as p`, `p.<name>` and `monkeypatch.setattr(p, …)` work as before. Function bodies may
+use names from any file; load-time code (constants, regexes, defaults) only names from files loaded before it.
+**Edit the file that holds the function** (there is no `app/pipeline.py` any more — recreating it would be
+shadowed by the package and silently ignored). It is written as
 **stage functions** (`_turn_*_stage`, `_data_*_stage`, `_execute_one_attempt`, …). **LangGraph is the only
 orchestrator** ([app/pipeline_graph.py](app/pipeline_graph.py), D-032, D-036): there is no sequential driver,
 no on/off switch and no canary, and none may be added back. **Change behaviour in a stage, never in a graph
@@ -71,7 +83,7 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
   If a doc disagrees with the code, the code wins, and you fix the doc.
 - **Don't break working behaviour.** No drive-by refactors, API changes, schema changes or
   "cleaner" rewrites. Make small, targeted, tested changes.
-- **Almost every regex, gate and guard in `pipeline.py` exists because of a real reported
+- **Almost every regex, gate and guard in the pipeline (`app/pipeline/`) exists because of a real reported
   failure.** The comment above it usually says which one. Read that comment before changing or
   removing it.
 - **Schemes are enumerated by hand in about 14 registries** (listed in
@@ -98,7 +110,8 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
   - `qwen4-deploy` (4B) = classifier + SQL verifier;
   - `qwen35-9b` = composer;
   - embeddings are local fastembed;
-  - the reranker is **off**.
+  - the local jina-turbo reranker (`RAG_LOCAL_RERANKER`) is **on**; the remote qwen3-reranker
+    (`RERANKER_ENABLED`) is **off**.
 
   Do not move roles without a DECISIONS entry.
 - The composer must never state a number that isn't in the result. The faithfulness checks in
@@ -121,6 +134,10 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
   `SELECT`/`WITH` lead, no write/DDL keywords, and an auto-`LIMIT 1000`. Never bypass it. Never
   run model text through `fetch_rows` or `execute`.
 - The app's own SQL is **always parameter-bound**.
+- **No regex anywhere, ever (D-046, D-047).** Code that reads, checks or changes SQL works on the SQLGlot tree,
+  through `app/sql_ast.py` (inspection, filters incl. `UPPER(col)` / every `IN` value, rewrites via `transform`).
+  English text uses the word matcher `app/text_match.py` or string methods; the frontend uses string methods.
+  Never write `import re`, a compiled pattern, a JS regex literal or `new RegExp`.
 - **Privacy tables must never be queried:**
   - `curated.fact_focus_legacy_disbursement` and `curated.bridge_pg_bank_history` (unmasked
     account numbers);
@@ -152,7 +169,8 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
   2026-09-26 and again on 2026-09-27 after the Focus Plus and the CM Elevate fixes. Re-run it after any routing, rewrite or state change.
 - Every bug fix gets a regression test that calls the **real function**, never a
   re-implementation of it.
-- Some tests pin exact source strings in `pipeline.py`. If one fails after a refactor, read it
+- Some tests pin exact source strings in the pipeline (they read the pipeline files joined in
+  `_PIPELINE_FILES` order). If one fails after a refactor, read it
   before "fixing" it.
 - **Green tests do not prove NL→SQL accuracy.** There is no golden-set benchmark. Behaviour
   changes need a live check: call `pipeline.answer_question` in-process with the `.venv` Python,

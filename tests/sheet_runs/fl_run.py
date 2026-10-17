@@ -9,7 +9,6 @@ FY, 2 villages per district. Usage (repo root): fl_run.py [TC ...] -> fl_results
 import asyncio
 import json
 import os
-import re
 import sys
 
 os.environ.setdefault("SHEET_SCHEME", "Focus Legacy")
@@ -18,6 +17,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mg_run  # noqa: E402
 from mg_run import run_case, has_name, vals, close  # noqa: E402
 from harness import fetch  # noqa: E402
+from tests._text_checks import need_ok  # noqa: E402
 from app import main as app_main  # noqa: E402
 
 mg_run.ONLY = set(sys.argv[1:])
@@ -29,6 +29,39 @@ FYS = {"2021-22": 2021, "2022-23": 2022, "2024-25": 2024, "2025-26": 2025}
 FN = ["FOCUS", "Focus Legacy", "FOCUS scheme", "focus"]
 MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
           "November", "December"]
+
+
+def _drop_typed_suffix(nm):
+    """'Nongstoin PG' -> 'Nongstoin': a trailing 'producer group' / 'pg'
+    (any case) and the whitespace before it come off."""
+    low = nm.lower()
+    for suffix in ("producer group", "pg"):
+        if low.endswith(suffix):
+            return nm[:-len(suffix)].rstrip()
+    return nm
+
+
+def _core_name(n):
+    """A recorded pg_name without its group-type tail: trailing digits/dashes,
+    then 'producer group' / 'p.g.' / 'pg' (any case, any spacing), then the
+    whitespace before it. Unchanged when there is no such tail."""
+    t = n
+    while t and (t[-1] == "-" or t[-1].isdecimal()):
+        t = t[:-1]
+    t = t.rstrip()
+    low = t.lower()
+    cut = None
+    for form in ("p.g.", "p.g", "pg.", "pg"):
+        if low.endswith(form):
+            cut = len(t) - len(form)
+            break
+    if cut is None and low.endswith("group"):
+        head = low[:-len("group")]
+        if head and head[-1].isspace() and head.rstrip().endswith("producer"):
+            cut = len(head.rstrip()) - len("producer")
+    if cut is None:
+        return n
+    return t[:cut].rstrip()
 
 
 def num_ok(rec, n):
@@ -48,10 +81,10 @@ def checks(*pairs, money=()):
 
 
 def words(*need, nums=()):
-    """Knowledge answers: every word group (regex) present, and every number."""
+    """Knowledge answers: every word group ('a|b|c', see need_ok) present, and every number."""
     def chk(rec):
         a = rec.get("answer") or ""
-        miss = [w for w in need if not re.search(w, a, re.IGNORECASE)]
+        miss = [w for w in need if not need_ok(a, w)]
         miss += [str(n) for n in nums if not num_ok(rec, n)]
         told = rec.get("kind") == "answer" or rec.get("rule") == "year-out-of-range"   # "no data for <year>"
         return (not miss and told), ("missing " + ", ".join(miss)) if miss else "all present"
@@ -80,12 +113,12 @@ async def main():
         # ── knowledge (TC-01..07, 09) ───────────────────────────────────────
         K = [("01", "What is the FOCUS scheme in Meghalaya?", words(r"producer group", r"farm")),
              ("02", "What is the main objective of FOCUS?", words(r"income", r"farm")),
-             ("03", "Who can benefit under the FOCUS scheme?", words(r"producer group|PG", r"5,?000")),
+             ("03", "Who can benefit under the FOCUS scheme?", words(r"producer group|PG", "5000|5,000")),
              ("04", "What is the role of Producer Groups under FOCUS?", words(r"producer group|PG")),
-             ("05", "What type of financial assistance is provided under FOCUS?", words(r"5,?000", r"grant|assistance")),
-             ("06", "What kind of support does FOCUS provide to Producer Groups?", words(r"5,?000")),
-             ("07", "How is financial assistance distributed under FOCUS?", words(r"5,?000", r"DBT|bank|account|cheque|transfer")),
-             ("09", "Give me a short overview of FOCUS that I can use for an official briefing.", words(r"producer group|PG", r"5,?000"))]
+             ("05", "What type of financial assistance is provided under FOCUS?", words("5000|5,000", r"grant|assistance")),
+             ("06", "What kind of support does FOCUS provide to Producer Groups?", words("5000|5,000")),
+             ("07", "How is financial assistance distributed under FOCUS?", words("5000|5,000", r"DBT|bank|account|cheque|transfer")),
+             ("09", "Give me a short overview of FOCUS that I can use for an official briefing.", words(r"producer group|PG", "5000|5,000"))]
         for k, q, c in K:
             add(run_case(T_ + k, "knowledge", q, c, **kw))
 
@@ -103,7 +136,7 @@ async def main():
                      expected={"repeat_groups": rep, "extra_payments": tot["p"] - tot["g"]}, **kw))
         for nm in ("Nongstoin PG", "Shillong Producer Group"):
             n = await one(f"SELECT COUNT(DISTINCT pg_id) FROM {V} WHERE pg_name ILIKE $1",
-                          ["%" + re.sub(r"\s*(producer group|pg)$", "", nm, flags=re.I) + "%"])
+                          ["%" + _drop_typed_suffix(nm) + "%"])
             if n == 0:
                 add(run_case(T_ + "13", nm, f"Is there any Producer Group named {nm} under FOCUS?",
                              words(r"\bno\b|not found|could not find|couldn't find|no producer group|none"),
@@ -117,8 +150,8 @@ async def main():
                                 FROM {V} GROUP BY pg_id ORDER BY md5(pg_id) LIMIT 400""")
         seen = set()
         for c in cands:
-            core = re.sub(r"\s*(producer\s+group|p\.?g\.?)\s*[-\d]*$", "", c["n"] or "", flags=re.I).strip()
-            if c["d"] in seen or len(core) < 5 or not re.fullmatch(r"[A-Za-z ]+", core):
+            core = _core_name(c["n"] or "").strip()
+            if c["d"] in seen or len(core) < 5 or not all(ch == " " or (ch.isascii() and ch.isalpha()) for ch in core):
                 continue
             if await one(f"SELECT COUNT(DISTINCT pg_id) FROM {V} WHERE pg_name ILIKE $1", [f"%{core}%"]) != 1:
                 continue
@@ -199,7 +232,7 @@ async def main():
             mon = [(f, ya[f]) for f in (x, y) if f in ya]
             add(run_case(T_ + "24", f"{x} vs {y}", f"Compare the total FOCUS remittance between FY {x} and FY {y}.",
                          lambda r, mon=mon, x=x: (all(money_ok(r, a) for _, a in mon)
-                                                  and (x in ya or re.search(r"\bno\b|not|absent|gap|none", r.get("answer") or "", re.I) is not None),
+                                                  and (x in ya or need_ok(r.get("answer") or "", "\\bno\\b|not|absent|gap|none")),
                                                   " ".join(f"{f}={a:,.0f}" for f, a in mon)),
                          expected=dict(mon), **kw))
 

@@ -206,9 +206,12 @@ def test_a_knowledge_digression_does_not_take_the_data_state():
     ask(s, "MGNREGA person-days in East Khasi Hills 2024", scheme="MGNREGA", district=EKH, year=2024)
     ask(s, "What is PMAY-G?", scheme="PMAY-G", route="knowledge")
     tm.checkpoint(s)
-    # The data state (still MGNREGA's, update_state leaves it) is filed under
-    # MGNREGA, never under the PMAY-G knowledge topic.
-    assert item(s, "PMAY-G")["state"] is None
+    # The data state is filed under MGNREGA, never under the PMAY-G knowledge
+    # topic. Since WI-1 (2026-10-16) a knowledge turn naming another scheme makes
+    # it the topic with NO filters, so PMAY-G may hold that empty state — but
+    # none of MGNREGA's place / year (test T-B1 of the forward plan).
+    pm = item(s, "PMAY-G")["state"]
+    assert pm is None or (pm.get("district"), pm.get("block"), pm.get("year")) == (None, None, None)
     assert item(s, "MGNREGA")["state"]["district"] == EKH
     ask(s, "Go back to MGNREGA")
     assert (s.state.scheme, s.state.district) == ("MGNREGA", EKH)

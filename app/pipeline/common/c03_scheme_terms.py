@@ -1,0 +1,586 @@
+# app/pipeline/common/c03_scheme_terms.py — scheme vocabulary and scheme pauses / resumes.
+# Part of the app.pipeline package: executed by app/pipeline/__init__.py into the package
+# namespace, in load order, so it shares every name with the other files.
+
+
+
+# Year pieces of the time phrases below ("in FY 2024-25", "for 2024-25").
+_C03_D4 = Pred(lambda w: len(w) == 4 and is_int(w))
+_C03_Y4 = Pred(lambda w: len(w) == 4 and w[:2] in ("19", "20") and is_int(w))
+_C03_FY4 = Pred(lambda w: len(w) == 6 and w[:2].lower() == "fy" and is_int(w[2:]))
+_C03_FY4Y = Pred(lambda w: len(w) == 6 and w[:2].lower() == "fy" and w[2:4] in ("19", "20") and is_int(w[2:]))
+_C03_D24 = Pred(lambda w: 2 <= len(w) <= 4 and is_int(w))
+_C03_DASH = _C01Gap(_c01_dash)
+_C03_HOW_WHY_MORE = Matcher(W("how", "why", "more"))
+
+
+def _c03_cut(matcher: "Matcher", text: str) -> str:
+    """Every hit of `matcher` removed together with the whitespace, optional comma
+    and whitespace right before it (regex sub of \\s*,?\\s*<pattern> with "")."""
+    out, last = [], 0
+    for h in matcher.finditer(text):
+        k = h.start()
+        while k > last and text[k - 1].isspace():
+            k -= 1
+        if k > last and text[k - 1] == ",":
+            k -= 1
+            while k > last and text[k - 1].isspace():
+                k -= 1
+        out.append(text[last:k])
+        last = h.end()
+    out.append(text[last:])
+    return "".join(out)
+
+
+class _C03Literal(_C01Node):
+    """The exact text `phrase` (any case), starting and ending on word edges."""
+
+    def __init__(self, phrase: str):
+        self.phrase = (phrase or "").lower()
+
+    def ends(self, ctx, i, caps):
+        if i >= len(ctx.toks) or not self.phrase:
+            return
+        a = ctx.toks[i].start
+        if ctx.text[a:a + len(self.phrase)].lower() != self.phrase:
+            return
+        e = a + len(self.phrase)
+        for k in range(i, len(ctx.toks)):
+            if ctx.toks[k].end == e:
+                yield k + 1, caps
+                return
+            if ctx.toks[k].end > e:
+                return
+
+
+def _c03_drop_digit_commas(t: str) -> str:
+    """'1,23,456' -> '123456': a comma between a digit and 2-3 digits that end a
+    word (regex (?<=\\d),(?=\\d{2,3}\\b))."""
+    out = []
+    n = len(t)
+    for k, c in enumerate(t):
+        if c == "," and k > 0 and t[k - 1].isdigit():
+            j = k + 1
+            while j < n and t[j].isdigit():
+                j += 1
+            run = j - k - 1
+            if run in (2, 3) and (j == n or not (t[j].isalnum() or t[j] == "_")):
+                continue
+        out.append(c)
+    return "".join(out)
+
+
+# The user explicitly wants a cross-scheme answer — honour it, don't ask.
+_EXPLICIT_BOTH = Matcher(Alt(
+    _c01_ph("both scheme", "both schemes", "all scheme", "all schemes", "each scheme", "per scheme",
+            "by scheme", "across scheme", "across schemes", "every scheme", "either scheme",
+            "the two schemes"),
+    _c01_chain(["scheme", "wise"], ["opt1"])))
+_TALKS_ABOUT_SCHEMES = Matcher(W("scheme", "schemes", "programe", "programes", "programme", "programmes"))
+
+
+def _infer_scheme_from_terms(question: str) -> list[str] | None:
+    """A single scheme implied by scheme-specific vocabulary, or None if the
+    question could plausibly mean more than one."""
+    hits = ["MGNREGA"] if _mgnrega_terms(question) else []
+    hits += [
+        s for s, rx in (
+            ("PMAY-G", _PMAY_ONLY_TERMS),
+            ("Focus Plus", _FOCUSPLUS_ONLY_TERMS),
+            ("CM Elevate", _CMELEVATE_ONLY_TERMS),
+            ("Focus Legacy", _FOCUSLEGACY_ONLY_TERMS),
+            ("CM Elevate Legacy", _CMELEVATELEGACY_ONLY_TERMS),
+        ) if rx.search(question)
+    ]
+    # A CM Elevate sub-scheme word ("piggery", "dairy") belongs to BOTH CM
+    # Elevate datasets. When the rest of the question asks for money, a year or
+    # a lender, only CM Elevate Legacy can answer it — settle on that one rather
+    # than reading the pair as ambiguous (or sending a money question to the
+    # dataset that has no money column).
+    if "CM Elevate" in hits and _prefers_cm_elevate_legacy(question):
+        hits = [h for h in hits if h != "CM Elevate"]
+        if "CM Elevate Legacy" not in hits:
+            hits.append("CM Elevate Legacy")
+    return hits if len(hits) == 1 else None
+
+
+# A resumed one-tap question is built by naming the scheme in the stem. Naively
+# appending " for <scheme>" reads fine for a DATA stem ("total person-days for
+# MGNREGA") but produces broken phrasing for a KNOWLEDGE stem that already says
+# the generic word "scheme" ("tell me about scheme" -> "tell me about scheme for
+# Focus Plus") — that phrasing is grammatically odd enough that the RAG answer
+# composer sometimes reads it as asking about a DIFFERENT, uncovered scheme and
+# refuses with "not covered" even though the retrieved passages score well
+# above the medium-confidence floor (verified: top score 0.77, well above the
+# 0.55 floor, yet the composer still said "not covered" on this exact phrasing).
+# When the stem already names "scheme(s)" generically, replace that word with
+# the actual scheme name instead of appending — "tell me about scheme" becomes
+# "tell me about Focus Plus", which both reads naturally and matches how the
+# reference docs open ("Focus Plus is ...").
+_GENERIC_SCHEME_WORD = Matcher(W("scheme", "schemes"))
+
+
+def _scheme_option_question(stem: str, scheme: str) -> str:
+    if _GENERIC_SCHEME_WORD.search(stem):
+        return _GENERIC_SCHEME_WORD.sub(scheme, stem, count=1)
+    return f"{stem} for {scheme}"
+
+
+def _scheme_clarification(question: str) -> "ClarificationNeeded":
+    stem = question.strip().rstrip(" ?.")
+    if _MGNREGA_AC_TERM.search(question or ""):
+        # only these schemes hold a constituency (KI-148)
+        return ClarificationNeeded(
+            "Which scheme does your question concern? Assembly-constituency figures are held for "
+            "MGNREGA, Focus Legacy and CM Elevate Legacy.",
+            options=[{"label": "MGNREGA (rural employment)", "question": _scheme_option_question(stem, "MGNREGA")},
+                     {"label": "Focus Legacy (producer group payments)",
+                      "question": _scheme_option_question(stem, "Focus Legacy")},
+                     {"label": "CM Elevate Legacy (sanctions & disbursements)",
+                      "question": _scheme_option_question(stem, "CM Elevate Legacy")}],
+            rule="scheme-not-specified")
+    options = [
+        {"label": "MGNREGA (rural employment)",
+         "question": _scheme_option_question(stem, "MGNREGA")},
+        {"label": "PMAY-G (rural housing)",
+         "question": _scheme_option_question(stem, "PMAY-G")},
+        {"label": "Focus Plus (farmer cash benefit)",
+         "question": _scheme_option_question(stem, "Focus Plus")},
+        {"label": "CM Elevate (livelihood / enterprise schemes)",
+         "question": _scheme_option_question(stem, "CM Elevate")},
+        {"label": "Focus Legacy (producer group payments)",
+         "question": _scheme_option_question(stem, "Focus Legacy")},
+        {"label": "CM Elevate Legacy (sanctions & disbursements)",
+         "question": _scheme_option_question(stem, "CM Elevate Legacy")},
+        {"label": "Compare across schemes",
+         "question": (f"{stem} across MGNREGA, PMAY-G, Focus Plus, CM Elevate, "
+                      f"Focus Legacy and CM Elevate Legacy")},
+    ]
+    return ClarificationNeeded(
+        "Which scheme does your question concern — MGNREGA, PMAY-G, Focus Plus, "
+        "CM Elevate, Focus Legacy, or CM Elevate Legacy? Please select one, or choose "
+        "to compare across schemes.",
+        options=options,
+        rule="scheme-not-specified",
+    )
+
+
+# ── "Focus" alone: which of the TWO Focus schemes? ──────────────────────────
+# Two live schemes answer to the word "Focus" and they share NOTHING but the name:
+# Focus Legacy pays PRODUCER GROUPS (Rs 5,000 per member), Focus Plus pays
+# INDIVIDUAL BENEFICIARIES, there is no key between them, and Focus Plus holds no
+# producer-group column at all. focuslegacy_entity_resolver.yaml's own
+# scheme.disambiguation rule is explicit that a bare "Focus" with no forcing word
+# must be ASKED, not guessed — guessing answers a producer-group question from a
+# partition that cannot answer it (or vice versa) and reads as authoritative.
+#
+# This is a TWO-way ask, not the generic five-way one: the user has already told
+# us it's a Focus question, so re-offering MGNREGA / PMAY-G / CM Elevate would
+# throw that away.
+_BARE_FOCUS_WORD = Matcher(W("focus"))
+
+
+def _is_ambiguous_focus(question: str) -> bool:
+    """The question says "Focus" but nothing that pins WHICH Focus scheme."""
+    q = question or ""
+    if not _BARE_FOCUS_WORD.search(q):
+        return False
+    # Either scheme named outright (or by its own qualified alias) — settled.
+    if _SCHEME_NAME_MATCHER["Focus Plus"].search(q):
+        return False
+    if _SCHEME_NAME_MATCHER["Focus Legacy"].search(q):
+        return False
+    # A forcing word from either side's own vocabulary — also settled.
+    if _FOCUSLEGACY_ONLY_TERMS.search(q) or _FOCUSPLUS_ONLY_TERMS.search(q):
+        return False
+    # "How many members are there in Focus Bibari?" — "Focus" is part of a
+    # producer-group NAME (only Focus Legacy has groups). Asking "which Focus?"
+    # and then swapping in "Focus Legacy" turned it into "Focus Legacy Bibari",
+    # which matches nothing (all-PG run 2026-09-29, KI-157).
+    if _pg_focus_group_name(q):
+        return False
+    return True
+
+
+# "focus" as an ordinary English noun or verb ("the main focus of this scheme",
+# "it focuses on women"), not the scheme name.
+_FOCUS_AS_NOUN = Matcher(Alt(
+    Seq(W("the", "its", "their", "this", "that", "a", "main", "key", "primary", "major", "core", "central",
+          "special", "chief"), "focus", sep="space"),
+    Seq(Alt(Seq("focus", W("area", "areas"), sep="space"), W("focus", "focuss")),
+        W("of", "on", "upon"), sep="space"),
+    Seq("focus", W("area", "areas"), sep="space"),
+    W("focuses", "focused", "focusing")))
+
+
+def _names_bare_focus_scheme(question: str) -> bool:
+    """A bare "Focus" used as a SCHEME name ("what is focus", "focus
+    beneficiaries", "under focus"), which scheme it is still unsettled.
+    Reported 2026-09-29: after a CM Elevate Legacy answer, "what is focus" was
+    taken for a fragment and the 4B rewrite read the word as a noun — "What is
+    the focus of the CM Elevate Legacy scheme in FY 2024-25?" — so the user got
+    CM Elevate material instead of the which-Focus question."""
+    return _is_ambiguous_focus(question) and not _FOCUS_AS_NOUN.search(question or "")
+
+
+# A time filter inside a rewritten how-the-scheme-works question: "…in FY
+# 2024-25", "for 2024-25", "across all financial years".
+_INHERITED_TIME_MATCH = Matcher(Alt(
+    Seq(W("in", "for", "during", "of", "from"), Opt("the"),
+        Seq(Alt(Seq(Alt(W("fy"), Seq("financial", "year", sep="space")), _C03_D4, sep="space"), _C03_FY4),
+            _C03_DASH, _C03_D24), sep="space"),
+    Seq(W("in", "for", "during"), Seq(_C03_D4, _C03_DASH, _C03_D24), sep="space"),
+    Seq(W("across", "for", "over"), "all", Opt("the"), Opt("financial"), "years", Opt("combined"),
+        sep="space")))
+
+
+_ANY_YEAR_PHRASE_MATCH = Matcher(Seq(
+    Opt(W("in", "for", "during", "of", "from")), Opt("the"),
+    Seq(Alt(Seq(Opt(Alt(W("fy"), Seq("financial", "year", sep="space"))), _C03_Y4, sep="space"), _C03_FY4Y),
+        Opt(Seq(_C03_DASH, _C03_D24))),
+    sep="space"))
+
+
+def _followup_thread_state(question: str, prev: "object",
+                           state: "ConversationState | None") -> "ConversationState | None":
+    """The structured state a follow-up continues. Normally the session's. But
+    right after a KNOWLEDGE answer about ANOTHER scheme, the session's state
+    still holds the earlier DATA thread (a digression does not overwrite it),
+    and a follow-up that names nothing continues the antecedent instead:
+    after "what is Focus Plus", "give me beneficiaries" is Focus Plus, and the
+    earlier CM Elevate Legacy FY 2024-25 must not ride along (live 2026-09-29:
+    "…for Focus Plus in FY 2024-25", a year Focus Plus does not hold). A
+    follow-up whose own words pick the earlier scheme ("and person-days?" is
+    MGNREGA vocabulary) still continues that thread with its filters."""
+    if state is None or prev is None or getattr(prev, "route", None) != "knowledge":
+        return state
+    kschemes = list(getattr(prev, "schemes", None) or [])
+    if len(kschemes) != 1 or kschemes[0] == state.scheme:
+        return state
+    own = set(_named_schemes(question)) | set(_infer_scheme_from_terms(question) or [])
+    if state.scheme and state.scheme in own:
+        return state
+    return ConversationState(scheme=kschemes[0])
+
+
+def _all_years_rewrite(prev_question: str) -> "str | None":
+    """"and all of them combined?" after single-year turns: the previous
+    question with its year removed, over all financial years. Deterministic —
+    the model rewrite put the last year back (live 2026-09-29), and the
+    cleared-field check then left a fragment with no measure in it."""
+    if not prev_question or not context_policy.extract_year_keys(prev_question):
+        return None
+    out = _c03_cut(_ANY_YEAR_PHRASE_MATCH, prev_question)
+    out = _c01_tidy_space(out, "?.!,").strip().rstrip(" ?.,")
+    return f"{out} across all financial years?" if out else None
+
+
+def _drop_inherited_place(question: str, typed: str) -> str:
+    """The rewritten KNOWLEDGE question without a district / block the user
+    never typed. Live 2026-09-29: "who is eligible?" and "what documents are
+    needed?" after an East Khasi Hills figure became "…for PMAY-G houses in
+    East Khasi Hills?", and the answers said the documents are "not listed
+    for East Khasi Hills" — scheme rules are not per district."""
+    typed_places = named_places(typed or "")
+    out = question or ""
+    for place in named_places(out):
+        if place in typed_places:
+            continue
+        out = _c03_cut(Matcher(Seq(W("in", "for", "of", "within", "under"), Opt("the"), _C03Literal(place),
+                                   Opt(W("district", "block")), sep="space")), out)
+    out = _c01_tidy_space(out, "?.!,").strip()
+    return out or question
+
+
+def _data_thread_antecedent(question: str, prev: "object", session: "Session | None",
+                            plan: "context_policy.MergePlan | None") -> "object | None":
+    """The last DATA turn, when a follow-up that only changes a place or a year
+    comes right after KNOWLEDGE answers about the same scheme. Scheme rules do
+    not vary by district or year, so "and in West Garo Hills?" after "who is
+    eligible?" / "what documents are needed?" continues the earlier figure
+    (PMAY-G completed houses, FY 2023-24), not the documents question (live
+    2026-09-29, the KI-033 family). None when the follow-up asks about how the
+    scheme works itself, or no such DATA turn is within the last 4 turns."""
+    if session is None or plan is None or getattr(prev, "route", None) != "knowledge":
+        return None
+    # The follow-up's own words pick ANOTHER scheme than the knowledge aside
+    # ("and person-days?" = MGNREGA after "who is eligible for PMAY-G?"): its
+    # antecedent is that scheme's last DATA turn, whatever kind of change it is.
+    own = set(_named_schemes(question)) | set(_infer_scheme_from_terms(question) or [])
+    kscheme = (getattr(prev, "schemes", None) or [None])[0]
+    if own and kscheme not in own:
+        for t in reversed(list(session.turns or [])[-4:]):
+            if getattr(t, "route", None) == "data" and own & set(t.schemes or []):
+                return t
+        return None
+    if plan.kind not in (context_policy.GEOGRAPHY_CHANGE, context_policy.TIME_CHANGE):
+        return None
+    if _KNOWLEDGE_HINTS.search(question or "") or context_policy._SCHEME_TOPIC_RX.search(
+            _C03_HOW_WHY_MORE.sub(" ", question or "")):
+        return None
+    scheme = (getattr(prev, "schemes", None) or [None])[0]
+    for t in reversed(list(session.turns or [])[-4:]):
+        if getattr(t, "route", None) == "data":
+            return t if (not scheme or scheme in (t.schemes or [])) else None
+    return None
+
+
+def _drop_inherited_time(question: str, typed: str) -> str:
+    """The rewritten KNOWLEDGE question without a year the user never typed.
+    The follow-up rewrite gets the previous DATA turn's filters, so "what is
+    focus" after an FY 2024-25 figure came back "…in FY 2024-25?", and the
+    reference docs (which are not per year) then had "no such detail"
+    (reported 2026-09-29). A year the user typed is kept."""
+    if context_policy.extract_year_keys(typed or "") or _ALL_YEARS_CUE.search(typed or ""):
+        return question
+    out = _c03_cut(_INHERITED_TIME_MATCH, question or "")
+    out = _c01_tidy_space(out, "?.!,").strip()
+    return out or question
+
+
+def _focus_ambiguity_clarification(question: str) -> "ClarificationNeeded":
+    stem = question.strip().rstrip(" ?.")
+    # Replace the bare "Focus" in place rather than appending, so the resumed
+    # question reads naturally and re-resolves cleanly on the next turn
+    # ("total focus disbursement" -> "total Focus Legacy disbursement").
+    def _swap(name: str) -> str:
+        swapped = _BARE_FOCUS_WORD.sub(name, stem, count=1)
+        return swapped if swapped != stem else f"{stem} for {name}"
+
+    return ClarificationNeeded(
+        "Two different schemes are called Focus, and they hold different things — "
+        "Focus Legacy pays PRODUCER GROUPS (one payment per group, Rs 5,000 per "
+        "member), while Focus Plus pays INDIVIDUAL farmers directly. Which one do "
+        "you mean?",
+        options=[
+            {"label": "Focus Legacy (producer group payments)",
+             "question": _swap("Focus Legacy")},
+            {"label": "Focus Plus (individual farmer cash benefit)",
+             "question": _swap("Focus Plus")},
+        ],
+        rule="focus-scheme-ambiguous",
+    )
+
+
+# Pauses whose answer is a SCHEME, not a scope fragment. The router remembers
+# them (session.pending_scope_rule/options) so that a TYPED answer resumes the
+# paused question: "Show beneficiaries" -> "Which scheme?" -> "Focus Plus" used
+# to go through as the brand-new question "Focus Plus", so the original ask was
+# lost unless the user clicked a chip.
+SCHEME_PAUSE_RULES = ("scheme-not-specified", "focus-scheme-ambiguous", "bank-scheme-not-specified")
+_SCHEME_REPLY_FILLER = Matcher(Alt(
+    W("the", "for", "under", "in", "of", "scheme", "schemes", "data", "only", "please", "pls", "its", "ok",
+      "okay", "yes", "one"),
+    Seq("i", "mean", sep="space"),
+    Seq("it", _C01Gap(lambda g: g == "'"), "s")))
+_FOCUS_SIDE_WORD = {"plus": "Focus Plus", "legacy": "Focus Legacy"}
+
+# Pauses whose free-text reply is a scope FRAGMENT, merged into the paused
+# question ("West Garo Hills 2023-24"). The router remembers them without
+# options; _turn_context_stage step 0a merges.
+SCOPE_MERGE_RULES = ("scope-not-specified", "year-not-specified", "entity-ambiguous",
+                     "ranking-count-not-specified")
+
+
+# ── A typed reply to ANY other pause that offered chips ─────────────────────
+# Reported 2026-09-29: after "give me for pmay" paused with PMAY-G's measures
+# (swap-measure-unavailable), a typed "houses sanctioned" continued the LAST
+# ANSWERED turn, MGNREGA. Only the scope and scheme pauses were remembered;
+# every other pause with chips (the measure gap, year out of range, tranche,
+# region, AC part, Sericulture spelling, CM sub-scheme group, stated amount,
+# village-or-outside, scheme comparison, ...) forgot its question, so a typed
+# answer was read against the previous turn and a chip was the only way on.
+#
+# Now the router remembers every pause that offers options, and a typed reply
+# is matched to ONE option: its label's words ("houses sanctioned", "2022-23",
+# "spinning", "all years"), an ordinal ("the second one", "2"), a bare "yes"
+# when there is only one option, or the chip's own question. Deterministic; an
+# ambiguous or unmatched reply picks nothing (_paused_thread_antecedent then
+# decides which thread it continues).
+_OPTION_FILLER = frozenset(
+    "the a an of for in under on at please pls ok okay yes yeah yep sure one only i want "
+    "need show give me us tell get what about how many much was were is are total number "
+    "fy go with let lets do it that just option choice can you would like to and by "
+    "which this those these them then".split())
+_ORDINAL_WORDS = {"first": 0, "1st": 0, "second": 1, "2nd": 1, "third": 2, "3rd": 2,
+                  "fourth": 3, "4th": 3, "fifth": 4, "5th": 4}
+_ORDINAL_REPLY = Matcher(Seq(
+    Alt(Seq(_C01Begin(), Opt(Alt(Seq(W("the", "option", "choice", "number"), _C01_WS0),
+                                 Seq("no", _C01Gap(lambda g: g.strip() == "" or (
+                                     g[:1] == "." and g[1:].strip() == "")))))),
+        _C01Begin(("#",))),
+    Cap(Alt(W("first", "second", "third", "fourth", "fifth", "1st", "2nd", "3rd", "4th", "5th", "last"),
+            Pred(lambda w: len(w) == 1 and w in "123456789"))),
+    _C01_WS0,
+    Opt(Seq(W("one", "option", "choice"), _C01_WS0)),
+    Opt(Seq(W("please", "pls"), _C01_WS0)),
+    _C01End(".!?")))
+_BARE_YES = Matcher(Seq(
+    _C01Begin(),
+    Alt(W("yes", "yeah", "yep", "sure", "ok", "okay", "please"), Seq("go", _C01_WS0, "ahead"),
+        Seq("do", _C01_WS0, "it")),
+    Opt(Seq(_C01Gap(lambda g: g.strip() in ("", ",")),
+            Alt(W("please", "pls"), Seq("go", _C01_WS0, "ahead"), Seq("do", _C01_WS0, "it")))),
+    _C01End(".!")))
+def _c03_option_words(t: str) -> "list[str]":
+    """Runs of a-z / 0-9 joined by single hyphens ("2022-23", "goat-farming")."""
+    def ok(c):
+        return c.isascii() and (c.isdigit() or "a" <= c <= "z")
+    out, i, n = [], 0, len(t)
+    while i < n:
+        if not ok(t[i]):
+            i += 1
+            continue
+        j = i
+        while j < n and ok(t[j]):
+            j += 1
+        while j + 1 < n and t[j] == "-" and ok(t[j + 1]):
+            j += 1
+            while j < n and ok(t[j]):
+                j += 1
+        out.append(t[i:j])
+        i = j
+    return out
+
+
+def _option_tokens(text: str) -> "set[str]":
+    """Content words of a label / reply / chip question, scheme names removed,
+    amounts without their ₹ and commas, plurals folded ("houses" = "house")."""
+    t = text or ""
+    for rx in _SCHEME_NAME_MATCHER.values():
+        t = rx.sub(" ", t)
+    t = _c03_drop_digit_commas(t.lower().replace("₹", " "))
+    out = set()
+    for w in _c03_option_words(t):
+        if w in _OPTION_FILLER:
+            continue
+        if len(w) > 3 and w.endswith("s") and not w.endswith("ss"):
+            w = w[:-1]
+        out.add(w)
+    return out
+
+
+def _resume_option_pause(reply: str, options: "list | None") -> "str | None":
+    """The chip question a typed reply to a remembered option pause stands for,
+    or None (the reply then goes on as a message of its own)."""
+    opts = [o for o in (options or []) if isinstance(o, dict) and o.get("question")]
+    r = (reply or "").strip()
+    if not opts or not r or len(r.split()) > 12:
+        return None
+    for o in opts:  # a clicked chip sends its own question
+        if r.rstrip(" ?.").lower() == str(o["question"]).rstrip(" ?.").lower():
+            return o["question"]
+    m = _ORDINAL_REPLY.match(r)
+    if m:
+        w = m.group(1).lower()
+        i = len(opts) - 1 if w == "last" else (_ORDINAL_WORDS.get(w, int(w) - 1 if w.isdigit() else -1))
+        return opts[i]["question"] if 0 <= i < len(opts) else None
+    if _BARE_YES.match(r):
+        return opts[0]["question"] if len(opts) == 1 else None
+    reply_schemes = _exact_schemes(r)
+    R = _option_tokens(r)
+    if not R:
+        return None
+    strong, weak_label, weak_question = [], [], []
+    for o in opts:
+        # A reply that names a scheme picks only an option about that scheme.
+        if reply_schemes and not reply_schemes <= (_exact_schemes(o["question"])
+                                                   | _exact_schemes(str(o.get("label", "")))):
+            continue
+        L, Q = _option_tokens(str(o.get("label", ""))), _option_tokens(o["question"])
+        if L and L <= R and R <= (L | Q):
+            strong.append(o)
+        if R <= L:
+            weak_label.append(o)
+        if R <= Q:
+            weak_question.append(o)
+    for picked in (strong, weak_label, weak_question):
+        if len(picked) == 1:
+            return picked[0]["question"]
+        if len(picked) > 1:
+            return None
+    return None
+
+
+def _paused_thread_antecedent(reply: str, paused_question: str, prev: "object") -> "object | None":
+    """A stand-in previous turn for a typed reply to an option pause that
+    picked no chip ("houses completed in West Garo Hills" after the PMAY-G
+    measure pause), or None to keep `prev`. The paused question is about
+    another scheme than the last answered turn, and the reply names none of
+    its own: the reply continues the PAUSED question, not the answered one."""
+    schemes = _exact_schemes(paused_question)
+    if len(schemes) != 1 or _exact_schemes(reply):
+        return None
+    target = next(iter(schemes))
+    if prev is not None and target in (getattr(prev, "schemes", None) or []):
+        return None
+    # Its own words pick another scheme ("person-days in EKH" is MGNREGA
+    # vocabulary): not a reply to this pause.
+    own = set(_named_schemes(reply)) | set(_infer_scheme_from_terms(reply) or [])
+    if own and target not in own:
+        return None
+    from app.session_store import Turn
+    return Turn(question=paused_question, raw_question=paused_question, route="data",
+                schemes=[target], resolved_entities={}, answer="")
+
+
+def _resume_scheme_pause(reply: str, options: "list | None") -> "str | None":
+    """The chip question a typed reply to a scheme pause stands for, or None.
+
+    Returns something only when the reply is just ONE offered scheme's name,
+    optionally with filler ("Focus Plus", "focus plus please", and "legacy"
+    for the which-Focus pause). The result is then the exact question that
+    scheme's chip would have sent, so a typed pick and a clicked pick run the
+    same way downstream. Anything else returns None and the reply goes through
+    untouched, exactly as before these pauses were remembered: a fresh
+    question, several schemes, "thanks"."""
+    if not reply or not options:
+        return None
+    r = reply.strip()
+    if len(r.split()) > 6:
+        return None
+    offered = {str(o.get("label", "")).split(" (")[0].strip(): o.get("question")
+               for o in options if isinstance(o, dict)}
+    named = sorted(_exact_schemes(r))
+    residue = r
+    for s in named:
+        residue = _SCHEME_NAME_MATCHER[s].sub(" ", residue)
+    residue = keep_chars(_SCHEME_REPLY_FILLER.sub(" ", residue), lambda c: c not in ",.!?:;",
+                         " ").strip().lower()
+    if not named and residue in _FOCUS_SIDE_WORD and set(offered) == set(_FOCUS_SIDE_WORD.values()):
+        named, residue = [_FOCUS_SIDE_WORD[residue]], ""
+    if residue or len(named) != 1:
+        return None
+    return offered.get(named[0])
+
+
+# ── CM Elevate: "the vehicle scheme?" — which of several real sub-schemes? ──
+# The phrase used to name a scheme-FAMILY the question named in the singular
+# (resolve_cm_scheme_group_ambiguity's match) — swapped out for each candidate's
+# real scheme_name so the resumed question resolves cleanly via resolve_cm_scheme's
+# own exact-alias stage, same trick _scheme_option_question uses for the top-level
+# 4-scheme pause above.
+_CM_GROUP_PHRASE = {
+    "vehicles": Matcher(Seq("vehicle", "scheme", sep="space")),
+    "tourism": Matcher(Seq("tourism", "scheme", sep="space")),
+    "PRIME": Matcher(Seq("prime", "scheme", sep="space")),
+    "livestock": Matcher(Seq("livestock", "scheme", sep="space")),
+    "enterprise": Matcher(Seq("enterprise", "scheme", sep="space")),
+}
+
+
+def _cm_scheme_group_clarification(question: str, group: dict) -> "ClarificationNeeded":
+    stem = question.strip().rstrip(" ?.")
+    schemes = group["schemes"]
+    phrase_match = _CM_GROUP_PHRASE.get(group["group"])
+    options = []
+    for s in schemes:
+        new_q = phrase_match.sub(s, stem, count=1) if phrase_match else None
+        options.append({"label": s, "question": new_q if new_q and new_q != stem else f"{stem} — {s}"})
+    all_list = ", ".join(schemes[:-1]) + " and " + schemes[-1]
+    return ClarificationNeeded(
+        f"“{group['group']}” covers {len(schemes)} separate CM Elevate schemes — "
+        f"{all_list} — and they are not interchangeable. Which one did you mean?",
+        options=options,
+        rule="cm-scheme-group-ambiguous",
+    )

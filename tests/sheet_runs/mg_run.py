@@ -9,12 +9,12 @@ Usage (repo root): mg_run.py [DATA-001 ...]   -> mg_results.json"""
 import asyncio
 import json
 import os
-import re
 import sys
 
 sys.path.insert(0, ".")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import Conv, close, fetch, numbers_in, text_numbers  # noqa: E402
+from tests._text_checks import first_of, has_phrase, word_chars_only  # noqa: E402
 from app import main as app_main  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -51,7 +51,7 @@ def has(rec, expected, rel=0.005, money=False):
 
 def has_name(rec, name):
     blob = (rec.get("answer") or "") + " " + json.dumps(rec.get("rows") or [], default=str)
-    return re.sub(r"\W", "", name).lower() in re.sub(r"\W", "", blob).lower()
+    return word_chars_only(name).lower() in word_chars_only(blob).lower()
 
 
 # ── the conversation driver ─────────────────────────────────────────────────
@@ -244,9 +244,9 @@ async def main():
                 ans = (rec.get("answer") or "").lower()
                 vals_ok = has(rec, mat, 0.006, True) and (has(rec, wages, 0.006, True)
                                                           or has(rec, e_unsk, 0.006, True))
-                first = re.search(r"(wage|material)", ans)
-                right = bool(first) and first.group(1) == winner
-                return vals_ok and right, f"wages={wages:.2f} material={mat:.2f} winner={winner} first_named={first.group(1) if first else None}"
+                first = first_of(ans, "wage", "material")
+                right = first == winner
+                return vals_ok and right, f"wages={wages:.2f} material={mat:.2f} winner={winner} first_named={first}"
             add(run_case("DATA-023", lab, f"Was more spent on wages or materials in {name}?", wm_check,
                          expected={"wages": wages, "material": e["material_exp"]}, **kw))
             add(run_case("DATA-028", lab, f"How much was spent and how many person-days were generated in {name} "
@@ -380,8 +380,8 @@ async def main():
             if top["v"] > 0:
                 chk = (lambda r, t=top: (has_name(r, t["n"]) and has(r, t["v"]), f"exp {t['n']} {t['v']}"))
             else:   # 2025-26: women employment not recorded at source — must say so, not name a district
-                chk = (lambda r: (bool(re.search(r"not (?:been )?recorded|not available|unrecorded|not captured|zero",
-                                                 r.get("answer") or "", re.I)), "expects 'not recorded'"))
+                chk = (lambda r: (has_phrase(r.get("answer") or "", "not recorded", "not been recorded", "not available",
+                                                 "unrecorded", "not captured", "zero"), "expects 'not recorded'"))
             add(run_case("DATA-027", fy_label(y), f"Which district had the highest women employment during {fy(y, y + 3)}?",
                          chk, year=y, expected=dict(top)))
 

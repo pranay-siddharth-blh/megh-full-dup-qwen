@@ -47,12 +47,13 @@ resolved-entity HINTS that feed the existing SQL-generation prompt; it never
 grants access to a query the current turn's own scope wouldn't already pass.
 """
 import logging
-import re
 import time
 from decimal import Decimal
 
 from app.config import settings
+from app.context_policy import _CpEnd, _cp_end_punct, _cp_glued, _cp_has
 from app.session_store import ConversationState, Session
+from app.text_match import Alt, Matcher, NotBefore, Opt, Pred, Seq, W
 
 logger = logging.getLogger(__name__)
 
@@ -73,20 +74,18 @@ class AmbiguousReference(Exception):
 
 
 # ── Reference resolution ────────────────────────────────────────────────────
-_PREV_YEAR_RX = re.compile(
-    r"\b(the\s+)?(previous|last|prior)\s+(financial\s+)?year\b", re.IGNORECASE)
-_CURR_YEAR_RX = re.compile(
-    r"\b(the\s+)?(current|this|same)\s+(financial\s+)?year\b", re.IGNORECASE)
-_FORMER_RX = re.compile(r"\bthe\s+former\b", re.IGNORECASE)
-_LATTER_RX = re.compile(r"\bthe\s+latter\b", re.IGNORECASE)
-_OTHER_ONE_RX = re.compile(r"\b(the\s+)?other\s+one\b", re.IGNORECASE)
+_PREV_YEAR_RX = Matcher(Seq(Opt("the"), W("previous", "last", "prior"), Opt("financial"), "year"))
+_CURR_YEAR_RX = Matcher(Seq(Opt("the"), W("current", "this", "same"), Opt("financial"), "year"))
+_FORMER_RX = Matcher("the former")
+_LATTER_RX = Matcher("the latter")
+_OTHER_ONE_RX = Matcher(Seq(Opt("the"), "other", "one"))
 # Negative lookahead on "schemes?" so "both schemes"/"both scheme" is left
 # untouched — that exact phrasing already has its own established meaning
 # (pipeline._EXPLICIT_BOTH -> classify_scheme's whole-catalog shortcut) and
 # must not be clobbered by a district/block comparison recorded earlier in
 # the conversation (e.g. "compare both schemes" after "compare West Garo
 # Hills and East Garo Hills" would otherwise garble into "... schemes").
-_BOTH_RX = re.compile(r"\bboth\b(?!\s+schemes?\b)", re.IGNORECASE)
+_BOTH_RX = Matcher(NotBefore(W("both"), W("scheme", "schemes")))
 
 
 def _fy_text(year_key: int) -> str:
@@ -287,17 +286,29 @@ _STATE_FIELD_KEYS = {"district": "district", "block": "block", "village": "villa
 
 # ── Metric-label tracking (for structured state / summary only — never fed
 #    into SQL generation, which reads the question text directly as today) ──
-_METRIC_KEYWORDS: list[tuple[str, "re.Pattern"]] = [
-    ("person-days", re.compile(r"person[\s-]?days?|man[\s-]?days?|work[\s-]?days?|muster", re.IGNORECASE)),
-    ("job-cards", re.compile(r"job\s*cards?", re.IGNORECASE)),
-    ("100-days-completion", re.compile(r"100[\s-]?days?|hundred[\s-]?days?", re.IGNORECASE)),
-    ("expenditure", re.compile(r"expenditure|wages?|spend|spent|material cost|\bcost\b", re.IGNORECASE)),
-    ("houses-sanctioned", re.compile(r"sanction", re.IGNORECASE)),
-    ("houses-completed", re.compile(r"complet", re.IGNORECASE)),
-    ("fund-utilisation", re.compile(r"utili[sz]ation|fund releas|amount released", re.IGNORECASE)),
-    ("disbursement", re.compile(r"disburs", re.IGNORECASE)),
-    ("applications", re.compile(r"applications?", re.IGNORECASE)),
-    ("beneficiaries", re.compile(r"beneficiar", re.IGNORECASE)),
+def _cm_one_space(g: str) -> bool:
+    return g == " "
+
+
+def _cm_ws(g: str) -> bool:
+    return g.strip() == ""
+
+
+_METRIC_KEYWORDS: list[tuple[str, Matcher]] = [
+    ("person-days", Matcher(Alt(_cp_glued("person", "day"), _cp_glued("man", "day"), _cp_glued("work", "day"),
+                                _cp_has("muster")))),
+    ("job-cards", Matcher(_cp_glued("job", "card", gap=_cm_ws))),
+    ("100-days-completion", Matcher(Alt(_cp_glued("100", "day"), _cp_glued("hundred", "day")))),
+    ("expenditure", Matcher(Alt(_cp_has("expenditure", "wage", "spend", "spent"),
+                                _cp_glued("material", "cost", gap=_cm_one_space), W("cost")))),
+    ("houses-sanctioned", Matcher(_cp_has("sanction"))),
+    ("houses-completed", Matcher(_cp_has("complet"))),
+    ("fund-utilisation", Matcher(Alt(_cp_has("utilisation", "utilization"),
+                                     _cp_glued("fund", "releas", gap=_cm_one_space),
+                                     _cp_glued("amount", "released", gap=_cm_one_space)))),
+    ("disbursement", Matcher(_cp_has("disburs"))),
+    ("applications", Matcher(_cp_has("application"))),
+    ("beneficiaries", Matcher(_cp_has("beneficiar"))),
 ]
 
 
@@ -308,7 +319,7 @@ def detect_metric(text: str) -> "str | None":
     return None
 
 
-_COMPARE_CUE_RX = re.compile(r"\b(compare|comparison|versus|\bvs\.?\b|between)\b", re.IGNORECASE)
+_COMPARE_CUE_RX = Matcher(W("compare", "comparison", "versus", "vs", "between"))
 
 
 def detect_comparison_districts(text: str) -> list[str]:
@@ -360,6 +371,31 @@ def _record_provenance(session, raw_question: str, resolved: dict) -> None:
 
 
 # ── Context Updater ──────────────────────────────────────────────────────────
+def _switch_topic_on_knowledge(state: "ConversationState", raw_question: str) -> None:
+    """WI-1: a knowledge question typed about exactly one scheme other than the
+    active one makes that scheme the topic, with no filters — the same as a
+    first question about it."""
+    try:
+        from app import pipeline as _pipeline
+        named = _pipeline._named_schemes(raw_question or "")
+    except Exception:  # noqa: BLE001 — never break the turn over context bookkeeping
+        return
+    if len(named) != 1 or named[0] == state.scheme:
+        return
+    logger.info("context_manager: knowledge turn names %s — topic switched from %s", named[0], state.scheme)
+    state.scheme = named[0]
+    state.district = state.block = state.village = None
+    state.year = state.previous_year = None
+    state.year_all = False
+    state.metric = state.tranche = None
+    state.tranche_all_combined = False
+    state.comparison_entities = []
+    state.comparison_kind = None
+    state.last_dimension = None
+    for fld in ("district", "block", "village", "year", "metric", "tranche"):
+        state.provenance.pop(fld, None)
+
+
 def update_state(session: "Session | None", raw_question: str, standalone_question: str,
                  result: dict) -> None:
     """Fold the finished turn back into session.state. Never raises."""
@@ -382,6 +418,14 @@ def update_state(session: "Session | None", raw_question: str, standalone_questi
             # is the "must NOT inherit INTO the digression" rule working in
             # the other direction — the digression must not overwrite what
             # came before it either).
+            # WI-1 (forward plan, 2026-10-16): except a KNOWLEDGE turn whose
+            # typed words name ANOTHER scheme ("Who is eligible for PMAY-G?"
+            # after MGNREGA figures). That is a topic switch: the old topic's
+            # filters must not follow the user into it. topic_memory has
+            # already saved the old topic (checkpoint runs before this), so
+            # "go back to MGNREGA" still restores it.
+            if route == "knowledge":
+                _switch_topic_on_knowledge(state, raw_question)
             return
 
         if not (result.get("sql") or result.get("schemes") or result.get("resolved_entities")):
@@ -536,28 +580,28 @@ SUMMARY_HEADER = "Conversation summary so far:"
 # pipeline.rewrite_followup then checks the rewrite against exactly these
 # sources (_rewrite_provenance_violation), so every inherited name has one.
 
-_RESULT_REF_RX = re.compile(
-    r"\b(?:the\s+)?(?:first|second|third|fourth|fifth|last|top|bottom|highest|lowest|"
-    r"largest|smallest|biggest)\s+(?:one|ones|two|three|five|ten|\d+|district|districts|"
-    r"block|blocks|village|villages|scheme|schemes|group|groups|pgs?|entry|entries|item|"
-    r"items|row|rows|component|components|tranche|tranches)\b"
+_RESULT_REF_RX = Matcher(Alt(
+    Seq(Opt("the"), W("first", "second", "third", "fourth", "fifth", "last", "top", "bottom", "highest",
+                      "lowest", "largest", "smallest", "biggest"),
+        Alt(W("one", "ones", "two", "three", "five", "ten", "district", "districts", "block", "blocks",
+              "village", "villages", "scheme", "schemes", "group", "groups", "pg", "pgs", "entry",
+              "entries", "item", "items", "row", "rows", "component", "components", "tranche",
+              "tranches"),
+            Pred(lambda w: w.isdecimal()))),
     # "this scheme" is deliberately NOT here — it names the scheme in play,
     # not an item of the previous result.
-    r"|\b(?:that|those|these|this)\s+(?:one|ones|district|districts|block|blocks|village|"
-    r"villages|group|groups|pgs?|component|components|tranche|tranches)\b"
-    r"|\b(?:of|among|each\s+of|all\s+of|any\s+of)\s+(?:them|those|these)\b"
+    Seq(W("that", "those", "these", "this"),
+        W("one", "ones", "district", "districts", "block", "blocks", "village", "villages", "group",
+          "groups", "pg", "pgs", "component", "components", "tranche", "tranches")),
+    Seq(Alt(W("of", "among"), Seq(W("each", "all", "any"), "of")), W("them", "those", "these")),
     # "How much was it?" / "what were they?": a pronoun standing for the
     # previous result's subject (Scenario D, 2026-09-26). Only as the question's
     # last words, so "show it by district" is not a result reference.
-    r"|\b(?:was|is|were|are)\s+(?:it|that|they|those)\s*[?.!]*\s*$",
-    re.IGNORECASE,
-)
-_HISTORY_REF_RX = re.compile(
-    r"\b(?:earlier|previously|at\s+the\s+start|in\s+the\s+beginning|"
-    r"we\s+(?:discussed|talked\s+about|looked\s+at)|you\s+(?:said|mentioned|showed)|"
-    r"(?:first|original|initial)\s+question)\b",
-    re.IGNORECASE,
-)
+    Seq(W("was", "is", "were", "are"), W("it", "that", "they", "those"), _CpEnd(_cp_end_punct))))
+_HISTORY_REF_RX = Matcher(Alt(
+    W("earlier", "previously"), "at the start", "in the beginning",
+    Seq("we", Alt("discussed", "talked about", "looked at")), Seq("you", W("said", "mentioned", "showed")),
+    Seq(W("first", "original", "initial"), "question")))
 
 
 def references_previous_result(question: str) -> bool:
@@ -576,11 +620,18 @@ def references_history(question: str) -> bool:
     return bool(_HISTORY_REF_RX.search(question or ""))
 
 
-_NUMERIC_STR_RX = re.compile(r"^-?\d+(?:\.\d+)?$")
+def _cm_numeric_str(s: str) -> bool:
+    """'-12' or '3.5': an optional minus, digits, an optional decimal part."""
+    body = s[1:] if s.startswith("-") else s
+    parts = body.split(".")
+    return len(parts) <= 2 and all(p and p.isdecimal() for p in parts)
+
+
 # Columns that identify a row rather than measure it, even when numeric
 # (year_key 2023, village_code 277769).
-_LABEL_LIKE_COL_RX = re.compile(r"(?:_key|_code|_id|year|_name|label)$|^(?:year|fy)",
-                                re.IGNORECASE)
+def _cm_label_like_col(c: str) -> bool:
+    low = c.lower()
+    return low.endswith(("_key", "_code", "_id", "year", "_name", "label")) or low.startswith(("year", "fy"))
 
 
 def _is_number(v) -> bool:
@@ -588,7 +639,7 @@ def _is_number(v) -> bool:
         return False
     if isinstance(v, (int, float, Decimal)):
         return True
-    return isinstance(v, str) and bool(_NUMERIC_STR_RX.match(v.strip()))
+    return isinstance(v, str) and _cm_numeric_str(v.strip())
 
 
 def _cell(v) -> str:
@@ -635,11 +686,11 @@ def summarize_result(result: "dict | None", max_tokens: "int | None" = None) -> 
             return _join_within("1 row: ", items, limit, len(items))
         cols = list(first.keys())
         label = next((c for c in cols if isinstance(first[c], str) and not _is_number(first[c])),
-                     None) or next((c for c in cols if _LABEL_LIKE_COL_RX.search(c)), None)
+                     None) or next((c for c in cols if _cm_label_like_col(c)), None)
         if label is None:
             return f"{total} rows; columns: {', '.join(cols)}"
         value = next((c for c in cols if c != label and _is_number(first.get(c))
-                      and not _LABEL_LIKE_COL_RX.search(c)), None)
+                      and not _cm_label_like_col(c)), None)
         items = [f"{_cell(r.get(label))} ({_cell(r.get(value))})" if value else _cell(r.get(label))
                  for r in rows]
         return _join_within(f"{total} rows by {label}, in result order: ", items, limit, total)
@@ -648,7 +699,23 @@ def summarize_result(result: "dict | None", max_tokens: "int | None" = None) -> 
         return ""
 
 
-_SENTENCE_SPLIT_RX = re.compile(r"(?<=[.!?])\s+|\n+")
+def _cm_split_sentences(text: str) -> list[str]:
+    """Split at the whitespace after '.', '!' or '?', and at line breaks.
+    Pieces are not stripped."""
+    out: list[str] = []
+    for line in (text or "").split("\n"):
+        start, i, n = 0, 0, len(line)
+        while i < n:
+            if line[i] in ".!?" and i + 1 < n and line[i + 1].isspace():
+                out.append(line[start:i + 1])
+                j = i + 1
+                while j < n and line[j].isspace():
+                    j += 1
+                start = i = j
+                continue
+            i += 1
+        out.append(line[start:])
+    return out
 
 
 def answer_excerpt(answer: str, max_tokens: "int | None" = None) -> str:
@@ -660,7 +727,7 @@ def answer_excerpt(answer: str, max_tokens: "int | None" = None) -> str:
     limit = max(0, budget * 4)
     out: list[str] = []
     used = 0
-    for s in (p.strip() for p in _SENTENCE_SPLIT_RX.split(answer or "")):
+    for s in (p.strip() for p in _cm_split_sentences(answer or "")):
         if not s:
             continue
         add = len(s) + (1 if out else 0)
@@ -837,6 +904,9 @@ async def build_followup_context(session: "Session | None", question: str,
                 user_id=getattr(scope, "db_user_id", None),
                 session_id=session.session_id,
                 top_k=settings.CONTEXT_HISTORICAL_TURNS_MAX,
+                # Nothing from before the last "new topic" / reset / idle
+                # expiry of this chat (KI-224).
+                since=float(getattr(session, "memory_since", 0.0) or 0.0),
             )
         except Exception:  # noqa: BLE001 — memory retrieval failing must never break the turn
             logger.warning("context_manager: semantic memory lookup failed, continuing without it",
@@ -892,7 +962,7 @@ async def maybe_update_summary(session: "Session | None") -> None:
             + "\n".join(f"- {q}" for q in recent)
             + "\n\nSummary:"
         )
-        out = await llm.call_classifier(prompt)
+        out = await llm.call_rewriter(prompt, role="summary")
         out = out.strip().strip('"')
         if out and len(out) <= 800:
             session.summary = out

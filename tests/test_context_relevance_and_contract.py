@@ -77,9 +77,9 @@ def _run(followup, prev_turn=None, state=None):
         return ""
 
     import app.rag as rag
-    orig = (llm.call_classifier, p._data_scheme_stage, rag.answer_from_kb, cm.build_followup_context)
-    llm.call_classifier, p._data_scheme_stage, rag.answer_from_kb, cm.build_followup_context = (
-        classifier, data_stage_from(fake_answer_data), kb, no_ctx)
+    orig = (llm.call_classifier, llm.call_rewriter, p._data_scheme_stage, rag.answer_from_kb, cm.build_followup_context)
+    llm.call_classifier, llm.call_rewriter, p._data_scheme_stage, rag.answer_from_kb, cm.build_followup_context = (
+        classifier, classifier, data_stage_from(fake_answer_data), kb, no_ctx)
     s = _session(prev_turn, state)
     try:
         try:
@@ -88,7 +88,7 @@ def _run(followup, prev_turn=None, state=None):
         except p.ClarificationNeeded as e:
             seen["route"], seen["rule"] = "clarification", e.rule
     finally:
-        llm.call_classifier, p._data_scheme_stage, rag.answer_from_kb, cm.build_followup_context = orig
+        llm.call_classifier, llm.call_rewriter, p._data_scheme_stage, rag.answer_from_kb, cm.build_followup_context = orig
     seen["plan"] = s.turn_context.get("plan") or {}
     return seen
 
@@ -298,7 +298,7 @@ def test_scope_guard_does_not_over_validate(question, schemes, er, sql):
 
 def test_scope_guard_runs_before_the_verifier():
     # a guard failure must become a repair instruction, not reach the paid verifier
-    src = Path(p.__file__).read_text(encoding="utf-8")
+    src = "".join((Path(p.__file__).parent / (n + ".py")).read_text(encoding="utf-8") for n in __import__("app.pipeline", fromlist=["_PIPELINE_FILES"])._PIPELINE_FILES)  # the pipeline package's files, in load order
     body = src[src.index("async def _execute_one_attempt"):src.index("# ── Numeric faithfulness guard")]
     assert body.index("_resolved_scope_missing(") < body.index("await _verify_sql(")
     assert body.index("_focusplus_stated_amount_missing(") < body.index("await _verify_sql(")
@@ -564,7 +564,7 @@ def test_place_change_after_knowledge_answers_continues_the_data_thread():
 
 
 def test_focus_plus_amount_answer_guarantee_is_in_code():
-    src = Path(p.__file__).read_text(encoding="utf-8")
+    src = "".join((Path(p.__file__).parent / (n + ".py")).read_text(encoding="utf-8") for n in __import__("app.pipeline", fromlist=["_PIPELINE_FILES"])._PIPELINE_FILES)  # the pipeline package's files, in load order
     assert "Focus Plus is a cash benefit, not a loan; this covers only the" in src
 
 
@@ -772,13 +772,13 @@ def test_measure_gap_pause_is_remembered_as_its_first_offer():
 
     async def classifier(prompt, **_k):
         return '{"intent": "DATA"}'
-    orig = llm.call_classifier
-    llm.call_classifier = classifier
+    orig = (llm.call_classifier, llm.call_rewriter)
+    llm.call_classifier = llm.call_rewriter = classifier
     try:
         with pytest.raises(p.ClarificationNeeded) as e:
             asyncio.run(graph_turn("give me for pmay", session=s))
     finally:
-        llm.call_classifier = orig
+        llm.call_classifier, llm.call_rewriter = orig
     assert router.pause_question(s, "give me for pmay") == _GAP_OPTS[0]["question"]
     assert e.value.options == _GAP_OPTS
 
@@ -798,15 +798,16 @@ def _resume(reply, rule, options, paused):
         seen["data"] = question
         return {"route": "data", "intent": "DATA", "answer": "ok", "schemes": ["PMAY-G"],
                 "sql": "S", "rows": [], "data": [], "resolved_entities": {}}
-    orig = (llm.call_classifier, p._data_scheme_stage)
-    llm.call_classifier, p._data_scheme_stage = classifier, data_stage_from(fake_answer_data)
+    orig = (llm.call_classifier, llm.call_rewriter, p._data_scheme_stage)
+    llm.call_classifier, llm.call_rewriter, p._data_scheme_stage = (
+        classifier, classifier, data_stage_from(fake_answer_data))
     try:
         try:
             asyncio.run(graph_turn(reply, session=s))
         except p.ClarificationNeeded as e:
             seen["rule"] = e.rule
     finally:
-        llm.call_classifier, p._data_scheme_stage = orig
+        llm.call_classifier, llm.call_rewriter, p._data_scheme_stage = orig
     return seen, s
 
 

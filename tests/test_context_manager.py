@@ -291,24 +291,24 @@ async def _run_async_checks():
 
     orig_classifier = cm.llm.call_classifier if hasattr(cm, "llm") else None
     from app import llm as _llm_mod
-    orig_call_classifier = _llm_mod.call_classifier
-    _llm_mod.call_classifier = _boom_classifier
+    orig_call_classifier = _llm_mod.call_rewriter
+    _llm_mod.call_rewriter = _boom_classifier
     try:
         await cm.maybe_update_summary(s)
         check("summary generation failure does not raise, and leaves summary unset", s.summary is None)
     finally:
-        _llm_mod.call_classifier = orig_call_classifier
+        _llm_mod.call_rewriter = orig_call_classifier
 
     async def _ok_classifier(prompt, **_kw):
         return "MGNREGA expenditure discussed for West Garo Hills, FY2023-24 and FY2024-25."
 
-    _llm_mod.call_classifier = _ok_classifier
+    _llm_mod.call_rewriter = _ok_classifier
     try:
         await cm.maybe_update_summary(s)
         check("summary updates when the model call succeeds", bool(s.summary))
         check("summary_turn_count advances to current turn_count", s.summary_turn_count == 10)
     finally:
-        _llm_mod.call_classifier = orig_call_classifier
+        _llm_mod.call_rewriter = orig_call_classifier
 
 
 asyncio.run(_run_async_checks())

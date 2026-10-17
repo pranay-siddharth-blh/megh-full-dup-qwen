@@ -11,7 +11,7 @@
    - Nothing destructive (delete a chat) has a shortcut. */
 
 export const IS_MAC = typeof navigator !== 'undefined'
-  && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '');
+  && ['mac', 'iphone', 'ipad', 'ipod'].some((w) => String(navigator.platform || navigator.userAgent || '').toLowerCase().includes(w));
 
 // key: the KeyboardEvent.key, lower-cased for letters.
 export const SHORTCUTS = [
@@ -63,4 +63,4 @@ export function matches(e, sc) {
   return k === sc.key || (sc.key.length === 1 && e.code === `Key${sc.key.toUpperCase()}`);
 }
 
-export const isTyping = (target) => !!target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable);
+export const isTyping = (target) => !!target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable);

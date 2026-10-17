@@ -34,6 +34,21 @@ def _unit(v: list[float]) -> list[float] | None:
     return [x / n for x in v] if n else None
 
 
+def scope_signature(question: str) -> tuple:
+    """(schemes, places, years) the question names. WI-6 (forward plan,
+    2026-10-16): a semantic hit must name the same ones — "…in 2023-24" and
+    "…in 2024-25" embed almost identically, and the 2024-25 answer was served
+    for the 2023-24 question. Never raises: an unreadable question gets a
+    signature that matches nothing but itself."""
+    try:
+        from app import context_policy, pipeline
+        return (tuple(sorted(pipeline._named_schemes(question or ""))),
+                tuple(sorted(str(p).upper() for p in context_policy._places(question or ""))),
+                tuple(sorted(context_policy.extract_year_keys(question or ""))))
+    except Exception:  # noqa: BLE001
+        return ("?", normalize(question or ""))
+
+
 def _dot(a: list[float], b: list[float]) -> float:
     return sum(x * y for x, y in zip(a, b))
 
@@ -46,7 +61,7 @@ class SemanticCache:
         # (scope_key + question) -> (unit_vec, value, expiry, scope_key).
         # scope_key is stored alongside so a lookup only matches entries from a
         # caller with the same authorization fingerprint. OrderedDict => oldest-first eviction.
-        self._store: "OrderedDict[str, tuple[list[float], dict, float, str]]" = OrderedDict()
+        self._store: "OrderedDict[str, tuple[list[float], dict, float, str, tuple]]" = OrderedDict()
         self._lock = asyncio.Lock()
         self.hits = 0
         self.misses = 0
@@ -74,19 +89,20 @@ class SemanticCache:
             return None, None
 
         now = time.monotonic()
+        sig = scope_signature(question)
         async with self._lock:
             best_key, best_sim = None, 0.0
-            for key, (uvec, _value, expiry, sk) in list(self._store.items()):
+            for key, (uvec, _value, expiry, sk, entry_sig) in list(self._store.items()):
                 if now > expiry:
                     del self._store[key]
                     continue
-                if sk != scope_key:
+                if sk != scope_key or entry_sig != sig:
                     continue
                 sim = _dot(vec, uvec)
                 if sim > best_sim:
                     best_key, best_sim = key, sim
             if best_key is not None and best_sim >= self.threshold:
-                _uvec, value, _expiry, _sk = self._store[best_key]
+                _uvec, value, _expiry, _sk, _sig = self._store[best_key]
                 self._store.move_to_end(best_key)
                 self.hits += 1
                 return (
@@ -114,7 +130,7 @@ class SemanticCache:
 
         key = scope_key + "\x1f" + normalize(question)
         async with self._lock:
-            self._store[key] = (vec, value, time.monotonic() + self.ttl, scope_key)
+            self._store[key] = (vec, value, time.monotonic() + self.ttl, scope_key, scope_signature(question))
             self._store.move_to_end(key)
             while len(self._store) > self.max_entries:
                 self._store.popitem(last=False)

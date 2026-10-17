@@ -1,0 +1,1593 @@
+# app/pipeline/common/c14_turn_stages.py — turn stages: context, edge, follow-up, rephrase, route, knowledge, data context.
+# Part of the app.pipeline package: executed by app/pipeline/__init__.py into the package
+# namespace, in load order, so it shares every name with the other files.
+
+
+
+# ── Turn stages (D-032) ─────────────────────────────────────────────────────
+# The turn stages, run by the LangGraph context -> edge -> followup -> route ->
+# knowledge / data_context nodes. Each reads its
+# inputs from the per-turn dict `t` into the local names the code always used,
+# writes its outputs back, and returns a finished result to end the turn early
+# or None to go on. `t` holds the live objects (Turn, ConversationState,
+# MergePlan); the graph stores them as plain dicts between nodes.
+
+def _new_turn(question: str) -> dict:
+    return {"question": question, "raw_question": question, "cm_pinned": False,
+            "scope_resumed": False, "prev": None, "village_hint": None, "paused_state": None,
+            "signals": [], "has_context": False, "plan": None, "thread_state": None,
+            "is_followup_rewrite": False, "intent": None, "prior_resolved": None,
+            "rephrased": False, "pre_rephrase_question": None}
+
+
+def _turn_ctx_state(session: "Session | None") -> "ConversationState | None":
+    return (session.state if (session is not None and settings.CONTEXT_LAYER_ENABLED
+                              and settings.CONTEXT_STATE_ENABLED) else None)
+
+
+def _with_rewritten_question(result: dict, question: str, raw_question: str) -> dict:
+    """A DATA result carries the standalone question it was answered as."""
+    if question != raw_question:
+        result["rewritten_question"] = question
+    return result
+
+
+def _mark_context_dependent(result: dict, session, *, raw_question, followup, plan, scope_resumed) -> None:
+    """WI-5 (forward plan, 2026-10-16): an answer built from THIS conversation —
+    a follow-up rewrite, a merge plan, a resumed pause, or "the previous year"
+    filled from the session — means something only here. Marked
+    `context_dependent`, the router never writes it to the shared caches under
+    the raw words another user may type."""
+    sub = (getattr(session, "turn_context", None) or {}).get("substituted_question") if session is not None else None
+    if followup or plan or scope_resumed or (sub and sub != raw_question):
+        result["context_dependent"] = True
+
+
+def _reference_state(question: str, ctx_state):
+    """The state "this year" / "last year" / "the previous year" are read
+    against (WI-4): the session's on a follow-up; with no year for a standalone
+    question that names its own scheme, which means the calendar's year."""
+    if ctx_state is not None and not looks_like_followup(question) and _named_schemes(question):
+        return dataclasses.replace(ctx_state, year=None)
+    return ctx_state
+
+
+async def _data_path_error_result(error: Exception, question: str, raw_question: str) -> dict:
+    """What a failure on the DATA path becomes: the scope reply, a re-raise for
+    the router (gateway / DB trouble), or the KB fallback. Called by the
+    graph's DATA-node wrapper (pipeline_graph._observed)."""
+    try:
+        raise error
+    except OutOfScope as e:
+        logger.info("out of scope (%s) — returning Megh One AI scope reply", e)
+        return _out_of_scope_result(question, raw_question)
+    except (llm.ModelBusyError, asyncio.TimeoutError, httpx.TimeoutException,
+            httpx.TransportError) as e:
+        # The model gateway hiccuped (saturated slot, read timeout, connection
+        # reset) part-way through the DATA path — this is NOT "the question can't
+        # be answered from the data". Propagate it so the router returns a
+        # 503/504 "busy, please retry" instead of the misleading "couldn't build
+        # a working query" fallback below, which reads as if the question itself
+        # were at fault.
+        logger.warning("data path hit a transient gateway error (%s) — re-raising", e)
+        raise
+    except httpx.HTTPStatusError as e:
+        if e.response is not None and e.response.status_code >= 500:
+            logger.warning("data path hit gateway %s — re-raising", e.response.status_code)
+            raise
+        logger.warning("data path failed (%s) — trying KB fallback", e, exc_info=True)
+        turn_trace.note_final_error(e)
+        return await _data_path_kb_fallback(question)
+    except Exception as e:  # noqa: BLE001
+        # megh_db unreachable anywhere on the DATA path (village lookup, SQL,
+        # a recount): say so — the reference documents cannot answer a data
+        # question, and "not in the reference material" read as if the figure
+        # did not exist (KI-025).
+        if db_is_connection_error(e):
+            logger.warning("data path lost the database (%s) — re-raising", e)
+            if isinstance(e, DatabaseUnavailableError):
+                raise
+            raise DatabaseUnavailableError(str(e)) from e
+        logger.warning("data path failed (%s) — trying KB fallback", e, exc_info=True)
+        # recorded so the audit tells this KB answer apart from a genuine one
+        turn_trace.note_final_error(e)
+        return await _data_path_kb_fallback(question)
+
+
+async def _turn_context_stage(t: dict, session: "Session | None" = None,
+                              scope: "auth.UserScope | None" = None) -> "dict | None":
+    """Spelling, dataset pin, turn facts, a pending pause's reply, and whether
+    this message continues the conversation at all (graph: context)."""
+    question = t["question"]
+    # Topic memory (app/topic_memory.py): an explicit return to an earlier
+    # topic ("go back to MGNREGA") puts that topic's state and last turn back
+    # in place before anything below reads them; a bare one is answered here.
+    # Every other message comes back unchanged.
+    _topic = topic_memory.resolve_turn(session, question)
+    if _topic.response is not None:
+        return _topic.response
+    question = _topic.question
+    raw_question = question
+    question = _correct_fy_spacing(_correct_place_spelling(_correct_scheme_spelling(question)))
+    # "total amount disbursed under CM Elevate" can only be answered by CM
+    # Elevate Legacy — settle which CM Elevate dataset is meant, once, here.
+    # A DATA decision only: the KNOWLEDGE route undoes it (see _unpin_cm_elevate).
+    _pinned = _pin_cm_elevate_dataset(question)
+    _cm_pinned = _pinned != question
+    question = _pinned
+    scope_resumed = False
+    question = _each_scheme_in_cm_thread(question, session)
+
+    # Computed early (moved ahead of the original follow-up step) so the step-0
+    # edge check below can relax its whitelist gate for a plausible follow-up —
+    # see edge.detect_edge_case's has_context param.
+    prev = session.last_turn if session is not None else None
+    has_antecedent = prev is not None and prev.route in _ANTECEDENT_ROUTES
+    ctx_state = _turn_ctx_state(session)
+    # Facts about this turn for provenance (context_manager.update_state):
+    # the state before it, the previous question, and, set below, the pause
+    # reply and the question after reference substitution. Never persisted.
+    if session is not None:
+        _before = session.state.to_dict()
+        session.turn_context = {
+            "state_before": {k: _before.get(k) for k in
+                             ("scheme", "district", "block", "village", "year", "metric", "tranche")},
+            "previous_question": getattr(prev, "question", "") or "",
+            "clarification_reply": None,
+            "substituted_question": None,
+            # The full question a pause reply resumed into. If this turn pauses
+            # AGAIN, the router remembers this instead of the raw reply: a typed
+            # "Focus Plus" resumed the bank question, the area pause that
+            # followed was remembered as "Focus Plus", and the typed "All of
+            # Meghalaya" then ran as "Focus Plus, All of Meghalaya" — a scheme
+            # overview (Focus Plus use-case QA 2026-09-27, FOCUS-029).
+            "resumed_question": None,
+            # The rewritten follow-up, as it stood before any pause (see step 1f).
+            "standalone_question": None,
+        }
+
+    # 0a. Resuming a "which area / year?" pause — fold the user's free-text reply
+    #     ("West Garo Hills 2023-24", "all of Meghalaya, all years") back into the
+    #     question that triggered it. A reply that stands on its own as a fresh
+    #     question, or an edge case like "thanks", is left alone; either way the
+    #     pending state is consumed so it never leaks into a later turn.
+    pending = getattr(session, "pending_scope_q", None) if session is not None else None
+    _village_hint = getattr(session, "pending_village_hint", None) if session is not None else None
+    _pending_rule = getattr(session, "pending_scope_rule", None) if session is not None else None
+    _pending_options = getattr(session, "pending_scope_options", None) if session is not None else None
+    if pending and _pending_rule in SCHEME_PAUSE_RULES:
+        # 0a'. A "which scheme?" / "which Focus?" pause. This is a scheme choice,
+        #      not a scope fragment, so the scope merge below does not apply. A
+        #      typed scheme name becomes the chip question it stands for; any
+        #      other reply goes through untouched. scope_resumed stays False
+        #      either way, because the chip path never set it: the resumed
+        #      question may still need its own area/year pause.
+        session.pending_scope_q = None
+        session.pending_village_hint = None
+        session.pending_scope_rule = None
+        session.pending_scope_options = None
+        _picked = _resume_scheme_pause(question, _pending_options)
+        if _picked:
+            logger.info("scheme clarification resumed from typed reply %r -> %r", question, _picked)
+            session.turn_context["clarification_reply"] = question
+            # The same CM Elevate dataset decision the chip's text gets at the top.
+            question = _pin_cm_elevate_dataset(_picked)
+            _cm_pinned = question != _picked
+            session.turn_context["resumed_question"] = question
+        pending = None
+    _paused_state = None
+    if pending and _pending_rule and _pending_rule not in SCOPE_MERGE_RULES:
+        # 0a''. Any other pause that offered chips (_resume_option_pause). A
+        #       typed pick becomes that chip's question. An unmatched reply
+        #       that names no scheme continues the PAUSED question's scheme,
+        #       not the last answered turn's (_paused_thread_antecedent).
+        session.pending_scope_q = None
+        session.pending_village_hint = None
+        session.pending_scope_rule = None
+        session.pending_scope_options = None
+        _picked = _resume_option_pause(question, _pending_options)
+        if _picked:
+            logger.info("option clarification (%s) resumed from typed reply %r -> %r",
+                        _pending_rule, question, _picked)
+            context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="option")
+            session.turn_context["clarification_reply"] = question
+            question = _pin_cm_elevate_dataset(_picked)
+            _cm_pinned = question != _picked
+            session.turn_context["resumed_question"] = question
+        else:
+            _stand_in = _paused_thread_antecedent(question, pending, prev)
+            if _stand_in is not None:
+                context_budget.log_decision("pause_reply", rule=_pending_rule,
+                                            resumed="paused-thread", schemes=_stand_in.schemes)
+                prev, has_antecedent = _stand_in, True
+                _st = ctx_state
+                _paused_state = ConversationState(
+                    scheme=_stand_in.schemes[0],
+                    district=getattr(_st, "district", None), block=getattr(_st, "block", None),
+                    village=getattr(_st, "village", None), year=getattr(_st, "year", None),
+                    year_all=bool(getattr(_st, "year_all", False)))
+        pending = None
+    if pending:
+        session.pending_scope_q = None
+        session.pending_village_hint = None
+        session.pending_scope_rule = None
+        session.pending_scope_options = None
+        # A scope-pause reply is normally a bare fragment ("Ri Bhoi, 2023-24",
+        # "wgh, 1999-20") with no scheme vocabulary of its own, so the edge
+        # whitelist would tag it "off_topic" every time — do NOT use that as the
+        # signal to drop the pause. Only a clearly conversational reply (a
+        # greeting / thanks / goodbye / abuse) or a fresh standalone question
+        # abandons it; everything else is merged back into the paused question.
+        _edge_hit = edge.detect_edge_case(question)
+        # "off_topic" is the whitelist gate mis-firing on a fragment with no
+        # scheme words — NOT a reason to drop the pause. Any other edge verdict
+        # (greeting / thanks / goodbye / abuse / "never mind") genuinely is.
+        _bailed = bool(_edge_hit) and _edge_hit.get("type") != "off_topic"
+        # A one-tap chip (year pause) sends the whole rewritten question, which
+        # already begins with the paused stem — merging would just duplicate it
+        # ("total expenditure for MGNREGA, total expenditure for MGNREGA for FY
+        # 2023-24"). Detect that and pass the chip's question straight through.
+        _stem = pending.rstrip(" ?.").lower()
+        _is_chip_resume = question.strip().lower().startswith(_stem)
+        if _is_chip_resume:
+            scope_resumed = True
+            logger.info("scope/year clarification resumed via full question -> %r", question)
+        elif not _bailed and not _reply_abandons_scope_pause(question):
+            session.turn_context["clarification_reply"] = question
+            question = f"{pending.rstrip(' ?.')}, {question.strip()}"
+            scope_resumed = True
+            logger.info("scope clarification resumed -> %r", question)
+        elif not _bailed and _pending_rule == "year-not-specified" and _is_yearwise_reply(question):
+            # "Show it year-wise" to "which financial year?" IS an answer: every
+            # year, one row each. Read as a fresh imperative, it had nothing to
+            # refer to ("I don't have an earlier answer"; General TC-022, test
+            # run 2026-10-09).
+            session.turn_context["clarification_reply"] = question
+            question = f"{pending.rstrip(' ?.')}, year-wise for each financial year"
+            scope_resumed = True
+            context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="year-wise")
+            logger.info("year clarification answered year-wise -> %r", question)
+        elif not _bailed and _pending_rule == "year-not-specified" \
+                and _BACKREF_FOLLOWUP_MATCH.search(question):
+            # "What was the total MGNREGA expenditure in ABAGRE?" paused for the
+            # year; "How much of that was spent on materials?" skipped the year
+            # and pointed back at the paused question. It used to be read as a
+            # fresh question with nothing to refer to ("I don't have an earlier
+            # answer"; General TC-022, test run 2026-10-06). The paused question is
+            # what "that" means, and declining to pick a year reads as all years.
+            from app.session_store import Turn
+            _ps = sorted(_exact_schemes(pending)) or list(_infer_scheme_from_terms(pending) or [])
+            prev = Turn(question=f"{pending.rstrip(' ?.')} across all financial years",
+                        raw_question=pending, route="data", schemes=_ps,
+                        resolved_entities={}, answer="")
+            has_antecedent = True
+            context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="backref-followup",
+                                        schemes=_ps)
+            logger.info("year pause skipped by a follow-up on the paused question -> antecedent %r",
+                        prev.question)
+        if scope_resumed and not session.turn_context.get("clarification_reply"):
+            session.turn_context["clarification_reply"] = question
+        if scope_resumed:
+            session.turn_context["resumed_question"] = question
+
+    # 0-c. Does this message continue the conversation at all? A previous
+    #      answer is context only for a message that shares something with it:
+    #      scheme or measure words, a place, a year, a grouping, a reference into
+    #      the result, a question about how a scheme works
+    #      (context_policy.continuation_signals). "who is harshit" and "he is my
+    #      collik remember" after a Focus Plus answer share nothing, yet were
+    #      rewritten "…under Focus Plus" and answered from its reference docs
+    #      (reported 2026-09-29): the edge whitelist was switched off by the mere
+    #      existence of a previous answer, and looks_like_followup took any short
+    #      anchorless message as a fragment. Without a signal, the message is a
+    #      new question: the whitelist applies and no rewrite runs. A pause reply
+    #      always continues its paused question.
+    _signals = context_policy.continuation_signals(question) if has_antecedent else []
+    has_context = has_antecedent and (bool(_signals) or scope_resumed)
+    if session is not None:
+        session.turn_context["continuation"] = _signals
+    if has_antecedent and not has_context:
+        context_budget.log_decision("continuation", continues=False, signals=[],
+                                    previous_route=getattr(prev, "route", None))
+    t.update(raw_question=raw_question, question=question, cm_pinned=_cm_pinned,
+             scope_resumed=scope_resumed, prev=prev, village_hint=_village_hint,
+             paused_state=_paused_state, signals=_signals, has_context=has_context)
+    return None
+
+
+# A canned conversational turn ("hi", "thanks", "who are you"): no request to
+# judge, so the guardrail model call is skipped (it would only add latency).
+_CONVERSATIONAL_EDGE = frozenset({"greeting", "thanks", "goodbye", "identity", "capability", "confused"})
+# Edge's generic off-topic replies. An out-of-scope guardrail verdict replaces
+# them with a more specific one ("I don't write Instagram posts"); every other
+# edge reply (out-of-area, money advice, a loan request) is already specific.
+_GENERIC_EDGE = frozenset({"off_topic", "silly"})
+
+
+def _strip_end_punct(name: str) -> str:
+    """Whitespace runs -> one space, then trailing spaces and . , ; : ! ? dropped, upper-cased."""
+    return collapse_ws(name or "").rstrip(" .,;:!?").upper()
+
+
+def _c14_letter_words(text: str) -> "list[str]":
+    """regex findall [A-Za-z][A-Za-z().'-]* — runs that start with a letter."""
+    out, i, n = [], 0, len(text)
+    while i < n:
+        ch = text[i]
+        if ch.isascii() and ch.isalpha():
+            j = i + 1
+            while j < n and ((text[j].isascii() and text[j].isalpha()) or text[j] in "().'-"):
+                j += 1
+            out.append(text[i:j])
+            i = j
+        else:
+            i += 1
+    return out
+
+
+def _c14_ascii_bounded_sub(needle: str, repl: str, text: str) -> str:
+    """regex sub((?<![A-Za-z0-9]) + escape(needle) + (?![A-Za-z0-9]), repl, text, IGNORECASE)."""
+    if not needle:
+        return text
+    low, nd = text.lower(), needle.lower()
+    if len(low) != len(text) or len(nd) != len(needle):
+        low, nd = text, needle
+    out, last, k = [], 0, low.find(nd)
+    while k >= 0:
+        e = k + len(nd)
+        if not (k > 0 and _c1x_is_ascii_alnum(text[k - 1])) and not (e < len(text) and _c1x_is_ascii_alnum(text[e])):
+            out.append(text[last:k])
+            out.append(repl)
+            last = e
+            k = low.find(nd, e)
+        else:
+            k = low.find(nd, k + 1)
+    out.append(text[last:])
+    return "".join(out)
+
+
+_VILLAGE_KEY_CACHE: "dict[int, frozenset]" = {}
+
+
+def _village_name_keys(names: dict) -> frozenset:
+    """The catalogue's village names compared without trailing punctuation."""
+    k = id(names)
+    if k not in _VILLAGE_KEY_CACHE:
+        _VILLAGE_KEY_CACHE.clear()
+        _VILLAGE_KEY_CACHE[k] = frozenset(_strip_end_punct(n) for n in names)
+    return _VILLAGE_KEY_CACHE[k]
+
+
+async def _mask_village_names(text: str) -> str:
+    """`text` with an exact village name (the longest one found) replaced by
+    "the village", for the guardrail checks only."""
+    out = text or ""
+    found = None
+    # Every scheme's villages, not MGNREGA's only: the Focus Legacy village "CHOKCHAKIA"
+    # was refused as violence ("chok…") — Focus Legacy all-villages run 2026-10-12.
+    for _vs in ("MGNREGA", "Focus Legacy", "PMAY-G", "Focus Plus", "CM Elevate", "CM Elevate Legacy"):
+        try:
+            found = await _scan_village_in_question(out, _vs)
+        except Exception:  # noqa: BLE001 — no catalogue: check the text as typed
+            found = None
+        if found and found[0]:
+            break
+    if not (found and found[0]):
+        # The scan above reads only after a place preposition ("in", "for"); "mapped to
+        # CHOKCHAKIA village" has none. Any 1-4 word run that IS a scheme's village name.
+        words = _c14_letter_words(out)
+        runs = [" ".join(words[i:i + n]) for n in (4, 3, 2, 1) for i in range(len(words) - n + 1)]
+        runs = [r for r in runs if len(r) >= 5 and r.lower() not in _NOT_A_PLACE_WORD]
+        for _vs in ("MGNREGA", "Focus Legacy", "PMAY-G", "Focus Plus", "CM Elevate", "CM Elevate Legacy"):
+            try:
+                _names = await _scheme_village_names(_vs)
+            except Exception:  # noqa: BLE001
+                continue
+            _hit = next((r for r in runs if r.strip().upper() in _names), None)
+            if _hit:
+                found = (_hit, [])
+                break
+    if found and found[0]:
+        out = _c1x_loose_sub(found[0], "the village", out)
+    # Block / district / constituency names too: "Give me the PMAY financial
+    # summary for Chokpot" was refused as violence ("chok…"), PMAY-G sheet run
+    # 2026-10-10.
+    for _dim, _word in (("block", "the block"), ("assembly_constituency", "the constituency"),
+                        ("district", "the district")):
+        for _ in range(3):
+            try:
+                _nm = _canonical_in_question(out, "MGNREGA", _dim)
+            except Exception:  # noqa: BLE001
+                _nm = None
+            if not _nm:
+                break
+            out = _c14_ascii_bounded_sub(_nm, _word, out)
+    return out
+
+
+_HARM_EDGE_TYPES = frozenset(guardrails.HARM_CATEGORIES) | {"harmful", "unsafe"}
+
+
+async def _harm_only_from_place_name(question: str, hit: dict) -> bool:
+    """True when an edge HARM verdict disappears once the place names are masked:
+    "Chokpot" (a block) tripped the violence rules on "chok…" in the edge re-checks
+    after the guardrail stage had already cleared the masked text (PMAY-G sheet
+    run 2026-10-10)."""
+    if (hit or {}).get("type") not in _HARM_EDGE_TYPES:
+        return False
+    masked = await _mask_village_names(question)
+    return masked != question and not edge.detect_harmful(masked)
+
+
+async def _guardrail_check(raw_question: str, question: str, scope_resumed: bool,
+                           has_context: bool = False) -> "tuple[dict, str] | None":
+    """The guardrail refusal for this turn and the layer that made it, or None
+    (app/guardrails.py, D-040 / D-041)."""
+    # A village NAME is not intent: "Give me the expenditure breakdown for CHOTTA
+    # KILLING during 2023-24" was refused as violence (MGNREGA all-villages run,
+    # 2026-10-09). An exact village name is masked for the checks; any harmful
+    # wording around it is still judged.
+    raw_question = await _mask_village_names(raw_question)
+    question = await _mask_village_names(question)
+    harm = edge.detect_harmful(raw_question) or edge.detect_harmful(question)
+    if harm:
+        return harm, "rules"
+    edge_hit = edge.detect_edge_case(raw_question)
+    edge_type = (edge_hit or {}).get("type")
+    scope_ok = edge_hit is None or edge_type in _GENERIC_EDGE
+    scope = guardrails.check_scope_rules(raw_question) if scope_ok else None
+    if scope:
+        return edge.guardrail_reply(scope.category), "rules"
+    if scope_resumed or edge_type in _CONVERSATIONAL_EDGE:
+        return None
+    verdict = await guardrails.check_model(raw_question)
+    if verdict and verdict.is_scope and _overrules_scope_verdict(raw_question, has_context):
+        context_budget.log_decision("guardrail", layer="model", outcome="scope_overruled",
+                                    category=verdict.category)
+        return None
+    if verdict and (not verdict.is_scope or scope_ok):
+        return edge.guardrail_reply(verdict.category), "model"
+    return None
+
+
+# A model OUT_OF_SCOPE verdict that is wrong by construction (General TC-011 /
+# TC-012, test run 2026-10-09): "How do I get this?" was refused as "I can't do
+# things on your behalf", "What is PM-KISAN?" got the generic off-topic reply
+# and "Tell me about the Jal Jeevan Mission scheme" got "I don't write social
+# media posts". How to get / apply for a scheme is the assistant's job (the
+# guardrail prompt lists it as SAFE), and a scheme we don't hold has its own,
+# clearer "not one of the schemes I cover" reply. Harm verdicts are never
+# overruled — only scope ones.
+_C14_HOWTO_LEAD = Seq(
+    START, Opt(W("so", "ok", "okay", "and", "then")), "how",
+    W("do", "can", "could", "should", "will", "would", "to"),
+    Opt(Alt(W("i", "we", "one", "someone"), Seq("my", ANY, sep="space"))),
+    Alt(W("get", "avail", "apply", "register", "join", "qualify", "receive"), W("enrol", prefix=True)),
+    sep="space")
+_C14_HOWTO_OBJECTS = (("this",), ("it",), ("that",), ("them",), ("these",), ("the", "scheme"),
+                      ("the", "benefit"), ("the", "benefits"), ("the", "assistance"), ("the", "money"))
+
+
+def _c14_howto_tail(rest: str) -> bool:
+    r"""regex [^.?!]{0,30}?\b(?:this|it|that|them|these|the\s+(?:scheme|benefits?|assistance|money))?\W*$
+    on the text after the verb."""
+    p = len(rest)
+    while p > 0 and not _c1x_is_word_char(rest[p - 1]):
+        p -= 1
+    if p <= 30 and not any(ch in rest[:p] for ch in ".?!"):
+        return True                                  # no object: everything up to the last word
+    toks = _c1x_tokens(rest[:p])
+    for obj in _C14_HOWTO_OBJECTS:
+        if len(toks) < len(obj) or [t.low for t in toks[-len(obj):]] != list(obj):
+            continue
+        if len(obj) == 2 and not _c1x_ws(rest[toks[-2].end:toks[-1].start]):
+            continue
+        start = toks[-len(obj)].start
+        if start > 0 and start <= 30 and not any(ch in rest[:start] for ch in ".?!"):
+            return True
+    return False
+
+
+class _C14HowTo(_C1xLike):
+    """The old _SCHEME_HOWTO_SHAPE regex: the whole question is "(so/ok/and/then)
+    how do/can/… (I/we/one/my X) get/apply/… [up to 30 more characters] (this /
+    it / the scheme …)" and nothing but punctuation after."""
+
+    def _hits(self, text):
+        ctx = _C1xCtx(text)
+        for j, _c in _C14_HOWTO_LEAD.ends(ctx, 0, ()):
+            if j == 0:
+                continue
+            e = ctx.toks[j - 1].end
+            if _c14_howto_tail(text[e:]):
+                return [Hit(text, ctx.toks[0].start, len(text))]
+        return []
+
+
+_SCHEME_HOWTO_SHAPE = _C14HowTo()
+
+
+_DATA_MEASURE_WORD = Matcher(Alt(
+    W("expenditure", "spent", "breakdown", "household", "households", "person", "persons", "employment",
+      "employed", "wage", "wages", "material", "materials", "house", "houses", "application", "applications",
+      "payment", "payments", "amount", "percentage", "average", "highest", "lowest", "summary", "performance",
+      "status", "completed", "released"),
+    W("spend", "beneficiar", "sanction", "disburs", prefix=True),
+    Joined("person", ("day", "days")),
+    Seq(W("job"), _C1xGapIs(W("card", "cards"), _c1x_ws0)), W("jobcard", "jobcards"),
+))
+# "Which has more completed houses: DILBOT or UMKAIT?" names its places with no
+# preposition (refused as a general question, PMAY-G sheet run 2026-10-10).
+_COUNT_SHAPE_MATCH = Matcher(Alt(Seq("how", "many", sep="space"), Seq("number", "of", sep="space"),
+                              Seq("count", "of", sep="space"), W("total")))
+
+
+def _c14_compare_places_spans(text: str) -> list:
+    r"""regex (?::\s*|\bcompare\b.{0,60}?\b|\bbetween\s+)[A-Za-z][\w'() -]*?\s+(?:or|and|vs\.?|versus)\s+[A-Za-z]:
+    two names joined by or / and / vs / versus after a colon, "compare" or "between"."""
+    n = len(text)
+    starts: list = []                     # (match start, first letter position)
+    for i, ch in enumerate(text):
+        if ch == ":":
+            k = i + 1
+            while k < n and text[k].isspace():
+                k += 1
+            starts.append((i, k))
+    for t in _c1x_tokens(text):
+        if t.low == "compare":
+            for k in range(t.end + 1, min(t.end + 60, n) + 1):
+                if "\n" in text[t.end:k]:
+                    break
+                if k < n and not _c1x_is_word_char(text[k - 1]):
+                    starts.append((t.start, k))
+        elif t.low == "between":
+            k = t.end
+            while k < n and text[k].isspace():
+                k += 1
+            if k > t.end:
+                starts.append((t.start, k))
+    for s0, k in sorted(starts):
+        if not (k < n and text[k].isascii() and text[k].isalpha()):
+            continue
+        q = k + 1
+        while True:
+            # \s+ (or|and|vs\.?|versus) \s+ [A-Za-z] at q
+            w0 = q
+            while w0 < n and text[w0].isspace():
+                w0 += 1
+            if w0 > q:
+                w1 = w0
+                while w1 < n and _c1x_is_word_char(text[w1]):
+                    w1 += 1
+                word = text[w0:w1].lower()
+                ends = []
+                if word in ("or", "and", "versus", "vs"):
+                    ends.append(w1)
+                if word == "vs" and w1 < n and text[w1] == ".":
+                    ends.insert(0, w1 + 1)
+                for e in ends:
+                    f = e
+                    while f < n and text[f].isspace():
+                        f += 1
+                    if f > e and f < n and text[f].isascii() and text[f].isalpha():
+                        return [(s0, f + 1)]
+            if q < n and (_c1x_is_word_char(text[q]) or text[q] in "'() -"):
+                q += 1
+            else:
+                break
+    return []
+
+
+_COMPARE_PLACES_MATCH = _C1xScan(_c14_compare_places_spans)
+_C14_NOT_A_PLACE = frozenset("my your his her our their me us a an this that it them".split())
+
+
+class _C14SlotWord(_C1xNode):
+    r"""A word that starts with a letter, is at least two characters of word
+    characters, ' and - , and is not a pronoun / article (the old
+    (?!(?:my|…)\b)[A-Za-z][\w'-]+)."""
+
+    def ends(self, ctx, i, caps):
+        if i >= len(ctx.toks):
+            return
+        t = ctx.toks[i]
+        if not (t.raw[0].isascii() and t.raw[0].isalpha()) or t.low in _C14_NOT_A_PLACE:
+            return
+        if len(t.raw) >= 2 or (t.end < len(ctx.text) and ctx.text[t.end] in "'-"):
+            yield i + 1, caps
+
+
+_PLACE_SLOT = Matcher(Seq(W("in", "for", "of", "at", "from"), Opt("the"), _C14SlotWord(), sep="space"))
+
+
+def _is_data_shaped(question: str) -> bool:
+    """A question or data request (by its opening words) with a measure plus a
+    year or a place slot ("in <name>"): a figure question. "craft some lines for
+    my page praising PMAY-G houses" opens with no question word and stays the
+    model's call."""
+    q = question or ""
+    if not _REPHRASE_START.search(q):
+        return False
+    if not (_DATA_MEASURE_WORD.search(q) or context_policy.metric_families(q)):
+        return False
+    return bool(context_policy.extract_year_keys(q) or named_places(q) or _PLACE_SLOT.search(q)
+                or _COMPARE_PLACES_MATCH.search(q)
+                # a count over a named scheme / programme: "How many applicants under Meghalaya
+                # Dairy Development Scheme belong to Piggery sector?" (CM Elevate sheet 2026-10-10)
+                or (_COUNT_SHAPE_MATCH.search(q) and (_named_schemes(q) or _infer_scheme_from_terms(q))))
+
+
+_SCHEME_DATA_NOUN_MATCH = Matcher(Alt(
+    W("remit", "disburs", "beneficiar", prefix=True),
+    Seq("producer", W("group", "groups"), sep="space"),
+    W("pg", "pgs", "member", "members", "membership", "memberships", "payment", "payments", "applicant", "applicants"),
+))
+# A message about the PREVIOUS answer — questioning it, asking to re-check or
+# correct it — is a follow-up, not a request to act for the officer: "Okay,
+# MGNREGA in the above query, whatever you have given … only one year … in our
+# database it is coming three years … Please cross verify and give it to me"
+# was refused by the guardrail model as "I can't do things on your behalf"
+# (UI 2026-10-12). Content / task requests are still caught by
+# check_scope_rules first, and harm verdicts are never overruled.
+def _c14_lead_then(lead: str, *stems: str):
+    r"""regex \blead[\s-]?(?:stem|…)\w* — "cross-check", "cross check", "crosscheck…"."""
+    return Alt(Seq(W(lead), _C1xGapIs(W(*stems, prefix=True), _c1x_ws_or_dash0)),
+               W(*[lead + st for st in stems], prefix=True))
+
+
+_ABOUT_PREVIOUS_ANSWER = Matcher(Alt(
+    Seq(W("above", "previous", "last", "earlier", "that", "this", "your", "same"),
+        W("query", "queries", "question", "answer", "result", "results", "reply", "response", "output", "table",
+          "chart", "figure", "figures", "number", "numbers", "data", "count", "total"), sep="space"),
+    Seq("you", Opt(W("have", "had", "just")),
+        W("gave", "given", "give", "showed", "shown", "said", "told", "returned", "provided"), sep="space"),
+    _c14_lead_then("cross", "verify", "check"), _c14_lead_then("re", "check", "verify"),
+    _c14_lead_then("double", "check"),
+    Seq("check", Opt(W("it", "this", "that", "them")), "again", sep="space"), W("verify"),
+    W("wrong", "incorrect"), W("mismatch", prefix=True),
+    Seq("not", W("correct", "right", "matching", "tallying"), sep="space"),
+    Seq("why", Opt(W("are", "is", "did")), Opt("you"), W("giving", "showing", "only", "missing", "not"), sep="space"),
+))
+
+
+_SCHEME_SUMMARY_MATCH = Matcher(W("overview", "summary", "summarise", "summarize", "summaryse", "summaryze",
+                                "briefing"))
+_C14_FOCUS_WORD = Matcher(W("focus"))
+
+
+def _overrules_scope_verdict(question: str, has_context: bool = False) -> bool:
+    q = question or ""
+    if guardrails.check_scope_rules(q):
+        return False                          # a clear rule phrasing ("apply for me") stands
+    if _SCHEME_HOWTO_SHAPE.search(q) or _unsupported_scheme_named(q):
+        return True
+    # A figure question about a place or a year is the assistant's job however the
+    # model reads an unfamiliar village name: "Give me the expenditure breakdown
+    # for Myriem during 2023-24" was refused as "I can't do things on your behalf",
+    # "What was the total expenditure in MAWJYRSIM during 2022-23?" as a general
+    # question (MGNREGA sheet run 2026-10-09, 9 cases). Content / task requests in
+    # scheme words are still caught by check_scope_rules above.
+    if _is_data_shaped(q):
+        return True
+    # A request about a named scheme's own data or an overview of it: "Show me all FOCUS
+    # remittances made between April and June 2025" (refused as acting on the user's
+    # behalf), "List top 5 FOCUS PGs which has more than 20 members", "Give me a short
+    # overview of FOCUS … for an official briefing" (refused as content writing) —
+    # FOCUS sheet run 2026-10-12. Bare "FOCUS" counts as a scheme name here.
+    if _REPHRASE_START.search(q) and (_named_schemes(q) or _infer_scheme_from_terms(q)
+                                      or _C14_FOCUS_WORD.search(q)) \
+            and (_SCHEME_DATA_NOUN_MATCH.search(q) or _SCHEME_SUMMARY_MATCH.search(q)):
+        return True
+    if _ABOUT_PREVIOUS_ANSWER.search(q) and (has_context or _named_schemes(q) or _infer_scheme_from_terms(q)):
+        return True
+    # A short fragment that continues a scheme answer ("And the lowest?" after
+    # "Which year was the highest?") was refused as a general question (General
+    # TC-022, test run 2026-10-09). has_context already requires a continuation
+    # signal (context_policy.continuation_signals), so "who is harshit" after an
+    # answer still gets the model's verdict.
+    return has_context and len(q.split()) <= 6
+
+
+async def _turn_edge_stage(t: dict, session: "Session | None" = None,
+                           scope: "auth.UserScope | None" = None) -> "dict | None":
+    """Harmful requests, definitions, scheme listing / pick, and the edge layer (graph: edge)."""
+    question, raw_question = t["question"], t["raw_question"]
+    scope_resumed, has_context = t["scope_resumed"], t["has_context"]
+    # 0--. A request for help with something illegal ("i want to rob a bank,
+    #      give me suggestions") is refused FIRST — before the recommendation /
+    #      pick / listing steps below, any of which could otherwise claim it on a
+    #      word like "suggestions" and answer with an unrelated scheme.
+    #      The guardrails (app/guardrails.py) run here too: the harm rules on the
+    #      typed text and on the routed one (a pause merge or a rewrite can
+    #      assemble a harmful sentence), the out-of-scope rules ("write an
+    #      Instagram post on MGNREGA"), then the model check on the typed text,
+    #      which judges meaning rather than words. The model check is skipped for
+    #      a pause reply ("2023", a chip) and for a canned conversational turn
+    #      ("hi", "thanks"), neither of which can carry a new request.
+    _guard = await _guardrail_check(raw_question, question, scope_resumed, has_context)
+    if _guard:
+        _harm, _layer = _guard
+        context_budget.log_decision("guardrail", layer=_layer, category=_harm["type"], blocked=True)
+        return {"route": "edge", "intent": "EDGE", "confidence": "high",
+                "answer": _harm["response"], "edge_type": _harm["type"],
+                "suggestions": [], **_empty_data_fields()}
+
+    # 0-. "What is EKH?" / "MYLLIEM full form" — spell out a district or block
+    #     straight from the resolver catalogue. Must run BEFORE the edge layer
+    #     (which bounces a lone abbreviation as off-topic) and before routing
+    #     (KNOWLEDGE / RAG has no glossary for these). Skipped on a scope-pause
+    #     resume — that text is a merged fragment, never a definition request.
+    if not scope_resumed:
+        geo_def = _geo_definition_answer(question)
+        if geo_def:
+            if question != raw_question:
+                geo_def["rewritten_question"] = question
+            return geo_def
+
+    # 0-a. "What schemes are available?" / "what's the difference between the
+    #      schemes?" — answered directly (see _scheme_listing_answer /
+    #      _scheme_comparison_answer) rather than falling through to RAG, which
+    #      has no single document covering either and either over-elaborates on
+    #      one scheme or says "not covered". Same scope-pause carve-out as above.
+    if not scope_resumed:
+        # "Pick any scheme and explain it" — checked FIRST: it is neither a
+        # listing nor a follow-up, and must not reach the "which scheme?" pause
+        # or the follow-up rewrite (which re-reads it against the last scheme).
+        # "Why did you choose MGNREGA?" / "suggest a scheme that suits me" — a
+        # question about the bot's own choice, and a recommendation ACROSS
+        # schemes. Neither is in any one scheme's documents, so both are
+        # answered here, before the knowledge route narrows to one scheme.
+        explained = _why_choice_answer(question, session)
+        if explained:
+            return explained
+        recommended = (_scheme_fit_check_answer(question)
+                       or _scheme_recommendation_answer(question, session))
+        if recommended:
+            return recommended
+        picked = await _scheme_pick_answer(question, session)
+        if picked:
+            return picked
+        direct = (_scheme_listing_answer(question)
+                  or _scheme_comparison_answer(question, _recent_compared_schemes(session)))
+        if direct:
+            if question != raw_question:
+                direct["rewritten_question"] = question
+            return direct
+
+    # 0. Edge — greetings, identity, thanks, off-topic, abuse. Checked on the RAW
+    #    text first: the follow-up heuristic treats any short anchorless phrase as
+    #    a fragment, which would otherwise turn "hello" into a bogus follow-up.
+    #    Skipped when we just merged a scope-pause reply: the merged text is a
+    #    bare "<question>, <place>, <year>" fragment that the whitelist gate
+    #    would wrongly flag as off-topic, and the conversational-reply case was
+    #    already handled at the merge above.
+    hit = None if scope_resumed else edge.detect_edge_case(question, has_context=has_context)
+    if hit and await _mgnrega_village_not_out_of_area(question, hit):
+        hit = None
+    if hit and await _harm_only_from_place_name(question, hit):
+        hit = None
+    if hit:
+        context_budget.log_decision("edge", edge_type=hit["type"], has_context=has_context)
+        return {"route": "edge", "intent": "EDGE", "confidence": "high",
+                "answer": hit["response"], "edge_type": hit["type"],
+                "suggestions": hit.get("suggestions", []),
+                **_empty_data_fields()}
+    return None
+
+
+async def _turn_followup_stage(t: dict, session: "Session | None" = None,
+                               scope: "auth.UserScope | None" = None) -> "dict | None":
+    """Reference substitution, the follow-up merge plan and rewrite, and the
+    scheme / year hints (graph: followup)."""
+    question, raw_question, prev = t["question"], t["raw_question"], t["prev"]
+    scope_resumed, has_context, _signals = t["scope_resumed"], t["has_context"], t["signals"]
+    _paused_state, _cm_pinned = t["paused_state"], t["cm_pinned"]
+    ctx_state = _turn_ctx_state(session)
+    # 0f. Deterministic reference resolution ("the previous year", "the
+    #     current year", "the former/latter", "the other one", "both") against
+    #     the session's structured conversation state — see
+    #     context_manager.substitute_references. Runs before the follow-up
+    #     detector so a bare "compare that with the previous year" already has
+    #     a concrete year by the time it gets there. Ambiguous ("the other
+    #     one" with no recorded comparison) reuses the existing clarification
+    #     mechanism rather than guessing. Any other failure degrades to the
+    #     question unchanged — the pre-existing follow-up path still runs.
+    if not scope_resumed and ctx_state is not None:
+        try:
+            # WI-4 (forward plan, 2026-10-16): "this year" / "last year" take the
+            # session's year only on a FOLLOW-UP. A standalone question that names
+            # its own scheme ("PMAY-G houses sanctioned in Ri Bhoi this year?")
+            # means the calendar's year — it was rewritten to the previous
+            # topic's FY 2022-23. Its relative year is resolved later, as for a
+            # first question.
+            question = context_manager.substitute_references(question, _reference_state(question, ctx_state))
+            if session is not None:
+                session.turn_context["substituted_question"] = question
+        except context_manager.AmbiguousReference as e:
+            raise ClarificationNeeded(e.question, options=e.options, rule="entity-ambiguous")
+        except Exception:  # noqa: BLE001
+            logger.warning("context_manager.substitute_references failed — continuing unchanged",
+                           exc_info=True)
+
+    # 1. Follow-up — rewrite a fragment ("what about EGH?") to a standalone
+    #    question using the previous turn, before routing. Only when the previous
+    #    turn was an actual scheme answer; otherwise the fragment has nothing
+    #    coherent to attach to. (prev / has_antecedent computed above, ahead of
+    #    the step-0 edge check.)
+    is_followup_rewrite = False
+    _plan = None
+    # Which conversation thread a follow-up continues (see _followup_thread_state).
+    _thread_state = _followup_thread_state(question, prev, ctx_state)
+    if _paused_state is not None:
+        # A reply to a pause about another scheme continues that scheme's thread
+        # (step 0a''), with the scope the paused question carried.
+        _thread_state = _paused_state
+    if _thread_state is not ctx_state:
+        context_budget.log_decision("followup", thread="antecedent-scheme",
+                                    scheme=getattr(_thread_state, "scheme", None))
+    # A bare "Focus" used as a scheme name is never handed to the model rewrite:
+    # the which-Focus question below must ask (CLAUDE.md §4 — never guessed).
+    # The deterministic scheme swap ("for focus", "same for focus") keeps the
+    # word "Focus" itself, so it still runs.
+    _bare_focus = (_names_bare_focus_scheme(question)
+                   and not _SCHEME_SWAP_FOLLOWUP.match(question.strip())
+                   and not _scheme_substitution(question)[1])
+    if _bare_focus:
+        context_budget.log_decision("followup", skipped="bare-focus-scheme-name")
+    _term_question = _is_scheme_term_question(raw_question)
+    if _term_question:
+        context_budget.log_decision("followup", skipped="scheme-term-question")
+    if (looks_like_followup(question) or is_scopeless_followup(question, prev)
+            or is_scheme_substitution(question, prev)
+            or pronoun_refers_to_previous_term(question, prev)) and not _bare_focus and not _term_question:
+        if has_context:
+            # Field-by-field effect of this follow-up on the state (KEEP / REPLACE
+            # / CLEAR / REQUIRE_CLARIFICATION) and its kind, which picks the
+            # context layers the rewrite gets. Deterministic, no model call.
+            try:
+                _plan = context_policy.plan_state_merge(question, _thread_state, prev=prev,
+                                                        is_followup=True)
+                if session is not None:
+                    session.turn_context["plan"] = _plan.to_dict()
+            except Exception:  # noqa: BLE001 — no plan means the pre-plan behaviour
+                logger.warning("context_policy.plan_state_merge failed — continuing without it",
+                               exc_info=True)
+                _plan = None
+            context_budget.log_decision(
+                "followup", signals=_signals, kind=_plan.kind if _plan else None,
+                actions={k: v for k, v in (_plan.actions if _plan else {}).items()
+                         if v != context_policy.KEEP})
+            # "Which one?" with nothing to pick by: ask, never let the rewrite
+            # guess an item (the plan marks it REQUIRE_CLARIFICATION). Not a
+            # remembered pause: the reply is read as a question of its own.
+            if _plan is not None and _plan.action("reference") == context_policy.REQUIRE_CLARIFICATION:
+                raise ClarificationNeeded(
+                    "Which one do you mean? Please name it — the district, block, village or "
+                    "scheme — or ask the whole question, for example \"Which district had the "
+                    "highest disbursement?\"", rule="reference-ambiguous")
+            _extra_ctx = ""
+            if settings.CONTEXT_LAYER_ENABLED and session is not None:
+                try:
+                    _extra_ctx = await context_manager.build_followup_context(
+                        session, question,
+                        state=_thread_state if _thread_state is not ctx_state else None)
+                except Exception:  # noqa: BLE001
+                    logger.warning("context_manager.build_followup_context failed — continuing without it",
+                                   exc_info=True)
+            _data_prev = _data_thread_antecedent(question, prev, session, _plan)
+            if _data_prev is not None:
+                prev = _data_prev
+                context_budget.log_decision("followup", antecedent="last-data-turn",
+                                            schemes=list(getattr(prev, "schemes", None) or []))
+            _all_years_q = (_all_years_rewrite(getattr(prev, "question", "") or "")
+                            if _plan is not None and _plan.action("year") == context_policy.CLEAR
+                            and (_plan.reasons.get("year") or "").startswith("'all of them'") else None)
+            if _all_years_q:
+                question = _all_years_q
+                context_budget.log_decision("followup", rewrite="deterministic-all-years")
+            elif _measure_after_knowledge(question, prev):
+                # After a KNOWLEDGE answer the only context is its scheme:
+                # append it; the typed measure stays word for word.
+                question = f"{question.strip().rstrip(' ?.')} under {prev.schemes[0]}?"
+                context_budget.log_decision("followup", rewrite="deterministic-measure-after-knowledge",
+                                            scheme=prev.schemes[0])
+            else:
+                question = await rewrite_followup(question, prev, extra_context=_extra_ctx,
+                                                  kind=_plan.kind if _plan else None,
+                                                  cleared=_cleared_filters(_plan, prev, _thread_state))
+            # The rewrite can introduce a bare "CM Elevate" alongside a money word
+            # ("...and the amount disbursed?") — same dataset decision as above.
+            _pinned = _pin_cm_elevate_dataset(question)
+            _cm_pinned = _pinned != question
+            question = _pinned
+            is_followup_rewrite = True
+            # "Which year was the highest?" ranks the years: a year the rewrite
+            # carried over from the previous turn would leave only that one
+            # (see _WHICH_YEAR_CUE). A year the user typed is kept.
+            if _WHICH_YEAR_CUE.search(raw_question):
+                _no_year = _drop_inherited_time(question, raw_question)
+                if _no_year != question:
+                    context_budget.log_decision("followup", rewrite="which-year-drops-inherited-year")
+                    question = _no_year
+            # "give me for pmay" after MGNREGA person-days: PMAY-G has no
+            # person-days. Offer PMAY-G's own measures for the same scope
+            # instead of a query that cannot be built (_swap_measure_gap).
+            _gap = _swap_measure_gap(raw_question, question, prev, _thread_state)
+            if _gap is not None:
+                context_budget.log_decision("followup", rewrite="swap-measure-unavailable",
+                                            question=question)
+                # Remembered as the pause's question (routers.query.pause_question):
+                # the first offer is a real question in the new scheme with the
+                # carried scope, so an unmatched typed reply ("houses completed
+                # in West Garo Hills") is rewritten against IT, not against the
+                # measure the new scheme does not hold.
+                if session is not None:
+                    session.turn_context["standalone_question"] = _gap.options[0]["question"]
+                raise _gap
+        elif _CONTEXTLESS_REF.search(_RELATIVE_THAT.sub(" ", question)) and not _mentions_scheme(question):
+            # "how launched it?" with no prior scheme answer — don't guess.
+            return {"route": "edge", "intent": "EDGE", "confidence": "high",
+                    "edge_type": "confused",
+                    "answer": ("I don't have an earlier answer to build on, so I'm not "
+                               "sure what that refers to. Tell me the scheme — MGNREGA, "
+                               "PMAY-G, Focus Plus, CM Elevate, Focus Legacy, or CM Elevate "
+                               "Legacy — and what "
+                               "you'd like to know."),
+                    "suggestions": list(edge.STARTERS),
+                    **_empty_data_fields()}
+
+    # 1b. Re-check edge on the rewrite (cheap, and the rewrite can surface one).
+    #     Same scope-resume carve-out as step 0.
+    hit = None if scope_resumed else edge.detect_edge_case(question, has_context=has_context)
+    if hit and await _mgnrega_village_not_out_of_area(question, hit):
+        hit = None
+    if hit and await _harm_only_from_place_name(question, hit):
+        hit = None
+    if hit:
+        context_budget.log_decision("edge", edge_type=hit["type"], has_context=has_context,
+                                    after_rewrite=True)
+        return {"route": "edge", "intent": "EDGE", "confidence": "high",
+                "answer": hit["response"], "edge_type": hit["type"],
+                "suggestions": hit.get("suggestions", []),
+                "rewritten_question": question if question != raw_question else None,
+                **_empty_data_fields()}
+
+    # 1f. A follow-up fragment that rewrote to a standalone question still
+    #     naming no scheme (and no scheme-specific vocabulary of its own) gets
+    #     the session's pinned scheme appended deterministically — see
+    #     context_manager.inject_scheme_hint. Only for an actual continuation
+    #     (is_followup_rewrite), never for a brand-new question: that case is
+    #     deliberately left to the existing "which scheme?" pause below.
+    if is_followup_rewrite and _thread_state is not None:
+        try:
+            question = context_manager.inject_scheme_hint(question, _thread_state)
+        except Exception:  # noqa: BLE001
+            logger.warning("context_manager.inject_scheme_hint failed — continuing unchanged",
+                           exc_info=True)
+        # "All financial years", once chosen, is a resolved time scope like a
+        # year is (KI-030): carried into a follow-up that keeps the year, so the
+        # year pause is not asked again.
+        try:
+            question = context_manager.inject_year_scope(
+                question, _thread_state, _plan.action("year") if _plan else context_policy.KEEP)
+        except Exception:  # noqa: BLE001
+            logger.warning("context_manager.inject_year_scope failed — continuing unchanged",
+                           exc_info=True)
+    # The question as resolved so far (rewrite, scheme hint, year scope). If
+    # this turn pauses, the router remembers THIS, not the typed fragment
+    # (routers.query.pause_question). Live 2026-09-29: "give me beneficiaries"
+    # was rewritten "…under CM Elevate Legacy", paused for the year, and the
+    # typed "2024-25" merged into "give me beneficiaries, 2024-25" — no scheme,
+    # so it needed a second model rewrite to find it again.
+    if is_followup_rewrite and session is not None:
+        session.turn_context["standalone_question"] = question
+    t.update(question=question, prev=prev, cm_pinned=_cm_pinned, plan=_plan,
+             thread_state=_thread_state, is_followup_rewrite=is_followup_rewrite)
+    return None
+
+
+async def _turn_rephrase_stage(t: dict, session: "Session | None" = None,
+                               scope: "auth.UserScope | None" = None) -> None:
+    """The query rephraser (graph: rephrase, D-037): a messy NEW question becomes
+    one clean English question for every later stage. Skipped for a follow-up
+    (the follow-up rewrite already made it standalone), a pause reply (a chip or
+    "2023-24" must reach the merge exactly), and a question that already reads
+    clean. Never ends the turn and never pauses."""
+    question = t["question"]
+    if (not settings.QUERY_REPHRASE_ENABLED or t["is_followup_rewrite"] or t["scope_resumed"]
+            or (session is not None and (session.turn_context or {}).get("clarification_reply"))
+            # A chip's own question is system-built and exact: "…in SEINDULI I …,
+            # MAWSHYNRUT block, WEST KHASI HILLS" lost its " I" to the rephraser and
+            # was answered for the whole block (PMAY-G all-villages run 2026-10-10).
+            or _CHIP_SCOPE_SUFFIX_MATCH.search(question.strip().rstrip("?. ")) or _CHIP_LEVEL_PHRASE_MATCH.search(question)
+            or not _needs_rephrase(question)):
+        return None
+    out = await rephrase_question(question)
+    if out != question:
+        t["pre_rephrase_question"], t["question"], t["rephrased"] = question, out, True
+        if session is not None:
+            # A pause on this turn remembers the clean question, so the reply
+            # resumes it rather than the messy original (routers.query.pause_question).
+            session.turn_context["standalone_question"] = out
+    return None
+
+
+# A question about a scheme's RULES that happens to say "how many" / "how much":
+# "How many days of work are guaranteed?", "How are wages paid?", "How much
+# assistance is given?". The DATA keywords won the split, so after "What is
+# MGNREGA?" -> "Who can apply?" the third question asked "which scheme?" and the
+# PMAY-G one asked for a district and year (General TC-010, test run
+# 2026-10-09). It is an entitlement the reference docs state, not a figure in
+# megh_db — unless a place, year, grouping or ranking makes it one ("how much
+# assistance was given in Ri Bhoi in 2023-24?" stays DATA).
+class _C14AheadToQuestionMark(_C1xNode):
+    r"""Matches (consuming nothing) when `matcher` finds something between here and
+    the next '?' — the old lookahead [^?]*\b(?:…)\b."""
+
+    def __init__(self, matcher):
+        self.matcher = matcher
+
+    def ends(self, ctx, i, caps):
+        start = ctx.toks[i - 1].end if i > 0 else 0
+        region = ctx.text[start:]
+        q = region.find("?")
+        if q >= 0:
+            region = region[:q]
+        if self.matcher.search(region):
+            yield i, caps
+
+
+_C14_PAST_FIGURE_WORD = Matcher(Alt(W("disbursed", "sanctioned", "spent", "released"),
+                                    Seq("paid", "out", sep="space")))
+_ENTITLEMENT_QUESTION = Matcher(Alt(
+    W("guarantee", "guaranteed", "guarantees", "entitled", "entitlement"),
+    Seq("how", W("are", "is"), Opt("the"),
+        W("wage", "wages", "payment", "payments", "money", "fund", "funds", "assistance", "subsidy", "subsidies",
+          "benefit", "benefits", "instalment", "instalments", "installment", "installments"),
+        W("paid", "given", "released", "transferred", "credited", "disbursed"), sep="space"),
+    NotBefore(Seq("how", "much", Opt("financial"),
+                  W("assistance", "subsidy", "money", "help", "support", "benefit", "amount", "wage", "wages", "loan"),
+                  W("is", "are", "will", "would", "does", "do", "can", "could"), sep="space"),
+              _C14AheadToQuestionMark(_C14_PAST_FIGURE_WORD)),
+    Seq("wage", "rate", sep="space"),
+    Seq(Seq("per", W("house", "household", "family", "member", "beneficiary", "unit", "day"), sep="space"),
+        _C1xCharGap(forbid="?"), W("given", "provided", "paid", "get")),
+))
+_ENTITLEMENT_DATA_SIGNALS = frozenset({"place", "year", "group_by", "rank", "compare"})
+# Figure summaries of a place (see the route stage): never a reference-docs question.
+# (the old pattern had no \b after several of these words: they match as word starts)
+_FIGURE_SUMMARY_MATCH = Matcher(Alt(
+    Seq("financial", W("summary", "position", "status", "overview", prefix=True), sep="space"),
+    W("performance", "pendency"),
+    Seq("status", W("breakdown", prefix=True), sep="space"),            # also "house status breakdown"
+    Seq("house", "status", sep="space"),
+    Seq("expenditure", W("breakdown", prefix=True), sep="space"),
+    Seq("breakdown", W("of", "for"), sep="space"),
+    Seq("key", "figures", sep="space"),
+    Seq("status", "distribution", sep="space"),
+    Seq(W("status"), _C1xGapIs(W("wise"), lambda g: len(g) == 1 and (g.isspace() or g == "-"))),
+))
+_DEFINITION_ASK_MATCH = Matcher(Alt(
+    W("mean", "define", "definition", prefix=True),                        # mean / means / meaning …
+    Seq("explain", W("what", prefix=True), sep="space"),
+    Seq("what", "is", W("a", "an"), sep="space"),
+    Seq("what", "are", "the", W("stages", "categories", prefix=True), sep="space"),
+))
+_WHO_BENEFITS_MATCH = Matcher(Seq(
+    START, _C1xGapIs(W("who"), _c1x_ws0), _C1xGapIs(W("are", "is", "can", "will", "should", "may"), _c1x_ws),
+    _C1xCharGap(forbid="?"),
+    Alt(W("beneficiar", "eligib", "benefit", "target", prefix=True), W("intended", "apply", "covered")),
+))
+_AREA_CHIP_MARKER_MATCH = Matcher(Seq(
+    _C1xGapIs(W("the"), lambda g: g.rstrip().endswith(",")),
+    Opt(Seq(W("c"), _C1xGapIs(W("rd"), lambda g: g == "&"))),
+    Alt(W("block", "village", "district"), Seq("assembly", "constituency", sep="space")),
+    sep="space"))
+# A count of people or things is a figure even when it says "guaranteed":
+# "how many households completed 100 days of guaranteed employment?".
+_ENTITLEMENT_COUNT_VETO = Matcher(Alt(
+    Seq("how", "many", Opt(ANY),
+        Alt(W("household", "households", "person", "persons", "people", "worker", "workers", "families",
+              "work", "works", "village", "villages", "block", "blocks", "district", "districts", "application",
+              "applications", "applicant", "applicants", "house", "houses", "record", "records", "group", "groups",
+              "member", "members", "farmer", "farmers", "jobcard", "jobcards"),
+            Pred(lambda w: w.lower().startswith("beneficiar") and len(w) > len("beneficiar")),
+            Seq(W("job"), _C1xGapIs(W("card", "cards"), _c1x_ws0))), sep="space"),
+    W("completed", "total"),
+    Seq("number", "of", sep="space"),
+))
+_C14_COUNT_WORDS = Matcher(Alt(Seq("how", "many", sep="space"), Seq("number", "of", sep="space"), W("count", "total")))
+_C14_SCOPE_PREP = Matcher(W("across", "under", "in", "for"))
+
+
+def _is_entitlement_question(question: str) -> bool:
+    q = question or ""
+    if not _ENTITLEMENT_QUESTION.search(q) or _ENTITLEMENT_COUNT_VETO.search(q):
+        return False
+    if named_places(q) or context_policy.extract_year_keys(q):
+        return False
+    signals = set(context_policy.continuation_signals(q))
+    return not (signals & _ENTITLEMENT_DATA_SIGNALS)
+
+
+async def _turn_route_stage(t: dict, session: "Session | None" = None,
+                            scope: "auth.UserScope | None" = None) -> "dict | None":
+    """Not-held checks, the village-name search and DATA / KNOWLEDGE (graph: route)."""
+    question, raw_question = t["question"], t["raw_question"]
+    is_followup_rewrite, _plan = t["is_followup_rewrite"], t["plan"]
+    # 1c. Bank / financial-channel details are not held for any loaded scheme —
+    #     say so, with the reason, before routing. Checked ahead of the DATA/
+    #     KNOWLEDGE split: phrasing like "what is the bank-wise disbursement…"
+    #     trips _KNOWLEDGE_HINTS on "what is" and would otherwise dead-end in
+    #     RAG ("not covered in the reference material") instead of explaining
+    #     that the column itself isn't queryable.
+    # ...but "What is DBT?" asks what the term MEANS (a knowledge question the
+    # scheme documents answer), not for bank data (user report 2026-10-14).
+    if _BANK_REQUESTED.search(question) and not _is_scheme_term_question(raw_question):
+        _clarification = _bank_clarification(question)
+        if _clarification is not None:
+            raise _clarification
+
+    # 1d. Administrative expenditure is deliberately excluded from reporting for
+    #     every scheme that has it (see _ADMIN_EXPENDITURE_REQUESTED above) —
+    #     same reasoning and same place as the bank check just above.
+    #     Except MGNREGA: its admin_total_exp column exists, and the use case
+    #     (DATA-013) asks for the aggregate, so the DATA path reports the real
+    #     recorded figure together with the "never populated at source" caveat
+    #     (_mgnrega_admin_expenditure_answer). PMAY-G and the multi-scheme
+    #     wording are unchanged.
+    if _ADMIN_EXPENDITURE_REQUESTED.search(question) \
+            and _named_or_inferred_schemes(question) != ["MGNREGA"]:
+        raise _admin_expenditure_clarification(question)
+
+    # 1e. Named a scheme we simply don't hold ("PM-KISAN", "Ujjwala", "Jal
+    #     Jeevan"). Checked HERE, before the DATA/KNOWLEDGE split, because the
+    #     question is just as often a KNOWLEDGE one ("what is PM Kisan
+    #     Yojana?") as a data one. The check used to live only inside
+    #     the DATA path, so a knowledge-shaped ask sailed past it into RAG,
+    #     found nothing — correctly, it isn't in the reference docs — and got
+    #     the flat "I don't have information about that for MGNREGA, PMAY-G,
+    #     Focus Plus or CM Elevate", which never says WHY or what to do next
+    #     (reported 2026-09-18). The clarification below names the scheme the
+    #     user asked for, says plainly that only four are loaded, and offers
+    #     them as one-tap chips.
+    _unsupported_named = _unsupported_scheme_named(question)
+    if _unsupported_named:
+        raise _unsupported_scheme_clarification(question, _unsupported_named)
+
+    # 1g. "How many villages are named X?" / "which villages contain X in their
+    #     name?" — an entity SEARCH. Answered before routing, so X is never
+    #     narrowed to one resolved place first (see _village_name_search_answer).
+    if _village_name_search(question):
+        try:
+            _vns = await _village_name_search_answer(question)
+        except Exception as e:  # noqa: BLE001
+            if db_is_connection_error(e):
+                raise DatabaseUnavailableError(str(e)) from e
+            logger.warning("village name search failed — routing normally", exc_info=True)
+            _vns = None
+        if _vns:
+            if question != raw_question:
+                _vns["rewritten_question"] = question
+            return _vns
+
+    # 1h. "Which financial years does PMAY-G have?" — the scheme's own data
+    #     years (_scheme_years_answer). Checked before routing: "which years of
+    #     data are available for PMAY-G?" was classified KNOWLEDGE and RAG said
+    #     the reference material does not list them (2026-10-06).
+    _years_schemes = [s for s in SCHEME_CATALOG if s in _exact_schemes(question)]
+    if _years_schemes:
+        _years = _scheme_years_answer(question, _years_schemes)
+        if _years is not None:
+            if question != raw_question:
+                _years["rewritten_question"] = question
+            return _years
+
+    # 2. Route: number question or scheme-rules question? For a rewritten
+    #    follow-up, the user's own words decide when they are decisive — the
+    #    rewrite's phrasing ("What are the beneficiaries of…") must not turn a
+    #    count request into a reference-docs question (live 2026-09-29).
+    # A rephrased question is routed by the user's own words when those decide
+    # it: the rephraser turned "Compare expenditure and person-days in Songsak
+    # block during 2022-23" into "What is the comparison between…", whose "what
+    # is" read as a reference-docs question (MGNREGA sheet DATA-029, 2026-10-09).
+    intent = (_typed_intent(raw_question) if (is_followup_rewrite or question != raw_question) else None)
+    if intent is None and not is_followup_rewrite and question != raw_question \
+            and _KNOWLEDGE_HINTS.search(question) and not _KNOWLEDGE_HINTS.search(raw_question):
+        # The rephrase brought in the knowledge cue: "Give me the overall PMAY
+        # performance of East Khasi Hills" -> "What is the overall PMAY-G
+        # performance…" went to the reference docs (PMAY-G sheet run 2026-10-10).
+        # The user's own words are classified instead.
+        intent = await classify_intent(raw_question)
+    intent = intent or await classify_intent(question)
+    if intent == "DATA" and _is_entitlement_question(raw_question):
+        intent = "KNOWLEDGE"
+    # "Who are the intended beneficiaries of CM-ELEVATE?" asks who the scheme is FOR, not
+    # how many there are; it was answered "8,600 applicants" (CM Elevate Legacy sheet TC-03,
+    # 2026-10-12). A count shape keeps it data.
+    if intent == "DATA" and _WHO_BENEFITS_MATCH.search(raw_question) \
+            and not _C14_COUNT_WORDS.search(raw_question):
+        intent = "KNOWLEDGE"
+    _no_scheme = question
+    for _pat in _SCHEME_NAME_MATCHER.values():
+        _no_scheme = _pat.sub(" ", _no_scheme)
+    if intent == "KNOWLEDGE" and _FIGURE_SUMMARY_MATCH.search(question) and not _DEFINITION_ASK_MATCH.search(question) and (
+            _AREA_CHIP_MARKER_MATCH.search(question) or named_places(question)
+            or _PLACE_SLOT.search(_KNOWLEDGE_HINTS.sub(" ", _no_scheme))
+            # "…status distribution across CM ELEVATE": the scheme itself is the scope
+            or (_named_schemes(question) and _C14_SCOPE_PREP.search(question))):
+        # A figure summary of a named place is data: the which-area chip for "Give
+        # me the PMAY financial summary for Amlarem" carried the rephrased "What is
+        # the PMAY-G financial summary for Amlarem, the block, …" and the reference
+        # docs answered "no published summary" — 26 of 56 blocks (PMAY-G sheet
+        # PMAY-OFF-012, run 2026-10-10).
+        intent = "DATA"
+    context_budget.log_decision("intent", intent=intent, followup=is_followup_rewrite,
+                                kind=_plan.kind if _plan else None,
+                                schemes_named=sorted(_named_schemes(question)))
+    t["intent"] = intent
+    return None
+
+
+async def _turn_knowledge_stage(t: dict, session: "Session | None" = None,
+                                scope: "auth.UserScope | None" = None) -> "dict | None":
+    """The KNOWLEDGE route: RAG over the reference documents (graph: knowledge)."""
+    question, raw_question, prev, intent = t["question"], t["raw_question"], t["prev"], t["intent"]
+    is_followup_rewrite, has_context, _cm_pinned = t["is_followup_rewrite"], t["has_context"], t["cm_pinned"]
+    # 3. KNOWLEDGE -> RAG over the scheme reference docs.
+    if intent == "KNOWLEDGE":
+        # Both CM Elevate datasets share one knowledge base (rag.kb_scheme), so
+        # the data-side "which CM Elevate?" pin means nothing here — give the
+        # question back in the user's own words rather than showing a rewrite.
+        if _cm_pinned:
+            question = _unpin_cm_elevate(question)
+        # How a scheme works is not per year: drop a year the rewrite carried
+        # over from the previous DATA turn (the user never typed it).
+        if is_followup_rewrite:
+            question = _drop_inherited_place(_drop_inherited_time(question, raw_question), raw_question)
+        # Scope retrieval to a single scheme when we're confident which one this
+        # is about — named outright, or (for a follow-up with nothing named of
+        # its own) the scheme the previous turn was about. Without this, vector
+        # search has no scheme filter at all and can blend in another scheme's
+        # content (e.g. PMAY-Urban passages into a PMAY-G-scoped answer).
+        # A self-contained what-is question about a scheme term, asked right
+        # after a DATA turn, was rewritten with that turn's measure — "What is
+        # SECC?" became "What is SECC in calculating MGNREGA person-days?" and
+        # "What is Gram Sabha?" was answered "in the context of MGNREGA
+        # person-days" (user report 2026-10-14). Answer the user's own words; the
+        # previous turn's scheme stays only a first guess (fallback below).
+        _term_q = _is_scheme_term_question(raw_question)
+        if _term_q and is_followup_rewrite:
+            question = raw_question
+        _kb_scheme = None
+        _kb_from_context = False   # the scheme only carried over from the previous turn
+        _named = _named_schemes(question)
+        if len(_named) == 1:
+            _kb_scheme = _named[0]
+        else:
+            # Not named outright — but scheme-specific VOCABULARY pins it just
+            # as reliably, and this is the same signal the DATA path has always
+            # used (_infer_scheme_from_terms returns a scheme only when exactly
+            # one scheme's vocabulary matches). Without it, "What is the role of
+            # Producer Groups under FOCUS?" searched the whole KB unfiltered:
+            # measured on the real corpus, 3 of the top 8 chunks came back from
+            # Focus Plus — which holds no producer-group data at all — and the
+            # single best hit was one of them, so the composer answered the
+            # wrong scheme's question.
+            _inferred = _infer_scheme_from_terms(question)
+            if _inferred and len(_inferred) == 1:
+                _kb_scheme = _inferred[0]
+            # Not when the question says a bare "Focus": that names a scheme —
+            # just not WHICH of the two — so inheriting the previous turn's
+            # scheme would answer the wrong one ("for focus" after a CM Elevate
+            # answer re-answered CM Elevate). It goes to the "which Focus?"
+            # pause below instead.
+            # Only for a message that continues the conversation (step 0-c):
+            # "who is harshit" is not a question about the last turn's scheme.
+            elif (has_context and prev is not None and len(prev.schemes or []) == 1
+                  and not _is_ambiguous_focus(question)):
+                _kb_scheme = prev.schemes[0]
+                _kb_from_context = True
+
+        # Genuinely scheme-agnostic ("tell me about the scheme", "how do I
+        # apply", "what are the benefits") — no scheme named, no follow-up
+        # antecedent, and no vocabulary that pins it to one. Guessing here (or
+        # letting bare vector search pick whichever doc scores highest) is how
+        # a vague question came back "not covered" while quietly assuming
+        # MGNREGA. Ask which of the four schemes instead, same one-tap chips
+        # the DATA path already uses (see _needs_scheme_clarification).
+        # ...but a question that NAMES a scheme we don't recognise ("what is
+        # amma yedi scheme?") is not vague — the user was specific, we simply
+        # don't hold it. Asking "which scheme does your question concern?"
+        # there ignores what they actually asked; say plainly that it isn't
+        # one of the four (reported 2026-09-18).
+        # "What is the village code of Abokgre?" reads as knowledge but is a
+        # registry lookup (user session 2026-10-13).
+        _geo = await _geo_lookup_answer(question)
+        if _geo is not None:
+            return _geo
+        if _kb_scheme is None and _names_unknown_scheme(question):
+            return {"route": "knowledge", "intent": "RAG", "confidence": "low", "sources": [],
+                    "answer": _knowledge_not_covered_answer(question, None),
+                    "rewritten_question": question if question != raw_question else None,
+                    "schemes": [],
+                    **_empty_data_fields()}
+        if _kb_scheme is None and _is_ambiguous_focus(question):
+            raise _focus_ambiguity_clarification(question)
+        # "What is Gram Panchayat?" with nothing before it names no scheme, but it
+        # is not vague either: it asks about one term, and the documents that
+        # explain that term best answer it. Asking "which scheme?" there read as
+        # not knowing (user report 2026-10-14).
+        # The same for a term question whose scheme only came from the previous
+        # turn: SECC is PMAY-G's, so "What is SECC?" after an MGNREGA answer is
+        # answered from PMAY-G — the carried-over scheme still wins when its own
+        # documents match the term best ("What is Gram Sabha?" stays MGNREGA).
+        if _term_q and (_kb_scheme is None or _kb_from_context):
+            _best = await rag.best_kb_scheme(question)
+            if _best:
+                _kb_scheme, _kb_from_context = _best, False
+        if _kb_scheme is None and _needs_scheme_clarification(question):
+            raise _scheme_clarification(question)
+
+        # Two or more schemes named outright ("how do I apply across MGNREGA,
+        # PMAY-G, Focus Plus and CM Elevate") — retrieve each scheme's chunks
+        # separately (see rag.answer_from_kb_multi) instead of one unscoped
+        # search, which otherwise lets one scheme's passages crowd out another's.
+        if len(_named) > 1:
+            kb = await rag.answer_from_kb_multi(question, schemes=_named)
+            base = {"rewritten_question": question if question != raw_question else None,
+                    "schemes": _named}
+        else:
+            # "Give me a short overview of Focus Legacy for an official briefing":
+            # the words "official"/"briefing" pulled the where-to-find-official-info
+            # and institutional-structure chunks, so the answer was a list of
+            # departments with no benefit amount, objective or scale (Focus Legacy
+            # QA TC-09, 2026-09-25). Retrieve with the scheme-overview phrasing
+            # instead; the answer is still written to the user's own question.
+            _retrieval_q = (_scheme_overview_question(_kb_scheme)
+                            if _kb_scheme == "Focus Legacy" and _OVERVIEW_REQUEST.search(question)
+                            else None)
+            # "What is the toll-free helpline number for MGNREGA complaints?"
+            # retrieved nothing on "toll-free number" and got the generic "not in
+            # the reference material" reply. The documents hold the grievance
+            # route (Gram Panchayat, Programme Officer, DPC, Ombudsperson), which
+            # is what a user with a complaint needs (General TC-015, 2026-10-06).
+            if _retrieval_q is None and _kb_scheme and _CONTACT_INFO_CUE.search(question):
+                _retrieval_q = f"How can a complaint or grievance be raised under {_kb_scheme}?"
+            if _retrieval_q:
+                kb = await rag.answer_from_kb(question, scheme=_kb_scheme, retrieval_query=_retrieval_q)
+            else:
+                kb = await rag.answer_from_kb(question, scheme=_kb_scheme)
+            base = {"rewritten_question": question if question != raw_question else None,
+                    "schemes": [_kb_scheme] if _kb_scheme else []}
+            # A scheme only carried over from the previous turn can be the wrong
+            # knowledge base for a term: "What is SECC?" after an MGNREGA answer
+            # searched MGNREGA alone and said "not mentioned" — SECC is PMAY-G's
+            # (user report 2026-10-14). When that search finds nothing, answer
+            # from the other scheme whose documents match the question best.
+            if not kb and _kb_from_context:
+                _alt = await rag.best_kb_scheme(question, exclude=_kb_scheme)
+                if _alt:
+                    kb = await rag.answer_from_kb(question, scheme=_alt)
+                    if kb:
+                        _kb_scheme = _alt
+                        base["schemes"] = [_alt]
+        if kb:
+            return {"route": "knowledge", "intent": "RAG", "confidence": kb["confidence"],
+                    "answer": _focus_legacy_rate_line(question, _kb_scheme, kb["answer"]),
+                    "sources": kb["sources"], "citations": kb.get("citations", []),
+                    **_empty_data_fields(), **base}
+        return {"route": "knowledge", "intent": "RAG", "confidence": "low", "sources": [],
+                "answer": _knowledge_not_covered_answer(question, _kb_scheme),
+                **_empty_data_fields(), **base}
+    return None
+
+
+async def _turn_data_context_stage(t: dict, session: "Session | None" = None,
+                                   scope: "auth.UserScope | None" = None) -> None:
+    """The filters a DATA follow-up inherits (graph: data_context)."""
+    prev, is_followup_rewrite = t["prev"], t["is_followup_rewrite"]
+    _thread_state, _plan = t["thread_state"], t["plan"]
+    # 4. DATA -> NL->SQL. On a hard failure, try the KB once before giving up.
+    # A rewritten follow-up's entities are seeded with the previous turn's
+    # resolved district/block/village/year as a fallback (see resolve_entities'
+    # `prior_resolved` param) — the LLM rewrite works from prev.question/answer
+    # TEXT, so an entity can silently drop if it doesn't literally reappear in
+    # the rewritten wording (e.g. a village name the rewrite paraphrases away).
+    _prior_resolved = prev.resolved_entities if (is_followup_rewrite and prev is not None) else None
+    if is_followup_rewrite and _thread_state is not None:
+        # Extends the fallback above with session-level structured state, so a
+        # KNOWLEDGE/EDGE turn sitting between the last DATA answer and this
+        # follow-up (which leaves resolved_entities empty — see
+        # context_manager.update_state) doesn't erase district/block/village/
+        # year a later "and in 2023-24?" still needs. Turn-level prev values
+        # still win where both are present.
+        try:
+            _prior_resolved = context_manager.merged_prior_resolved(_prior_resolved, _thread_state)
+        except Exception:  # noqa: BLE001
+            logger.warning("context_manager.merged_prior_resolved failed — using turn-level only",
+                           exc_info=True)
+    if is_followup_rewrite and _plan is not None:
+        # Drop from the fallback any field this follow-up REPLACEs, CLEARs or
+        # can't pin. Before this, "show it by district" after a West Garo Hills
+        # turn still inherited the district filter (the LLM extractor finds no
+        # district in "...by district"), and "what about South Garo Hills?"
+        # after a Dalu turn kept block DALU under the new district.
+        _prior_resolved = context_policy.apply_merge_plan(_prior_resolved, _plan)
+    if _prior_resolved and t["raw_question"] and _WHICH_YEAR_CUE.search(t["raw_question"]) \
+            and not context_policy.extract_year_keys(t["raw_question"]):
+        # "Which year was the highest?" ranks the years — the previous turn's
+        # year would leave just that one (see _WHICH_YEAR_CUE). Dropped here as
+        # well as from the rewritten text, since resolve_entities seeds from it.
+        _prior_resolved = {k: v for k, v in _prior_resolved.items() if k not in ("year_key", "year_all")}
+    t["prior_resolved"] = _prior_resolved
+
+
+# "what is <something> scheme/yojana/mission?" — the user named a specific
+# programme by name. When it is none of our four and not in the known
+# unsupported catalogue either, it is still a NAMED ask, not a vague one, so it
+# must not get the "which scheme does your question concern?" pause.
+_C14_SCHEME_NOUNS = frozenset({"scheme", "yojana", "yojna", "mission", "abhiyan", "abhiyaan", "programme", "program"})
+_C14_ASK_LEAD = Alt(W("what", "which", "explain", "describe", "about"), _c1x_lit("tell me about"))
+
+
+def _c14_name_word_end(text: str, k: int) -> int:
+    r"""End of [A-Za-z][\w'-]* at k, or -1."""
+    n = len(text)
+    if not (k < n and text[k].isascii() and text[k].isalpha()):
+        return -1
+    e = k + 1
+    while e < n and (_c1x_is_word_char(text[e]) or text[e] in "'-"):
+        e += 1
+    return e
+
+
+class _C14NamedScheme(_C1xLike):
+    """The old _NAMED_UNKNOWN_SCHEME_MATCH: what / which / tell me about / explain /
+    describe / about, then at most 60 characters with no . ? !, then a name of
+    1-4 words (group "name") right before scheme / yojana / mission / programme …"""
+
+    def _hits(self, text):
+        ctx = _C1xCtx(text)
+        n = len(text)
+        for i in range(len(ctx.toks)):
+            for j, _c in _C14_ASK_LEAD.ends(ctx, i, ()):
+                e0 = ctx.toks[j - 1].end
+                for k in range(e0, min(e0 + 60, n) + 1):
+                    if k > e0 and text[k - 1] in ".?!":
+                        break
+                    if k == e0 or _c1x_is_word_char(text[k - 1]):
+                        continue                         # \b before the name
+                    ends = []
+                    q = _c14_name_word_end(text, k)
+                    while q >= 0 and len(ends) < 4:
+                        ends.append(q)
+                        r = q
+                        while r < n and text[r].isspace():
+                            r += 1
+                        q = _c14_name_word_end(text, r) if r > q else -1
+                    for q in reversed(ends):
+                        r = q
+                        while r < n and text[r].isspace():
+                            r += 1
+                        if r == q:
+                            continue
+                        w = r
+                        while w < n and _c1x_is_word_char(text[w]):
+                            w += 1
+                        if text[r:w].lower() in _C14_SCHEME_NOUNS:
+                            return [Hit(text, ctx.toks[i].start, w, [], {"name": (k, q)})]
+        return []
+
+
+_NAMED_UNKNOWN_SCHEME_MATCH = _C14NamedScheme()
+# Words that make the phrase generic rather than a name ("what is THIS scheme",
+# "about the scheme"), so they must not count as naming one.
+_GENERIC_SCHEME_WORDS = {
+    "the", "this", "that", "a", "an", "any", "each", "every", "all", "these",
+    "those", "your", "which", "what", "some", "other", "another", "such",
+    "government", "govt", "state", "central", "rural", "welfare", "above",
+    # Verbs / fillers the opener can leave in the captured span ("what IS the
+    # scheme") — on their own they name nothing.
+    "is", "are", "was", "were", "do", "does", "did", "me", "about", "of",
+    "for", "in", "on", "it", "they", "you", "i", "we", "tell", "explain",
+    # Generic nouns a scheme question asks ABOUT, never the scheme's name
+    # ("what are the BENEFITS of the scheme").
+    "benefit", "benefits", "eligibility", "criteria", "document", "documents",
+    "purpose", "objective", "objectives", "feature", "features", "detail",
+    "details", "rule", "rules", "process", "procedure", "amount", "subsidy",
+}
+
+
+def _names_unknown_scheme(question: str) -> bool:
+    """True when the question names a specific scheme by name that is neither
+    one of ours nor in the unsupported catalogue."""
+    if _named_schemes(question) or _infer_scheme_from_terms(question):
+        return False                       # one of ours — nothing unknown here
+    # A bare "Focus" names one of OUR schemes — we just don't yet know which of
+    # the two (see _is_ambiguous_focus). Without this, "what is the FOCUS
+    # scheme?" matched the "<name> scheme" pattern below, found "focus" in
+    # neither registry above, and was answered "that isn't a scheme I hold" —
+    # for a scheme with a full reference doc and FAQ in the KB. It must fall
+    # through to the which-Focus ask instead.
+    if _is_ambiguous_focus(question):
+        return False
+    if _unsupported_scheme_named(question):
+        return False                       # handled by its own, better reply
+    m = _NAMED_UNKNOWN_SCHEME_MATCH.search(question or "")
+    if not m:
+        return False
+    words = m.group("name").split()
+    if not words:
+        return False
+    # The scheme's NAME is the word immediately before "scheme"/"yojana"/… —
+    # "amma yedi scheme" names one, "the benefits of the scheme" does not.
+    # Testing the last word alone (rather than the whole captured span) keeps
+    # this from firing on any question that merely mentions a generic noun on
+    # its way to the word "scheme".
+    if words[-1].lower() in _GENERIC_SCHEME_WORDS:
+        return False
+    # A bare "<word> scheme" where that word is an ordinary English filler is
+    # still generic; require something that reads like a proper name.
+    return len(words[-1]) >= 3
+
+
+def _knowledge_not_covered_answer(question: str, scheme: "str | None") -> str:
+    """The reply when the knowledge base genuinely has nothing for a question.
+
+    The old text — "I don't have information about that for MGNREGA, PMAY-G,
+    Focus Plus or CM Elevate" — reads as a dead end: it never says whether the
+    SUBJECT is out of scope or the assistant simply failed, and offers nowhere
+    to go (reported 2026-09-18, "what is PM kisan yojana?"). A question that
+    named a scheme gets a scheme-scoped answer; one that named none is told
+    what IS covered."""
+    if scheme:
+        # Name the reference material actually searched — CM Elevate Legacy has
+        # none of its own, it reads CM Elevate's (rag.kb_scheme). Identity for
+        # every other scheme.
+        # Never name internal sources ("reference material", "knowledge base") to
+        # the user (General TC-015, test run 2026-10-09): say what is not
+        # published and where an officer would get it instead.
+        return (
+            f"That specific detail isn't part of the published information I have on "
+            f"{rag.kb_scheme(scheme)} — your Block office or the district "
+            f"{scheme} cell can give it. I can cover {scheme}'s eligibility, benefits, "
+            "documents and how to apply, and its data by district, block, village or "
+            "financial year. If you meant a different scheme, tell me which."
+        )
+    return (
+        "That isn't something I hold. I cover six Meghalaya schemes — MGNREGA "
+        "(rural employment), PMAY-G (rural housing), Focus Plus (farmer cash "
+        "benefit), CM Elevate (livelihood and enterprise support — its applications), "
+        "CM Elevate Legacy (CM Elevate's sanctions and disbursements) and Focus Legacy "
+        "(producer group payments) — both how "
+        "each one works and its actual data. If your question is about one of "
+        "those, name it and I'll answer; if it's about another scheme or another "
+        "state, that's outside what I can see."
+    )
+
+
+async def _data_path_kb_fallback(question: str) -> dict:
+    """The DATA path genuinely couldn't produce a query (bad/uncoverable question,
+    not an infra blip) — try the knowledge base once, then give the 'rephrase it'
+    reply. Transient gateway errors are handled by the caller and never reach here."""
+    # A figure question about a place or year cannot be answered from the scheme
+    # documents: they replied "the published scheme information does not contain
+    # figures for Gambegre block…", which reads as if the data did not exist
+    # (MGNREGA sheet DATA-005/014/029, run 2026-10-09). Say the query failed.
+    kb = None if _is_data_shaped(question) else await rag.answer_from_kb(question)
+    if kb:
+        return {"route": "knowledge", "intent": "RAG", "confidence": kb["confidence"],
+                "answer": kb["answer"], "sources": kb["sources"], **_empty_data_fields()}
+    # Name the scheme(s) actually in play, not a hardcoded pair — this message used
+    # to always say "MGNREGA / PMAY-G data" even for a Focus Plus / CM Elevate
+    # question, which reads as if the conversation's own context had been dropped
+    # (it hadn't — this text just never grew past the original two-scheme build).
+    _fallback_schemes = _named_schemes(question) or _infer_scheme_from_terms(question)
+    _schemes_text = " / ".join(_fallback_schemes) if _fallback_schemes else " / ".join(SCHEME_CATALOG)
+    return {"route": "data", "intent": "DATA", "confidence": "low",
+            "answer": ("I understood the question but couldn't build a working query for it "
+                       f"against the current {_schemes_text} data. Try rephrasing it, or ask "
+                       "for a simpler breakdown first (e.g. \"PMAY-G sanctions by district "
+                       "for 2023\")."),
+            **_empty_data_fields()}

@@ -267,7 +267,7 @@ def test_focus_legacy_label_really_is_absent_from_its_own_docs():
     Legacy", this test fails and the naming note can be reconsidered."""
     from pathlib import Path
 
-    ref = Path("data/reference")
+    ref = Path("data/incoming/Focus_Legacy")   # was data/reference/ until 2026-10-14
     for name in ("FOCUS_legacy_Complete_Reference.md", "FOCUS_LEGACY_FAQ.md"):
         text = (ref / name).read_text(encoding="utf-8").lower()
         assert "focus legacy" not in text, (

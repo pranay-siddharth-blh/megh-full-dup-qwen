@@ -58,6 +58,11 @@ def env(monkeypatch, tmp_path):
     """The stubs. `env.run_rows` is a list of results / exceptions run_readonly
     returns in turn (the last one repeats)."""
     calls = Calls()
+    # These tests exercise the pause / resume machinery with a question that pauses
+    # for its area / year; ANSWER_DEFAULTS_ENABLED (2026-10-14) answers those
+    # directly, so it is off here — the machinery still serves the real ambiguities.
+    from app.config import settings as _settings
+    monkeypatch.setattr(_settings, "ANSWER_DEFAULTS_ENABLED", False)
 
     class Env:
         pass

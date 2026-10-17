@@ -32,11 +32,10 @@ TWO independent defects, both fixed:
    `no_usable_value` branch could not catch it either, because _row_metrics
    drops NULL cells before the test.
 """
-import re
-
 import pytest
 
 from app.pipeline import _row_metrics
+from app.text_match import END, Alt, Matcher, Seq
 from app.schema_context import build_schema_context
 
 
@@ -153,14 +152,20 @@ def test_the_guard_is_wired_into_compose_response():
 
 
 # ── the SQL shape the rule teaches actually works ──────────────────────────
-def test_core_name_pattern_strips_the_group_suffix():
+def test_core_name_matcher_strips_the_group_suffix():
     """What rule 5a asks the generator to do, as a local string check: the
     group-type words come off, leaving the core name that ILIKE will match."""
-    # No trailing \b — it cannot match after the optional "." in "P.G.".
-    suffix = re.compile(
-        r"[\s,]*\b(?:producer\s+groups?|producer\s+grp|p\.?\s*g\.?|group)\.?\s*$",
-        re.IGNORECASE,
-    )
+    # The group-type words as the LAST words of the name; only a "." (as in
+    # "P.G.") and whitespace may follow them.
+    suffix = Matcher(Alt(Seq("producer", ("group", "groups", "grp"), sep="space"),
+                         Seq("p", "g"), "pg", "group"), END)
+
+    def core_of(typed: str) -> str:
+        hit = suffix.search(typed)
+        if hit is None or typed[hit.end():].strip() not in ("", ".", ".."):
+            return typed.strip()
+        return typed[:hit.start()].rstrip(" \t\r\n,").strip()
+
     for typed, core in [
         ("Sakania Producer Group", "Sakania"),
         ("Sakania PG", "Sakania"),
@@ -168,4 +173,4 @@ def test_core_name_pattern_strips_the_group_suffix():
         ("Muskan Group", "Muskan"),
         ("Sakania", "Sakania"),
     ]:
-        assert suffix.sub("", typed).strip() == core, typed
+        assert core_of(typed) == core, typed

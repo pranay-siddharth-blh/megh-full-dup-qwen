@@ -15,7 +15,7 @@ classifier saw the bare words with no context, returned KNOWLEDGE, and RAG
 answered.
 
 Now pipeline._scheme_substitution / is_scheme_substitution recognise any
-continuation wording plus exactly one scheme from _SCHEME_NAME_PATTERN (the
+continuation wording plus exactly one scheme from _SCHEME_NAME_MATCHER (the
 registry). A pure one reuses the deterministic _scheme_swap_rewrite on the
 previous question, so intent, metric, geography, time and grouping carry over
 verbatim. The merge plan labels it SCHEME_SUBSTITUTION, and the router keeps it
@@ -24,7 +24,6 @@ Pure Python — the classifier is stubbed; no DB, model or KB.
     .venv/Scripts/python.exe -m pytest tests/test_scheme_substitution.py -q
 """
 import asyncio
-import re
 import sys
 import time
 from pathlib import Path
@@ -37,6 +36,7 @@ from app import context_policy as cp  # noqa: E402
 from app import entity_resolver, llm, pipeline as p  # noqa: E402
 from app.routers import query as router  # noqa: E402
 from app.session_store import ConversationState, Session, Turn  # noqa: E402
+from app.text_match import Matcher, Seq  # noqa: E402
 from _graph_turn import data_stage_from, graph_turn, stub_data_path  # noqa: E402
 
 SCHEMES = list(p.SCHEME_CATALOG)
@@ -148,16 +148,16 @@ def _run(prev_turn, state, followup, *, model_rewrite="unused"):
         return {"answer": "general info", "confidence": "medium", "sources": []}
 
     import app.rag as rag
-    orig = (llm.call_classifier, p._data_scheme_stage, rag.answer_from_kb)
-    llm.call_classifier, p._data_scheme_stage, rag.answer_from_kb = (
-        classifier, data_stage_from(fake_answer_data), kb)
+    orig = (llm.call_classifier, llm.call_rewriter, p._data_scheme_stage, rag.answer_from_kb)
+    llm.call_classifier, llm.call_rewriter, p._data_scheme_stage, rag.answer_from_kb = (
+        classifier, classifier, data_stage_from(fake_answer_data), kb)
     try:
         s = Session(session_id="t", user_id="u", created=time.time(), last_seen=time.time())
         s.turns, s.state = [prev_turn], state
         res = asyncio.run(graph_turn(followup, session=s))
         seen["route"], seen["plan"] = res.get("route"), s.turn_context.get("plan") or {}
     finally:
-        llm.call_classifier, p._data_scheme_stage, rag.answer_from_kb = orig
+        llm.call_classifier, llm.call_rewriter, p._data_scheme_stage, rag.answer_from_kb = orig
     return seen
 
 
@@ -214,8 +214,8 @@ def test_substitutions_are_never_cached():
 
 
 def test_a_seventh_scheme_works_without_code_changes(monkeypatch):
-    monkeypatch.setitem(p._SCHEME_NAME_PATTERN, "Test Scheme",
-                        re.compile(r"\btest\s+scheme\b", re.IGNORECASE))
+    monkeypatch.setitem(p._SCHEME_NAME_MATCHER, "Test Scheme",
+                        Matcher(Seq("test", "scheme", sep="space")))
     monkeypatch.setitem(p.SCHEME_CATALOG, "Test Scheme", "synthetic")
     assert p._scheme_substitution("give me same for Test Scheme") == ("Test Scheme", True)
     assert p._scheme_swap_rewrite("How many beneficiaries under MGNREGA?", "give me same for test scheme") == \

@@ -28,34 +28,48 @@ so it must stay literal, not softened).
 Edge / denied / clarification turns get nothing here — those routes carry their
 own next-step UI (starter chips on edge, the clarification options).
 """
-import re
+from sqlglot import exp
+
+from app import sql_ast
+from app.text_match import Alt, Joined, Matcher, Node, NotAfter, NotBefore, Pred, Seq, W
 
 _MAX = 3
 
+
+class _FuPlusAfter(Node):
+    """Zero-width after a word: the text right after it is (spaces and) '+'."""
+
+    def ends(self, ctx, i, caps):
+        if i == 0:
+            return
+        nxt = ctx.toks[i].start if i < len(ctx.toks) else len(ctx.text)
+        if ctx.text[ctx.toks[i - 1].end:nxt].lstrip().startswith("+"):
+            yield i, caps
+
+
+_FU_CME = Joined("cm", "elevate")
+_FU_LEGACY_TAIL = W("legacy", "disbursement", "disbursements")
 _SCHEME_RX = {
-    "MGNREGA": re.compile(r"\bmgnrega\b|\bmnrega\b|\bnrega\b", re.IGNORECASE),
-    "PMAY-G": re.compile(r"\bpmay[\s-]?g?\b|\bawa+s?\b", re.IGNORECASE),
-    "Focus Plus": re.compile(r"\bfocus[\s-]?plus\b|\bfocus\s*\+|\bfocusplus\b", re.IGNORECASE),
-    # Same lookarounds as pipeline._SCHEME_NAME_PATTERN: "CM Elevate Legacy" is
+    "MGNREGA": Matcher(W("mgnrega", "mnrega", "nrega")),
+    "PMAY-G": Matcher(Alt(W("pmay", "pmayg"), Seq("pmay", "g"),
+                          Pred(lambda w: w.lower().rstrip("s")[:2] == "aw"
+                               and set(w.lower().rstrip("s")[2:]) == {"a"}
+                               and len(w.lower()) - len(w.lower().rstrip("s")) <= 1))),
+    "Focus Plus": Matcher(Alt(Joined("focus", "plus"), Seq(W("focus"), _FuPlusAfter()))),
+    # Same lookarounds as pipeline._SCHEME_NAME_MATCHER: "CM Elevate Legacy" is
     # the other CM Elevate dataset, not this one.
-    "CM Elevate": re.compile(
-        r"(?<!legacy )\bcm[\s-]?elevate\b(?![\s-]*(?:legacy|disbursements?)\b)|"
-        r"(?<!legacy )\bcmelevate\b(?![\s-]*(?:legacy|disbursements?)\b)",
-        re.IGNORECASE),
-    "Focus Legacy": re.compile(
-        r"\bfocus[\s-]?legacy\b|\bfocuslegacy\b|\blegacy[\s-]?focus\b|"
-        r"\bold[\s-]?focus\b|\bfocus[\s-]?pg\b|\bpg[\s-]?focus\b",
-        re.IGNORECASE),
-    "CM Elevate Legacy": re.compile(
-        r"\bcm[\s-]?elevate[\s-]*(?:legacy|disbursements?)\b|"
-        r"\bcmelevate[\s-]*(?:legacy|disbursements?)\b|"
-        r"\blegacy[\s-]+cm[\s-]?elevate\b|\belevate[\s-]?legacy\b",
-        re.IGNORECASE),
+    "CM Elevate": Matcher(NotAfter(NotBefore(_FU_CME, _FU_LEGACY_TAIL), "legacy")),
+    "Focus Legacy": Matcher(Alt(Joined("focus", "legacy"), Joined("legacy", "focus"), Joined("old", "focus"),
+                                Joined("focus", "pg"), Joined("pg", "focus"))),
+    "CM Elevate Legacy": Matcher(Alt(
+        Seq(_FU_CME, _FU_LEGACY_TAIL),
+        W("cmelevatelegacy", "cmelevatedisbursement", "cmelevatedisbursements"),
+        Seq("legacy", _FU_CME), Joined("elevate", "legacy"))),
 }
 
 
 def _norm(s: str) -> str:
-    return re.sub(r"[^a-z0-9 ]+", "", (s or "").lower()).strip()
+    return "".join(c for c in (s or "").lower() if c == " " or ("a" <= c <= "z") or ("0" <= c <= "9")).strip()
 
 
 def _asked(question: str, *needles: str) -> bool:
@@ -77,31 +91,62 @@ def _primary_schemes(schemes: list[str], question: str) -> list[str]:
 # ── answer grain (read off the generated SQL's GROUP BY) ────────────────────
 _LEVEL_RANK = {"state": 0, "district": 1, "block": 2, "village": 3}
 
-_GROUPBY_RX = re.compile(
-    r"group\s+by\s+(.+?)(?:\border\s+by\b|\blimit\b|\bhaving\b|\)|;|$)",
-    re.IGNORECASE | re.DOTALL,
-)
-_DISTRICT_COL_RX = re.compile(r"district|dist_?name", re.IGNORECASE)
-_BLOCK_COL_RX = re.compile(r"\bblock\b|block_?name|lgd_block", re.IGNORECASE)
-_VILLAGE_COL_RX = re.compile(r"village|lgd_village|panchayat", re.IGNORECASE)
+# Column-name cues (a column name is one word: "district_name", "lgd_block").
+_DISTRICT_COL_RX = Matcher(Pred(lambda w: any(s in w.lower() for s in ("district", "distname", "dist_name"))))
+_BLOCK_COL_RX = Matcher(Alt(W("block"), Pred(lambda w: any(s in w.lower() for s in
+                                                           ("blockname", "block_name", "lgd_block")))))
+_VILLAGE_COL_RX = Matcher(Pred(lambda w: any(s in w.lower() for s in ("village", "panchayat"))))
+
+
+def _group_by_names(sql: str) -> "list[str]":
+    """Lower-cased names in the query's GROUP BY, read from the parsed tree:
+    the outer query's GROUP BY, else the first one anywhere (a CTE's). A
+    position (GROUP BY 1) is the output column at that position: its column
+    names and alias. [] when nothing is grouped or the text does not parse."""
+    for tree in sql_ast.parse(sql):
+        sel = sql_ast.outer_select(tree)
+        group = sel.args.get("group") if sel is not None else None
+        if group is None:
+            group = next(iter(tree.find_all(exp.Group)), None)
+        if group is None:
+            continue
+        owner = group.parent if isinstance(group.parent, exp.Select) else sel
+        names: list[str] = []
+        for term in group.expressions:
+            if isinstance(term, exp.Literal) and not term.is_string and owner is not None:
+                try:
+                    term = owner.expressions[int(term.this) - 1]
+                except (ValueError, IndexError):
+                    continue
+                if term.alias:
+                    names.append(term.alias.lower())
+            names += [(c.name or "").lower() for c in term.find_all(exp.Column)]
+        return names
+    return []
+
+
+def _grain_of_name(name: str) -> str | None:
+    """'village' / 'block' / 'district' for a grouped column name, else None."""
+    if "village" in name or "panchayat" in name:
+        return "village"
+    if name == "block" or "block_name" in name or "blockname" in name or "lgd_block" in name:
+        return "block"
+    if "district" in name or "dist_name" in name or "distname" in name:
+        return "district"
+    return None
 
 
 def _answer_grain(sql: str | None) -> str | None:
     """The finest geography level the answer is grouped to, read off the SQL's
-    GROUP BY (this is the same signal the UI shows as its 'GROUP BY lgd_district'
-    source chip). None when the query returns a single aggregate row."""
+    GROUP BY on the parsed tree (this is the same signal the UI shows as its
+    'GROUP BY lgd_district' source chip). None when the query returns a single
+    aggregate row."""
     if not sql:
         return None
-    m = _GROUPBY_RX.search(sql)
-    if not m:
-        return None
-    cols = m.group(1)
-    if _VILLAGE_COL_RX.search(cols):
-        return "village"
-    if _BLOCK_COL_RX.search(cols):
-        return "block"
-    if _DISTRICT_COL_RX.search(cols):
-        return "district"
+    grains = {_grain_of_name(n) for n in _group_by_names(sql)}
+    for level in ("village", "block", "district"):
+        if level in grains:
+            return level
     return None
 
 
@@ -134,7 +179,7 @@ def _grain_suffix(ents: dict, grain: str | None) -> str:
     return ""
 
 
-def _top_area_from_rows(rows: list | None, col_rx: "re.Pattern") -> str | None:
+def _top_area_from_rows(rows: list | None, col_rx: Matcher) -> str | None:
     """Name of the row with the largest metric value, keyed by the first column
     whose name matches `col_rx`. None if the row shape isn't obvious — this only
     feeds a suggestion, so a wrong guess is a slightly-off drill target, not a

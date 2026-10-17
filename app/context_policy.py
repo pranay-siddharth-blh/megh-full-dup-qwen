@@ -19,12 +19,14 @@ at all, whether a coarser change invalidates them, whether they can be
 validated offline, and whether a changed value is the user's intent or a
 contamination. FIELD_POLICIES records that per field (docs/AI_PIPELINE.md
 §5.4 has the same table). The policy is keyed by FIELD, never by scheme:
-adding a scheme to SCHEME_CATALOG / _SCHEME_NAME_PATTERN needs nothing here.
+adding a scheme to SCHEME_CATALOG / _SCHEME_NAME_MATCHER needs nothing here.
 """
 from __future__ import annotations
 
-import re
 from dataclasses import dataclass, field
+
+from app.text_match import (Alt, Cap, Joined, Matcher, Node, Opt, Pred, Seq, W,
+                            is_int, tokens)
 
 KEEP = "KEEP"
 REPLACE = "REPLACE"
@@ -89,7 +91,7 @@ FIELD_POLICIES: dict[str, FieldPolicy] = {p.name: p for p in (
     FieldPolicy("scheme", True, True, False,
                 "no scheme named and no scheme vocabulary (scheme-not-specified); a bare "
                 "'Focus' (focus-scheme-ambiguous)",
-                "scheme registry (_SCHEME_NAME_PATTERN / SCHEME_CATALOG)"),
+                "scheme registry (_SCHEME_NAME_MATCHER / SCHEME_CATALOG)"),
     FieldPolicy("district", True, True, True,
                 "a hill-range name covering several districts (region-needs-district)",
                 "resolver catalogue (12 districts, acronyms)",
@@ -124,63 +126,211 @@ FIELD_POLICIES: dict[str, FieldPolicy] = {p.name: p for p in (
 
 
 # ── Deterministic signals ───────────────────────────────────────────────────
-_YEAR_RANGE_RX = re.compile(r"\b(?:fy\s*)?(20\d{2})\s*[-/–]\s*(\d{2}|20\d{2})\b", re.IGNORECASE)
-_YEAR_BARE_RX = re.compile(r"\b(?:fy\s*)?(20\d{2})\b", re.IGNORECASE)
-_RELATIVE_YEAR_RX = re.compile(
-    r"\b(?:last|previous|prior|next|following|preceding|same|this|current)\s+"
-    r"(?:financial\s+|fiscal\s+)?(?:year|fy)\b|\byear\s+(?:before|after)\b", re.IGNORECASE)
-_ALL_YEARS_RX = re.compile(
-    r"\ball\s+(?:the\s+)?(?:financial\s+)?years\b|\bevery\s+year\b|\bacross\s+(?:all\s+)?years\b|"
-    r"\b(?:year[\s-]?wise|by\s+year|per\s+year|each\s+year|cumulative|all[\s-]time)\b",
-    re.IGNORECASE)
+# Word-level patterns (app/text_match.py, D-047: no regex). The _cp_* helpers
+# below are shared with context_manager / conversation_layer /
+# conversation_replies / topic_memory / followups for the few spots a word
+# pattern must look at the characters between words.
+
+def _cp_has(*subs: str) -> Pred:
+    """One word containing any of `subs` (an unanchored regex fragment)."""
+    subs = tuple(s.lower() for s in subs)
+    return Pred(lambda w: any(s in w.lower() for s in subs))
+
+
+def _cp_ends(*subs: str) -> Pred:
+    subs = tuple(s.lower() for s in subs)
+    return Pred(lambda w: w.lower().endswith(subs))
+
+
+def _cp_starts(*subs: str) -> Pred:
+    subs = tuple(s.lower() for s in subs)
+    return Pred(lambda w: w.lower().startswith(subs))
+
+
+class _CpSep(Node):
+    """Zero-width: the characters between the previous word and this one
+    satisfy ok(gap)."""
+
+    def __init__(self, ok):
+        self.ok = ok
+
+    def ends(self, ctx, i, caps):
+        if 0 < i < len(ctx.toks) and self.ok(ctx.gap(i)):
+            yield i, caps
+
+
+class _CpStart(Node):
+    """START, and the characters before the first word satisfy ok()."""
+
+    def __init__(self, ok):
+        self.ok = ok
+
+    def ends(self, ctx, i, caps):
+        if i == 0 and self.ok(ctx.text[:ctx.toks[0].start] if ctx.toks else ctx.text):
+            yield i, caps
+
+
+class _CpEnd(Node):
+    """END, and the characters after the last word satisfy ok()."""
+
+    def __init__(self, ok):
+        self.ok = ok
+
+    def ends(self, ctx, i, caps):
+        if i == len(ctx.toks) and self.ok(ctx.text[ctx.toks[-1].end:] if ctx.toks else ctx.text):
+            yield i, caps
+
+
+class _CpNextChar(Node):
+    """Zero-width, after a word: the text ends there or the next character
+    satisfies ok(ch) (a regex lookahead (?=$|[...]))."""
+
+    def __init__(self, ok):
+        self.ok = ok
+
+    def ends(self, ctx, i, caps):
+        if i == 0:
+            return
+        pos = ctx.toks[i - 1].end
+        if pos >= len(ctx.text) or self.ok(ctx.text[pos]):
+            yield i, caps
+
+
+def _cp_ws(s: str) -> bool:
+    """Only whitespace (regex \\s*)."""
+    return s.strip() == ""
+
+
+def _cp_end_punct(s: str) -> bool:
+    """regex \\s*[?.!]*\\s*$"""
+    return all(c in "?.!" for c in s.strip())
+
+
+def _cp_gap_opt1(g: str) -> bool:
+    """regex [\\s-]? between two words that touch it."""
+    return g == "-" or (len(g) == 1 and g.isspace())
+
+
+def _cp_glued(a: str, b: str, gap=_cp_gap_opt1) -> Node:
+    """The unanchored regex `a<gap>b`: one word containing a+b, or a word
+    ending in `a`, a separator gap() accepts, and a word starting with `b`."""
+    return Alt(_cp_has(a + b), Seq(_cp_ends(a), _CpSep(gap), _cp_starts(b)))
+
+
+def _cp_has_term(low: str, term: str) -> bool:
+    """`term` in `low` with no ASCII letter on either side (regex
+    (?<![a-z])term(?![a-z]) on lower-cased text)."""
+    if not term:
+        return False
+    start = low.find(term)
+    while start != -1:
+        end = start + len(term)
+        before = low[start - 1] if start > 0 else ""
+        after = low[end] if end < len(low) else ""
+        if not (before and "a" <= before <= "z") and not (after and "a" <= after <= "z"):
+            return True
+        start = low.find(term, start + 1)
+    return False
+
+
+def _cp_y20(w: str) -> bool:
+    return len(w) == 4 and w.startswith("20") and is_int(w)
+
+
+# "2024" or "FY2024" (one word): the year is the word's last four characters.
+_CP_FY_YEAR = Pred(lambda w: _cp_y20(w) or (w[:2].lower() == "fy" and _cp_y20(w[2:])))
+_CP_YEAR_TAIL = Pred(lambda w: is_int(w) and (len(w) == 2 or _cp_y20(w)))
+
+# "FY 2024-25", "2024/25", "2024 – 2025"; group(1) ends with the start year.
+_YEAR_RANGE_RX = Matcher(Seq(Opt("fy"), Seq(Cap(_CP_FY_YEAR), _CP_YEAR_TAIL, sep="dash")))
+_YEAR_BARE_RX = Matcher(Seq(Opt("fy"), Cap(_CP_FY_YEAR)))
+_RELATIVE_YEAR_RX = Matcher(Alt(
+    Seq(W("last", "previous", "prior", "next", "following", "preceding", "same", "this", "current"),
+        Opt(W("financial", "fiscal")), W("year", "fy")),
+    Seq("year", W("before", "after"))))
+_ALL_YEARS_RX = Matcher(Alt(
+    Seq("all", Opt("the"), Opt("financial"), "years"), "every year", Seq("across", Opt("all"), "years"),
+    Joined("year", "wise"), "by year", "per year", "each year", "cumulative", Joined("all", "time")))
 _ALL_GEO_RX = {
-    "district": re.compile(
-        r"\ball\s+(?:the\s+)?districts\b|\bevery\s+district\b|\bdistrict[\s-]?wise\b|"
-        r"\b(?:by|per|each)\s+district\b|\bstate[\s-]?wide\b|\ball\s+of\s+meghalaya\b|"
-        r"\b(?:whole|entire)\s+(?:state|meghalaya)\b|\bacross\s+(?:the\s+)?state\b", re.IGNORECASE),
-    "block": re.compile(
-        r"\ball\s+(?:the\s+)?blocks\b|\bevery\s+block\b|\bblock[\s-]?wise\b|"
-        r"\b(?:by|per|each)\s+block\b", re.IGNORECASE),
-    "village": re.compile(
-        r"\ball\s+(?:the\s+)?villages\b|\bevery\s+village\b|\bvillage[\s-]?wise\b|"
-        r"\b(?:by|per|each)\s+village\b", re.IGNORECASE),
+    "district": Matcher(Alt(
+        Seq("all", Opt("the"), "districts"), "every district", Joined("district", "wise"),
+        Seq(W("by", "per", "each"), "district"), Joined("state", "wide"), "all of meghalaya",
+        Seq(W("whole", "entire"), W("state", "meghalaya")), Seq("across", Opt("the"), "state"))),
+    "block": Matcher(Alt(
+        Seq("all", Opt("the"), "blocks"), "every block", Joined("block", "wise"),
+        Seq(W("by", "per", "each"), "block"))),
+    "village": Matcher(Alt(
+        Seq("all", Opt("the"), "villages"), "every village", Joined("village", "wise"),
+        Seq(W("by", "per", "each"), "village"))),
 }
-_GROUP_BY_RX = re.compile(
-    r"\b(?:by|per|each|across)\s+(?:the\s+)?(district|block|village|year|tranche|scheme|"
-    r"gender|category|month|status|sub[\s-]?scheme)s?\b|"
-    r"\b(district|block|village|year|scheme|tranche|gender|category|month|status)[\s-]?wise\b|"
-    r"\bbreak\s+(?:it|that|this|them)?\s*down\b|\bbreakdown\b|\bsplit\b", re.IGNORECASE)
-_COMPARE_RX = re.compile(r"\b(?:compare|comparison|versus|vs\.?|between)\b", re.IGNORECASE)
-_ALL_CATEGORY_RX = re.compile(
-    r"\ball\s+(?:the\s+)?(?:categories|tranches|sub[\s-]?schemes|genders)\b|"
-    r"\b(?:everyone|all\s+beneficiaries|regardless\s+of)\b", re.IGNORECASE)
-_DEMOGRAPHIC_RX = re.compile(
-    r"\b(women|woman|female|females|men|male|males|gender|girls?|boys?|farmers?|widows?|"
-    r"youth|disabled|pwd|divyang|minority|minorities|bpl|sc|st|obc|scheduled\s+(?:caste|tribe)s?|"
-    r"general\s+category|pvtg)\b", re.IGNORECASE)
-_TRANCHE_RX = re.compile(r"\btranch(?:e)?\s*[-#]?\s*(\d)\b", re.IGNORECASE)
+_CP_BY_DIMS = ("district", "block", "village", "year", "tranche", "scheme", "gender", "category",
+               "month", "status")
+_GROUP_BY_RX = Matcher(Alt(
+    Seq(W("by", "per", "each", "across"), Opt("the"),
+        Alt(W(*_CP_BY_DIMS, *(d + "s" for d in _CP_BY_DIMS)), Joined("sub", ("scheme", "schemes")))),
+    Joined(_CP_BY_DIMS, "wise"),
+    Seq("break", Opt(W("it", "that", "this", "them")), "down"), W("breakdown", "split")))
+_COMPARE_RX = Matcher(W("compare", "comparison", "versus", "vs", "between"))
+_ALL_CATEGORY_RX = Matcher(Alt(
+    Seq("all", Opt("the"), Alt(W("categories", "tranches", "genders"), Joined("sub", "schemes"))),
+    "everyone", "all beneficiaries", "regardless of"))
+_DEMOGRAPHIC_RX = Matcher(Cap(Alt(
+    W("women", "woman", "female", "females", "men", "male", "males", "gender", "girl", "girls", "boy",
+      "boys", "farmer", "farmers", "widow", "widows", "youth", "disabled", "pwd", "divyang", "minority",
+      "minorities", "bpl", "sc", "st", "obc", "pvtg"),
+    Seq("scheduled", W("caste", "castes", "tribe", "tribes")), "general category")))
+
+
+def _cp_tranche_numbers(text: str) -> list[str]:
+    """The digit of every "tranche 2" / "tranche-2" / "tranch #3" / "tranche2"
+    (the old \\btranch(?:e)?\\s*[-#]?\\s*(\\d)\\b)."""
+    toks = tokens(text)
+    t = text or ""
+    out = []
+    for k, tok in enumerate(toks):
+        if tok.low in ("tranche", "tranch"):
+            if k + 1 < len(toks):
+                nxt = toks[k + 1]
+                if (t[tok.end:nxt.start].strip() in ("", "-", "#") and len(nxt.raw) == 1
+                        and is_int(nxt.raw)):
+                    out.append(nxt.raw)
+            continue
+        for stem in ("tranche", "tranch"):
+            rest = tok.low[len(stem):]
+            if tok.low.startswith(stem) and len(rest) == 1 and is_int(rest):
+                out.append(rest)
+                break
+    return out
+
+
+# The tranche cue as a word pattern ("tranche 2", "tranche2"); the digits
+# themselves come from _cp_tranche_numbers.
+_TRANCHE_RX = Matcher(Alt(
+    Seq(W("tranche", "tranch"), Pred(lambda w: len(w) == 1 and is_int(w))),
+    Pred(lambda w: any(w.lower().startswith(s) and len(w) == len(s) + 1 and is_int(w[-1])
+                       for s in ("tranche", "tranch")))))
 # "all of them combined", "in total", "both together": every value of the
 # dimension the conversation was just varying, not a filter on the last one.
-_ALL_OF_THEM_RX = re.compile(
-    r"\ball\s+(?:of\s+)?(?:them|these|those|three|two|four)\b|\bboth\b|\btogether\b|\bcombined\b|"
-    r"\baltogether\b|\bin\s+total\b|\boverall\b", re.IGNORECASE)
-_AMBIGUOUS_REF_RX = re.compile(r"\b(?:the\s+)?other\s+one\b|\bthe\s+former\b|\bthe\s+latter\b",
-                               re.IGNORECASE)
+_ALL_OF_THEM_RX = Matcher(Alt(
+    Seq("all", Opt("of"), W("them", "these", "those", "three", "two", "four")),
+    W("both", "together", "combined", "altogether", "overall"), "in total"))
+_AMBIGUOUS_REF_RX = Matcher(Alt(Seq(Opt("the"), "other", "one"), "the former", "the latter"))
 
 # Metric FAMILIES for the rewrite check. Finer than "is there a metric", coarser
 # than the labels context_manager tracks, so that a paraphrase ("how much" ->
 # "amount disbursed") is the same family and only a genuinely new measure
 # (money -> beneficiary count) is a change.
-_METRIC_FAMILIES: dict[str, re.Pattern] = {
-    "money": re.compile(r"\bhow\s+much\b|\bamount|disburs|\bpaid\b|\bpayments?\b|\bspen[dt]|"
-                        r"expenditure|\bfunds?\b|releas|sanction(?:ed)?\s+amount|\bwages?\b|"
-                        r"\bcost|\brs\.?\b|rupee|\blakh|\bcrore", re.IGNORECASE),
-    "count": re.compile(r"\bhow\s+many\b|\bnumber\s+of\b|\bcount\b|beneficiar|applica|"
-                        r"households?|job\s*cards?|registrations?|members|\bhouses\b|farmers|"
-                        r"groups|\bpgs?\b", re.IGNORECASE),
-    "days": re.compile(r"person[\s-]?days?|man[\s-]?days?|work[\s-]?days?|100[\s-]?days?",
-                       re.IGNORECASE),
-    "completion": re.compile(r"complet", re.IGNORECASE),
+_METRIC_FAMILIES: dict[str, Matcher] = {
+    "money": Matcher(Alt(
+        "how much", W("amount", "spend", "spent", "cost", "lakh", "crore", prefix=True),
+        _cp_has("disburs", "expenditure", "releas", "rupee"),
+        W("paid", "payment", "payments", "fund", "funds", "wage", "wages", "rs"))),
+    "count": Matcher(Alt(
+        "how many", "number of", W("count", "houses", "pg", "pgs"),
+        _cp_has("beneficiar", "applica", "household", "registration", "members", "farmers", "groups"),
+        _cp_glued("job", "card", gap=_cp_ws))),
+    "days": Matcher(Alt(*(_cp_glued(a, "day") for a in ("person", "man", "work", "100")))),
+    "completion": Matcher(_cp_has("complet")),
 }
 
 # Words a rewrite may capitalise without them being names (sentence starts,
@@ -196,17 +346,21 @@ _NAME_STOPWORDS = {
     "rs", "inr", "lakh", "crore", "january", "february", "march", "april", "may", "june",
     "july", "august", "september", "october", "november", "december",
 }
-_CAP_WORD_RX = re.compile(r"\b[A-Z][A-Za-z]{2,}\b")
+# A capitalised ASCII word of 3+ letters (the old \b[A-Z][A-Za-z]{2,}\b; case-sensitive).
+_CAP_WORD_RX = Matcher(Pred(lambda w: len(w) >= 3 and w.isascii() and w.isalpha() and w[0].isupper()))
 
 
 def extract_year_keys(text: str) -> set[int]:
     """Financial-year start years named in the text: "FY 2024-25", "2024-25",
     "2024/25" -> 2024; a bare "2024" -> 2024."""
     t = text or ""
-    years = {int(m.group(1)) for m in _YEAR_RANGE_RX.finditer(t)}
+    years = {int(m.group(1)[-4:]) for m in _YEAR_RANGE_RX.finditer(t)}
     stripped = _YEAR_RANGE_RX.sub(" ", t)
-    years |= {int(m.group(1)) for m in _YEAR_BARE_RX.finditer(stripped)}
+    years |= {int(m.group(1)[-4:]) for m in _YEAR_BARE_RX.finditer(stripped)}
     return years
+
+
+_CP_HOW_MUCH = Matcher(Seq("how", "much"))
 
 
 def metric_families(text: str) -> set[str]:
@@ -219,10 +373,10 @@ def category_terms(text: str) -> set[str]:
     any catalogue holds."""
     t = text or ""
     out = {m.group(1).lower().rstrip("s") for m in _DEMOGRAPHIC_RX.finditer(t)}
-    out |= {f"tranche {m.group(1)}" for m in _TRANCHE_RX.finditer(t)}
+    out |= {f"tranche {d}" for d in _cp_tranche_numbers(t)}
     low = t.lower()
     for form, canonical in _catalog_category_forms():
-        if re.search(rf"(?<![a-z]){re.escape(form)}(?![a-z])", low):
+        if _cp_has_term(low, form):
             out.add(canonical)
     return out
 
@@ -276,30 +430,40 @@ def _schemes_named(text: str) -> set[str]:
 # can: scheme or measure vocabulary, a place, a year, a grouping or comparison,
 # a reference into the previous answer, or a question about how a scheme works.
 # Deterministic; a message with none of these is a NEW query, and routes as one.
-_REFERENCE_RX = re.compile(
-    r"\b(?:it|its|that|those|these|them|they|there|this|same|one|ones|former|latter|other|"
-    r"both|each|either|neither|rest|remaining|previous|above|earlier|again|instead|"
+_REFERENCE_RX = Matcher(W(
+    "it", "its", "that", "those", "these", "them", "they", "there", "this", "same", "one", "ones",
+    "former", "latter", "other", "both", "each", "either", "neither", "rest", "remaining", "previous",
+    "above", "earlier", "again", "instead",
     # meta: "what did I ask before?", "you said 5,000"
-    r"before|asked|said|told|answer(?:ed)?|question)\b",
-    re.IGNORECASE)
-_RANK_RX = re.compile(
-    r"\b(?:top|bottom|first|second|third|last|next|highest|lowest|largest|smallest|biggest|"
-    r"most|least|more|less|fewer|higher|lower|bigger|smaller|greater|max(?:imum)?|min(?:imum)?|"
-    r"average|mean|sum|total|count|rank|ranking|sort|order|percent(?:age)?|share|ratio|rate|"
-    r"difference|change|growth|trend|increase|decrease)\b", re.IGNORECASE)
+    "before", "asked", "said", "told", "answer", "answered", "question"))
+_RANK_RX = Matcher(W(
+    "top", "bottom", "first", "second", "third", "last", "next", "highest", "lowest", "largest",
+    "smallest", "biggest", "most", "least", "more", "less", "fewer", "higher", "lower", "bigger",
+    "smaller", "greater", "max", "maximum", "min", "minimum", "average", "mean", "sum", "total",
+    "count", "rank", "ranking", "sort", "order", "percent", "percentage", "share", "ratio", "rate",
+    "difference", "change", "growth", "trend", "increase", "decrease"))
 # How-the-scheme-works vocabulary: the knowledge follow-ups ("Documents?",
 # "who can apply?", "when was it launched?") that name no scheme of their own.
-_SCHEME_TOPIC_RX = re.compile(
-    r"\b(?:benefits?|eligib\w*|documents?|apply|applying|application|applicants?|criteria|"
-    r"launch\w*|start(?:ed)?|objectives?|purpose|aims?|goals?|components?|rules?|guidelines?|"
-    r"procedure|process|steps?|entitle\w*|subsid\w*|grants?|loans?|interest|amount|payments?|"
-    r"instal+ments?|tranch\w*|batch\w*|status|agency|agencies|department|ministry|officer|"
-    r"nodal|implement\w*|fund\w*|budget|covered|coverage|register\w*|enrol\w*|helpline|"
-    r"contact|portal|website|office|deadline|age|income|land|farmers?|women|men|gender|"
-    r"categor\w*|sectors?|programmes?|programs?|sub[\s-]?schemes?|details?|more|explain|"
-    r"elaborate|why|how)\b", re.IGNORECASE)
-_LEAD_RX = re.compile(
-    r"^\s*(?:what|how)\s+about\b|^\s*what\s+of\b|^\s*(?:and|also|same|then)\b", re.IGNORECASE)
+_SCHEME_TOPIC_RX = Matcher(Alt(
+    W("benefit", "benefits", "document", "documents", "apply", "applying", "application", "applicant",
+      "applicants", "criteria", "start", "started", "objective", "objectives", "purpose", "aim", "aims",
+      "goal", "goals", "component", "components", "rule", "rules", "guideline", "guidelines",
+      "procedure", "process", "step", "steps", "grant", "grants", "loan", "loans", "interest", "amount",
+      "payment", "payments", "status", "agency", "agencies", "department", "ministry", "officer",
+      "nodal", "budget", "covered", "coverage", "helpline", "contact", "portal", "website", "office",
+      "deadline", "age", "income", "land", "farmer", "farmers", "women", "men", "gender", "sector",
+      "sectors", "programme", "programmes", "program", "programs", "detail", "details", "more",
+      "explain", "elaborate", "why", "how"),
+    W("eligib", "launch", "entitle", "subsid", "tranch", "batch", "implement", "fund", "register",
+      "enrol", "categor", prefix=True),
+    # instal+ments?
+    Pred(lambda w: w.lower().rstrip("s").startswith("instal")
+         and w.lower().rstrip("s")[len("instal"):].lstrip("l") == "ment"),
+    Joined("sub", ("scheme", "schemes"))))
+# "what about …", "what of …", "and …", "also …" at the very start.
+_LEAD_RX = Matcher(Seq(_CpStart(_cp_ws), Alt(Seq(W("what", "how"), "about"), "what of",
+                                             W("and", "also", "same", "then"))))
+
 
 
 def continuation_signals(question: str) -> list[str]:
@@ -354,11 +518,20 @@ def continuation_signals(question: str) -> list[str]:
 # with no predicate. What it points at cannot be read from the previous result
 # (which one of what, by what measure?), so the answer is a question back, not
 # a rewrite the model has to guess.
-_BARE_REFERENCE_RX = re.compile(
-    r"^\s*(?:and|so|ok(?:ay)?|then)?\s*,?\s*(?:which|what|that|this|the)\s+(?:one|ones)"
-    r"(?:\s+(?:then|now|exactly|again))?\s*[?.!]*\s*$|"
-    r"^\s*(?:and\s+)?which\s+of\s+(?:them|these|those)\s*[?.!]*\s*$",
-    re.IGNORECASE)
+def _cp_comma_gap(g: str) -> bool:
+    """Only whitespace and at most one comma (the old \\s*,?\\s*)."""
+    return g.strip() in ("", ",")
+
+
+_CP_WHICH_ONE = Seq(W("which", "what", "that", "this", "the"), W("one", "ones"),
+                    Opt(W("then", "now", "exactly", "again")), sep="space")
+_BARE_REFERENCE_RX = Matcher(Alt(
+    Seq(_CpStart(_cp_ws), W("and", "so", "ok", "okay", "then"), _CpSep(_cp_comma_gap), _CP_WHICH_ONE,
+        _CpEnd(_cp_end_punct)),
+    Seq(_CpStart(_cp_comma_gap), _CP_WHICH_ONE, _CpEnd(_cp_end_punct)),
+    Seq(_CpStart(_cp_ws), Seq(Opt("and"), "which", "of", W("them", "these", "those"), sep="space"),
+        _CpEnd(_cp_end_punct))))
+
 
 
 def is_bare_reference(question: str) -> bool:
@@ -621,7 +794,7 @@ def rewrite_violation(rewritten: str, *, question: str, allowed_text: str, denie
     # — money was allowed (the state line said metric=disbursement), so the
     # check above passed while the count the user asked for was gone. "how
     # much" is left out: it is money or quantity depending on the noun.
-    own = metric_families(re.sub(r"\bhow\s+much\b", " ", question or "", flags=re.IGNORECASE))
+    own = metric_families(_CP_HOW_MUCH.sub(" ", question or ""))
     if own - metric_families(rewritten):
         return "metric"
     if category_terms(rewritten) - category_terms(allowed_text):
@@ -633,8 +806,8 @@ def rewrite_violation(rewritten: str, *, question: str, allowed_text: str, denie
             lw = w.lower()
             if lw in _NAME_STOPWORDS:
                 continue
-            in_denied = re.search(rf"(?<![a-z]){re.escape(lw)}(?![a-z])", denied_low)
-            in_allowed = re.search(rf"(?<![a-z]){re.escape(lw)}(?![a-z])", allowed_low)
+            in_denied = _cp_has_term(denied_low, lw)
+            in_allowed = _cp_has_term(allowed_low, lw)
             if in_denied and not in_allowed:
                 return "name"
     return None

@@ -61,7 +61,7 @@ def test_rephrase_rejects_a_split_village_name():
 ])
 def test_mixed_average_ratio_rewritten(sql):
     out = p._mgnrega_avg_of_ratio(["MGNREGA"], sql)
-    assert "SUM(person_days)::numeric / NULLIF(SUM(households_employed), 0)" in out
+    assert "CAST(SUM(person_days) AS DECIMAL) / NULLIF(SUM(households_employed), 0)" in out  # ::numeric, regenerated
     assert "AVG(" not in out
 
 
@@ -87,7 +87,7 @@ def test_combined_facts_answer_states_both_figures():
 def test_breakdown_query_and_answer():
     q = "Give me the expenditure breakdown for Myriem during 2023-24."
     sql, params, shown = p._mgnrega_breakdown_query(q, ["MGNREGA"], {"village_code": 1, "year_key": 2023})
-    assert p._MG_BREAKDOWN_SQL_RE.search(sql) and params == [1, 2023]
+    assert p._MG_BREAKDOWN_SQL_SHAPE.search(sql) and params == [1, 2023]
     row = {"unskilled_wages_lakh": 17.52, "semi_skilled_wages_lakh": 4.58, "materials_lakh": 8.77,
            "tax_lakh": 0, "administrative_lakh": 0, "total_lakh": 30.87}
     a = p._mgnrega_breakdown_answer(row, {"village": "Myriem", "year": "FY 2023-24"})
@@ -169,7 +169,7 @@ def test_during_is_not_a_name():
 def test_wage_material_deterministic():
     sql, params, _ = p._mgnrega_wage_material_query("Was more spent on wages or materials in JAKREM?",
                                                      ["MGNREGA"], {"village_code": 1, "year_key": 2024})
-    assert p._MG_WAGE_MATERIAL_SQL_RE.search(sql) and params == [1, 2024]
+    assert p._MG_WAGE_MATERIAL_SQL_SHAPE.search(sql) and params == [1, 2024]
     a = p._mgnrega_wage_material_answer({"wage_exp_lakh": 219.48, "material_exp_lakh": 113.89, "source_rows": 4},
                                         {"village": "Jakrem", "year": "FY 2024-25"})
     assert "More was spent on wages" in a and "219.48 lakh" in a and "113.89 lakh" in a

@@ -73,7 +73,7 @@ sequential driver was removed on 2026-10-06 (D-036).
 | Run the SQL repair loop as an explicit cycle | Own the conversation (the Session in Postgres still does) |
 | Pause for a clarification with `interrupt()` and resume later | Use LangChain prompts, models, retrievers or chains |
 
-> **The golden rule.** New logic always goes into a **stage function** in `app/pipeline.py`, never
+> **The golden rule.** New logic always goes into a **stage function** in `app/pipeline/`, never
 > into a graph node. Nodes stay thin wrappers, so behaviour lives in one place.
 
 ### 1.4 Is it running?
@@ -100,7 +100,7 @@ test (`test_the_graph_is_the_only_orchestrator`) keeps them out.
                                    ▼
                     _turn_*_stage · _data_*_stage · _scheme_sql_rewrites ·
                     _execute_one_attempt · _repair_sql · _data_path_error_result ·
-                    _attach_followups · _update_context        (app/pipeline.py)
+                    _attach_followups · _update_context        (app/pipeline/)
 ```
 
 ### 2.2 The complete graph
@@ -172,7 +172,7 @@ Steps 1–3 and 5 happen **outside** the graph. A cache hit never reaches LangGr
 | File | What it holds | You touch it when… |
 |---|---|---|
 | `app/pipeline_graph.py` (~824 lines) | The graph: state, 22 nodes, edges, checkpointer, entry point, pause sweeper | You add/move a node or change routing |
-| `app/pipeline.py` | The stage functions every node calls; the entry point `answer_question` (calls the graph) | You change **any** behaviour |
+| `app/pipeline/` | The stage functions every node calls; the entry point `answer_question` (calls the graph) | You change **any** behaviour |
 | `app/routers/query.py` | `POST /api/query`: login, caches, session sync, error → HTTP mapping | You change the HTTP contract |
 | `app/llm.py` | Every model call (classifier, SQL generator, verifier, composer, embedding, reranker) | You change a model or prompt call |
 | `app/db.py` | Postgres pool and the read-only SQL runner (`run_readonly`) with safety checks | You change DB access |
@@ -249,13 +249,13 @@ There is **no** on/off setting: the graph always runs (D-036).
 
 ### Step 3: Split the old pipeline into stage functions
 
-**Where:** `app/pipeline.py`. **This is the most important step.**
+**Where:** `app/pipeline/`. **This is the most important step.**
 
 Write the pipeline as functions that each take a **mutable turn dict** and return either `None`
 ("carry on") or a **result dict** ("the answer is ready, stop"). (Historically they were cut, verbatim,
 out of the old `_run_pipeline` / `_answer_data` / `execute_with_repair`, which are now gone.)
 
-| Stage (in `app/pipeline.py`) | Signature | Becomes node |
+| Stage (in `app/pipeline/`) | Signature | Becomes node |
 |---|---|---|
 | `_turn_context_stage` | `(t, session, scope) -> dict \| None` | `context` |
 | `_turn_edge_stage` | same | `edge` |
@@ -494,7 +494,7 @@ exceptions the router maps to 503 / 504 / 5xx.
 
 ### Step 12: Point the public entry point at the graph
 
-**Where:** `answer_question` in `app/pipeline.py`.
+**Where:** `answer_question` in `app/pipeline/`.
 
 ```python
 async def answer_question(question, session=None, scope=None):
@@ -547,7 +547,7 @@ Legend: **Model** = an LLM call through `app/llm.py`. **DB** = a Postgres query 
 | 3 | `followup` → `_turn_followup_stage` | Turns a fragment into a full question: "What about West Garo Hills?" → "Houses sanctioned under PMAY-G in West Garo Hills in 2023-24". Builds a merge plan (keep / replace / drop filters) | classifier | – | ✓ | ✓ |
 | 4 | `rephrase` → `_turn_rephrase_stage` | **Query rephraser.** A messy new question (typos, Hinglish, voice text, no question shape) becomes one clean English question for every later step. Skipped for follow-ups, pause replies and clean questions. Rejected if it changes meaning ([§6.4](#64-the-query-rephraser)) | classifier (only when messy) | – | – | – |
 | 5 | `route` → `_turn_route_stage` | Fixed checks first (bank, admin expenditure, unsupported scheme, village search), then `classify_intent` → DATA or KNOWLEDGE | classifier | village search | ✓ | ✓ |
-| 6 | `knowledge` → `_turn_knowledge_stage` | RAG: embed (local `bge-small-en-v1.5`), search Qdrant (top 12), keep the best 8 by vector score (≥ 0.30). The reranker is **off** (`RERANKER_ENABLED=False`). Score ≥ 0.84 → top chunk verbatim; ≥ 0.55 → composed answer | embed, composer | Qdrant | ✓ | ✓ |
+| 6 | `knowledge` → `_turn_knowledge_stage` | RAG: embed (local `bge-small-en-v1.5`), search Qdrant (top 12), re-sort them with the local jina-turbo reranker (`RAG_LOCAL_RERANKER`, **on**), keep the best 8 (≥ 0.30). The remote qwen3-reranker is **off** (`RERANKER_ENABLED=False`). Score ≥ 0.84 → top chunk verbatim; ≥ 0.55 → composed answer | embed, composer | Qdrant | ✓ | ✓ |
 
 ### 6.2 Part B: answering from the database (DATA path)
 
@@ -888,7 +888,7 @@ and the turn continues exactly as before the rephraser existed.
 | `QUERY_REPHRASE_TIMEOUT_SECONDS` | `8` | Rephraser model call; on timeout the original question goes on |
 | `QUERY_REPHRASE_MAX_CHARS` | `400` | Longer messages are not rephrased |
 
-`MAX_SQL_REPAIRS = 3` is a constant in `app/pipeline.py`, not a setting.
+`MAX_SQL_REPAIRS = 3` is a constant in `app/pipeline/`, not a setting.
 
 > **Never set `LANGSMITH_TRACING` or `LANGCHAIN_TRACING_V2`.** The `langsmith` package comes with
 > LangGraph; turning tracing on would send questions and answers to an external service.
@@ -1021,7 +1021,7 @@ be deleted.
 
 ## 16. Adding a new node later
 
-1. Write the logic as a **stage function** in `app/pipeline.py`.
+1. Write the logic as a **stage function** in `app/pipeline/`.
 2. Add new state keys to `MeghalayaGraphState` (plain data only) and to `fresh_turn_state` if they
    must reset each turn.
 3. Write `node_x` with `@_observed(name, inputs=…, outputs=…, data=…)`. Return only changed keys.
@@ -1055,7 +1055,7 @@ be deleted.
 | Node | One step of the graph (e.g. `entities`); here a thin wrapper around a stage |
 | Edge | The arrow to the next node; a conditional edge picks it from the state |
 | State | The dictionary that travels from node to node during one run |
-| Stage function | The real logic in `app/pipeline.py`, called by one graph node |
+| Stage function | The real logic in `app/pipeline/`, called by one graph node |
 | Orchestrator | The code that decides which step runs next: here, only LangGraph |
 | Checkpoint | A saved copy of a paused run |
 | Thread | One conversation's checkpoints; `thread_id = session_id` |

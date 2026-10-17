@@ -3,6 +3,83 @@
 **Last updated:** 2026-10-13 (evening), by the Cross Scheme sheet session (KI-280..290, D-044; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-03 (early morning), by the all-schemes all-places QA + fix session (KI-188..199, D-034; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-02, by the LangGraph integration session (D-032; code changed, uncommitted; **offline-verified only**, VPN down). Before that: 2026-09-29 (early morning), by the conversational scheme-swap session (KI-180; code changed, uncommitted). Before that: 2026-09-29 (late night), by the CM Elevate Legacy use-case re-test session (no code changed; KI-166..168 opened). Before that: 2026-09-29 (night), by the Focus Legacy all-levels fix session (KI-020, KI-145..165, D-031; code changed, uncommitted). Before that: 2026-09-29, by the context-relevance / semantic-contract session (code changed, uncommitted; D-030, KI-030/032/034 and KI-130 to KI-135; **offline-verified only**, VPN down). Before that: 2026-09-28 (evening), by the CM Elevate all-blocks / all-villages fix session (code changed in `app/pipeline.py`, tests; uncommitted). Before that: 2026-09-28, by the PMAY-G fix session (code changed, uncommitted; D-029, KI-089 to KI-097). Before that: 2026-09-27 night, by the Focus Plus all-blocks / all-villages session (code changed in `app/pipeline.py`, tests in `tests/test_focusplus_usecase_fixes.py` and `tests/test_mgnrega_usecase_fixes.py`; **uncommitted**). Earlier the same day: the CM Elevate use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/schema_context.py`, plus a new test file; **uncommitted**). Before that, the same day: the Focus Plus use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/routers/query.py`, **uncommitted**, on top of the uncommitted 2026-09-26 MGNREGA and context work).
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
+## Latest: following the ingestion team's DB changes of 2026-10-16. Code changed, uncommitted. D-049, KI-304/305.
+Source: `CHATBOT_DB_CHANGES_2026-10-16.md`; reply `docs/Chatbot_Answers_to_Ingestion_Team_2026-10-16.md`. **No DB change.**
+- `schema_introspect`: prompt now carries column UNIT + exact VALUES lists, the metric definitions (the old reader used
+  wrong keys and printed none), `v_join_rules`, `v_data_coverage`; LIVE SCHEMA hides privacy tables and every column
+  `megh_readonly` cannot SELECT (`v_cm_elevate.scheme_specific`); fact-table notes dropped.
+- Guards: `_prohibited_row_join` (any pair in v_join_rules), `_readonly_denied_column_in`; `sql_guard` refuses the 3
+  privacy tables (`private_table`).
+- CM Elevate: every count = `COUNT(DISTINCT request_id)` (8,840); sector -> `sector_id` column; gender and
+  Approved/Rejected -> measure-not-held ("not available"); "pending" stays On Hold (user decision). Few-shots adapted at
+  load (`annotations._fit_examples_to_db`): 13 CM Elevate, 1 Focus Plus, 3 Focus Legacy dropped (meta / locked column).
+- Rules: Focus Plus/Focus Legacy money = rupees (catalog UNIT); no `meta.*`; no `scheme_code 'FOCUS'`.
+- Pools: `DB_POOL_MIN_SIZE` 10 -> 1 (also local `.env`), `DB_POOL_IDLE_SECONDS=120`.
+- **Open (KI-304):** the app still logs in as `postgres` — needs the megh_readonly password from the ingestion team.
+- Tests: pytest **2,667 passed, 0 failed**, 2 skipped (3 shards; +26 in `tests/test_db_changes_2026_10_16.py`, 2 stale
+  cases updated). NL->SQL eval 95.9% (71/74) — see TESTING.md for PM-04.
+
+## Latest: spoken / FY2022-23 years, audit trace, /metrics accuracy (2026-10-16, late). Uncommitted. KI-289, KI-305.
+- Years: "FY2022-23" and spoken years are read (errors.md cases 10-11, both live-verified).
+- Audit (JSONL + app.query_audit) now stores SQL, error, few-shot ids, repairs, verifier rejections, outcome,
+  request id; the new columns are added by `appdb.ensure_schema` on the next server start.
+- /metrics `accuracy`: live SQL outcome / repair counters (per worker) + latest full NL->SQL eval run.
+- pytest **2,704 passed, 0 failed**.
+
+## Earlier: one query per scheme (KI-011) + RAG score floor enforced (KI-304) (2026-10-16, evening). Uncommitted.
+- Multi-scheme SQL prompts over the 15,360-token budget now fan out to one query per scheme (each with its own
+  guards / repairs), rows tagged `scheme`. Live-verified on a CM Elevate + Focus Legacy question.
+- `RAG_MIN_SCORE` has no fallback any more. KB v3 eval: 92.1% -> 90.2% correct, made-up 13.4% -> 14.4% (noise);
+  the 0.30 floor never binds on KB v3 (all pieces >= 0.548). Results: tests/rag_eval/results/2026-10-16_kbv3_*.
+
+## Earlier: no regex anywhere + business definitions (2026-10-16). Code changed, uncommitted. D-047, D-048.
+- **No regex (D-047):** every regex in app/, tests/, data/ and frontend/src replaced — English text by the word
+  matcher `app/text_match.py`, SQL by `app/sql_ast.py`, the UI by string methods (`npm run build` done).
+  pytest **2,606 passed, 0 failed**; scripts 13/14 (`test_context_manager.py`: the separate memory-retention change).
+- **Business definitions (D-048, errors.md cases 1-3, KI-229 / KI-035 / KI-040):** backbone rules (gender; people
+  across years; MGNREGA households vs persons), 12 executed few-shots, and the `_mgnrega_people_years_alias`
+  rewrite + answer note, and a verifier false-positive filter for those shapes. **LIVE-VERIFIED 2026-10-16: cases
+  1-3 all correct** (23,758 men; 105,813; 1,494,437 household-years labelled as such). Held-out accuracy:
+  93.2% (16:24) then 100% (18:09, 74/74). Caveat: another session changed code, the DB and reworded FP-12 and
+  CE-11 in questions.yaml between those runs; on the 72 unchanged questions the 18:09 run is 72/72.
+
+## Earlier: all SQL handling moved from regex to SQLGlot (2026-10-15, evening). Code changed, uncommitted. D-046, KI-303.
+New `app/sql_ast.py` (shared SQLGlot helpers). Converted: `auth.py` (district/block filters read on the tree: UPPER(col),
+every IN value, OR branches; unparseable SQL refused for restricted users), c01/c02/c10–c13 and all six
+`app/pipeline/schemes/*.py` guards and rewrites, `_extract_sql` (token stream), followups.py, the offline
+`data/cm_elevate/prompt_assembler.py` validator and the SQL checks in tests/harnesses. SQL generation/repair send no
+`guided_regex`; `SQL_GUIDED_DECODING_ENABLED` is no longer read (kept so an existing .env loads). Fixed on the way:
+the MGNREGA employment x expenditure fan-out inside a CTE is now flagged. Remaining regex reads English only
+(questions, answers, verifier complaints, DB error text, row key names). Tests: pytest **2,585 passed, 0 failed**
+(baseline 2,558); scripts 13/14 — `test_context_manager.py` fails on the separate, uncommitted memory-retention
+change in `app/conversation_memory.py` (a `range` condition in the Qdrant filter; not SQL work).
+Visible change: a rewrite that fires regenerates the SQL in SQLGlot's layout (`CAST(x AS DECIMAL)`, one line).
+LIVE held-out NL->SQL eval (tests/nl2sql_eval, VPN, superuser override as for the baseline): **79.7% (59/74)** vs
+78.4% baseline-final — 0 regressions, 1 fixed (CL-05). Results: `tests/nl2sql_eval/results/2026-10-15_2032_sqlglot-only.json`.
+
+## Latest: empty duplicate table under cross-scheme answers removed (2026-10-15). Code changed, uncommitted. KI-302.
+The chat UI skips its pivot table and charts for `cross_scheme` results (the answer text already has the tables); the
+flag is stored with the turn for reopened threads. `npm run build` done. Tests: `tests/test_cross_scheme_history_flag.py`
+(2 passed). Not yet checked in a live browser.
+
+## Latest: pipeline.py split into the app/pipeline/ package (2026-10-15). Code moved, uncommitted. Behaviour-identical.
+The 18,698-line `app/pipeline.py` is now `app/pipeline/`: `common/` (14 shared-step files c01..c14) and `schemes/`
+(one file per scheme: mgnrega, pmay_g, focus_plus, cm_elevate, focus_legacy, cm_elevate_legacy), executed by
+`__init__.py` into one shared namespace; LangGraph (`pipeline_graph.py`, 22 nodes) unchanged. Verified: slices re-join byte for byte,
+1,065 names / 504 functions / 362 regexes identical; pytest 2,372 passed, 2 skipped; scripts 14/14. Tests that read
+the pipeline source now join the files in `_PIPELINE_FILES` order. Same day: `/api/scheme-stats` (app/routers/stats.py) feeds the
+welcome cards live megh_db figures. `sqlglot` (needed by app/sql_guard.py) installed in .mvenv, not yet in requirements.txt.
+
+## Latest: answer-defaults + hierarchy matrix (2026-10-14). Code changed, uncommitted. LIVE-VERIFIED (village run in progress).
+User decision (D-045): answer, don't ask — no year = all years combined, no area = all of Meghalaya, no tranche = all
+tranches, no scheme = each scheme that records the measure (ANSWER_DEFAULTS_ENABLED, default on). From the user's
+2026-10-13 UI session (300 turns in app.conversation_turns) and a new hierarchy matrix (every scheme x every measure
+x state / district / block / constituency / village, tests/sheet_runs/matrix/): KI-291..299 fixed, KI-289 closed,
+plus job cards as a stock, FY2022-23 spacing, guardrail data-question overrule, relative "that", unasked year
+splits, MGNREGA expenditure components, chip pin for every scheme, "<exact name> village" wins over the extractor.
+Matrix: state/district/block/AC 2,150/2,150; villages in progress. NOTE: the UI the user tested runs the GitHub
+main line (NRLM onboarding, 36b7427), not this branch — merge needed before these fixes show there.
+
 ## Latest: Cross Scheme sheet test + fixes (2026-10-13). Code changed, uncommitted. LIVE-VERIFIED.
 CROSS-1..CROSS-20: 9th run 0/20 (18 paused, 2 wrong), after the fixes 20/20; 8,649/8,649 conversations (every scheme
 combination, level, FY and village). New `app/cross_scheme.py` (D-044): comparisons of 2+ schemes answered
@@ -737,7 +814,7 @@ DDL.
   incident.
 - `compose_response` faithfulness and hedge checks.
 - `db.run_readonly` / `_assert_safe`.
-- `_SCHEME_NAME_PATTERN`, `_is_ambiguous_focus` and `_pin_cm_elevate_dataset`: the scheme-name
+- `_SCHEME_NAME_MATCHER`, `_is_ambiguous_focus` and `_pin_cm_elevate_dataset`: the scheme-name
   collision handling.
 - `_reply_abandons_scope_pause` and the `pending_scope_q` resume logic.
 - `data/<scheme>/*.yaml`: the SME contract. Change it only with an SME-backed reason, and keep

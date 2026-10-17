@@ -8,7 +8,6 @@ Usage (repo root): pm_run.py [PMAY-OFF-001 ...]  -> pm_results.json (PM_OUT)"""
 import asyncio
 import json
 import os
-import re
 import sys
 
 os.environ.setdefault("SHEET_SCHEME", "PMAY-G")
@@ -207,7 +206,6 @@ async def main():
             def chk22(rec, p=p, win=win):
                 ok = num_ok(rec, p["c1"]) and num_ok(rec, p["c2"])
                 ans = (rec.get("answer") or "")
-                hi = re.search(r"([A-Za-z ]+?)\s+(?:village\s+)?(?:\([^)]*\)\s+)?(?:has|is)\s+(?:more|higher)", ans)
                 return ok and has_name(rec, win), f"{p['n1']}={p['c1']} {p['n2']}={p['c2']} winner={win}"
             T.append(run_case("PMAY-OFF-022", f"{p['n1']} vs {p['n2']}",
                               f"Which has more completed houses: {p['n1']} or {p['n2']}?", chk22, year="all",

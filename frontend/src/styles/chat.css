@@ -1844,3 +1844,105 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 @media (max-width: 480px) {
   .kbd-row { align-items: flex-start; flex-direction: column; gap: 6px; }
 }
+
+/* ============== ZOOMABLE LINE CHARTS (Charts.jsx useLineZoom) ==============
+   The bar sits under the chart inside its box; the box keeps its height and
+   the chart gives up the bar's room (Chart.js sizes to the content box). */
+.chw:has(> .zoom-bar), .xv-chart:has(> .zoom-bar) { padding-bottom: 34px; }
+canvas.zoomable { touch-action: pan-y; cursor: crosshair; }
+.zoom-brush {
+  display: none; position: absolute; pointer-events: none; border-radius: 4px;
+  background: color-mix(in srgb, var(--chart-accent, var(--p-500)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chart-accent, var(--p-500)) 45%, transparent);
+}
+.zoom-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 28px;
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+}
+.zoom-btns { display: flex; gap: 2px; background: var(--p-50); border-radius: 8px; padding: 2px; flex-shrink: 0; }
+.zoom-btns button {
+  min-width: 26px; height: 24px; padding: 0 7px; border: 0; border-radius: 6px; cursor: pointer;
+  background: transparent; color: var(--ink-2); font: inherit; font-size: 14px; font-weight: 700; line-height: 1;
+}
+.zoom-btns button:hover:not(:disabled) { background: var(--surface); color: var(--p-700); box-shadow: 0 1px 2px rgba(62,31,102,.12); }
+.zoom-btns button:disabled { opacity: .35; cursor: default; }
+.zoom-btns .zoom-reset { font-size: 11.5px; font-weight: 600; color: var(--p-700); }
+.zoom-btns button:focus-visible { outline: 2px solid var(--p-500); outline-offset: 1px; }
+.zoom-hint { font-size: 11.5px; color: var(--ink-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zoom-hint b { color: var(--ink-1); font-weight: 600; }
+.zoom-coarse { display: none; }
+@media (pointer: coarse) {
+  .zoom-fine { display: none; }
+  .zoom-coarse { display: inline; }
+  .zoom-btns button { min-width: 34px; height: 28px; }
+  .zoom-bar { height: 32px; }
+  .chw:has(> .zoom-bar), .xv-chart:has(> .zoom-bar) { padding-bottom: 38px; }
+}
+@media (max-width: 480px) { .zoom-pan, .zoom-word { display: none; } }
+@media print { .zoom-bar, .zoom-brush { display: none !important; } .chw:has(> .zoom-bar) { padding-bottom: 0; } }
+
+/* ============== SOURCES + 👍/👎 ON ANSWERS (RAG upgrade Phase 6) ==============
+   "Source: PMAY-G FAQ › …" under a knowledge answer, and two thumbs in the
+   action row. A chosen thumb (and an open "what was wrong?" box) keeps the row
+   visible; otherwise it fades in on hover like the other actions. */
+.ans-cite {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px;
+  margin: 2px 0 8px; font-size: 12px; color: var(--ink-3); min-width: 0;
+}
+.ans-cite .src-lbl { font-weight: 600; color: var(--ink-2); }
+.ans-cite .cite-item {
+  display: inline-flex; flex-wrap: wrap; min-width: 0; max-width: 100%;
+  padding: 2px 8px; border-radius: 6px; background: var(--p-50); border: 1px solid var(--p-100);
+  overflow-wrap: anywhere;
+}
+.ans-cite .cite-doc { font-weight: 600; color: var(--p-700); }
+.ans-cite .cite-sec { color: var(--ink-2); }
+
+.msg-foot { flex-wrap: wrap; }
+.msg-actions { flex-wrap: wrap; align-items: center; }
+.msg-actions:has(.fb-box), .msg-actions:has(.msg-act.on) { opacity: 1; }
+.msg-act.fb-up.on { color: #0f7b4b; background: #e6f6ee; }
+.msg-act.fb-down.on { color: #b42318; background: #fdecea; }
+.fb-thanks { font-size: 11.5px; color: var(--ink-3); margin-left: 4px; }
+.fb-thanks.err { color: #b42318; }
+.fb-box {
+  flex-basis: 100%; margin-top: 6px; padding: 10px 12px; max-width: 520px;
+  border: 1px solid var(--line); border-radius: 12px; background: #fff;
+  box-shadow: 0 4px 14px rgba(62,31,102,.08);
+}
+.fb-q { font-size: 12.5px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+.fb-opt { font-weight: 400; color: var(--ink-3); }
+.fb-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.fb-reason {
+  padding: 5px 10px; border-radius: 999px; border: 1px solid var(--p-200); background: var(--p-50);
+  color: var(--p-700); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.fb-reason.on { background: var(--p-700); border-color: var(--p-700); color: #fff; }
+.fb-note {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 44px;
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px;
+  color: var(--ink); background: #fff;
+}
+.fb-note:focus { outline: none; border-color: var(--p-400); box-shadow: 0 0 0 3px rgba(178,127,224,.15); }
+.fb-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.fb-btns button {
+  border-radius: 8px; padding: 6px 14px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--line); background: #fff; color: var(--ink-2);
+}
+.fb-btns .fb-send { background: var(--p-700); border-color: var(--p-700); color: #fff; }
+.fb-btns .fb-send:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 480px) {
+  .fb-box { max-width: none; padding: 10px; }
+  .fb-reason { padding: 6px 10px; }
+  .fb-btns button { padding: 8px 16px; }
+}
+@media print { .fb-box, .fb-thanks { display: none !important; } }
+/* Phase 6 layout fixes: a space before "›" (flex items drop leading spaces),
+   and an open "What was wrong?" box takes the action row's full line. */
+.ans-cite .cite-sec { margin-left: 4px; }
+.msg-foot:has(.fb-box) { align-items: flex-start; }
+.msg-actions:has(.fb-box) { flex-basis: 100%; }
+/* The box always starts on its own line under the icons (its max-width would
+   otherwise let it sit beside them), after every other action. */
+.fb-break { flex-basis: 100%; height: 0; order: 98; }
+.fb-box { order: 99; }

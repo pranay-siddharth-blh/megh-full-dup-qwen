@@ -1,5 +1,7 @@
 /* Small formatting helpers shared by the chat components. */
 
+import { dropPrefixCI, replaceAllCI, splitSpaces } from './text.js';
+
 export function nowTime() {
   return new Date().toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
 }
@@ -59,7 +61,7 @@ export function histBucket(iso) {
 export function initialsFor(name, email) {
   const src = (name || '').trim();
   if (src) {
-    const parts = src.split(/\s+/);
+    const parts = splitSpaces(src);
     return ((parts[0][0] || '') + (parts.length > 1 ? parts[parts.length - 1][0] : (parts[0][1] || ''))).toUpperCase();
   }
   return (email || 'U').slice(0, 2).toUpperCase();
@@ -67,19 +69,15 @@ export function initialsFor(name, email) {
 
 // "curated.fact_mgnrega_employment" -> "MGNREGA employment"
 export function prettyName(s) {
-  return String(s || '')
-    .replace(/^curated\./i, '')
-    .replace(/fact_mgnrega_/gi, 'MGNREGA ')
-    .replace(/fact_pmay_/gi, 'PMAY-G ')
-    .replace(/fact_focus_plus_/gi, 'FOCUS+ ')
-    .replace(/v_focus_plus/gi, 'FOCUS+ disbursements')
-    .replace(/v_cm_elevate_disbursement/gi, 'CM Elevate Legacy')
-    .replace(/focus_plus/gi, 'FOCUS+')
-    .replace(/^v_/i, '')
-    .replace(/mgnrega/gi, 'MGNREGA')
-    .replace(/pmay/gi, 'PMAY-G')
-    .replace(/_/g, ' ')
-    .trim();
+  let t = dropPrefixCI(String(s || ''), 'curated.');
+  // Applied in this order, any case, every occurrence.
+  for (const [find, rep] of [['fact_mgnrega_', 'MGNREGA '], ['fact_pmay_', 'PMAY-G '], ['fact_focus_plus_', 'FOCUS+ '],
+    ['v_focus_plus', 'FOCUS+ disbursements'], ['v_cm_elevate_disbursement', 'CM Elevate Legacy'],
+    ['focus_plus', 'FOCUS+']]) t = replaceAllCI(t, find, rep);
+  t = dropPrefixCI(t, 'v_');
+  t = replaceAllCI(t, 'mgnrega', 'MGNREGA');
+  t = replaceAllCI(t, 'pmay', 'PMAY-G');
+  return t.replaceAll('_', ' ').trim();
 }
 
-export const humanKey = (k) => String(k).replace(/_/g, ' ');
+export const humanKey = (k) => String(k).replaceAll('_', ' ');

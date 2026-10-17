@@ -12,7 +12,6 @@ import asyncio
 import itertools
 import json
 import os
-import re
 import sys
 import time
 
@@ -21,6 +20,7 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.dirname(HERE))
 sys.path.insert(0, HERE)
 from harness import Conv, fetch  # noqa: E402
+from tests._text_checks import number_runs  # noqa: E402
 import truth as T  # noqa: E402
 from app import main as app_main  # noqa: E402
 from app import pipeline as PL  # noqa: E402
@@ -150,20 +150,101 @@ def tables(text):
                 cur["rows"].append(cells)
         else:
             cur = None
-            m = re.match(r"\*\*(.+?)\*\*\s*$", s)
-            if m:
-                heading = m.group(1)
+            if len(s) >= 5 and s.startswith("**") and s.endswith("**"):   # a **bold** line
+                heading = s[2:-2]
     return out
 
 
 def money_val(cell, div=None):
     if div is not None:
-        m = re.search(r"-?[\d,]+(?:\.\d+)?", cell)
-        return float(m.group(0).replace(",", "")) * div if m else None
-    m = re.search(r"₹\s*([\d,]+(?:\.\d+)?)\s*(crore|lakh)?", cell)
-    if not m:
+        runs = number_runs(cell, signed=True, commas_first=True)
+        return float(runs[0][2].replace(",", "")) * div if runs else None
+    found = _rupees(cell)
+    if not found:
         return None
-    return float(m.group(1).replace(",", "")) * {"crore": 1e7, "lakh": 1e5, None: 1}[m.group(2)]
+    num, unit = found
+    return float(num.replace(",", "")) * {"crore": 1e7, "lakh": 1e5, None: 1}[unit]
+
+
+def _rupees(cell):
+    """The first '₹ <digits/commas>[.<digits>] [crore|lakh]' in the cell ->
+    (number text, 'crore' | 'lakh' | None), or None."""
+    k = cell.find("₹")
+    while k != -1:
+        i = k + 1
+        while i < len(cell) and cell[i].isspace():
+            i += 1
+        runs = number_runs(cell[i:], commas_first=True)
+        if runs and runs[0][0] == 0:
+            num = runs[0][2]
+            j = i + len(num)
+            while j < len(cell) and cell[j].isspace():
+                j += 1
+            unit = next((u for u in ("crore", "lakh") if cell.startswith(u, j)), None)
+            return num, unit
+        k = cell.find("₹", k + 1)
+    return None
+
+
+def _after_bold(text, label):
+    """Every position just past '**<label>:**' and the whitespace after it,
+    with the start of that whitespace: [(ws_start, ws_end), ...]."""
+    marker = f"**{label}:**"
+    out = []
+    k = text.find(marker)
+    while k != -1:
+        a = b = k + len(marker)
+        while b < len(text) and text[b].isspace():
+            b += 1
+        out.append((a, b))
+        k = text.find(marker, k + 1)
+    return out
+
+
+def _bold_value(text, label, stop="\n"):
+    """The run after '**<label>:**' (and its whitespace) up to the first char
+    in `stop` (old regex: **label:**\\s*([^stop]+)). When nothing follows the
+    whitespace on that line, the regex backed into the whitespace: the last
+    non-newline whitespace char before it is the value."""
+    for a, b in _after_bold(text, label):
+        for start in range(b, a - 1, -1):
+            if start < b and text[start] == "\n":
+                continue
+            end = start
+            while end < len(text) and text[end] not in stop and text[end] != "\n":
+                end += 1
+            if end > start:
+                return text[start:end]
+    return None
+
+
+def _bold_lead(text, label):
+    """The shortest run (no newline) after '**<label>:**' and its whitespace
+    that is followed by ' at ' or ' with ' (old regex: **label:**\\s*([^\\n]+?)(?: at | with ))."""
+    for a, b in _after_bold(text, label):
+        for start in range(b, a - 1, -1):
+            if start < b and text[start] == "\n":
+                continue
+            line_end = text.find("\n", start)
+            line_end = len(text) if line_end == -1 else line_end
+            hits = [k for k in (text.find(" at ", start + 1), text.find(" with ", start + 1))
+                    if k != -1 and k <= line_end]
+            if hits:
+                return text[start:min(hits)]
+    return None
+
+
+def _first_bold(text):
+    """The text of the first **bold** span on one line (old regex \\*\\*(.+?)\\*\\*)."""
+    i = text.find("**")
+    while i != -1:
+        j = text.find("**", i + 3)
+        if j != -1 and "\n" not in text[i + 2:j]:
+            return text[i + 2:j]
+        if j == -1:
+            return None
+        i = text.find("**", i + 1)
+    return None
 
 
 def money_ok(got, exp, unit):
@@ -171,8 +252,11 @@ def money_ok(got, exp, unit):
 
 
 def first_int(cell):
-    m = re.search(r"\d[\d,]*", cell)
-    return int(m.group(0).replace(",", "")) if m else None
+    runs = number_runs(cell)
+    if not runs:
+        return None
+    digits = runs[0][2].split(".")[0]          # \d[\d,]* stops before any decimal part
+    return int(digits.replace(",", ""))
 
 
 def unit_of(v):
@@ -250,16 +334,16 @@ def check(c, rec, E):
             if cand:
                 top = max(cand, key=cand.get)
                 lab = "Highest amount" if kind == "money" else "Highest count"
-                m = re.search(rf"\*\*{lab}:\*\*\s*([^\n]+?)(?: at | with )", text)
-                if not m or scheme_of(m.group(1)) != top:
-                    bad.append(f"ranking says {m.group(1) if m else 'nothing'}; top is {top}")
+                said = _bold_lead(text, lab)
+                if said is None or scheme_of(said) != top:
+                    bad.append(f"ranking says {said if said is not None else 'nothing'}; top is {top}")
         if c["coverage"] and not c["f"]:
             cand = {s: E[s]["reach"] for s in c["schemes"] if isinstance(E[s]["reach"], tuple)}
             top_v = max((v[0], v[2]) for v in cand.values())
             tops = {s for s, v in cand.items() if (v[0], v[2]) == top_v}
-            m = re.search(r"\*\*Widest coverage:\*\*\s*([^\n—]+)", text)
-            if not m or scheme_of(m.group(1)) not in tops:
-                bad.append(f"widest says {m.group(1) if m else 'nothing'}; expected {tops}")
+            said = _bold_value(text, "Widest coverage", stop="\n—")
+            if said is None or scheme_of(said) not in tops:
+                bad.append(f"widest says {said if said is not None else 'nothing'}; expected {tops}")
         return bad
     # grouped (district / block matrices)
     unit = c["group"]
@@ -313,19 +397,19 @@ def check(c, rec, E):
                         if scheme_of(r[li]) not in {s for s, v in vals.items() if v == best}:
                             bad.append(f"leader {k}: {r[li]}")
     if c["topd"]:
-        m = re.search(r"\*\*Highest district per scheme:\*\*\s*([^\n]+)", text)
-        if not m:
+        line = _bold_value(text, "Highest district per scheme")
+        if line is None:
             bad.append("no highest-district line")
         else:
-            seg = {scheme_of(x.split(":")[0]): x for x in m.group(1).split(";")}
+            seg = {scheme_of(x.split(":")[0]): x for x in line.split(";")}
             for s in c["schemes"]:
                 ex = E[s]["count"]
                 if isinstance(ex, dict) and ex and max(ex.values()) > 0:
                     best = max(ex.values())
                     tops = {k.upper() for k, v in ex.items() if v == best}
-                    got = re.search(r"\*\*(.+?)\*\*", seg.get(s, ""))
-                    if not got or got.group(1).upper() not in tops:
-                        bad.append(f"top district {s}: {got.group(1) if got else 'missing'} expected {tops}")
+                    got = _first_bold(seg.get(s, ""))
+                    if got is None or got.upper() not in tops:
+                        bad.append(f"top district {s}: {got if got is not None else 'missing'} expected {tops}")
     return bad
 
 

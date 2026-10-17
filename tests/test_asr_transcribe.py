@@ -35,7 +35,6 @@ THE CONTRACT MISMATCH (app/routers/query.py):
   own language switcher) and that 400 surfaces as an unexplained 502.
 """
 import inspect
-import re
 from pathlib import Path
 
 import pytest
@@ -69,6 +68,40 @@ def _fn(name: str, end_marker: str) -> str:
     html = _UI.read_text(encoding="utf-8")
     start = html.index(name)
     return html[start:html.index(end_marker, start)]
+
+
+def _after_parts(body: str, *parts: str) -> int:
+    """Index just past `parts` written in a row in `body`, any whitespace
+    allowed between consecutive parts (whitespace-tolerant, as before);
+    -1 when they do not occur."""
+    start = body.find(parts[0])
+    while start != -1:
+        i = start + len(parts[0])
+        for part in parts[1:]:
+            while i < len(body) and body[i].isspace():
+                i += 1
+            if not body.startswith(part, i):
+                break
+            i += len(part)
+        else:
+            return i
+        start = body.find(parts[0], start + 1)
+    return -1
+
+
+def _number_after(body: str, *parts: str, close: str = ")") -> str | None:
+    """The [0-9.]+ literal right after `parts`, when it is followed by `close`."""
+    i = _after_parts(body, *parts)
+    while i != -1:
+        j = i
+        while j < len(body) and (body[j].isdigit() or body[j] == "."):
+            j += 1
+        if j > i and body.startswith(close, j):
+            return body[i:j]
+        # try the next occurrence of the same prefix
+        nxt = _after_parts(body[i:], *parts)
+        i = -1 if nxt == -1 else i + nxt
+    return None
 
 
 def _blob_to_wav() -> str:
@@ -111,7 +144,7 @@ def test_wav_conversion_targets_16k_mono():
     body = _blob_to_wav()
     assert "const RATE = 16000" in body
     # mono: one channel in the WAV header
-    assert re.search(r"view\.setUint16\(22,\s*1,\s*true\)", body), "not mono"
+    assert _after_parts(body, "view.setUint16(22,", "1,", "true)") != -1, "not mono"
 
 
 # ── the contract mismatch: `language` is sent, accepted, and made safe ──────
@@ -150,9 +183,21 @@ def test_language_set_covers_what_the_ui_can_emit():
     """VOICE_LANG maps every UI language to a code; each must either be
     supported or normalise to en — never reach the gateway raw."""
     html = _UI.read_text(encoding="utf-8")
-    m = re.search(r"const VOICE_LANG = \{([^}]*)\}", html)
-    assert m, "VOICE_LANG not found"
-    for code in re.findall(r":\s*'([a-z-]+)'", m.group(1)):
+    start = html.find("const VOICE_LANG = {")
+    end = html.find("}", start) if start != -1 else -1
+    assert start != -1 and end != -1, "VOICE_LANG not found"
+    body = html[start + len("const VOICE_LANG = {"):end]
+    codes = []
+    for piece in body.split(":")[1:]:          # each value after a ':'
+        piece = piece.lstrip()
+        if not piece.startswith("'"):
+            continue
+        j = 1
+        while j < len(piece) and (("a" <= piece[j] <= "z") or piece[j] == "-"):
+            j += 1
+        if j > 1 and piece.startswith("'", j):
+            codes.append(piece[1:j])
+    for code in codes:
         assert _asr_language(code) in _ASR_LANGUAGES
 
 
@@ -188,9 +233,9 @@ def test_only_digital_silence_is_refused_before_upload():
     "Okay." reached the composer. Noise vs speech is decided server-side."""
     body = _send_audio()
     assert "audioPeak" in body, "the caller must still refuse a muted mic"
-    m = re.search(r"if \(peak !== null && peak < ([0-9.]+)\)", body)
-    assert m, "the silence guard must test the peak alone, failing open when it is missing"
-    assert float(m.group(1)) <= 0.005, "the bar is high enough to refuse quiet real speech"
+    bar = _number_after(body, "if (peak !== null && peak < ")
+    assert bar, "the silence guard must test the peak alone, failing open when it is missing"
+    assert float(bar) <= 0.005, "the bar is high enough to refuse quiet real speech"
     assert "rms < 0.002" not in body
 
 
@@ -341,8 +386,8 @@ def test_ui_waits_for_live_audio_before_saying_speak_now():
 # stock phrase. The page was also a stale cached copy (no `device` field sent).
 def test_fragments_under_a_second_are_not_uploaded():
     body = _send_audio()
-    m = re.search(r"const secs = \(blob\.size - 44\) / 32000;\s*if \(secs < ([0-9.]+)\)", body)
-    assert m and float(m.group(1)) >= 1.0
+    bar = _number_after(body, "const secs = (blob.size - 44) / 32000;", "if (secs < ")
+    assert bar and float(bar) >= 1.0
     assert body.index("secs < ") < body.index("transcribe(blob"), "the guard must run before upload"
 
 

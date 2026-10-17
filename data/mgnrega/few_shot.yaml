@@ -742,3 +742,102 @@ sql_generation_examples:
       ORDER BY lgd_district
       LIMIT 12;
     tables: [curated.v_employment]
+
+  # ---- business definitions: gender, households vs persons, across years ----
+  # Added 2026-10-16 (errors.md cases 1 and 3; KI-229, KI-040). EXECUTED read-only against
+  # megh_db on 2026-10-16; the result each returned is in the comment above it.
+  # men: there is NO men column -> persons_employed - women_employment_provided (rule 6a).
+  # women are recorded only for FY 2022-23..2024-25 (0 on every row for 2025-26).
+  # Executed: persons 36,106 / women 19,479 / men 16,627.
+  - question: "How many men worked under MGNREGA in East Garo Hills in 2024-25?"
+    sql: |
+      SELECT SUM(persons_employed) AS persons_employed,
+             SUM(women_employment_provided) AS women_employed,
+             SUM(persons_employed) - SUM(women_employment_provided) AS men_employed
+      FROM curated.v_employment
+      WHERE lgd_district = 'EAST GARO HILLS' AND year_key = 2024
+      LIMIT 1;
+    tables: [curated.v_employment]
+
+  # Executed: 12 districts, men 3,498 (Eastern West Khasi Hills) .. 26,884 (West Garo Hills).
+  - question: "Gender-wise MGNREGA workers by district for 2024-25"
+    sql: |
+      SELECT lgd_district,
+             SUM(persons_employed) AS persons_employed,
+             SUM(women_employment_provided) AS women_employed,
+             SUM(persons_employed) - SUM(women_employment_provided) AS men_employed
+      FROM curated.v_employment
+      WHERE year_key = 2024
+      GROUP BY lgd_district
+      ORDER BY lgd_district
+      LIMIT 12;
+    tables: [curated.v_employment]
+
+  # Executed: 2022-23 men 253,902; 2023-24 216,106; 2024-25 136,968 (2025-26 left out:
+  # women not recorded, so men cannot be derived for it).
+  - question: "How many male workers were employed under MGNREGA in each year?"
+    sql: |
+      SELECT financial_year_short,
+             SUM(persons_employed) AS persons_employed,
+             SUM(women_employment_provided) AS women_employed,
+             SUM(persons_employed) - SUM(women_employment_provided) AS men_employed
+      FROM curated.v_employment
+      WHERE year_key IN (2022, 2023, 2024)
+      GROUP BY financial_year_short, year_key
+      ORDER BY year_key
+      LIMIT 3;
+    tables: [curated.v_employment]
+
+  - question: "How many men got MGNREGA work in 2025-26?"
+    sql: null
+    status: UNANSWERABLE
+    reason: >
+      MGNREGA has no men column; men = persons_employed - women_employment_provided, and
+      women_employment_provided is 0 on every FY 2025-26 row (not recorded at source), so
+      men cannot be derived for 2025-26. Say gender is not recorded for that year and offer
+      FY 2022-23 to 2024-25. Never report persons_employed as men.
+
+  # households vs persons (rule 11): "beneficiaries" = households_employed.
+  # Executed: 14,240.
+  - question: "How many MGNREGA beneficiaries were there in West Khasi Hills in 2024-25?"
+    sql: |
+      SELECT SUM(households_employed) AS beneficiary_households
+      FROM curated.v_employment
+      WHERE lgd_district = 'WEST KHASI HILLS' AND year_key = 2024
+      LIMIT 1;
+    tables: [curated.v_employment]
+
+  # across years (rule 12): no household id, so no all-years unique count exists. "All
+  # years" is ONE combined figure labelled household-years / person-years, never
+  # households. Executed: household_years 1,494,437 / person_years 1,865,234 / 4 FYs.
+  - question: "How many beneficiaries are there under MGNREGA across all years?"
+    sql: |
+      SELECT SUM(households_employed) AS household_years,
+             SUM(persons_employed) AS person_years,
+             COUNT(DISTINCT year_key) AS financial_years
+      FROM curated.v_employment
+      LIMIT 1;
+    tables: [curated.v_employment]
+
+  # a year-wise split only when asked for. Executed: 2022-23 414,251 / 563,127;
+  # 2023-24 410,200 / 530,969; 2024-25 304,430 / 347,296; 2025-26 365,556 / 423,842.
+  - question: "MGNREGA beneficiary households year-wise"
+    sql: |
+      SELECT financial_year_short,
+             SUM(households_employed) AS beneficiary_households,
+             SUM(persons_employed) AS persons_employed
+      FROM curated.v_employment
+      GROUP BY financial_year_short, year_key
+      ORDER BY year_key
+      LIMIT 10;
+    tables: [curated.v_employment]
+
+  # An explicit multi-year SUM is household-YEARS, never households. Executed: 106,610 over 4 FYs.
+  - question: "Add up the households employed in South Garo Hills over all the years"
+    sql: |
+      SELECT SUM(households_employed) AS household_years,
+             COUNT(DISTINCT year_key) AS financial_years
+      FROM curated.v_employment
+      WHERE lgd_district = 'SOUTH GARO HILLS'
+      LIMIT 1;
+    tables: [curated.v_employment]

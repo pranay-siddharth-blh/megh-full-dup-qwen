@@ -10,7 +10,6 @@ Usage (repo root): cl_run.py [TC ...] -> cl_results.json (CL_OUT)"""
 import asyncio
 import json
 import os
-import re
 import sys
 
 os.environ.setdefault("SHEET_SCHEME", "CM Elevate Legacy")
@@ -19,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mg_run  # noqa: E402
 from mg_run import run_case, has_name, vals, close  # noqa: E402
 from harness import fetch  # noqa: E402
+from tests._text_checks import need_ok  # noqa: E402
 from app import main as app_main  # noqa: E402
 
 mg_run.ONLY = set(sys.argv[1:])
@@ -46,9 +46,10 @@ def checks(*pairs, money=()):
 
 
 def words(*need):
+    """Each need is 'a|b|c' (any of the literals; see _text_checks.need_ok)."""
     def chk(rec):
         a = rec.get("answer") or ""
-        miss = [w for w in need if not re.search(w, a, re.IGNORECASE)]
+        miss = [w for w in need if not need_ok(a, w)]
         return (not miss and rec.get("kind") == "answer"), ("missing " + ", ".join(miss)) if miss else "all present"
     return chk
 
@@ -90,7 +91,7 @@ async def main():
              ("05", "What type of financial assistance is provided under CM-ELEVATE?", words(r"subsid", r"loan|credit")),
              ("06", "How does CM-ELEVATE provide access to credit for entrepreneurs?", words(r"loan|credit|bank")),
              ("07", "How does CM-ELEVATE promote entrepreneurship in Meghalaya?", words(r"entrepreneur")),
-             ("08", "What is the target number of entrepreneurs under CM-ELEVATE?", words(r"\d")),
+             ("08", "What is the target number of entrepreneurs under CM-ELEVATE?", words("#")),
              ("09", "Give me a short overview of CM-ELEVATE that I can use for an official briefing.",
               words(r"entrepreneur|enterprise|business", r"subsid|loan")),
              ("10", "How can an entrepreneur apply under the CM-ELEVATE programme?", words(r"apply|application|portal|online"))]

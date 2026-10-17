@@ -5,17 +5,32 @@ import { DynTable, GroupedChart, PivotTable, RecordCard, StackedChart, Switchabl
 import { Markdown, plainText } from './Markdown.jsx';
 import { useReveal } from '../reveal.js';
 import { themeFor } from '../chartTheme.js';
+import { sendFeedbackApi } from '../api.js';
+import { inlineSpans, isSpace, isWordChar, runEnd, splitSpaces } from '../text.js';
 
 /* One chat message. A bot answer (`response` from /api/query) renders the same
    blocks as addBotRich() in web/ai_query.html: routing badge (off), answer text,
    analytics, the "SQL query used" disclosure, then the follow-up area (scheme
    picker, next steps and sources, a clarification, or starter suggestions). */
 
+// "a **b** c" -> ["a ", "b", " c"]: the text between bold spans, and the bold
+// text at odd indexes.
+function splitBold(line) {
+  const parts = [];
+  let last = 0;
+  for (const m of inlineSpans(line)) {
+    parts.push(line.slice(last, m.start), m.inner);
+    last = m.end;
+  }
+  parts.push(line.slice(last));
+  return parts;
+}
+
 // Text with line breaks; a bot answer also turns **x** into bold.
 function RichText({ text, bold }) {
   const lines = String(text || '').split('\n');
   return lines.map((line, i) => {
-    const parts = bold ? line.split(/\*\*(.+?)\*\*/g) : [line];
+    const parts = bold ? splitBold(line) : [line];
     return (
       <Fragment key={i}>
         {i > 0 && <br />}
@@ -114,7 +129,7 @@ function RouteBadge({ response }) {
         {!schemes.length ? <span className="rt-scheme">from previous turn</span>
           : schemes.length === 3 ? <span className="rt-scheme all">All 3 schemes</span>
             : schemes.map((n) => <span key={n} className="rt-scheme">{n}</span>)}
-        {a && a.query_type && <span className="rt-type">{String(a.query_type).replace(/_/g, ' ')}</span>}
+        {a && a.query_type && <span className="rt-type">{String(a.query_type).replaceAll('_', ' ')}</span>}
         {conf !== null && <span className={'rt-conf ' + confCls}>{Math.round(conf * 100)}%</span>}
         {s.source && <span className="rt-src">{srcMap[s.source] || s.source}</span>}
         {s.is_followup && <span className="rt-flag">follow-up</span>}
@@ -221,22 +236,74 @@ function Suggestions({ response, onAsk }) {
   );
 }
 
+const isNameChar = (c) => isWordChar(c) || c === '.';
+const isQuote = (c) => c === '"' || c === "'";
+const lowAt = (s, i, word) => s.slice(i, i + word.length).toLowerCase() === word;
+
+// The table names after every FROM / JOIN (any case), an optional quote around
+// each: "FROM curated.v_x" -> "curated.v_x".
+function tablesAfterFromJoin(sql) {
+  const out = [];
+  let p = 0;
+  while (p < sql.length) {
+    if (lowAt(sql, p, 'from') || lowAt(sql, p, 'join')) {
+      const spaceEnd = runEnd(sql, p + 4, isSpace);
+      const nameStart = spaceEnd + (isQuote(sql[spaceEnd]) ? 1 : 0);
+      const nameEnd = runEnd(sql, nameStart, isNameChar);
+      if (spaceEnd > p + 4 && nameEnd > nameStart) {
+        out.push(sql.slice(nameStart, nameEnd));
+        p = nameEnd + (isQuote(sql[nameEnd]) ? 1 : 0);
+        continue;
+      }
+    }
+    p++;
+  }
+  return out;
+}
+
+// The column list of the first GROUP BY (any case): the shortest run of name
+// characters, commas, spaces and quotes that is followed by ORDER BY, LIMIT,
+// HAVING or the end of the SQL. null when there is none.
+const isGroupChar = (c) => isNameChar(c) || c === ',' || c === '"' || isSpace(c);
+function groupByEnds(sql, i) {
+  if (i === sql.length || lowAt(sql, i, 'limit') || lowAt(sql, i, 'having')) return true;
+  if (!lowAt(sql, i, 'order')) return false;
+  const by = runEnd(sql, i + 5, isSpace);
+  return by > i + 5 && lowAt(sql, by, 'by');
+}
+function groupByList(sql) {
+  for (let p = 0; p < sql.length; p++) {
+    if (!lowAt(sql, p, 'group')) continue;
+    const by = runEnd(sql, p + 5, isSpace);
+    if (by === p + 5 || !lowAt(sql, by, 'by')) continue;
+    const spaceEnd = runEnd(sql, by + 2, isSpace);
+    // as many spaces before the list as possible, then the shortest list
+    for (let start = spaceEnd; start > by + 2; start--) {
+      for (let end = start + 1; end <= sql.length && isGroupChar(sql[end - 1]); end++) {
+        if (groupByEnds(sql, end)) return sql.slice(start, end);
+      }
+    }
+  }
+  return null;
+}
+
 function sourcesOf(sql) {
   let tableChip = '';
-  const tableMatches = [...String(sql || '').matchAll(/(?:from|join)\s+["']?([a-z0-9_.]+)["']?/gi)];
+  const tableMatches = tablesAfterFromJoin(String(sql || ''));
   if (tableMatches.length) {
     const seen = [];
-    for (const m of tableMatches) {
+    for (const name of tableMatches) {
       // "IS DISTINCT FROM TRUE" is not a table.
-      if (/^(true|false|null)$/i.test(m[1])) continue;
-      const pretty = prettyName(m[1].replace(/["']/g, '').split('.').pop());
+      if (['true', 'false', 'null'].includes(name.toLowerCase())) continue;
+      const pretty = prettyName(name.split('.').pop());
       if (pretty && !seen.includes(pretty)) seen.push(pretty);
     }
     const schemes = seen.filter((n) => ['FOCUS+', 'Focus', 'CM Elevate', 'CM Elevate Legacy'].includes(n));
     tableChip = (schemes.length ? schemes : seen).join(', ');
   }
-  const groupMatch = String(sql || '').match(/group\s+by\s+([a-z0-9_.,\s"]+?)(?:order\s+by|limit|having|$)/i);
-  const groupChip = groupMatch ? 'GROUP BY ' + groupMatch[1].replace(/["']/g, '').trim().split(/\s+/)[0].split('.').pop() : '';
+  const groupBy = groupByList(String(sql || ''));
+  const groupChip = groupBy !== null
+    ? 'GROUP BY ' + splitSpaces(groupBy.replaceAll('"', '').replaceAll("'", '').trim())[0].split('.').pop() : '';
   return { tableChip, groupChip };
 }
 
@@ -288,7 +355,98 @@ const ICONS = {
   stop: <svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2" /></svg>,
   more: <svg viewBox="0 0 24 24" fill="currentColor"><circle cx="5" cy="12" r="1.8" /><circle cx="12" cy="12" r="1.8" /><circle cx="19" cy="12" r="1.8" /></svg>,
   regen: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36" /><polyline points="21 3 21 9 15 9" /></svg>,
+  up: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M7 10v11H4a1 1 0 01-1-1v-9a1 1 0 011-1h3z" /><path d="M7 10l4-8a2.5 2.5 0 012.5 2.5V8h5.3a2 2 0 012 2.3l-1.2 8A2 2 0 0117.6 20H7" /></svg>,
+  down: <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M17 14V3h3a1 1 0 011 1v9a1 1 0 01-1 1h-3z" /><path d="M17 14l-4 8a2.5 2.5 0 01-2.5-2.5V16H5.2a2 2 0 01-2-2.3l1.2-8A2 2 0 016.4 4H17" /></svg>,
 };
+
+// ── 👍 / 👎 (RAG upgrade Phase 6) ──────────────────────────────────────────
+// One vote per officer per answer: a click sets it, the same thumb again takes
+// it back, the other thumb changes it. A 👎 also offers an optional "what was
+// wrong?" note. The vote is remembered in this tab (sessionStorage) so a
+// re-render keeps the highlighted thumb.
+const FEEDBACK_REASONS = ['Wrong', 'Incomplete', 'Not what I asked', 'Out of date'];
+const fbKey = (sessionId, id) => `megh_fb:${sessionId || ''}:${id}`;
+function readVote(key) { try { return Number(sessionStorage.getItem(key)) || 0; } catch (e) { return 0; } }
+function saveVote(key, v) { try { if (v) sessionStorage.setItem(key, String(v)); else sessionStorage.removeItem(key); } catch (e) { /* ignore */ } }
+
+function FeedbackActions({ id, sessionId, question, response, answer }) {
+  const key = fbKey(sessionId, id);
+  const [vote, setVote] = useState(() => readVote(key));
+  const [asking, setAsking] = useState(false);
+  const [note, setNote] = useState('');
+  const [reason, setReason] = useState('');
+  const [state, setState] = useState('');       // '' | 'sent' | 'error'
+  const send = (rating, comment) => sendFeedbackApi({
+    message_key: `${sessionId || 'nosession'}:${id}`, rating, question: question || '(no question)',
+    answer: answer || '', session_id: sessionId || null, route: response.route || null,
+    schemes: Array.isArray(response.schemes) ? response.schemes : [],
+    citations: Array.isArray(response.citations) ? response.citations : [],
+    comment: comment || null,
+  });
+  const choose = (rating) => {
+    const next = vote === rating ? 0 : rating;
+    const prev = vote;
+    setVote(next); saveVote(key, next); setState('');
+    setAsking(next === -1);
+    send(next).catch(() => { setVote(prev); saveVote(key, prev); setAsking(false); setState('error'); });
+  };
+  const submitNote = () => {
+    const comment = [reason, note.trim()].filter(Boolean).join(' — ');
+    setAsking(false);
+    if (!comment) return;
+    send(-1, comment).then(() => setState('sent')).catch(() => setState('error'));
+  };
+  return (
+    <>
+      <button type="button" className={'msg-act fb-up' + (vote === 1 ? ' on' : '')}
+              title={vote === 1 ? 'You found this helpful (click to undo)' : 'Helpful'}
+              aria-label="Helpful" aria-pressed={vote === 1}
+              onClick={(e) => { e.stopPropagation(); choose(1); }}>{ICONS.up}</button>
+      <button type="button" className={'msg-act fb-down' + (vote === -1 ? ' on' : '')}
+              title={vote === -1 ? 'You marked this as not helpful (click to undo)' : 'Not helpful'}
+              aria-label="Not helpful" aria-pressed={vote === -1}
+              onClick={(e) => { e.stopPropagation(); choose(-1); }}>{ICONS.down}</button>
+      {state === 'sent' && <span className="fb-thanks" role="status">Thanks — noted</span>}
+      {state === 'error' && <span className="fb-thanks err" role="status">Couldn't save — try again</span>}
+      {asking && <span className="fb-break" aria-hidden="true" />}
+      {asking && (
+        <div className="fb-box" role="group" aria-label="What was wrong?" onClick={(e) => e.stopPropagation()}>
+          <div className="fb-q">What was wrong? <span className="fb-opt">(optional)</span></div>
+          <div className="fb-reasons">
+            {FEEDBACK_REASONS.map((r) => (
+              <button key={r} type="button" className={'fb-reason' + (reason === r ? ' on' : '')}
+                      aria-pressed={reason === r} onClick={() => setReason(reason === r ? '' : r)}>{r}</button>
+            ))}
+          </div>
+          <textarea className="fb-note" rows={2} maxLength={1000} value={note} placeholder="Tell us more (optional)"
+                    onChange={(e) => setNote(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitNote(); } }} />
+          <div className="fb-btns">
+            <button type="button" className="fb-skip" onClick={() => setAsking(false)}>Skip</button>
+            <button type="button" className="fb-send" onClick={submitNote} disabled={!reason && !note.trim()}>Send</button>
+          </div>
+        </div>
+      )}
+    </>
+  );
+}
+
+// "Source: PMAY-G FAQ › What documents…" under a knowledge answer (Phase 6).
+function Citations({ response }) {
+  const list = Array.isArray(response.citations) ? response.citations.filter((c) => c && c.title) : [];
+  if (response.route !== 'knowledge' || !list.length) return null;
+  return (
+    <div className="ans-cite">
+      <span className="src-lbl">{list.length > 1 ? 'Sources:' : 'Source:'}</span>
+      {list.map((c, i) => (
+        <span key={i} className="cite-item" title={c.section ? `${c.title} › ${c.section}` : c.title}>
+          <span className="cite-doc">{c.title}</span>
+          {c.section && <span className="cite-sec"> › {c.section}</span>}
+        </span>
+      ))}
+    </div>
+  );
+}
 
 function CopyAction({ text, label = 'Copy' }) {
   const [done, setDone] = useState(false);
@@ -523,11 +681,16 @@ function RegenerateAction({ onRegenerate, label = 'Regenerate answer' }) {
   );
 }
 
-export function BotMessage({ id, question, response, time, at, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey }) {
+export function BotMessage({ id, question, response, time, at, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey, sessionId }) {
   // A fresh answer is revealed word by word (reveal.js); the charts, SQL and
   // chips follow once the text is all there. A replayed one shows at once.
   const [shown, revealed] = useReveal(response.answer, streamKey, !!animate);
-  const wantsAnalytics = response.intent !== 'EDGE' && Array.isArray(response.data) && response.data.length >= 1;
+  // A cross-scheme comparison (app/cross_scheme.py) already writes its full
+  // per-scheme tables into the answer text. Its `data` rows mix count and amount
+  // rows, which the pivot table read as all "—" and 0 — a second, empty copy of
+  // the table above it. The rows still go back for follow-ups; only the drawing is skipped.
+  const wantsAnalytics = response.intent !== 'EDGE' && !response.cross_scheme
+    && Array.isArray(response.data) && response.data.length >= 1;
   // A CLARIFY pause fetched nothing, so a "0 results" meta line would mislead.
   const showMeta = response.intent && response.intent !== 'EDGE' && response.intent !== 'CLARIFY';
   const answer = plainAnswer(response.answer);
@@ -544,6 +707,7 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
           )}
           {revealed && (
             <div className="answer-extras">
+              <Citations response={response} />
               {wantsAnalytics && <Analytics question={question} response={response} />}
               <SqlDisclosure response={response} />
               <FollowUp response={response} onAsk={onAsk} />
@@ -561,6 +725,9 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
               <CopyAction text={answer} label="Copy answer" />
               {onSpeak && <SpeakAction id={id} text={answer} speakingId={speakingId} onSpeak={onSpeak} />}
               {onRegenerate && <RegenerateAction onRegenerate={onRegenerate} />}
+              {response.intent !== 'EDGE' && response.intent !== 'CLARIFY' && (
+                <FeedbackActions id={id} sessionId={sessionId} question={question} response={response} answer={answer} />
+              )}
               <MoreAction at={at} />
             </div>
           )}

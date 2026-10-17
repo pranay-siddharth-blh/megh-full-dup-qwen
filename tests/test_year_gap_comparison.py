@@ -60,20 +60,37 @@ def _gate(question, schemes=FL):
 
     Returns (rewritten_question, swapped, dropped, paused) by reading the note
     the real function produces."""
-    import re as _re
-
     before_ok, before_bad = _years_in_question(question, schemes)
     out, note, handled = _apply_year_gap(question, schemes)
     if not handled:
         return out, [], before_bad, True
     after_ok, _after_bad = _years_in_question(out, schemes)
-    swapped = [
-        (b, n) for b, n in _re.findall(
-            r"FY (\S+) holds no data for this scheme, so FY (\S+) — the nearest",
-            note or "")
-    ]
+    swapped = _swapped_years(note or "")
     dropped = [y for y in before_bad if not any(y == b for b, _n in swapped)]
     return out, swapped, dropped, False
+
+
+def _swapped_years(note: str) -> list[tuple[str, str]]:
+    """Every "FY <b> holds no data for this scheme, so FY <n> — the nearest"
+    in the note, as (b, n); b and n are runs of non-space characters."""
+    marker = " holds no data for this scheme, so FY "
+    out = []
+    i = note.find(marker)
+    while i != -1:
+        before = note[:i]
+        k = len(before)
+        while k > 0 and not before[k - 1].isspace():
+            k -= 1
+        b = before[k:]
+        after = note[i + len(marker):]
+        j = 0
+        while j < len(after) and not after[j].isspace():
+            j += 1
+        n = after[:j]
+        if b and n and before[:k].endswith("FY ") and after[j:].startswith(" — the nearest"):
+            out.append((b, n))
+        i = note.find(marker, i + 1)
+    return out
 
 
 # ── the reported question ───────────────────────────────────────────────────

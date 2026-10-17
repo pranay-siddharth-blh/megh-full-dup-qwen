@@ -17,7 +17,10 @@ meghalaya/
 ├── app/                       the FastAPI service (package `app`)
 │   ├── main.py                app, lifespan startup, /health, /metrics, static UI routes
 │   ├── config.py              every setting (pydantic-settings, reads .env)
-│   ├── pipeline.py            ~15,000 lines — the whole routing + NL→SQL orchestration, as stage functions
+│   ├── pipeline/              the whole routing + NL→SQL orchestration, as stage functions (see 3.4)
+│   │   ├── common/            shared steps c01_followups.py … c14_turn_stages.py
+│   │   └── schemes/           one file per scheme: mgnrega, pmay_g, focus_plus, cm_elevate,
+│   │                          focus_legacy, cm_elevate_legacy — ONE shared namespace
 │   ├── pipeline_graph.py      opt-in LangGraph orchestrator over the same stages (D-032)
 │   ├── edge.py                regex edge layer (greetings, off-topic, harmful, identity)
 │   ├── prompt_builder.py      SQL / repair / verifier prompt assembly
@@ -153,8 +156,13 @@ matches `websocket` or `StreamingResponse`).
   | `UnsafeSQLError` | 500. **Effectively unreachable:** the repair loop catches it and, once the budget is spent, `_run_pipeline` routes it to the KB fallback (AI_PIPELINE §2.8) |
   | anything else (e.g. an `httpx` timeout or 5xx re-raised from the pipeline) | 502 |
 
-### 3.4 Pipeline — `app/pipeline.py`
-The routing and NL→SQL chain. It is documented stage by stage in
+### 3.4 Pipeline — `app/pipeline/` package
+The routing and NL→SQL chain. Until 2026-10-15 this was one 18,700-line `pipeline.py`; it is now
+`common/` (the shared steps, `c01_followups.py` … `c14_turn_stages.py`) and `schemes/` (one file per scheme with
+that scheme's village rules, fixed queries, SQL rewrites and answer checks). `app/pipeline/__init__.py`
+executes them in `_PIPELINE_FILES` order (shared basics c01–c03, the six schemes, then c04–c14) into the package namespace, so `from app import pipeline as p`, `p.<name>` and
+`monkeypatch.setattr(p, ...)` are unchanged. Edit the part that holds the function; never recreate
+`app/pipeline.py` (the package would shadow it). It is documented stage by stage in
 [AI_PIPELINE.md](AI_PIPELINE.md). Public entry points: `answer_question`,
 `looks_like_followup`, `ClarificationNeeded`, `_empty_data_fields`.
 
@@ -358,7 +366,7 @@ data fields `schemes`, `resolved_entities`, `sql`, `sql_query`, `row_count`, `ro
     `SQL_VERIFY_ENABLED`.
   - Context layer: `CONTEXT_*`.
   - Follow-ups: `FOLLOWUP_REWRITE_ENABLED`, `FOLLOWUP_SUGGEST_ENABLED`.
-  - Decoding: `GUIDED_DECODING_ENABLED`, `SQL_GUIDED_DECODING_ENABLED`.
+  - Decoding: `GUIDED_DECODING_ENABLED` (classifier JSON). `SQL_GUIDED_DECODING_ENABLED` is no longer read (2026-10-15): SQL generation sends no decoding constraint.
   - Other: `SCHEMA_CATALOG_ENABLED`.
   - `RERANKER_ENABLED` is **False**.
 

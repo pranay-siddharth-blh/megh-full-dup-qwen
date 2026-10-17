@@ -27,9 +27,9 @@ def test_applications_vocabulary_and_knowledge_stay_on_cm_elevate(q):
 
 # ── "who are the intended beneficiaries" is a knowledge question (TC-03) ──
 def test_who_benefits_is_knowledge():
-    assert p._WHO_BENEFITS_RE.search("Who are the intended beneficiaries of CM-ELEVATE?")
-    assert p._WHO_BENEFITS_RE.search("Who can apply under CM Elevate?")
-    assert not p._WHO_BENEFITS_RE.search("How many beneficiaries are there in Ri Bhoi?")
+    assert p._WHO_BENEFITS_MATCH.search("Who are the intended beneficiaries of CM-ELEVATE?")
+    assert p._WHO_BENEFITS_MATCH.search("Who can apply under CM Elevate?")
+    assert not p._WHO_BENEFITS_MATCH.search("How many beneficiaries are there in Ri Bhoi?")
 
 
 # ── a breakdown that asks for applications first is ranked by applications (TC-26 / TC-36) ──

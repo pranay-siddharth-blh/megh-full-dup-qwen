@@ -1,6 +1,12 @@
 # focusplus_few_shot.yaml
 #
-# Validated question-to-SQL pairs for Focus Plus - node 5.10.
+# Question-to-SQL pairs for Focus Plus - node 5.10.
+#
+# NOT ALL VALIDATED (2026-10-16): 1 of 91 examples do not run read-only —
+# they read meta.v_reconciliation_focus_plus, which the chatbot's
+# SELECT-only role cannot see (the loader keeps them out of the SQL prompt).
+# tests/fewshot_exec/check_fewshots.py executes every example; call this file
+# validated again only when all of them run (tests/test_fewshot_headers.py).
 #
 # ===========================================================================
 # v1.0 - 2026-09-03 - WRITTEN AGAINST THE CURATED STAR SCHEMA
@@ -1103,3 +1109,60 @@ sql_generation_examples:
     SELECT * FROM meta.v_reconciliation_focus_plus;
   tables:
   - meta.v_reconciliation_focus_plus
+
+# ---- business definitions: across years, gender ------------------------
+# Added 2026-10-16 (errors.md case 2; KI-035). EXECUTED read-only against megh_db on
+# 2026-10-16; each comment gives the result. A beneficiary recurs across years
+# (FY 2022-23: 93,286; FY 2025-26: 105,813; all years: 105,813), so per-year counts
+# are never added (rule 6a).
+# Executed: 2022-23 93,286 | 2025-26 105,813 | all_years_unique 105,813 on both rows.
+- question: How many Focus Plus beneficiaries were there in each financial year?
+  sql: |
+    WITH per_year AS (
+      SELECT financial_year_short, COUNT(DISTINCT beneficiary_key) AS beneficiaries
+      FROM curated.v_focus_plus
+      GROUP BY financial_year_short
+    )
+    SELECT p.financial_year_short, p.beneficiaries,
+           (SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus)
+             AS all_years_unique_beneficiaries
+    FROM per_year p
+    ORDER BY p.financial_year_short
+    LIMIT 10;
+  tables:
+  - curated.v_focus_plus
+
+# Executed: 13,608.
+- question: Total Focus Plus beneficiaries in East Khasi Hills across all years
+  sql: |
+    SELECT COUNT(DISTINCT beneficiary_key) AS beneficiaries_all_years
+    FROM curated.v_focus_plus
+    WHERE lgd_district = 'EAST KHASI HILLS'
+    LIMIT 1;
+  tables:
+  - curated.v_focus_plus
+
+# gender is recorded for the 12.5K cohort only (rule 6b). Executed: 10,263 women of 12,527
+# with gender recorded, out of 105,813 beneficiaries.
+- question: How many women beneficiaries are there in Focus Plus?
+  sql: |
+    SELECT COUNT(DISTINCT beneficiary_key) FILTER (WHERE gender = 'Female') AS women_beneficiaries,
+           COUNT(DISTINCT beneficiary_key) FILTER (WHERE gender IS NOT NULL)
+             AS beneficiaries_with_gender_recorded,
+           COUNT(DISTINCT beneficiary_key) AS all_beneficiaries
+    FROM curated.v_focus_plus
+    LIMIT 1;
+  tables:
+  - curated.v_focus_plus
+
+# Executed: Female 10,263, Male 2,264 (12.5K cohort only; 93,286 legacy have no gender).
+- question: Gender-wise split of Focus Plus beneficiaries
+  sql: |
+    SELECT gender, COUNT(DISTINCT beneficiary_key) AS beneficiaries
+    FROM curated.v_focus_plus
+    WHERE gender IS NOT NULL
+    GROUP BY gender
+    ORDER BY beneficiaries DESC
+    LIMIT 5;
+  tables:
+  - curated.v_focus_plus

@@ -14,6 +14,8 @@
    - Text never wears the data colour: labels use ink tokens; a label inside a
      filled slice picks white or ink by the fill's lightness. */
 
+import { isAsciiLetter, isSpace, runEnd, splitSpaces } from './text.js';
+
 export const SCHEME_HUES = {
   MGNREGA: { main: '#eb6834', deep: '#b8461b' },
   'PMAY-G': { main: '#2a78d6', deep: '#1c4f95' },
@@ -105,16 +107,41 @@ export function chartAnimation() {
 // A series named after a scheme ("mgnrega spend cr", "PMAY-G houses") keeps
 // that scheme's hue, so colour follows the entity across every chart.
 // CM Elevate Legacy / Focus Legacy are tested before their parents.
+// Words may be joined by spaces, '_' or '-' ("cm_elevate", "focus-plus", "focus+");
+// a short form (cmel, cme, fp) counts only when no letter touches it.
+const isJoiner = (c) => isSpace(c) || c === '_' || c === '-';
+const isLetter = (c) => isAsciiLetter(c);
+function hasJoined(low, parts) {
+  for (let i = low.indexOf(parts[0]); i !== -1; i = low.indexOf(parts[0], i + 1)) {
+    let j = i + parts[0].length;
+    let ok = true;
+    for (const alts of parts.slice(1)) {
+      j = runEnd(low, j, isJoiner);
+      const hit = [].concat(alts).find((a) => low.startsWith(a, j));
+      if (hit === undefined) { ok = false; break; }
+      j += hit.length;
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+function hasAlone(low, word) {
+  for (let i = low.indexOf(word); i !== -1; i = low.indexOf(word, i + 1)) {
+    if (!isLetter(low[i - 1]) && !isLetter(low[i + word.length])) return true;
+  }
+  return false;
+}
 const SERIES_SCHEME = [
-  [/cm[\s_-]*elevate[\s_-]*legacy|(?:^|[^a-z])cmel(?![a-z])/i, 'CM Elevate Legacy'],
-  [/cm[\s_-]*elevate|(?:^|[^a-z])cme(?![a-z])/i, 'CM Elevate'],
-  [/focus[\s_-]*legacy/i, 'Focus Legacy'],
-  [/focus[\s_-]*(?:plus|\+)|(?:^|[^a-z])fp(?![a-z])/i, 'Focus Plus'],
-  [/pmay/i, 'PMAY-G'],
-  [/mgnrega|nrega/i, 'MGNREGA'],
+  [(l) => hasJoined(l, ['cm', 'elevate', 'legacy']) || hasAlone(l, 'cmel'), 'CM Elevate Legacy'],
+  [(l) => hasJoined(l, ['cm', 'elevate']) || hasAlone(l, 'cme'), 'CM Elevate'],
+  [(l) => hasJoined(l, ['focus', 'legacy']), 'Focus Legacy'],
+  [(l) => hasJoined(l, ['focus', ['plus', '+']]) || hasAlone(l, 'fp'), 'Focus Plus'],
+  [(l) => l.includes('pmay'), 'PMAY-G'],
+  [(l) => l.includes('nrega'), 'MGNREGA'],          // also "mgnrega"
 ];
 export const schemeOfSeries = (label) => {
-  const hit = SERIES_SCHEME.find(([re]) => re.test(String(label)));
+  const low = String(label).toLowerCase();
+  const hit = SERIES_SCHEME.find(([test]) => test(low));
   return hit ? hit[1] : null;
 };
 
@@ -149,7 +176,7 @@ export const shade = (hex, t) => toHex(hexToRgb(hex).map((v) => v * (1 - t)));
 /** Category labels wrapped onto at most two lines (Chart.js draws an array as
     lines), so a level axis stays readable instead of slanting. */
 export function wrapLabel(label, max = 14) {
-  const words = String(label).split(/\s+/);
+  const words = splitSpaces(String(label));
   const lines = [''];
   for (const w of words) {
     const cur = lines[lines.length - 1];
@@ -372,6 +399,8 @@ export const lineEndLabel = {
     if (!meta || !ds || !meta.data.length) return;
     const i = meta.data.length - 1;
     const el = meta.data[i];
+    // Zoomed into an earlier stretch: the last point is off the chart.
+    if (!el || el.x > chart.chartArea.right + 1 || el.x < chart.chartArea.left - 1) return;
     const { ctx } = chart;
     ctx.save();
     const text = fmtCompact(ds.data[i]);

@@ -40,5 +40,5 @@ def test_other_pmay_questions_are_unchanged(spec):
 
 
 def test_the_note_is_applied_where_the_pmay_answer_is_finalised():
-    src = inspect.getsource(p)
+    src = "".join((Path(p.__file__).parent / (n + ".py")).read_text(encoding="utf-8") for n in __import__("app.pipeline", fromlist=["_PIPELINE_FILES"])._PIPELINE_FILES)
     assert "_pm_answer = _pmay_expenditure_not_held(_pm_det, _pm_answer)" in src

@@ -24,7 +24,8 @@ VERIFICATION**.*
   |---|---|---|
   | `raw`, `staging`, `meta` | ingestion internals | ingestion team; the app never queries them (`_PREAMBLE`) |
   | `curated` | the star schema: dims, facts, `v_*` views | ingestion team; **read-only for the app** |
-  | `semantic` | `table_catalog`, `column_catalog`, `glossary`, `metric_definitions`, `join_graph` (read by `schema_introspect`) | ingestion team |
+  | `semantic` | `table_catalog`, `column_catalog` (incl. `unit`, `sample_values` = exact VALUES lists), `glossary`, `metric_definitions`, `join_graph`, `v_join_rules` (read by `schema_introspect`; D-049). `v_embedding_documents` / `v_prompt_bundles` are NOT read — they are rendered from the same tables | ingestion team |
+  | `curated.v_data_coverage`, `curated.v_place_names` | years present / missing per dataset; place name at each level (2026-10-16) | ingestion team; `v_data_coverage` read at startup (admin snapshot); year chips still come from each view's DISTINCT years |
   | `app` | `tenants`, `users`, `login_events`, `conversations`, `conversation_turns`, `query_audit` | **this app** (`appdb.ensure_schema`) |
 
 - **On 2026-09-08** the live load reported 27 tables, 25 FK edges and 21 catalogue tables

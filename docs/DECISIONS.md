@@ -837,3 +837,94 @@ not recorded.*
   district grain).
 - **Status:** Active. LIVE-VERIFIED 2026-10-13 (see TESTING.md: sheet + every scheme combination
   at every level + every village).
+
+### D-045 — Answer, don't ask (ANSWER_DEFAULTS_ENABLED)
+- **Date:** 2026-10-14. User decision: "whenever the user asks anything related to the data … you need to give
+  the answer" (after a test session where 33 of 45 questions paused).
+- **Decision:** a data question that names no area / financial year / Focus Plus tranche is answered for all of
+  Meghalaya / all financial years combined / all tranches, by appending exactly the text the matching chip
+  appends ("for all of Meghalaya", "across all financial years", "across all tranches"), so the SQL is told the
+  scope (the reason the year pause existed: the generator otherwise picked the latest year). A data question that
+  names no scheme but asks for a measure several schemes record is answered for each of them (app/cross_scheme.py).
+  Stocks (job cards) are pinned to the latest year. Real ambiguity still asks: a name that is several places or
+  villages, a bare "Focus", a question with no measure at all.
+- **Supersedes:** the 2026-09-09 product decision that a plain PMAY-G question pauses for a FY (pipeline.py
+  `_needs_year_clarification` comment). `ANSWER_DEFAULTS_ENABLED=false` restores the pauses.
+- **Status:** Active. Live-verified on the user's 45 questions and the hierarchy matrix (TESTING.md).
+
+### D-046 — SQL is read and changed on the SQLGlot tree only; no regex on SQL
+- **Date:** 2026-10-15. User decision, stated firmly: "completely we need to use SQLGlot … I don't want regex here.
+  Single piece of code I don't want."
+- **Decision:** every piece of code that reads, checks or changes SQL text works on the parsed tree or token stream
+  (SQLGlot, Postgres dialect), through the shared helpers in `app/sql_ast.py` (`sql_guard.py` stays the safety
+  check). This covers authorization (`auth.py`), the guards and rewrites in `app/pipeline/common/c10`–`c13` and
+  every `app/pipeline/schemes/*.py` file, `_extract_sql` (token stream, no fence regex) and the offline / test
+  tools. SQL generation and repair send **no** decoding constraint (the old `guided_regex` is gone;
+  `SQL_GUIDED_DECODING_ENABLED` is no longer read). Regex is still used on English text (the officer's question,
+  composed answers, verifier complaints, DB error messages, result-row key names): SQLGlot cannot parse English.
+- **Why:** text patterns read words inside string literals and comments as columns, missed `UPPER(lgd_district)`,
+  saw only the first value of an `IN` list and nothing in an `OR` branch (an authorization bypass, audit
+  2026-10-15), and skipped every query that started with `WITH` (the MGNREGA fact fan-out guard).
+- **Consequences:** a rewrite that fires regenerates the query in SQLGlot's layout (one line, `CAST(x AS DECIMAL)`
+  for `x::numeric`, `FILTER(WHERE`); an unchanged query is returned byte for byte. Unparseable SQL makes inspectors
+  answer "not found"; `sql_guard` refuses it at execution, and `auth.authorize` refuses it for a geo-restricted
+  user (fail closed).
+- **Status:** Active. Never add a regex that touches SQL text.
+
+### D-047 — No regular expressions anywhere in the codebase
+- **Date:** 2026-10-15/16. User decision, stated firmly: no regex in the code base "whenever the English text,
+  whatever the task". Extends D-046 (SQL on the SQLGlot tree) to everything else.
+- **Decision:** no `import re`, no compiled patterns, no `regex` package, no JavaScript regex literals or `RegExp`.
+  English text (questions, answers, names, verifier complaints, error messages, row keys) is matched with the
+  word-level matcher `app/text_match.py` (W / Seq / Alt / Opt / Gap / Joined / Cap / NotBefore / NotAfter …,
+  plus number / year / sentence helpers) or plain string methods; SQL with `app/sql_ast.py`; the frontend with
+  string methods. Pattern constants kept their names (now `Matcher` objects with the same `.search` /
+  `.finditer` / `.sub` API) so call sites did not change.
+- **Status:** Active. Whole-project scan 2026-10-16: no regex in app/, tests/, data/, deploy/ or frontend/src.
+
+### D-048 — Business definitions for gender, people across years, households vs persons
+- **Date:** 2026-10-16. Fixes errors.md cases 1–3 (KI-229, KI-035, KI-040) by definition, in the SQL backbone
+  (`app/schema_context.py`: shared rules "COUNTING PEOPLE / HOUSEHOLDS ACROSS YEARS" and "GENDER", MGNREGA rules
+  6a / 11 / 12, Focus Plus rules 6a / 6b, PMAY-G vocabulary) and in executed few-shots
+  (`data/mgnrega/few_shot.yaml`, `data/focus_plus/focusplus_few_shot.yaml`, each run read-only on megh_db
+  2026-10-16, results in the YAML comments).
+- **Definitions:**
+  - **MGNREGA "beneficiaries" = households_employed** (households provided employment — the scheme's own unit, one
+    job-card household). persons_employed = individual workers ("people", "workers", gender). *Chosen by Claude
+    on the user's instruction to add the definition; KI-040 had asked for an SME decision — confirm with the SME.*
+  - **Men (MGNREGA) = SUM(persons_employed) − SUM(women_employment_provided)**, returned with both inputs; women
+    are recorded only for FY 2022-23..2024-25 (0 on every 2025-26 row), so men are not derivable for 2025-26.
+    A negative result (2 block-years, 390 village-years record women > persons) is a source inconsistency.
+  - **Distinct people across years:** never add per-year distinct counts. Focus Plus all-years beneficiaries =
+    one COUNT(DISTINCT beneficiary_key) (105,813, not 93,286 + 105,813). MGNREGA has no household / person id,
+    so "all years" stays ONE combined figure (the user's 2026-10-13 instruction) but is aliased
+    household_years / person_years and called "household-years"; a year-wise split only when asked.
+  - **Gender coverage:** MGNREGA women only; Focus Plus gender = 12.5K cohort only (12,527 of 105,813);
+    CM Elevate gender_id on every row; PMAY-G, Focus Legacy, CM Elevate Legacy: none.
+- **Deterministic layer:** `_mgnrega_people_years_alias` (mgnrega.py, in `_scheme_sql_rewrites`) relabels an
+  outer multi-year SUM(households_employed / persons_employed) as household_years / person_years on the SQLGlot
+  tree, and `_mgnrega_answer_notes` tells the composer what household-years means. Tests:
+  `tests/test_business_definitions.py`. Live 2026-10-16 before the guard: cases 1 and 2 answered correctly
+  (23,758; 105,813); case 3 still summed into "beneficiary households" — the reason for the guard.
+- **Status:** Active.
+
+### D-049 — Follow the ingestion team's 2026-10-16 database changes from the chatbot side
+- **Date:** 2026-10-16. Source: `CHATBOT_DB_CHANGES_2026-10-16.md` (ingestion team). Reply:
+  `docs/Chatbot_Answers_to_Ingestion_Team_2026-10-16.md`. **No database change was made.**
+- **Catalog, not embeddings.** We do not embed `semantic.v_embedding_documents` or load
+  `semantic.v_prompt_bundles`. `app/schema_introspect.py` reads the tables those views are rendered from, and since
+  this decision also reads `column_catalog.unit` / `sample_values` (UNIT and VALUES lines), `metric_definitions`
+  under its real column names (`metric_key`, `sql_expression`; the old reader printed nothing), `semantic.v_join_rules`
+  and `curated.v_data_coverage`. Column notes on `curated.fact_*` tables are no longer prompted (the views carry them).
+- **The prompt follows `megh_readonly`'s grants.** Columns that role cannot SELECT (`has_column_privilege`) and the
+  three privacy tables are left out of the LIVE SCHEMA block, even while a dev box connects as `postgres`.
+- **CM Elevate (user decisions 2026-10-16):** an application is `COUNT(DISTINCT request_id)` for every word
+  (8,840, not 8,867 records). `scheme_specific` is locked: sector moves to the `sector_id` column; gender and the
+  Approved / Rejected decision are answered "not available" by the measure-not-held pause. **"Pending" stays
+  `data_verified = 'On Hold'`**: the user kept the tester-sheet rule over the ingestion team's "can't answer".
+- **Deterministic guards** (in `_execute_one_attempt`): a row join of two objects in `v_join_rules` (built-in
+  fallback when it is unread) and a read of a role-denied column are rejected and sent back for repair.
+  `sql_guard` refuses the three privacy tables (`private_table`).
+- **Pools:** `DB_POOL_MIN_SIZE` default 10 → 1, `DB_POOL_IDLE_SECONDS` 120 on both pools: megh_db ran out of its
+  100 connections, about 48 of them idle chatbot logins.
+- **Status:** Active.

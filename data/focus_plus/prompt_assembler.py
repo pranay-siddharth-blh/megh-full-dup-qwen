@@ -48,7 +48,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -106,7 +105,15 @@ class SchemeYamls:
 # --------------------------------------------------------------------- #
 
 def _tokenize(text: str) -> List[str]:
-    words = re.findall(r"[a-zA-Z0-9%.]+", text.lower())
+    words, cur = [], []
+    for ch in text.lower():                 # runs of ASCII letters, digits, '%' and '.'
+        if "a" <= ch <= "z" or "A" <= ch <= "Z" or "0" <= ch <= "9" or ch in "%.":
+            cur.append(ch)
+        elif cur:
+            words.append("".join(cur))
+            cur = []
+    if cur:
+        words.append("".join(cur))
     return [w for w in words if w not in _STOPWORDS and len(w) > 1]
 
 
@@ -152,8 +159,46 @@ def _fmt_note_capped(val: Any, cap: int = 700) -> str:
     return text
 
 
-_SECTION_DIVIDER = re.compile(r"^\s*#\s*-{2,}\s*(.+?)\s*-{2,}\s*$")
-_CONDITION_LINE = re.compile(r'^\s*-\s*condition:\s*["\']?([A-Za-z0-9_]+)["\']?')
+def _section_title(line: str) -> Optional[str]:
+    """The title of a `# ---- title ----` divider line, or None.
+
+    Reads the line as  ws '#' ws  DASHES(>=2) ws  TITLE  ws DASHES(>=2) ws,
+    with the leading dash run as long as possible and the title as short as
+    possible (so a title may itself hold dashes, e.g. "data quality - no ...")."""
+    s = line.lstrip()
+    if not s.startswith("#"):
+        return None
+    body = s[1:].lstrip()
+    lead = 0
+    while lead < len(body) and body[lead] == "-":
+        lead += 1
+    for d1 in range(lead, 1, -1):                   # leading dashes, longest first
+        rest = body[d1:]
+        ws = len(rest) - len(rest.lstrip())
+        for w1 in range(ws, -1, -1):                # then the spaces, longest first
+            title_and_tail = rest[w1:]
+            for g in range(1, len(title_and_tail) + 1):   # the title, shortest first
+                tail = title_and_tail[g:].strip()
+                if len(tail) >= 2 and tail.strip("-") == "":
+                    return title_and_tail[:g]
+    return None
+
+
+def _condition_name(line: str) -> Optional[str]:
+    """`- condition: name` (optionally quoted) -> name, or None."""
+    s = line.lstrip()
+    if not s.startswith("-"):
+        return None
+    s = s[1:].lstrip()
+    if not s.startswith("condition:"):
+        return None
+    s = s[len("condition:"):].lstrip()
+    if s[:1] in ("\"", "'"):
+        s = s[1:]
+    k = 0
+    while k < len(s) and ("a" <= s[k] <= "z" or "A" <= s[k] <= "Z" or "0" <= s[k] <= "9" or s[k] == "_"):
+        k += 1
+    return s[:k] or None
 
 
 def _parse_rule_sections(path: Path, order: List[str]) -> Dict[str, str]:
@@ -172,13 +217,13 @@ def _parse_rule_sections(path: Path, order: List[str]) -> Dict[str, str]:
     except OSError:
         return mapping
     for line in text:
-        m = _SECTION_DIVIDER.match(line)
-        if m:
-            current = m.group(1).strip()
+        title = _section_title(line)
+        if title is not None:
+            current = title.strip()
             continue
-        m = _CONDITION_LINE.match(line)
-        if m:
-            mapping[m.group(1)] = current
+        name = _condition_name(line)
+        if name is not None:
+            mapping[name] = current
     return mapping
 
 
