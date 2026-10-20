@@ -32,8 +32,9 @@ function HistMenu({ menu, conv, onAction, onClose }) {
   }, [menu]);
   useEffect(() => {
     const away = (e) => { if (ref.current && !ref.current.contains(e.target)) onClose(); };
-    const t = setTimeout(() => document.addEventListener('mousedown', away), 0);
-    return () => { clearTimeout(t); document.removeEventListener('mousedown', away); };
+    // pointerdown, not mousedown: iOS Safari sends no mousedown for a tap on plain page.
+    const t = setTimeout(() => document.addEventListener('pointerdown', away), 0);
+    return () => { clearTimeout(t); document.removeEventListener('pointerdown', away); };
   }, [onClose]);
   const act = (a) => { onClose(); onAction(a, menu.sid, conv); };
   return createPortal(

@@ -1,5 +1,5 @@
 """The SQLGlot read-only guard on model-generated SQL (app/sql_guard.py, used by
-app/db.run_readonly). Replaced the keyword regex in db._assert_safe, which
+app/db.run_readonly). Replaced the keyword text scan in db._assert_safe, which
 rejected 'delete pending' inside a string literal, missed a DELETE inside a
 CTE, and skipped the row cap whenever "limit" appeared anywhere in the text
 (a credit_limit column, a subquery's LIMIT)."""

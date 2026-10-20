@@ -118,7 +118,7 @@ class SemanticCache:
         if not settings.SEMANTIC_CACHE_ENABLED or self._too_short(question):
             return
         # Same exclusions as the exact-match cache, plus edge cases (greetings /
-        # off-topic) — those are regex-cheap already, not worth an embed slot.
+        # off-topic) — those are cheap to match already, not worth an embed slot.
         if value.get("needs_clarification") or value.get("confidence") == "low":
             return
         if value.get("route") == "edge":

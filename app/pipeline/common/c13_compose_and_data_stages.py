@@ -3,7 +3,7 @@
 # namespace, in load order, so it shares every name with the other files.
 #
 # SQL text is read here only through SQLGlot (app/sql_ast.py: tree / token
-# stream), never with a regular expression; the regexes below read questions
+# stream), never by text matching; the word matchers below read questions
 # and answers (English), not SQL.
 from app import sql_ast
 from sqlglot import exp
@@ -95,7 +95,7 @@ async def compose_response(question: str, sql: str, rows: list[dict],
     # from EVERY row — totals, mean, extremes, full dimension coverage — so its
     # answer matches the charts/table instead of describing only the ~40 rows it
     # can see. Also stops it declaring that rows it can't see "have no data".
-    digest_text, digest_nums = _result_digest(rows)
+    digest_text, digest_nums = _result_digest(rows, with_mean=bool(_ASKS_AVERAGE.search(question or "")))
     summary_block = ""
     if digest_text:
         warn = ""
@@ -121,6 +121,9 @@ async def compose_response(question: str, sql: str, rows: list[dict],
 numbers in the result and the whole-result summary below — do not invent or round
 differently than shown. Write like a direct briefing: lead with the fact or figure
 itself, not with "The data shows..." or a description of what the query returned.
+The first sentence must say what the figure counts in plain words, for which scheme,
+which area and which period (say "across all financial years" when no year was
+asked). Write every number with thousands separators (27,264,054, never 27264054).
 Keep each sentence to one idea — short and declarative, not a chain of clauses
 joined by "so" / "as" / "which means".
 {guidance}
@@ -199,7 +202,7 @@ Answer:"""
             and not _answer_covers_metrics(answer, preview[0]))
         if still_bad:
             logger.warning("compose_response: retry still wrong — using deterministic answer")
-            answer = _deterministic_answer(rows if len(rows) > 1 else preview)
+            answer = _framed_fallback(rows if len(rows) > 1 else preview, schemes, entities)
 
     # Deterministic safety net for the opposite failure: the query DID return a
     # real, non-zero number, but the composer hedged with a "not covered / no
@@ -211,7 +214,7 @@ Answer:"""
         if metrics_now and all(v not in (0, None) for _k, v in metrics_now):
             logger.warning("compose_response: hedged over a real value %r — deterministic answer",
                            answer[:160])
-            answer = _deterministic_answer(preview)
+            answer = _framed_fallback(preview, schemes, entities)
         elif _is_plain_list_result(rows):
             logger.warning("compose_response: hedged over a %d-row list result %r — "
                            "deterministic list answer", len(rows), answer[:160])
@@ -227,7 +230,7 @@ Answer:"""
             # chart/table built from the same rows showed real data.
             logger.warning("compose_response: hedged over a %d-row breakdown %r — "
                            "deterministic answer", len(preview), answer[:160])
-            answer = _deterministic_answer(rows)
+            answer = _framed_fallback(rows, schemes, entities)
     # A list answer must state the list's true size: "Ten villages in the
     # Dadenggre constituency received employment" for 135 villages, and the
     # fallback's "Here are the 40 results" for 114 (it was handed only the
@@ -236,8 +239,11 @@ Answer:"""
     if len(rows) > 1 and _states_wrong_list_count(answer, len(rows)):
         logger.warning("compose_response: answer states a list size other than %d — deterministic answer",
                        len(rows))
-        answer = _deterministic_answer(rows)
-    return answer
+        answer = _framed_fallback(rows, schemes, entities)
+    # Every data answer reads as a briefing line: result figures grouped, and the
+    # scheme / area named at least once (user report 2026-10-18: "1,494,437
+    # household years." was the whole answer).
+    return _finish_answer(answer, rows, schemes, entities)
 
 
 _C13_HUNDRED_DAYS = Matcher(Alt(
@@ -254,7 +260,7 @@ _LIST_COUNT_WORDS = {w: i for i, w in enumerate(
 
 class _C13DigitNumber(_C1xNode):
     r"""A number written with digits and commas ("1,234"): a digit word, then more
-    digit words joined by commas only (regex \d[\d,]*)."""
+    digit words joined by commas only (a digit, then digits and commas)."""
 
     def ends(self, ctx, i, caps):
         n = len(ctx.toks)
@@ -270,7 +276,7 @@ class _C13DigitNumber(_C1xNode):
 
 
 def _c13_comma_ws(gap: str) -> bool:
-    r"""regex [,]*\s+ — the commas a digit number may trail, then whitespace."""
+    r"""Any commas a digit number may trail, then one or more spaces."""
     return _c1x_ws(gap.lstrip(","))
 
 
@@ -288,8 +294,8 @@ _C13_SUBSET_WORDS = frozenset(("top first last bottom leading largest highest lo
 
 
 def _c13_subset_lead_spans(text: str) -> list:
-    r"""regex \b(?:top|…|those)\s*$ — the text ENDS with one of these words
-    (then only whitespace)."""
+    r"""The text ENDS with one of these whole words (top … those), then only
+    whitespace."""
     toks = _c1x_tokens(text)
     if not toks:
         return []
@@ -326,8 +332,8 @@ _CONTACT_INFO_CUE = Matcher(Alt(
 
 class _C13PlaceWords(_C1xNode):
     r"""1..5 place words separated by whitespace, each starting with a letter and
-    made of word characters and . ' ( ) - (regex
-    [A-Za-z][\w.'()-]*(?:\s+[A-Za-z][\w.'()-]*){0,4}). Every split is offered."""
+    made of letters, digits, '_' and . ' ( ) - (one word, then up to four more,
+    each after one or more spaces). Every split is offered."""
 
     def ends(self, ctx, i, caps):
         n = len(ctx.toks)
@@ -486,26 +492,26 @@ def _c13_ws_words(text: str, q: int, *word_sets) -> int:
 
 
 def _c13_punct_end(rest: str) -> bool:
-    r"""regex \s*[?.!]*\s*$"""
+    r"""Only spaces and any run of ? . ! remain (spaces, marks, spaces, end)."""
     return rest.lstrip().lstrip("?.!").strip() == ""
 
 
 def _c13_vns_tail(text: str, q: int) -> "int | None":
-    r"""regex (?=\s+(?:in|under|within|for|across|of)\b|\s*[?.!]*\s*$): q itself, or None."""
+    r"""Spaces then a whole word in/under/within/for/across/of, or only end marks, follow q: q itself, or None."""
     if _c13_ws_words(text, q, {"in", "under", "within", "for", "across", "of"}) >= 0 or _c13_punct_end(text[q:]):
         return q
     return None
 
 
 def _c13_in_the_name_tail(text: str, q: int) -> "int | None":
-    r"""regex \s+in\s+(?:the|their|its)\s+names?\b: the end, or None."""
+    r"""Words "in" + the/their/its + name/names, spaces between: the end, or None."""
     e = _c13_ws_words(text, q, {"in"}, {"the", "their", "its"}, {"name", "names"})
     return e if e >= 0 else None
 
 
 class _C13NameSearch(_C1xLike):
-    """A lead word pattern, then whitespace, then a lazily-grown name (group
-    "name"), then a tail — the old _VNS_NAME / _VNS_TAIL regexes."""
+    """A lead word matcher, then whitespace, then a name grown as little as
+    possible (group "name"), then a tail — the old _VNS_NAME / _VNS_TAIL checks."""
 
     def __init__(self, lead, tail):
         self.lead = lead if isinstance(lead, _C1xNode) else Matcher(lead).node
@@ -568,7 +574,7 @@ _VILLAGE_NAME_SEARCH = [
 
 
 def _c13_drop_trailing_village(name: str) -> str:
-    r"""regex sub(\s+(?:village|villages)$, "", name, IGNORECASE)"""
+    r"""Drop a final word "village"/"villages" (any case) and the spaces before it."""
     parts = name.split()
     if len(parts) >= 2 and parts[-1].lower() in ("village", "villages") and name.endswith(parts[-1]):
         cut = name[:len(name) - len(parts[-1])]
@@ -584,8 +590,8 @@ _VILLAGE_CATALOGUES = {"MGNREGA": "_mgnrega_village_names", "Focus Plus": "_focu
 def _village_name_search(question: str) -> "tuple[str, str] | None":
     """(mode, name) for a village-name search question, else None. mode is
     "exact" (named / called X) or "contains" (X in the name)."""
-    for mode, rx in _VILLAGE_NAME_SEARCH:
-        m = rx.search(question or "")
+    for mode, word_matcher in _VILLAGE_NAME_SEARCH:
+        m = word_matcher.search(question or "")
         if m:
             name = " ".join(m.group("name").split()).strip(" .?!'\"")
             name = _c13_drop_trailing_village(name).strip()
@@ -615,7 +621,10 @@ async def _village_name_search_answer(question: str) -> "dict | None":
                  f"WHERE UPPER(lgd_village_name) {'=' if mode == 'exact' else 'LIKE'} "
                  f"'{key if mode == 'exact' else '%' + key + '%'}'")
     else:
-        cond = ("UPPER(REGEXP_REPLACE(TRIM(lgd_village_name), '\\s+', ' ', 'g')) = $1" if mode == "exact"
+        # Whitespace runs -> one space: tabs/newlines to spaces, split on space,
+        # drop the empty pieces, join with one space.
+        cond = ("UPPER(ARRAY_TO_STRING(ARRAY_REMOVE(STRING_TO_ARRAY("
+                "TRANSLATE(lgd_village_name, E'\\t\\n\\r', '   '), ' '), ''), ' ')) = $1" if mode == "exact"
                 else "UPPER(lgd_village_name) LIKE $1 ESCAPE '\\'")
         param = key if mode == "exact" else "%" + "".join("\\" + ch if ch in "%_\\" else ch for ch in key) + "%"
         sql = ("SELECT DISTINCT village_code, lgd_village_name AS name, UPPER(lgd_block) AS block, "
@@ -685,6 +694,22 @@ def _acronym_near_miss_clarification(question: str, near: "dict[str, list[str]]"
 # and returns a finished result dict to end the turn early or None to go on.
 # A new DATA step goes into a stage, never into a graph node.
 
+def _chat_active_scheme(session) -> "str | None":
+    """The one scheme the chat is on (its structured state, else the previous
+    turn's single scheme), or None for a new chat. Read-only: the data stages use
+    it so a question that names no scheme is never asked "which scheme?" inside a
+    chat that already has one (user rule 2026-10-19)."""
+    if session is None:
+        return None
+    st = getattr(session, "state", None)
+    sc = getattr(st, "scheme", None) if st is not None else None
+    if sc:
+        return sc
+    prev = getattr(session, "last_turn", None)
+    schemes = list(getattr(prev, "schemes", None) or [])
+    return schemes[0] if len(schemes) == 1 else None
+
+
 def _new_data_turn(question: str, *, skip_scope_clarify: bool = False,
                    prior_resolved: "dict | None" = None,
                    village_hint: "str | None" = None) -> dict:
@@ -721,18 +746,19 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     # some runs and dropped "coverage" on others (cross-scheme run 2026-10-13).
     _cross_text = d.get("pre_rephrase_question") or question
     _named = [s for s, pat in _SCHEME_NAME_MATCHER.items() if pat.search(_cross_text)]
-    # A bare "CM-ELEVATE" beside other schemes is CM Elevate Legacy unless the
-    # question uses the applications dataset's own words — the user's default
-    # (2026-10-12). _pin_cm_elevate_dataset only fires on its data words, and
-    # "performance of MGNREGA, PMAY-G, Focus+ and CM-ELEVATE" has none of them.
-    if "CM Elevate" in _named and "CM Elevate Legacy" not in _named \
-            and not _CMELEVATE_APPLICATIONS_ONLY.search(_cross_text) \
-            and not _CME_APPLICATIONS_VOCAB.search(_cross_text):
-        _named = [("CM Elevate Legacy" if s == "CM Elevate" else s) for s in _named]
+    # A bare "CM-ELEVATE" beside other schemes is CM Elevate, the applications
+    # dataset, as written; Legacy only when named (user decision 2026-10-19,
+    # replacing the 2026-10-12 default to Legacy).
     _cross_q = await _mask_scheme_words_in_village_name(_cross_text)
     _cross = cross_scheme.detect(
         _cross_q, _named,
         measure_text=(await _mask_village_names(_cross_q)) if cross_scheme.other_measure(_cross_q) else None)
+    if _cross == ["CM Elevate"]:
+        # the one-scheme card ("Same comparison for CM Elevate: ...") still asks
+        # which CM Elevate when nothing settled it (user decision 2026-10-19)
+        _cme_pause = _cm_elevate_dataset_pause(question)
+        if _cme_pause is not None:
+            raise _cme_pause
     if _cross:
         logger.info("cross-scheme comparison %r -> %s", _cross_text, _cross)
         d["schemes"], d["cross"] = _cross, {"schemes": _cross, "text": _cross_text}
@@ -752,6 +778,13 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     if _is_ambiguous_focus(question):
         raise _focus_ambiguity_clarification(question)
 
+    # A bare "CM Elevate" that neither its words nor the conversation settled
+    # (the thread decision ran in the context stage): ask which dataset, never
+    # guess (user decision 2026-10-19).
+    _cme_pause = _cm_elevate_dataset_pause(question)
+    if _cme_pause is not None:
+        raise _cme_pause
+
     # A village NAME that contains another scheme's vocabulary is not a scheme
     # signal: "total expenditure in UMRAN DAIRY" was classified CM Elevate (its
     # dairy sub-scheme) and answered ₹1.27 crore of CM Elevate money for an
@@ -761,14 +794,21 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     _scheme_q = await _mask_scheme_words_in_village_name(question)
 
     if _needs_scheme_clarification(_scheme_q):
-        _each = cross_scheme.unnamed_schemes(_cross_text) if settings.ANSWER_DEFAULTS_ENABLED else None
-        if _each:
-            # No scheme named, a measure several schemes record: answer for each
-            # of them instead of asking (ANSWER_DEFAULTS_ENABLED, 2026-10-14).
-            logger.info("answer default: no scheme named -> %s", _each)
-            d["schemes"], d["cross"] = _each, {"schemes": _each, "text": _cross_text}
-            return None
-        raise _scheme_clarification(question)
+        # User rule (2026-10-19) and MAIN_Contex.pdf §9.4: inside one chat the
+        # scheme it is on is never asked again; only a NEW chat whose question
+        # names no scheme (and whose words pin none) asks "which scheme?". This
+        # replaces the 2026-10-14 answer-for-every-scheme default (D-045) for an
+        # unnamed scheme; an explicit cross-scheme question ("compare schemes",
+        # "in both schemes") is still answered side by side above.
+        _chat_scheme = d.get("chat_scheme")
+        if _chat_scheme:
+            question = f"{question.strip().rstrip(' ?.')} under {_chat_scheme}?"
+            d["question"] = question
+            _scheme_q = await _mask_scheme_words_in_village_name(question)
+            context_budget.log_decision("scheme", inherited="chat-scheme", scheme=_chat_scheme)
+            logger.info("no scheme named; the chat is on %s -> %r", _chat_scheme, question)
+        else:
+            raise _scheme_clarification(question, by_measure=True)
 
     # Ask "top how many?" before spending model calls when the question wants a
     # ranked list over a dimension but never says how long.
@@ -951,14 +991,31 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # elsewhere covered all years (hierarchy matrix run 2026-10-14). Stocks (job
     # cards) are pinned to the latest year by _mgnrega_job_cards_latest_year.
     _res = entity_result["resolved"]
-    if _defaults and not _res.get("year_key") and not _res.get("year_key_list") \
-            and _parse_year_key(question) is None and not _ALL_YEARS_CUE.search(question) \
-            and not _TIME_SERIES_CUE.search(question) and not _WHICH_YEAR_CUE.search(question) \
-            and not _C13_JOB_CARD.search(question) \
-            and any(_SCHEME_DATA_YEARS.get(s) for s in (schemes or [])):
+    _no_year = not _res.get("year_key") and not _res.get("year_key_list") \
+        and _parse_year_key(question) is None and not _ALL_YEARS_CUE.search(question) \
+        and not _TIME_SERIES_CUE.search(question) and not _WHICH_YEAR_CUE.search(question) \
+        and not _C13_JOB_CARD.search(question) \
+        and any(_SCHEME_DATA_YEARS.get(s) for s in (schemes or []))
+    # 2026-10-18 (D-053, user decision): the all-years default is for a question
+    # whose conversation already carries a year. A follow-up inherits the previous
+    # turn's year (prior_resolved seeds the resolver; the rewrite appends "in FY ..."
+    # or "across all financial years"), so it never gets here without one. A
+    # question with no year in its text, its entities or its context asks which
+    # financial year, with the one-tap chips, as before D-045: "total
+    # beneficiaries for MGNREGA" on a fresh thread was answered as 1,494,437
+    # household-years across every year without asking (live 2026-10-18).
+    # The chips resume with "for FY ..." / "across all financial years", so the
+    # resumed turn has a year and cannot be asked again.
+    _context_year = bool(prior_resolved) and any(
+        prior_resolved.get(k) for k in ("year_key", "year_key_list", "year_all"))
+    _ask_year = _defaults and _no_year and not _context_year \
+        and _needs_year_clarification(question, schemes, _res)
+    if _defaults and _no_year and not _ask_year:
         question = f"{question.strip().rstrip(' ?.')} across all financial years"
         logger.info("answer default: no year named -> %r", question)
-    if not _defaults and _needs_year_clarification(question, schemes, entity_result["resolved"]):
+    if _ask_year:
+        logger.info("year not named and none in context -> asking which financial year")
+    if _ask_year or (not _defaults and _needs_year_clarification(question, schemes, _res)):
         # MGNREGA women questions offer only the years that carry women data.
         if schemes == ["MGNREGA"] and _WOMEN_CUE.search(question or ""):
             try:
@@ -1002,7 +1059,7 @@ _C13_JOB_CARD = Matcher(Joined("job", ("card", "cards")))
 
 
 def _c13_geo_end(rest: str) -> bool:
-    r"""regex \s*[?.]?\s*$"""
+    r"""Only spaces and at most one ? or . remain, up to the end."""
     r = rest.lstrip()
     if r and r[0] in "?.":
         r = r[1:]
@@ -1015,13 +1072,13 @@ def _c13_after_words(text: str, q: int, *words_) -> int:
 
 
 def _c13_geo_tail_plain(text: str, q: int) -> bool:
-    r"""(?:\s+village)?\s*[?.]?\s*$"""
+    r"""An optional word "village", then only spaces and at most one ? or . to the end."""
     v = _c13_after_words(text, q, "village")
     return (v >= 0 and _c13_geo_end(text[v:])) or _c13_geo_end(text[q:])
 
 
 def _c13_geo_tail_b(text: str, q: int) -> bool:
-    r"""(?:\s+village)?(?:\s+(?:in|located\s+in|under|part\s+of))?\s*[?.]?\s*$"""
+    r"""Optional "village", optional in / located in / under / part of, then the _c13_geo_end end."""
     v = _c13_after_words(text, q, "village")
     for p0 in ([v, q] if v >= 0 else [q]):
         for words_ in (("in",), ("located", "in"), ("under",), ("part", "of")):
@@ -1034,7 +1091,7 @@ def _c13_geo_tail_b(text: str, q: int) -> bool:
 
 
 def _c13_geo_tail_d(text: str, q: int) -> bool:
-    r"""(?:\s+village)?\s+(?:in|located|lie|fall|come)\w*\b.*$"""
+    r"""Optional "village", spaces, a word starting in/located/lie/fall/come, then the rest of the line."""
     v = _c13_after_words(text, q, "village")
     for p0 in ([v, q] if v >= 0 else [q]):
         k = p0
@@ -1054,7 +1111,7 @@ def _c13_geo_tail_d(text: str, q: int) -> bool:
 
 
 class _C13GeoLookup(_C1xLike):
-    """The old four-way geo-lookup regex: (lead words) + whitespace + a name of
+    """The old four-way geo-lookup check: (lead words) + whitespace + a name of
     2-61 characters (a letter, then word characters, space, . ( ) ' -) grown as
     little as the end of the question allows; groups 1-4 / a-d hold the name
     of whichever form matched."""
@@ -1101,7 +1158,7 @@ _GEO_LOOKUP_MATCH = _C13GeoLookup()
 
 
 def _c13_strip_lead_words(name: str, *lead: str) -> str:
-    r"""regex sub(^(?:the\s+)?(?:village\s+)?, "", name, IGNORECASE): drop each lead
+    r"""Drop an opening "the" then "village" (any case): drop each lead
     word, in order, when it starts the text and whitespace follows it."""
     for w in lead:
         if name[:len(w)].lower() == w and len(name) > len(w) and name[len(w)].isspace():
@@ -1169,7 +1226,7 @@ def _literal_sql(sql: str, params: list) -> str:
 
 
 def _c13_chip_label_spans(label: str) -> list:
-    """regex ^(?P<name>.+?) — (?P<block>.+?) block, (?P<district>.+)$ (no newlines)."""
+    """A label "<name> — <block> block, <district>" on one line: spans of the three parts."""
     body = label[:-1] if label.endswith("\n") else label
     if "\n" in body:
         return []
@@ -1793,7 +1850,7 @@ def _sql_latest_year_view(sql: "str | None") -> "str | None":
 _YEAR_VIEWS = {"v_employment", "v_expenditure", "v_pmay", "v_focus_plus", "v_focus_legacy",
                "v_cm_elevate_disbursement"}
 def _c13_y20(w: str) -> bool:
-    r"""A word that starts with 20 + two digits (regex 20\d\d, open end)."""
+    r"""A word that starts with 20 + two digits (anything may follow)."""
     return len(w) >= 4 and w[:2] == "20" and w[2:4].isdecimal()
 
 
@@ -1808,7 +1865,7 @@ _C13_NOT_A_LOAN = Matcher(Seq(_c1x_suffix("not"), W("a"), W("loan", prefix=True)
 
 
 def _c13_followed_by_word(text: str, lead: str, word: str) -> bool:
-    r"""regex escape(lead) + \s+ + word (case-sensitive, no boundaries)."""
+    r"""lead, one or more spaces, then word (case-sensitive, may sit inside longer words)."""
     k = text.find(lead)
     while k >= 0:
         rest = text[k + len(lead):]
@@ -1819,7 +1876,7 @@ def _c13_followed_by_word(text: str, lead: str, word: str) -> bool:
 
 
 def _c13_fy_label(note: str) -> "str | None":
-    r"""regex \bFY\s*(\d{4}-\d{2}) (case-sensitive): the "2023-24" after FY."""
+    r"""FY starting a word, optional spaces, four digits - two digits (case-sensitive): the "2023-24" after FY."""
     k = note.find("FY")
     while k >= 0:
         if k == 0 or not _c1x_is_word_char(note[k - 1]):
@@ -1888,6 +1945,7 @@ async def _data_guarantees_stage(d: dict, scope: "auth.UserScope | None" = None)
     if schemes == ["MGNREGA"]:
         answer = _mgnrega_top_one_wording(answer, sql, rows)
         answer = _mgnrega_money_units(answer, sql, rows)
+        answer = _mgnrega_complete_list(answer, rows)
         if "women_employment_provided" not in (sql or "").lower():
             answer = _mgnrega_zero_backstop(answer, rows, entity_result.get("display") or {})
         if _mg_women:
@@ -1977,7 +2035,7 @@ def _data_assemble(d: dict) -> dict:
 # entity-resolver catalogue instead. A question that also wants a figure
 # ("person-days in EKH") carries a data cue and is left for the DATA path.
 def _c13_sp_or_dash0(gap: str) -> bool:
-    r"""regex [\s-]? between two words: one whitespace character or one hyphen."""
+    r"""The gap between two words: one whitespace character or one hyphen."""
     return len(gap) == 1 and (gap.isspace() or gap == "-")
 
 
@@ -2016,7 +2074,7 @@ def _c13_defn_keep(ch: str) -> bool:
 
 
 def _c13_squash_disallowed(text: str) -> str:
-    r"""regex sub(r"[^\w&./ -]+", " ", text): each run of other characters -> one space."""
+    r"""Keep letters, digits, _ & . / space -: each run of other characters -> one space."""
     out, prev_bad = [], False
     for ch in text:
         if _c13_defn_keep(ch):
@@ -2110,7 +2168,7 @@ async def _update_context(session: "Session | None", raw_question: str, result: 
 # chart" changed nothing. Explicit words win; otherwise the rows' shape decides.
 
 def _c13_pair(firsts, seconds):
-    r"""first + optional whitespace + second ("line chart", "linechart") — regex a\s*b."""
+    r"""first + optional whitespace + second ("line chart", "linechart")."""
     return Alt(Seq(W(*firsts), _C1xGapIs(W(*seconds), _c1x_ws0)),
                W(*[f + s2 for f in firsts for s2 in seconds]))
 
@@ -2133,7 +2191,7 @@ _CHART_ASKED = [   # first match wins
 
 def _c13_name_part_spans(parts: "frozenset[str]"):
     """A column name with one '_'-separated part in `parts` (case-insensitive) —
-    regex (?:^|_)(?:part|…)(?:_|$)."""
+    the part sits at the start or after '_', and at the end or before '_'."""
     def fn(name: str) -> list:
         pos = 0
         for part in name.lower().split("_"):
@@ -2153,7 +2211,7 @@ _CHART_NON_ADDITIVE = _C1xUnion("pct", "percent", "percentage", "rate", "ratio",
 
 
 def _c13_grouped_number(s: str) -> bool:
-    r"""regex fullmatch -?\d+(?:,\d{3})*(?:\.\d+)?"""
+    r"""The whole text is a number: optional '-', digits, any ",ddd" groups, optional decimals."""
     body = s[1:] if s.startswith("-") else s
     whole, dot, frac = body.partition(".")
     if dot and not frac.isdecimal():
@@ -2172,10 +2230,14 @@ def _chart_is_number(v) -> bool:
 
 def _chart_hint(question: str, raw_question: str, rows: list) -> "str | None":
     """The chart the UI should draw for these rows, or None (the UI decides)."""
-    asked = " ".join(q for q in (raw_question, question) if q)
-    for hint, pattern in _CHART_ASKED:
-        if pattern.search(asked):
-            return hint
+    # The standalone question first: "I asked for a pie chart, why are you giving a line
+    # chart?" is rewritten to "... as a pie chart" (c15 _chart_view_question), and the
+    # raw words name both types (live 2026-10-19 16:02). The raw words still count
+    # when the rewrite dropped the chart phrase.
+    for asked in (question, raw_question):
+        for hint, pattern in _CHART_ASKED:
+            if asked and pattern.search(asked):
+                return hint
     if not rows or not isinstance(rows[0], dict):
         return None
     cols = list(rows[0])
@@ -2210,7 +2272,7 @@ def _attach_followups(result: dict, question: str) -> None:
     data/knowledge result. Best-effort — a failure here never breaks the answer."""
     if not settings.FOLLOWUP_SUGGEST_ENABLED:
         return
-    if result.get("route") not in ("data", "knowledge"):
+    if result.get("route") not in ("data", "knowledge") or result.get("keep_follow_ups"):
         return
     try:
         opts = followups.build_followups(

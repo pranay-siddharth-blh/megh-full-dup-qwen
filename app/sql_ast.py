@@ -2,7 +2,7 @@
 SQL inspection and rewriting on the syntax tree (SQLGlot, Postgres dialect).
 
 The project rule: code that reads, checks or changes SQL works on the parsed
-tree, never on the text with regular expressions. A text pattern reads a word
+tree, never on the raw text. A plain text search reads a word
 inside a string literal or a comment as a column, misses `UPPER(lgd_district)`,
 and sees only the first value of an IN list. The tree has none of those blind
 spots. app/sql_guard.py is the safety check; this module is everything else

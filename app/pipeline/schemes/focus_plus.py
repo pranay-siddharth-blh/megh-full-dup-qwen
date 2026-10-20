@@ -3,7 +3,7 @@
 # namespace, in load order, so it shares every name with the other files.
 # Only this scheme's code lives here; the shared steps that call it are in ../common/.
 # Sections follow the order of the pipeline steps they belong to.
-# SQL is read and rewritten on the SQLGlot tree (app/sql_ast), never with regular expressions.
+# SQL is read and rewritten on the SQLGlot tree (app/sql_ast), never as raw text.
 from app import sql_ast
 from sqlglot import exp
 from app.text_match import (ANY, END, Alt, Before, Matcher, Opt, Pred, Seq, W, collapse_ws, is_int, tokens)
@@ -105,7 +105,7 @@ top_disbursement_district AS (
 ),
 top_bank AS (
   SELECT bank_name_raw AS top_bank_name, SUM(amount_disbursed) AS top_bank_amount
-  FROM curated.v_focus_plus WHERE bank_name_raw IS NOT NULL AND bank_name_raw !~ '^[0-9]+$'
+  FROM curated.v_focus_plus WHERE bank_name_raw IS NOT NULL AND NOT (bank_name_raw <> '' AND TRANSLATE(bank_name_raw, '0123456789', '') = '')
   GROUP BY bank_name_raw ORDER BY top_bank_amount DESC LIMIT 1
 ),
 gender AS (
@@ -487,7 +487,7 @@ _VERIFICATION_MENTION = Matcher(Pred(lambda w: "verif" in w.lower()))
 
 
 def _fp_ends(stem: str) -> Pred:
-    """A word ending in `stem` (the old pattern had no word boundary before it)."""
+    """A word ending in `stem` (anything may come before the ending, as before)."""
     return Pred(lambda w: w.lower().endswith(stem))
 
 
@@ -925,7 +925,7 @@ def _fp_bare_numbers(text: str) -> "list[tuple[int, int, str, str]]":
     "126197500.00" / "1,234" not touching a letter, digit, '.' or ',' before it, not followed by
     more of the same figure, nor by a unit (%, crore, cr, lakh, lac, million, mn, billion, k, K);
     a directly preceding "₹" / "₹ " / "Rs " / "Rs. " / "INR " is taken along as its currency.
-    Case-sensitive, like the old _FP_BARE_NUM pattern it replaces."""
+    Case-sensitive, like the old _FP_BARE_NUM check it replaces."""
     out = []
     n, i, last = len(text), 0, 0
     while i < n:
@@ -957,7 +957,7 @@ def _fp_bare_numbers(text: str) -> "list[tuple[int, int, str, str]]":
         for body, spaced in (("₹", True), ("₹", False), ("Rs.", True), ("Rs", True), ("INR", True)):
             ok = (head[-1:].isspace() and head[:-1].endswith(body)) if spaced else head.endswith(body)
             b0 = i - len(body) - (1 if spaced else 0)
-            if ok and body[0] in "RI":       # \bRs / \bINR
+            if ok and body[0] in "RI":       # Rs / INR start a word
                 ok = b0 == 0 or not _pmay_is_word_char(text[b0 - 1])
             if ok:
                 start = b0
@@ -1124,7 +1124,7 @@ def _fp_squeeze_spaces(text: str) -> str:
 
 def _fp_stated_amount_span(question: str, amount_text: str) -> "tuple[int, int] | None":
     """The span of the first `amount_text` (any case) together with the spaces and the
-    "for / of / with / on / at" and "a / an / the" just before it, which the old pattern removed."""
+    "for / of / with / on / at" and "a / an / the" just before it, which the old check removed."""
     if not amount_text:
         return None
     low, key = question.lower(), amount_text.lower()
@@ -1160,7 +1160,7 @@ def _fp_stated_amount_span(question: str, amount_text: str) -> "tuple[int, int] 
             first, p = f, ws_back(f)
         if first >= 0:
             return p, k + len(key)
-        # no preposition or article: a word boundary must sit somewhere in the spaces before it
+        # no preposition or article: a word must end or start within the spaces before it
         w0 = ws_back(k)
         before_word = w0 > 0 and _pmay_is_word_char(question[w0 - 1])
         at_word = _pmay_is_word_char(question[k])

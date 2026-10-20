@@ -3,10 +3,10 @@ Edge-case handler — catches non-analytical input (greetings, "who are you",
 thanks, off-topic, abuse) BEFORE any model call. Zero cost, instant, on-brand.
 
 Ported from NeuralAiGovernanceProject `services/edge_handler.py` and kept in
-step with it: same rule-based shape — strong-intent early exit, ordered pattern
+step with it: same rule-based shape — strong-intent early exit, ordered rule
 banks, meta-conversation + follow-up + non-English pass-throughs, then a
 domain whitelist that BLOCKS anything with no MGNREGA / PMAY-G context. The
-pattern banks are the reference's; the responses are rewritten for this
+rule banks are the reference's; the responses are rewritten for this
 assistant (Meghalaya MGNREGA + PMAY-G, sourced from megh_db and the scheme
 reference docs).
 
@@ -20,15 +20,15 @@ from app.guardrails import Matcher
 from app.text_match import (ANY, END, START, Alt, Joined, Node, NotBefore, Opt, Pred, Rep, Seq,
                             W, tokens)
 
-# ── Matching helpers (word-level, app/text_match — no regex) ────────────────
+# ── Matching helpers (word-level, app/text_match) ───────────────────────────
 # The banks below are lists of objects with .search(text). Pieces built with
-# _S need plain whitespace between words (the old \s+). A pattern that had no
-# \b on a side keeps that looseness: _sfx(...) is a word ENDING in the stem (an
-# unbounded start), _P(...) a word STARTING with it (an unbounded end).
+# _S need one or more plain whitespace characters between words. A rule with no
+# word edge on a side keeps that looseness: _sfx(...) is a word ENDING in the
+# stem (an unbounded start), _P(...) a word STARTING with it (an unbounded end).
 
 
 def _sfx(*stems):
-    """A word ending in any of `stems` (old pattern with no \\b in front)."""
+    """A word ending in any of `stems` (no word edge needed in front)."""
     low = tuple(s.lower() for s in stems)
     return Pred(lambda w: w.lower().endswith(low))
 
@@ -38,7 +38,7 @@ def _edge_is_word_char(ch: str) -> bool:
 
 
 def _edge_rstrip(t: str, chars: str = "!.?") -> str:
-    """`t` without a trailing run of whitespace and `chars` (the old [\\s!.?]*$)."""
+    """`t` without a trailing run of whitespace and `chars` (by default ! . ?)."""
     i = len(t)
     while i and (t[i - 1].isspace() or t[i - 1] in chars):
         i -= 1
@@ -47,7 +47,7 @@ def _edge_rstrip(t: str, chars: str = "!.?") -> str:
 
 class _EdgeWhole:
     """The WHOLE message is `node`, then only whitespace / `tail` characters
-    (old ^(...)[\\s!.?]*$). lead=True allows leading non-word characters (^\\W*)."""
+    (by default ! . ?) to the end. lead=True allows leading non-word characters."""
 
     def __init__(self, node, *, lead: bool = False, tail: str = "!.?"):
         self.m = Matcher(node)
@@ -63,9 +63,9 @@ class _EdgeWhole:
 
 
 class _EdgeLead:
-    """The message STARTS with `node` (old ^...); lead=True allows leading
-    non-word characters (^\\W*). upto=N: at most N more characters (no line
-    break) may follow the match (old ...\\b.{0,N}$)."""
+    """The message STARTS with `node`; lead=True allows leading non-word
+    characters before it. upto=N: the match ends at a word edge and at most N
+    more characters (no line break) may follow it to the end of the message."""
 
     def __init__(self, *alternatives, lead: bool = False, upto: "int | None" = None):
         self.ms = [Matcher(Seq(START, a)) for a in alternatives]
@@ -95,7 +95,7 @@ _THAT_S = _A(W("thats"), _GSeq("that", "s", ok=lambda g: len(g) == 1))   # that'
 
 
 def _focus_plus(t: str) -> bool:
-    """"focus" then optional whitespace then "+" (old focus\\s*\\+)."""
+    """"focus" then optional whitespace then "+"."""
     low = t.lower()
     i = low.find("focus")
     while i >= 0:
@@ -112,7 +112,7 @@ def _edge_year(w: str) -> bool:
 
 def _edge_fy_range(t: str) -> bool:
     """19xx / 20xx / 21xx, optional spaces, - or /, optional spaces, 2+ digits
-    (old (?:19|20|21)\\d\\d\\s*[-/]\\s*\\d{2,4}, unbounded)."""
+    (anywhere in the text, with no word edges required)."""
     n = len(t)
     for i in range(n - 3):
         if t[i:i + 2] in ("19", "20", "21") and t[i + 2].isdigit() and t[i + 3].isdigit():
@@ -129,7 +129,8 @@ def _edge_fy_range(t: str) -> bool:
 
 
 def _edge_arith(t: str) -> bool:
-    """"what is 2+2" / "what is 5 x 3" (old what\\s+is\\s+\\d+\\s*[+\\-*/x]\\s*\\d+)."""
+    """"what is 2+2" / "what is 5 x 3": digits, optional spaces, one of + - * / x,
+    optional spaces, digits."""
     for h in _WHAT_IS.finditer(t):
         i, n = h.end(), len(t)
         if i >= n or not t[i].isspace():
@@ -154,9 +155,9 @@ def _edge_arith(t: str) -> bool:
 
 _WHAT_IS = Matcher(_S(_sfx("what"), "is"))
 
-# ── Pattern banks ───────────────────────────────────────────────────────────
+# ── Rule banks ──────────────────────────────────────────────────────────────
 def _hii(w: str) -> bool:
-    """hii, hiii, … (old hii+)."""
+    """hii, hiii, … ("h" then two or more 'i')."""
     w = w.lower()
     return len(w) >= 3 and w[0] == "h" and set(w[1:]) == {"i"}
 
@@ -188,7 +189,7 @@ _IDENTITY = [
     _M(_S(_sfx("powered", "built", "made", "developed", "created", "trained"), "by")),
     _M(_S(_sfx("how"), W("do", "does"), "you", "work")),
     # conversational "how can you help me" / "can you help me" openers — these
-    # carry no scheme keyword, so without a pattern here they fall all the way
+    # carry no scheme keyword, so without a rule here they fall all the way
     # through to the off-topic whitelist gate and get the blunt "I can only
     # answer..." reply instead of the friendly capabilities rundown. A message
     # that also names a scheme/domain term exits earlier at the _SCHEME_STRONG
@@ -203,17 +204,20 @@ _IDENTITY = [
 
 
 def _thanks_short(t: str) -> bool:
-    """A thanks word first, then at most 20 more characters (old ^(thanks?|…)\\b.{0,20}$)."""
+    """A thanks word first (ending at a word edge), then at most 20 more characters."""
     if not t or not _edge_is_word_char(t[0]):
         return False
     h = _THANKS_LEAD.match(t)
     if h is None:
         return False
     rest = t[h.end():]
-    return len(rest) <= 20 and "\n" not in rest
+    # "thank you, it is very helpful" (live 2026-10-18): the "you" is part of the
+    # lead, and the tail allows a short compliment after the comma.
+    return len(rest) <= 24 and "\n" not in rest
 
 
 _THANKS_LEAD = Matcher(Seq(START, _A(
+    _S("thank", W("you", "u")),
     W("thanks", "thank", "thankyou", "thanku", "ty", "thx", "dhanyavaad", "dhanyawad", "shukriya"),
     _S("khublei", "shibun"))))
 _PRAISE = ("great", "perfect", "awesome", "excellent", "brilliant", "fantastic", "helpful", "nice")
@@ -314,7 +318,7 @@ _OFF_TOPIC = [
 # the scheme-intent early exit: _SCHEME_STRONG counts a bare money unit
 # ("lakh", "crore") as scheme intent, so these were waved through to the
 # pipeline and collected the "which scheme?" picker instead of a refusal
-# (reported 2026-09-18). Every pattern is anchored on the ADVICE phrasing,
+# (reported 2026-09-18). Every rule is anchored on the ADVICE phrasing,
 # never on the money noun, so a real scheme question using the same units
 # ("total expenditure in lakh") is untouched.
 _MONEY_ADVICE = [
@@ -368,7 +372,8 @@ def _amount_token(w: str) -> bool:
 
 class _EdgeNumber(Node):
     r"""A written number: digit tokens joined by ',' / '.' ("1,00,000", "5.5"),
-    the last one possibly glued to a unit ("5k") — the old [\d,]+(?:\.\d+)?."""
+    the last one possibly glued to a unit ("5k") — digits and commas, then an
+    optional '.' with digits."""
 
     def ends(self, ctx, i, caps):
         n, j, out = len(ctx.toks), i, []
@@ -457,7 +462,7 @@ _HARMFUL = [
 
 
 def _hm(w: str) -> bool:
-    """hmm, hmmm, … (old hmm+)."""
+    """hmm, hmmm, … ("h" then two or more 'm')."""
     w = w.lower()
     return len(w) >= 3 and w[0] == "h" and set(w[1:]) == {"m"}
 
@@ -468,7 +473,7 @@ def _um(w: str) -> bool:
 
 
 def _rep_tail(head: str, ch: str):
-    """head followed by one or more `ch` (old uh+, ok+)."""
+    """head followed by one or more `ch` ("uh", "uhhh", "ok", "okkk")."""
     return lambda w: len(w) >= 2 and w.lower()[0] == head and set(w.lower()[1:]) == {ch}
 
 
@@ -477,7 +482,7 @@ def _only_questionmarks(t: str) -> bool:
 
 
 def _what_question(t: str) -> bool:
-    """Exactly "what?" (old what\\? inside ^(...)[\\s!.?]*$)."""
+    """Exactly "what?", then only whitespace / ! . ? to the end."""
     return t[:5].lower() == "what?" and all(c.isspace() or c in "!.?" for c in t[5:])
 
 
@@ -551,7 +556,7 @@ _SCHEME_NAMED = _EdgeAnyOf(
 # "how many districts in Guwahati for PMAY-G") — so this is checked BEFORE
 # the strong-intent early exit, and stands down only when a Meghalaya place
 # is *also* named (e.g. "compare Meghalaya with Assam").
-# (Alternatives are tried in this order at each word, like the old alternation:
+# (Alternatives are tried in this order at each word, longer names first:
 # "west bengal" before "bengal", "new delhi" before "delhi".)
 _OUT_OF_AREA = _M(
     "assam", _S("arunachal", Opt("pradesh")), "nagaland", "manipur", "mizoram", "tripura", "sikkim",
@@ -626,7 +631,7 @@ _FOREIGN_PLACE = _M(
 # out-of-area (all-PG run 2026-09-29). Masked only for the out-of-area test; a
 # place written AFTER the name ("…producer groups in Assam") stays visible.
 def _pg_gap(g: str) -> bool:
-    r"""An optional '.' then optional whitespace (old p\.?\s*g)."""
+    r"""An optional '.' then optional whitespace (between the p and g of "pg")."""
     rest = g[1:] if g.startswith(".") else g
     return rest.strip() == ""
 
@@ -644,7 +649,7 @@ _MEMBERS_HEAD = Matcher(_S(W("member", "members"), Opt(W("are", "were", "is")), 
 
 
 def _edge_tail_end(t: str) -> int:
-    """Where the old \\s*[?.!]*\\s*$ tail starts (the end of a name before it)."""
+    """Where the trailing spaces / ? . ! / spaces tail starts (the end of a name before it)."""
     e = len(t)
     while e and t[e - 1].isspace():
         e -= 1
@@ -656,7 +661,7 @@ def _edge_tail_end(t: str) -> int:
 
 
 def _edge_after_space(t: str, i: int) -> int:
-    """Index after the whitespace run at t[i:] (-1 when there is none: old \\s+)."""
+    """Index after the whitespace run at t[i:] (-1 when there is not at least one)."""
     j = i
     while j < len(t) and t[j].isspace():
         j += 1
@@ -665,7 +670,7 @@ def _edge_after_space(t: str, i: int) -> int:
 
 def _ends_with_group_word(c: str) -> bool:
     r"""`c` ends with producer group(s) / group / pg / p.g / p.g.s, optionally
-    followed by a number ("… Group 2", "… pg-3") — old {_GROUP_WORD}(?:[\s-]*\d+)?$."""
+    followed by a number ("… Group 2", "… pg-3"), after any spaces / dashes."""
     cands = [c]
     i = len(c)
     while i and c[i - 1].isdigit():
@@ -777,7 +782,7 @@ _CHIP_TARGET = _S(W("for", "under", "in", "across"), Opt("the"),
 
 
 def _chip_gap(g: str) -> bool:
-    r"""The old \s*,?\s+ between chips."""
+    r"""Between chips: optional spaces, an optional ',', then one or more spaces."""
     if g.strip() == "":
         return g != ""
     g2 = g.lstrip()
@@ -836,7 +841,8 @@ def _mask_group_name(ql: str) -> str:
 
 def _district_abbrev(t: str) -> bool:
     r"""EGH / W.K.H / S.W.G.H / E.W.K.H style district abbreviations, as whole
-    words (old [ewns]\.?[gkj]\.?h | s\.?w\.?[gk]\.?h | e\.?w\.?k\.?h)."""
+    words: one of e/w/n/s, then g/k/j, then h; or s, w, g/k, h; or e, w, k, h —
+    each letter optionally followed by a '.'."""
     low = t.lower()
     n = len(low)
     shapes = (("ewns", "gkj", "h"), ("s", "w", "gk", "h"), ("e", "w", "k", "h"))
@@ -873,7 +879,7 @@ _MEGHALAYA_PLACE = _EdgeAnyOf(
 
 
 def _fy_digits(w: str) -> bool:
-    """fy23, fy2023 (old \\bfy\\s*\\d\\d, the "fy" glued on)."""
+    """fy23, fy2023 ("fy" at a word start, then two or more digits glued on)."""
     w = w.lower()
     return w.startswith("fy") and len(w) >= 4 and w[2].isdigit() and w[3].isdigit()
 
@@ -951,7 +957,7 @@ _CAPABILITY = [
 # normally. Kept narrow on purpose: the bare "questions"/"answers"/"data" of a
 # genuine capability check are NOT in here.
 def _fy20(w: str) -> bool:
-    """fy2023 (old fy\\s?20\\d\\d with no space)."""
+    """fy2023 ("fy", "20", then two digits, with no space)."""
     w = w.lower()
     return len(w) == 6 and w.startswith("fy20") and w[4:].isdigit()
 
@@ -999,7 +1005,7 @@ _META_CONV = [
 
 def _edge_together(t: str) -> bool:
     """"what" / "how much" then, within 20 characters, together / combined /
-    altogether / in total (old (what|how\\s+much).{0,20}(together|…)\\b)."""
+    altogether / in total (the last word ending at a word edge)."""
     low = t.lower()
     n = len(low)
     ends = []
@@ -1034,7 +1040,7 @@ _PRONOUNS = ("it", "its", "that", "those", "these", "them", "they", "this")
 
 def _edge_wh_pronoun(t: str) -> bool:
     """A wh-word first, a pronoun within 45 characters, then at most 15 more
-    characters before trailing spaces / '?' (old ^(how|…)\\b.{0,45}\\b(it|…)\\b.{0,15}[\\s?]*$)."""
+    characters before trailing spaces / '?' (the wh-word and pronoun whole words)."""
     if not t or not _edge_is_word_char(t[0]):
         return False
     toks = tokens(t)
@@ -1100,8 +1106,8 @@ _FOLLOWUP = [
 
 # ── Domain whitelist — a question with NONE of these words is off-topic ─────
 # A plain string is found ANYWHERE in the lower-cased text (a substring, as
-# before: "beneficiar" matches "beneficiaries"; "focus" stands for the old
-# unanchored "focus+"); the word-bounded entries are word matchers.
+# before: "beneficiar" matches "beneficiaries"; "focus" also covers "focus+",
+# found anywhere); the word-bounded entries are word matchers.
 _DOMAIN_WORDS = [
     # scheme names + synonyms
     "mgnrega", "mnrega", "nrega", "pmay", "pmayg", "pmay-g", "awaas", "awas",
@@ -1123,6 +1129,8 @@ _DOMAIN_WORDS = [
     "sericulture", "motorcaravan", "prime small enterprise", "prime tourism vehicle",
     "any business venture", "cinema theatre", "sports and wellness", "green taxi",
     "meghalayaone", "mbda", "meghalaya basin development", "farmer cash benefit",
+    # "I want to know about farmers getting money" is a Focus question (live 2026-10-18)
+    "farmer",
     # Scheme terms an officer asks the meaning of: "What is DBT?" had no domain
     # word and got the "only schemes" reply (user report 2026-10-14).
     _M(W("dbt", "secc")), "gram sabha", "muster roll", "social audit", "ombudsperson",
@@ -1304,7 +1312,7 @@ def _edge_ws_dash(g: str) -> bool:
 
 class _EdgeCMElevate:
     """CM Elevate, not when qualified as the Legacy dataset: not right after
-    "legacy " and not followed by [ -]* legacy / disbursement(s)."""
+    "legacy " and not followed by any spaces / dashes then legacy / disbursement(s)."""
 
     def search(self, text):
         t = text or ""
@@ -1430,7 +1438,7 @@ _SCHEME_STARTERS = {
 def _named_scheme(question: str) -> "str | None":
     """The single scheme named in `question`, or None when it names none or
     more than one (both of which want the general four-scheme reply)."""
-    hits = [name for name, rx in _SCHEME_ALIASES.items() if rx.search(question or "")]
+    hits = [name for name, word_matcher in _SCHEME_ALIASES.items() if word_matcher.search(question or "")]
     return hits[0] if len(hits) == 1 else None
 
 
@@ -1549,6 +1557,39 @@ def is_personal_request(question: str) -> bool:
 def _has_domain_word(ql: str) -> bool:
     """Any _DOMAIN_WORDS entry in the lower-cased text (plain strings as substrings)."""
     return any((w in ql) if isinstance(w, str) else w.search(ql) for w in _DOMAIN_WORDS)
+
+
+# A misspelt scheme word is still a scheme word. "gender wise breakup the
+# applicxations" had no exact domain word, so step 6 answered "I don't have
+# information about that" in a new chat, while the same question spelt right
+# got the "which scheme?" picker (user report 2026-10-19). The rephraser
+# already fixes such typos (_vocab_typo) — but it runs after this gate, so the
+# gate never let the question reach it. Tighter than the rephraser (ratio >= 88,
+# seven letters or more, same first letter): measured against a 15K-word English
+# list, ratio 85 let 56 real words through ("german" ~ gender, "distinct" ~
+# district); this lets 9 (release, document, beneficial …) and still catches
+# 23 of 24 realistic typos. A word it lets through only reaches the pipeline,
+# whose own router still declines a non-scheme question.
+_DOMAIN_TYPO_VOCAB = frozenset(
+    {w for w in _DOMAIN_WORDS if isinstance(w, str) and w.isalpha() and len(w) >= 6}
+    | {w + "s" for w in _DOMAIN_WORDS if isinstance(w, str) and w.isalpha() and len(w) >= 6}
+    | {"applications", "applicants", "beneficiary", "beneficiaries", "disbursement", "disbursed",
+       "districts", "villages", "blocks", "households", "payments", "installments", "instalments",
+       "sanctioned", "employment", "expenditure", "panchayats", "constituency", "constituencies"})
+
+
+def _has_domain_typo(ql: str) -> bool:
+    """A word that is a close misspelling of a domain word ("applicxations")."""
+    from rapidfuzz import fuzz
+    words = "".join(c if c.isalpha() else " " for c in ql).split()
+    for w in words:
+        if len(w) < 7:
+            continue
+        letters = sorted(w)
+        for v in _DOMAIN_TYPO_VOCAB:
+            if v[0] == w[0] and (fuzz.ratio(w, v) >= 88 or (len(v) == len(w) and sorted(v) == letters)):
+                return True
+    return False
 
 
 def has_domain_vocabulary(question: str) -> bool:
@@ -1674,7 +1715,7 @@ def detect_edge_case(question: str, has_context: bool = False) -> dict | None:
     # 2. Canned-reply banks, most specific first.
     # An off-topic SUBJECT beats the conversational openers above it. "can you
     # help me book a flight?" matches _IDENTITY's generic "can you help me"
-    # pattern, which would answer with the friendly capabilities rundown and
+    # opener, which would answer with the friendly capabilities rundown and
     # never decline the thing actually asked for; the flight is what the
     # message is about, so the off-topic banks take it first.
     for bank, kind in ((_SILLY, "silly"), (_OFF_TOPIC, "off_topic")):
@@ -1722,7 +1763,7 @@ def detect_edge_case(question: str, has_context: bool = False) -> dict | None:
     # gate can give, and it is still a canned reply — no model call.
     if _NAMES_UNSUPPORTED_SCHEME(ql):
         return None
-    if not has_context and not _has_domain_word(ql):
+    if not has_context and not _has_domain_word(ql) and not _has_domain_typo(ql):
         return _edge("off_topic", ql)
 
     return None

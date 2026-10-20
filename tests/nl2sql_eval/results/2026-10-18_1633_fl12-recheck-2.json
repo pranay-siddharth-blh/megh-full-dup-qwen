@@ -1,0 +1,131 @@
+{
+ "label": "fl12-recheck-2",
+ "when": "2026-10-18T16:33:38",
+ "git": {
+  "commit": "9dda6a4",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b"
+ },
+ "readonly_login": "postgres",
+ "superuser_allowed": false,
+ "holdout_checked": true,
+ "selection": {
+  "scheme": null,
+  "ids": "FL-12,MG-08"
+ },
+ "minutes": 0.3,
+ "summary": {
+  "items": 2,
+  "scored": 2,
+  "outcomes": {
+   "wrong": 1,
+   "correct": 1
+  },
+  "accuracy": 50.0,
+  "by": {
+   "Focus Legacy": {
+    "accuracy": 100.0,
+    "correct": 1
+   },
+   "MGNREGA": {
+    "accuracy": 0.0,
+    "wrong": 1
+   },
+   "difficulty:hard": {
+    "accuracy": 100.0,
+    "correct": 1
+   },
+   "difficulty:medium": {
+    "accuracy": 0.0,
+    "wrong": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "MG-08",
+   "scheme": "MGNREGA",
+   "difficulty": "medium",
+   "question": "Show MGNREGA person-days in West Jaintia Hills for each financial year from 2022-23 through 2025-26.",
+   "gold_rows": 4,
+   "outcome": "wrong",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST JAINTIA HILLS",
+    "year_key": 2025
+   },
+   "sql": "SELECT financial_year_short, SUM(person_days) AS person_days\nFROM curated.v_employment\nWHERE lgd_district = 'WEST JAINTIA HILLS' AND year_key = 2025\nGROUP BY financial_year_short\nORDER BY financial_year_short\nLIMIT 100",
+   "seconds": 14.7,
+   "answer": "2025-26: 1,161,895 person days.",
+   "detail": "row count: gold 4, got 1",
+   "mapping": {},
+   "pred_rows": 1,
+   "gold_sample": [
+    {
+     "person_days": 976990
+    },
+    {
+     "person_days": 1510239
+    },
+    {
+     "person_days": 818826
+    }
+   ],
+   "pred_sample": [
+    {
+     "financial_year_short": "2025-26",
+     "person_days": 1161895
+    }
+   ]
+  },
+  {
+   "id": "FL-12",
+   "scheme": "Focus Legacy",
+   "difficulty": "hard",
+   "question": "In FY 2025-26, in which districts were LAMPS cooperatives paid in more than 25% of that district's Focus Legacy payment records? Give each district's share.",
+   "gold_rows": 4,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": "In FY 2025-26, in which districts were LAMPS cooperatives paid in more than 25% of that district's Focus Legacy payment records? Provide each district's share.",
+   "resolved": {
+    "year_key": 2025
+   },
+   "sql": "SELECT lgd_district,\n       COUNT(*) AS payments,\n       ROUND(100.0 * COUNT(*) FILTER (WHERE pg_entity_type = 'LAMP') / NULLIF(COUNT(*), 0), 1) AS lamp_percentage\nFROM curated.v_focus_legacy\nWHERE financial_year_short = '2025-26'\nGROUP BY lgd_district\nHAVING COUNT(*) FILTER (WHERE pg_entity_type = 'LAMP') > 0.25 * COUNT(*)\nORDER BY lamp_percentage DESC",
+   "seconds": 9.6,
+   "answer": "Focus Legacy payments by district, FY 2025-26 \u2014 4 districts:\n\n- East Garo Hills: 738 payments, 35.10 lamp percentage\n- South Garo Hills: 285 payments, 29.80 lamp percentage\n- East Jaintia Hills: 599 payments, 29 lamp percentage\n- West Jaintia Hills: 1,057 payments, 25.80 lamp percentage\n\nTogether, the 4 districts above account for 2,679 payments, 119.70 lamp percentage.",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_district": [
+     "lgd_district",
+     1.0
+    ],
+    "pct_payments_lamp": [
+     "lamp_percentage",
+     1.0
+    ]
+   },
+   "pred_rows": 4
+  }
+ ],
+ "compared_with": "2026-10-18_1627_fl12-recheck.json",
+ "delta": {
+  "regressions": [],
+  "fixed": [
+   "FL-12"
+  ]
+ }
+}

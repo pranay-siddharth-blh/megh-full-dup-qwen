@@ -70,7 +70,7 @@ def _c02_name_before_village(text: str) -> "str | None":
 
 
 def _c02_is_awaas(w: str) -> bool:
-    """awas, awaas, awaaas … (regex awa+s?)."""
+    """awas, awaas, awaaas … ("aw", one or more "a", an optional "s")."""
     w = w.lower()
     if w.endswith("s"):
         w = w[:-1]
@@ -132,13 +132,13 @@ def _rephrase_gloss(question: str) -> str:
             extra.append(_HINGLISH_GLOSS[lw])
         elif not _is_known_word(lw) and (t := _vocab_typo(lw)):
             extra.append(t)
-    extra += [g for rx, g in _HINGLISH_PHRASES if rx.search(text)]
+    extra += [g for word_matcher, g in _HINGLISH_PHRASES if word_matcher.search(text)]
     extra = [e for e in extra if e]
     return f"{text} {' '.join(extra)}" if extra else text
 
 
 def _measure_labels(text: str) -> set[str]:
-    return {label for label, rx, _h in _MEASURE_HOLDERS if rx.search(text or "")}
+    return {label for label, word_matcher, _h in _MEASURE_HOLDERS if word_matcher.search(text or "")}
 
 
 # Ordinary connecting words the vocabulary lists did not hold: "during" read as
@@ -150,7 +150,15 @@ _COMMON_WORDS = frozenset(
 
 
 def _is_known_word(word: str) -> bool:
-    w = word.lower().strip("'-")
+    w = word.lower().replace("’", "'").strip("'-")
+    # A contraction is ordinary English, never a name: "don't give all of
+    # Meghalaya" was rephrased "Do not …" and rejected as a lost name "don't",
+    # so the messy original went on and was routed to the KB (2026-10-18). A
+    # possessive ("Mawlai's") is NOT a contraction and stays a name.
+    _stem, _apos, _suffix = w.partition("'")
+    if _apos and ((_suffix == "t" and _stem.endswith("n"))
+                  or (_suffix in ("ll", "re", "ve", "m", "d") and _is_known_word(_stem))):
+        return True
     if len(w) < 3 or w in _REPHRASE_VOCAB or w in _HINGLISH_GLOSS or w in _COMMON_WORDS or w in _place_words():
         return True
     if any(p.search(w) for p in _SCHEME_NAME_MATCHER.values()) or _fuzzy_named_schemes(w):
@@ -174,7 +182,7 @@ def _needs_rephrase(question: str) -> bool:
     words = _c01_alpha_words(q)
     if not words:
         return False
-    if any(w.lower() in _HINGLISH_GLOSS for w in words) or any(rx.search(q) for rx, _ in _HINGLISH_PHRASES):
+    if any(w.lower() in _HINGLISH_GLOSS for w in words) or any(word_matcher.search(q) for word_matcher, _ in _HINGLISH_PHRASES):
         return True
     if any(not _is_known_word(w) for w in words):
         return True
@@ -306,8 +314,8 @@ def _rephrase_violation(original: str, rephrased: str) -> "str | None":
     # applicants … under each CM ELEVATE program?" came back "…applications…" and
     # was counted with COUNT(*) (Piggery 3,032 for 3,010; CM Elevate sheet run
     # 2026-10-10).
-    for _rx in _REPHRASE_COUNT_NOUNS:
-        if bool(_rx.search(gloss)) != bool(_rx.search(out)):
+    for _word_matcher in _REPHRASE_COUNT_NOUNS:
+        if bool(_word_matcher.search(gloss)) != bool(_word_matcher.search(out)):
             return "measure"
     # An "&" belongs to a name: "mawkohmit & mawkynsah village" (ONE village) came back
     # "mawkohmit and mawkynsah villages" and was asked "which area?" (Focus Legacy
@@ -513,9 +521,9 @@ _SQL_VERIFY_JSON_SCHEMA = {
     },
     "required": ["ok"],
 }
-# SQL calls carry NO guided-decoding constraint. The old one was a regex sent to
-# vLLM ("open on SELECT/WITH"); the project rule is that no regular expression
-# reads or shapes SQL, so _extract_sql below finds the statement on the sqlglot
+# SQL calls carry NO guided-decoding constraint. The old one was a text rule sent to
+# vLLM ("open on SELECT/WITH"); the project rule is that SQL is read and shaped
+# only through sqlglot, so _extract_sql below finds the statement on the sqlglot
 # token stream instead (prose preamble, ```sql fence and all).
 
 
@@ -621,20 +629,22 @@ _SCHEME_NAME_MATCHER = {
     # Focus Legacy is the producer-group scheme, NOT Focus Plus. The two share the
     # word "Focus" and nothing else (no shared key; Focus Plus holds no
     # producer-group column at all — focuslegacy_entity_resolver.yaml
-    # scheme.disambiguation). Both patterns demand a qualifier, so a BARE "focus"
+    # scheme.disambiguation). Both matchers demand a qualifier, so a BARE "focus"
     # matches neither and falls through to the "which Focus?" ask below.
     "Focus Legacy": _C01Quick(Alt(
         _c01_chain(["focus", "legacy"], ["opt1"]), _c01_chain(["legacy", "focus"], ["opt1"]),
         _c01_chain(["old", "focus"], ["opt1"]), _c01_chain(["focus", "pg"], ["opt1"]),
         _c01_chain(["pg", "focus"], ["opt1"])), need=("focus",)),
 }
-# Fuzzy fallback for a scheme name the exact regex above misses because it's
+# Fuzzy fallback for a scheme name the exact matcher above misses because it's
 # misspelled ("manrega", "pamay") — mirrors the RapidFuzz tolerance
 # entity_resolver.py already gives district/block names. Kept separate from
 # _SCHEME_NAME_MATCHER (exact match stays the fast, zero-false-positive path;
 # this only runs when nothing named matches outright).
 _SCHEME_FUZZY_ALIASES = {
-    "MGNREGA": ["mgnrega", "mnrega", "nrega"],
+    # "manrega" / "manraya": how voice typing renders the spoken name (UI
+    # 2026-10-18: "What is the total beneficiaries manraya?").
+    "MGNREGA": ["mgnrega", "mnrega", "nrega", "manrega", "manraya"],
     "PMAY-G": ["pmay", "pmayg", "awaas", "awas"],
     # NOTE: the bare "focus" alias used to live here, so a typo of the short form
     # ("facus", "fokus") still routed to Focus Plus. It was REMOVED when Focus
@@ -661,6 +671,14 @@ def _fuzzy_named_schemes(question: str) -> list[str]:
     return hits
 
 
+# Voice-typing renderings that are never anything but the scheme: always
+# rewritten to its name in the text (the exact-alias rule below keeps an alias
+# as typed, since "pmay" / "mnrega" are partial spellings of the real name).
+# UI 2026-10-18: "…beneficiaries manraya?" was rewritten by the follow-up model
+# as "the Manraya scheme" and answered for every scheme.
+_SCHEME_SPOKEN_FORMS = {"manrega": "MGNREGA", "manraya": "MGNREGA"}
+
+
 _SCHEME_CANONICAL_SPELLING = {
     "MGNREGA": "MGNREGA", "PMAY-G": "PMAY-G",
     "Focus Plus": "Focus Plus", "CM Elevate": "CM Elevate",
@@ -677,8 +695,8 @@ _HILLS_TYPO_MATCH = Matcher(Seq(Cap(W("garo", "khasi", "jaintia", "jaiñtia")),
                              W("hil", "hils", "hll", "hlls", "hilll", "hillls", "hill"), sep="space"))
 
 
-# "FY2022-23" / "FY22-23" (no space) matched none of the year patterns, which all
-# expect a word boundary before the year: the year was dropped and the answer
+# "FY2022-23" / "FY22-23" (no space) matched none of the year matchers, which all
+# expect the year to start a word: the year was dropped and the answer
 # covered every year (KI-289, matrix run 2026-10-14). "FY 2022-23" is read.
 _FY_NO_SPACE_MATCH = Matcher(Pred(lambda w: w[:2].lower() == "fy" and len(w) > 2 and w[2].isdigit()))
 
@@ -739,9 +757,67 @@ def _c02_spoken_year(toks: list, i: int) -> "tuple[int, int] | None":
     return None
 
 
+def _c02_gap_is_list(gap: str) -> bool:
+    """Only spaces, commas, hyphens or dots between two spoken digits."""
+    return all(c.isspace() or c in ",-." for c in gap)
+
+
+def _spoken_digit_years(question: str) -> str:
+    """Digit by digit, as voice typing writes it: 'two zero two three' -> '2023';
+    'two zero two three two zero two four' -> '2023-24'. UI 2026-10-18: "how many
+    houses are there in two zero, two three, two two zero two four" (a stutter
+    included) was answered for all years. Only a run of spoken digits holding
+    "two zero X Y" is read; a second year makes a range only when it is the next
+    year, and a stray digit between the two years is part of the range."""
+    toks = _c01_tm_tokens(question)
+    if not any(t.low == "zero" for t in toks):
+        return question
+    runs, i = [], 0
+    while i < len(toks):
+        if toks[i].low not in _C02_UNITS:
+            i += 1
+            continue
+        j = i + 1
+        while (j < len(toks) and toks[j].low in _C02_UNITS
+               and _c02_gap_is_list(question[toks[j - 1].end:toks[j].start])):
+            j += 1
+        runs.append((i, j))
+        i = j
+    out, last = [], 0
+    for a, b in runs:
+        vals = [_C02_UNITS[t.low] for t in toks[a:b]]
+        years, k = [], 0
+        while k + 3 < len(vals):
+            if vals[k] == 2 and vals[k + 1] == 0:
+                years.append((2000 + vals[k + 2] * 10 + vals[k + 3], a + k, a + k + 4))
+                k += 4
+            else:
+                k += 1
+        n = 0
+        while n < len(years):
+            y1, s1, e1 = years[n]
+            if n + 1 < len(years) and years[n + 1][0] == y1 + 1:
+                text, end = f"{y1}-{years[n + 1][0] % 100:02d}", years[n + 1][2]
+                n += 2
+            else:
+                text, end = str(y1), e1
+                n += 1
+            out.append(question[last:toks[s1].start])
+            out.append(text)
+            last = toks[end - 1].end
+    if not out:
+        return question
+    out.append(question[last:])
+    result = "".join(out)
+    logger.info("spoken digit year read: %r -> %r", question, result)
+    return result
+
+
 def _spoken_years_to_digits(question: str) -> str:
     """'twenty twenty five to twenty six' -> '2025-26'; 'two thousand twenty three'
-    -> '2023'. Digits, punctuation and every other word are left untouched."""
+    -> '2023'; 'two zero two three' -> '2023'. Digits, punctuation and every other
+    word are left untouched."""
+    question = _spoken_digit_years(question)
     toks = _c01_tm_tokens(question)
     if not any(t.low in ("twenty", "thousand") for t in toks):
         return question
@@ -821,7 +897,7 @@ def _correct_scheme_spelling(question: str) -> str:
     # clarification chip, into "CM CM CM Elevate").
     _already_named = {s for s, pat in _SCHEME_NAME_MATCHER.items() if pat.search(question)}
     # "CM Elevate Legacy" already contains the "CM Elevate" words, but the CM
-    # Elevate pattern deliberately does not match it — so without this the lone
+    # Elevate matcher deliberately does not match it — so without this the lone
     # word "Elevate" would be "corrected" into "CM CM Elevate Legacy".
     if "CM Elevate Legacy" in _already_named:
         _already_named.add("CM Elevate")
@@ -830,6 +906,9 @@ def _correct_scheme_spelling(question: str) -> str:
         if len(word) < 5:
             return word
         wl = word.lower()
+        spoken = _SCHEME_SPOKEN_FORMS.get(wl)
+        if spoken and spoken not in _already_named:
+            return _SCHEME_CANONICAL_SPELLING[spoken]
         for scheme, aliases in _SCHEME_FUZZY_ALIASES.items():
             if scheme in _already_named:
                 continue

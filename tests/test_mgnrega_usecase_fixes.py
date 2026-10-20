@@ -897,7 +897,7 @@ def test_verify_sql_discards_the_unlisted_block_complaint(monkeypatch):
     assert out is None
 
 
-# ── SQL read on the tree, not with regexes (2026-10-15) ─────────────────────
+# ── SQL read on the tree, not as raw text (2026-10-15) ──────────────────────
 def test_fact_fan_out_inside_a_cte_is_flagged():
     # A leading WITH used to excuse the whole statement: the employment x
     # expenditure join inside a CTE body ran unflagged.

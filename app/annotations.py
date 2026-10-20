@@ -9,7 +9,7 @@ Deliberately NOT loaded here yet — each needs a design decision before it can
 be wired in safely, not just a parser:
   - *_classification_rules.yaml / *_default_rules.yaml: each rule's `condition`
     is a named label (e.g. "per_capita_requested"), not executable code. Needs
-    a matcher (regex/keyword, per scheme) mapping a question to a condition
+    a matcher (word/keyword, per scheme) mapping a question to a condition
     name before these rules can fire.
   - *_entity_resolver.yaml: large (1500-1800 lines/scheme) alias tables for
     village/district/block/year matching against curated.dim_geography_alias.

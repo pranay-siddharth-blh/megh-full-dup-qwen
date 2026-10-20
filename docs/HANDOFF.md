@@ -3,7 +3,77 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
-**Latest (2026-10-16, evening, D-049):** chatbot side of the ingestion team's DB changes — see CURRENT_STATE "Latest"
+**PORT RULE (user, 2026-10-19): the app runs on 8401 ONLY — dev box, docs, harness, probes. Never 8400 or any other port.
+Start it from the repo venv: `.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8401` (two servers started
+with the SYSTEM Python — no fastembed, RAG degrades silently — were found running on 8400 and 8401 at 13:05 and replaced).**
+
+**WARNING (2026-10-18): two sessions edited this tree in parallel.** The other one added `c15_conversation_meta.py`, KI-310..313 and a SECOND `KI-309` row (KNOWN_ISSUES, the later one; this session's KI-309 is the UI-context one) — renumber theirs when reconciling. This session's stale-worker finding is KI-314.
+
+**Latest (2026-10-19 ~17:40, D-055): conversational layer from `documents/Megh_One_AI_Conversational_Memory_Approach.pdf`** —
+"go back to the first one" (was a KB answer), "I'm Ravi" (name kept for the chat), coverage ("which years / which districts
+can I see"), greeting back / "You're welcome" on mixed messages, rule-computed callback "That's down from X in FY …", one
+steer-back per run of asides, thanks chips, first greeting introduces once, scheme list with one chip per scheme, shorter
+D-054 scope sentence. Harness `scenarios/conversational_approach.yaml` (tag `conversational`); unit tests
+`tests/test_conversational_approach_2026_10_19.py`. NOT done: kha / grt / hi templates, voice, lakh/crore display of counts,
+tone rubric. Pre-existing failures seen (not this change): `test_followup_stage_runs_the_correction_in_the_previous_scope`,
+`test_stop_continue::test_the_decided_defaults` (pins 4 h; the user set 8 h). Nothing committed.
+
+**Latest (2026-10-19 ~16:30, KI-333): chart-type requests** — c15 `_chart_view_question` (c14 step 0h-view) redraws the previous data question as the type asked ("why ... giving X" = the wrong type), `chart_wide` for "wide frame"; topic memory no longer reads "I asked about pie chart" as a back-reference; UI: no line chart for by-district rows. `npm run build` done. Headless: `py -3.14 tests/ui_headless/chart_view_requests.py`. WARNING: 8401 keeps being restarted from the SYSTEM Python by the parallel session (16:09, 16:26, 16:28) — it ran my code, but it should use the venv. Nothing committed.
+
+**Earlier (2026-10-19 ~15:45, KI-332): scheme swap after a cross-scheme comparison** — "now give me for cm elevate" after "Compare PMAY-G and MGNREGA ..." no longer becomes "Compare CM Elevate and CM Elevate": c01 `_comparison_swap` writes "Same comparison for X: <measures + scope>", answered by `cross_scheme.detect` as the one-scheme card; "and X too" adds X. Live-verified on 8401 (5 conversations incl. both CM Elevate chips). NOTE for the KI-330 owner: your graph test `test_cm_elevate_after_a_legacy_answer_switches_dataset` failed once mid-edit at 15:10 and passes now. Nothing committed.
+
+**Earlier (2026-10-19 afternoon, KI-325): two-dimension charts** — scheme x year / district x year drawn with the period on one axis
+and one series per scheme / district (`TwoDimChart`); insight "since" only over periods. `npm run build` done. Headless check
+`tests/ui_headless/chart_two_dim.py` (run with `py -3.14`, the only Python here with Playwright). PORT 8401 ONLY.
+
+**Earlier (2026-10-19 morning, D-054, KI-321, KI-322): answer framing** — `_framed_fallback` / `_finish_answer` /
+`_finish_data_result` (c12; finalize node). c12's tail (`_unit_suffix` … `_entity_names_block`) was accidentally cut and
+restored from HEAD at 11:20 — if the parallel session had edited that region on 2026-10-18, re-check it. Also KI-323 fixed (c11 `_calendar_year_range_issue`: a financial-year question answered for the calendar year — the harness `truth`
+check caught 110,890 vs 106,527). FOR THE D-053 OWNER: KI-324 — your MGNREGA year pause offers "all of them combined" in words but
+has no chip for it and does not accept it typed (re-asks); Focus Plus / CM Elevate Legacy pauses do have the chip. Also
+`test_ki148…` fails against your 6-option `_scheme_clarification`. Harness scenarios were aligned to D-053 and to crore money.
+NEXT: KI-322 (households employed: two totals); KI-324; keep D-053 and D-054 consistent in the composer prompt.
+
+**Earlier (2026-10-18 evening): conversation harness `tests/conversation_harness/`** — YAML scenarios + checks + http / in-process
+drivers + reports (README in the folder; TESTING.md §2b). First live run 16/17 found KI-315 (now fixed: c11 `_verifier_total_vs_breakdown_is_false`) and a failed-turn rewrite bug
+(fixed: c14 `_mark_failed_data_turn`); full set now 17/17, 72/72 turns. Use it (http driver) to accept any context /
+conversation change. NEXT: a scenario for KI-318 once fixed; wire a nightly run; restart the deployed servers.
+
+**Earlier (2026-10-18 late afternoon, KI-315, KI-316, KI-318): context memory ACCEPTED through the HTTP API.** Forward, out-of-context (incl.
+refusals, denials, place/year leak, cached and streamed), backward, general, hierarchy (drill-down AND roll-up) all pass on the
+running server with both a district-level and an unrestricted account (CURRENT_STATE "Latest"). Fixes: refusal / denial are asides;
+deterministic roll-up from the topic ledger with a CLEAR plan (c15 `_rollup_question`, c14 step 0h'). ALWAYS test conversation
+changes through the API (sessions hold one turn on the server). Also KI-320: "compare with pmay" -> cross-scheme comparison in the same scope (c15 `_compare_with_scheme_question`, c14 step 0h'').
+NEXT: KI-318, KI-315; restart the deployed servers. Nothing committed.
+
+**Earlier (2026-10-18 afternoon, D-052, KI-310..312): the chatbot talks about the conversation** — `c15_conversation_meta.py`
+(recap / explain / misread / suggest / reason; correction / breakdown with an apology; place overview; "last year" with no
+year -> which-year pause), thanks / farmer / opening-filler fixes. Live-verified on the user's own conversation (see
+CURRENT_STATE). NEXT: (1) restart the deployed servers (code only); (2) KI-311 — MGNREGA two-year and two-fact-by-block
+shapes answer one year or fail; (3) KI-312 — Focus Plus overview drops the amount; (4) KI-313 — eval MG-08 verifier false positive on a year range
+(c11 discard rule); (5) try the chips in the browser at phone width. Nothing committed.
+
+**Earlier (2026-10-18 afternoon, KI-317): "show me the districts, I'll choose one" after a data answer now offers district chips**
+(c14 step 0g, c05 `_asks_to_pick_district` / `_pick_district_clarification`) and the rephrase guard accepts contractions (c02
+`_is_known_word`). pytest 2,834 / 0; scripts 14/14; eval 74/74; live-verified. NEXT: try it in the browser (chips at phone width);
+decide whether the same "pick one" should offer blocks within a district. Nothing committed.
+
+**Earlier (2026-10-18, D-050, KI-307): context memory — every phase of `documents/MAIN_Contex.pdf` built
+and LIVE-VERIFIED.** Backward memory (question ledger, by order / content / 9B pick), "what did we discuss?",
+place-level clearing, scope banner, "Continue with …?" after idle expiry. Code: `app/topic_memory.py`,
+`app/conversation_layer.py`, `app/context_manager.py`, `app/session_store.py`, c14 (`_attach_scope_banner`,
+`resolve_reference` call), `pipeline_graph.node_finalize`, `routers/query.py`, `conversation_store.py`, frontend
+`Messages.jsx` + `chat.css` (built). Tests `tests/test_topic_ledger.py`; live scenarios N..R. Also stop -> "continue" (`tests/test_stop_continue.py`,
+`frontend/src/chat/stopContinue.js`, `Session.stopped_ctx`). D-051: 50 turns / 20 per topic / 4 h idle — set
+`SESSION_TTL_SECONDS=14400`, `SESSION_MAX_TURNS=50` in every deploy `.env` (they override the code). Late evening: KI-308 + KI-309 fixed, `tests/live_context_matrix.py` (7 flows x 6 schemes): **42/42 live
+conversations pass** (see TESTING for the three runs and the DB-flap caveat); scenarios F, U1, U2 pass; full pytest
+2,940 / 0 failed. NEXT: (0) after any context change, run `tests/live_context_matrix.py` and
+`tests/live_context_validation.py --only F,U1,U2` with the VPN up; (1) browser check DONE via `tests/ui_headless/` (banner, stop/continue, go back, history at 3 widths) — only the
+idle-expiry "Continue with …" chip is still unseen in a browser; (2) WI-9 / mid-sentence comparison if
+wanted; (3) the AI_PIPELINE model-roster DOCUMENTATION CONFLICT (classifier / verifier rows vs the 2026-10-15
+role map). Nothing committed.
+
+**Earlier (2026-10-16, evening, D-049):** chatbot side of the ingestion team's DB changes — see CURRENT_STATE "Latest"
 and `docs/Chatbot_Answers_to_Ingestion_Team_2026-10-16.md`. NEXT: (1) get the megh_readonly password, set
 `READONLY_DATABASE_URL`, `READONLY_DB_ALLOW_SUPERUSER=false`, restart every server (KI-304); (2) restart the Docker
 deploy so the smaller pool takes effect; (3) live-check the note's "known answers" (CM Elevate 8,840; on hold 908;

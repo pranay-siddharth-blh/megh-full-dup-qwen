@@ -1,12 +1,12 @@
 """
-Word-level matching for English text, without regular expressions.
+Word-level matching for English text.
 
-Project rule (D-047): the codebase uses no regex. SQL is read on the SQLGlot
+Project rule (D-047): text is read word by word. SQL is read on the SQLGlot
 tree (app/sql_ast.py); English text — the officer's question, composed
 answers, names, verifier complaints — is matched here, on WORDS.
 
-The text is split into word tokens (runs of letters, digits and '_', like a
-regex \\w+); everything between two tokens is their separator. Patterns are
+The text is split into word tokens (runs of letters, digits and '_');
+everything between two tokens is their separator. Patterns are
 small Python objects built from these pieces:
 
     W("job", "jobs")              one word, any of these (case-insensitive)
@@ -20,8 +20,8 @@ small Python objects built from these pieces:
     Gap(hi) / Gap(lo, hi)         up to hi arbitrary words (fewest first)
     Joined("job", "card")         "job card", "job-card", "job_card" or "jobcard"
     Cap(x, "name")                remember what x matched (Hit.group(1) / ("name"))
-    NotBefore(x, y)               x, not followed by y          (regex x(?!y))
-    NotAfter(x, y)                x, not preceded by y          (regex (?<!y)x)
+    NotBefore(x, y)               x, not followed by y
+    NotAfter(x, y)                x, not preceded by y
     Before(x, y) / After(x, y)    positive versions
     START / END                   the first / past the last word
 
@@ -123,7 +123,7 @@ def _node(x) -> Node:
 
 class W(Node):
     """One word from `options` (case-insensitive unless case=True); prefix=True
-    accepts any word starting with an option (a regex `stem\\w*`)."""
+    accepts any word starting with an option (the stem, then any word characters)."""
 
     def __init__(self, *options: str, prefix: bool = False, case: bool = False):
         self.case = case
@@ -360,8 +360,8 @@ END = _End()
 
 @dataclass
 class Hit:
-    """What a Matcher found: the matched span plus captures. Mirrors the parts
-    of a regex match the code used: group(), start(), end(), span(), groups()."""
+    """What a Matcher found: the matched span plus captures, read with
+    group(), start(), end(), span() and groups()."""
     string: str
     _start: int
     _end: int
@@ -546,7 +546,7 @@ def any_phrase(*phrases) -> Matcher:
 # ── character-level helpers ─────────────────────────────────────────────────
 
 def collapse_ws(s: str | None) -> str:
-    """Runs of whitespace -> one space, trimmed (regex sub(r"\\s+", " ") + strip)."""
+    """Runs of whitespace -> one space, trimmed at both ends."""
     return " ".join((s or "").split())
 
 
@@ -561,7 +561,8 @@ def is_year(s: str, lo: int = 1900, hi: int = 2099) -> bool:
 
 def number_spans(text: str | None, *, decimals: bool = True, commas: bool = True) -> list[tuple[int, int, str]]:
     """Numbers written with digits: '42', '1,23,456', '3.5' -> (start, end, text).
-    Mirrors \\d[\\d,]*(?:\\.\\d+)? (trailing commas are not part of a number)."""
+    A digit, then digits and commas, then optionally '.' and more digits
+    (trailing commas are not part of a number)."""
     text = text or ""
     out = []
     i, n = 0, len(text)
@@ -602,8 +603,8 @@ def digit_runs(text: str | None) -> list[str]:
 
 def fy_spans(text: str | None) -> list[tuple[int, int, int, int]]:
     """Financial years written '2023-24', '2023-2024', 'FY 2023-24', '2023/24',
-    '2023 – 24' -> (start, end, start_year, end_year_last2). Mirrors
-    (?:fy\\s*)?(20\\d\\d)\\s*[-/–]\\s*(\\d{2}|20\\d\\d)."""
+    '2023 – 24' -> (start, end, start_year, end_year_last2): an optional 'fy',
+    a year 20xx, then '-', '/' or a dash, then two digits or another 20xx."""
     out = []
     toks = tokens(text)
     t = text or ""
@@ -629,7 +630,7 @@ def fy_spans(text: str | None) -> list[tuple[int, int, int, int]]:
 
 def split_sentences(text: str | None) -> list[str]:
     """Split after '.', '!' or '?' followed by whitespace and a capital letter,
-    digit, quote, '(' , '*' or '₹' (the old (?<=[.!?])\\s+(?=[A-Z0-9"'(*₹]) rule)."""
+    digit, quote, '(' , '*' or '₹'; the punctuation stays with its sentence."""
     text = text or ""
     out, start, i, n = [], 0, 0, len(text)
     while i < n:

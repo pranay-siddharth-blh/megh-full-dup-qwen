@@ -147,7 +147,15 @@ check("resolves", status == "resolved", status)
 if status == "resolved":
     res = out["resolved"]
     check("block kept", res.get("block") == "SHALLANG", res.get("block"))
-    check("contradicting district dropped", "district" not in res, res.get("district"))
+    # KI-327 (2026-10-19): the block's own district replaces the stale one, in the
+    # resolved entities, the display and the question text
+    check("contradicting district replaced by the block's own",
+          res.get("district") == "WEST KHASI HILLS", res.get("district"))
+    check("display shows the block's own district",
+          out["display"].get("district") == "West Khasi Hills", out["display"].get("district"))
+    check("question text follows the swap",
+          "West Khasi Hills" in out.get("question", "") and "West Garo Hills" not in out.get("question", ""),
+          out.get("question"))
 
 status, out = resolve("how many applicants in shallang block in West Khasi Hills",
                       {"block": "shallang", "district": "West Khasi Hills"})

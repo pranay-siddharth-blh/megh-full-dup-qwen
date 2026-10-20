@@ -38,7 +38,7 @@ Fixes, in the same order:
 
 Ground truth: MYLLIEM block holds Green Taxi 1 + Warehouse 1 = 2.
 
-Catalogue/regex level — no model, no DB, no network. Plain script (no pytest in
+Catalogue/text-match level — no model, no DB, no network. Plain script (no pytest in
 the venv): `python tests/test_cross_scheme_collision.py`, exit 0 = pass.
 """
 import sys

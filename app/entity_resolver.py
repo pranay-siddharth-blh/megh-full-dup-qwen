@@ -26,7 +26,7 @@ from app.text_match import Alt, Hit, Matcher, Node, Opt, Pred, Seq, W, collapse_
 logger = logging.getLogger(__name__)
 
 
-# ── regex-free text helpers (D-047: no regular expressions) ────────────────
+# ── plain-Python text helpers (D-047) ──────────────────────────────────────
 # Also imported by the pipeline's mention / village / entity files (c07-c09),
 # which need the same character-level scans.
 
@@ -35,12 +35,12 @@ _ASCII_LETTERS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz
 
 
 class _CharScan:
-    """A Matcher-like object for patterns that care about punctuation, which
-    word-level text_match patterns cannot see. `at(text, i)` tries a match
+    """A Matcher-like object for matches that care about punctuation, which
+    word-level text_match matchers cannot see. `at(text, i)` tries a match
     starting at character i and returns (end, groups) or None, where `groups`
     is a list of (start, end) | None for numbered groups, or a dict
     {name: (start, end) | None} for named ones. Offers the calls the old
-    compiled patterns were used with: search / match / fullmatch / finditer /
+    matchers were used with: search / match / fullmatch / finditer /
     findall / sub / subn / __call__, all returning text_match Hits."""
 
     def __init__(self, at):
@@ -119,8 +119,8 @@ class _CharScan:
 class _GapIs(Node):
     """Zero-width text_match piece: the separator text right before the current
     word (from the previous word's end, or the text start, up to this word's
-    start, or the text end) satisfies `fn`. Lets a word pattern say exactly
-    which punctuation may sit between two words (regex `a\\s+b`, `a b`, ...)."""
+    start, or the text end) satisfies `fn`. Lets a word matcher say exactly
+    which punctuation may sit between two words (any spaces, one space, ...)."""
 
     def __init__(self, fn):
         self.fn = fn
@@ -134,12 +134,12 @@ class _GapIs(Node):
 
 
 def _gap_ws(g: str) -> bool:
-    """Separator is one or more whitespace characters (regex \\s+)."""
+    """Separator is one or more whitespace characters."""
     return g != "" and g.isspace()
 
 
 def _ws_run_end(text: str, i: int) -> int:
-    """Index just past the whitespace run starting at i (regex \\s*)."""
+    """Index just past the whitespace run (possibly empty) starting at i."""
     n = len(text)
     while i < n and text[i].isspace():
         i += 1
@@ -147,7 +147,7 @@ def _ws_run_end(text: str, i: int) -> int:
 
 
 def _ws1(s: str) -> str:
-    """Every whitespace run -> one space, NOT trimmed (regex sub(r"\\s+", " "))."""
+    """Every whitespace run -> one space, NOT trimmed at either end."""
     out, prev_ws = [], False
     for ch in s or "":
         if ch.isspace():
@@ -161,7 +161,7 @@ def _ws1(s: str) -> str:
 
 
 def _ci_find(text: str, needle: str, start: int = 0) -> int:
-    """Case-insensitive str.find (regex search(escape(needle), flags=I))."""
+    """Case-insensitive str.find of `needle` taken literally."""
     text, needle = text or "", needle or ""
     low_t, low_n = text.lower(), needle.lower()
     if len(low_t) == len(text) and len(low_n) == len(needle):
@@ -175,7 +175,7 @@ def _ci_find(text: str, needle: str, start: int = 0) -> int:
 
 def _ci_replace(text: str, needle: str, repl: str, count: int = 0) -> str:
     """Case-insensitive literal replace of the first `count` (0 = every)
-    occurrence (regex sub(escape(needle), repl, flags=I))."""
+    occurrence, with `needle` and `repl` both taken literally."""
     text = text or ""
     if not needle:
         return text.replace("", repl, count if count else -1)
@@ -196,7 +196,7 @@ def _ci_replace(text: str, needle: str, repl: str, count: int = 0) -> str:
 
 def _bounded_spans(text: str, needle: str, *, ci: bool = False) -> list[tuple[int, int]]:
     """Non-overlapping occurrences of `needle` not touching an ASCII letter or
-    digit on either side (regex (?<![A-Za-z0-9])NEEDLE(?![A-Za-z0-9]))."""
+    digit on either side (a whole word, not inside a longer letters/digits run)."""
     text = text or ""
     out: list[tuple[int, int]] = []
     n, m = len(text), len(needle)
@@ -235,7 +235,7 @@ _ROMAN_OR_DIGIT = frozenset("IVXLCDMivxlcdm")
 
 def _paren_roman_upper(s: str) -> str:
     """Upper-case every "(<roman numerals / digits>)" run, e.g. "(Ii)" -> "(II)"
-    (regex sub(r"\\(([IVXLCDM\\d]+)\\)", upper, flags=I))."""
+    (brackets holding one or more of I V X L C D M or digits, any case)."""
     out, i, n = [], 0, len(s)
     while i < n:
         if s[i] == "(":
@@ -603,8 +603,9 @@ _TRANCHE_GUARD_MATCH = Matcher(Pred(lambda w: "tranc" in w.lower()))
 # Fixed by requiring the number/ordinal to sit immediately next to "tranch"
 # itself (either side, "tranche 2" / "2nd tranche" / "trance 3"), not merely
 # present somewhere in the sentence.
-# regex: \btranc\w*\s+(?:no\.?|number|#)?\s*NUM\b | \bNUM\s+tranc\w*  (NUM = 1-4 /
-# one..four / first..fourth / 1st..4th), case-insensitive.
+# Matches: a word starting "tranc", spaces, an optional "no" / "no." / "number" /
+# "#", then NUM as a whole word; or NUM, spaces, a word starting "tranc" (NUM =
+# 1-4 / one..four / first..fourth / 1st..4th), case-insensitive.
 _TRANCHE_NUM_WORD = W("1", "2", "3", "4", "one", "two", "three", "four", "first", "second",
                       "third", "fourth", "1st", "2nd", "3rd", "4th")
 _TRANCHE_WORD = W("tranc", prefix=True)
@@ -811,7 +812,7 @@ def resolve_cm_scheme(question: str, scheme: str = "CM Elevate") -> "Resolved | 
 # different, already-answerable group-breakdown question (cmelevate_few_shot.yaml
 # has worked IN-list examples for "vehicle schemes"/"livestock schemes") and must
 # not be redirected into a clarification pause.
-# regex \b<word> scheme(?!s)\b: one plain space between, and "scheme" a whole word.
+# "<word> scheme": one plain space between, and "scheme" a whole word (not "schemes").
 _CM_GROUP_SINGULAR_CUE: dict[str, Matcher] = {
     group: Matcher(Seq(W(word), _GapIs(lambda g: g == " "), W("scheme")))
     for group, word in (("vehicles", "vehicle"), ("tourism", "tourism"), ("PRIME", "prime"),
@@ -1082,7 +1083,8 @@ def _scannable_forms(value: dict) -> list[str]:
 
 
 def _hq_alias_at(text: str, i: int):
-    r"""regex ^(.+?)\s+district$ (case-insensitive), as a _CharScan step."""
+    r"""The whole text is a name, spaces, then "district" (any case), as a
+    _CharScan step; the name is the group."""
     if i != 0 or len(text) < 8 or text[-8:].lower() != "district":
         return None
     body = text[:-8]
@@ -1537,8 +1539,8 @@ _place_matchers_cache: "tuple[tuple, list] | None" = None
 
 class _BoundedPhrase:
     """A literal phrase not touching an ASCII letter/digit on either side —
-    the .search / .sub the old compiled (?<![A-Z0-9])PHRASE(?![A-Z0-9])
-    pattern offered, done with str.find."""
+    the .search / .sub the old whole-phrase matcher offered, done with
+    str.find."""
 
     __slots__ = ("phrase",)
 
@@ -1567,10 +1569,10 @@ class _BoundedPhrase:
 
 
 def _place_matchers() -> list:
-    """(folded form, compiled whole-phrase pattern, CANONICAL, dimension) for
-    every district/block name form, longest first. Compiled once per loaded
-    catalogue: there are over a thousand forms, more than re's own pattern
-    cache holds, and recompiling them made each follow-up rewrite spend about
+    """(folded form, whole-phrase matcher, CANONICAL, dimension) for every
+    district/block name form, longest first. Built once per loaded
+    catalogue: there are over a thousand forms, too many to cache cheaply
+    elsewhere, and rebuilding them made each follow-up rewrite spend about
     20 ms of CPU on the event loop."""
     global _place_matchers_cache
     key = tuple((s, id(d), len(d.get("district") or []), len(d.get("block") or []))
@@ -1629,6 +1631,14 @@ async def _activity_counts(codes: list[int]) -> dict[int, int]:
     return {r["village_code"]: r["n"] for r in rows}
 
 
+def _squashed_sql(col: str) -> str:
+    """SQL for UPPER(col) keeping only A-Z and 0-9, in order: the string split
+    into characters, each kept when its code is a capital letter or a digit."""
+    return ("ARRAY_TO_STRING(ARRAY(SELECT c FROM UNNEST(STRING_TO_ARRAY(UPPER(" + col + "), NULL)) "
+            "WITH ORDINALITY AS u(c, i) WHERE ASCII(c) BETWEEN 65 AND 90 OR ASCII(c) BETWEEN 48 AND 57 "
+            "ORDER BY i), '')")
+
+
 async def village_names_exact(names: list[str]) -> dict[str, list[dict]]:
     """For each candidate name, the villages whose canonical name or alias
     matches it EXACTLY (case-insensitively). Names with no exact match are
@@ -1662,8 +1672,7 @@ async def village_names_exact(names: list[str]) -> dict[str, list[dict]]:
               -- clarification forever (reported 2026-09-17). Squashing keeps
               -- this strictly an exact-name test — it adds no fuzziness, it
               -- only stops punctuation from deciding the match.
-              ON regexp_replace(UPPER(g.lgd_village_name), '[^A-Z0-9]', '', 'g')
-               = regexp_replace(UPPER(x.name),             '[^A-Z0-9]', '', 'g')
+              ON """ + _squashed_sql("g.lgd_village_name") + " = " + _squashed_sql("x.name") + """
             LIMIT 200
             """,
             [wanted],

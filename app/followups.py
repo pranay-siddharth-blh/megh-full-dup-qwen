@@ -49,7 +49,7 @@ class _FuPlusAfter(Node):
 
 _FU_CME = Joined("cm", "elevate")
 _FU_LEGACY_TAIL = W("legacy", "disbursement", "disbursements")
-_SCHEME_RX = {
+_SCHEME_MATCH = {
     "MGNREGA": Matcher(W("mgnrega", "mnrega", "nrega")),
     "PMAY-G": Matcher(Alt(W("pmay", "pmayg"), Seq("pmay", "g"),
                           Pred(lambda w: w.lower().rstrip("s")[:2] == "aw"
@@ -80,10 +80,10 @@ def _asked(question: str, *needles: str) -> bool:
 def _primary_schemes(schemes: list[str], question: str) -> list[str]:
     """The scheme(s) to build follow-ups for: what the answer used, else what
     the question names, else both."""
-    schemes = [s for s in (schemes or []) if s in _SCHEME_RX]
+    schemes = [s for s in (schemes or []) if s in _SCHEME_MATCH]
     if schemes:
         return schemes
-    named = [s for s, rx in _SCHEME_RX.items() if rx.search(question or "")]
+    named = [s for s, word_matcher in _SCHEME_MATCH.items() if word_matcher.search(question or "")]
     return named or ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy",
                      "CM Elevate Legacy"]
 
@@ -92,10 +92,10 @@ def _primary_schemes(schemes: list[str], question: str) -> list[str]:
 _LEVEL_RANK = {"state": 0, "district": 1, "block": 2, "village": 3}
 
 # Column-name cues (a column name is one word: "district_name", "lgd_block").
-_DISTRICT_COL_RX = Matcher(Pred(lambda w: any(s in w.lower() for s in ("district", "distname", "dist_name"))))
-_BLOCK_COL_RX = Matcher(Alt(W("block"), Pred(lambda w: any(s in w.lower() for s in
+_DISTRICT_COL_MATCH = Matcher(Pred(lambda w: any(s in w.lower() for s in ("district", "distname", "dist_name"))))
+_BLOCK_COL_MATCH = Matcher(Alt(W("block"), Pred(lambda w: any(s in w.lower() for s in
                                                            ("blockname", "block_name", "lgd_block")))))
-_VILLAGE_COL_RX = Matcher(Pred(lambda w: any(s in w.lower() for s in ("village", "panchayat"))))
+_VILLAGE_COL_MATCH = Matcher(Pred(lambda w: any(s in w.lower() for s in ("village", "panchayat"))))
 
 
 def _group_by_names(sql: str) -> "list[str]":
@@ -179,15 +179,15 @@ def _grain_suffix(ents: dict, grain: str | None) -> str:
     return ""
 
 
-def _top_area_from_rows(rows: list | None, col_rx: Matcher) -> str | None:
+def _top_area_from_rows(rows: list | None, col_word_matcher: Matcher) -> str | None:
     """Name of the row with the largest metric value, keyed by the first column
-    whose name matches `col_rx`. None if the row shape isn't obvious — this only
+    whose name matches `col_word_matcher`. None if the row shape isn't obvious — this only
     feeds a suggestion, so a wrong guess is a slightly-off drill target, not a
     bad answer."""
     if not rows or not isinstance(rows[0], dict):
         return None
     keys = list(rows[0].keys())
-    name_key = next((k for k in keys if col_rx.search(k)), None)
+    name_key = next((k for k in keys if col_word_matcher.search(k)), None)
     if not name_key:
         return None
     num_key = next(
@@ -249,13 +249,13 @@ def _drill_down(ents: dict, grain: str | None = None,
         q = "Break that down by district."
         return {"label": q, "question": q}
     if view == "district":
-        top = _top_area_from_rows(rows, _DISTRICT_COL_RX)
+        top = _top_area_from_rows(rows, _DISTRICT_COL_MATCH)
         if top:
             q = f"Break that down by block within {top.title()}."
             return {"label": q, "question": q}
         return None
     if view == "block":
-        top = _top_area_from_rows(rows, _BLOCK_COL_RX)
+        top = _top_area_from_rows(rows, _BLOCK_COL_MATCH)
         if top:
             q = f"Break that down by village within {top.title()} block."
             return {"label": q, "question": q}

@@ -1,0 +1,104 @@
+# The conversations the user reported on 2026-10-18 / 2026-10-19, and the two rules they
+# restated on 2026-10-19: inside one chat nothing known is asked again (scheme, place,
+# year); a NEW chat with no scheme asks which scheme. Figures observed live 2026-10-19.
+
+- name: U1_fresh_question_asks_the_year
+  doc: "D-053: no year anywhere -> ask; the chip answers; the follow-up inherits the year"
+  tags: [user_reported, year, context]
+  account: superadmin
+  turns:
+    - say: "total beneficiaries for MGNREGA"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "FY 2023-24"
+      expect: {route: data, scheme: MGNREGA, year: FY 2023-24, numbers_any: [410200]}
+    - say: "break that down by district"
+      expect: {route: data, scheme: MGNREGA, year: FY 2023-24}
+
+- name: U2_typed_all_years_reply
+  doc: "KI-324: a typed 'all of them combined' answers the year pause"
+  tags: [user_reported, year]
+  account: superadmin
+  turns:
+    - say: "Total MGNREGA person-days in East Khasi Hills"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "all of them combined"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, numbers_any: [11054100]}
+
+- name: U3_block_in_another_district
+  doc: "KI-327: a block named after a village turn is answered in the block's own district"
+  tags: [user_reported, hierarchy, context]
+  account: superadmin
+  turns:
+    - say: "What is the total Focus Plus amount released for Gobekram village, West Garo Hills, in FY 2022-23?"
+      expect: {route: data, scheme: Focus Plus, year: FY 2022-23, numbers_any: [30000]}
+    - say: "now give me for dambo rongjeng block"
+      expect: {route: data, scheme: Focus Plus, year: FY 2022-23, answer_contains: ["East Garo Hills"],
+               answer_not_contains: ["West Garo Hills"], numbers_any: [20165000]}
+
+- name: U4_cm_elevate_switch_from_legacy
+  doc: "KI-330: 'now give me for cm elevate' after a Legacy answer switches dataset"
+  tags: [user_reported, scheme_switch, context]
+  account: superadmin
+  turns:
+    - say: "How many CM Elevate Legacy records are there in Meghalaya across all financial years?"
+      expect: {route: data, scheme: CM Elevate Legacy, numbers_any: [2823]}
+    - say: "now give me for cm elevate"
+      expect: {route: data, scheme: CM Elevate, numbers_any: [8840]}
+    - say: "now give me for cm elevate legacy"
+      expect: {route: data, scheme: CM Elevate Legacy, numbers_any: [2823]}
+
+- name: U5_same_scheme_new_question_keeps_year
+  doc: "KI-331: a new question on the thread's scheme keeps the thread's year choice"
+  tags: [user_reported, year, context]
+  account: superadmin
+  turns:
+    - say: "How many CM Elevate Legacy records are there in Meghalaya across all financial years?"
+      expect: {route: data, scheme: CM Elevate Legacy, numbers_any: [2823]}
+    - say: "give me cm elevate disbursement by district"
+      expect: {route: data, scheme: CM Elevate Legacy}
+
+- name: U6_scheme_never_asked_twice_in_a_chat
+  doc: "User rule 2026-10-19: inside one chat a question that names no scheme inherits the active one"
+  tags: [user_reported, general, context]
+  account: superadmin
+  turns:
+    - say: "How many PMAY-G houses were completed in Ri Bhoi in 2023-24?"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2023-24}
+    - say: "how many beneficiaries are there?"
+      expect: {route: data, scheme: PMAY-G}
+    - say: "what is the total amount released?"
+      expect: {route: data, scheme: PMAY-G}
+
+- name: U7_scheme_kept_after_an_aside_and_knowledge
+  doc: "User rule: an aside and a how-it-works question do not make the next general question ask the scheme"
+  tags: [user_reported, general, context, out_of_scope]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in Ri Bhoi in 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2023-24, numbers_any: [1481572]}
+    - say: "tell me a joke"
+      expect: {route: edge}
+    - say: "how are wages paid?"
+      expect: {route: knowledge}
+    - say: "what is the total expenditure there?"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi}
+
+- name: U8_new_chat_without_scheme_asks
+  doc: "User rule: a NEW chat whose first question names no scheme (and whose words pin none) asks which scheme; then it is remembered"
+  tags: [user_reported, general, context]
+  account: superadmin
+  turns:
+    - say: "how many beneficiaries are there in Ri Bhoi in 2023-24?"
+      expect: {route: pause, pause_rule: scheme-not-specified}
+    - say: "PMAY-G"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2023-24}
+    - say: "what is the total amount released?"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2023-24}
+
+- name: U9_words_that_pin_one_scheme_need_no_question
+  doc: "MAIN_Contex 9.4: words that point to one scheme ('person-days', MGNREGA's 'expenditure') are used without asking"
+  tags: [user_reported, general]
+  account: superadmin
+  turns:
+    - say: "total person-days in Ri Bhoi in 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2023-24, numbers_any: [1481572]}

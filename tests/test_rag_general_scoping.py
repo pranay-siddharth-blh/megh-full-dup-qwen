@@ -22,7 +22,7 @@ The faults:
    need?" returned a FOCUS PLUS chunk as its single best hit — and Focus Plus
    holds no producer-group data at all.
 
-3. kb_ingest's `<!-- scheme: X -->` tag regex forbade spaces, so the three
+3. kb_ingest's `<!-- scheme: X -->` tag reader forbade spaces, so the three
    multi-word schemes could never be tagged explicitly; whatever it did capture
    was .upper()'d (unreachable, since filters match the canonical spelling);
    and the fallback label was "GENERAL", which no caller ever queries — an
@@ -159,7 +159,7 @@ def test_no_clarification_pause_is_lost_to_the_new_fallback():
     [
         ("<!-- scheme: MGNREGA -->", "MGNREGA"),
         ("<!-- scheme: PMAY-G -->", "PMAY-G"),
-        # multi-word: the original regex forbade the space and matched nothing
+        # multi-word: the original reader forbade the space and matched nothing
         ("<!-- scheme: Focus Legacy -->", "Focus Legacy"),
         ("<!-- scheme: Focus Plus -->", "Focus Plus"),
         ("<!-- scheme: CM Elevate -->", "CM Elevate"),
@@ -172,7 +172,7 @@ def test_scheme_tag_resolves_to_the_canonical_spelling(tag, expected):
     """Retrieval filters on an exact scheme string (vectorstore.search uses
     MatchValue), so a tag that resolves to anything else is unreachable."""
     m = _SCHEME_TAG.search(tag)
-    assert m is not None, f"{tag!r} did not match the tag regex at all"
+    assert m is not None, f"{tag!r} did not match the tag reader at all"
     assert _CANONICAL_SCHEME.get(m.group(1).strip().lower()) == expected
 
 

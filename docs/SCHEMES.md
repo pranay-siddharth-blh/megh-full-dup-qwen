@@ -350,7 +350,7 @@ half-wired. The symbols below were VERIFIED to exist.
    - `_bank_clarification`;
    - `_AC_CAPABLE_SCHEMES` if AC is answerable;
    - every regex whose scheme name is a prefix of the new one.
-6. `app/followups.py`: `_SCHEME_RX`, `_primary_schemes`, the knowledge ladder, a
+6. `app/followups.py`: `_SCHEME_MATCH`, `_primary_schemes`, the knowledge ladder, a
    `_<x>_data()` builder + its dispatch.
 7. `app/edge.py`: scheme regexes, capability blurbs, `STARTERS`, `_DOMAIN_WORDS`.
 8. `app/prompt_builder.py`: `_scheme_of` and the per-scheme exact-match helpers.

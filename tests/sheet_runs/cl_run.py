@@ -137,7 +137,7 @@ async def main():
         le = await fetch(f"SELECT COALESCE(loan_entity,'(not recorded)') e, COUNT(*)::float8 n, "
                          f"SUM(total_disbursement)::float8 t FROM {V} GROUP BY 1")
         add(run_case(T_ + "20", "statewide", "Which loan entities are associated with CM-ELEVATE applications?",
-                     words(r"\bbank\b", r"LIFCOM"), **kw))
+                     words("[bank]", r"LIFCOM"), **kw))
         add(run_case(T_ + "21", "statewide", "How many CM-ELEVATE applications are associated with each loan entity?",
                      checks(*[(r["e"], r["n"]) for r in le]), expected={r["e"]: r["n"] for r in le}, **kw))
         add(run_case(T_ + "22", "statewide", "What is the total CM-ELEVATE disbursement made through each loan entity?",

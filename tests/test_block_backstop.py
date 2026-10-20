@@ -35,7 +35,7 @@ The fix pairs a gate with a fallback:
 
 Ground truth, queried directly: 45 = Piggery 32 + Poultry 8 + SEED 5.
 
-Catalogue/regex level only — no model, no DB, no network. Plain script (no
+Catalogue/text-match level only — no model, no DB, no network. Plain script (no
 pytest in the venv): `python tests/test_block_backstop.py`, exit 0 = pass.
 """
 import sys

@@ -148,8 +148,8 @@ def _sql_has_marker(sql: str, marker: str) -> bool:
 
 
 class _SqlMarker:
-    """A fixed query's marker comment. `.search(sql)` keeps the call shape of the
-    regex it replaced (the data stage calls `_FL_DUP_SQL_SHAPE.search(sql)`)."""
+    """A fixed query's marker comment. `.search(sql)` keeps the call shape the
+    data stage already uses (it calls `_FL_DUP_SQL_SHAPE.search(sql)`)."""
 
     def __init__(self, marker: str):
         self.marker = marker
@@ -900,6 +900,44 @@ def _pg_rest_is_place(rest: str) -> bool:
         _pg_drop_admin_suffix(p.lower(), ("block", "district")) in _known_place_names()
 
 
+_PG_GENERIC_LEAD = ("focus legacy", "legacy focus", "focus", "the", "all", "its")
+_PG_GENERIC_GROUP = ("producer groups", "producer group", "pgs", "pg", "groups", "group")
+
+
+def _pg_generic_scheme_groups(name: str) -> bool:
+    """Whether a "name" is just the scheme's groups, optionally in a place:
+    "Focus Legacy producer groups", "Focus Legacy producer groups in East Khasi
+    Hills". A follow-up rewrite ("how many members are there in Focus Legacy
+    producer groups in East Khasi Hills") was looked up as a group with that
+    name and lost the district (context audit 2026-10-19)."""
+    t = collapse_ws((name or "").lower().strip(" ?.!,"))
+    stripped = True
+    while stripped:
+        stripped = False
+        for lead in _PG_GENERIC_LEAD:
+            if t.startswith(lead + " ") or t == lead:
+                t, stripped = t[len(lead):].strip(), True
+    found_group = False
+    for g in _PG_GENERIC_GROUP:
+        if t.startswith(g + " ") or t == g:
+            t, found_group = t[len(g):].strip(), True
+            break
+    if not found_group:
+        return False
+    if not t:
+        return True
+    head = t.split(None, 1)
+    if len(head) == 2 and head[0] in ("in", "of", "across", "for", "under"):
+        place = head[1].strip()
+        if place[:4] == "the ":
+            place = place[4:]
+        return place in _known_place_names() or \
+            _pg_drop_admin_suffix(place, ("block", "district")) in _known_place_names() or \
+            place in ("meghalaya", "the state", "all districts", "ri bhoi") or \
+            place.endswith((" hills", " district", " block"))
+    return False
+
+
 def _pg_name_question(question: str, allow_weak: bool = False) -> "tuple[str, str] | None":
     """('exists' | 'size', typed name) for a group-name question, else None.
     With allow_weak, a size question whose name holds a place word and no group
@@ -920,7 +958,7 @@ def _pg_name_question(question: str, allow_weak: bool = False) -> "tuple[str, st
             if _pg_rest_is_place(rest):
                 return None
             # Otherwise the name simply ran on — a comma inside it ("Ka Seng Ki
-            # Nongrep Jhur, Shkenpyrsit") or more words than the pattern takes.
+            # Nongrep Jhur, Shkenpyrsit") or more words than the matcher takes.
             kind, name = "exists", f"{m.group('name')} {rest}".strip() if rest else m.group("name")
     if not kind:
         return None
@@ -928,6 +966,8 @@ def _pg_name_question(question: str, allow_weak: bool = False) -> "tuple[str, st
     while prev != name:
         prev, name = name, _pg_cut_scope_tail(name).strip(" ?.!,\"'“”")
     if not name:
+        return None
+    if _pg_generic_scheme_groups(name):
         return None
     if _PG_PLACE_WORDS.search(name):
         # "Green Hills Producer Group", "Umdang Dong Block Producer Group": a place
@@ -961,7 +1001,7 @@ def _pg_name_tokens(text: str) -> list[str]:
     # Letters of any script, not just a-z: 6 stored names are mis-encoded text
     # ("AÃ£Æ’Ã¦…we Producer Group"), and an ASCII-only read left "a we", which
     # matched a different group, "A.we" (all-PG run 2026-09-29). Tokens stay
-    # letters/digits only, so they remain safe inside the SQL regex literal.
+    # letters/digits only, so they remain safe inside the SQL match literal.
     return [t for t in alnum_only((text or "").lower(), space=True).split() if t not in _PG_STOP_WORDS]
 
 
@@ -973,11 +1013,18 @@ async def _focus_legacy_pg_name_answer(question: str) -> "dict | None":
     toks = _pg_name_tokens(name)
 
     def _where(col: str, word_end: bool) -> str:
-        # tokens are letters/digits only, so they are safe inside the regex literal
-        end = "\\M" if word_end else ""
-        # Postgres counts "_" as a word character, so "\m25\M" never matched
-        # "Erifa_25" (all-PG run 2026-09-29, KI-158): compare with "_" as a space.
-        return " AND ".join(f"translate({col}, '_', ' ') ~* '\\m{t}{end}'" for t in toks)
+        # tokens are letters/digits only, so they are safe inside the LIKE literals
+        end = " " if word_end else ""
+        # The name lower-cased with every character that is not a letter or digit
+        # ("_" included, so 25 matches "Erifa_25": all-PG run 2026-09-29, KI-158)
+        # turned into a space, padded with spaces: "% tok %" is then a whole word,
+        # "% tok%" a word start.
+        words = ("(' ' || ARRAY_TO_STRING(ARRAY(SELECT CASE WHEN ASCII(c) BETWEEN 48 AND 57 "
+                 "OR LOWER(c) <> UPPER(c) THEN c ELSE ' ' END "
+                 f"FROM UNNEST(STRING_TO_ARRAY(LOWER({col}), NULL)) WITH ORDINALITY AS u(c, i) "
+                 "ORDER BY i), '') || ' ')")
+        likes = ", ".join(f"'% {t}{end}%'" for t in toks)
+        return f"{words} LIKE ALL (ARRAY[{likes}])"
 
     def _sql(where: str) -> str:
         return ("SELECT pg_id, MAX(pg_name) AS pg_name, MAX(lgd_district) AS district, "
@@ -1121,7 +1168,7 @@ class _PgNamedEntity:
     (Focus Legacy all-PG run 2026-09-29), and the old letter/digit/bracket start
     missed every one. The name ends the sentence, or is followed by a place /
     scope phrase: "named Nongstoin PG in Betasing block" — without that second
-    ending the whole pattern missed and "Nongstoin" was resolved as a BLOCK.
+    ending the whole matcher missed and "Nongstoin" was resolved as a BLOCK.
     The fewest words that reach such an ending are taken."""
 
     @staticmethod
@@ -1198,7 +1245,7 @@ class _PgSuffix:
     """The group-type suffix at the end of a name ("producer group(s)", "producer
     grp", "PG", "P.G.", "group", with the spaces / commas before it), so
     "Nongstoin PG" strips to the core "Nongstoin" that the extractor actually
-    tagged as a block. `.search` / `.sub` as on a pattern."""
+    tagged as a block. `.search` / `.sub` as on any Matcher."""
 
     _WORDS = Matcher(Seq(Alt(_fl_sp("producer", ("group", "groups", "grp")), _FlDotSpaceSeq("p", "g"),
                              W("pg", "group")), END))

@@ -274,7 +274,7 @@ def test_the_repair_budget_is_the_pipeline_constant():
 
 def test_data_answer(env, monkeypatch):
     out = run_conv(env, monkeypatch, [CME])
-    assert out[0][0] == "answer" and out[0][1]["answer"] == "There were 42 applications."
+    assert out[0][0] == "answer" and out[0][1]["answer"].startswith("There were 42 applications.")
     assert out[0][1]["route"] == "data" and out[0][2]["scheme"] == "CM Elevate"
 
 
@@ -323,7 +323,7 @@ def test_knowledge_digression_keeps_the_data_context(env, monkeypatch):
 def test_repair_loop(env, monkeypatch):
     env.run_rows = [RuntimeError('column "applicationz" does not exist'), [{"applications": 7}]]
     out = run_conv(env, monkeypatch, [CME])
-    assert out[0][1]["answer"] == "There were 7 applications."
+    assert out[0][1]["answer"].startswith("There were 7 applications.")
     assert env.calls.n["repair"] == 1 and env.calls.n["run_readonly"] == 2
 
 
@@ -487,7 +487,7 @@ def test_repaired_sql_inside_the_scope_still_runs(env, monkeypatch):
                            schemes=["CM Elevate"], geographies={"districts": ["EAST KHASI HILLS"], "blocks": []})
     env.run_rows = [RuntimeError('column "applicationz" does not exist'), [{"applications": 7}]]
     out = run_conv(env, monkeypatch, [CME], scope=scope)
-    assert out[0][1]["route"] == "data" and out[0][1]["answer"] == "There were 7 applications."
+    assert out[0][1]["route"] == "data" and out[0][1]["answer"].startswith("There were 7 applications.")
 
 
 # ── KI-184/185: the shared Postgres checkpointer lives in app.* ──────────────
@@ -677,3 +677,58 @@ def test_an_unknown_checkpointer_dsn_is_rejected(monkeypatch):
     monkeypatch.setattr(settings, "PIPELINE_GRAPH_CHECKPOINTER_DSN", "sqlite:///x.db")
     with pytest.raises(ValueError):
         asyncio.run(pg._open_saver())
+
+
+def test_fresh_question_without_a_year_asks_with_answer_defaults_on(env, monkeypatch):
+    # D-053 (2026-10-19): with ANSWER_DEFAULTS_ENABLED on, a metric question
+    # whose text, entities and context carry no financial year still pauses for
+    # the year chips; the free-text reply resumes and answers; the follow-up
+    # inherits the year, so it is not asked again.
+    monkeypatch.setattr(settings, "ANSWER_DEFAULTS_ENABLED", True)
+    out = run_conv(env, monkeypatch, ["Total MGNREGA person-days in East Khasi Hills", "2023-24",
+                                      "What about West Khasi Hills?"])
+    assert out[0][0] == "pause" and out[0][1]["rule"] == "year-not-specified"
+    assert any(o["label"] == "All financial years combined" for o in out[0][1]["options"])
+    assert out[1][0] == "answer" and out[1][1]["schemes"] == ["MGNREGA"]
+    assert out[1][1]["resolved_entities"].get("year_key") == 2023
+    assert out[2][0] == "answer" and out[2][1]["resolved_entities"].get("district") == "WEST KHASI HILLS"
+    assert out[2][1]["resolved_entities"].get("year_key") == 2023
+
+
+def test_typed_all_of_them_combined_answers_the_year_pause(env, monkeypatch):
+    # KI-324 (2026-10-19): the pause says "a single financial year, or all of them
+    # combined?"; typing that phrase used to merge onto the stem and re-ask the year.
+    monkeypatch.setattr(settings, "ANSWER_DEFAULTS_ENABLED", True)
+    out = run_conv(env, monkeypatch, ["Total MGNREGA person-days in East Khasi Hills", "all of them combined"])
+    assert out[0][0] == "pause" and out[0][1]["rule"] == "year-not-specified"
+    assert out[1][0] == "answer", out[1]
+    # the reply resumed as the all-years chip: no year pinned, the SQL has no year filter
+    assert out[1][1]["resolved_entities"].get("year_key") is None
+    assert "year_key" not in out[1][1]["sql"]
+    assert out[1][1]["schemes"] == ["MGNREGA"]
+
+
+def test_cm_elevate_after_a_legacy_answer_switches_dataset(env, monkeypatch):
+    # KI-330 (2026-10-19): "now give me for cm elevate" after a Legacy answer
+    # repeated the Legacy answer; it is a switch to the applications dataset.
+    # The env's rewrite stub knows only MGNREGA; the live rewrite runs the
+    # deterministic scheme swap first, so the test does too.
+    async def rewrite(question, prev, **_k):
+        return p._scheme_swap_rewrite(prev.question, question) or prev.question
+    monkeypatch.setattr(p, "rewrite_followup", rewrite)
+    out = run_conv(env, monkeypatch, ["How many CM Elevate Legacy records are there in Meghalaya across all financial years?",
+                                      "now give me for cm elevate"])
+    assert out[0][0] == "answer" and out[0][1]["schemes"] == ["CM Elevate Legacy"], out[0][:2]
+    assert out[1][0] == "answer", out[1][:2]
+    assert out[1][1]["schemes"] == ["CM Elevate"]
+
+
+def test_a_new_question_on_the_same_scheme_keeps_the_conversation_year(env, monkeypatch):
+    # KI-331 (2026-10-19): after an all-years CM Elevate Legacy answer, "give me cm
+    # elevate legacy disbursement by district" asked "which financial year?" again.
+    monkeypatch.setattr(settings, "ANSWER_DEFAULTS_ENABLED", True)
+    out = run_conv(env, monkeypatch, ["How many CM Elevate Legacy records are there in Meghalaya across all financial years?",
+                                      "give me CM Elevate Legacy disbursement by district"])
+    assert out[0][0] == "answer", out[0][:2]
+    assert out[1][0] == "answer", out[1][:2]
+    assert out[1][1]["schemes"] == ["CM Elevate Legacy"]

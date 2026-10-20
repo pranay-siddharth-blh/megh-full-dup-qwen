@@ -189,11 +189,11 @@ CATEGORIES = HARM_CATEGORIES
 
 
 # ── Layer 1: rules ──────────────────────────────────────────────────────────
-# Word-level patterns (app/text_match, no regex). Two local pieces keep the old
+# Word-level matchers (app/text_match). Two local pieces keep the old
 # character rules: _GSeq demands a particular separator between its parts
 # (whitespace only by default, or "&", "=", "."), and _GCharGap is "any words,
-# at most N characters, not crossing . ? !" — the old [^.?!]{0,N}? between an
-# intent and an act.
+# at most N characters, not crossing . ? !" — the fewest such characters between
+# an intent and an act.
 
 def _g_space(gap: str) -> bool:
     return gap != "" and gap.strip() == ""
@@ -217,7 +217,7 @@ def _g_phrase(p):
 
 
 def _S(*parts):
-    """Words in a row separated by whitespace only (regex a\\s+b)."""
+    """Words in a row separated by one or more whitespace characters only."""
     return _GSeq(*[_g_phrase(p) for p in parts])
 
 
@@ -265,19 +265,19 @@ class _GAlt(Node):
 
 
 def _P(*stems):
-    """Words starting with any of `stems` (regex stem\\w*)."""
+    """Words starting with any of `stems` (the stem alone counts too)."""
     return W(*stems, prefix=True)
 
 
 def _pl(*nouns):
-    """Each noun, singular or with an 's' (regex nouns?)."""
+    """Each noun, singular or with an 's' added."""
     return W(*nouns, *(n + "s" for n in nouns))
 
 
 class _GCharGap(Node):
     """Zero or more words, provided the text between the previous word's end and
     the next piece's start is at most `limit` characters and holds none of `stop`
-    (regex [^stop]{0,limit}? / .{0,limit}?)."""
+    (with no `stop`, any characters; the shortest span is tried first)."""
 
     def __init__(self, limit: int, stop: str = ""):
         self.limit, self.stop = limit, stop
@@ -873,7 +873,8 @@ def _parse(raw: str) -> "dict | None":
 # these terms and the knowledge path answers them. Used only to overrule an
 # OUT_OF_SCOPE "general" verdict, never a harm verdict.
 def _g_instalment(w: str) -> bool:
-    """instalment(s), installment(s), instaLLLment… (regex instal+ments?)."""
+    """instalment(s), installment(s), instaLLLment… ("insta", one or more 'l',
+    "ment", an optional 's')."""
     w = w.lower()
     if not w.startswith("instal"):
         return False

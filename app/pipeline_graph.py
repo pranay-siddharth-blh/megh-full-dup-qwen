@@ -391,6 +391,9 @@ async def node_data_context(state, ctx):
 
 async def _data(stage, state: dict, ctx: GraphContext) -> dict:
     d = _hydrate_data(state)
+    # Read-only, never written back: the chat's active scheme (user rule
+    # 2026-10-19). The decision that uses it lives in the stage.
+    d["chat_scheme"] = pipeline._chat_active_scheme(ctx.session)
     result = await stage(d, ctx.scope)
     upd = _dehydrate_data(d)
     if result is not None:
@@ -530,6 +533,10 @@ async def node_finalize(state, ctx):
     pipeline._mark_context_dependent(result, ctx.session, raw_question=state.get("raw_question"),
                                      followup=state.get("is_followup_rewrite"), plan=state.get("plan"),
                                      scope_resumed=state.get("scope_resumed"))
+    pipeline._attach_scope_banner(result, ctx.session)
+    pipeline._attach_preface(result, ctx.session)
+    pipeline._finish_data_result(result)
+    pipeline._attach_conversational_touches(result, ctx.session, state.get("raw_question"))
     return {"response": result}
 
 

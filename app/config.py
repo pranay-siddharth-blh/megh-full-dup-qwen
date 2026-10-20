@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     APP_NAME: str = "NLP Service - MGNREGA / PMAY-G / Focus Plus / CM Elevate"
-    PORT: int = 8400
+    PORT: int = 8401
     LOG_LEVEL: str = "INFO"
     REQUEST_TIMEOUT_SECONDS: int = 60  # hard ceiling on one /api/query, enforced in the router
 
@@ -126,8 +126,8 @@ class Settings(BaseSettings):
     # _extract_json / _extract_sql parsers still run, so a gateway that ignores
     # these fields keeps working unchanged.
     GUIDED_DECODING_ENABLED: bool = True
-    # NOT READ ANY MORE (2026-10-15). It gated a regex decoding constraint on SQL
-    # generation, removed because no regex reads or shapes SQL; prose preambles
+    # NOT READ ANY MORE (2026-10-15). It gated a text-shape decoding constraint on
+    # SQL generation, removed because no text matching reads or shapes SQL; prose preambles
     # and ```sql fences are removed by _extract_sql on the sqlglot token stream.
     # Kept only so an existing .env that still sets it loads without error.
     SQL_GUIDED_DECODING_ENABLED: bool = True
@@ -228,7 +228,7 @@ class Settings(BaseSettings):
     # guards AND after the query has run, and is a second opinion asking "does
     # this SQL actually answer the question, per the schema rules and resolved
     # entities above it?" (prompt_builder.build_verify_prompt).
-    # The regex guards already in _execute_one_attempt only catch SQL shapes a past
+    # The SQL shape guards already in _execute_one_attempt only catch SQL shapes a past
     # bug taught them to recognise (bare row read on an aggregate question,
     # village-name-instead-of-code, a phantom 'Meghalaya' filter, ...). This
     # catches the same CLASS of bug — syntactically valid, executes cleanly,
@@ -365,9 +365,10 @@ class Settings(BaseSettings):
     # a chat so "what about East Garo Hills?" can be rewritten to a standalone
     # question. Lost on restart; not shared across workers — same stance as the
     # response caches.
-    SESSION_TTL_SECONDS: int = 1800          # 30 min sliding window
+    # User decision 2026-10-18 (D-051): 4 h idle window, 50 turns (was 30 min, 8).
+    SESSION_TTL_SECONDS: int = 28800         # 8 h sliding window (user, 2026-10-19; was 4 h, D-051)
     SESSION_MAX: int = 5000                   # sessions kept before oldest-first eviction
-    SESSION_MAX_TURNS: int = 8                # turns retained per session
+    SESSION_MAX_TURNS: int = 50               # turns retained per session (and questions in the snapshot)
     # Conversation layer (app/conversation_layer.py), run by the router before
     # the caches and the pipeline: idle expiry, "start a new topic" / "forget
     # the previous question", and "what was the PMAY-G information again?".
@@ -378,8 +379,23 @@ class Settings(BaseSettings):
     # chat history itself is kept. 0 = never expire. Same window as the
     # in-process session (SESSION_TTL_SECONDS), which the durable snapshot
     # used to outlive.
-    CONTEXT_IDLE_EXPIRY_SECONDS: int = 1800
-    FOLLOWUP_REWRITE_ENABLED: bool = True     # one classifier call when a turn looks like a follow-up
+    CONTEXT_IDLE_EXPIRY_SECONDS: int = 28800   # 8 h (user, 2026-10-19; was 4 h in D-051, 30 min before)
+    # Topic ledger + backward references (app/topic_memory.py, Context Memory
+    # proposal Phase 3, 2026-10-18): each topic keeps its last
+    # CONTEXT_LEDGER_PER_TOPIC questions with the scope each ran in, so "go
+    # back to the East Khasi Hills one", "the first question" and "what did we
+    # discuss?" restore / list an earlier question. Off = only the topic's
+    # last question can be returned to, exactly as before.
+    BACKWARD_RESOLVER_ENABLED: bool = True
+    CONTEXT_LEDGER_PER_TOPIC: int = 20         # D-051 (was 6): up to 8 x 20 = 160 questions
+    # Phase 4: when a message refers back ("that one", "the housing figure
+    # you gave") but the rules above place it nowhere, the rewrite model (9B,
+    # follow-up resolution in the fixed role map) PICKS one ledger question id,
+    # NONE or ASK. It never writes a scheme, place or year: any other output is
+    # discarded. One call, only on such turns. Off = those turns run as before.
+    LLM_REFERENCE_ENABLED: bool = True
+    LLM_REFERENCE_TIMEOUT_SECONDS: int = 8
+    FOLLOWUP_REWRITE_ENABLED: bool = True    # one classifier call when a turn looks like a follow-up
     # Query rephraser (graph node `rephrase`, D-037): a messy NEW question
     # (typos, Hinglish, voice-to-text, no question shape) is rewritten into one
     # clean question before routing. One classifier call, only when the
@@ -543,6 +559,10 @@ class Settings(BaseSettings):
     # memory only, which was the behaviour before 2026-09-26.
     CONTEXT_STATE_SHARED: bool = True
     CONTEXT_STATE_SYNC_TIMEOUT_SECONDS: float = 1.0
+    # KI-314 (2026-10-18): a brief DB drop (VPN flap) failed one snapshot save
+    # or load, and the next request on another worker answered in a stale
+    # scope. Both are retried once after this pause before giving up.
+    CONTEXT_STATE_SYNC_RETRY_SECONDS: float = 0.5
     CONTEXT_PREV_RESULT_MAX_TOKENS: int = 120
     CONTEXT_PREV_ANSWER_MAX_TOKENS: int = 120
 

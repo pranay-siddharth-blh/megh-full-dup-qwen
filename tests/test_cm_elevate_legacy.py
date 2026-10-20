@@ -97,15 +97,46 @@ def test_application_questions_stay_on_cm_elevate(question):
     "what is the total amount disbursed under CM Elevate",
     "CM-ELEVATE loans by lender",
     "how many CM Elevate records in FY 2024-25",
-    # the user's decision (2026-10-12): a bare "CM-ELEVATE" data question in neither
-    # dataset's own vocabulary defaults to CM Elevate Legacy
+])
+def test_money_year_lender_questions_ask_which_dataset(question):
+    # User decision 2026-10-19 (replacing the 2026-10-12 default to Legacy): the
+    # user named CM Elevate, the money lives in Legacy — ask, never switch silently.
+    assert p._pin_cm_elevate_dataset(question) == question
+    assert p._cm_elevate_dataset_choice(question) == "ask"
+    pause = p._cm_elevate_dataset_pause(question)
+    assert pause is not None and pause.rule == "cm-elevate-dataset"
+    assert [o["label"].split(" (")[0] for o in pause.options] == ["CM Elevate", LEGACY]
+
+
+@pytest.mark.parametrize("question", [
     "CM Elevate applications by district",
     "How many CM-ELEVATE applications are recorded in each district?",
 ])
-def test_money_year_lender_questions_move_to_legacy(question):
-    q = p._pin_cm_elevate_dataset(question)
-    assert "CM Elevate Legacy" in q
-    assert p._shortcut_scheme(q) == [LEGACY]
+def test_applications_word_keeps_the_applications_dataset(question):
+    assert p._pin_cm_elevate_dataset(question) == question
+    assert p._cm_elevate_dataset_choice(question) == "applications"
+    assert p._shortcut_scheme(question) == ["CM Elevate"]
+
+
+def test_the_thread_settles_a_bare_cm_elevate():
+    q = "give me the amount disbursed under CM Elevate in Ri Bhoi"
+    assert LEGACY in p._pin_cm_elevate_dataset(q, "CM Elevate Legacy")
+    assert p._cm_elevate_dataset_choice(q, "CM Elevate Legacy") == "legacy"
+    apps = p._pin_cm_elevate_dataset(q, "CM Elevate")
+    assert "CM Elevate applications" in apps and p._cm_elevate_dataset_choice(apps) == "applications"
+    assert p._pin_cm_elevate_dataset(q, "Focus Plus") == q       # another thread: ask
+    assert p._cm_elevate_dataset_choice(q, "Focus Plus") == "ask"
+
+
+def test_dataset_pause_chips_and_typed_replies_resolve():
+    pause = p._cm_elevate_dataset_pause("How much has been disbursed under CM Elevate in Dambo Rongjeng block?")
+    apps_q, legacy_q = (o["question"] for o in pause.options)
+    assert p._cm_elevate_dataset_choice(apps_q) == "applications"
+    assert p._cm_elevate_dataset_choice(legacy_q) is None and LEGACY in legacy_q
+    assert p._resume_scheme_pause("legacy", pause.options) == legacy_q
+    assert p._resume_scheme_pause("applications please", pause.options) == apps_q
+    assert p._resume_scheme_pause("CM Elevate Legacy", pause.options) == legacy_q
+    assert p._resume_scheme_pause("thanks", pause.options) is None
 
 
 @pytest.mark.parametrize("question", [
@@ -294,11 +325,13 @@ def test_naming_both_retrieves_the_shared_docs_once(monkeypatch):
     assert out and "I don't have reference material" not in out["answer"]
 
 
-def test_knowledge_question_is_not_shown_a_legacy_rewrite():
+def test_knowledge_question_is_not_shown_a_dataset_rewrite():
     q = "how much subsidy does CM Elevate provide"
-    pinned = p._pin_cm_elevate_dataset(q)
-    assert pinned != q                                    # the DATA-side decision
+    assert p._pin_cm_elevate_dataset(q) == q              # nothing settled it: no silent rewrite
+    pinned = p._pin_cm_elevate_dataset(q, "CM Elevate Legacy")
+    assert pinned != q                                    # the thread's DATA-side decision
     assert p._unpin_cm_elevate(pinned) == q               # undone on the KNOWLEDGE route
+    assert p._unpin_cm_elevate(p._pin_cm_elevate_dataset(q, "CM Elevate")) == q
 
 
 def test_legacy_tagged_docs_fold_into_the_shared_tag():

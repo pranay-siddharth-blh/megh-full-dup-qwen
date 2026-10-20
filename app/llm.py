@@ -319,8 +319,8 @@ async def call_rephraser(prompt: str) -> str:
 async def call_sql_generator(
     prompt: str,
 ) -> str:
-    # No decoding constraint: the old one was a regex sent to vLLM, and no regex
-    # reads or shapes SQL. The pipeline's _extract_sql finds the statement on
+    # No decoding constraint: the old one was a text rule sent to vLLM, and no
+    # text rule shapes SQL. The pipeline's _extract_sql finds the statement on
     # the sqlglot token stream.
 
     return await call_model(

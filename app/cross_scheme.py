@@ -105,7 +105,7 @@ def _xs_is_word_char(ch: str) -> bool:
 
 
 def S(*parts) -> Seq:
-    """Words in a row with only whitespace between them (a regex `a\s+b`)."""
+    """Words in a row with only whitespace (one or more spaces) between them."""
     return Seq(*parts, sep="space")
 
 
@@ -301,6 +301,7 @@ _LEADER_PER_DISTRICT = Matcher(Alt(
 ))
 # "compare …", "summary …", "performance", "district-wise": a comparison is asked
 _XS_COMPARISON = Matcher(Alt(W("compar", "summar", prefix=True), W("performance", "wise")))
+_SAME_COMPARISON = Matcher(S("same", W("comparison", "comparisons")))
 # "all / other / six / each …": the question reaches past the one scheme it names
 _XS_BEYOND_ONE = Matcher(W("all", "other", "six", "6", "every", "each", "different", "various"))
 
@@ -328,6 +329,11 @@ def detect(question: str, named: list[str], measure_text: str | None = None) -> 
     if bare_focus_is_legacy(q, named):
         named = [s for s in ORDER if s in named or s == "Focus Legacy"]
     if len(named) >= 2:
+        return named
+    # "Same comparison for CM Elevate: beneficiaries ..." — the follow-up rewrite of
+    # "now give me for cm elevate" after a comparison (c01 _comparison_swap): the
+    # same card for that one scheme, in the comparison's scope
+    if len(named) == 1 and _SAME_COMPARISON.search(q):
         return named
     if not _ALL_SCHEMES_CUE.search(q):
         return None
@@ -824,7 +830,8 @@ async def answer(question: str, schemes: list[str], entity_result: dict, scheme_
         lines.append("_The place named in the question was not recognised, so the figures below "
                      "are statewide._\n")
     if p.group is None:
-        lines.append(f"**Cross-scheme comparison — {', '.join(title_bits)}**\n")
+        lines.append(f"**{DISPLAY[schemes[0]] if len(schemes) == 1 else 'Cross-scheme comparison'} — "
+                     f"{', '.join(title_bits)}**\n")
         hdr = ["Scheme"]
         if p.count:
             hdr.append("Beneficiaries / applications")
@@ -965,9 +972,10 @@ async def answer(question: str, schemes: list[str], entity_result: dict, scheme_
     if p.money and "MGNREGA" in schemes and resolved.get("assembly_constituency"):
         pass
     if not years:
-        notes.append("Years covered: " + "; ".join(
-            f"{DISPLAY[s]} {_years_text(scheme_years, s)}" for s in schemes if SPECS[s].has_year)
-            + ("; CM Elevate (applications) has no financial year" if "CM Elevate" in schemes else "") + ".")
+        covered = [f"{DISPLAY[s]} {_years_text(scheme_years, s)}" for s in schemes if SPECS[s].has_year]
+        if "CM Elevate" in schemes:
+            covered.append("CM Elevate (applications) has no financial year")
+        notes.append("Years covered: " + "; ".join(covered) + ".")
     if p.count and "MGNREGA" in schemes:
         notes.append("MGNREGA persons employed are summed over the years shown; a person employed in "
                      "two years is counted in each.")

@@ -1,0 +1,668 @@
+{
+ "label": "conversation-meta-recheck",
+ "when": "2026-10-18T14:33:03",
+ "git": {
+  "commit": "9dda6a4",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b"
+ },
+ "readonly_login": "postgres",
+ "superuser_allowed": false,
+ "holdout_checked": true,
+ "selection": {
+  "scheme": null,
+  "ids": "MG-08,FP-01,FP-02,FP-03,FP-04,FP-05,FP-06,FP-07,FP-08,FP-09,FP-10,FP-11,FP-12,FL-01,FL-02,FL-03,FL-04,FL-05,FL-06"
+ },
+ "minutes": 1.1,
+ "summary": {
+  "items": 19,
+  "scored": 19,
+  "outcomes": {
+   "wrong": 1,
+   "correct": 18
+  },
+  "accuracy": 94.7,
+  "by": {
+   "Focus Legacy": {
+    "accuracy": 100.0,
+    "correct": 6
+   },
+   "Focus Plus": {
+    "accuracy": 100.0,
+    "correct": 12
+   },
+   "MGNREGA": {
+    "accuracy": 0.0,
+    "wrong": 1
+   },
+   "difficulty:easy": {
+    "accuracy": 100.0,
+    "correct": 8
+   },
+   "difficulty:hard": {
+    "accuracy": 100.0,
+    "correct": 3
+   },
+   "difficulty:medium": {
+    "accuracy": 87.5,
+    "wrong": 1,
+    "correct": 7
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "MG-08",
+   "scheme": "MGNREGA",
+   "difficulty": "medium",
+   "question": "Show MGNREGA person-days in West Jaintia Hills for each financial year from 2022-23 through 2025-26.",
+   "gold_rows": 4,
+   "outcome": "wrong",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST JAINTIA HILLS",
+    "year_key": 2025
+   },
+   "sql": "SELECT financial_year_short, SUM(person_days) AS person_days\nFROM curated.v_employment\nWHERE lgd_district = 'WEST JAINTIA HILLS' AND year_key = 2025\nGROUP BY financial_year_short\nORDER BY financial_year_short\nLIMIT 100",
+   "seconds": 15.8,
+   "answer": "2025-26: 1,161,895 person days.",
+   "detail": "row count: gold 4, got 1",
+   "mapping": {},
+   "pred_rows": 1,
+   "gold_sample": [
+    {
+     "person_days": 976990
+    },
+    {
+     "person_days": 1510239
+    },
+    {
+     "person_days": 818826
+    }
+   ],
+   "pred_sample": [
+    {
+     "financial_year_short": "2025-26",
+     "person_days": 1161895
+    }
+   ]
+  },
+  {
+   "id": "FP-01",
+   "scheme": "Focus Plus",
+   "difficulty": "easy",
+   "question": "What is the total Focus Plus amount disbursed in South Garo Hills district?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "SOUTH GARO HILLS"
+   },
+   "sql": "SELECT SUM(amount_disbursed) AS total_amount_disbursed\nFROM curated.v_focus_plus\nWHERE lgd_district = 'SOUTH GARO HILLS'\nLIMIT 1",
+   "seconds": 7.7,
+   "answer": "The total Focus Plus amount disbursed in South Garo Hills district across all financial years is \u20b9102,610,000.00.",
+   "detail": "same rows",
+   "mapping": {
+    "amount_disbursed": [
+     "total_amount_disbursed",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FP-02",
+   "scheme": "Focus Plus",
+   "difficulty": "easy",
+   "question": "How many distinct Focus Plus beneficiaries (individual people, not payments) are recorded in Ri Bhoi district?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "RI BHOI"
+   },
+   "sql": "SELECT COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE lgd_district = 'RI BHOI';",
+   "seconds": 7.9,
+   "answer": "Ri Bhoi district recorded 419 distinct Focus Plus beneficiaries across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "beneficiaries": [
+     "beneficiaries",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FP-03",
+   "scheme": "Focus Plus",
+   "difficulty": "easy",
+   "question": "In the Focus Plus 12.5K registration batch, how many registrants currently have a focus status of Approved?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": "How many registrants currently have a focus status of Approved in the Focus Plus 12.5K registration batch?",
+   "resolved": {},
+   "sql": "SELECT COUNT(*) AS approved_registrants\nFROM curated.v_focus_plus\nWHERE batch_label = '12.5K'\n  AND focus_status = 'Approved'\nLIMIT 1",
+   "seconds": 8.2,
+   "answer": "The data shows 714 approved registrants, not the 12.5K figure assumed in the question. This count applies to the Focus Plus batch across all financial years.\n\nThat is 5.70% of the 12,527 beneficiaries in the 12.5K registration cohort (status is recorded only for that cohort; the 93K legacy cohort has none).",
+   "detail": "same rows",
+   "mapping": {
+    "registrants": [
+     "approved_registrants",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FP-04",
+   "scheme": "Focus Plus",
+   "difficulty": "easy",
+   "question": "How much Focus Plus money was paid out in Haripur village of Selsella block, West Garo Hills?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": "How much money was paid out under Focus Plus in Haripur village of Selsella block, West Garo Hills?",
+   "resolved": {
+    "district": "WEST GARO HILLS",
+    "village_code": 272849
+   },
+   "sql": "SELECT COUNT(*) AS payments, SUM(amount_disbursed) AS amount_raw FROM curated.v_focus_plus WHERE village_code = 272849 LIMIT 1000",
+   "seconds": 6.6,
+   "answer": "A total of \u20b93,015,000.00 was paid out under Focus Plus in Haripur village, West Garo Hills district. This amount corresponds to 965 payments.",
+   "detail": "same rows",
+   "mapping": {
+    "amount_disbursed": [
+     "amount_raw",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FP-05",
+   "scheme": "Focus Plus",
+   "difficulty": "medium",
+   "question": "Give me the Focus Plus amount disbursed in each block of North Garo Hills district.",
+   "gold_rows": 4,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "NORTH GARO HILLS"
+   },
+   "sql": "SELECT block_name_raw, COUNT(*) AS payments, SUM(amount_disbursed) AS amount_raw FROM curated.v_focus_plus WHERE lgd_district = 'NORTH GARO HILLS' GROUP BY block_name_raw ORDER BY block_name_raw LIMIT 1000",
+   "seconds": 8.3,
+   "answer": "The Focus Plus amount disbursed in each block of North Garo Hills district is \u20b926,455,000.00 for Bajengdoba, \u20b955,630,000.00 for Kharkutta, \u20b935,617,500.00 for Resubelpara, and \u20b9745,000.00 for Resubelpara-Municipal Board.",
+   "detail": "same rows",
+   "mapping": {
+    "block": [
+     "block_name_raw",
+     1.0
+    ],
+    "amount_disbursed": [
+     "amount_raw",
+     1.0
+    ]
+   },
+   "pred_rows": 4
+  },
+  {
+   "id": "FP-06",
+   "scheme": "Focus Plus",
+   "difficulty": "medium",
+   "question": "Which five blocks have the highest number of distinct Focus Plus beneficiaries statewide? Rank them.",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT \n    UPPER(block_name_raw) AS block,\n    COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nGROUP BY UPPER(block_name_raw)\nORDER BY beneficiaries DESC\nLIMIT 5",
+   "seconds": 9.3,
+   "answer": "The five blocks with the highest number of distinct Focus Plus beneficiaries statewide are TIKRIKILLA (8,744), SELSELLA (7,691), ZIKZAK (6,681), NONGSTOIN (5,500), and RONGRAM (5,331). These figures represent the total beneficiaries for each block across all financial years.",
+   "detail": "same rows in order",
+   "mapping": {
+    "block": [
+     "block",
+     1.0
+    ],
+    "beneficiaries": [
+     "beneficiaries",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "FP-07",
+   "scheme": "Focus Plus",
+   "difficulty": "medium",
+   "question": "List the top 5 villages in West Khasi Hills by number of Focus Plus payments made, highest first.",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST KHASI HILLS"
+   },
+   "sql": "SELECT lgd_village_name,\n       COUNT(*) AS payments\nFROM curated.v_focus_plus\nWHERE lgd_district = 'WEST KHASI HILLS'\n  AND entity_type <> 'Unresolved'\nGROUP BY lgd_village_name\nORDER BY payments DESC\nLIMIT 5",
+   "seconds": 10.9,
+   "answer": "PYNDENGREI received the highest number of payments with 1,564, followed by NONGSTOIN with 708, MAWKHLAM - NONGPYNDENG with 672, Upper New Nongstoin with 604, and TIEHSAW with 572.",
+   "detail": "same rows in order",
+   "mapping": {
+    "lgd_village_name": [
+     "lgd_village_name",
+     1.0
+    ],
+    "payments": [
+     "payments",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "FP-08",
+   "scheme": "Focus Plus",
+   "difficulty": "medium",
+   "question": "For the Focus Plus 12.5K registration cohort in East Garo Hills, how many registrants are female and how many are male?",
+   "gold_rows": 2,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": "How many female and male registrants are there in the Focus Plus 12.5K registration cohort in East Garo Hills?",
+   "resolved": {
+    "district": "EAST GARO HILLS"
+   },
+   "sql": "SELECT \n    gender,\n    COUNT(DISTINCT beneficiary_key) AS registrants\nFROM \n    curated.v_focus_plus\nWHERE \n    batch_label = '12.5K'\n    AND lgd_district = 'EAST GARO HILLS'\nGROUP BY \n    gender\nORDER BY \n    registrants DESC\nLIMIT 100",
+   "seconds": 8.7,
+   "answer": "The data shows 1,103 female registrants and 501 male registrants, not the 12.5K figure assumed in the question. These figures represent the total count for East Garo Hills across all financial years in the result.\n\nShare of the 1,604 registrants with a recorded gender: Female 68.77%, Male 31.23% (these fields are recorded only for the 12.5K registration cohort; the 93K legacy cohort has none of th",
+   "detail": "same rows",
+   "mapping": {
+    "gender": [
+     "gender",
+     1.0
+    ],
+    "registrants": [
+     "registrants",
+     1.0
+    ]
+   },
+   "pred_rows": 2
+  },
+  {
+   "id": "FP-09",
+   "scheme": "Focus Plus",
+   "difficulty": "medium",
+   "question": "For Mylliem block, show the number of Focus Plus payments and the amount disbursed in each tranche, split by batch.",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": "How many Focus Plus payments were made in Mylliem block, what was the amount disbursed in each tranche, and how were they split by batch?",
+   "resolved": {
+    "block": "MYLLIEM"
+   },
+   "sql": "SELECT \n    financial_year_short,\n    COUNT(*) AS payments,\n    SUM(amount_disbursed) AS amount_raw,\n    tranche_label,\n    batch_label,\n    COUNT(*) AS tranche_payments,\n    SUM(amount_disbursed) AS tranche_amount_raw\nFROM curated.v_focus_plus\nWHERE UPPER(block_name_raw) = 'MYLLIEM'\nGROUP BY \n    financial_year_short,\n    tranche_label,\n    batch_label\nORDER BY \n    financial_year_short,\n    tranche_label,\n    batch_label\nLIMIT 100",
+   "seconds": 19.3,
+   "answer": "Here are the 5 results:\n- 2022-23 / Tranch 1 / 93K \u2014 payments: 4,360, amount disbursed: \u20b921,800,000.00, tranche payments: 4,360, tranche amount disbursed: \u20b921,800,000.00\n- 2025-26 / Tranch 2 - August / 93K \u2014 payments: 4,360, amount disbursed: \u20b910,900,000.00, tranche payments: 4,360, tranche amount disbursed: \u20b910,900,000.00\n- 2025-26 / Tranch 3 - December / 93K \u2014 payments: 4,360, amount disbursed: ",
+   "detail": "same rows",
+   "mapping": {
+    "batch_label": [
+     "batch_label",
+     1.0
+    ],
+    "tranche_label": [
+     "tranche_label",
+     1.0
+    ],
+    "payments": [
+     "payments",
+     1.0
+    ],
+    "amount_disbursed": [
+     "amount_raw",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "FP-10",
+   "scheme": "Focus Plus",
+   "difficulty": "hard",
+   "question": "What percentage of the total Focus Plus amount disbursed across Meghalaya went to West Garo Hills district?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST GARO HILLS"
+   },
+   "sql": "SELECT ROUND(100.0 * SUM(CASE WHEN lgd_district = 'WEST GARO HILLS' THEN amount_disbursed ELSE 0 END) / SUM(amount_disbursed), 2) AS pct_west_garo_hills\nFROM curated.v_focus_plus\nLIMIT 1",
+   "seconds": 9.1,
+   "answer": "West Garo Hills district received 32.68% of the total Focus Plus amount disbursed across Meghalaya. This figure covers all financial years for the district.",
+   "detail": "same rows",
+   "mapping": {
+    "pct_of_state_amount": [
+     "pct_west_garo_hills",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FP-11",
+   "scheme": "Focus Plus",
+   "difficulty": "hard",
+   "question": "Compare Tikrikilla and Selsella blocks on Focus Plus: number of distinct beneficiaries, total amount disbursed, and amount disbursed per beneficiary.",
+   "gold_rows": 2,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "block_list": [
+     "TIKRIKILLA",
+     "SELSELLA"
+    ],
+    "block_list_districts": {
+     "TIKRIKILLA": "WEST GARO HILLS",
+     "SELSELLA": "WEST GARO HILLS"
+    }
+   },
+   "sql": "WITH block_data AS (\n  SELECT\n    UPPER(block_name_raw) AS block,\n    COUNT(DISTINCT beneficiary_key) AS beneficiaries,\n    SUM(amount_disbursed) AS total_amount,\n    CASE\n      WHEN COUNT(DISTINCT beneficiary_key) > 0 THEN SUM(amount_disbursed) / COUNT(DISTINCT beneficiary_key)\n      ELSE 0\n    END AS amount_per_beneficiary\n  FROM curated.v_focus_plus\n  WHERE UPPER(block_name_raw) IN ('TIKRIKILLA', 'SELSELLA')\n  GROUP BY UPPER(block_name_raw)\n)\nSELECT\n  block,\n  beneficiaries,\n  total_amount,\n  amount_per_beneficiary\nFROM block_data\nORDER BY block\nLIMIT 10",
+   "seconds": 10.1,
+   "answer": "Tikrikilla block shows 8,744 beneficiaries with a total amount of \u20b993,120,000.00 and an amount per beneficiary of \u20b910,649.59, while Selsella block shows 7,691 beneficiaries with a total amount of \u20b990,337,500.00 and an amount per beneficiary of \u20b911,745.87. Tikrikilla is higher by 1,053 beneficiaries (Tikrikilla 8,744 vs Selsella 7,691).",
+   "detail": "same rows",
+   "mapping": {
+    "block": [
+     "block",
+     1.0
+    ],
+    "beneficiaries": [
+     "beneficiaries",
+     1.0
+    ],
+    "amount_disbursed": [
+     "total_amount",
+     1.0
+    ],
+    "amount_per_beneficiary": [
+     "amount_per_beneficiary",
+     1.0
+    ]
+   },
+   "pred_rows": 2
+  },
+  {
+   "id": "FP-12",
+   "scheme": "Focus Plus",
+   "difficulty": "hard",
+   "question": "In which districts do 12.5K registration batch payments make up more than 4% of that district's Focus Plus payment records? Show each district's percentage.",
+   "gold_rows": 2,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT \n    district_name_raw,\n    ROUND(\n        100.0 * COUNT(CASE WHEN batch_label = '12.5K' THEN 1 END) / COUNT(*) , 2\n    ) AS pct_12_5k_payments\nFROM curated.v_focus_plus\nGROUP BY district_name_raw\nHAVING \n    COUNT(CASE WHEN batch_label = '12.5K' THEN 1 END) > 0.04 * COUNT(*)\nORDER BY pct_12_5k_payments DESC\nLIMIT 100",
+   "seconds": 13.1,
+   "answer": "North Garo Hills shows 5.00% and South West Garo Hills shows 4.56% for the 12.5K registration batch payments. These are the only two districts where the percentage exceeds 4%.",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_district": [
+     "district_name_raw",
+     1.0
+    ],
+    "pct_payments_12_5k": [
+     "pct_12_5k_payments",
+     1.0
+    ]
+   },
+   "pred_rows": 2
+  },
+  {
+   "id": "FL-01",
+   "scheme": "Focus Legacy",
+   "difficulty": "easy",
+   "question": "How many distinct producer groups received Focus Legacy payments in Ri Bhoi district?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": "How many distinct producer groups received payments under Focus Legacy in Ri Bhoi district?",
+   "resolved": {
+    "district": "RI BHOI"
+   },
+   "sql": "SELECT COUNT(DISTINCT pg_id) AS producer_groups\nFROM curated.v_focus_legacy\nWHERE lgd_district = 'RI BHOI'\nLIMIT 1",
+   "seconds": 6.9,
+   "answer": "955 distinct producer groups received payments under Focus Legacy in Ri Bhoi district across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "producer_groups": [
+     "producer_groups",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FL-02",
+   "scheme": "Focus Legacy",
+   "difficulty": "easy",
+   "question": "What was the total Focus Legacy amount remitted to producer groups in FY 2024-25?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "year_key": 2024
+   },
+   "sql": "SELECT SUM(amount_disbursed) AS amount_disbursed\nFROM curated.v_focus_legacy\nWHERE financial_year_short = '2024-25'\nLIMIT 1",
+   "seconds": 5.1,
+   "answer": "The total Focus Legacy amount remitted to producer groups in FY 2024-25 was \u20b911,49,90,000 (\u20b911.50 crore).",
+   "detail": "same rows",
+   "mapping": {
+    "amount_disbursed": [
+     "amount_disbursed",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FL-03",
+   "scheme": "Focus Legacy",
+   "difficulty": "easy",
+   "question": "How many Focus Legacy payments were made into Meghalaya Rural Bank accounts?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT COUNT(*) AS payments\nFROM curated.v_focus_legacy\nWHERE bank_name = 'Meghalaya Rural Bank'",
+   "seconds": 4.9,
+   "answer": "8,174 Focus Legacy payments were made into Meghalaya Rural Bank accounts for all of Meghalaya across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "payments": [
+     "payments",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FL-04",
+   "scheme": "Focus Legacy",
+   "difficulty": "easy",
+   "question": "How many distinct villages in West Jaintia Hills have a Focus Legacy producer group that was paid?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST JAINTIA HILLS"
+   },
+   "sql": "SELECT COUNT(DISTINCT village_code) AS villages FROM curated.v_focus_legacy WHERE lgd_district = 'WEST JAINTIA HILLS' AND entity_type <> 'Unresolved' AND financial_year_short IN ('2021-22', '2022-23', '2024-25', '2025-26') LIMIT 1",
+   "seconds": 9.9,
+   "answer": "West Jaintia Hills has 173 distinct villages with a Focus Legacy producer group that was paid across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "villages": [
+     "villages",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FL-05",
+   "scheme": "Focus Legacy",
+   "difficulty": "medium",
+   "question": "Block-wise for North Garo Hills, what Focus Legacy amount was disbursed and how many PG memberships did it cover?",
+   "gold_rows": 4,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": "How much money was disbursed under Focus Legacy and how many PG memberships did it cover in North Garo Hills, block-wise?",
+   "resolved": {
+    "district": "NORTH GARO HILLS"
+   },
+   "sql": "SELECT lgd_block, SUM(amount_disbursed) AS amount_disbursed, SUM(no_of_pg_members) AS memberships FROM curated.v_focus_legacy WHERE lgd_district = 'NORTH GARO HILLS' GROUP BY lgd_block ORDER BY amount_disbursed DESC LIMIT 100",
+   "seconds": 6.5,
+   "answer": "Focus Legacy amount disbursed by block in North Garo Hills \u2014 4 blocks:\n\n- Resubelpara: \u20b92,15,85,000 amount disbursed, 4,317 memberships\n- Bajengdoba: \u20b91,81,50,000 amount disbursed, 3,630 memberships\n- Kharkutta: \u20b997,35,000 amount disbursed, 1,947 memberships\n- Adokgre: \u20b922,65,000 amount disbursed, 453 memberships\n\nTogether, the 4 blocks above account for \u20b95,17,35,000 amount disbursed, 10,347 membe",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_block": [
+     "lgd_block",
+     1.0
+    ],
+    "amount_disbursed": [
+     "amount_disbursed",
+     1.0
+    ],
+    "memberships": [
+     "memberships",
+     1.0
+    ]
+   },
+   "pred_rows": 4
+  },
+  {
+   "id": "FL-06",
+   "scheme": "Focus Legacy",
+   "difficulty": "medium",
+   "question": "What were the top 5 products by number of Focus Legacy payments in FY 2022-23, ranked highest first?",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "year_key": 2022
+   },
+   "sql": "SELECT UPPER(TRIM(product_raw)) AS product, COUNT(*) AS payments\nFROM curated.v_focus_legacy\nWHERE financial_year_short = '2022-23' AND product_raw IS NOT NULL\nGROUP BY UPPER(TRIM(product_raw))\nORDER BY payments DESC\nLIMIT 5",
+   "seconds": 8.1,
+   "answer": "PIGGERY received the highest number of payments at 596, followed by GINGER with 352, VEGETABLES with 204, BROOM GRASS with 200, and TURMERIC with 150. These five products are the top results from a total of 34 matching records for FY 2022-23.",
+   "detail": "same rows in order",
+   "mapping": {
+    "product": [
+     "product",
+     1.0
+    ],
+    "payments": [
+     "payments",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  }
+ ],
+ "compared_with": "2026-10-18_1429_conversation-meta-2026-10-18.json",
+ "delta": {
+  "regressions": [],
+  "fixed": [
+   "FP-01",
+   "FP-02",
+   "FP-03",
+   "FP-04",
+   "FP-05",
+   "FP-06",
+   "FP-07",
+   "FP-08",
+   "FP-09",
+   "FP-10",
+   "FP-11",
+   "FP-12",
+   "FL-01",
+   "FL-02",
+   "FL-03",
+   "FL-04",
+   "FL-05",
+   "FL-06"
+  ]
+ }
+}

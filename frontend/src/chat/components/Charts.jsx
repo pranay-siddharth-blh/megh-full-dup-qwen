@@ -2,10 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Chart from 'chart.js/auto';
 import { pivotStacked } from '../analytics.js';
-import { isDigit, isPlainNumber, isSpace, runEnd } from '../text.js';
+import { isPeriodLabel, isPlainNumber } from '../text.js';
 import {
-  INK, PLUGINS, alpha, categorySchemeColors, chartAnimation, fmt, fmtCompact, insightFor, ordinalSteps,
-  seriesColors, shade, themeFor, wrapLabel,
+  INK, PLUGINS, alpha, categorySchemeColors, chartAnimation, fmt, fmtCompact, insightFor, insightForSeries,
+  ordinalSteps, seriesColors, shade, themeFor, wrapLabel,
 } from '../chartTheme.js';
 
 /* Chart.js rendering. Each canvas owns its chart: created on mount, rebuilt
@@ -216,17 +216,29 @@ function groupedConfig(labels, datasets, theme, expanded = false) {
 
 // A stack of years is ordered: shades of the scheme hue, oldest palest. Any
 // other second label gets the categorical colours in their fixed order.
-// "2024", "FY 2024", "2023-24", "FY2023 - 2024" (any case)
-function isYearish(label) {
-  let s = String(label).trim();
-  if (s.slice(0, 2).toLowerCase() === 'fy') s = s.slice(runEnd(s, 2, isSpace));
-  if (runEnd(s, 0, isDigit) !== 4) return false;
-  if (s.length === 4) return true;
-  let i = runEnd(s, 4, isSpace);
-  if (s[i] !== '-') return false;
-  i = runEnd(s, i + 1, isSpace);
-  const tail = s.length - i;
-  return tail >= 2 && tail <= 4 && runEnd(s, i, isDigit) === s.length;
+const isYearish = isPeriodLabel;
+
+// One line per series (scheme × year, district × year): each in its own colour
+// with a legend, no fill (two washes would hide each other), the pointer's
+// period read across every line (interaction mode index + crosshair).
+function multiLineConfig(labels, datasets, theme) {
+  const colors = seriesColors(datasets.map((d) => d.label), theme);
+  return {
+    type: 'line',
+    data: {
+      labels,
+      datasets: datasets.map((d, i) => ({
+        label: d.label, data: d.data, borderColor: colors[i], backgroundColor: colors[i],
+        borderWidth: 2.5, tension: 0.3, fill: false,
+        pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: colors[i], pointBorderColor: INK.surface, pointBorderWidth: 1.5,
+      })),
+    },
+    options: base({
+      plugins: { legend: LEGEND, tooltip: TOOLTIP, meghCrosshair: { on: true, color: theme.deep } },
+      scales: { x: CAT_AXIS, y: VALUE_AXIS },
+    }),
+    plugins: PLUGINS,
+  };
 }
 
 function stackedConfig(labels, datasets, theme, expanded = false) {
@@ -446,6 +458,9 @@ function ChartCanvas({ build, deps, zoom = false }) {
     let chart;
     try { chart = new Chart(ref.current, build()); } catch (e) { console.error('Chart init failed:', e); }
     chartRef.current = chart || null;
+    // The drawn chart, readable from the canvas (the headless UI checks assert on
+    // its labels and series; not a global).
+    if (ref.current) ref.current.__chart = chart || null;
     setN(chart && chart.config.type === 'line' ? (chart.data.labels || []).length : 0);
     return () => { chartRef.current = null; try { chart && chart.destroy(); } catch (e) { /* ignore */ } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -521,9 +536,12 @@ function ExpandedChart({ build, deps, rows, zoom = false }) {
   return <div className="xv-chart" style={style}><ChartCanvas build={build} deps={deps} zoom={zoom} /></div>;
 }
 
-const TYPE_LABELS = { bar: 'Bar', pie: 'Pie', doughnut: 'Donut', line: 'Line' };
+const TYPE_LABELS = { bar: 'Bar', stacked: 'Stacked', pie: 'Pie', doughnut: 'Donut', line: 'Line' };
 
+// No switcher when only one type is offered: a chart TYPE the officer named
+// ("pie chart", "bar graph") is shown alone (user, 2026-10-19).
 function TypeToggles({ types, type, setType }) {
+  if (!types || types.length <= 1) return null;
   return (
     <div className="qctog">
       {types.map((t) => (
@@ -572,7 +590,7 @@ export function SwitchableChart({ title, labels, fullLabels, values, types, init
         <TypeToggles types={types} type={type} setType={setType} />
         <ExpandButton label="chart" onClick={() => setOpen(true)} />
       </CardHead>
-      <div className="chw">
+      <div className={'chw' + (type === 'pie' || type === 'doughnut' ? ' round' : '')}>
         <ChartCanvas build={() => singleConfig(type, labels, values, theme)} deps={[type, labels, values, theme]} zoom={type === 'line'} />
       </div>
       {open && (
@@ -600,6 +618,57 @@ export function GroupedChart({ title, labels, fullLabels, datasets, theme = DEFA
         <ExpandModal title={title} onClose={() => setOpen(false)}>
           <ExpandedChart build={() => groupedConfig(full, datasets, theme, true)} deps={[full, datasets, theme]}
                          rows={full.length > HORIZONTAL_FROM ? full.length * Math.max(1, datasets.length * 0.6) : 0} />
+        </ExpandModal>
+      )}
+    </div>
+  );
+}
+
+// Two dimensions and a measure (scheme × financial year, district × year …):
+// the x-axis carries one dimension, the legend the other, so both are always
+// visible. Bar = grouped columns per period, Stacked = one column per period,
+// Line = one line per series, Donut = one slice per cell ("MGNREGA · 2023-24",
+// or just "2023-24" when there is a single series).
+const TWO_DIM_TYPES = ['bar', 'stacked', 'line', 'doughnut'];
+
+function twoDimConfig(type, labels, datasets, theme, expanded = false) {
+  if (type === 'line') return multiLineConfig(labels, datasets, theme);
+  if (type === 'stacked') return stackedConfig(labels, datasets, theme, expanded);
+  if (type === 'doughnut' || type === 'pie') {
+    // One series (one scheme's years): the slices are the periods alone — the
+    // card's title and chip already name the scheme, so it is not repeated on
+    // every row of the legend. Several series keep "series · period".
+    const cells = [];
+    const one = datasets.length === 1;
+    datasets.forEach((d) => labels.forEach((l, j) => {
+      if (Number(d.data[j])) cells.push([one ? String(l) : `${d.label} · ${l}`, Number(d.data[j])]);
+    }));
+    return singleConfig(type, cells.map((c) => c[0]), cells.map((c) => c[1]), theme, expanded);
+  }
+  return groupedConfig(labels, datasets.map((d) => ({ label: d.label, values: d.data })), theme, expanded);
+}
+
+export function TwoDimChart({ title, labels, datasets, xKey, sKey, periods, initial, types = TWO_DIM_TYPES, theme = DEFAULT_THEME }) {
+  const [type, setType] = useState(types.includes(initial) ? initial : (types.length === 1 ? types[0] : (periods ? 'line' : 'bar')));
+  const [open, setOpen] = useState(false);
+  const insight = useMemo(() => insightForSeries(labels, datasets, periods), [labels, datasets, periods]);
+  const axes = `${String(sKey).replaceAll('_', ' ')} by ${String(xKey).replaceAll('_', ' ')}`;
+  return (
+    <div className="dyn-chart-card" style={cardStyle(theme)}>
+      <CardHead title={title} theme={theme} insight={insight}>
+        <TypeToggles types={types} type={type} setType={setType} />
+        <ExpandButton label="chart" onClick={() => setOpen(true)} />
+      </CardHead>
+      <div className={'chw tall' + (type === 'doughnut' || type === 'pie' ? ' round' : '')}>
+        <ChartCanvas build={() => twoDimConfig(type, labels, datasets, theme)} deps={[type, labels, datasets, theme]} zoom={type === 'line'} />
+      </div>
+      <div className="chd-axes" aria-label="What the axes show">{axes}</div>
+      {open && (
+        <ExpandModal title={title} onClose={() => setOpen(false)}>
+          <div className="xv-toolbar"><TypeToggles types={types} type={type} setType={setType} /></div>
+          <ExpandedChart build={() => twoDimConfig(type, labels, datasets, theme, true)} deps={[type, labels, datasets, theme]}
+                         rows={type !== 'line' && type !== 'doughnut' && type !== 'pie' && labels.length > HORIZONTAL_FROM ? labels.length * Math.max(1, datasets.length * 0.6) : 0}
+                         zoom={type === 'line'} />
         </ExpandModal>
       )}
     </div>
@@ -808,3 +877,40 @@ export function RecordCard({ row }) {
 }
 
 export { pivotStacked };
+
+// ── Two-way comparison (#397) ───────────────────────────────────────────────
+// "A vs B": two stat tiles with the measure's value for each, "vs" between
+// them, and one line saying who is ahead and by how much. The values use the
+// font's proportional figures (a stat tile is not a column).
+const compactValue = (v) => (Number.isFinite(v) ? v.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—');
+
+function CompareVerdict({ v }) {
+  if (!v) return null;
+  if (v.equal) return <p className="cmp-verdict">Both record <strong>{compactValue(v.value)}</strong> {v.measure}.</p>;
+  const by = v.pct === null ? <strong>{compactValue(v.diff)} more</strong>
+    : <><strong>{v.pct}% ahead</strong> ({compactValue(v.diff)} more)</>;
+  return <p className="cmp-verdict">{v.lead} is {by} on {v.measure}.</p>;
+}
+
+export function CompareCard({ title, measure, a, b, verdict }) {
+  return (
+    <div className="dyn-chart-card compare-card">
+      <div className="chd">
+        <div className="chd-left"><span className="chd-dot" /><span className="chd-title">{title}</span></div>
+        <div className="chd-right"><span className="chd-pill">{measure}</span></div>
+      </div>
+      <div className="cmp-tiles">
+        <div className="cmp-tile">
+          <div className="cmp-label">{a.label}</div>
+          <div className="cmp-value">{compactValue(a.value)}</div>
+        </div>
+        <div className="cmp-vs" aria-hidden="true">vs</div>
+        <div className="cmp-tile">
+          <div className="cmp-label">{b.label}</div>
+          <div className="cmp-value">{compactValue(b.value)}</div>
+        </div>
+      </div>
+      <CompareVerdict v={verdict} />
+    </div>
+  );
+}

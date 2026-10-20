@@ -22,7 +22,7 @@ the refusal is said. Templates only — no model call — so a reply is instant
 and a harmful refusal can never be softened by sampling.
 """
 from app import edge, topic_memory
-from app.text_match import END, START, Alt, Gap, Joined, Matcher, Node, Opt, Pred, Rep, Seq, W, collapse_ws
+from app.text_match import END, START, Alt, Gap, Joined, Matcher, Node, Opt, Pred, Rep, Seq, W, collapse_ws, words
 
 # The edge kinds restyled here. Everything else (greeting, thanks, identity,
 # capability, out_of_area, self_harm, topic_switch, context_reset, …) is left
@@ -43,6 +43,16 @@ NO_INTRO = {"harm", "small_talk", "abuse", "me_who", "me_feelings", "me_doing", 
 
 INTRO = ("I'm Megh One AI — I help with Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, "
          "Focus Legacy and CM Elevate Legacy schemes.")
+# The first greeting of a chat introduces the assistant (Conversational Memory
+# approach, 2026-10-19, §8.1: "Hello! I'm Megh One AI. I can help you explore
+# data on Meghalaya's schemes…"); later greetings never do.
+FIRST_HELLO = ("I'm Megh One AI — I can help you explore data on Meghalaya's six schemes: jobs, housing, "
+               "farmer support and enterprise. What would you like to look at?")
+FIRST_CHIPS = ["What schemes are there?", "What can you do?"]
+# Refusals that steer back to the topic — once per run of them (§8.2: the second
+# off-topic message in a row gets no repeated offer).
+STEER_KINDS = {"general", "everyday", "politics"}
+STEER_AGAIN = "I'm here whenever you want to look at scheme data."
 
 # ── Telling the harmless kinds apart ────────────────────────────────────────
 # The pipeline files "who is the PM", "is a cream bun healthy" and "ra ra ra"
@@ -170,8 +180,8 @@ _ABOUT_ME = [
 
 def _about_me(question: str) -> "str | None":
     q = question or ""
-    for kind, rx in _ABOUT_ME:
-        if rx.search(q):
+    for kind, word_matcher in _ABOUT_ME:
+        if word_matcher.search(q):
             return kind
     return None
 
@@ -489,8 +499,70 @@ PURE_GREETING = Matcher(Seq(
     END))
 
 
+# "I'm Ravi" / "hi, my name is Ravi" (§8.1): the name is kept for this chat only
+# and used in greetings. It was refused as off-topic (live 2026-10-19). Only a
+# message that is nothing but the introduction counts, and the name must not
+# be a state or a role ("I'm a block officer from Dalu", "I am confused").
+_GREET_WORDS = frozenset("hi hii hello hey hai hlo namaste namaskar good morning afternoon evening ok okay so "
+                         "sir madam".split())
+_NAME_LEADS = (("my", "name", "is"), ("name", "is"), ("i", "am"), ("i", "m"), ("im",), ("myself",),
+               ("call", "me"))
+_NOT_A_NAME = frozenset((
+    "a an the fine good ok okay well here back new done ready sorry confused lost tired busy happy sad sure "
+    "not no yes from officer bdo dc sdo staff farmer user admin asking looking trying going interested "
+    "wrong right correct stuck curious also just still very so too only with in at on for to of and or "
+    "glad great bored hungry sick free working searching waiting calling writing").split())
+
+
+def introduced_name(question: str) -> "str | None":
+    ws = words(question or "")
+    i = 0
+    while i < len(ws) and ws[i] in _GREET_WORDS:
+        i += 1
+    rest = ws[i:]
+    for lead in _NAME_LEADS:
+        if tuple(rest[:len(lead)]) == lead:
+            name = rest[len(lead):]
+            break
+    else:
+        return None
+    if name and name[-1] in ("here", "sir", "madam"):
+        name = name[:-1]
+    if not 1 <= len(name) <= 2 or any(not w.isalpha() or w in _NOT_A_NAME or len(w) < 2 or
+                                      w.endswith("ing") for w in name):
+        return None
+    from app import pipeline
+    if pipeline._named_schemes(" ".join(name)):
+        return None
+    return " ".join(w.capitalize() for w in name)
+
+
+def _name_reply(session, question: str, name: str) -> dict:
+    from app import pipeline
+    mem = _memory(session)
+    mem["user_name"] = name
+    topic, scheme = _topic(session)
+    if not mem.get("intro_shown"):
+        text = f"Nice to meet you, {name}! {FIRST_HELLO}"
+        mem["intro_shown"] = True
+        chips = FIRST_CHIPS + _chips(None)[:1]
+    elif topic:
+        text = f"Nice to meet you, {name}! Shall we carry on with {topic}?"
+        chips = _chips(scheme)
+    else:
+        text = f"Nice to meet you, {name}! How can I help with the schemes today?"
+        chips = _chips(None)
+    mem["aside"] = question
+    return {"route": "edge", "intent": "EDGE", "confidence": "low", "edge_type": "small_talk",
+            "reply_kind": "introduction", "answer": text, "suggestions": chips,
+            "context_dependent": True, **pipeline._empty_data_fields()}
+
+
 def small_talk_reply(session, question: str) -> "dict | None":
     """The reply to a message that is only a pleasantry or a greeting, or None."""
+    name = introduced_name(question) if session is not None else None
+    if name:
+        return _name_reply(session, question, name)
     greeting = bool(PURE_GREETING.match(question or ""))
     if not greeting and not PURE_SMALL_TALK.match(question or ""):
         return None
@@ -535,22 +607,50 @@ def restyle(session, question: str, result: dict) -> "dict | None":
             first_line = first_line.replace("You asked {q} — ", "").replace("{q}", "that")
         first_line = first_line[0].upper() + first_line[1:]
     redirect = with_topic.format(topic=topic) if (topic and with_topic) else plain
+    chips = None
+    name = mem.get("user_name")
+    if name and kind == "greeting":
+        first_line = first_line.replace("!", f", {name}!", 1)
+    # The kind of the reply just before, when it was one of these replies too: any
+    # answered turn in between clears it (c15 _attach_conversational_touches, at
+    # finalize). session.last_turn cannot tell — an aside is not kept as the
+    # antecedent turn, so it still names the data question before the asides.
+    repeat_of = seen.get("_last_kind")
+    seen["_last_kind"] = kind
+    if kind in ("greeting", "small_talk") and not topic and not mem.get("intro_shown"):
+        redirect = FIRST_HELLO
+        mem["intro_shown"] = True
+        chips = FIRST_CHIPS + _chips(None)[:1]
+    elif kind in STEER_KINDS and topic and repeat_of in STEER_KINDS:
+        redirect = STEER_AGAIN          # steered back once already, in this run of asides
+    elif kind == "thanks" and repeat_of == "thanks":
+        first_line, redirect, chips = "Happy to help!", "", []
+    elif kind == "thanks" and topic:
+        chips = _chips(scheme)[:2] + ["What schemes are there?"]
     parts = [first_line, redirect]
-    # The introduction once per chat, and never on a harmful refusal, small talk
-    # or a friendly reply (those say who the assistant is where it fits).
-    if not mem.get("intro_shown") and kind not in NO_INTRO:
+    # The introduction once per chat, only when there is no topic to steer back
+    # to ("…Shall we get back to MGNREGA? I'm Megh One AI — …" read as two
+    # replies glued together), and never on a harmful refusal, small talk or a
+    # friendly reply (those say who the assistant is where it fits).
+    if not mem.get("intro_shown") and kind not in NO_INTRO and not topic:
         parts.append(INTRO)
         mem["intro_shown"] = True
     if kind in ("me_who", "me_name"):
         mem["intro_shown"] = True
     # Remember this aside so a follow-up after it still continues the topic
-    # (conversation_layer.resume_after_small_talk).
-    if kind != "harm":
-        mem["aside"] = question
+    # (conversation_layer.resume_after_small_talk). A refused request is an
+    # aside too: "how to make a bomb" between "PMAY-G houses in Ri Bhoi 2023-24"
+    # and "what about 2022-23?" used to drop the topic and ask "which scheme?"
+    # (live 2026-10-18; the context-memory proposal, §9.2: an out-of-scope
+    # message neither destroys nor pollutes the active topic). The refusal text
+    # itself stays firm and carries no redirect or chips.
+    mem["aside"] = question
     out = dict(result)
     out["answer"] = " ".join(p for p in parts if p)
     out["reply_kind"] = kind
-    out["suggestions"] = [] if kind in ("harm", "thanks", "goodbye", "time_date") else _chips(scheme)
+    if chips is None:
+        chips = [] if kind in ("harm", "thanks", "goodbye", "time_date") else _chips(scheme)
+    out["suggestions"] = chips
     return out
 
 

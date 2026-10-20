@@ -227,7 +227,7 @@ starts the paused-thread sweep and closes the checkpointer only when the graph i
 
 ### 3.8 Conversation state (VERIFIED)
 - **L1 — `session_store.py`:**
-  - in-process and per worker, with a TTL (`SESSION_TTL_SECONDS=1800`);
+  - in-process and per worker, with a TTL (`SESSION_TTL_SECONDS=14400`, 4 h, D-051; up to `SESSION_MAX_TURNS=50` turns);
   - up to 8 turns;
   - holds `pending_scope_q` / `pending_village_hint` / `pending_scope_rule` /
     `pending_scope_options`: the clarification-resume state, which is **not persisted** (KI-001);
@@ -328,9 +328,13 @@ data fields `schemes`, `resolved_entities`, `sql`, `sql_query`, `row_count`, `ro
 
 | `route` | Extra fields |
 |---|---|
-| `data` | `confidence`, `rows` (the first 20), `data` (all rows, ≤1000), `follow_up_options`, `rewritten_question?` |
+| `data` | `confidence`, `rows` (the first 20), `data` (all rows, ≤1000), `follow_up_options`, `rewritten_question?`, `scope_banner` (the scope the SQL used, D-050) |
 | `knowledge` | `confidence`, `sources`, `follow_up_options` |
-| `edge` | `edge_type`, `suggestions` |
+| `edge` | `edge_type` (incl. `conversation_history`, `context_continued`, D-050), `suggestions` |
+
+Any route may also carry `continue_offer` ("Continue with MGNREGA (…)"): only on the first reply after an idle
+expiry; sending that text restores the set-aside context (D-050). A `/api/query/stream` request the client
+abandons (Stop) is cancelled and its question remembered; the next "continue" in that thread answers it (D-050).
 | `clarification` | `needs_clarification`, `question`, `clarification:{options, rule}` |
 | `denied` | `denied_by` (`scheme`/`geography`/`granularity`) |
 

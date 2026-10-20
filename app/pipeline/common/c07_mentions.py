@@ -2,7 +2,7 @@
 # Part of the app.pipeline package: executed by app/pipeline/__init__.py into the package
 # namespace, in load order, so it shares every name with the other files.
 
-# No regular expressions (D-047): word patterns are app.text_match Matchers, and
+# Words only through app/text_match (D-047): word matchers are Matchers, and
 # punctuation-sensitive scans are the character helpers shared with
 # app.entity_resolver (_CharScan, _GapIs, _ci_find, _bounded_find, ...).
 from app import text_match as _tm
@@ -13,13 +13,13 @@ from app.entity_resolver import (  # noqa: E402
 
 
 def _c07_is_word(ch: str) -> bool:
-    """A regex \\w character."""
+    """A word character: a letter, a digit or "_"."""
     return ch.isalnum() or ch == "_"
 
 
 def _named_schemes(question: str) -> list[str]:
     """Schemes named outright in the question text, in catalog order. Falls
-    back to fuzzy matching (_fuzzy_named_schemes) when the exact regex finds
+    back to fuzzy matching (_fuzzy_named_schemes) when the exact match finds
     nothing — otherwise a misspelled scheme name ("manrega", "pamay") reads as
     "no scheme named" and forces an unnecessary clarification prompt instead
     of being understood."""
@@ -164,9 +164,9 @@ _C07_DROP_PREPS = ("in", "for", "of", "at", "from", "within")
 
 def _c07_place_phrase_span(text: str, name: str, preps: tuple,
                            tail: bool = True, word_end: bool = False) -> "tuple[int, int] | None":
-    r"""Leftmost span of `\s*\b(?:<preps>)\s+<name>` (case-insensitive) plus, when
-    `tail`, an optional part-marker `(?:\s*\([^)]{0,20}\)|\s*-\s*[A-Za-z0-9]{1,12})`;
-    `word_end` puts a \b right after the name."""
+    r"""Leftmost span of spaces, a whole-word preposition from `preps`, spaces, then
+    `name` (case-insensitive) plus, when `tail`, an optional part-marker (see
+    _c07_marker_tail); `word_end` makes the name end where a word ends."""
     best = None
     n = len(text)
     pos = 0
@@ -182,7 +182,7 @@ def _c07_place_phrase_span(text: str, name: str, preps: tuple,
         while k > 0 and text[k - 1].isspace():
             k -= 1
         if k == p:
-            continue                    # \s+ between the preposition and the name
+            continue                    # spaces needed between the preposition and the name
         head = text[:k].lower()
         for prep in preps:
             ps = k - len(prep)
@@ -197,7 +197,7 @@ def _c07_place_phrase_span(text: str, name: str, preps: tuple,
 
 
 def _c07_marker_tail(text: str, e: int) -> int:
-    r"""End of an optional `\s*\([^)]{0,20}\)` or `\s*-\s*[A-Za-z0-9]{1,12}` at e."""
+    r"""End of an optional "(...)" of at most 20 characters, or "-" and 1-12 letters/digits, at e."""
     n = len(text)
     j = _ws_run_end(text, e)
     if j < n and text[j] == "(":
@@ -215,7 +215,7 @@ def _c07_marker_tail(text: str, e: int) -> int:
 
 
 def _c07_double_comma(text: str) -> str:
-    r"""regex sub(r"\s*,\s*,", ",")."""
+    r"""Two commas with only spaces around/between them become one ","."""
     out, i, n = [], 0, len(text)
     while i < n:
         j = _ws_run_end(text, i)
@@ -231,7 +231,7 @@ def _c07_double_comma(text: str) -> str:
 
 
 def _c07_squeeze_ws(text: str) -> str:
-    r"""regex sub(r"\s{2,}", " "): a run of two or more whitespace characters
+    r"""A run of two or more whitespace characters
     becomes one space; a lone whitespace character is kept as it is."""
     out, i, n = [], 0, len(text)
     while i < n:
@@ -297,7 +297,7 @@ def _clean_mention(value: str) -> str | None:
     state name (i.e. not an actual place or period)."""
     v = _strip_mention_punctuation(value)
     core = v
-    for _art in ("the", "a", "an", "this", "that", "each", "every", "all"):   # ^(...)\s+
+    for _art in ("the", "a", "an", "this", "that", "each", "every", "all"):   # leading article + space
         if v[:len(_art)].lower() == _art and len(v) > len(_art) and v[len(_art)].isspace():
             core = v[len(_art):]
             break
@@ -313,7 +313,7 @@ def _clean_mention(value: str) -> str | None:
     # place "not in Meghalaya" (reported 2026-09-10: "which district received
     # highest total disbursement for Focus Plus" -> mentions.district ==
     # "Focus Plus" -> OutOfScope).
-    if any(rx.search(core) for rx in _SCHEME_NAME_MATCHER.values()):
+    if any(word_matcher.search(core) for word_matcher in _SCHEME_NAME_MATCHER.values()):
         return None
     return v
 
@@ -329,7 +329,7 @@ def _mention_in_question(value: str, question: str) -> bool:
     lifted straight from the FY 2017-18 example in the prompt. For a
     zero-time-dimension scheme like CM Elevate that phantom year immediately
     tripped the "no date field" refusal, and because "2017-18" isn't literally
-    in the question, the refusal's own year-stripping regex had nothing to
+    in the question, the refusal's own year-stripping step had nothing to
     strip — the follow-up chip resent the identical question text and looped
     forever)."""
     norm = lambda s: _tm.collapse_ws(s).lower()
@@ -378,8 +378,8 @@ def _drop_producer_group_names(question: str, mentions: dict) -> dict:
 # An unmistakable financial-year range: "2024-25", "FY 2024-25", "2024-2025".
 # Never the head of a calendar date: "sanctioned on 2017-11-28" read "2017-11"
 # as FY 2017-18, and the composer then scoped a single-day count to that FY
-# (2026-09-27 screenshot). The lookahead rejects a third -NN / /NN part.
-# regex \b((?:19|20|21)\d\d\s*[-/]\s*\d{2}(?:\d{2})?)\b(?!\s*[-/]\s*\d)
+# (2026-09-27 screenshot). A third -NN / /NN part after it is rejected.
+# A 19xx/20xx/21xx year, "-" or "/", then 2 or 4 digits, as whole words.
 _C07_DASH_GAP = _GapIs(lambda g: g.strip() in ("-", "/"))
 _EXPLICIT_FY_RANGE_MATCH = _tm.Matcher(_tm.NotBefore(
     _tm.Cap(_tm.Seq(
@@ -554,7 +554,7 @@ def _parse_year_key(text: str) -> "int | None":
     text = text or ""
     toks = _tm.tokens(text)
 
-    def _fy_start(w: str) -> bool:                                   # 20[1-3]\d
+    def _fy_start(w: str) -> bool:                                   # 2010-2039
         return len(w) == 4 and w.isdecimal() and w[:2] == "20" and w[2] in "123"
 
     for k, t in enumerate(toks[:-1]):                                # 2023-24 / 2023-2024
@@ -638,7 +638,7 @@ def _village_chip_question(question: str, raw_text: str, candidate: dict,
 # village was unreachable (Focus Plus all-villages run 2026-09-27). The LGD code
 # is added to the label and the chip question only when such a twin exists.
 def _c07_lgd_code_at(text: str, i: int):
-    r"""regex \(LGD (\d+)\) (case-sensitive), as a _CharScan step."""
+    r""""(LGD <digits>)" (case-sensitive), as a _CharScan step."""
     if not text.startswith("(LGD ", i):
         return None
     j = k = i + 5
@@ -674,8 +674,8 @@ def _loose_name_find(name: str, text: str) -> "tuple[int, int] | None":
     r"""Where a place name first occurs in `text`, ignoring the spacing around
     brackets and hyphens and collapsing runs of spaces ("DATHBANGA ( KOCH )"
     also finds "Dathbanga (Koch)"), case-insensitive, not inside a longer
-    [A-Za-z0-9] run. (The old regex: (?<![A-Za-z0-9]) + the loose name +
-    (?![A-Za-z0-9]), each space -> \s*, each bracket/hyphen -> \s*X\s*.)"""
+    run of letters/digits. (Each space in the name may be any whitespace or
+    none; each bracket/hyphen may have whitespace on either side.)"""
     elems: list = []              # None = optional whitespace run, else one lower-cased char
     for ch in _ws1(str(name).strip()):
         if ch in "()-":
@@ -696,7 +696,7 @@ def _loose_name_find(name: str, text: str) -> "tuple[int, int] | None":
             yield i
             return
         el = elems[k]
-        if el is None:                     # greedy \s*, giving back on demand
+        if el is None:                     # longest whitespace run first, giving back on demand
             j = _ws_run_end(text, i)
             for m in range(j, i - 1, -1):
                 yield from _ends(k + 1, m)
@@ -713,8 +713,8 @@ def _loose_name_find(name: str, text: str) -> "tuple[int, int] | None":
 
 
 def _c07_strip_chip_tails(stem: str) -> str:
-    r"""Drop every trailing ", <X> block, <Y>" pair (regex
-    sub(r"(,\s*[^,]+?\s+block,\s*[^,]+)+$", "", flags=I))."""
+    r"""Drop every trailing ", <X> block, <Y>" pair (the word "block" in any
+    case)."""
     parts = stem.split(",")
     keep = len(parts)
     while keep >= 3:

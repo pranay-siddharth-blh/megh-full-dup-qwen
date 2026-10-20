@@ -67,6 +67,9 @@ async def _persist_turn(tenant_id, user_id, session_id, result, question,
             # a second, empty pivot table under the answer's own tables (the
             # chat UI skips its charts when this is set).
             "cross_scheme": bool(result.get("cross_scheme")),
+            # The scope the answer used ("MGNREGA · East Khasi Hills · FY
+            # 2022-23"), shown above it; redrawn when the thread is reopened.
+            "scope_banner": result.get("scope_banner"),
             "row_count": rows,
             "sql": sql,
             "sql_query": sql,

@@ -2,12 +2,12 @@
 # Part of the app.pipeline package: executed by app/pipeline/__init__.py into the package
 # namespace, in load order, so it shares every name with the other files.
 #
-# No regular expressions (D-047): word patterns are app.text_match Matchers
+# Text matching (D-047): word checks are app.text_match Matchers
 # (`_tm`, imported in c07_mentions); punctuation-sensitive ones are _CharScan
 # steps written out by hand below.
 
-_C08_WS = _GapIs(_gap_ws)                                    # regex \s+ between two words
-_C08_AFTER_COMMA = _GapIs(lambda g: g.rstrip().endswith(","))  # regex ,\s* right before a word
+_C08_WS = _GapIs(_gap_ws)                                    # one or more spaces between two words
+_C08_AFTER_COMMA = _GapIs(lambda g: g.rstrip().endswith(","))  # a comma, then any spaces, right before a word
 
 
 def _c08_is_word(ch: str) -> bool:
@@ -15,7 +15,7 @@ def _c08_is_word(ch: str) -> bool:
 
 
 def _c08_word_end(text: str, i: int) -> bool:
-    """regex \b at i, right after a word character."""
+    """A word ends at i, right after a word character (no word character at i)."""
     return i >= len(text) or not _c08_is_word(text[i])
 
 
@@ -24,7 +24,7 @@ def _c08_ci_at(text: str, i: int, word: str) -> bool:
 
 
 def _c08_ws_plus(text: str, i: int) -> int:
-    r"""End of a regex \s+ at i, or -1 when no whitespace is there."""
+    r"""End of the run of whitespace at i, or -1 when no whitespace is there."""
     j = _ws_run_end(text, i)
     return j if j > i else -1
 
@@ -69,13 +69,13 @@ _EXPLICIT_LEVEL_MATCH = {
 # households/persons employed, job cards, 100-days completions, women
 # employment. Anything else on MGNREGA is expenditure-side.
 def _c08_one_space_or_dash(g: str) -> bool:
-    r"""regex [\s-] — exactly one whitespace character or one hyphen."""
+    r"""Exactly one whitespace character or one hyphen."""
     return g == "-" or (len(g) == 1 and g.isspace())
 
 
 class _C08NearWord(_tm.Node):
     """`a`, then within `max_chars` characters none of which is in `banned`,
-    the word `b` (regex \ba\b[^?.!]{0,30}\bb\b)."""
+    the word `b` (both whole words, not inside longer words)."""
 
     def __init__(self, a, b, max_chars: int, banned: str):
         self.a, self.b, self.max_chars, self.banned = a, b, max_chars, banned
@@ -133,17 +133,17 @@ _AC_CAPABLE_SCHEMES = ("MGNREGA", "Focus Legacy", "CM Elevate Legacy", "CM Eleva
 # GARO HILLS" (see _village_chip_question). A year chip tapped afterwards appends
 # its period (" across all financial years", " for FY 2022-23"), which must not
 # hide the tail (Focus Legacy all-villages run 2026-09-29, KI-156).
-# regex (case-insensitive):
-#   ,\s*(?P<block>[A-Za-z][A-Za-z.'()\- ]*?)\s+block\s*,\s*(?P<district>[A-Za-z][A-Za-z.'\- ]*?)
-#   (?:\s+(?:across|for|in|during|over)\s+(?:all\s+)?(?:the\s+)?(?:financial\s+years?|years?|fy)\b[^,?]*)?
-#   \s*[?.]?\s*$
+# Shape (case-insensitive): a comma; the block name (a letter, then letters and
+#   . ' ( ) - space, as short as possible); the word "block"; a comma; the district
+#   name (a letter, then letters and . ' - space); optionally a year phrase (see
+#   _c08_year_phrase_ends) and text with no comma or "?"; then at most one ? or . to the end.
 _C08_BLOCK_NAME_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.'()- ")
 _C08_DISTRICT_NAME_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz.'- ")
 
 
 def _c08_year_phrase_ends(text: str, i: int) -> list:
-    r"""Ends of `\s+(?:across|for|in|during|over)\s+(?:all\s+)?(?:the\s+)?
-    (?:financial\s+years?|years?|fy)\b` starting at i (case-insensitive)."""
+    r"""Ends of "across/for/in/during/over [all] [the] financial year(s) / year(s) / fy"
+    (spaces before and between, a whole word last) starting at i (case-insensitive)."""
     j = _c08_ws_plus(text, i)
     if j < 0:
         return []
@@ -190,7 +190,7 @@ def _c08_year_phrase_ends(text: str, i: int) -> list:
 
 
 def _c08_tail_end_ok(rest: str) -> bool:
-    r"""regex \s*[?.]?\s*$ over the whole of `rest`."""
+    r"""The whole of `rest` is only spaces and at most one ? or ."""
     r = rest.lstrip()
     if r[:1] in ("?", "."):
         r = r[1:]
@@ -219,7 +219,7 @@ def _c08_chip_tail_at(text: str, i: int, *, to_end: bool):
                         for ye in _c08_year_phrase_ends(text, dend):
                             if not to_end:
                                 return ye, {"block": (j, bend), "district": (d, dend)}
-                            for cut in range(n, ye - 1, -1):      # greedy [^,?]*
+                            for cut in range(n, ye - 1, -1):      # longest first, no ',' or '?'
                                 seg = text[ye:cut]
                                 if "," in seg or "?" in seg:
                                     continue
@@ -242,8 +242,8 @@ _CHIP_TAIL_PARSE_MATCH = _CharScan(lambda text, i: _c08_chip_tail_at(text, i, to
 
 # A village chip's ", X block, DISTRICT" tail with a year chip's phrase after it
 # ("…, JIRANG block, RI BHOI across all financial years" / "… for FY 2022-23").
-# regex ,\s*[A-Za-z][A-Za-z.'()\- ]*?\s+block\s*,\s*[A-Za-z][A-Za-z.'\- ]*?\s+
-#       (?:across|for|in|during|over)\s+(?:all\s+)?(?:the\s+)?(?:financial\s+years?|years?|fy)\b
+# Shape: a comma, a block name, the word "block", a comma, a district name, then
+#       the year phrase of _c08_year_phrase_ends (the same name rules as the tail above).
 _YEAR_AFTER_CHIP_TAIL_MATCH = _CharScan(
     lambda text, i: (lambda r: (r[0], []) if r else None)(_c08_chip_tail_at(text, i, to_end=False)))
 
@@ -255,9 +255,10 @@ _YEAR_AFTER_CHIP_TAIL_MATCH = _CharScan(
 # MAWIABAN", "Jong - U - Shen" and "RAMJONGGRE ( R )" are each ONE village —
 # without the ")" the last was answered as its neighbour "RAMJONGGRE ( L )"
 # (all-villages run 2026-09-29).
-# regex (case-insensitive), NAME = (?!(?:in|for|of|at|to|from|within|the|and)\b)
-#   [A-Za-z0-9()&\-][\w().'&\-]*  :
-#   \b(?:in|for|of|at|to|from|within)\s+(?:the\s+)?(NAME(?:\s+NAME){0,6})\s+village\b
+# Shape (case-insensitive): a whole-word preposition (in/for/of/at/to/from/within),
+#   spaces, an optional "the", then 1-7 name words separated by spaces, then spaces and
+#   the whole word "village". A name word starts with a letter, digit, ( ) & or -, goes
+#   on with letters, digits, _ ( ) . ' & -, and is never in/for/of/at/to/from/within/the/and.
 _C08_VILLAGE_PREPS = ("in", "for", "of", "at", "to", "from", "within")
 _C08_NOT_A_NAME_WORD = ("in", "for", "of", "at", "to", "from", "within", "the", "and")
 _C08_NAME_FIRST = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789()&-")
@@ -301,7 +302,7 @@ def _c08_village_phrase_at(text: str, i: int):
         w = _c08_ws_plus(text, e)
         if w < 0:
             break
-    for e in reversed(ends):                   # greedy {0,6}, giving back words
+    for e in reversed(ends):                   # up to 6 words, longest first
         v = _c08_ws_plus(text, e)
         if v >= 0 and _c08_ci_at(text, v, "village") and _c08_word_end(text, v + 7):
             return v + 7, [(j, e)]
@@ -401,7 +402,7 @@ def _village_scheme(schemes: "list[str] | None") -> "str | None":
         return schemes[0]
     return None
 def _c08_two_words_end(text: str, i: int, a: str, b: str) -> int:
-    r"""End of `a\s+b` (case-insensitive) at i, or -1."""
+    """End of `a`, whitespace, `b` (case-insensitive) at i, or -1."""
     if not _c08_ci_at(text, i, a):
         return -1
     j = _c08_ws_plus(text, i + len(a))
@@ -409,7 +410,7 @@ def _c08_two_words_end(text: str, i: int, a: str, b: str) -> int:
 
 
 def _c08_urban_body_at(text: str, i: int):
-    r"""regex [\s-]*(?:MUNICIPAL\s+BOARD|TOWN\s+COMMITTEE)\b (case-insensitive)."""
+    r"""Any spaces/hyphens, then the whole words MUNICIPAL BOARD or TOWN COMMITTEE (case-insensitive)."""
     j = i
     while j < len(text) and (text[j].isspace() or text[j] == "-"):
         j += 1
@@ -421,9 +422,9 @@ def _c08_urban_body_at(text: str, i: int):
 
 
 def _c08_initials_end(text: str, i: int, a: str, b: str) -> int:
-    r"""End of `a\.?\s?b\.?` (case-insensitive) at i, followed by a regex \b, or -1.
-    The trailing "." belongs to the match only when a word character follows it
-    (that is the only way a \b can sit right after it)."""
+    r"""End of a, optional ".", optional one space, b, optional "." (case-insensitive)
+    at i, at a word edge, or -1. The trailing "." belongs to the match only when a
+    word character follows it (the only way a word edge can sit right after it)."""
     if not _c08_ci_at(text, i, a):
         return -1
     n = len(text)
@@ -441,8 +442,8 @@ def _c08_initials_end(text: str, i: int, a: str, b: str) -> int:
 
 
 def _c08_urban_word_at(text: str, i: int):
-    r"""regex \b(?:municipal(?:\s+board)?|town\s+committee|m\.?\s?b\.?|t\.?\s?c\.?)\b
-    (case-insensitive)."""
+    r"""A whole word/phrase: municipal [board], town committee, or the initials m b / t c
+    (each with optional dots and one optional space) (case-insensitive)."""
     if i > 0 and _c08_is_word(text[i - 1]):
         return None
     for e in (_c08_two_words_end(text, i, "municipal", "board"),
@@ -485,7 +486,7 @@ async def _mask_scheme_words_in_village_name(question: str) -> str:
     if not found:
         return question
     name = found[0]
-    if not (_infer_scheme_from_terms(name) or any(rx.search(name) for rx in _SCHEME_NAME_MATCHER.values())):
+    if not (_infer_scheme_from_terms(name) or any(word_matcher.search(name) for word_matcher in _SCHEME_NAME_MATCHER.values())):
         return question
     masked = _ci_replace(question, name, "the village", count=1)
     logger.info("scheme detection: village name %r masked (its words read as scheme vocabulary)", name)
@@ -526,7 +527,7 @@ def _ac_dimension_available(question: str, schemes: list[str]) -> bool:
 # district/block chips keep the constituency name AND add the area, so the
 # question stays scoped to both; "the whole constituency" simply confirms.
 def _c08_within_the_end(text: str, i: int) -> int:
-    r"""End of `,\s*within\s+the\s+` (case-insensitive) at i, or -1."""
+    """End of ", within the " (any spacing, case-insensitive) at i, or -1."""
     if i >= len(text) or text[i] != ",":
         return -1
     j = _ws_run_end(text, i + 1)
@@ -558,8 +559,8 @@ _AC_COLLISION_CHIP = _tm.Matcher(_tm.Seq(
 
 
 def _c08_ac_narrow_at(text: str, i: int):
-    r"""regex ,\s*within\s+the\s+(?P<name>.+?)\s+(?P<level>district|block)\s+only\b
-    (case-insensitive)."""
+    r"""", within the <name> district|block only" (name as short as possible, level the
+    next word, "only" a whole word; spaces between; case-insensitive)."""
     s0 = _c08_within_the_end(text, i)
     if s0 < 0:
         return None
@@ -645,7 +646,7 @@ def _ac_drilldown_clarification(question: str, ac_display: str,
 # Candidate place phrases after a preposition. Deliberately tolerant on TWO
 # axes, because both were observed dropping a real village:
 #   CASE — users type lowercase ("in william nagar(mb) - ward no.4"). A
-#     capital-first pattern skipped those entirely, so the backstop never ran
+#     capital-first check skipped those entirely, so the backstop never ran
 #     and the truncated extractor mention went unchallenged.
 #   SUFFIX CHAIN — a name can carry MORE THAN ONE part-marker:
 #     "William Nagar (MB) - Ward No.4" is a parenthesised marker AND a
@@ -655,11 +656,12 @@ def _ac_drilldown_clarification(question: str, ac_display: str,
 # Precision still comes from village_names_exact(): a candidate only counts
 # if it matches a stored village name EXACTLY, so a loose phrase costs one
 # lookup and nothing more.
-# The old regex (case-SENSITIVE prepositions):
-#   \b(?:in|for|of|at|from|within|under)\s+
-#   (?P<name>[A-Za-z][A-Za-z.'-]*(?:\s+[A-Za-z][A-Za-z.'-]*){0,3}
-#     (?:\s*\([A-Za-z0-9 .'-]{1,20}\)
-#      |\s*-\s*[A-Za-z0-9][A-Za-z0-9.']{0,11}(?:\s+[A-Za-z0-9][A-Za-z0-9.']{0,11})?){0,2})
+# The shape (case-SENSITIVE prepositions):
+#   a whole-word in/for/of/at/from/within/under, then spaces, then the name:
+#   1-4 words (a letter, then letters and . ' -) separated by spaces, then up to
+#     two markers, each either "(...)" holding 1-20 letters, digits, spaces, . ' -
+#     or "-" and one or two short tokens (a letter/digit, then up to 11 more
+#     letters, digits, . '), spaces allowed around the "(" and "-".
 # A hyphenated marker is at most TWO short tokens ("- A", "- Ward No.4") —
 # bounded so it cannot run on into the rest of the sentence ("- Ward No.4
 # for CM Elevate"), which would never match a stored name. Every piece is
@@ -679,7 +681,7 @@ def _c08_place_word_end(text: str, i: int) -> int:
 
 
 def _c08_marker_token_end(text: str, i: int) -> int:
-    """[A-Za-z0-9][A-Za-z0-9.']{0,11} at i, or -1."""
+    """End of a letter or digit then up to 11 letters, digits, '.' or ''' at i, or -1."""
     if i >= len(text) or text[i] not in _ASCII_ALNUM:
         return -1
     j = i + 1
@@ -828,7 +830,8 @@ def _canonical_in_question(question: str, scheme: str, dimension: str) -> "str |
 # them, at the very end. The admin-level CHOICE chip (", the block, not another
 # area type") does not match — it has "the" before "block" and trailing prose
 # after the second comma.
-# regex (case-sensitive) ,\s*[A-Z][A-Za-z.'\- ]*\s+block\s*,\s*[A-Z][A-Za-z.'\- ]*\s*$
+# Shape (case-sensitive): a comma; a name (a capital, then letters and . ' - space);
+# spaces and "block"; a comma; a second such name; only spaces to the end.
 _C08_UPPER = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZ")
 
 

@@ -95,6 +95,7 @@ function openMicStream() {
 export function useVoice({ lang, onPartial, onTranscript, onUnauthorized }) {
   const [phase, setPhase] = useState('idle');
   const [status, setStatus] = useState(null);
+  const [startedAt, setStartedAt] = useState(0);   // Date.now() when the recorder started; 0 otherwise
   const recorderRef = useRef(null);
   const meterRef = useRef(null);
   const levelRef = useRef(null);          // the level bars' container
@@ -236,6 +237,7 @@ export function useVoice({ lang, onPartial, onTranscript, onUnauthorized }) {
     clearInterval(partialTimer.current);
     clearTimeout(stopTimer.current);
     setPhase('finishing');
+    setStartedAt(0);
     say('Transcribing…', 'Finishing your question');
     const rec = recorderRef.current;
     if (rec && rec.state !== 'inactive') rec.stop();
@@ -243,7 +245,11 @@ export function useVoice({ lang, onPartial, onTranscript, onUnauthorized }) {
 
   const startMic = useCallback(async () => {
     if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) {
-      alert('Microphone not supported in this browser. Please use Chrome, Edge, or Safari.'); return;
+      // Every browser hides the microphone on a plain-http page (other than localhost).
+      alert(window.isSecureContext === false
+        ? 'Voice input needs the secure (https://) address of this site. Please open it over https.'
+        : 'Microphone not supported in this browser. Please use Chrome, Edge, Firefox or Safari.');
+      return;
     }
     const session = ++sessionRef.current;
     setPhase('starting');
@@ -271,6 +277,7 @@ export function useVoice({ lang, onPartial, onTranscript, onUnauthorized }) {
       // Small slices, so the recording so far can be transcribed while it grows.
       rec.start(250);
       recordingRef.current = true;
+      setStartedAt(Date.now());
       startMeter(stream);
 
       // Live text: transcribe the recording so far, one request at a time.
@@ -297,6 +304,7 @@ export function useVoice({ lang, onPartial, onTranscript, onUnauthorized }) {
     } catch (e) {
       recordingRef.current = false;
       setPhase('idle');
+      setStartedAt(0);
       clearStatus();
       console.error('startMic getUserMedia failed:', e && e.name, e && e.message, e);
       let msg;
@@ -326,6 +334,6 @@ export function useVoice({ lang, onPartial, onTranscript, onUnauthorized }) {
     phase,
     isRecording: phase === 'starting' || phase === 'listening',
     busy: phase !== 'idle',
-    status, levelRef, toggleMic, stopMic, recordingRef, clearStatus,
+    status, startedAt, levelRef, toggleMic, stopMic, recordingRef, clearStatus,
   };
 }

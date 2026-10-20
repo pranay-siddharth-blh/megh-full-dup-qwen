@@ -5,7 +5,7 @@
 # Sections follow the order of the pipeline steps they belong to.
 # SQL is read and rewritten on the SQLGlot tree (app/sql_ast.py); the user's question,
 # the answer text and result-row keys are read on words (app/text_match.py) or with
-# plain string methods — no regular expressions (D-047).
+# plain string methods only (D-047).
 from sqlglot import exp
 
 from app import sql_ast
@@ -16,14 +16,14 @@ from app.text_match import (ANY, START, Alt, Cap, Hit, Matcher, Node, Opt, Pred,
 # ════ scheme terms ════════════════════════════════════════════════════════════════════════════════════
 def _prefers_cm_elevate_legacy(question: str) -> bool:
     """A CM Elevate question whose vocabulary only the sanction-and-disbursement
-    dataset can answer (and none that only the applications dataset holds) — or,
-    by the user's default, a data request in neither dataset's own vocabulary."""
+    dataset can answer (and none that only the applications dataset holds).
+    Used for sub-scheme words ("piggery") that belong to both datasets; a bare
+    "CM Elevate" name is settled by _cm_elevate_dataset_choice instead, and is
+    never defaulted to Legacy (user decision 2026-10-19)."""
     q = question or ""
     if _CMELEVATE_APPLICATIONS_ONLY.search(q):
         return False
-    if _CMELEVATELEGACY_FORCING.search(q) or _CMELEVATELEGACY_ONLY_TERMS.search(q):
-        return True
-    return bool(_CME_DATA_REQUEST.search(q)) and not _CME_APPLICATIONS_VOCAB.search(q)
+    return bool(_CMELEVATELEGACY_FORCING.search(q) or _CMELEVATELEGACY_ONLY_TERMS.search(q))
 
 
 # ════ answer notes and guarantees ═════════════════════════════════════════════════════════════════════
@@ -74,11 +74,11 @@ def _cm_legacy_sericulture_clarification(question: str) -> "ClarificationNeeded"
 
 
 # ── CM Elevate Legacy: questions the data cannot answer ─────────────────────
-# Each pattern is a refusal class from the prompt-layer bank (refusal_code),
+# Each matcher is a refusal class from the prompt-layer bank (refusal_code),
 # worded by the bank's own reviewed text via annotations.refusal_reason. Checked
 # deterministically before SQL generation: the generator can only emit a SELECT,
 # so left to it these came back as an improvised figure or a bare "not
-# available" with no reason. The patterns are deliberately narrow — the bank's
+# available" with no reason. The matchers are deliberately narrow — the bank's
 # re-verification found four over-broad refusal triggers (a relative "who", the
 # word "individual", "overview", "focus") and each is avoided here.
 _CM_LEGACY_NOT_HELD = (
@@ -129,8 +129,8 @@ _CM_LEGACY_NOT_HELD = (
 def _cm_legacy_not_held(question: str) -> "ClarificationNeeded | None":
     """A not-held explanation for a CM Elevate Legacy question the data cannot
     answer, or None when it can be answered."""
-    for code, rx in _CM_LEGACY_NOT_HELD:
-        if not rx.search(question or ""):
+    for code, word_matcher in _CM_LEGACY_NOT_HELD:
+        if not word_matcher.search(question or ""):
             continue
         reason = annotations.refusal_reason("CM Elevate Legacy", code)
         if not reason:
@@ -153,7 +153,7 @@ _CM_LEGACY_MONEY_COLS = ("total_disbursement", "total_subsidy_disbursement", "to
 _CM_LEGACY_REFUSAL_COLS = ("desanctioned_reason_raw", "refused_flag_raw", "refused_reason_text")
 
 
-# ── SQL tree helpers (SQL is read on the SQLGlot tree, never with a regex) ──
+# ── SQL tree helpers (SQL is read on the SQLGlot tree, never as raw text) ──
 def _cml_is_crore_divisor(node) -> bool:
     if not isinstance(node, exp.Literal) or node.is_string:
         return False
@@ -389,7 +389,7 @@ _NUM_WORDS = {"no": 0, "zero": 0, "one": 1, "a single": 1, "single": 1, "two": 2
               "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15, "twenty": 20}
 class _CmlDigits(Node):
     """A number written with digits and commas ("1,234"): digit words joined by a bare
-    ','. Longest first, then each shorter comma-prefix (the old `\\d[\\d,]*`)."""
+    ','. Longest first, then each shorter comma-prefix (a digit, then digits/commas)."""
 
     def ends(self, ctx, i, caps):
         toks = ctx.toks
@@ -855,7 +855,7 @@ def _cml_add_exact_after_crore(answer: str, cr: str, exact: str) -> str:
 
 async def _cm_legacy_answer_guarantees(question: str, sql: str, rows: list[dict], answer: str,
                                        display: dict) -> str:
-    if len(rows or []) == 1 and (answer or "").strip() == _deterministic_answer(rows).strip():
+    if len(rows or []) == 1 and _is_fallback_answer(answer, rows, ["CM Elevate Legacy"], display):
         answer = _cml_single_row_sentence(rows[0], display) or answer
     answer = _cml_complete_list(question, answer, rows)
     answer = _cml_village_breakdown(answer, rows, display)

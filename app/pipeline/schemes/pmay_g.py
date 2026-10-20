@@ -3,22 +3,22 @@
 # namespace, in load order, so it shares every name with the other files.
 # Only this scheme's code lives here; the shared steps that call it are in ../common/.
 # Sections follow the order of the pipeline steps they belong to.
-# SQL is read and rewritten on the SQLGlot tree (app/sql_ast), never with regular expressions.
+# SQL is read and rewritten on the SQLGlot tree (app/sql_ast), never as raw text.
 from app import sql_ast
 from sqlglot import exp
 from app.text_match import (ANY, END, Alt, Before, Joined, Matcher, Node, Opt, Pred, Seq, W,
                              collapse_ws, is_int, is_year, tokens)
 
 
-# ════ word-matching helpers (no regular expressions; app/text_match) ══════════════════════════════════
+# ════ word-matching helpers (app/text_match) ══════════════════════════════════════════════════════════
 def _pmay_is_word_char(ch: str) -> bool:
     return ch.isalnum() or ch == "_"
 
 
 class _PmayNear(Node):
     """`a`, then `b` starting at most `chars` characters after `a` ends, with no
-    character in between for which `bad` is true — the regex `a.{0,N}b`
-    (`bad` = newline, the default), `a[^.?!]{0,N}b`, `a[^?]*b` (chars=None)."""
+    character in between for which `bad` is true — e.g. no newline (the
+    default), no ".", "?" or "!", or no "?" at any distance (chars=None)."""
 
     def __init__(self, a, b, chars: "int | None", bad=lambda ch: ch == "\n"):
         self.parts = [Seq(a), Seq(b)]
@@ -65,7 +65,7 @@ class _PmayCharAfter(Node):
 
 
 def _pmay_misspelt_sanctioned() -> frozenset:
-    """Every spelling of sa[nc]{1,2}t?i?on{1,2}e?d (sactioned, sancioned, santioned, …)."""
+    """Every spelling "sa" + 1-2 of n/c + optional t, i + "o" + 1-2 n + optional e + "d" (sactioned, sancioned, …)."""
     out = set()
     for nc in ("n", "c", "nn", "nc", "cn", "cc"):
         for t in ("", "t"):
@@ -108,7 +108,7 @@ _PMAY_ONLY_TERMS = Matcher(Alt(
     # "which scheme?" pause instead of being understood as PMAY-G.
     # Plural "amounts"/"numbers" — the singular-only forms below missed
     # "sanctioned amountS" (PMAY-OFF-023) and "amount released" is fine as a
-    # fixed phrase, but sanction NUMBER(S) (PMAY-OFF-026) had no pattern at all.
+    # fixed phrase, but sanction NUMBER(S) (PMAY-OFF-026) had no matcher at all.
     # The first form tolerates the usual misspellings of "sanctioned" (sactioned,
     # sancioned, santioned, sanctoned, sanctiond) — the use-case sheet's own
     # "How much sactioned amount has been released" paused for a scheme
@@ -149,7 +149,7 @@ async def _pmay_village_names() -> "dict[str, list[dict]]":
 
 
 def _pmay_ws1(s: str) -> str:
-    """Every run of whitespace -> one space, not trimmed (regex sub(r"\\s+", " "))."""
+    """Every run of whitespace -> one space, not trimmed."""
     out, prev_ws = [], False
     for ch in s or "":
         if ch.isspace():
@@ -168,7 +168,7 @@ def _pmay_az09(ch: str) -> bool:
 
 def _pmay_name_spans(q: str, name: str) -> "list[tuple[int, int]]":
     """Non-overlapping spans of `name` in `q` not touching another [A-Z0-9] on either
-    side (the regex (?<![A-Z0-9])NAME(?![A-Z0-9]) on upper-cased text)."""
+    side (a whole name, not inside a longer run of letters/digits; upper-cased text)."""
     out: list[tuple[int, int]] = []
     if not name:
         return out
@@ -184,7 +184,7 @@ def _pmay_name_spans(q: str, name: str) -> "list[tuple[int, int]]":
 
 
 def _pmay_followed_by_block(q: str, e: int) -> bool:
-    """Whitespace, then the word BLOCK, right after position e (regex (?=\\s+BLOCK\\b))."""
+    """Whitespace, then the word BLOCK, right after position e (a whole word, not consumed)."""
     rest = q[e:]
     tail = rest.lstrip()
     return len(tail) < len(rest) and tail.startswith("BLOCK") and (len(tail) == 5 or not _pmay_is_word_char(tail[5]))
@@ -192,7 +192,7 @@ def _pmay_followed_by_block(q: str, e: int) -> bool:
 
 def _pmay_after_place_preposition(q: str, name: str) -> "list[tuple[int, int]]":
     """Spans of a short `name` written right after IN / OF / AT / FOR / FROM and one
-    space (regex \\b(?:IN|OF|AT|FOR|FROM) (NAME)(?![A-Z0-9]), upper-cased text)."""
+    space (each a whole word, no letter/digit right after the name; upper-cased text)."""
     out = []
     i = q.find(name)
     while i >= 0:
@@ -233,7 +233,7 @@ async def _pmay_village_beside_block(question: str, resolved: dict,
     if blk:
         _bs = []
         _i = q.find(blk)
-        while _i >= 0:     # (?<![A-Z0-9])BLK(?=\s+BLOCK\b), non-overlapping
+        while _i >= 0:     # whole-name BLK, then spaces + the word BLOCK, non-overlapping
             _e = _i + len(blk)
             if (_i == 0 or not _pmay_az09(q[_i - 1])) and _pmay_followed_by_block(q, _e):
                 _bs.append((_i, _e))
@@ -286,7 +286,7 @@ async def _pmay_two_villages(question: str) -> "list[dict] | None":
     # block"). Without this LASKEIN stayed a block, the comparison became
     # village + block, and the SQL repairs ran out — "couldn't build a working
     # query", or PECHUA alone (PMAY-G officer cases run 2026-10-02, OFF-022).
-    # ",\s*THE VILLAGE, NOT (THE BLOCK|ANOTHER AREA TYPE)" — q has single spaces only
+    # ", THE VILLAGE, NOT THE BLOCK" / "…NOT ANOTHER AREA TYPE" (space after the comma optional)
     _chips = [f"{c}THE VILLAGE, NOT {t}" for c in (", ", ",") for t in ("THE BLOCK", "ANOTHER AREA TYPE")]
     chose_village = any(c in q for c in _chips)
     for _c in _chips:
@@ -333,12 +333,12 @@ _PMAY_DET_KEYS = {"village_code", "village_code_list", "block", "block_list", "b
                   "district", "district_list", "district_list_region", "year_key", "house_status"}
 # Shapes the deterministic path does not answer (the model path keeps them).
 def _pmay_p(*options: str) -> W:
-    """A word starting with any of `options` (regex `stem\\w*`, or a stem with no closing \\b)."""
+    """A word starting with any of `options` (the stem, then any more letters or none)."""
     return W(*options, prefix=True)
 
 
 def _pmay_date_head(w: str) -> bool:
-    """1-2 digits, or "fy" + 1-2 digits (the `(?:fy\\s*)?\\d{1,2}` of a date like 12/05)."""
+    """1-2 digits, or "fy" + 1-2 digits (the first number of a date like 12/05)."""
     d = w[2:] if w.lower().startswith("fy") else w
     return is_int(d) and 1 <= len(d) <= 2
 
@@ -381,7 +381,7 @@ _PMAY_RANK_MATCH = Matcher(W("which", "highest", "lowest", "most", "least", "max
                           "best", "worst"))
 # _PMAY_M runs on the question with "%" written as the word _pct_ and "₹" as _rs_
 # (_pmay_metric_text), so the symbols can be matched as words. Character windows
-# (regex `.{0,N}`) are _PmayNear; a window ending at a symbol is one character
+# (at most N characters apart) are _PmayNear; a window ending at a symbol is one character
 # longer, because the symbol's word starts one character later.
 _PMAY_PCT, _PMAY_RS = "_pct_", "_rs_"
 _PMAY_RATE_WORDS = Alt(_pmay_p("percent"), W("share", "proportion", "ratio", "rate"))
@@ -601,8 +601,8 @@ def _pmay_date(question: str):
     return None
 
 
-# regex \b(?:amount|money|how\s+much|funds?|₹|rupees)\b — a lone "₹" never had a word
-# boundary on both sides, so it never matched and is left out here.
+# Whole words amount / money / fund(s) / rupees / "how much". A lone "₹" is not a
+# word, so it never matched before and is left out here.
 _PMAY_MONEY_WORD_MATCH = Matcher(Alt(W("amount", "money", "fund", "funds", "rupees"), "how much"))
 
 
@@ -617,7 +617,7 @@ def _pmay_metrics(question: str, list_scope: bool) -> "list[str] | None":
     if not list_scope and (_PMAY_RANK_MATCH.search(q) or _PMAY_AREA_PLURAL_MATCH.search(q)):
         return None
     qm = _pmay_metric_text(q)
-    M = {k: bool(rx.search(qm)) for k, rx in _PMAY_M.items()}
+    M = {k: bool(word_matcher.search(qm)) for k, word_matcher in _PMAY_M.items()}
     out: list[str] = []
     if M["fin_summary"]:
         # "financial summary" = sanctioned, released, remaining (PMAY-OFF-012/016). The
@@ -678,7 +678,7 @@ def _pmay_unsettled_place_word(w: str) -> bool:
             and w not in ("The", "All", "Each"))
 
 
-# Case-sensitive, like the old pattern: lower-case "in / at / for / of / under", then whitespace.
+# Case-sensitive, as before: lower-case "in / at / for / of / under", then whitespace.
 _PMAY_UNSETTLED_PLACE_MATCH = Matcher(Seq(W("in", "at", "for", "of", "under", case=True),
                                        Pred(_pmay_unsettled_place_word), sep="space"))
 # ("state level" / "state-level" already match on the word "state")
@@ -688,7 +688,7 @@ _PMAY_STATEWIDE_MATCH = Matcher(Alt(W("meghalaya", "state", "statewide", "statel
 # A bare four-digit year ("sanctioned in 2023"), not an FY form ("2023-24", "FY 2023").
 def _pmay_bare_year(text: str) -> "tuple[int, int] | None":
     """(start, year) of the first 201x-203x written alone — no digit, '/', '.' or '-' touching
-    it on either side (the old (?<![\\d/.-])(20[1-3]\\d)(?![\\d/.-]))."""
+    it on either side (2010-2039, four digits standing alone)."""
     t = text or ""
 
     def touching(ch: str) -> bool:
@@ -717,13 +717,13 @@ def _pmay_unknown_place_noted(note: "str | None") -> bool:
 
 
 def _pmay_ends_with_village(s: str) -> bool:
-    """The text ends with the whole word 'village', any case (regex \\bvillage$)."""
+    """The text ends with the whole word 'village', any case."""
     s = s[:-1] if s.endswith("\n") else s
     return s.lower().endswith("village") and (len(s) == 7 or not _pmay_is_word_char(s[-8]))
 
 
 def _pmay_ends_with_fy(text: str) -> bool:
-    """The text ends with the word 'fy', then optional spaces and one optional "'" (regex \\bfy\\s*'?$)."""
+    """The text ends with the word 'fy', then optional spaces and one optional "'"."""
     s = text[:-1] if text.endswith("'") else text
     s = s.rstrip()
     return s.lower().endswith("fy") and (len(s) == 2 or not _pmay_is_word_char(s[-3]))
@@ -1225,7 +1225,7 @@ def _pmay_avg_of_released(sql: str) -> bool:
                for a in sql_ast.aggregates(sql))
 
 
-# percent|%|utili[sz]|\brate\b|\bshare\b|proportion|ratio — the stems match anywhere inside a word
+# percent, %, utilis/utiliz, proportion, ratio anywhere inside a word; rate, share as whole words
 # (as before: "ratio" inside "registration" counts); "%" is checked by _pmay_rate_ask.
 _PMAY_RATE_ASK_MATCH = Matcher(Alt(W("rate", "share"), Pred(lambda w: any(
     s in w.lower() for s in ("percent", "utilis", "utiliz", "proportion", "ratio")))))

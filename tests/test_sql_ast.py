@@ -1,6 +1,6 @@
 """app/sql_ast.py (SQLGlot inspection / rewriting) and the authorization checks
-built on it. The SQL path reads queries on the parsed tree, never with regex;
-these cases are the ones the old text patterns got wrong (2026-10-15 audit):
+built on it. The SQL path reads queries on the parsed tree, never as raw text;
+these cases are the ones the old text scans got wrong (2026-10-15 audit):
 UPPER(lgd_district), every value of an IN / ANY list, an OR branch, and words
 inside string literals or comments."""
 from app import auth, sql_ast

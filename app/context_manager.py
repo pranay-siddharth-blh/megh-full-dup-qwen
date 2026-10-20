@@ -74,18 +74,18 @@ class AmbiguousReference(Exception):
 
 
 # ── Reference resolution ────────────────────────────────────────────────────
-_PREV_YEAR_RX = Matcher(Seq(Opt("the"), W("previous", "last", "prior"), Opt("financial"), "year"))
-_CURR_YEAR_RX = Matcher(Seq(Opt("the"), W("current", "this", "same"), Opt("financial"), "year"))
-_FORMER_RX = Matcher("the former")
-_LATTER_RX = Matcher("the latter")
-_OTHER_ONE_RX = Matcher(Seq(Opt("the"), "other", "one"))
+_PREV_YEAR_MATCH = Matcher(Seq(Opt("the"), W("previous", "last", "prior"), Opt("financial"), "year"))
+_CURR_YEAR_MATCH = Matcher(Seq(Opt("the"), W("current", "this", "same"), Opt("financial"), "year"))
+_FORMER_MATCH = Matcher("the former")
+_LATTER_MATCH = Matcher("the latter")
+_OTHER_ONE_MATCH = Matcher(Seq(Opt("the"), "other", "one"))
 # Negative lookahead on "schemes?" so "both schemes"/"both scheme" is left
 # untouched — that exact phrasing already has its own established meaning
 # (pipeline._EXPLICIT_BOTH -> classify_scheme's whole-catalog shortcut) and
 # must not be clobbered by a district/block comparison recorded earlier in
 # the conversation (e.g. "compare both schemes" after "compare West Garo
 # Hills and East Garo Hills" would otherwise garble into "... schemes").
-_BOTH_RX = Matcher(NotBefore(W("both"), W("scheme", "schemes")))
+_BOTH_MATCH = Matcher(NotBefore(W("both"), W("scheme", "schemes")))
 
 
 def _fy_text(year_key: int) -> str:
@@ -111,19 +111,19 @@ def substitute_references(question: str, state: "ConversationState | None") -> s
         return question
     q = question
 
-    if state.year is not None and _PREV_YEAR_RX.search(q):
-        q = _PREV_YEAR_RX.sub(_fy_text(state.year - 1), q)
-    if state.year is not None and _CURR_YEAR_RX.search(q):
-        q = _CURR_YEAR_RX.sub(_fy_text(state.year), q)
+    if state.year is not None and _PREV_YEAR_MATCH.search(q):
+        q = _PREV_YEAR_MATCH.sub(_fy_text(state.year - 1), q)
+    if state.year is not None and _CURR_YEAR_MATCH.search(q):
+        q = _CURR_YEAR_MATCH.sub(_fy_text(state.year), q)
 
-    if _FORMER_RX.search(q) or _LATTER_RX.search(q) or _OTHER_ONE_RX.search(q):
+    if _FORMER_MATCH.search(q) or _LATTER_MATCH.search(q) or _OTHER_ONE_MATCH.search(q):
         ents = state.comparison_entities or []
         if len(ents) < 2:
             raise AmbiguousReference(
                 "Which one did you mean? I don't have two things on the table to "
                 "compare yet — please name it directly."
             )
-        if len(ents) > 2 and (_FORMER_RX.search(q) or _LATTER_RX.search(q)):
+        if len(ents) > 2 and (_FORMER_MATCH.search(q) or _LATTER_MATCH.search(q)):
             # "the former"/"the latter" only make sense for exactly two —
             # with 3+ recorded, don't guess which pair the user means.
             raise AmbiguousReference(
@@ -131,11 +131,11 @@ def substitute_references(question: str, state: "ConversationState | None") -> s
                 options=[{"label": e, "question": q.replace("the former", e).replace("the latter", e)}
                          for e in ents],
             )
-        if _FORMER_RX.search(q):
-            q = _FORMER_RX.sub(ents[0], q)
-        if _LATTER_RX.search(q):
-            q = _LATTER_RX.sub(ents[-1], q)
-        if _OTHER_ONE_RX.search(q):
+        if _FORMER_MATCH.search(q):
+            q = _FORMER_MATCH.sub(ents[0], q)
+        if _LATTER_MATCH.search(q):
+            q = _LATTER_MATCH.sub(ents[-1], q)
+        if _OTHER_ONE_MATCH.search(q):
             if len(ents) != 2:
                 raise AmbiguousReference(
                     f"You mentioned {len(ents)} — {', '.join(ents)}. Which one is "
@@ -147,7 +147,7 @@ def substitute_references(question: str, state: "ConversationState | None") -> s
             named = [e for e in ents if e.lower() in q.lower()]
             other = [e for e in ents if e not in named]
             if len(named) == 1 and len(other) == 1:
-                q = _OTHER_ONE_RX.sub(other[0], q)
+                q = _OTHER_ONE_MATCH.sub(other[0], q)
             else:
                 raise AmbiguousReference(
                     f"\"The other one\" of {', '.join(ents)} — which is already named and "
@@ -155,8 +155,8 @@ def substitute_references(question: str, state: "ConversationState | None") -> s
                     options=[{"label": e, "question": q.replace("the other one", e)} for e in ents],
                 )
 
-    if _BOTH_RX.search(q) and len(state.comparison_entities or []) == 2:
-        q = _BOTH_RX.sub(" and ".join(state.comparison_entities), q)
+    if _BOTH_MATCH.search(q) and len(state.comparison_entities or []) == 2:
+        q = _BOTH_MATCH.sub(" and ".join(state.comparison_entities), q)
 
     if q != question:
         logger.info("context_manager.substitute_references: %r -> %r", question, q)
@@ -216,7 +216,7 @@ def inject_year_scope(question: str, state: "ConversationState | None",
     try:
         from app import context_policy as _cp
         from app import pipeline as _pipeline
-        if _cp.extract_year_keys(question) or _cp._RELATIVE_YEAR_RX.search(question):
+        if _cp.extract_year_keys(question) or _cp._RELATIVE_YEAR_MATCH.search(question):
             return question
         if _pipeline._ALL_YEARS_CUE.search(question) or _pipeline._KNOWLEDGE_HINTS.search(question):
             return question
@@ -313,13 +313,13 @@ _METRIC_KEYWORDS: list[tuple[str, Matcher]] = [
 
 
 def detect_metric(text: str) -> "str | None":
-    for label, rx in _METRIC_KEYWORDS:
-        if rx.search(text or ""):
+    for label, word_matcher in _METRIC_KEYWORDS:
+        if word_matcher.search(text or ""):
             return label
     return None
 
 
-_COMPARE_CUE_RX = Matcher(W("compare", "comparison", "versus", "vs", "between"))
+_COMPARE_CUE_MATCH = Matcher(W("compare", "comparison", "versus", "vs", "between"))
 
 
 def detect_comparison_districts(text: str) -> list[str]:
@@ -329,7 +329,7 @@ def detect_comparison_districts(text: str) -> list[str]:
     has something concrete to resolve against. Deliberately conservative —
     only fires with an explicit comparison cue, so an ordinary "in X and Y
     both" state-wide question doesn't get mistaken for a two-way comparison."""
-    if not text or not _COMPARE_CUE_RX.search(text):
+    if not text or not _COMPARE_CUE_MATCH.search(text):
         return []
     try:
         from app.entity_resolver import all_districts
@@ -380,7 +380,8 @@ def _switch_topic_on_knowledge(state: "ConversationState", raw_question: str) ->
         named = _pipeline._named_schemes(raw_question or "")
     except Exception:  # noqa: BLE001 — never break the turn over context bookkeeping
         return
-    if len(named) != 1 or named[0] == state.scheme:
+    from app import topic_memory as _tm
+    if len(named) != 1 or _tm.same_scheme_family(named[0], state.scheme):
         return
     logger.info("context_manager: knowledge turn names %s — topic switched from %s", named[0], state.scheme)
     state.scheme = named[0]
@@ -490,6 +491,20 @@ def update_state(session: "Session | None", raw_question: str, standalone_questi
             elif not _plan or _scheme_changed or _actions.get("year") in ("CLEAR", "REPLACE"):
                 state.year_all = False
 
+        # Setting a place level clears the levels below it (Context Memory
+        # proposal §9.5, 2026-10-18): a new district never keeps the old
+        # district's block or village, a new block never the old village, even
+        # when a follow-up's merge plan did not say CLEAR for them.
+        _new_d = str(resolved["district"]) if resolved.get("district") else None
+        _new_b = str(resolved["block"]) if resolved.get("block") else None
+        _new_v = resolved.get("village") or resolved.get("village_code")
+        if _new_d and state.district and _new_d.upper() != str(state.district).upper():
+            if not _new_b:
+                state.block = None
+            if not _new_v:
+                state.village = None
+        if _new_b and state.block and _new_b.upper() != str(state.block).upper() and not _new_v:
+            state.village = None
         if resolved.get("district"):
             state.district = str(resolved["district"])
         if resolved.get("block"):
@@ -580,7 +595,7 @@ SUMMARY_HEADER = "Conversation summary so far:"
 # pipeline.rewrite_followup then checks the rewrite against exactly these
 # sources (_rewrite_provenance_violation), so every inherited name has one.
 
-_RESULT_REF_RX = Matcher(Alt(
+_RESULT_REF_MATCH = Matcher(Alt(
     Seq(Opt("the"), W("first", "second", "third", "fourth", "fifth", "last", "top", "bottom", "highest",
                       "lowest", "largest", "smallest", "biggest"),
         Alt(W("one", "ones", "two", "three", "five", "ten", "district", "districts", "block", "blocks",
@@ -598,7 +613,7 @@ _RESULT_REF_RX = Matcher(Alt(
     # previous result's subject (Scenario D, 2026-09-26). Only as the question's
     # last words, so "show it by district" is not a result reference.
     Seq(W("was", "is", "were", "are"), W("it", "that", "they", "those"), _CpEnd(_cp_end_punct))))
-_HISTORY_REF_RX = Matcher(Alt(
+_HISTORY_REF_MATCH = Matcher(Alt(
     W("earlier", "previously"), "at the start", "in the beginning",
     Seq("we", Alt("discussed", "talked about", "looked at")), Seq("you", W("said", "mentioned", "showed")),
     Seq(W("first", "original", "initial"), "question")))
@@ -610,14 +625,14 @@ def references_previous_result(question: str) -> bool:
     result itself can resolve. A new ranking question ("which one had the
     highest?") or a re-cut ("show it by district") does not need the result's
     content, and so does not get it."""
-    return bool(_RESULT_REF_RX.search(question or ""))
+    return bool(_RESULT_REF_MATCH.search(question or ""))
 
 
 def references_history(question: str) -> bool:
     """True when the follow-up explicitly reaches further back than the last
     turn ("the district we discussed earlier"). Only then are names from the
     conversation summary or older turns an acceptable source for the rewrite."""
-    return bool(_HISTORY_REF_RX.search(question or ""))
+    return bool(_HISTORY_REF_MATCH.search(question or ""))
 
 
 def _cm_numeric_str(s: str) -> bool:

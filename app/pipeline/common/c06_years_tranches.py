@@ -2,7 +2,7 @@
 # Part of the app.pipeline package: executed by app/pipeline/__init__.py into the package
 # namespace, in load order, so it shares every name with the other files.
 
-# No regular expressions (D-047): text is read on WORDS (app/text_match.py); the
+# Text matching (D-047): text is read on WORDS (app/text_match.py); the
 # _C04*/_c04* and _c05* helpers come from c04_scheme_listing.py / c05_clarifications.py.
 from app.text_match import ANY, Alt, Matcher, NotBefore, Opt, Pred, Seq, W, tokens as _c06_tokens
 
@@ -1116,8 +1116,8 @@ def _out_of_range_year_in(text: str, schemes: "list[str] | None" = None) -> "str
             return tok
     # A digit run right after an explicit temporal cue, at the very END of the
     # question ("in 20217", "...beneficiaries in Bamil Reserve Apal in 20217?")
-    # that _c06_year_range_tokens above didn't match at all — its 20[1-3]\d
-    # alternative needs a \b right after the 4th digit, so one extra trailing
+    # that _c06_year_range_tokens above didn't match at all — its 2010-2039
+    # year must end the number after the 4th digit, so one extra trailing
     # digit ("20217") makes the WHOLE token invisible to it, not just
     # unparseable. Without this, "in 20217" skipped the guard entirely and the
     # SQL generator copied the literal straight into year_key = 20217, ran

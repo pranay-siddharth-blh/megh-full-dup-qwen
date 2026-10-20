@@ -42,7 +42,7 @@ _SCALE = {
     "bn": 1_000_000_000, "billion": 1_000_000_000, "billions": 1_000_000_000,
 }
 
-# ── character helpers (no regex: project rule D-047) ───────────────────────────
+# ── character helpers (plain string code: project rule D-047) ──────────────────
 
 def _ps_word_char(ch: str) -> bool:
     return ch.isalnum() or ch == "_"

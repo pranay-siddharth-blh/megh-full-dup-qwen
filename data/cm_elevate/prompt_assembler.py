@@ -9,7 +9,7 @@ This module turns the seven hand-curated annotation YAMLs in this folder
 (`data/cm_elevate/`) into the prompts each pipeline stage would send to an
 LLM (schema linking, entity resolution, join discovery, the clarification
 gate, defaults, few-shot retrieval, response composition), plus a
-dependency-free regex-based SQL safety validator and one "everything"
+SQL safety validator that reads the parsed SQL tree, and one "everything"
 master prompt.
 
 NOTE ON THE LIVE SERVICE
@@ -862,8 +862,8 @@ class SQLIssue:
 
 
 # --- SQL inspection on the SQLGlot tree (app/sql_ast.py) -------------------
-# Project rule: nothing here reads the SQL text with regular expressions. A
-# text pattern sees `onhold` inside a string literal or a comment, misses a
+# Project rule: nothing here searches the raw SQL text. A plain
+# text search sees `onhold` inside a string literal or a comment, misses a
 # column behind GROUP BY 1, and cannot tell a FILTER (WHERE ...) clause from
 # the query's own WHERE. Every check below walks the parsed tree.
 
@@ -873,7 +873,7 @@ def _node_classes(*names: str) -> tuple[type, ...]:
 
 # String functions that cut a value apart; applied to request_id they "parse"
 # its date-like segment. Matched by node class and, for functions SQLGlot does
-# not model, by name. (`request_id ~ '...'` parses to RegexpLike.)
+# not model, by name. (`request_id ~ '...'` parses to one of these nodes.)
 _STRING_PARSE_NODES = _node_classes(
     "Substring", "SplitPart", "RegexpLike", "RegexpILike", "RegexpReplace",
     "RegexpExtract", "RegexpExtractAll", "RegexpSplit", "RegexpCount", "RegexpInstr",

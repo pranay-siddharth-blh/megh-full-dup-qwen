@@ -1,5 +1,5 @@
 import { Fragment } from 'react';
-import { inlineSpans, isDigit, isLineEnd, isSpace, runEnd, splitSpaces, unwrapSpans } from '../text.js';
+import { figureSpans, inlineSpans, isDigit, isLineEnd, isSpace, runEnd, splitSpaces, unwrapSpans } from '../text.js';
 
 /* Answer text as a small, safe subset of Markdown: headings, bullet and
    numbered lists (one level of nesting), simple tables, paragraphs with their
@@ -189,44 +189,63 @@ export function parseBlocks(text) {
   return blocks;
 }
 
-// **bold** and `code` inside one line.
-function Inline({ text }) {
+// Key figures (#265) in a run of plain text: each number the officer may be
+// looking for becomes <strong class="fig">, so it is found at a glance. The
+// characters are not changed; only the weight is.
+function Figures({ text }) {
   const out = [];
   let last = 0;
-  for (const m of inlineSpans(text, { code: true })) {
-    if (m.start > last) out.push(text.slice(last, m.start));
-    out.push(m.code ? <code key={m.start}>{m.inner}</code> : <strong key={m.start}>{m.inner}</strong>);
-    last = m.end;
+  for (const f of figureSpans(text)) {
+    if (f.start > last) out.push(text.slice(last, f.start));
+    out.push(<strong key={f.start} className="fig">{text.slice(f.start, f.end)}</strong>);
+    last = f.end;
   }
   if (last < text.length) out.push(text.slice(last));
   return out.map((x, i) => <Fragment key={i}>{x}</Fragment>);
 }
 
-function Lines({ lines }) {
-  return lines.map((l, i) => <Fragment key={i}>{i > 0 && <br />}<Inline text={l} /></Fragment>);
+// **bold** and `code` inside one line; with `figures`, the key numbers in the
+// plain text between them are bold too (never inside code or explicit bold).
+function Inline({ text, figures = false }) {
+  const out = [];
+  let last = 0;
+  const plain = (s) => (figures ? <Figures text={s} /> : s);
+  for (const m of inlineSpans(text, { code: true })) {
+    if (m.start > last) out.push(plain(text.slice(last, m.start)));
+    out.push(m.code ? <code key={m.start}>{m.inner}</code> : <strong key={m.start}>{m.inner}</strong>);
+    last = m.end;
+  }
+  if (last < text.length) out.push(plain(text.slice(last)));
+  return out.map((x, i) => <Fragment key={i}>{x}</Fragment>);
 }
 
-function List({ block }) {
+function Lines({ lines, figures }) {
+  return lines.map((l, i) => <Fragment key={i}>{i > 0 && <br />}<Inline text={l} figures={figures} /></Fragment>);
+}
+
+function List({ block, figures }) {
   const Tag = block.ordered ? 'ol' : 'ul';
   return (
     <Tag className={block.ordered ? 'md-ol' : 'md-ul'}>
       {block.items.map((it, i) => (
         <li key={i} value={block.ordered ? it.value : undefined}>
-          <Lines lines={it.text.split('\n')} />
-          {it.sub && <List block={it.sub} />}
+          <Lines lines={it.text.split('\n')} figures={figures} />
+          {it.sub && <List block={it.sub} figures={figures} />}
         </li>
       ))}
     </Tag>
   );
 }
 
-export function Markdown({ text }) {
+// `figures` (default on): bold the key numbers in paragraphs and list items.
+// Headings and table cells are left alone: a table is already all numbers.
+export function Markdown({ text, figures = true }) {
   return parseBlocks(text).map((b, i) => {
     if (b.type === 'h') {
       // Inside a chat bubble every heading is a small section title.
       return <div key={i} className={'md-h' + (b.level === 1 ? ' md-h1' : '')} role="heading" aria-level={Math.min(Math.max(b.level, 3), 6)}><Inline text={b.text} /></div>;
     }
-    if (b.type === 'list') return <List key={i} block={b} />;
+    if (b.type === 'list') return <List key={i} block={b} figures={figures} />;
     if (b.type === 'table') {
       return (
         <div key={i} className="md-table-wrap">
@@ -237,7 +256,7 @@ export function Markdown({ text }) {
         </div>
       );
     }
-    return <p key={i} className="md-p"><Lines lines={b.lines} /></p>;
+    return <p key={i} className="md-p"><Lines lines={b.lines} figures={figures} /></p>;
   });
 }
 

@@ -2,7 +2,7 @@
 # Part of the app.pipeline package: executed by app/pipeline/__init__.py into the package
 # namespace, in load order, so it shares every name with the other files.
 #
-# No regular expressions (D-047): see the character helpers at the end of this
+# Plain-Python text matching (D-047): see the character helpers at the end of this
 # file and the shared ones imported in c07_mentions.
 
 
@@ -113,6 +113,7 @@ async def resolve_entities(question: str, schemes: list[str],
 
     resolved: dict[str, object] = {}
     notes: list[str] = []
+    _district_swaps: list[tuple[str, str]] = []   # (stale district, the block's own) KI-327
     if _year_gap_note:
         # Stated in the answer, so a dropped gap year is visible to the user
         # rather than silently ignored.
@@ -891,11 +892,19 @@ async def resolve_entities(question: str, schemes: list[str],
                 _bp = r.parent_district or block_parent_district(
                     r.canonical, schemes[0] if schemes else "")
                 if _bp and district_canon and _bp.upper() != str(district_canon).upper():
-                    logger.info("district %r dropped: block %r sits in %r",
-                                district_canon, r.canonical, _bp)
-                    resolved.pop("district", None)
-                    display.pop("district", None)
-                    district_canon = None
+                    # KI-327 (live 2026-10-19): dropping the district was not enough.
+                    # "now give me for Dambo Rongjeng block" after a West Garo Hills
+                    # village turn kept "West Garo Hills" in the rewritten text, so the
+                    # generator put it back as lgd_district and the answer was 0 for a
+                    # block in East Garo Hills. The block's own district now replaces the
+                    # stale one in the resolved entities, the "answered for" chip and the
+                    # question text; _resolved_district_literal (c10) is the SQL backstop.
+                    logger.info("district %r replaced by %r: block %r sits in it",
+                                district_canon, _bp, r.canonical)
+                    _district_swaps.append((str(district_canon), str(_bp)))
+                    resolved["district"] = str(_bp).upper()
+                    display["district"] = _place_title(str(_bp))
+                    district_canon = str(_bp).upper()
         else:
             # The mention-extractor sometimes tags a full DISTRICT name as the
             # "block" when the question itself says "by block" right next to it
@@ -1283,7 +1292,33 @@ async def resolve_entities(question: str, schemes: list[str],
             resolved["village_code"] = r.canonical
             display["village"] = r.display or _place_title(_village_text)
         else:
-            notes.append(f"'{_village_text}' is not a known village — say so, do not filter on it.")
+            # KI-327 (live 2026-10-19): "now give me for dambo rongjeng" after a
+            # village turn. The rewrite guessed "village" for a name that is a BLOCK
+            # and no village; the note below left the place unresolved and the
+            # generator filtered the block from the text on its own, under the
+            # inherited district. A name that is no village but exactly a block is
+            # the block, unless the user chose "the village" on a collision chip.
+            _as_block = resolve_dimension(_village_text, schemes[0], "block") if schemes else None
+            _exact_block = (_as_block is not None and _as_block.status == "resolved"
+                            and _tm.collapse_ws(str(_as_block.canonical)).upper()
+                            == _tm.collapse_ws(str(_village_text)).upper())
+            if (_exact_block and not resolved.get("block") and not resolved.get("block_list")
+                    and not _c09_chose_village(question)):
+                logger.info("village %r is no village but exactly the block %r: placed as the block",
+                            _village_text, _as_block.canonical)
+                resolved["block"] = _as_block.canonical
+                display["block"] = _as_block.display or _place_title(str(_as_block.canonical))
+                _bp = _as_block.parent_district or block_parent_district(
+                    str(_as_block.canonical), schemes[0] if schemes else "")
+                if _bp and district_canon and _bp.upper() != str(district_canon).upper():
+                    logger.info("district %r replaced by %r: block %r sits in it",
+                                district_canon, _bp, _as_block.canonical)
+                    _district_swaps.append((str(district_canon), str(_bp)))
+                    resolved["district"] = str(_bp).upper()
+                    display["district"] = _place_title(str(_bp))
+                    district_canon = str(_bp).upper()
+            else:
+                notes.append(f"'{_village_text}' is not a known village — say so, do not filter on it.")
 
     # PMAY house-construction-stage ("Proposed Site", "Existing site(Old House)",
     # "plinth stage", "not started", …). A closed set the LLM mention-extractor
@@ -1531,6 +1566,12 @@ async def resolve_entities(question: str, schemes: list[str],
         await _cm_elevate_blocks_to_data(question, resolved, display, "Focus Plus")
 
     out = {"resolved": resolved, "notes": notes, "display": display}
+    if _district_swaps:
+        # The stale district name leaves the question text too, else SQL
+        # generation reads it back from there (KI-327).
+        for _old_d, _new_d in _district_swaps:
+            question = _c09_swap_place_name(question, _old_d, _place_title(_new_d))
+        out["question"] = question
     if _year_gap_note:
         # _apply_year_gap rewrote the question (the absent year stripped, or
         # swapped for the nearest year with data on a comparison). SQL must be
@@ -1541,15 +1582,15 @@ async def resolve_entities(question: str, schemes: list[str],
     return out
 
 
-# ── regex-free text helpers for this file (D-047) ──────────────────────────
+# ── plain-Python text helpers for this file (D-047) ────────────────────────
 
 def _c09_is_word(ch: str) -> bool:
     return ch.isalnum() or ch == "_"
 
 
 def _c09_word_bounded(text: str, needle: str) -> bool:
-    r"""regex \b<needle>\b, case-insensitive (a \b is a change between a word
-    character and a non-word one, as in the regex)."""
+    r"""`needle` with a word edge at both ends, case-insensitive (a word edge is
+    a change between a word character and a non-word one)."""
     text, n = text or "", len(text or "")
 
     def _b(i: int) -> bool:
@@ -1566,8 +1607,10 @@ def _c09_word_bounded(text: str, needle: str) -> bool:
 
 
 def _c09_urban_suffix_end(text: str, j: int) -> int:
-    r"""End of `[\s-]*(?:municipal(?:\s+board)?|town\s+committee|m\.?\s?b\b|t\.?\s?c\b)`
-    at j (case-insensitive), or -1."""
+    r"""End of any spaces/dashes then "municipal" (optionally spaces + "board"),
+    "town" + spaces + "committee", or a whole-word "mb" / "tc" (each letter pair
+    may have an optional '.' and one optional space between) at j
+    (case-insensitive), or -1."""
     n = len(text)
     while j < n and (text[j].isspace() or text[j] == "-"):
         j += 1
@@ -1609,7 +1652,7 @@ def _c09_name_with_urban_suffix(text: str, name: str) -> "str | None":
 
 
 def _c09_without_village_suffix(text: str) -> "str | None":
-    r"""`text` minus a trailing `\s+village\s*` (case-insensitive), or None when
+    r"""`text` minus trailing spaces + "village" + optional spaces (any case), or None when
     it does not end that way."""
     t = text.rstrip()
     if len(t) > 7 and t[-7:].lower() == "village" and t[-8].isspace():
@@ -1618,7 +1661,8 @@ def _c09_without_village_suffix(text: str) -> "str | None":
 
 
 def _c09_name_then_village(text: str, name: str) -> bool:
-    r"""regex (?<![A-Za-z0-9])<name>\s+village\b, case-insensitive."""
+    r"""`name` (no ASCII letter/digit just before it), spaces, then "village" as
+    a whole word, case-insensitive."""
     n = len(text)
     pos = 0
     while True:
@@ -1641,7 +1685,8 @@ _C09_DISTRICT_NAME_CHARS = frozenset("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnop
 
 
 def _c09_district_stop(text: str, q: int) -> bool:
-    r"""regex lookahead (?=\s*(?:[,?.]|$|\s+across\b|\s+during\b|\s+for\b|\s+till\b|\s+in\b))."""
+    r"""Looking ahead from q (consuming nothing): optional spaces then ',' '?' '.'
+    or the text end, or spaces then a whole-word across / during / for / till / in."""
     n = len(text)
     k = _ws_run_end(text, q)
     if k == n or text[k] in ",?.":
@@ -1656,9 +1701,10 @@ def _c09_district_stop(text: str, q: int) -> bool:
 
 
 def _c09_block_beside_at(text: str, i: int):
-    r"""regex (case-insensitive)
-    (?:,|\bin|\bof)\s*([A-Za-z][A-Za-z .()-]*?)\s+block\b
-    (?:\s*,\s*([A-Za-z][A-Za-z ]*?)(?=\s*(?:[,?.]|$|\s+across\b|...|\s+in\b)))?"""
+    r"""Case-insensitive: ',' or a word starting "in" / "of", optional spaces,
+    group 1 (a letter, then the fewest letters / spaces / . ( ) - needed), spaces,
+    whole-word "block"; then optionally a ',' between optional spaces and group 2
+    (a letter, then the fewest letters / spaces up to a _c09_district_stop)."""
     n = len(text)
     if i >= n:
         return None
@@ -1701,7 +1747,7 @@ _C09_BLOCK_BESIDE = _CharScan(_c09_block_beside_at)
 
 
 def _c09_not_known_name(note: str) -> "str | None":
-    """X from a note starting "'X' is not a known" (regex ^'([^']+)' is not a known)."""
+    """X from a note starting "'X' is not a known" (X non-empty, with no quote)."""
     if not note.startswith("'"):
         return None
     k = note.find("'", 1)
@@ -1710,8 +1756,24 @@ def _c09_not_known_name(note: str) -> "str | None":
     return None
 
 
+def _c09_swap_place_name(text: str, old: str, new: str) -> str:
+    """Every case-insensitive occurrence of the place name `old` in `text`
+    becomes `new` (KI-327: the stale district in a rewritten follow-up)."""
+    out, pos = text or "", 0
+    old = (old or "").strip()
+    if not old:
+        return out
+    while True:
+        i = _ci_find(out, old, pos)
+        if i < 0:
+            return out
+        out = out[:i] + new + out[i + len(old):]
+        pos = i + len(new)
+
+
 def _c09_chose_village(text: str) -> bool:
-    r"""regex ,\s*the village, not (?:the block|another area type), case-insensitive."""
+    r"""',' optional spaces, then "the village, not the block" or "the village, not
+    another area type", case-insensitive."""
     low = text.lower()
     pos = low.find(",")
     while pos >= 0:

@@ -139,7 +139,7 @@ async def main():
                           ["%" + _drop_typed_suffix(nm) + "%"])
             if n == 0:
                 add(run_case(T_ + "13", nm, f"Is there any Producer Group named {nm} under FOCUS?",
-                             words(r"\bno\b|not found|could not find|couldn't find|no producer group|none"),
+                             words("[no]|not found|could not find|couldn't find|no producer group|none"),
                              expected=0, **kw))
         add(run_case(T_ + "16", "statewide", "What is the total number of FOCUS PG members recorded till now?",
                      checks(("memberships", tot["m"])), expected=tot["m"], **kw))
@@ -227,12 +227,12 @@ async def main():
                 add(run_case(T_ + "23", fy, f"What was the total {FN[s]} amount remitted in {'FY ' if s % 2 else ''}{fy}?",
                              checks(money=[(f, ya[f])]), expected=ya[f], **kw))
         add(run_case(T_ + "23", "2023-24", "What was the total FOCUS amount remitted in FY 2023-24?",
-                     words(r"2023-24", r"\bno\b|not|absent|gap|none"), expected=0, **kw))
+                     words(r"2023-24", "[no]|not|absent|gap|none"), expected=0, **kw))
         for x, y in (("2023-24", "2024-25"), ("2021-22", "2022-23"), ("2022-23", "2025-26"), ("2024-25", "2025-26")):
             mon = [(f, ya[f]) for f in (x, y) if f in ya]
             add(run_case(T_ + "24", f"{x} vs {y}", f"Compare the total FOCUS remittance between FY {x} and FY {y}.",
                          lambda r, mon=mon, x=x: (all(money_ok(r, a) for _, a in mon)
-                                                  and (x in ya or need_ok(r.get("answer") or "", "\\bno\\b|not|absent|gap|none")),
+                                                  and (x in ya or need_ok(r.get("answer") or "", "[no]|not|absent|gap|none")),
                                                   " ".join(f"{f}={a:,.0f}" for f, a in mon)),
                          expected=dict(mon), **kw))
 
@@ -242,7 +242,7 @@ async def main():
                        GROUP BY 1 HAVING COUNT(DISTINCT village_code)=1),
                  c AS (SELECT v.village_code, MIN(v.lgd_village_name) name, MIN(v.lgd_district) d, COUNT(DISTINCT pg_id) k
                        FROM {V} v JOIN u ON u.n = UPPER(v.lgd_village_name)
-                       WHERE v.entity_type <> 'Unresolved' AND v.lgd_village_name !~ '[^A-Za-z ]'
+                       WHERE v.entity_type <> 'Unresolved' AND TRANSLATE(UPPER(v.lgd_village_name), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ', '') = ''
                        GROUP BY 1 HAVING COUNT(DISTINCT pg_id) BETWEEN 1 AND 6),
                  x AS (SELECT c.*, ROW_NUMBER() OVER (PARTITION BY d ORDER BY md5(name)) rn FROM c)
             SELECT * FROM x WHERE rn <= 2 ORDER BY d, name""")

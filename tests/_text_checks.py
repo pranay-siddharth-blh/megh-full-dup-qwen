@@ -1,30 +1,31 @@
 """Plain-string text checks shared by the harness scripts under tests/
 (sheet_runs, nl2sql_eval, rag_eval, live_context_validation).
 
-Project rule (D-047): no regular expressions anywhere. These helpers reproduce,
-with string methods and character loops, the few pattern shapes the harness
-scripts used to write as regexes:
+Project rule (D-047): text is checked with plain string code. These helpers do,
+with string methods and character loops, the few text checks the harness
+scripts need:
 
     find_phrase / has_phrase   a literal phrase, optionally case-insensitive and
-                               word-bounded (regex \\bphrase\\b). In a phrase,
-                               '#' stands for one decimal digit (regex \\d) and
-                               '?' for any character but a newline (regex .).
-    number_runs                \\d[\\d,]*(?:\\.\\d+)?  (optionally (?<![\\d.]) before it)
-    zero_lakh                  \\b0(?:\\.0+)?\\s*lakh
-    no_near                    \\bno\\b[^.]{0,N}\\b(?:alt|alt...)
-    first_of                   the leftmost of several literals ((a|b) search)
-    word_chars_only            drop every non-word character (regex sub \\W -> "")
+                               a whole word (not inside a longer word). In a
+                               phrase, '#' stands for one decimal digit and
+                               '?' for any character but a newline.
+    number_runs                a digit, then digits/commas, then optional '.digits'
+    zero_lakh                  a standalone 0 (or 0.0 ...), optional spaces, 'lakh'
+    no_near                    the word 'no', then within N characters (no '.') a
+                               word starting with one of the alternatives
+    first_of                   the leftmost of several literals
+    word_chars_only            drop every character that is not a letter/digit/'_'
 """
 from __future__ import annotations
 
 
 def is_word_char(ch: str) -> bool:
-    """A regex \\w character: a letter, a digit or '_'."""
+    """A word character: a letter, a digit or '_'."""
     return ch.isalnum() or ch == "_"
 
 
 def _boundary(text: str, p: int) -> bool:
-    """Regex \\b at position p: a word character on exactly one side."""
+    """A word edge at position p: a word character on exactly one side."""
     before = p > 0 and is_word_char(text[p - 1])
     after = p < len(text) and is_word_char(text[p])
     return before != after
@@ -48,7 +49,7 @@ def find_phrase(text: str | None, phrase: str, *, case: bool = False,
                 bounded: bool = False, start: int = 0) -> int:
     """Index of the first occurrence of `phrase` in `text` at or after `start`
     (-1 if none). case=False compares case-insensitively; bounded=True needs a
-    word boundary on both sides (regex \\bphrase\\b)."""
+    word edge on both sides (a whole word, not inside a longer word)."""
     text = text or ""
     pat = phrase if case else phrase.lower()
     for i in range(start, len(text) - len(pat) + 1):
@@ -67,10 +68,10 @@ def has_phrase(text: str | None, *phrases: str, case: bool = False, bounded: boo
 
 def number_runs(text: str | None, *, signed: bool = False, lookbehind: bool = False,
                 commas_first: bool = False) -> list[tuple[int, int, str]]:
-    """Numbers as the old \\d[\\d,]*(?:\\.\\d+)? found them -> (start, end, text).
-    signed=True allows a leading '-' (-?...); lookbehind=True skips a number
-    that directly follows a digit or '.' ((?<![\\d.])); commas_first=True lets the
-    run start with a comma ([\\d,]+ instead of \\d[\\d,]*)."""
+    """Numbers -> (start, end, text): a digit, then digits and commas, then
+    optionally '.' and digits. signed=True allows a leading '-'; lookbehind=True
+    skips a number that directly follows a digit or '.'; commas_first=True lets
+    the run start with a comma instead of a digit."""
     text = text or ""
     out = []
     i, n = 0, len(text)
@@ -103,7 +104,7 @@ def number_runs(text: str | None, *, signed: bool = False, lookbehind: bool = Fa
 
 
 def zero_lakh(text: str | None, *, case: bool = True) -> bool:
-    """regex \\b0(?:\\.0+)?\\s*lakh: a standalone 0 (or 0.0, 0.00 ...) then 'lakh'."""
+    """A standalone 0 (or 0.0, 0.00 ...), optional spaces, then 'lakh'."""
     text = text or ""
     n = len(text)
     for i in range(n):
@@ -124,7 +125,7 @@ def zero_lakh(text: str | None, *, case: bool = True) -> bool:
 
 
 def no_near(text: str | None, alts: tuple[str, ...], max_gap: int, *, case: bool = False) -> bool:
-    """regex \\bno\\b[^.]{0,max_gap}\\b(?:alt|...): the word 'no', then within
+    """The whole word 'no', then within
     max_gap characters (no '.' among them) a word that starts with one of `alts`."""
     text = text or ""
     n = len(text)
@@ -153,18 +154,18 @@ def first_of(text: str | None, *alts: str) -> str | None:
 
 
 def word_chars_only(s: str | None) -> str:
-    """`s` without its non-word characters (regex sub(r"\\W", "", s))."""
+    """`s` keeping only its letters, digits and '_'."""
     return "".join(ch for ch in (s or "") if is_word_char(ch))
 
 
 def need_ok(text: str | None, need: str) -> bool:
     """A harness 'need' written 'alt|alt|...': true when any alternative occurs
-    in `text`, case-insensitively. An alternative wrapped in \b...\b must be a
+    in `text`, case-insensitively. An alternative wrapped in [ ] must be a
     whole word or phrase; '#' in an alternative stands for one digit."""
     for alt in need.split("|"):
-        bounded = alt.startswith("\b") and alt.endswith("\b") and len(alt) > 4
+        bounded = alt.startswith("[") and alt.endswith("]") and len(alt) > 2
         if bounded:
-            alt = alt[2:-2]
+            alt = alt[1:-1]
         if find_phrase(text, alt, bounded=bounded) != -1:
             return True
     return False

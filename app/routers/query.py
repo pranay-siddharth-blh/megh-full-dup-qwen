@@ -12,7 +12,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app import (asr_guard, auth, context_manager, conversation_layer, conversation_memory,
-                 context_budget, conversation_replies, conversation_store, llm, session_sync,
+                 context_budget, conversation_replies, conversation_store, llm, pipeline, session_sync,
                  topic_memory, translate, turn_events, turn_trace)
 from app.cache import metrics, response_cache
 from app.config import settings
@@ -134,9 +134,53 @@ async def query_stream(req: QueryRequest, request: Request,
                 # this answer, so stop spending model and DB time on it.
                 task.cancel()
                 logger.info("query stream: client disconnected, turn cancelled")
+                # "continue" afterwards answers it (conversation_layer).
+                _remember_stopped(req, request, scope)
 
     return StreamingResponse(events(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _session_id(req: QueryRequest, request: Request, scope: auth.UserScope) -> str:
+    """The conversation this request belongs to."""
+    client_session = req.session_id or request.headers.get("x-session-id")
+    # The client owns conversation identity: the chat UI mints a session_id per
+    # "New chat" so each thread is its own row in app.conversations. Only a
+    # caller that sends none falls back to the per-day bucket, which keeps API
+    # scripts and older clients from creating a thread per one-off question.
+    if client_session:
+        return client_session
+    if scope.db_user_id is not None:
+        return f"day-{scope.db_user_id}-{date.today().isoformat()}"
+    return f"one-{uuid.uuid4().hex[:16]}"
+
+
+_BACKGROUND: set = set()   # strong refs to fire-and-forget tasks
+
+
+def _remember_stopped(req: QueryRequest, request: Request, scope: auth.UserScope) -> None:
+    """The officer stopped this question while it ran: keep it on the session
+    so a following "continue" answers it (conversation_layer). Recorded at
+    once on this worker; the durable save runs in the background, because the
+    caller is a stream being torn down by the disconnect."""
+    try:
+        session_id = _session_id(req, request, scope)
+        if session_id.startswith("one-"):
+            return    # no thread to continue in
+        session = session_store.ensure(session_id, scope.user_id)
+        conversation_layer.remember_stopped(session, req.question)
+
+        async def save() -> None:
+            try:
+                await session_sync.sync_out(session, session_id, tenant_id=scope.tenant_id,
+                                            user_id=scope.db_user_id, title=req.question)
+            except Exception:  # noqa: BLE001
+                logger.warning("query stream: could not save the stopped question", exc_info=True)
+        task = asyncio.get_running_loop().create_task(save())
+        _BACKGROUND.add(task)
+        task.add_done_callback(_BACKGROUND.discard)
+    except Exception:  # noqa: BLE001 — a stopped turn must never raise
+        logger.warning("query stream: could not remember the stopped question", exc_info=True)
 
 
 async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) -> dict:
@@ -159,17 +203,7 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
         english = await translate.to_english(req.question, req.language)
         if english.strip() and english.strip() != req.question.strip():
             translated_from, req.question = req.question, english.strip()
-    client_session = req.session_id or request.headers.get("x-session-id")
-    # The client owns conversation identity: the chat UI mints a session_id per
-    # "New chat" so each thread is its own row in app.conversations. Only a
-    # caller that sends none falls back to the per-day bucket, which keeps API
-    # scripts and older clients from creating a thread per one-off question.
-    if client_session:
-        session_id = client_session
-    elif scope.db_user_id is not None:
-        session_id = f"day-{scope.db_user_id}-{date.today().isoformat()}"
-    else:
-        session_id = f"one-{uuid.uuid4().hex[:16]}"
+    session_id = _session_id(req, request, scope)
     session = session_store.ensure(session_id, scope.user_id)
     session.scope = scope
     # Shared conversation state (app/session_sync.py, KI-028): bring this
@@ -302,6 +336,12 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     if styled is not None:
         result = styled
         cacheable = False
+    # After an idle expiry the first reply offers "Continue with MGNREGA (…)"
+    # (conversation_layer, Context Memory S3); such a reply is this chat's alone.
+    offered = conversation_layer.attach_continue_offer(session, result)
+    if offered is not result:
+        result = offered
+        cacheable = False
     if translated_from:
         result = {**result, "translated_from": translated_from}
 
@@ -316,6 +356,19 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     # The question the pipeline ran (the conversation layer's), so a reset's
     # "Forget that." or a recall's wording never becomes the antecedent.
     session_store.add_turn(session_id, build_turn(question, result))
+    if served_from is not None and layer.response is None:
+        # KI-319 (2026-10-18): a cached answer skips the graph, so its
+        # context_update node never ran — the structured state (scheme, place,
+        # year), the topic ledger's scope, the idle "continue?" chip and the
+        # scope banner were all missing after a cache hit. Fold the cached
+        # answer in exactly as the graph does for a computed one. A cache hit
+        # is always a standalone question (follow-ups are never cached), so the
+        # per-request turn_context is reset first: no merge plan from the
+        # previous turn may decide what this one keeps.
+        session.turn_context = {}
+        await pipeline._update_context(session, question, result)
+        if "scope_banner" not in result:
+            pipeline._attach_scope_banner(result, session)
     # L2 durable — conversation + turn + audit (fire-and-forget)
     conversation_store.persist_turn(
         tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,

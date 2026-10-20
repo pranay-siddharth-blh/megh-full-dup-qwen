@@ -126,13 +126,13 @@ FIELD_POLICIES: dict[str, FieldPolicy] = {p.name: p for p in (
 
 
 # ── Deterministic signals ───────────────────────────────────────────────────
-# Word-level patterns (app/text_match.py, D-047: no regex). The _cp_* helpers
+# Word-level matchers (app/text_match.py, D-047). The _cp_* helpers
 # below are shared with context_manager / conversation_layer /
 # conversation_replies / topic_memory / followups for the few spots a word
-# pattern must look at the characters between words.
+# matcher must look at the characters between words.
 
 def _cp_has(*subs: str) -> Pred:
-    """One word containing any of `subs` (an unanchored regex fragment)."""
+    """One word containing any of `subs` anywhere inside it."""
     subs = tuple(s.lower() for s in subs)
     return Pred(lambda w: any(s in w.lower() for s in subs))
 
@@ -183,7 +183,7 @@ class _CpEnd(Node):
 
 class _CpNextChar(Node):
     """Zero-width, after a word: the text ends there or the next character
-    satisfies ok(ch) (a regex lookahead (?=$|[...]))."""
+    satisfies ok(ch) (it looks ahead without consuming anything)."""
 
     def __init__(self, ok):
         self.ok = ok
@@ -197,29 +197,29 @@ class _CpNextChar(Node):
 
 
 def _cp_ws(s: str) -> bool:
-    """Only whitespace (regex \\s*)."""
+    """Only whitespace, possibly none."""
     return s.strip() == ""
 
 
 def _cp_end_punct(s: str) -> bool:
-    """regex \\s*[?.!]*\\s*$"""
+    """Optional spaces, any run of '?' '.' '!', optional spaces, then the end."""
     return all(c in "?.!" for c in s.strip())
 
 
 def _cp_gap_opt1(g: str) -> bool:
-    """regex [\\s-]? between two words that touch it."""
+    """Nothing, or one whitespace character or '-', between two words that touch it."""
     return g == "-" or (len(g) == 1 and g.isspace())
 
 
 def _cp_glued(a: str, b: str, gap=_cp_gap_opt1) -> Node:
-    """The unanchored regex `a<gap>b`: one word containing a+b, or a word
+    """`a<gap>b` anywhere in the text: one word containing a+b, or a word
     ending in `a`, a separator gap() accepts, and a word starting with `b`."""
     return Alt(_cp_has(a + b), Seq(_cp_ends(a), _CpSep(gap), _cp_starts(b)))
 
 
 def _cp_has_term(low: str, term: str) -> bool:
-    """`term` in `low` with no ASCII letter on either side (regex
-    (?<![a-z])term(?![a-z]) on lower-cased text)."""
+    """`term` in `low` with no ASCII letter on either side (`low` is
+    lower-cased text)."""
     if not term:
         return False
     start = low.find(term)
@@ -242,16 +242,16 @@ _CP_FY_YEAR = Pred(lambda w: _cp_y20(w) or (w[:2].lower() == "fy" and _cp_y20(w[
 _CP_YEAR_TAIL = Pred(lambda w: is_int(w) and (len(w) == 2 or _cp_y20(w)))
 
 # "FY 2024-25", "2024/25", "2024 – 2025"; group(1) ends with the start year.
-_YEAR_RANGE_RX = Matcher(Seq(Opt("fy"), Seq(Cap(_CP_FY_YEAR), _CP_YEAR_TAIL, sep="dash")))
-_YEAR_BARE_RX = Matcher(Seq(Opt("fy"), Cap(_CP_FY_YEAR)))
-_RELATIVE_YEAR_RX = Matcher(Alt(
+_YEAR_RANGE_MATCH = Matcher(Seq(Opt("fy"), Seq(Cap(_CP_FY_YEAR), _CP_YEAR_TAIL, sep="dash")))
+_YEAR_BARE_MATCH = Matcher(Seq(Opt("fy"), Cap(_CP_FY_YEAR)))
+_RELATIVE_YEAR_MATCH = Matcher(Alt(
     Seq(W("last", "previous", "prior", "next", "following", "preceding", "same", "this", "current"),
         Opt(W("financial", "fiscal")), W("year", "fy")),
     Seq("year", W("before", "after"))))
-_ALL_YEARS_RX = Matcher(Alt(
+_ALL_YEARS_MATCH = Matcher(Alt(
     Seq("all", Opt("the"), Opt("financial"), "years"), "every year", Seq("across", Opt("all"), "years"),
     Joined("year", "wise"), "by year", "per year", "each year", "cumulative", Joined("all", "time")))
-_ALL_GEO_RX = {
+_ALL_GEO_MATCH = {
     "district": Matcher(Alt(
         Seq("all", Opt("the"), "districts"), "every district", Joined("district", "wise"),
         Seq(W("by", "per", "each"), "district"), Joined("state", "wide"), "all of meghalaya",
@@ -265,16 +265,16 @@ _ALL_GEO_RX = {
 }
 _CP_BY_DIMS = ("district", "block", "village", "year", "tranche", "scheme", "gender", "category",
                "month", "status")
-_GROUP_BY_RX = Matcher(Alt(
+_GROUP_BY_MATCH = Matcher(Alt(
     Seq(W("by", "per", "each", "across"), Opt("the"),
         Alt(W(*_CP_BY_DIMS, *(d + "s" for d in _CP_BY_DIMS)), Joined("sub", ("scheme", "schemes")))),
     Joined(_CP_BY_DIMS, "wise"),
     Seq("break", Opt(W("it", "that", "this", "them")), "down"), W("breakdown", "split")))
-_COMPARE_RX = Matcher(W("compare", "comparison", "versus", "vs", "between"))
-_ALL_CATEGORY_RX = Matcher(Alt(
+_COMPARE_MATCH = Matcher(W("compare", "comparison", "versus", "vs", "between"))
+_ALL_CATEGORY_MATCH = Matcher(Alt(
     Seq("all", Opt("the"), Alt(W("categories", "tranches", "genders"), Joined("sub", "schemes"))),
     "everyone", "all beneficiaries", "regardless of"))
-_DEMOGRAPHIC_RX = Matcher(Cap(Alt(
+_DEMOGRAPHIC_MATCH = Matcher(Cap(Alt(
     W("women", "woman", "female", "females", "men", "male", "males", "gender", "girl", "girls", "boy",
       "boys", "farmer", "farmers", "widow", "widows", "youth", "disabled", "pwd", "divyang", "minority",
       "minorities", "bpl", "sc", "st", "obc", "pvtg"),
@@ -283,7 +283,8 @@ _DEMOGRAPHIC_RX = Matcher(Cap(Alt(
 
 def _cp_tranche_numbers(text: str) -> list[str]:
     """The digit of every "tranche 2" / "tranche-2" / "tranch #3" / "tranche2"
-    (the old \\btranch(?:e)?\\s*[-#]?\\s*(\\d)\\b)."""
+    ("tranch"/"tranche" at a word start, optional spaces, an optional '-' or '#',
+    optional spaces, then one digit ending the word)."""
     toks = tokens(text)
     t = text or ""
     out = []
@@ -303,18 +304,18 @@ def _cp_tranche_numbers(text: str) -> list[str]:
     return out
 
 
-# The tranche cue as a word pattern ("tranche 2", "tranche2"); the digits
+# The tranche cue as a word matcher ("tranche 2", "tranche2"); the digits
 # themselves come from _cp_tranche_numbers.
-_TRANCHE_RX = Matcher(Alt(
+_TRANCHE_MATCH = Matcher(Alt(
     Seq(W("tranche", "tranch"), Pred(lambda w: len(w) == 1 and is_int(w))),
     Pred(lambda w: any(w.lower().startswith(s) and len(w) == len(s) + 1 and is_int(w[-1])
                        for s in ("tranche", "tranch")))))
 # "all of them combined", "in total", "both together": every value of the
 # dimension the conversation was just varying, not a filter on the last one.
-_ALL_OF_THEM_RX = Matcher(Alt(
+_ALL_OF_THEM_MATCH = Matcher(Alt(
     Seq("all", Opt("of"), W("them", "these", "those", "three", "two", "four")),
     W("both", "together", "combined", "altogether", "overall"), "in total"))
-_AMBIGUOUS_REF_RX = Matcher(Alt(Seq(Opt("the"), "other", "one"), "the former", "the latter"))
+_AMBIGUOUS_REF_MATCH = Matcher(Alt(Seq(Opt("the"), "other", "one"), "the former", "the latter"))
 
 # Metric FAMILIES for the rewrite check. Finer than "is there a metric", coarser
 # than the labels context_manager tracks, so that a paraphrase ("how much" ->
@@ -346,17 +347,17 @@ _NAME_STOPWORDS = {
     "rs", "inr", "lakh", "crore", "january", "february", "march", "april", "may", "june",
     "july", "august", "september", "october", "november", "december",
 }
-# A capitalised ASCII word of 3+ letters (the old \b[A-Z][A-Za-z]{2,}\b; case-sensitive).
-_CAP_WORD_RX = Matcher(Pred(lambda w: len(w) >= 3 and w.isascii() and w.isalpha() and w[0].isupper()))
+# A capitalised ASCII word of 3+ letters, a whole word (case-sensitive).
+_CAP_WORD_MATCH = Matcher(Pred(lambda w: len(w) >= 3 and w.isascii() and w.isalpha() and w[0].isupper()))
 
 
 def extract_year_keys(text: str) -> set[int]:
     """Financial-year start years named in the text: "FY 2024-25", "2024-25",
     "2024/25" -> 2024; a bare "2024" -> 2024."""
     t = text or ""
-    years = {int(m.group(1)[-4:]) for m in _YEAR_RANGE_RX.finditer(t)}
-    stripped = _YEAR_RANGE_RX.sub(" ", t)
-    years |= {int(m.group(1)[-4:]) for m in _YEAR_BARE_RX.finditer(stripped)}
+    years = {int(m.group(1)[-4:]) for m in _YEAR_RANGE_MATCH.finditer(t)}
+    stripped = _YEAR_RANGE_MATCH.sub(" ", t)
+    years |= {int(m.group(1)[-4:]) for m in _YEAR_BARE_MATCH.finditer(stripped)}
     return years
 
 
@@ -364,7 +365,7 @@ _CP_HOW_MUCH = Matcher(Seq("how", "much"))
 
 
 def metric_families(text: str) -> set[str]:
-    return {name for name, rx in _METRIC_FAMILIES.items() if rx.search(text or "")}
+    return {name for name, word_matcher in _METRIC_FAMILIES.items() if word_matcher.search(text or "")}
 
 
 def category_terms(text: str) -> set[str]:
@@ -372,7 +373,7 @@ def category_terms(text: str) -> set[str]:
     words, Focus Plus tranche numbers, and every CM Elevate sub-scheme name
     any catalogue holds."""
     t = text or ""
-    out = {m.group(1).lower().rstrip("s") for m in _DEMOGRAPHIC_RX.finditer(t)}
+    out = {m.group(1).lower().rstrip("s") for m in _DEMOGRAPHIC_MATCH.finditer(t)}
     out |= {f"tranche {d}" for d in _cp_tranche_numbers(t)}
     low = t.lower()
     for form, canonical in _catalog_category_forms():
@@ -430,13 +431,13 @@ def _schemes_named(text: str) -> set[str]:
 # can: scheme or measure vocabulary, a place, a year, a grouping or comparison,
 # a reference into the previous answer, or a question about how a scheme works.
 # Deterministic; a message with none of these is a NEW query, and routes as one.
-_REFERENCE_RX = Matcher(W(
+_REFERENCE_MATCH = Matcher(W(
     "it", "its", "that", "those", "these", "them", "they", "there", "this", "same", "one", "ones",
     "former", "latter", "other", "both", "each", "either", "neither", "rest", "remaining", "previous",
     "above", "earlier", "again", "instead",
     # meta: "what did I ask before?", "you said 5,000"
     "before", "asked", "said", "told", "answer", "answered", "question"))
-_RANK_RX = Matcher(W(
+_RANK_MATCH = Matcher(W(
     "top", "bottom", "first", "second", "third", "last", "next", "highest", "lowest", "largest",
     "smallest", "biggest", "most", "least", "more", "less", "fewer", "higher", "lower", "bigger",
     "smaller", "greater", "max", "maximum", "min", "minimum", "average", "mean", "sum", "total",
@@ -444,7 +445,7 @@ _RANK_RX = Matcher(W(
     "difference", "change", "growth", "trend", "increase", "decrease"))
 # How-the-scheme-works vocabulary: the knowledge follow-ups ("Documents?",
 # "who can apply?", "when was it launched?") that name no scheme of their own.
-_SCHEME_TOPIC_RX = Matcher(Alt(
+_SCHEME_TOPIC_MATCH = Matcher(Alt(
     W("benefit", "benefits", "document", "documents", "apply", "applying", "application", "applicant",
       "applicants", "criteria", "start", "started", "objective", "objectives", "purpose", "aim", "aims",
       "goal", "goals", "component", "components", "rule", "rules", "guideline", "guidelines",
@@ -461,7 +462,7 @@ _SCHEME_TOPIC_RX = Matcher(Alt(
          and w.lower().rstrip("s")[len("instal"):].lstrip("l") == "ment"),
     Joined("sub", ("scheme", "schemes"))))
 # "what about …", "what of …", "and …", "also …" at the very start.
-_LEAD_RX = Matcher(Seq(_CpStart(_cp_ws), Alt(Seq(W("what", "how"), "about"), "what of",
+_LEAD_MATCH = Matcher(Seq(_CpStart(_cp_ws), Alt(Seq(W("what", "how"), "about"), "what of",
                                              W("and", "also", "same", "then"))))
 
 
@@ -485,26 +486,26 @@ def continuation_signals(question: str) -> list[str]:
         out.append("scheme")
     if _places(q):
         out.append("place")
-    if extract_year_keys(q) or _RELATIVE_YEAR_RX.search(q) or _ALL_YEARS_RX.search(q):
+    if extract_year_keys(q) or _RELATIVE_YEAR_MATCH.search(q) or _ALL_YEARS_MATCH.search(q):
         out.append("year")
     if metric_families(q):
         out.append("metric")
     if category_terms(q):
         out.append("category")
-    if _GROUP_BY_RX.search(q) or any(rx.search(q) for rx in _ALL_GEO_RX.values()):
+    if _GROUP_BY_MATCH.search(q) or any(word_matcher.search(q) for word_matcher in _ALL_GEO_MATCH.values()):
         out.append("group_by")
-    if _COMPARE_RX.search(q):
+    if _COMPARE_MATCH.search(q):
         out.append("compare")
-    if _REFERENCE_RX.search(q) or _AMBIGUOUS_REF_RX.search(q):
+    if _REFERENCE_MATCH.search(q) or _AMBIGUOUS_REF_MATCH.search(q):
         out.append("reference")
-    if _RANK_RX.search(q):
+    if _RANK_MATCH.search(q):
         out.append("rank")
-    if _SCHEME_TOPIC_RX.search(q):
+    if _SCHEME_TOPIC_MATCH.search(q):
         out.append("scheme_topic")
     # "what about Mawlai?" / "and Nongpoh?": an explicit continuation lead with
     # a short remainder. Villages are not catalogued offline, so the remainder
     # cannot be checked here; the lead itself is the user saying "continue".
-    if _LEAD_RX.search(q) and len(q.split()) <= 6:
+    if _LEAD_MATCH.search(q) and len(q.split()) <= 6:
         out.append("lead")
     # Khasi / Garo / Bengali / Hindi script: none of the English vocabularies
     # above can read it, and edge.detect_edge_case lets it through for the model
@@ -519,13 +520,13 @@ def continuation_signals(question: str) -> list[str]:
 # (which one of what, by what measure?), so the answer is a question back, not
 # a rewrite the model has to guess.
 def _cp_comma_gap(g: str) -> bool:
-    """Only whitespace and at most one comma (the old \\s*,?\\s*)."""
+    """Only whitespace and at most one comma."""
     return g.strip() in ("", ",")
 
 
 _CP_WHICH_ONE = Seq(W("which", "what", "that", "this", "the"), W("one", "ones"),
                     Opt(W("then", "now", "exactly", "again")), sep="space")
-_BARE_REFERENCE_RX = Matcher(Alt(
+_BARE_REFERENCE_MATCH = Matcher(Alt(
     Seq(_CpStart(_cp_ws), W("and", "so", "ok", "okay", "then"), _CpSep(_cp_comma_gap), _CP_WHICH_ONE,
         _CpEnd(_cp_end_punct)),
     Seq(_CpStart(_cp_comma_gap), _CP_WHICH_ONE, _CpEnd(_cp_end_punct)),
@@ -535,7 +536,7 @@ _BARE_REFERENCE_RX = Matcher(Alt(
 
 
 def is_bare_reference(question: str) -> bool:
-    return bool(_BARE_REFERENCE_RX.match(question or ""))
+    return bool(_BARE_REFERENCE_MATCH.match(question or ""))
 
 
 # ── Merge plan ──────────────────────────────────────────────────────────────
@@ -588,8 +589,8 @@ def plan_state_merge(question: str, state=None, *, prev=None, is_followup: bool 
         set_("district", REPLACE, f"names {districts}")
     if blocks:
         set_("block", REPLACE, f"names {blocks}")
-    for dim, rx in _ALL_GEO_RX.items():
-        if rx.search(q) and act[dim] != REPLACE:
+    for dim, word_matcher in _ALL_GEO_MATCH.items():
+        if word_matcher.search(q) and act[dim] != REPLACE:
             set_(dim, CLEAR, "all / by " + dim)
     # A coarser geography change invalidates the finer levels under it, unless
     # the question names them too ("Dalu block in West Garo Hills").
@@ -602,21 +603,21 @@ def plan_state_merge(question: str, state=None, *, prev=None, is_followup: bool 
     years = extract_year_keys(q)
     if years:
         set_("year", REPLACE, f"names {sorted(years)}")
-    elif _RELATIVE_YEAR_RX.search(q):
+    elif _RELATIVE_YEAR_MATCH.search(q):
         known = getattr(state, "year", None)
         prev_year = (getattr(prev, "resolved_entities", None) or {}).get("year_key")
         if known is None and prev_year is None:
             set_("year", REQUIRE_CLARIFICATION, "relative year with no known year")
         else:
             set_("year", REPLACE, "relative year")
-    if _ALL_YEARS_RX.search(q) and act["year"] != REPLACE:
+    if _ALL_YEARS_MATCH.search(q) and act["year"] != REPLACE:
         set_("year", CLEAR, "all years / by year")
     # "and all of them combined?" after "what about 2025-26?": the dimension the
     # user was just varying (live 2026-09-29: it kept FY 2025-26 and repeated 137
     # instead of both years together). Only when the question names no value of
     # its own; with no varied dimension on record the model rewrite decides.
     _last = getattr(state, "last_dimension", None)
-    if (_ALL_OF_THEM_RX.search(q) and _last in ("year", "district", "block")
+    if (_ALL_OF_THEM_MATCH.search(q) and _last in ("year", "district", "block")
             and act.get(_last) == KEEP and not places and not years):
         set_(_last, CLEAR, f"'all of them' = every {_last} just compared")
         for fine in FIELD_POLICIES[_last].clears_on_replace if _last != "year" else ():
@@ -628,14 +629,14 @@ def plan_state_merge(question: str, state=None, *, prev=None, is_followup: bool 
     cats = category_terms(q)
     if cats:
         set_("category", REPLACE, f"names {sorted(cats)}")
-    elif _ALL_CATEGORY_RX.search(q):
+    elif _ALL_CATEGORY_MATCH.search(q):
         set_("category", CLEAR, "all categories")
 
-    group = _GROUP_BY_RX.search(q)
+    group = _GROUP_BY_MATCH.search(q)
     if group:
         set_("group_by", REPLACE, group.group(0))
 
-    if _AMBIGUOUS_REF_RX.search(q):
+    if _AMBIGUOUS_REF_MATCH.search(q):
         ents = list(getattr(state, "comparison_entities", None) or [])
         if len(ents) != 2:
             set_("reference", REQUIRE_CLARIFICATION,
@@ -660,7 +661,7 @@ def _kind(plan: MergePlan, q: str, *, is_followup: bool, clarification_response:
             return SCHEME_SUBSTITUTION
     if references_previous_result(q):
         return RESULT_REFERENCE
-    if _COMPARE_RX.search(q):
+    if _COMPARE_MATCH.search(q):
         return COMPARISON
     if plan.action("group_by") == REPLACE:
         return GROUP_BY_CHANGE
@@ -783,7 +784,7 @@ def rewrite_violation(rewritten: str, *, question: str, allowed_text: str, denie
     new_years = extract_year_keys(rewritten)
     if new_years:
         ok_years = extract_year_keys(allowed_text) | ({state_year} if state_year else set())
-        if _RELATIVE_YEAR_RX.search(question or ""):
+        if _RELATIVE_YEAR_MATCH.search(question or ""):
             ok_years |= {y + d for y in set(ok_years) for d in (-1, 1)}
         if new_years - ok_years:
             return "year"
@@ -802,7 +803,7 @@ def rewrite_violation(rewritten: str, *, question: str, allowed_text: str, denie
     if denied_text:
         allowed_low = (allowed_text or "").lower()
         denied_low = denied_text.lower()
-        for w in _CAP_WORD_RX.findall(rewritten):
+        for w in _CAP_WORD_MATCH.findall(rewritten):
             lw = w.lower()
             if lw in _NAME_STOPWORDS:
                 continue

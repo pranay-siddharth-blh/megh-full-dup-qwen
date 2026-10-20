@@ -53,6 +53,7 @@ fed to that run as the reply to a clarification the user abandoned.
 Best-effort like the rest of the context layer: any failure leaves the turn
 exactly as it would have run without this module.
 """
+import copy
 import dataclasses
 import logging
 import time
@@ -75,7 +76,7 @@ RESET_EDGE = "context_reset"
 # The reset itself, at the start of the message. Fillers before it ("ok",
 # "now", "please") and a "let's" / "can we" opener are allowed.
 def _cl_filler_gap(g: str) -> bool:
-    """The old [\\s,!.]* after a filler word."""
+    """Only spaces, commas, "!" and "." (or nothing) after a filler word."""
     return all(c.isspace() or c in ",!." for c in g)
 
 
@@ -303,13 +304,62 @@ def counterpart_swap(session, question: str) -> "str | None":
         if vi == new_vi:
             continue
         for fi, form in enumerate(forms):
-            rx = Matcher(W(form))
-            if rx.search(base):
+            word_matcher = Matcher(W(form))
+            if word_matcher.search(base):
                 # the new value in the SAME form as the word it replaces
                 new_forms = group[new_vi]
                 word = new_forms[fi] if fi < len(new_forms) else new_forms[0]
-                return rx.sub(lambda mm: word.capitalize() if mm.group(0)[:1].isupper() else word, base, count=1)
+                return word_matcher.sub(lambda mm: word.capitalize() if mm.group(0)[:1].isupper() else word, base, count=1)
     return None
+
+
+# ── "Compare this with the MGNREGA figure you showed" ───────────────────────
+# Context Memory proposal §9.3 "mid-sentence" (live probe V4, 2026-10-18: it
+# was answered for the active scheme alone). "This" is the active topic's
+# scope; the named scheme is the other side. The pipeline already answers a
+# two-scheme comparison for one place and year (app/cross_scheme.py, D-044),
+# so the message becomes that question — deterministically, from the state.
+_CMP_REF = W("this", "that", "it", "these", "those")
+_CMP_FILLER = Rep(W("the", "figure", "figures", "number", "numbers", "one", "ones", "data", "value", "values",
+                    "result", "results", "you", "showed", "shown", "gave", "given", "said", "mentioned", "earlier",
+                    "before", "previously", "above", "from", "of", "for", "under", "please", "pls", "again"))
+_COMPARE_ASK = Matcher(Seq(
+    _CpStart(_cp_ws),
+    Rep(W("ok", "okay", "so", "and", "now", "then", "please", "can", "could", "you")),
+    Alt(Seq(W("compare", "comparing", "comparison"), Opt("of"), _CMP_REF, _CMP_FILLER,
+            W("with", "to", "against", "and", "vs", "versus")),
+        Seq("how", W("does", "do", "did"), _CMP_REF, _CMP_FILLER, "compare", W("with", "to", "against")),
+        Seq(_CMP_REF, _CMP_FILLER, W("vs", "versus", "against", "compared"), Opt(W("with", "to")))),
+    _CMP_FILLER,
+    Cap(Rep(Pred(lambda w: True), 1, 6), "other"),
+    _CpEnd(_cp_end_punct)))
+
+
+def comparison_with_earlier(session, question: str) -> "str | None":
+    """'Compare this with the MGNREGA figure you showed' as the two-scheme
+    comparison question for the active scope, or None when the message is not
+    one, names no other single scheme, or there is no active scheme."""
+    from app import pipeline
+    m = _COMPARE_ASK.match(question or "")
+    if not m:
+        return None
+    other = m.group("other")
+    named = list(pipeline._named_schemes(other))
+    if len(named) != 1 or pipeline._named_schemes(question[:m.start("other")]):
+        return None
+    st = session.state
+    active = st.scheme or (topic_memory._memory(session).get("active") or "")
+    if not active or " + " in active or topic_memory.same_scheme_family(active, named[0]):
+        return None
+    place = st.village or st.block or st.district
+    where = f" in {str(place).title()}" if place else " in Meghalaya"
+    if st.year is not None:
+        when = f" in {topic_memory._fy(st.year)}"
+    elif st.year_all:
+        when = " across all financial years"
+    else:
+        when = ""
+    return f"Compare {active} and {named[0]}{where}{when}"
 
 
 # ── "Each year, for these schemes" / "why only one year?" ───────────────────
@@ -350,7 +400,7 @@ def _cl_ws_gap(g: str) -> bool:
 
 
 def _cl_pair(a: tuple, b: tuple) -> Seq:
-    """The unanchored regex `(a)\\s+(b)`: a word ending in an `a` form, spaces, a word starting with `b`."""
+    """Anywhere in the text: a word ending in an `a` form, spaces, a word starting with `b`."""
     return Seq(_cp_ends(*a), _CpSep(_cl_ws_gap), _cp_starts(*b))
 
 
@@ -373,8 +423,8 @@ _YEAR_METRICS = [
 
 def _year_metric(*texts) -> "tuple[str, str]":
     for t in texts:
-        for label, rx, kind in _YEAR_METRICS:
-            if t and rx.search(t):
+        for label, word_matcher, kind in _YEAR_METRICS:
+            if t and word_matcher.search(t):
                 return label, kind
     return "beneficiaries", "count"
 
@@ -609,8 +659,15 @@ def resume_after_small_talk(session) -> bool:
     # a greeting / thanks, or any other aside the refusal styler noted
     # (conversation_replies.restyle: "who is the PM?" mid-topic)
     aside = topic_memory._memory(session).get("aside")
-    if last is None or last.route != "edge" or not (_is_small_talk(last.raw_question)
-                                                    or (aside and last.raw_question == aside)):
+    if last is None:
+        return False
+    # A denied follow-up ("by block" for an account authorised up to district
+    # level) is an aside too: the refusal is about that one question, and the
+    # topic the officer was on must survive it (live 2026-10-18: "only
+    # Mawphlang" / "and statewide?" after a denial lost the topic; proposal F2).
+    denied = last.route == "denied"
+    if not denied and (last.route != "edge" or not (_is_small_talk(last.raw_question)
+                                                    or (aside and last.raw_question == aside))):
         return False
     prev = next((t for t in reversed(session.turns[:-1]) if t.route in ("data", "knowledge")), None)
     if prev is None:
@@ -675,6 +732,85 @@ async def _drop_paused_run(session_id: str) -> None:
         logger.warning("conversation layer: could not drop the paused run (non-fatal)", exc_info=True)
 
 
+# ── "Continue with MGNREGA (East Khasi Hills, FY 2022-23)?" after an expiry ──
+# Context Memory proposal S3 (2026-10-18): an idle expiry no longer forgets
+# silently. What it clears is set aside (session.expired_ctx, durable) and the
+# first reply after it offers one chip naming it. Tapping the chip puts the
+# state, the topics and the last turn back; any other message drops it, so
+# ignoring the chip starts fresh exactly as before.
+CONTINUE_EDGE = "context_continued"
+
+
+def _continue_chip(session) -> "str | None":
+    st = session.state
+    scheme = st.scheme or (getattr(session, "topics", None) or {}).get("active")
+    if not scheme:
+        return None
+    place = st.village or st.block or st.district
+    bits = [b for b in (str(place).title() if place else None,
+                        topic_memory._fy(st.year) if st.year is not None else None) if b]
+    return f"Continue with {scheme}" + (f" ({', '.join(bits)})" if bits else "")
+
+
+def _set_aside(session) -> "str | None":
+    """Keep what an expiry is about to clear; the chip text, or None when
+    there is no topic worth offering."""
+    chip = _continue_chip(session)
+    if chip is None:
+        return None
+    prev = next((t for t in reversed(session.turns) if t.route in ("data", "knowledge")), None)
+    if prev is None:
+        mem = topic_memory._memory(session)
+        item = mem["items"].get(mem.get("active") or "") or {}
+        prev = topic_memory._turn_from(item["last_turn"]) if item.get("last_turn") else None
+    session.expired_ctx = {"chip": chip, "state": session.state.to_dict(),
+                           "topics": copy.deepcopy(getattr(session, "topics", None) or {}),
+                           "summary": session.summary,
+                           "last_turn": topic_memory._turn_dict(prev) if prev is not None else None}
+    return chip
+
+
+def _is_continue_tap(session, question: str) -> bool:
+    exp = getattr(session, "expired_ctx", None) or {}
+    chip = str(exp.get("chip") or "").strip().lower()
+    return bool(chip) and (question or "").strip().rstrip(" ?.!").lower() == chip
+
+
+def _continue_expired(session, question: str = "") -> dict:
+    """Put the set-aside context back; the acknowledgement."""
+    from app import pipeline
+    from app.session_store import ConversationState
+    exp = session.expired_ctx or {}
+    session.expired_ctx = None
+    restored = ConversationState.from_dict(exp.get("state") or {})
+    restored.turn_count = session.state.turn_count
+    session.state = restored
+    session.topics = exp.get("topics") or {}
+    session.summary = exp.get("summary")
+    if exp.get("last_turn"):
+        session.turns.append(topic_memory._turn_from(exp["last_turn"]))
+    # The acknowledgement is an aside, like "thanks": the restored data turn
+    # stays the follow-up antecedent (browser check 2026-10-18: "What about FY
+    # 2023-24?" right after the tap asked "which scheme?").
+    topic_memory._memory(session)["aside"] = question
+    what = str(exp.get("chip") or "").replace("Continue with ", "", 1)
+    answer = (f"Picking up where we left off: {what}. Ask your next question about it — for example "
+              "\"What about another year?\" — and I'll continue from there.")
+    # confidence "low": the answer caches never store such a reply.
+    return {"route": "edge", "intent": "EDGE", "confidence": "low", "answer": answer,
+            "edge_type": CONTINUE_EDGE, "suggestions": [], **pipeline._empty_data_fields()}
+
+
+def attach_continue_offer(session, result: dict) -> dict:
+    """The first reply after an expiry carries the "Continue with …" chip as
+    `continue_offer`, shown under any kind of answer (the router calls this
+    before saving)."""
+    exp = getattr(session, "expired_ctx", None) if session is not None else None
+    if not exp or not exp.pop("offer_pending", False):
+        return result
+    return {**result, "continue_offer": exp["chip"]}
+
+
 def _reset_answer(expired: bool) -> dict:
     from app import pipeline
     answer = ("Okay, starting fresh. I've set aside what we were discussing, so your next question "
@@ -705,20 +841,119 @@ def _enabled(session) -> bool:
     return session is not None and getattr(settings, "CONVERSATION_LAYER_ENABLED", True)
 
 
+# ── "stop" … "continue" ─────────────────────────────────────────────────────
+# User request 2026-10-18: a question stopped while it ran (the Stop button,
+# or "stop" typed in the box) is answered when the officer then says
+# "continue". The router records the stopped question on the session when it
+# cancels the streamed turn (remember_stopped); the next message, if it is a
+# continue request, runs that question through this layer as if it had just
+# been typed. Any other message drops it.
+# A stopped question lives as long as the idle window (CONTEXT_IDLE_EXPIRY_SECONDS).
+STOPPED_MAX_AGE_SECONDS = 1800   # fallback when the idle window is 0 (never expire)
+NOTHING_RUNNING_EDGE = "nothing_running"
+
+_CL_POLITE = W("ok", "okay", "yes", "yeah", "yep", "sure", "please", "pls", "plz", "now", "so", "then", "haan", "ha")
+_CONTINUE_ASK = Matcher(Seq(
+    _CpStart(_cp_ws),
+    Rep(_CL_POLITE),
+    Alt(W("continue", "resume", "proceed", "contiue", "contnue", "continu"),
+        Seq("go", W("on", "ahead")), Seq("carry", "on"), Seq(W("keep", "kepp"), "going")),
+    Opt(Alt(Seq(Opt(W("with", "from")), Opt(W("the", "my", "that")),
+                Opt(W("previous", "last", "stopped", "earlier", "same", "old")),
+                W("query", "question", "answer", "one", "request", "search")),
+            Seq(Opt("where"), "you", W("stopped", "left"), Opt("off")))),
+    Rep(_CL_POLITE),
+    _CpEnd(_cp_end_punct)))
+_STOP_ASK = Matcher(Seq(
+    _CpStart(_cp_ws),
+    Rep(_CL_POLITE),
+    W("stop", "cancel", "abort", "halt", "ruko", "band"),
+    Opt(W("it", "this", "that", "now", "please", "pls", "karo")),
+    Rep(_CL_POLITE),
+    _CpEnd(_cp_end_punct)))
+
+
+def is_continue_request(question: str) -> bool:
+    return bool(question) and _CONTINUE_ASK.match(question.strip()) is not None
+
+
+def is_stop_request(question: str) -> bool:
+    return bool(question) and _STOP_ASK.match(question.strip()) is not None
+
+
+def remember_stopped(session, question: str) -> None:
+    """The router cancelled this question while it ran (Stop)."""
+    if session is None or not (question or "").strip() or is_continue_request(question):
+        return
+    session.stopped_ctx = {"question": question.strip(), "at": time.time()}
+    context_budget.log_decision("conversation", action="stopped")
+
+
+def _take_stopped(session, question: str) -> "str | None":
+    """The stopped question a "continue" asks for (and forget it); None
+    otherwise. Any message drops a stopped question."""
+    stopped = getattr(session, "stopped_ctx", None) or {}
+    session.stopped_ctx = None
+    if not stopped.get("question") or not is_continue_request(question):
+        return None
+    max_age = int(getattr(settings, "CONTEXT_IDLE_EXPIRY_SECONDS", 0) or 0) or STOPPED_MAX_AGE_SECONDS
+    if time.time() - float(stopped.get("at") or 0) > max_age:
+        return None
+    return stopped["question"]
+
+
+def _nothing_running_answer() -> dict:
+    from app import pipeline
+    # confidence "low": the answer caches never store such a reply.
+    return {"route": "edge", "intent": "EDGE", "confidence": "low",
+            "answer": "Okay — nothing is running right now. Ask me your next question whenever you're ready.",
+            "edge_type": NOTHING_RUNNING_EDGE, "suggestions": [], **pipeline._empty_data_fields()}
+
+
 async def prepare_turn(session, question: str) -> LayerTurn:
-    """Expiry, reset and plain-words recall for this message (see the module
-    docstring). Never raises."""
+    """Stop / continue, then expiry, reset and plain-words recall for this
+    message (see the module docstring). Never raises."""
     if not _enabled(session):
         return LayerTurn(question=question)
+    try:
+        resumed = _take_stopped(session, question)
+        if resumed is not None:
+            context_budget.log_decision("conversation", action="continue-stopped")
+            logger.info("conversation layer: continuing the stopped question %r", resumed)
+            lt = await _prepare(session, resumed)
+            # "continue" means something only in this chat: never cached
+            return dataclasses.replace(lt, changed=True,
+                                       action="continue-stopped" if lt.action == "none" else lt.action)
+        if is_stop_request(question):
+            # A typed "stop" with nothing running (a running answer is stopped
+            # by the chat box itself). Not a question; the topic carries on.
+            return LayerTurn(question=question, action="stop", response=_nothing_running_answer(), changed=True)
+    except Exception:  # noqa: BLE001 — the layer must never break a turn
+        logger.warning("conversation layer: stop / continue failed (non-fatal)", exc_info=True)
+    return await _prepare(session, question)
+
+
+async def _prepare(session, question: str) -> LayerTurn:
+    """Expiry, reset and plain-words recall for this message. Never raises."""
     try:
         from app import pipeline  # lazy: pipeline imports topic_memory
         now = time.time()
         expired = False
         ttl = int(getattr(settings, "CONTEXT_IDLE_EXPIRY_SECONDS", 0) or 0)
         last = float(getattr(session, "context_at", 0.0) or 0.0)
+        # The "Continue with …" chip offered after an expiry: tapped, the
+        # set-aside context comes back; any other message drops it.
+        if _is_continue_tap(session, question):
+            session.context_at = now
+            context_budget.log_decision("conversation", action="continue-expired")
+            return LayerTurn(question=question, action="continue-expired",
+                             response=_continue_expired(session, question), changed=True)
+        session.expired_ctx = None
         # context_at 0: a snapshot written before this layer existed. Its age
         # is unknown, so it is not expired; it is stamped from now on.
         if ttl > 0 and last > 0 and now - last > ttl and has_context(session):
+            if _set_aside(session) is not None:
+                session.expired_ctx["offer_pending"] = True
             clear_context(session)
             await _drop_paused_run(session.session_id)
             expired = True
@@ -772,6 +1007,11 @@ async def prepare_turn(session, question: str) -> LayerTurn:
             if len(plan) == 1:
                 return LayerTurn(question=plan[0], action="per-year", changed=True)
             return LayerTurn(question=question, action="per-year", changed=True, multi=plan)
+
+        compared = comparison_with_earlier(session, question)
+        if compared is not None:
+            context_budget.log_decision("conversation", action="compare-earlier", question=compared)
+            return LayerTurn(question=compared, action="compare", changed=True)
 
         swapped = counterpart_swap(session, question)
         if swapped is not None:

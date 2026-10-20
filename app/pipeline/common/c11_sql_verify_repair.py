@@ -3,9 +3,9 @@
 # namespace, in load order, so it shares every name with the other files.
 #
 # Every check below that reads the SQL works on its SQLGlot tree (app/sql_ast),
-# never on the text: a text pattern reads words inside string literals and
+# never on the text: a text search reads words inside string literals and
 # comments, misses UPPER(col) and sees only the first value of an IN list. The
-# regular expressions that remain read the user's question, the verifier's
+# word matchers (app/text_match) read the user's question, the verifier's
 # English complaint or the database's error message — never the SQL.
 
 import sqlglot
@@ -248,7 +248,7 @@ def _vr_has_job_card_pin(sql: str) -> bool:
 # of just echoing the Postgres message back.
 def _c11_missing_col_spans(error: str) -> list:
     r"""Postgres `column "x" does not exist` (case-insensitive); group 1 is x
-    (letters, digits, '_' and '.' only — the regex [\w.]+)."""
+    (one or more letters, digits, '_' and '.' only)."""
     low = error.lower()
     head, tail = 'column "', '" does not exist'
     out, k = [], low.find(head)
@@ -324,7 +324,7 @@ def _missing_column_hint(error: str) -> "str | None":
 # The generator reaches for COUNT(DISTINCT x) OVER (...) on "top N% / decile /
 # concentration" questions; Postgres rejects DISTINCT (and nested aggregates)
 # inside a window function. A plain error echo doesn't get the model out of the
-# pattern — hand it the rank-in-a-CTE recipe explicitly.
+# habit — hand it the rank-in-a-CTE recipe explicitly.
 _WINDOW_FN_ERR_MATCH = _C1xUnion(
     "DISTINCT is not implemented for window functions",
     "window function calls cannot contain",
@@ -599,9 +599,9 @@ def _crore_conversion_for_single_village(entity_result: dict, sql: str) -> bool:
     PMAY's rupee figures, never for a single village's own figure."""
     if not entity_result.get("resolved", {}).get("village_code"):
         return False
-    # "crore" is checked as a plain substring, not \bcrore\b — it is always used
-    # here as an identifier suffix ("total_expenditure_crore"), and an
-    # underscore is a word character, so \b never falls between "_" and "c".
+    # "crore" is checked as a plain substring, not as a whole word — it is always
+    # used here as an identifier suffix ("total_expenditure_crore"), and an
+    # underscore is a word character, so no word edge falls between "_" and "c".
     return _vr_divides_by_100(sql) and "crore" in sql.lower()
 
 
@@ -702,7 +702,7 @@ def _village_code_as_geography_key(entity_result: dict, sql: str) -> "int | None
 # a real Check 2 hit — unlike the case where resolved really is empty, which
 # this guard leaves alone.
 def _c11_sp1(gap: str) -> bool:
-    """Exactly one space (a literal ' ' in the old pattern)."""
+    """Exactly one space, no more and no other whitespace."""
     return gap == " "
 
 
@@ -713,7 +713,7 @@ def _c11_lit(phrase: str):
 
 
 def _c11_check(*digits: str):
-    r""""check 2" / "check2" (regex \bcheck\s*[digits]\b)."""
+    r""""check 2" / "check2": whole-word "check", optional spaces, one of `digits`."""
     return Alt(Seq(W("check"), _C1xGapIs(W(*digits), _c1x_ws0)), W(*["check" + d for d in digits]))
 
 
@@ -895,7 +895,7 @@ def _top_level_where_span(sql: str) -> "tuple[int, int, int] | None":
     """(start of WHERE, start of its body, end of its body) for the query's OWN
     WHERE — never one inside parentheses. CM Elevate verification counts carry
     `COUNT(*) FILTER (WHERE data_verified = 'Valid')` in the SELECT list, and the
-    first-WHERE regex rebuilt from inside that FILTER (2026-09-28). Read from
+    first-WHERE text search rebuilt from inside that FILTER (2026-09-28). Read from
     SQLGlot's tokens, so a keyword inside a string literal or a comment is no
     keyword."""
     try:
@@ -934,7 +934,7 @@ def _vr_filters_a_village(sql: str) -> bool:
 # question about one village's households / persons / works (COUNT(village_code)
 # or COUNT(DISTINCT village_code), read on the tree).
 def _c11_dot_ws(gap: str) -> bool:
-    r"""regex \.?\s+"""
+    r"""An optional '.' then one or more whitespace characters."""
     return _c1x_ws(gap[1:] if gap.startswith(".") else gap)
 
 
@@ -983,7 +983,7 @@ def _village_filter_missing(schemes: list[str], entity_result: dict, sql: str) -
 def _geo_value_in_sql(value: str, sql_upper: str) -> bool:
     """A resolved place name is present in the SQL's string literals (compared
     upper-cased; the SQL is parsed, so '' is already one apostrophe): inside a
-    literal, or as the pattern of a LIKE / ILIKE / regex match on its first
+    literal, or as the search text of a LIKE / ILIKE / REGEXP_LIKE test on its first
     distinctive word ("%TURA%" for TURA MUNICIPAL BOARD)."""
     v = str(value).upper().replace("''", "'").strip()
     if not v:
@@ -1042,7 +1042,7 @@ def _resolved_scope_missing(question: str, schemes: list[str], entity_result: di
       - district / block when a village_code is resolved: _entities_block
         suppresses them as redundant, and the village guards own that case;
       - a hill-range expansion (district_list_region): the SQL may cover it
-        by pattern;
+        by a LIKE match;
       - the year for a scheme with no time dimension (CM Elevate), or when the
         question itself asks for all years."""
     resolved = entity_result.get("resolved") or {}
@@ -1218,6 +1218,40 @@ def _verifier_unlisted_geo_is_false(issue: str, resolved: dict, sql: str) -> boo
             and all(vals <= {geo.get(col)} for col, vals in in_sql.items()))
 
 
+# KI-308 (live 2026-10-18, scenario F): "What about Dalu block?" after MGNREGA West
+# Garo Hills. The deterministic guard (_missing_resolved_filter) demands the
+# RESOLVED district, so the SQL carries lgd_district = 'WEST GARO HILLS' AND
+# lgd_block = 'DALU'; the verifier then calls that district "unnecessary … not
+# part of the resolved entities" and asks to remove it; the repair removes it,
+# the guard adds it back, until the repair budget is spent and the question dies
+# ("couldn't build a working query"). A resolved place is a MANDATORY filter by
+# contract, never one to remove: such a removal request is discarded when the
+# value is resolved and the SQL filters on it.
+_VERIFIER_REMOVE_FILTER = Matcher(Alt(
+    W("unnecessary", "remove", "removed", "extraneous", "redundant", "superfluous", "drop", "dropped"),
+    _c11_lit("should not be included"), _c11_lit("not be included"), _c11_lit("should not include"),
+    _c11_lit("not part of"), _c11_lit("should not filter"), _c11_lit("not needed"),
+))
+
+
+def _verifier_wants_resolved_filter_removed(issue: str, resolved: dict, sql: str) -> bool:
+    """True when the verifier asks to drop a RESOLVED district / block that the
+    SQL rightly filters on (the mandatory-filter guard would put it back)."""
+    if not _VERIFIER_REMOVE_FILTER.search(issue or ""):
+        return False
+    geo = {col: str(resolved[key]).upper() for key, col in (("district", "lgd_district"), ("block", "lgd_block"))
+           if isinstance((resolved or {}).get(key), str) and resolved[key].strip()}
+    if not geo or not any(_c1x_bounded_find(v, (issue or "").upper()) for v in geo.values()):
+        return False
+    # Every place filter in the SQL must be a resolved one: then nothing the
+    # verifier could mean is removable. An unresolved place filter keeps the complaint.
+    in_sql: dict[str, set[str]] = {}
+    for col, val in _vr_values(sql or "", ["lgd_district", "lgd_block"], _VR_EQ):
+        in_sql.setdefault(col, set()).add(val.upper())
+    return (bool(in_sql) and all(vals <= {geo.get(col)} for col, vals in in_sql.items())
+            and all(_sql_filters_on(sql, col, val) for col, val in geo.items()))
+
+
 # Sixth known verifier false positive: a scheme name containing an apostrophe.
 # In SQL a literal apostrophe is written doubled ('Chief Minister''s Green Taxi
 # Scheme'), which is the SAME string as the resolved entity once parsed. The
@@ -1312,7 +1346,7 @@ def _verifier_join_complaint_is_false(issue: str, sql: str) -> bool:
         return True
     named = {t.lower() for t in _ISSUE_TABLE_REF.findall(issue or "")}
     return bool(named) and not (named & in_sql)
-# No \b anywhere in the old pattern: a lead word matches as a word ending
+# No word edges are required anywhere: a lead word matches as a word ending
 # ("cannot exist"), a last word as a word start ("not listed", "not existing").
 _VERIFIER_NO_COLUMN = Matcher(Alt(
     Seq(_c1x_suffix("not"),
@@ -1389,11 +1423,11 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
     passed the execution checks; it judges the SQL, not the rows
     (prompt_builder.build_verify_prompt says why).
 
-    This is the catch-all for the class of bug the regex guards above can't
+    This is the catch-all for the class of bug the shape guards above can't
     be: they only recognise SQL shapes a past incident already taught them to
     match. The verifier judges the query against the same schema rules and
     resolved entities the generator itself was given, instead of a fixed
-    pattern.
+    shape.
 
     Best-effort like every other auxiliary check in this module (premise_check,
     followups, context layer): a verifier outage, timeout, or unparseable
@@ -1453,6 +1487,11 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
             "SQL verifier said a resolved district/block is not in RESOLVED ENTITIES while the "
             "SQL filters exactly the resolved ones — discarding: %s", issue)
         return None
+    if _verifier_wants_resolved_filter_removed(issue, entity_result.get("resolved") or {}, sql):
+        logger.warning(
+            "SQL verifier asked to remove a RESOLVED district/block the SQL rightly filters on "
+            "(the mandatory-filter guard requires it; KI-308) — discarding: %s", issue)
+        return None
     if _verifier_wants_suppressed_geography(issue, entity_result.get("resolved") or {}, sql):
         logger.warning(
             "SQL verifier demanded a district/block that the RESOLVED ENTITIES block "
@@ -1483,7 +1522,44 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
             "SQL verifier read a GROUP BY on a place column as a place filter, for a question "
             "that asks for a per-place list — discarding: %s", issue)
         return None
+    if _verifier_total_vs_breakdown_is_false(issue, question, sql):
+        logger.warning(
+            "SQL verifier demanded a single total for a question that asks for a breakdown the "
+            "SQL already groups by (KI-315) — discarding: %s", issue)
+        return None
     return issue
+
+
+# The GROUP BY columns that answer a breakdown by each dimension.
+_C11_BREAKDOWN_COLUMNS = {
+    "district": ("lgd_district", "district_name", "district"),
+    "block": ("lgd_block", "block_name_raw", "block_name", "block"),
+    "village": ("lgd_village_name", "village_code", "village_name", "village"),
+    "year": ("year_key", "financial_year_short", "financial_year", "fy"),
+}
+_C11_TOTAL_COMPLAINT_WORDS = ("single", "total", "group", "grouped", "breakdown", "multiple rows", "one row",
+                              "aggregated", "aggregate")
+
+
+def _verifier_total_vs_breakdown_is_false(issue: str, question: str, sql: str) -> bool:
+    """True when the question asks for a breakdown by district / block / village /
+    year, the SQL GROUPs BY a column of that dimension, and the verifier complains
+    that the query should return a single total instead. Live 2026-10-18 (KI-315,
+    conversation harness): "How many PMAY-G houses were completed in Ri Bhoi in
+    FY 2023-24 by block" lost all three repairs to "the question asks for a total
+    count … not a breakdown by block … GROUP BY lgd_block violates the requirement
+    for a single aggregated total" — then the deterministic breakdown guard put the
+    GROUP BY back, and so on until the budget ended."""
+    dims = _c02_breakdowns(question or "", include_per=False) & set(_C11_BREAKDOWN_COLUMNS)
+    if not dims:
+        return False
+    low = (issue or "").lower()
+    if not any(w in low for w in _C11_TOTAL_COMPLAINT_WORDS):
+        return False
+    grouped = sql_ast.group_by_columns(sql or "")
+    if not grouped:
+        return False
+    return any(col in grouped for d in dims for col in _C11_BREAKDOWN_COLUMNS[d])
 
 
 # The repair budget: the graph's execute_attempt -> repair loop runs at most
@@ -1539,6 +1615,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_elevate_applicants_distinct(question, schemes, sql)
     sql = _cm_elevate_compare_by_district(question, schemes, sql)
     sql = _resolved_district_list_literals(entity_result.get("resolved") or {}, sql)
+    sql = _resolved_district_literal(entity_result.get("resolved") or {}, sql)
     sql = _cm_elevate_sector_zero_groups(schemes, sql)
     sql = _cm_elevate_level_pending(question, schemes, sql)
     sql = _cm_elevate_pending_without_level(question, schemes, sql)
@@ -1667,6 +1744,40 @@ def _self_correlated_subquery_issue(sql: str) -> "str | None":
 _BREAKDOWN_CHECKED = {"district": "district", "block": "block", "village": "village", "year": "financial year"}
 
 
+def _calendar_year_range_issue(question: str, entity_result: dict, sql: str) -> "str | None":
+    """A FINANCIAL year was resolved (year_key) but the SQL filters a date column
+    by a CALENDAR-year range instead ("sanction_date >= '2023-01-01' AND < '2024-01-01'")
+    and never by year_key / financial_year. Live 2026-10-19 (conversation harness,
+    A_forward_topic_switch): "How many in 2023-24?" for PMAY-G answered 110,890 houses
+    (calendar 2023) for the 106,527 of FY 2023-24 — a wrong number that looked right.
+    A question that itself names calendar months ("between January and March 2026")
+    is left to the generator."""
+    resolved = (entity_result or {}).get("resolved") or {}
+    years = resolved.get("year_key_list") or ([resolved["year_key"]] if resolved.get("year_key") is not None else [])
+    if not years or not sql:
+        return None
+    if _MONTH_YEAR_IN_Q.search(question or ""):
+        return None
+    if sql_ast.filtered_by(sql, "year_key", "financial_year_short", "financial_year", "fy"):
+        return None
+    date_cols = [c for c in sql_ast.columns(sql) if "date" in c.lower()]
+    if not date_cols:
+        return None
+    bounds = [v for v in sql_ast.filter_values(sql, *date_cols) if isinstance(v, str)]
+    calendar = [v for v in bounds if len(v) >= 10 and v[4] == "-" and v[5:10] in ("01-01", "12-31")]
+    if not calendar:
+        return None
+    try:
+        y = int(years[0])
+    except (TypeError, ValueError):
+        return None
+    fy = f"FY {y}-{(y + 1) % 100:02d}"
+    key = f"year_key = {y}" if len(years) == 1 else "year_key IN (" + ", ".join(str(int(v)) for v in years) + ")"
+    return (f"the question asks for the financial year {fy} ({key}), but the query filters {date_cols[0]} by a "
+            f"calendar-year date range ({', '.join(calendar[:2])}). Replace that date range with {key} "
+            "(a financial year is stored by its START year) and keep every other clause exactly as it was.")
+
+
 def _breakdown_missing_issue(question: str, sql: str) -> "str | None":
     dims = sorted(_c02_breakdowns(question or "", include_per=False) & set(_BREAKDOWN_CHECKED))
     if not dims or not sql:
@@ -1683,7 +1794,7 @@ def _breakdown_missing_issue(question: str, sql: str) -> "str | None":
 
 async def _execute_one_attempt(question: str, schemes: list[str], entity_result: dict,
                                sql: str) -> list[dict]:
-    """The regex guards, the semantic verifier, execution and the post-execution
+    """The SQL shape guards, the semantic verifier, execution and the post-execution
     check. Returns the rows; raises (ValueError / UnsafeSQLError / DB errors) for
     the caller to repair or give up on."""
     _label_issue = _sql_measure_label_issue(schemes, sql)
@@ -1736,6 +1847,10 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
     if _amt_issue:
         context_budget.log_decision("sql_guard", guard="stated_amount", verdict="reject")
         raise ValueError(_amt_issue)
+    _cal_issue = _calendar_year_range_issue(question, entity_result, sql)
+    if _cal_issue:
+        logger.warning("SQL filters a calendar-year date range for a financial-year question — repairing: %s", _cal_issue)
+        raise ValueError(_cal_issue)
     _scope_issue = _resolved_scope_missing(question, schemes, entity_result, sql)
     if _scope_issue:
         context_budget.log_decision("sql_guard", guard="resolved_scope", verdict="reject",

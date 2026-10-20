@@ -1,4 +1,4 @@
-"""app/text_match.py — the regex-free word matcher every English-text check uses (D-047)."""
+"""app/text_match.py — the word-level matcher every English-text check uses (D-047)."""
 from app.text_match import (ANY, END, START, Alt, Cap, Gap, Joined, Matcher, NotAfter, NotBefore, Opt, Pred,
                             Seq, W, collapse_ws, fy_spans, is_year, numbers, split_sentences)
 

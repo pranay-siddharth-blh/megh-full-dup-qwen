@@ -19,10 +19,10 @@
     --shadow:0 1px 2px rgba(36,16,56,.04), 0 6px 20px -12px rgba(36,16,56,.18);
   }
   *{box-sizing:border-box}
-  body{margin:0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+  body{margin:0;font-family:'Inter',-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Ubuntu,Cantarell,'Noto Sans',Arial,sans-serif;
     font-size:14px;line-height:1.5;background:var(--bg);color:var(--ink)}
   a{color:var(--p-600)}
-  code,pre{font-family:'JetBrains Mono',Consolas,monospace}
+  code,pre{font-family:'JetBrains Mono',ui-monospace,Menlo,Consolas,'DejaVu Sans Mono',monospace}
   pre{background:var(--p-50);border:1px solid var(--line);border-radius:10px;padding:10px 12px;
     font-size:12px;white-space:pre-wrap;word-break:break-word;margin:8px 0 0;color:var(--ink-2)}
 
@@ -205,4 +205,9 @@
 .fb-table .fb-ans { color: var(--ink-2, #5b5470); }
 @media (max-width: 640px) {
   .fb-table .fb-cell { min-width: 120px; max-width: 240px; }
+}
+
+/* iOS Safari zooms the page when a box under 16px gets focus (iOS-only selector). */
+@supports (-webkit-touch-callout: none) {
+  input, textarea, select { font-size: 16px !important; }
 }

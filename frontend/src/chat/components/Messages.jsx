@@ -1,12 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { buildAnalytics } from '../analytics.js';
-import { fullStamp, prettyName } from '../format.js';
-import { DynTable, GroupedChart, PivotTable, RecordCard, StackedChart, SwitchableChart } from './Charts.jsx';
+import { buildAnalytics, chartPreference, withoutChartPhrase } from '../analytics.js';
+import { fullStamp } from '../format.js';
+import { CompareCard, DynTable, GroupedChart, PivotTable, RecordCard, StackedChart, SwitchableChart, TwoDimChart } from './Charts.jsx';
 import { Markdown, plainText } from './Markdown.jsx';
 import { useReveal } from '../reveal.js';
-import { themeFor } from '../chartTheme.js';
+import { SCHEME_HUES, themeFor } from '../chartTheme.js';
 import { sendFeedbackApi } from '../api.js';
-import { inlineSpans, isSpace, isWordChar, runEnd, splitSpaces } from '../text.js';
+import { inlineSpans } from '../text.js';
+import { enterSends } from '../shortcuts.js';
 
 /* One chat message. A bot answer (`response` from /api/query) renders the same
    blocks as addBotRich() in web/ai_query.html: routing badge (off), answer text,
@@ -41,31 +42,111 @@ function RichText({ text, bold }) {
 }
 
 // ── Analytics ───────────────────────────────────────────────────────────────
-function Analytics({ question, response }) {
+function Analytics({ question, response, view, onAsk }) {
+  // What the officer asked to see: "/chart" / "/table", or the words of the
+  // question ("in graph", "as a pie chart", "show it as a table").
+  // The standalone question first: "why are you giving a line chart?" is answered
+  // as "... as a pie chart" (rewritten by the backend); its own words name the
+  // wrong type.
+  const asked = view || chartPreference(response.rewritten_question) || chartPreference(question);
+  const prefer = asked === 'chart' || (asked && asked !== 'table') ? asked : null;
   const a = useMemo(
-    () => buildAnalytics(question, response.data, response.chart_type),
-    [question, response],
+    () => buildAnalytics(question, response.data, response.chart_type, prefer),
+    [question, response, prefer],
   );
   // The answer's scheme picks the charts' hue (chartTheme.js, D-043).
   const theme = useMemo(() => themeFor(response.schemes), [response.schemes]);
   if (!a) return null;
-  if (a.kind === 'kpi') {
+  // "/table" or "as a table" shows the rows as a table whatever the charts
+  // would have been; a chart asked for shows the charts without their table.
+  if (asked === 'table') return <div className="analytics"><DynTable data={response.data} /></div>;
+  const withTables = !prefer && !a.noTable;
+  // A named type ("pie chart", "bar graph", "line chart") is that chart ONLY —
+  // no Bar / Pie / Donut / Line switcher. A plain "chart" / "graph", or nothing
+  // asked, keeps every type on offer (user, 2026-10-19).
+  const only = prefer && prefer !== 'chart' ? (prefer === 'stacked' ? 'bar' : prefer) : null;
+  const only2d = prefer && prefer !== 'chart' ? prefer : null;
+  const typesOr = (all) => (only ? [only] : all);
+  // A chart was asked for but the answer is one figure: say so, and offer the
+  // breakdowns that can be drawn, instead of silently showing the number again.
+  if (prefer && a.kind === 'record') {
+    const base = withoutChartPhrase(response.rewritten_question || question);
     return (
       <div className="analytics">
-        <div className="dyn-grid single">
-          <SwitchableChart title="Summary" labels={a.labels} values={a.values} types={['bar', 'pie', 'doughnut']} initial={a.defType} theme={theme} />
+        <div className="chart-note">
+          <p>This is a single figure, so there is nothing to draw as a chart. I can chart it broken down:</p>
+          {onAsk && base && (
+            <div className="clarify-opts">
+              {['by district', 'for each financial year'].map((tail) => (
+                <button key={tail} type="button" className="clarify-opt" {...askProps(onAsk, `${base} ${tail} as a chart`)}>
+                  {tail[0].toUpperCase() + tail.slice(1)}
+                </button>
+              ))}
+            </div>
+          )}
         </div>
         <RecordCard row={a.row} />
       </div>
     );
   }
+  if (a.kind === 'kpi') {
+    return (
+      <div className="analytics">
+        <div className="dyn-grid single">
+          <SwitchableChart title="Summary" labels={a.labels} values={a.values} types={typesOr(['bar', 'pie', 'doughnut'])} initial={only || a.defType} theme={theme} />
+        </div>
+        {withTables && <RecordCard row={a.row} />}
+      </div>
+    );
+  }
   if (a.kind === 'record') return <div className="analytics"><RecordCard row={a.row} /></div>;
+  if (a.kind === 'compare') {
+    return (
+      <div className="analytics">
+        <CompareCard title={a.title} measure={a.measure} a={a.a} b={a.b} verdict={a.verdict} />
+        {withTables && a.extra && <DynTable data={a.data} />}
+      </div>
+    );
+  }
   if (a.kind === 'table') return <div className="analytics"><DynTable data={a.data} /></div>;
+  // A chart type was asked for: answers whose card has no type switch (grouped,
+  // stacked) are drawn by the cards that have one, so the asked type is used.
+  if (prefer && a.kind === 'stacked') {
+    return (
+      <div className="analytics">
+        <div className="dyn-grid single">
+          <TwoDimChart title={a.title} labels={a.labels.map(String)} datasets={a.datasets} xKey={a.xKey} sKey={a.sKey}
+                       initial={only2d || 'stacked'} types={only2d ? [only2d] : undefined} theme={theme} />
+        </div>
+      </div>
+    );
+  }
+  if (prefer && a.kind === 'grouped' && prefer !== 'chart' && prefer !== 'bar') {
+    return (
+      <div className="analytics">
+        <div className={'dyn-grid' + (a.datasets.length === 1 ? ' single' : '')}>
+          {a.datasets.map((d) => (
+            <SwitchableChart key={d.label} title={d.label} labels={a.labels} fullLabels={a.fullLabels} values={d.values}
+                             types={typesOr(['bar', 'pie', 'doughnut', 'line'])} initial={only || 'bar'} theme={theme} />
+          ))}
+        </div>
+      </div>
+    );
+  }
+  // A chart was asked for but the rows hold no numbers: say so plainly.
+  if (prefer && a.kind === 'table') {
+    return (
+      <div className="analytics">
+        <div className="chart-note"><p>These results are names and labels with no numbers, so there is nothing to chart. Here they are as a table.</p></div>
+        <DynTable data={a.data} />
+      </div>
+    );
+  }
   if (a.kind === 'grouped') {
     return (
       <div className="analytics">
         <div className="dyn-grid single"><GroupedChart title={a.title} labels={a.labels} fullLabels={a.fullLabels} datasets={a.datasets} theme={theme} /></div>
-        <DynTable data={a.data} />
+        {withTables && <DynTable data={a.data} />}
       </div>
     );
   }
@@ -73,7 +154,18 @@ function Analytics({ question, response }) {
     return (
       <div className="analytics">
         <div className="dyn-grid single"><StackedChart title={a.title} labels={a.labels} datasets={a.datasets} theme={theme} /></div>
-        <PivotTable data={a.data} xKey={a.xKey} sKey={a.sKey} vKey={a.vKey} />
+        {withTables && <PivotTable data={a.data} xKey={a.xKey} sKey={a.sKey} vKey={a.vKey} />}
+      </div>
+    );
+  }
+  if (a.kind === 'twoDim') {
+    return (
+      <div className="analytics">
+        <div className="dyn-grid single">
+          <TwoDimChart title={a.title} labels={a.labels} datasets={a.datasets} xKey={a.xKey} sKey={a.sKey}
+                       periods={a.periods} initial={only2d || a.defType} types={only2d ? [only2d] : undefined} theme={theme} />
+        </div>
+        {withTables && (a.extra ? <DynTable data={a.data} /> : <PivotTable data={a.data} xKey={a.xKey} sKey={a.sKey} vKey={a.vKey} />)}
       </div>
     );
   }
@@ -83,16 +175,45 @@ function Analytics({ question, response }) {
       <div className={'dyn-grid' + (single ? ' single' : '')}>
         {a.charts.map((c, i) => (
           <SwitchableChart key={i} title={c.title} labels={c.labels} fullLabels={c.fullLabels} values={c.values}
-                           types={['bar', 'pie', 'doughnut', 'line']} initial={a.defType} theme={theme} />
+                           types={typesOr(['bar', 'pie', 'doughnut', 'line'])} initial={only || a.defType} theme={theme} />
         ))}
       </div>
-      <DynTable data={a.data} />
+      {withTables && <DynTable data={a.data} />}
     </div>
   );
 }
 
 // ── Routing badge (developer detail; off, as in the original) ───────────────
 const SHOW_ROUTE_BADGE = false;
+
+/* The scope a data answer actually used ("MGNREGA · East Khasi Hills · FY
+   2022-23"), built server-side from the SQL's own entities
+   (pipeline._attach_scope_banner), so a wrongly remembered scheme, place or
+   year is visible at a glance. */
+function ScopeBanner({ response }) {
+  const text = String((response && response.scope_banner) || '').trim();
+  if (!text) return null;
+  return (
+    <div className="scope-banner" title="The scheme, place and year this answer used">
+      <span className="sb-lbl">Answered for</span>
+      <span className="sb-pill">{text}</span>
+    </div>
+  );
+}
+
+/* After an idle expiry the first reply offers to pick the old topic back up
+   (conversation_layer.attach_continue_offer). Tapping sends the chip's text,
+   which the server recognises and restores. */
+function ContinueOffer({ response, onAsk }) {
+  const text = String((response && response.continue_offer) || '').trim();
+  if (!text || !onAsk) return null;
+  return (
+    <div className="continue-offer">
+      <span className="co-lbl">Earlier</span>
+      <div className="suggest-item" {...askProps(onAsk, text)}>{text}</div>
+    </div>
+  );
+}
 
 function RouteBadge({ response }) {
   const [open, setOpen] = useState(false);
@@ -206,21 +327,73 @@ function SchemePicker({ response, onAsk }) {
   );
 }
 
+// Clarifying question (#281): the question is the answer text above; under it,
+// each possible reply is a tappable chip that asks the full question for the
+// officer, so nothing is guessed. The pause rule is a debugging detail and
+// shows only with the route badge.
+// The scheme question ("Which scheme does your question concern?") lists its
+// schemes in three cards (central / state / legacy — the heading is for screen
+// readers only), each scheme with its chart hue as a dot; any other reply
+// stays a chip under the cards.
+const SCHEME_GROUPS = [
+  { head: 'Central schemes', schemes: ['MGNREGA', 'PMAY-G'] },
+  { head: 'State schemes', schemes: ['Focus Plus', 'CM Elevate'] },
+  { head: 'Legacy data', schemes: ['Focus Legacy', 'CM Elevate Legacy'] },
+];
+// Longest name first, so "CM Elevate Legacy (…)" is not read as "CM Elevate".
+const SCHEME_NAMES = SCHEME_GROUPS.flatMap((g) => g.schemes).sort((a, b) => b.length - a.length);
+const schemeOf = (label) => SCHEME_NAMES.find((n) => label === n || (label.startsWith(n) && !isAsciiLetterOrDigit(label[n.length]))) || null;
+const isAsciiLetterOrDigit = (c) => typeof c === 'string' && c.length === 1
+  && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'));
+
+// Replies the product no longer offers (removed 2026-10-18 at the user's
+// request). Older turns replayed from the conversation store still carry them,
+// so they are dropped here as well as at the backend.
+const RETIRED_OPTIONS = ['compare across schemes'];
+const isRetiredOption = (label) => RETIRED_OPTIONS.some((r) => label.toLowerCase().startsWith(r));
+
+function groupSchemeOptions(opts) {
+  const tagged = opts.map((o) => ({ ...o, scheme: schemeOf(o.label) }));
+  const groups = SCHEME_GROUPS
+    .map((g) => ({ head: g.head, items: g.schemes.map((n) => tagged.find((o) => o.scheme === n)).filter(Boolean) }))
+    .filter((g) => g.items.length);
+  if (groups.length < 2) return null;              // not the scheme question
+  return { groups, rest: tagged.filter((o) => !o.scheme) };
+}
+
 function Clarify({ response, onAsk }) {
   const c = response && response.clarification;
   if (!c) return null;
   const opts = (Array.isArray(c.options) ? c.options : [])
     .map((o) => ({ q: String((o && o.question) || '').trim(), label: String((o && o.label) || '').trim() }))
-    .filter((o) => o.q && o.label);
+    .filter((o) => o.q && o.label && !isRetiredOption(o.label));
+  if (!opts.length && !(SHOW_ROUTE_BADGE && c.rule)) return null;
+  const grouped = groupSchemeOptions(opts);
+  const chips = grouped ? grouped.rest : opts;
   return (
     <div className="clarify-box">
-      <div className="clarify-lbl">I need one detail first</div>
-      {opts.length > 0 && (
-        <div className="clarify-opts">
-          {opts.map((o, i) => <button key={i} className="clarify-opt" {...askProps(onAsk, o.q)}>{o.label}</button>)}
+      {grouped && (
+        <div className="scheme-groups" role="group" aria-label="Choose a scheme">
+          {grouped.groups.map((g) => (
+            <div key={g.head} className="sg-card" role="group" aria-label={g.head}>
+              {g.items.map((o) => (
+                <button key={o.scheme} type="button" className="sg-item" title={o.label} {...askProps(onAsk, o.q)}>
+                  <span className="sg-dot" aria-hidden="true" style={{ background: (SCHEME_HUES[o.scheme] || {}).main }} />
+                  {o.scheme}
+                </button>
+              ))}
+            </div>
+          ))}
         </div>
       )}
-      {c.rule && <div className="clarify-rule">rule: {String(c.rule)}</div>}
+      {chips.length > 0 && (
+        <div className="clarify-opts" role="group" aria-label="Choose one to continue">
+          {chips.map((o, i) => (
+            <button key={i} type="button" className="clarify-opt" title={o.q} {...askProps(onAsk, o.q)}>{o.label}</button>
+          ))}
+        </div>
+      )}
+      {SHOW_ROUTE_BADGE && c.rule && <div className="clarify-rule">rule: {String(c.rule)}</div>}
     </div>
   );
 }
@@ -236,77 +409,6 @@ function Suggestions({ response, onAsk }) {
   );
 }
 
-const isNameChar = (c) => isWordChar(c) || c === '.';
-const isQuote = (c) => c === '"' || c === "'";
-const lowAt = (s, i, word) => s.slice(i, i + word.length).toLowerCase() === word;
-
-// The table names after every FROM / JOIN (any case), an optional quote around
-// each: "FROM curated.v_x" -> "curated.v_x".
-function tablesAfterFromJoin(sql) {
-  const out = [];
-  let p = 0;
-  while (p < sql.length) {
-    if (lowAt(sql, p, 'from') || lowAt(sql, p, 'join')) {
-      const spaceEnd = runEnd(sql, p + 4, isSpace);
-      const nameStart = spaceEnd + (isQuote(sql[spaceEnd]) ? 1 : 0);
-      const nameEnd = runEnd(sql, nameStart, isNameChar);
-      if (spaceEnd > p + 4 && nameEnd > nameStart) {
-        out.push(sql.slice(nameStart, nameEnd));
-        p = nameEnd + (isQuote(sql[nameEnd]) ? 1 : 0);
-        continue;
-      }
-    }
-    p++;
-  }
-  return out;
-}
-
-// The column list of the first GROUP BY (any case): the shortest run of name
-// characters, commas, spaces and quotes that is followed by ORDER BY, LIMIT,
-// HAVING or the end of the SQL. null when there is none.
-const isGroupChar = (c) => isNameChar(c) || c === ',' || c === '"' || isSpace(c);
-function groupByEnds(sql, i) {
-  if (i === sql.length || lowAt(sql, i, 'limit') || lowAt(sql, i, 'having')) return true;
-  if (!lowAt(sql, i, 'order')) return false;
-  const by = runEnd(sql, i + 5, isSpace);
-  return by > i + 5 && lowAt(sql, by, 'by');
-}
-function groupByList(sql) {
-  for (let p = 0; p < sql.length; p++) {
-    if (!lowAt(sql, p, 'group')) continue;
-    const by = runEnd(sql, p + 5, isSpace);
-    if (by === p + 5 || !lowAt(sql, by, 'by')) continue;
-    const spaceEnd = runEnd(sql, by + 2, isSpace);
-    // as many spaces before the list as possible, then the shortest list
-    for (let start = spaceEnd; start > by + 2; start--) {
-      for (let end = start + 1; end <= sql.length && isGroupChar(sql[end - 1]); end++) {
-        if (groupByEnds(sql, end)) return sql.slice(start, end);
-      }
-    }
-  }
-  return null;
-}
-
-function sourcesOf(sql) {
-  let tableChip = '';
-  const tableMatches = tablesAfterFromJoin(String(sql || ''));
-  if (tableMatches.length) {
-    const seen = [];
-    for (const name of tableMatches) {
-      // "IS DISTINCT FROM TRUE" is not a table.
-      if (['true', 'false', 'null'].includes(name.toLowerCase())) continue;
-      const pretty = prettyName(name.split('.').pop());
-      if (pretty && !seen.includes(pretty)) seen.push(pretty);
-    }
-    const schemes = seen.filter((n) => ['FOCUS+', 'Focus', 'CM Elevate', 'CM Elevate Legacy'].includes(n));
-    tableChip = (schemes.length ? schemes : seen).join(', ');
-  }
-  const groupBy = groupByList(String(sql || ''));
-  const groupChip = groupBy !== null
-    ? 'GROUP BY ' + splitSpaces(groupBy.replaceAll('"', '').replaceAll("'", '').trim())[0].split('.').pop() : '';
-  return { tableChip, groupChip };
-}
-
 function FollowUp({ response, onAsk }) {
   // An EDGE reply carries no follow-up, but may carry starter questions.
   if (!response || response.intent === 'EDGE') return <Suggestions response={response} onAsk={onAsk} />;
@@ -316,7 +418,6 @@ function FollowUp({ response, onAsk }) {
   const suggestion = (response.follow_up || '').trim();
   if (!suggestion) return picker;
 
-  const { tableChip, groupChip } = sourcesOf(response.sql_query || '');
   // Preferred shape: [{label, question}]; older responses carry plain strings.
   const opts = (Array.isArray(response.follow_up_options) && response.follow_up_options.length)
     ? response.follow_up_options
@@ -335,13 +436,6 @@ function FollowUp({ response, onAsk }) {
           </div>
         ))}
       </div>
-      {(tableChip || groupChip) && (
-        <div className="ans-sources">
-          <span className="src-lbl">Sources:</span>
-          {tableChip && <span className="src-chip">{tableChip}</span>}
-          {groupChip && <span className="src-chip">{groupChip}</span>}
-        </div>
-      )}
     </>
   );
 }
@@ -420,7 +514,7 @@ function FeedbackActions({ id, sessionId, question, response, answer }) {
           </div>
           <textarea className="fb-note" rows={2} maxLength={1000} value={note} placeholder="Tell us more (optional)"
                     onChange={(e) => setNote(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submitNote(); } }} />
+                    onKeyDown={(e) => { if (enterSends(e)) { e.preventDefault(); submitNote(); } }} />
           <div className="fb-btns">
             <button type="button" className="fb-skip" onClick={() => setAsking(false)}>Skip</button>
             <button type="button" className="fb-send" onClick={submitNote} disabled={!reason && !note.trim()}>Send</button>
@@ -514,7 +608,7 @@ function UserMessage({ text, time, onEdit, busy, editRequest = 0 }) {
           <div className="msg-edit">
             <textarea ref={ref} rows={1} value={draft} onChange={(e) => setDraft(e.target.value)}
                       onKeyDown={(e) => {
-                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); save(); }
+                        if (enterSends(e)) { e.preventDefault(); save(); }
                         if (e.key === 'Escape') { e.stopPropagation(); cancel(); }
                       }} />
             <div className="msg-edit-bar">
@@ -601,42 +695,40 @@ export function stepTrail(nodes) {
   return out;
 }
 
+// The status pill (#073): names the activity ("Thinking…", "Searching the scheme
+// documents…") instead of showing dots, because a specific status is more
+// reassuring than an anonymous wait. Before the first pipeline step it says
+// "Thinking…"; then it follows the current step; while the draft is being
+// written it says "Writing the answer…".
+function StatusPill({ label }) {
+  return (
+    <div className="typing-bubble status-pill" role="status" aria-live="polite">
+      <span className="pill-spark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2c.6 4.8 3.2 8.4 10 10-6.8 1.6-9.4 5.2-10 10-.6-4.8-3.2-8.4-10-10 6.8-1.6 9.4-5.2 10-10z" /></svg>
+      </span>
+      <span className="pill-text">{label}…</span>
+    </div>
+  );
+}
+
+// Only the current step is shown (the pill); the steps already passed are not
+// listed (removed at the user's request, 2026-10-19).
 export function TypingMessage({ steps, draft, streamKey }) {
   const trail = stepTrail(steps);
   const [shownDraft] = useReveal(draft, streamKey);
-  if (!trail.length && !draft) {
-    return (
-      <div className="msg bot">
-        <div className="av">M</div>
-        <div>
-          <div className="bubble typing-bubble">
-            <span className="dot" /><span className="dot" /><span className="dot" />
-          </div>
-        </div>
-      </div>
-    );
-  }
+  const current = draft ? 'Writing the answer' : (trail[trail.length - 1] || 'Thinking');
   return (
     <div className="msg bot">
       <div className="av">M</div>
       <div>
-        <div className="bubble pending-bubble">
-          {trail.length > 0 && (
-            <ol className="progress-steps" aria-live="polite">
-              {trail.map((label, i) => (
-                <li key={label} className={i === trail.length - 1 ? 'current' : 'done'}>
-                  {i === trail.length - 1 ? <span className="step-spin" /> : <span className="step-tick">{ICONS.check}</span>}
-                  {label}
-                </li>
-              ))}
-            </ol>
-          )}
-          {draft && (
+        <StatusPill label={current} />
+        {draft && (
+          <div className="bubble pending-bubble">
             <div className="answer-text md draft-text">
               <Markdown text={shownDraft} /><span className="draft-cursor" aria-hidden="true" />
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -651,9 +743,9 @@ function MoreAction({ at }) {
     if (!open) return undefined;
     const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
     const onKey = (e) => { if (e.key === 'Escape') { e.stopPropagation(); setOpen(false); } };
-    document.addEventListener('mousedown', onDown);
+    document.addEventListener('pointerdown', onDown);
     document.addEventListener('keydown', onKey, true);
-    return () => { document.removeEventListener('mousedown', onDown); document.removeEventListener('keydown', onKey, true); };
+    return () => { document.removeEventListener('pointerdown', onDown); document.removeEventListener('keydown', onKey, true); };
   }, [open]);
   const stamp = fullStamp(at);
   if (!stamp) return null;
@@ -681,15 +773,14 @@ function RegenerateAction({ onRegenerate, label = 'Regenerate answer' }) {
   );
 }
 
-export function BotMessage({ id, question, response, time, at, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey, sessionId }) {
+export function BotMessage({ id, question, response, time, at, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey, sessionId, view }) {
   // A fresh answer is revealed word by word (reveal.js); the charts, SQL and
   // chips follow once the text is all there. A replayed one shows at once.
   const [shown, revealed] = useReveal(response.answer, streamKey, !!animate);
-  // A cross-scheme comparison (app/cross_scheme.py) already writes its full
-  // per-scheme tables into the answer text. Its `data` rows mix count and amount
-  // rows, which the pivot table read as all "—" and 0 — a second, empty copy of
-  // the table above it. The rows still go back for follow-ups; only the drawing is skipped.
-  const wantsAnalytics = response.intent !== 'EDGE' && !response.cross_scheme
+  // A cross-scheme comparison (app/cross_scheme.py) writes its per-scheme table
+  // into the answer text; its rows are charted one measure per chart
+  // (analytics.js crossSummaryCharts), never pivoted into a second table.
+  const wantsAnalytics = response.intent !== 'EDGE'
     && Array.isArray(response.data) && response.data.length >= 1;
   // A CLARIFY pause fetched nothing, so a "0 results" meta line would mislead.
   const showMeta = response.intent && response.intent !== 'EDGE' && response.intent !== 'CLARIFY';
@@ -700,6 +791,7 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
       <div>
         <div className="bubble">
           <RouteBadge response={response} />
+          <ScopeBanner response={response} />
           {response.answer && (
             <div className="answer-text md">
               <Markdown text={shown} />{!revealed && <span className="draft-cursor" aria-hidden="true" />}
@@ -708,9 +800,15 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
           {revealed && (
             <div className="answer-extras">
               <Citations response={response} />
-              {wantsAnalytics && <Analytics question={question} response={response} />}
+              {wantsAnalytics && (
+                // "give me a wide frame": the backend sets chart_wide, the charts are drawn taller
+                <div className={response.chart_wide ? 'chart-wide' : undefined}>
+                  <Analytics question={question} response={response} view={view} onAsk={onAsk} />
+                </div>
+              )}
               <SqlDisclosure response={response} />
               <FollowUp response={response} onAsk={onAsk} />
+              <ContinueOffer response={response} onAsk={onAsk} />
             </div>
           )}
         </div>

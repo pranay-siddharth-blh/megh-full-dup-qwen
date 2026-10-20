@@ -1,0 +1,103 @@
+# Talking about the conversation (D-052): recap, explain, complaints, corrections, breakdown requests,
+# comparisons with another scheme, picking a district, thanks. Figures observed live on 2026-10-18.
+
+- name: META_recap_explain_breakdown
+  doc: "After a figure: recap, explain, 'why not block-wise', thanks, then a year follow-up still in scope"
+  tags: [meta, context]
+  account: superadmin
+  turns:
+    - say: "PMAY-G houses completed in Ri Bhoi in 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2023-24, numbers_any: [6847]}
+    - say: "who is the PM"
+      expect: {route: edge, answer_contains: ["PMAY-G"]}
+    - say: "what did you just tell me?"
+      expect: {route: edge, edge_type: recap, same_numbers_as: 1}
+    - say: "can you explain this number?"
+      expect: {route: edge, edge_type: explain, numbers_any: [6847], answer_not_contains: ["does not contain"]}
+    - say: "why are you not giving me block wise?"
+      expect: {route: data, same_scope_as: 1, answer_contains: ["Sorry", "UMLING"]}
+      note: "KI-315 family: the 30B verifier sometimes rejects this correct by-block query; a failure here is that, not a context loss"
+    - say: "thanks"
+      expect: {route: edge, edge_type: thanks}
+    - say: "and 2022-23?"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2022-23, numbers_any: [375]}
+
+- name: META_correction_keeps_scope
+  doc: "'why not district-wise' -> breakdown with apology; 'okay give me for EKH'; 'that's wrong, I asked for completed' keeps place AND year"
+  tags: [meta, context]
+  account: superadmin
+  turns:
+    - say: "how many houses are there in 2023-2024"
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24, numbers_any: [106527]}
+    - say: "why are you not giving me district wise?"
+      expect: {route: data, same_scope_as: 1, answer_contains: ["Sorry", "WEST GARO HILLS"]}
+    - say: "okay give me for East Khasi Hills"
+      expect: {route: data, scheme: PMAY-G, place: East Khasi Hills, year: FY 2023-24, numbers_any: [17281]}
+    - say: "that's wrong, I asked for completed houses"
+      expect: {route: data, scheme: PMAY-G, place: East Khasi Hills, year: FY 2023-24, numbers_any: [12038], answer_contains: ["Sorry"]}
+    - say: "ok and Ri Bhoi?"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2023-24, numbers_any: [6847]}
+
+- name: META_pick_a_district
+  doc: "'don't give all of Meghalaya, show me the districts, I'll choose' -> district chips; a typed district merges back"
+  tags: [meta, context]
+  account: superadmin
+  turns:
+    - say: "how many houses are there in 2023-2024"
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24}
+    - say: "Okay, now for the above question, don't give all all of Meghalaya. Ask me a follow up question. I will say one district. What are the districts are there? Then I will choose one."
+      expect: {route: pause, pause_rule: scope-not-specified, chips_contain: ["East Khasi Hills", "All of Meghalaya"], chips_min: 12}
+    - say: "East Khasi Hills"
+      expect: {route: data, scheme: PMAY-G, place: East Khasi Hills, year: FY 2023-24, numbers_any: [17281]}
+
+- name: META_officer_overview_reason
+  doc: "A block officer's 'what is going on in my block' -> scheme pause -> overview; 'compare with last year' asks the year; 'why is it so low?' -> reason + concrete chips"
+  tags: [meta, context, overview]
+  account: superadmin
+  turns:
+    - say: "I am a block officer from Dalu, tell me what is going on in my block"
+      expect: {route: pause, pause_rule: scheme-not-specified}
+    - say: "MGNREGA"
+      expect: {route: pause, pause_rule: year-not-specified, chips_contain: ["FY 2024-25"]}
+      note: "D-053 (2026-10-19): the scheme reply carries no year -> ask. KI-324: the MGNREGA year pause offers 'all of them combined' in words but neither a chip nor the typed reply is accepted, so a year is chosen here"
+    - say: "FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: Dalu, year: FY 2024-25, answer_contains: ["overview"], numbers_any: [2132.46, 21.32, 390921]}
+    - say: "ok compare with last year"
+      expect: {route: data, scheme: MGNREGA, place: Dalu, year: FY 2023-24}
+      note: "a year is in play, so 'last year' is FY 2023-24 (context_manager.substitute_references); MGNREGA shows one year (KI-311)"
+    - say: "why is it so low?"
+      expect: {route: edge, edge_type: reason, chips_contain: ["by block in West Garo Hills"]}
+    - say: "MGNREGA person-days by block in West Garo Hills in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2024-25, numbers_any: [390921]}
+
+- name: CMP_compare_with_scheme
+  doc: "'compare with pmay' after a single-scheme figure is a cross-scheme comparison in the same scope, and continues"
+  tags: [compare, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA expenditure in West Garo Hills in 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2023-24, numbers_any: [14880.51, 148.81]}
+    - say: "compare with pmay"
+      expect: {route: data, banner: "MGNREGA + PMAY-G · West Garo Hills · FY 2023-24", answer_contains: ["Cross-scheme comparison", "PMAY-G", "MGNREGA"]}
+    - say: "by block"
+      expect: {route: data, banner: "MGNREGA + PMAY-G · West Garo Hills · FY 2023-24", answer_contains: ["by block", "Dalu"]}
+
+- name: CMP_scheme_without_that_year
+  doc: "Comparing with a scheme that has no data for the year says so explicitly; the next year keeps the comparison"
+  tags: [compare, context]
+  account: superadmin
+  turns:
+    - say: "PMAY-G houses completed in Ri Bhoi in 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2023-24, numbers_any: [6847]}
+    - say: "and compared to Focus Plus?"
+      expect: {route: data, banner: "PMAY-G + Focus Plus · Ri Bhoi · FY 2023-24", answer_contains: ["no data for FY 2023-24"]}
+    - say: "what about 2022-23?"
+      expect: {route: data, banner: "PMAY-G + Focus Plus · Ri Bhoi · FY 2022-23", numbers_all: [559, 419]}
+
+- name: OOS_farmers_question_asks_which_focus
+  doc: "A natural question about farmers getting money is a Focus question: ask which Focus, with what each one holds"
+  tags: [general, out_of_scope]
+  account: superadmin
+  turns:
+    - say: "I want to know about farmers getting money"
+      expect: {route: pause, pause_rule: focus-scheme-ambiguous, chips_contain: ["Focus Plus", "Focus Legacy"]}

@@ -13,13 +13,14 @@ import numbers as _c12_numbers   # own alias: a file may bind `numbers` to text_
 # states that is not in the data (beyond rounding tolerance) triggers one strict
 # retry, then a deterministic fallback sentence built straight from the rows.
 def _c12_dec(ch: str) -> bool:
-    r"""One regex \d character (a Unicode decimal digit)."""
+    r"""One digit character (a Unicode decimal digit)."""
     return ch.isdecimal()
 
 
 def _c12_num_spans(text: str) -> "list[tuple[int, int]]":
-    r"""Exactly the spans of regex -?\d[\d,]*(?:\.\d+)? (trailing commas included,
-    as the regex keeps them; a '-' is kept only right before a digit)."""
+    r"""Spans of an optional '-', a digit, any run of digits and commas, then
+    an optional '.' with one or more digits (trailing commas included; a '-'
+    is kept only right before a digit)."""
     out, i, n = [], 0, len(text)
     while i < n:
         s0 = i
@@ -45,12 +46,12 @@ _NUM_TOKEN = _C1xScan(_c12_num_spans)
 # "the data doesn't cover / isn't available / can't be broken down" — a hedge the
 # composer must not use when the query actually returned a usable non-zero value.
 def _c12_nt(stem: str):
-    r""""<stem>n't" written "dont", "don't" or "don’t" (no \b before the stem)."""
+    r""""<stem>n't" written "dont", "don't" or "don’t" (the stem may end a longer word)."""
     return Alt(_c1x_suffix(stem + "nt"),
                Seq(_c1x_suffix(stem + "n"), _C1xGapIs(W("t"), lambda g: g in ("'", "’"))))
 
 
-# The regex had no \b in front of the first word of each phrase and none after
+# No word edge is required in front of the first word of each phrase or after
 # most last words, so a lead word matches as a word ENDING ("cannot" holds "not")
 # and an open last word as a word START ("not covering").
 _HEDGE_MATCH = Matcher(Alt(
@@ -72,14 +73,15 @@ _HEDGE_MATCH = Matcher(Alt(
 
 
 def _c12_plain_number(s: str) -> bool:
-    r"""regex fullmatch -?\d+(?:\.\d+)?"""
+    r"""The whole string is an optional '-', digits, and an optional '.digits'."""
     body = s[1:] if s.startswith("-") else s
     whole, dot, frac = body.partition(".")
     return whole.isdecimal() and (not dot or frac.isdecimal())
 
 
 def _c12_year_like(raw: str) -> bool:
-    r"""regex fullmatch -?(19|20|21)\d\d|-\d{2} — a year, or a "-YY" range tail."""
+    r"""The whole string is an optional '-' and a 4-digit year starting 19, 20 or
+    21, or a '-' and two digits — a year, or a "-YY" range tail."""
     body = raw[1:] if raw.startswith("-") else raw
     if len(body) == 4 and body.isdecimal() and body[:2] in ("19", "20", "21"):
         return True
@@ -156,10 +158,10 @@ def _answer_numbers_faithful(answer: str, data_nums: set[str]) -> bool:
 # A comma-grouped number in either house style: Western 1,234,567 or Indian
 # 12,34,567. Anything else ("1,0263") is a mis-grouped figure.
 def _c12_grouped_spans(text: str) -> "list[tuple[int, int]]":
-    r"""The spans of regex (?<![\d,.])\d{1,3}(?:,\d+)+(?:\.\d+)?(?![\d,]):
-    1-3 digits, one or more ',digits' groups, an optional decimal part, not
-    touching another digit / comma / point in front or a digit / comma behind
-    (a decimal part followed by a comma is given back, as the regex does)."""
+    r"""The spans of 1-3 digits, one or more ',digits' groups, an optional
+    decimal part, not touching another digit / comma / point in front or a
+    digit / comma behind (a decimal part followed by a comma is given back
+    and the span ends before it)."""
     out, i, n = [], 0, len(text)
     while i < n:
         if not _c12_dec(text[i]) or (i > 0 and (_c12_dec(text[i - 1]) or text[i - 1] in ",.")):
@@ -193,8 +195,8 @@ _GROUPED_NUM = _C1xScan(_c12_grouped_spans)
 
 
 def _c12_valid_grouping(whole: str) -> bool:
-    r"""regex fullmatch \d{1,3}(?:,\d{3})+|\d{1,2}(?:,\d{2})*,\d{3}: Western
-    1,234,567 or Indian 12,34,567 grouping."""
+    r"""The whole string is 1-3 digits then ',ddd' groups, or 1-2 digits, any
+    ',dd' groups, then ',ddd': Western 1,234,567 or Indian 12,34,567 grouping."""
     parts = whole.split(",")
     if len(parts) < 2 or not all(p.isdecimal() for p in parts):
         return False
@@ -306,9 +308,9 @@ _C12_NONSTAT_PARTS = frozenset({"year", "yr", "fy", "pincode", "rank", "serial"}
 
 
 def _c12_nonstat_spans(name: str) -> "list[tuple[int, int]]":
-    """regex (^|_)(year|yr|fy|pincode|rank|serial)($|_)|_key$|_code$|_id$|(^|_)id$
-    (case-insensitive) on a column name: one '_'-separated part is a year / code
-    word, or the name ends in _key / _code / _id, or is "id"."""
+    """Case-insensitive, on a column name: one '_'-separated part is year, yr,
+    fy, pincode, rank or serial (a year / code word), or the name ends in
+    _key / _code / _id, or is "id"."""
     low = name.lower()
     pos = 0
     for part in low.split("_"):
@@ -326,7 +328,17 @@ def _c12_nonstat_spans(name: str) -> "list[tuple[int, int]]":
 _NONSTAT_COL = _C1xScan(_c12_nonstat_spans)
 
 
-def _result_digest(rows: list[dict], max_values: int = 40) -> "tuple[str, set[str]]":
+# The mean of a result column goes in the digest only when the question asks for
+# an average. "gender wise breakup of applications" (Focus Plus, 2 rows) was
+# answered "...with a mean of 6,263.50 per gender" (user report 2026-10-19): a
+# figure nobody asked for and that means nothing, offered because the digest
+# handed every multi-row result a mean and whitelisted it. Left out, a mean the
+# composer still writes fails the numeric-faithfulness check.
+_ASKS_AVERAGE = Matcher(W("average", "averages", "avg", "mean", "median", "typical", "typically"))
+
+
+def _result_digest(rows: list[dict], max_values: int = 40,
+                   with_mean: bool = True) -> "tuple[str, set[str]]":
     """A deterministic whole-result summary, computed from EVERY row (not just the
     preview the composer is shown): the distinct coverage of each dimension
     column, and sum / mean / max / min of each numeric column together with which
@@ -380,12 +392,13 @@ def _result_digest(rows: list[dict], max_values: int = 40) -> "tuple[str, set[st
         hi_row, hi = max(pairs, key=lambda p: p[1])
         lo_row, lo = min(pairs, key=lambda p: p[1])
         mean = total / len(nums)
-        for val in (total, hi, lo, mean):
+        for val in (total, hi, lo) + ((mean,) if with_mean else ()):
             f = float(val)
             allowed.add(str(int(f)) if f.is_integer() else f"{f:g}")
             allowed.add(f"{f:.2f}".rstrip("0").rstrip("."))
+        mean_part = f"mean={_fmt_num(round(mean, 2))}; " if with_mean else ""
         lines.append(
-            f"{k}: sum={_fmt_num(total)}; mean={_fmt_num(round(mean, 2))}; "
+            f"{k}: sum={_fmt_num(total)}; {mean_part}"
             f"max={_fmt_num(hi)} at [{_label(hi_row)}]; min={_fmt_num(lo)} at [{_label(lo_row)}]"
         )
 
@@ -435,6 +448,255 @@ def _deterministic_answer(rows: list[dict]) -> str:
 
 
 _DETERMINISTIC_MAX_ROWS = 15
+
+
+# ── Professional framing of an answer (user report 2026-10-18) ──────────────
+# "1,494,437 household years." and "household years: 1,494,437; person years:
+# 1,865,234; financial years: 4." reached the officer as the whole answer (the
+# composer's sentence had failed the number check, so the bare fallback above
+# was shown). Every answer must read as a briefing line: the scheme, what the
+# figure counts in plain words, the area and the period. The fallback is framed
+# here; every composed answer goes through _finish_answer (digit grouping, and a
+# scope sentence when neither the scheme nor the area is named).
+_HUMAN_METRIC = {
+    "household_years": "household-years of employment",
+    "person_years": "person-years of employment",
+    "households_employed": "households provided employment",
+    "persons_employed": "persons provided employment",
+    "person_days": "person-days of employment",
+    "persondays": "person-days of employment",
+    "job_cards_issued_total": "job cards issued",
+    "job_cards": "job cards issued",
+    "households_completed_100_days": "households that completed 100 days of work",
+    "women_employment_provided": "person-days of employment provided to women",
+    "houses": "houses", "houses_sanctioned": "houses sanctioned", "houses_completed": "houses completed",
+    "completed_houses": "completed houses", "sanctioned_houses": "sanctioned houses",
+    "beneficiaries": "beneficiaries", "beneficiary_count": "beneficiaries",
+    "applications": "applications", "applicants": "applicants", "application_count": "applications",
+    "producer_groups": "producer groups", "members": "members", "memberships": "memberships paid",
+    "financial_years": "financial years covered", "years": "financial years covered",
+    "villages": "villages", "blocks": "blocks", "districts": "districts",
+}
+_METRIC_CAVEAT = {
+    "household_years": ("A household is counted once for each financial year it worked, so this is not a "
+                        "count of distinct households."),
+    "person_years": ("A person is counted once for each financial year they worked, so this is not a count "
+                     "of distinct persons."),
+}
+
+
+def _human_metric(col: str) -> str:
+    key = str(col).lower()
+    if key in _HUMAN_METRIC:
+        return _HUMAN_METRIC[key]
+    unit = _unit_suffix(key)
+    if unit:
+        name, word, rupee = unit
+        return f"{name} ({rupee}{word})" if (word or rupee) else name
+    return _metric_label(key)
+
+
+def _scope_words(schemes: "list[str] | None", entities: "dict | None") -> tuple[str, str, str]:
+    """(scheme, place, period) in words: ("MGNREGA", "Mawphlang block", "FY 2023-24").
+    Place falls back to "all of Meghalaya (statewide)", period to "across all
+    financial years"; scheme is "" for a cross-scheme or unknown result."""
+    ents = entities or {}
+    scheme = schemes[0] if schemes and len(schemes) == 1 else ""
+    place = ""
+    for key, word in (("village", "village"), ("block", "block"), ("assembly_constituency", "constituency"),
+                      ("district", "district")):
+        v = ents.get(key)
+        if v:
+            name = str(v).title() if str(v).isupper() else str(v)
+            place = f"{name} {word}"
+            break
+    if not place:
+        place = "all of Meghalaya (statewide)"
+    year = ents.get("year") or ents.get("financial_year") or ""
+    period = str(year) if year else "across all financial years"
+    if period and period[0].isdigit():
+        period = f"FY {period}"
+    return scheme, place, period
+
+
+def _framed_fallback(rows: list[dict], schemes: "list[str] | None", entities: "dict | None") -> str:
+    """The deterministic answer as a briefing sentence: scheme, figure, what it
+    counts, area and period — never a bare "<value> <column>."."""
+    scheme, place, period = _scope_words(schemes, entities)
+    lead = f"Under {scheme}, " if scheme else ""
+    where = f"in {place}"
+    when = period if period.startswith("across") else f"in {period}"
+    if len(rows) == 1:
+        row = rows[0]
+        nums = _row_metrics(row)
+        labels = [str(v) for k, v in row.items() if v is not None and _as_number(v) is None]
+        for_labels = f"for {', '.join(labels)}, " if labels else ""
+        parts = []
+        caveats = []
+        for k, v in nums:
+            unit = _unit_suffix(str(k))
+            if unit:
+                name, word, rupee = unit
+                sep = "" if word in ("", "%") else " "
+                parts.append(f"{rupee}{_fmt_num(v)}{sep}{word} {name}".strip())
+            else:
+                parts.append(f"{_fmt_num(v)} {_human_metric(str(k))}")
+            if str(k).lower() in _METRIC_CAVEAT:
+                caveats.append(_METRIC_CAVEAT[str(k).lower()])
+        if not parts:
+            return _deterministic_answer(rows)
+        if len(parts) == 1:
+            body = f"the recorded total is {parts[0]}"
+        else:
+            body = "the records show " + ", ".join(parts[:-1]) + f" and {parts[-1]}"
+        sentence = f"{lead}{for_labels}{when} {where}, {body}."
+        sentence = sentence[0].upper() + sentence[1:]
+        return " ".join([sentence] + caveats)
+    head = f"{lead}{when} {where}, here are the {len(rows)} results:"
+    head = head[0].upper() + head[1:]
+    body = _deterministic_answer(rows)
+    first_nl = body.find("\n")
+    return head + (body[first_nl:] if first_nl >= 0 else "\n" + body)
+
+
+def _is_fallback_answer(answer: str, rows: list[dict], schemes: "list[str] | None", entities: "dict | None") -> bool:
+    """Was `answer` written by the deterministic fallback (bare or framed)?"""
+    a = (answer or "").strip()
+    return a in (_deterministic_answer(rows).strip(), _framed_fallback(rows, schemes, entities).strip())
+
+
+from app.text_match import number_spans as _c12_number_spans  # noqa: E402 — the framing pass below
+
+
+def _group_result_digits(answer: str, rows: list[dict]) -> str:
+    """Thousands separators for every result integer of five or more digits that
+    the answer writes bare ("27264054" -> "27,264,054"). Years and small counts
+    are left alone; only tokens that ARE a result value are touched."""
+    values = {int(v) for r in rows for _k, v in _row_metrics(r) if isinstance(v, int) or float(v).is_integer()}
+    if not values or not answer:
+        return answer
+    out, last = [], 0
+    for start, end, tok in _c12_number_spans(answer, decimals=True, commas=True):
+        # four digits too (6847 -> 6,847), except a year-like value (2017..2100)
+        if tok.isdecimal() and len(tok) >= 4 and int(tok) in values and not (1900 <= int(tok) <= 2100):
+            out.append(answer[last:start]); out.append(f"{int(tok):,}"); last = end
+    out.append(answer[last:])
+    return "".join(out)
+
+
+# "Total person-days for FY 2023-24 across all financial years is 27,264,054":
+# the 9B composer named the year AND the all-years phrase in one sentence on a
+# correctly single-year SQL (D-053 live probe, 2026-10-19). On a single-year
+# result the phrase is wrong by construction, so _finish_answer drops it on
+# words, with the separator it hung on, before the scope sentence is judged.
+_C12_ALL_YEARS_PHRASE = Matcher(Seq(Opt(W("across", "over", "for", "in", "during", "of")), "all", Opt("the"),
+                                    Opt(W("financial", "fiscal")), "years", Opt("combined")))
+_C12_SENTENCE_BREAK = ".?!:;\n"
+
+
+def _drop_all_years_phrase(text: str) -> str:
+    """Remove every "across all financial years" (and kin) from `text`, keeping the
+    sentence readable: a phrase mid-sentence goes with the separator before it and a
+    comma after it; one that opens a sentence goes with its trailing comma and the
+    next word is capitalised. Idempotent; text without the phrase is returned as is."""
+    for _ in range(6):
+        h = _C12_ALL_YEARS_PHRASE.search(text)
+        if h is None:
+            return text
+        toks = tokens(text)
+        prev = next((t for t in reversed(toks) if t.end <= h.start()), None)
+        gap = text[prev.end:h.start()] if prev else text[:h.start()]
+        after = text[h.end():]
+        if prev is None or any(ch in gap for ch in _C12_SENTENCE_BREAK):
+            # sentence-initial: "Across all financial years, MGNREGA ..." -> "MGNREGA ..."
+            rest = after.lstrip(" ,")
+            rest = rest[:1].upper() + rest[1:]
+            text = text[:h.start()] + rest
+            continue
+        # ", across all financial years, X" keeps one comma ("..., X"); a phrase that
+        # hung on a space but is followed by a comma takes that comma with it
+        if "," not in gap and after.lstrip().startswith(","):
+            after = after.lstrip()[1:]
+            if not after[:1].isspace():
+                after = " " + after
+        text = text[:prev.end] + after
+    return text
+
+
+def _finish_answer(answer: str, rows: list[dict], schemes: "list[str] | None", entities: "dict | None") -> str:
+    """The universal last pass over a data answer: result figures carry thousands
+    separators, and a single-figure answer that does not name the scheme or the
+    area gets one closing scope sentence, so the officer always reads what the
+    figure is for. Idempotent: a framed answer is left as it is."""
+    if not answer:
+        return answer
+    text = _group_result_digits(answer, rows)
+    scheme, place, period = _scope_words(schemes, entities)
+    if period.startswith("FY"):
+        text = _drop_all_years_phrase(text)
+    if not scheme or len(rows) != 1:
+        return text
+    low = text.lower()
+    statewide = place.startswith("all of")
+    place_name = place.split(" (")[0]
+    for word in (" district", " block", " village", " constituency"):
+        if place_name.endswith(word):
+            place_name = place_name[: -len(word)]
+    names_scheme = scheme.lower() in low or scheme.lower().replace("-", "") in low.replace("-", "")
+    names_place = ("meghalaya" in low or "statewide" in low) if statewide else place_name.lower() in low
+    if names_scheme and names_place:
+        return text
+    # Already framed: the composer path and the finalize node both run this, and
+    # the short closing sentence ("This is the MGNREGA figure.") names no place,
+    # so a second pass added another one (harness AC07, 2026-10-19).
+    if "This is the " in text and " figure" in text or "This figure is for " in text:
+        return text
+    place_text = "all of Meghalaya" if statewide else place
+    # Only what the sentence leaves out: "…in East Khasi Hills across FY 2022-23.
+    # This is the MGNREGA figure for East Khasi Hills district, FY 2022-23." said
+    # the place and the year twice (Conversational Memory approach, 2026-10-19).
+    fy = period[3:] if period.startswith("FY ") else ""
+    when = "" if (fy and fy in text) else f", {period}"
+    if not names_scheme and not names_place:
+        tail = f"This figure is for {scheme}, {place_text}{' (statewide)' if statewide else ''}{when}."
+    elif not names_scheme:
+        tail = f"This is the {scheme} figure{(' for ' + period) if when else ''}."
+    else:
+        tail = f"This is the {'statewide ' if statewide else ''}figure for {place_text}{when}."
+    return f"{text.rstrip()} {tail}"
+
+
+def _display_from_resolved(resolved: "dict | None") -> dict:
+    """The display-style entities (_scope_words reads) from a result's resolved
+    entities: Title Case places and "FY 2023-24" for year_key."""
+    r = resolved or {}
+    out = {}
+    for k in ("district", "block", "village", "assembly_constituency"):
+        if r.get(k):
+            out[k] = str(r[k]).title()
+    y = r.get("year_key")
+    if y is not None:
+        try:
+            out["year"] = f"FY {int(y)}-{(int(y) + 1) % 100:02d}"
+        except (TypeError, ValueError):
+            pass
+    return out
+
+
+def _finish_data_result(result: dict) -> None:
+    """_finish_answer for a finished DATA result, whichever path wrote it (the
+    composer, a scheme's deterministic facts, a fixed query): called from the
+    finalize node so every data answer reads as a briefing line."""
+    if not isinstance(result, dict) or result.get("route") != "data" or result.get("answer_failed"):
+        return
+    rows = result.get("rows") or result.get("data") or []
+    if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
+        return
+    try:
+        result["answer"] = _finish_answer(result.get("answer") or "", rows, result.get("schemes") or [],
+                                          _display_from_resolved(result.get("resolved_entities")))
+    except Exception:  # noqa: BLE001 — presentation only; the answer stands as written
+        logger.warning("_finish_data_result failed (non-fatal)", exc_info=True)
 
 
 def _unit_suffix(col: str) -> "tuple[str, str, str] | None":

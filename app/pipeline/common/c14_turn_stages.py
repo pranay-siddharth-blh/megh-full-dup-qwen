@@ -43,6 +43,50 @@ def _mark_context_dependent(result: dict, session, *, raw_question, followup, pl
         result["context_dependent"] = True
 
 
+def _scope_banner_place(resolved: dict) -> str:
+    for key in ("village", "block", "assembly_constituency", "district"):
+        if resolved.get(key):
+            name = str(resolved[key]).title()
+            return f"{name} constituency" if key == "assembly_constituency" else name
+    for key in ("village_code_list", "block_list", "district_list"):
+        vals = [str(v).title() for v in (resolved.get(key) or []) if v]
+        if vals:
+            return ", ".join(vals[:3]) + (f" +{len(vals) - 3}" if len(vals) > 3 else "")
+    return "All of Meghalaya"
+
+
+def _scope_banner_year(resolved: dict) -> "str | None":
+    years = [resolved["year_key"]] if resolved.get("year_key") is not None else list(resolved.get("year_key_list") or [])
+    out = []
+    for y in years:
+        try:
+            out.append(f"FY {int(y)}-{str(int(y) + 1)[-2:]}")
+        except (TypeError, ValueError):
+            continue
+    return ", ".join(out) or None
+
+
+def _attach_scope_banner(result: dict, session) -> None:
+    """The scope a DATA answer actually used, shown above it (Context Memory
+    proposal S2, 2026-10-18): "MGNREGA · East Khasi Hills · FY 2022-23". Built
+    from the result's own schemes and resolved entities — what the SQL ran
+    with — never from model text, so a wrong inherited scheme, place or year
+    is visible at once. "(from earlier)" when the scope was restored from an
+    earlier question (topic_memory ledger)."""
+    if result.get("route") != "data" or not result.get("schemes") or not (result.get("sql") or result.get("sql_query")):
+        return
+    resolved = result.get("resolved_entities") or {}
+    parts = [" + ".join(result["schemes"]), _scope_banner_place(resolved)]
+    year = _scope_banner_year(resolved)
+    if year:
+        parts.append(year)
+    banner = " · ".join(parts)
+    ctx = (getattr(session, "turn_context", None) or {}) if session is not None else {}
+    if ctx.get("restored_question"):
+        banner += " (from earlier)"
+    result["scope_banner"] = banner
+
+
 def _reference_state(question: str, ctx_state):
     """The state "this year" / "last year" / "the previous year" are read
     against (WI-4): the session's on a follow-up; with no year for a standalone
@@ -77,7 +121,7 @@ async def _data_path_error_result(error: Exception, question: str, raw_question:
             raise
         logger.warning("data path failed (%s) — trying KB fallback", e, exc_info=True)
         turn_trace.note_final_error(e)
-        return await _data_path_kb_fallback(question)
+        return _mark_failed_data_turn(await _data_path_kb_fallback(question), question, raw_question)
     except Exception as e:  # noqa: BLE001
         # megh_db unreachable anywhere on the DATA path (village lookup, SQL,
         # a recount): say so — the reference documents cannot answer a data
@@ -91,7 +135,21 @@ async def _data_path_error_result(error: Exception, question: str, raw_question:
         logger.warning("data path failed (%s) — trying KB fallback", e, exc_info=True)
         # recorded so the audit tells this KB answer apart from a genuine one
         turn_trace.note_final_error(e)
-        return await _data_path_kb_fallback(question)
+        return _mark_failed_data_turn(await _data_path_kb_fallback(question), question, raw_question)
+
+
+def _mark_failed_data_turn(result: dict, question: str, raw_question: str) -> dict:
+    """A DATA turn that ended in the fallback still answered the STANDALONE
+    question: record it as `rewritten_question`, so the next follow-up builds on
+    it and not on the typed fragment (harness 2026-10-18: after a failed "why are
+    you not giving me block wise?", "and 2022-23?" was rewritten as "Why are you
+    not giving me block wise data … FY 2022-23?"), and flag it `answer_failed` so
+    no apology preface is put in front of the failure text (_attach_preface)."""
+    if isinstance(result, dict):
+        if question and question != raw_question and not result.get("rewritten_question"):
+            result["rewritten_question"] = question
+        result["answer_failed"] = True
+    return result
 
 
 async def _turn_context_stage(t: dict, session: "Session | None" = None,
@@ -106,22 +164,41 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
     _topic = topic_memory.resolve_turn(session, question)
     if _topic.response is not None:
         return _topic.response
+    if _topic.action in ("continue", "none"):
+        # A reference back ("that figure you gave for the housing scheme") the
+        # rules placed nowhere: the rewrite model picks one earlier question
+        # from this conversation's ledger, or NONE / ASK (topic_memory Phase 4,
+        # D-050). Only on such turns; otherwise this returns None at once.
+        _picked = await topic_memory.resolve_reference(session, question)
+        if _picked is not None:
+            _topic = _picked
     question = _topic.question
     raw_question = question
     question = _correct_fy_spacing(_correct_place_spelling(_correct_scheme_spelling(question)))
-    # "total amount disbursed under CM Elevate" can only be answered by CM
-    # Elevate Legacy — settle which CM Elevate dataset is meant, once, here.
-    # A DATA decision only: the KNOWLEDGE route undoes it (see _unpin_cm_elevate).
-    _pinned = _pin_cm_elevate_dataset(question)
-    _cm_pinned = _pinned != question
-    question = _pinned
-    scope_resumed = False
-    question = _each_scheme_in_cm_thread(question, session)
-
     # Computed early (moved ahead of the original follow-up step) so the step-0
     # edge check below can relax its whitelist gate for a plausible follow-up —
     # see edge.detect_edge_case's has_context param.
     prev = session.last_turn if session is not None else None
+    # A bare "CM Elevate" in a thread already on one CM Elevate dataset stays on
+    # that dataset — settled once, here. Outside such a thread the words decide,
+    # or the data stage asks (_cm_elevate_dataset_pause). A DATA decision only:
+    # the KNOWLEDGE route undoes it (see _unpin_cm_elevate).
+    _cm_thread = _cm_thread_scheme(prev, _turn_ctx_state(session),
+                                   getattr(session, "pending_scope_q", None) if session is not None else None)
+    # KI-330: "now give me for cm elevate" after a Legacy answer is a switch to
+    # the applications dataset. Not pinned here (the raw fragment must reach the
+    # deterministic scheme swap); the follow-up pin below reads the switch.
+    _cm_switch = _cm_switch_to_applications(question, _cm_thread)
+    if _cm_switch:
+        context_budget.log_decision("cm_dataset", rule="switch-from-legacy", scheme="CM Elevate")
+        logger.info("CM Elevate named as a switch from a Legacy thread -> applications: %r", question)
+        _pinned = question
+    else:
+        _pinned = _pin_cm_elevate_dataset(question, _cm_thread)
+    _cm_pinned = _pinned != question
+    question = _pinned
+    scope_resumed = False
+    question = _each_scheme_in_cm_thread(question, session)
     has_antecedent = prev is not None and prev.route in _ANTECEDENT_ROUTES
     ctx_state = _turn_ctx_state(session)
     # Facts about this turn for provenance (context_manager.update_state):
@@ -142,8 +219,14 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
             # Meghalaya" then ran as "Focus Plus, All of Meghalaya" — a scheme
             # overview (Focus Plus use-case QA 2026-09-27, FOCUS-029).
             "resumed_question": None,
+            # KI-330: a bare "CM Elevate" named as a switch from a Legacy thread;
+            # read by the follow-up stage's dataset pin (set above, before this reset).
+            "cm_dataset_switch": "CM Elevate" if _cm_switch else None,
             # The rewritten follow-up, as it stood before any pause (see step 1f).
             "standalone_question": None,
+            # This turn runs in an earlier question's restored scope (the topic
+            # ledger): the scope banner says "(from earlier)".
+            "restored_question": _topic.action == "restore",
         }
 
     # 0a. Resuming a "which area / year?" pause — fold the user's free-text reply
@@ -232,9 +315,18 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
         if _is_chip_resume:
             scope_resumed = True
             logger.info("scope/year clarification resumed via full question -> %r", question)
+        elif not _bailed and _pending_rule == "year-not-specified" and _is_all_years_reply(question):
+            # KI-324: a typed "all of them combined" / "all" / "combined" is the
+            # "All financial years combined" chip, so it resumes with that chip's
+            # exact text; merged as ", all of them combined" it re-asked the year.
+            session.turn_context["clarification_reply"] = question
+            question = f"{pending.rstrip(' ?.')} across all financial years"
+            scope_resumed = True
+            context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="all-years")
+            logger.info("year clarification answered all-years -> %r", question)
         elif not _bailed and not _reply_abandons_scope_pause(question):
             session.turn_context["clarification_reply"] = question
-            question = f"{pending.rstrip(' ?.')}, {question.strip()}"
+            question = _merge_scope_reply(pending, question)
             scope_resumed = True
             logger.info("scope clarification resumed -> %r", question)
         elif not _bailed and _pending_rule == "year-not-specified" and _is_yearwise_reply(question):
@@ -263,8 +355,33 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
             has_antecedent = True
             context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="backref-followup",
                                         schemes=_ps)
+            session.turn_context["antecedent_from_pause"] = True
             logger.info("year pause skipped by a follow-up on the paused question -> antecedent %r",
                         prev.question)
+        elif not _bailed and _pending_rule in ("year-not-specified", "scope-not-specified") \
+                and not _exact_schemes(question) \
+                and set(_infer_scheme_from_terms(question) or []) <= (
+                    set(_exact_schemes(pending)) or set(_infer_scheme_from_terms(pending) or [])) \
+                and context_policy.continuation_signals(question):
+            # A follow-up whose words belong to the paused question's OWN scheme
+            # ("and how many completed?" after a PMAY-G pause) continues it too.
+            # Audit 2026-10-19: "Total amount disbursed under CM Elevate Legacy in
+            # East Garo Hills" paused for the year; "how many records is that?"
+            # names no scheme of its own, so with no answered turn to lean on it
+            # ran as a statewide all-schemes question. A follow-up that names no
+            # scheme, typed while a pause waits, continues the PAUSED question —
+            # its scheme and place — and declining to pick a year reads as all years.
+            from app.session_store import Turn
+            _ps = sorted(_exact_schemes(pending)) or list(_infer_scheme_from_terms(pending) or [])
+            if _ps:
+                prev = Turn(question=f"{pending.rstrip(' ?.')} across all financial years",
+                            raw_question=pending, route="data", schemes=_ps,
+                            resolved_entities={}, answer="")
+                has_antecedent = True
+                context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="followup-on-paused",
+                                            schemes=_ps)
+                session.turn_context["antecedent_from_pause"] = True
+                logger.info("pause skipped by a scheme-less follow-up -> antecedent %r", prev.question)
         if scope_resumed and not session.turn_context.get("clarification_reply"):
             session.turn_context["clarification_reply"] = question
         if scope_resumed:
@@ -310,7 +427,7 @@ def _strip_end_punct(name: str) -> str:
 
 
 def _c14_letter_words(text: str) -> "list[str]":
-    """regex findall [A-Za-z][A-Za-z().'-]* — runs that start with a letter."""
+    """Every run of ASCII letters and ( ) . ' - that starts with a letter."""
     out, i, n = [], 0, len(text)
     while i < n:
         ch = text[i]
@@ -326,7 +443,7 @@ def _c14_letter_words(text: str) -> "list[str]":
 
 
 def _c14_ascii_bounded_sub(needle: str, repl: str, text: str) -> str:
-    """regex sub((?<![A-Za-z0-9]) + escape(needle) + (?![A-Za-z0-9]), repl, text, IGNORECASE)."""
+    """Replace each `needle` (any case) not inside a longer run of ASCII letters/digits with repl."""
     if not needle:
         return text
     low, nd = text.lower(), needle.lower()
@@ -469,8 +586,9 @@ _C14_HOWTO_OBJECTS = (("this",), ("it",), ("that",), ("them",), ("these",), ("th
 
 
 def _c14_howto_tail(rest: str) -> bool:
-    r"""regex [^.?!]{0,30}?\b(?:this|it|that|them|these|the\s+(?:scheme|benefits?|assistance|money))?\W*$
-    on the text after the verb."""
+    r"""Up to 30 characters with no . ? !, then optionally a whole word this / it / that / them /
+    these / the scheme / the benefit(s) / the assistance / the money, then only non-word
+    characters to the end — on the text after the verb."""
     p = len(rest)
     while p > 0 and not _c1x_is_word_char(rest[p - 1]):
         p -= 1
@@ -489,7 +607,7 @@ def _c14_howto_tail(rest: str) -> bool:
 
 
 class _C14HowTo(_C1xLike):
-    """The old _SCHEME_HOWTO_SHAPE regex: the whole question is "(so/ok/and/then)
+    """The old _SCHEME_HOWTO_SHAPE check: the whole question is "(so/ok/and/then)
     how do/can/… (I/we/one/my X) get/apply/… [up to 30 more characters] (this /
     it / the scheme …)" and nothing but punctuation after."""
 
@@ -523,8 +641,9 @@ _COUNT_SHAPE_MATCH = Matcher(Alt(Seq("how", "many", sep="space"), Seq("number", 
 
 
 def _c14_compare_places_spans(text: str) -> list:
-    r"""regex (?::\s*|\bcompare\b.{0,60}?\b|\bbetween\s+)[A-Za-z][\w'() -]*?\s+(?:or|and|vs\.?|versus)\s+[A-Za-z]:
-    two names joined by or / and / vs / versus after a colon, "compare" or "between"."""
+    r"""Two names joined by or / and / vs / versus after a colon, "compare" or "between":
+    the first starts with a letter (as short as possible), the joiner is a whole word
+    with spaces around it, and a letter follows; "compare" may be up to 60 characters back."""
     n = len(text)
     starts: list = []                     # (match start, first letter position)
     for i, ch in enumerate(text):
@@ -551,7 +670,7 @@ def _c14_compare_places_spans(text: str) -> list:
             continue
         q = k + 1
         while True:
-            # \s+ (or|and|vs\.?|versus) \s+ [A-Za-z] at q
+            # spaces, then or / and / vs / vs. / versus, spaces, then a letter, at q
             w0 = q
             while w0 < n and text[w0].isspace():
                 w0 += 1
@@ -584,8 +703,8 @@ _C14_NOT_A_PLACE = frozenset("my your his her our their me us a an this that it 
 
 class _C14SlotWord(_C1xNode):
     r"""A word that starts with a letter, is at least two characters of word
-    characters, ' and - , and is not a pronoun / article (the old
-    (?!(?:my|…)\b)[A-Za-z][\w'-]+)."""
+    characters, ' and - , and is not a pronoun / article (my, your, …,
+    them — see _C14_NOT_A_PLACE)."""
 
     def ends(self, ctx, i, caps):
         if i >= len(ctx.toks):
@@ -630,7 +749,7 @@ _SCHEME_DATA_NOUN_MATCH = Matcher(Alt(
 # (UI 2026-10-12). Content / task requests are still caught by
 # check_scope_rules first, and harm verdicts are never overruled.
 def _c14_lead_then(lead: str, *stems: str):
-    r"""regex \blead[\s-]?(?:stem|…)\w* — "cross-check", "cross check", "crosscheck…"."""
+    r"""lead, then at most one space or hyphen, then a word starting with a stem — "cross-check", "cross check", "crosscheck…"."""
     return Alt(Seq(W(lead), _C1xGapIs(W(*stems, prefix=True), _c1x_ws_or_dash0)),
                W(*[lead + st for st in stems], prefix=True))
 
@@ -704,7 +823,12 @@ async def _turn_edge_stage(t: dict, session: "Session | None" = None,
     #      which judges meaning rather than words. The model check is skipped for
     #      a pause reply ("2023", a chip) and for a canned conversational turn
     #      ("hi", "thanks"), neither of which can carry a new request.
-    _guard = await _guardrail_check(raw_question, question, scope_resumed, has_context)
+    # A reply that resumed one of our own clarifications ("plus" to "which
+    # Focus?", "legacy" to "which CM Elevate?") is on topic by construction: the
+    # scope model judged the bare word "plus" off-topic (audit 2026-10-19). The
+    # harm rules still run on it.
+    _pause_reply = bool(session is not None and (getattr(session, "turn_context", None) or {}).get("clarification_reply"))
+    _guard = await _guardrail_check(raw_question, question, scope_resumed or _pause_reply, has_context)
     if _guard:
         _harm, _layer = _guard
         context_budget.log_decision("guardrail", layer=_layer, category=_harm["type"], blocked=True)
@@ -729,7 +853,29 @@ async def _turn_edge_stage(t: dict, session: "Session | None" = None,
     #      _scheme_comparison_answer) rather than falling through to RAG, which
     #      has no single document covering either and either over-elaborates on
     #      one scheme or says "not covered". Same scope-pause carve-out as above.
+    # 0-b. Talking about the conversation itself (D-052): "what did you just tell
+    #      me?", "can you explain this number?", "you are not understanding me",
+    #      "what should I ask next?" are answered from the previous turn, before
+    #      the edge banks read them as off-topic or confused. An aside: the
+    #      topic goes on (conversation_layer.resume_after_small_talk). A
+    #      correction / breakdown ("why are you not giving me district wise?")
+    #      is the follow-up stage's (step 0h): it skips the why-choice /
+    #      recommendation / listing answers below, which read "why … not" as a
+    #      question about the bot's own choice (live probe 2026-10-18).
+    _meta = None
     if not scope_resumed:
+        _meta_reply = await _conversation_meta_answer(raw_question, t.get("prev"), session)
+        if _meta_reply is not None:
+            return _meta_reply
+        # "Which years do you have for MGNREGA?" / "which districts can I see?" —
+        # coverage, from the year registry and the officer's own scope (the
+        # pipeline asked "which scheme?" or gave the capability paragraph).
+        _cover = _coverage_answer(raw_question, t.get("prev"), scope)
+        if _cover is not None:
+            return _cover
+        _meta = _meta_kind(raw_question, t.get("prev"))
+
+    if not scope_resumed and _meta not in ("correction", "breakdown"):
         # "Pick any scheme and explain it" — checked FIRST: it is neither a
         # listing nor a follow-up, and must not reach the "which scheme?" pause
         # or the follow-up rewrite (which re-reads it against the last scheme).
@@ -809,13 +955,88 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
             logger.warning("context_manager.substitute_references failed — continuing unchanged",
                            exc_info=True)
 
+    # 0g. "Show me the districts, I'll choose one" right after a data answer
+    #     narrows THAT answer to a district the user picks: offer the districts
+    #     as chips (_pick_district_clarification). Reported 2026-10-18: it was
+    #     routed to the KB, which said the scheme documents hold no district list.
+    if (not scope_resumed and prev is not None and getattr(prev, "route", None) == "data"
+            and getattr(prev, "schemes", None) and _asks_to_pick_district(raw_question)
+            and not set(context_policy._places(raw_question)) - {"MEGHALAYA"}
+            and context_policy._schemes_named(raw_question) <= set(prev.schemes)):
+        _pick = _pick_district_clarification(prev.question, list(prev.schemes),
+                                             getattr(ctx_state, "district", None))
+        if _pick is not None:
+            context_budget.log_decision("followup", rewrite="pick-district", schemes=list(prev.schemes))
+            if session is not None:
+                # A typed district reply merges into the previous question.
+                session.turn_context["standalone_question"] = _pick.stem
+            raise _pick
+
+    # 0h. A complaint that carries its correction (D-052): "that's wrong, I asked for
+    #     completed houses" runs "completed houses" as the follow-up it is; "why are
+    #     you not giving me district wise?" runs the previous question by district.
+    #     The answer opens with an apology (_attach_preface, finalize). A complaint
+    #     with no correction in it is answered in the edge stage ("misread").
+    _meta_rewrite = False
+    _rollup_plan = None
+    # 0h-view. "pie chart" / "why are you giving a line chart?" / "a wide frame": the
+    #     previous data question again, shown the way asked (_chart_view_question).
+    if not scope_resumed and prev is not None and getattr(prev, "route", None) == "data":
+        _view = _chart_view_question(raw_question, prev, list(session.turns or []) if session is not None else None)
+        if _view is not None:
+            question, _vpreface, _vwide = _view
+            _meta_rewrite = True
+            if session is not None:
+                if _vpreface:
+                    session.turn_context["answer_preface"] = _vpreface
+                if _vwide:
+                    session.turn_context["chart_wide"] = True
+            context_budget.log_decision("followup", rewrite="chart-view", question=question)
+    if (not _meta_rewrite and not scope_resumed and prev is not None
+            and getattr(prev, "route", None) in _ANTECEDENT_ROUTES
+            and _meta_kind(raw_question, prev) in ("correction", "breakdown")):
+        _fix = _meta_question(raw_question, prev)
+        if _fix is not None:
+            question, _preface, _meta_rewrite = _fix
+            if session is not None:
+                session.turn_context["answer_preface"] = _preface
+            context_budget.log_decision("followup", rewrite="meta-correction" if not _meta_rewrite
+                                        else "meta-breakdown", question=question)
+    # 0h''. "compare with pmay" after a single-scheme figure (D-052): a cross-scheme
+    #       comparison in the same place and year (_compare_with_scheme_question),
+    #       not a swap to the other scheme over all years (user report 2026-10-18).
+    if not _meta_rewrite and not scope_resumed and prev is not None and getattr(prev, "route", None) == "data":
+        _cmp = _compare_with_scheme_question(raw_question, prev)
+        if _cmp is not None:
+            question = _cmp
+            _meta_rewrite = True
+            context_budget.log_decision("followup", rewrite="compare-with-scheme", question=question)
+    # 0h'. Roll-up (E3, D-052): "back to the district level" / "and statewide?"
+    #      names no place, so the previous question is rolled up from its own
+    #      entities (block -> parent district, village -> block, -> state);
+    #      the model rewrite kept the block filter and labelled it the district.
+    if (not _meta_rewrite and not scope_resumed and prev is not None
+            and getattr(prev, "route", None) == "data"):
+        _ru = _rollup_question(raw_question, prev, list(session.turns or []) if session is not None else None,
+                               session)
+        if _ru is not None:
+            question, _level, _rollup_plan = _ru
+            _meta_rewrite = True
+            if session is not None:
+                session.turn_context["plan"] = _rollup_plan.to_dict()
+            context_budget.log_decision("followup", rewrite=f"rollup-{_level}", question=question,
+                                        actions=dict(_rollup_plan.actions))
+
     # 1. Follow-up — rewrite a fragment ("what about EGH?") to a standalone
     #    question using the previous turn, before routing. Only when the previous
     #    turn was an actual scheme answer; otherwise the fragment has nothing
     #    coherent to attach to. (prev / has_antecedent computed above, ahead of
     #    the step-0 edge check.)
     is_followup_rewrite = False
-    _plan = None
+    # A roll-up's plan (step 0h') clears the levels rolled past; it must reach
+    # the data-context stage, which otherwise inherits the block from the
+    # previous turn (prior_resolved) under the rolled-up question.
+    _plan = _rollup_plan
     # Which conversation thread a follow-up continues (see _followup_thread_state).
     _thread_state = _followup_thread_state(question, prev, ctx_state)
     if _paused_state is not None:
@@ -825,6 +1046,16 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
     if _thread_state is not ctx_state:
         context_budget.log_decision("followup", thread="antecedent-scheme",
                                     scheme=getattr(_thread_state, "scheme", None))
+    # 0i. "compare with last year" with no year in play (D-052): nothing to count
+    #     back from, so ask which years — the scheme's own FYs as chips
+    #     (_relative_year_clarification). A typed year merges back into the stem.
+    if not scope_resumed and prev is not None and getattr(prev, "route", None) == "data":
+        _ry = _relative_year_clarification(raw_question, prev, _thread_state)
+        if _ry is not None:
+            context_budget.log_decision("followup", pause="relative-year-no-anchor")
+            if session is not None:
+                session.turn_context["standalone_question"] = _ry.stem
+            raise _ry
     # A bare "Focus" used as a scheme name is never handed to the model rewrite:
     # the which-Focus question below must ask (CLAUDE.md §4 — never guessed).
     # The deterministic scheme swap ("for focus", "same for focus") keeps the
@@ -837,9 +1068,16 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
     _term_question = _is_scheme_term_question(raw_question)
     if _term_question:
         context_budget.log_decision("followup", skipped="scheme-term-question")
-    if (looks_like_followup(question) or is_scopeless_followup(question, prev)
+    if _meta_rewrite:
+        # Already the standalone question (step 0h): no model rewrite needed.
+        is_followup_rewrite = True
+    elif (looks_like_followup(question) or is_scopeless_followup(question, prev)
             or is_scheme_substitution(question, prev)
-            or pronoun_refers_to_previous_term(question, prev)) and not _bare_focus and not _term_question:
+            or pronoun_refers_to_previous_term(question, prev)
+            # "what is the wage part of that?", "how much of that was …": a
+            # back-reference into the previous (or paused) question is a
+            # follow-up whatever its opening words (context audit 2026-10-19).
+            or bool(_BACKREF_FOLLOWUP_MATCH.search(raw_question))) and not _bare_focus and not _term_question:
         if has_context:
             # Field-by-field effect of this follow-up on the state (KEEP / REPLACE
             # / CLEAR / REQUIRE_CLARIFICATION) and its kind, which picks the
@@ -891,13 +1129,31 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                 question = f"{question.strip().rstrip(' ?.')} under {prev.schemes[0]}?"
                 context_budget.log_decision("followup", rewrite="deterministic-measure-after-knowledge",
                                             scheme=prev.schemes[0])
+            elif _pure_measure_change(question, prev, _plan) and not (
+                    session is not None and session.turn_context.get("antecedent_from_pause")):
+                # (Not when the antecedent is a question still waiting for its year:
+                # nothing was answered, so the state holds none of its place —
+                # the model rewrite reads the place from that question's words.)
+                # KI-334: only the measure changes, so the rewrite is the user's own
+                # words plus the scope the chat is on. The 9B rewrite carried the old
+                # measure along ("How many beneficiaries are there for PMAY-G houses
+                # completed in Ri Bhoi…", live harness U6 2026-10-19), answering the
+                # completed-houses figure again for a beneficiaries question.
+                _sch = prev.schemes[0]
+                question = (f"{question.strip().rstrip(' ?.')} under {_sch}"
+                            f"{_swap_scope_phrase(_thread_state, _sch, prev)}?")
+                context_budget.log_decision("followup", rewrite="deterministic-measure-change", scheme=_sch)
+                logger.info("follow-up measure change -> %r", question)
             else:
                 question = await rewrite_followup(question, prev, extra_context=_extra_ctx,
                                                   kind=_plan.kind if _plan else None,
                                                   cleared=_cleared_filters(_plan, prev, _thread_state))
-            # The rewrite can introduce a bare "CM Elevate" alongside a money word
-            # ("...and the amount disbursed?") — same dataset decision as above.
-            _pinned = _pin_cm_elevate_dataset(question)
+            # The rewrite can introduce a bare "CM Elevate" ("give me for cm
+            # elevate") — the same thread decision as above; outside a CM Elevate
+            # thread the data stage asks which dataset.
+            _cm_switch = (session.turn_context.get("cm_dataset_switch")
+                          if session is not None and isinstance(getattr(session, "turn_context", None), dict) else None)
+            _pinned = _pin_cm_elevate_dataset(question, _cm_switch or _cm_thread_scheme(prev, _thread_state))
             _cm_pinned = _pinned != question
             question = _pinned
             is_followup_rewrite = True
@@ -1022,7 +1278,7 @@ async def _turn_rephrase_stage(t: dict, session: "Session | None" = None,
 # assistance was given in Ri Bhoi in 2023-24?" stays DATA).
 class _C14AheadToQuestionMark(_C1xNode):
     r"""Matches (consuming nothing) when `matcher` finds something between here and
-    the next '?' — the old lookahead [^?]*\b(?:…)\b."""
+    the next '?' — a look ahead for whole words, not crossing a '?'."""
 
     def __init__(self, matcher):
         self.matcher = matcher
@@ -1055,7 +1311,7 @@ _ENTITLEMENT_QUESTION = Matcher(Alt(
 ))
 _ENTITLEMENT_DATA_SIGNALS = frozenset({"place", "year", "group_by", "rank", "compare"})
 # Figure summaries of a place (see the route stage): never a reference-docs question.
-# (the old pattern had no \b after several of these words: they match as word starts)
+# (several of these words need no word end after them: they match as word starts)
 _FIGURE_SUMMARY_MATCH = Matcher(Alt(
     Seq("financial", W("summary", "position", "status", "overview", prefix=True), sep="space"),
     W("performance", "pendency"),
@@ -1065,6 +1321,10 @@ _FIGURE_SUMMARY_MATCH = Matcher(Alt(
     Seq("breakdown", W("of", "for"), sep="space"),
     Seq("key", "figures", sep="space"),
     Seq("status", "distribution", sep="space"),
+    # "tell me what is going on in my block" / "overview of Ri Bhoi": a figures
+    # question about a place, not a rules question (live probe 2026-10-18, D-052).
+    Seq("going", "on", sep="space"),
+    W("overview", "situation", "progress"),
     Seq(W("status"), _C1xGapIs(W("wise"), lambda g: len(g) == 1 and (g.isspace() or g == "-"))),
 ))
 _DEFINITION_ASK_MATCH = Matcher(Alt(
@@ -1182,6 +1442,24 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
             if question != raw_question:
                 _years["rewritten_question"] = question
             return _years
+
+    # 1i. "Tell me what is going on in my block" / "overview of Ri Bhoi" with one
+    #     scheme and one place (D-052): the scheme's headline figures for that
+    #     place, asked the way the pipeline already answers them
+    #     (_overview_question). Data, no classifier call; the answer opens with
+    #     "Here's an overview of …" (_attach_preface).
+    _ov = _overview_question(question)
+    if _ov is not None:
+        question, _ov_preface = _ov
+        t["question"] = question
+        if session is not None:
+            session.turn_context["answer_preface"] = _ov_preface
+        context_budget.log_decision("route", rewrite="overview", question=question)
+        context_budget.log_decision("intent", intent="DATA", followup=is_followup_rewrite,
+                                    kind=_plan.kind if _plan else None,
+                                    schemes_named=sorted(_named_schemes(question)))
+        t["intent"] = "DATA"
+        return None
 
     # 2. Route: number question or scheme-rules question? For a rewritten
     #    follow-up, the user's own words decide when they are decisive — the
@@ -1420,7 +1698,82 @@ async def _turn_data_context_stage(t: dict, session: "Session | None" = None,
         # year would leave just that one (see _WHICH_YEAR_CUE). Dropped here as
         # well as from the rewritten text, since resolve_entities seeds from it.
         _prior_resolved = {k: v for k, v in _prior_resolved.items() if k not in ("year_key", "year_all")}
+    if not is_followup_rewrite and _prior_resolved is None:
+        _prior_resolved = _same_scheme_context_year(t["question"], t["raw_question"], _thread_state)
     t["prior_resolved"] = _prior_resolved
+
+
+# Words that point back at the previous answer's measure ("how many of THOSE were
+# completed", "what share of IT"): a refinement, left to the model rewrite.
+_C14_MEASURE_BACKREF = frozenset(("that", "those", "these", "them", "it", "its", "their", "they", "which", "same"))
+
+
+def _pure_measure_change(question: str, prev, plan) -> bool:
+    """KI-334: a follow-up that only names a new measure ("how many beneficiaries
+    are there?", "what is the total amount released?") after a single-scheme
+    data answer. The follow-up plan must change the metric and nothing else; the
+    question names no scheme and points back at nothing."""
+    if plan is None or prev is None or getattr(prev, "route", None) != "data":
+        return False
+    schemes = list(getattr(prev, "schemes", None) or [])
+    if len(schemes) != 1 or getattr(plan, "kind", None) != context_policy.METRIC_CHANGE:
+        return False
+    acts = {k: v for k, v in (plan.actions or {}).items() if v != context_policy.KEEP}
+    if acts != {"metric": context_policy.REPLACE}:
+        return False
+    if _mentions_scheme(question or "") or set(_c01_tm_words(question)) & _C14_MEASURE_BACKREF:
+        return False
+    return True
+
+
+def _same_scheme_context_year(question: str, raw_question: str, state) -> "dict | None":
+    """KI-331 (live 2026-10-19 15:27): "give me cm elevate disbursement by district"
+    right after "How many CM Elevate Legacy records … across all financial years?"
+    stayed on Legacy but asked "which financial year?" again: a question that names
+    a scheme reads as a new one, so no prior_resolved reached the year gate (D-053).
+    The year the conversation is on carries into a new question about the SAME one
+    scheme that names no year of its own; its place only when the question points
+    at it ("there", "that district"). Breakdown and measure are the question's own.
+    A model-inferred value is not inherited."""
+    if state is None or not getattr(state, "scheme", None):
+        return None
+    if (getattr(state, "provenance", None) or {}).get("year", {}).get("source") == "model_inference":
+        return None
+    if sorted(_exact_schemes(question or "")) != [state.scheme]:
+        return None
+    for q in (question or "", raw_question or ""):
+        if context_policy.extract_year_keys(q) or _ALL_YEARS_CUE.search(q) or _TIME_SERIES_CUE.search(q)                 or _WHICH_YEAR_CUE.search(q):
+            return None
+    out: dict = {}
+    if isinstance(getattr(state, "year", None), int):
+        out["year_key"] = state.year
+    elif getattr(state, "year_all", False):
+        out["year_all"] = True
+    # "what is the total expenditure THERE?" after an aside and a how-it-works
+    # question (live 2026-10-19 16:17, harness U7): the year came back, Ri Bhoi did
+    # not. A place reference word brings the thread's place with it; a place the
+    # question names itself still wins (prior_resolved is only the resolver's
+    # fallback). A model-inferred place is not inherited.
+    _prov = getattr(state, "provenance", None) or {}
+    if _C14_PLACE_REFERENCE.search(raw_question or question or ""):
+        for fld, key in (("district", "district"), ("block", "block"), ("village", "village_code")):
+            v = getattr(state, fld, None)
+            if v and (_prov.get(fld) or {}).get("source") != "model_inference":
+                out[key] = v
+    if not out:
+        return None
+    context_budget.log_decision("data_context", inherited="context-scope", scheme=state.scheme,
+                                year=out.get("year_key") or ("all" if out.get("year_all") else None),
+                                place=out.get("village_code") or out.get("block") or out.get("district"))
+    return out
+
+
+# "there", "here", "that district", "the same block" — a word that points at the
+# place the conversation is on (KI-331 follow-up, harness U7).
+_C14_PLACE_REFERENCE = Matcher(Alt(
+    W("there", "here"),
+    Seq(W("that", "this", "same", "the"), Opt("same"),
+        W("place", "district", "block", "village", "area", "constituency", "location"))))
 
 
 # "what is <something> scheme/yojana/mission?" — the user named a specific
@@ -1432,7 +1785,7 @@ _C14_ASK_LEAD = Alt(W("what", "which", "explain", "describe", "about"), _c1x_lit
 
 
 def _c14_name_word_end(text: str, k: int) -> int:
-    r"""End of [A-Za-z][\w'-]* at k, or -1."""
+    """End of a word at k (a letter, then letters, digits, '_', ''' or '-'), or -1."""
     n = len(text)
     if not (k < n and text[k].isascii() and text[k].isalpha()):
         return -1
@@ -1457,7 +1810,7 @@ class _C14NamedScheme(_C1xLike):
                     if k > e0 and text[k - 1] in ".?!":
                         break
                     if k == e0 or _c1x_is_word_char(text[k - 1]):
-                        continue                         # \b before the name
+                        continue                         # the name must start a word
                     ends = []
                     q = _c14_name_word_end(text, k)
                     while q >= 0 and len(ends) < 4:
@@ -1506,7 +1859,7 @@ def _names_unknown_scheme(question: str) -> bool:
         return False                       # one of ours — nothing unknown here
     # A bare "Focus" names one of OUR schemes — we just don't yet know which of
     # the two (see _is_ambiguous_focus). Without this, "what is the FOCUS
-    # scheme?" matched the "<name> scheme" pattern below, found "focus" in
+    # scheme?" matched the "<name> scheme" check below, found "focus" in
     # neither registry above, and was answered "that isn't a scheme I hold" —
     # for a scheme with a full reference doc and FAQ in the KB. It must fall
     # through to the which-Focus ask instead.
@@ -1591,3 +1944,35 @@ async def _data_path_kb_fallback(question: str) -> dict:
                        "for a simpler breakdown first (e.g. \"PMAY-G sanctions by district "
                        "for 2023\")."),
             **_empty_data_fields()}
+
+
+def _first_known_place(text: str) -> "tuple[int, int] | None":
+    """Span of the first district / block name in `text` (longest names are
+    tried first, so "South West Garo Hills" wins over "West Garo Hills"), or None."""
+    low = (text or "").lower()
+    for name in _known_place_names():
+        i = low.find(name)
+        if i >= 0:
+            before = low[i - 1] if i > 0 else " "
+            after = low[i + len(name)] if i + len(name) < len(low) else " "
+            if not before.isalnum() and not after.isalnum():
+                return i, i + len(name)
+    return None
+
+
+def _merge_scope_reply(pending: str, reply: str) -> str:
+    """The paused question with the scope reply merged in. A reply that names
+    a different place REPLACES the paused question's place: "MGNREGA person-days
+    in South Garo Hills" -> "which year?" -> "West Garo Hills, 2024-25" means West
+    Garo Hills, not both districts (context audit 2026-10-19)."""
+    base = (pending or "").rstrip(" ?.")
+    rep = (reply or "").strip()
+    new = _first_known_place(rep)
+    old = _first_known_place(base)
+    if new and old and base[old[0]:old[1]].lower() != rep[new[0]:new[1]].lower():
+        base = base[:old[0]] + rep[new[0]:new[1]] + base[old[1]:]
+        rest = (rep[:new[0]] + " " + rep[new[1]:]).strip()
+        while rest and (rest[0] in ",;:-" or rest[0].isspace()):
+            rest = rest[1:]
+        return f"{base}, {rest}" if rest else base
+    return f"{base}, {rep}"

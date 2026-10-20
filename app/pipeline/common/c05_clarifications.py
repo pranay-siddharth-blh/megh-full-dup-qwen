@@ -2,7 +2,7 @@
 # Part of the app.pipeline package: executed by app/pipeline/__init__.py into the package
 # namespace, in load order, so it shares every name with the other files.
 
-# No regular expressions (D-047): text is read on WORDS (app/text_match.py); the
+# Text matching (D-047): text is read on WORDS (app/text_match.py); the
 # _C04* nodes and _c04* helpers come from c04_scheme_listing.py (loaded first).
 from app.text_match import (ANY, Alt, Matcher, NotAfter, NotBefore, Opt, Pred, Rep, Seq, W, collapse_ws, words as _c05_words)
 
@@ -85,7 +85,7 @@ _BANK_GENERIC_TEXT = (
 
 
 def _named_or_inferred_schemes(question: str) -> list[str]:
-    named = [s for s, rx in _SCHEME_NAME_MATCHER.items() if rx.search(question)]
+    named = [s for s, word_matcher in _SCHEME_NAME_MATCHER.items() if word_matcher.search(question)]
     return named or _infer_scheme_from_terms(question) or []
 
 
@@ -241,8 +241,8 @@ def _admin_expenditure_scope(question: str) -> str:
     # trailing-phrase match start at "PMAY-G" and produce "for Pmay-G In Tura",
     # which also duplicates the scheme the sentence has already named.
     text = question or ""
-    for rx in _SCHEME_NAME_MATCHER.values():
-        text = rx.sub(" ", text)
+    for word_matcher in _SCHEME_NAME_MATCHER.values():
+        text = word_matcher.sub(" ", text)
     name = _admin_exp_place(collapse_ws(text))
     if not name:
         return ""
@@ -429,11 +429,11 @@ _HAS_BREAKDOWN = Matcher(Alt(
     # "under each CM ELEVATE program", "for every PMAY-G scheme" — a scheme name
     # or other short qualifier can sit between "each/every" and the dimension
     # word itself; allow up to a few words of slack for scheme/program/sector
-    # specifically (kept out of the tight pattern above to avoid over-matching
+    # specifically (kept out of the tight matcher above to avoid over-matching
     # "each ... district" style geography phrasing where slack isn't needed).
     Seq(W("per", "each", "every"), _C04CharGap(25, "?.!"), _C05_SCHEME_DIM),
     # "in each financial year", "total disbursed through each loan entity" —
-    # a qualifier before "year", and category dimensions the tight pattern
+    # a qualifier before "year", and category dimensions the tight matcher
     # above never listed. Both are groupings over every value, so asking
     # "which area / year?" first was wrong, and the "all years" reply then got
     # collapsed into ONE total instead of a per-year split (CM Elevate Legacy
@@ -690,6 +690,31 @@ _YEARWISE_REPLY_CUE = Matcher(Alt(
 ))
 
 
+# KI-324 (live 2026-10-19, conversation harness META_officer_overview_reason): the
+# year pause asks "a single financial year, or all of them combined?", and a typed
+# "all of them combined" / "all" / "combined" was merged onto the stem as
+# ", all of them combined", which no year cue reads, so the same pause came back.
+# Such a reply IS the "All financial years combined" chip. Read on words: every
+# word must be from this small vocabulary, at least one of them must say "all",
+# nothing may name a year, a measure or a scheme.
+_ALL_YEARS_REPLY_WORDS = frozenset((
+    "all", "of", "them", "these", "those", "the", "years", "year", "fy", "fys", "financial", "fiscal",
+    "combined", "together", "every", "overall", "cumulative", "everything", "please", "give", "me",
+    "show", "i", "want", "it", "for", "sum", "summed", "across", "whole", "period", "entire"))
+_ALL_YEARS_REPLY_KEYS = frozenset(("all", "combined", "every", "overall", "cumulative", "everything", "entire", "whole"))
+
+
+def _is_all_years_reply(reply: str) -> bool:
+    ws = _c05_words(reply)
+    if not ws or len(ws) > 8 or not set(ws) <= _ALL_YEARS_REPLY_WORDS:
+        return False
+    if not set(ws) & _ALL_YEARS_REPLY_KEYS:
+        return False
+    if _parse_year_key(reply or "") is not None or _DATA_HINTS.search(reply or "") or _named_schemes(reply or ""):
+        return False
+    return True
+
+
 def _is_yearwise_reply(reply: str) -> bool:
     r = (reply or "").strip()
     if len(r.split()) > 8 or not _YEARWISE_REPLY_CUE.search(r):
@@ -755,6 +780,83 @@ def _region_clarification(question: str, region: dict) -> "ClarificationNeeded":
         options=options,
         rule="region-needs-district",
     )
+
+
+# ── "Show me the districts, I'll pick one" after a data answer ─────────────
+# Reported 2026-10-18: after "how many houses are there in 2023-2024" was
+# answered for all of Meghalaya, "don't give all of Meghalaya, ask me … What are
+# the districts? Then I will choose one." was routed to the KB, which answered
+# that the scheme documents hold no district list. The user is asking to narrow
+# the PREVIOUS answer to one district of their choice: offer that scheme's
+# districts as chips, each the previous question for that district.
+_PICK_PLACE_VERBS = frozenset("choose chose choosing pick picking select selecting".split())
+_LIST_PLACE_WORDS = frozenset("list listing available names".split())
+# A data question about districts, not a request for the list to choose from.
+_PICK_PLACE_RANKING = frozenset((
+    "most highest lowest least top bottom maximum minimum max min best worst more fewer less "
+    "each every wise by per breakdown compare comparison rank ranking ranked"
+).split())
+
+
+def _asks_to_pick_district(text: str) -> bool:
+    """True when the message asks to see the districts in order to choose one
+    ("show me the districts, I will choose one", "ask me which district",
+    "list the districts"), rather than asking a question about districts
+    ("which district has the most houses", "district-wise houses")."""
+    ws = [w.lower().replace("’", "'") for w in _c05_words(text or "")]
+    if not ({"district", "districts"} & set(ws)):
+        return False
+    if _PICK_PLACE_RANKING & set(ws):
+        return False
+    if "district-wise" in (text or "").lower():
+        return False
+    choose = bool(_PICK_PLACE_VERBS & set(ws)) or any(
+        ws[i:i + 2] in (["ask", "me"], ["will", "say"], ["i'll", "say"], ["let", "me"])
+        for i in range(len(ws)))
+    listing = bool(_LIST_PLACE_WORDS & set(ws)) or any(
+        ws[i:i + 3] in (["what", "are", "the"], ["which", "are", "the"], ["show", "me", "the"],
+                        ["districts", "are", "there"], ["tell", "me", "the"])
+        for i in range(len(ws)))
+    # "how many districts are there" is a count, not a request to choose.
+    if not choose and any(ws[i:i + 2] in (["how", "many"], ["how", "much"]) for i in range(len(ws))):
+        return False
+    return choose or listing
+
+
+def _c05_statewide_stem(question: str, prev_district: "str | None" = None) -> str:
+    """A data question without its statewide scope ("for all of Meghalaya") or its
+    earlier district, ready to take a new place or a breakdown."""
+    stem = collapse_ws(question or "").rstrip(" ?.")
+    for scope in ("for all of Meghalaya", "in all of Meghalaya", "across Meghalaya",
+                  "for Meghalaya", "in Meghalaya"):
+        stem = collapse_ws(_c04_replace_ci(stem, scope, " "))
+    if prev_district:
+        for form in (f"for {prev_district}", f"in {prev_district}", prev_district):
+            stem = collapse_ws(_c04_replace_ci(stem, form, " "))
+    return stem.rstrip(" ,?.")
+
+
+def _pick_district_clarification(prev_question: str, schemes: list[str],
+                                 prev_district: "str | None" = None) -> "ClarificationNeeded | None":
+    """The previous data question offered once per district (chips), with its
+    statewide scope ("for all of Meghalaya") or its earlier district taken out.
+    None when no district list is known for the scheme(s)."""
+    stem = _c05_statewide_stem(prev_question, prev_district)
+    seen: dict[str, None] = {}
+    for s in schemes or []:
+        for d in all_districts(s):
+            seen.setdefault(d, None)
+    if not stem or not seen:
+        return None
+    options = [{"label": d, "question": f"{stem} in {d}"} for d in seen]
+    options.append({"label": "All of Meghalaya", "question": f"{stem} for all of Meghalaya"})
+    e = ClarificationNeeded(
+        "Which district should I show? Pick one below, or type a district, block or village name.",
+        options=options,
+        rule="scope-not-specified",
+    )
+    e.stem = stem
+    return e
 
 
 def _scope_clarification(question: str, schemes: list[str]) -> "ClarificationNeeded":

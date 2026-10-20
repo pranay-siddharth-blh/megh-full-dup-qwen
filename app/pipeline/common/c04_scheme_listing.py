@@ -2,7 +2,7 @@
 # Part of the app.pipeline package: executed by app/pipeline/__init__.py into the package
 # namespace, in load order, so it shares every name with the other files.
 
-# No regular expressions (D-047): English text is read on WORDS with app/text_match.py.
+# Text matching (D-047): English text is read on WORDS with app/text_match.py.
 from app.text_match import (ANY, END, START, Alt, Cap, Matcher, Node, NotBefore, Opt, Pred, Rep, Seq, W,
                             collapse_ws)
 
@@ -11,7 +11,7 @@ from app.text_match import (ANY, END, START, Alt, Cap, Matcher, Node, NotBefore,
 class _C04CharGap(Node):
     """Any number of words, provided the text between the previous word's end and
     the next word's start is at most `hi` characters and holds none of `forbid`
-    (the old `\\bA\\b[^?]{0,40}\\bB` shape). Fewest words first; hi=None: no limit."""
+    (e.g. A, then up to 40 characters with no '?', then B). Fewest words first; hi=None: no limit."""
 
     def __init__(self, hi=None, forbid=""):
         self.hi, self.forbid = hi, forbid
@@ -83,8 +83,8 @@ class _C04SepSeq(Seq):
 
 
 def _c04Joined(*parts):
-    """A compound written as separate words or as one word (no '_' form) — the
-    old `a[\\s-]?b`. Each part is a word or a tuple of words."""
+    """A compound written as separate words or as one word (no '_' form) — "a b",
+    "a-b" or "ab". Each part is a word or a tuple of words."""
     alts = [tuple(p) if isinstance(p, (tuple, list)) else (p,) for p in parts]
     combos = [""]
     for a in alts:
@@ -93,7 +93,7 @@ def _c04Joined(*parts):
 
 
 def _c04JoinedPrefix(a, b):
-    """`a[\\s-]?b\\w*` — "bank account", "bank-accounts", "bankaccount"."""
+    """Two words joined by a space, a dash or nothing, the second with any ending: "bank account", "bank-accounts", "bankaccount"."""
     return Alt(Seq(a, W(b, prefix=True)), W(a + b, prefix=True))
 
 
@@ -182,7 +182,7 @@ _SCHEME_USER_SUMMARY = {
 # filter question (which always has more text after "scheme(s)") fall through to
 # normal DATA routing.
 def _c04_q_tail(t: str) -> bool:
-    """`\\??\\s*$` after the last word: an optional '?', then only whitespace."""
+    """After the last word: an optional '?', then only whitespace."""
     return (t[1:] if t.startswith("?") else t).strip() == ""
 
 
@@ -455,7 +455,7 @@ _SCHEME_FIT = {
         "farming, warehousing, tourism vehicles and more — or under the \"Any Business "
         "Venture\" category; you apply on the MeghalayaOne portal."),
 }
-# (profile, what it says about the user, pattern, schemes in order of fit)
+# (profile, what it says about the user, matcher, schemes in order of fit)
 _PROFILE_RULES = (
     ("business", "starting or running a business",
      Matcher(Alt(
@@ -533,7 +533,7 @@ _RECOMMENDATION_LEAD = "Based on what you've told me"
 
 
 def _user_profile(text: str) -> list[tuple[str, str, list[str]]]:
-    return [(k, desc, schemes) for k, desc, rx, schemes in _PROFILE_RULES if rx.search(text or "")]
+    return [(k, desc, schemes) for k, desc, word_matcher, schemes in _PROFILE_RULES if word_matcher.search(text or "")]
 
 
 def _latest_profile(session: "Session | None", n: int = 4) -> list[tuple[str, str, list[str]]]:
@@ -866,11 +866,17 @@ def _scheme_listing_answer(question: str) -> "dict | None":
     lines = _scheme_listing_lines()
     answer = (
         f"I cover {_count_word(len(lines))} Meghalaya government schemes:\n\n" + "\n".join(lines) +
-        "\n\nAsk me about any of these — eligibility, benefits, how to apply, "
-        "or the actual data (numbers, by district or year)."
+        "\n\nWhich one would you like to explore? I can give you the figures (by district, block, village "
+        "or year) or explain eligibility, benefits and how to apply."
     )
+    # One next step per scheme (Conversational Memory approach §8.3). The
+    # finalize node's knowledge follow-ups would all be about one scheme, so
+    # these are kept (keep_follow_ups, _attach_followups).
+    chips = [f"Tell me about {name}" for name in _SCHEME_USER_SUMMARY]
     return {"route": "knowledge", "intent": "RAG", "confidence": "high", "sources": [],
-            "answer": answer, **_empty_data_fields()}
+            "answer": answer, **_empty_data_fields(), "suggestions": chips,
+            "follow_up_options": [{"label": c, "question": c} for c in chips],
+            "follow_ups": chips, "follow_up": chips[0], "keep_follow_ups": True}
 
 
 # "What is the difference between the schemes?" / "compare MGNREGA and PMAY-G" as
@@ -1084,7 +1090,7 @@ def _unsupported_scheme_named(question: str) -> "str | None":
     Only fires when NO supported scheme is also named, so mixed questions
     ("compare CM Elevate with MGNREGA") still route normally. The unsupported
     match is blanked out before the supported-scheme check so a near-miss like
-    "PMAY-U" isn't swallowed by the PMAY-G pattern."""
+    "PMAY-U" isn't swallowed by the PMAY-G matcher."""
     m = _UNSUPPORTED_SCHEME.search(question or "")
     if not m:
         return None
@@ -1117,9 +1123,6 @@ def _unsupported_scheme_clarification(question: str, name: str) -> "Clarificatio
          "question": _scheme_option_question(stem, "Focus Legacy")},
         {"label": "CM Elevate Legacy (sanctions & disbursements)",
          "question": _scheme_option_question(stem, "CM Elevate Legacy")},
-        {"label": "Compare across schemes",
-         "question": (f"{stem} across MGNREGA, PMAY-G, Focus Plus, CM Elevate, "
-                      f"Focus Legacy and CM Elevate Legacy")},
     ]
     # Names the scheme asked for, says plainly that it is outside what is
     # loaded, then points somewhere useful. Deliberately about SCHEME COVERAGE
@@ -1134,14 +1137,11 @@ def _unsupported_scheme_clarification(question: str, name: str) -> "Clarificatio
     _display = " ".join(w if w.isupper() else w.capitalize()
                         for w in name.strip().split())
     return ClarificationNeeded(
+        # The schemes themselves are the cards under this line, so they are not
+        # listed again in the text (user, 2026-10-18).
         f"{_display} isn't one of the schemes I cover, so I can't answer questions "
-        "about it — not its rules, eligibility or its data. I cover these Meghalaya "
-        "schemes: MGNREGA (rural employment), PMAY-G (rural housing), Focus Plus "
-        "(farmer cash benefit), CM Elevate (livelihood and enterprise applications), "
-        "Focus Legacy (producer group payments) and CM Elevate Legacy (CM-ELEVATE "
-        "sanctions and disbursements). "
-        "If one of those is what you need, pick it below and I'll take the question "
-        "from there.",
+        "about it — its rules, eligibility or data. These are the schemes I do cover. "
+        "Pick one below and I'll take your question there.",
         options=options,
         rule="scheme-not-available",
     )

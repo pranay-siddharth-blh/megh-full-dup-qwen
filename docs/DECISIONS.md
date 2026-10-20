@@ -851,6 +851,9 @@ not recorded.*
 - **Supersedes:** the 2026-09-09 product decision that a plain PMAY-G question pauses for a FY (pipeline.py
   `_needs_year_clarification` comment). `ANSWER_DEFAULTS_ENABLED=false` restores the pauses.
 - **Status:** Active. Live-verified on the user's 45 questions and the hierarchy matrix (TESTING.md).
+- **Amended by D-055 (2026-10-19):** an unnamed scheme is no longer answered for every scheme: a new chat asks, a chat with a scheme uses it.
+- **Amended by D-053 (2026-10-19):** the year default now applies only when the conversation already carries a year;
+  a question with no year anywhere asks which financial year again.
 
 ### D-046 — SQL is read and changed on the SQLGlot tree only; no regex on SQL
 - **Date:** 2026-10-15. User decision, stated firmly: "completely we need to use SQLGlot … I don't want regex here.
@@ -927,4 +930,211 @@ not recorded.*
   `sql_guard` refuses the three privacy tables (`private_table`).
 - **Pools:** `DB_POOL_MIN_SIZE` default 10 → 1, `DB_POOL_IDLE_SECONDS` 120 on both pools: megh_db ran out of its
   100 connections, about 48 of them idle chatbot logins.
+- **Status:** Active.
+
+### D-053 — Ask the financial year when neither the question nor the context has one (2026-10-19)
+- **Date:** 2026-10-19 (user decision, evening of 2026-10-18): "if context remembering is there you don't give the
+  follow-up question; if nothing is there you need to ask the user". Live: "total benifishjeries for MGNREGA" on a fresh
+  thread was answered as 1,494,437 household-years across every year without asking.
+- **Decision:** with `ANSWER_DEFAULTS_ENABLED` on, the "across all financial years" default (D-045) applies only when the
+  turn already carries a year: in its text, in its resolved entities, or in `prior_resolved` (`year_key`, `year_key_list`,
+  `year_all` — a follow-up inherits the previous turn's year through the rewrite and the resolver seed). A metric /
+  breakdown question with no year anywhere pauses with the FY chips (`_year_clarification`, rule `year-not-specified`);
+  the chips resume with "for FY …" / "across all financial years", so the resumed turn cannot be asked again. The area
+  default ("for all of Meghalaya"), the tranche default, job-card stocks (latest year), time-series and "which year"
+  questions and schemes without a time dimension (CM Elevate) are unchanged.
+- **Where:** `app/pipeline/common/c13_compose_and_data_stages.py` `_data_clarification_stage` (`_ask_year`);
+  `tests/test_year_asked_without_context_2026_10_19.py`.
+- **Extended 2026-10-19 (KI-331):** "the conversation already carries a year" also covers a new question that names the thread's same one scheme and no year of its own; it inherits the thread's year or all-years choice.
+- **Status:** Active. Unit-tested; live check in HANDOFF/TESTING.
+
+### D-055 — One chat never re-asks what it knows; only a new chat asks the scheme (2026-10-19)
+- **Date:** 2026-10-19 (user): "If we are in one chat, there is no possibility to lose the context memory. If you go new chat,
+  then only you need to ask which scheme, if scheme is not mentioned." Also: idle window 8 hours (D-051 amended).
+- **Decision:** a data question that names no scheme and whose words pin none (MAIN_Contex.pdf §9.4) uses the chat's active
+  scheme (`_chat_active_scheme`: the structured state, else the last single-scheme turn) and is never asked "which scheme?"
+  inside a chat. A NEW chat with such a question asks "which scheme?" (chips); the reply is remembered. This **replaces D-045's
+  answer-for-every-scheme default for an unnamed scheme**; explicit cross-scheme questions ("compare schemes", "in both
+  schemes") are still answered side by side. Words that pin one scheme ("person-days", MGNREGA's "expenditure") are used
+  without asking, as before.
+- **Also (same day):** a new same-scheme question keeps the chat's year, and its place when it points at it ("there",
+  "that district") — KI-331; a follow-up that only names a new measure is rewritten deterministically so the old measure does
+  not leak — KI-334; a bare "CM Elevate" named as a switch after a Legacy answer goes to the applications dataset — KI-330.
+- **Where:** `c13 _data_scheme_stage` / `_chat_active_scheme`, `pipeline_graph._data` (passes the session's scheme, read-only),
+  `c14 _same_scheme_context_year`, `_pure_measure_change`; harness `scenarios/user_reported_2026_10_19.yaml`.
+- **Status:** Active.
+
+### D-054 — Every data answer reads as a briefing line (2026-10-19)
+- **Context:** the officer's screenshot (2026-10-18) showed "1,494,437 household years." as the whole answer; "household
+  years: 1,494,437; person years: 1,865,234; financial years: 4." and "Total MGNREGA person-days in FY 2023-24 is 27264054."
+  were other live shapes. The first two are the deterministic fallback (`_deterministic_answer`), shown whenever the
+  composer's sentence fails the number check; the third is a composer sentence with no grouping and no scope words.
+- **Decision:** (1) the fallback is framed — `_framed_fallback(rows, schemes, entities)` (c12) writes "Under <scheme>,
+  <period> in <place>, the recorded total is <value> <what it counts in plain words>." with a human label per column
+  (`_HUMAN_METRIC`; money keeps its unit) and a caveat where the measure needs one (household-years / person-years are not
+  distinct households / persons); a multi-row fallback keeps its list under the same framing line. `_deterministic_answer`
+  itself is unchanged (other callers and tests pin it; `_is_fallback_answer` recognises both forms). (2) Every DATA answer,
+  whichever path wrote it (composer, a scheme's deterministic facts, a fixed query), goes through `_finish_answer` from
+  the finalize node (`_finish_data_result`): result figures of four or more digits get thousands separators (never a
+  year-like value), and a single-figure answer that names neither the scheme nor the area gets one closing scope sentence
+  ("This is the PMAY-G figure for Ri Bhoi district, FY 2023-24."); an answer that already names both is left alone.
+  (3) The composer prompt states the format rule (first sentence: what the figure counts, scheme, area, period;
+  thousands separators) — a prose rule alone is not relied on (CLAUDE.md §5).
+- **Alternatives rejected:** rewriting the scheme deterministic sentences one by one (the finalize pass covers them all);
+  letting the composer re-try until it names the scope (sampled, and the fallback would still be bare).
+- **Consequences:** `compose_response` returns through `_finish_answer`; `pipeline_graph.node_finalize` calls
+  `_finish_data_result`; `tests/test_pipeline_graph.py` compares the start of a stubbed answer. Tests
+  `tests/test_answer_framing_2026_10_18.py`.
+- **Amended by D-055 (2026-10-19):** the closing scope sentence names only what the sentence left out ("This is
+  the MGNREGA figure." when the place and the year are already said), not the place and year a second time.
+- **Status:** Active.
+
+### D-055 — Conversational layer: facts from rules, words around them (2026-10-19)
+- **Context:** `documents/Megh_One_AI_Conversational_Memory_Approach.pdf` (v1.0). A live run of its own conversations
+  (Sections 2, 8, 13) found: "go back to the first one" answered from the knowledge base; "I'm Ravi" refused as
+  off-topic; "which districts can I see?" asked "which scheme?"; "which years for MGNREGA?" got the capability
+  paragraph; the scheme list offered MGNREGA-only chips; no reference to the earlier figure; no "You're welcome" /
+  greeting back on a mixed message; the out-of-scope reply carried "I'm Megh One AI…" after its steer-back and a
+  second tangent steered back again; the first "hi" did not introduce the assistant.
+- **Decision:** keep the existing graph and the composer's number checks (the PDF's writer + fact guard already
+  exist as the 9B composer + `compose_response` faithfulness checks); add the conversational parts as deterministic
+  wording around result values, no new model call:
+  `topic_memory.parse_backward` (a bare ordinal after "go back to"); `conversation_replies` (name kept for the
+  chat, `mem["user_name"]`; first greeting introduces once; one steer-back per run of asides, `replies._last_kind`,
+  cleared by any answered turn; thanks offers chips, a second thanks in a row just "Happy to help!"); c15
+  `_coverage_answer` (edge stage, after the meta answers: year registry `_SCHEME_DATA_YEARS`, the officer's own
+  districts / blocks), `_attach_conversational_touches` (finalize: greeting back / "You're welcome", and "That's
+  down from X in FY … (about N% lower)" when the same figure — column, scheme, every other scope value — was
+  answered for another year in this chat; values and the percentage come from the result rows, `mem["headlines"]`);
+  c04 scheme list with one chip per scheme (`keep_follow_ups`).
+- **Not done (left as the PDF's later phases):** Khasi / Garo / Hindi reply templates, voice variant, Indian number
+  format (lakh / crore display of counts), tone rubric / LLM judge, `declined` chip tracking.
+- **Consequences:** answers carrying a callback or the user's name are `context_dependent` (never cached). Tests
+  `tests/test_conversational_approach_2026_10_19.py`; harness `scenarios/conversational_approach.yaml`.
+- **Status:** Active.
+
+### D-052 — Conversation about the conversation: meta turns answered from the previous turn (2026-10-18)
+- **Context:** a live probe of a natural conversation (user request, 2026-10-18) found that messages ABOUT the
+  previous answer were read as new questions: "why are you not giving me district wise?" went to the reference
+  documents, "that's wrong, I asked for completed houses" lost the year, "can you explain this number?" got "the
+  documents do not contain…", "what did you just tell me?" / "you are not understanding me" were bounced as
+  off-topic, "what should I ask next?" / "I don't understand" got "Sorry, I didn't quite catch that", and
+  "thank you, it is very helpful" re-ran the last data question.
+- **Decision:** one deterministic reader of such messages, `app/pipeline/common/c15_conversation_meta.py`
+  (`_meta_kind`, word lists on `app/text_match`, no model), with six kinds. Four are answered from the previous
+  turn in the edge stage, before the edge banks (`_conversation_meta_answer`, step 0-b of `_turn_edge_stage`):
+  **recap** (the last answer again, with its scope), **explain** (the 9B — the rewrite/composer model of the role
+  map — explains the figure in plain words, grounded: every number it says must already be in the previous
+  question, answer or rows, else a deterministic fallback), **misread** (an apology that quotes what was
+  understood and asks for scheme / place / year, rotating wording), **suggest** (next questions for the topic: the
+  breakdown and comparison the last data answer allows, then the scheme's starters). Two change the question in
+  the follow-up stage (step 0h, `_meta_question`): **correction** drops the complaint lead ("that's wrong, I asked
+  for") and runs the rest as the follow-up it is; **breakdown** runs the previous question "by district / block /
+  village" with no model call. Both open the answer with an apology (`session.turn_context["answer_preface"]`,
+  `_attach_preface` in the finalize node; the preface carries no figures). Every meta reply is an aside
+  (`topic_memory` "aside", as a greeting is), so the topic continues; it is `context_dependent` (never cached).
+  A message that brings a scheme, place, year or measure of its own is never meta ("explain the MGNREGA wage
+  rate" is a question). Same probe, same day: `_THANKS_LEAD` reads "thank you …" as one lead, `_DOMAIN_WORDS`
+  gains "farmer", `_FIGURE_SUMMARY_MATCH` gains "going on" / overview / situation / progress (a place "overview"
+  is a figures question).
+- **Same decision, same probe:** a place overview ("tell me what is going on in my block", "overview of Ri Bhoi", "how is
+  East Khasi Hills doing") with ONE scheme and ONE district / block and no measure of its own becomes that scheme's
+  headline question (`_overview_question`, route stage step 1i, intent DATA, no classifier call): MGNREGA "Compare
+  expenditure and person-days in <place>" (the two-CTE path), PMAY-G "house status in <place>" (the deterministic facts),
+  one query for the others; the answer opens "Here's an overview of <place> under <scheme>:". Free-form SQL for "going
+  on" had failed every repair. "Compare with last year" with NO year in play (an all-years answer) asks which year, with
+  the scheme's FYs as chips (`_relative_year_clarification`, follow-up stage step 0i, rule `year-not-specified`) — with a
+  year in play `substitute_references` counts back as before. "Why is it so low?" after a figure gets **reason**: the
+  records hold the figures, not the reasons, plus chips that are concrete single-measure comparisons (a chip is sent as
+  the message, so it must be a question the pipeline answers as typed; MGNREGA's two-fact shapes are avoided, KI-311).
+  `looks_like_followup` ignores an opening filler ("okay give me for East Khasi Hills" is "give me for …").
+- **Addendum (same day, user report "out of scope is not working"; KI-316).** Every scenario of the context-memory review
+  (A forward, B out-of-context incl. the B5 leak and the cached / streamed path, C backward, D general, E hierarchy, plus a harmful
+  refusal and a denied follow-up) was run through the HTTP API against the running server. Three gaps, all fixed deterministically:
+  (1) a harmful refusal is an aside like any out-of-scope message (`restyle` sets the topic-memory aside for every kind; the
+  refusal text stays firm, no chips); (2) a denied follow-up is an aside (`resume_after_small_talk` puts the topic back); (3)
+  roll-up: `_rollup_question` (follow-up stage 0h') turns "back to the district level" / "whole district" / "statewide" into
+  the topic's last AGGREGATE question with the place swapped (block -> `entity_resolver.block_parent_district`, village -> block,
+  -> "all of Meghalaya"), skipping breakdown-shaped questions ("which villages ...", "by block") and reading them from the
+  durable topic ledger, because on the server `session.turns` holds only the last turn after the per-request rehydration. It
+  carries a `MergePlan` that CLEARs the levels rolled past, so `prior_resolved` cannot put the block back (the mechanism that had
+  labelled a block figure as the district). Permissions are untouched: the rolled-up question is re-authorised like any other.
+- **Addendum (same day, user screenshot; KI-320).** "compare with pmay" after a single-scheme figure is a cross-scheme
+  comparison in the SAME scope, never a swap to the other scheme: `_compare_with_scheme_question` (follow-up stage 0h'')
+  builds "Compare <prev scheme> and <named scheme> in <place> in <FY>" from the previous turn's resolved entities and hands
+  it to the deterministic cross-scheme path (D-044). The measure is deliberately left out: person-days are MGNREGA's alone,
+  so the table shows each scheme's own headline count and amount, and says "no data for FY …" where a scheme lacks the year.
+- **Alternatives rejected:** a model classifier for these messages (a 4B call on every turn, and a sampled
+  decision on whether to re-run SQL); answering "explain" from the reference documents (they describe rules, not
+  the figure); a free-text apology written by the model (the apology is a template so it can never carry a number).
+- **Consequences:** `routers.query` unchanged; the graph gains one call in `node_finalize` (`_attach_preface`);
+  `_PIPELINE_FILES` gains `common/c15_conversation_meta` after c14 (functions only, called at run time).
+  Tests `tests/test_conversation_meta_2026_10_18.py`. Live results in TESTING.md.
+- **Status:** Active.
+
+### D-051 — Longer conversation memory: 50 turns, 20 questions per topic, 4-hour idle window
+- **Date:** 2026-10-18. **User decision** (asked: "why only 8 turns? I want more, and a longer session window").
+- `SESSION_MAX_TURNS` 8 -> **50** (turns per session; the durable snapshot now carries as many questions);
+  `CONTEXT_LEDGER_PER_TOPIC` 6 -> **20** (up to 8 x 20 = 160 restorable questions); `CONTEXT_IDLE_EXPIRY_SECONDS`
+  and `SESSION_TTL_SECONDS` 1800 -> **14400** (4 h). A stopped question now lives as long as the idle window.
+  `.env` set the old values explicitly (`SESSION_TTL_SECONDS=1800`, `SESSION_MAX_TURNS=8`); updated locally —
+  **every deploy's `.env` must be changed too**, or it keeps 30 min / 8 turns.
+- Cost: no prompt grows (every prompt use of the turns is capped: last 4 / last 8, structured context D-022).
+  The snapshot JSONB grows (ledger up to ~160 entries, answers cut to 300 chars: ~150-200 KB worst case); the
+  in-process session holds up to 50 full turns (bounded by SESSION_MAX 5000 sessions per worker, oldest first).
+- Still bounded: MAX_TOPICS 8, 5 recent questions per topic record, rolling summary every 4 turns.
+- **Status:** Active.
+
+- **Amended 2026-10-19 (user):** the idle window is 8 hours (`CONTEXT_IDLE_EXPIRY_SECONDS` = `SESSION_TTL_SECONDS` = 28800);
+  turns stay 50 and the ledger 20 per topic. Every deploy `.env` must carry `SESSION_TTL_SECONDS=28800`.
+
+### D-050 — Backward context memory: a per-topic question ledger inside the context stage
+- **Date:** 2026-10-18. Source: `documents/MAIN_Contex.pdf` (Context Memory solution proposal v1.0, Phase 3;
+  WI-7 / WI-8 / S1 / S4 of `documents/Context_Memory_Forward_Backward_Review_v3.docx`).
+- **What:** each topic in `session.topics` keeps a ledger of its last `CONTEXT_LEDGER_PER_TOPIC` (6) questions,
+  each with the ConversationState it ran in and a session-wide number. `topic_memory.resolve_turn` restores an
+  earlier question by order ("the first question", "question 3"), by content (place 3 / year 2 / words of the
+  question 1; a named scheme narrows to its topic; a different year rules an entry out), asks with chips
+  (`ledger-ambiguous`) when several are within 80% of the best, and answers "what did we discuss?" (an aside:
+  the topic carries on after it). Flag `BACKWARD_RESOLVER_ENABLED`.
+- **Deviation from the proposal:** the proposal draws four new graph nodes (load_context, classify_turn,
+  resolve_backward, resolve_reference). The project rule is "change behaviour in a stage, never in a graph node"
+  (D-032, D-036) and the existing context stage already runs topic memory first, so the resolver lives there and
+  the graph keeps its 22 nodes. Storage likewise stays the existing snapshot (`app.conversations.context_state`
+  via `Session.to_snapshot`, D-023): the ledger is part of `topics`, answers cut to 300 characters.
+- **A ledger entry holds a scope, never a figure to repeat:** going back re-runs the question in the restored
+  scope, so a data refresh can never surface a stale number.
+- "The previous / earlier question" keeps its old meaning (the previous TOPIC); only numbered ordinals mean a
+  question.
+- **Phase 4 (same day): constrained model pick.** A message with a backward cue that the rules place nowhere
+  ("that employment figure you gave earlier") goes to the REWRITE model (9B — "follow-up resolution" in the
+  user's fixed role map, not the 4B), with the last 3 turns and the numbered ledger. It answers one id, NONE or
+  ASK; any other text is ASK (or NONE with a single question). It never writes a scheme, place or year. One call,
+  only on such turns, `LLM_REFERENCE_TIMEOUT_SECONDS` 8; a failed call runs the turn as before. Called from the
+  context stage right after `resolve_turn` (`topic_memory.resolve_reference`). Flag `LLM_REFERENCE_ENABLED`.
+- **Phase 5:** setting a place level clears the levels below it, deterministically in
+  `context_manager.update_state` (a new district drops the old block / village even when the merge plan said
+  nothing). Permissions need no new code: a restore re-runs the question through the graph's `authorize` node,
+  and a denied turn is never stored in the state or the ledger.
+- **Phase 6:** scope banner — `pipeline._attach_scope_banner` (finalize node) sets `scope_banner` on every DATA
+  answer from the result's own schemes and resolved entities, "(from earlier)" on a restored turn; the UI shows
+  it above the answer and a reopened thread redraws it. "Continue with …?" — an idle expiry sets the context
+  aside (`Session.expired_ctx`, durable); the first reply carries `continue_offer`; tapping it restores state,
+  topics and last turn; any other message drops it.
+- **Stop, then "continue" (user request, same day):** when the streamed turn is cancelled (Stop button, or "stop"
+  typed in the box — the chat UI stops the running answer itself), `routers.query._remember_stopped` keeps the
+  question on the session (`Session.stopped_ctx`, durable, saved in the background). The next "continue" /
+  "resume" / "go on" (`conversation_layer.is_continue_request`) runs that question through the whole layer as if
+  just typed, never cached; any other message drops it; older than 30 min is not continued. A "stop" with nothing
+  running gets a short reply (`nothing_running`). The UI also re-asks at once from its own memory of the stopped
+  question (`frontend/src/chat/stopContinue.js`, same word lists).
+- **Mid-sentence comparison (evening, live probe V4):** "compare this with the MGNREGA figure you showed" /
+  "how does this compare to MGNREGA?" becomes the pipeline's own two-scheme comparison for the active scope
+  (`conversation_layer.comparison_with_earlier` -> "Compare PMAY-G and MGNREGA in East Khasi Hills in FY 2022-23",
+  answered by app/cross_scheme.py, D-044). Deterministic, from the state; never cached. Only one other scheme may be
+  named, and it must differ from the active one (CM Elevate family = one scheme).
+- **Also fixed the same evening:** KI-314 (snapshot load / save retried once), KI-319 (a cache-served answer updates
+  the state and carries the banner), and the "Continue with …" acknowledgement is an aside so the follow-up right
+  after the tap keeps the restored turn as antecedent (browser check with a 60 s idle window).
+- **Not built:** WI-9 (Qdrant search over archived turns on history cues — the 8 × 20 ledger covers a session).
 - **Status:** Active.

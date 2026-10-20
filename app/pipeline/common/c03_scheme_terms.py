@@ -16,7 +16,7 @@ _C03_HOW_WHY_MORE = Matcher(W("how", "why", "more"))
 
 def _c03_cut(matcher: "Matcher", text: str) -> str:
     """Every hit of `matcher` removed together with the whitespace, optional comma
-    and whitespace right before it (regex sub of \\s*,?\\s*<pattern> with "")."""
+    and whitespace right before it (all of it replaced with "")."""
     out, last = [], 0
     for h in matcher.finditer(text):
         k = h.start()
@@ -55,7 +55,7 @@ class _C03Literal(_C01Node):
 
 def _c03_drop_digit_commas(t: str) -> str:
     """'1,23,456' -> '123456': a comma between a digit and 2-3 digits that end a
-    word (regex (?<=\\d),(?=\\d{2,3}\\b))."""
+    word (only the comma is dropped; the digits on both sides stay)."""
     out = []
     n = len(t)
     for k, c in enumerate(t):
@@ -84,13 +84,13 @@ def _infer_scheme_from_terms(question: str) -> list[str] | None:
     question could plausibly mean more than one."""
     hits = ["MGNREGA"] if _mgnrega_terms(question) else []
     hits += [
-        s for s, rx in (
+        s for s, word_matcher in (
             ("PMAY-G", _PMAY_ONLY_TERMS),
             ("Focus Plus", _FOCUSPLUS_ONLY_TERMS),
             ("CM Elevate", _CMELEVATE_ONLY_TERMS),
             ("Focus Legacy", _FOCUSLEGACY_ONLY_TERMS),
             ("CM Elevate Legacy", _CMELEVATELEGACY_ONLY_TERMS),
-        ) if rx.search(question)
+        ) if word_matcher.search(question)
     ]
     # A CM Elevate sub-scheme word ("piggery", "dairy") belongs to BOTH CM
     # Elevate datasets. When the rest of the question asks for money, a year or
@@ -126,40 +126,80 @@ def _scheme_option_question(stem: str, scheme: str) -> str:
     return f"{stem} for {scheme}"
 
 
-def _scheme_clarification(question: str) -> "ClarificationNeeded":
+_FARMER_WORDS = Matcher(W("farmer", "farmers", "cultivator", "cultivators", "kisan", "kisans"))
+
+
+_SCHEME_PICK_LABELS = (
+    ("MGNREGA", "MGNREGA (rural employment)"),
+    ("PMAY-G", "PMAY-G (rural housing)"),
+    ("Focus Plus", "Focus Plus (farmer cash benefit)"),
+    ("CM Elevate", "CM Elevate (livelihood / enterprise schemes)"),
+    ("Focus Legacy", "Focus Legacy (producer group payments)"),
+    ("CM Elevate Legacy", "CM Elevate Legacy (sanctions & disbursements)"),
+)
+
+
+def _schemes_recording(question: str) -> "tuple[list[str], list[str], bool]":
+    """(schemes, measure labels, together): the schemes that record every
+    measure the question names (_MEASURE_HOLDERS), in picker order, together=True.
+    When no one scheme records them all, every scheme that records any of them,
+    together=False. ([], [], False) when the question names no measure. Typo'd
+    measure words count ("applicxations")."""
+    text = _rephrase_gloss(question or "")
+    asked = [(label, holders) for label, word_matcher, holders in _MEASURE_HOLDERS
+             if word_matcher.search(text)]
+    if not asked:
+        return [], [], False
+    keep = frozenset.intersection(*(h for _, h in asked))
+    together = bool(keep)
+    if not together:
+        keep = frozenset().union(*(h for _, h in asked))
+    return [s for s, _ in _SCHEME_PICK_LABELS if s in keep], [label for label, _ in asked], together
+
+
+def _scheme_clarification(question: str, by_measure: bool = False) -> "ClarificationNeeded":
+    """`by_measure` (the DATA path): offer only the schemes that record what the
+    question asks for. "gender wise breakup of applications" listed all six
+    schemes, four of which hold no gender or no applications (user report
+    2026-10-19: "you should be showing only for that"). Not on the KNOWLEDGE
+    path: "how do I apply?" is answerable for every scheme."""
     stem = question.strip().rstrip(" ?.")
+    # "I want to know about farmers getting money" (live 2026-10-18): only the two
+    # Focus schemes pay farmers, so ask which Focus — with what each one holds —
+    # rather than the six-scheme list.
+    if _FARMER_WORDS.search(question or "") and not _MGNREGA_AC_TERM.search(question or ""):
+        return _focus_ambiguity_clarification(question)
     if _MGNREGA_AC_TERM.search(question or ""):
         # only these schemes hold a constituency (KI-148)
         return ClarificationNeeded(
-            "Which scheme does your question concern? Assembly-constituency figures are held for "
-            "MGNREGA, Focus Legacy and CM Elevate Legacy.",
+            "Assembly-constituency figures are held for three schemes. Which one is your "
+            "question about? Pick it below.",
             options=[{"label": "MGNREGA (rural employment)", "question": _scheme_option_question(stem, "MGNREGA")},
                      {"label": "Focus Legacy (producer group payments)",
                       "question": _scheme_option_question(stem, "Focus Legacy")},
                      {"label": "CM Elevate Legacy (sanctions & disbursements)",
                       "question": _scheme_option_question(stem, "CM Elevate Legacy")}],
             rule="scheme-not-specified")
-    options = [
-        {"label": "MGNREGA (rural employment)",
-         "question": _scheme_option_question(stem, "MGNREGA")},
-        {"label": "PMAY-G (rural housing)",
-         "question": _scheme_option_question(stem, "PMAY-G")},
-        {"label": "Focus Plus (farmer cash benefit)",
-         "question": _scheme_option_question(stem, "Focus Plus")},
-        {"label": "CM Elevate (livelihood / enterprise schemes)",
-         "question": _scheme_option_question(stem, "CM Elevate")},
-        {"label": "Focus Legacy (producer group payments)",
-         "question": _scheme_option_question(stem, "Focus Legacy")},
-        {"label": "CM Elevate Legacy (sanctions & disbursements)",
-         "question": _scheme_option_question(stem, "CM Elevate Legacy")},
-        {"label": "Compare across schemes",
-         "question": (f"{stem} across MGNREGA, PMAY-G, Focus Plus, CM Elevate, "
-                      f"Focus Legacy and CM Elevate Legacy")},
-    ]
+    held, measures, together = _schemes_recording(question) if by_measure else ([], [], False)
+    if held and len(held) < len(_SCHEME_PICK_LABELS):
+        what = " and ".join(measures)
+        if len(held) == 1:
+            head = f"Only {held[0]} records {what}. Tap it below to get the figures."
+        elif together:
+            head = f"Only these schemes record {what}. Which one is your question about?"
+        else:
+            head = f"No single scheme records {what} together. Which scheme should I look at?"
+        return ClarificationNeeded(
+            head,
+            options=[{"label": label, "question": _scheme_option_question(stem, s)}
+                     for s, label in _SCHEME_PICK_LABELS if s in held],
+            rule="scheme-not-specified")
+    options = [{"label": label, "question": _scheme_option_question(stem, s)}
+               for s, label in _SCHEME_PICK_LABELS]
     return ClarificationNeeded(
-        "Which scheme does your question concern — MGNREGA, PMAY-G, Focus Plus, "
-        "CM Elevate, Focus Legacy, or CM Elevate Legacy? Please select one, or choose "
-        "to compare across schemes.",
+        # Short and conversational: the UI lists the schemes as cards right
+        # under this line, so the names are not repeated here (user, 2026-10-18).
+        "Which scheme is your question about? Pick one below.",
         options=options,
         rule="scheme-not-specified",
     )
@@ -308,21 +348,29 @@ def _data_thread_antecedent(question: str, prev: "object", session: "Session | N
     # antecedent is that scheme's last DATA turn, whatever kind of change it is.
     own = set(_named_schemes(question)) | set(_infer_scheme_from_terms(question) or [])
     kscheme = (getattr(prev, "schemes", None) or [None])[0]
-    if own and kscheme not in own:
+    if own and not any(topic_memory.same_scheme_family(kscheme, o) for o in own):
         for t in reversed(list(session.turns or [])[-4:]):
-            if getattr(t, "route", None) == "data" and own & set(t.schemes or []):
+            if getattr(t, "route", None) == "data" and any(
+                    topic_memory.same_scheme_family(o, s) for o in own for s in (t.schemes or [])):
                 return t
+        # A worker rehydrated from the snapshot holds only the last turn; the
+        # topic ledger still has the DATA turn (live 2026-10-18, scenario H).
+        if not any(getattr(t, "route", None) == "data" for t in list(session.turns or [])[-4:]):
+            return topic_memory.recent_data_turn(session, own)
         return None
     if plan.kind not in (context_policy.GEOGRAPHY_CHANGE, context_policy.TIME_CHANGE):
         return None
-    if _KNOWLEDGE_HINTS.search(question or "") or context_policy._SCHEME_TOPIC_RX.search(
+    if _KNOWLEDGE_HINTS.search(question or "") or context_policy._SCHEME_TOPIC_MATCH.search(
             _C03_HOW_WHY_MORE.sub(" ", question or "")):
         return None
     scheme = (getattr(prev, "schemes", None) or [None])[0]
     for t in reversed(list(session.turns or [])[-4:]):
         if getattr(t, "route", None) == "data":
-            return t if (not scheme or scheme in (t.schemes or [])) else None
-    return None
+            return t if (not scheme or any(topic_memory.same_scheme_family(scheme, s)
+                                           for s in (t.schemes or []))) else None
+    # No DATA turn in memory: a worker rehydrated from the snapshot (it holds
+    # only the last turn). The topic ledger is durable (live 2026-10-18, H).
+    return topic_memory.recent_data_turn(session, [scheme] if scheme else None)
 
 
 def _drop_inherited_time(question: str, typed: str) -> str:
@@ -367,13 +415,18 @@ def _focus_ambiguity_clarification(question: str) -> "ClarificationNeeded":
 # paused question: "Show beneficiaries" -> "Which scheme?" -> "Focus Plus" used
 # to go through as the brand-new question "Focus Plus", so the original ask was
 # lost unless the user clicked a chip.
-SCHEME_PAUSE_RULES = ("scheme-not-specified", "focus-scheme-ambiguous", "bank-scheme-not-specified")
+SCHEME_PAUSE_RULES = ("scheme-not-specified", "focus-scheme-ambiguous", "bank-scheme-not-specified",
+                      "cm-elevate-dataset")
 _SCHEME_REPLY_FILLER = Matcher(Alt(
     W("the", "for", "under", "in", "of", "scheme", "schemes", "data", "only", "please", "pls", "its", "ok",
       "okay", "yes", "one"),
     Seq("i", "mean", sep="space"),
     Seq("it", _C01Gap(lambda g: g == "'"), "s")))
 _FOCUS_SIDE_WORD = {"plus": "Focus Plus", "legacy": "Focus Legacy"}
+# The "CM Elevate or CM Elevate Legacy?" pause: a typed side word picks one.
+_CME_SIDE_WORD = {"legacy": "CM Elevate Legacy", "disbursement": "CM Elevate Legacy",
+                  "disbursements": "CM Elevate Legacy", "sanctions": "CM Elevate Legacy",
+                  "applications": "CM Elevate", "application": "CM Elevate", "applicants": "CM Elevate"}
 
 # Pauses whose free-text reply is a scope FRAGMENT, merged into the paused
 # question ("West Garo Hills 2023-24"). The router remembers them without
@@ -447,8 +500,8 @@ def _option_tokens(text: str) -> "set[str]":
     """Content words of a label / reply / chip question, scheme names removed,
     amounts without their ₹ and commas, plurals folded ("houses" = "house")."""
     t = text or ""
-    for rx in _SCHEME_NAME_MATCHER.values():
-        t = rx.sub(" ", t)
+    for word_matcher in _SCHEME_NAME_MATCHER.values():
+        t = word_matcher.sub(" ", t)
     t = _c03_drop_digit_commas(t.lower().replace("₹", " "))
     out = set()
     for w in _c03_option_words(t):
@@ -547,8 +600,9 @@ def _resume_scheme_pause(reply: str, options: "list | None") -> "str | None":
         residue = _SCHEME_NAME_MATCHER[s].sub(" ", residue)
     residue = keep_chars(_SCHEME_REPLY_FILLER.sub(" ", residue), lambda c: c not in ",.!?:;",
                          " ").strip().lower()
-    if not named and residue in _FOCUS_SIDE_WORD and set(offered) == set(_FOCUS_SIDE_WORD.values()):
-        named, residue = [_FOCUS_SIDE_WORD[residue]], ""
+    for _side in (_FOCUS_SIDE_WORD, _CME_SIDE_WORD):
+        if not named and residue in _side and set(offered) == set(_side.values()):
+            named, residue = [_side[residue]], ""
     if residue or len(named) != 1:
         return None
     return offered.get(named[0])

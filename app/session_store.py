@@ -179,6 +179,18 @@ class Session:
     # turns after it, so a cleared conversation stays cleared (KI-224). 0 =
     # never cleared.
     memory_since: float = 0.0
+    # What an idle expiry set aside (app/conversation_layer.py, Context Memory
+    # S3, 2026-10-18): the state, topics and last turn, plus the "Continue
+    # with ..." chip the first reply after the expiry offers. Tapping the chip
+    # puts it back; any other message drops it. Durable, so the tap works on
+    # any worker. None when nothing is set aside.
+    expired_ctx: dict | None = None
+    # A question the officer stopped while it ran (the Stop button or a typed
+    # "stop" cancels the streamed turn, routers.query): {"question", "at"}.
+    # The next "continue" / "resume" / "go on" runs it (conversation_layer,
+    # 2026-10-18); any other message drops it. Durable, so a reload or another
+    # worker can still continue it. None when nothing was stopped.
+    stopped_ctx: dict | None = None
 
     @property
     def last_turn(self) -> Turn | None:
@@ -210,10 +222,13 @@ class Session:
                 "rule": self.pending_scope_rule,
                 "options": list(self.pending_scope_options or []) or None,
             },
-            "recent_questions": [t.question for t in self.turns[-8:] if t.question],
+            # as many as the session keeps (SESSION_MAX_TURNS; questions only, short)
+            "recent_questions": [t.question for t in self.turns[-max(1, settings.SESSION_MAX_TURNS):] if t.question],
             "topics": self.topics or None,
             "context_at": self.context_at or None,
             "memory_since": self.memory_since or None,
+            "expired": self.expired_ctx or None,
+            "stopped": self.stopped_ctx or None,
         }
         return snap
 
@@ -245,6 +260,8 @@ class Session:
         self.topics = dict(extra.get("topics") or {})
         self.context_at = float(extra.get("context_at") or 0.0)
         self.memory_since = float(extra.get("memory_since") or 0.0)
+        self.expired_ctx = extra.get("expired") or None
+        self.stopped_ctx = extra.get("stopped") or None
         if summary is not None:
             self.summary = summary
             self.summary_turn_count = self.state.turn_count

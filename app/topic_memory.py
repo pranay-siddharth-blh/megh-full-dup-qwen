@@ -57,6 +57,13 @@ How a message is placed in a topic (resolve_turn):
      on its own, a short acknowledgement is the answer.
      Unnamed ("the previous topic") with two or more topics to go back to:
      ask which one (a pause with one chip per topic), never guess.
+  2b. A reply to our own "which earlier question?" pause picks that question.
+  2c. "What did we discuss?" is answered with the conversation's questions,
+     numbered (2026-10-18, see "The topic ledger" below).
+  3b. A reference to an earlier QUESTION ("go back to the East Khasi Hills
+     one", "the first question", "MGNREGA ka 2022 wala figure") restores that
+     question's own scope from its topic's ledger; several matches: ask with
+     one chip per question, never guess (2026-10-18, D-050).
   4. Anything else is the existing behaviour, unchanged: a follow-up continues
      the active topic, a question naming a new scheme starts a new topic (the
      scheme-change reset), "what about PMAY?" is the existing scheme swap.
@@ -65,26 +72,47 @@ Every decision is logged as pipeline_decision stage "topic".
 Best-effort like the rest of the context layer: any failure in the
 bookkeeping leaves the turn exactly as it would have run without this module.
 """
+import asyncio
 import logging
+import time
 from dataclasses import dataclass
 
 from app import context_budget
 from app.config import settings
-from app.context_policy import _CpSep, _CpStart, _cp_ws
-from app.text_match import Alt, Matcher, Opt, Rep, Seq, W
+from app.context_policy import _CpEnd, _CpSep, _CpStart, _cp_end_punct, _cp_ws
+from app.text_match import Alt, Matcher, Opt, Pred, Rep, Seq, W, words
 
 logger = logging.getLogger(__name__)
 
 # The rule tag of our own "which topic?" pause (ClarificationNeeded.rule).
 TOPIC_PAUSE_RULE = "topic-ambiguous"
+# The rule tag of our own "which earlier question?" pause (the topic ledger).
+LEDGER_PAUSE_RULE = "ledger-ambiguous"
 # The edge_type of the acknowledgement a bare "go back to MGNREGA" gets.
 TOPIC_SWITCH_EDGE = "topic_switch"
+# The edge_type of the answer to "what did we discuss?".
+HISTORY_EDGE = "conversation_history"
 
 MAX_TOPICS = 8               # six schemes + a couple of comparison topics
 _TOPIC_QUESTIONS = 5         # recent questions kept per topic
 _ANSWER_CHARS = 2000         # the same cap Session.to_snapshot uses
 _TOPIC_ROUTES = ("data", "knowledge")   # pipeline._ANTECEDENT_ROUTES
 _FOCUS_TOPICS = ("Focus Plus", "Focus Legacy")
+# "Go back to CM Elevate" while the conversation's topic is CM Elevate Legacy
+# (a bare "CM Elevate" data question goes there by the 2026-10-12 decision,
+# D-009): the one CM Elevate-family topic this conversation holds is meant;
+# with both, ask (live matrix 2026-10-18, CM Elevate F7: it ran as a new
+# question and was answered from the documents).
+_CME_TOPICS = ("CM Elevate", "CM Elevate Legacy")
+
+
+def same_scheme_family(a, b) -> bool:
+    """The two CM Elevate datasets count as one scheme for topic continuity
+    (a bare "CM Elevate" data question goes to Legacy by the 2026-10-12
+    decision, and "who is eligible for CM Elevate?" is about both): a
+    knowledge aside about one, or "and in West Garo Hills?" after it, continues
+    the other's figure (live matrix 2026-10-18, CM Elevate F4)."""
+    return a == b or (a in _CME_TOPICS and b in _CME_TOPICS)
 
 
 # ── Detecting a topic switch ────────────────────────────────────────────────
@@ -94,7 +122,7 @@ _FOCUS_TOPICS = ("Focus Plus", "Focus Legacy")
 # "now regarding". Anchored at the start: a switch is what the message opens
 # with. Fillers before it ("ok, now", "so") are allowed.
 def _tm_filler_gap(g: str) -> bool:
-    """Whitespace and commas only (the old [\\s,]*)."""
+    """Whitespace and commas only (or nothing)."""
     return g.replace(",", " ").strip() == ""
 
 
@@ -116,7 +144,7 @@ _SWITCH_LEAD = Matcher(Seq(
         Seq(Opt("now"), "regarding"),
         "now about", "now for",
         Seq("again", W("on", "about")))))
-# What the lead may be followed by before the topic (the old [\s,:-]*).
+# What the lead may be followed by before the topic: spaces, commas, colons, dashes.
 _TM_LEAD_TAIL = " \t\n\r\f\v,:-"
 _TM_BREAK_WORDS = ("what", "how", "which", "who", "when", "where", "show", "give", "tell", "list")
 
@@ -238,7 +266,11 @@ def is_topic_command(question: str) -> bool:
     in its own conversation, so it must never be served from or written to the
     shared answer caches (routers.query.is_cacheable)."""
     try:
-        return parse_switch(question) is not None
+        if parse_switch(question) is not None:
+            return True
+        # A reference to an earlier question ("go back to the East Khasi Hills
+        # one") or "what did we discuss?" likewise (the topic ledger).
+        return _ledger_on() and (parse_backward(question) is not None or parse_history(question))
     except Exception:  # noqa: BLE001
         return False
 
@@ -368,6 +400,7 @@ def checkpoint(session) -> None:
             session.turns.append(_turn_from(item["last_turn"]))
         return
     key = _turn_topic(last)
+    filed = False
     if key is not None:
         item = mem["items"].setdefault(key, {"schemes": _key_schemes(key), "state": None,
                                              "last_turn": None, "last_fp": None,
@@ -378,6 +411,7 @@ def checkpoint(session) -> None:
             item["last_fp"] = fp
             item["questions"] = (item.get("questions") or [])[-(_TOPIC_QUESTIONS - 1):] + [last.question]
             item["turns"] = int(item.get("turns") or 0) + 1
+            filed = True
         mem["active"] = key
         _touch(mem, key)
     # The state belongs to the topic it names, which is not always the last
@@ -386,6 +420,8 @@ def checkpoint(session) -> None:
     skey = _state_topic(session.state)
     if skey is not None and skey in mem["items"]:
         mem["items"][skey]["state"] = session.state.to_dict()
+    if filed and key in mem["items"]:
+        _file_ledger(mem, key, last, session.state)
     for k in ({key, skey} - {None}):
         if k in mem["items"]:
             mem["items"][k]["summary"] = _summary(k, mem["items"][k])
@@ -399,6 +435,570 @@ def describe(session) -> dict:
             "topics": [{"topic": k, "turns": (mem["items"].get(k) or {}).get("turns", 0),
                         "summary": (mem["items"].get(k) or {}).get("summary") or k}
                        for k in mem["order"] if k in mem["items"]]}
+
+
+# ── The topic ledger: going back to an earlier QUESTION ─────────────────────
+# A topic record holds the topic's LAST turn, so after
+#
+#    1 MGNREGA person-days, East Khasi Hills, 2022-23
+#    2 Who is eligible for PMAY-G?
+#    3 MGNREGA job cards, West Garo Hills, 2023-24
+#    4 "Go back to the East Khasi Hills one"
+#
+# "go back to MGNREGA" could only restore question 3: question 1's scope was
+# gone. Each topic now also keeps a ledger of its last CONTEXT_LEDGER_PER_TOPIC
+# questions, each with the scope it ran in (Context Memory proposal, Phase 3,
+# 2026-10-18). A ledger entry holds the scope and the question, never a figure
+# to repeat: going back RE-RUNS the question in its restored scope, so a data
+# refresh in between can never show a stale number. The answer is kept only
+# (cut short) as the follow-up antecedent.
+#
+# A message is read as a reference to an earlier question only with a clear
+# cue (parse_backward), and only an entry it matches is restored:
+#   by order    "the first question", "question 3", "the last question"
+#   by content  "the East Khasi Hills one", "the job cards question",
+#               "MGNREGA ka 2023 wala figure" (place, year and words of the
+#               entry's own question; a named scheme narrows to its topic)
+# One match: restore it. Several: ask with one chip per entry (never guess).
+# None: the message runs exactly as it did before the ledger existed.
+#
+# A ledger entry (item["ledger"], least recent last; persisted with the topics):
+#   {"n": 3, "question": <standalone question run>, "raw": <as typed>,
+#    "route": "data", "state": {...ConversationState...} | None,
+#    "turn": {...the turn, answer cut to _LEDGER_ANSWER_CHARS...}, "ts": ...}
+# "n" is the question's number in the conversation (mem["seq"]); it is what
+# "the first question" and the chips ("Go back to question 3") refer to.
+
+_LEDGER_ANSWER_CHARS = 300   # the snapshot carries up to 8 x 6 entries
+
+
+def _ledger_on() -> bool:
+    return bool(getattr(settings, "BACKWARD_RESOLVER_ENABLED", True))
+
+
+def _file_ledger(mem: dict, key: str, turn, state) -> None:
+    """Append the turn that just finished to its topic's ledger, with the
+    scope it ran in. Asking the same question again keeps its number."""
+    if not _ledger_on():
+        return
+    # A pure "go back to the East Khasi Hills one" / "go back to MGNREGA"
+    # re-runs an earlier question and asks nothing new: it is not a question
+    # of its own (browser check 2026-10-18: it was listed as "3. Go back to
+    # the East Khasi Hills one" and offered as a chip). A return WITH a
+    # question ("go back to the first one, what about Ri Bhoi?") runs that
+    # question, which differs from the typed text, and is filed as usual.
+    raw = (turn.raw_question or "").strip()
+    if raw and raw == (turn.question or "").strip() and (parse_switch(raw) or parse_backward(raw)):
+        return
+    item = mem["items"][key]
+    st = state.to_dict() if state is not None and _state_topic(state) == key else None
+    if st is None and len(item.get("schemes") or []) == 1:
+        st = {"scheme": item["schemes"][0]}
+    old = [e for e in item.get("ledger") or [] if e.get("question") == turn.question]
+    if old:
+        n = old[0]["n"]
+    else:
+        mem["seq"] = int(mem.get("seq") or 0) + 1
+        n = mem["seq"]
+    d = _turn_dict(turn)
+    d["answer"] = d["answer"][:_LEDGER_ANSWER_CHARS]
+    ledger = [e for e in item.get("ledger") or [] if e.get("question") != turn.question]
+    ledger.append({"n": n, "question": turn.question, "raw": turn.raw_question, "route": turn.route,
+                   "state": st, "turn": d, "ts": time.time()})
+    item["ledger"] = ledger[-max(1, int(getattr(settings, "CONTEXT_LEDGER_PER_TOPIC", 6) or 6)):]
+
+
+def _ledger_entries(mem: dict) -> list:
+    """Every (topic, entry) this conversation holds, oldest question first."""
+    out = [(k, e) for k in mem["order"] if k in mem["items"]
+           for e in (mem["items"][k].get("ledger") or [])]
+    return sorted(out, key=lambda ke: ke[1].get("n") or 0)
+
+
+def recent_data_turn(session, schemes=None, within: int = 4):
+    """The latest DATA question among the conversation's last `within`
+    questions, as a Turn, from the durable ledger — for a worker rehydrated
+    from the snapshot, whose session.turns holds only the last turn (live
+    2026-10-18, scenario H on 3 workers: "And in West Garo Hills?" after
+    "Who is eligible for PMAY-G?" lost the PMAY-G figure it continues).
+    With `schemes`, None unless that latest DATA question is about one of them."""
+    try:
+        if session is None or not _ledger_on():
+            return None
+        entries = _ledger_entries(_memory(session))
+        if not entries:
+            return None
+        newest = entries[-1][1].get("n") or 0
+        for _k, e in reversed(entries):
+            if (e.get("n") or 0) <= newest - within:
+                break
+            if e.get("route") == "data" and e.get("turn"):
+                turn = _turn_from(e["turn"])
+                if schemes and not any(same_scheme_family(a, b) for a in schemes for b in (turn.schemes or [])):
+                    return None
+                return turn
+    except Exception:  # noqa: BLE001 — a fallback must never break the turn
+        logger.warning("topic memory: recent_data_turn failed (non-fatal)", exc_info=True)
+    return None
+
+
+# Words for "the Nth question". "previous" / "latest" mean the last one.
+_ORDINALS = {"first": 1, "1st": 1, "initial": 1, "original": 1, "opening": 1, "second": 2, "2nd": 2,
+             "third": 3, "3rd": 3, "fourth": 4, "4th": 4, "fifth": 5, "5th": 5, "sixth": 6, "6th": 6,
+             "seventh": 7, "7th": 7, "eighth": 8, "8th": 8, "ninth": 9, "9th": 9, "tenth": 10, "10th": 10,
+             "last": "last", "latest": "last", "previous": "last", "recent": "last"}
+_QUESTION_NOUNS = ("question", "questions", "query", "queries")
+# Nouns that make "the East Khasi Hills one" a reference to something said.
+_REF_NOUNS = frozenset(("one", "question", "questions", "query", "queries", "figure", "figures", "number",
+                        "numbers", "answer", "answers", "result", "results", "discussion", "data",
+                        "wala", "wali", "wale", "vala", "vali", "vale"))
+_HINDI_BACK = ("pehle", "pehla", "pehli", "pahle", "pichla", "pichle", "pichli", "pichhla", "pichhle",
+               "dobara", "dubara", "wapas", "vapas", "wala", "wali", "wale")
+# A cue anywhere in the message that it refers to something said earlier.
+# "the last one" / "the first one" are NOT cues: they point into a result
+# ("which one had the highest?" -> "the last one"), which the follow-up layer
+# handles.
+_BACK_CUE = Matcher(Alt(
+    Seq(W(*_ORDINALS), W(*_QUESTION_NOUNS)),
+    Seq(W("question", "query"), Opt(W("number", "no")), Pred(str.isdigit)),
+    Seq(W("you", "u"), Opt(W("have", "had", "just", "already")),
+        W("said", "showed", "shown", "told", "gave", "given", "mentioned", "shared", "answered", "reported")),
+    Seq(W("we", "i"), Opt(W("have", "had", "just", "already")),
+        W("discussed", "asked", "talked", "saw", "seen", "looked", "checked", "covered")),
+    Seq("remind", "me"),
+    Seq(W("the", "that"), W("earlier", "previous", "older", "first", "initial", "original"),
+        W("one", "question", "query", "figure", "number", "answer", "result", "data")),
+    W(*_HINDI_BACK),
+    Seq("phir", "se")))
+# Words that carry no content of their own in a reference ("go back to the
+# ... one", "what was the ... figure you showed again?"); what is left is
+# matched against the ledger.
+_BACK_FILLER = frozenset((
+    "go", "going", "get", "come", "coming", "came", "back", "to", "return", "returning", "revisit", "switch",
+    "continue", "resume", "regarding", "now", "ok", "okay", "so", "and", "please", "pls", "the", "that",
+    "this", "those", "these", "a", "an", "one", "ones", "what", "whats", "was", "were", "is", "are", "again",
+    "remind", "me", "you", "u", "said", "showed", "shown", "told", "gave", "given", "mentioned", "shared",
+    "answered", "reported", "we", "i", "have", "had", "just", "already", "discussed", "asked", "talked",
+    "saw", "seen", "looked", "checked", "covered", "about", "for", "of", "on", "in", "figure", "figures",
+    "number", "numbers", "no", "answer", "answers", "result", "results", "data", "info", "information",
+    "earlier", "previously", "before", "older", "tell", "show", "give", "repeat", "can", "could", "would",
+    "will", "once", "more", "there", "it", "its", "let", "lets", "us", "question", "questions", "query",
+    "queries", "discussion", "topic", "scheme", "one", "phir", "se", "ka", "ki", "ke", "ko", "batao",
+    "bataiye", "bataye", "dikhao", "do", "dena", "hai", "tha", "thi", "fy", "year", "financial", "with",
+    *_ORDINALS, *_HINDI_BACK, "vala", "vali", "vale"))
+
+
+@dataclass
+class BackRef:
+    """A reference to an earlier question. `ordinal` is 1, 2, ... or "last"
+    (None: by content); `target` is the referring part; `remainder` is a
+    question that came after it ("go back to the first one, what about
+    2023-24?")."""
+    ordinal: "int | str | None"
+    target: str
+    remainder: str
+    lead: bool
+
+
+def _ordinal(text: str) -> "int | str | None":
+    ws = words(text)
+    for i, w in enumerate(ws):
+        nxt = ws[i + 1] if i + 1 < len(ws) else ""
+        # "the second question", also "the first PMAY-G question" (a scheme
+        # name, up to three words, in between)
+        if w in _ORDINALS and any(x in _QUESTION_NOUNS for x in ws[i + 1:i + 5]):
+            return _ORDINALS[w]
+        if w in ("question", "query"):
+            j = i + 2 if nxt in ("number", "no") else i + 1
+            if j < len(ws) and ws[j].isdigit():
+                return int(ws[j])
+    return None
+
+
+def _again_cue(text: str) -> bool:
+    """"again" as a reference: "what was that figure again?", "show me the
+    East Khasi Hills data again" — not "show it again by block" alone."""
+    ws = words(text)
+    return "again" in ws and (ws[0] in ("what", "whats", "repeat", "say")
+                              or any(w in _REF_NOUNS for w in ws))
+
+
+def parse_backward(question: str) -> "BackRef | None":
+    """The reference to an earlier question in `question`, or None. Read only
+    when parse_switch found no topic return (resolve_turn)."""
+    q = (question or "").strip()
+    if not q:
+        return None
+    m = _SWITCH_LEAD.match(q)
+    if m:
+        # "go back to the East Khasi Hills one", "back to question 3, what
+        # about 2024?". The target must refer to something said: "continue
+        # with MGNREGA beneficiaries in East Khasi Hills" is a new question.
+        rest = q[m.end():].lstrip(_TM_LEAD_TAIL)
+        brk = _tm_clause_break(rest)
+        target, remainder = (rest[:brk[0]], rest[brk[1]:]) if brk else (rest, "")
+        target = target.strip()
+        if not target:
+            return None
+        ordinal = _ordinal(target)
+        # "go back to the first one" / "back to the second": after a "go back
+        # to" lead the bare ordinal is the question's number (live 2026-10-19:
+        # it had no ordinal, matched no content and fell to the knowledge base,
+        # which explained that MGNREGA has no "first one"). Without the lead,
+        # "the first one" still points into a result (see _BACK_CUE).
+        if ordinal is None:
+            bare = [w for w in words(target) if w not in ("the", "that", "my", "our", "very")]
+            if bare and bare[0] in _ORDINALS and bare[1:] in ([], ["one"]):
+                ordinal = _ORDINALS[bare[0]]
+        if ordinal is None and not (_REF_NOUNS & set(words(target))):
+            return None
+        return BackRef(ordinal, target, remainder.strip(), True)
+    # A cue anywhere. The clause holding it is the reference; a clause after
+    # it is the question to run there ("you said 1.8 lakh for East Khasi
+    # Hills, what about Ri Bhoi?"). A cue only in a later clause ("what about
+    # Ri Bhoi, like you said?") is left to the follow-up layer.
+    brk = _tm_clause_break(q)
+    first, rest = (q[:brk[0]], q[brk[1]:]) if brk else (q, "")
+    if not (_BACK_CUE.search(first) or _again_cue(first)):
+        return None
+    return BackRef(_ordinal(first), first.strip(), rest.strip(), False)
+
+
+def _sing(w: str) -> str:
+    return w[:-1] if len(w) > 3 and w.endswith("s") and not w.endswith("ss") else w
+
+
+def _content_words(text: str) -> set:
+    return {_sing(w) for w in words(text)
+            if w not in _BACK_FILLER and not w.isdigit() and len(w) >= 3}
+
+
+def _years_in(text: str) -> set:
+    """The four-digit years in `text` ("2022-23" -> {"2022"})."""
+    return {w for w in words(text) if len(w) == 4 and w.isdigit() and w.startswith("20")}
+
+
+def _entry_text(e: dict) -> str:
+    st = e.get("state") or {}
+    return " ".join(str(x) for x in (e.get("raw"), e.get("question"), st.get("metric")) if x)
+
+
+def _score(e: dict, target: str, content: set, years: set) -> int:
+    """How well `target` describes ledger entry `e`: a place it ran for
+    counts 3, its year 2, each word of its own question 1. A year the
+    entry did not run for rules it out."""
+    st = e.get("state") or {}
+    score = 0
+    for place in (st.get("village"), st.get("block"), st.get("district")):
+        if place and words(place) and Matcher(Seq(*words(place))).search(target):
+            score += 3
+            # counted once, as the place, not again as words of the question
+            content = content - {_sing(w) for w in words(place)}
+    if years:
+        held = ({str(st["year"])} if st.get("year") is not None else set()) | _years_in(e.get("question") or "")
+        if not held & years:
+            return 0
+        score += 2
+    return score + len(content & _content_words(_entry_text(e)))
+
+
+def _match_entries(mem: dict, ref: BackRef, question: str) -> "tuple[list, str]":
+    """((topic, entry) candidates, "order" | "content")."""
+    from app import pipeline
+    entries = _ledger_entries(mem)
+    named = list(pipeline._named_schemes(ref.target))
+    if named:
+        entries = [(k, e) for k, e in entries if set(named) <= set(_key_schemes(k))]
+    if not entries:
+        return [], "none"
+    if ref.ordinal is not None:
+        if ref.ordinal == "last":
+            return [entries[-1]], "order"
+        if named:
+            # "the second MGNREGA question": the second within that topic
+            return ([entries[ref.ordinal - 1]] if 0 < ref.ordinal <= len(entries) else []), "order"
+        return [ke for ke in entries if ke[1].get("n") == ref.ordinal], "order"
+    try:
+        target = pipeline._correct_place_spelling(ref.target)
+    except Exception:  # noqa: BLE001 — the typed text still matches exact names
+        target = ref.target
+    content = _content_words(target) - {_sing(w) for s in named for w in words(s)}
+    years = _years_in(target)
+    scored = [(s + (1 if named and s else 0), k, e)
+              for k, e in entries for s in (_score(e, target, content, years),)]
+    best = max((s for s, _, _ in scored), default=0)
+    if best < 2:
+        return [], "none"
+    picked = [(k, e) for s, k, e in scored if s >= 0.8 * best]
+    return sorted(picked, key=lambda ke: ke[1].get("n") or 0, reverse=True), "content"
+
+
+def _entry_label(key: str, e: dict) -> str:
+    """A chip label: '#1 MGNREGA · East Khasi Hills · FY 2022-23 · person-days'."""
+    st = e.get("state") or {}
+    place = st.get("village") or st.get("block") or st.get("district")
+    bits = [key] + [b for b in (str(place).title() if place else None,
+                                _fy(st.get("year")) if st.get("year") is not None else None,
+                                st.get("metric")) if b]
+    if len(bits) == 1:
+        q = (e.get("question") or e.get("raw") or "").strip()
+        bits.append(q[:60] + ("…" if len(q) > 60 else ""))
+    return f"#{e.get('n')} " + " · ".join(str(b) for b in bits)
+
+
+def _ask_which_entry(candidates: list, remainder: str):
+    from app import pipeline
+    tail = f", {remainder}" if remainder else ""
+    return pipeline.ClarificationNeeded(
+        "Which earlier question do you mean?",
+        options=[{"label": _entry_label(k, e), "question": f"Go back to question {e.get('n')}{tail}"}
+                 for k, e in candidates[:4]],
+        rule=LEDGER_PAUSE_RULE)
+
+
+def _asks_more(target: str, e: dict) -> bool:
+    """Whether the reference asks for something the entry did not hold: a
+    word that is neither in the entry's question nor its scheme or place."""
+    st = e.get("state") or {}
+    known = _content_words(_entry_text(e))
+    for name in list((e.get("turn") or {}).get("schemes") or []) + [st.get(f) for f in ("district", "block", "village")]:
+        if name:
+            known |= {_sing(w) for w in words(name)}
+    return bool(_content_words(target) - known)
+
+
+# Words after "the first question" that change nothing ("repeat my first
+# question again please").
+_TAIL_FILLER = frozenset(("again", "please", "pls", "once", "more", "now", "too", "also", "same", "the", "that",
+                          "this", "it", "one", "i", "asked", "had", "my", "of", "ok", "okay", "kindly", "but",
+                          "and", "with", "just", "instead"))
+
+
+def _ordinal_tail(target: str) -> str:
+    """What follows "the Nth question" in the same clause, when it changes the
+    question: "repeat my first question for West Garo Hills" -> "for West Garo
+    Hills". Empty when nothing (or only filler) follows. Audit 2026-10-19: the
+    tail had no clause break, so the first question re-ran unchanged."""
+    toks = (target or "").split()
+    low = [t.lower().strip(",.?!:;") for t in toks]
+    for i, w in enumerate(low):
+        if w in _ORDINALS and any(x in _QUESTION_NOUNS for x in low[i + 1:i + 4]):
+            j = next(k for k in range(i + 1, min(i + 4, len(low))) if low[k] in _QUESTION_NOUNS)
+            tail = toks[j + 1:]
+            while tail and tail[0].lower().strip(",.?!:;") in _TAIL_FILLER - {"for", "in"}:
+                tail = tail[1:]
+            if any(t.lower().strip(",.?!:;") not in _TAIL_FILLER for t in tail):
+                return " ".join(tail).strip(" ,.?!:;")
+            return ""
+    return ""
+
+
+def _restore_entry(session, mem: dict, key: str, e: dict, ref: BackRef, how: str) -> "TopicTurn":
+    """Put an earlier question's scope and turn back in place. The question
+    that runs is the one after the reference, else the user's own words when
+    they ask for more than the entry held ("show the East Khasi Hills data
+    again by block"), else the entry's question, re-run."""
+    from app.session_store import ConversationState
+    restored = ConversationState.from_dict(e.get("state") or {})
+    restored.turn_count = session.state.turn_count
+    session.state = restored
+    if e.get("turn"):
+        session.turns.append(_turn_from(e["turn"]))
+    before = mem.get("active")
+    mem["active"] = key
+    _touch(mem, key)
+    if getattr(session, "pending_scope_q", None):
+        _clear_pending(session)
+    _tail = "" if ref.remainder or ref.ordinal is None else _ordinal_tail(ref.target)
+    if ref.remainder:
+        question = ref.remainder
+    elif _tail:
+        # The restored question is the antecedent; the tail is its follow-up
+        # ("for West Garo Hills"), rewritten against it like any other.
+        question = _tail
+    elif how == "content" and not ref.lead and _asks_more(ref.target, e):
+        question = ref.target
+    else:
+        question = e.get("question") or ref.target
+    context_budget.log_decision("topic", action="restore-question", n=e.get("n"), topic=key, previous=before,
+                                by=how, rerun=question == e.get("question"))
+    logger.info("topic memory: restored question #%s (%s, by %s)", e.get("n"), key, how)
+    return TopicTurn(question=question, action="restore", topic=key)
+
+
+def _backward(session, mem: dict, question: str) -> "TopicTurn | None":
+    """Restore the earlier question `question` refers to; ask when several
+    match; None when it refers to none (the message then runs as before)."""
+    if not _ledger_on() or not _ledger_entries(mem):
+        return None
+    ref = parse_backward(question)
+    if ref is None:
+        return None
+    picked, how = _match_entries(mem, ref, question)
+    if len(picked) == 1:
+        return _restore_entry(session, mem, picked[0][0], picked[0][1], ref, how)
+    if len(picked) >= 2:
+        context_budget.log_decision("topic", action="ask-question", candidates=[e.get("n") for _, e in picked])
+        session.turn_context = {}
+        raise _ask_which_entry(picked, ref.remainder)
+    context_budget.log_decision("topic", action="no-such-question")
+    return None
+
+
+# ── Phase 4: a reference the rules cannot place, picked by the model ────────
+# "is that figure you gave for the housing scheme still right?", "the
+# district one from before": a backward cue, but no place, year, number or
+# question words that match one ledger entry. The rewrite model (9B; follow-up
+# resolution in the fixed role map) reads the last turns and a NUMBERED list
+# of this conversation's questions and answers with one id, NONE or ASK. It
+# cannot output a scheme, place or year: anything but a listed id / NONE /
+# ASK is discarded and treated as ASK (or as NONE when there is only one
+# question, which would make a pointless chip). A failed or slow call leaves
+# the turn exactly as it ran before.
+
+# What each scheme is about, as the "which scheme?" chips say it
+# (pipeline c04_scheme_listing): live 2026-10-18 the model answered NONE for
+# "that employment figure you gave earlier" with an MGNREGA person-days
+# question in the list — it needs to know MGNREGA IS employment.
+_SCHEME_ABOUT = {"MGNREGA": "rural employment, person-days, job cards, wages",
+                 "PMAY-G": "rural housing, houses sanctioned / completed",
+                 "Focus Plus": "farmer cash benefit", "CM Elevate": "livelihood / enterprise applications",
+                 "Focus Legacy": "producer group payments", "CM Elevate Legacy": "sanctions & disbursements"}
+
+
+def _reference_prompt(session, question: str, entries: list) -> str:
+    recent = [t for t in list(getattr(session, "turns", []) or [])[-3:] if t.route in _TOPIC_ROUTES]
+    lines = [f'- User: "{t.raw_question}" -> answered as: "{t.question}"' for t in recent]
+    cands = []
+    for k, e in entries:
+        about = "; ".join(f"{s} = {_SCHEME_ABOUT[s]}" for s in _key_schemes(k) if s in _SCHEME_ABOUT)
+        answer = " ".join(((e.get("turn") or {}).get("answer") or "").split())[:160]
+        cands.append(f"q{e.get('n')}: {e.get('question')}\n    scope: {_entry_label(k, e)}"
+                     + (f"\n    scheme: {about}" if about else "") + (f'\n    answer was: "{answer}"' if answer else ""))
+    return ("You decide which EARLIER question of this conversation the user's new message refers to.\n"
+            "Recent turns:\n" + ("\n".join(lines) or "- (none)") + "\n\n"
+            "Earlier questions:\n" + "\n".join(cands) + "\n\n"
+            f'New message: "{question}"\n\n'
+            "Match by MEANING, not only by the same words: 'employment' points to a question about person-days "
+            "or job cards, 'housing' to one about houses, 'that figure' to the question whose answer gave it.\n"
+            "Answer with exactly ONE token: the id of the earlier question the message refers to (for example "
+            "q2), or NONE if it refers to none of them, or ASK if two or more fit equally well. "
+            "Do not explain. Do not write anything else.")
+
+
+def _parse_pick(text: str, ids: set) -> str:
+    """'q3' (a listed id), 'NONE' or 'ASK'. Anything else is ASK."""
+    ws = words(text)
+    for w in ws[:3]:
+        if w in ids:
+            return w
+        if w in ("none", "ask"):
+            return w.upper()
+    return "ASK"
+
+
+async def resolve_reference(session, question: str) -> "TopicTurn | None":
+    """The constrained model pick for a backward reference the rules left
+    unplaced (see above). None: nothing to do, the turn runs as before.
+    Raises ClarificationNeeded for ASK."""
+    from app import llm, pipeline
+    if not (_enabled(session) and _ledger_on() and getattr(settings, "LLM_REFERENCE_ENABLED", True)):
+        return None
+    try:
+        mem = _memory(session)
+        entries = _ledger_entries(mem)
+        if not entries or getattr(session, "pending_scope_q", None):
+            return None
+        if parse_switch(question) is not None or parse_history(question):
+            return None
+        # "So I asked about pie chart, right? But why you are giving line chart?" is
+        # about how the LAST answer is drawn, not a pointer to an earlier question:
+        # read as one, "I asked about pie chart" was cut off and the redraw lost the
+        # pie (live 2026-10-19 16:12, KI-333; c15 _chart_view_question)
+        if pipeline._chart_view_request(question) is not None:
+            return None
+        ref = parse_backward(question)
+        if ref is None:
+            return None
+        # the rules found nothing to restore (else resolve_turn would have)
+        if _match_entries(mem, ref, question)[0]:
+            return None
+        entries = entries[-8:]
+        by_id = {f"q{e.get('n')}": (k, e) for k, e in entries}
+        try:
+            raw = await asyncio.wait_for(
+                llm.call_rewriter(_reference_prompt(session, question, entries), max_tokens=8,
+                                  role="reference"),
+                timeout=float(getattr(settings, "LLM_REFERENCE_TIMEOUT_SECONDS", 8) or 8))
+        except Exception:  # noqa: BLE001 — a slow / failed call: run the turn as before
+            logger.warning("topic memory: reference model call failed (non-fatal)", exc_info=True)
+            context_budget.log_decision("topic", action="reference-model-failed")
+            return None
+        pick = _parse_pick(raw or "", set(by_id))
+        context_budget.log_decision("topic", action="reference-model", pick=pick, candidates=list(by_id))
+        if pick in by_id:
+            k, e = by_id[pick]
+            return _restore_entry(session, mem, k, e, ref, "model")
+        if pick == "ASK" and len(entries) >= 2:
+            session.turn_context = {}
+            raise _ask_which_entry(list(reversed(entries)), ref.remainder)
+        return None
+    except Exception as e:  # noqa: BLE001
+        if isinstance(e, pipeline.ClarificationNeeded):
+            raise
+        logger.warning("topic memory: reference resolve failed (non-fatal)", exc_info=True)
+        return None
+
+
+# ── "What did we discuss?" ──────────────────────────────────────────────────
+_HISTORY_ASK = Matcher(Seq(
+    _CpStart(_cp_ws),
+    Rep(Alt(W("ok", "okay", "so", "and", "now", "hi", "hello", "please", "pls"), "can you tell me", "tell me",
+            "remind me", "remind me of")),
+    Alt(
+        Seq("what", Opt(W("all", "else")), Opt(W("did", "have", "had")), "we", Opt("been"),
+            W("discuss", "discussed", "discussing", "talk", "talked", "talking", "cover", "covered", "covering"),
+            Opt("about")),
+        Seq("what", Opt("all"), Opt(W("questions", "queries", "things")), Opt(W("did", "have", "had")),
+            W("i", "we"), W("ask", "asked")),
+        Seq(W("list", "show", "give", "repeat"), Opt(W("me", "us")), Opt("all"), Opt(W("my", "the", "our")),
+            Opt(W("previous", "earlier", "past", "old")), W("questions", "queries", "history", "topics")),
+        Seq(W("summarise", "summarize", "recap"), Opt("of"), Opt(W("our", "this", "the")),
+            W("conversation", "chat", "discussion", "session")),
+        Seq(Opt(W("my", "our", "the")), W("conversation", "chat", "question", "questions", "query"), "history")),
+    Rep(W("so", "till", "until", "now", "far", "yet", "here", "today", "please", "pls", "in", "this",
+          "conversation", "chat", "session")),
+    _CpEnd(_cp_end_punct)))
+
+
+def parse_history(question: str) -> bool:
+    """True for "what did we discuss?" / "list my questions"."""
+    return bool(question) and _HISTORY_ASK.match(question.strip()) is not None
+
+
+def _history_answer(mem: dict) -> dict:
+    """The questions of this conversation, topic by topic, numbered as
+    "go back to question N" refers to them; the latest few as chips."""
+    from app import pipeline
+    lines = []
+    for k in mem["order"]:
+        ledger = sorted((mem["items"].get(k) or {}).get("ledger") or [], key=lambda e: e.get("n") or 0)
+        if not ledger:
+            continue
+        lines.append(f"**{k}**")
+        lines += [f"{e.get('n')}. {e.get('question') or e.get('raw')}" for e in ledger]
+        lines.append("")
+    if lines:
+        answer = ("Here is what we have covered so far:\n\n" + "\n".join(lines)
+                  + "\nTo go back to one, tap it below or say, for example, \"go back to question 1\".")
+    else:
+        answer = ("We haven't looked at any scheme yet in this conversation. Ask me about MGNREGA, PMAY-G, "
+                  "Focus Plus, CM Elevate, Focus Legacy or CM Elevate Legacy to get started.")
+    recent = [e for _, e in reversed(_ledger_entries(mem))][:4]
+    # confidence "low": the answer caches never store such a reply.
+    return {"route": "edge", "intent": "EDGE", "confidence": "low", "answer": answer,
+            "edge_type": HISTORY_EDGE, **pipeline._empty_data_fields(),
+            "suggestions": [e.get("question") for e in recent if e.get("question")]}
 
 
 # ── Resolving a message to a topic ──────────────────────────────────────────
@@ -431,7 +1031,12 @@ def _match(mem: dict, sw: TopicSwitch) -> "tuple[str | None, list]":
     items = mem["items"]
     if sw.names:
         key = topic_key(sw.names)
-        return (key if key in items else None), []
+        if key in items:
+            return key, []
+        if sw.names == ["CM Elevate"]:
+            have = [k for k in _CME_TOPICS if k in items]
+            return (have[0], []) if len(have) == 1 else (None, have)
+        return None, []
     if sw.bare_focus:
         # "Focus" is never guessed between the two datasets (CLAUDE.md §4).
         # Going back to the one Focus topic this conversation had is not a
@@ -537,10 +1142,45 @@ def resolve_turn(session, question: str) -> TopicTurn:
                 return _switch(session, mem, picked, sw.remainder if sw else "", question)
             context_budget.log_decision("topic", action="pause-abandoned")
             # Not a pick: the reply is a message of its own (handled below).
+        # 2b. A reply to our own "which earlier question?" pause: a chip (or
+        #     its label typed) becomes the chip's "Go back to question N".
+        if getattr(session, "pending_scope_rule", None) == LEDGER_PAUSE_RULE:
+            options = session.pending_scope_options
+            _clear_pending(session)
+            text = (question or "").strip().lower()
+            hit = next((o for o in options or []
+                        if text in (str(o.get("question") or "").strip().lower(),
+                                    str(o.get("label") or "").strip().lower())), None)
+            if hit is not None:
+                question = hit["question"]
+            else:
+                context_budget.log_decision("topic", action="pause-abandoned")
+        # 2c. "What did we discuss?": the conversation's questions, answered
+        #     here. Like a "thanks", it does not end the topic: the answer
+        #     before it stays the follow-up antecedent (aside, see
+        #     conversation_layer.resume_after_small_talk).
+        if _ledger_on() and parse_history(question):
+            mem["aside"] = question
+            context_budget.log_decision("topic", action="history", questions=len(_ledger_entries(mem)))
+            return TopicTurn(question=question, action="history", topic=mem.get("active"),
+                             response=_history_answer(mem))
         sw = parse_switch(question)
         if sw is None:
+            # 3b. A reference to an earlier QUESTION (the topic ledger).
+            back = _backward(session, mem, question)
+            if back is not None:
+                return back
             return TopicTurn(question=question, action="continue" if mem.get("active") else "none",
                              topic=mem.get("active"))
+        if not sw.names and not sw.bare_focus:
+            # "Go back to the first / second question" is a numbered QUESTION,
+            # not "the previous topic" (which "the previous / earlier
+            # question" still means).
+            ref = parse_backward(question) if _ledger_on() else None
+            if ref is not None and isinstance(ref.ordinal, int):
+                back = _backward(session, mem, question)
+                if back is not None:
+                    return back
         key, candidates = _match(mem, sw)
         if key is None and len(candidates) >= 2:
             context_budget.log_decision("topic", action="ask", candidates=candidates)

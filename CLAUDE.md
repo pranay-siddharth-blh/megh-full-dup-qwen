@@ -231,9 +231,10 @@ above instead.
 
 - Windows dev box. Run from the repo root, because `.env` is read relative to the working
   directory.
-- Start the app: `.venv/Scripts/python.exe -m uvicorn app.main:app --port 8400`, then open
+- Start the app: `.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8401` — **port 8401 only,
+  for the whole project (user rule 2026-10-19); never 8400 or any other port** — then open
   `/megh-chat` (chat), `/admin-ui` and `/health`. `/` redirects to `/megh-chat`.
-- UI work: `cd frontend && npm install && npm run dev` (hot reload on :5173, API proxied to :8400);
+- UI work: `cd frontend && npm install && npm run dev` (hot reload on :5173, API proxied to :8401);
   `npm run build` writes `web/app/`, which is what the app serves.
 - `megh_db` and the model gateway are on `10.48.242.4`, which needs the Fortinet VPN.
   The DB connection sometimes times out briefly, so retry.

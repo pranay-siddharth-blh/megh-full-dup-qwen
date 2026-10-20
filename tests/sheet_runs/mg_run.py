@@ -187,7 +187,7 @@ async def main():
                        FROM curated.v_employment e
                        JOIN u ON u.n = UPPER(e.lgd_village_name) JOIN ue ON ue.n = u.n
                        WHERE e.village_code IS NOT NULL AND LENGTH(e.lgd_village_name) >= 5
-                         AND e.lgd_village_name !~ '[^A-Za-z ]'
+                         AND TRANSLATE(UPPER(e.lgd_village_name), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ', '') = ''
                        GROUP BY 1 HAVING COUNT(DISTINCT e.year_key)=4 AND SUM(e.person_days) > 0),
                  x AS (SELECT c.*, ROW_NUMBER() OVER (PARTITION BY d ORDER BY md5(name)) rn FROM c
                        WHERE c.village_code IN (SELECT village_code FROM curated.v_expenditure
@@ -261,7 +261,7 @@ async def main():
             SELECT e.village_code, MIN(e.lgd_village_name) name, MIN(e.lgd_block) b, MIN(e.lgd_district) d,
                    SUM(e.total_exp)::float8 t
             FROM curated.v_expenditure e JOIN n ON n.n = UPPER(e.lgd_village_name)
-            WHERE e.year_key=2024 AND e.lgd_village_name !~ '[^A-Za-z ]' GROUP BY 1 ORDER BY md5(MIN(e.lgd_village_name)) LIMIT 8""")
+            WHERE e.year_key=2024 AND TRANSLATE(UPPER(e.lgd_village_name), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ', '') = '' GROUP BY 1 ORDER BY md5(MIN(e.lgd_village_name)) LIMIT 8""")
         for v in dups:
             add(run_case("DATA-001", f"same-name {v['name']} -> {v['b']} ({v['d']}) FY 2024-25",
                          f"What was the total expenditure in {v['name']} during 2024-25?",

@@ -3,8 +3,8 @@
 # namespace, in load order, so it shares every name with the other files.
 # Only this scheme's code lives here; the shared steps that call it are in ../common/.
 # Sections follow the order of the pipeline steps they belong to.
-# SQL is read and rewritten on the SQLGlot tree (app/sql_ast.py), never with a
-# regular expression; the question and the answer are read on WORDS (app/text_match.py).
+# SQL is read and rewritten on the SQLGlot tree (app/sql_ast.py), never as raw
+# text; the question and the answer are read on WORDS (app/text_match.py).
 from app import sql_ast
 from app.text_match import Alt, Joined, Matcher, NotAfter, NotBefore, Opt, Pred, Seq, W, collapse_ws, tokens
 from sqlglot import exp
@@ -41,7 +41,7 @@ _MGNREGA_ONLY_TERMS = Matcher(Alt(
            Opt("any"), "employment"),
     # "women [were/are] provided/given employment" / "women employed" — same
     # missing-verb-phrasing gap as above (DATA-008 used exactly this; there
-    # was no women-employment pattern here at all before, only in edge.py's
+    # was no women-employment matcher here at all before, only in edge.py's
     # unrelated domain whitelist).
     _mg_sp("women", Opt(W("were", "are")), ("provided", "given"), "employment"),
     _mg_sp("women", W("employ", prefix=True)),
@@ -52,9 +52,9 @@ _MGNREGA_ONLY_TERMS = Matcher(Alt(
     _mg_sp("assembly", W("constituenc", prefix=True)),
     _mg_sp("ac", Pred(lambda w: w.isdecimal())),
     Pred(lambda w: w[:2].lower() == "ac" and w[2:].isdecimal() and len(w) > 2),
-    # unskilled/semi-skilled wage(s) — "wage" without the "s?" only matched the
+    # unskilled/semi-skilled wage(s) — "wage" with no optional "s" only matched the
     # singular; "unskilled wages" (the common plural phrasing, DATA-010) never
-    # matched because a word boundary after "wage" can't land inside "wages".
+    # matched because the whole word "wage" can't end inside "wages".
     _mg_sp("unskilled", ("wage", "wages")), Joined("semi", "skilled"),
     # Measures that only MGNREGA holds but that the testers phrased without a
     # scheme name — each one drew an unnecessary "which scheme?" pause (MGNREGA
@@ -934,8 +934,8 @@ _MG_BREAKDOWN_EXCLUDE_MATCH = Matcher(Alt(
     W("rank", prefix=True), Joined(("district", "block", "village", "year"), "wise")))
 class _MgSqlShape:
     """Recognises one of the fixed MGNREGA query shapes on the parsed tree.
-    `.search(sql)` keeps the call shape the callers used when these were
-    patterns (True when the SQL has the shape, else None)."""
+    `.search(sql)` keeps the call shape the callers already use
+    (True when the SQL has the shape, else None)."""
 
     def __init__(self, test) -> None:
         self._test = test
@@ -1518,6 +1518,39 @@ def _mgnrega_money_units(answer: str, sql: str, rows: list[dict]) -> str:
     for form in sorted(forms, key=len, reverse=True):
         answer = _mg_add_lakh(answer, form)
     return answer
+
+
+_MG_LIST_LABELS = {"lgd_block": "block", "block_name": "block", "lgd_district": "district",
+                   "district_name": "district", "lgd_village": "village", "village_name": "village"}
+
+
+def _mgnrega_complete_list(answer: str, rows: list[dict]) -> str:
+    """A short per-area count breakdown (one label column, one count column,
+    3-15 rows) names every area. "MGNREGA person-days by block in West Garo Hills
+    in FY 2024-25" was answered with the total, the top and the bottom block
+    only, so Dalu — the block officer's own block — was nowhere in the text
+    (harness 2026-10-19; the same SQL listed all eight blocks at 12:22). The
+    composer's sentence is kept and the full list is added under it. Counts
+    only: money keeps its lakh / crore wording (_mgnrega_money_units)."""
+    if not answer or not 3 <= len(rows) <= 15:
+        return answer
+    nums = [k for k in rows[0] if _as_number(rows[0].get(k)) is not None and not _NONSTAT_COL.search(k)]
+    labels = [k for k in rows[0] if k not in nums]
+    if len(nums) != 1 or len(labels) != 1 or _MONEY_COL_NAME_MATCH.search(nums[0]):
+        return answer
+    lab, met = labels[0], nums[0]
+    low = answer.lower()
+    if all(r.get(lab) is None or str(r[lab]).lower() in low for r in rows):
+        return answer
+    items = []
+    for r in rows:
+        v = _as_number(r.get(met))
+        if v is None or r.get(lab) is None:
+            continue
+        v = int(v) if float(v).is_integer() else v
+        items.append(f"{str(r[lab]).title()} {v:,}")
+    name = _MG_LIST_LABELS.get(lab, lab.replace("_", " "))
+    return f"{answer.rstrip()}\n\n{_metric_label(met).capitalize()} by {name}: " + "; ".join(items) + "."
 
 
 async def _mgnrega_admin_expenditure_answer(rows: list[dict], display: dict) -> str:

@@ -1,0 +1,60 @@
+{
+ "label": "fl12-recheck",
+ "when": "2026-10-18T16:27:42",
+ "git": {
+  "commit": "9dda6a4",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b"
+ },
+ "readonly_login": "postgres",
+ "superuser_allowed": false,
+ "holdout_checked": true,
+ "selection": {
+  "scheme": null,
+  "ids": "FL-12"
+ },
+ "minutes": 3.0,
+ "summary": {
+  "items": 1,
+  "scored": 1,
+  "outcomes": {
+   "error": 1
+  },
+  "accuracy": 0.0,
+  "by": {
+   "Focus Legacy": {
+    "accuracy": 0.0,
+    "error": 1
+   },
+   "difficulty:hard": {
+    "accuracy": 0.0,
+    "error": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "FL-12",
+   "scheme": "Focus Legacy",
+   "difficulty": "hard",
+   "question": "In FY 2025-26, in which districts were LAMPS cooperatives paid in more than 25% of that district's Focus Legacy payment records? Give each district's share.",
+   "gold_rows": 4,
+   "outcome": "error",
+   "detail": "TimeoutError: ",
+   "seconds": 180.0,
+   "answer": ""
+  }
+ ],
+ "compared_with": "2026-10-18_1621_context-memory-2026-10-18-rerun.json",
+ "delta": {
+  "regressions": [],
+  "fixed": []
+ }
+}

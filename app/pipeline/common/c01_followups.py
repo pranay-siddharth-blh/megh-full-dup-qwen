@@ -71,12 +71,12 @@ from app.text_match import numbers as _c01_tm_numbers, words as _c01_tm_words, t
 logger = logging.getLogger(__name__)
 
 
-# ── regex-free matching pieces for c01–c03 (D-047: no regex) ────────────────
+# ── word-matching pieces for c01–c03 (D-047: app/text_match only) ──────────
 # Words are matched with app/text_match.py. The pieces below cover the shapes
 # it has no node for: a separator that must be whitespace (or a hyphen, or one
 # comma), a stretch of text measured in characters, text-start / text-end
 # anchors that allow only whitespace or given punctuation around the words, a
-# character lookbehind ("not the "), a year pair ("FY 2023-24", "23-24").
+# check on the text just before a word ("not the "), a year pair ("FY 2023-24", "23-24").
 
 def _c01_between(ctx, i: int) -> str:
     """The text between word i-1 (or the text start) and word i (or the text end)."""
@@ -86,27 +86,27 @@ def _c01_between(ctx, i: int) -> str:
 
 
 def _c01_ws(g: str) -> bool:
-    """regex \\s+ between two words."""
+    """One or more whitespace characters between two words."""
     return g != "" and g.strip() == ""
 
 
 def _c01_ws0(g: str) -> bool:
-    """regex \\s* between two words."""
+    """Nothing, or only whitespace, between two words."""
     return g.strip() == ""
 
 
 def _c01_opt1(g: str) -> bool:
-    """regex [\\s-]? between two separate words: exactly one space or hyphen."""
+    """Between two separate words: exactly one space or hyphen."""
     return len(g) == 1 and (g.isspace() or g == "-")
 
 
 def _c01_wsdash(g: str) -> bool:
-    """regex [\\s-]+ between two words."""
+    """One or more spaces and/or hyphens between two words."""
     return g != "" and all(c.isspace() or c == "-" for c in g)
 
 
 def _c01_dash(g: str) -> bool:
-    """regex \\s*[-–/]\\s* between two numbers."""
+    """One "-", "–" or "/" between two numbers, spaces allowed around it."""
     return g.strip() in ("-", "–", "/")
 
 
@@ -122,7 +122,7 @@ class _C01Gap(_C01Node):
 
 
 class _C01SpaceNext(_C01Node):
-    """Zero-width: whitespace follows the previous word (regex 'word ' with its trailing space)."""
+    """Zero-width: whitespace follows the previous word (the word, then its trailing space)."""
 
     def ends(self, ctx, i, caps):
         if _c01_between(ctx, i)[:1].isspace():
@@ -130,7 +130,7 @@ class _C01SpaceNext(_C01Node):
 
 
 class _C01Begin(_C01Node):
-    """Zero-width: the first word, with only whitespace before it (regex ^\\s*), or
+    """Zero-width: the first word, with only whitespace before it (at text start), or
     one of `lead` ("#") once the whitespace is stripped."""
 
     def __init__(self, lead=("",)):
@@ -143,7 +143,7 @@ class _C01Begin(_C01Node):
 
 class _C01End(_C01Node):
     """Zero-width: past the last word, with only whitespace and `chars` after it
-    (regex \\s*[chars]*\\s*$)."""
+    (then the text ends)."""
 
     def __init__(self, chars: str = ""):
         self.chars = chars
@@ -155,7 +155,7 @@ class _C01End(_C01Node):
 
 class _C01NotPreceded(_C01Node):
     """Zero-width: the text before word i does not end with any of `tails`
-    (case-insensitive) — regex (?<!tail)."""
+    (case-insensitive) — a check on the text just before it."""
 
     def __init__(self, *tails: str):
         self.tails = tuple(t.lower() for t in tails)
@@ -168,7 +168,7 @@ class _C01NotPreceded(_C01Node):
 
 class _C01NotNextWord(_C01Node):
     """Zero-width: word i is not one of `words` behind a separator passing `gap`
-    — regex (?!sep(?:word|word)\\b)."""
+    — that whole next word must not follow."""
 
     def __init__(self, words, gap):
         self.words = frozenset(w.lower() for w in words)
@@ -207,7 +207,7 @@ class _C01CharIn(_C01Node):
 class _C01CharGap(_C01Node):
     """Zero or more words whose text, from the end of the previous word to the start
     of the next one, is at most `limit` characters and holds none of `forbid`
-    (regex [^forbid]{0,limit}? before a \\b)."""
+    (shortest first, always ending where a word starts)."""
 
     def __init__(self, limit: int, forbid: str = "\n"):
         self.limit, self.forbid = limit, forbid
@@ -260,7 +260,7 @@ class _C01YearPair(_C01Node):
 class _C01Quick(Matcher):
     """A Matcher that first checks the lower-cased text holds one of `need`
     (strings any hit must contain) and skips the word scan when none is there.
-    Same results, much cheaper for the scheme-name patterns run on every word."""
+    Same results, much cheaper for the scheme-name matchers run on every word."""
 
     def __init__(self, *pattern, need=(), **kw):
         super().__init__(*pattern, **kw)
@@ -296,19 +296,20 @@ class _C01PlusMatcher(_C01Quick):
 
 _C01_GAP_KINDS = {
     # kind: (separator test between separate words, joiners when written as one word)
-    "opt1": (_c01_opt1, ("",)),            # [\s-]?
-    "opt1u": (_c01_opt1, ("", "_")),       # [\s_-]?
-    "ws*": (_c01_ws, ("",)),               # \s*
-    "ws+": (_c01_ws, ()),                  # \s+
-    "wsu+": (_c01_ws, ("_",)),             # [\s_]+
-    "wsd*": (_c01_wsdash, ("",)),          # [\s-]*
-    "wsd+": (_c01_wsdash, ()),             # [\s-]+
+    "opt1": (_c01_opt1, ("",)),            # optional space or hyphen
+    "opt1u": (_c01_opt1, ("", "_")),       # optional space, "_" or hyphen
+    "ws*": (_c01_ws, ("",)),               # any whitespace, or none
+    "ws+": (_c01_ws, ()),                  # one or more whitespace
+    "wsu+": (_c01_ws, ("_",)),             # whitespace or "_"
+    "wsd*": (_c01_wsdash, ("",)),          # spaces/hyphens, or none
+    "wsd+": (_c01_wsdash, ()),             # one or more spaces/hyphens
 }
 
 
 def _c01_chain(parts, kinds):
     """Words written apart (separator of the given kind) or run together:
-    _c01_chain(["job", ("card", "cards")], ["opt1u"]) = regex job[\\s_-]?cards?."""
+    _c01_chain(["job", ("card", "cards")], ["opt1u"]) = "job" then "card(s)", apart
+    by one optional space, "_" or hyphen."""
     opts = [tuple(p) if isinstance(p, (tuple, list)) else (p,) for p in parts]
     variants = []
     for mask in range(2 ** (len(opts) - 1)):
@@ -335,15 +336,15 @@ def _c01_chain(parts, kinds):
 
 
 def _c01_ph(*phrases):
-    """Words / phrases with plain whitespace between their words (a regex 'how many')."""
+    """Words / phrases with plain whitespace between their words (e.g. 'how many')."""
     nodes = [W(p) if " " not in p else Seq(*p.split(), sep="space") for p in phrases]
     return Alt(*nodes) if len(nodes) > 1 else nodes[0]
 
 
 def _c01_tidy_space(s: str, before: str = ",?.", collapse: bool = True) -> str:
     """No whitespace before any of `before`; with `collapse`, runs of 2+
-    whitespace become one space first (regex
-    sub(r"\\s+([,?.])", r"\\1", sub(r"\\s{2,}", " ", s))). Not stripped."""
+    whitespace become one space first (so "a  ,b" -> "a,b" and "a   b"
+    -> "a b"). Not stripped."""
     out, i, n = [], 0, len(s or "")
     s = s or ""
     while i < n:
@@ -596,7 +597,7 @@ _METRIC_WHATIS_CUE = Matcher(Seq(
 
 # The opposite collision: programme-design questions that happen to contain a
 # DATA cue. "Who are the intended beneficiaries of CM-ELEVATE?" trips
-# "beneficiar\w*", and "What is the target number of entrepreneurs under
+# "beneficiar..." (any word starting so), and "What is the target number of entrepreneurs under
 # CM-ELEVATE?" trips _METRIC_WHATIS_CUE ("what is … number"), so both went down
 # the data path — one answered "the data doesn't cover the intended
 # beneficiaries", the other asked "which area / year?" for a policy target and
@@ -705,6 +706,9 @@ _STANDALONE_ANCHOR = Matcher(Alt(
 _SCHEME_SWAP_FOLLOWUP = Matcher(Seq(
     _C01Begin(),
     Opt(Alt(Seq(W("ok", "okay"), _C01Gap(lambda g: g.strip() in ("", ","))), Seq("so", _C01_WS0))),
+    # "now give me for cm elevate" (live 2026-10-19, KI-330): "now" / "and" ahead
+    # of the request verb, not only after it
+    Opt(Seq(W("and", "also", "now", "then"), _C01_WS0)),
     Opt(Alt(Seq(W("can", "could", "would", "will"), _C01_WS0, "you", _C01_WS0),
             Seq(W("please", "pls", "kindly"), _C01_WS0))),
     Opt(Seq(W("give", "show", "get", "tell", "fetch", "do"), _C01_WS0,
@@ -761,7 +765,17 @@ def is_scopeless_followup(question: str, prev: "object") -> bool:
     router's is_cacheable uses this too, so such a turn is never cached."""
     if prev is None or getattr(prev, "route", None) != "data":
         return False
-    return _is_measure_only(question)
+    if _is_measure_only(question):
+        return True
+    # The same scheme named again with only a measure ("What is the total
+    # beneficiaries MGNREGA?" right after MGNREGA person-days in 2023-24) is
+    # still this conversation's follow-up: it keeps the place and year (UI
+    # 2026-10-18; it was answered for all financial years). Another scheme
+    # named is a new question, as before.
+    named = _named_schemes(question)
+    if named and set(named) == set(getattr(prev, "schemes", None) or []):
+        return _is_measure_only(topic_memory._strip_scheme_words(question))
+    return False
 
 
 def _is_measure_only(question: str, allow_year: bool = False) -> bool:
@@ -772,7 +786,13 @@ def _is_measure_only(question: str, allow_year: bool = False) -> bool:
     q = (question or "").strip()
     if not q or len(q.split()) > _SCOPELESS_MAX_WORDS:
         return False
-    if _SCHEME_WORD.search(q) or _mentions_scheme(q) or _KNOWLEDGE_HINTS.search(q):
+    # "What is the total beneficiaries?" opens with the knowledge cue "what is"
+    # but asks for a computed aggregate (_METRIC_WHATIS_CUE, the intent rule):
+    # UI 2026-10-18, after "Total MGNREGA person-days in 2023-24" it was
+    # answered for all six schemes, statewide, all years. A programme-design
+    # question ("what is the target number of …") stays knowledge.
+    _aggregate = bool(_METRIC_WHATIS_CUE.search(q)) and not _PROGRAMME_DESIGN_CUE.search(q)
+    if _SCHEME_WORD.search(q) or _mentions_scheme(q) or (_KNOWLEDGE_HINTS.search(q) and not _aggregate):
         return False
     if _BARE_FOCUS_WORD.search(q):
         return False
@@ -806,7 +826,7 @@ def _measure_after_knowledge(question: str, prev: "object", allow_year: bool = T
 
 def _typed_intent(question: str) -> "str | None":
     """DATA / KNOWLEDGE when the user's own words decide it on the keyword fast
-    path (the same regexes classify_intent uses), else None. For a follow-up,
+    path (the same matchers classify_intent uses), else None. For a follow-up,
     the typed words outrank the model rewrite's phrasing: "give me
     beneficiaries" is a count even when the rewrite reads "What are the
     beneficiaries of…" (a "what are" knowledge cue)."""
@@ -823,6 +843,14 @@ def _is_scheme_term_question(question: str) -> bool:
     rewrite turned "What is DBT?" after an MGNREGA count into a data question
     about MGNREGA bank details (user report 2026-10-14)."""
     q = question or ""
+    # "What is the total job cards?" / "What is the total producer groups?"
+    # after a data answer asks for a figure, not the meaning of a term (live
+    # matrix 2026-10-18: read as a term question, it skipped the follow-up and
+    # was answered statewide). An aggregate opener (_METRIC_WHATIS_CUE) is
+    # never a definition; a programme-design question ("what is the target
+    # number of …") still is.
+    if _METRIC_WHATIS_CUE.search(q) and not _PROGRAMME_DESIGN_CUE.search(q):
+        return False
     return bool(guardrails._SCHEME_TERM_QUESTION.search(guardrails._normalise(q))
                 and not _named_schemes(q) and len(q.split()) <= 8
                 and not _CONTEXTLESS_REF.search(q))
@@ -928,6 +956,8 @@ def is_scheme_substitution(question: str, prev: "object") -> bool:
     is_cacheable (it only means something inside its own conversation)."""
     if prev is None or getattr(prev, "route", None) not in _ANTECEDENT_ROUTES:
         return False
+    if _is_same_comparison_question(question):
+        return False
     target, pure = _scheme_substitution(question)
     if not target or target in (getattr(prev, "schemes", None) or []):
         return False
@@ -954,9 +984,32 @@ def pronoun_refers_to_previous_term(question: str, prev: "object") -> bool:
     return bool(prev_q) and not _named_schemes(prev_q)
 
 
+# Words that open a message without saying anything. "okay give me for East Khasi
+# Hills" right after a PMAY-G answer was read as a new question and asked "which
+# scheme?" (live 2026-10-18): the "okay" hid the "give me for …" lead.
+_C01_OPENING_FILLERS = frozenset("ok okay k so hmm hm alright yes yeah yep sure fine please pls".split())
+
+
+def _c01_strip_opening_fillers(q: str) -> str:
+    words_ = q.split()
+    while len(words_) > 1 and words_[0].lower().strip(",.!") in _C01_OPENING_FILLERS:
+        words_ = words_[1:]
+    return " ".join(words_)
+
+
+def _is_same_comparison_question(question: str) -> bool:
+    """"Same comparison for CM Elevate Legacy: beneficiaries and amount" — what
+    _comparison_swap writes, and what the CM Elevate dataset chips carry. It names
+    its scheme and its measures in full: a standalone question. Tapped as a chip it
+    was read as a "same"-cued substitution and the model rewrote it back into a
+    two-scheme comparison (live 2026-10-19 15:44)."""
+    q = (question or "").strip()
+    return q.lower().startswith("same comparison for ") and ":" in q
+
+
 def looks_like_followup(question: str) -> bool:
-    q = question.strip()
-    if len(q.split()) > 12:
+    q = _c01_strip_opening_fillers(question.strip())
+    if len(q.split()) > 12 or _is_same_comparison_question(q):
         return False
     # "in MGNREGA?" / "for PMAY-G" / "and Focus Plus?" — a scheme-swap fragment.
     # Checked before _STANDALONE_ANCHOR, which would otherwise veto it because it
@@ -986,7 +1039,7 @@ def looks_like_followup(question: str) -> bool:
     if _FOLLOWUP_LEAD.search(q):
         return True
     # A question that names its own scheme outright is self-anchoring, same as
-    # _STANDALONE_ANCHOR's "scheme"/"mgnrega"/"pmay" entries — but that regex
+    # _STANDALONE_ANCHOR's "scheme"/"mgnrega"/"pmay" entries — but that matcher
     # predates Focus Plus/CM Elevate and was never extended to them, so "What
     # benefits will I get under this Focus Plus" tripped _FOLLOWUP_PRONOUN on
     # "this", found no anchor, and got rewritten against the PREVIOUS turn's
@@ -1031,6 +1084,10 @@ def _scheme_swap_rewrite(prev_question: str, followup: str) -> "str | None":
     label = target or ("Focus" if _BARE_FOCUS_WORD.search(followup or "") else None)
     if not label or not prev_question:
         return None
+    compared = _comparison_swap(prev_question, followup, target, label)
+    if compared:
+        logger.info("follow-up scheme-swap (comparison): %r + %r -> %r", prev_question, followup, compared)
+        return compared
     out = prev_question
     replaced = False
     for name, pat in _SCHEME_NAME_MATCHER.items():
@@ -1046,6 +1103,62 @@ def _scheme_swap_rewrite(prev_question: str, followup: str) -> "str | None":
     out = _c01_tidy_space(out, ",", collapse=False).strip()
     logger.info("follow-up scheme-swap: %r + %r -> %r", prev_question, followup, out)
     return out
+
+
+# ── A scheme swap after a cross-scheme comparison ───────────────────────────
+# Live 2026-10-19 15:08: "Compare PMAY-G and MGNREGA beneficiaries in a graph for
+# Meghalaya (statewide), all financial years" then "now give me for cm elevate".
+# The swap replaced EACH compared scheme with the new one — "Compare CM Elevate and
+# CM Elevate beneficiaries ..." — the dataset chip then made both "CM Elevate
+# applications", and the answer lost the comparison it came from. The compared
+# schemes are one list: a swap replaces the whole list with the new scheme ("CM
+# Elevate beneficiaries in a graph for ..."); "and X" / "X too" / "add X" adds X
+# to the list instead.
+_C01_LIST_JOINERS = frozenset("and & , vs vs. versus with or /".split())
+_C01_ADD_CUES = frozenset("and also too add include including plus".split())
+_C01_COMPARE_LEADS = ("compare ", "comparison of ", "comparing ")
+
+
+def _comparison_swap(prev_question: str, followup: str, target: "str | None", label: str) -> "str | None":
+    """The rewritten question when `prev_question` compares two or more schemes
+    named as one list ("Compare PMAY-G and MGNREGA ..."), else None."""
+    hits = sorted((h.start(), h.end(), name) for name, pat in _SCHEME_NAME_MATCHER.items()
+                  for h in pat.finditer(prev_question))
+    names = [n for _, _, n in hits]
+    if len(set(names)) < 2 or len(names) != len(set(names)):
+        return None
+    # the names must sit side by side, joined only by "and" / "," / "vs" ...
+    for (_, end, _), (start, _, _) in zip(hits, hits[1:]):
+        gap = prev_question[end:start].replace(",", " , ").split()
+        if any(w.lower() not in _C01_LIST_JOINERS for w in gap):
+            return None
+    lo, hi = hits[0][0], hits[-1][1]
+    head, tail = prev_question[:lo], prev_question[hi:]
+    # the cue words, read with the scheme names taken out ("Focus Plus" is no "plus")
+    bare = followup or ""
+    for pat in _SCHEME_NAME_MATCHER.values():
+        bare = pat.sub(" ", bare)
+    fwords = {w.strip(",.?!").lower() for w in bare.split()}
+    # one of the compared schemes named again narrows the comparison to it
+    if target not in names and (fwords & _C01_ADD_CUES or "as well" in bare.lower()):
+        listed = [prev_question[s:e] for s, e, _ in hits] + [label]
+        return _c01_tidy_space(f"{head}{', '.join(listed[:-1])} and {listed[-1]}{tail}", ",",
+                               collapse=False).strip()
+    low = head.lower()
+    lead = next((c for c in _C01_COMPARE_LEADS if low.startswith(c)), None)
+    if lead is not None:
+        # "Same comparison for X: ..." is the comparison card for X alone
+        # (cross_scheme.detect), in the comparison's own scope: every other path
+        # re-asked what the comparison had settled ("which year?" for Focus Plus)
+        # or paused on a measure the card simply marks as not recorded.
+        rest = head[len(lead):]
+        if rest.lower().startswith("both "):
+            rest = rest[len("both "):]
+        return _c01_tidy_space(f"Same comparison for {label}: {rest}{tail.lstrip()}", ",",
+                               collapse=False).strip()
+    if low.endswith("both "):
+        head = head[:-len("both ")]
+    return _c01_tidy_space(f"{head}{label}{tail}", ",", collapse=False).strip()
 
 
 # ── A scheme swap that carries a measure the new scheme does not hold ───────
@@ -1204,7 +1317,7 @@ def _measure_gap_scope(question: str, with_year: bool = True) -> str:
     for m in _GAP_PLACE.finditer(q):
         place = m.group(1).strip(" ,.?")
         if not place or _mentions_scheme(place) or _GAP_YEAR.search(place) \
-                or any(rx.search(place) for _, rx, _h in _MEASURE_HOLDERS):
+                or any(word_matcher.search(place) for _, word_matcher, _h in _MEASURE_HOLDERS):
             continue
         words = place.split()
         # "at least 100 applications" / "at most": a quantity, not a place
@@ -1232,8 +1345,8 @@ def _measures_not_held(text: str, schemes: "list[str]") -> "list[tuple[str, froz
     chosen = set(schemes or [])
     if not chosen:
         return []
-    return [(label, holders) for label, rx, holders in _MEASURE_HOLDERS
-            if rx.search(text or "") and not (holders & chosen)]
+    return [(label, holders) for label, word_matcher, holders in _MEASURE_HOLDERS
+            if word_matcher.search(text or "") and not (holders & chosen)]
 
 
 def _swap_scheme_in_question(question: str, target: str) -> str:
@@ -1400,8 +1513,8 @@ def _swap_measure_gap(followup: str, rewritten: str, prev: "object",
     for owner, measures in _SCHEME_OWN_MEASURES.items():
         if owner == target:
             continue
-        for label, rx in measures:
-            if rx.search(rewritten) and not rx.search(followup or ""):
+        for label, word_matcher in measures:
+            if word_matcher.search(rewritten) and not word_matcher.search(followup or ""):
                 scope = _swap_scope_phrase(state, target, prev)
                 options = [{"label": lab, "question": tmpl.format(scope=scope)}
                            for lab, tmpl in _SCHEME_HEADLINE_OFFERS.get(target, [])]
@@ -1450,7 +1563,7 @@ def _rest_of_schemes_rewrite(prev: "object", followup: str) -> "str | None":
         return None
     names = targets[0] if len(targets) == 1 else ", ".join(targets[:-1]) + " and " + targets[-1]
     # Mark every old scheme mention first, then put the list in at the first
-    # mark only — substituting the list directly would let a later pattern
+    # mark only — substituting the list directly would let a later matcher
     # match a name INSIDE the list just inserted ("CM Elevate") and delete it.
     out = prev_q
     for s in prev_named:

@@ -5,8 +5,8 @@ import react from '@vitejs/plugin-react';
 // (app/main.py mounts web/ there). /megh-chat returns web/app/index.html and
 // /admin-ui returns web/app/admin.html, so the bundles are referenced from
 // /static/app/. `npm run dev` serves at the root instead and proxies the API to
-// the backend on :8400, so the UI can be worked on with hot reload.
-const BACKEND = process.env.MEGH_BACKEND || 'http://127.0.0.1:8400';
+// the backend on :8401, so the UI can be worked on with hot reload.
+const BACKEND = process.env.MEGH_BACKEND || 'http://127.0.0.1:8401';
 
 export default defineConfig(({ command }) => ({
   plugins: [react()],

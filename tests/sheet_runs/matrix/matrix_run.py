@@ -289,7 +289,7 @@ async def build(fams, schemes):
             vs = await fetch(f"""SELECT v.village_code c, MIN(g.lgd_village_name) n, MIN(g.lgd_block) b
                 FROM {view0} v JOIN curated.dim_geography g ON g.village_code = v.village_code
                 WHERE {qualify(VILL[scheme], 'v', 'village_code', 'entity_type')}
-                AND g.lgd_village_name !~* '^unresolved' GROUP BY 1 ORDER BY 1""")
+                AND LOWER(g.lgd_village_name) NOT LIKE 'unresolved%' GROUP BY 1 ORDER BY 1""")
             for vi, v in enumerate(vs):
                 m = M[scheme][vi % len(M[scheme])]
                 y = (yrs[vi % len(yrs)] if yrs and vi % 5 == 0 else None)

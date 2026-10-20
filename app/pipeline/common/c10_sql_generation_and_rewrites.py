@@ -3,8 +3,8 @@
 # namespace, in load order, so it shares every name with the other files.
 #
 # Every check and rewrite of SQL text here works on the SQLGlot tree or token
-# stream (app/sql_ast.py), never on the text with a regular expression. The
-# remaining regexes in this file read the user's QUESTION (English), not SQL.
+# stream (app/sql_ast.py), never on the raw text. The word matchers left in
+# this file read the user's QUESTION (English), not SQL.
 from app import sql_ast
 from sqlglot import exp
 from app.text_match import (
@@ -15,35 +15,35 @@ from app.text_match import Node as _C1xNode
 from app.text_match import _Ctx as _C1xCtx, tokens as _c1x_tokens
 
 
-# ── regex-free matching helpers shared by c10–c14 (D-047: no regex) ─────────
-# Word patterns come from app/text_match.py. The few shapes it does not cover
+# ── word-matching helpers shared by c10–c14 (D-047: app/text_match only) ───
+# Word matchers come from app/text_match.py. The few shapes it does not cover
 # (a separator that must be whitespace / an apostrophe, a gap measured in
 # characters, a literal '%' that is not a word, a character-level scan) are the
 # small pieces below; every object here offers the Matcher surface the callers
 # use: .search / .finditer / .findall / .sub / __call__ (and Hit results).
 
 def _c1x_ws(gap: str) -> bool:
-    """A non-empty gap made only of whitespace (regex \\s+)."""
+    """A non-empty gap made only of whitespace."""
     return gap != "" and gap.strip() == ""
 
 
 def _c1x_ws0(gap: str) -> bool:
-    """An empty or whitespace-only gap (regex \\s*)."""
+    """An empty or whitespace-only gap."""
     return gap.strip() == ""
 
 
 def _c1x_apos0(gap: str) -> bool:
-    """Nothing, or one apostrophe (regex ['’]?)."""
+    """Nothing, or one apostrophe (' or ’)."""
     return gap in ("", "'", "’")
 
 
 def _c1x_ws_or_dash(gap: str) -> bool:
-    """Whitespace and/or hyphens, at least one (regex [\\s-]+)."""
+    """Whitespace and/or hyphens, at least one."""
     return gap != "" and all(ch.isspace() or ch == "-" for ch in gap)
 
 
 def _c1x_ws_or_dash0(gap: str) -> bool:
-    """Empty, or one whitespace or hyphen run of at most one char (regex [\\s-]?)."""
+    """Empty, or exactly one whitespace character or hyphen."""
     return gap == "" or (len(gap) == 1 and (gap.isspace() or gap == "-"))
 
 
@@ -99,7 +99,7 @@ class _C1xRun(_C1xNode):
 class _C1xCharGap(_C1xNode):
     """Any number of words (fewest first) whose covering text, measured from the
     end of the previous word to the start of the next, is at most max_chars long
-    and holds none of the `forbid` characters (regex .{0,N}? / [^.]*)."""
+    and holds none of the `forbid` characters (e.g. no "." at all)."""
 
     def __init__(self, max_chars: "int | None" = None, forbid: str = ""):
         self.max_chars, self.forbid = max_chars, forbid
@@ -118,7 +118,7 @@ class _C1xCharGap(_C1xNode):
 
 
 def _c1x_suffix(*opts: str) -> "Pred":
-    """One word ending in any of `opts` (a regex word with no leading \\b)."""
+    """One word ending in any of `opts` (anything may come before the ending)."""
     low = tuple(o.lower() for o in opts)
     return Pred(lambda w: w.lower().endswith(low))
 
@@ -234,7 +234,7 @@ def _c1x_is_word_char(ch: str) -> bool:
 
 
 def _c1x_bounded_spans(needle: str, text: str) -> "list[tuple[int, int]]":
-    """Where regex \\b + escape(needle) + \\b finds `needle` in `text`
+    """Where `needle` occurs in `text` as whole words, not inside a longer word
     (case-insensitive), left to right, non-overlapping."""
     text = text or ""
     if not needle:
@@ -260,12 +260,12 @@ def _c1x_bounded_spans(needle: str, text: str) -> "list[tuple[int, int]]":
 
 
 def _c1x_bounded_find(needle: str, text: str) -> bool:
-    """regex search(\\b + escape(needle) + \\b, text, IGNORECASE)."""
+    """`needle` occurs in `text` as whole words (case-insensitive)."""
     return bool(_c1x_bounded_spans(needle, text))
 
 
 def _c1x_bounded_sub(needle: str, repl: str, text: str, count: int = 0) -> str:
-    """regex sub(\\b + escape(needle) + \\b, repl, text, count, IGNORECASE), repl taken literally."""
+    """Replace whole-word `needle` with `repl` (case-insensitive, at most `count`), repl taken literally."""
     out, last = [], 0
     for k, (s0, e0) in enumerate(_c1x_bounded_spans(needle, text)):
         if count and k >= count:
@@ -291,7 +291,7 @@ def _c1x_loose_spans(name: str, text: str) -> "list[tuple[int, int]]":
     """Where a place name occurs in `text`, ignoring the spacing around brackets
     and hyphens and collapsing runs of spaces ("DATHBANGA ( KOCH )" also finds
     "Dathbanga (Koch)"), case-insensitive, not inside a longer [A-Za-z0-9] run.
-    The regex it replaces: (?<![A-Za-z0-9]) + _loose_name_matcher(name) + (?![A-Za-z0-9])."""
+    No letter or digit may touch the match on either side."""
     elems: list = []          # "ws" (any whitespace, maybe none) or one literal char
     for ch in collapse_ws(name):
         if ch in "()-":
@@ -325,7 +325,7 @@ def _c1x_loose_spans(name: str, text: str) -> "list[tuple[int, int]]":
                     break
         if ok:
             ends = [q]
-            if elems[-1] == "ws":          # a trailing \s* gives back what the lookahead needs
+            if elems[-1] == "ws":          # trailing spaces give back what the end check needs
                 s, e2 = ws_marks[-1]
                 ends = list(range(e2, s - 1, -1))
             for end in ends:
@@ -476,7 +476,7 @@ _C1X_RANK_WORDS = ("top", "first", "last", "bottom", "highest", "lowest", "best"
 
 
 def _c1x_rank_joined_number(w: str) -> bool:
-    """"top10" — a rank word with the number written on (regex top\\s*\\d+)."""
+    """"top10" — a rank word with the number written on ("top" then digits)."""
     low = w.lower()
     return any(low.startswith(r) and len(low) > len(r) and low[len(r):].isdecimal() for r in _C1X_RANK_WORDS)
 
@@ -671,6 +671,45 @@ def _resolved_district_list_literals(resolved: dict, sql: str) -> str:
     return out
 
 
+def _resolved_district_literal(resolved: dict, sql: str) -> str:
+    """The one district the question resolved is the district the SQL filters.
+    KI-327 (live 2026-10-19): "now give me for Dambo Rongjeng block" after a West
+    Garo Hills village turn. The rewrite carried "West Garo Hills" into the text,
+    entity resolution placed the block under its real district (East Garo Hills)
+    and the 30B still wrote lgd_district = 'WEST GARO HILLS' from the question
+    text: zero rows for a block that has data. An lgd_district = '<other>' literal
+    is replaced by the resolved district. Only in that shape, a resolved BLOCK
+    beside the district (the block is what pinned the district): a district-only
+    mismatch is left to the scope guards, so a repair that moves the geography
+    is still re-authorized and denied (KI-183, test_pipeline_graph) rather than
+    silently corrected. IN-lists belong to the comparison rewrite above
+    (district_list) and are left alone here."""
+    want = resolved.get("district")
+    if not isinstance(want, str) or not want.strip() or resolved.get("district_list") or not sql:
+        return sql
+    if not isinstance(resolved.get("block"), str) or not resolved["block"].strip():
+        return sql
+    want = want.strip().upper()
+    seen: list = []
+
+    def fn(tree):
+        for node in sql_ast.filter_conditions(tree, "lgd_district"):
+            if not isinstance(node, exp.EQ):
+                continue
+            sides = _sql_cond_sides(node, {"lgd_district"})
+            lit = _sql_string_literal(sides[1]) if sides else None
+            if lit is None or lit.strip().upper() == want:
+                continue
+            sql_ast._unwrap(sides[1]).replace(exp.Literal.string(want))
+            seen.append(lit)
+        return None
+
+    out = sql_ast.transform(sql, fn)
+    if seen:
+        logger.info("lgd_district literal %r replaced by the resolved district %r", seen[0], want)
+    return out
+
+
 def _cm_unasked_programme_beside_village(question: str, schemes: list[str], entity_result: dict,
                                          sql: str) -> str:
     """A village name read as a programme (live 2026-10-02, all-villages run):
@@ -748,7 +787,7 @@ def _pin_missing_village_code(schemes: list[str], entity_result: dict, sql: str)
 
 # UPPER( / TRIM( / an alias too: "WHERE UPPER(TRIM(lgd_district)) = 'KASHARIPARA'"
 # (the village name in the district column, no village filter) got the code
-# pinned but kept the district literal, which the old `UPPER(col)` pattern
+# pinned but kept the district literal, which the old `UPPER(col)` check
 # missed — 0 producer groups for a village with 11 (Focus Legacy all-villages
 # re-run 2026-10-02).
 def _is_geo_literal_eq(node) -> bool:

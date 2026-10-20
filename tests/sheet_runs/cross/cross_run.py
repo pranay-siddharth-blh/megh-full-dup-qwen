@@ -203,8 +203,8 @@ def _after_bold(text, label):
 
 def _bold_value(text, label, stop="\n"):
     """The run after '**<label>:**' (and its whitespace) up to the first char
-    in `stop` (old regex: **label:**\\s*([^stop]+)). When nothing follows the
-    whitespace on that line, the regex backed into the whitespace: the last
+    in `stop` (at least one char). When nothing follows the
+    whitespace on that line, the old reader backed into the whitespace: the last
     non-newline whitespace char before it is the value."""
     for a, b in _after_bold(text, label):
         for start in range(b, a - 1, -1):
@@ -220,7 +220,7 @@ def _bold_value(text, label, stop="\n"):
 
 def _bold_lead(text, label):
     """The shortest run (no newline) after '**<label>:**' and its whitespace
-    that is followed by ' at ' or ' with ' (old regex: **label:**\\s*([^\\n]+?)(?: at | with ))."""
+    that is followed by ' at ' or ' with ' on the same line."""
     for a, b in _after_bold(text, label):
         for start in range(b, a - 1, -1):
             if start < b and text[start] == "\n":
@@ -235,7 +235,7 @@ def _bold_lead(text, label):
 
 
 def _first_bold(text):
-    """The text of the first **bold** span on one line (old regex \\*\\*(.+?)\\*\\*)."""
+    """The text of the first **bold** span on one line (shortest, not empty)."""
     i = text.find("**")
     while i != -1:
         j = text.find("**", i + 3)
@@ -255,7 +255,7 @@ def first_int(cell):
     runs = number_runs(cell)
     if not runs:
         return None
-    digits = runs[0][2].split(".")[0]          # \d[\d,]* stops before any decimal part
+    digits = runs[0][2].split(".")[0]          # digits and commas, stopping before any decimal part
     return int(digits.replace(",", ""))
 
 
@@ -610,7 +610,7 @@ async def build(fams):
               UNION SELECT village_code FROM curated.v_focus_legacy UNION SELECT village_code FROM curated.v_cm_elevate
               UNION SELECT village_code FROM curated.v_cm_elevate_disbursement)
             AND g.lgd_village_name IS NOT NULL AND g.village_code > 0
-            AND g.lgd_village_name !~* '^unresolved' GROUP BY 1 ORDER BY 1""")
+            AND LOWER(g.lgd_village_name) NOT LIKE 'unresolved%' GROUP BY 1 ORDER BY 1""")
         for vi, v in enumerate(vills):
             combo = COMBOS[(vi * 13) % len(COMBOS)]
             shape = ("count", "money", "both")[vi % 3]

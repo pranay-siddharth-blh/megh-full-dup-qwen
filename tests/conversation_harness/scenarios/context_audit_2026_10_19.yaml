@@ -1,0 +1,489 @@
+# Context-memory audit, 2026-10-19 (user: "I want 10/10 for all areas — forward, backward,
+# out of scope, everything"). Broad coverage per area; every scenario uses only scope
+# expectations (route / scheme / place / year), so it stays valid when figures change.
+# Rule under test: inside one chat nothing already settled is lost or asked again
+# (one-chat-never-reasks); a new chat with no scheme asks which scheme.
+
+# ═══ FORWARD — follow-ups carry the scope ═══════════════════════════════════════
+- name: AF01_place_year_drill
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "Total MGNREGA person-days in East Khasi Hills in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2024-25}
+    - say: "what about West Garo Hills?"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2024-25}
+    - say: "and in 2023-24?"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2023-24}
+    - say: "break that down by block"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2023-24}
+
+- name: AF02_scheme_swap_keeps_scope
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "How many PMAY-G houses were completed in Ri Bhoi in FY 2023-24?"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2023-24}
+    - say: "give me the same for MGNREGA"
+      # MGNREGA holds no houses: it offers its own measures for the SAME place and year
+      expect: {route: pause, pause_rule: swap-measure-unavailable, answer_contains: ["MGNREGA", "Ri Bhoi", "FY 2023-24"]}
+
+- name: AF03_measure_chain
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "How many PMAY-G houses were sanctioned in South Garo Hills in FY 2022-23?"
+      expect: {route: data, scheme: PMAY-G, place: South Garo Hills, year: FY 2022-23}
+    - say: "and how many were completed?"
+      expect: {route: data, scheme: PMAY-G, place: South Garo Hills, year: FY 2022-23}
+    - say: "what is the amount released?"
+      expect: {route: data, scheme: PMAY-G, place: South Garo Hills, year: FY 2022-23}
+
+- name: AF04_ranking_chain
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "Focus Plus beneficiaries by district in FY 2025-26"
+      expect: {route: data, scheme: Focus Plus, year: FY 2025-26}
+    - say: "which district has the highest?"
+      expect: {route: data, scheme: Focus Plus, year: FY 2025-26}
+    - say: "and the lowest?"
+      expect: {route: data, scheme: Focus Plus, year: FY 2025-26}
+
+- name: AF05_relative_years
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "MGNREGA expenditure in West Khasi Hills in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: West Khasi Hills, year: FY 2024-25}
+    - say: "what about the previous year?"
+      expect: {route: data, scheme: MGNREGA, place: West Khasi Hills, year: FY 2023-24}
+    - say: "and the year before that?"
+      expect: {route: data, scheme: MGNREGA, place: West Khasi Hills, year: FY 2022-23}
+
+- name: AF06_pronoun_after_answer
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "Total amount disbursed under CM Elevate Legacy in East Garo Hills in FY 2024-25"
+      expect: {route: data, scheme: CM Elevate Legacy, place: East Garo Hills, year: FY 2024-25}
+    - say: "how many records is that?"
+      expect: {route: data, scheme: CM Elevate Legacy, place: East Garo Hills, year: FY 2024-25}
+    - say: "and how much subsidy?"
+      expect: {route: data, scheme: CM Elevate Legacy, place: East Garo Hills, year: FY 2024-25}
+
+- name: AF07_bare_place_fragment
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "How many MGNREGA job cards in South West Khasi Hills in FY 2024-25?"
+      expect: {route: data, scheme: MGNREGA, place: South West Khasi Hills, year: FY 2024-25}
+    - say: "Ri Bhoi?"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2024-25}
+
+- name: AF08_place_and_year_together
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "PMAY-G houses sanctioned in East Khasi Hills in FY 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: East Khasi Hills, year: FY 2023-24}
+    - say: "same for South Garo Hills in 2021-22"
+      expect: {route: data, scheme: PMAY-G, place: South Garo Hills, year: FY 2021-22}
+
+- name: AF09_all_districts_after_one
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in North Garo Hills in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: North Garo Hills, year: FY 2024-25}
+    - say: "show it for all districts"
+      expect: {route: data, scheme: MGNREGA, year: FY 2024-25}
+
+- name: AF10_focus_legacy_members
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "How many Focus Legacy producer groups are there in East Khasi Hills?"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "and how many members?"
+      expect: {route: data, scheme: Focus Legacy, place: East Khasi Hills}
+    - say: "what about Ri Bhoi?"
+      expect: {route: data, scheme: Focus Legacy, place: Ri Bhoi}
+
+- name: AF11_cm_elevate_applications_chain
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "How many CM Elevate applications are there in Ri Bhoi?"
+      expect: {route: data, scheme: CM Elevate, place: Ri Bhoi}
+    - say: "how many are on hold?"
+      expect: {route: data, scheme: CM Elevate, place: Ri Bhoi}
+    - say: "and in West Garo Hills?"
+      expect: {route: data, scheme: CM Elevate, place: West Garo Hills}
+
+- name: AF12_followup_while_year_pause_waits
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "MGNREGA expenditure in Ri Bhoi"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "what is the wage part of that?"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi}
+
+- name: AF13_elliptical_while_year_pause_waits
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "PMAY-G houses sanctioned in West Garo Hills"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "and how many completed?"
+      expect: {route: data, scheme: PMAY-G, place: West Garo Hills}
+
+- name: AF14_long_thread
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Jaintia Hills in FY 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: East Jaintia Hills, year: FY 2023-24}
+    - say: "and job cards?"
+      expect: {route: data, scheme: MGNREGA, place: East Jaintia Hills, year: FY 2023-24}
+    - say: "in 2024-25?"
+      expect: {route: data, scheme: MGNREGA, place: East Jaintia Hills, year: FY 2024-25}
+    - say: "what about West Jaintia Hills?"
+      expect: {route: data, scheme: MGNREGA, place: West Jaintia Hills, year: FY 2024-25}
+    - say: "and the expenditure there?"
+      expect: {route: data, scheme: MGNREGA, place: West Jaintia Hills, year: FY 2024-25}
+    - say: "by block"
+      expect: {route: data, scheme: MGNREGA, place: West Jaintia Hills, year: FY 2024-25}
+
+- name: AF15_year_wise_after_district
+  tags: [audit, forward]
+  account: superadmin
+  turns:
+    - say: "PMAY-G houses completed in Ri Bhoi in FY 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2023-24}
+    - say: "show it year-wise"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi}
+
+# ═══ BACKWARD — returning to, and recalling, earlier turns ═════════════════════
+- name: AB01_go_back_to_scheme
+  tags: [audit, backward]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2024-25}
+    - say: "PMAY-G houses completed in Ri Bhoi in FY 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2023-24}
+    - say: "go back to MGNREGA"
+      expect: {route: edge, edge_type: topic_switch, answer_contains: ["MGNREGA", "EAST KHASI HILLS", "FY 2024-25"]}
+    - say: "what about West Jaintia Hills?"
+      expect: {route: data, scheme: MGNREGA, place: West Jaintia Hills, year: FY 2024-25}
+
+- name: AB02_recall_by_description
+  tags: [audit, backward]
+  account: superadmin
+  turns:
+    - say: "How many PMAY-G houses were sanctioned in East Garo Hills in FY 2022-23?"
+      expect: {route: data, scheme: PMAY-G, place: East Garo Hills, year: FY 2022-23}
+    - say: "Total MGNREGA expenditure in Ri Bhoi in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2024-25}
+    - say: "what was the figure you gave for the housing scheme?"
+      expect: {scheme: PMAY-G, place: East Garo Hills, year: FY 2022-23, same_numbers_as: 1}
+
+- name: AB03_recap
+  tags: [audit, backward]
+  account: superadmin
+  turns:
+    - say: "Focus Plus beneficiaries in East Khasi Hills in FY 2025-26"
+      expect: {route: data, scheme: Focus Plus, place: East Khasi Hills, year: FY 2025-26}
+    - say: "How many CM Elevate applications are there in Ri Bhoi?"
+      expect: {route: data, scheme: CM Elevate, place: Ri Bhoi}
+    - say: "what have we discussed so far?"
+      expect: {route: edge, answer_contains: ["Focus Plus", "CM Elevate"]}
+
+- name: AB04_nth_question_with_change
+  tags: [audit, backward]
+  account: superadmin
+  turns:
+    - say: "MGNREGA job cards in South Garo Hills in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: South Garo Hills, year: FY 2024-25}
+    - say: "PMAY-G houses sanctioned in South Garo Hills in FY 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: South Garo Hills, year: FY 2023-24}
+    - say: "repeat my first question for West Garo Hills"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2024-25}
+
+- name: AB05_second_question_new_year
+  tags: [audit, backward]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Garo Hills in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: East Garo Hills, year: FY 2024-25}
+    - say: "PMAY-G houses completed in East Garo Hills in FY 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: East Garo Hills, year: FY 2023-24}
+    - say: "Focus Plus beneficiaries in Ri Bhoi in FY 2025-26"
+      expect: {route: data, scheme: Focus Plus, place: Ri Bhoi, year: FY 2025-26}
+    - say: "show me the second question for FY 2022-23"
+      expect: {route: data, scheme: PMAY-G, place: East Garo Hills, year: FY 2022-23}
+
+- name: AB06_first_question_comma
+  tags: [audit, backward]
+  account: superadmin
+  turns:
+    - say: "MGNREGA expenditure in West Khasi Hills in FY 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: West Khasi Hills, year: FY 2023-24}
+    - say: "PMAY-G houses sanctioned in Ri Bhoi in FY 2022-23"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2022-23}
+    - say: "go back to the first question, what about 2024-25?"
+      expect: {route: data, scheme: MGNREGA, place: West Khasi Hills, year: FY 2024-25}
+
+- name: AB07_back_by_place
+  tags: [audit, backward]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2024-25}
+    - say: "and in Ri Bhoi?"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2024-25}
+    - say: "go back to the East Khasi Hills one"
+      expect: {scheme: MGNREGA, place: East Khasi Hills, year: FY 2024-25}
+
+- name: AB08_back_after_knowledge_aside
+  tags: [audit, backward]
+  account: superadmin
+  turns:
+    - say: "PMAY-G houses completed in West Garo Hills in FY 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: West Garo Hills, year: FY 2023-24}
+    - say: "who is eligible for PMAY-G?"
+      expect: {route: knowledge}
+    - say: "ok back to the numbers, what about 2022-23?"
+      expect: {route: data, scheme: PMAY-G, place: West Garo Hills, year: FY 2022-23}
+
+- name: AB09_restore_then_continue
+  tags: [audit, backward]
+  account: superadmin
+  turns:
+    - say: "Focus Plus amount disbursed in West Garo Hills in FY 2025-26"
+      expect: {route: data, scheme: Focus Plus, place: West Garo Hills, year: FY 2025-26}
+    - say: "MGNREGA person-days in Ri Bhoi in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2024-25}
+    - say: "back to Focus Plus"
+      expect: {route: edge, edge_type: topic_switch, answer_contains: ["Focus Plus", "WEST GARO HILLS", "FY 2025-26"]}
+    - say: "and in East Garo Hills?"
+      expect: {route: data, scheme: Focus Plus, place: East Garo Hills, year: FY 2025-26}
+
+- name: AB10_last_question_again
+  tags: [audit, backward]
+  account: superadmin
+  turns:
+    - say: "MGNREGA job cards in East Jaintia Hills in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: East Jaintia Hills, year: FY 2024-25}
+    - say: "tell me a joke"
+      expect: {route: edge}
+    - say: "answer my last question again"
+      expect: {scheme: MGNREGA, place: East Jaintia Hills, year: FY 2024-25}
+
+# ═══ OUT OF SCOPE — refuse, keep the thread ═══════════════════════════════════
+- name: AO01_offtopic_mid_thread
+  tags: [audit, out_of_scope]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in Ri Bhoi in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2024-25}
+    - say: "who is the prime minister of India?"
+      expect: {route: edge}
+    - say: "ok, and in East Jaintia Hills?"
+      expect: {route: data, scheme: MGNREGA, place: East Jaintia Hills, year: FY 2024-25}
+
+- name: AO02_chitchat_then_data
+  tags: [audit, out_of_scope]
+  account: superadmin
+  turns:
+    - say: "what's the weather in Shillong today?"
+      expect: {route: edge}
+    - say: "tell me a joke"
+      expect: {route: edge}
+    - say: "How many PMAY-G houses were completed statewide in FY 2023-24?"
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24}
+
+- name: AO03_unsupported_scheme
+  tags: [audit, out_of_scope]
+  account: superadmin
+  turns:
+    - say: "How many PM Kisan beneficiaries are there in Ri Bhoi?"
+      expect: {route: pause, answer_contains: ["isn't one of the schemes"]}
+    - say: "what about Jal Jeevan Mission?"
+      expect: {answer_not_contains: ["person-days"]}
+
+- name: AO04_no_context_fragment_new_chat
+  tags: [audit, out_of_scope]
+  account: superadmin
+  turns:
+    - say: "what about Ri Bhoi?"
+      expect: {route: pause}
+
+- name: AO05_greeting_thanks_then_followup
+  tags: [audit, out_of_scope]
+  account: superadmin
+  turns:
+    - say: "hi"
+      expect: {route: edge}
+    - say: "PMAY-G houses sanctioned in Ri Bhoi in FY 2022-23"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2022-23}
+    - say: "thanks"
+      expect: {route: edge}
+    - say: "and in 2023-24?"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2023-24}
+
+- name: AO06_identity_question_keeps_thread
+  tags: [audit, out_of_scope]
+  account: superadmin
+  turns:
+    - say: "Focus Plus beneficiaries in West Garo Hills in FY 2025-26"
+      expect: {route: data, scheme: Focus Plus, place: West Garo Hills, year: FY 2025-26}
+    - say: "who are you?"
+      expect: {route: edge}
+    - say: "and in East Garo Hills?"
+      expect: {route: data, scheme: Focus Plus, place: East Garo Hills, year: FY 2025-26}
+
+- name: AO07_sports_then_relative_year
+  tags: [audit, out_of_scope]
+  account: superadmin
+  turns:
+    - say: "MGNREGA expenditure in East Khasi Hills in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2024-25}
+    - say: "who won the IPL this year?"
+      expect: {route: edge}
+    - say: "and the previous year?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24}
+
+- name: AO08_maths_and_coding
+  tags: [audit, out_of_scope]
+  account: superadmin
+  turns:
+    - say: "what is 25 times 4?"
+      expect: {route: edge}
+    - say: "write me a python program to sort a list"
+      expect: {route: edge}
+
+- name: AO09_offtopic_does_not_leak_scope
+  tags: [audit, out_of_scope]
+  account: superadmin
+  turns:
+    - say: "PMAY-G houses completed in East Garo Hills in FY 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: East Garo Hills, year: FY 2023-24}
+    - say: "what is the capital of France?"
+      expect: {route: edge, answer_not_contains: ["houses completed in East Garo Hills"]}
+
+# ═══ CLARIFICATION — a typed reply resumes the paused question ═════════════════
+- name: AC01_scheme_pause_typed
+  tags: [audit, clarification]
+  account: superadmin
+  turns:
+    - say: "Tell me about the eligibility rules"
+      expect: {route: pause, pause_rule: scheme-not-specified}
+    - say: "PMAY-G"
+      expect: {route: knowledge, answer_not_contains: ["Which scheme is your question about"]}
+
+- name: AC02_year_pause_typed
+  tags: [audit, clarification]
+  account: superadmin
+  turns:
+    - say: "Focus Plus beneficiaries in East Garo Hills"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "2025-26"
+      expect: {route: data, scheme: Focus Plus, place: East Garo Hills, year: FY 2025-26}
+    - say: "and West Garo Hills?"
+      expect: {route: data, scheme: Focus Plus, place: West Garo Hills, year: FY 2025-26}
+
+- name: AC03_year_pause_all_years
+  tags: [audit, clarification]
+  account: superadmin
+  turns:
+    - say: "PMAY-G houses sanctioned in Ri Bhoi"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "all of them combined"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi}
+
+- name: AC04_cm_elevate_dataset_pause
+  tags: [audit, clarification]
+  account: superadmin
+  turns:
+    - say: "How much has been disbursed under Focus Plus in East Garo Hills in FY 2025-26?"
+      expect: {route: data, scheme: Focus Plus, place: East Garo Hills, year: FY 2025-26}
+    - say: "give me for cm elevate"
+      expect: {route: pause, pause_rule: cm-elevate-dataset}
+    - say: "legacy"
+      expect: {route: data, scheme: CM Elevate Legacy, place: East Garo Hills}
+
+- name: AC05_focus_which_one
+  tags: [audit, clarification]
+  account: superadmin
+  turns:
+    - say: "How many Focus beneficiaries are there in Ri Bhoi?"
+      expect: {route: pause, pause_rule: focus-scheme-ambiguous}
+    - say: "plus"
+      expect: {route: pause, pause_rule: year-not-specified, answer_contains: ["Focus Plus"]}
+    - say: "2025-26"
+      expect: {route: data, scheme: Focus Plus, place: Ri Bhoi, year: FY 2025-26}
+
+- name: AC06_pause_abandoned_by_new_question
+  tags: [audit, clarification]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in Ri Bhoi"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "How many PMAY-G houses were completed in West Garo Hills in FY 2023-24?"
+      expect: {route: data, scheme: PMAY-G, place: West Garo Hills, year: FY 2023-24}
+
+- name: AC07_year_pause_with_place_change
+  tags: [audit, clarification]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in South Garo Hills"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "West Garo Hills, 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2024-25}
+
+# ═══ RESET — a full new question does not inherit the old scope ═══════════════
+- name: AR01_full_question_drops_place
+  tags: [audit, reset]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2024-25}
+    - say: "How many PMAY-G houses were sanctioned statewide in FY 2022-23?"
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2022-23}
+
+- name: AR02_own_place_wins
+  tags: [audit, reset]
+  account: superadmin
+  turns:
+    - say: "Focus Plus beneficiaries in Ri Bhoi in FY 2025-26"
+      expect: {route: data, scheme: Focus Plus, place: Ri Bhoi, year: FY 2025-26}
+    - say: "Total MGNREGA expenditure in West Garo Hills in FY 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2023-24}
+
+- name: AR03_own_year_wins
+  tags: [audit, reset]
+  account: superadmin
+  turns:
+    - say: "MGNREGA job cards in Ri Bhoi in FY 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2024-25}
+    - say: "MGNREGA job cards in Ri Bhoi in FY 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2022-23}
+
+- name: AR04_new_chat_asks_scheme
+  tags: [audit, reset]
+  account: superadmin
+  turns:
+    - say: "how many beneficiaries are there in Ri Bhoi in FY 2023-24?"
+      expect: {answer_not_contains: ["I don't have"]}
+
+- name: AR05_statewide_after_district
+  tags: [audit, reset]
+  account: superadmin
+  turns:
+    - say: "PMAY-G houses completed in Ri Bhoi in FY 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2023-24}
+    - say: "How many PMAY-G houses were completed in Meghalaya in FY 2023-24?"
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24}

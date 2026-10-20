@@ -4,9 +4,10 @@ import {
   getToken, listHistory, login, logoutRemote, pinConversationApi, renameConversationApi, resetSessionId,
   setToken, setUnauthorizedHandler, StoppedError, storedSessionId, streamNLPResponse,
 } from './api.js';
-import { GLOSSARY, LANGS, UI_STRINGS, UNIFIED_SAMPLES } from './constants.js';
+import { GLOSSARY, UI_STRINGS, UNIFIED_SAMPLES } from './constants.js';
 import { nowTime, stampTime, todayLabel } from './format.js';
 import { useVoice } from './useVoice.js';
+import { isContinueText, isStopText } from './stopContinue.js';
 import { useSidebarResize } from './useSidebarResize.js';
 import { useComposerHeight } from './useComposerHeight.js';
 import { BotMessage, TextMessage, TypingMessage } from './components/Messages.jsx';
@@ -14,22 +15,52 @@ import { LoginScreen, Modal, UndoToast } from './components/Overlays.jsx';
 import { USE_CASE_GROUPS, UseCases } from './components/UseCases.jsx';
 import { Sidebar } from './components/Sidebar.jsx';
 import { ChatExport } from './components/ChatExport.jsx';
+import { LanguageSwitcher } from './components/LanguageSwitcher.jsx';
+import { RecordingStrip } from './components/RecordingStrip.jsx';
+import { SlashMenu } from './components/SlashMenu.jsx';
+import { langFromArg, parseSlash, slashMenuItems, viewRequest } from './slashCommands.js';
+import { VIEW_NAMES, viewOnlyRequest } from './analytics.js';
 import { ShortcutsHelp } from './components/ShortcutsHelp.jsx';
 import { plainText } from './components/Markdown.jsx';
 import { copyText } from './components/Messages.jsx';
-import { IS_MAC, SHORTCUTS, isTyping, keyLabel, matches } from './shortcuts.js';
+import { IS_MAC, SHORTCUTS, enterSends, isComposing, isTyping, keyLabel, matches } from './shortcuts.js';
 import { WelcomeCard } from './components/WelcomeCard.jsx';
 
 /* The chat console (was web/ai_query.html). Every behaviour of the original is
    kept: sign-in gate with a session check, server-backed chat history (pin,
    archive with undo, rename, delete, search), replay of a saved thread with its
    charts, the scheme carousel, voice input, the collapsible sidebar rail
-   (Ctrl+B), the mobile drawer, language tabs and the admin entry point. */
+   (Ctrl+B), the mobile drawer, the language dropdown and the admin entry point. */
 
 const RAIL_KEY = 'megh_sidebar_rail';
 const ARCH_OPEN_KEY = 'megh_archive_open';
 const readFlag = (k) => { try { return localStorage.getItem(k) === '1'; } catch (e) { return false; } };
 const writeFlag = (k, on) => { try { localStorage.setItem(k, on ? '1' : '0'); } catch (e) { /* ignore */ } };
+
+// The glossary modal, optionally filtered to the terms (or definitions) that
+// hold `filter` (any case). An empty filter lists everything.
+function glossaryModal(filter) {
+  const f = String(filter || '').trim().toLowerCase();
+  const match = (t) => !f || t.term.toLowerCase().includes(f) || t.def.toLowerCase().includes(f);
+  const sections = Object.entries(GLOSSARY)
+    .map(([section, terms]) => [section, terms.filter(match)])
+    .filter(([, terms]) => terms.length);
+  return {
+    title: 'Glossary',
+    sub: f ? `Terms matching “${filter.trim()}”` : 'Domain terms across all schemes',
+    body: sections.length ? sections.map(([section, terms]) => (
+      <div key={section}>
+        <div className="modal-section">{section}</div>
+        {terms.map((t) => (
+          <div key={t.term} className="glossary-term">
+            <div className="glossary-term-name">{t.term}</div>
+            <div className="glossary-term-def">{t.def}</div>
+          </div>
+        ))}
+      </div>
+    )) : <div className="glossary-empty">No glossary term matches “{filter.trim()}”.</div>,
+  };
+}
 
 export default function App() {
   // ── Auth ────────────────────────────────────────────────────────────────
@@ -52,7 +83,11 @@ export default function App() {
   const runningRef = useRef(false);
   const [input, setInputState] = useState('');
   const inputRef = useRef('');
-  const setInput = (v) => { inputRef.current = v; setInputState(v); };
+  // Slash-command menu (#319): the highlighted row, and whether Esc closed it
+  // for the current text (any edit opens it again).
+  const [slashIdx, setSlashIdx] = useState(0);
+  const [slashClosed, setSlashClosed] = useState(false);
+  const setInput = (v) => { inputRef.current = v; setInputState(v); setSlashIdx(0); setSlashClosed(false); };
   const textareaRef = useRef(null);
   const chatAreaRef = useRef(null);
   const chatInnerRef = useRef(null);
@@ -263,6 +298,9 @@ export default function App() {
   // written (/api/query/stream, D-039). Stop aborts the request, which also
   // cancels the turn on the server. `skipCache` (Regenerate) answers afresh.
   const stopRef = useRef(null);
+  const stopQuery = useCallback(() => { if (stopRef.current) stopRef.current.abort(); }, []);
+  // The question the officer last stopped, until another one runs.
+  const stoppedRef = useRef(null);
   // ── Connection ──────────────────────────────────────────────────────────
   // 'online' | 'down' (the server can't be reached, or it can't reach megh_db:
   // the VPN dropped) | 'back' (just recovered; the banner says so briefly).
@@ -281,7 +319,11 @@ export default function App() {
 
   const runQuestion = useCallback(async (q, { skipCache = false, addUser = true } = {}) => {
     if (runningRef.current) return;           // one question at a time
+    // "/chart …" or "/table …" (#319): the question goes without its command;
+    // the answer remembers the view. The bubble shows what was typed.
+    const { view, question: asked } = viewRequest(q);
     runningRef.current = true; setRunning(true);
+    stoppedRef.current = null;                // a new run replaces a stopped question
     followRef.current = true;                 // the officer just asked: show it
     waitingRef.current = null;                // a new question replaces any waiting one
     const typingId = nextId();
@@ -300,9 +342,9 @@ export default function App() {
     stopRef.current = stop;
     const dropTyping = (m) => m.filter((x) => x.id !== typingId);
     try {
-      const response = await streamNLPResponse(q, lang, sessionRef.current, { skipCache, signal: stop.signal, onEvent });
+      const response = await streamNLPResponse(asked, lang, sessionRef.current, { skipCache, signal: stop.signal, onEvent });
       setMessages((m) => [...dropTyping(m), response.answer
-        ? { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'rich', question: q, response, animate: true, streamKey: typingId }
+        ? { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'rich', question: q, response, animate: true, streamKey: typingId, view }
         : { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Error: ${response.detail || 'Unable to process your query'}` }]);
       connBack();                             // an answer arrived: the connection is fine
     } catch (err) {
@@ -315,7 +357,9 @@ export default function App() {
         setMessages((m) => [...dropTyping(m), { id: msgId, time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, waiting: true,
           text: 'Waiting for the connection. This question will be asked again as soon as it is back.' }]);
       } else if (err instanceof StoppedError) {
-        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: 'Stopped.' }]);
+        stoppedRef.current = q;
+        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q,
+          text: 'Stopped. Type "continue" when you want this answer.' }]);
       } else if (String(err.message) !== 'unauthorized') {
         setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Sorry, I encountered an error: ${err.message}` }]);
         console.error('Query error:', err);
@@ -331,17 +375,60 @@ export default function App() {
     }
   }, [lang, loadHistory, connBack]);
 
+  // "stop" typed while an answer runs stops it, like the Stop button; a
+  // "continue" typed right after a stop asks the stopped question again
+  // (the server also remembers it, so "continue" works after a reload too:
+  // conversation_layer.remember_stopped).
   const sendQuery = useCallback(() => {
-    if (runningRef.current) return;
     const q = inputRef.current.trim();
     if (!q) return;
+    const sc = parseSlash(q);
+    if (sc) {
+      if ((sc.cmd === 'chart' || sc.cmd === 'table') && !sc.rest) return;   // nothing asked yet
+      if (sc.cmd === 'glossary') { setInput(''); setModal(glossaryModal(sc.rest)); return; }
+      if (sc.cmd === 'lang') {
+        const code = langFromArg(sc.rest);
+        if (code) { setLang(code); setInput(''); }
+        return;                                  // no such language: the menu lists them
+      }
+    }
+    if (runningRef.current) {
+      if (isStopText(q)) { setInput(''); stopQuery(); }
+      return;
+    }
     setInput('');
+    // "I want a bar chart", "pie chart", "show it as a table": nothing new is
+    // asked, only a different view of the last answer's data — drawn here from
+    // the rows already on screen, for every kind of answer (user, 2026-10-19).
+    const viewOnly = viewOnlyRequest(q);
+    if (viewOnly) {
+      setMessages((m) => {
+        const now = { time: nowTime(), at: new Date().toISOString() };
+        const userMsg = { id: nextId(), ...now, kind: 'user', text: q };
+        const last = [...m].reverse().find((x) => x.kind === 'rich' && x.response
+          && Array.isArray(x.response.data) && x.response.data.length);
+        if (!last) {
+          return [...m, userMsg, { id: nextId(), ...now, kind: 'bot',
+            text: `There is no data in this chat to show as ${VIEW_NAMES[viewOnly]} yet. Ask a data question, for example "MGNREGA person-days by district", and I'll draw it.` }];
+        }
+        const r = last.response;
+        return [...m, userMsg, { id: nextId(), ...now, kind: 'rich', question: last.question, view: viewOnly,
+          response: { ...r, answer: `Here is the same data as ${VIEW_NAMES[viewOnly]}.`, rewritten_question: undefined,
+                      follow_up: '', follow_up_options: [], follow_ups: [], suggestions: [] } }];
+      });
+      return;
+    }
+    const stoppedQ = stoppedRef.current;
+    if (stoppedQ && isContinueText(q)) {
+      setMessages((m) => [...m, { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'user', text: q }]);
+      runQuestion(stoppedQ, { addUser: false });
+      return;
+    }
     runQuestion(q);
-  }, [runQuestion]);
+  }, [runQuestion, stopQuery]);
 
   const sendQueryRef = useRef(null);
   sendQueryRef.current = sendQuery;
-  const stopQuery = useCallback(() => { if (stopRef.current) stopRef.current.abort(); }, []);
 
   // Retry (after an error or Stop) and Regenerate (the last answer): the same
   // question again in place of that message, never from the cache.
@@ -482,16 +569,6 @@ export default function App() {
     if (atBottom) setNewBelow(null);
   };
 
-  // Composer auto-grows up to 160px; the scrollbar shows only when the text
-  // is longer than that, never on an empty or short box.
-  useLayoutEffect(() => {
-    const t = textareaRef.current;
-    if (!t) return;
-    t.style.height = 'auto';
-    t.style.height = Math.min(t.scrollHeight, 160) + 'px';
-    t.style.overflowY = t.scrollHeight > 160 ? 'auto' : 'hidden';
-  }, [input]);
-
   // ── History actions (row menu) ──────────────────────────────────────────
   const archiveConversation = async (sid, archived, quiet) => {
     const conv = historyRef.current.find((c) => c.session_id === sid) || {};
@@ -573,6 +650,22 @@ export default function App() {
     },
     onUnauthorized: () => handleLogout(),
   });
+  // Composer auto-grows up to 160px; the scrollbar shows only when the text
+  // is longer than that, never on an empty or short box.
+  // 2026-10-18: while recording (#307) the box is hidden at 1px wide, so its
+  // scrollHeight is meaningless (every word wraps onto its own line). The live
+  // transcript used to be measured in that state, pinning the box at the 160px
+  // cap, and it stayed that tall after the recording stopped because nothing
+  // measured it again. Skip the hidden box and re-measure when it is shown.
+  useLayoutEffect(() => {
+    const t = textareaRef.current;
+    if (!t) return;
+    if (voice.isRecording || t.clientWidth < 40) return;
+    t.style.height = 'auto';
+    t.style.height = Math.min(t.scrollHeight, 160) + 'px';
+    t.style.overflowY = t.scrollHeight > 160 ? 'auto' : 'hidden';
+  }, [input, voice.isRecording, voice.busy, voice.status]);
+
   // Send was pressed but the final transcription gave nothing (no speech,
   // network, ASR error): the live text already in the box is what the officer
   // saw and meant to send, so it is sent. An empty box sends nothing and the
@@ -596,20 +689,16 @@ export default function App() {
 
   // ── Modals ──────────────────────────────────────────────────────────────
   const closeModal = useCallback(() => setModal(null), []);
-  const openGlossary = () => setModal({
-    title: 'Glossary', sub: 'Domain terms across all schemes',
-    body: Object.entries(GLOSSARY).map(([section, terms]) => (
-      <div key={section}>
-        <div className="modal-section">{section}</div>
-        {terms.map((t) => (
-          <div key={t.term} className="glossary-term">
-            <div className="glossary-term-name">{t.term}</div>
-            <div className="glossary-term-def">{t.def}</div>
-          </div>
-        ))}
-      </div>
-    )),
-  });
+  const openGlossary = () => setModal(glossaryModal(''));
+  // Slash menu (#319): a picked row either completes the command in the box
+  // or acts at once (a language, the glossary).
+  const applySlash = (item) => {
+    if (!item) return;
+    if (item.apply.lang) { setLang(item.apply.lang); setInput(''); return; }
+    if (item.apply.cmd === 'glossary') { setInput(''); setModal(glossaryModal('')); return; }
+    setInput('/' + item.apply.cmd + ' ');
+    focusComposer();
+  };
   // Use cases: an accordion of schemes; `useCaseScheme` is the one open (or
   // null). Built on every render so the popup follows it; reopening the popup
   // starts with all schemes closed. A picked question goes through ask(),
@@ -709,9 +798,19 @@ export default function App() {
   }, [toggleRail, closeNav, closeModal]);
 
   const onComposerKey = (e) => {
+    if (isComposing(e)) return;   // the IME is still building a word
+    if (slashItems.length) {
+      // The slash menu is open: the arrows move in it, Enter / Tab pick, Esc closes.
+      if (e.key === 'ArrowDown') { e.preventDefault(); setSlashIdx((i) => (i + 1) % slashItems.length); return; }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setSlashIdx((i) => (i - 1 + slashItems.length) % slashItems.length); return; }
+      if ((e.key === 'Enter' && !e.shiftKey) || e.key === 'Tab') { e.preventDefault(); applySlash(slashItems[slashActive]); return; }
+      if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setSlashClosed(true); return; }
+    }
     // While dictating the box is filling itself: Enter waits for the final text.
-    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendOrFinishVoice(); }
+    if (enterSends(e)) { e.preventDefault(); sendOrFinishVoice(); }
   };
+  const slashItems = slashClosed || voice.busy ? [] : slashMenuItems(input);
+  const slashActive = Math.min(slashIdx, Math.max(0, slashItems.length - 1));
 
   const signedIn = auth === 'unlocked' && !!getToken();
 
@@ -753,12 +852,7 @@ export default function App() {
               <ChatExport messages={messages} openSignal={exportSignal}
                           title={(history.find((c) => c.session_id === sessionId) || {}).title} />
               <div className="date-pill">{todayLabel()}</div>
-              <div className="lang-tabs">
-                {LANGS.map((l) => (
-                  <button key={l.code} type="button" className={'lang-tab' + (lang === l.code ? ' active' : '')}
-                          data-lang={l.code} onClick={() => setLang(l.code)}>{l.label}</button>
-                ))}
-              </div>
+              <LanguageSwitcher lang={lang} onChange={setLang} />
             </div>
           </div>
 
@@ -788,7 +882,7 @@ export default function App() {
                   if (m.kind === 'typing') return <TypingMessage key={m.id} steps={m.steps} draft={m.draft} streamKey={m.id} />;
                   if (m.kind === 'rich') {
                     return <BotMessage key={m.id} id={m.id} question={m.question} response={m.response} time={m.time}
-                                       animate={m.animate} streamKey={m.streamKey} at={m.at}
+                                       animate={m.animate} streamKey={m.streamKey} at={m.at} view={m.view}
                                        onAsk={ask} speakingId={speakingId} onSpeak={onSpeak}
                                        onRegenerate={isLast && m.question ? () => rerun(m.id, m.question) : null}
                                        sessionId={sessionId} />;
@@ -823,17 +917,26 @@ export default function App() {
               </button>
             )}
             <div className="composer-inner">
-              <div className="composer">
-                <textarea className={'composer-input' + (voice.busy ? ' dictating' : '')} ref={textareaRef} rows={1}
+              <SlashMenu items={slashItems} active={slashActive} onPick={applySlash} onHover={setSlashIdx} />
+              {/* While recording (#307) the text box is kept but hidden, so Enter and
+                  the shortcuts still work; the strip takes its place. The live text
+                  keeps filling the box and shows when the recording stops. */}
+              <div className={'composer' + (voice.isRecording ? ' recording' : '')}>
+                <textarea className={'composer-input' + (voice.busy ? ' dictating' : '')} ref={textareaRef} rows={1} enterKeyHint="send"
                           placeholder={voice.isRecording ? 'Listening…' : strings.composerPh}
-                          readOnly={voice.busy}
+                          readOnly={voice.busy} aria-hidden={voice.isRecording || undefined}
+                          aria-autocomplete="list" aria-controls={slashItems.length ? 'slash-menu' : undefined}
+                          aria-activedescendant={slashItems.length ? 'slash-opt-' + slashActive : undefined}
                           value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onComposerKey} />
+                {voice.isRecording && (
+                  <RecordingStrip startedAt={voice.startedAt} live={voice.phase === 'listening'}
+                                  status={voice.status} levelRef={voice.levelRef} />
+                )}
                 <div className="composer-bar">
-                  {(voice.busy || voice.status) && (
+                  {!voice.isRecording && (voice.busy || voice.status) && (
                     <div className={'voice-status' + (voice.status && voice.status.error ? ' error' : '')}
                          role="status" aria-live="polite">
                       {voice.phase === 'finishing' && <span className="voice-spin" />}
-                      {voice.isRecording && <span className="voice-bars" ref={voice.levelRef}><i /><i /><i /><i /><i /></span>}
                       {voice.status && (
                         <span className="vs-text" title={voice.status.sub}>
                           <b>{voice.status.text}</b>

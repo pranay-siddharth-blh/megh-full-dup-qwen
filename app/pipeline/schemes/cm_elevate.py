@@ -5,7 +5,7 @@
 # Sections follow the order of the pipeline steps they belong to.
 # Every check or rewrite of SQL here works on the SQLGlot tree (app/sql_ast.py); the
 # user's question and the composed answer are read on WORDS (app/text_match.py) —
-# no regular expressions (D-047).
+# never as raw character scans (D-047).
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
@@ -18,7 +18,7 @@ from app.text_match import words as _tm_words
 
 class _CmeNear(Node):
     """`a`, then `b` starting at most `max_chars` characters after `a` ends, with no
-    character of `stops` in between (the old `a[^?.]{0,50}b`). max_chars=None: any
+    character of `stops` in between (e.g. no "?" or "." within 50). max_chars=None: any
     distance."""
 
     def __init__(self, a, b, max_chars: "int | None", stops: str = "?."):
@@ -57,19 +57,19 @@ class _CmeWrapped(Node):
 
 
 def _cme_stem_joined(first: str, stem: str) -> Node:
-    """`first[\\s_-]?stem\\w*`: two words, or one word ("applicant_category")."""
+    """`first`, then a word starting with `stem`: two words, or one word ("applicant_category")."""
     return Alt(Seq(first, W(stem, prefix=True)),
                Pred(lambda w: w.lower().startswith((first + stem, first + "_" + stem))))
 
 
 def _cme_sg(*ws: str) -> W:
-    """A word and its plural (`words?`)."""
+    """A word and its plural (word + "s")."""
     return W(*[f for w in ws for f in (w, w + "s")])
 
 
 def _cme_level_digit(one_digit: bool) -> Node:
-    """"level 2", "level-2", "level2" (`level\\s*-?\\s*\\d`); one_digit=True is
-    `level[\\s-]*\\d\\b` (exactly one digit, then the word ends)."""
+    """"level 2", "level-2", "level2" ("level", then a digit); one_digit=True
+    needs exactly one digit, then the word ends."""
     if one_digit:
         return Alt(Seq("level", Pred(lambda w: len(w) == 1 and is_int(w))),
                    Pred(lambda w: len(w) == 6 and w.lower().startswith("level") and is_int(w[5:])))
@@ -78,7 +78,7 @@ def _cme_level_digit(one_digit: bool) -> Node:
 
 
 def _cme_join(*parts) -> Node:
-    """`a[\\s-]?b`: the words apart ("on hold", "on-hold") or run together ("onhold"),
+    """`a` then `b`: the words apart ("on hold", "on-hold") or run together ("onhold"),
     but not joined by '_' ("on_hold" is a column name). Each part is a word or a
     tuple of words."""
     alts = [p if isinstance(p, tuple) else (p,) for p in parts]
@@ -90,11 +90,11 @@ def _cme_join(*parts) -> Node:
 
 
 def _cme_has(sub: str) -> Pred:
-    """A word containing `sub` (a regex with no word boundaries)."""
+    """A word containing `sub` anywhere, not only as a whole word."""
     return Pred(lambda w: sub in w.lower())
 
 
-# The old `on[\s-]?hold` with no word boundaries: "on hold", "on-hold", "onhold", also inside words ("partition holds")
+# "on" then "hold", even inside longer words: "on hold", "on-hold", "onhold", also inside words ("partition holds")
 _CME_ON_HOLD_ANYWHERE = Alt(Seq(Pred(lambda w: w.lower().endswith("on")), Pred(lambda w: w.lower().startswith("hold")),
                                 sep="space"),
                             Seq(Pred(lambda w: w.lower().endswith("on")), Pred(lambda w: w.lower().startswith("hold")),
@@ -206,6 +206,9 @@ _CMELEVATELEGACY_FORCING = Matcher(Alt(
 # Vocabulary only the APPLICATIONS dataset holds. Any of these keeps a bare
 # "CM Elevate" on that dataset even when a money word is also present.
 _CMELEVATE_APPLICATIONS_ONLY = Matcher(Alt(
+    # "CM Elevate applications": the applications dataset named outright (the
+    # dataset pause's chip sends the question in this form).
+    _cme_join("elevate", ("applications", "application")),
     _cme_join("on", "hold"), W("verif", "withdraw", prefix=True), Joined("data", "verified"),
     _cme_stem_joined("applicant", "categor"), Joined("application", "mode"), "online",
     _cme_stem_joined("cm", "connect"), Joined("current", "level"), Joined("file", "status"),
@@ -215,51 +218,140 @@ _CMELEVATE_APPLICATIONS_ONLY = Matcher(Alt(
 ))
 
 
-# The user's decision (2026-10-12, CM Elevate Legacy sheet): a bare "CM-ELEVATE" data
-# question that uses no applications-only word defaults to CM Elevate Legacy ("How many
-# CM-ELEVATE applications are recorded in each district?" -> the 2,823 sanction records,
-# not the 8,627 applications). The applications dataset keeps every question in its own
-# vocabulary: applicants, pending, sent back, status, level, sector, verification, on hold …
+# Which CM Elevate dataset a bare "CM Elevate" means (user decision 2026-10-19,
+# replacing the 2026-10-12 default to Legacy): the two datasets share a name and
+# nothing else, so a bare name is never settled by guessing.
+#   1. Words only one dataset holds settle it: applications vocabulary (applicants,
+#      pending, status, level, "CM Elevate applications" …) -> the applications
+#      dataset; money / lender / sanction words alone -> see 3.
+#   2. Otherwise the CONVERSATION settles it: a thread already on CM Elevate
+#      Legacy stays there, one on CM Elevate (applications) stays there.
+#   3. Otherwise a data question ASKS — "CM Elevate or CM Elevate Legacy?" — even
+#      when it uses money words, because the user named CM Elevate and the money
+#      lives in Legacy: switching silently is exactly what was complained about.
+# Knowledge questions ("what is CM Elevate?") are left alone: both datasets share
+# one knowledge base.
 _CME_APPLICATIONS_VOCAB = Matcher(Alt(
-    W("applicant", "applicants", "pending", "pendency"), _cme_join("sent", "back"), _cme_join("send", "back"), "status",
+    W("applicant", "applicants", "application", "applications", "pending", "pendency"),
+    _cme_join("sent", "back"), _cme_join("send", "back"), "status",
     _cme_level_digit(one_digit=True), W("forwarde", "forwarded", "rejected", "program", "programs")))
 _CME_DATA_REQUEST = Matcher(Alt(
     "how many", "number of",
     W("count", "total", "each", "per", "wise", "compare", "summary", "show", "list", "highest", "lowest", "most",
-      "top", "recorded", "mapped"),
+      "top", "recorded", "mapped", "give", "breakdown", "records", "record"),
     _cme_sg("district", "block", "village"), W("constituenc", prefix=True)))
+_CME_DATASETS = ("CM Elevate", "CM Elevate Legacy")
 
 
-def _pin_cm_elevate_dataset(question: str) -> str:
-    """Re-point a bare "CM Elevate" at CM Elevate Legacy when the question asks
-    for something only that dataset holds ("total amount disbursed under CM
-    Elevate", "CM Elevate loans by lender", "CM-ELEVATE records in FY 2024-25").
+def _cm_thread_scheme(prev, state=None, pending_question: "str | None" = None) -> "str | None":
+    """The CM Elevate dataset the conversation is already on, or None: the
+    previous turn's single scheme; else the conversation state's active
+    scheme; else the dataset named in a question that is paused for its
+    year or area ("CM Elevate Legacy disbursement by district" -> "which
+    FY?" -> "give me for cm elevate in Ri Bhoi" stays on Legacy)."""
+    schemes = list(getattr(prev, "schemes", None) or [])
+    if len(schemes) == 1 and schemes[0] in _CME_DATASETS:
+        return schemes[0]
+    active = getattr(state, "scheme", None)
+    if active in _CME_DATASETS:
+        return active
+    if pending_question:
+        if _SCHEME_NAME_MATCHER["CM Elevate Legacy"].search(pending_question):
+            return "CM Elevate Legacy"
+        if _SCHEME_NAME_MATCHER["CM Elevate"].search(pending_question):
+            return "CM Elevate"
+    return None
 
-    Done ONCE, on the question text, before routing — the same way a misspelled
-    scheme name is corrected — so every later pattern check (scheme shortcut,
-    clarification gates, follow-ups, the chips) sees one consistent scheme
-    instead of each re-deciding. The rewritten question is returned to the user
-    as `rewritten_question`, so the reading is visible, not silent."""
+
+def _cm_switch_to_applications(question: str, thread_scheme: "str | None") -> bool:
+    """A bare "CM Elevate" named as a SWITCH while the thread is on CM Elevate
+    Legacy: "now give me for cm elevate" right after a Legacy answer. The thread
+    rule (a Legacy thread keeps a bare CM Elevate on Legacy) is for questions that
+    continue the thread; a switch fragment that names CM Elevate after a Legacy
+    answer can only mean the other dataset. Before this it was pinned to Legacy
+    and the same Legacy answer came back (live 2026-10-19 15:03, KI-330)."""
+    q = (question or "").strip()
+    if thread_scheme != "CM Elevate Legacy" or not q:
+        return False
+    if _SCHEME_NAME_MATCHER["CM Elevate Legacy"].search(q) or not _SCHEME_NAME_MATCHER["CM Elevate"].search(q):
+        return False
+    if _CMELEVATELEGACY_FORCING.search(q) or _CMELEVATELEGACY_ONLY_TERMS.search(q):
+        return False
+    frag = _c01_strip_opening_fillers(q)
+    return bool(_SCHEME_SWAP_FOLLOWUP.match(frag) or _scheme_substitution(q)[1])
+
+
+def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None) -> "str | None":
+    """For a question that names a bare "CM Elevate": "applications", "legacy",
+    or "ask". None when no bare CM Elevate is named (or Legacy is named
+    outright), and for a question with no data words at all."""
     q = question or ""
-    if not q or _SCHEME_NAME_MATCHER["CM Elevate Legacy"].search(q):
-        return q
-    if not _SCHEME_NAME_MATCHER["CM Elevate"].search(q):
-        return q
-    if not _prefers_cm_elevate_legacy(q):
-        return q
-    out = _SCHEME_NAME_MATCHER["CM Elevate"].sub("CM Elevate Legacy", q)
-    logger.info("CM Elevate dataset pinned to Legacy: %r -> %r", q, out)
-    return out
+    if not q or _SCHEME_NAME_MATCHER["CM Elevate Legacy"].search(q) \
+            or not _SCHEME_NAME_MATCHER["CM Elevate"].search(q):
+        return None
+    if _CMELEVATE_APPLICATIONS_ONLY.search(q):
+        return "applications"
+    legacy_words = bool(_CMELEVATELEGACY_FORCING.search(q) or _CMELEVATELEGACY_ONLY_TERMS.search(q))
+    apps_words = bool(_CME_APPLICATIONS_VOCAB.search(q))
+    if apps_words and not legacy_words:
+        return "applications"
+    if thread_scheme == "CM Elevate Legacy":
+        return "legacy"
+    if thread_scheme == "CM Elevate":
+        return "applications"
+    if apps_words or legacy_words or _CME_DATA_REQUEST.search(q):
+        return "ask"
+    return None
+
+
+def _pin_cm_elevate_dataset(question: str, thread_scheme: "str | None" = None) -> str:
+    """Settle a bare "CM Elevate" ONCE, on the question text, before routing —
+    the same way a misspelled scheme name is corrected — so every later word
+    check sees one consistent dataset. Rewrites only when the conversation
+    settles it: "CM Elevate Legacy" for a Legacy thread, "CM Elevate
+    applications" for an applications thread whose words alone would have had
+    to ask. A question the words settle, or one that must ask, is returned
+    unchanged (the ask is raised in the data stage, _cm_elevate_dataset_pause).
+    The rewritten question is returned to the user as `rewritten_question`."""
+    q = question or ""
+    choice = _cm_elevate_dataset_choice(q, thread_scheme)
+    if choice == "legacy":
+        out = _SCHEME_NAME_MATCHER["CM Elevate"].sub("CM Elevate Legacy", q)
+        logger.info("CM Elevate dataset settled by the thread: Legacy %r -> %r", q, out)
+        return out
+    if choice == "applications" and thread_scheme == "CM Elevate" \
+            and _cm_elevate_dataset_choice(q) == "ask":
+        out = _SCHEME_NAME_MATCHER["CM Elevate"].sub("CM Elevate applications", q)
+        logger.info("CM Elevate dataset settled by the thread: applications %r -> %r", q, out)
+        return out
+    return q
+
+
+def _cm_elevate_dataset_pause(question: str) -> "ClarificationNeeded | None":
+    """The "CM Elevate or CM Elevate Legacy?" pause for a data question the
+    words and the conversation did not settle; None otherwise."""
+    if _cm_elevate_dataset_choice(question) != "ask":
+        return None
+    stem = (question or "").strip().rstrip(" ?.")
+    name = _SCHEME_NAME_MATCHER["CM Elevate"]
+    return ClarificationNeeded(
+        "CM Elevate has two datasets — applications, and sanctions and disbursements "
+        "(CM Elevate Legacy). Which one do you mean?",
+        options=[{"label": "CM Elevate (applications)", "question": name.sub("CM Elevate applications", stem)},
+                 {"label": "CM Elevate Legacy (sanctions & disbursements)",
+                  "question": name.sub("CM Elevate Legacy", stem)}],
+        rule="cm-elevate-dataset")
 
 
 def _unpin_cm_elevate(question: str) -> str:
     """Undo _pin_cm_elevate_dataset. The pin only ever writes "CM Elevate
-    Legacy" into a question that named no Legacy form itself, so every
-    occurrence came from the pin and reverts cleanly."""
-    return _CME_PINNED_NAME.sub("CM Elevate", question or "")
+    Legacy" or "CM Elevate applications" into a question that named neither
+    form itself, so every occurrence came from the pin and reverts cleanly."""
+    return _CME_PINNED_APPS.sub("CM Elevate", _CME_PINNED_NAME.sub("CM Elevate", question or ""))
 
 
 _CME_PINNED_NAME = Matcher(W("CM", case=True), W("Elevate", case=True), W("Legacy", case=True), sep="space")
+_CME_PINNED_APPS = Matcher(W("CM", case=True), W("Elevate", case=True), W("applications", case=True), sep="space")
 
 
 # ════ answers ═════════════════════════════════════════════════════════════════════════════════════════
@@ -725,7 +817,7 @@ def _cme_programme_sector_answer(rows: list[dict], display: dict) -> "str | None
 
 # ════ SQL rewrites ════════════════════════════════════════════════════════════════════════════════════
 # Every guard below reads and edits the parsed query (SQLGlot, app/sql_ast.py), never
-# its text: a pattern over the text read a word inside a literal as a column, missed
+# its text: a text scan read a word inside a literal as a column, missed
 # UPPER(col) and "PRIME … (SEED)"'s own parenthesis, and left half-removed clauses.
 # A query SQLGlot cannot parse is returned unchanged (sql_guard refuses it anyway).
 _CME_CASE_WRAPPERS = (exp.Upper, exp.Lower, exp.Trim, exp.Paren)
@@ -1244,7 +1336,7 @@ _CME_STATUS_Q = Matcher(Alt(
     Seq(W("application", "current", "file", "overall"), "status"), Seq("status", W("of", "for", "in")),
     "by status", "each status"))
 _CME_VERIFICATION_Q = Matcher(Alt(
-    # no word boundaries in the old pattern: "on hold" may end / start inside a word
+    # matched as before, not as whole words: "on hold" may end / start inside a word
     Pred(lambda w: "verif" in w.lower()), _CME_ON_HOLD_ANYWHERE,
     W("valid", "invalid", "wrong", "pending", "pendency", "approve", "approved", "rejected", "decision"),
     W("withdraw", prefix=True)))
@@ -1743,7 +1835,10 @@ def _cme_digits_for_number_words(answer: str, rows: list[dict]) -> str:
     verification" (all-villages run 2026-09-28): the figure was right, but a
     spelled-out number is invisible to the numeric-faithfulness checks, so a WRONG
     one would pass too. A number word before a count noun becomes digits when that
-    value is in the result; otherwise it is left for the checks to see."""
+    value is in the result; otherwise it is left for the checks to see.
+    _NUMBER_WORDS / _NUMBER_TENS / _NUMBER_WORD_MATCH are defined in
+    common/c12_answer_numbers.py; the pipeline files share one namespace and this
+    runs only after every file is loaded, so they resolve at call time."""
     vals = {int(v) for r in rows for _k, v in _row_metrics(r) if isinstance(v, (int, float)) and float(v).is_integer()}
 
     def sub(m: "Hit") -> str:

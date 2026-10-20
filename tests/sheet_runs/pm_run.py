@@ -145,7 +145,7 @@ async def main():
                  c AS (SELECT p.village_code, MIN(p.lgd_village_name) name, MIN(p.lgd_block) b, MIN(p.lgd_district) d,
                               COUNT(*) h
                        FROM curated.v_pmay p JOIN u ON u.n = UPPER(p.lgd_village_name)
-                       WHERE NOT p.is_placeholder AND p.village_code IS NOT NULL AND p.lgd_village_name !~ '[^A-Za-z ]'
+                       WHERE NOT p.is_placeholder AND p.village_code IS NOT NULL AND TRANSLATE(UPPER(p.lgd_village_name), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ', '') = ''
                        GROUP BY 1 HAVING COUNT(*) >= 5),
                  x AS (SELECT c.*, ROW_NUMBER() OVER (PARTITION BY d ORDER BY md5(name)) rn FROM c)
             SELECT village_code, name, b, d FROM x WHERE rn <= 2 ORDER BY d, name""")
@@ -193,7 +193,7 @@ async def main():
         pairs = await fetch("""
             WITH c AS (SELECT village_code, MIN(lgd_village_name) n, MIN(lgd_block) b,
                               COUNT(*) FILTER (WHERE is_completed) comp
-                       FROM curated.v_pmay WHERE NOT is_placeholder AND lgd_village_name !~ '[^A-Za-z ]'
+                       FROM curated.v_pmay WHERE NOT is_placeholder AND TRANSLATE(UPPER(lgd_village_name), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ', '') = ''
                        GROUP BY 1),
                  u AS (SELECT UPPER(lgd_village_name) n FROM curated.v_pmay GROUP BY 1 HAVING COUNT(DISTINCT village_code)=1),
                  x AS (SELECT c.*, ROW_NUMBER() OVER (PARTITION BY b ORDER BY md5(c.n)) rn FROM c

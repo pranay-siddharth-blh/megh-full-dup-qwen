@@ -32,10 +32,12 @@ export const UI_STRINGS = {
   kha: { ...EN },   // TODO(translation): replace with Khasi copy.
   gar: { ...EN },   // TODO(translation): replace with Garo copy.
 };
+// Code labels and full names (#235): the name is shown beside the code so an
+// officer who does not recognise "KHA" or "GAR" still finds their language.
 export const LANGS = [
-  { code: 'en', label: 'EN' },
-  { code: 'kha', label: 'KHA' },
-  { code: 'gar', label: 'GAR' },
+  { code: 'en', label: 'EN', name: 'English' },
+  { code: 'kha', label: 'KHA', name: 'Khasi' },
+  { code: 'gar', label: 'GAR', name: 'Garo' },
 ];
 
 // Qwen3-ASR expects bare ISO-639-1 codes; Khasi and Garo are outside its

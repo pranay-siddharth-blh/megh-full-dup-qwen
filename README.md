@@ -202,17 +202,17 @@ python -m venv .venv
 . .venv/bin/activate                 # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 cp .env.example .env                 # then fill in DATABASE_URL and the model API keys
-uvicorn app.main:app --host 0.0.0.0 --port 8400
+uvicorn app.main:app --host 0.0.0.0 --port 8401
 ```
 
 - Run from `meghalaya/`: `.env` is read relative to the working directory.
 - If a `.venv` folder came from another computer, delete it and create a fresh one; it points to a
   Python install that does not exist here.
-- Chat `http://127.0.0.1:8400/megh-chat` (the bare `http://127.0.0.1:8400/` opens it too; the portal
-  landing page was removed on 2026-10-07), admin `http://127.0.0.1:8400/admin-ui`, health
-  `http://127.0.0.1:8400/health`.
+- Chat `http://127.0.0.1:8401/megh-chat` (the bare `http://127.0.0.1:8401/` opens it too; the portal
+  landing page was removed on 2026-10-07), admin `http://127.0.0.1:8401/admin-ui`, health
+  `http://127.0.0.1:8401/health`.
 - The UI is a React app in `frontend/`. After changing it: `cd frontend && npm install && npm run build`
-  (or `npm run dev` for hot reload on `http://localhost:5173`, with the API proxied to :8400).
+  (or `npm run dev` for hot reload on `http://localhost:5173`, with the API proxied to :8401).
 - The models are remote (self-hosted Qwen gateway): `qwen4-deploy` (classifier, verifier, summary),
   `qwen-model` (SQL generation and repair), `qwen35-9b` (answer composition). Embeddings run locally
   (`BAAI/bge-small-en-v1.5`).

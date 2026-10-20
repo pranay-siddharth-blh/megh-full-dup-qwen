@@ -12,7 +12,7 @@ Layout (2026-10-15; until then one 18,700-line pipeline.py):
 The files are not separate modules. They are executed here, in _PIPELINE_FILES order, into
 this package's namespace, so they share ONE namespace exactly as the single file did:
 `from app import pipeline as p`, `p.<name>` and `monkeypatch.setattr(p, ...)` work unchanged.
-Function bodies may use a name from any file. Code that runs at load time (constants, regexes,
+Function bodies may use a name from any file. Code that runs at load time (constants, matchers,
 default arguments, annotations) may only use names from files loaded before it, hence the
 order: shared basics, then the schemes, then the shared steps that call them. A new file goes
 into _PIPELINE_FILES at the right place.
@@ -50,6 +50,8 @@ _PIPELINE_FILES = (
     "common/c12_answer_numbers",
     "common/c13_compose_and_data_stages",
     "common/c14_turn_stages",
+    # talking about the conversation itself (D-052); called by the turn stages at run time
+    "common/c15_conversation_meta",
 )
 
 for _pipeline_name in _PIPELINE_FILES:
