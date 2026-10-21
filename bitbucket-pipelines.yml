@@ -118,6 +118,21 @@ pipelines:
           - step: *frontend-build
       - step: *docker-build
 
+  # Merge queue (Repository settings → Workflow → Merge queues). Bitbucket will
+  # not enable a queue until the TARGET branch's copy of this file holds a
+  # pipeline under this key, and the key must match the queue's name in the UI
+  # character for character ("We couldn't enable the merge queue", 2026-10-21).
+  # It runs on a temporary bitbucket-merge-queue-* branch that already carries
+  # every PR queued ahead of this one, so it is the PR checks plus the image
+  # build; the audit and the manual deploy stay on the Main run after the merge.
+  merge-queues:
+    mergequeue-main:
+      - step: *syntax-gate
+      - parallel:
+          - step: *tests
+          - step: *frontend-build
+      - step: *docker-build
+
   branches:
     # Glob, not a plain `main`, on purpose: Bitbucket branch matching is
     # CASE-SENSITIVE and this repo's default branch is `Main` (capital M),
