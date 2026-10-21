@@ -4,15 +4,17 @@ does (build_turn after an answer, remember_pause after a pause)."""
 import asyncio
 import json
 import logging
-import re
+import os
 import sys
 import time
 import uuid
 
 sys.path.insert(0, ".")
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # repo root, for tests._text_checks
 logging.basicConfig(level=logging.ERROR)
 
 from app import db, pipeline  # noqa: E402
+from tests._text_checks import number_runs  # noqa: E402
 from app.routers.query import build_turn, pause_question, remember_pause  # noqa: E402
 from app.session_store import SessionStore  # noqa: E402
 
@@ -70,9 +72,9 @@ def numbers_in(rows):
 
 def text_numbers(text):
     vals = []
-    for m in re.finditer(r"\d[\d,]*(?:\.\d+)?", text or ""):
+    for _s, _e, num in number_runs(text):
         try:
-            vals.append(float(m.group(0).replace(",", "")))
+            vals.append(float(num.replace(",", "")))
         except ValueError:
             pass
     return vals

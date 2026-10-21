@@ -30,9 +30,7 @@ The repair prompt now carries the SAME schema + resolved-entities context as the
 first attempt (plus the failure), instead of the thin schema-only prompt used
 before — a repair most often needs exactly the entity block it was missing.
 """
-import re
-
-from app import context_budget, schema_introspect
+from app import context_budget, schema_introspect, turn_trace
 from app.annotations import common_mistakes_text, few_shot_examples, prohibited_joins_text
 from app.schema_context import build_schema_context
 
@@ -114,6 +112,8 @@ def _live_schema_block(schemes: list[str]) -> str:
 
 def _fewshot_block(schemes: list[str], question: str = "", top_k: int = 5) -> str:
     examples = few_shot_examples(schemes, question, top_k=top_k)
+    # the audit trail records which examples this prompt carried
+    turn_trace.note_few_shots(ex.get("id") for ex in examples)
     if not examples:
         return ""
     parts = []
@@ -595,8 +595,16 @@ SQL: SELECT SUM(total_exp) AS total_expenditure_lakh FROM curated.v_expenditure 
 
 
 def build_verify_prompt(question: str, schemes: list[str], entity_result: dict, sql: str) -> str:
-    """Second-opinion check on already-generated SQL (app.llm.call_sql_verifier),
-    run before the query touches the database.
+    """Second-opinion check on generated SQL (app.llm.call_sql_verifier, the
+    30B coder). Runs AFTER execution: the query has already passed the free
+    code checks, run on the read-only pool and passed the result checks.
+
+    It judges the SQL only, not the rows. A version that also showed the 30B
+    the result and asked it to judge the result's shape (a fifth check)
+    wrongly flagged 23 of 57 correct few-shot queries, against 10 of 57 for
+    this SQL-only prompt (live run 2026-10-15): it read normal results such as
+    "district name plus its count" as the wrong shape, and each false flag
+    sends correct SQL to repair.
 
     Deliberately narrower than the SQL-generation prompt: earlier versions
     reused the full hand-written rules backbone (build_schema_context) and
@@ -665,7 +673,7 @@ def build_verify_prompt(question: str, schemes: list[str], entity_result: dict, 
         "do with what the question asks for?\n"
         "Nothing else is in scope. Do not judge phrasing, labelling, rounding, "
         "unit formatting, or whether the answer text will explain a caveat — "
-        "those happen after this query runs, in a separate step, and are not "
+        "those happen in a separate step, and are not "
         "the SQL's job. If you cannot point to a SPECIFIC one of the four "
         "checks above that this exact SQL fails, answer ok: true.\n"),
         ("question", f'\nQuestion: "{question}"\n'),

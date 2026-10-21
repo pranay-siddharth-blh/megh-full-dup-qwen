@@ -33,10 +33,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import re
 from dataclasses import dataclass, field
 
 from app import db
+from app.text_match import ANY, Alt, Matcher, Node, Opt, Pred, Seq, W, fy_spans
 
 logger = logging.getLogger(__name__)
 
@@ -100,66 +100,210 @@ DISPLAY = {"MGNREGA": "MGNREGA", "PMAY-G": "PMAY-G", "Focus Plus": "Focus Plus",
 
 # ── detection ────────────────────────────────────────────────────────────────
 
+def _xs_is_word_char(ch: str) -> bool:
+    return ch.isalnum() or ch == "_"
+
+
+def S(*parts) -> Seq:
+    """Words in a row with only whitespace (one or more spaces) between them."""
+    return Seq(*parts, sep="space")
+
+
+class _XsGlued(Node):
+    """Words written together as typed, matched on the characters: `parts` are
+    tuples of spellings (case-insensitive, tried in order) and gap kinds between
+    them — "?" at most one space or hyphen, "+" one or more, "*" any number,
+    "s+" one or more spaces. The match starts and ends on word boundaries, so
+    "person_days" (an identifier) is not "person days"."""
+
+    def __init__(self, *parts):
+        self.parts = parts
+
+    def _ends(self, text, k, pos):
+        if k == len(self.parts):
+            yield pos
+            return
+        part = self.parts[k]
+        if isinstance(part, tuple):
+            for o in part:
+                if text[pos:pos + len(o)].lower() == o:
+                    yield from self._ends(text, k + 1, pos + len(o))
+            return
+        run = pos
+        while run < len(text) and (text[run].isspace() or (text[run] == "-" and part != "s+")):
+            run += 1
+        run -= pos
+        lo = 1 if part in ("+", "s+") else 0
+        hi = min(run, 1) if part == "?" else run
+        for n in range(hi, lo - 1, -1):
+            yield from self._ends(text, k + 1, pos + n)
+
+    def ends(self, ctx, i, caps):
+        if i >= len(ctx.toks):
+            return
+        for pos in self._ends(ctx.text, 0, ctx.toks[i].start):
+            for j in range(i, len(ctx.toks)):
+                if ctx.toks[j].end == pos:
+                    yield j + 1, caps
+                    break
+                if ctx.toks[j].end > pos:
+                    break
+
+
+G = _XsGlued
+
+
+class _XsBareFocus(Node):
+    """The word "focus", not written as "legacy focus" / "old focus" (exactly one
+    space between), and not followed — across spaces and hyphens — by "+",
+    "plus", "legacy" or "pg"."""
+
+    def ends(self, ctx, i, caps):
+        if i >= len(ctx.toks) or ctx.toks[i].low != "focus":
+            return
+        tok, text = ctx.toks[i], ctx.text
+        if text[:tok.start].lower().endswith(("legacy ", "old ")):
+            return
+        j = tok.end
+        while j < len(text) and (text[j].isspace() or text[j] == "-"):
+            j += 1
+        if text.startswith("+", j):
+            return
+        if i + 1 < len(ctx.toks) and ctx.toks[i + 1].start == j \
+                and ctx.toks[i + 1].low in ("plus", "legacy", "pg"):
+            return
+        yield i + 1, caps
+
+
+class _XsWorkNearby(Node):
+    """The word "work" starting at most 40 characters after the previous word,
+    with no "?" in between (the "how does … work" knowledge question)."""
+
+    def ends(self, ctx, i, caps):
+        if i == 0:
+            return
+        base = ctx.toks[i - 1].end
+        for k in range(i, len(ctx.toks)):
+            t = ctx.toks[k]
+            if t.start - base > 40 or "?" in ctx.text[base:t.start]:
+                return
+            if t.low == "work":
+                yield k + 1, caps
+
+
 # A bare "FOCUS" written beside "Focus+" is the other Focus — the testers' sheets
 # call Focus Legacy "FOCUS" and Focus Plus "Focus +". Alone, a bare "Focus" stays
 # the two-way ask (docs/SCHEMES.md "Name collisions").
-_BARE_FOCUS = re.compile(r"(?<!legacy )(?<!old )\bfocus\b(?![\s-]*(?:\+|plus\b|legacy\b|pg\b))",
-                         re.IGNORECASE)
+_BARE_FOCUS = Matcher(_XsBareFocus())
+
+_XS_ALL_THE = S("all", Opt("the"))
 
 # The question asks across schemes without naming them: "which scheme …",
 # "each scheme", "across the schemes", "all schemes", "scheme-wise".
-_ALL_SCHEMES_CUE = re.compile(
-    r"\b(?:which|what)\s+schemes?\b|\beach\s+scheme\b|\bevery\s+scheme\b|\bper\s+scheme\b|"
-    r"\b(?:across|among|between|over)\s+(?:the\s+|all\s+(?:the\s+)?|different\s+|various\s+)?schemes\b|"
-    r"\ball\s+(?:the\s+)?(?:six\s+|6\s+)?schemes\b|\bscheme[\s-]?wise\b|\bby\s+scheme\b|"
-    r"\b(?:the\s+)?(?:six|6|different|various|other)\s+schemes\b|\bcross[\s-]?scheme\b|"
-    r"\bcompare\s+(?:the\s+|all\s+(?:the\s+)?)?schemes\b",
-    re.IGNORECASE)
+_ALL_SCHEMES_CUE = Matcher(Alt(
+    S(W("which", "what"), W("scheme", "schemes")),
+    S(W("each", "every", "per"), "scheme"),
+    S(W("across", "among", "between", "over"),
+        Opt(Alt("the", _XS_ALL_THE, "different", "various")), "schemes"),
+    S("all", Opt("the"), Opt(W("six", "6")), "schemes"),
+    G(("scheme",), "?", ("wise",)),
+    S("by", "scheme"),
+    S(W("six", "6", "different", "various", "other"), "schemes"),
+    G(("cross",), "?", ("scheme",)),
+    S("compare", Opt(Alt("the", _XS_ALL_THE)), "schemes"),
+))
 
 # Words that ask for a figure this module does not compute (each scheme's own
 # measures, statuses, cohorts …). Such a question keeps the normal path.
-_OTHER_MEASURE = re.compile(
-    r"\bperson[\s-]?days?\b|\bjob[\s-]?cards?\b|\b100[\s-]?days?\b|\bwomen\b|\bwages?\b|\bmaterial\b|"
-    r"\bcompleted\b|\bcompletion\b|\bin[\s-]?progress\b|\binstal{1,2}ments?\b|\btranch\w*|\bbatch\w*|"
-    r"\bgender\b|\bfemale\b|\bmale\b|\bstatus\b|\bpending\b|\brejected\b|\bon[\s-]?hold\b|\bverif\w*|"
-    r"\bwithdraw\w*|\bloans?\b|\bsubsid(?:y|ies)\b|\blenders?\b|\bsanctioned\s+amount\b|\bbanks?\b|"
-    r"\bifsc\b|\boccupation\b|\bfarmers?\b|\bpiggery\b|\bpoultry\b|\bdairy\b|\bgoat\b|\bsericulture\b|"
-    r"\bgreen\s+taxi\b|\bwarehouse\b|\bproducts?\b|\bcommodit\w*|\beligib\w*|\bapply\b|"
-    r"\bdocuments?\b|\bobjectives?\b|\bbenefits\s+of\b|\bmonth\w*\b|\bhow\s+(?:does|do)\b[^?]{0,40}\bwork\b|"
+_OTHER_MEASURE = Matcher(Alt(
+    G(("person",), "?", ("days", "day")), G(("job",), "?", ("cards", "card")), G(("100",), "?", ("days", "day")),
+    W("women", "wage", "wages", "material", "completed", "completion"),
+    G(("in",), "?", ("progress",)),
+    W("instalment", "instalments", "installment", "installments"),
+    W("tranch", "batch", prefix=True),
+    W("gender", "female", "male", "status", "pending", "rejected"),
+    G(("on",), "?", ("hold",)),
+    W("verif", "withdraw", prefix=True),
+    W("loan", "loans", "subsidy", "subsidies", "lender", "lenders"),
+    S("sanctioned", "amount"),
+    W("bank", "banks", "ifsc", "occupation", "farmer", "farmers", "piggery", "poultry", "dairy", "goat",
+      "sericulture"),
+    S("green", "taxi"),
+    W("warehouse", "product", "products"),
+    W("commodit", "eligib", prefix=True),
+    W("apply", "document", "documents", "objective", "objectives"),
+    S("benefits", "of"),
+    W("month", prefix=True),
+    Seq(S("how", W("does", "do")), _XsWorkNearby()),
     # "what is MGNREGA and PMAY-G?" is a knowledge question; "what is the
     # beneficiary count across …" / "what is the performance of …" is not
-    r"\bwhat\s+(?:is|are)\s+(?:the\s+)?(?:mgnrega|nrega|pmay\S*|focus\S*|cm\S*|schemes?)\b|"
-    r"\boverlap\w*|\bboth\s+schemes\s+operate\b|\bcommon\b|\bconvergence\b|\bnames?\b|\blist\s+(?:the\s+)?villages\b",
-    re.IGNORECASE)
+    S("what", W("is", "are"), Opt("the"),
+        Alt(W("mgnrega", "nrega", "scheme", "schemes"), W("pmay", "focus", "cm", prefix=True))),
+    W("overlap", prefix=True),
+    S("both", "schemes", "operate"),
+    W("common", "convergence", "name", "names"),
+    S("list", Opt("the"), "villages"),
+))
 
-_MONEY = re.compile(
-    r"\bmoney\b|\bamounts?\b|\bspend\w*|\bspent\b|\bexpenditure\b|\bpaid\b|\bpayments?\b|\bdisburs\w*|"
-    r"\breleas\w*|\bfunds?\b|\bfunding\b|\bcrores?\b|\blakhs?\b|\brupees?\b|\bcost\b|\bbudget\b|\boutlay\b|"
-    r"\bfinancial\b|\bfinance\b|\bassistance\b|\bsupport\b|\binvest\w*", re.IGNORECASE)
-_COUNT = re.compile(
-    r"\bbeneficiar\w*|\bapplica\w*|\bapplicants?\b|\bcounts?\b|\bnumber\s+of\b|\bhow\s+many\b|"
-    r"\bpeople\b|\bpersons?\b|\bhouseholds?\b|\bhouses?\b|\breach\w*|\bscale\b|\bconcentration\b|"
-    r"\brecords?\b|\bcases\b", re.IGNORECASE)
-_COVERAGE = re.compile(r"\bcoverage\b|\bcover(?:s|ed|ing)?\b|\bwidest\b|\bspread\b|\bfootprint\b|"
-                       r"\bpresence\b|\breach\b", re.IGNORECASE)
-_RANK = re.compile(
-    r"\b(?:which|what)\s+(?:one|scheme)\b|\bhighest\b|\bhigher\b|\blowest\b|\blower\b|\bmost\b|\bmore\b|"
-    r"\bless\b|\bleast\b|\bwidest\b|\blargest\b|\bbiggest\b|\bbigger\b|\blarger\b|\bgreater\b|\bsmaller\b|"
-    r"\bmaximum\b|\bminimum\b|\bleading\b|\bleads?\b|"
-    r"\btop\b|\bbest\b|\brank\w*", re.IGNORECASE)
-_BY_DISTRICT = re.compile(
-    r"\bdistrict[\s-]?wise\b|\b(?:each|every|per|all(?:\s+the)?)\s+districts?\b|\bby\s+districts?\b|"
-    r"\bacross\s+(?:the\s+|all\s+(?:the\s+)?)?districts\b|\bin\s+(?:the\s+)?districts\b|"
-    r"\bdistricts\s+(?:of|in)\s+meghalaya\b|\bwhich\s+districts?\b|\bdistrict\s+level\b|"
-    r"\bfor\s+each\s+district\b|\bdistrict[\s-]?by[\s-]?district\b",
-    re.IGNORECASE)
-_BY_BLOCK = re.compile(r"\bblock[\s-]?wise\b|\b(?:each|every|per|all(?:\s+the)?)\s+blocks?\b|"
-                       r"\bby\s+blocks?\b|\bacross\s+(?:the\s+|all\s+(?:the\s+)?)?blocks\b|\bwhich\s+blocks?\b",
-                       re.IGNORECASE)
-_WHICH_DISTRICTS = re.compile(r"\b(?:which|what)\s+districts?\b|\btop\s+(?:\d+\s+)?districts?\b|"
-                              r"\bconcentration\b", re.IGNORECASE)
-_LEADER_PER_DISTRICT = re.compile(r"\b(?:which|what)\s+scheme\b|\bwhich\s+of\b|\bleading\s+scheme\b|"
-                                  r"\bscheme\s+(?:that\s+)?leads\b|\bidentify\b", re.IGNORECASE)
+_MONEY = Matcher(Alt(
+    W("money", "amount", "amounts", "spent", "expenditure", "paid", "payment", "payments",
+      "fund", "funds", "funding", "crore", "crores", "lakh", "lakhs", "rupee", "rupees", "cost", "budget",
+      "outlay", "financial", "finance", "assistance", "support"),
+    W("spend", "disburs", "releas", "invest", prefix=True),
+))
+_COUNT = Matcher(Alt(
+    W("beneficiar", "applica", "reach", prefix=True),
+    W("applicant", "applicants", "count", "counts"),
+    S("number", "of"), S("how", "many"),
+    W("people", "person", "persons", "household", "households", "house", "houses", "scale",
+      "concentration", "record", "records", "cases"),
+))
+_COVERAGE = Matcher(W("coverage", "cover", "covers", "covered", "covering", "widest", "spread", "footprint",
+                      "presence", "reach"))
+_RANK = Matcher(Alt(
+    S(W("which", "what"), W("one", "scheme")),
+    W("highest", "higher", "lowest", "lower", "most", "more", "less", "least", "widest", "largest",
+      "biggest", "bigger", "larger", "greater", "smaller", "maximum", "minimum", "leading", "lead", "leads",
+      "top", "best"),
+    W("rank", prefix=True),
+))
+_XS_EACH = Alt(W("each", "every", "per"), _XS_ALL_THE)
+_BY_DISTRICT = Matcher(Alt(
+    G(("district",), "?", ("wise",)),
+    S(_XS_EACH, W("district", "districts")),
+    S("by", W("district", "districts")),
+    S("across", Opt(Alt("the", _XS_ALL_THE)), "districts"),
+    S("in", Opt("the"), "districts"),
+    S("districts", W("of", "in"), "meghalaya"),
+    S("which", W("district", "districts")),
+    S("district", "level"),
+    S("for", "each", "district"),
+    G(("district",), "?", ("by",), "?", ("district",)),
+))
+_BY_BLOCK = Matcher(Alt(
+    G(("block",), "?", ("wise",)),
+    S(_XS_EACH, W("block", "blocks")),
+    S("by", W("block", "blocks")),
+    S("across", Opt(Alt("the", _XS_ALL_THE)), "blocks"),
+    S("which", W("block", "blocks")),
+))
+_WHICH_DISTRICTS = Matcher(Alt(
+    S(W("which", "what"), W("district", "districts")),
+    S("top", Opt(Pred(str.isdecimal)), W("district", "districts")),
+    W("concentration"),
+))
+_LEADER_PER_DISTRICT = Matcher(Alt(
+    S(W("which", "what"), "scheme"),
+    S("which", "of"),
+    S("leading", "scheme"),
+    S("scheme", Opt("that"), "leads"),
+    W("identify"),
+))
+# "compare …", "summary …", "performance", "district-wise": a comparison is asked
+_XS_COMPARISON = Matcher(Alt(W("compar", "summar", prefix=True), W("performance", "wise")))
+_SAME_COMPARISON = Matcher(S("same", W("comparison", "comparisons")))
+# "all / other / six / each …": the question reaches past the one scheme it names
+_XS_BEYOND_ONE = Matcher(W("all", "other", "six", "6", "every", "each", "different", "various"))
 
 
 def bare_focus_is_legacy(question: str, named: list[str]) -> bool:
@@ -173,7 +317,7 @@ def other_measure(text: str) -> bool:
 def detect(question: str, named: list[str], measure_text: str | None = None) -> list[str] | None:
     """The schemes of a cross-scheme comparison this module answers, or None.
 
-    `named` = the schemes the question names (pipeline._SCHEME_NAME_PATTERN, after
+    `named` = the schemes the question names (pipeline._SCHEME_NAME_MATCHER, after
     the CM Elevate pin). Two or more named schemes are a comparison; none named plus
     an all-schemes cue ("which scheme …", "each scheme") means all six.
     `measure_text` = the question with its village name masked, for the other-
@@ -186,19 +330,62 @@ def detect(question: str, named: list[str], measure_text: str | None = None) -> 
         named = [s for s in ORDER if s in named or s == "Focus Legacy"]
     if len(named) >= 2:
         return named
+    # "Same comparison for CM Elevate: beneficiaries ..." — the follow-up rewrite of
+    # "now give me for cm elevate" after a comparison (c01 _comparison_swap): the
+    # same card for that one scheme, in the comparison's scope
+    if len(named) == 1 and _SAME_COMPARISON.search(q):
+        return named
     if not _ALL_SCHEMES_CUE.search(q):
         return None
     # "What schemes are available?" lists the schemes; only a figure, a ranking
     # or a comparison across them is ours
     if not (_MONEY.search(q) or _COUNT.search(q) or _COVERAGE.search(q) or _RANK.search(q)
-            or re.search(r"\bcompar\w*|\bsummar\w*|\bperformance\b|\bwise\b", q, re.I)):
+            or _XS_COMPARISON.search(q)):
         return None
     if len(named) == 1 and named[0] in ("CM Elevate", "CM Elevate Legacy"):
         # "which scheme" inside CM Elevate means one of its 15 programmes
         return None
-    if len(named) == 1 and not re.search(r"\b(?:all|other|six|6|every|each|different|various)\b", q, re.I):
+    if len(named) == 1 and not _XS_BEYOND_ONE.search(q):
         return None
     return list(ORDER)
+
+
+# "How many blocks / villages / schemes …", "block count": a count of places or
+# schemes, not of beneficiaries — not ours to answer per scheme.
+_PLACE_COUNT = Matcher(Alt(
+    S(Alt(S("how", "many"), S("number", "of"), S("count", "of"), "total", "list", "all"), Opt("the"), Opt(ANY),
+        Alt(W("blocks", "villages", "districts", "schemes", "programmes", "years"),
+            W("constituenc", prefix=True))),
+    S(W("block", "blocks", "village", "villages", "district", "districts", "scheme", "schemes"),
+        W("count", "name", "names", "list", "code", "codes")),
+    W("onboard", prefix=True),
+))
+# "total block count", "how many villages": answered as each scheme's coverage
+_GEO_COUNT = Matcher(Alt(
+    S(Alt(S("how", "many"), S("number", "of"), S("count", "of"), "total"), Opt(ANY), W("blocks", "villages", "districts")),
+    S(W("block", "blocks", "village", "villages", "district", "districts"), "count"),
+))
+_APPLICATION_WORDS = Matcher(Alt(W("applica", prefix=True), W("applicant", "applicants")))
+
+
+def unnamed_schemes(question: str) -> list[str] | None:
+    """A data question that names no scheme and that the "which scheme?" pause
+    would stop: the schemes that record what it asks for, answered side by side
+    (ANSWER_DEFAULTS_ENABLED, 2026-10-14) — or None to keep the pause."""
+    q = question or ""
+    if _OTHER_MEASURE.search(q):
+        return None
+    if _GEO_COUNT.search(q):
+        return list(ORDER)
+    if _PLACE_COUNT.search(q):
+        return None
+    if _APPLICATION_WORDS.search(q):
+        return ["CM Elevate", "CM Elevate Legacy"]
+    if _MONEY.search(q):
+        return [s for s in ORDER if SPECS[s].money_view]
+    if _COUNT.search(q) or _COVERAGE.search(q):
+        return list(ORDER)
+    return None
 
 
 @dataclass
@@ -216,29 +403,44 @@ class Plan:
 # Scheme names are masked before the measure words are read: "CM Elevate
 # applicants" names a dataset, it does not ask for a count (a "summary comparing
 # MGNREGA vs CM Elevate applicants" lost its money column, run 2026-10-13).
-_SCHEME_WORDS = re.compile(
-    r"\bcm[\s-]?elevate(?:[\s-]*(?:legacy|disbursements?))?(?:\s+(?:applicants?|applications?))?|"
-    r"\blegacy[\s-]+cm[\s-]?elevate\b|\bmn?rega\b|\bmgnrega\b|\bpmay[\s-]?g?\b|"
-    r"\bfocus[\s-]?(?:plus|legacy|\+)?|\blegacy[\s-]?focus\b", re.IGNORECASE)
-
-# "FY2022-23" (no space) is not read by the resolver; "2022-2023", "FY 22-23" are.
-_FY_TOKEN = re.compile(r"\b(?:fy\s*)?(20\d\d)\s*[-/–]\s*(\d{2}|20\d\d)\b", re.IGNORECASE)
+_XS_CM_ELEVATE = (("cm",), "?", ("elevate",))
+_XS_CM_SUFFIX = ("*", ("legacy", "disbursements", "disbursement"))
+_XS_CM_APPLICANTS = ("s+", ("applicants", "applicant", "applications", "application"))
+_SCHEME_WORDS = Matcher(Alt(
+    G(*_XS_CM_ELEVATE, *_XS_CM_SUFFIX, *_XS_CM_APPLICANTS),
+    G(*_XS_CM_ELEVATE, *_XS_CM_SUFFIX),
+    G(*_XS_CM_ELEVATE, *_XS_CM_APPLICANTS),
+    G(*_XS_CM_ELEVATE),
+    G(("legacy",), "+", *_XS_CM_ELEVATE),
+    W("mrega", "mnrega", "mgnrega"),
+    G(("pmay",), "?", ("g",)), W("pmay"),
+    G(("focus",), "?", ("plus", "legacy")), W("focus", prefix=True),
+    G(("legacy",), "?", ("focus",)),
+))
 
 
 def years_in_text(text: str) -> list[int]:
-    out = []
-    for m in _FY_TOKEN.finditer(text or ""):
-        y, e = int(m.group(1)), m.group(2)
-        if int(e[-2:]) == (y + 1) % 100:
+    # "FY2022-23" (no space) is not read by the resolver; "2022-2023", "FY 22-23" are.
+    out, last_end = [], -1
+    t = text or ""
+    for start, end, y, e2 in fy_spans(t):
+        if start < last_end or "—" in t[start:end]:
+            continue   # spans never overlap; an em dash is not a year separator here
+        last_end = end
+        if e2 == (y + 1) % 100:
             out.append(y)
     return sorted(set(out))
+
+
+_XS_WIDEST_ACROSS = Matcher(Alt("widest", S("across", Opt("the"), "districts")))
+_XS_PER_DISTRICT = Matcher(Alt(S(W("each", "every", "per"), "district"), G(("district",), "?", ("wise",))))
 
 
 def plan(question: str, schemes: list[str], resolved: dict) -> Plan:
     q = _SCHEME_WORDS.sub(" ", question or "")
     money = bool(_MONEY.search(q))
     count = bool(_COUNT.search(q))
-    coverage = bool(_COVERAGE.search(q))
+    coverage = bool(_COVERAGE.search(q) or _GEO_COUNT.search(q))
     # "performance" / "summary" / a bare "compare" with no measure named = both
     # figures; a measure the question names ("performance … based on beneficiary
     # counts", "coverage and financial performance") is what it gets.
@@ -260,8 +462,8 @@ def plan(question: str, schemes: list[str], resolved: dict) -> Plan:
     top_districts = bool(_WHICH_DISTRICTS.search(q)) and not resolved.get("district")
     if top_districts and group is None:
         group = "district"
-    if coverage and group == "district" and re.search(r"\bwidest\b|\bacross\s+(?:the\s+)?districts\b", q, re.I) \
-            and not re.search(r"\b(?:each|every|per)\s+district\b|\bdistrict[\s-]?wise\b", q, re.I):
+    if coverage and group == "district" and _XS_WIDEST_ACROSS.search(q) \
+            and not _XS_PER_DISTRICT.search(q):
         # "widest coverage across districts" = districts / blocks / villages reached per scheme
         group, leader, top_districts = None, False, False
     return Plan(schemes, count, money, coverage, rank, group, leader, top_districts)
@@ -297,13 +499,53 @@ async def _all_blocks() -> set[str]:
 
 
 def _norm(s: str) -> str:
-    return re.sub(r"[\s\-]+", " ", str(s).upper()).strip()
+    return " ".join(str(s).upper().replace("-", " ").split())
 
 
 def _canon_block(b: str) -> str:
     # "TURA MUNICIPAL BOARD-MUNICIPAL BOARD" (CM Elevate, Focus Plus) and "TURA
     # MUNICIPAL BOARD" (CM Elevate Legacy) are one block spelled two ways
-    return re.sub(r"\b(MUNICIPAL BOARD|TOWN COMMITTEE)(?: \1)+$", r"\1", _norm(b))
+    s = _norm(b)
+    for ph in ("MUNICIPAL BOARD", "TOWN COMMITTEE"):
+        unit, t, reps = " " + ph, s, 0
+        while t.endswith(unit):
+            t, reps = t[:-len(unit)], reps + 1
+        # s == t + unit * reps; keep only the first of the trailing repeats
+        if reps and t.endswith(ph) and (len(t) == len(ph) or not _xs_is_word_char(t[-len(ph) - 1])):
+            return t
+        if reps >= 2:
+            return t + unit
+    return s
+
+
+def _xs_name_chunk(c: str) -> bool:
+    """One word of a place name as typed: an ASCII letter, then letters, digits,
+    '_', '.', "'", '(', ')' or '-'."""
+    return c[:1].isascii() and c[:1].isalpha() and all(_xs_is_word_char(ch) or ch in ".'()-" for ch in c)
+
+
+def _xs_ends_with_word(c: str, words: tuple) -> bool:
+    return any(c.endswith(w) and (len(c) == len(w) or not _xs_is_word_char(c[-len(w) - 1])) for w in words)
+
+
+def _xs_starts_with_word(c: str, words: tuple) -> bool:
+    return any(c.startswith(w) and (len(c) == len(w) or not _xs_is_word_char(c[len(w)])) for w in words)
+
+
+def _xs_names_a_place(question: str) -> bool:
+    """"in / of / for / at", one to five name words, then "block" / "village" /
+    "constituency": the question names a place ("… in Baghmara-Municipal Board block")."""
+    chunks = question.split()
+    low = [c.lower() for c in chunks]
+    for i, c in enumerate(low):
+        if not _xs_ends_with_word(c, ("in", "of", "for", "at")):
+            continue
+        for n in range(1, 6):
+            if i + n + 1 >= len(chunks) or not _xs_name_chunk(chunks[i + n]):
+                break
+            if _xs_starts_with_word(low[i + n + 1], ("block", "village", "constituency")):
+                return True
+    return False
 
 
 async def refine_block(text: str, resolved: dict) -> None:
@@ -325,6 +567,8 @@ async def refine_block(text: str, resolved: dict) -> None:
 
 
 _AC_NAMES: set[str] | None = None
+# case-sensitive, as before: "constituency" / "assembly" / "AC"
+_XS_AC_WORD = Matcher(W("constituency", "constituencies", "assembly", "AC", case=True))
 _PLACE_KEYS = ("district", "district_list", "block", "block_list", "village_code", "village_code_list",
                "assembly_constituency")
 
@@ -338,7 +582,7 @@ async def refine_constituency(text: str, resolved: dict) -> None:
     global _AC_NAMES
     if any(resolved.get(k) for k in _PLACE_KEYS):
         return
-    if not re.search(r"\bconstituenc(?:y|ies)\b|\bassembly\b|\bAC\b", text or ""):
+    if not _XS_AC_WORD.search(text or ""):
         return
     if _AC_NAMES is None:
         rows = await db.fetch_rows("SELECT DISTINCT ac_name a FROM curated.dim_geography WHERE ac_name IS NOT NULL")
@@ -581,12 +825,13 @@ async def answer(question: str, schemes: list[str], entity_result: dict, scheme_
         return f"{_cr(v)} ({SPECS[s].money_label})" if v else "no records"
 
     if not any(resolved.get(k) for k in _PLACE_KEYS) and \
-            re.search(r"\b(?:block|village|constituency)\b", question or "", re.IGNORECASE):
+            _xs_names_a_place(question or ""):
         # never present statewide figures as if they were the named place's
         lines.append("_The place named in the question was not recognised, so the figures below "
                      "are statewide._\n")
     if p.group is None:
-        lines.append(f"**Cross-scheme comparison — {', '.join(title_bits)}**\n")
+        lines.append(f"**{DISPLAY[schemes[0]] if len(schemes) == 1 else 'Cross-scheme comparison'} — "
+                     f"{', '.join(title_bits)}**\n")
         hdr = ["Scheme"]
         if p.count:
             hdr.append("Beneficiaries / applications")
@@ -727,9 +972,10 @@ async def answer(question: str, schemes: list[str], entity_result: dict, scheme_
     if p.money and "MGNREGA" in schemes and resolved.get("assembly_constituency"):
         pass
     if not years:
-        notes.append("Years covered: " + "; ".join(
-            f"{DISPLAY[s]} {_years_text(scheme_years, s)}" for s in schemes if SPECS[s].has_year)
-            + ("; CM Elevate (applications) has no financial year" if "CM Elevate" in schemes else "") + ".")
+        covered = [f"{DISPLAY[s]} {_years_text(scheme_years, s)}" for s in schemes if SPECS[s].has_year]
+        if "CM Elevate" in schemes:
+            covered.append("CM Elevate (applications) has no financial year")
+        notes.append("Years covered: " + "; ".join(covered) + ".")
     if p.count and "MGNREGA" in schemes:
         notes.append("MGNREGA persons employed are summed over the years shown; a person employed in "
                      "two years is counted in each.")

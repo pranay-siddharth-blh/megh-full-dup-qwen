@@ -35,15 +35,15 @@ services:
       # shell falls back to whatever .env sets.
       PIPELINE_GRAPH_CHECKPOINTER_DSN: ${PIPELINE_GRAPH_CHECKPOINTER_DSN:-postgres}
     ports:
-      - "127.0.0.1:8411:8400"      # 8401 belongs to the older deploy
-        ## - "8400:8400"
+      - "127.0.0.1:8401:8401"
+        ## - "8401:8401"
     volumes:
       # Persist the JSONL audit mirror and uvicorn logs outside the container.
       - ./logs:/opt/meghalaya-langgraph/logs
       # Keep the downloaded embedding model across container rebuilds.
       - hf_cache:/opt/hf-cache
     healthcheck:
-      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8400/health', timeout=4).status==200 else 1)"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8401/health', timeout=4).status==200 else 1)"]
       interval: 30s
       timeout: 5s
       retries: 3

@@ -96,7 +96,7 @@ async def main():
                        GROUP BY 1 HAVING COUNT(DISTINCT village_code)=1),
                  c AS (SELECT v.village_code, MIN(v.lgd_village_name) name, MIN(v.lgd_district) d, COUNT(*) k
                        FROM {V} v JOIN u ON u.n = UPPER(v.lgd_village_name)
-                       WHERE v.entity_type <> 'Unresolved' AND v.lgd_village_name !~ '[^A-Za-z ]'
+                       WHERE v.entity_type <> 'Unresolved' AND TRANSLATE(UPPER(v.lgd_village_name), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ', '') = ''
                        GROUP BY 1 HAVING COUNT(*) >= 3),
                  x AS (SELECT c.*, ROW_NUMBER() OVER (PARTITION BY d ORDER BY md5(name)) rn FROM c)
             SELECT * FROM x WHERE rn <= 2 ORDER BY d, name""")

@@ -193,7 +193,7 @@ async def main():
         add(run_case(T_ + "024", "statewide", "What is the average Focus+ amount disbursed per beneficiary?",
                      lambda r, v=tot_a / tot_b: (any(abs(c - v) <= 0.6 for c in vals(r)), f"avg={v:.2f}"),
                      expected=tot_a / tot_b, **kw))
-        bank = (await fetch(f"SELECT bank_name_raw s, {AMT}::float8 a FROM {V} WHERE bank_name_raw !~ '^[0-9]+$' "
+        bank = (await fetch(f"SELECT bank_name_raw s, {AMT}::float8 a FROM {V} WHERE NOT (bank_name_raw <> '' AND TRANSLATE(bank_name_raw, '0123456789', '') = '') "
                             "GROUP BY 1 ORDER BY 2 DESC LIMIT 1"))[0]
         add(run_case(T_ + "029", "statewide", "Which bank processed the highest total Focus+ disbursement?",
                      lambda r, x=bank: (has_name(r, x["s"]) and money_ok(r, x["a"]), f"{x['s']}={x['a']:,.0f}"),

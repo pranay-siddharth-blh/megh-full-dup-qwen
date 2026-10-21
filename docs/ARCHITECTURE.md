@@ -17,7 +17,10 @@ meghalaya/
 ├── app/                       the FastAPI service (package `app`)
 │   ├── main.py                app, lifespan startup, /health, /metrics, static UI routes
 │   ├── config.py              every setting (pydantic-settings, reads .env)
-│   ├── pipeline.py            ~15,000 lines — the whole routing + NL→SQL orchestration, as stage functions
+│   ├── pipeline/              the whole routing + NL→SQL orchestration, as stage functions (see 3.4)
+│   │   ├── common/            shared steps c01_followups.py … c14_turn_stages.py
+│   │   └── schemes/           one file per scheme: mgnrega, pmay_g, focus_plus, cm_elevate,
+│   │                          focus_legacy, cm_elevate_legacy — ONE shared namespace
 │   ├── pipeline_graph.py      opt-in LangGraph orchestrator over the same stages (D-032)
 │   ├── edge.py                regex edge layer (greetings, off-topic, harmful, identity)
 │   ├── prompt_builder.py      SQL / repair / verifier prompt assembly
@@ -153,8 +156,13 @@ matches `websocket` or `StreamingResponse`).
   | `UnsafeSQLError` | 500. **Effectively unreachable:** the repair loop catches it and, once the budget is spent, `_run_pipeline` routes it to the KB fallback (AI_PIPELINE §2.8) |
   | anything else (e.g. an `httpx` timeout or 5xx re-raised from the pipeline) | 502 |
 
-### 3.4 Pipeline — `app/pipeline.py`
-The routing and NL→SQL chain. It is documented stage by stage in
+### 3.4 Pipeline — `app/pipeline/` package
+The routing and NL→SQL chain. Until 2026-10-15 this was one 18,700-line `pipeline.py`; it is now
+`common/` (the shared steps, `c01_followups.py` … `c14_turn_stages.py`) and `schemes/` (one file per scheme with
+that scheme's village rules, fixed queries, SQL rewrites and answer checks). `app/pipeline/__init__.py`
+executes them in `_PIPELINE_FILES` order (shared basics c01–c03, the six schemes, then c04–c14) into the package namespace, so `from app import pipeline as p`, `p.<name>` and
+`monkeypatch.setattr(p, ...)` are unchanged. Edit the part that holds the function; never recreate
+`app/pipeline.py` (the package would shadow it). It is documented stage by stage in
 [AI_PIPELINE.md](AI_PIPELINE.md). Public entry points: `answer_question`,
 `looks_like_followup`, `ClarificationNeeded`, `_empty_data_fields`.
 
@@ -219,7 +227,7 @@ starts the paused-thread sweep and closes the checkpointer only when the graph i
 
 ### 3.8 Conversation state (VERIFIED)
 - **L1 — `session_store.py`:**
-  - in-process and per worker, with a TTL (`SESSION_TTL_SECONDS=1800`);
+  - in-process and per worker, with a TTL (`SESSION_TTL_SECONDS=14400`, 4 h, D-051; up to `SESSION_MAX_TURNS=50` turns);
   - up to 8 turns;
   - holds `pending_scope_q` / `pending_village_hint` / `pending_scope_rule` /
     `pending_scope_options`: the clarification-resume state, which is **not persisted** (KI-001);
@@ -320,9 +328,13 @@ data fields `schemes`, `resolved_entities`, `sql`, `sql_query`, `row_count`, `ro
 
 | `route` | Extra fields |
 |---|---|
-| `data` | `confidence`, `rows` (the first 20), `data` (all rows, ≤1000), `follow_up_options`, `rewritten_question?` |
+| `data` | `confidence`, `rows` (the first 20), `data` (all rows, ≤1000), `follow_up_options`, `rewritten_question?`, `scope_banner` (the scope the SQL used, D-050) |
 | `knowledge` | `confidence`, `sources`, `follow_up_options` |
-| `edge` | `edge_type`, `suggestions` |
+| `edge` | `edge_type` (incl. `conversation_history`, `context_continued`, D-050), `suggestions` |
+
+Any route may also carry `continue_offer` ("Continue with MGNREGA (…)"): only on the first reply after an idle
+expiry; sending that text restores the set-aside context (D-050). A `/api/query/stream` request the client
+abandons (Stop) is cancelled and its question remembered; the next "continue" in that thread answers it (D-050).
 | `clarification` | `needs_clarification`, `question`, `clarification:{options, rule}` |
 | `denied` | `denied_by` (`scheme`/`geography`/`granularity`) |
 
@@ -358,7 +370,7 @@ data fields `schemes`, `resolved_entities`, `sql`, `sql_query`, `row_count`, `ro
     `SQL_VERIFY_ENABLED`.
   - Context layer: `CONTEXT_*`.
   - Follow-ups: `FOLLOWUP_REWRITE_ENABLED`, `FOLLOWUP_SUGGEST_ENABLED`.
-  - Decoding: `GUIDED_DECODING_ENABLED`, `SQL_GUIDED_DECODING_ENABLED`.
+  - Decoding: `GUIDED_DECODING_ENABLED` (classifier JSON). `SQL_GUIDED_DECODING_ENABLED` is no longer read (2026-10-15): SQL generation sends no decoding constraint.
   - Other: `SCHEMA_CATALOG_ENABLED`.
   - `RERANKER_ENABLED` is **False**.
 

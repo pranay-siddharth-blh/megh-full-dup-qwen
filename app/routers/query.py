@@ -12,7 +12,8 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field, field_validator
 
 from app import (asr_guard, auth, context_manager, conversation_layer, conversation_memory,
-                 conversation_replies, conversation_store, llm, session_sync, topic_memory, turn_events)
+                 context_budget, conversation_replies, conversation_store, llm, pipeline, session_sync,
+                 topic_memory, translate, turn_events, turn_trace)
 from app.cache import metrics, response_cache
 from app.config import settings
 from app.deps import current_scope, require_user
@@ -49,6 +50,10 @@ class QueryRequest(BaseModel):
     # response / semantic caches. The fresh answer is written back as usual,
     # so it replaces the cached one for everyone in the same scope.
     skip_cache: bool = False
+    # The chat's language button (en / kha / gar). Sent by the UI all along but
+    # ignored until the RAG upgrade Phase 4: a Khasi or Garo question is now
+    # translated to English first (app/translate.py).
+    language: str = Field(default="en", max_length=8)
 
     @field_validator("question")
     @classmethod
@@ -129,9 +134,53 @@ async def query_stream(req: QueryRequest, request: Request,
                 # this answer, so stop spending model and DB time on it.
                 task.cancel()
                 logger.info("query stream: client disconnected, turn cancelled")
+                # "continue" afterwards answers it (conversation_layer).
+                _remember_stopped(req, request, scope)
 
     return StreamingResponse(events(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
+
+
+def _session_id(req: QueryRequest, request: Request, scope: auth.UserScope) -> str:
+    """The conversation this request belongs to."""
+    client_session = req.session_id or request.headers.get("x-session-id")
+    # The client owns conversation identity: the chat UI mints a session_id per
+    # "New chat" so each thread is its own row in app.conversations. Only a
+    # caller that sends none falls back to the per-day bucket, which keeps API
+    # scripts and older clients from creating a thread per one-off question.
+    if client_session:
+        return client_session
+    if scope.db_user_id is not None:
+        return f"day-{scope.db_user_id}-{date.today().isoformat()}"
+    return f"one-{uuid.uuid4().hex[:16]}"
+
+
+_BACKGROUND: set = set()   # strong refs to fire-and-forget tasks
+
+
+def _remember_stopped(req: QueryRequest, request: Request, scope: auth.UserScope) -> None:
+    """The officer stopped this question while it ran: keep it on the session
+    so a following "continue" answers it (conversation_layer). Recorded at
+    once on this worker; the durable save runs in the background, because the
+    caller is a stream being torn down by the disconnect."""
+    try:
+        session_id = _session_id(req, request, scope)
+        if session_id.startswith("one-"):
+            return    # no thread to continue in
+        session = session_store.ensure(session_id, scope.user_id)
+        conversation_layer.remember_stopped(session, req.question)
+
+        async def save() -> None:
+            try:
+                await session_sync.sync_out(session, session_id, tenant_id=scope.tenant_id,
+                                            user_id=scope.db_user_id, title=req.question)
+            except Exception:  # noqa: BLE001
+                logger.warning("query stream: could not save the stopped question", exc_info=True)
+        task = asyncio.get_running_loop().create_task(save())
+        _BACKGROUND.add(task)
+        task.add_done_callback(_BACKGROUND.discard)
+    except Exception:  # noqa: BLE001 — a stopped turn must never raise
+        logger.warning("query stream: could not remember the stopped question", exc_info=True)
 
 
 async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) -> dict:
@@ -143,17 +192,18 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
 
     started = time.monotonic()
     ip = _client_ip(request)
-    client_session = req.session_id or request.headers.get("x-session-id")
-    # The client owns conversation identity: the chat UI mints a session_id per
-    # "New chat" so each thread is its own row in app.conversations. Only a
-    # caller that sends none falls back to the per-day bucket, which keeps API
-    # scripts and older clients from creating a thread per one-off question.
-    if client_session:
-        session_id = client_session
-    elif scope.db_user_id is not None:
-        session_id = f"day-{scope.db_user_id}-{date.today().isoformat()}"
-    else:
-        session_id = f"one-{uuid.uuid4().hex[:16]}"
+    # What the DATA path did this turn (few-shot ids, repaired errors, the final
+    # error) — recorded by the pipeline stages, written to the audit below.
+    trace = turn_trace.start(context_budget.request_id_var.get())
+    # Khasi / Garo (KHA / GAR selected): everything after this reads English —
+    # the caches, the conversation layer, routing, retrieval and SQL. The words
+    # the officer typed go back on the result as `translated_from`.
+    translated_from = None
+    if (req.language or "en").lower() in translate.LANGUAGE_NAMES:
+        english = await translate.to_english(req.question, req.language)
+        if english.strip() and english.strip() != req.question.strip():
+            translated_from, req.question = req.question, english.strip()
+    session_id = _session_id(req, request, scope)
     session = session_store.ensure(session_id, scope.user_id)
     session.scope = scope
     # Shared conversation state (app/session_sync.py, KI-028): bring this
@@ -244,8 +294,10 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
                 tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,
                 result=out, question=req.question, latency_ms=clarify_latency_ms,
                 username=scope.username or None, ip=ip,
+                audit=turn_trace.audit_fields(trace, out),
             )
-            _mirror_audit(scope, session_id, req.question, {"route": "clarification"}, started, ip)
+            _mirror_audit(scope, session_id, req.question, {"route": "clarification"}, started, ip, trace)
+            turn_trace.finish(trace, out)
             # The pending clarification must reach whichever worker receives the
             # reply (KI-001): it is part of the durable snapshot.
             if durable_session:
@@ -284,6 +336,14 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     if styled is not None:
         result = styled
         cacheable = False
+    # After an idle expiry the first reply offers "Continue with MGNREGA (…)"
+    # (conversation_layer, Context Memory S3); such a reply is this chat's alone.
+    offered = conversation_layer.attach_continue_offer(session, result)
+    if offered is not result:
+        result = offered
+        cacheable = False
+    if translated_from:
+        result = {**result, "translated_from": translated_from}
 
     latency_ms = (time.monotonic() - started) * 1000
     result["session_id"] = session_id
@@ -296,12 +356,29 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     # The question the pipeline ran (the conversation layer's), so a reset's
     # "Forget that." or a recall's wording never becomes the antecedent.
     session_store.add_turn(session_id, build_turn(question, result))
+    if served_from is not None and layer.response is None:
+        # KI-319 (2026-10-18): a cached answer skips the graph, so its
+        # context_update node never ran — the structured state (scheme, place,
+        # year), the topic ledger's scope, the idle "continue?" chip and the
+        # scope banner were all missing after a cache hit. Fold the cached
+        # answer in exactly as the graph does for a computed one. A cache hit
+        # is always a standalone question (follow-ups are never cached), so the
+        # per-request turn_context is reset first: no merge plan from the
+        # previous turn may decide what this one keeps.
+        session.turn_context = {}
+        await pipeline._update_context(session, question, result)
+        if "scope_banner" not in result:
+            pipeline._attach_scope_banner(result, session)
     # L2 durable — conversation + turn + audit (fire-and-forget)
     conversation_store.persist_turn(
         tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,
         result=result, question=req.question, latency_ms=latency_ms,
         username=scope.username or None, ip=ip,
+        audit=turn_trace.audit_fields(trace, result),
     )
+    # live accuracy / repair counters (/metrics) — computed answers only, not cache hits
+    if served_from is None:
+        turn_trace.finish(trace, result)
     # Semantic conversation memory — indexes this turn for later "relevant
     # older turns" retrieval (see app.context_manager.build_followup_context).
     # Fire-and-forget, scoped to this tenant/user/session; never blocks or
@@ -318,10 +395,13 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     if durable_session:
         await session_sync.sync_out(session, session_id, tenant_id=scope.tenant_id,
                                     user_id=scope.db_user_id, title=req.question)
-    _mirror_audit(scope, session_id, req.question, result, started, ip)
+    _mirror_audit(scope, session_id, req.question, result, started, ip, trace)
 
-    # Only write back a freshly computed answer, and only under this caller's scope.
-    if cacheable and served_from is None:
+    # Only write back a freshly computed answer, and only under this caller's scope —
+    # never one the pipeline built from this conversation's context (WI-5,
+    # node_finalize's context_dependent): cached under the raw words, another user
+    # typing them would get an answer scoped by someone else's conversation.
+    if cacheable and served_from is None and not result.get("context_dependent"):
         await response_cache.put(req.question, result, scope_key)
         await semantic_cache.put(req.question, result, vec=sem_vec, scope_key=scope_key)
 
@@ -429,9 +509,11 @@ def build_turn(question: str, result: dict) -> Turn:
     )
 
 
-def _mirror_audit(scope, session_id, question, result, started, ip):
-    """JSONL mirror of the DB audit trail — offline grep / belt-and-braces."""
+def _mirror_audit(scope, session_id, question, result, started, ip, trace=None):
+    """JSONL mirror of the DB audit trail — offline grep / belt-and-braces. Carries
+    the SQL that ran, the error, the few-shot ids and repair counts (turn_trace)."""
     auth.audit({
+        **turn_trace.audit_fields(trace, result),
         "tenant_id": scope.tenant_id,
         "user_id": scope.db_user_id,
         "username": scope.username or "(anonymous)",

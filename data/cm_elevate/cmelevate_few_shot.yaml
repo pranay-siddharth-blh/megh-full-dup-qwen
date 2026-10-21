@@ -1,6 +1,12 @@
 # cmelevate_few_shot.yaml
 #
-# Validated question-to-SQL pairs for CM Elevate - node 5.10.
+# Question-to-SQL pairs for CM Elevate - node 5.10.
+#
+# NOT ALL VALIDATED (2026-10-16): 2 of 128 examples do not run read-only —
+# they read meta.v_reconciliation_cm_elevate, staging.quarantine, which the chatbot's
+# SELECT-only role cannot see (the loader keeps them out of the SQL prompt).
+# tests/fewshot_exec/check_fewshots.py executes every example; call this file
+# validated again only when all of them run (tests/test_fewshot_headers.py).
 #
 # ===========================================================================
 # v1.0 - 2026-09-04 - FIRST VERSION, WRITTEN AGAINST THE CURATED STAR SCHEMA
@@ -345,7 +351,7 @@ sql_generation_examples:
   sql: |
     SELECT COUNT(*) AS applications
     FROM curated.v_cm_elevate
-    WHERE scheme_name = 'Chief Minister's Green Taxi Scheme';
+    WHERE scheme_name = 'Chief Minister''s Green Taxi Scheme';
   tables:
   - curated.v_cm_elevate
 
@@ -477,7 +483,7 @@ sql_generation_examples:
     FROM curated.v_cm_elevate
     WHERE scheme_name IN ('PRIME Tourism Vehicle Scheme',
                           'PRIME Agriculture Response Vehicle Scheme',
-                          'Chief Minister's Green Taxi Scheme',
+                          'Chief Minister''s Green Taxi Scheme',
                           'Meghalaya Motorcaravan Scheme')
     GROUP BY scheme_name
     ORDER BY applications DESC;
@@ -1444,12 +1450,12 @@ sql_generation_examples:
   - curated.v_cm_elevate
   note: Ranges from about 41 fields for Goat Farming to 81 for Agriculture Response Vehicle.
 
-- question: Read a scheme-specific field for one scheme
+- question: Read a scheme-specific field (occupation) for the Piggery scheme
   sql: |
     SELECT scheme_specific ->> 'occupation_id' AS occupation,
            COUNT(*) AS applications
     FROM curated.v_cm_elevate
-    WHERE cm_scheme_key = {scheme_key}
+    WHERE cm_scheme_key = 2   -- Meghalaya Piggery Development Scheme
     GROUP BY 1
     ORDER BY applications DESC;
   tables:
@@ -1509,11 +1515,11 @@ sql_generation_examples:
     so the detail is scheme, geography and status. Segment 1 of the number (001)
     identifies the scheme as Piggery before the query even runs.
 
-- question: List applications in a village
+- question: List applications in BOLABETA village
   sql: |
     SELECT request_id, scheme_name, applicant_category, data_verified, application_mode
     FROM curated.v_cm_elevate
-    WHERE village_code = {village_code}
+    WHERE village_code = 277259   -- BOLABETA
     ORDER BY scheme_name, request_id
     LIMIT 100;
   tables:

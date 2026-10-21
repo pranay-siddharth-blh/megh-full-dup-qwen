@@ -159,7 +159,7 @@ def test_integer_ratio_numerator_is_cast_for_mgnrega():
     sql = ("SELECT ROUND(SUM(person_days) / NULLIF(SUM(households_employed), 0), 2) AS a "
            "FROM curated.v_employment")
     out = p._mgnrega_numeric_division(MG, sql)
-    assert "SUM(person_days)::numeric /" in out
+    assert "CAST(SUM(person_days) AS DECIMAL) /" in out          # ::numeric, regenerated
     assert p._mgnrega_numeric_division(MG, out) == out               # idempotent
     assert p._mgnrega_numeric_division(["PMAY-G"], sql) == sql
 
@@ -895,3 +895,35 @@ def test_verify_sql_discards_the_unlisted_block_complaint(monkeypatch):
     out = asyncio.run(p._verify_sql("person-days in Dalu block of West Garo Hills in FY 2024-25",
                                     ["MGNREGA"], {"resolved": _DALU_RESOLVED}, _DALU_SQL))
     assert out is None
+
+
+# ── SQL read on the tree, not as raw text (2026-10-15) ──────────────────────
+def test_fact_fan_out_inside_a_cte_is_flagged():
+    # A leading WITH used to excuse the whole statement: the employment x
+    # expenditure join inside a CTE body ran unflagged.
+    inside = ("WITH x AS (SELECT SUM(e.total_exp) AS te, SUM(m.person_days) AS pd "
+              "FROM curated.v_expenditure e JOIN curated.v_employment m ON e.lgd_block = m.lgd_block) "
+              "SELECT te, pd FROM x")
+    assert p._mgnrega_facts_joined(inside)
+    raw_ctes = ("WITH e AS (SELECT * FROM curated.v_expenditure), m AS (SELECT * FROM curated.v_employment) "
+                "SELECT SUM(e.total_exp), SUM(m.person_days) FROM e JOIN m ON e.lgd_block = m.lgd_block")
+    assert p._mgnrega_facts_joined(raw_ctes)
+    per_fact = ("WITH emp AS (SELECT lgd_block, SUM(person_days) AS pd FROM curated.v_employment GROUP BY 1), "
+                "exp AS (SELECT lgd_block, SUM(total_exp) AS te FROM curated.v_expenditure GROUP BY 1) "
+                "SELECT exp.te, emp.pd FROM emp FULL OUTER JOIN exp ON emp.lgd_block = exp.lgd_block")
+    assert not p._mgnrega_facts_joined(per_fact)
+
+
+def test_fixed_query_shapes_are_recognised_on_the_tree():
+    sql, _params, shown = p._mgnrega_combined_facts_query(
+        "How much was spent and how many person-days in JAKREM?", MG, {"block": "JAKREM", "year_key": 2024})
+    assert p._MG_COMBINED_SQL_SHAPE.search(sql) and p._MG_COMBINED_SQL_SHAPE.search(shown)
+    assert not p._MG_COMBINED_SQL_SHAPE.search("SELECT 'WITH exp AS x CROSS JOIN emp' AS note")
+    assert not p._MG_BREAKDOWN_SQL_SHAPE.search("SELECT 1 AS total_lakh -- AS unskilled_wages_lakh")
+
+
+def test_women_year_keys_read_from_every_in_value():
+    assert p._mgnrega_women_sql_years("SELECT 1 FROM v WHERE year_key IN (2022, 2023) AND x = 1") == {2022, 2023}
+    assert p._mgnrega_women_sql_years("SELECT 1 FROM v WHERE year_key = ANY(ARRAY[2024])") == {2024}
+    assert p._mgnrega_women_sql_years("SELECT 1 FROM v WHERE year_key > 2022") is None
+    assert p._mgnrega_women_sql_years("SELECT 1 FROM v WHERE e.year_key = 2024") == {2024}

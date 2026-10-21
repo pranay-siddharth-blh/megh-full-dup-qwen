@@ -13,16 +13,16 @@ _EXPLICIT_BOTH already exempts the phrasings that ask for every scheme ("both
 schemes", "by scheme", "scheme-wise"); this shape carries its cross-scheme
 intent through "which scheme" + a ranking word instead, which nothing matched.
 
-Pure regex / pure-Python assertions — no model or DB. Plain script (no pytest
+Pure-Python assertions (SQL read through SQLGlot) — no model or DB. Plain script (no pytest
 in the venv): `python tests/test_cross_scheme_money.py`, exit code 0 = all pass.
 """
-import re
 import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from app import pipeline as p  # noqa: E402
+from app import sql_ast  # noqa: E402
 
 _fails: list[str] = []
 
@@ -90,10 +90,10 @@ check("converts Focus Plus rupees to crore", "/ 1e7" in _sql)
 check("carries measure_semantics (required for any cross-scheme money answer)",
       "measure_semantics" in _sql)
 check("orders by amount so the top scheme is first", "ORDER BY amount_crore DESC" in _sql)
-# Word-bounded: curated.v_cm_elevate_disbursement (CM Elevate Legacy, which
-# DOES record money) contains the applications view's name as a prefix.
+# Read from the SQLGlot tree: curated.v_cm_elevate_disbursement (CM Elevate
+# Legacy, which DOES record money) is a different table, not a match.
 check("does NOT read CM Elevate (it records no money)",
-      re.search(r"\bv_cm_elevate\b", _sql) is None)
+      not sql_ast.reads_table(_sql, "v_cm_elevate"))
 check("includes CM Elevate Legacy, whose subsidy + loan lives on its own view",
       "curated.v_cm_elevate_disbursement" in _sql and "total_disbursement" in _sql)
 check("is a read-only single statement",

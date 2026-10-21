@@ -15,12 +15,12 @@ tenant-scoped for what they can *see*.
 """
 import json
 import logging
-import re
 import threading
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from app import sql_ast
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -195,37 +195,34 @@ def scope_from_user(rec: dict) -> UserScope:
     )
 
 
-# ── Query inspection ──────────────────────────────────────────────────────
-_DISTRICT_LITERAL = re.compile(r"lgd_district\s*(?:=|like|in)\s*\(?\s*'([^']+)'", re.IGNORECASE)
-_BLOCK_LITERAL = re.compile(r"lgd_block\s*(?:=|like|in)\s*\(?\s*'([^']+)'", re.IGNORECASE)
-_GROUPS_VILLAGE = re.compile(r"group by[^;]*\b(village_code|lgd_village_name|geography_key)\b", re.IGNORECASE)
-_GROUPS_BLOCK = re.compile(r"group by[^;]*\blgd_block\b", re.IGNORECASE)
-_GROUPS_DISTRICT = re.compile(r"group by[^;]*\blgd_district\b", re.IGNORECASE)
-_MENTIONS_VILLAGE = re.compile(r"\b(village_code|lgd_village_name)\b", re.IGNORECASE)
-_MENTIONS_BLOCK = re.compile(r"\blgd_block\b", re.IGNORECASE)
-_MENTIONS_DISTRICT = re.compile(r"\blgd_district\b", re.IGNORECASE)
+# ── Query inspection (on the parsed tree: app/sql_ast.py) ──────────────────
+# Columns, not text: a district name inside a string literal or a comment is
+# not a district filter, UPPER(lgd_district) = 'X' is one, and every value of
+# an IN list / ANY(ARRAY[...]) / OR branch is checked, not just the first.
+_VILLAGE_COLS = ("village_code", "lgd_village_name", "geography_key")
 
 
 def infer_granularity(resolved_entities: dict, sql: str | None) -> str:
     """The finest level the query touches — from resolved entities first, then
-    the SQL's GROUP BY, then any column mention."""
+    any column the SQL references (GROUP BY or anywhere else)."""
     e = resolved_entities or {}
-    sql = sql or ""
-    if e.get("village_code") or e.get("village") or _GROUPS_VILLAGE.search(sql) or _MENTIONS_VILLAGE.search(sql):
+    cols = sql_ast.columns(sql) if sql else set()
+    if e.get("village_code") or e.get("village") or cols & {"village_code", "lgd_village_name"} \
+            or sql_ast.groups_by(sql, *_VILLAGE_COLS):
         return "village"
-    if e.get("block") or _GROUPS_BLOCK.search(sql) or _MENTIONS_BLOCK.search(sql):
+    if e.get("block") or "lgd_block" in cols:
         return "block"
-    if e.get("district") or _GROUPS_DISTRICT.search(sql) or _MENTIONS_DISTRICT.search(sql):
+    if e.get("district") or "lgd_district" in cols:
         return "district"
     return "state"
 
 
 def _districts_in_sql(sql: str | None) -> list[str]:
-    return _upper_list(_DISTRICT_LITERAL.findall(sql or ""))
+    return _upper_list(sql_ast.filter_values(sql, "lgd_district")) if sql else []
 
 
 def _blocks_in_sql(sql: str | None) -> list[str]:
-    return _upper_list(_BLOCK_LITERAL.findall(sql or ""))
+    return _upper_list(sql_ast.filter_values(sql, "lgd_block")) if sql else []
 
 
 def authorize(scope: UserScope, *, schemes: list[str], resolved_entities: dict,
@@ -252,6 +249,15 @@ def authorize(scope: UserScope, *, schemes: list[str], resolved_entities: dict,
 
     # 2. geography scope
     if scope.geo_restricted:
+        # A query the parser cannot read cannot be checked for its places, so a
+        # restricted user is refused rather than waved through (fail closed).
+        if sql and not sql_ast.is_parseable(sql):
+            return AuthDecision(
+                False,
+                "This query could not be checked against your authorised area. "
+                "Please rephrase the question, naming your district or block.",
+                gran, "geography",
+            )
         allowed_d = set(scope.allowed_districts())
         allowed_b = set(scope.allowed_blocks())
         want_d = set()

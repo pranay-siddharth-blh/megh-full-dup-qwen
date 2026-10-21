@@ -1,0 +1,2261 @@
+{
+ "label": "defs-guard-run1",
+ "when": "2026-10-16T16:24:13",
+ "git": {
+  "commit": "3ce3065",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b"
+ },
+ "readonly_login": "postgres",
+ "superuser_allowed": false,
+ "holdout_checked": true,
+ "selection": {
+  "scheme": null,
+  "ids": null
+ },
+ "minutes": 2.7,
+ "summary": {
+  "items": 74,
+  "scored": 74,
+  "outcomes": {
+   "correct": 69,
+   "no_sql": 4,
+   "wrong": 1
+  },
+  "accuracy": 93.2,
+  "by": {
+   "CM Elevate": {
+    "accuracy": 100.0,
+    "correct": 12
+   },
+   "CM Elevate Legacy": {
+    "accuracy": 100.0,
+    "correct": 12
+   },
+   "Focus Legacy": {
+    "accuracy": 83.3,
+    "correct": 10,
+    "wrong": 1,
+    "no_sql": 1
+   },
+   "Focus Plus": {
+    "accuracy": 91.7,
+    "correct": 11,
+    "no_sql": 1
+   },
+   "MGNREGA": {
+    "accuracy": 100.0,
+    "correct": 13
+   },
+   "PMAY-G": {
+    "accuracy": 84.6,
+    "correct": 11,
+    "no_sql": 2
+   },
+   "difficulty:easy": {
+    "accuracy": 91.7,
+    "correct": 22,
+    "no_sql": 1,
+    "wrong": 1
+   },
+   "difficulty:hard": {
+    "accuracy": 88.9,
+    "correct": 16,
+    "no_sql": 2
+   },
+   "difficulty:medium": {
+    "accuracy": 96.9,
+    "correct": 31,
+    "no_sql": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "MG-01",
+   "scheme": "MGNREGA",
+   "difficulty": "easy",
+   "question": "Under MGNREGA, how much was spent on materials in South Garo Hills district during FY 2023-24? Give the figure in lakh rupees.",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": "How much money was spent on materials under MGNREGA in South Garo Hills during FY 2023-24?",
+   "resolved": {
+    "district": "SOUTH GARO HILLS",
+    "year_key": 2023
+   },
+   "sql": "SELECT SUM(material_exp) AS material_expense_lakh\nFROM curated.v_expenditure\nWHERE lgd_district = 'SOUTH GARO HILLS' AND year_key = 2023\nLIMIT 1",
+   "seconds": 10.8,
+   "answer": "2285.84 lakh was spent on materials under MGNREGA in South Garo Hills during FY 2023-24.",
+   "detail": "same rows",
+   "mapping": {
+    "material_exp_lakh": [
+     "material_expense_lakh",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "MG-02",
+   "scheme": "MGNREGA",
+   "difficulty": "easy",
+   "question": "What number of persons got work under MGNREGA in Jirang block in financial year 2022-23?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "block": "JIRANG",
+    "year_key": 2022
+   },
+   "sql": "SELECT SUM(persons_employed) AS persons_employed\nFROM curated.v_employment\nWHERE lgd_block = 'JIRANG' AND year_key = 2022\nLIMIT 1",
+   "seconds": 5.6,
+   "answer": "8015 persons got work under MGNREGA in Jirang block in FY 2022-23.",
+   "detail": "same rows",
+   "mapping": {
+    "persons_employed": [
+     "persons_employed",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "MG-03",
+   "scheme": "MGNREGA",
+   "difficulty": "easy",
+   "question": "What was the cumulative MGNREGA job card count for East Jaintia Hills district as at FY 2024-25?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "EAST JAINTIA HILLS",
+    "year_key": 2024
+   },
+   "sql": "SELECT SUM(job_cards_issued_total) AS job_card_stock\nFROM curated.v_employment\nWHERE lgd_district = 'EAST JAINTIA HILLS' AND year_key = 2024\nLIMIT 1",
+   "seconds": 6.7,
+   "answer": "The cumulative MGNREGA job card count for East Jaintia Hills district as at FY 2024-25 is 27,884.",
+   "detail": "same rows",
+   "mapping": {
+    "job_card_stock": [
+     "job_card_stock",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "MG-04",
+   "scheme": "MGNREGA",
+   "difficulty": "easy",
+   "question": "In Mawkyrwat block, how many households finished the full 100 days of MGNREGA work in FY 2023-24?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "block": "MAWKYRWAT",
+    "year_key": 2023
+   },
+   "sql": "SELECT SUM(households_completed_100_days) AS households_completed_100_days\nFROM curated.v_employment\nWHERE lgd_block = 'MAWKYRWAT'\n  AND year_key = 2023\nLIMIT 1",
+   "seconds": 5.5,
+   "answer": "In Mawkyrwat block, 2,434 households finished the full 100 days of MGNREGA work in FY 2023-24.",
+   "detail": "same rows",
+   "mapping": {
+    "households_completed_100_days": [
+     "households_completed_100_days",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "MG-05",
+   "scheme": "MGNREGA",
+   "difficulty": "medium",
+   "question": "Give me the MGNREGA semi-skilled wage spend for every block of North Garo Hills in FY 2024-25, in lakh rupees.",
+   "gold_rows": 4,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": "What is the MGNREGA semi-skilled wage spend for every block of North Garo Hills in FY 2024-25, in lakh rupees?",
+   "resolved": {
+    "district": "NORTH GARO HILLS",
+    "year_key": 2024
+   },
+   "sql": "SELECT lgd_block,\n       SUM(semi_skilled_wage_exp) AS semi_skilled_wage_exp_lakh\nFROM curated.v_expenditure\nWHERE lgd_district = 'NORTH GARO HILLS'\n  AND year_key = 2024\nGROUP BY lgd_block\nORDER BY 2 DESC\nLIMIT 100",
+   "seconds": 6.3,
+   "answer": "The MGNREGA semi-skilled wage spend for RESUBELPARA block is 210.58 lakh, for KHARKUTTA block is 194.59 lakh, for BAJENGDOBA block is 150.64 lakh, and for ADOKGRE block is 13.86 lakh. These figures cover all four blocks in North Garo Hills for FY 2024-25.",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_block": [
+     "lgd_block",
+     1.0
+    ],
+    "semi_skilled_wage_exp_lakh": [
+     "semi_skilled_wage_exp_lakh",
+     1.0
+    ]
+   },
+   "pred_rows": 4
+  },
+  {
+   "id": "MG-06",
+   "scheme": "MGNREGA",
+   "difficulty": "medium",
+   "question": "Which three blocks in South West Garo Hills gave MGNREGA employment to the most households in FY 2025-26?",
+   "gold_rows": 3,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "SOUTH WEST GARO HILLS",
+    "year_key": 2025
+   },
+   "sql": "SELECT lgd_block,\n       SUM(households_employed) AS beneficiary_households\nFROM curated.v_employment\nWHERE year_key = 2025\n  AND lgd_district = 'SOUTH WEST GARO HILLS'\nGROUP BY lgd_block\nORDER BY beneficiary_households DESC\nLIMIT 3",
+   "seconds": 3.1,
+   "answer": "ZIKZAK block gave employment to the most households with 18,169 beneficiary households. BETASING block had 10,011 beneficiary households, followed by RERAPARA block with 9,805.",
+   "detail": "same rows in order",
+   "mapping": {
+    "lgd_block": [
+     "lgd_block",
+     1.0
+    ],
+    "households_employed": [
+     "beneficiary_households",
+     1.0
+    ]
+   },
+   "pred_rows": 3
+  },
+  {
+   "id": "MG-07",
+   "scheme": "MGNREGA",
+   "difficulty": "medium",
+   "question": "List the 5 villages of Umling block with the largest MGNREGA total expenditure in FY 2023-24, amounts in lakh.",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": "Which are the 5 villages in Umling block with the largest MGNREGA total expenditure in FY 2023-24, with amounts in lakh?",
+   "resolved": {
+    "block": "UMLING",
+    "year_key": 2023
+   },
+   "sql": "SELECT lgd_village_name, village_code, ROUND(SUM(total_exp), 2) AS total_expenditure_lakh\nFROM curated.v_expenditure\nWHERE year_key = 2023\n  AND lgd_block = 'UMLING'\nGROUP BY lgd_village_name, village_code\nORDER BY 3 DESC\nLIMIT 5",
+   "seconds": 6.1,
+   "answer": "The five villages in Umling block with the largest MGNREGA total expenditure in FY 2023-24 are MODEL VILLAGE (47.44 lakh), AMJOK (44.47 lakh), QUININE NONGLADEW (42.38 lakh), JYNTRU (36.65 lakh), and 15TH MILE NONGTHYMMAI (34.65 lakh).",
+   "detail": "same rows in order",
+   "mapping": {
+    "lgd_village_name": [
+     "lgd_village_name",
+     1.0
+    ],
+    "total_exp_lakh": [
+     "total_expenditure_lakh",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "MG-08",
+   "scheme": "MGNREGA",
+   "difficulty": "medium",
+   "question": "Show MGNREGA person-days in West Jaintia Hills for each financial year from 2022-23 through 2025-26.",
+   "gold_rows": 4,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST JAINTIA HILLS",
+    "year_key": 2025
+   },
+   "sql": "SELECT financial_year_short, SUM(person_days) AS person_days\nFROM curated.v_employment\nWHERE lgd_district = 'WEST JAINTIA HILLS' AND year_key BETWEEN 2022 AND 2025\nGROUP BY financial_year_short, year_key\nORDER BY year_key\nLIMIT 100",
+   "seconds": 8.2,
+   "answer": "West Jaintia Hills recorded 976,990 person-days in FY 2022-23, 1,510,239 in FY 2023-24, 818,826 in FY 2024-25, and 1,161,895 in FY 2025-26. The total across all four years is 4,467,950 person-days.",
+   "detail": "same rows",
+   "mapping": {
+    "person_days": [
+     "person_days",
+     1.0
+    ]
+   },
+   "pred_rows": 4
+  },
+  {
+   "id": "MG-09",
+   "scheme": "MGNREGA",
+   "difficulty": "medium",
+   "question": "How many distinct villages in East Garo Hills recorded at least one MGNREGA person-day in FY 2024-25?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "EAST GARO HILLS",
+    "year_key": 2024
+   },
+   "sql": "SELECT COUNT(DISTINCT village_code) AS distinct_villages\nFROM curated.v_employment\nWHERE lgd_district = 'EAST GARO HILLS' AND year_key = 2024 AND person_days > 0\nLIMIT 1",
+   "seconds": 5.3,
+   "answer": "East Garo Hills recorded 363 distinct villages with at least one MGNREGA person-day in FY 2024-25.",
+   "detail": "same rows",
+   "mapping": {
+    "villages": [
+     "distinct_villages",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "MG-10",
+   "scheme": "MGNREGA",
+   "difficulty": "medium",
+   "question": "What was the MGNREGA wage compliance ratio (unskilled wages as a percentage of total expenditure) for each block in Ri Bhoi in FY 2024-25?",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "RI BHOI",
+    "year_key": 2024
+   },
+   "sql": "SELECT lgd_block,\n       ROUND(100.0 * SUM(unskilled_wage_exp) / NULLIF(SUM(total_exp), 0), 2) AS wage_compliance_ratio_pct\nFROM curated.v_expenditure\nWHERE year_key = 2024\n  AND lgd_district = 'RI BHOI'\nGROUP BY lgd_block\nORDER BY 2 DESC\nLIMIT 100",
+   "seconds": 9.1,
+   "answer": "The MGNREGA wage compliance ratio for Mawhati block was 88.09%. The ratios for Umsning, Bhoirymbong, Jirang, and Umling blocks were 76.10%, 65.03%, 64.14%, and 62.04% respectively.",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_block": [
+     "lgd_block",
+     1.0
+    ],
+    "unskilled_wage_share_pct": [
+     "wage_compliance_ratio_pct",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "MG-11",
+   "scheme": "MGNREGA",
+   "difficulty": "hard",
+   "question": "Which districts had an MGNREGA cost per person-day above Rs 400 in FY 2022-23?",
+   "gold_rows": 2,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "year_key": 2022
+   },
+   "sql": "SELECT lgd_district,\n       ROUND(AVG(cost_per_person_day_rupees), 2) AS cost_per_person_day_rupees\nFROM curated.v_district_year_summary\nWHERE year_key = 2022\n  AND cost_per_person_day_rupees > 400\nGROUP BY lgd_district\nORDER BY cost_per_person_day_rupees DESC\nLIMIT 100",
+   "seconds": 9.3,
+   "answer": "Here are the 2 results:\n- WEST KHASI HILLS \u2014 cost per person day (\u20b9): 481.93\n- WEST JAINTIA HILLS \u2014 cost per person day (\u20b9): 426.89",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_district": [
+     "lgd_district",
+     1.0
+    ]
+   },
+   "pred_rows": 2
+  },
+  {
+   "id": "MG-12",
+   "scheme": "MGNREGA",
+   "difficulty": "hard",
+   "question": "By what percentage did MGNREGA person-days in West Garo Hills fall or rise between FY 2023-24 and FY 2024-25?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST GARO HILLS",
+    "year_key": 2024
+   },
+   "sql": "SELECT \n    ROUND(\n        100.0 * (\n            SUM(CASE WHEN year_key = 2024 THEN person_days ELSE 0 END) -\n            SUM(CASE WHEN year_key = 2023 THEN person_days ELSE 0 END)\n        ) / NULLIF(SUM(CASE WHEN year_key = 2023 THEN person_days ELSE 0 END), 0),\n        2\n    ) AS percentage_change\nFROM curated.v_employment\nWHERE lgd_district = 'WEST GARO HILLS' \n  AND year_key IN (2023, 2024)\nLIMIT 1",
+   "seconds": 8.2,
+   "answer": "-48.84 percentage change.",
+   "detail": "same rows",
+   "mapping": {
+    "pct_change": [
+     "percentage_change",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "MG-13",
+   "scheme": "MGNREGA",
+   "difficulty": "hard",
+   "question": "For Mairang block in FY 2022-23, what was MGNREGA total expenditure in lakh rupees alongside the person-days generated?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "block": "MAIRANG",
+    "year_key": 2022
+   },
+   "sql": "WITH exp AS (SELECT ROUND(SUM(total_exp)::numeric, 2) AS total_expenditure_lakh FROM curated.v_expenditure WHERE UPPER(lgd_block) = UPPER('MAIRANG') AND year_key = 2022),\n     emp AS (SELECT SUM(person_days) AS person_days FROM curated.v_employment WHERE UPPER(lgd_block) = UPPER('MAIRANG') AND year_key = 2022)\nSELECT exp.total_expenditure_lakh, emp.person_days\nFROM exp CROSS JOIN emp",
+   "seconds": 3.7,
+   "answer": "Under MGNREGA, MAIRANG block in FY 2022-23 recorded total expenditure of 1,406.01 lakh and 422,367 person-days.",
+   "detail": "same rows",
+   "mapping": {
+    "total_exp_lakh": [
+     "total_expenditure_lakh",
+     1.0
+    ],
+    "person_days": [
+     "person_days",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "PM-01",
+   "scheme": "PMAY-G",
+   "difficulty": "easy",
+   "question": "Across all years of PMAY-G data, how many houses in South West Khasi Hills district are completed?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": "How many PMAY-G houses were completed in South West Khasi Hills district across all years?",
+   "resolved": {
+    "district": "SOUTH WEST KHASI HILLS"
+   },
+   "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_name IS NULL) AS no_status,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) >= sanctioned_amount) AS full_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) > 0\n    AND COALESCE(amount_released, 0) < sanctioned_amount) AS part_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) = 0) AS no_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) >= sanctioned_amount\n    AND NOT COALESCE(is_completed, FALSE)) AS full_not_done,\n  COUNT(DISTINCT sanction_no) AS sanction_numbers,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed') AS st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed' AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast') AS st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast' AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth') AS st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth' AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned') AS st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned'\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)') AS st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)'\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site') AS st_proposed_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site'\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_proposed_site\nFROM curated.v_pmay\nWHERE\n  NOT is_placeholder\n  AND UPPER(lgd_district) = ANY(\n    ARRAY['SOUTH WEST KHASI HILLS']\n  )\nGROUP BY\n  UPPER(lgd_district)",
+   "seconds": 2.3,
+   "answer": "Completed houses in South West Khasi Hills, across all financial years (FY 2017-18 to FY 2023-24): 7,100.",
+   "detail": "same rows",
+   "mapping": {
+    "completed_houses": [
+     "completed houses",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "PM-02",
+   "scheme": "PMAY-G",
+   "difficulty": "easy",
+   "question": "How many PMAY-G houses were sanctioned in Songsak block in FY 2020-21?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "block": "SONGSAK",
+    "year_key": 2020
+   },
+   "sql": "SELECT\n  UPPER(lgd_block) AS entity_key,\n  MAX(lgd_block) AS name,\n  MAX(lgd_district) AS district,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_name IS NULL) AS no_status,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) >= sanctioned_amount) AS full_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) > 0\n    AND COALESCE(amount_released, 0) < sanctioned_amount) AS part_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) = 0) AS no_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) >= sanctioned_amount\n    AND NOT COALESCE(is_completed, FALSE)) AS full_not_done,\n  COUNT(DISTINCT sanction_no) AS sanction_numbers,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed') AS st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed' AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast') AS st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast' AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth') AS st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth' AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned') AS st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned'\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)') AS st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)'\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site') AS st_proposed_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site'\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_proposed_site\nFROM curated.v_pmay\nWHERE\n  NOT is_placeholder\n  AND UPPER(lgd_block) = ANY(\n    ARRAY['SONGSAK']\n  )\n  AND year_key = 2020\nGROUP BY\n  UPPER(lgd_block)",
+   "seconds": 2.4,
+   "answer": "PMAY-G houses sanctioned in Songsak block, in FY 2020-21: 2,093.",
+   "detail": "same rows",
+   "mapping": {
+    "houses_sanctioned": [
+     "houses",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "PM-03",
+   "scheme": "PMAY-G",
+   "difficulty": "easy",
+   "question": "What total amount in rupees was released under PMAY-G for houses in Dadenggiri block sanctioned in FY 2023-24?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "block": "DADENGGIRI",
+    "year_key": 2023
+   },
+   "sql": "SELECT\n  UPPER(lgd_block) AS entity_key,\n  MAX(lgd_block) AS name,\n  MAX(lgd_district) AS district,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_name IS NULL) AS no_status,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) >= sanctioned_amount) AS full_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) > 0\n    AND COALESCE(amount_released, 0) < sanctioned_amount) AS part_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) = 0) AS no_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) >= sanctioned_amount\n    AND NOT COALESCE(is_completed, FALSE)) AS full_not_done,\n  COUNT(DISTINCT sanction_no) AS sanction_numbers,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed') AS st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed' AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast') AS st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast' AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth') AS st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth' AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned') AS st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned'\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)') AS st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)'\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site') AS st_proposed_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site'\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_proposed_site\nFROM curated.v_pmay\nWHERE\n  NOT is_placeholder\n  AND UPPER(lgd_block) = ANY(\n    ARRAY['DADENGGIRI']\n  )\n  AND year_key = 2023\nGROUP BY\n  UPPER(lgd_block)",
+   "seconds": 2.6,
+   "answer": "Amount released in Dadenggiri block, in FY 2023-24: \u20b925,39,76,000 (\u20b925.40 crore).",
+   "detail": "same rows",
+   "mapping": {
+    "amount_released_rupees": [
+     "amount released (Rs)",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "PM-04",
+   "scheme": "PMAY-G",
+   "difficulty": "easy",
+   "question": "Counting every financial year, how many PMAY-G houses in East Jaintia Hills have reached the Roof Cast stage?",
+   "gold_rows": 1,
+   "outcome": "no_sql",
+   "route": "knowledge",
+   "schemes": [],
+   "rewritten": null,
+   "resolved": {},
+   "sql": null,
+   "seconds": 10.6,
+   "answer": "The published scheme information do not contain the specific count of PMAY-G houses in East Jaintia Hills that have reached the Roof Cast stage.\n\nThere is no single published checklist or dashboard in the text showing real-time construction stage counts for specific districts like East Jaintia Hills.\n\nYou should confirm this exact figure at the Block office, the local Gram Panchayat, or by checkin",
+   "detail": "route=knowledge"
+  },
+  {
+   "id": "PM-05",
+   "scheme": "PMAY-G",
+   "difficulty": "medium",
+   "question": "Break down, block by block, the PMAY-G houses still under construction in South Garo Hills (all years).",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "SOUTH GARO HILLS"
+   },
+   "sql": "SELECT lgd_block, COUNT(*) AS houses_under_construction\nFROM curated.v_pmay\nWHERE NOT is_placeholder\n  AND is_in_progress\n  AND lgd_district = 'SOUTH GARO HILLS'\nGROUP BY lgd_block\nORDER BY houses_under_construction DESC\nLIMIT 20",
+   "seconds": 5.7,
+   "answer": "South Garo Hills has 5,574 PMAY-G houses under construction across all five blocks. The breakdown by block is 1,545 at CHOKPOT, 1,512 at GASUAPARA, 1,059 at SIJU, 990 at RONGARA, and 468 at BAGHMARA.",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_block": [
+     "lgd_block",
+     1.0
+    ],
+    "houses_in_progress": [
+     "houses_under_construction",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "PM-06",
+   "scheme": "PMAY-G",
+   "difficulty": "medium",
+   "question": "Name the top 5 villages in West Jaintia Hills by count of PMAY-G houses sanctioned during FY 2020-21.",
+   "gold_rows": 5,
+   "outcome": "no_sql",
+   "route": "data",
+   "schemes": [],
+   "rewritten": null,
+   "resolved": {},
+   "sql": null,
+   "seconds": 9.5,
+   "answer": "I understood the question but couldn't build a working query for it against the current PMAY-G data. Try rephrasing it, or ask for a simpler breakdown first (e.g. \"PMAY-G sanctions by district for 2023\").",
+   "detail": "route=data"
+  },
+  {
+   "id": "PM-07",
+   "scheme": "PMAY-G",
+   "difficulty": "medium",
+   "question": "How many PMAY-G houses in North Garo Hills were allotted to women, counting all woman categories (married, widowed, unmarried and plain 'Woman') but not joint husband-and-wife allotments, across all years?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": "How many PMAY-G houses were allotted to women in North Garo Hills across all years, counting all woman categories (married, widowed, unmarried and plain 'Woman') but excluding joint husband-and-wife allotments?",
+   "resolved": {
+    "district": "NORTH GARO HILLS"
+   },
+   "sql": "SELECT COUNT(*) AS houses_to_women\nFROM curated.v_pmay\nWHERE NOT is_placeholder\n  AND lgd_district = 'NORTH GARO HILLS'\n  AND house_alloted_to IN ('Woman-Married', 'Woman-Widow', 'Woman-Unmarried', 'Woman')",
+   "seconds": 9.8,
+   "answer": "North Garo Hills had 6268 PMAY-G houses allotted to women across all years. This count includes all woman categories but excludes joint husband-and-wife allotments.",
+   "detail": "same rows",
+   "mapping": {
+    "houses_to_women": [
+     "houses_to_women",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "PM-08",
+   "scheme": "PMAY-G",
+   "difficulty": "medium",
+   "question": "District-wise, how many PMAY-G houses sanctioned in FY 2022-23 have been paid exactly two installments?",
+   "gold_rows": 12,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": "How many PMAY-G houses sanctioned district-wise in FY 2022-23 have been paid exactly two installments?",
+   "resolved": {
+    "year_key": 2022
+   },
+   "sql": "SELECT lgd_district, COUNT(*) AS houses_paid_two_installments\nFROM curated.v_pmay\nWHERE NOT is_placeholder\n  AND financial_year_short = '2022-23'\n  AND installments_paid = 2\nGROUP BY lgd_district\nORDER BY houses_paid_two_installments DESC\nLIMIT 100",
+   "seconds": 4.4,
+   "answer": "In FY 2022-23, 670 PMAY-G houses were paid exactly two installments across all 12 districts. The district-wise counts are: SOUTH GARO HILLS (141), SOUTH WEST GARO HILLS (84), EAST KHASI HILLS (74), EAST GARO HILLS (62), RI BHOI (59), WEST KHASI HILLS (57), WEST GARO HILLS (51), WEST JAINTIA HILLS (44), EASTERN WEST KHASI HILLS (41), NORTH GARO HILLS (38), EAST JAINTIA HILLS (15), and SOUTH WEST KH",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_district": [
+     "lgd_district",
+     1.0
+    ],
+    "houses_two_installments": [
+     "houses_paid_two_installments",
+     1.0
+    ]
+   },
+   "pred_rows": 12
+  },
+  {
+   "id": "PM-09",
+   "scheme": "PMAY-G",
+   "difficulty": "medium",
+   "question": "In how many distinct villages of Mawkynrew block does PMAY-G have at least one house, over all financial years?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": "In how many distinct villages of Mawkynrew block does PMAY-G have at least one house across all financial years?",
+   "resolved": {
+    "block": "MAWKYNREW"
+   },
+   "sql": "SELECT COUNT(DISTINCT village_code) AS distinct_villages\nFROM curated.v_pmay\nWHERE NOT is_placeholder\n  AND lgd_block = 'MAWKYNREW'\nLIMIT 1",
+   "seconds": 4.3,
+   "answer": "PMAY-G has at least one house in 62 distinct villages of Mawkynrew block.",
+   "detail": "same rows",
+   "mapping": {
+    "villages": [
+     "distinct_villages",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "PM-10",
+   "scheme": "PMAY-G",
+   "difficulty": "medium",
+   "question": "Which three blocks of East Khasi Hills received the highest PMAY-G releases (in rupees) for houses sanctioned in FY 2023-24?",
+   "gold_rows": 3,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "EAST KHASI HILLS",
+    "year_key": 2023
+   },
+   "sql": "SELECT lgd_block, \n       SUM(amount_released) AS total_released\nFROM curated.v_pmay\nWHERE NOT is_placeholder\n  AND sanctioned_amount > 0\n  AND lgd_district = 'EAST KHASI HILLS'\n  AND year_key = 2023\nGROUP BY lgd_block\nORDER BY total_released DESC\nLIMIT 3",
+   "seconds": 6.6,
+   "answer": "MAWSYNRAM received the highest release of \u20b939,41,96,000 (\u20b939.42 crore), followed by PYNURSLA with \u20b937,90,72,000 (\u20b937.91 crore) and MAWPHLANG with \u20b934,43,50,000 (\u20b934.44 crore). These three blocks account for the total released amount of 1,117,618,000 rupees across the dataset.",
+   "detail": "same rows in order",
+   "mapping": {
+    "lgd_block": [
+     "lgd_block",
+     1.0
+    ],
+    "amount_released_rupees": [
+     "total_released",
+     1.0
+    ]
+   },
+   "pred_rows": 3
+  },
+  {
+   "id": "PM-11",
+   "scheme": "PMAY-G",
+   "difficulty": "hard",
+   "question": "What is the PMAY-G completion rate, in percent, for each block of West Khasi Hills, considering houses sanctioned in FY 2022-23?",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST KHASI HILLS",
+    "year_key": 2022
+   },
+   "sql": "SELECT lgd_block,\n       ROUND(100.0 * COUNT(*) FILTER (WHERE is_completed) / NULLIF(COUNT(*), 0), 2) AS completion_rate_pct\nFROM curated.v_pmay\nWHERE NOT is_placeholder\n  AND lgd_district = 'WEST KHASI HILLS'\n  AND financial_year_short = '2022-23'\nGROUP BY lgd_block\nORDER BY completion_rate_pct DESC\nLIMIT 50",
+   "seconds": 8.6,
+   "answer": "The PMAY-G completion rate for FY 2022-23 in West Khasi Hills is 90.00% for RAMBRAI, 86.96% for SHALLANG, 86.26% for NONGSTOIN, 85.71% for RI MULIANG, and 74.51% for MAWSHYNRUT.",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_block": [
+     "lgd_block",
+     1.0
+    ],
+    "completion_rate_pct": [
+     "completion_rate_pct",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "PM-12",
+   "scheme": "PMAY-G",
+   "difficulty": "hard",
+   "question": "Compare PMAY-G fund utilisation (released as a % of sanctioned) between Ri Bhoi and West Garo Hills for houses sanctioned in FY 2023-24.",
+   "gold_rows": 2,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": "Compare PMAY-G fund utilisation (released as a percentage of sanctioned) between Ri Bhoi and West Garo Hills for houses sanctioned in FY 2023-24?",
+   "resolved": {
+    "district_list": [
+     "RI BHOI",
+     "WEST GARO HILLS"
+    ],
+    "year_key": 2023
+   },
+   "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_name IS NULL) AS no_status,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) >= sanctioned_amount) AS full_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) > 0\n    AND COALESCE(amount_released, 0) < sanctioned_amount) AS part_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) = 0) AS no_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) >= sanctioned_amount\n    AND NOT COALESCE(is_completed, FALSE)) AS full_not_done,\n  COUNT(DISTINCT sanction_no) AS sanction_numbers,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed') AS st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed' AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast') AS st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast' AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth') AS st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth' AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned') AS st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned'\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)') AS st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)'\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site') AS st_proposed_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site'\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_proposed_site\nFROM curated.v_pmay\nWHERE\n  NOT is_placeholder\n  AND UPPER(lgd_district) = ANY(\n    ARRAY['RI BHOI', 'WEST GARO HILLS']\n  )\n  AND year_key = 2023\nGROUP BY\n  UPPER(lgd_district)",
+   "seconds": 3.2,
+   "answer": "PMAY-G comparison, in FY 2023-24:\nRi Bhoi:\n- Share of the sanctioned amount released: 97.59%\nWest Garo Hills:\n- Share of the sanctioned amount released: 98.31%\nDifference:\n- Share of sanctioned amount released: West Garo Hills is higher by 0.72 percentage points.",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_district": [
+     "district",
+     1.0
+    ],
+    "utilisation_pct": [
+     "share released (%)",
+     1.0
+    ]
+   },
+   "pred_rows": 2
+  },
+  {
+   "id": "PM-13",
+   "scheme": "PMAY-G",
+   "difficulty": "hard",
+   "question": "Which blocks in West Garo Hills have over 1,000 PMAY-G houses that are not yet completed, taking all sanction years together?",
+   "gold_rows": 3,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST GARO HILLS"
+   },
+   "sql": "SELECT lgd_block,\n       COUNT(*) AS not_completed_houses\nFROM curated.v_pmay\nWHERE NOT is_placeholder\n  AND is_completed IS DISTINCT FROM TRUE\n  AND lgd_district = 'WEST GARO HILLS'\nGROUP BY lgd_block\nHAVING COUNT(*) > 1000\nORDER BY not_completed_houses DESC\nLIMIT 10",
+   "seconds": 8.4,
+   "answer": "The blocks DADENGGIRI, DALU, and TIKRIKILLA in West Garo Hills have 1,299, 1,245, and 1,015 not completed houses respectively, with a mean of 1,186.33 and a total sum of 3,559.",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_block": [
+     "lgd_block",
+     1.0
+    ]
+   },
+   "pred_rows": 3
+  },
+  {
+   "id": "FP-01",
+   "scheme": "Focus Plus",
+   "difficulty": "easy",
+   "question": "What is the total Focus Plus amount disbursed in South Garo Hills district?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "SOUTH GARO HILLS"
+   },
+   "sql": "SELECT SUM(amount_disbursed) AS total_amount_disbursed\nFROM curated.v_focus_plus\nWHERE lgd_district = 'SOUTH GARO HILLS'\nLIMIT 1",
+   "seconds": 4.2,
+   "answer": "The total Focus Plus amount disbursed in South Garo Hills district across all financial years is \u20b9102,610,000.00.",
+   "detail": "same rows",
+   "mapping": {
+    "amount_disbursed": [
+     "total_amount_disbursed",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FP-02",
+   "scheme": "Focus Plus",
+   "difficulty": "easy",
+   "question": "How many distinct Focus Plus beneficiaries (individual people, not payments) are recorded in Ri Bhoi district?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "RI BHOI"
+   },
+   "sql": "SELECT COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE lgd_district = 'RI BHOI';",
+   "seconds": 3.9,
+   "answer": "Ri Bhoi district recorded 419 distinct Focus Plus beneficiaries across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "beneficiaries": [
+     "beneficiaries",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FP-03",
+   "scheme": "Focus Plus",
+   "difficulty": "easy",
+   "question": "In the Focus Plus 12.5K registration batch, how many registrants currently have a focus status of Approved?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": "How many registrants currently have a focus status of Approved in the Focus Plus 12.5K registration batch?",
+   "resolved": {},
+   "sql": "SELECT COUNT(*) AS approved_registrants\nFROM curated.v_focus_plus\nWHERE batch_label = '12.5K' AND focus_status = 'Approved'\nLIMIT 1",
+   "seconds": 5.0,
+   "answer": "The data shows 714 approved registrants, not the 12.5K figure assumed in the question. This count applies to the Focus Plus batch across all financial years.\n\nThat is 5.70% of the 12,527 beneficiaries in the 12.5K registration cohort (status is recorded only for that cohort; the 93K legacy cohort has none).",
+   "detail": "same rows",
+   "mapping": {
+    "registrants": [
+     "approved_registrants",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FP-04",
+   "scheme": "Focus Plus",
+   "difficulty": "easy",
+   "question": "How much Focus Plus money was paid out in Haripur village of Selsella block, West Garo Hills?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": "How much money was paid out under Focus Plus in Haripur village of Selsella block, West Garo Hills?",
+   "resolved": {
+    "district": "WEST GARO HILLS",
+    "village_code": 272849
+   },
+   "sql": "SELECT SUM(amount_disbursed) AS amount_raw FROM curated.v_focus_plus WHERE village_code = 272849 LIMIT 1",
+   "seconds": 3.6,
+   "answer": "A total of \u20b93,015,000.00 was paid out under Focus Plus in Haripur village of Selsella block, West Garo Hills across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "amount_disbursed": [
+     "amount_raw",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FP-05",
+   "scheme": "Focus Plus",
+   "difficulty": "medium",
+   "question": "Give me the Focus Plus amount disbursed in each block of North Garo Hills district.",
+   "gold_rows": 4,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "NORTH GARO HILLS"
+   },
+   "sql": "SELECT \n    UPPER(block_name_raw) AS block,\n    SUM(amount_disbursed) AS amount_raw\nFROM curated.v_focus_plus\nWHERE lgd_district = 'NORTH GARO HILLS'\nGROUP BY UPPER(block_name_raw)\nORDER BY amount_raw DESC\nLIMIT 100",
+   "seconds": 8.1,
+   "answer": "The Focus Plus amount disbursed in each block of North Garo Hills district is \u20b955,630,000.00 for KHARKUTTA, \u20b935,617,500.00 for RESUBELPARA, \u20b926,455,000.00 for BAJENGDOBA, and \u20b9745,000.00 for RESUBELPARA-MUNICIPAL BOARD.",
+   "detail": "same rows",
+   "mapping": {
+    "block": [
+     "block",
+     1.0
+    ],
+    "amount_disbursed": [
+     "amount_raw",
+     1.0
+    ]
+   },
+   "pred_rows": 4
+  },
+  {
+   "id": "FP-06",
+   "scheme": "Focus Plus",
+   "difficulty": "medium",
+   "question": "Which five blocks have the highest number of distinct Focus Plus beneficiaries statewide? Rank them.",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT \n    UPPER(block_name_raw) AS block,\n    COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nGROUP BY UPPER(block_name_raw)\nORDER BY beneficiaries DESC\nLIMIT 5",
+   "seconds": 7.8,
+   "answer": "The five blocks with the highest number of distinct Focus Plus beneficiaries statewide are TIKRIKILLA (8,744), SELSELLA (7,691), ZIKZAK (6,681), NONGSTOIN (5,500), and RONGRAM (5,331). These figures represent the total beneficiaries for each block across all financial years.",
+   "detail": "same rows in order",
+   "mapping": {
+    "block": [
+     "block",
+     1.0
+    ],
+    "beneficiaries": [
+     "beneficiaries",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "FP-07",
+   "scheme": "Focus Plus",
+   "difficulty": "medium",
+   "question": "List the top 5 villages in West Khasi Hills by number of Focus Plus payments made, highest first.",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST KHASI HILLS"
+   },
+   "sql": "SELECT lgd_village_name,\n       COUNT(*) AS payments\nFROM curated.v_focus_plus\nWHERE lgd_district = 'WEST KHASI HILLS'\n  AND entity_type <> 'Unresolved'\nGROUP BY lgd_village_name\nORDER BY payments DESC\nLIMIT 5",
+   "seconds": 10.1,
+   "answer": "PYNDENGREI received the highest number of payments with 1,564, followed by NONGSTOIN with 708, MAWKHLAM - NONGPYNDENG with 672, Upper New Nongstoin with 604, and TIEHSAW with 572.",
+   "detail": "same rows in order",
+   "mapping": {
+    "lgd_village_name": [
+     "lgd_village_name",
+     1.0
+    ],
+    "payments": [
+     "payments",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "FP-08",
+   "scheme": "Focus Plus",
+   "difficulty": "medium",
+   "question": "For the Focus Plus 12.5K registration cohort in East Garo Hills, how many registrants are female and how many are male?",
+   "gold_rows": 2,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": "How many female and male registrants are there in the Focus Plus 12.5K registration cohort in East Garo Hills?",
+   "resolved": {
+    "district": "EAST GARO HILLS"
+   },
+   "sql": "SELECT \n    gender,\n    COUNT(DISTINCT beneficiary_key) AS registrants\nFROM curated.v_focus_plus\nWHERE batch_label = '12.5K'\n    AND lgd_district = 'EAST GARO HILLS'\nGROUP BY gender\nORDER BY registrants DESC\nLIMIT 100",
+   "seconds": 6.7,
+   "answer": "The data shows 1,103 female registrants and 501 male registrants, not the 12.5K figure assumed in the question. These figures represent the total count for East Garo Hills across all financial years in the result.\n\nShare of the 1,604 registrants with a recorded gender: Female 68.77%, Male 31.23% (these fields are recorded only for the 12.5K registration cohort; the 93K legacy cohort has none of th",
+   "detail": "same rows",
+   "mapping": {
+    "gender": [
+     "gender",
+     1.0
+    ],
+    "registrants": [
+     "registrants",
+     1.0
+    ]
+   },
+   "pred_rows": 2
+  },
+  {
+   "id": "FP-09",
+   "scheme": "Focus Plus",
+   "difficulty": "medium",
+   "question": "For Mylliem block, show the number of Focus Plus payments and the amount disbursed in each tranche, split by batch.",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": "How many Focus Plus payments were made in Mylliem block, what was the amount disbursed in each tranche, and how were they split by batch?",
+   "resolved": {
+    "block": "MYLLIEM"
+   },
+   "sql": "SELECT \n    financial_year_short,\n    COUNT(*) AS payments,\n    SUM(amount_disbursed) AS amount_raw,\n    tranche_label,\n    batch_label,\n    COUNT(*) AS payments_per_tranche_batch\nFROM curated.v_focus_plus\nWHERE UPPER(block_name_raw) = 'MYLLIEM'\nGROUP BY \n    financial_year_short, \n    tranche_label, \n    batch_label\nORDER BY \n    financial_year_short, \n    tranche_label, \n    batch_label\nLIMIT 1000",
+   "seconds": 10.9,
+   "answer": "Here are the 5 results:\n- 2022-23 / Tranch 1 / 93K \u2014 payments: 4,360, amount disbursed: \u20b921,800,000.00, payments per tranche batch: 4,360\n- 2025-26 / Tranch 2 - August / 93K \u2014 payments: 4,360, amount disbursed: \u20b910,900,000.00, payments per tranche batch: 4,360\n- 2025-26 / Tranch 3 - December / 93K \u2014 payments: 4,360, amount disbursed: \u20b910,900,000.00, payments per tranche batch: 4,360\n- 2025-26 / Tr",
+   "detail": "same rows",
+   "mapping": {
+    "batch_label": [
+     "batch_label",
+     1.0
+    ],
+    "tranche_label": [
+     "tranche_label",
+     1.0
+    ],
+    "payments": [
+     "payments",
+     1.0
+    ],
+    "amount_disbursed": [
+     "amount_raw",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "FP-10",
+   "scheme": "Focus Plus",
+   "difficulty": "hard",
+   "question": "What percentage of the total Focus Plus amount disbursed across Meghalaya went to West Garo Hills district?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST GARO HILLS"
+   },
+   "sql": "SELECT ROUND(100.0 * SUM(CASE WHEN lgd_district = 'WEST GARO HILLS' THEN amount_disbursed ELSE 0 END) / SUM(amount_disbursed), 2) AS pct_west_garo_hills\nFROM curated.v_focus_plus\nLIMIT 1",
+   "seconds": 6.3,
+   "answer": "West Garo Hills district received 32.68% of the total Focus Plus amount disbursed across Meghalaya. This figure covers all financial years for the district.",
+   "detail": "same rows",
+   "mapping": {
+    "pct_of_state_amount": [
+     "pct_west_garo_hills",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FP-11",
+   "scheme": "Focus Plus",
+   "difficulty": "hard",
+   "question": "Compare Tikrikilla and Selsella blocks on Focus Plus: number of distinct beneficiaries, total amount disbursed, and amount disbursed per beneficiary.",
+   "gold_rows": 2,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "block_list": [
+     "TIKRIKILLA",
+     "SELSELLA"
+    ],
+    "block_list_districts": {
+     "TIKRIKILLA": "WEST GARO HILLS",
+     "SELSELLA": "WEST GARO HILLS"
+    }
+   },
+   "sql": "SELECT \n    UPPER(block_name_raw) AS block,\n    COUNT(DISTINCT beneficiary_key) AS distinct_beneficiaries,\n    SUM(amount_disbursed) AS total_amount_disbursed,\n    SUM(amount_disbursed) / NULLIF(COUNT(DISTINCT beneficiary_key), 0) AS amount_per_beneficiary\nFROM curated.v_focus_plus\nWHERE UPPER(block_name_raw) IN ('TIKRIKILLA', 'SELSELLA')\nGROUP BY UPPER(block_name_raw)\nORDER BY block\nLIMIT 10",
+   "seconds": 8.7,
+   "answer": "Tikrikilla block shows 8,744 distinct beneficiaries and Selsella block shows 7,691 distinct beneficiaries. The total amount disbursed was \u20b993,120,000.00 for Tikrikilla and \u20b990,337,500.00 for Selsella, with amounts per beneficiary of \u20b910,649.59 and \u20b911,745.87 respectively. Tikrikilla is higher by 1,053 distinct beneficiaries (Tikrikilla 8,744 vs Selsella 7,691).",
+   "detail": "same rows",
+   "mapping": {
+    "block": [
+     "block",
+     1.0
+    ],
+    "beneficiaries": [
+     "distinct_beneficiaries",
+     1.0
+    ],
+    "amount_disbursed": [
+     "total_amount_disbursed",
+     1.0
+    ],
+    "amount_per_beneficiary": [
+     "amount_per_beneficiary",
+     1.0
+    ]
+   },
+   "pred_rows": 2
+  },
+  {
+   "id": "FP-12",
+   "scheme": "Focus Plus",
+   "difficulty": "hard",
+   "question": "In which districts do 12.5K registration batch payments make up more than 4% of that district's Focus Plus payment records? Show each district's percentage.",
+   "gold_rows": 2,
+   "outcome": "no_sql",
+   "route": "edge",
+   "schemes": [],
+   "rewritten": null,
+   "resolved": {},
+   "sql": null,
+   "seconds": 3.7,
+   "answer": "I'm Megh One AI, the assistant for Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy (producer groups) and CM Elevate Legacy (sanctions and disbursements) schemes. I can only answer questions about those schemes and their data in Meghalaya \u2014 not other topics, other states, or places outside Meghalaya.",
+   "detail": "route=edge"
+  },
+  {
+   "id": "FL-01",
+   "scheme": "Focus Legacy",
+   "difficulty": "easy",
+   "question": "How many distinct producer groups received Focus Legacy payments in Ri Bhoi district?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": "How many distinct producer groups received payments under Focus Legacy in Ri Bhoi district?",
+   "resolved": {
+    "district": "RI BHOI"
+   },
+   "sql": "SELECT COUNT(DISTINCT pg_id) AS producer_groups\nFROM curated.v_focus_legacy\nWHERE lgd_district = 'RI BHOI'",
+   "seconds": 4.4,
+   "answer": "955 distinct producer groups received payments under Focus Legacy in Ri Bhoi district across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "producer_groups": [
+     "producer_groups",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FL-02",
+   "scheme": "Focus Legacy",
+   "difficulty": "easy",
+   "question": "What was the total Focus Legacy amount remitted to producer groups in FY 2024-25?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "year_key": 2024
+   },
+   "sql": "SELECT SUM(amount_disbursed) AS amount_disbursed\nFROM curated.v_focus_legacy\nWHERE financial_year_short = '2024-25'\nLIMIT 1",
+   "seconds": 3.0,
+   "answer": "The total Focus Legacy amount remitted to producer groups in FY 2024-25 was \u20b911,49,90,000 (\u20b911.50 crore).",
+   "detail": "same rows",
+   "mapping": {
+    "amount_disbursed": [
+     "amount_disbursed",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FL-03",
+   "scheme": "Focus Legacy",
+   "difficulty": "easy",
+   "question": "How many Focus Legacy payments were made into Meghalaya Rural Bank accounts?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT COUNT(*) AS payments\nFROM curated.v_focus_legacy\nWHERE LOWER(bank_name) = 'meghalaya rural bank'",
+   "seconds": 2.9,
+   "answer": "8,174 Focus Legacy payments were made into Meghalaya Rural Bank accounts for all of Meghalaya across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "payments": [
+     "payments",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FL-04",
+   "scheme": "Focus Legacy",
+   "difficulty": "easy",
+   "question": "How many distinct villages in West Jaintia Hills have a Focus Legacy producer group that was paid?",
+   "gold_rows": 1,
+   "outcome": "wrong",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST JAINTIA HILLS"
+   },
+   "sql": "SELECT COUNT(DISTINCT village_code) AS villages\nFROM curated.v_focus_legacy\nWHERE lgd_district = 'WEST JAINTIA HILLS'\n  AND entity_type <> 'Unresolved'\n  AND pg_id IN (\n    SELECT pg_id\n    FROM curated.v_focus_legacy\n    WHERE lgd_district = 'WEST JAINTIA HILLS'\n      AND entity_type <> 'Unresolved'\n    GROUP BY pg_id\n    HAVING COUNT(DISTINCT financial_year_short) = (\n      SELECT COUNT(DISTINCT financial_year_short)\n      FROM curated.v_focus_legacy\n      WHERE lgd_district = 'WEST JAINTIA HILLS'\n        AND entity_type <> 'Unresolved'\n    )\n  )\nLIMIT 10000",
+   "seconds": 7.2,
+   "answer": "0 villages.",
+   "detail": "no column holds the gold values of 'villages'",
+   "mapping": {},
+   "pred_rows": 1,
+   "gold_sample": [
+    {
+     "villages": 173
+    }
+   ],
+   "pred_sample": [
+    {
+     "villages": 0
+    }
+   ]
+  },
+  {
+   "id": "FL-05",
+   "scheme": "Focus Legacy",
+   "difficulty": "medium",
+   "question": "Block-wise for North Garo Hills, what Focus Legacy amount was disbursed and how many PG memberships did it cover?",
+   "gold_rows": 4,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": "How much money was disbursed under Focus Legacy and how many PG memberships did it cover in North Garo Hills, block-wise?",
+   "resolved": {
+    "district": "NORTH GARO HILLS"
+   },
+   "sql": "SELECT lgd_block, SUM(amount_disbursed) AS amount_disbursed, SUM(no_of_pg_members) AS memberships\nFROM curated.v_focus_legacy\nWHERE lgd_district = 'NORTH GARO HILLS'\nGROUP BY lgd_block\nORDER BY amount_disbursed DESC\nLIMIT 1000",
+   "seconds": 4.2,
+   "answer": "Focus Legacy amount disbursed by block in North Garo Hills \u2014 4 blocks:\n\n- Resubelpara: \u20b92,15,85,000 amount disbursed, 4,317 memberships\n- Bajengdoba: \u20b91,81,50,000 amount disbursed, 3,630 memberships\n- Kharkutta: \u20b997,35,000 amount disbursed, 1,947 memberships\n- Adokgre: \u20b922,65,000 amount disbursed, 453 memberships\n\nTogether, the 4 blocks above account for \u20b95,17,35,000 amount disbursed, 10,347 membe",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_block": [
+     "lgd_block",
+     1.0
+    ],
+    "amount_disbursed": [
+     "amount_disbursed",
+     1.0
+    ],
+    "memberships": [
+     "memberships",
+     1.0
+    ]
+   },
+   "pred_rows": 4
+  },
+  {
+   "id": "FL-06",
+   "scheme": "Focus Legacy",
+   "difficulty": "medium",
+   "question": "What were the top 5 products by number of Focus Legacy payments in FY 2022-23, ranked highest first?",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "year_key": 2022
+   },
+   "sql": "SELECT UPPER(TRIM(product_raw)) AS product, COUNT(*) AS payments\nFROM curated.v_focus_legacy\nWHERE financial_year_short = '2022-23' AND product_raw IS NOT NULL\nGROUP BY UPPER(TRIM(product_raw))\nORDER BY payments DESC\nLIMIT 5",
+   "seconds": 5.9,
+   "answer": "PIGGERY received the highest number of payments at 596, followed by GINGER with 352, VEGETABLES with 204, BROOM GRASS with 200, and TURMERIC with 150. These five products are the top results from a total of 34 matching records for FY 2022-23.",
+   "detail": "same rows in order",
+   "mapping": {
+    "product": [
+     "product",
+     1.0
+    ],
+    "payments": [
+     "payments",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "FL-07",
+   "scheme": "Focus Legacy",
+   "difficulty": "medium",
+   "question": "For FY 2025-26, how many distinct producer groups of each group type received Focus Legacy money?",
+   "gold_rows": 3,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": "How many distinct producer groups of each group type received Focus Legacy money in FY 2025-26?",
+   "resolved": {
+    "year_key": 2025
+   },
+   "sql": "SELECT pg_entity_type_name, COUNT(DISTINCT pg_id) AS producer_groups\nFROM curated.v_focus_legacy\nWHERE financial_year_short = '2025-26'\nGROUP BY pg_entity_type_name\nORDER BY producer_groups DESC\nLIMIT 100",
+   "seconds": 5.1,
+   "answer": "Newly formed FOCUS Producer Groups received 6,996 Focus Legacy funds, while LAMPS cooperatives received 1,794 and Pre-existing cooperatives received 16. Across all three group types, a total of 8,806 distinct producer groups received money in FY 2025-26.",
+   "detail": "same rows",
+   "mapping": {
+    "producer_groups": [
+     "producer_groups",
+     1.0
+    ]
+   },
+   "pred_rows": 3
+  },
+  {
+   "id": "FL-08",
+   "scheme": "Focus Legacy",
+   "difficulty": "medium",
+   "question": "Year by year, how many Focus Legacy payments were made and how many distinct producer groups were paid in West Garo Hills?",
+   "gold_rows": 4,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": "How many Focus Legacy payments were made and how many distinct producer groups were paid in West Garo Hills year by year?",
+   "resolved": {
+    "district": "WEST GARO HILLS"
+   },
+   "sql": "SELECT \n    financial_year_short,\n    COUNT(*) AS payments,\n    COUNT(DISTINCT pg_id) AS producer_groups\nFROM curated.v_focus_legacy\nWHERE lgd_district = 'WEST GARO HILLS'\nGROUP BY financial_year_short\nORDER BY financial_year_short\nLIMIT 100",
+   "seconds": 5.6,
+   "answer": "West Garo Hills received 3,493 Focus Legacy payments across 3,492 distinct producer groups from 2021-22 through 2025-26. The annual breakdown shows 55 payments and 55 groups in 2021-22, 382 payments and 382 groups in 2022-23, 825 payments and 825 groups in 2024-25, and 2,231 payments with 2,230 groups in 2025-26.",
+   "detail": "same rows",
+   "mapping": {
+    "financial_year_short": [
+     "financial_year_short",
+     1.0
+    ],
+    "payments": [
+     "payments",
+     1.0
+    ],
+    "producer_groups": [
+     "producer_groups",
+     1.0
+    ]
+   },
+   "pred_rows": 4
+  },
+  {
+   "id": "FL-09",
+   "scheme": "Focus Legacy",
+   "difficulty": "medium",
+   "question": "Which three producer groups in West Jaintia Hills received the largest total Focus Legacy amount? Rank them.",
+   "gold_rows": 3,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST JAINTIA HILLS"
+   },
+   "sql": "SELECT pg_id, MAX(pg_name) AS pg_name, SUM(amount_disbursed) AS amount_disbursed\nFROM curated.v_focus_legacy\nWHERE lgd_district = 'WEST JAINTIA HILLS'\nGROUP BY pg_id\nORDER BY amount_disbursed DESC\nLIMIT 3",
+   "seconds": 5.9,
+   "answer": "The three producer groups in West Jaintia Hills with the largest Focus Legacy amounts are Baitlang (\u20b91,55,000 (\u20b91.55 lakh)), Iaieit (\u20b91,45,000 (\u20b91.45 lakh)), and Mang I Ka (\u20b91,40,000 (\u20b91.40 lakh)). These figures represent the top three from a total of 1,130 matching producer groups.",
+   "detail": "same rows in order",
+   "mapping": {
+    "amount_disbursed": [
+     "amount_disbursed",
+     1.0
+    ]
+   },
+   "pred_rows": 3
+  },
+  {
+   "id": "FL-10",
+   "scheme": "Focus Legacy",
+   "difficulty": "hard",
+   "question": "In FY 2025-26, what percentage of the Focus Legacy amount disbursed came from the additional top-up (Focus Addnl) round?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "year_key": 2025
+   },
+   "sql": "SELECT \n    ROUND(\n        100.0 * SUM(CASE WHEN programme_variant = 'FOCUS_ADDNL' THEN amount_disbursed ELSE 0 END) / NULLIF(SUM(amount_disbursed), 0), \n        2\n    ) AS pct_from_addnl_round\nFROM curated.v_focus_legacy\nWHERE financial_year_short = '2025-26'",
+   "seconds": 5.6,
+   "answer": "In FY 2025-26, 9.94% of the Focus Legacy amount disbursed came from the additional top-up (Focus Addnl) round.",
+   "detail": "same rows",
+   "mapping": {
+    "pct_amount_addnl": [
+     "pct_from_addnl_round",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FL-11",
+   "scheme": "Focus Legacy",
+   "difficulty": "hard",
+   "question": "Compare Umsning and Umling blocks of Ri Bhoi on Focus Legacy: number of producer groups paid, total PG memberships, and amount disbursed.",
+   "gold_rows": 2,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "RI BHOI",
+    "block_list": [
+     "UMSNING",
+     "UMLING"
+    ],
+    "block_list_districts": {
+     "UMSNING": "RI BHOI",
+     "UMLING": "RI BHOI"
+    }
+   },
+   "sql": "SELECT \n    lgd_block,\n    COUNT(DISTINCT pg_id) AS producer_groups_paid,\n    SUM(no_of_pg_members) AS total_pg_memberships,\n    SUM(amount_disbursed) AS amount_disbursed\nFROM curated.v_focus_legacy\nWHERE lgd_block IN ('UMSNING', 'UMLING')\n    AND lgd_district = 'RI BHOI'\nGROUP BY lgd_block\nORDER BY amount_disbursed DESC\nLIMIT 100",
+   "seconds": 5.2,
+   "answer": "Focus Legacy producer groups paid by block in Ri Bhoi, Umsning and Umling \u2014 2 blocks:\n\n- Umsning: 380 producer groups paid, 4,217 total pg memberships, \u20b92,10,85,000 amount disbursed\n- Umling: 251 producer groups paid, 2,209 total pg memberships, \u20b91,10,45,000 amount disbursed\n\nTogether, the 2 blocks above account for 631 producer groups paid, 6,426 total pg memberships, \u20b93,21,30,000 amount disburse",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_block": [
+     "lgd_block",
+     1.0
+    ],
+    "producer_groups": [
+     "producer_groups_paid",
+     1.0
+    ],
+    "memberships": [
+     "total_pg_memberships",
+     1.0
+    ],
+    "amount_disbursed": [
+     "amount_disbursed",
+     1.0
+    ]
+   },
+   "pred_rows": 2
+  },
+  {
+   "id": "FL-12",
+   "scheme": "Focus Legacy",
+   "difficulty": "hard",
+   "question": "In FY 2025-26, in which districts were LAMPS cooperatives paid in more than 25% of that district's Focus Legacy payment records? Give each district's share.",
+   "gold_rows": 4,
+   "outcome": "no_sql",
+   "route": "edge",
+   "schemes": [],
+   "rewritten": "In FY 2025-26, in which districts were LAMPS cooperatives paid in more than 25% of that district's Focus Legacy payment records? Provide each district's share.",
+   "resolved": {},
+   "sql": null,
+   "seconds": 3.8,
+   "answer": "I'm Megh One AI, the assistant for Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy (producer groups) and CM Elevate Legacy (sanctions and disbursements) schemes. I can only answer questions about those schemes and their data in Meghalaya \u2014 not other topics, other states, or places outside Meghalaya.",
+   "detail": "route=edge"
+  },
+  {
+   "id": "CE-01",
+   "scheme": "CM Elevate",
+   "difficulty": "easy",
+   "question": "How many CM Elevate applications from South Garo Hills have their data verification marked On Hold?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "SOUTH GARO HILLS"
+   },
+   "sql": "SELECT COUNT(*) AS applications\nFROM curated.v_cm_elevate\nWHERE lgd_district = 'SOUTH GARO HILLS'\n  AND data_verified = 'On Hold'\nLIMIT 1",
+   "seconds": 7.0,
+   "answer": "South Garo Hills has 98 CM Elevate applications with data verification marked On Hold. This count is derived from the single row of results provided for the specified district.",
+   "detail": "same rows",
+   "mapping": {
+    "applications_on_hold": [
+     "applications",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "CE-02",
+   "scheme": "CM Elevate",
+   "difficulty": "easy",
+   "question": "Under the CM Elevate Goat Farming scheme, how many applications were filed at a CM Connect Centre instead of online?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate"
+   ],
+   "rewritten": "How many applications were filed at a CM Connect Centre instead of online under the CM Elevate Goat Farming scheme?",
+   "resolved": {
+    "cm_scheme": "Meghalaya Goat Farming Scheme"
+   },
+   "sql": "SELECT COUNT(*) AS applications\nFROM curated.v_cm_elevate\nWHERE scheme_name = 'Meghalaya Goat Farming Scheme'\n  AND application_mode = 'cmconnectcenter'\nLIMIT 1",
+   "seconds": 5.4,
+   "answer": "44 applications were filed at a CM Connect Centre instead of online under the CM Elevate Goat Farming scheme for all of Meghalaya.",
+   "detail": "same rows",
+   "mapping": {
+    "cm_connect_centre_applications": [
+     "applications",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "CE-03",
+   "scheme": "CM Elevate",
+   "difficulty": "easy",
+   "question": "How many CM Elevate applications currently sit at level 2 of the processing workflow?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT COUNT(*) AS applications\nFROM curated.v_cm_elevate\nWHERE LOWER(current_level) = 'level2'\nLIMIT 1",
+   "seconds": 4.2,
+   "answer": "There are 298 CM Elevate applications at level 2 of the processing workflow for all of Meghalaya.",
+   "detail": "same rows",
+   "mapping": {
+    "applications_at_level2": [
+     "applications",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "CE-04",
+   "scheme": "CM Elevate",
+   "difficulty": "easy",
+   "question": "How many applications under the CM Elevate Warehouse scheme came from registered bodies?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate"
+   ],
+   "rewritten": "How many applications under CM Elevate Warehouse came from registered bodies?",
+   "resolved": {
+    "cm_scheme": "Meghalaya Warehouse Scheme"
+   },
+   "sql": "SELECT COUNT(*) AS applications\nFROM curated.v_cm_elevate\nWHERE scheme_name = 'Meghalaya Warehouse Scheme'\n  AND applicant_category = 'registered'\nLIMIT 1",
+   "seconds": 6.4,
+   "answer": "21 applications under CM Elevate sub-scheme: Meghalaya Warehouse Scheme came from registered bodies.",
+   "detail": "same rows",
+   "mapping": {
+    "registered_applications": [
+     "applications",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "CE-05",
+   "scheme": "CM Elevate",
+   "difficulty": "medium",
+   "question": "For East Garo Hills, how many CM Elevate applications have been verified as Valid and how many are still not verified?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate"
+   ],
+   "rewritten": "How many CM Elevate applications have been verified as Valid and how many are still not verified in East Garo Hills?",
+   "resolved": {
+    "district": "EAST GARO HILLS"
+   },
+   "sql": "SELECT \n    COUNT(*) FILTER (WHERE data_verified = 'Valid') AS verified_applications,\n    COUNT(*) FILTER (WHERE data_verified IS DISTINCT FROM 'Valid') AS not_verified_applications\nFROM curated.v_cm_elevate\nWHERE lgd_district = 'EAST GARO HILLS'\nLIMIT 1",
+   "seconds": 3.2,
+   "answer": "East Garo Hills has 347 verified CM Elevate applications and 265 not verified applications.",
+   "detail": "same rows",
+   "mapping": {
+    "verified": [
+     "verified_applications",
+     1.0
+    ],
+    "not_verified": [
+     "not_verified_applications",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "CE-06",
+   "scheme": "CM Elevate",
+   "difficulty": "medium",
+   "question": "Which 3 blocks of Ri Bhoi have the most applicants under the CM Elevate Piggery Development scheme?",
+   "gold_rows": 3,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "RI BHOI",
+    "cm_scheme": "Meghalaya Piggery Development Scheme"
+   },
+   "sql": "SELECT lgd_block, COUNT(DISTINCT request_id) AS applicants FROM curated.v_cm_elevate WHERE scheme_name = 'Meghalaya Piggery Development Scheme' AND lgd_district = 'RI BHOI' GROUP BY lgd_block ORDER BY applicants DESC LIMIT 3",
+   "seconds": 8.5,
+   "answer": "Umling has the most applicants with 950, followed by Jirang with 613 and Mawhati with 148. These three blocks account for the total of 1,711 applicants across the Ri Bhoi district.",
+   "detail": "same rows in order",
+   "mapping": {
+    "lgd_block": [
+     "lgd_block",
+     1.0
+    ],
+    "applicants": [
+     "applicants",
+     1.0
+    ]
+   },
+   "pred_rows": 3
+  },
+  {
+   "id": "CE-07",
+   "scheme": "CM Elevate",
+   "difficulty": "medium",
+   "question": "Which CM Elevate schemes have applications on hold in East Khasi Hills, and how many on-hold applications does each one have?",
+   "gold_rows": 7,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "EAST KHASI HILLS"
+   },
+   "sql": "SELECT scheme_name,\n       COUNT(*) AS on_hold_applications\nFROM curated.v_cm_elevate\nWHERE lgd_district = 'EAST KHASI HILLS'\n  AND data_verified = 'On Hold'\nGROUP BY scheme_name\nORDER BY scheme_name",
+   "seconds": 5.0,
+   "answer": "On hold applications by programme (7): Any Business Venture 1; Piggery Development 5; Poultry Farming 2; Warehouse 1; PRIME Agriculture Response Vehicle 3; PRIME SEED 41; PRIME Tourism Vehicle 38. Total 91.",
+   "detail": "same rows",
+   "mapping": {
+    "scheme_name": [
+     "scheme_name",
+     1.0
+    ],
+    "applications_on_hold": [
+     "on_hold_applications",
+     1.0
+    ]
+   },
+   "pred_rows": 7
+  },
+  {
+   "id": "CE-08",
+   "scheme": "CM Elevate",
+   "difficulty": "medium",
+   "question": "In how many different villages of Ri Bhoi has at least one applicant applied under the CM Elevate Poultry Farming scheme?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "RI BHOI",
+    "cm_scheme": "Meghalaya Poultry Farming Scheme"
+   },
+   "sql": "SELECT COUNT(DISTINCT village_code) AS villages\nFROM curated.v_cm_elevate\nWHERE scheme_name = 'Meghalaya Poultry Farming Scheme'\n  AND lgd_district = 'RI BHOI'\n  AND entity_type <> 'Unresolved'\nLIMIT 1",
+   "seconds": 7.3,
+   "answer": "At least one applicant applied in 107 villages of Ri Bhoi under the Meghalaya Poultry Farming Scheme.",
+   "detail": "same rows",
+   "mapping": {
+    "villages": [
+     "villages",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "CE-09",
+   "scheme": "CM Elevate",
+   "difficulty": "medium",
+   "question": "District by district, how many CM Elevate Dairy Development applications were submitted online and how many through CM Connect Centres?",
+   "gold_rows": 11,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate"
+   ],
+   "rewritten": "How many CM Elevate Dairy Development applications were submitted online and how many through CM Connect Centres, district by district?",
+   "resolved": {
+    "cm_scheme": "Meghalaya Dairy Development Scheme"
+   },
+   "sql": "SELECT lgd_district,\n       COUNT(*) FILTER (WHERE application_mode = 'online') AS online_applications,\n       COUNT(*) FILTER (WHERE application_mode = 'cmconnectcenter') AS cm_connect_center_applications\nFROM curated.v_cm_elevate\nWHERE scheme_name = 'Meghalaya Dairy Development Scheme'\nGROUP BY lgd_district\nORDER BY lgd_district\nLIMIT 1000",
+   "seconds": 4.3,
+   "answer": "The CM Elevate Dairy Development Scheme recorded 122 online applications and 200 CM Connect Centre applications across all 11 districts. Online applications ranged from 0 in SOUTH WEST KHASI HILLS to 61 in RI BHOI, while CM Connect Centre applications ranged from 0 in EASTERN WEST KHASI HILLS to 138 in SOUTH WEST KHASI HILLS.",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_district": [
+     "lgd_district",
+     1.0
+    ],
+    "online_applications": [
+     "online_applications",
+     1.0
+    ],
+    "cm_connect_centre_applications": [
+     "cm_connect_center_applications",
+     1.0
+    ]
+   },
+   "pred_rows": 11
+  },
+  {
+   "id": "CE-10",
+   "scheme": "CM Elevate",
+   "difficulty": "hard",
+   "question": "Which three districts have the lowest percentage of CM Elevate applications verified as Valid?",
+   "gold_rows": 3,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT lgd_district, COUNT(*) AS total_applications, COUNT(*) FILTER(WHERE data_verified = 'Valid') AS valid_applications, ROUND(CAST(100.0 * COUNT(*) FILTER(WHERE data_verified = 'Valid') / NULLIF(COUNT(*), 0) AS DECIMAL), 2) AS valid_percentage FROM curated.v_cm_elevate GROUP BY lgd_district ORDER BY valid_percentage ASC LIMIT 3",
+   "seconds": 6.5,
+   "answer": "The three districts with the lowest percentage of verified applications are EAST GARO HILLS at 56.70%, SOUTH WEST GARO HILLS at 62.96%, and SOUTH GARO HILLS at 71.37%. These figures represent the complete set of districts available in the data.",
+   "detail": "same rows in order",
+   "mapping": {
+    "lgd_district": [
+     "lgd_district",
+     1.0
+    ]
+   },
+   "pred_rows": 3
+  },
+  {
+   "id": "CE-11",
+   "scheme": "CM Elevate",
+   "difficulty": "hard",
+   "question": "For every CM Elevate scheme that has at least 100 applications, what percentage of its applications record the applicant's gender as Female?",
+   "gold_rows": 8,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate"
+   ],
+   "rewritten": "For every CM Elevate scheme with at least 100 applications, what percentage of its applications record the applicant's gender as Female?",
+   "resolved": {},
+   "sql": "SELECT scheme_name, COUNT(DISTINCT request_id) AS scheme_total, COUNT(DISTINCT request_id) FILTER(WHERE scheme_specific ->> 'gender_id' = 'Female') AS female_applications, ROUND(CAST(100.0 * COUNT(DISTINCT request_id) FILTER(WHERE scheme_specific ->> 'gender_id' = 'Female') / NULLIF(COUNT(DISTINCT request_id), 0) AS DECIMAL), 1) AS pct_female FROM curated.v_cm_elevate GROUP BY scheme_name HAVING COUNT(DISTINCT request_id) >= 100 ORDER BY scheme_total DESC LIMIT 100",
+   "seconds": 9.3,
+   "answer": "Here are the 8 results:\n- PRIME Small Enterprise Empowerment and Development (SEED) \u2014 scheme total: 3,672, female applications: 2,242, pct female: 61.10\n- Meghalaya Piggery Development Scheme \u2014 scheme total: 3,064, female applications: 2,274, pct female: 74.20\n- Meghalaya Poultry Farming Scheme \u2014 scheme total: 580, female applications: 392, pct female: 67.60\n- PRIME Tourism Vehicle Scheme \u2014 scheme",
+   "detail": "same rows",
+   "mapping": {
+    "scheme_name": [
+     "scheme_name",
+     1.0
+    ],
+    "female_pct": [
+     "pct_female",
+     1.0
+    ]
+   },
+   "pred_rows": 8
+  },
+  {
+   "id": "CE-12",
+   "scheme": "CM Elevate",
+   "difficulty": "hard",
+   "question": "Which CM Elevate schemes have more applicants in West Garo Hills than in Ri Bhoi?",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district_list": [
+     "WEST GARO HILLS",
+     "RI BHOI"
+    ]
+   },
+   "sql": "SELECT scheme_name,\n       COUNT(DISTINCT CASE WHEN lgd_district = 'WEST GARO HILLS' THEN request_id END) AS west_garo_hills_applicants,\n       COUNT(DISTINCT CASE WHEN lgd_district = 'RI BHOI' THEN request_id END) AS ri_bhoi_applicants\nFROM curated.v_cm_elevate\nWHERE lgd_district IN ('WEST GARO HILLS', 'RI BHOI')\nGROUP BY scheme_name\nHAVING COUNT(DISTINCT CASE WHEN lgd_district = 'WEST GARO HILLS' THEN request_id END) >\n       COUNT(DISTINCT CASE WHEN lgd_district = 'RI BHOI' THEN request_id END)\nLIMIT 100",
+   "seconds": 7.3,
+   "answer": "Five CM Elevate schemes have more applicants in West Garo Hills than in Ri Bhoi: Chief Minister's Green Taxi Scheme (2 vs 1), Meghalaya Any Business Venture Scheme (34 vs 3), PRIME Agriculture Response Vehicle Scheme (93 vs 75), PRIME Small Enterprise Empowerment and Development (SEED) (1,220 vs 222), and PRIME Tourism Vehicle Scheme (102 vs 21).",
+   "detail": "same rows",
+   "mapping": {
+    "scheme_name": [
+     "scheme_name",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "CL-01",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "easy",
+   "question": "What is the total sanctioned amount under CM Elevate Legacy in West Jaintia Hills district, in crore?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST JAINTIA HILLS"
+   },
+   "sql": "SELECT ROUND(SUM(sanctioned_amount) / 1e7, 2) AS sanctioned_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE lgd_district = 'WEST JAINTIA HILLS'\nLIMIT 1",
+   "seconds": 6.6,
+   "answer": "\u20b99.08 crore has been sanctioned under CM Elevate Legacy in West Jaintia Hills district across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "sanctioned_cr": [
+     "sanctioned_cr",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "CL-02",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "easy",
+   "question": "How many CM Elevate Legacy records does the Goat Farming scheme have in financial year 2024-25?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": "How many CM Elevate Legacy records are there under the Goat Farming scheme in FY 2024-25?",
+   "resolved": {
+    "year_key": 2024,
+    "cm_scheme": "Meghalaya Goat Farming Scheme"
+   },
+   "sql": "SELECT COUNT(*) AS records\nFROM curated.v_cm_elevate_disbursement\nWHERE scheme_name = 'Meghalaya Goat Farming Scheme'\n  AND financial_year_short = '2024-25'\nLIMIT 1",
+   "seconds": 6.4,
+   "answer": "All of Meghalaya: 48 applications under CM Elevate Legacy in FY 2024-25.",
+   "detail": "same rows",
+   "mapping": {
+    "records": [
+     "records",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "CL-03",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "easy",
+   "question": "How much subsidy has been disbursed altogether under the CM Elevate Legacy Poultry Farming scheme, in crore?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": "How much subsidy has been disbursed altogether under the CM Elevate Legacy Poultry Farming scheme in crore?",
+   "resolved": {
+    "cm_scheme": "Meghalaya Poultry Farming Scheme"
+   },
+   "sql": "SELECT ROUND(SUM(total_subsidy_disbursement) / 1e7, 2) AS subsidy_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE scheme_name = 'Meghalaya Poultry Farming Scheme'\nLIMIT 1",
+   "seconds": 5.1,
+   "answer": "\u20b92.69 crore has been disbursed as subsidy under the CM Elevate sub-scheme: Meghalaya Poultry Farming Scheme across all financial years. This total includes desanctioned records as per the source file's own totals.",
+   "detail": "same rows",
+   "mapping": {
+    "subsidy_cr": [
+     "subsidy_cr",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "CL-04",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "easy",
+   "question": "How many CM Elevate Legacy records were desanctioned with Duplicate as the reason?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT COUNT(*) AS desanctioned_records\nFROM curated.v_cm_elevate_disbursement\nWHERE desanctioned_reason_raw = 'Duplicate'\nLIMIT 1",
+   "seconds": 2.6,
+   "answer": "31 records were desanctioned with Duplicate as the reason for CM Elevate Legacy across all of Meghalaya. This figure comes from the desanctioned_records column and does not represent the total refusal count.",
+   "detail": "same rows",
+   "mapping": {
+    "records": [
+     "desanctioned_records",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "CL-05",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "medium",
+   "question": "In FY 2024-25, how many CM Elevate Legacy records received a loan from each lender, and how much loan did each lender disburse in crore?",
+   "gold_rows": 2,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "year_key": 2024
+   },
+   "sql": "SELECT COALESCE(loan_entity, '(not recorded)') AS loan_entity, COUNT(*) AS records, ROUND(SUM(total_loan_disbursement) / 1e7, 2) AS loan_cr FROM curated.v_cm_elevate_disbursement WHERE financial_year_short = '2024-25' AND total_loan_disbursement > 0 GROUP BY loan_entity ORDER BY records DESC",
+   "seconds": 6.7,
+   "answer": "In FY 2024-25, Bank disbursed \u20b911.10 crore across 367 records while LIFCOM disbursed \u20b99.79 crore across 307 records. The combined loan amount for the two lenders is \u20b920.89 crore.",
+   "detail": "same rows",
+   "mapping": {
+    "records_with_loan": [
+     "records",
+     1.0
+    ],
+    "loan_cr": [
+     "loan_cr",
+     1.0
+    ]
+   },
+   "pred_rows": 2
+  },
+  {
+   "id": "CL-06",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "medium",
+   "question": "Name the top 3 districts by total disbursement (subsidy plus loan) under the CM Elevate Legacy Piggery Development scheme.",
+   "gold_rows": 3,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "cm_scheme": "Meghalaya Piggery Development Scheme"
+   },
+   "sql": "SELECT lgd_district,\n       ROUND(SUM(total_disbursement) / 1e7, 2) AS total_disbursed_cr\nFROM curated.v_cm_elevate_disbursement\nWHERE scheme_name = 'Meghalaya Piggery Development Scheme'\nGROUP BY lgd_district\nORDER BY total_disbursed_cr DESC\nLIMIT 3",
+   "seconds": 6.1,
+   "answer": "WEST GARO HILLS has the highest total disbursement at \u20b91.74 crore, followed by SOUTH WEST GARO HILLS at \u20b91.66 crore and EASTERN WEST KHASI HILLS at \u20b91.09 crore. These three districts account for all 3 recorded rows in the dataset.",
+   "detail": "same rows in order",
+   "mapping": {
+    "lgd_district": [
+     "lgd_district",
+     1.0
+    ],
+    "total_disbursed_cr": [
+     "total_disbursed_cr",
+     1.0
+    ]
+   },
+   "pred_rows": 3
+  },
+  {
+   "id": "CL-07",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "medium",
+   "question": "Give me the CM Elevate Legacy Prime Tourism Vehicle scheme year-wise: number of records and sanctioned amount in crore for each financial year.",
+   "gold_rows": 2,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "cm_scheme": "Prime Tourism Vehicle Scheme"
+   },
+   "sql": "SELECT COALESCE(financial_year_short, '(no financial year)') AS financial_year, COUNT(*) AS records, ROUND(SUM(sanctioned_amount) / 1e7, 2) AS sanctioned_cr FROM curated.v_cm_elevate_disbursement WHERE scheme_name = 'Prime Tourism Vehicle Scheme' GROUP BY financial_year_short ORDER BY records DESC",
+   "seconds": 7.3,
+   "answer": "FY 2025-26 holds 84 records with \u20b915.69 crore sanctioned, while FY 2024-25 holds 8 records with \u20b91.91 crore sanctioned.",
+   "detail": "same rows",
+   "mapping": {
+    "records": [
+     "records",
+     1.0
+    ],
+    "sanctioned_cr": [
+     "sanctioned_cr",
+     1.0
+    ]
+   },
+   "pred_rows": 2
+  },
+  {
+   "id": "CL-08",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "medium",
+   "question": "How many distinct villages does the CM Elevate Legacy Dairy Development scheme reach in each district?",
+   "gold_rows": 12,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "cm_scheme": "Meghalaya Dairy Development Scheme"
+   },
+   "sql": "SELECT lgd_district, COUNT(DISTINCT village_code) AS villages FROM curated.v_cm_elevate_disbursement WHERE scheme_name = 'Meghalaya Dairy Development Scheme' AND entity_type <> 'Unresolved' GROUP BY lgd_district ORDER BY lgd_district",
+   "seconds": 6.0,
+   "answer": "Here are the 12 results:\n- EASTERN WEST KHASI HILLS \u2014 villages: 2\n- EAST GARO HILLS \u2014 villages: 6\n- EAST JAINTIA HILLS \u2014 villages: 5\n- EAST KHASI HILLS \u2014 villages: 6\n- NORTH GARO HILLS \u2014 villages: 10\n- RI BHOI \u2014 villages: 10\n- SOUTH GARO HILLS \u2014 villages: 2\n- SOUTH WEST GARO HILLS \u2014 villages: 18\n- SOUTH WEST KHASI HILLS \u2014 villages: 4\n- WEST GARO HILLS \u2014 villages: 20\n- WEST JAINTIA HILLS \u2014 villages",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_district": [
+     "lgd_district",
+     1.0
+    ],
+    "villages": [
+     "villages",
+     1.0
+    ]
+   },
+   "pred_rows": 12
+  },
+  {
+   "id": "CL-09",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "medium",
+   "question": "How many records under the CM Elevate Legacy Sericulture weaving scheme have had nothing disbursed so far (total disbursement of zero)?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "cm_scheme": "Meghalaya Sericulture & Weaving Scheme(weaving)"
+   },
+   "sql": "SELECT COUNT(*) AS records\nFROM curated.v_cm_elevate_disbursement\nWHERE scheme_name = 'Meghalaya Sericulture & Weaving Scheme(weaving)'\n  AND total_disbursement = 0\nLIMIT 1",
+   "seconds": 4.8,
+   "answer": "There is 1 record under the CM Elevate sub-scheme: Meghalaya Sericulture & Weaving Scheme(weaving) with a total disbursement of zero. The result shows 172 records in total for this scheme, but only one of them has zero disbursement.",
+   "detail": "same rows",
+   "mapping": {
+    "records": [
+     "records",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "CL-10",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "hard",
+   "question": "For each Garo Hills district, what percentage of the total amount disbursed under CM Elevate Legacy was paid out as loan?",
+   "gold_rows": 5,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": "For each Garo Hills district, what percentage of the total amount disbursed under CM Elevate Legacy was paid out as a loan?",
+   "resolved": {
+    "district_list": [
+     "EAST GARO HILLS",
+     "NORTH GARO HILLS",
+     "SOUTH GARO HILLS",
+     "SOUTH WEST GARO HILLS",
+     "WEST GARO HILLS"
+    ],
+    "district_list_region": "Garo Hills"
+   },
+   "sql": "SELECT lgd_district, ROUND(100.0 * SUM(total_loan_disbursement) / NULLIF(SUM(total_disbursement), 0), 1) AS loan_percentage FROM curated.v_cm_elevate_disbursement WHERE lgd_district IN ('EAST GARO HILLS', 'NORTH GARO HILLS', 'SOUTH GARO HILLS', 'SOUTH WEST GARO HILLS', 'WEST GARO HILLS') GROUP BY lgd_district ORDER BY loan_percentage DESC",
+   "seconds": 9.6,
+   "answer": "NORTH GARO HILLS shows 35.9% of disbursed funds as loans, followed by EAST GARO HILLS at 35.1%, WEST GARO HILLS at 32.9%, SOUTH GARO HILLS at 28.0%, and SOUTH WEST GARO HILLS at 22.3%. These figures represent the loan percentage for each district across all financial years under CM Elevate Legacy.",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_district": [
+     "lgd_district",
+     1.0
+    ],
+    "loan_pct": [
+     "loan_percentage",
+     1.0
+    ]
+   },
+   "pred_rows": 5
+  },
+  {
+   "id": "CL-11",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "hard",
+   "question": "For the CM Elevate Legacy Agriculture Warehouse scheme in FY 2025-26, how much sanctioned money is still yet to be disbursed in each district, in crore?",
+   "gold_rows": 9,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": "How much sanctioned money is still yet to be disbursed under the CM Elevate Legacy Agriculture Warehouse scheme in FY 2025-26 in each district, in crore?",
+   "resolved": {
+    "year_key": 2025,
+    "cm_scheme": "Meghalaya Agriculture Warehouse Scheme"
+   },
+   "sql": "SELECT lgd_district, ROUND(SUM(sanctioned_amount) / 1e7, 2) AS sanctioned_cr, ROUND(SUM(total_disbursement) / 1e7, 2) AS disbursed_cr, ROUND((SUM(sanctioned_amount) - SUM(total_disbursement)) / 1e7, 2) AS pending_cr FROM curated.v_cm_elevate_disbursement WHERE scheme_name = 'Meghalaya Agriculture Warehouse Scheme' AND financial_year_short = '2025-26' GROUP BY lgd_district ORDER BY pending_cr DESC",
+   "seconds": 9.0,
+   "answer": "\u20b913.58 crore is the total sanctioned amount still pending disbursement across all districts for the Meghalaya Agriculture Warehouse Scheme in FY 2025-26, with EAST KHASI HILLS showing the highest pending value of \u20b91.19 crore and WEST KHASI HILLS the lowest at \u20b90.09 crore. The nine districts listed are EAST KHASI HILLS, SOUTH GARO HILLS, SOUTH WEST GARO HILLS, SOUTH WEST KHASI HILLS, WEST GARO HILL",
+   "detail": "same rows",
+   "mapping": {
+    "lgd_district": [
+     "lgd_district",
+     1.0
+    ],
+    "pending_cr": [
+     "pending_cr",
+     1.0
+    ]
+   },
+   "pred_rows": 9
+  },
+  {
+   "id": "CL-12",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "hard",
+   "question": "In FY 2024-25, which CM Elevate Legacy schemes have disbursed less than half of the amount they sanctioned?",
+   "gold_rows": 4,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "CM Elevate Legacy"
+   ],
+   "rewritten": "Which CM Elevate Legacy schemes have disbursed less than half of the sanctioned amount in FY 2024-25?",
+   "resolved": {
+    "year_key": 2024
+   },
+   "sql": "SELECT scheme_name, ROUND(SUM(sanctioned_amount) / 1e7, 2) AS sanctioned_cr, ROUND(SUM(total_disbursement) / 1e7, 2) AS disbursed_cr, ROUND(100.0 * SUM(total_disbursement) / NULLIF(SUM(sanctioned_amount), 0), 1) AS utilisation_pct FROM curated.v_cm_elevate_disbursement WHERE financial_year_short = '2024-25' GROUP BY scheme_name HAVING SUM(sanctioned_amount) > 0 AND SUM(total_disbursement) < 0.5 * SUM(sanctioned_amount) ORDER BY utilisation_pct ASC",
+   "seconds": 8.0,
+   "answer": "Meghalaya Dairy Development Scheme, Meghalaya Goat Farming Scheme, Meghalaya Agriculture Warehouse Scheme, and Meghalaya Sports & Wellness Scheme all show utilisation percentages of 32.1, 40.0, 46.2, and 49.9 respectively, meaning none disbursed less than half of the sanctioned amount. The data covers all four schemes for FY 2024-25 with no records missing the financial year.",
+   "detail": "same rows",
+   "mapping": {
+    "scheme_name": [
+     "scheme_name",
+     1.0
+    ]
+   },
+   "pred_rows": 4
+  }
+ ],
+ "compared_with": "2026-10-16_1248_business-definitions.json",
+ "delta": {
+  "regressions": [
+   [
+    "PM-04",
+    "no_sql"
+   ]
+  ],
+  "fixed": [
+   "MG-06",
+   "MG-07",
+   "MG-09",
+   "PM-10",
+   "FP-05",
+   "FP-06",
+   "FL-03",
+   "FL-05",
+   "CE-06",
+   "CE-08",
+   "CE-10",
+   "CE-12",
+   "CL-05"
+  ]
+ }
+}

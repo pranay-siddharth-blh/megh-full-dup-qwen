@@ -97,15 +97,46 @@ def test_application_questions_stay_on_cm_elevate(question):
     "what is the total amount disbursed under CM Elevate",
     "CM-ELEVATE loans by lender",
     "how many CM Elevate records in FY 2024-25",
-    # the user's decision (2026-10-12): a bare "CM-ELEVATE" data question in neither
-    # dataset's own vocabulary defaults to CM Elevate Legacy
+])
+def test_money_year_lender_questions_ask_which_dataset(question):
+    # User decision 2026-10-19 (replacing the 2026-10-12 default to Legacy): the
+    # user named CM Elevate, the money lives in Legacy — ask, never switch silently.
+    assert p._pin_cm_elevate_dataset(question) == question
+    assert p._cm_elevate_dataset_choice(question) == "ask"
+    pause = p._cm_elevate_dataset_pause(question)
+    assert pause is not None and pause.rule == "cm-elevate-dataset"
+    assert [o["label"].split(" (")[0] for o in pause.options] == ["CM Elevate", LEGACY]
+
+
+@pytest.mark.parametrize("question", [
     "CM Elevate applications by district",
     "How many CM-ELEVATE applications are recorded in each district?",
 ])
-def test_money_year_lender_questions_move_to_legacy(question):
-    q = p._pin_cm_elevate_dataset(question)
-    assert "CM Elevate Legacy" in q
-    assert p._shortcut_scheme(q) == [LEGACY]
+def test_applications_word_keeps_the_applications_dataset(question):
+    assert p._pin_cm_elevate_dataset(question) == question
+    assert p._cm_elevate_dataset_choice(question) == "applications"
+    assert p._shortcut_scheme(question) == ["CM Elevate"]
+
+
+def test_the_thread_settles_a_bare_cm_elevate():
+    q = "give me the amount disbursed under CM Elevate in Ri Bhoi"
+    assert LEGACY in p._pin_cm_elevate_dataset(q, "CM Elevate Legacy")
+    assert p._cm_elevate_dataset_choice(q, "CM Elevate Legacy") == "legacy"
+    apps = p._pin_cm_elevate_dataset(q, "CM Elevate")
+    assert "CM Elevate applications" in apps and p._cm_elevate_dataset_choice(apps) == "applications"
+    assert p._pin_cm_elevate_dataset(q, "Focus Plus") == q       # another thread: ask
+    assert p._cm_elevate_dataset_choice(q, "Focus Plus") == "ask"
+
+
+def test_dataset_pause_chips_and_typed_replies_resolve():
+    pause = p._cm_elevate_dataset_pause("How much has been disbursed under CM Elevate in Dambo Rongjeng block?")
+    apps_q, legacy_q = (o["question"] for o in pause.options)
+    assert p._cm_elevate_dataset_choice(apps_q) == "applications"
+    assert p._cm_elevate_dataset_choice(legacy_q) is None and LEGACY in legacy_q
+    assert p._resume_scheme_pause("legacy", pause.options) == legacy_q
+    assert p._resume_scheme_pause("applications please", pause.options) == apps_q
+    assert p._resume_scheme_pause("CM Elevate Legacy", pause.options) == legacy_q
+    assert p._resume_scheme_pause("thanks", pause.options) is None
 
 
 @pytest.mark.parametrize("question", [
@@ -264,7 +295,7 @@ def test_retrieval_filters_on_the_shared_tag(monkeypatch):
     async def fake_embed(q):
         return [[0.0]]
 
-    async def fake_search(vec, top_k, scheme=None):
+    async def fake_search(vec, top_k, scheme=None, sparse=None):
         seen.append(scheme)
         return []
 
@@ -294,11 +325,13 @@ def test_naming_both_retrieves_the_shared_docs_once(monkeypatch):
     assert out and "I don't have reference material" not in out["answer"]
 
 
-def test_knowledge_question_is_not_shown_a_legacy_rewrite():
+def test_knowledge_question_is_not_shown_a_dataset_rewrite():
     q = "how much subsidy does CM Elevate provide"
-    pinned = p._pin_cm_elevate_dataset(q)
-    assert pinned != q                                    # the DATA-side decision
+    assert p._pin_cm_elevate_dataset(q) == q              # nothing settled it: no silent rewrite
+    pinned = p._pin_cm_elevate_dataset(q, "CM Elevate Legacy")
+    assert pinned != q                                    # the thread's DATA-side decision
     assert p._unpin_cm_elevate(pinned) == q               # undone on the KNOWLEDGE route
+    assert p._unpin_cm_elevate(p._pin_cm_elevate_dataset(q, "CM Elevate")) == q
 
 
 def test_legacy_tagged_docs_fold_into_the_shared_tag():
@@ -473,7 +506,7 @@ def test_exact_total_is_requeried_without_the_group_by(monkeypatch):
     notes = asyncio.run(p._cm_legacy_exact_totals(_DISTRICT_SQL, _TWO_ROWS))
     assert sent == ["SELECT ROUND(SUM(sanctioned_amount) / 1e7, 2) AS sanctioned_cr, "
                     "ROUND(SUM(total_disbursement) / 1e7, 2) AS total_disbursed_cr "
-                    "FROM curated.v_cm_elevate_disbursement\nWHERE financial_year = '2024-25'"]
+                    "FROM curated.v_cm_elevate_disbursement WHERE financial_year = '2024-25'"]
     assert "total_disbursed_cr = 82.90" in notes[0]
 
 
@@ -508,7 +541,7 @@ def test_sanctioned_count_star_is_rewritten_to_count_sanctioned_amount():
     out = p._cm_legacy_sanctioned_count(
         "How many applications have been sanctioned under CM Elevate Legacy for all of Meghalaya "
         "across all financial years", [LEGACY], sql)
-    assert out == f"SELECT COUNT(sanctioned_amount) AS sanctioned_records\nFROM {_V}\nLIMIT 1"
+    assert out == f"SELECT COUNT(sanctioned_amount) AS sanctioned_records FROM {_V} LIMIT 1"
 
 
 def test_sanctioned_question_with_a_plain_record_count_gets_the_sanctioned_count():
@@ -543,7 +576,7 @@ def test_unrequested_limit_on_a_scheme_ranking_is_dropped():
            "GROUP BY scheme_name\nORDER BY records DESC\nLIMIT 10")
     out = p._cm_legacy_unrequested_limit(
         "Which schemes have the highest number of applications in CM Elevate Legacy?", [LEGACY], sql)
-    assert out == sql[:sql.index("\nLIMIT 10")]
+    assert out == f"SELECT scheme_name, COUNT(*) AS records FROM {_V} GROUP BY scheme_name ORDER BY records DESC"
 
 
 @pytest.mark.parametrize("question,sql", [
@@ -591,8 +624,8 @@ def test_no_village_records_are_requeried_in_the_same_scope_and_stated(monkeypat
     ans = asyncio.run(p._cm_legacy_answer_guarantees(
         "Show me the no of applications mapped to each village in Tikrikilla block", sql, _TIK_ROWS,
         "Tikrikilla block has 89 applications in 42 villages.", {"block": "TIKRIKILLA"}))
-    assert sent[0] == (f"SELECT COUNT(*) AS n FROM {_V}\nWHERE lgd_block = 'TIKRIKILLA'\n"
-                       "  AND entity_type = 'Unresolved'")
+    assert sent[0] == (f"SELECT COUNT(*) AS n FROM {_V} WHERE lgd_block = 'TIKRIKILLA' "
+                       "AND entity_type = 'Unresolved'")
     assert ans.endswith("A further 6 records in Tikrikilla block have no village code, so they are not in "
                         "the village list (counted in block and district totals).")
 
@@ -870,8 +903,8 @@ def test_year_chip_after_village_chip_pins_for_cm_elevate_legacy_too():
     # "MAWTNUM — UMLING block" then "All financial years combined" answered all of Umling (224, not 4)
     import inspect
     src = inspect.getsource(p.resolve_entities)
-    assert "_year_after_tail = bool(_pin_scheme and _YEAR_AFTER_CHIP_TAIL_RE" in src
-    assert p._YEAR_AFTER_CHIP_TAIL_RE.search(
+    assert "_year_after_tail = bool(_pin_scheme and _YEAR_AFTER_CHIP_TAIL_MATCH" in src
+    assert p._YEAR_AFTER_CHIP_TAIL_MATCH.search(
         "How many applications are there under CM Elevate Legacy in MAWTNUM, UMLING block, RI BHOI "
         "across all financial years")
 

@@ -56,6 +56,9 @@ Fill in, at minimum:
 - `DATABASE_URL` — **use `megh_app`**, not the `postgres` superuser. Create it
   first with [sql/01_create_megh_app_role.sql](sql/01_create_megh_app_role.sql)
   (see *Database roles and retention* below)
+- `READONLY_DATABASE_URL` — **use `megh_readonly`**
+  ([sql/03_readonly_role.sql](sql/03_readonly_role.sql)). Model-generated SQL
+  runs only on this login; a superuser here is refused
 - `JWT_SECRET` — long random string; `python -c "import secrets;print(secrets.token_urlsafe(48))"`
 - `ADMIN_TOKEN` — same, for the break-glass bootstrap endpoint
 - the six model roles (`CLASSIFIER` / `SQL_GENERATION` / `RESPONSE` /
@@ -125,10 +128,10 @@ On` and roll to the second VM. Rollback is one line + reload.
 ## 8. Verify
 
 ```bash
-curl -s localhost:8400/health            # anonymous: {"status":"ok"} only
-curl -s -H "X-Metrics-Token: $METRICS_TOKEN" localhost:8400/health    # + "components"
-curl -s -H "X-Metrics-Token: $METRICS_TOKEN" localhost:8400/metrics   # or an admin JWT
-curl -s -H "Authorization: Bearer <user JWT>" localhost:8400/api/rag/status   # KB point count
+curl -s localhost:8401/health            # anonymous: {"status":"ok"} only
+curl -s -H "X-Metrics-Token: $METRICS_TOKEN" localhost:8401/health    # + "components"
+curl -s -H "X-Metrics-Token: $METRICS_TOKEN" localhost:8401/metrics   # or an admin JWT
+curl -s -H "Authorization: Bearer <user JWT>" localhost:8401/api/rag/status   # KB point count
 ```
 
 `/health` reports `degraded` with the failing component named when Postgres or
@@ -142,9 +145,9 @@ default). The first graph request on each worker opens a pool of
 `memory` means the pool could not open (check `DATABASE_URL` / role). The
 tables `app.checkpoints`, `app.checkpoint_blobs`, `app.checkpoint_writes`,
 `app.checkpoint_migrations` already exist in megh_db (owner `postgres`, v9);
-`setup()` is a no-op on them. If the app ever runs as `megh_app`, those four
-tables need its grants (sql/01's default privileges cover tables created later
-by the granting role only). The `public.checkpoint*` tables belong to another
+`setup()` is a no-op on them. sql/01 makes `megh_app` the owner of every
+`app.*` table, these four included, so `setup()` and `ensure_schema()` keep
+working when the app runs as `megh_app`. The `public.checkpoint*` tables belong to another
 service; leave them alone. There is no SQLite checkpoint any more; old
 `logs/langgraph_checkpoints.sqlite*` files are unused. If Postgres cannot be
 opened a worker uses in-process memory and answers stay correct (see
@@ -231,20 +234,45 @@ Two review-then-run scripts live in [sql/](sql/). Both need a superuser
 (`postgres` / `dbadmin`) and are idempotent. Both were validated against the
 live database inside a rolled-back transaction.
 
+The service uses two logins, so model-generated SQL never runs with write
+access:
+
+| Pool | Setting | Role | Used for |
+|---|---|---|---|
+| app | `DATABASE_URL` | `megh_app` | the service's own `app.*` writes; trusted, parametrised queries |
+| read-only | `READONLY_DATABASE_URL` | `megh_readonly` | model-generated SQL only (`app/db.run_readonly`) |
+
 **[sql/01_create_megh_app_role.sql](sql/01_create_megh_app_role.sql)** — creates
-`megh_app`: SELECT-only on `curated.*` and `semantic.*` (the surface generated
-SQL runs against), read/write on `app.*` (the service's own users, sessions,
-history and audit). Set a real password in the script first, then:
+`megh_app`: SELECT-only on `curated.*` and `semantic.*`, USAGE on `public` (for
+`pg_trgm`'s `similarity()`), and **owner** of every `app.*` table (startup's
+`ALTER TABLE ... ADD COLUMN IF NOT EXISTS` and the checkpointer's `setup()` need
+ownership). No access to `raw` / `staging` / `meta`.
+
+**[sql/03_readonly_role.sql](sql/03_readonly_role.sql)** — hardens
+`megh_readonly`: SELECT on every `curated.*` / `semantic.*` object (it was
+missing `curated.v_cm_elevate` and `curated.fact_cm_elevate_application`),
+nothing else, plus `default_transaction_read_only = on`,
+`search_path = curated, semantic` and `statement_timeout = 30s` on the role.
+The service also sets the first two on every connection and opens each
+generated query with `BEGIN READ ONLY`; the SQLGlot check in `app/sql_guard.py`
+rejects any table outside `curated` / `semantic` before it is sent.
+
+Set a real password in each script if the role doesn't exist yet, then:
 
 ```bash
 psql -d megh_db -f deploy/sql/01_create_megh_app_role.sql
+psql -d megh_db -f deploy/sql/03_readonly_role.sql
 # then in .env:
-#   DATABASE_URL=postgresql+asyncpg://megh_app:<password>@10.48.242.4:5432/megh_db
+#   DATABASE_URL=postgresql://megh_app:<password>@10.48.242.4:5432/megh_db
+#   READONLY_DATABASE_URL=postgresql://megh_readonly:<password>@10.48.242.4:5432/megh_db
 sudo systemctl restart megh-nlpservice
 ```
 
-> The existing `megh_readonly` cannot be used directly: it has no access to the
-> `app` schema, so login, chat history and the audit trail would all fail.
+Startup logs `megh_db read-only pool ready as 'megh_readonly'`. If the read-only
+login is a superuser the pool is refused (CRITICAL in the log, data questions
+fail with a 503) unless `READONLY_DB_ALLOW_SUPERUSER=true`, which is for dev
+only. Both scripts were dry-run against the live megh_db inside a rolled-back
+transaction on 2026-10-15.
 
 **[sql/02_retention_policy.sql](sql/02_retention_policy.sql)** — adds
 `app.purge_expired()`. `app.conversation_turns` holds every question, answer and
@@ -263,6 +291,8 @@ psql -d megh_db -f deploy/sql/02_retention_policy.sql
 ## Before real traffic
 
 - [ ] `DATABASE_URL` uses `megh_app` (sql/01), not the `postgres` superuser
+- [ ] `READONLY_DATABASE_URL` uses `megh_readonly` (sql/03); startup logs
+      `read-only pool ready as 'megh_readonly'`
 - [ ] `JWT_SECRET` and `ADMIN_TOKEN` are real random values, not `CHANGE_ME`
       (startup logs a `CRITICAL` line otherwise — see `docs/SECURITY.md`)
 - [ ] the seeded `changeme123` passwords are rotated (`superadmin` first)

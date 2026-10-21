@@ -70,10 +70,38 @@ check("  an unaggregated subquery join is flagged too",
       p._mgnrega_facts_joined(
           "SELECT * FROM (SELECT total_exp FROM curated.v_expenditure) e "
           "JOIN (SELECT person_days FROM curated.v_employment) m ON 1=1"))
+# A leading WITH used to excuse the whole statement, so a fan-out inside a CTE
+# body (or a join of two unaggregated per-fact CTEs) ran unflagged.
+check("  a join of the two raw facts INSIDE a CTE body is flagged",
+      p._mgnrega_facts_joined(
+          "WITH x AS (SELECT SUM(e.total_exp) AS te, SUM(m.person_days) AS pd "
+          "FROM curated.v_expenditure e JOIN curated.v_employment m "
+          "ON e.lgd_block = m.lgd_block AND e.year_key = m.year_key "
+          f"WHERE e.lgd_block = 'RERAPARA' AND e.year_key = 2023) SELECT te, pd FROM x"))
+check("  a join of two UNAGGREGATED per-fact CTEs is flagged",
+      p._mgnrega_facts_joined(
+          "WITH e AS (SELECT * FROM curated.v_expenditure), m AS (SELECT * FROM curated.v_employment) "
+          "SELECT SUM(e.total_exp), SUM(m.person_days) FROM e JOIN m ON e.lgd_block = m.lgd_block"))
+check("  a comma join of the two raw facts is flagged",
+      p._mgnrega_facts_joined(
+          "SELECT SUM(e.total_exp), SUM(m.person_days) FROM curated.v_expenditure e, "
+          "curated.v_employment m WHERE e.lgd_block = m.lgd_block"))
 
 print("2. THE SAFE SHAPES ARE NOT")
 check("inline aggregated subqueries pass", not p._mgnrega_facts_joined(_SUBQUERIES))
 check("a CTE per fact passes", not p._mgnrega_facts_joined(_CTES))
+check("a CTE per fact, grouped by block and joined on the block, passes",
+      not p._mgnrega_facts_joined(
+          "WITH emp AS (SELECT lgd_block, SUM(person_days) AS pd FROM curated.v_employment "
+          "WHERE year_key = 2023 GROUP BY lgd_block), "
+          "exp AS (SELECT lgd_block, SUM(total_exp) AS te FROM curated.v_expenditure "
+          "WHERE year_key = 2023 GROUP BY lgd_block) "
+          "SELECT COALESCE(emp.lgd_block, exp.lgd_block) AS blk, exp.te, emp.pd "
+          "FROM emp FULL OUTER JOIN exp ON emp.lgd_block = exp.lgd_block"))
+check("the fixed combined query passes",
+      not p._mgnrega_facts_joined(p._mgnrega_combined_facts_query(
+          "How much was spent and how many person-days in JAKREM?", ["MGNREGA"],
+          {"block": "JAKREM", "year_key": 2024})[2]))
 check("joining a fact to dim_geography passes",
       not p._mgnrega_facts_joined(
           "SELECT SUM(person_days) FROM curated.v_employment "

@@ -129,6 +129,8 @@ def test_state_crosses_workers_a_b_c(monkeypatch):
                                       "year_key": 2024}}
 
     monkeypatch.setattr(llm, "call_classifier", classifier)
+
+    monkeypatch.setattr(llm, "call_rewriter", classifier)
     stub_data_path(monkeypatch, fake_answer_data)
     r2 = _run(graph_turn("What about Dalu block?", session=b))
     assert "Dalu" in seen["q"] and "West Garo Hills" in seen["q"]
@@ -211,6 +213,7 @@ def test_pending_clarification_crosses_workers(monkeypatch):
 
     stub_data_path(monkeypatch, fake_answer_data)
     monkeypatch.setattr(llm, "call_classifier", classifier)
+    monkeypatch.setattr(llm, "call_rewriter", classifier)
     _run(graph_turn("Focus Plus", session=b))
     assert seen["q"] == "Show beneficiaries for Focus Plus"
     assert b.turn_context["clarification_reply"] == "Focus Plus"
@@ -234,6 +237,7 @@ def test_summary_is_not_persisted_behind_the_versioned_write(monkeypatch):
 
     monkeypatch.setattr(conversation_store, "save_context_state", boom)
     monkeypatch.setattr(llm, "call_classifier", ok)
+    monkeypatch.setattr(llm, "call_rewriter", ok)
     s = Session(session_id="x", user_id=None, created=0.0, last_seen=0.0)
     s.state.turn_count = 4
     s.turns = [Turn(question=Q1, raw_question=Q1, route="data")]
@@ -319,6 +323,8 @@ def _pipeline_prior(monkeypatch, prev_turn, followup, rewrite):
                 "sql": "S", "rows": [], "data": [], "resolved_entities": {}}
 
     monkeypatch.setattr(llm, "call_classifier", classifier)
+
+    monkeypatch.setattr(llm, "call_rewriter", classifier)
     stub_data_path(monkeypatch, fake_answer_data)
     s = Session(session_id="t", user_id="u", created=time.time(), last_seen=time.time())
     s.turns = [prev_turn]
@@ -492,9 +498,9 @@ def test_field_policy_table_is_complete_and_scheme_agnostic():
 
 
 def test_a_seventh_scheme_needs_no_context_code(monkeypatch):
-    import re
-    monkeypatch.setitem(p._SCHEME_NAME_PATTERN, "Test Scheme",
-                        re.compile(r"\btest\s+scheme\b", re.IGNORECASE))
+    from app.text_match import Matcher, Seq
+    monkeypatch.setitem(p._SCHEME_NAME_MATCHER, "Test Scheme",
+                        Matcher(Seq("test", "scheme", sep="space")))
     monkeypatch.setitem(p.SCHEME_CATALOG, "Test Scheme", "a synthetic seventh scheme")
     assert cp.plan_state_merge("what about Test Scheme?", STATE, prev=PREV).action("scheme") == \
         cp.REPLACE
@@ -619,6 +625,8 @@ def test_cleared_filter_is_told_to_the_rewrite_and_enforced(monkeypatch):
                 "sql": "S", "rows": [], "data": [], "resolved_entities": {}}
 
     monkeypatch.setattr(llm, "call_classifier", classifier)
+
+    monkeypatch.setattr(llm, "call_rewriter", classifier)
     stub_data_path(monkeypatch, fake_answer_data)
     s = Session(session_id="t", user_id="u", created=0.0, last_seen=0.0)
     s.turns = [Turn(question=Q1, raw_question=Q1, route="data", schemes=["Focus Plus"],

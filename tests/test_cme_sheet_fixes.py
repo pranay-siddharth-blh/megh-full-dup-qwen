@@ -27,7 +27,7 @@ def test_programme_count_overrules_scope():
 
 # ── status distribution is a figure summary (OFF-015) ──────────────────────
 def test_status_distribution_is_a_figure_summary():
-    assert p._FIGURE_SUMMARY_RE.search("What is the current application status distribution across CM ELEVATE?")
+    assert p._FIGURE_SUMMARY_MATCH.search("What is the current application status distribution across CM ELEVATE?")
 
 
 # ── deterministic sector queries (OFF-012 / 014 / 028) ─────────────────────

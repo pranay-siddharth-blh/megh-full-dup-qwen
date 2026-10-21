@@ -1,5 +1,6 @@
 import { useEffect, useRef } from 'react';
 import { CARD_QUESTIONS, SCHEME_CARDS, USE_CASES } from '../constants.js';
+import { isLineEnd, isLowerAlnum, isSpace, replaceRuns, runEnd } from '../text.js';
 
 /* The Use cases popup as an accordion: one card per scheme; opening a card
    shows that scheme's questions beneath it, and only one is open at a time
@@ -28,7 +29,27 @@ function Icon({ name, size = 16, stroke = 2 }) {
 }
 
 // "Rural employment guarantee · village-year grain · …" -> "Rural employment guarantee"
-const shortMeta = (meta) => String(meta || '').split(' · ')[0].replace(/\s*\(.*?\)\s*/g, ' ').trim();
+const shortMeta = (meta) => dropParens(String(meta || '').split(' · ')[0]).trim();
+
+// Every "(...)" on one line, with the spaces around it, becomes one space.
+function dropParens(s) {
+  let out = '';
+  let i = 0;
+  while (i < s.length) {
+    const open = runEnd(s, i, isSpace);
+    if (s[open] === '(') {
+      let close = open + 1;
+      while (close < s.length && s[close] !== ')' && !isLineEnd(s[close])) close++;
+      if (s[close] === ')') {
+        out += ' ';
+        i = runEnd(s, close + 1, isSpace);
+        continue;
+      }
+    }
+    out += s[i++];
+  }
+  return out;
+}
 
 const dedupe = (list) => {
   const seen = new Set();
@@ -51,9 +72,9 @@ export function buildUseCaseGroups() {
   Object.entries(USE_CASES).forEach(([section, items]) => {
     if (used.has(section)) return;
     groups.push({
-      key: section.toLowerCase().replace(/[^a-z0-9]+/g, '_'),
+      key: replaceRuns(section.toLowerCase(), (c) => !isLowerAlnum(c), '_'),
       name: section,
-      desc: /cross/i.test(section) ? 'Questions that combine two schemes' : '',
+      desc: section.toLowerCase().includes('cross') ? 'Questions that combine two schemes' : '',
       questions: dedupe(items),
     });
   });

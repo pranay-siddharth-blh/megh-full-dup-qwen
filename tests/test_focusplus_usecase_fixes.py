@@ -465,8 +465,8 @@ def test_twin_chip_pins_its_lgd_code(monkeypatch):
 
 def test_lgd_code_is_not_a_misquote():
     q = "How many Focus Plus beneficiaries are there in Daren Agal (LGD 904712), GAMBEGRE block, WEST GARO HILLS"
-    assert p._CHIP_LGD_CODE_RE.findall(q) == ["904712"]
-    assert "904712" not in p._CHIP_LGD_CODE_RE.sub("", q)
+    assert p._CHIP_LGD_CODE_MATCH.findall(q) == ["904712"]
+    assert "904712" not in p._CHIP_LGD_CODE_MATCH.sub("", q)
 
 
 def test_district_alias_that_is_also_a_village_asks(monkeypatch):

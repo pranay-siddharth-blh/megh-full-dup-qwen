@@ -80,6 +80,8 @@ def _rewrite(monkeypatch, followup, prev, model_reply, extra_context=""):
         return model_reply
 
     monkeypatch.setattr(llm, "call_classifier", classifier)
+
+    monkeypatch.setattr(llm, "call_rewriter", classifier)
     out = asyncio.run(p.rewrite_followup(followup, prev, extra_context=extra_context))
     return out, (seen[0] if seen else "")
 
@@ -197,6 +199,7 @@ def test_deterministic_scheme_swap_is_unchanged(monkeypatch):
     async def boom(*_a, **_k):
         raise AssertionError("scheme swap must not call the model")
     monkeypatch.setattr(llm, "call_classifier", boom)
+    monkeypatch.setattr(llm, "call_rewriter", boom)
     out = asyncio.run(p.rewrite_followup("in MGNREGA?", _prev()))
     assert "MGNREGA" in out and "Focus Plus" not in out
 
@@ -292,6 +295,7 @@ def test_scheme_pause_resume_end_to_end(monkeypatch):
 
     stub_data_path(monkeypatch, fake_answer_data)
     monkeypatch.setattr(llm, "call_classifier", classifier)
+    monkeypatch.setattr(llm, "call_rewriter", classifier)
     sess = Session(session_id="t", user_id="u", created=time.time(), last_seen=time.time())
     clar = p._scheme_clarification("Show beneficiaries")
     sess.pending_scope_q, sess.pending_scope_rule = "Show beneficiaries", clar.rule
@@ -370,4 +374,5 @@ def test_first_turn_never_calls_the_model(monkeypatch):
     async def boom(*_a, **_k):
         raise AssertionError("no previous turn -> no rewrite call")
     monkeypatch.setattr(llm, "call_classifier", boom)
+    monkeypatch.setattr(llm, "call_rewriter", boom)
     assert asyncio.run(p.rewrite_followup("What about Dalu block?", None)) == "What about Dalu block?"

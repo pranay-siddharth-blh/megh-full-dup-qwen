@@ -9,12 +9,12 @@ Usage (repo root): mg_run.py [DATA-001 ...]   -> mg_results.json"""
 import asyncio
 import json
 import os
-import re
 import sys
 
 sys.path.insert(0, ".")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import Conv, close, fetch, numbers_in, text_numbers  # noqa: E402
+from tests._text_checks import first_of, has_phrase, word_chars_only  # noqa: E402
 from app import main as app_main  # noqa: E402
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -51,7 +51,7 @@ def has(rec, expected, rel=0.005, money=False):
 
 def has_name(rec, name):
     blob = (rec.get("answer") or "") + " " + json.dumps(rec.get("rows") or [], default=str)
-    return re.sub(r"\W", "", name).lower() in re.sub(r"\W", "", blob).lower()
+    return word_chars_only(name).lower() in word_chars_only(blob).lower()
 
 
 # ── the conversation driver ─────────────────────────────────────────────────
@@ -187,7 +187,7 @@ async def main():
                        FROM curated.v_employment e
                        JOIN u ON u.n = UPPER(e.lgd_village_name) JOIN ue ON ue.n = u.n
                        WHERE e.village_code IS NOT NULL AND LENGTH(e.lgd_village_name) >= 5
-                         AND e.lgd_village_name !~ '[^A-Za-z ]'
+                         AND TRANSLATE(UPPER(e.lgd_village_name), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ', '') = ''
                        GROUP BY 1 HAVING COUNT(DISTINCT e.year_key)=4 AND SUM(e.person_days) > 0),
                  x AS (SELECT c.*, ROW_NUMBER() OVER (PARTITION BY d ORDER BY md5(name)) rn FROM c
                        WHERE c.village_code IN (SELECT village_code FROM curated.v_expenditure
@@ -244,9 +244,9 @@ async def main():
                 ans = (rec.get("answer") or "").lower()
                 vals_ok = has(rec, mat, 0.006, True) and (has(rec, wages, 0.006, True)
                                                           or has(rec, e_unsk, 0.006, True))
-                first = re.search(r"(wage|material)", ans)
-                right = bool(first) and first.group(1) == winner
-                return vals_ok and right, f"wages={wages:.2f} material={mat:.2f} winner={winner} first_named={first.group(1) if first else None}"
+                first = first_of(ans, "wage", "material")
+                right = first == winner
+                return vals_ok and right, f"wages={wages:.2f} material={mat:.2f} winner={winner} first_named={first}"
             add(run_case("DATA-023", lab, f"Was more spent on wages or materials in {name}?", wm_check,
                          expected={"wages": wages, "material": e["material_exp"]}, **kw))
             add(run_case("DATA-028", lab, f"How much was spent and how many person-days were generated in {name} "
@@ -261,7 +261,7 @@ async def main():
             SELECT e.village_code, MIN(e.lgd_village_name) name, MIN(e.lgd_block) b, MIN(e.lgd_district) d,
                    SUM(e.total_exp)::float8 t
             FROM curated.v_expenditure e JOIN n ON n.n = UPPER(e.lgd_village_name)
-            WHERE e.year_key=2024 AND e.lgd_village_name !~ '[^A-Za-z ]' GROUP BY 1 ORDER BY md5(MIN(e.lgd_village_name)) LIMIT 8""")
+            WHERE e.year_key=2024 AND TRANSLATE(UPPER(e.lgd_village_name), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ', '') = '' GROUP BY 1 ORDER BY md5(MIN(e.lgd_village_name)) LIMIT 8""")
         for v in dups:
             add(run_case("DATA-001", f"same-name {v['name']} -> {v['b']} ({v['d']}) FY 2024-25",
                          f"What was the total expenditure in {v['name']} during 2024-25?",
@@ -380,8 +380,8 @@ async def main():
             if top["v"] > 0:
                 chk = (lambda r, t=top: (has_name(r, t["n"]) and has(r, t["v"]), f"exp {t['n']} {t['v']}"))
             else:   # 2025-26: women employment not recorded at source — must say so, not name a district
-                chk = (lambda r: (bool(re.search(r"not (?:been )?recorded|not available|unrecorded|not captured|zero",
-                                                 r.get("answer") or "", re.I)), "expects 'not recorded'"))
+                chk = (lambda r: (has_phrase(r.get("answer") or "", "not recorded", "not been recorded", "not available",
+                                                 "unrecorded", "not captured", "zero"), "expects 'not recorded'"))
             add(run_case("DATA-027", fy_label(y), f"Which district had the highest women employment during {fy(y, y + 3)}?",
                          chk, year=y, expected=dict(top)))
 

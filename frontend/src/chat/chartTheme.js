@@ -14,6 +14,8 @@
    - Text never wears the data colour: labels use ink tokens; a label inside a
      filled slice picks white or ink by the fill's lightness. */
 
+import { isAsciiLetter, isPeriodLabel, isSpace, runEnd, splitSpaces } from './text.js';
+
 export const SCHEME_HUES = {
   MGNREGA: { main: '#eb6834', deep: '#b8461b' },
   'PMAY-G': { main: '#2a78d6', deep: '#1c4f95' },
@@ -75,7 +77,10 @@ export function themeFor(schemes) {
 export function insightFor(type, labels, values) {
   const nums = (values || []).map((v) => Number(v) || 0);
   if (nums.length < 2) return '';
-  if (type === 'line') {
+  // "up 1530484561% since MGNREGA" (2026-10-19): a change over time only makes
+  // sense when the x-axis IS time; over categories the line reads like a bar.
+  const overTime = isPeriodLabel(labels[0]) && isPeriodLabel(labels[labels.length - 1]);
+  if (type === 'line' && overTime) {
     const first = nums[0];
     const last = nums[nums.length - 1];
     const lead = `Latest ${fmtCompact(last)} in ${labels[labels.length - 1]}`;
@@ -88,6 +93,21 @@ export function insightFor(type, labels, values) {
   const total = nums.reduce((s, v) => s + v, 0);
   const share = total > 0 && (type === 'pie' || type === 'doughnut') ? ` · ${Math.round((nums[hi] / total) * 1000) / 10}% of the total` : '';
   return `Highest: ${labels[hi]} · ${fmtCompact(nums[hi])}${share}`;
+}
+
+/** The headline for a multi-series chart (scheme × year, district × year):
+    over periods, each series' latest value at the last period; otherwise the
+    single highest cell and which series / category it belongs to. */
+export function insightForSeries(labels, datasets, periods) {
+  if (!labels || !labels.length || !datasets || !datasets.length) return '';
+  if (periods) {
+    const last = labels.length - 1;
+    const parts = datasets.map((d) => `${d.label} ${fmtCompact(Number(d.data[last]) || 0)}`);
+    return `Latest (${labels[last]}): ${parts.join(' · ')}`;
+  }
+  let best = { v: -Infinity, s: '', l: '' };
+  datasets.forEach((d) => d.data.forEach((v, j) => { const n = Number(v) || 0; if (n > best.v) best = { v: n, s: d.label, l: labels[j] }; }));
+  return best.v > -Infinity ? `Highest: ${best.s} in ${best.l} · ${fmtCompact(best.v)}` : '';
 }
 
 /** Entry animation: bars and points grow in one after another (a short
@@ -105,41 +125,85 @@ export function chartAnimation() {
 // A series named after a scheme ("mgnrega spend cr", "PMAY-G houses") keeps
 // that scheme's hue, so colour follows the entity across every chart.
 // CM Elevate Legacy / Focus Legacy are tested before their parents.
+// Words may be joined by spaces, '_' or '-' ("cm_elevate", "focus-plus", "focus+");
+// a short form (cmel, cme, fp) counts only when no letter touches it.
+const isJoiner = (c) => isSpace(c) || c === '_' || c === '-';
+const isLetter = (c) => isAsciiLetter(c);
+function hasJoined(low, parts) {
+  for (let i = low.indexOf(parts[0]); i !== -1; i = low.indexOf(parts[0], i + 1)) {
+    let j = i + parts[0].length;
+    let ok = true;
+    for (const alts of parts.slice(1)) {
+      j = runEnd(low, j, isJoiner);
+      const hit = [].concat(alts).find((a) => low.startsWith(a, j));
+      if (hit === undefined) { ok = false; break; }
+      j += hit.length;
+    }
+    if (ok) return true;
+  }
+  return false;
+}
+function hasAlone(low, word) {
+  for (let i = low.indexOf(word); i !== -1; i = low.indexOf(word, i + 1)) {
+    if (!isLetter(low[i - 1]) && !isLetter(low[i + word.length])) return true;
+  }
+  return false;
+}
 const SERIES_SCHEME = [
-  [/cm[\s_-]*elevate[\s_-]*legacy|(?:^|[^a-z])cmel(?![a-z])/i, 'CM Elevate Legacy'],
-  [/cm[\s_-]*elevate|(?:^|[^a-z])cme(?![a-z])/i, 'CM Elevate'],
-  [/focus[\s_-]*legacy/i, 'Focus Legacy'],
-  [/focus[\s_-]*(?:plus|\+)|(?:^|[^a-z])fp(?![a-z])/i, 'Focus Plus'],
-  [/pmay/i, 'PMAY-G'],
-  [/mgnrega|nrega/i, 'MGNREGA'],
+  [(l) => hasJoined(l, ['cm', 'elevate', 'legacy']) || hasAlone(l, 'cmel'), 'CM Elevate Legacy'],
+  [(l) => hasJoined(l, ['cm', 'elevate']) || hasAlone(l, 'cme'), 'CM Elevate'],
+  [(l) => hasJoined(l, ['focus', 'legacy']), 'Focus Legacy'],
+  [(l) => hasJoined(l, ['focus', ['plus', '+']]) || hasAlone(l, 'fp'), 'Focus Plus'],
+  [(l) => l.includes('pmay'), 'PMAY-G'],
+  [(l) => l.includes('nrega'), 'MGNREGA'],          // also "mgnrega"
 ];
 export const schemeOfSeries = (label) => {
-  const hit = SERIES_SCHEME.find(([re]) => re.test(String(label)));
+  const low = String(label).toLowerCase();
+  const hit = SERIES_SCHEME.find(([test]) => test(low));
   return hit ? hit[1] : null;
 };
 
-/** One colour per series: its scheme's hue when the name says which scheme,
-    otherwise the next categorical colour not already on the chart. */
+/** One colour per series. A series named after a scheme wears that scheme's
+    hue. Several series of ONE scheme ("PMAY-G · 2017-18", "PMAY-G · 2018-19":
+    its years, its districts) are shades of that hue — palest first, the last
+    (latest) in the full hue — never a different colour each, so one scheme is
+    always one colour family. In a ONE-scheme answer (theme.scheme set) every
+    series is that scheme's — its years, its districts — so series that name no
+    scheme are shades of the answer's hue too. Only a cross-scheme answer hands
+    an unnamed series the next categorical colour not already on the chart. */
 export function seriesColors(labels, theme) {
-  const used = new Set();
-  const out = labels.map((l) => {
-    const sch = schemeOfSeries(l);
-    if (sch && !used.has(SCHEME_HUES[sch].main)) { used.add(SCHEME_HUES[sch].main); return SCHEME_HUES[sch].main; }
-    return null;
-  });
+  const schemes = labels.map((l) => schemeOfSeries(l));
+  const count = {};
+  schemes.forEach((s) => { if (s) count[s] = (count[s] || 0) + 1; });
+  const unnamed = schemes.filter((s) => !s).length;
+  const used = new Set(Object.keys(count).map((s) => SCHEME_HUES[s].main));
   const free = theme.series.filter((c) => !used.has(c));
+  const seen = {};
   let k = 0;
-  return out.map((c) => c || free[k++ % free.length]);
+  return labels.map((l, i) => {
+    const s = schemes[i];
+    if (!s) {
+      if (!theme.scheme) return free[k++ % free.length];
+      const j = k++;
+      return unnamed === 1 ? theme.main : tint(theme.main, ((unnamed - 1 - j) / (unnamed - 1)) * 0.65);
+    }
+    const n = count[s];
+    const j = seen[s] || 0;
+    seen[s] = j + 1;
+    return n === 1 ? SCHEME_HUES[s].main : tint(SCHEME_HUES[s].main, ((n - 1 - j) / (n - 1)) * 0.6);
+  });
 }
 
-/** When a one-series chart's CATEGORIES are schemes ("Value by scheme":
-    MGNREGA, PMAY-G, …), each bar / slice wears its scheme's hue, as everywhere
-    else; a category that is no scheme of ours (NRLM) gets the next free
-    categorical colour. Null when most categories are not schemes. */
+/** When a one-series chart's CATEGORIES are different schemes ("Value by
+    scheme": MGNREGA, PMAY-G, …), each bar / slice wears its scheme's hue, as
+    everywhere else; a category that is no scheme of ours (NRLM) gets the next
+    free categorical colour. Null when most categories are not schemes, and
+    null when they all belong to ONE scheme (its years, its districts): that is
+    one scheme's breakdown, drawn in that scheme's hue by the caller. */
 export function categorySchemeColors(labels, theme) {
   if (!labels || labels.length < 2) return null;
-  const hits = labels.filter((l) => schemeOfSeries(l)).length;
-  if (hits < 2 || hits / labels.length < 0.6) return null;
+  const found = labels.map((l) => schemeOfSeries(l)).filter(Boolean);
+  if (found.length < 2 || found.length / labels.length < 0.6 || new Set(found).size < 2) return null;
   return seriesColors(labels, theme);
 }
 
@@ -149,7 +213,7 @@ export const shade = (hex, t) => toHex(hexToRgb(hex).map((v) => v * (1 - t)));
 /** Category labels wrapped onto at most two lines (Chart.js draws an array as
     lines), so a level axis stays readable instead of slanting. */
 export function wrapLabel(label, max = 14) {
-  const words = String(label).split(/\s+/);
+  const words = splitSpaces(String(label));
   const lines = [''];
   for (const w of words) {
     const cur = lines[lines.length - 1];
@@ -169,9 +233,20 @@ export function ordinalSteps(theme, n) {
 
 // ── Number format: Indian grouping, compact on axes ─────────────────────────
 const FULL = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 });
-const COMPACT = new Intl.NumberFormat('en-IN', { notation: 'compact', maximumFractionDigits: 1 });
 export const fmt = (v) => FULL.format(Number(v) || 0);
-export const fmtCompact = (v) => (Math.abs(Number(v)) >= 1000 ? COMPACT.format(Number(v)) : fmt(v));
+// Compact in Indian units only: below 1 lakh the full figure ("3,629"), then
+// lakh ("1.7L") and crore ("2,185Cr"). Intl's compact mixed in thousands —
+// "3.6K", and "2.2KCr" for 2,185 crore (user report 2026-10-19).
+const UNIT = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 1 });
+const UNIT_BIG = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
+const inUnit = (x) => (Math.abs(x) < 100 ? UNIT : UNIT_BIG).format(x);
+export const fmtCompact = (v) => {
+  const n = Number(v) || 0;
+  const a = Math.abs(n);
+  if (a >= 1e7) return `${inUnit(n / 1e7)}Cr`;
+  if (a >= 1e5) return `${inUnit(n / 1e5)}L`;
+  return fmt(n);
+};
 
 // ── Plugins ─────────────────────────────────────────────────────────────────
 const FONT = (size, weight = 600) => `${weight} ${size}px Inter, system-ui, -apple-system, "Segoe UI", sans-serif`;
@@ -372,6 +447,8 @@ export const lineEndLabel = {
     if (!meta || !ds || !meta.data.length) return;
     const i = meta.data.length - 1;
     const el = meta.data[i];
+    // Zoomed into an earlier stretch: the last point is off the chart.
+    if (!el || el.x > chart.chartArea.right + 1 || el.x < chart.chartArea.left - 1) return;
     const { ctx } = chart;
     ctx.save();
     const text = fmtCompact(ds.data[i]);

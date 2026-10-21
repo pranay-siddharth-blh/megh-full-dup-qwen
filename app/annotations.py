@@ -9,7 +9,7 @@ Deliberately NOT loaded here yet — each needs a design decision before it can
 be wired in safely, not just a parser:
   - *_classification_rules.yaml / *_default_rules.yaml: each rule's `condition`
     is a named label (e.g. "per_capita_requested"), not executable code. Needs
-    a matcher (regex/keyword, per scheme) mapping a question to a condition
+    a matcher (word/keyword, per scheme) mapping a question to a condition
     name before these rules can fire.
   - *_entity_resolver.yaml: large (1500-1800 lines/scheme) alias tables for
     village/district/block/year matching against curated.dim_geography_alias.
@@ -25,10 +25,12 @@ schema_context.py's hand-written version is used for now instead.
 """
 import logging
 import math
-import re
 from pathlib import Path
 
 import yaml
+from sqlglot import exp
+
+from app import sql_ast
 
 logger = logging.getLogger(__name__)
 
@@ -92,6 +94,65 @@ def _load_yaml(path: Path) -> dict:
         return yaml.safe_load(f)
 
 
+# Schemas the chatbot's database role cannot read (the ingestion team's decision:
+# megh_readonly has no access to meta, 2026-10-16). An example that reads one
+# teaches the generator a query that can only fail.
+_UNREADABLE_SCHEMAS = ("meta", "staging", "raw")
+
+
+def _cme_example_sql(sql: str) -> "str | None":
+    """A CM Elevate example adapted to the 2026-10-16 database, or None to drop it.
+    scheme_specific ->> 'sector_id' becomes the plain sector_id column; any other
+    scheme_specific read (gender, file_status, extra fields) drops the example,
+    because megh_readonly may not read that column; every COUNT(*) whose SELECT
+    reads v_cm_elevate becomes COUNT(DISTINCT request_id) (an application is a
+    distinct request_id: 27 applications have two identical records)."""
+    def fn(tree: exp.Expression) -> None:
+        for j in list(tree.find_all(exp.JSONExtractScalar)):
+            col, path = j.this, j.expression
+            keys = [k for k in (path.expressions if isinstance(path, exp.JSONPath) else [])
+                    if isinstance(k, exp.JSONPathKey)]
+            if isinstance(col, exp.Column) and col.name.lower() == "scheme_specific" \
+                    and len(keys) == 1 and str(keys[0].this).lower() == "sector_id":
+                j.replace(exp.column("sector_id", table=col.table or None))
+        for c in list(tree.find_all(exp.Count)):
+            sel = c.find_ancestor(exp.Select)
+            if not isinstance(c.this, exp.Star) or sel is None:
+                continue
+            frm = sel.args.get("from_") or sel.args.get("from")
+            srcs = ([frm.this] if frm is not None else []) + [j.this for j in sel.args.get("joins") or []]
+            if any(isinstance(s, exp.Table) and s.name.lower() == "v_cm_elevate" for s in srcs):
+                c.set("this", exp.Distinct(expressions=[exp.column("request_id")]))
+
+    out = sql_ast.transform(sql, fn)
+    if any(c.name.lower() == "scheme_specific" for t in sql_ast.parse(out) for c in t.find_all(exp.Column)):
+        return None
+    return out
+
+
+def _fit_examples_to_db(scheme: str, examples: list[dict]) -> list[dict]:
+    """Drop examples that read a schema the chatbot's role cannot see, and adapt
+    CM Elevate's to the columns it may read. The SME files stay as written."""
+    kept: list[dict] = []
+    for e in examples:
+        sql = e.get("sql")
+        if sql:
+            schemas = {name.split(".")[0] for name in sql_ast.tables(sql, qualified=True) if "." in name}
+            if schemas & set(_UNREADABLE_SCHEMAS):
+                continue
+            if scheme == "CM Elevate":
+                new = _cme_example_sql(sql)
+                if new is None:
+                    continue
+                if new != sql:
+                    e = {**e, "sql": new}
+        kept.append(e)
+    if len(kept) != len(examples):
+        logger.info("annotations: %s — %d few-shot example(s) left out (unreadable schema "
+                    "or locked column)", scheme, len(examples) - len(kept))
+    return kept
+
+
 def load_all() -> None:
     """Read every scheme's few-shot and FK files once, at process startup."""
     for scheme, folder in _SCHEME_DIRS.items():
@@ -99,9 +160,16 @@ def load_all() -> None:
         try:
             data = _load_yaml(few_shot_path)
             examples = data.get("sql_generation_examples", [])
+            # A stable id per example — its scheme and 1-based position in the YAML
+            # file — so the audit trail records which examples a prompt carried
+            # (app/turn_trace.py). An example may name its own `id` instead.
+            for n, e in enumerate(examples, 1):
+                if isinstance(e, dict) and not e.get("id"):
+                    e["id"] = f"{scheme}#{n}"
             # Drop RETIRED/negative examples (PMAY v2.0 keeps some on purpose,
             # as things the generator must NOT reproduce).
             examples = [e for e in examples if e.get("status") != "RETIRED_v2.0"]
+            examples = _fit_examples_to_db(scheme, examples)
             _few_shot_cache[scheme] = examples
             _fewshot_idf[scheme] = _build_idf(examples)
             # A file may also name its own scheme-name tokens outright
@@ -209,7 +277,10 @@ _FEWSHOT_STOP = {
 
 def _fewshot_tokens(text: str) -> set[str]:
     out: set[str] = set()
-    for t in re.findall(r"[a-z0-9]+", (text or "").lower()):
+    # ASCII letter/digit runs of the lower-cased text; anything else separates.
+    low = (text or "").lower()
+    cleaned = "".join(ch if (ch.isascii() and ch.isalnum()) else " " for ch in low)
+    for t in cleaned.split():
         if len(t) < 2 or t in _FEWSHOT_STOP:
             continue
         out.add(_FEWSHOT_SYNONYMS.get(t, t))
@@ -344,9 +415,9 @@ def few_shot_examples(schemes: list[str], question: str = "", top_k: int = 5) ->
         for ex in pool[:top_k]:
             if ex.get("status") == "UNANSWERABLE":
                 reason = " ".join(ex.get("reason", "").split())
-                out.append({"question": ex["question"], "sql": None, "reason": reason})
+                out.append({"question": ex["question"], "sql": None, "reason": reason, "id": ex.get("id")})
             else:
-                item = {"question": ex["question"], "sql": ex["sql"].strip()}
+                item = {"question": ex["question"], "sql": ex["sql"].strip(), "id": ex.get("id")}
                 # The reasoning steps behind the query, when the example carries
                 # them — rendered as a "Plan:" line so the generator sees WHY the
                 # SQL has its shape (COALESCE bucket, Unresolved exclusion, ...),

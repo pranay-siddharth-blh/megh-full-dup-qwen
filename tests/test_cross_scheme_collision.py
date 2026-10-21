@@ -38,7 +38,7 @@ Fixes, in the same order:
 
 Ground truth: MYLLIEM block holds Green Taxi 1 + Warehouse 1 = 2.
 
-Catalogue/regex level — no model, no DB, no network. Plain script (no pytest in
+Catalogue/text-match level — no model, no DB, no network. Plain script (no pytest in
 the venv): `python tests/test_cross_scheme_collision.py`, exit 0 = pass.
 """
 import sys
@@ -94,7 +94,7 @@ check("district is not a shared-fallback dimension",
 
 # ── 3. The gate scans the question when the extractor returns nothing ──────
 print("3. THE GATE HAS A RAW-TEXT BACKSTOP")
-_SRC = (_ROOT / "app" / "pipeline.py").read_text(encoding="utf-8")
+_SRC = "".join(((_ROOT / "app" / "pipeline") / (n + ".py")).read_text(encoding="utf-8") for n in __import__("app.pipeline", fromlist=["_PIPELINE_FILES"])._PIPELINE_FILES)  # the pipeline package's files, in load order
 check("the gate scans when no place mention survived",
       'if not any(mentions.get(s) for s in' in _SRC)
 check("  using the collision-aware name list",

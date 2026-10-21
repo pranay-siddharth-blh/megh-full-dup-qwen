@@ -87,6 +87,49 @@ async def _ensure_collection(dim: int) -> bool:
         return False
 
 
+# ── Retention (RAG upgrade Phase 7, 2026-10-15) ─────────────────────────────
+# Every answered turn was indexed and nothing was ever deleted, so officers'
+# chat history piled up in Qdrant for good. Turns older than
+# CONTEXT_MEMORY_RETENTION_DAYS are never returned (search filter) and are
+# deleted by purge_old_turns, run at startup and then once a day (app/main.py).
+# 0 keeps everything.
+
+def _retention_floor() -> float:
+    days = settings.CONTEXT_MEMORY_RETENTION_DAYS
+    return time.time() - days * 86400 if days and days > 0 else 0.0
+
+
+async def purge_old_turns() -> int | None:
+    """Delete conversation-memory turns older than the retention window.
+    Returns how many were deleted, or None when there was nothing to do or
+    Qdrant could not be reached (never raises)."""
+    floor = _retention_floor()
+    if not floor or not settings.CONTEXT_SEMANTIC_MEMORY_ENABLED:
+        return None
+    client = vectorstore.get_client()
+    old = models.Filter(must=[models.FieldCondition(key="ts", range=models.Range(lt=floor))])
+    try:
+        if not await client.collection_exists(settings.CONTEXT_MEMORY_COLLECTION):
+            return None
+        n = (await client.count(settings.CONTEXT_MEMORY_COLLECTION, count_filter=old, exact=True)).count
+        if n:
+            await client.delete(collection_name=settings.CONTEXT_MEMORY_COLLECTION,
+                                points_selector=models.FilterSelector(filter=old), wait=True)
+            logger.info("conversation_memory: deleted %d turns older than %d days",
+                        n, settings.CONTEXT_MEMORY_RETENTION_DAYS)
+        return n
+    except Exception as e:  # noqa: BLE001 — housekeeping must never break startup
+        logger.warning("conversation_memory: purge failed (non-fatal): %s", e)
+        return None
+
+
+async def purge_loop(every_seconds: int = 86400) -> None:
+    """Purge now, then once a day, for the life of the worker."""
+    while True:
+        await purge_old_turns()
+        await asyncio.sleep(every_seconds)
+
+
 def index_turn(*, tenant_id: int | None, user_id: int | None, session_id: str,
                question: str, standalone_question: str, answer: str,
                schemes: list[str] | None = None) -> None:
@@ -132,7 +175,7 @@ async def _index_turn(tenant_id, user_id, session_id, question, standalone_quest
 
 async def search_relevant_turns(*, question: str, tenant_id: int | None, user_id: int | None,
                                 session_id: str | None = None, top_k: "int | None" = None,
-                                exclude_session: bool = False) -> list[dict]:
+                                exclude_session: bool = False, since: float = 0.0) -> list[dict]:
     """Up to `top_k` older turns semantically relevant to `question`, scoped to
     this tenant/user (and, unless exclude_session, this session too — the
     normal case is "this same conversation, further back than the in-process
@@ -140,7 +183,12 @@ async def search_relevant_turns(*, question: str, tenant_id: int | None, user_id
     collection missing) — callers must already have a PostgreSQL/in-session
     fallback and treat this purely as an enrichment, per the failure-tolerance
     requirement (Qdrant/memory retrieval failing must never break the core
-    pipeline)."""
+    pipeline).
+
+    `since` (wall-clock seconds) returns only turns indexed after it: the
+    moment the conversation was last cleared ("start a new topic", reset, idle
+    expiry), so the turns before it never come back (KI-224). Turns older than
+    CONTEXT_MEMORY_RETENTION_DAYS never come back either."""
     if not settings.CONTEXT_SEMANTIC_MEMORY_ENABLED or not question or not question.strip():
         return []
     top_k = top_k or settings.CONTEXT_MEMORY_TOP_K
@@ -155,6 +203,9 @@ async def search_relevant_turns(*, question: str, tenant_id: int | None, user_id
             must.append(models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id)))
         if session_id and not exclude_session:
             must.append(models.FieldCondition(key="session_id", match=models.MatchValue(value=session_id)))
+        floor = max(float(since or 0.0), _retention_floor())
+        if floor > 0:
+            must.append(models.FieldCondition(key="ts", range=models.Range(gte=floor)))
         query_filter = models.Filter(must=must) if must else None
 
         client = vectorstore.get_client()

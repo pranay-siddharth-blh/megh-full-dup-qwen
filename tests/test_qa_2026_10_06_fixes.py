@@ -45,7 +45,7 @@ def test_avg_of_ratio_becomes_ratio_of_sums():
            "FROM curated.v_employment WHERE lgd_district = 'WEST GARO HILLS' LIMIT 1")
     out = p._mgnrega_avg_of_ratio(["MGNREGA"], sql)
     assert "AVG(" not in out
-    assert "SUM(person_days)::numeric / NULLIF(SUM(households_employed), 0)" in out
+    assert "CAST(SUM(person_days) AS DECIMAL) / NULLIF(SUM(households_employed), 0)" in out  # ::numeric, regenerated
 
 
 def test_avg_of_ratio_runs_inside_the_scheme_rewrites():
@@ -137,8 +137,8 @@ def test_mgnrega_village_filter_keeps_all_when_lookup_fails(monkeypatch):
 # ── General TC-022: a back-reference after a year pause ─────────────────────────
 @pytest.mark.parametrize("q,hit", [("How much of that was spent on materials?", True),
                                    ("2023-24", False), ("all years combined", False)])
-def test_backref_followup_regex(q, hit):
-    assert bool(p._BACKREF_FOLLOWUP_RE.search(q)) is hit
+def test_backref_followup_matcher(q, hit):
+    assert bool(p._BACKREF_FOLLOWUP_MATCH.search(q)) is hit
 
 
 # ── CM Elevate Legacy TC-31: CM Elevate can answer a constituency ──────────────
@@ -222,7 +222,7 @@ def test_rag_retrieve_retries_a_dropped_qdrant_connection(monkeypatch):
     async def fake_embed(q):
         return [[0.1] * 4]
 
-    async def flaky_search(vec, top_k, scheme=None):
+    async def flaky_search(vec, top_k, scheme=None, sparse=None):
         calls["n"] += 1
         if calls["n"] == 1:
             raise RuntimeError("Server disconnected without sending a response.")
@@ -255,7 +255,10 @@ def test_a_query_with_no_table_never_runs():
 
 
 def test_a_normal_query_passes_the_table_check():
-    assert p._SQL_READS_A_TABLE.search("SELECT SUM(total_exp) FROM curated.v_expenditure")
+    assert p._sql_reads_a_table("SELECT SUM(total_exp) FROM curated.v_expenditure")
+    assert not p._sql_reads_a_table("SELECT '1800-103-4000' AS helpline_number LIMIT 1")
+    # a FROM inside a string literal is not a table read
+    assert not p._sql_reads_a_table("SELECT 'from curated.v_pmay' AS note")
 
 
 # ── MGNREGA DATA-014: a latest-year filter must be stated ──────────────────────

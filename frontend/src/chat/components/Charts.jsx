@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Chart from 'chart.js/auto';
 import { pivotStacked } from '../analytics.js';
+import { isPeriodLabel, isPlainNumber } from '../text.js';
 import {
-  INK, PLUGINS, alpha, categorySchemeColors, chartAnimation, fmt, fmtCompact, insightFor, ordinalSteps,
-  seriesColors, shade, themeFor, wrapLabel,
+  INK, PLUGINS, alpha, categorySchemeColors, chartAnimation, fmt, fmtCompact, insightFor, insightForSeries,
+  ordinalSteps, seriesColors, shade, themeFor, wrapLabel,
 } from '../chartTheme.js';
 
 /* Chart.js rendering. Each canvas owns its chart: created on mount, rebuilt
@@ -215,7 +216,30 @@ function groupedConfig(labels, datasets, theme, expanded = false) {
 
 // A stack of years is ordered: shades of the scheme hue, oldest palest. Any
 // other second label gets the categorical colours in their fixed order.
-const isYearish = (label) => /^(?:FY\s*)?\d{4}(?:\s*-\s*\d{2,4})?$/i.test(String(label).trim());
+const isYearish = isPeriodLabel;
+
+// One line per series (scheme × year, district × year): each in its own colour
+// with a legend, no fill (two washes would hide each other), the pointer's
+// period read across every line (interaction mode index + crosshair).
+function multiLineConfig(labels, datasets, theme) {
+  const colors = seriesColors(datasets.map((d) => d.label), theme);
+  return {
+    type: 'line',
+    data: {
+      labels,
+      datasets: datasets.map((d, i) => ({
+        label: d.label, data: d.data, borderColor: colors[i], backgroundColor: colors[i],
+        borderWidth: 2.5, tension: 0.3, fill: false,
+        pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: colors[i], pointBorderColor: INK.surface, pointBorderWidth: 1.5,
+      })),
+    },
+    options: base({
+      plugins: { legend: LEGEND, tooltip: TOOLTIP, meghCrosshair: { on: true, color: theme.deep } },
+      scales: { x: CAT_AXIS, y: VALUE_AXIS },
+    }),
+    plugins: PLUGINS,
+  };
+}
 
 function stackedConfig(labels, datasets, theme, expanded = false) {
   let options = base({
@@ -241,17 +265,219 @@ function stackedConfig(labels, datasets, theme, expanded = false) {
   };
 }
 
-// One canvas, one chart; `config` is rebuilt whenever `deps` change.
-function ChartCanvas({ build, deps }) {
+// ── Zoom (line charts) ──────────────────────────────────────────────────────
+/* A line chart can be zoomed into a stretch of its x-axis and panned along it:
+   drag across it with the mouse, Ctrl / ⌘ + scroll, or pinch (trackpad or
+   touch screen) to zoom; Shift + drag, a sideways trackpad swipe or a
+   one-finger sideways swipe to pan; double-click or Reset to see it all.
+   A plain scroll wheel and a vertical swipe still scroll the chat. The view
+   is a fractional index range [lo, hi] so wheel and pinch zoom smoothly; the
+   axis shows the whole points inside it. */
+const ZOOM_FROM = 6;        // fewer points than this: nothing to zoom into
+const ZOOM_MIN_SPAN = 2;    // the tightest zoom still shows 3 points
+
+function clampView(lo, hi, n) {
+  const last = n - 1;
+  const span = Math.max(ZOOM_MIN_SPAN, Math.min(last, hi - lo));
+  let a = Math.max(0, Math.min(lo, last - span));
+  if (a + span > last) a = last - span;
+  return span >= last ? null : [a, a + span];   // null = the whole line
+}
+// The whole points a view shows: its start and its width rounded (not each
+// end), so panning keeps the same number of points on screen.
+function shownRange(view, n) {
+  const span = Math.round(view[1] - view[0]);
+  const lo = Math.max(0, Math.min(n - 1 - span, Math.round(view[0])));
+  return [lo, lo + span];
+}
+
+function useLineZoom(canvasRef, chartRef, n, on) {
+  const [view, setView] = useState(null);
+  const viewRef = useRef(null);
+  const brushRef = useRef(null);
+  viewRef.current = view;
+  const zoomable = on && n >= ZOOM_FROM;
+
+  // Apply the view to the chart's x-axis (whole labels, so the axis reads well).
+  useEffect(() => {
+    const chart = chartRef.current;
+    if (!chart || !chart.options.scales || !chart.options.scales.x) return;
+    const labels = chart.data.labels || [];
+    const x = chart.options.scales.x;
+    if (view) { const [lo, hi] = shownRange(view, n); x.min = labels[lo]; x.max = labels[hi]; }
+    else { delete x.min; delete x.max; }
+    chart.update('none');
+  }, [view, n, chartRef]);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!zoomable || !canvas) return undefined;
+    const area = () => chartRef.current && chartRef.current.chartArea;
+    const whole = () => viewRef.current || [0, n - 1];
+    // The (fractional) index under a client x, within the current view.
+    const indexAt = (clientX) => {
+      const a = area(); if (!a) return null;
+      const r = canvas.getBoundingClientRect();
+      const f = Math.max(0, Math.min(1, (clientX - r.left - a.left) / (a.right - a.left)));
+      const [lo, hi] = whole();
+      return lo + f * (hi - lo);
+    };
+    const zoomAt = (clientX, factor) => {
+      const [lo, hi] = whole();
+      const c = indexAt(clientX); if (c == null) return;
+      setView(clampView(c - (c - lo) * factor, c + (hi - c) * factor, n));
+    };
+    const panBy = (dxPx) => {
+      const a = area(); const v = viewRef.current; if (!a || !v) return;
+      const shift = (dxPx / (a.right - a.left)) * (v[1] - v[0]);
+      setView(clampView(v[0] - shift, v[1] - shift, n));
+    };
+
+    const onWheel = (e) => {
+      if (e.ctrlKey || e.metaKey) {           // Ctrl/⌘ + wheel, and trackpad pinch
+        e.preventDefault();
+        zoomAt(e.clientX, Math.exp(e.deltaY * 0.004));
+      } else if (viewRef.current && Math.abs(e.deltaX) > Math.abs(e.deltaY)) {
+        e.preventDefault();                   // sideways trackpad swipe pans a zoomed line
+        panBy(-e.deltaX);
+      }
+    };
+
+    // Pointers: mouse drag = select a stretch to zoom into (Shift + drag pans);
+    // touch: two fingers pinch, one finger swipes sideways to pan.
+    const pts = new Map();
+    let mode = null; let startX = 0; let lastX = 0; let pinch = null;
+    const box = () => brushRef.current;
+    const showBrush = (x0, x1) => {
+      const b = box(); const a = area(); if (!b || !a) return;
+      const r = canvas.getBoundingClientRect();
+      const L = Math.max(a.left, Math.min(x0, x1) - r.left); const R = Math.min(a.right, Math.max(x0, x1) - r.left);
+      Object.assign(b.style, { display: 'block', left: L + 'px', width: Math.max(0, R - L) + 'px', top: a.top + 'px', height: (a.bottom - a.top) + 'px' });
+    };
+    const hideBrush = () => { const b = box(); if (b) b.style.display = 'none'; };
+    const down = (e) => {
+      pts.set(e.pointerId, e.clientX);
+      if (e.pointerType === 'mouse') {
+        if (e.button !== 0) return;
+        mode = e.shiftKey && viewRef.current ? 'pan' : 'brush';
+        startX = lastX = e.clientX;
+        canvas.setPointerCapture(e.pointerId);
+      } else if (pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        pinch = { d: Math.abs(a - b) || 1, view: whole(), mid: (a + b) / 2 };
+        mode = 'pinch';
+      } else if (pts.size === 1) {
+        mode = viewRef.current ? 'pan' : null; lastX = e.clientX;
+      }
+    };
+    const move = (e) => {
+      if (!pts.has(e.pointerId)) return;
+      pts.set(e.pointerId, e.clientX);
+      if (mode === 'brush') { if (Math.abs(e.clientX - startX) > 4) showBrush(startX, e.clientX); }
+      else if (mode === 'pan') { panBy(e.clientX - lastX); lastX = e.clientX; }
+      else if (mode === 'pinch' && pts.size === 2) {
+        const [a, b] = [...pts.values()];
+        const factor = pinch.d / (Math.abs(a - b) || 1);
+        const [lo, hi] = pinch.view;
+        const rr = canvas.getBoundingClientRect(); const ar = area(); if (!ar) return;
+        const f = Math.max(0, Math.min(1, (pinch.mid - rr.left - ar.left) / (ar.right - ar.left)));
+        const c = lo + f * (hi - lo);
+        setView(clampView(c - (c - lo) * factor, c + (hi - c) * factor, n));
+      }
+    };
+    const up = (e) => {
+      pts.delete(e.pointerId);
+      if (mode === 'brush') {
+        hideBrush();
+        if (Math.abs(e.clientX - startX) > 8) {
+          const a = indexAt(Math.min(startX, e.clientX)); const b = indexAt(Math.max(startX, e.clientX));
+          if (a != null && b != null) setView(clampView(Math.floor(a), Math.ceil(b), n));
+        }
+      }
+      if (pts.size < 2 && mode === 'pinch') { mode = pts.size === 1 && viewRef.current ? 'pan' : null; lastX = [...pts.values()][0] || 0; return; }
+      if (!pts.size) mode = null;
+    };
+    const dbl = () => setView(null);
+
+    canvas.addEventListener('wheel', onWheel, { passive: false });
+    canvas.addEventListener('pointerdown', down);
+    canvas.addEventListener('pointermove', move);
+    canvas.addEventListener('pointerup', up);
+    canvas.addEventListener('pointercancel', up);
+    canvas.addEventListener('dblclick', dbl);
+    return () => {
+      canvas.removeEventListener('wheel', onWheel);
+      canvas.removeEventListener('pointerdown', down);
+      canvas.removeEventListener('pointermove', move);
+      canvas.removeEventListener('pointerup', up);
+      canvas.removeEventListener('pointercancel', up);
+      canvas.removeEventListener('dblclick', dbl);
+    };
+  }, [zoomable, n, canvasRef, chartRef]);
+
+  const step = (factor) => {
+    const [lo, hi] = viewRef.current || [0, n - 1];
+    const c = (lo + hi) / 2;
+    setView(clampView(c - (c - lo) * factor, c + (hi - c) * factor, n));
+  };
+  return {
+    zoomable, view, brushRef, setView,
+    zoomIn: () => step(0.6), zoomOut: () => step(1 / 0.6), reset: () => setView(null),
+  };
+}
+
+function ZoomBar({ zoom, labels }) {
+  if (!zoom.zoomable) return null;
+  const v = zoom.view;
+  const shown = v ? shownRange(v, labels.length) : null;
+  const range = shown ? `${labels[shown[0]]} – ${labels[shown[1]]}` : '';
+  const atMin = shown && shown[1] - shown[0] <= ZOOM_MIN_SPAN;
+  return (
+    <div className="zoom-bar">
+      <div className="zoom-btns" role="group" aria-label="Zoom the chart">
+        <button type="button" onClick={zoom.zoomOut} disabled={!v} title="Zoom out" aria-label="Zoom out">−</button>
+        <button type="button" onClick={zoom.zoomIn} disabled={atMin} title="Zoom in" aria-label="Zoom in">+</button>
+        {v && <button type="button" className="zoom-reset" onClick={zoom.reset} title="Show the whole line (double-click the chart)">Reset</button>}
+      </div>
+      <span className="zoom-hint">
+        {v ? <><span className="zoom-word">Showing </span><b>{range}</b><span className="zoom-pan"> · swipe or Shift + drag to move</span></>
+          : <><span className="zoom-fine">Drag across the line to zoom in</span><span className="zoom-coarse">Pinch the line to zoom in</span></>}
+      </span>
+    </div>
+  );
+}
+
+// One canvas, one chart; `config` is rebuilt whenever `deps` change. With
+// `zoom`, a line chart gets the zoom controls below it (useLineZoom).
+function ChartCanvas({ build, deps, zoom = false }) {
   const ref = useRef(null);
+  const chartRef = useRef(null);
+  const [n, setN] = useState(0);
   useEffect(() => {
     if (!ref.current) return undefined;
     let chart;
     try { chart = new Chart(ref.current, build()); } catch (e) { console.error('Chart init failed:', e); }
-    return () => { try { chart && chart.destroy(); } catch (e) { /* ignore */ } };
+    chartRef.current = chart || null;
+    // The drawn chart, readable from the canvas (the headless UI checks assert on
+    // its labels and series; not a global).
+    if (ref.current) ref.current.__chart = chart || null;
+    setN(chart && chart.config.type === 'line' ? (chart.data.labels || []).length : 0);
+    return () => { chartRef.current = null; try { chart && chart.destroy(); } catch (e) { /* ignore */ } };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, deps);
-  return <canvas ref={ref} />;
+  const z = useLineZoom(ref, chartRef, n, zoom);
+  // A rebuilt chart (new type or data) starts with the whole line.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { z.setView(null); }, deps);
+  if (!z.zoomable) return <canvas ref={ref} />;
+  const labels = (chartRef.current && chartRef.current.data.labels) || [];
+  return (
+    <>
+      <canvas ref={ref} className="zoomable" />
+      <div ref={z.brushRef} className="zoom-brush" aria-hidden="true" />
+      <ZoomBar zoom={z} labels={labels} />
+    </>
+  );
 }
 
 // ── Expand view ─────────────────────────────────────────────────────────────
@@ -305,14 +531,17 @@ function ExpandModal({ title, onClose, children }) {
 
 // An expanded chart: fills the panel, or grows one row per category when the
 // chart is horizontal (the panel body scrolls).
-function ExpandedChart({ build, deps, rows }) {
+function ExpandedChart({ build, deps, rows, zoom = false }) {
   const style = rows ? { height: Math.max(420, rows * ROW_PX + 60) } : { height: '100%', minHeight: 420 };
-  return <div className="xv-chart" style={style}><ChartCanvas build={build} deps={deps} /></div>;
+  return <div className="xv-chart" style={style}><ChartCanvas build={build} deps={deps} zoom={zoom} /></div>;
 }
 
-const TYPE_LABELS = { bar: 'Bar', pie: 'Pie', doughnut: 'Donut', line: 'Line' };
+const TYPE_LABELS = { bar: 'Bar', stacked: 'Stacked', pie: 'Pie', doughnut: 'Donut', line: 'Line' };
 
+// No switcher when only one type is offered: a chart TYPE the officer named
+// ("pie chart", "bar graph") is shown alone (user, 2026-10-19).
 function TypeToggles({ types, type, setType }) {
+  if (!types || types.length <= 1) return null;
   return (
     <div className="qctog">
       {types.map((t) => (
@@ -361,12 +590,14 @@ export function SwitchableChart({ title, labels, fullLabels, values, types, init
         <TypeToggles types={types} type={type} setType={setType} />
         <ExpandButton label="chart" onClick={() => setOpen(true)} />
       </CardHead>
-      <div className="chw"><ChartCanvas build={() => singleConfig(type, labels, values, theme)} deps={[type, labels, values, theme]} /></div>
+      <div className={'chw' + (type === 'pie' || type === 'doughnut' ? ' round' : '')}>
+        <ChartCanvas build={() => singleConfig(type, labels, values, theme)} deps={[type, labels, values, theme]} zoom={type === 'line'} />
+      </div>
       {open && (
         <ExpandModal title={title} onClose={() => setOpen(false)}>
           <div className="xv-toolbar"><TypeToggles types={types} type={type} setType={setType} /></div>
           <ExpandedChart build={() => singleConfig(type, full, values, theme, true)} deps={[type, full, values, theme]}
-                         rows={flat ? full.length : 0} />
+                         rows={flat ? full.length : 0} zoom={type === 'line'} />
         </ExpandModal>
       )}
     </div>
@@ -387,6 +618,57 @@ export function GroupedChart({ title, labels, fullLabels, datasets, theme = DEFA
         <ExpandModal title={title} onClose={() => setOpen(false)}>
           <ExpandedChart build={() => groupedConfig(full, datasets, theme, true)} deps={[full, datasets, theme]}
                          rows={full.length > HORIZONTAL_FROM ? full.length * Math.max(1, datasets.length * 0.6) : 0} />
+        </ExpandModal>
+      )}
+    </div>
+  );
+}
+
+// Two dimensions and a measure (scheme × financial year, district × year …):
+// the x-axis carries one dimension, the legend the other, so both are always
+// visible. Bar = grouped columns per period, Stacked = one column per period,
+// Line = one line per series, Donut = one slice per cell ("MGNREGA · 2023-24",
+// or just "2023-24" when there is a single series).
+const TWO_DIM_TYPES = ['bar', 'stacked', 'line', 'doughnut'];
+
+function twoDimConfig(type, labels, datasets, theme, expanded = false) {
+  if (type === 'line') return multiLineConfig(labels, datasets, theme);
+  if (type === 'stacked') return stackedConfig(labels, datasets, theme, expanded);
+  if (type === 'doughnut' || type === 'pie') {
+    // One series (one scheme's years): the slices are the periods alone — the
+    // card's title and chip already name the scheme, so it is not repeated on
+    // every row of the legend. Several series keep "series · period".
+    const cells = [];
+    const one = datasets.length === 1;
+    datasets.forEach((d) => labels.forEach((l, j) => {
+      if (Number(d.data[j])) cells.push([one ? String(l) : `${d.label} · ${l}`, Number(d.data[j])]);
+    }));
+    return singleConfig(type, cells.map((c) => c[0]), cells.map((c) => c[1]), theme, expanded);
+  }
+  return groupedConfig(labels, datasets.map((d) => ({ label: d.label, values: d.data })), theme, expanded);
+}
+
+export function TwoDimChart({ title, labels, datasets, xKey, sKey, periods, initial, types = TWO_DIM_TYPES, theme = DEFAULT_THEME }) {
+  const [type, setType] = useState(types.includes(initial) ? initial : (types.length === 1 ? types[0] : (periods ? 'line' : 'bar')));
+  const [open, setOpen] = useState(false);
+  const insight = useMemo(() => insightForSeries(labels, datasets, periods), [labels, datasets, periods]);
+  const axes = `${String(sKey).replaceAll('_', ' ')} by ${String(xKey).replaceAll('_', ' ')}`;
+  return (
+    <div className="dyn-chart-card" style={cardStyle(theme)}>
+      <CardHead title={title} theme={theme} insight={insight}>
+        <TypeToggles types={types} type={type} setType={setType} />
+        <ExpandButton label="chart" onClick={() => setOpen(true)} />
+      </CardHead>
+      <div className={'chw tall' + (type === 'doughnut' || type === 'pie' ? ' round' : '')}>
+        <ChartCanvas build={() => twoDimConfig(type, labels, datasets, theme)} deps={[type, labels, datasets, theme]} zoom={type === 'line'} />
+      </div>
+      <div className="chd-axes" aria-label="What the axes show">{axes}</div>
+      {open && (
+        <ExpandModal title={title} onClose={() => setOpen(false)}>
+          <div className="xv-toolbar"><TypeToggles types={types} type={type} setType={setType} /></div>
+          <ExpandedChart build={() => twoDimConfig(type, labels, datasets, theme, true)} deps={[type, labels, datasets, theme]}
+                         rows={type !== 'line' && type !== 'doughnut' && type !== 'pie' && labels.length > HORIZONTAL_FROM ? labels.length * Math.max(1, datasets.length * 0.6) : 0}
+                         zoom={type === 'line'} />
         </ExpandModal>
       )}
     </div>
@@ -422,9 +704,8 @@ export function StackedChart({ title, labels, datasets, theme = DEFAULT_THEME })
 // costs height, not readability. Expand opens it full screen with search and
 // sortable columns.
 
-const NUMERIC = /^-?\d+(?:,\d{3})*(?:\.\d+)?$/;
-const asNumber = (v) => (v !== null && v !== undefined && NUMERIC.test(String(v).trim())
-  ? Number(String(v).replace(/,/g, '')) : null);
+const asNumber = (v) => (v !== null && v !== undefined && isPlainNumber(String(v).trim())
+  ? Number(String(v).replaceAll(',', '')) : null);
 
 function compareCells(a, b) {
   const blankA = a === null || a === undefined || a === '';
@@ -436,7 +717,7 @@ function compareCells(a, b) {
   return String(a).localeCompare(String(b), 'en-IN', { numeric: true, sensitivity: 'base' });
 }
 
-const colLabel = (c) => c.replace(/_/g, ' ');
+const colLabel = (c) => c.replaceAll('_', ' ');
 
 function TableBar({ count, label, onExpand }) {
   return (
@@ -596,3 +877,40 @@ export function RecordCard({ row }) {
 }
 
 export { pivotStacked };
+
+// ── Two-way comparison (#397) ───────────────────────────────────────────────
+// "A vs B": two stat tiles with the measure's value for each, "vs" between
+// them, and one line saying who is ahead and by how much. The values use the
+// font's proportional figures (a stat tile is not a column).
+const compactValue = (v) => (Number.isFinite(v) ? v.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—');
+
+function CompareVerdict({ v }) {
+  if (!v) return null;
+  if (v.equal) return <p className="cmp-verdict">Both record <strong>{compactValue(v.value)}</strong> {v.measure}.</p>;
+  const by = v.pct === null ? <strong>{compactValue(v.diff)} more</strong>
+    : <><strong>{v.pct}% ahead</strong> ({compactValue(v.diff)} more)</>;
+  return <p className="cmp-verdict">{v.lead} is {by} on {v.measure}.</p>;
+}
+
+export function CompareCard({ title, measure, a, b, verdict }) {
+  return (
+    <div className="dyn-chart-card compare-card">
+      <div className="chd">
+        <div className="chd-left"><span className="chd-dot" /><span className="chd-title">{title}</span></div>
+        <div className="chd-right"><span className="chd-pill">{measure}</span></div>
+      </div>
+      <div className="cmp-tiles">
+        <div className="cmp-tile">
+          <div className="cmp-label">{a.label}</div>
+          <div className="cmp-value">{compactValue(a.value)}</div>
+        </div>
+        <div className="cmp-vs" aria-hidden="true">vs</div>
+        <div className="cmp-tile">
+          <div className="cmp-label">{b.label}</div>
+          <div className="cmp-value">{compactValue(b.value)}</div>
+        </div>
+      </div>
+      <CompareVerdict v={verdict} />
+    </div>
+  );
+}

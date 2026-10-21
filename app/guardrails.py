@@ -36,13 +36,57 @@ advice, a loan request); a harm verdict never does.
 
 Logs carry the category and layer only, never the question text.
 """
+import functools
 import json
 import logging
-import re
 from dataclasses import dataclass
 
 from app import context_budget, llm
 from app.config import settings
+from app import text_match as _tm
+from app.text_match import (ANY, START, Alt, Gap, Joined, Node, NotBefore, Opt, Pred, Seq, W)
+
+
+@functools.lru_cache(maxsize=32)
+def _g_ctx(text: str):
+    """One tokenisation per message, shared by every rule below (dozens of
+    matchers scan the same normalised text)."""
+    return _tm._Ctx(text)
+
+
+class Matcher(_tm.Matcher):
+    """text_match.Matcher that reuses the cached tokenisation of the text."""
+
+    def _scan(self, text, *, anchored=False, full=False, start_tok=0):
+        ctx = _g_ctx(text or "")
+        n = len(ctx.toks)
+        i = start_tok
+        while i <= n:
+            for j, caps in self.node.ends(ctx, i, ()):
+                if full and j != n:
+                    continue
+                yield ctx, i, j, caps
+                break
+            if anchored:
+                return
+            i += 1
+
+    def finditer(self, text):
+        ctx = _g_ctx(text or "")
+        n = len(ctx.toks)
+        i = 0
+        while i < n:
+            found = None
+            for j, caps in self.node.ends(ctx, i, ()):
+                if j > i:
+                    found = (j, caps)
+                    break
+            if found is None:
+                i += 1
+                continue
+            j, caps = found
+            yield self._hit(ctx, i, j, caps)
+            i = j
 
 logger = logging.getLogger(__name__)
 
@@ -145,136 +189,348 @@ CATEGORIES = HARM_CATEGORIES
 
 
 # ── Layer 1: rules ──────────────────────────────────────────────────────────
+# Word-level matchers (app/text_match). Two local pieces keep the old
+# character rules: _GSeq demands a particular separator between its parts
+# (whitespace only by default, or "&", "=", "."), and _GCharGap is "any words,
+# at most N characters, not crossing . ? !" — the fewest such characters between
+# an intent and an act.
+
+def _g_space(gap: str) -> bool:
+    return gap != "" and gap.strip() == ""
+
+
+class _GSeq(Seq):
+    """Seq whose separators must satisfy `ok(gap_text)` (default: whitespace)."""
+
+    def __init__(self, *parts, ok=_g_space):
+        super().__init__(*parts)
+        self._ok = ok
+
+    def _sep_ok(self, ctx, i):
+        return self._ok(ctx.gap(i))
+
+
+def _g_phrase(p):
+    if isinstance(p, str) and " " in p.strip():
+        return _GSeq(*p.split())
+    return p
+
+
+def _S(*parts):
+    """Words in a row separated by one or more whitespace characters only."""
+    return _GSeq(*[_g_phrase(p) for p in parts])
+
+
+def _A(*options):
+    """Alternatives; a phrase string is a whitespace-separated sequence."""
+    return _GAlt(*[_g_phrase(o) for o in options])
+
+
+def _g_first_words(node) -> "frozenset | None":
+    """The lower-cased words `node` can start with, or None when unknown /
+    when it can match without consuming a word."""
+    if isinstance(node, W):
+        return None if (node.prefix or node.case) else frozenset(node.options)
+    if isinstance(node, Joined):
+        firsts = _g_first_words(node.seq)
+        return None if firsts is None else frozenset(node.single) | firsts
+    if isinstance(node, Seq):
+        return _g_first_words(node.parts[0]) if node.parts else None
+    if isinstance(node, (Alt, _GAlt)):
+        out = set()
+        for o in node.options:
+            f = _g_first_words(o)
+            if f is None:
+                return None
+            out |= f
+        return frozenset(out)
+    if isinstance(node, (NotBefore,)) or type(node).__name__ == "Cap":
+        return _g_first_words(node.x)
+    return None
+
+
+class _GAlt(Node):
+    """Alt that only tries the alternatives able to start with the current word
+    (same order and results as Alt, much less work for long lists)."""
+
+    def __init__(self, *options):
+        self.options = [_tm._node(o) for o in options]
+        self._firsts = [_g_first_words(o) for o in self.options]
+
+    def ends(self, ctx, i, caps):
+        low = ctx.toks[i].low if i < len(ctx.toks) else None
+        for o, f in zip(self.options, self._firsts):
+            if f is None or (low is not None and low in f):
+                yield from o.ends(ctx, i, caps)
+
+
+def _P(*stems):
+    """Words starting with any of `stems` (the stem alone counts too)."""
+    return W(*stems, prefix=True)
+
+
+def _pl(*nouns):
+    """Each noun, singular or with an 's' added."""
+    return W(*nouns, *(n + "s" for n in nouns))
+
+
+class _GCharGap(Node):
+    """Zero or more words, provided the text between the previous word's end and
+    the next piece's start is at most `limit` characters and holds none of `stop`
+    (with no `stop`, any characters; the shortest span is tried first)."""
+
+    def __init__(self, limit: int, stop: str = ""):
+        self.limit, self.stop = limit, stop
+
+    def ends(self, ctx, i, caps):
+        n = len(ctx.toks)
+        start = ctx.toks[i - 1].end if i > 0 else 0
+        for k in range(i, n + 1):
+            end = ctx.toks[k].start if k < n else len(ctx.text)
+            seg = ctx.text[start:end]
+            if len(seg) > self.limit or any(c in self.stop for c in seg):
+                break
+            yield k, caps
+
+
+def _gap_sentence(limit: int) -> Node:
+    return _GCharGap(limit, ".?!")
+
+
+class _GRule:
+    """A rule given as a plain function of the text (character-level checks)."""
+
+    def __init__(self, fn):
+        self.fn = fn
+
+    def search(self, text):
+        return True if self.fn(text or "") else None
+
 
 # First-person or instructional intent: "i want to", "how can i", "help me",
 # "which scheme can i use to", "suggest a way to".
-_INTENT = (
-    r"(?:\bi\s*(?:'m|am)?\s*(?:want|wanna|plan(?:ning)?|need|intend|would\s+like|wish|"
-    r"am\s+going|'m\s+going|gonna|will|shall|have\s+to|must)\b|\bwe\s+(?:want|plan|need|will)\b|"
-    r"\bhow\s+(?:can|do|could|should|would|to|will)\b|\bhelp\s+(?:me|us)\b|\bteach\s+me\b|"
-    r"\bshow\s+me\b|\bways?\s+to\b|\btips?\b|\bideas?\b|\bsuggest\w*\b|\badvi[cs]e\b|"
-    r"\bbest\s+way\b|\blet'?s\b|\bcan\s+i\b|\bshould\s+i\b|\bwhich\s+\w+\s+(?:can|should|to)\b|"
-    r"\bguide\s+me\b|\bsteps?\s+to\b|\bplan\s+to\b|\bi\s+will\b|\bgoing\s+to\b)"
+_I_VERB = _A("want", "wanna", "plan", "planning", "need", "intend", "would like", "wish",
+             "am going", "m going", "gonna", "will", "shall", "have to", "must")
+_INTENT = _A(
+    # "i want", "i'm going", "i am planning" (only spaces or the apostrophe of 'm between)
+    _GSeq("i", Opt(W("m", "am")), _I_VERB, ok=lambda g: g.strip() in ("", "'")),
+    _S(W("im", "iam"), _I_VERB),
+    _S("we", W("want", "plan", "need", "will")),
+    _S("how", W("can", "do", "could", "should", "would", "to", "will")),
+    _S("help", W("me", "us")), _S("teach", "me"), _S("show", "me"),
+    _S(W("way", "ways"), "to"), W("tip", "tips", "idea", "ideas", "advice", "advise"),
+    _P("suggest"), _S("best", "way"), W("lets"), Seq("let", "s"), _S("can", "i"),
+    _S("should", "i"), _S("which", ANY, W("can", "should", "to")), _S("guide", "me"),
+    _S(W("step", "steps"), "to"), _S("plan", "to"), _S("i", "will"), _S("going", "to"),
 )
 
 # Who a violent act lands on. One optional adjective: "kill that old man".
-_TARGET = (
-    r"(?:(?:a|an|the|my|his|her|their|our|your|this|that|these|those|some|one|any|all|"
-    r"every|few|many|\d+|two|three)\s+)?(?:\w+\s+)?"
-    r"(?:person|persons|people|someone|somebody|anyone|anybody|everyone|everybody|humans?|"
-    r"man|men|woman|women|lady|ladies|girls?|boys?|child|children|kids?|bab(?:y|ies)|"
-    r"him|her|them|me|you|us|officers?|officials?|neighbou?rs?|wife|husband|father|mother|"
-    r"brother|sister|son|daughter|friends?|family|villagers?|workers?|labou?rers?|"
-    r"beneficiar(?:y|ies)|staff|boss|manager|teacher|minister|mla|mp|bdo|collector|police\w*|"
-    r"sarpanch|headman|rival|enem(?:y|ies)|competitor|classmates?|colleagues?|relatives?)\b"
+_TARGET_WORD = _A(
+    W("person", "persons", "people", "someone", "somebody", "anyone", "anybody", "everyone",
+      "everybody", "human", "humans", "man", "men", "woman", "women", "lady", "ladies",
+      "child", "children", "baby", "babies", "him", "her", "them", "me", "you", "us",
+      "wife", "husband", "father", "mother", "brother", "sister", "son", "daughter",
+      "family", "staff", "boss", "manager", "teacher", "minister", "mla", "mp", "bdo",
+      "collector", "sarpanch", "headman", "rival", "enemy", "enemies", "competitor",
+      "beneficiary", "beneficiaries"),
+    _pl("girl", "boy", "kid", "officer", "official", "neighbor", "neighbour", "friend",
+        "villager", "worker", "laborer", "labourer", "classmate", "colleague", "relative"),
+    _P("police"),
 )
+_TARGET = _S(
+    Opt(_A(W("a", "an", "the", "my", "his", "her", "their", "our", "your", "this", "that",
+              "these", "those", "some", "one", "any", "all", "every", "few", "many", "two",
+              "three"), Pred(str.isdigit))),
+    Opt(ANY), _TARGET_WORD)
 
 # A strong violent verb names the harm by itself.
-_STRONG = (r"(?:kill|murder|assassinat|slaughter|massacr|behead|decapitat|stab|shoot|"
-           r"gun\s+down|strangl|chok|suffocat|drown|lynch|rap(?:e|ed|es|ing|ist)|molest|"
-           r"tortur|kidnap|abduct|poison|burn\s+alive|acid\s+attack)")
+_STRONG = _A(
+    _P("kill", "murder", "assassinat", "slaughter", "massacr", "behead", "decapitat", "stab",
+       "shoot", "strangl", "chok", "suffocat", "drown", "lynch", "rape", "raping", "rapist",
+       "molest", "tortur", "kidnap", "abduct", "poison"),
+    _S("gun", _P("down")), _S("burn", _P("alive")), _S("acid", _P("attack")),
+)
 # A soft verb only with first-person intent and a person as the target.
-_SOFT = (r"(?:attack|assault|hurt|harm|injur|beat|hit|slap|punch|kick|threaten|terrori[sz]|"
-         r"bully|harass|stalk|blackmail|burn|abus|bash|fight|smash|break\s+the\s+legs\s+of)")
+_SOFT = _A(
+    _P("attack", "assault", "hurt", "harm", "injur", "beat", "hit", "slap", "punch", "kick",
+       "threaten", "terroris", "terroriz", "bully", "harass", "stalk", "blackmail", "burn",
+       "abus", "bash", "fight", "smash"),
+    _S("break", "the", "legs", _P("of")),
+)
 # Things "kill" / "shoot" / "poison" are said of in ordinary speech.
-_BENIGN_OBJ = (r"(?:pests?|weeds?|insects?|bugs?|rats?|mice|rodents?|germs?|bacteria|virus(?:es)?|"
-               r"fungus|fungi|mosquito(?:es)?|termites?|locusts?|worms?|snails?|time|it|process(?:es)?|"
-               r"apps?|tasks?|programs?|switch|engine|videos?|photos?|films?|pictures?|movies?|"
-               r"scenes?|footage|documentar(?:y|ies)|ads?|reels?|shots?|goals?|hoops?|messages?|emails?)")
-_NOT_BENIGN = rf"\w*\b(?!\s+(?:(?:the|a|an|my|some|all|those|these|of|off)\s+)?{_BENIGN_OBJ}\b)"
+_BENIGN_OBJ = _A(
+    _pl("pest", "weed", "insect", "bug", "rat", "rodent", "germ", "termite", "locust", "worm",
+        "snail", "app", "task", "program", "video", "photo", "film", "picture", "movie",
+        "scene", "ad", "reel", "shot", "goal", "hoop", "message", "email"),
+    W("mice", "bacteria", "virus", "viruses", "fungus", "fungi", "mosquito", "mosquitoes",
+      "time", "it", "process", "processes", "switch", "engine", "footage", "documentary",
+      "documentaries"),
+)
+_NOT_BENIGN_AHEAD = _S(Opt(W("the", "a", "an", "my", "some", "all", "those", "these", "of",
+                             "off")), _BENIGN_OBJ)
 
-_GROUPS = (r"(?:muslims?|hindus?|christians?|sikhs?|buddhists?|jews?|tribals?|khasis?|garos?|"
-           r"jaintias?|pnars?|nagas?|assamese|biharis?|bengalis?|nepalis?|marwaris?|dkhars?|"
-           r"outsiders?|migrants?|refugees?|dalits?|adivasis?|blacks?|gays?|lesbians?|"
-           r"transgenders?|hijras?|northeasterners?|non[\s-]?tribals?)")
 
-_RULES: list[tuple[str, list[str]]] = [
+def _not_benign(act):
+    """The act, unless its object is a benign one ("kill the weeds", "shoot a video")."""
+    return NotBefore(act, _NOT_BENIGN_AHEAD)
+
+
+_GROUPS = _A(
+    _pl("muslim", "hindu", "christian", "sikh", "buddhist", "jew", "tribal", "khasi", "garo",
+        "jaintia", "pnar", "naga", "bihari", "bengali", "nepali", "marwari", "dkhar", "outsider",
+        "migrant", "refugee", "dalit", "adivasi", "black", "gay", "lesbian", "transgender",
+        "hijra", "northeasterner"),
+    W("assamese"), Joined("non", ("tribal", "tribals")),
+)
+
+
+def _sql_comment(t: str) -> bool:
+    """';' then optional whitespace then '--' (an SQL comment injection)."""
+    i = t.find(";")
+    while i >= 0:
+        if t[i + 1:].lstrip().startswith("--"):
+            return True
+        i = t.find(";", i + 1)
+    return False
+
+
+_RULES: list[tuple[str, list]] = [
     # Self-harm first: "kill myself" must get the supportive reply, not "violence".
     ("self_harm", [
-        r"\bsuicid\w*",
-        r"\b(?:kill|hurt|harm|cut|hang|poison|shoot|burn|starve)\w*\s+my\s?self\b",
-        r"\b(?:end|take)\w*\s+my\s+(?:own\s+)?life\b",
-        r"\bself[\s-]?harm\w*",
-        r"\b(?:i\s+)?(?:want|wanna|going)\s+to\s+die\b",
-        r"\b(?:don'?t|do\s+not)\s+want\s+to\s+(?:live|be\s+alive)\b",
-        r"\b(?:no\s+reason\s+to\s+live|better\s+off\s+dead|end\s+it\s+all)\b",
+        _P("suicid"),
+        _S(_P("kill", "hurt", "harm", "cut", "hang", "poison", "shoot", "burn", "starve"),
+           _A(W("myself"), Seq("my", "self"))),
+        _S(_P("end", "take"), "my", Opt("own"), "life"),
+        _A(_P("selfharm"), Seq("self", _P("harm"))),
+        _S(W("want", "wanna", "going"), "to", "die"),
+        _S(_A(W("dont"), Seq("don", "t"), _S("do", "not")), "want", "to", _A("live", "be alive")),
+        _A("no reason to live", "better off dead", "end it all"),
     ]),
     ("hate", [
-        rf"\b(?:kill|murder|hate|wipe\s+out|exterminat\w*|get\s+rid\s+of|drive\s+out|throw\s+out|"
-        rf"kick\s+out|expel|eliminat\w*|attack|beat)\w*\s+(?:all\s+)?(?:the\s+|these\s+|those\s+)?{_GROUPS}\b",
-        rf"\b(?:all\s+)?{_GROUPS}\s+(?:are|r)\s+(?:all\s+)?(?:inferior|animals|dogs|pigs|vermin|"
-        rf"subhuman|terrorists|criminals|dirty|filthy|parasites|scum)\b",
+        _S(_A(_P("kill", "murder", "hate", "exterminat", "expel", "eliminat", "attack", "beat"),
+               _S("wipe", _P("out")), _S("get", "rid", _P("of")), _S("drive", _P("out")),
+               _S("throw", _P("out")), _S("kick", _P("out"))),
+           Opt("all"), Opt(W("the", "these", "those")), _GROUPS),
+        _S(Opt("all"), _GROUPS, W("are", "r"), Opt("all"),
+           W("inferior", "animals", "dogs", "pigs", "vermin", "subhuman", "terrorists",
+             "criminals", "dirty", "filthy", "parasites", "scum")),
     ]),
     ("violence", [
-        rf"\b{_STRONG}\w*\s+(?:up\s+|down\s+|off\s+)?{_TARGET}",
-        rf"{_INTENT}[^.?!]{{0,60}}?\b{_STRONG}{_NOT_BENIGN}",
-        rf"\b(?:to|for|into)\s+{_STRONG}{_NOT_BENIGN}",
-        rf"{_INTENT}[^.?!]{{0,40}}?\b{_SOFT}\w*\s+(?:up\s+|down\s+|out\s+)?{_TARGET}",
-        r"\b(?:hit\s*man|hitmen|contract\s+kill\w*|supari\s+(?:kill\w*|for|to|de|dena)|"
-        r"mass\s+shooting|terror(?:ist)?\s+attack|terrorism|terrorist|honou?r\s+killing|"
-        r"genocide|ethnic\s+cleansing)\b",
+        _S(_STRONG, Opt(W("up", "down", "off")), _TARGET),
+        Seq(_INTENT, _gap_sentence(60), _not_benign(_STRONG)),
+        _S(W("to", "for", "into"), _not_benign(_STRONG)),
+        Seq(_INTENT, _gap_sentence(40), _S(_SOFT, Opt(W("up", "down", "out")), _TARGET)),
+        _A(Joined("hit", "man"), "hitmen", _S("contract", _P("kill")),
+           _S("supari", _A(_P("kill"), W("for", "to", "de", "dena"))), "mass shooting",
+           _S(W("terror", "terrorist"), "attack"), "terrorism", "terrorist",
+           _S(W("honor", "honour"), "killing"), "genocide", "ethnic cleansing"),
     ]),
     ("weapons", [
-        rf"(?:{_INTENT}|\b(?:make|making|build|building|assembl\w*|prepar\w*|manufactur\w*|buy|buying|"
-        r"get|getting|obtain|purchas\w*|smuggl\w*|sell|selling|carry|hide)\b)[^.?!]{0,40}?"
-        r"\b(?:bombs?|explosives?|ieds?|grenades?|guns?|pistols?|revolvers?|rifles?|firearms?|"
-        r"ak[\s-]?47|weapons?|ammunition|ammo|bullets|molotov|napalm|detonators?|landmines?|"
-        r"dynamite|gelatin\w*\s+sticks?|country[\s-]made\s+(?:guns?|pistols?|bombs?)|"
-        r"nerve\s+agents?|sarin|ricin|anthrax|chemical\s+weapons?|bio\w*\s+weapons?)\b",
-        r"\bbomb[\s-]?making\b|\bexplosive\s+recipe\b",
+        Seq(_A(_INTENT, W("make", "making", "build", "building", "buy", "buying", "get",
+                           "getting", "obtain", "sell", "selling", "carry", "hide"),
+                _P("assembl", "prepar", "manufactur", "purchas", "smuggl")),
+            _gap_sentence(40),
+            _A(_pl("bomb", "explosive", "ied", "grenade", "gun", "pistol", "revolver", "rifle",
+                    "firearm", "weapon", "detonator", "landmine"),
+                W("ammunition", "ammo", "bullets", "molotov", "napalm", "dynamite", "sarin",
+                  "ricin", "anthrax"),
+                Joined("ak", "47"), _S(_P("gelatin"), W("stick", "sticks")),
+                _S(Joined("country", "made"), W("gun", "guns", "pistol", "pistols", "bomb", "bombs")),
+                _S("nerve", W("agent", "agents")), _S("chemical", W("weapon", "weapons")),
+                _S(_P("bio"), W("weapon", "weapons")))),
+        _A(Joined("bomb", "making"), _S("explosive", "recipe")),
     ]),
     ("sexual", [
-        r"\b(?:porn\w*|xxx|nudes?|nude\s+(?:photos?|pics?|videos?)|naked\s+(?:photos?|pics?|videos?|"
-        r"girls?|women|men)|sex\s+(?:videos?|chat|photos?|pics?|stor(?:y|ies)|tape|services?)|"
-        r"sexual\s+(?:content|favou?rs?|services?|stor(?:y|ies))|sexting|escort\s+services?|"
-        r"call\s+girls?|prostitut\w*|have\s+sex|hook\s?up|onlyfans|csam|"
-        r"child\s+(?:porn\w*|sex\w*|abuse\s+material)|minor\s+(?:sex\w*|nudes?))\b",
+        _A(_P("porn"), W("xxx", "nude", "nudes", "sexting", "onlyfans", "csam"),
+            _S("nude", W("photo", "photos", "pic", "pics", "video", "videos")),
+            _S("naked", W("photo", "photos", "pic", "pics", "video", "videos", "girl", "girls",
+                          "women", "men")),
+            _S("sex", W("video", "videos", "chat", "photo", "photos", "pic", "pics", "story",
+                        "stories", "tape", "service", "services")),
+            _S("sexual", W("content", "favor", "favors", "favour", "favours", "service",
+                           "services", "story", "stories")),
+            _S("escort", W("service", "services")), _S("call", W("girl", "girls")),
+            _P("prostitut"), _S("have", "sex"), W("hookup"), _S("hook", "up"),
+            _S("child", _A(_P("porn"), _P("sex"), _S("abuse", "material"))),
+            _S("minor", _A(_P("sex"), W("nude", "nudes")))),
     ]),
     ("drugs", [
-        rf"(?:{_INTENT}|\b(?:buy|buying|sell|selling|make|making|cook|cooking|grow|growing|smuggl\w*|"
-        r"supply|supplying|get|getting|deal|dealing|peddl\w*|inject|snort|smoke)\b)[^.?!]{0,30}?"
-        r"\b(?:drugs?|narcotics?|cocaine|heroin|meth|methamphetamine|crystal\s+meth|ganja|weed|"
-        r"marijuana|cannabis|charas|hashish|opium|afeem|brown\s+sugar|mdma|ecstasy|lsd|yaba|"
-        r"fentanyl|ketamine)\b",
+        Seq(_A(_INTENT, W("buy", "buying", "sell", "selling", "make", "making", "cook", "cooking",
+                           "grow", "growing", "supply", "supplying", "get", "getting", "deal",
+                           "dealing", "inject", "snort", "smoke"),
+                _P("smuggl", "peddl")),
+            _gap_sentence(30),
+            _A(W("drug", "drugs", "narcotic", "narcotics", "cocaine", "heroin", "meth",
+                  "methamphetamine", "ganja", "weed", "marijuana", "cannabis", "charas", "hashish",
+                  "opium", "afeem", "mdma", "ecstasy", "lsd", "yaba", "fentanyl", "ketamine"),
+                _S("crystal", "meth"), _S("brown", "sugar"))),
     ]),
     ("cyber", [
-        r"\bhack(?:ing|ed|er|ers|s)?\b",
-        r"\b(?:phish\w*|malware|ransomware|spyware|keylogger\w*|trojan\s+virus|ddos|"
-        r"brute[\s-]?forc\w*|credential\s+stuffing)\b",
-        r"\bcrack\w*\s+(?:the\s+|a\s+|his\s+|her\s+|their\s+)?(?:passwords?|wi-?fi|accounts?|logins?)\b",
-        r"\bbypass\w*\s+(?:the\s+)?(?:login|otp|password|authentication|security|captcha)\b",
-        r"\bsteal\w*\s+(?:\w+\s+)?(?:passwords?|otps?|credentials|data|accounts?|identit(?:y|ies))\b",
-        r"\b(?:someone|somebody|his|her|their|other\s+people)\W*s?\s+(?:passwords?|otps?|accounts?|logins?)\b",
+        W("hack", "hacking", "hacked", "hacker", "hackers", "hacks"),
+        _A(_P("phish", "keylogger", "bruteforc"), W("malware", "ransomware", "spyware", "ddos"),
+            _S("trojan", "virus"), Seq("brute", _P("forc")), _S("credential", "stuffing")),
+        _S(_P("crack"), Opt(W("the", "a", "his", "her", "their")),
+           _A(W("password", "passwords", "wifi", "account", "accounts", "login", "logins"),
+               Seq("wi", "fi"))),
+        _S(_P("bypass"), Opt("the"),
+           W("login", "otp", "password", "authentication", "security", "captcha")),
+        _S(_P("steal"), Opt(ANY), W("password", "passwords", "otp", "otps", "credentials", "data",
+                                    "account", "accounts", "identity", "identities")),
+        # "someone's password", "his otp", "other people's accounts"
+        Seq(_A(W("someone", "somebody", "his", "her", "their", "someones", "somebodys", "hers",
+                  "theirs"), _S("other", W("people", "peoples"))),
+            Opt(W("s")), W("password", "passwords", "otp", "otps", "account", "accounts", "login",
+                           "logins")),
     ]),
     ("privacy", [
-        r"\b(?:give|show|tell|share|send|find|get|list|fetch|reveal|leak|need|want|what\s+is|what'?s)\s+"
-        r"(?:me\s+)?(?:the\s+)?(?:aadhaa?r|aadhar|pan|voter\s*id|bank\s+account|passport|ifsc|"
-        r"atm\s+pin|upi\s+pin)\s*(?:card\s+)?(?:numbers?|nos?\.?|details?|pins?)?\s+(?:of|for)\b",
-        r"\b(?:spy\s+on|stalk\w*|secretly\s+track|track\w*\s+(?:the\s+)?(?:location|phone|mobile)\s+of|"
-        r"track\w*\s+(?:my|his|her)\s+(?:wife|husband|girlfriend|boyfriend|ex|partner))\b",
-        r"\b(?:home|residential|house)\s+address\s+of\b",
+        _S(_A(W("give", "show", "tell", "share", "send", "find", "get", "list", "fetch", "reveal",
+                 "leak", "need", "want", "whats"), _S("what", "is"), Seq("what", "s")),
+           Opt("me"), Opt("the"),
+           _A(W("aadhaar", "aadhar", "pan", "passport", "ifsc", "voterid"),
+               _A("voter id", "bank account", "atm pin", "upi pin")),
+           Opt("card"),
+           Opt(W("number", "numbers", "no", "nos", "detail", "details", "pin", "pins")),
+           W("of", "for")),
+        _A(_S("spy", "on"), _P("stalk"), _S("secretly", "track"),
+            _S(_P("track"), Opt("the"), W("location", "phone", "mobile"), "of"),
+            _S(_P("track"), W("my", "his", "her"),
+               W("wife", "husband", "girlfriend", "boyfriend", "ex", "partner"))),
+        _S(W("home", "residential", "house"), "address", "of"),
     ]),
     ("manipulation", [
-        r"\b(?:ignore|disregard|forget|override|bypass)\s+(?:all\s+|any\s+|the\s+|your\s+|my\s+|these\s+)?"
-        r"(?:previous|prior|above|earlier|system|original|safety)?\s*(?:instructions?|rules?|prompts?|"
-        r"guidelines?|restrictions?|filters?|guardrails?)\b",
-        r"\b(?:system|hidden|initial|internal|developer)\s+(?:prompt|instructions?|message)\b",
-        r"\b(?:jailbreak\w*|dan\s+mode|developer\s+mode|do\s+anything\s+now|god\s+mode)\b",
-        r"\b(?:pretend|act|behave)\s+(?:like\s+|as\s+|to\s+be\s+|you\s+are\s+)(?:an?\s+)?"
-        r"(?:unrestricted|uncensored|unfiltered|evil|different)\b",
-        r"\byou\s+are\s+(?:no\s+longer|now\s+(?:an?\s+)?(?:unrestricted|uncensored|free))\b",
-        r"\b(?:drop|truncate|alter)\s+(?:table|database|schema)\b|\bdelete\s+from\b|\binsert\s+into\b",
-        r"\bupdate\s+\w+(?:\.\w+)?\s+set\b|\bunion\s+(?:all\s+)?select\b|\bgrant\s+all\b",
-        r";\s*--|\bor\s+1\s*=\s*1\b|\bxp_cmdshell\b|\bpg_sleep\b",
+        _S(W("ignore", "disregard", "forget", "override", "bypass"),
+           Opt(W("all", "any", "the", "your", "my", "these")),
+           Opt(W("previous", "prior", "above", "earlier", "system", "original", "safety")),
+           _pl("instruction", "rule", "prompt", "guideline", "restriction", "filter", "guardrail")),
+        _S(W("system", "hidden", "initial", "internal", "developer"),
+           W("prompt", "instruction", "instructions", "message")),
+        _A(_P("jailbreak"), _A("dan mode", "developer mode", "do anything now", "god mode")),
+        _S(W("pretend", "act", "behave"), _A("like", "as", "to be", "you are"), Opt(W("a", "an")),
+           W("unrestricted", "uncensored", "unfiltered", "evil", "different")),
+        _S("you", "are", _A(_S("no", "longer"),
+                             _S("now", Opt(W("a", "an")), W("unrestricted", "uncensored", "free")))),
+        _A(_S(W("drop", "truncate", "alter"), W("table", "database", "schema")),
+            _S("delete", "from"), _S("insert", "into")),
+        # "update users set", "update a.b set"; "union select", "grant all"
+        _A(_S("update", _A(_GSeq(ANY, ANY, ok=lambda g: g == "."), ANY), "set"),
+            _S("union", Opt("all"), "select"), _S("grant", "all")),
+        # "; --", "or 1=1", "xp_cmdshell", "pg_sleep"
+        _GRule(_sql_comment),
+        _A(_S("or", _GSeq("1", "1", ok=lambda g: g.strip() == "=")), W("xp_cmdshell", "pg_sleep")),
     ]),
 ]
 
-_COMPILED = [(cat, [re.compile(p) for p in pats]) for cat, pats in _RULES]
+
+def _g_compile(rule):
+    return rule if isinstance(rule, _GRule) else Matcher(rule)
+
+
+_COMPILED = [(cat, [_g_compile(r) for r in rules]) for cat, rules in _RULES]
 
 
 def _normalise(text: str) -> str:
     t = (text or "").lower().replace("’", "'")
-    return re.sub(r"\s+", " ", t).strip()
+    return " ".join(t.split())
 
 
 def check_rules(text: str) -> "Verdict | None":
@@ -294,77 +550,117 @@ def check_rules(text: str) -> "Verdict | None":
 # TASK, never on a data word: "give me CM Elevate applications", "village code
 # for Mylliem" and "MGNREGA programme for women" must not match.
 
-_CREATE = r"(?:write|draft|compose|create|make|generate|prepare|craft|frame|design)"
-_CONTENT = (r"(?:posts?|captions?|poems?|poetry|songs?|lyrics|essays?|speech(?:es)?|articles?|blogs?|"
-            r"stor(?:y|ies)|jokes?|slogans?|taglines?|ads?|advertisements?|jingles?|shayari|rap|"
-            r"press\s+releases?|letters?|emails?|e-mails?|tweets?|quotes?|wishes|invitations?|"
-            r"cover\s+letters?|resumes?|cv|novels?|paragraphs?|presentations?|ppts?|slides?|"
-            r"pamphlets?|posters?|banners?|brochures?|newsletters?|scripts?|memes?|"
-            r"thumbnails?|descriptions?\s+for\s+(?:my|a|an)\b)")
+_CREATE = W("write", "draft", "compose", "create", "make", "generate", "prepare", "craft", "frame",
+            "design")
+_CONTENT = _A(
+    _pl("post", "caption", "poem", "song", "essay", "article", "blog", "joke", "slogan", "tagline",
+        "ad", "advertisement", "jingle", "letter", "email", "tweet", "quote", "invitation",
+        "resume", "novel", "paragraph", "presentation", "ppt", "slide", "pamphlet", "poster",
+        "banner", "brochure", "newsletter", "script", "meme", "thumbnail"),
+    W("poetry", "lyrics", "speech", "speeches", "story", "stories", "shayari", "rap", "wishes", "cv"),
+    _S("press", W("release", "releases")), Seq("e", W("mail", "mails")),
+    _S("cover", W("letter", "letters")),
+    _S(W("description", "descriptions"), "for", W("my", "a", "an")),
+)
 
-_SCOPE_RULES: list[tuple[str, list[str]]] = [
+_SCOPE_RULES: list[tuple[str, list]] = [
     ("scope_content", [
-        r"\b(?:instagram|insta|facebook|twitter|tweet|youtube|tiktok|snapchat|linkedin|"
-        r"social\s+media|hashtags?|influencer|vlogs?|whatsapp\s+(?:status|forward|story|group\s+message))\b",
-        r"\b(?:reels?|go\s+viral|viral\s+(?:post|video|content))\b",
-        rf"\b{_CREATE}\s+(?:me\s+|us\s+)?(?:a|an|the|some|one|few|\d+)?\s*(?:\w+\s+){{0,3}}?{_CONTENT}\b",
-        r"\b(?:write|draft|compose)\s+(?:me\s+)?(?:a|an|the|my)?\s*(?:\w+\s+){0,2}?"
-        r"(?:application|petition|complaint|mail|note|reply)\b",
-        r"\bpost\s+(?:it\s+|this\s+)?(?:on|in|to)\s+(?:my\s+)?(?:page|wall|group|story|status|account)\b",
+        _A(W("instagram", "insta", "facebook", "twitter", "tweet", "youtube", "tiktok", "snapchat",
+              "linkedin", "hashtag", "hashtags", "influencer", "vlog", "vlogs"),
+            _S("social", "media"),
+            _S("whatsapp", _A(W("status", "forward", "story"), _S("group", "message")))),
+        _A(W("reel", "reels"), _S("go", "viral"), _S("viral", W("post", "video", "content"))),
+        _S(_CREATE, Opt(W("me", "us")),
+           Opt(_A(W("a", "an", "the", "some", "one", "few"), Pred(str.isdigit))),
+           Gap(3), _CONTENT),
+        _S(W("write", "draft", "compose"), Opt("me"), Opt(W("a", "an", "the", "my")), Gap(2),
+           W("application", "petition", "complaint", "mail", "note", "reply")),
+        _S("post", Opt(W("it", "this")), W("on", "in", "to"), Opt("my"),
+           W("page", "wall", "group", "story", "status", "account")),
     ]),
     ("scope_code", [
-        r"\b(?:python|javascript|typescript|c\+\+|c#|php|golang|rust\s+code|kotlin|swift\s+code|"
-        r"pandas|numpy|vba|excel\s+formula|google\s+sheets?\s+formula|regex|html|css|react\s+code|"
-        r"node\.?js|source\s+code|api\s+code)\b",
-        r"\b(?:write|generate|create|build|develop|code)\s+(?:me\s+)?(?:a|an|the|some)?\s*(?:\w+\s+){0,2}?"
-        r"(?:code|program|software|app|application\s+code|website|script|function|sql(?:\s+query)?|"
-        r"query\s+in\s+sql|formula|macro|bot|chatbot|dashboard\s+code)\b",
-        r"\bsql\s+query\s+(?:for|to)\b",
+        _A(W("python", "javascript", "typescript", "php", "golang", "kotlin", "pandas", "numpy",
+              "vba", "regex", "html", "css", "nodejs"),
+            # "c++" / "c#" (the old rule wanted a word right after the symbol)
+            _GSeq("c", ANY, ok=lambda g: g in ("++", "#")),
+            _GSeq("node", "js", ok=lambda g: g == "."),
+            _A("rust code", "swift code", "excel formula", "react code", "source code", "api code"),
+            _S("google", W("sheet", "sheets"), "formula")),
+        _S(W("write", "generate", "create", "build", "develop", "code"), Opt("me"),
+           Opt(W("a", "an", "the", "some")), Gap(2),
+           _A(W("code", "program", "software", "app", "website", "script", "function", "sql",
+                 "formula", "macro", "bot", "chatbot"),
+               _A("application code", "sql query", "query in sql", "dashboard code"))),
+        _S("sql", "query", W("for", "to")),
     ]),
     ("scope_task", [
-        r"\bbook\w*\s+(?:a\s+|an\s+|my\s+|the\s+|me\s+(?:a\s+)?)?(?:\w+\s+)?(?:tickets?|trains?|flights?|"
-        r"bus|cab|taxi|hotel|rooms?|appointment|slot)\b",
-        r"\b(?:apply|register|enrol\w*|enroll\w*|submit|fill|file|pay|transfer|send|order|buy|purchase|"
-        r"call|contact|email|message|sms|lodge|update|change|correct|approve|sanction|release)\w*\b"
-        r"[^.?!]{0,50}\b(?:for\s+me|on\s+my\s+behalf|in\s+my\s+name)\b",
-        r"\b(?:amazon|flipkart|zomato|swiggy|uber|ola\s+cab|meesho|myntra)\b",
-        r"\b(?:set\s+(?:a\s+|an\s+)?(?:reminder|alarm)|remind\s+me)\b",
-        r"\b(?:approve|sanction|release|transfer)\s+(?:my|our)\s+(?:[\w-]+\s+)?(?:application|house|payment|"
-        r"money|amount|wages?|loan|installment|instalment)\b",
+        _S(_P("book"), Opt(_A(W("a", "an", "my", "the"), _S("me", Opt("a")))), Opt(ANY),
+           W("ticket", "tickets", "train", "trains", "flight", "flights", "bus", "cab", "taxi",
+             "hotel", "room", "rooms", "appointment", "slot")),
+        Seq(_P("apply", "register", "enrol", "submit", "fill", "file", "pay", "transfer", "send",
+               "order", "buy", "purchase", "call", "contact", "email", "message", "sms", "lodge",
+               "update", "change", "correct", "approve", "sanction", "release"),
+            _GCharGap(50, ".?!"),
+            _A("for me", "on my behalf", "in my name")),
+        _A(W("amazon", "flipkart", "zomato", "swiggy", "uber", "meesho", "myntra"), _S("ola", "cab")),
+        _A(_S("set", Opt(W("a", "an")), W("reminder", "alarm")), _S("remind", "me")),
+        _S(W("approve", "sanction", "release", "transfer"), W("my", "our"),
+           Opt(_A(_GSeq(ANY, ANY, ANY, ok=lambda g: g == "-"), _GSeq(ANY, ANY, ok=lambda g: g == "-"),
+                   ANY)),
+           W("application", "house", "payment", "money", "amount", "wage", "wages", "loan",
+             "installment", "instalment")),
     ]),
     ("scope_politics", [
-        r"\b(?:bjp|congress\s+party|npp|udp|tmc|aap|vpp|hspdp|political\s+part(?:y|ies)|"
-        r"elections?|vote\s+for|voting\s+for|whom\s+(?:should|to)\s+vote|which\s+party|manifesto|"
-        r"campaign\s+for|opposition\s+party)\b",
-        r"\b(?:is|was|are)\s+(?:the\s+)?(?:government|govt|ministers?|chief\s+minister|pm|"
-        r"prime\s+minister|mla|mp|party|\w+\s+sangma|modi)\s+(?:\w+\s+)?(?:good|bad|corrupt|useless|"
-        r"best|worst|failures?|failed|honest|dishonest|right|wrong|incompetent)\b",
-        r"\b(?:better|best|worse|worst)\s+(?:party|leader|government|chief\s+minister|prime\s+minister|pm)\b",
-        r"\bwho\s+(?:will|would)\s+win\b",
+        _A(W("bjp", "npp", "udp", "tmc", "aap", "vpp", "hspdp", "election", "elections",
+              "manifesto"),
+            _A("congress party", "political party", "political parties", "vote for", "voting for",
+               "which party", "campaign for", "opposition party"),
+            _S("whom", W("should", "to"), "vote")),
+        _S(W("is", "was", "are"), Opt("the"),
+           _A(W("government", "govt", "minister", "ministers", "pm", "mla", "mp", "party", "modi"),
+               _A("chief minister", "prime minister"), _S(ANY, "sangma")),
+           Opt(ANY),
+           W("good", "bad", "corrupt", "useless", "best", "worst", "failure", "failures", "failed",
+             "honest", "dishonest", "right", "wrong", "incompetent")),
+        _S(W("better", "best", "worse", "worst"),
+           _A(W("party", "leader", "government", "pm"), _A("chief minister", "prime minister"))),
+        _S("who", W("will", "would"), "win"),
     ]),
     ("scope_academic", [
-        r"\b(?:homework|home\s+work|my\s+assignment|(?:college|school|class)\s+(?:assignment|project)|"
-        r"assignment\s+(?:on|for|about)|thesis|dissertation|term\s+paper|exam\s+(?:answers?|questions?|paper)|"
-        r"project\s+report\s+for\s+(?:my|college|school|class)|research\s+paper\s+for\s+me|"
-        r"solve\s+(?:this|the|my)\s+(?:maths?|equation|sum|problem)s?)\b",
+        _A(W("homework", "thesis", "dissertation"),
+            _A("home work", "my assignment", "term paper", "research paper for me"),
+            _S(W("college", "school", "class"), W("assignment", "project")),
+            _S("assignment", W("on", "for", "about")),
+            _S("exam", W("answer", "answers", "question", "questions", "paper")),
+            _S("project", "report", "for", W("my", "college", "school", "class")),
+            _S("solve", W("this", "the", "my"),
+               W("math", "maths", "mathss", "equation", "equations", "sum", "sums", "problem",
+                 "problems"))),
     ]),
     ("scope_advice", [
-        r"\b(?:which|what)\s+(?:medicine|tablet|treatment|injection)\b",
-        r"\b(?:i\s+have|i'm\s+having|suffering\s+from)\s+(?:a\s+)?(?:fever|cough|cold|headache|stomach\s+ache|"
-        r"pain|diabetes|cancer|covid|infection|bp|blood\s+pressure)\b",
-        r"\b(?:legal\s+advice|file\s+(?:a\s+)?(?:case|fir|suit)\s+against|sue\s+(?:the|my|him|her|them)\b|"
-        r"lawyer\s+for\s+me|divorce|property\s+dispute|land\s+dispute\s+with)\b",
+        _S(W("which", "what"), W("medicine", "tablet", "treatment", "injection")),
+        _S(_A(_S("i", "have"), _GSeq("i", "m", "having", ok=lambda g: g.strip() in ("", "'")),
+               _S("suffering", "from")),
+           Opt("a"),
+           _A(W("fever", "cough", "cold", "headache", "pain", "diabetes", "cancer", "covid",
+                 "infection", "bp"), _A("stomach ache", "blood pressure"))),
+        _A(_S("legal", "advice"), _S("file", Opt("a"), W("case", "fir", "suit"), "against"),
+            _S("sue", W("the", "my", "him", "her", "them")), _S("lawyer", "for", "me"),
+            W("divorce"), _S("property", "dispute"), _S("land", "dispute", "with")),
     ]),
     ("scope_general", [
-        r"\b(?:recipe|horoscope|astrology|zodiac|kundli|palm\s+reading|lucky\s+number|lottery|"
-        r"tarot|numerology|girlfriend|boyfriend|dating|love\s+letter|relationship\s+advice|"
-        r"cricket\s+score|ipl|football\s+match|movie\s+review|netflix|web\s+series|song\s+lyrics|"
-        r"weather\s+(?:forecast|today|tomorrow|report)|stock\s+price|share\s+market|crypto\w*|bitcoin)\b",
-        r"\b(?:tell|say)\s+(?:me\s+)?(?:a\s+)?(?:joke|riddle|story)\b",
+        _A(W("recipe", "horoscope", "astrology", "zodiac", "kundli", "lottery", "tarot",
+              "numerology", "girlfriend", "boyfriend", "dating", "ipl", "netflix", "bitcoin"),
+            _P("crypto"),
+            _A("palm reading", "lucky number", "love letter", "relationship advice",
+               "cricket score", "football match", "movie review", "web series", "song lyrics",
+               "stock price", "share market"),
+            _S("weather", W("forecast", "today", "tomorrow", "report"))),
+        _S(W("tell", "say"), Opt("me"), Opt("a"), W("joke", "riddle", "story")),
     ]),
 ]
 
-_SCOPE_COMPILED = [(cat, [re.compile(p) for p in pats]) for cat, pats in _SCOPE_RULES]
+_SCOPE_COMPILED = [(cat, [_g_compile(r) for r in rules]) for cat, rules in _SCOPE_RULES]
 
 
 def check_scope_rules(text: str) -> "Verdict | None":
@@ -442,20 +738,191 @@ JSON:"""
 
 # Asking to see figures in a visual form: a chart, graph, plot, table,
 # visualisation (in the chat UI's own chart types, or any wording of them).
-_PRESENTATION_REQUEST = re.compile(
-    r"\b(?:charts?|graphs?|plots?|plotting|visuali[sz]\w*|pie|donut|doughnut|histograms?|"
-    r"(?:bar|line|column|area)\s*(?:charts?|graphs?|plots?)|tables?|tabular|table\s*form|"
-    r"diagrams?|breakdown\s+chart|trend\s*(?:line|chart|graph))\b")
+_PRESENTATION_REQUEST = Matcher(_A(
+    _pl("chart", "graph", "plot", "histogram", "table", "diagram"),
+    W("plotting", "pie", "donut", "doughnut", "tabular", "tableform", "trendline", "trendchart",
+      "trendgraph"),
+    _P("visualis", "visualiz"),
+    W(*(a + b for a in ("bar", "line", "column", "area")
+        for b in ("chart", "charts", "graph", "graphs", "plot", "plots"))),
+    _S("table", "form"), _S("breakdown", "chart"), _S("trend", W("line", "chart", "graph")),
+))
+
+
+class _GuardHit:
+    """A truthy match result for the character-level rules below."""
+
+    def __init__(self, text: str):
+        self.string = text
+
+    def group(self, *_):
+        return self.string
+
+    def __bool__(self):
+        return True
+
+
+# A question for scheme figures or records: a question / request word and a data
+# noun. Used only to overrule an OUT_OF_SCOPE model verdict, never a harm verdict.
+_DQ_NOUN = _A(
+    _pl("applicant", "application", "remittance", "district", "block", "village", "member",
+        "house", "amount", "record", "scheme", "pg", "household", "payment", "loan"),
+    W("remitted", "expenditure"),
+    _P("beneficiar", "disburs", "sanction", "subsid", "constituenc"),
+    _S("village", W("code", "codes")), Joined("person", ("day", "days")),
+    _S("producer", W("group", "groups")), _S("job", W("card", "cards")),
+    _S("financial", W("year", "years")),
+)
+_DQ_ASK = Matcher(Seq(
+    _A(W("which", "what", "list", "show", "give", "tell", "count", "total", "top", "find",
+          "compare", "where"),
+        _S("how", W("many", "much")), _A("number of", "is there", "are there", "in which")),
+    _GCharGap(160, "\n"),
+    _DQ_NOUN,
+))
+
+
+def _dq_word(s: str) -> bool:
+    return s != "" and all(c.isalnum() or c == "_" for c in s)
+
+
+def _dq_measure(chunks: list, k: int) -> int:
+    """How many whitespace chunks starting at k form a measure word ("applicants",
+    "job cards", "person-days", "got work"), or 0."""
+    w = chunks[k] if k < len(chunks) else ""
+    nxt = chunks[k + 1] if k + 1 < len(chunks) else ""
+    if _dq_word(w):
+        if w in ("applicant", "applicants", "application", "applications", "record", "records",
+                 "member", "members", "house", "houses", "expenditure", "household", "households",
+                 "pg", "pgs", "people", "person", "persons", "personday", "persondays"):
+            return 1
+        if any(w.startswith(s) for s in ("beneficiar", "amount", "disburs", "sanction", "employ")):
+            return 1
+        if (w, nxt) in (("job", "card"), ("job", "cards"), ("producer", "group"),
+                        ("producer", "groups"), ("person", "day"), ("person", "days"),
+                        ("got", "work")):
+            return 2
+    head, _, tail = w.partition("-")
+    if head == "person" and tail in ("day", "days"):
+        return 1
+    return 0
+
+
+def _dq_terse(t: str) -> bool:
+    """Terse: "cm elevate applicants in laskein block" — up to four leading words
+    (after an optional "the" / "total"), a measure, at most three more words, then
+    in / for / of / at / under and a word."""
+    chunks = t.split()
+    starts = {0}
+    if chunks and chunks[0] == "the":
+        starts.add(1)
+    for s in list(starts):
+        if s < len(chunks) and chunks[s] == "total":
+            starts.add(s + 1)
+    for s in starts:
+        for lead in range(0, 5):
+            k = s + lead
+            if k > len(chunks) or not all(
+                    c and all(ch.isalnum() or ch in "_+-" for ch in c) for c in chunks[s:k]):
+                break
+            m = _dq_measure(chunks, k)
+            if not m:
+                continue
+            j = k + m
+            for extra in range(0, 4):
+                p = j + extra
+                if p + 1 >= len(chunks):
+                    break
+                if extra and not _dq_word(chunks[p - 1]):
+                    break
+                nxt = chunks[p + 1]
+                if chunks[p] in ("in", "for", "of", "at", "under") and nxt[:1] and (
+                        nxt[0].isalnum() or nxt[0] == "_"):
+                    return True
+    return False
+
+
+class _GuardDataQuestion:
+    def search(self, text):
+        t = (text or "").lower()
+        hit = _DQ_ASK.search(t)
+        if hit:
+            return hit
+        return _GuardHit(t) if _dq_terse(t) else None
+
+
+_DATA_QUESTION = _GuardDataQuestion()
 
 
 def _parse(raw: str) -> "dict | None":
-    m = re.search(r"\{.*?\}", raw or "", re.S)
-    if not m:
+    raw = raw or ""
+    lo = raw.find("{")
+    hi = raw.find("}", lo + 1) if lo >= 0 else -1
+    if hi < 0:
         return None
     try:
-        return json.loads(m.group(0))
+        return json.loads(raw[lo:hi + 1])
     except ValueError:
         return None
+
+
+# "What is Gram Panchayat?", "what is SECC", "meaning of muster roll": a
+# what-is / explain question about a term the schemes themselves use. The model
+# filed "What is Gram Panchayat?" under general knowledge and the user got the
+# out-of-scope refusal (user report 2026-10-14), yet the scheme documents define
+# these terms and the knowledge path answers them. Used only to overrule an
+# OUT_OF_SCOPE "general" verdict, never a harm verdict.
+def _g_instalment(w: str) -> bool:
+    """instalment(s), installment(s), instaLLLment… ("insta", one or more 'l',
+    "ment", an optional 's')."""
+    w = w.lower()
+    if not w.startswith("instal"):
+        return False
+    rest = w[len("instal"):].lstrip("l")
+    return rest in ("ment", "ments")
+
+
+_SCHEME_TERM_OPENING = _A(
+    W("what", "explain", "define", "describe"),
+    _S("who", W("is", "are", "issues", "runs", "gives")),
+    _A("meaning of", "tell me about", "role of"),
+)
+_SCHEME_TERM = _A(
+    _S("gram", W("panchayat", "panchayats", "sabha", "sabhas")), _pl("panchayat"),
+    _GSeq("c", "rd", ok=lambda g: g.strip() == "&"),
+    _S("community", "and", "rural", "development"),
+    _S(_GSeq("community", "rural", ok=lambda g: g.strip() == "&" and g[0].isspace() and g[-1].isspace()),
+       "development"),
+    _S("block", _A(W("office"), _S("development", "officer"))),
+    W("bdo", "ombudsperson", "ombudsman", "secc", "pfms", "dbt", "shg", "shgs", "mbda",
+      "meghalayaone", "pucca", "kutcha", "tranche", "tranches", "nrega", "mgnrega", "awaas",
+      "focus", "focusplus", "focuslegacy", "awaasplus", "awaassoft", "awaasapp"),
+    _S("job", W("card", "cards")), _S("muster", W("roll", "rolls")),
+    _S("social", W("audit", "audits")),
+    Seq("socio", _S("economic", "caste", "census")),
+    _P("geotag"), Seq("geo", _P("tag")),
+    _A("direct benefit transfer", "prime meghalaya", "unit assistance", "rozgar sahayak",
+       "programme officer", "labour budget"),
+    _S("producer", W("group", "groups")),
+    Seq("self", _S("help", W("group", "groups"))),
+    _S("village", W("organisation", "organisations", "organization", "organizations")),
+    _S("unskilled", Opt("manual"), "work"),
+    Pred(_g_instalment), _P("pmay"), Joined("cm", "elevate"),
+)
+_SCHEME_TERM_MATCH = Matcher(Seq(START, _SCHEME_TERM_OPENING, _GCharGap(60, "\n"), _SCHEME_TERM))
+
+
+class _GuardSchemeTerm:
+    """START-anchored: the text (after spaces) begins with the opening word."""
+
+    def search(self, text):
+        t = (text or "").lstrip()
+        if not t or not (t[0].isalnum() or t[0] == "_"):
+            return None
+        return _SCHEME_TERM_MATCH.search(t)
+
+
+_SCHEME_TERM_QUESTION = _GuardSchemeTerm()
 
 
 async def check_model(text: str) -> "Verdict | None":
@@ -500,6 +967,21 @@ async def check_model(text: str) -> "Verdict | None":
         if _PRESENTATION_REQUEST.search(_normalise(message)):
             context_budget.log_decision("guardrail", layer="model", outcome="overruled",
                                         model_category=str(category), reason="presentation-request")
+            return None
+        # A plain question for figures or records is the assistant's job too. The
+        # model refused "How many applicants are recorded under Meghalaya Poultry
+        # Farming Scheme in West Garo Hills?" as a social-media post, "Show me all
+        # remittances made between April and June 2025" as a task and "What is the
+        # village code of Abokgre?" as general (user session 2026-10-13). The
+        # scope rules above already found no post / essay / code request.
+        if category in ("content", "task", "general", "code") and _DATA_QUESTION.search(_normalise(message)):
+            context_budget.log_decision("guardrail", layer="model", outcome="overruled",
+                                        model_category=str(category), reason="data-question")
+            return None
+        # A what-is question about a scheme term is the knowledge path's job.
+        if category == "general" and _SCHEME_TERM_QUESTION.search(_normalise(message)):
+            context_budget.log_decision("guardrail", layer="model", outcome="overruled",
+                                        model_category=str(category), reason="scheme-term")
             return None
         category = f"scope_{category}"
         return Verdict(category if category in RESPONSES else "scope_general", "model")

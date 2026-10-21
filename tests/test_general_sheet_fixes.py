@@ -33,7 +33,7 @@ def test_tc001_not_covered_reply_says_six():
 
 # ── TC-005: Focus Legacy has its own how-to-apply entry ─────────────────────
 def test_tc005_focus_legacy_faq_has_apply_steps():
-    faq = (Path(__file__).resolve().parents[1] / "data" / "reference" / "FOCUS_LEGACY_FAQ.md").read_text(
+    faq = (Path(__file__).resolve().parents[1] / "data" / "incoming" / "Focus_Legacy" / "FOCUS_LEGACY_FAQ.md").read_text(
         encoding="utf-8")
     assert "### 8a. How do I apply for FOCUS?" in faq
 

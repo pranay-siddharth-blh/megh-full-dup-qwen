@@ -14,11 +14,11 @@
   * { box-sizing: border-box; }
   html, body { margin: 0; padding: 0; height: 100%; }
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Ubuntu, Cantarell, 'Noto Sans', 'Helvetica Neue', Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji';
     background: var(--bg); color: var(--ink); font-size: 14px; line-height: 1.5;
     overflow: hidden;
   }
-  .mono { font-family: 'JetBrains Mono', Menlo, monospace; }
+  .mono { font-family: 'JetBrains Mono', ui-monospace, Menlo, Consolas, 'DejaVu Sans Mono', monospace; }
 
   /* ============== APP LAYOUT ============== */
   /* --sidebar-w drives BOTH the grid column and the fixed composer's left
@@ -325,7 +325,7 @@
   }
 
   /* ============== MAIN AREA ============== */
-  .main { display: flex; flex-direction: column; min-width: 0; height: 100vh; min-height: 0; overflow: hidden; }
+  .main { display: flex; flex-direction: column; min-width: 0; height: 100vh; height: 100dvh; min-height: 0; overflow: hidden; }
   .topbar {
     background: var(--surface); border-bottom: 1px solid var(--line);
     padding: 14px 24px; display: flex; align-items: center; gap: 16px;
@@ -574,38 +574,47 @@
   .msg.user .bubble { background: var(--p-700); color: #fff; border-color: var(--p-700); }
   .bubble strong, .bubble b { color: var(--p-700); font-weight: 700; }
   .msg.user .bubble strong { color: #fff; }
+  /* Key figures (#265, Markdown.jsx Figures): the numbers in an answer are bold
+     in the text's own colour, so the eye lands on the figure first. */
+  .bubble strong.fig { color: var(--ink); font-weight: 700; font-variant-numeric: tabular-nums; }
   .answer-text { margin-bottom: 4px; }
   .mtime { font-size: 11px; color: var(--ink-3); margin-top: 4px; }
 
-  /* Typing indicator */
-  .typing-bubble { display: inline-flex; gap: 4px; padding: 12px 16px; }
-  .typing-bubble .dot {
-    width: 6px; height: 6px; border-radius: 50%; background: var(--p-400);
-    animation: typing 1.2s infinite ease-in-out;
+  /* Status pill (#073): "✦ Thinking…" / "✦ Searching the scheme documents…".
+     Names the activity instead of showing dots. Uses the app's purple palette;
+     the gradient drifts slowly and the spark twinkles, so it reads as alive
+     without bouncing. */
+  .status-pill {
+    display: inline-flex; align-items: center; gap: 8px;
+    max-width: 100%; padding: 9px 16px 9px 14px; border-radius: 999px;
+    background: linear-gradient(90deg, var(--p-100) 0%, var(--p-200) 50%, var(--p-300) 100%);
+    background-size: 200% 100%;
+    color: var(--p-800); font-size: 14px; font-weight: 600; line-height: 1.3;
+    box-shadow: 0 1px 2px rgba(92,45,145,.10), inset 0 0 0 1px rgba(255,255,255,.55);
+    animation: pillDrift 3s ease-in-out infinite alternate;
   }
-  .typing-bubble .dot:nth-child(2) { animation-delay: 0.15s; }
-  .typing-bubble .dot:nth-child(3) { animation-delay: 0.3s; }
-  @keyframes typing {
-    0%, 60%, 100% { transform: translateY(0); opacity: 0.4; }
-    30% { transform: translateY(-4px); opacity: 1; }
+  .status-pill .pill-spark { display: inline-flex; color: var(--p-600); flex-shrink: 0;
+                             animation: sparkTwinkle 1.6s ease-in-out infinite; }
+  .status-pill .pill-spark svg { width: 15px; height: 15px; }
+  .status-pill .pill-text { overflow-wrap: anywhere; }
+  .status-pill + .pending-bubble { margin-top: 8px; }
+  @keyframes pillDrift { from { background-position: 0% 50%; } to { background-position: 100% 50%; } }
+  @keyframes sparkTwinkle {
+    0%, 100% { transform: scale(1) rotate(0deg); opacity: 1; }
+    50% { transform: scale(.8) rotate(20deg); opacity: .65; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .status-pill, .status-pill .pill-spark { animation: none; }
   }
 
-  /* An answer in flight: the pipeline's steps, then the draft as it is written */
+  /* An answer in flight: the draft as it is written, under the status pill */
   .pending-bubble { min-width: 240px; }
-  .progress-steps { list-style: none; margin: 0; padding: 0; display: grid; gap: 5px; font-size: 13px; }
-  .progress-steps li { display: flex; align-items: center; gap: 8px; color: var(--ink-3); }
-  .progress-steps li.current { color: var(--ink); font-weight: 600; }
-  .progress-steps .step-spin { width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--p-200);
-                               border-top-color: var(--p-600); animation: voiceSpin .8s linear infinite; flex-shrink: 0; }
-  .progress-steps .step-tick { display: inline-flex; color: var(--green); flex-shrink: 0; }
-  .progress-steps .step-tick svg { width: 12px; height: 12px; }
-  .progress-steps + .draft-text { margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--line); }
   .draft-text { color: var(--ink-2); }
   .draft-cursor { display: inline-block; width: 7px; height: 14px; margin-left: 2px; vertical-align: -2px;
                   background: var(--p-500); animation: draftBlink 1s steps(2, start) infinite; }
   @keyframes draftBlink { to { visibility: hidden; } }
   @media (prefers-reduced-motion: reduce) {
-    .progress-steps .step-spin, .draft-cursor { animation: none; }
+    .draft-cursor { animation: none; }
   }
   /* Answer formatting (components/Markdown.jsx): headings, lists, tables */
   .answer-text.md > :first-child { margin-top: 0; }
@@ -669,6 +678,9 @@
 
   /* ============== ANALYTICS (charts + tables) ============== */
   .analytics { margin-top: 12px; }
+  /* A chart was asked for, but the answer is one figure (Messages.jsx Analytics). */
+  .chart-note { margin-bottom: 10px; padding: 10px 12px; background: var(--p-50); border: 1px solid var(--line); border-radius: 12px; }
+  .chart-note p { margin: 0 0 8px; font-size: 13px; color: var(--ink-2); }
   .dyn-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px,1fr)); gap: 12px; }
   .dyn-grid.single { grid-template-columns: 1fr; }
   .dyn-chart-card { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 14px; }
@@ -678,6 +690,23 @@
   .chd-title { font-size: 12px; font-weight: 600; color: var(--ink-2); text-transform: capitalize; }
   .chd-pill { font-size: 10px; background: var(--p-100); color: var(--p-700); padding: 2px 8px; border-radius: 6px; font-weight: 600; }
   .chw { position: relative; height: 220px; }
+
+  /* Two-way comparison card (#397, Charts.jsx CompareCard): "A vs B" as two
+     stat tiles with the measure for each and a one-line verdict. */
+  .compare-card .chd-title { text-transform: none; font-size: 14px; font-weight: 700; color: var(--ink); }
+  .cmp-tiles { display: grid; grid-template-columns: minmax(0, 1fr) auto minmax(0, 1fr); gap: 10px; align-items: stretch; }
+  .cmp-tile { background: var(--p-50); border: 1px solid var(--p-100); border-radius: 12px; padding: 12px 14px; min-width: 0; }
+  .cmp-label { font-size: 12.5px; font-weight: 500; color: var(--ink-2); overflow-wrap: anywhere; }
+  .cmp-value { margin-top: 2px; font-size: 26px; font-weight: 700; line-height: 1.15; color: var(--p-700); overflow-wrap: anywhere; }
+  .cmp-vs { align-self: center; font-size: 12px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+  .cmp-verdict { margin: 12px 0 0; font-size: 13px; color: var(--ink-2); }
+  .bubble .cmp-verdict strong { color: var(--ink); }
+  .compare-card + .rtwrap { margin-top: 12px; }
+  @media (max-width: 420px) {
+    .cmp-tiles { grid-template-columns: minmax(0, 1fr); }
+    .cmp-vs { justify-self: center; }
+    .cmp-value { font-size: 22px; }
+  }
   .qctog { display: flex; gap: 2px; background: var(--p-50); border-radius: 7px; padding: 2px; }
   .ctb { border: 0; background: transparent; font: inherit; font-size: 11px; font-weight: 600;
     color: var(--ink-3); padding: 4px 9px; border-radius: 5px; cursor: pointer; }
@@ -731,10 +760,6 @@
   }
   .next-step-item:hover .next-step-arrow { transform: translateX(2px); color: var(--p-700); }
   .next-step-item:active { transform: scale(.995); }
-  .ans-sources {
-    display: flex; align-items: center; flex-wrap: wrap; gap: 8px;
-    margin-top: 10px; font-size: 12px; color: var(--ink-3);
-  }
   /* Scheme picker — shown when the question named no scheme, so the answer covers all three
      and the user can narrow to one with a click. */
   .scheme-pick { margin-top: 14px; }
@@ -750,11 +775,6 @@
   .scheme-chip:hover { background: var(--p-100); border-color: var(--p-500); }
   .scheme-chip:active { transform: scale(.97); }
 
-  .ans-sources .src-lbl { font-weight: 500; }
-  .ans-sources .src-chip {
-    font-family: 'JetBrains Mono', monospace; font-size: 11.5px;
-    color: var(--p-700); background: var(--p-50); padding: 2px 8px; border-radius: 5px;
-  }
 
   /* ===== SQL disclosure — the generated query, collapsed under a DATA answer ===== */
   .sql-disc {
@@ -785,6 +805,32 @@
   }
   .sql-copy:hover { background: var(--p-100); }
   .sql-copy.copied { color: #15803d; border-color: #86efac; }
+
+  /* ===== Scope banner (Context Memory S2): the scope a data answer used.
+     Wraps on a phone or a narrow sidebar layout; never scrolls sideways. */
+  .scope-banner {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+    margin-bottom: 8px; max-width: 100%; min-width: 0;
+    font-size: 11.5px; color: var(--ink-3);
+  }
+  .scope-banner .sb-lbl {
+    font-size: 9.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase;
+  }
+  .scope-banner .sb-pill {
+    font-size: 11.5px; font-weight: 600; padding: 2px 10px; border-radius: 999px;
+    background: var(--p-50); color: var(--p-700); border: 1px solid var(--p-200);
+    max-width: 100%; overflow-wrap: anywhere; line-height: 1.5;
+  }
+
+  /* "Continue with MGNREGA (…)" after an idle expiry (Context Memory S3). */
+  .continue-offer {
+    display: flex; align-items: center; flex-wrap: wrap; gap: 6px;
+    margin-top: 10px; max-width: 100%; min-width: 0;
+  }
+  .continue-offer .co-lbl {
+    font-size: 9.5px; font-weight: 700; letter-spacing: .8px; text-transform: uppercase; color: var(--ink-3);
+  }
+  .continue-offer .suggest-item { max-width: 100%; overflow-wrap: anywhere; }
 
   /* ===== NODE 1 — Scope & Scheme Classifier routing badge =====
      Shows which scheme(s) the question was routed to, how the decision was made,
@@ -868,28 +914,46 @@
   }
   .suggest-item:active { transform: scale(.995); }
 
-  /* ===== NODE 3 — Clarification pause: the question + its clickable answers ===== */
-  .clarify-box {
-    margin-top: 12px; padding: 12px 14px;
-    background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px;
-  }
-  .clarify-lbl {
-    font-size: 10px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase;
-    color: #b45309; margin-bottom: 8px; display: flex; align-items: center; gap: 6px;
-  }
+  /* ===== Clarifying question (#281, Royal Gradient): the question is the
+     answer text; these are its tappable replies. Outlined purple chips that
+     fill with the brand gradient on hover, focus and press. ===== */
+  .clarify-box { margin-top: 12px; }
   .clarify-opts { display: flex; flex-wrap: wrap; gap: 8px; }
   .clarify-opt {
-    padding: 8px 14px; border: 1px solid #fcd34d; border-radius: 999px;
-    background: #fff; color: #92400e;
-    font-family: inherit; font-size: 13px; font-weight: 600;
-    cursor: pointer; transition: background .15s, border-color .15s, transform .1s;
+    padding: 8px 15px; border: 1.5px solid var(--p-500); border-radius: 10px;
+    background: var(--surface); color: var(--p-700);
+    font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1.3;
+    max-width: 100%; text-align: left; overflow-wrap: anywhere;
+    cursor: pointer; transition: background .15s, border-color .15s, color .15s, transform .1s, box-shadow .15s;
   }
-  .clarify-opt:hover { background: #fef3c7; border-color: #f59e0b; }
+  .clarify-opt:hover, .clarify-opt:focus-visible {
+    background: linear-gradient(135deg, var(--p-600), var(--p-700)); border-color: var(--p-700); color: #fff;
+    box-shadow: 0 2px 8px rgba(124,63,191,.3); outline: none;
+  }
+  .clarify-opt:focus-visible { box-shadow: 0 0 0 3px var(--p-200), 0 2px 8px rgba(124,63,191,.3); }
   .clarify-opt:active { transform: scale(.97); }
+  /* The scheme question: three cards (central / state / legacy, unlabelled),
+     one row per scheme with its chart hue as a dot. */
+  .scheme-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); gap: 10px; }
+  .scheme-groups + .clarify-opts { margin-top: 10px; }
+  .sg-card { background: var(--p-50); border: 1px solid var(--line); border-radius: 12px; padding: 10px; min-width: 0; }
+  .sg-item {
+    display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 12px; margin-top: 6px;
+    border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink);
+    font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1.3; text-align: left; cursor: pointer;
+    transition: border-color .15s, background .15s, box-shadow .15s, transform .1s;
+  }
+  .sg-item:first-of-type { margin-top: 0; }
+  .sg-item:hover, .sg-item:focus-visible { border-color: var(--p-500); background: var(--p-100); outline: none; }
+  .sg-item:focus-visible { box-shadow: 0 0 0 3px var(--p-200); }
+  .sg-item:active { transform: scale(.98); }
+  .sg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--p-500); }
+  @media (prefers-reduced-motion: reduce) { .sg-item { transition: none; } .sg-item:active { transform: none; } }
   .clarify-rule {
-    margin-top: 9px; font-size: 10.5px; color: #a16207; opacity: .85;
+    margin-top: 9px; font-size: 10.5px; color: var(--ink-3);
     font-family: 'JetBrains Mono', monospace;
   }
+  @media (prefers-reduced-motion: reduce) { .clarify-opt { transition: none; } .clarify-opt:active { transform: none; } }
 
   /* ============== COMPOSER ============== */
   .composer-wrap {
@@ -899,7 +963,30 @@
   }
   /* Drawer layout: the sidebar overlays rather than occupying a column. */
   @media (max-width: 880px) { .composer-wrap { left: 0; } }
-  .composer-inner { max-width: 920px; margin: 0 auto; }
+  .composer-inner { max-width: 920px; margin: 0 auto; position: relative; }
+
+  /* Slash-command menu (#319, components/SlashMenu.jsx): a card just above
+     the composer. Command in purple monospace, what it does beside it. */
+  .slash-menu {
+    position: absolute; left: 0; right: 0; bottom: calc(100% + 8px); z-index: 80;
+    padding: 6px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(36,16,56,.14), 0 2px 6px rgba(36,16,56,.06);
+    animation: fadeUp .12s ease-out;
+  }
+  .slash-item {
+    display: flex; align-items: baseline; gap: 12px; padding: 9px 12px; border-radius: 10px;
+    cursor: pointer; font-size: 14px; color: var(--ink-2);
+  }
+  .slash-item:hover { background: var(--p-50); }
+  .slash-item.active { background: var(--p-100); color: var(--ink); }
+  .slash-item .sl-cmd { font-size: 13.5px; font-weight: 700; color: var(--p-600); white-space: nowrap; }
+  .slash-item.active .sl-cmd { color: var(--p-700); }
+  .slash-item .sl-desc { flex: 1 1 auto; min-width: 0; }
+  .slash-item .sl-hint { font-size: 12px; color: var(--ink-3); white-space: nowrap; }
+  .slash-foot { padding: 6px 12px 2px; font-size: 11px; color: var(--ink-3); border-top: 1px solid var(--p-50); margin-top: 4px; }
+  .glossary-empty { padding: 14px 12px; font-size: 13px; color: var(--ink-3); }
+  @media (max-width: 480px) { .slash-item .sl-hint, .slash-foot { display: none; } }
+  @media (prefers-reduced-motion: reduce) { .slash-menu { animation: none; } }
   .composer {
     background: var(--surface); border: 1.5px solid var(--line); border-radius: 14px;
     box-shadow: 0 4px 20px rgba(62,31,102,0.08);
@@ -946,10 +1033,47 @@
   }
   .send-btn:hover { transform: translateY(-1px); box-shadow: 0 4px 12px rgba(124,63,191,0.4); }
   .send-btn:disabled { opacity: 0.4; cursor: not-allowed; transform: none; }
-  .lang-tabs { display: flex; gap: 2px; background: var(--p-50); border-radius: 8px; padding: 2px; }
-  .lang-tab { border: 0; background: transparent; font: inherit; font-size: 11px; font-weight: 600;
-    color: var(--ink-3); padding: 4px 9px; border-radius: 6px; cursor: pointer; }
-  .lang-tab.active { background: var(--surface); color: var(--p-700); box-shadow: 0 1px 2px rgba(62,31,102,.12); }
+
+  /* Language switcher (#235, components/LanguageSwitcher.jsx): a globe button
+     with the chosen language's full name; the menu lists code + name with a
+     tick on the current one. Brand Light palette. */
+  .lang-switch { position: relative; flex-shrink: 0; }
+  .lang-switch-btn {
+    display: inline-flex; align-items: center; gap: 8px;
+    height: 34px; padding: 0 10px 0 11px; border-radius: 10px;
+    border: 1.5px solid var(--p-300); background: var(--surface);
+    color: var(--ink); font: inherit; font-size: 13px; font-weight: 600;
+    cursor: pointer; transition: border-color .15s, box-shadow .15s, background .15s;
+  }
+  .lang-switch-btn:hover { border-color: var(--p-500); background: var(--p-50); }
+  .lang-switch-btn:focus-visible { outline: none; border-color: var(--p-600); box-shadow: 0 0 0 3px var(--p-100); }
+  .lang-switch.open .lang-switch-btn { border-color: var(--p-600); box-shadow: 0 0 0 3px var(--p-100); }
+  .lang-switch-btn .ls-globe, .lang-switch-btn .ls-chev { display: inline-flex; color: var(--p-700); flex-shrink: 0; }
+  .lang-switch-btn .ls-globe svg { width: 17px; height: 17px; }
+  .lang-switch-btn .ls-chev svg { width: 14px; height: 14px; color: var(--ink-2); transition: transform .15s; }
+  .lang-switch.open .ls-chev svg { transform: rotate(180deg); }
+  .lang-switch-btn .ls-name { white-space: nowrap; }
+  .lang-switch-btn .ls-code { display: none; }
+  .lang-menu {
+    position: absolute; top: calc(100% + 8px); right: 0; z-index: 70;
+    min-width: 200px; margin: 0; padding: 6px; list-style: none;
+    background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(36,16,56,.14), 0 2px 6px rgba(36,16,56,.06);
+    animation: fadeUp .12s ease-out;
+  }
+  .lang-opt {
+    display: grid; grid-template-columns: 38px 1fr 18px; align-items: center; gap: 10px;
+    padding: 10px 12px; border-radius: 10px; cursor: pointer; outline: none;
+    font-size: 14px; color: var(--ink);
+  }
+  .lang-opt:hover, .lang-opt:focus-visible { background: var(--p-50); }
+  .lang-opt.selected { background: var(--p-100); }
+  .lang-opt.selected:hover, .lang-opt.selected:focus-visible { background: var(--p-200); }
+  .lang-opt .lo-code { font-size: 12px; font-weight: 700; letter-spacing: .02em; color: var(--p-600); }
+  .lang-opt .lo-name { font-weight: 500; }
+  .lang-opt .lo-check { display: inline-flex; color: var(--p-600); justify-self: end; }
+  .lang-opt .lo-check svg { width: 16px; height: 16px; }
+  @media (prefers-reduced-motion: reduce) { .lang-menu { animation: none; } .lang-switch-btn .ls-chev svg { transition: none; } }
 
   /* Scrollbar */
   .chat-area::-webkit-scrollbar, .sidebar::-webkit-scrollbar { width: 8px; }
@@ -1012,7 +1136,7 @@
   /* ===== Modal (Recent / Glossary / Use cases) ===== */
   .modal-backdrop {
     position: fixed; inset: 0; background: rgba(20, 12, 40, 0.55);
-    backdrop-filter: blur(4px); z-index: 100;
+    -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px); z-index: 100;
     display: none; align-items: center; justify-content: center;
   }
   .modal-backdrop.show { display: flex; }
@@ -1072,7 +1196,7 @@
   /* Voice mic overlay */
   .mic-overlay {
     position: fixed; inset: 0; z-index: 200; display: none; align-items: center; justify-content: center;
-    background: rgba(36,16,56,0.55); backdrop-filter: blur(4px);
+    background: rgba(36,16,56,0.55); -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
   }
   .mic-overlay.open { display: flex; }
   .mic-card { background: #fff; border-radius: 18px; padding: 36px 44px; text-align: center;
@@ -1132,7 +1256,7 @@
 
     .sidebar-backdrop {
       display: block; position: fixed; inset: 0; z-index: 110;
-      background: rgba(20,12,40,0.5); backdrop-filter: blur(2px);
+      background: rgba(20,12,40,0.5); -webkit-backdrop-filter: blur(2px); backdrop-filter: blur(2px);
       opacity: 0; pointer-events: none; transition: opacity .25s;
     }
     .app.nav-open .sidebar-backdrop { opacity: 1; pointer-events: auto; }
@@ -1187,7 +1311,9 @@
     .hero-eyebrow { font-size: 10px; }
     .chat-inner { padding: 16px 11px 185px; }
     .msg .avatar, .msg > div:first-child { width: 28px; height: 28px; }
-    .lang-tabs .lang-tab { padding: 4px 7px; font-size: 10.5px; }
+    .lang-switch-btn { height: 32px; padding: 0 8px 0 9px; gap: 6px; }
+    .lang-switch-btn .ls-name { display: none; }      /* the code fits; the menu has the names */
+    .lang-switch-btn .ls-code { display: inline; font-size: 12px; }
     .scheme-chip { padding: 6px 9px; font-size: 12px; }
     .send-btn { padding: 8px 13px; }
     .composer-input { font-size: 16px; }   /* 16px stops iOS Safari auto-zoom on focus */
@@ -1413,9 +1539,6 @@
   .voice-status .vs-sub { color: var(--ink-3); font-weight: 400; }
   .voice-status b { font-weight: 600; color: var(--p-700); }
   .voice-status.error b { color: #B42318; }
-  .voice-bars { display: inline-flex; align-items: center; gap: 3px; height: 18px; flex-shrink: 0; }
-  .voice-bars i { display: block; width: 3px; height: 18px; border-radius: 2px; background: var(--p-500);
-                  transform: scaleY(.18); transform-origin: center; transition: transform .08s linear; }
   .voice-spin { width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--p-200);
                 border-top-color: var(--p-600); animation: voiceSpin .8s linear infinite; flex-shrink: 0; }
   @keyframes voiceSpin { to { transform: rotate(360deg); } }
@@ -1437,6 +1560,33 @@
     100% { box-shadow: 0 0 0 0 rgba(124,63,191,0); }
   }
   .composer-input.dictating { color: var(--ink-2); }
+
+  /* ===== Recording (#307, components/RecordingStrip.jsx): the text box gives
+     way to ● 0:06 and a live waveform; the purple stop button (.mic-btn.recording)
+     ends the recording. The box is kept, 1px and invisible, so it keeps focus:
+     Enter still sends, the mic shortcut still stops. ===== */
+  .composer.recording { position: relative; border-color: var(--p-500); box-shadow: 0 0 0 4px rgba(178,127,224,.16); }
+  .composer.recording .composer-input {
+    position: absolute; width: 1px; height: 1px; min-height: 0; padding: 0; opacity: 0;
+    pointer-events: none; overflow: hidden; flex: 0 0 1px;
+  }
+  .rec-strip { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 12px;
+               min-height: 42px; padding: 0 6px 0 16px; }
+  .rec-dot { width: 10px; height: 10px; border-radius: 50%; background: #E5484D; flex-shrink: 0; opacity: .5; }
+  .rec-dot.live { opacity: 1; animation: recBlink 1.2s ease-in-out infinite; }
+  @keyframes recBlink { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
+  .rec-time { font-family: 'JetBrains Mono', Menlo, monospace; font-size: 14px; font-weight: 600;
+              color: var(--ink); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .rec-wave { display: inline-flex; align-items: center; gap: 3px; height: 24px; flex-shrink: 0; }
+  .rec-wave i { display: block; width: 3px; height: 24px; border-radius: 2px; background: var(--p-500);
+                transform: scaleY(.18); transform-origin: center; transition: transform .08s linear; }
+  .rec-hint { font-size: 12px; color: var(--ink-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+  @media (max-width: 480px) {
+    .rec-strip { gap: 8px; padding-left: 12px; }
+    .rec-wave i:nth-child(n+13) { display: none; }   /* 12 bars fit beside the buttons */
+    .rec-hint { display: none; }
+  }
+  @media (prefers-reduced-motion: reduce) { .rec-dot.live { animation: none; } .rec-wave i { transition: none; } }
 
 /* ============== EXPAND VIEW (charts + tables, D-042) ============== */
 .chd-right { display: flex; align-items: center; gap: 6px; }
@@ -1641,6 +1791,24 @@
   .dyn-chart-card { padding: 12px 10px 8px; border-radius: 14px; }
   .dyn-chart-card .chw { height: 230px; }
 }
+/* Two-dimension charts are taller; a pie / donut needs room for its legend,
+   which sits under the chart on a phone and was cut off (2026-10-19). After the
+   rules above, so these win at every width. */
+.dyn-chart-card .chw.tall { height: 340px; }
+.dyn-chart-card .chw.round { height: 280px; }
+@media (max-width: 640px) {
+  .dyn-chart-card .chw.round { height: 420px; }
+  .dyn-chart-card .chw.tall.round { height: 460px; }
+}
+/* "give me a wide frame" (chart_wide, KI-333): one chart per row, drawn taller than
+   every size above. After them, and one class more specific, so it wins everywhere. */
+.chart-wide .dyn-grid { grid-template-columns: 1fr; }
+.chart-wide .dyn-chart-card .chw, .chart-wide .dyn-chart-card .chw.tall,
+.chart-wide .dyn-chart-card .chw.round { height: 460px; }
+@media (max-width: 640px) {
+  .chart-wide .dyn-chart-card .chw, .chart-wide .dyn-chart-card .chw.tall { height: 340px; }
+  .chart-wide .dyn-chart-card .chw.round, .chart-wide .dyn-chart-card .chw.tall.round { height: 520px; }
+}
 
 /* ============== DOWNLOADS (tables: Excel / CSV, charts: PNG) ==============
    exporters.js builds the files; these are the buttons. The menu opens under
@@ -1844,3 +2012,132 @@ kbd { display: inline-flex; align-items: center; justify-content: center; min-wi
 @media (max-width: 480px) {
   .kbd-row { align-items: flex-start; flex-direction: column; gap: 6px; }
 }
+
+/* ============== ZOOMABLE LINE CHARTS (Charts.jsx useLineZoom) ==============
+   The bar sits under the chart inside its box; the box keeps its height and
+   the chart gives up the bar's room (Chart.js sizes to the content box). */
+.chw:has(> .zoom-bar), .xv-chart:has(> .zoom-bar) { padding-bottom: 34px; }
+canvas.zoomable { touch-action: pan-y; cursor: crosshair; }
+.zoom-brush {
+  display: none; position: absolute; pointer-events: none; border-radius: 4px;
+  background: color-mix(in srgb, var(--chart-accent, var(--p-500)) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--chart-accent, var(--p-500)) 45%, transparent);
+}
+.zoom-bar {
+  position: absolute; left: 0; right: 0; bottom: 0; height: 28px;
+  display: flex; align-items: center; gap: 10px; min-width: 0;
+}
+.zoom-btns { display: flex; gap: 2px; background: var(--p-50); border-radius: 8px; padding: 2px; flex-shrink: 0; }
+.zoom-btns button {
+  min-width: 26px; height: 24px; padding: 0 7px; border: 0; border-radius: 6px; cursor: pointer;
+  background: transparent; color: var(--ink-2); font: inherit; font-size: 14px; font-weight: 700; line-height: 1;
+}
+.zoom-btns button:hover:not(:disabled) { background: var(--surface); color: var(--p-700); box-shadow: 0 1px 2px rgba(62,31,102,.12); }
+.zoom-btns button:disabled { opacity: .35; cursor: default; }
+.zoom-btns .zoom-reset { font-size: 11.5px; font-weight: 600; color: var(--p-700); }
+.zoom-btns button:focus-visible { outline: 2px solid var(--p-500); outline-offset: 1px; }
+.zoom-hint { font-size: 11.5px; color: var(--ink-3); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.zoom-hint b { color: var(--ink-1); font-weight: 600; }
+.zoom-coarse { display: none; }
+@media (pointer: coarse) {
+  .zoom-fine { display: none; }
+  .zoom-coarse { display: inline; }
+  .zoom-btns button { min-width: 34px; height: 28px; }
+  .zoom-bar { height: 32px; }
+  .chw:has(> .zoom-bar), .xv-chart:has(> .zoom-bar) { padding-bottom: 38px; }
+}
+@media (max-width: 480px) { .zoom-pan, .zoom-word { display: none; } }
+@media print { .zoom-bar, .zoom-brush { display: none !important; } .chw:has(> .zoom-bar) { padding-bottom: 0; } }
+
+/* ============== SOURCES + 👍/👎 ON ANSWERS (RAG upgrade Phase 6) ==============
+   "Source: PMAY-G FAQ › …" under a knowledge answer, and two thumbs in the
+   action row. A chosen thumb (and an open "what was wrong?" box) keeps the row
+   visible; otherwise it fades in on hover like the other actions. */
+.ans-cite {
+  display: flex; align-items: baseline; flex-wrap: wrap; gap: 4px 10px;
+  margin: 2px 0 8px; font-size: 12px; color: var(--ink-3); min-width: 0;
+}
+.ans-cite .src-lbl { font-weight: 600; color: var(--ink-2); }
+.ans-cite .cite-item {
+  display: inline-flex; flex-wrap: wrap; min-width: 0; max-width: 100%;
+  padding: 2px 8px; border-radius: 6px; background: var(--p-50); border: 1px solid var(--p-100);
+  overflow-wrap: anywhere;
+}
+.ans-cite .cite-doc { font-weight: 600; color: var(--p-700); }
+.ans-cite .cite-sec { color: var(--ink-2); }
+
+.msg-foot { flex-wrap: wrap; }
+.msg-actions { flex-wrap: wrap; align-items: center; }
+.msg-actions:has(.fb-box), .msg-actions:has(.msg-act.on) { opacity: 1; }
+.msg-act.fb-up.on { color: #0f7b4b; background: #e6f6ee; }
+.msg-act.fb-down.on { color: #b42318; background: #fdecea; }
+.fb-thanks { font-size: 11.5px; color: var(--ink-3); margin-left: 4px; }
+.fb-thanks.err { color: #b42318; }
+.fb-box {
+  flex-basis: 100%; margin-top: 6px; padding: 10px 12px; max-width: 520px;
+  border: 1px solid var(--line); border-radius: 12px; background: #fff;
+  box-shadow: 0 4px 14px rgba(62,31,102,.08);
+}
+.fb-q { font-size: 12.5px; font-weight: 600; color: var(--ink); margin-bottom: 8px; }
+.fb-opt { font-weight: 400; color: var(--ink-3); }
+.fb-reasons { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 8px; }
+.fb-reason {
+  padding: 5px 10px; border-radius: 999px; border: 1px solid var(--p-200); background: var(--p-50);
+  color: var(--p-700); font: inherit; font-size: 12px; font-weight: 600; cursor: pointer;
+}
+.fb-reason.on { background: var(--p-700); border-color: var(--p-700); color: #fff; }
+.fb-note {
+  width: 100%; box-sizing: border-box; resize: vertical; min-height: 44px;
+  border: 1px solid var(--line); border-radius: 8px; padding: 6px 8px; font: inherit; font-size: 13px;
+  color: var(--ink); background: #fff;
+}
+.fb-note:focus { outline: none; border-color: var(--p-400); box-shadow: 0 0 0 3px rgba(178,127,224,.15); }
+.fb-btns { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.fb-btns button {
+  border-radius: 8px; padding: 6px 14px; font: inherit; font-size: 12.5px; font-weight: 600; cursor: pointer;
+  border: 1px solid var(--line); background: #fff; color: var(--ink-2);
+}
+.fb-btns .fb-send { background: var(--p-700); border-color: var(--p-700); color: #fff; }
+.fb-btns .fb-send:disabled { opacity: .45; cursor: not-allowed; }
+@media (max-width: 480px) {
+  .fb-box { max-width: none; padding: 10px; }
+  .fb-reason { padding: 6px 10px; }
+  .fb-btns button { padding: 8px 16px; }
+}
+@media print { .fb-box, .fb-thanks { display: none !important; } }
+/* Phase 6 layout fixes: a space before "›" (flex items drop leading spaces),
+   and an open "What was wrong?" box takes the action row's full line. */
+.ans-cite .cite-sec { margin-left: 4px; }
+.msg-foot:has(.fb-box) { align-items: flex-start; }
+.msg-actions:has(.fb-box) { flex-basis: 100%; }
+/* The box always starts on its own line under the icons (its max-width would
+   otherwise let it sit beside them), after every other action. */
+.fb-break { flex-basis: 100%; height: 0; order: 98; }
+.fb-box { order: 99; }
+
+/* Two-dimension charts (scheme x year, district x year): what the legend and the
+   x-axis show, under the chart (Charts.jsx TwoDimChart). */
+.chd-axes { margin: 6px 14px 10px; font-size: 11.5px; color: var(--ink-3, #857E96); text-transform: capitalize; }
+
+/* =====================================================================
+   EVERY DEVICE  —  touch screens, iOS / iPadOS, notched phones
+   ===================================================================== */
+/* Touch screens have no hover: the chat-history "⋯" menu (rename / archive /
+   delete) must be visible, or it cannot be found at all. */
+@media (hover: none) {
+  .hist-item .hist-menu { opacity: 1; }
+}
+/* iOS Safari zooms the whole page when a box under 16px gets focus (search,
+   edit, feedback, composer on iPad / landscape). -webkit-touch-callout is iOS-only. */
+@supports (-webkit-touch-callout: none) {
+  input, textarea, select { font-size: 16px !important; }
+}
+/* Notched phones in landscape (viewport-fit=cover): keep content off the notch. */
+@media (max-width: 880px) {
+  .topbar { padding-left: max(14px, env(safe-area-inset-left)); padding-right: max(14px, env(safe-area-inset-right)); }
+  .composer-wrap { padding-left: max(12px, env(safe-area-inset-left)); padding-right: max(12px, env(safe-area-inset-right)); }
+  .sidebar { padding-left: env(safe-area-inset-left); }
+}
+/* The topbar's scheme track is empty now (no chips): keep it as a spacer only,
+   never an empty grey bar across the topbar on phones and tablets. */
+.scheme-switch:empty { flex: 1 1 auto; background: transparent; padding: 0; }

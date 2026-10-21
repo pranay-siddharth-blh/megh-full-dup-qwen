@@ -260,7 +260,6 @@ def test_the_pipeline_own_follow_up_branch_is_left_to_the_pipeline():
 
 @pytest.mark.parametrize("q", [
     "How many MGNREGA beneficiaries are there?",       # a scheme of its own (explicit override)
-    "How many beneficiaries in 2023-24?",              # a year of its own
     "How many person-days were generated?",            # a measure only MGNREGA holds
     "Who is eligible?",                                # not a measure
 ])
@@ -268,6 +267,15 @@ def test_measure_injection_leaves_other_questions_alone(q):
     s = _session()
     ask(s, "Tell me about PMAY-G.", scheme="PMAY-G", route="knowledge")
     assert cl.knowledge_measure_question(s, q) is None
+
+
+def test_a_measure_with_its_own_year_takes_the_knowledge_scheme():
+    # WI-2 (forward plan, 2026-10-16): the year stays, the scheme is appended —
+    # "Who is eligible for PMAY-G?" then "How many in 2023-24?" used to be
+    # answered for the old topic.
+    s = _session()
+    ask(s, "Tell me about PMAY-G.", scheme="PMAY-G", route="knowledge")
+    assert cl.knowledge_measure_question(s, "How many beneficiaries in 2023-24?") ==         "How many beneficiaries in 2023-24 under PMAY-G?"
 
 
 def test_no_scheme_in_context_still_asks_which_scheme():
@@ -315,7 +323,9 @@ def test_a_measure_after_a_bare_return_uses_the_restored_topic():
     "hi, what schemes are present?", "what programmes are there",
 ])
 def test_listing_requests_get_the_listing_wording(q):
-    assert cl.listing_question(q) == cl.LISTING_QUESTION
+    # either the layer rewrites it to the listing wording, or (since 2026-10-14,
+    # "how many schemes are onboarded/there") the pipeline's own cue answers it as is
+    assert cl.listing_question(q) == cl.LISTING_QUESTION or p._SCHEME_LISTING_CUE.search(q)
     assert p._scheme_listing_answer(cl.LISTING_QUESTION) is not None   # the pipeline answers it
 
 

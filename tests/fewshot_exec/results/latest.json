@@ -1,0 +1,124 @@
+{
+ "when": "2026-10-16T18:13:13",
+ "files": {
+  "data/mgnrega/few_shot.yaml": {
+   "scheme": "MGNREGA",
+   "examples": 75,
+   "counts": {
+    "ok": 74,
+    "empty": 1
+   },
+   "all_pass": true,
+   "failing_in_prompt": 0,
+   "failing": []
+  },
+  "data/pmay/pmay_few_shot.yaml": {
+   "scheme": "PMAY-G",
+   "examples": 66,
+   "counts": {
+    "ok": 64,
+    "empty": 2
+   },
+   "all_pass": true,
+   "failing_in_prompt": 0,
+   "failing": []
+  },
+  "data/focus_plus/focusplus_few_shot.yaml": {
+   "scheme": "Focus Plus",
+   "examples": 91,
+   "counts": {
+    "ok": 88,
+    "empty": 2,
+    "blocked": 1
+   },
+   "all_pass": false,
+   "failing_in_prompt": 0,
+   "failing": [
+    {
+     "index": 86,
+     "key": "sql",
+     "question": "Have the Focus Plus totals been verified?",
+     "outcome": "blocked",
+     "detail": "query reads meta.v_reconciliation_focus_plus — only the curated / semantic schemas are allowed",
+     "in_prompt": false
+    }
+   ]
+  },
+  "data/cm_elevate/cmelevate_few_shot.yaml": {
+   "scheme": "CM Elevate",
+   "examples": 128,
+   "counts": {
+    "ok": 126,
+    "blocked": 2
+   },
+   "all_pass": false,
+   "failing_in_prompt": 0,
+   "failing": [
+    {
+     "index": 123,
+     "key": "sql",
+     "question": "Check that CM Elevate loaded completely",
+     "outcome": "blocked",
+     "detail": "query reads meta.v_reconciliation_cm_elevate — only the curated / semantic schemas are allowed",
+     "in_prompt": false
+    },
+    {
+     "index": 124,
+     "key": "sql",
+     "question": "How many CM Elevate rows were quarantined?",
+     "outcome": "blocked",
+     "detail": "query reads staging.quarantine — only the curated / semantic schemas are allowed",
+     "in_prompt": false
+    }
+   ]
+  },
+  "data/focus_legacy/focuslegacy_few_shot.yaml": {
+   "scheme": "Focus Legacy",
+   "examples": 86,
+   "counts": {
+    "ok": 80,
+    "empty": 3,
+    "blocked": 3
+   },
+   "all_pass": false,
+   "failing_in_prompt": 0,
+   "failing": [
+    {
+     "index": 72,
+     "key": "sql",
+     "question": "Did the Focus Legacy load lose any rows?",
+     "outcome": "blocked",
+     "detail": "query reads meta.v_reconciliation_focus_legacy — only the curated / semantic schemas are allowed",
+     "in_prompt": false
+    },
+    {
+     "index": 73,
+     "key": "sql",
+     "question": "Why is the database total lower than my spreadsheet?",
+     "outcome": "blocked",
+     "detail": "query reads staging.quarantine — only the curated / semantic schemas are allowed",
+     "in_prompt": false
+    },
+    {
+     "index": 74,
+     "key": "sql",
+     "question": "When was Focus Legacy last loaded?",
+     "outcome": "blocked",
+     "detail": "query reads meta.ingestion_audit — only the curated / semantic schemas are allowed",
+     "in_prompt": false
+    }
+   ]
+  },
+  "data/cm_elevate_legacy/cmelevatelegacy_prompt_few_shots.yaml": {
+   "scheme": "CM Elevate Legacy",
+   "examples": 121,
+   "counts": {
+    "ok": 120,
+    "empty": 1
+   },
+   "all_pass": true,
+   "failing_in_prompt": 0,
+   "failing": []
+  }
+ }
+}

@@ -31,3 +31,7 @@ archive/
 # React front-end (frontend/, D-038): dependencies are installed, not committed.
 # The build output web/app/ IS kept, so the app serves the UI without Node.
 frontend/node_modules/
+
+# Nested older copy of the project (its own git repo) - not part of this app.
+meghalaya/
+tests/ui_device_shots/

@@ -220,10 +220,10 @@ def test_other_stages_unchanged():
 # ---------------------------------------------------------------- KI-094 written dates
 def test_written_date_is_a_date_not_an_assumed_figure():
     q = "How many PMAY houses were sanctioned on 15 December 2020?"
-    assert p._CALENDAR_DATE_RE.search(q)
+    assert p._CALENDAR_DATE_MATCH.search(q)
     assert not premise_check.extract_premises(q)
-    assert p._CALENDAR_DATE_RE.search("sanctioned on December 15, 2020")
-    assert not p._CALENDAR_DATE_RE.search("15 houses in 2020")
+    assert p._CALENDAR_DATE_MATCH.search("sanctioned on December 15, 2020")
+    assert not p._CALENDAR_DATE_MATCH.search("15 houses in 2020")
 
 
 # ---------------------------------------------------------------- extra taps found in the QA
@@ -518,7 +518,7 @@ def test_calendar_year_zero_is_a_genuine_zero():
 def test_a_year_chip_after_a_village_chip_is_recognised(q, expected):
     # the year pause replaced the remembered village hint; without this the
     # village was re-asked forever (UMSAW, JIRANG block)
-    assert bool(p._YEAR_AFTER_CHIP_TAIL_RE.search(q)) is expected
+    assert bool(p._YEAR_AFTER_CHIP_TAIL_MATCH.search(q)) is expected
 
 
 def test_two_village_comparison_settles_the_place():

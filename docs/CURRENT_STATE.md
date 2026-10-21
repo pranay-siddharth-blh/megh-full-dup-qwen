@@ -3,6 +3,249 @@
 **Last updated:** 2026-10-13 (evening), by the Cross Scheme sheet session (KI-280..290, D-044; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-03 (early morning), by the all-schemes all-places QA + fix session (KI-188..199, D-034; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-02, by the LangGraph integration session (D-032; code changed, uncommitted; **offline-verified only**, VPN down). Before that: 2026-09-29 (early morning), by the conversational scheme-swap session (KI-180; code changed, uncommitted). Before that: 2026-09-29 (late night), by the CM Elevate Legacy use-case re-test session (no code changed; KI-166..168 opened). Before that: 2026-09-29 (night), by the Focus Legacy all-levels fix session (KI-020, KI-145..165, D-031; code changed, uncommitted). Before that: 2026-09-29, by the context-relevance / semantic-contract session (code changed, uncommitted; D-030, KI-030/032/034 and KI-130 to KI-135; **offline-verified only**, VPN down). Before that: 2026-09-28 (evening), by the CM Elevate all-blocks / all-villages fix session (code changed in `app/pipeline.py`, tests; uncommitted). Before that: 2026-09-28, by the PMAY-G fix session (code changed, uncommitted; D-029, KI-089 to KI-097). Before that: 2026-09-27 night, by the Focus Plus all-blocks / all-villages session (code changed in `app/pipeline.py`, tests in `tests/test_focusplus_usecase_fixes.py` and `tests/test_mgnrega_usecase_fixes.py`; **uncommitted**). Earlier the same day: the CM Elevate use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/schema_context.py`, plus a new test file; **uncommitted**). Before that, the same day: the Focus Plus use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/routers/query.py`, **uncommitted**, on top of the uncommitted 2026-09-26 MGNREGA and context work).
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
+**Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+
+## Latest: context memory per the user's rules (2026-10-19, ~16:30). D-055, KI-330, KI-331, KI-334. Code changed, uncommitted.
+- Idle window 8 h (`SESSION_TTL_SECONDS` = `CONTEXT_IDLE_EXPIRY_SECONDS` = 28800), turns 50, ledger 20/topic.
+- Inside one chat the scheme is never asked again; only a new chat with no scheme (and no scheme-pinning words) asks (D-055,
+  replaces D-045's cross-scheme default for an unnamed scheme). A same-scheme new question keeps the chat's year, and its place
+  on "there" / "that district" (KI-331). A pure measure change no longer drags the old measure along (KI-334).
+- Acceptance: harness `scenarios/user_reported_2026_10_19.yaml` (9 conversations: the user's own failures and rules),
+  `tests/live_context_matrix.py` (42 conversations, all six schemes), `tests/test_context_rules_2026_10_19.py`.
+
+## Latest: chart-type requests and complaints redraw the last answer (2026-10-19, ~16:30). KI-333. Code + frontend changed (built), uncommitted. LIVE + HEADLESS VERIFIED.
+- "pie chart" / "But give me only pie chart." / "So I asked about pie chart, right? But why you are giving line chart? Give me a wide frame" after a by-district answer -> the same 12 districts as a pie (an apology for the complaint, `chart_wide` -> taller card). By-district answers no longer default to a line.
+- Files: c15 (`_chart_view_request`, `_chart_view_question`, `_attach_preface` sets `chart_wide`), c14 step 0h-view, c13 `_chart_hint`, `app/topic_memory.py` (`resolve_reference` skips view requests), `frontend/src/chat/analytics.js`, `components/Messages.jsx`, `styles/chat.css`.
+
+## Earlier: a scheme swap after a comparison keeps the comparison (2026-10-19, ~15:45). KI-332. Code changed, uncommitted. LIVE-VERIFIED (8401).
+- After "Compare PMAY-G and MGNREGA beneficiaries and amount ...": "now give me for cm elevate" -> CM Elevate dataset pause whose chips keep the scope ("Same comparison for CM Elevate applications: beneficiaries and amount in a graph for Meghalaya (statewide), all financial years") -> the comparison card for that scheme alone (8,840 applications, "no money recorded"); Legacy chip -> 2,823 / Rs 82.90 crore; "what about focus plus" -> Focus Plus card for all years (no year re-ask); "give me for mgnrega" narrows to MGNREGA; "and cm elevate legacy too" -> three-scheme comparison.
+- Files: `app/pipeline/common/c01_followups.py` (`_comparison_swap`, `_is_same_comparison_question`), `app/cross_scheme.py` (`_SAME_COMPARISON`, one-scheme title, years note), `app/pipeline/common/c13_compose_and_data_stages.py` (CM Elevate pause before a one-scheme card). Test `tests/test_comparison_scheme_swap_2026_10_19.py` (16); swap / follow-up / cross-scheme suites 342 passed.
+
+## Earlier: charts show both dimensions (2026-10-19 afternoon). KI-325. Frontend changed + built, uncommitted. LIVE-VERIFIED.
+- A scheme x year / district x year result is drawn with the period on the x-axis and one series per scheme / district
+  (`TwoDimChart`: Bar / Stacked / Line / Donut, legend + axes caption); a one-series line says "since …" only over periods.
+  Headless check at 320–1440 px. Files: `frontend/src/chat/{analytics.js,chartTheme.js,text.js,components/Charts.jsx,components/Messages.jsx}`, `styles/chat.css`.
+
+## Latest: year asked when nothing carries one (2026-10-19). D-053. Code changed, uncommitted.
+- User decision (evening 2026-10-18, screenshot "total benifishjeries for MGNREGA" -> 1,494,437 household-years with no
+  question asked): the all-years default of D-045 is for a turn whose conversation already has a year. A metric question
+  with no year in its text, entities or `prior_resolved` now pauses with the FY chips again; follow-ups that inherit a
+  year, the chip replies, time series, job cards and CM Elevate are unchanged. `c13 _data_clarification_stage`
+  (`_ask_year`), `tests/test_year_asked_without_context_2026_10_19.py` (7 tests) and a pause -> reply -> follow-up
+  graph test in `tests/test_pipeline_graph.py` (`test_fresh_question_without_a_year_asks_with_answer_defaults_on`).
+- KI-330 (user, 15:03): "now give me for cm elevate" after a CM Elevate Legacy answer now switches to the CM Elevate
+  applications dataset instead of repeating the Legacy answer; continuing questions keep the thread rule
+  (`cm_elevate._cm_switch_to_applications`, c14 pins, c01 swap opening). Coexists with KI-329 (comparison swap).
+- KI-331 (found by the KI-330 live probe): a new question on the same scheme as the thread, with no year of its own,
+  keeps the thread's year or all-years choice instead of asking the year again (`c14 _same_scheme_context_year`).
+- KI-324 (from the parallel session's handoff): a typed "all of them combined" / "all" / "combined" to the year pause now
+  resumes as the "All financial years combined" chip (`c05 _is_all_years_reply`, `c14` pause-reply branch). The other half
+  of KI-324 did not hold: the pause has five chips (harness report 12:25).
+- KI-327 (user screenshot 12:08, Focus Plus Gobekram village WGH -> "now give me for dambo rongjeng block"): the block's
+  own district (East Garo Hills) now replaces the inherited one in the resolved entities, the chip and the question text;
+  a name that is no village but exactly a block is placed as the block; `c10 _resolved_district_literal` is the SQL
+  backstop. `tests/test_block_in_other_district_2026_10_19.py` (7). The user's note on the ideal flow (classifier ->
+  state -> entity resolution against canonical metadata -> clarification -> SQL) is what the graph already does; the gap
+  was that the resolver's correction never reached the question text or the SQL literal.
+  LIVE-VERIFIED 2026-10-19 13:05 through `POST /api/query` as superadmin (state-rd is capped at district level, so the
+  village turn is denied for it): Gobekram village WGH FY 2022-23 = 30,000 -> "now give me for dambo rongjeng block" and
+  "now give me for dambo rongjeng" both resolve block DAMBO RONGJENG + district EAST GARO HILLS, SQL filters East Garo
+  Hills, answer 20,165,000. `_resolved_district_literal` acts only with a resolved block beside the district, so the
+  KI-183 deny of a repair that moves the geography is unchanged.
+- Also 2026-10-18: composer no longer stays 160px tall after a voice dictation (`frontend/src/chat/App.jsx`, the
+  auto-grow effect skips the hidden recording box and re-measures when shown); port moved 8400 -> 8401 in `.env`,
+  `app/config.py`, Docker files, Vite proxy, README.
+- Full pytest 2026-10-19 11:30: **3,009 passed, 1 failed**, 2 skipped (39 min). The failure,
+  `tests/test_focus_legacy_usecase_fixes.py::test_ki148_scheme_question_offers_only_constituency_schemes`, expects 7
+  scheme-picker options and `c03 _scheme_clarification` now builds 6 (the seventh chip was dropped earlier; the chat UI
+  renders "Compare across schemes" itself). Not from this change; the assertion was updated to 6 on 2026-10-19. Live D-053 probe through `POST /api/query` on :8401:
+  fresh no-year question -> FY chips; FY 2023-24 chip -> 410,200; "break that down by district" -> no re-ask; a question
+  naming its year -> no pause. Observed: the 9B composer wrote "across all financial years" and "for FY 2023-24" in one
+  sentence on a correctly single-year SQL (wording only). **Fixed 2026-10-19 afternoon (KI-326):** `c12 _finish_answer`
+  drops the all-years phrase on words when the resolved period is one FY (`_drop_all_years_phrase`);
+  `tests/test_single_year_phrase_2026_10_19.py` (7). Servers on :8401 / :8400 restarted from the venv at 13:21 and the
+  change live-checked through `POST /api/query` (West Jaintia Hills FY 2022-23 -> 976,990; Ri Bhoi FY 2021-22 -> 87).
+- Test isolation (pre-existing, found 2026-10-19 13:20): `tests/test_pipeline_graph.py` is green alone (48) and after
+  either new test file, but 15 of its tests fail when `tests/test_admin_level_collision.py` runs BEFORE it in the same
+  process (the graph tests then hit a real pool: "'NoneType' object has no attribute 'connect'"); in the full
+  alphabetical run the gap between the two files masks it. **Fixed 2026-10-19 afternoon:** the script's module-level
+  stubs (`p.resolve_village`, `er.resolve_village`, `p.extract_entity_mentions`, `p.constituency_contents`) are
+  restored when its checks end, so nothing leaks into later tests; admin script then graph suite in one process
+  = 48/48, the script standalone still passes.
+- Pre-existing, not from this change: `tests/test_pipeline_graph.py` 3 failures (the 2026-10-18 answer-framing sentence
+  "This figure is for CM Elevate, East Khasi Hills district, across all financial years." is appended; the asserts expect
+  the bare sentence; green since). The note that `app/pipeline/schemes/cm_elevate.py` `_cme_digits_for_number_words`
+  raises NameError was WRONG (checked 2026-10-19 afternoon): `_NUMBER_WORD_MATCH` / `_NUMBER_TENS` / `_NUMBER_WORDS` are
+  defined in `common/c12_answer_numbers.py` (word-level Matcher, no regex) and the pipeline files share one namespace, so
+  they resolve at call time ("Five CM ELEVATE applicants" -> "5 ..." verified; pinned in
+  `tests/test_single_year_phrase_2026_10_19.py`). The helper's docstring now says where the names live.
+
+## Latest: every data answer reads as a briefing line (2026-10-19 morning). D-054, KI-321, KI-322. Code changed, uncommitted.
+- The bare fallback ("1,494,437 household years.") is framed with scheme, plain-words measure, area, period and caveat;
+  every DATA answer gets thousands separators and, when it names neither scheme nor area, one closing scope sentence
+  (finalize node). Live-verified through the API. KI-322 found on the way: two totals for "households employed".
+- NOTE: the parallel session is changing year handling (D-053: a fresh question with no year now ASKS which year); its new
+  test file fails 7 tests while in progress — not this session's.
+
+## Latest: conversation harness (2026-10-18, evening). New `tests/conversation_harness/`. Code added, uncommitted.
+- Declarative multi-turn scenarios (YAML) + per-turn checks (scope components, figures, leaks, chips, pauses, same scope /
+  same numbers as an earlier turn, DB truth), two drivers (live HTTP API — plain / stream / any account — and in-process),
+  JSON reports, exit codes. 17 scenarios cover the context-memory review A–E, the conversation-meta flows and comparisons.
+  First live run 16/17; the miss exposed KI-315 (verifier false positive on a by-block breakdown) and a failed turn
+  polluting the next follow-up's rewrite — both fixed; full set now **17/17 scenarios, 72/72 turns**, stream driver 3/3.
+  It validates only; it never guides the chatbot.
+- Rule from today: every conversation / context change is accepted with the **http** driver, not an in-process probe.
+
+## Latest: context memory acceptance through the HTTP API (2026-10-18, late afternoon). KI-315, KI-316, KI-318. Code changed, uncommitted. LIVE-VERIFIED.
+- Every scenario of `documents/Context_Memory_Forward_Backward_Review_v3.docx` (A forward, B out-of-context + B5 leak, C backward,
+  D general, E hierarchy) plus a harmful refusal, a denied follow-up, five asides in a row, the cached path and the SSE stream was run
+  through `POST /api/query` / `/api/query/stream` against the running server (scratchpad `http_probe.py`, a JWT minted in-process for
+  `state-rd` and `superadmin`). All pass. Fixed on the way (KI-316): a refusal and a denied turn keep the topic; roll-ups
+  ("back to the district level", "whole district", "statewide") are deterministic from the topic ledger with the lower levels
+  cleared; before, the block figure was labelled as the district / state.
+- NOTE for testers: on the server a session is rehydrated every request and holds only its last turn; earlier questions live in
+  the topic ledger. An in-process probe (full `session.turns`) can pass where the server fails. Test through the API.
+- Also (user screenshot 16:33, KI-320): "compare with pmay" after an MGNREGA figure now gives the MGNREGA-vs-PMAY-G cross-scheme
+  table in the same place and year (not PMAY-G alone over all years); "compared to Focus Plus" shows "no data for FY 2023-24";
+  "what about 2022-23?" and "by block" continue the comparison. Live-verified through the API.
+- Open: KI-318 ("go back to <block>" after a year change), KI-315 (correction -> PMAY-G sanctioned by block, verifier false positive).
+
+## Latest: conversation about the conversation (2026-10-18, afternoon). D-052, KI-310..312. Code changed, uncommitted. LIVE-VERIFIED.
+- New `app/pipeline/common/c15_conversation_meta.py`: recap / explain (9B, grounded) / misread (apology) / suggest / reason answered
+  from the previous turn (edge stage 0-b); correction / breakdown change the question (follow-up stage 0h) and the answer opens
+  with an apology (`_attach_preface`, finalize); place overview -> the scheme's headline question (route stage 1i); "last year"
+  with no year in play -> which-year pause (follow-up stage 0i). Also: "thank you, it is very helpful" is thanks; "farmer" is
+  domain vocabulary and a farmers question asks which Focus; an opening "okay" no longer hides a follow-up.
+- Live (router path, real models + megh_db): houses 2023-24 -> "why are you not giving me district wise?" -> district-wise with
+  apology -> "okay give me for East Khasi Hills" 17,281 -> "that's wrong, I asked for completed houses" -> EKH completed 12,038
+  -> "ok and Ri Bhoi?" 6,847 -> explain / what next / thanks. Dalu block officer -> overview (8,892.08 lakh, 2,646,057
+  person-days) -> "compare with last year" asks which year -> FY 2024-25 -> "why is it so low?" -> reason + chips.
+- Open: KI-311 (MGNREGA two-year / two-fact breakdown shapes), KI-312 (Focus Plus overview drops the amount).
+
+## Latest: "show me the districts, I'll choose one" (2026-10-18 afternoon). KI-317. Code changed, uncommitted. LIVE-VERIFIED.
+- Right after a DATA answer, a request to see the districts and pick one now pauses with the previous question once per
+  district (chips; a typed district merges back) instead of going to the KB. Step 0g of `_turn_followup_stage` (c14);
+  helpers `_asks_to_pick_district`, `_pick_district_clarification` (c05).
+- Rephrase guard: contractions ("don't") are ordinary words, not lost names (`_is_known_word`, c02).
+- pytest 2,834 / 0 failed; scripts 14/14; NL->SQL eval 74/74. Districts only (blocks / villages not offered this way).
+
+## Latest: context memory, all phases of documents/MAIN_Contex.pdf (2026-10-18). Code changed, uncommitted. D-050, KI-307. LIVE-VERIFIED.
+Phases: P1 cache safety + P2 forward fixes were built 2026-10-16 (KI-306); P0 + P3..P6 built today.
+- **P3 ledger + backward** (`app/topic_memory.py`): each topic keeps its last 6 questions with their scope (in the
+  snapshot). "Go back to the East Khasi Hills one", "the first question", "question 3", "the job cards question",
+  "MGNREGA ka 2022 wala figure", "you showed X for EKH, what about Ri Bhoi?" restore that question's scope and
+  re-run it; several matches -> chips (`ledger-ambiguous`); "what did we discuss?" lists the questions (an aside).
+- **P4 constrained model pick** (`topic_memory.resolve_reference`, called from `_turn_context_stage`): a backward cue
+  the rules place nowhere -> the 9B (`call_rewriter`, role `reference`) picks a listed ledger id / NONE / ASK; other
+  output = ASK. Prompt carries each scheme's meaning (live: "employment" -> MGNREGA person-days).
+- **P5**: a new district clears the old block / village (`context_manager.update_state`); restores are re-authorised
+  by the graph's authorize node; denied turns are never stored.
+- **P6**: `scope_banner` on every DATA answer (`_attach_scope_banner` in node_finalize; "(from earlier)" on a
+  restore; UI pill `ScopeBanner`; stored for reopened threads). Idle expiry sets the context aside
+  (`Session.expired_ctx`, durable); the first reply carries `continue_offer`; tapping it restores (`ContinueOffer`).
+  `npm run build` done.
+- Flags: `BACKWARD_RESOLVER_ENABLED`, `CONTEXT_LEDGER_PER_TOPIC` 6, `LLM_REFERENCE_ENABLED`,
+  `LLM_REFERENCE_TIMEOUT_SECONDS` 8. Graph still 22 nodes.
+- Tests: `tests/test_topic_ledger.py` 75. Full pytest 3 shards **2,779 passed, 0 failed, 2 skipped**; scripts
+  **14/14** (incl. test_context_manager.py, failing earlier). Live: N, O, P, Q, R pass (see TESTING.md);
+  full A..R run: full A..R on 3 workers 79/83 checks; then H fixed (rehydrated-worker antecedent, see KI-307) and passes; remaining: E T1 (expects a 'which scheme?' pause — outdated by D-045 answer-defaults, not a regression) and F T3 (KI-308 guard/verifier ping-pong, fails with the D-050 features off too).
+- **Stop -> "continue"** (user request): a stopped streamed question is remembered (`Session.stopped_ctx`,
+  `routers.query._remember_stopped`); "continue" / "resume" / "go on" answers it (`conversation_layer`); "stop"
+  typed while an answer runs stops it (UI `stopContinue.js`). Tests `tests/test_stop_continue.py`; live-verified.
+- **D-051 (user decision):** 50 turns per session, 20 questions per topic (160 in all), 4-hour idle window (was 8 /
+  6 / 30 min). `.env` updated locally; **deploy `.env` files still say 30 min / 8 turns** — change them on deploy.
+- **Late 2026-10-18 (user: "it must work 100%"):** the user's own UI thread (app.conversation_turns, 07:18-07:26)
+  replayed as live scenarios U1 / U2 — every follow-up had lost the context (KI-309, fixed: "what is the total …"
+  is a measure follow-up and never a term question; manraya -> MGNREGA; spoken digit years). KI-308 fixed (verifier
+  may not remove a resolved place filter). New `tests/live_context_matrix.py`: 7 flows x 6 schemes = 42 live
+  conversations; first run 21/23 before the fixes (DB dropped at #24). **2,870 passed, 1 failed, 2 skipped**; the one failure (`tests/test_scheme_years.py::test_route_stage_answers_years_before_the_knowledge_split`, an `inspect.getsource` pin) was a run artifact — another session saved `c14_turn_stages.py` at 13:29 while the 33-minute shard was running, so the loaded code and the file disagreed; re-run alone afterwards: 26 passed. Effective result **2,871 passed, 0 failed**; final re-run after the CM Elevate-family fix: **2,940 passed, 0 failed**, 2 skipped. (That session also added `c15_conversation_meta.py` and two test files; see HANDOFF.); **42/42 conversations** (MGNREGA, PMAY-G, Focus Plus 21/21 and Focus Legacy F2..F7 in run 2 — the run then hung on a dead DB connection after a gateway ReadTimeout and was stopped; Focus Legacy F1 14/14 checks and CM Elevate + CM Elevate Legacy 14/14 conversations, 93/93 checks, in run 3 after the CM Elevate-family fix and the applications-only wording). Caveat: the 27 run-2 conversations ran before the CM-family edit (topic_memory / c03 / context_manager), which only changes behaviour when a CM Elevate name is involved.
+- **Browser check done** (`tests/ui_headless/`): banner, typed stop -> continue, go back, history all correct at
+  phone / tablet / desktop, no overflow, no console errors. Fixed on the way: a pure "go back" is no longer filed as
+  a new numbered question. Not exercised in a browser: the "Continue with …" chip after 4 h idle (offline tests only).
+- **Evening fixes:** KI-314 (snapshot load/save retried once on a DB drop) and KI-319 (a cache-served answer now updates the structured state and carries the banner) — both offline-tested; new `tests/test_session_sync_retry.py`, `tests/test_cache_hit_context.py`; `tests/ui_headless/idle_chip_flow.py` checks the "Continue with …" chip in a browser with a 60 s idle window.
+- **"Compare this with the MGNREGA figure you showed"** now works (`conversation_layer.comparison_with_earlier`
+  -> the two-scheme comparison for the active scope). Idle chip confirmed in the browser (60 s window) after making
+  its acknowledgement an aside. Wording probes V1..V6 in `live_context_validation.py` (see TESTING).
+- End of day: full pytest **2,971 passed, 0 failed**, 2 skipped; live probes V1..V6 all pass; 42/42 matrix.
+- Not built: WI-9 (Qdrant over archived turns).
+
+## Earlier: following the ingestion team's DB changes of 2026-10-16. Code changed, uncommitted. D-049, KI-304/305.
+Source: `CHATBOT_DB_CHANGES_2026-10-16.md`; reply `docs/Chatbot_Answers_to_Ingestion_Team_2026-10-16.md`. **No DB change.**
+- `schema_introspect`: prompt now carries column UNIT + exact VALUES lists, the metric definitions (the old reader used
+  wrong keys and printed none), `v_join_rules`, `v_data_coverage`; LIVE SCHEMA hides privacy tables and every column
+  `megh_readonly` cannot SELECT (`v_cm_elevate.scheme_specific`); fact-table notes dropped.
+- Guards: `_prohibited_row_join` (any pair in v_join_rules), `_readonly_denied_column_in`; `sql_guard` refuses the 3
+  privacy tables (`private_table`).
+- CM Elevate: every count = `COUNT(DISTINCT request_id)` (8,840); sector -> `sector_id` column; gender and
+  Approved/Rejected -> measure-not-held ("not available"); "pending" stays On Hold (user decision). Few-shots adapted at
+  load (`annotations._fit_examples_to_db`): 13 CM Elevate, 1 Focus Plus, 3 Focus Legacy dropped (meta / locked column).
+- Rules: Focus Plus/Focus Legacy money = rupees (catalog UNIT); no `meta.*`; no `scheme_code 'FOCUS'`.
+- Pools: `DB_POOL_MIN_SIZE` 10 -> 1 (also local `.env`), `DB_POOL_IDLE_SECONDS=120`.
+- **Open (KI-304):** the app still logs in as `postgres` — needs the megh_readonly password from the ingestion team.
+- Tests: pytest **2,667 passed, 0 failed**, 2 skipped (3 shards; +26 in `tests/test_db_changes_2026_10_16.py`, 2 stale
+  cases updated). NL->SQL eval 95.9% (71/74) — see TESTING.md for PM-04.
+
+## Latest: spoken / FY2022-23 years, audit trace, /metrics accuracy (2026-10-16, late). Uncommitted. KI-289, KI-305.
+- Years: "FY2022-23" and spoken years are read (errors.md cases 10-11, both live-verified).
+- Audit (JSONL + app.query_audit) now stores SQL, error, few-shot ids, repairs, verifier rejections, outcome,
+  request id; the new columns are added by `appdb.ensure_schema` on the next server start.
+- /metrics `accuracy`: live SQL outcome / repair counters (per worker) + latest full NL->SQL eval run.
+- pytest **2,704 passed, 0 failed**.
+
+## Earlier: one query per scheme (KI-011) + RAG score floor enforced (KI-304) (2026-10-16, evening). Uncommitted.
+- Multi-scheme SQL prompts over the 15,360-token budget now fan out to one query per scheme (each with its own
+  guards / repairs), rows tagged `scheme`. Live-verified on a CM Elevate + Focus Legacy question.
+- `RAG_MIN_SCORE` has no fallback any more. KB v3 eval: 92.1% -> 90.2% correct, made-up 13.4% -> 14.4% (noise);
+  the 0.30 floor never binds on KB v3 (all pieces >= 0.548). Results: tests/rag_eval/results/2026-10-16_kbv3_*.
+
+## Earlier: no regex anywhere + business definitions (2026-10-16). Code changed, uncommitted. D-047, D-048.
+- **No regex (D-047):** every regex in app/, tests/, data/ and frontend/src replaced — English text by the word
+  matcher `app/text_match.py`, SQL by `app/sql_ast.py`, the UI by string methods (`npm run build` done).
+  pytest **2,606 passed, 0 failed**; scripts 13/14 (`test_context_manager.py`: the separate memory-retention change).
+- **Business definitions (D-048, errors.md cases 1-3, KI-229 / KI-035 / KI-040):** backbone rules (gender; people
+  across years; MGNREGA households vs persons), 12 executed few-shots, and the `_mgnrega_people_years_alias`
+  rewrite + answer note, and a verifier false-positive filter for those shapes. **LIVE-VERIFIED 2026-10-16: cases
+  1-3 all correct** (23,758 men; 105,813; 1,494,437 household-years labelled as such). Held-out accuracy:
+  93.2% (16:24) then 100% (18:09, 74/74). Caveat: another session changed code, the DB and reworded FP-12 and
+  CE-11 in questions.yaml between those runs; on the 72 unchanged questions the 18:09 run is 72/72.
+
+## Earlier: all SQL handling moved from regex to SQLGlot (2026-10-15, evening). Code changed, uncommitted. D-046, KI-303.
+New `app/sql_ast.py` (shared SQLGlot helpers). Converted: `auth.py` (district/block filters read on the tree: UPPER(col),
+every IN value, OR branches; unparseable SQL refused for restricted users), c01/c02/c10–c13 and all six
+`app/pipeline/schemes/*.py` guards and rewrites, `_extract_sql` (token stream), followups.py, the offline
+`data/cm_elevate/prompt_assembler.py` validator and the SQL checks in tests/harnesses. SQL generation/repair send no
+`guided_regex`; `SQL_GUIDED_DECODING_ENABLED` is no longer read (kept so an existing .env loads). Fixed on the way:
+the MGNREGA employment x expenditure fan-out inside a CTE is now flagged. Remaining regex reads English only
+(questions, answers, verifier complaints, DB error text, row key names). Tests: pytest **2,585 passed, 0 failed**
+(baseline 2,558); scripts 13/14 — `test_context_manager.py` fails on the separate, uncommitted memory-retention
+change in `app/conversation_memory.py` (a `range` condition in the Qdrant filter; not SQL work).
+Visible change: a rewrite that fires regenerates the SQL in SQLGlot's layout (`CAST(x AS DECIMAL)`, one line).
+LIVE held-out NL->SQL eval (tests/nl2sql_eval, VPN, superuser override as for the baseline): **79.7% (59/74)** vs
+78.4% baseline-final — 0 regressions, 1 fixed (CL-05). Results: `tests/nl2sql_eval/results/2026-10-15_2032_sqlglot-only.json`.
+
+## Latest: empty duplicate table under cross-scheme answers removed (2026-10-15). Code changed, uncommitted. KI-302.
+The chat UI skips its pivot table and charts for `cross_scheme` results (the answer text already has the tables); the
+flag is stored with the turn for reopened threads. `npm run build` done. Tests: `tests/test_cross_scheme_history_flag.py`
+(2 passed). Not yet checked in a live browser.
+
+## Latest: pipeline.py split into the app/pipeline/ package (2026-10-15). Code moved, uncommitted. Behaviour-identical.
+The 18,698-line `app/pipeline.py` is now `app/pipeline/`: `common/` (14 shared-step files c01..c14) and `schemes/`
+(one file per scheme: mgnrega, pmay_g, focus_plus, cm_elevate, focus_legacy, cm_elevate_legacy), executed by
+`__init__.py` into one shared namespace; LangGraph (`pipeline_graph.py`, 22 nodes) unchanged. Verified: slices re-join byte for byte,
+1,065 names / 504 functions / 362 regexes identical; pytest 2,372 passed, 2 skipped; scripts 14/14. Tests that read
+the pipeline source now join the files in `_PIPELINE_FILES` order. Same day: `/api/scheme-stats` (app/routers/stats.py) feeds the
+welcome cards live megh_db figures. `sqlglot` (needed by app/sql_guard.py) installed in .mvenv, not yet in requirements.txt.
+
+## Latest: answer-defaults + hierarchy matrix (2026-10-14). Code changed, uncommitted. LIVE-VERIFIED (village run in progress).
+User decision (D-045): answer, don't ask — no year = all years combined, no area = all of Meghalaya, no tranche = all
+tranches, no scheme = each scheme that records the measure (ANSWER_DEFAULTS_ENABLED, default on). From the user's
+2026-10-13 UI session (300 turns in app.conversation_turns) and a new hierarchy matrix (every scheme x every measure
+x state / district / block / constituency / village, tests/sheet_runs/matrix/): KI-291..299 fixed, KI-289 closed,
+plus job cards as a stock, FY2022-23 spacing, guardrail data-question overrule, relative "that", unasked year
+splits, MGNREGA expenditure components, chip pin for every scheme, "<exact name> village" wins over the extractor.
+Matrix: state/district/block/AC 2,150/2,150; villages in progress. NOTE: the UI the user tested runs the GitHub
+main line (NRLM onboarding, 36b7427), not this branch — merge needed before these fixes show there.
+
 ## Latest: Cross Scheme sheet test + fixes (2026-10-13). Code changed, uncommitted. LIVE-VERIFIED.
 CROSS-1..CROSS-20: 9th run 0/20 (18 paused, 2 wrong), after the fixes 20/20; 8,649/8,649 conversations (every scheme
 combination, level, FY and village). New `app/cross_scheme.py` (D-044): comparisons of 2+ schemes answered
@@ -737,7 +980,7 @@ DDL.
   incident.
 - `compose_response` faithfulness and hedge checks.
 - `db.run_readonly` / `_assert_safe`.
-- `_SCHEME_NAME_PATTERN`, `_is_ambiguous_focus` and `_pin_cm_elevate_dataset`: the scheme-name
+- `_SCHEME_NAME_MATCHER`, `_is_ambiguous_focus` and `_pin_cm_elevate_dataset`: the scheme-name
   collision handling.
 - `_reply_abandons_scope_pause` and the `pending_scope_q` resume logic.
 - `data/<scheme>/*.yaml`: the SME contract. Change it only with an SME-backed reason, and keep

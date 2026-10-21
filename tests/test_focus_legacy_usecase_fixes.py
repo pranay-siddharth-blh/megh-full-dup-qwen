@@ -298,7 +298,7 @@ def test_ki145_not_null_filter_is_dropped_for_the_left_out_query():
     loose = p._fl_drop_not_null(_S26, "lgd_block")
     assert "IS NOT NULL" not in loose and "lgd_district = 'WEST KHASI HILLS'" in loose
     assert p._fl_drop_not_null("SELECT lgd_block, COUNT(*) n FROM v WHERE lgd_block IS NOT NULL GROUP BY 1",
-                               "lgd_block") == "SELECT lgd_block, COUNT(*) n FROM v GROUP BY 1"
+                               "lgd_block") == "SELECT lgd_block, COUNT(*) AS n FROM v GROUP BY 1"
 
 
 def test_ki145_left_out_row_is_read_from_the_data(monkeypatch):
@@ -376,7 +376,9 @@ def test_ki148_constituency_alone_does_not_pin_mgnrega(q, expected):
 def test_ki148_scheme_question_offers_only_constituency_schemes():
     c = p._scheme_clarification("What is the total amount disbursed for Baghmara assembly constituency?")
     assert [o["label"].split(" (")[0] for o in c.options] == ["MGNREGA", "Focus Legacy", "CM Elevate Legacy"]
-    assert len(p._scheme_clarification("total amount disbursed in 2024").options) == 7
+    # six scheme chips: the seventh ("Compare across schemes") was removed on 2026-10-18 at the
+    # user's request (the chat UI renders that button itself); the assertion followed on 2026-10-19
+    assert len(p._scheme_clarification("total amount disbursed in 2024").options) == 6
 
 
 def test_ki146_drilldown_names_the_scheme_data():
@@ -466,10 +468,10 @@ def test_breakdown_accepts_an_aliased_place_column():
 
 # ── all-villages run 2026-09-29: "for PAKREGRE CHIKAMA village" -> CHIKAMA ───
 def test_village_phrase_is_read_from_the_text():
-    rx = p._VILLAGE_PHRASE_RE
-    assert rx.findall("What is the total amount disbursed for PAKREGRE CHIKAMA village?") == ["PAKREGRE CHIKAMA"]
-    assert rx.findall("amount for East Garo Hills in Abima village") == ["Abima"]
-    assert rx.findall("Which Producer Groups are mapped to NONGCHRAM (II) village?") == ["NONGCHRAM (II)"]
+    word_matcher = p._VILLAGE_PHRASE_MATCH
+    assert word_matcher.findall("What is the total amount disbursed for PAKREGRE CHIKAMA village?") == ["PAKREGRE CHIKAMA"]
+    assert word_matcher.findall("amount for East Garo Hills in Abima village") == ["Abima"]
+    assert word_matcher.findall("Which Producer Groups are mapped to NONGCHRAM (II) village?") == ["NONGCHRAM (II)"]
 
 
 def _stub_village(monkeypatch, extractor_village, exact_names):
@@ -568,7 +570,7 @@ def test_mis_encoded_name_keeps_its_own_letters():
     "for FY 2022-23?",
 ])
 def test_chip_tail_survives_a_later_year_chip(q):
-    m = p._CHIP_TAIL_PARSE_RE.search(q)
+    m = p._CHIP_TAIL_PARSE_MATCH.search(q)
     assert m and m.group("block") == "GASUAPARA" and m.group("district") == "SOUTH GARO HILLS"
 
 
@@ -620,7 +622,7 @@ def test_underscore_names_are_matched_as_words(monkeypatch):
                  "group_size": 1, "smallest_recorded_size": 1, "payments": 1, "amount_disbursed": 5000}]
     monkeypatch.setattr(p, "run_readonly", rows)
     out = asyncio.run(p._focus_legacy_pg_name_answer("How many members are there in Erifa_25?"))
-    assert any("translate(pg_name, '_', ' ')" in s for s in seen)
+    assert any("STRING_TO_ARRAY(LOWER(pg_name), NULL)" in s and "'% 25 %'" in s for s in seen)
     assert "has **1 member**." in out["answer"]
 
 
@@ -704,7 +706,7 @@ def test_verifier_district_complaint_beside_village_code_is_discarded():
     ("Which Producer Groups are mapped to Jong - U - Shen village?", "Jong - U - Shen"),
 ])
 def test_village_phrase_keeps_ampersands_and_spaced_hyphens(q, name):
-    assert p._VILLAGE_PHRASE_RE.findall(q) == [name]
+    assert p._VILLAGE_PHRASE_MATCH.findall(q) == [name]
 
 
 def test_village_named_after_a_state_is_not_out_of_area():
@@ -733,14 +735,14 @@ def test_date_trunc_month_is_cast_to_a_date():
     sql = ("SELECT DATE_TRUNC('month', date_of_remittance) AS payment_month, SUM(amount_disbursed) AS amount_disbursed "
            "FROM curated.v_focus_legacy GROUP BY DATE_TRUNC('month', f.date_of_remittance)")
     out = p._focus_legacy_date_trunc_as_date(FL, sql)
-    assert out.count("::date") == 2
+    assert out.count("AS DATE)") == 2
     assert p._focus_legacy_date_trunc_as_date(FL, out) == out            # idempotent
     assert p._focus_legacy_date_trunc_as_date(["PMAY-G"], sql) == sql
 
 
 # ── final regression 2026-09-29: bracketed names, id-only lists (KI-165) ─────
 def test_bracketed_village_name_is_read_whole():
-    assert p._VILLAGE_PHRASE_RE.findall("Which Producer Groups are mapped to RAMJONGGRE ( R ) village?") == ["RAMJONGGRE ( R )"]
+    assert p._VILLAGE_PHRASE_MATCH.findall("Which Producer Groups are mapped to RAMJONGGRE ( R ) village?") == ["RAMJONGGRE ( R )"]
 
 
 def test_id_only_group_list_gets_names(monkeypatch):

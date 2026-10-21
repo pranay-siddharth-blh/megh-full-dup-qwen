@@ -81,6 +81,14 @@ async def _fake_constituency_contents(ac_name, scheme=None):
                             {"districts": [], "blocks": [], "villages": 0})
 
 
+# The stubs replace the real functions for the length of this script only.
+# pytest collects this file too (it is a test_*.py), and the module body runs at
+# collection; without the restore at the end the stubs leaked into every later
+# test in the same process (2026-10-19: 15 tests/test_pipeline_graph.py failures
+# when this file ran before it).
+_REAL = {(p, "resolve_village"): p.resolve_village, (er, "resolve_village"): er.resolve_village,
+         (p, "extract_entity_mentions"): p.extract_entity_mentions,
+         (p, "constituency_contents"): p.constituency_contents}
 p.resolve_village = _fake_resolve_village
 er.resolve_village = _fake_resolve_village
 p.extract_entity_mentions = _fake_extract
@@ -555,6 +563,9 @@ for _q, _want in (
     check(f"{_q[:50]!r} -> {_want}", p._explicit_level_in(_q) == _want,
           p._explicit_level_in(_q))
 
+
+for (_mod, _name), _fn in _REAL.items():
+    setattr(_mod, _name, _fn)
 
 print()
 if _fails:

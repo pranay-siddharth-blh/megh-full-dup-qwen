@@ -19,7 +19,6 @@ received employment in MGNREGA for FY 2025-26":
 Pure-Python assertions — no model or DB. Plain script (no pytest in the venv):
 `python tests/test_ac_full_results.py`, exit code 0 = all pass.
 """
-import re
 import sys
 from pathlib import Path
 
@@ -93,7 +92,7 @@ check("  it gets the BOTH REQUIRED pairing instead",
 # is handed. run_readonly() already bounds the query itself at
 # SQL_MAX_RESULT_ROWS, so neither layer needs a second cap of its own.
 print("4. NO SILENT ROW TRUNCATION")
-_src = (Path(__file__).resolve().parents[1] / "app" / "pipeline.py").read_text(encoding="utf-8")
+_src = "".join(((Path(__file__).resolve().parents[1] / "app" / "pipeline") / (n + ".py")).read_text(encoding="utf-8") for n in __import__("app.pipeline", fromlist=["_PIPELINE_FILES"])._PIPELINE_FILES)
 check("the API returns the full result, not data[:200]",
       '"data": rows,' in _src and '"data": rows[:200],' not in _src)
 

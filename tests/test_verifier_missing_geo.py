@@ -111,7 +111,7 @@ check("a complaint naming neither column nor value never fires",
 
 # ── 3. The guard is wired into _verify_sql ─────────────────────────────────
 print("3. THE GUARD IS WIRED INTO THE VERIFIER PATH")
-_SRC = (_ROOT / "app" / "pipeline.py").read_text(encoding="utf-8")
+_SRC = "".join(((_ROOT / "app" / "pipeline") / (n + ".py")).read_text(encoding="utf-8") for n in __import__("app.pipeline", fromlist=["_PIPELINE_FILES"])._PIPELINE_FILES)  # the pipeline package's files, in load order
 _verify = _SRC[_SRC.index("async def _verify_sql("):_SRC.index("MAX_SQL_REPAIRS = 3")]
 check("_verify_sql consults the new guard",
       "_verifier_missing_geo_is_false(issue, entity_result.get(\"resolved\") or {}, sql)" in _verify)

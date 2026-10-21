@@ -53,14 +53,17 @@ fed to that run as the reply to a clarification the user abandoned.
 Best-effort like the rest of the context layer: any failure leaves the turn
 exactly as it would have run without this module.
 """
+import copy
 import dataclasses
 import logging
-import re
 import time
 from dataclasses import dataclass
 
 from app import context_budget, topic_memory
 from app.config import settings
+from app.context_policy import (_CpEnd, _CpNextChar, _CpSep, _CpStart, _cp_end_punct, _cp_ends, _cp_glued,
+                                _cp_has, _cp_starts, _cp_ws)
+from app.text_match import Alt, Cap, Joined, Matcher, Opt, Pred, Rep, Seq, W
 
 logger = logging.getLogger(__name__)
 
@@ -72,33 +75,41 @@ RESET_EDGE = "context_reset"
 
 # The reset itself, at the start of the message. Fillers before it ("ok",
 # "now", "please") and a "let's" / "can we" opener are allowed.
-_RESET_LEAD = re.compile(
-    r"^\s*(?:(?:ok(?:ay)?|now|so|alright|right|fine|then|well|please|hey|hi)\b[\s,!.]*)*"
-    r"(?:(?:let'?s|let\s+us|can\s+we|could\s+we|shall\s+we|i\s+want\s+to|i'?d\s+like\s+to|please)\s+)?"
-    r"(?:"
-    r"start\s+(?:a\s+)?(?:new|fresh|another)\s+(?:topic|conversation|chat|discussion|session|subject)"
-    r"|start\s+(?:over|again|afresh|fresh|anew|from\s+(?:scratch|the\s+beginning))"
-    r"|begin\s+(?:again|afresh|anew)"
-    r"|(?:a\s+)?(?:new|fresh)\s+(?:topic|subject|start)"
-    r"|change\s+(?:the\s+)?(?:topic|subject)"
-    r"|forget\s+(?:about\s+)?(?:"
-    r"that|this|it|everything|all(?:\s+(?:of\s+)?(?:that|this|it))?"
-    r"|what\s+(?:i|we)\s+(?:said|asked|discussed)(?:\s+(?:before|earlier))?"
-    r"|(?:the|my|our|that|this)\s+(?:previous|earlier|last|old|above|current)?\s*"
-    r"(?:question|questions|topic|conversation|context|discussion|one|query|chat)"
-    r")"
-    r"|clear\s+(?:the\s+|my\s+)?(?:context|conversation|history|chat|topic|memory)"
-    r"|reset(?:\s+(?:the\s+|my\s+)?(?:context|conversation|chat|topic|memory))?"
-    r")"
-    r"(?=$|[\s,.:;!?-])",
-    re.IGNORECASE,
-)
+def _cl_filler_gap(g: str) -> bool:
+    """Only spaces, commas, "!" and "." (or nothing) after a filler word."""
+    return all(c.isspace() or c in ",!." for c in g)
+
+
+_CL_RESET_NOUN = W("question", "questions", "topic", "conversation", "context", "discussion", "one", "query", "chat")
+_RESET_LEAD = Matcher(Seq(
+    _CpStart(_cp_ws),
+    Rep(Seq(W("ok", "okay", "now", "so", "alright", "right", "fine", "then", "well", "please", "hey", "hi"),
+            _CpSep(_cl_filler_gap))),
+    Opt(Alt(W("lets"), Seq("let", "s"), "let us", "can we", "could we", "shall we", "i want to",
+            Seq("id", "like", "to"), Seq("i", "d", "like", "to"), W("please"))),
+    Alt(
+        Seq("start", Opt("a"), W("new", "fresh", "another"),
+            W("topic", "conversation", "chat", "discussion", "session", "subject")),
+        Seq("start", Alt(W("over", "again", "afresh", "fresh", "anew"), Seq("from", Alt("scratch", "the beginning")))),
+        Seq("begin", W("again", "afresh", "anew")),
+        Seq(Opt("a"), W("new", "fresh"), W("topic", "subject", "start")),
+        Seq("change", Opt("the"), W("topic", "subject")),
+        Seq("forget", Opt("about"), Alt(
+            W("that", "this", "it", "everything"),
+            Seq("all", Opt(Seq(Opt("of"), W("that", "this", "it")))),
+            Seq("what", W("i", "we"), W("said", "asked", "discussed"), Opt(W("before", "earlier"))),
+            Seq(W("the", "my", "our", "that", "this"),
+                Opt(W("previous", "earlier", "last", "old", "above", "current")), _CL_RESET_NOUN))),
+        Seq("clear", Opt(W("the", "my")), W("context", "conversation", "history", "chat", "topic", "memory")),
+        Seq("reset", Opt(Seq(Opt(W("the", "my")), W("context", "conversation", "chat", "topic", "memory"))))),
+    _CpNextChar(lambda c: c.isspace() or c in ",.:;!?-")))
 # What may sit after the reset without being a question of its own.
-_RESET_TAIL = re.compile(
-    r"^(?:please|pls|now|then|ok(?:ay)?|thanks?|thank\s+you|and|so|"
-    r"(?:and\s+)?start\s+(?:over|again|afresh|fresh)|(?:and\s+)?start\s+(?:a\s+)?new\s+(?:topic|one|conversation))?$",
-    re.IGNORECASE,
-)
+_RESET_TAIL = Matcher(Seq(
+    _CpStart(lambda p: p == ""),
+    Opt(Alt(W("please", "pls", "now", "then", "ok", "okay", "thank", "thanks", "and", "so"), "thank you",
+            Seq(Opt("and"), "start", W("over", "again", "afresh", "fresh")),
+            Seq(Opt("and"), "start", Opt("a"), "new", W("topic", "one", "conversation")))),
+    _CpEnd(lambda t: t == ""), sep="space"))
 
 
 def parse_reset(question: str) -> "str | None":
@@ -120,27 +131,39 @@ def parse_reset(question: str) -> "str | None":
 def _lead_trim(text: str) -> str:
     """Drop the punctuation and connective ("and", "then") between a reset
     and what follows it. The end of the text, a question mark included, stays."""
-    return re.sub(r"^[\s,.:;!?-]*(?:(?:and|then|so)\b[\s,]*)?", "", text, flags=re.IGNORECASE)
+    text = text or ""
+    i, n = 0, len(text)
+    while i < n and (text[i].isspace() or text[i] in ",.:;!?-"):
+        i += 1
+    for w in ("and", "then", "so"):
+        j = i + len(w)
+        if text[i:j].lower() == w and (j == n or not (text[j].isalnum() or text[j] == "_")):
+            while j < n and (text[j].isspace() or text[j] == ","):
+                j += 1
+            i = j
+            break
+    return text[i:]
 
 
 # ── Return to a topic in plain words ────────────────────────────────────────
 
 # The message asks for something seen before: "… again", "remind me …",
 # "recap …".
-_RECALL_CUE = re.compile(r"\bagain\b|^\s*(?:can\s+you\s+|could\s+you\s+|please\s+)?remind\s+me\b|\brecap\b",
-                         re.IGNORECASE)
+_RECALL_CUE = Matcher(Alt(
+    W("again", "recap"),
+    Seq(_CpStart(_cp_ws), Opt(Alt("can you", "could you", "please")), "remind", "me")))
 # Everything that may sit around the scheme name in such a message. What is
 # left after removing these and the scheme name must be nothing, so a real
 # question ("PMAY-G houses in Ri Bhoi again?") is never taken.
-_RECALL_FILLER = re.compile(
-    r"\b(?:what|whats|was|were|is|are|the|that|those|this|these|it|info|information|answer|answers|"
-    r"details?|data|figures?|numbers?|results?|again|remind|me|about|of|on|for|regarding|show|tell|"
-    r"give|repeat|recap|say|can|could|would|will|you|please|pls|once|more|one|time|we|discussed|"
-    r"talked|had|got|us|i|asked|question|questions|scheme|topic|discussion|so|ok|okay|and|then|"
-    r"now|go|over|summary|summarise|summarize|status|thing|stuff|did|said|earlier|previous|before|"
-    r"there|bit|a|an|quick|quickly|briefly)\b",
-    re.IGNORECASE,
-)
+_RECALL_FILLER = Matcher(W(
+    "what", "whats", "was", "were", "is", "are", "the", "that", "those", "this", "these", "it", "info",
+    "information", "answer", "answers", "detail", "details", "data", "figure", "figures", "number", "numbers",
+    "result", "results", "again", "remind", "me", "about", "of", "on", "for", "regarding", "show", "tell",
+    "give", "repeat", "recap", "say", "can", "could", "would", "will", "you", "please", "pls", "once", "more",
+    "one", "time", "we", "discussed", "talked", "had", "got", "us", "i", "asked", "question", "questions",
+    "scheme", "topic", "discussion", "so", "ok", "okay", "and", "then", "now", "go", "over", "summary",
+    "summarise", "summarize", "status", "thing", "stuff", "did", "said", "earlier", "previous", "before",
+    "there", "bit", "a", "an", "quick", "quickly", "briefly"))
 
 
 def recall_target(session, question: str) -> "str | None":
@@ -240,13 +263,14 @@ _COUNTERPARTS = [
     [["female", "women", "woman"], ["male", "men", "man"]],
     [["sanctioned"], ["completed"], ["incomplete"]],
 ]
-_SWAP_ASK = re.compile(
-    r"^\s*(?:(?:ok(?:ay)?|so|and|then|now|also)[\s,]+)*"
-    r"(?:(?:what|how)\s+about|same\s+for|now\s+for|and\s+for|for|in)?\s*"
-    r"(?:the\s+|in\s+|for\s+|on\s+)?(?P<term>[a-z-]+)"
-    r"(?:\s+(?:data|records?|side|one|ones|too|also|instead|please|pls))*\s*[?.!]*\s*$",
-    re.IGNORECASE,
-)
+_SWAP_ASK = Matcher(Seq(
+    _CpStart(_cp_ws),
+    Rep(W("ok", "okay", "so", "and", "then", "now", "also")),
+    Opt(Alt(Seq(W("what", "how"), "about"), "same for", "now for", "and for", W("for", "in"))),
+    Opt(W("the", "in", "for", "on")),
+    Cap(Pred(lambda w: w.isascii() and w.isalpha()), "term"),
+    Rep(W("data", "record", "records", "side", "one", "ones", "too", "also", "instead", "please", "pls")),
+    _CpEnd(_cp_end_punct)))
 
 
 def _counterpart_forms(term: str):
@@ -280,13 +304,62 @@ def counterpart_swap(session, question: str) -> "str | None":
         if vi == new_vi:
             continue
         for fi, form in enumerate(forms):
-            rx = re.compile(rf"\b{re.escape(form)}\b", re.IGNORECASE)
-            if rx.search(base):
+            word_matcher = Matcher(W(form))
+            if word_matcher.search(base):
                 # the new value in the SAME form as the word it replaces
                 new_forms = group[new_vi]
                 word = new_forms[fi] if fi < len(new_forms) else new_forms[0]
-                return rx.sub(lambda mm: word.capitalize() if mm.group(0)[:1].isupper() else word, base, count=1)
+                return word_matcher.sub(lambda mm: word.capitalize() if mm.group(0)[:1].isupper() else word, base, count=1)
     return None
+
+
+# ── "Compare this with the MGNREGA figure you showed" ───────────────────────
+# Context Memory proposal §9.3 "mid-sentence" (live probe V4, 2026-10-18: it
+# was answered for the active scheme alone). "This" is the active topic's
+# scope; the named scheme is the other side. The pipeline already answers a
+# two-scheme comparison for one place and year (app/cross_scheme.py, D-044),
+# so the message becomes that question — deterministically, from the state.
+_CMP_REF = W("this", "that", "it", "these", "those")
+_CMP_FILLER = Rep(W("the", "figure", "figures", "number", "numbers", "one", "ones", "data", "value", "values",
+                    "result", "results", "you", "showed", "shown", "gave", "given", "said", "mentioned", "earlier",
+                    "before", "previously", "above", "from", "of", "for", "under", "please", "pls", "again"))
+_COMPARE_ASK = Matcher(Seq(
+    _CpStart(_cp_ws),
+    Rep(W("ok", "okay", "so", "and", "now", "then", "please", "can", "could", "you")),
+    Alt(Seq(W("compare", "comparing", "comparison"), Opt("of"), _CMP_REF, _CMP_FILLER,
+            W("with", "to", "against", "and", "vs", "versus")),
+        Seq("how", W("does", "do", "did"), _CMP_REF, _CMP_FILLER, "compare", W("with", "to", "against")),
+        Seq(_CMP_REF, _CMP_FILLER, W("vs", "versus", "against", "compared"), Opt(W("with", "to")))),
+    _CMP_FILLER,
+    Cap(Rep(Pred(lambda w: True), 1, 6), "other"),
+    _CpEnd(_cp_end_punct)))
+
+
+def comparison_with_earlier(session, question: str) -> "str | None":
+    """'Compare this with the MGNREGA figure you showed' as the two-scheme
+    comparison question for the active scope, or None when the message is not
+    one, names no other single scheme, or there is no active scheme."""
+    from app import pipeline
+    m = _COMPARE_ASK.match(question or "")
+    if not m:
+        return None
+    other = m.group("other")
+    named = list(pipeline._named_schemes(other))
+    if len(named) != 1 or pipeline._named_schemes(question[:m.start("other")]):
+        return None
+    st = session.state
+    active = st.scheme or (topic_memory._memory(session).get("active") or "")
+    if not active or " + " in active or topic_memory.same_scheme_family(active, named[0]):
+        return None
+    place = st.village or st.block or st.district
+    where = f" in {str(place).title()}" if place else " in Meghalaya"
+    if st.year is not None:
+        when = f" in {topic_memory._fy(st.year)}"
+    elif st.year_all:
+        when = " across all financial years"
+    else:
+        when = ""
+    return f"Compare {active} and {named[0]}{where}{when}"
 
 
 # ── "Each year, for these schemes" / "why only one year?" ───────────────────
@@ -300,37 +373,58 @@ def counterpart_swap(session, question: str) -> "str | None":
 # financial year?") every scheme answers correctly. So such a follow-up is
 # turned into exactly those questions: one per scheme, run one after another,
 # their answers merged into one reply and one scheme x year table.
-_PER_YEAR_CUE = re.compile(
-    r"\b(?:each|every|all|per)\s+(?:the\s+)?(?:particular\s+)?(?:financial\s+)?years?\b|\byear[\s-]?wise\b"
-    r"|\bin\s+which\s+(?:financial\s+)?years?\b|\bfinancial\s+years\b"
-    r"|\bonly\s+(?:one|1|a\s+single|single)\s+(?:financial\s+)?year\b|\bnot\s+in\s+(?:a\s+)?single\s+year\b"
-    r"|\b(?:two|three|four|five|six|seven|2|3|4|5|6|7)\s+(?:financial\s+)?years\b|\bby\s+(?:financial\s+)?year\b",
-    re.IGNORECASE)
-_ALL_SCHEMES_CUE = re.compile(r"\b(?:all|every|each)\s+(?:the\s+)?schemes?\b|\ball\s+of\s+them\b", re.IGNORECASE)
-_REFERS_BACK = re.compile(
-    r"\b(?:above|previous|last|earlier|that|this|same)\s+(?:query|queries|question|answer|result|results|data|output)\b"
-    r"|\byou\s+(?:have\s+|had\s+)?(?:gave|given|give|showed|shown|said|told|provided)\b"
-    r"|\bcross[\s-]?(?:verify|check)\w*|\bre[\s-]?(?:check|verify)\w*|\bverify\b"
-    r"|\bwhy\s+(?:are\s+|is\s+)?(?:you\s+)?(?:giving|showing|only)\b",
-    re.IGNORECASE)
+_CL_YEARS = W("year", "years")
+_PER_YEAR_CUE = Matcher(Alt(
+    Seq(W("each", "every", "all", "per"), Opt("the"), Opt("particular"), Opt("financial"), _CL_YEARS),
+    Joined("year", "wise"),
+    Seq("in", "which", Opt("financial"), _CL_YEARS),
+    "financial years",
+    Seq("only", Alt(W("one", "1", "single"), "a single"), Opt("financial"), "year"),
+    Seq("not", "in", Opt("a"), "single", "year"),
+    Seq(W("two", "three", "four", "five", "six", "seven", "2", "3", "4", "5", "6", "7"), Opt("financial"), "years"),
+    Seq("by", Opt("financial"), "year")))
+_ALL_SCHEMES_CUE = Matcher(Alt(Seq(W("all", "every", "each"), Opt("the"), W("scheme", "schemes")), "all of them"))
+_REFERS_BACK = Matcher(Alt(
+    Seq(W("above", "previous", "last", "earlier", "that", "this", "same"),
+        W("query", "queries", "question", "answer", "result", "results", "data", "output")),
+    Seq("you", Opt(W("have", "had")), W("gave", "given", "give", "showed", "shown", "said", "told", "provided")),
+    W("crossverify", "crosscheck", "recheck", "reverify", prefix=True),
+    Seq(W("cross", "re"), _CpSep(lambda g: g == "-" or (len(g) == 1 and g.isspace())),
+        W("verify", "check", prefix=True)),
+    W("verify"),
+    Seq("why", Opt(W("are", "is")), Opt("you"), W("giving", "showing", "only"))))
+
+
+def _cl_ws_gap(g: str) -> bool:
+    return g.strip() == ""
+
+
+def _cl_pair(a: tuple, b: tuple) -> Seq:
+    """Anywhere in the text: a word ending in an `a` form, spaces, a word starting with `b`."""
+    return Seq(_cp_ends(*a), _CpSep(_cl_ws_gap), _cp_starts(*b))
+
+
 # (label in the question, pattern, "how many" or "total")
 _YEAR_METRICS = [
-    ("person-days", r"person[\s-]?days?", "count"),
-    ("households", r"households?", "count"),
-    ("job cards", r"job\s*cards?", "count"),
-    ("houses sanctioned", r"houses?\s+sanction\w*|sanctioned\s+houses?", "count"),
-    ("houses completed", r"houses?\s+complet\w*|completed\s+houses?", "count"),
-    ("applications", r"applications?|applicants?", "count"),
-    ("payments", r"payments?|disbursements?", "count"),
-    ("expenditure", r"expenditure|amount\s+spent|\bspen[dt]\b", "money"),
-    ("beneficiaries", r"beneficiar\w*", "count"),
+    ("person-days", Matcher(_cp_glued("person", "day")), "count"),
+    ("households", Matcher(_cp_has("household")), "count"),
+    ("job cards", Matcher(_cp_glued("job", "card", gap=_cl_ws_gap)), "count"),
+    ("houses sanctioned", Matcher(Alt(_cl_pair(("house", "houses"), ("sanction",)),
+                                      _cl_pair(("sanctioned",), ("house",)))), "count"),
+    ("houses completed", Matcher(Alt(_cl_pair(("house", "houses"), ("complet",)),
+                                     _cl_pair(("completed",), ("house",)))), "count"),
+    ("applications", Matcher(_cp_has("application", "applicant")), "count"),
+    ("payments", Matcher(_cp_has("payment", "disbursement")), "count"),
+    ("expenditure", Matcher(Alt(_cp_has("expenditure"), _cl_pair(("amount",), ("spent",)), W("spend", "spent"))),
+     "money"),
+    ("beneficiaries", Matcher(_cp_has("beneficiar")), "count"),
 ]
 
 
 def _year_metric(*texts) -> "tuple[str, str]":
     for t in texts:
-        for label, rx, kind in _YEAR_METRICS:
-            if t and re.search(rx, t, re.IGNORECASE):
+        for label, word_matcher, kind in _YEAR_METRICS:
+            if t and word_matcher.search(t):
                 return label, kind
     return "beneficiaries", "count"
 
@@ -377,17 +471,21 @@ def per_year_plan(session, question: str) -> "list[str] | None":
     return [f"How many {s} {label} were there in each financial year?" for s in schemes]
 
 
-_YEARISH_COL = re.compile(r"(?:^|_)(?:year|fy)(?:_|$)|financial", re.IGNORECASE)
+def _cl_yearish_col(name: str) -> bool:
+    """A column naming the financial year: a 'year' / 'fy' part between
+    underscores, or 'financial' anywhere."""
+    low = name.lower()
+    return "financial" in low or any(part in ("year", "fy") for part in low.split("_"))
 
 
 def _year_and_value(row: dict) -> "tuple[object, object] | None":
     """(financial year, figure) of one result row; None when the row has no figure."""
-    year = next((v for k, v in row.items() if _YEARISH_COL.search(str(k)) and not str(k).endswith("_key")), None)
+    year = next((v for k, v in row.items() if _cl_yearish_col(str(k)) and not str(k).endswith("_key")), None)
     if year is None:
-        year = next((v for k, v in row.items() if _YEARISH_COL.search(str(k))), None)
+        year = next((v for k, v in row.items() if _cl_yearish_col(str(k))), None)
     value = None
     for k, v in row.items():
-        if _YEARISH_COL.search(str(k)):
+        if _cl_yearish_col(str(k)):
             continue
         try:
             float(str(v).replace(",", ""))
@@ -453,27 +551,59 @@ async def answer_many(questions: list, ask) -> dict:
 LISTING_QUESTION = "What schemes are available?"
 
 # "scheme(s)" and its usual misspellings, plus "programmes" / "yojanas".
-_SCHEME_W = (r"(?:s[ck]?h?e{1,2}m[ae]?s?|sc?hm[ae]?s?|schems?|shcemes?|scemes?|skeems?|scheams?|"
-             r"programm?e?s?|yojanas?)")
-_PLEASE = r"(?:\s*(?:please|pls|plz|now|currently|here|in\s+(?:this|the)\s+(?:app|system|bot|chat(?:bot)?|portal|data(?:base)?)))*"
-_LISTING_ASK = re.compile(
-    r"^\s*(?:(?:hi|hello|ok(?:ay)?|so|and|then|tell\s+me|can\s+you\s+tell\s+me|please)[\s,]+)*(?:"
-    # what / which (all) schemes are there / present / available / covered ...
-    rf"(?:what|which|wat|wht|wich)\s+(?:all\s+|are\s+the\s+|are\s+)?(?:the\s+)?{_SCHEME_W}"
-    r"(?:\s+(?:are|r|is|do\s+(?:you|u)|can\s+(?:you|u)|does\s+(?:it|this)|you))?"
-    r"(?:\s+(?:there|present|available|avail|avaliable|covered|supported|included|offered|listed|"
-    r"have|cover|support|know|handle|answer|provide|show))*"
-    # list / show / tell me / give me (all) (the) (available) schemes
-    r"|(?:list|show|tell|give|name)\s+(?:me\s+|us\s+)?(?:out\s+)?(?:all\s+)?(?:of\s+)?(?:the\s+)?(?:full\s+)?(?:list\s+of\s+(?:all\s+)?(?:the\s+)?)?"
-    rf"(?:available\s+|supported\s+|covered\s+)?{_SCHEME_W}(?:\s+(?:available|covered|supported|you\s+(?:have|cover)))?"
-    # available / supported / all schemes; scheme list
-    rf"|(?:available|supported|all|list\s+of)\s+{_SCHEME_W}"
-    rf"|{_SCHEME_W}\s+(?:list|available|present|covered)"
-    # how many schemes (are there / do you cover)
-    rf"|how\s+many\s+{_SCHEME_W}(?:\s+(?:are|r|do\s+(?:you|u)))?(?:\s+(?:there|present|available|covered|have|cover))?"
-    r")" + _PLEASE + r"\s*[?.!]*\s*$",
-    re.IGNORECASE,
-)
+def _cl_scheme_forms() -> frozenset:
+    """Every spelling the old s[ck]?h?e{1,2}m[ae]?s?|sc?hm[ae]?s?|schems?|
+    shcemes?|scemes?|skeems?|scheams?|programm?e?s?|yojanas? accepted."""
+    out = set()
+    for c in ("", "c", "k"):
+        for h in ("", "h"):
+            for e in ("e", "ee"):
+                for v in ("", "a", "e"):
+                    for pl in ("", "s"):
+                        out.add(f"s{c}{h}{e}m{v}{pl}")
+    for c in ("", "c"):
+        for v in ("", "a", "e"):
+            for pl in ("", "s"):
+                out.add(f"s{c}hm{v}{pl}")
+    for stem in ("schem", "shceme", "sceme", "skeem", "scheam", "yojana"):
+        out |= {stem, stem + "s"}
+    for m in ("", "m"):
+        for e in ("", "e"):
+            for pl in ("", "s"):
+                out.add(f"program{m}{e}{pl}")
+    return frozenset(out)
+
+
+# "scheme(s)" and its usual misspellings, plus "programmes" / "yojanas".
+_SCHEME_W = W(*_cl_scheme_forms())
+_CL_SCHEME_WORD = Matcher(_SCHEME_W)
+_PLEASE = Rep(Alt(W("please", "pls", "plz", "now", "currently", "here"),
+                  Seq("in", W("this", "the"), W("app", "system", "bot", "chat", "chatbot", "portal", "data", "database"))))
+_CL_YOU = W("you", "u")
+_LISTING_ASK = Matcher(Seq(
+    _CpStart(_cp_ws),
+    Rep(Alt(W("hi", "hello", "ok", "okay", "so", "and", "then", "please"), "tell me", "can you tell me")),
+    Alt(
+        # what / which (all) schemes are there / present / available / covered ...
+        Seq(W("what", "which", "wat", "wht", "wich"), Opt(Alt(W("all"), Seq("are", "the"), W("are"))), Opt("the"),
+            _SCHEME_W,
+            Opt(Alt(W("are", "r", "is"), Seq("do", _CL_YOU), Seq("can", _CL_YOU), Seq("does", W("it", "this")),
+                    W("you"))),
+            Rep(W("there", "present", "available", "avail", "avaliable", "covered", "supported", "included",
+                  "offered", "listed", "have", "cover", "support", "know", "handle", "answer", "provide", "show"))),
+        # list / show / tell me / give me (all) (the) (available) schemes
+        Seq(W("list", "show", "tell", "give", "name"), Opt(W("me", "us")), Opt("out"), Opt("all"), Opt("of"),
+            Opt("the"), Opt("full"), Opt(Seq("list", "of", Opt("all"), Opt("the"))),
+            Opt(W("available", "supported", "covered")), _SCHEME_W,
+            Opt(Alt(W("available", "covered", "supported"), Seq("you", W("have", "cover"))))),
+        # available / supported / all schemes; scheme list
+        Seq(Alt(W("available", "supported", "all"), "list of"), _SCHEME_W),
+        Seq(_SCHEME_W, W("list", "available", "present", "covered")),
+        # how many schemes (are there / do you cover)
+        Seq("how", "many", _SCHEME_W, Opt(Alt(W("are", "r"), Seq("do", _CL_YOU))),
+            Opt(W("there", "present", "available", "covered", "have", "cover")))),
+    _PLEASE,
+    _CpEnd(_cp_end_punct)))
 
 
 def listing_question(question: str) -> "str | None":
@@ -486,7 +616,7 @@ def listing_question(question: str) -> "str | None":
         return None
     if pipeline._SCHEME_LISTING_CUE.search(q):
         return None   # already answered as the list
-    if pipeline._named_schemes(re.sub(_SCHEME_W, " ", q, flags=re.IGNORECASE)):
+    if pipeline._named_schemes(_CL_SCHEME_WORD.sub(" ", q)):
         return None
     return LISTING_QUESTION
 
@@ -505,8 +635,21 @@ _SMALL_TALK_BANKS = ("_GREETINGS", "_THANKS")
 def _is_small_talk(text: str) -> bool:
     from app import edge
     ql = (text or "").strip().lower()
-    return bool(ql) and any(re.search(p, ql) for bank in _SMALL_TALK_BANKS
-                            for p in getattr(edge, bank, ()))
+    return bool(ql) and any(_cl_bank_hit(getattr(edge, bank, ()), ql) for bank in _SMALL_TALK_BANKS)
+
+
+def _cl_bank_hit(bank, text: str) -> bool:
+    """Does any pattern of an edge bank (a Matcher, a list of Matchers, or
+    plain predicates) match `text`?"""
+    items = bank if isinstance(bank, (list, tuple)) else [bank]
+    for p in items:
+        search = getattr(p, "search", None)
+        if search is not None:
+            if search(text):
+                return True
+        elif callable(p) and p(text):
+            return True
+    return False
 
 
 def resume_after_small_talk(session) -> bool:
@@ -516,8 +659,15 @@ def resume_after_small_talk(session) -> bool:
     # a greeting / thanks, or any other aside the refusal styler noted
     # (conversation_replies.restyle: "who is the PM?" mid-topic)
     aside = topic_memory._memory(session).get("aside")
-    if last is None or last.route != "edge" or not (_is_small_talk(last.raw_question)
-                                                    or (aside and last.raw_question == aside)):
+    if last is None:
+        return False
+    # A denied follow-up ("by block" for an account authorised up to district
+    # level) is an aside too: the refusal is about that one question, and the
+    # topic the officer was on must survive it (live 2026-10-18: "only
+    # Mawphlang" / "and statewide?" after a denial lost the topic; proposal F2).
+    denied = last.route == "denied"
+    if not denied and (last.route != "edge" or not (_is_small_talk(last.raw_question)
+                                                    or (aside and last.raw_question == aside))):
         return False
     prev = next((t for t in reversed(session.turns[:-1]) if t.route in ("data", "knowledge")), None)
     if prev is None:
@@ -562,6 +712,9 @@ def clear_context(session) -> None:
     session.pending_scope_options = None
     session.topics = {}
     session.turn_context = {}
+    # The older turns of this chat stay in semantic memory (Qdrant); from now
+    # on only turns after this moment may come back as context (KI-224).
+    session.memory_since = time.time()
 
 
 async def _drop_paused_run(session_id: str) -> None:
@@ -577,6 +730,85 @@ async def _drop_paused_run(session_id: str) -> None:
         context_budget.log_decision("conversation", action="drop-paused-run")
     except Exception:  # noqa: BLE001 — the pause sweep removes it later
         logger.warning("conversation layer: could not drop the paused run (non-fatal)", exc_info=True)
+
+
+# ── "Continue with MGNREGA (East Khasi Hills, FY 2022-23)?" after an expiry ──
+# Context Memory proposal S3 (2026-10-18): an idle expiry no longer forgets
+# silently. What it clears is set aside (session.expired_ctx, durable) and the
+# first reply after it offers one chip naming it. Tapping the chip puts the
+# state, the topics and the last turn back; any other message drops it, so
+# ignoring the chip starts fresh exactly as before.
+CONTINUE_EDGE = "context_continued"
+
+
+def _continue_chip(session) -> "str | None":
+    st = session.state
+    scheme = st.scheme or (getattr(session, "topics", None) or {}).get("active")
+    if not scheme:
+        return None
+    place = st.village or st.block or st.district
+    bits = [b for b in (str(place).title() if place else None,
+                        topic_memory._fy(st.year) if st.year is not None else None) if b]
+    return f"Continue with {scheme}" + (f" ({', '.join(bits)})" if bits else "")
+
+
+def _set_aside(session) -> "str | None":
+    """Keep what an expiry is about to clear; the chip text, or None when
+    there is no topic worth offering."""
+    chip = _continue_chip(session)
+    if chip is None:
+        return None
+    prev = next((t for t in reversed(session.turns) if t.route in ("data", "knowledge")), None)
+    if prev is None:
+        mem = topic_memory._memory(session)
+        item = mem["items"].get(mem.get("active") or "") or {}
+        prev = topic_memory._turn_from(item["last_turn"]) if item.get("last_turn") else None
+    session.expired_ctx = {"chip": chip, "state": session.state.to_dict(),
+                           "topics": copy.deepcopy(getattr(session, "topics", None) or {}),
+                           "summary": session.summary,
+                           "last_turn": topic_memory._turn_dict(prev) if prev is not None else None}
+    return chip
+
+
+def _is_continue_tap(session, question: str) -> bool:
+    exp = getattr(session, "expired_ctx", None) or {}
+    chip = str(exp.get("chip") or "").strip().lower()
+    return bool(chip) and (question or "").strip().rstrip(" ?.!").lower() == chip
+
+
+def _continue_expired(session, question: str = "") -> dict:
+    """Put the set-aside context back; the acknowledgement."""
+    from app import pipeline
+    from app.session_store import ConversationState
+    exp = session.expired_ctx or {}
+    session.expired_ctx = None
+    restored = ConversationState.from_dict(exp.get("state") or {})
+    restored.turn_count = session.state.turn_count
+    session.state = restored
+    session.topics = exp.get("topics") or {}
+    session.summary = exp.get("summary")
+    if exp.get("last_turn"):
+        session.turns.append(topic_memory._turn_from(exp["last_turn"]))
+    # The acknowledgement is an aside, like "thanks": the restored data turn
+    # stays the follow-up antecedent (browser check 2026-10-18: "What about FY
+    # 2023-24?" right after the tap asked "which scheme?").
+    topic_memory._memory(session)["aside"] = question
+    what = str(exp.get("chip") or "").replace("Continue with ", "", 1)
+    answer = (f"Picking up where we left off: {what}. Ask your next question about it — for example "
+              "\"What about another year?\" — and I'll continue from there.")
+    # confidence "low": the answer caches never store such a reply.
+    return {"route": "edge", "intent": "EDGE", "confidence": "low", "answer": answer,
+            "edge_type": CONTINUE_EDGE, "suggestions": [], **pipeline._empty_data_fields()}
+
+
+def attach_continue_offer(session, result: dict) -> dict:
+    """The first reply after an expiry carries the "Continue with …" chip as
+    `continue_offer`, shown under any kind of answer (the router calls this
+    before saving)."""
+    exp = getattr(session, "expired_ctx", None) if session is not None else None
+    if not exp or not exp.pop("offer_pending", False):
+        return result
+    return {**result, "continue_offer": exp["chip"]}
 
 
 def _reset_answer(expired: bool) -> dict:
@@ -609,20 +841,119 @@ def _enabled(session) -> bool:
     return session is not None and getattr(settings, "CONVERSATION_LAYER_ENABLED", True)
 
 
+# ── "stop" … "continue" ─────────────────────────────────────────────────────
+# User request 2026-10-18: a question stopped while it ran (the Stop button,
+# or "stop" typed in the box) is answered when the officer then says
+# "continue". The router records the stopped question on the session when it
+# cancels the streamed turn (remember_stopped); the next message, if it is a
+# continue request, runs that question through this layer as if it had just
+# been typed. Any other message drops it.
+# A stopped question lives as long as the idle window (CONTEXT_IDLE_EXPIRY_SECONDS).
+STOPPED_MAX_AGE_SECONDS = 1800   # fallback when the idle window is 0 (never expire)
+NOTHING_RUNNING_EDGE = "nothing_running"
+
+_CL_POLITE = W("ok", "okay", "yes", "yeah", "yep", "sure", "please", "pls", "plz", "now", "so", "then", "haan", "ha")
+_CONTINUE_ASK = Matcher(Seq(
+    _CpStart(_cp_ws),
+    Rep(_CL_POLITE),
+    Alt(W("continue", "resume", "proceed", "contiue", "contnue", "continu"),
+        Seq("go", W("on", "ahead")), Seq("carry", "on"), Seq(W("keep", "kepp"), "going")),
+    Opt(Alt(Seq(Opt(W("with", "from")), Opt(W("the", "my", "that")),
+                Opt(W("previous", "last", "stopped", "earlier", "same", "old")),
+                W("query", "question", "answer", "one", "request", "search")),
+            Seq(Opt("where"), "you", W("stopped", "left"), Opt("off")))),
+    Rep(_CL_POLITE),
+    _CpEnd(_cp_end_punct)))
+_STOP_ASK = Matcher(Seq(
+    _CpStart(_cp_ws),
+    Rep(_CL_POLITE),
+    W("stop", "cancel", "abort", "halt", "ruko", "band"),
+    Opt(W("it", "this", "that", "now", "please", "pls", "karo")),
+    Rep(_CL_POLITE),
+    _CpEnd(_cp_end_punct)))
+
+
+def is_continue_request(question: str) -> bool:
+    return bool(question) and _CONTINUE_ASK.match(question.strip()) is not None
+
+
+def is_stop_request(question: str) -> bool:
+    return bool(question) and _STOP_ASK.match(question.strip()) is not None
+
+
+def remember_stopped(session, question: str) -> None:
+    """The router cancelled this question while it ran (Stop)."""
+    if session is None or not (question or "").strip() or is_continue_request(question):
+        return
+    session.stopped_ctx = {"question": question.strip(), "at": time.time()}
+    context_budget.log_decision("conversation", action="stopped")
+
+
+def _take_stopped(session, question: str) -> "str | None":
+    """The stopped question a "continue" asks for (and forget it); None
+    otherwise. Any message drops a stopped question."""
+    stopped = getattr(session, "stopped_ctx", None) or {}
+    session.stopped_ctx = None
+    if not stopped.get("question") or not is_continue_request(question):
+        return None
+    max_age = int(getattr(settings, "CONTEXT_IDLE_EXPIRY_SECONDS", 0) or 0) or STOPPED_MAX_AGE_SECONDS
+    if time.time() - float(stopped.get("at") or 0) > max_age:
+        return None
+    return stopped["question"]
+
+
+def _nothing_running_answer() -> dict:
+    from app import pipeline
+    # confidence "low": the answer caches never store such a reply.
+    return {"route": "edge", "intent": "EDGE", "confidence": "low",
+            "answer": "Okay — nothing is running right now. Ask me your next question whenever you're ready.",
+            "edge_type": NOTHING_RUNNING_EDGE, "suggestions": [], **pipeline._empty_data_fields()}
+
+
 async def prepare_turn(session, question: str) -> LayerTurn:
-    """Expiry, reset and plain-words recall for this message (see the module
-    docstring). Never raises."""
+    """Stop / continue, then expiry, reset and plain-words recall for this
+    message (see the module docstring). Never raises."""
     if not _enabled(session):
         return LayerTurn(question=question)
+    try:
+        resumed = _take_stopped(session, question)
+        if resumed is not None:
+            context_budget.log_decision("conversation", action="continue-stopped")
+            logger.info("conversation layer: continuing the stopped question %r", resumed)
+            lt = await _prepare(session, resumed)
+            # "continue" means something only in this chat: never cached
+            return dataclasses.replace(lt, changed=True,
+                                       action="continue-stopped" if lt.action == "none" else lt.action)
+        if is_stop_request(question):
+            # A typed "stop" with nothing running (a running answer is stopped
+            # by the chat box itself). Not a question; the topic carries on.
+            return LayerTurn(question=question, action="stop", response=_nothing_running_answer(), changed=True)
+    except Exception:  # noqa: BLE001 — the layer must never break a turn
+        logger.warning("conversation layer: stop / continue failed (non-fatal)", exc_info=True)
+    return await _prepare(session, question)
+
+
+async def _prepare(session, question: str) -> LayerTurn:
+    """Expiry, reset and plain-words recall for this message. Never raises."""
     try:
         from app import pipeline  # lazy: pipeline imports topic_memory
         now = time.time()
         expired = False
         ttl = int(getattr(settings, "CONTEXT_IDLE_EXPIRY_SECONDS", 0) or 0)
         last = float(getattr(session, "context_at", 0.0) or 0.0)
+        # The "Continue with …" chip offered after an expiry: tapped, the
+        # set-aside context comes back; any other message drops it.
+        if _is_continue_tap(session, question):
+            session.context_at = now
+            context_budget.log_decision("conversation", action="continue-expired")
+            return LayerTurn(question=question, action="continue-expired",
+                             response=_continue_expired(session, question), changed=True)
+        session.expired_ctx = None
         # context_at 0: a snapshot written before this layer existed. Its age
         # is unknown, so it is not expired; it is stamped from now on.
         if ttl > 0 and last > 0 and now - last > ttl and has_context(session):
+            if _set_aside(session) is not None:
+                session.expired_ctx["offer_pending"] = True
             clear_context(session)
             await _drop_paused_run(session.session_id)
             expired = True
@@ -676,6 +1007,11 @@ async def prepare_turn(session, question: str) -> LayerTurn:
             if len(plan) == 1:
                 return LayerTurn(question=plan[0], action="per-year", changed=True)
             return LayerTurn(question=question, action="per-year", changed=True, multi=plan)
+
+        compared = comparison_with_earlier(session, question)
+        if compared is not None:
+            context_budget.log_decision("conversation", action="compare-earlier", question=compared)
+            return LayerTurn(question=compared, action="compare", changed=True)
 
         swapped = counterpart_swap(session, question)
         if swapped is not None:

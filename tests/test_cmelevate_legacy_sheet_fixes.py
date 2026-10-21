@@ -5,14 +5,25 @@ import pytest
 from app import pipeline as p
 
 
-# ── the user's decision: a bare "CM-ELEVATE" data question defaults to CM Elevate Legacy ──
+# ── the user's decision (2026-10-19, replacing 2026-10-12): a bare "CM-ELEVATE" is never
+# defaulted to Legacy. "applications" is the applications dataset's own word, so these
+# stay on CM Elevate; a question with no dataset word asks which dataset. ──
 @pytest.mark.parametrize("q", ["How many total applications are recorded under CM-ELEVATE?",
                                "How many CM-ELEVATE applications are recorded in each district?",
                                "Which districts have the highest number of CM-ELEVATE applications?",
                                "How many CM-ELEVATE applications are mapped to Amlarem constituency?",
                                "Show me the number of CM-ELEVATE applications in each block of West Garo Hills."])
-def test_bare_cm_elevate_data_question_goes_to_legacy(q):
-    assert "CM Elevate Legacy" in p._pin_cm_elevate_dataset(q)
+def test_cm_elevate_applications_questions_stay_on_cm_elevate(q):
+    assert "CM Elevate Legacy" not in p._pin_cm_elevate_dataset(q)
+    assert p._cm_elevate_dataset_choice(q) == "applications"
+
+
+@pytest.mark.parametrize("q", ["How many CM-ELEVATE records are there in each district?",
+                               "Give me a district-wise summary for CM-ELEVATE",
+                               "What is the total amount disbursed under CM Elevate?"])
+def test_bare_cm_elevate_without_a_dataset_word_asks(q):
+    assert p._pin_cm_elevate_dataset(q) == q
+    assert p._cm_elevate_dataset_choice(q) == "ask"
 
 
 @pytest.mark.parametrize("q", ["How many CM ELEVATE applicants are there in East Khasi Hills?",
@@ -27,9 +38,9 @@ def test_applications_vocabulary_and_knowledge_stay_on_cm_elevate(q):
 
 # ── "who are the intended beneficiaries" is a knowledge question (TC-03) ──
 def test_who_benefits_is_knowledge():
-    assert p._WHO_BENEFITS_RE.search("Who are the intended beneficiaries of CM-ELEVATE?")
-    assert p._WHO_BENEFITS_RE.search("Who can apply under CM Elevate?")
-    assert not p._WHO_BENEFITS_RE.search("How many beneficiaries are there in Ri Bhoi?")
+    assert p._WHO_BENEFITS_MATCH.search("Who are the intended beneficiaries of CM-ELEVATE?")
+    assert p._WHO_BENEFITS_MATCH.search("Who can apply under CM Elevate?")
+    assert not p._WHO_BENEFITS_MATCH.search("How many beneficiaries are there in Ri Bhoi?")
 
 
 # ── a breakdown that asks for applications first is ranked by applications (TC-26 / TC-36) ──

@@ -24,7 +24,6 @@ the others now follow.
 Static assertions over the React chat app (frontend/src/chat). No browser, model or DB. Plain script (no pytest in the venv):
 `python tests/test_history_charts.py`, exit code 0 = all pass.
 """
-import re
 import sys
 from pathlib import Path
 

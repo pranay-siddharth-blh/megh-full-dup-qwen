@@ -1,6 +1,12 @@
 # focuslegacy_few_shot.yaml
 #
-# Validated question-to-SQL pairs for Focus Legacy - node 5.10.
+# Question-to-SQL pairs for Focus Legacy - node 5.10.
+#
+# NOT ALL VALIDATED (2026-10-16): 3 of 86 examples do not run read-only —
+# they read meta.v_reconciliation_focus_legacy, staging.quarantine, meta.ingestion_audit, which the chatbot's
+# SELECT-only role cannot see (the loader keeps them out of the SQL prompt).
+# tests/fewshot_exec/check_fewshots.py executes every example; call this file
+# validated again only when all of them run (tests/test_fewshot_headers.py).
 #
 # ===========================================================================
 # v1.0 - 2026-09-21 - WRITTEN AGAINST THE CURATED STAR SCHEMA

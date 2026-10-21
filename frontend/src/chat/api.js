@@ -4,7 +4,8 @@
    to the sign-in gate. The API is same-origin; `?api=<origin>` overrides it for
    debugging. */
 
-export const API_BASE = (new URLSearchParams(window.location.search).get('api') || '').replace(/\/$/, '');
+const _apiParam = new URLSearchParams(window.location.search).get('api') || '';
+export const API_BASE = _apiParam.endsWith('/') ? _apiParam.slice(0, -1) : _apiParam;   // no trailing slash
 export const MEGH_JWT_KEY = 'megh_jwt';
 
 let token = '';
@@ -110,9 +111,18 @@ export class ConnectionError extends Error {
   constructor(message) { super(message || UNREACHABLE); this.name = 'ConnectionError'; }
 }
 // The router's 503 for an unreachable megh_db (DatabaseUnavailableError, KI-025).
-const DATA_SERVICE_DOWN = /couldn.t reach the megh one data service/i;
+// "couldn't reach the megh one data service" (any case, any apostrophe).
+const DATA_SERVICE_DOWN = (detail) => {
+  const low = String(detail).toLowerCase();
+  for (let i = low.indexOf('couldn'); i !== -1; i = low.indexOf('couldn', i + 1)) {
+    const c = low[i + 6];
+    if (c !== undefined && c !== '\n' && c !== '\r' && c !== '\u2028' && c !== '\u2029'
+      && low.startsWith('t reach the megh one data service', i + 7)) return true;
+  }
+  return false;
+};
 const isConnectionStatus = (status, detail, fromApp) =>
-  (status === 503 && DATA_SERVICE_DOWN.test(detail || ''))
+  (status === 503 && DATA_SERVICE_DOWN(detail || ''))
   // 502/503/504 without the app's own JSON detail come from nginx: the app is down or unreachable.
   || ([502, 503, 504].includes(status) && !fromApp);
 
@@ -235,6 +245,21 @@ export async function streamNLPResponse(question, language, sessionId, opts = {}
   }
 }
 
+// Live figures for the scheme overview cards: GET /api/scheme-stats ->
+// { cards: { <card key>: [[value, label], ...] }, as_of }. Computed from megh_db by
+// the backend (cached there), so the cards follow every data refresh. null on any
+// failure — the cards then keep their built-in numbers.
+export async function fetchSchemeStats() {
+  try {
+    const res = await apiFetch('/api/scheme-stats', { cache: 'no-store' });
+    if (!res.ok) return null;
+    const data = await res.json();
+    return data && data.cards ? data.cards : null;
+  } catch (e) {
+    return null;
+  }
+}
+
 // Is the service back? GET /health (anonymous: {status}). 'ok' when the app
 // and its database answer; 'degraded' when the app answers but a dependency
 // (megh_db behind the VPN, Qdrant) does not; 'down' when the app can't be
@@ -286,6 +311,10 @@ export const pinConversationApi = (sid, pinned) =>
   jsonCall('/api/history/' + encodeURIComponent(sid) + '/pin', 'POST', { pinned }, 'pin');
 export const archiveConversationApi = (sid, archived) =>
   jsonCall('/api/history/' + encodeURIComponent(sid) + '/archive', 'POST', { archived }, 'archive');
+
+// 👍 / 👎 on an answer (RAG upgrade Phase 6). rating 1 / -1 sets the vote,
+// 0 takes it back; one vote per officer per answer (messageKey).
+export const sendFeedbackApi = (body) => jsonCall('/api/feedback', 'POST', body, 'feedback');
 
 // ── Voice transcription ─────────────────────────────────────────────────────
 // Backend contract: multipart field `file`, response `{ "text": ... }`. The

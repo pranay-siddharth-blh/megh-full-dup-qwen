@@ -3,7 +3,6 @@ Summary + one tab per sheet (every test case with its result) + every conversati
 Usage (repo root): final_report.py <out.xlsx>"""
 import json
 import os
-import re
 import sys
 from collections import OrderedDict
 
@@ -13,6 +12,7 @@ from openpyxl.utils import get_column_letter
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from harness import has_value, numbers_in, text_numbers  # noqa: E402
+from tests._text_checks import has_phrase, zero_lakh  # noqa: E402
 
 HERE = os.environ.get("FINAL_DIR") or os.path.dirname(os.path.abspath(__file__))
 WB_IN = r"C:/Users/Admin/OneDrive/Desktop/MCP/meghoneai/meghalaya/reference_documents/Test Case Results - 30th Sep 26.xlsx"
@@ -32,9 +32,21 @@ VILLAGES = {"MGNREGA": "6,491/6,491 (2026-10-10)", "PMAY-G": "5,121/5,121 (2026-
             "General": "TC-023 covers districts, blocks and villages"}
 
 SCHEMES = ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy"]
-REFUSAL = re.compile(r"outside what I'?m allowed|I can only answer|I only (?:help|cover|give)|not (?:one of|covered|among)|"
-                     r"I don'?t (?:give|answer|hold|have|write|cover)|can'?t help|Megh One AI|isn'?t one of|not part of", re.IGNORECASE)
-BAD_WORDING = re.compile(r"reference material|couldn'?t build a working query|ran into an error|error", re.IGNORECASE)
+REFUSAL_PHRASES = ("outside what im allowed", "outside what i'm allowed", "i can only answer", "i only help",
+                   "i only cover", "i only give", "not one of", "not covered", "not among",
+                   *(f"i do{n} {v}" for n in ("nt", "n't") for v in ("give", "answer", "hold", "have", "write", "cover")),
+                   "cant help", "can't help", "megh one ai", "isnt one of", "isn't one of", "not part of")
+BAD_WORDING_PHRASES = ("reference material", "couldnt build a working query", "couldn't build a working query",
+                       "ran into an error", "error")
+
+
+def refusal(text):
+    """The answer declines (case-insensitive phrase list)."""
+    return has_phrase(text, *REFUSAL_PHRASES)
+
+
+def bad_wording(text):
+    return has_phrase(text, *BAD_WORDING_PHRASES)
 
 
 def answer(t):
@@ -43,7 +55,7 @@ def answer(t):
 
 def kb_ok(t, min_len=60):
     a = answer(t)
-    return t.get("kind") == "answer" and len(a) >= min_len and not REFUSAL.search(a[:160]) and not BAD_WORDING.search(a)
+    return t.get("kind") == "answer" and len(a) >= min_len and not refusal(a[:160]) and not bad_wording(a)
 
 
 def schemes_named(a):
@@ -81,17 +93,18 @@ def judge_general(tc, c, db):
         return ok, "4 turns answered in context" if ok else "a turn was not answered"
     if tc == "TC-011":
         # no earlier context: asking which scheme (a pause, or a reply listing the schemes) is right
-        ok = last.get("kind") == "pause" or len(schemes_named(a)) >= 4 or (kb_ok(last) and re.search(r"apply|application", a, re.I))
+        ok = last.get("kind") == "pause" or len(schemes_named(a)) >= 4 or (kb_ok(last) and has_phrase(a, "apply", "application"))
         return bool(ok), "asks which scheme / explains applying"
     if tc == "TC-012":
         big = [n for n in text_numbers(a) if n >= 100 and n not in (2005, 2016, 2022, 2023, 2024, 2025)]
-        ok = bool(REFUSAL.search(a) or re.search(r"not (?:held|available|part)|does not cover|don'?t cover", a, re.I)) and not big
+        ok = bool(refusal(a) or has_phrase(a, "not held", "not available", "not part", "does not cover",
+                                             "dont cover", "don't cover")) and not big
         return ok, "says the scheme is not covered; no invented figure" if ok else a[:80]
     if tc in ("TC-013", "TC-014"):
-        ok = bool(REFUSAL.search(a))
+        ok = refusal(a)
         return ok, "politely declined (out of scope)" if ok else a[:80]
     if tc == "TC-015":
-        ok = last.get("kind") == "answer" and len(a) > 40 and not BAD_WORDING.search(a)
+        ok = last.get("kind") == "answer" and len(a) > 40 and not bad_wording(a)
         return ok, "points to the right office / route" if ok else a[:80]
     if tc == "TC-016":
         return len(schemes_named(a)) >= 4, f"{len(schemes_named(a))} schemes listed"
@@ -132,7 +145,7 @@ def load_meta(ws_name, hr):
     meta = OrderedDict()
     for r in range(hr + 1, ws.max_row + 1):
         tc = ws.cell(r, 1).value
-        if tc and re.match(r"[A-Z]", str(tc)):
+        if tc and "A" <= str(tc)[:1] <= "Z":
             meta[str(tc).strip()] = (ws.cell(r, 2).value or "", str(ws.cell(r, 3).value or "").strip("“”\" "))
     return meta
 
@@ -156,9 +169,9 @@ def case_rows(sheet, data):
                 # zeros stated, and a percentage whose denominator is 0 answered "cannot be calculated"
                 if not ok and sheet == "MGNREGA" and T and T[-1].get("kind") == "answer":
                     exp_ = c.get("expected")
-                    if tc == "DATA-023" and isinstance(exp_, dict) and not exp_.get("wages")                             and not exp_.get("material") and re.search(r"\b0(?:\.0+)?\s*lakh", ans):
+                    if tc == "DATA-023" and isinstance(exp_, dict) and not exp_.get("wages")                             and not exp_.get("material") and zero_lakh(ans):
                         ok, note = True, "both 0 — the answer says neither was higher"
-                    elif exp_ is None and re.search(r"cannot be calculated|divided by is 0", ans):
+                    elif exp_ is None and ("cannot be calculated" in ans or "divided by is 0" in ans):
                         ok, note = True, "denominator 0 — the answer says it cannot be calculated"
             elif "value_ok" in c:
                 ok = bool(c["value_ok"]) and c.get("level_ok") in (True, None)

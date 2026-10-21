@@ -3,10 +3,10 @@ Edge-case handler — catches non-analytical input (greetings, "who are you",
 thanks, off-topic, abuse) BEFORE any model call. Zero cost, instant, on-brand.
 
 Ported from NeuralAiGovernanceProject `services/edge_handler.py` and kept in
-step with it: same rule-based shape — strong-intent early exit, ordered pattern
+step with it: same rule-based shape — strong-intent early exit, ordered rule
 banks, meta-conversation + follow-up + non-English pass-throughs, then a
 domain whitelist that BLOCKS anything with no MGNREGA / PMAY-G context. The
-pattern banks are the reference's; the responses are rewritten for this
+rule banks are the reference's; the responses are rewritten for this
 assistant (Meghalaya MGNREGA + PMAY-G, sourced from megh_db and the scheme
 reference docs).
 
@@ -14,103 +14,303 @@ reference docs).
   - a dict  => stop here, return this canned reply (no model call)
   - None    => a real data / knowledge / follow-up question — let the pipeline route it
 """
-import re
-
 from app import guardrails
+from app.guardrails import _A, _GCharGap, _GRule, _GSeq, _P, _S, _g_space, _pl
+from app.guardrails import Matcher
+from app.text_match import (ANY, END, START, Alt, Joined, Node, NotBefore, Opt, Pred, Rep, Seq,
+                            W, tokens)
 
-# ── Pattern banks ───────────────────────────────────────────────────────────
+# ── Matching helpers (word-level, app/text_match) ───────────────────────────
+# The banks below are lists of objects with .search(text). Pieces built with
+# _S need one or more plain whitespace characters between words. A rule with no
+# word edge on a side keeps that looseness: _sfx(...) is a word ENDING in the
+# stem (an unbounded start), _P(...) a word STARTING with it (an unbounded end).
+
+
+def _sfx(*stems):
+    """A word ending in any of `stems` (no word edge needed in front)."""
+    low = tuple(s.lower() for s in stems)
+    return Pred(lambda w: w.lower().endswith(low))
+
+
+def _edge_is_word_char(ch: str) -> bool:
+    return ch.isalnum() or ch == "_"
+
+
+def _edge_rstrip(t: str, chars: str = "!.?") -> str:
+    """`t` without a trailing run of whitespace and `chars` (by default ! . ?)."""
+    i = len(t)
+    while i and (t[i - 1].isspace() or t[i - 1] in chars):
+        i -= 1
+    return t[:i]
+
+
+class _EdgeWhole:
+    """The WHOLE message is `node`, then only whitespace / `tail` characters
+    (by default ! . ?) to the end. lead=True allows leading non-word characters."""
+
+    def __init__(self, node, *, lead: bool = False, tail: str = "!.?"):
+        self.m = Matcher(node)
+        self.lead, self.tail = lead, tail
+
+    def search(self, text):
+        core = _edge_rstrip(text or "", self.tail)
+        if not core or not _edge_is_word_char(core[-1]):
+            return None
+        if not self.lead and not _edge_is_word_char(core[0]):
+            return None
+        return self.m.fullmatch(core)
+
+
+class _EdgeLead:
+    """The message STARTS with `node`; lead=True allows leading non-word
+    characters before it. upto=N: the match ends at a word edge and at most N
+    more characters (no line break) may follow it to the end of the message."""
+
+    def __init__(self, *alternatives, lead: bool = False, upto: "int | None" = None):
+        self.ms = [Matcher(Seq(START, a)) for a in alternatives]
+        self.lead, self.upto = lead, upto
+
+    def search(self, text):
+        t = text or ""
+        if not t or (not self.lead and not _edge_is_word_char(t[0])):
+            return None
+        for m in self.ms:
+            h = m.match(t)
+            if h is None:
+                continue
+            if self.upto is None:
+                return h
+            rest = t[h.end():]
+            if len(rest) <= self.upto and "\n" not in rest:
+                return h
+        return None
+
+
+def _M(*alternatives):
+    return Matcher(_A(*alternatives))
+
+
+_THAT_S = _A(W("thats"), _GSeq("that", "s", ok=lambda g: len(g) == 1))   # that's / thats / that-s
+
+
+def _focus_plus(t: str) -> bool:
+    """"focus" then optional whitespace then "+"."""
+    low = t.lower()
+    i = low.find("focus")
+    while i >= 0:
+        if low[i + 5:].lstrip().startswith("+"):
+            return True
+        i = low.find("focus", i + 1)
+    return False
+
+
+def _edge_year(w: str) -> bool:
+    """A 4-digit year 19xx / 20xx / 21xx."""
+    return len(w) == 4 and w.isdigit() and w[:2] in ("19", "20", "21")
+
+
+def _edge_fy_range(t: str) -> bool:
+    """19xx / 20xx / 21xx, optional spaces, - or /, optional spaces, 2+ digits
+    (anywhere in the text, with no word edges required)."""
+    n = len(t)
+    for i in range(n - 3):
+        if t[i:i + 2] in ("19", "20", "21") and t[i + 2].isdigit() and t[i + 3].isdigit():
+            j = i + 4
+            while j < n and t[j].isspace():
+                j += 1
+            if j < n and t[j] in "-/":
+                j += 1
+                while j < n and t[j].isspace():
+                    j += 1
+                if j + 1 < n and t[j].isdigit() and t[j + 1].isdigit():
+                    return True
+    return False
+
+
+def _edge_arith(t: str) -> bool:
+    """"what is 2+2" / "what is 5 x 3": digits, optional spaces, one of + - * / x,
+    optional spaces, digits."""
+    for h in _WHAT_IS.finditer(t):
+        i, n = h.end(), len(t)
+        if i >= n or not t[i].isspace():
+            continue
+        while i < n and t[i].isspace():
+            i += 1
+        j = i
+        while j < n and t[j].isdigit():
+            j += 1
+        if j == i:
+            continue
+        while j < n and t[j].isspace():
+            j += 1
+        if j < n and t[j] in "+-*/x":
+            j += 1
+            while j < n and t[j].isspace():
+                j += 1
+            if j < n and t[j].isdigit():
+                return True
+    return False
+
+
+_WHAT_IS = Matcher(_S(_sfx("what"), "is"))
+
+# ── Rule banks ──────────────────────────────────────────────────────────────
+def _hii(w: str) -> bool:
+    """hii, hiii, … ("h" then two or more 'i')."""
+    w = w.lower()
+    return len(w) >= 3 and w[0] == "h" and set(w[1:]) == {"i"}
+
+
+_GREET_WORD = _A(W("hi", "hello", "hey", "helo", "namaste", "namaskar", "khublei", "kumno"),
+                  Pred(_hii))
+_DAYPART = ("morning", "afternoon", "evening", "day", "night")
 _GREETINGS = [
-    r"^(hi|hello|hey|hii+|helo|namaste|namaskar|khublei|kumno|good\s*(morning|afternoon|evening|day|night))"
-    r"(\s+(there|all|team|everyone|bot|assistant|folks|sir|madam))?[\s!.?]*$",
-    r"^(howdy|greetings|sup|whats?\s*up|yo|hola)[\s!.?]*$",
+    _EdgeWhole(_S(_A(_GREET_WORD, W(*("good" + d for d in _DAYPART)), _S("good", W(*_DAYPART))),
+                  Opt(W("there", "all", "team", "everyone", "bot", "assistant", "folks", "sir",
+                        "madam")))),
+    _EdgeWhole(_A(W("howdy", "greetings", "sup", "yo", "hola", "whatup", "whatsup"),
+                   _S(W("what", "whats"), "up"))),
 ]
 
+_GREET_OPT = Opt(_A(W("hi", "hello", "hey"), Pred(_hii)))
 _IDENTITY = [
-    r"(who|what)\s+(are|r)\s+(you|u)\b",
-    r"(your|ur)\s+(name|purpose|job|role)\b",
-    r"are\s+you\s+(an?\s+)?(ai|bot|human|real|chatbot|robot|machine|gpt|chatgpt|claude|gemini|qwen|llm)",
-    r"(tell|about)\s+(me\s+)?about\s+(yourself|you)\b",
-    r"what\s+can\s+you\s+(do|help)\b",
-    r"what\s+do\s+you\s+do\b",
-    r"introduce\s+yourself\b",
-    r"which\s+(ai|model|llm|technology|company)\s+(are|is|do|made|built)\s+you\b",
-    r"(powered|built|made|developed|created|trained)\s+by\b",
-    r"how\s+(do|does)\s+you\s+work\b",
+    _M(_S(_sfx("who", "what"), W("are", "r"), W("you", "u"))),
+    _M(_S(_sfx("your", "ur"), W("name", "purpose", "job", "role"))),
+    _M(_S(_sfx("are"), "you", Opt(W("a", "an")),
+          _P("ai", "bot", "human", "real", "chatbot", "robot", "machine", "gpt", "chatgpt",
+             "claude", "gemini", "qwen", "llm"))),
+    _M(_S(_sfx("tell", "about"), Opt("me"), "about", W("yourself", "you"))),
+    _M(_S(_sfx("what"), "can", "you", W("do", "help"))),
+    _M(_S(_sfx("what"), "do", "you", "do")),
+    _M(_S(_sfx("introduce"), "yourself")),
+    _M(_S(_sfx("which"), W("ai", "model", "llm", "technology", "company"),
+          W("are", "is", "do", "made", "built"), "you")),
+    _M(_S(_sfx("powered", "built", "made", "developed", "created", "trained"), "by")),
+    _M(_S(_sfx("how"), W("do", "does"), "you", "work")),
     # conversational "how can you help me" / "can you help me" openers — these
-    # carry no scheme keyword, so without a pattern here they fall all the way
+    # carry no scheme keyword, so without a rule here they fall all the way
     # through to the off-topic whitelist gate and get the blunt "I can only
     # answer..." reply instead of the friendly capabilities rundown. A message
     # that also names a scheme/domain term exits earlier at the _SCHEME_STRONG
     # check (step 1), so these stay safe to match loosely.
-    r"^\W*(hi|hello|hey|hii+)?\W*,?\s*how\s+(can|could|do|would)\s+(you|u)\s+(help|assist)\b",
-    r"^\W*(hi|hello|hey|hii+)?\W*,?\s*(can|could|would)\s+(you|u)\s+(help|assist)\s+me\b",
-    r"what\s+can\s+(you|u)\s+help\s+(me\s+)?with\b",
-    r"what\s+all\s+can\s+(you|u)\s+do\b",
+    _EdgeLead(Seq(_GREET_OPT, _S("how", W("can", "could", "do", "would"), W("you", "u"),
+                                 W("help", "assist"))), lead=True),
+    _EdgeLead(Seq(_GREET_OPT, _S(W("can", "could", "would"), W("you", "u"), W("help", "assist"),
+                                 "me")), lead=True),
+    _M(_S(_sfx("what"), "can", W("you", "u"), "help", Opt("me"), "with")),
+    _M(_S(_sfx("what"), "all", "can", W("you", "u"), "do")),
 ]
 
+
+def _thanks_short(t: str) -> bool:
+    """A thanks word first (ending at a word edge), then at most 20 more characters."""
+    if not t or not _edge_is_word_char(t[0]):
+        return False
+    h = _THANKS_LEAD.match(t)
+    if h is None:
+        return False
+    rest = t[h.end():]
+    # "thank you, it is very helpful" (live 2026-10-18): the "you" is part of the
+    # lead, and the tail allows a short compliment after the comma.
+    return len(rest) <= 24 and "\n" not in rest
+
+
+_THANKS_LEAD = Matcher(Seq(START, _A(
+    _S("thank", W("you", "u")),
+    W("thanks", "thank", "thankyou", "thanku", "ty", "thx", "dhanyavaad", "dhanyawad", "shukriya"),
+    _S("khublei", "shibun"))))
+_PRAISE = ("great", "perfect", "awesome", "excellent", "brilliant", "fantastic", "helpful", "nice")
 _THANKS = [
-    r"^(thanks?|thank\s*you|thank\s*u|ty|thx|thanku|dhanyavaad|dhanyawad|shukriya|khublei\s+shibun)\b.{0,20}$",
-    r"^(that.?s?\s+(great|helpful|perfect|awesome|nice|good|excellent|useful|wonderful))[\s!.?]*$",
-    r"^(great|perfect|awesome|excellent|brilliant|fantastic|helpful|nice)\s*(help|work)?[\s!.?]*$",
+    _GRule(_thanks_short),
+    _EdgeWhole(_S(_A(_THAT_S, W("that")),
+                  W("great", "helpful", "perfect", "awesome", "nice", "good", "excellent", "useful",
+                    "wonderful"))),
+    _EdgeWhole(_A(_S(W(*_PRAISE), Opt(W("help", "work"))),
+                   W(*(p + s for p in _PRAISE for s in ("help", "work"))))),
 ]
 
 _GOODBYE = [
-    r"^(bye|goodbye|good\s*bye|see\s*you|cya|take\s*care|later|ok\s*bye|done|that.?s\s+all)[\s!.?]*$",
-    r"^(have\s+a\s+(good|great|nice)\s+(day|evening|night))[\s!.?]*$",
+    _EdgeWhole(_A(W("bye", "goodbye", "cya", "later", "done", "seeyou", "takecare", "okbye"),
+                   _A("good bye", "see you", "take care", "ok bye"), _S(_THAT_S, "all"))),
+    _EdgeWhole(_S("have", "a", W("good", "great", "nice"), W("day", "evening", "night"))),
 ]
 
 _PROFANITY_REDIRECT = [
-    r"\b(fuck|fuk|shit|damn|bastard|crap|bloody|bullshit|wtf|stfu)\b",
+    _M(W("fuck", "fuk", "shit", "damn", "bastard", "crap", "bloody", "bullshit", "wtf", "stfu")),
 ]
 
 _SILLY = [
     # jokes / entertainment / creative writing
-    r"(tell|say)\s+(me\s+)?(a\s+)?(joke|funny|riddle)",
-    r"make\s+me\s+laugh",
-    r"sing\s+(a\s+)?song",
-    r"write\s+(me\s+)?(a\s+)?(poem|story|essay|rap|song|lyrics|script)",
-    r"(play|let.*play)\s+(a\s+)?game",
+    _M(_S(_sfx("tell", "say"), Opt("me"), Opt("a"), _P("joke", "funny", "riddle"))),
+    _M(_S(_sfx("make"), "me", _P("laugh"))),
+    _M(_S(_sfx("sing"), Opt("a"), _P("song"))),
+    _M(_S(_sfx("write"), Opt("me"), Opt("a"),
+          _P("poem", "story", "essay", "rap", "song", "lyrics", "script"))),
+    _M(_S(_sfx("play"), Opt("a"), _P("game"))),
     # personal feelings / anthropomorphising
-    r"do\s+you\s+(like|love|hate|feel|dream|sleep|eat|drink|breathe|think)",
-    r"(favorite|favourite)\s+(color|colour|food|movie|song|book|sport|animal|team)",
-    r"how\s+old\s+are\s+you",
-    r"where\s+do\s+you\s+(live|stay|come\s+from)",
-    r"are\s+you\s+(happy|sad|angry|tired|bored|excited|scared|lonely|married|single)",
-    r"(marry|date|love|kiss|hug)\s+me",
-    r"do\s+you\s+have\s+(feelings|emotions|heart|soul|family|friends|a\s+boyfriend|a\s+girlfriend)",
+    _M(_S(_sfx("do"), "you",
+          _P("like", "love", "hate", "feel", "dream", "sleep", "eat", "drink", "breathe", "think"))),
+    _M(_S(_sfx("favorite", "favourite"),
+          _P("color", "colour", "food", "movie", "song", "book", "sport", "animal", "team"))),
+    _M(_S(_sfx("how"), "old", "are", _P("you"))),
+    _M(_S(_sfx("where"), "do", "you", _A(_P("live", "stay"), _S("come", _P("from"))))),
+    _M(_S(_sfx("are"), "you", _P("happy", "sad", "angry", "tired", "bored", "excited", "scared",
+                                 "lonely", "married", "single"))),
+    _M(_S(_sfx("marry", "date", "love", "kiss", "hug"), _P("me"))),
+    _M(_S(_sfx("do"), "you", "have",
+          _A(_P("feelings", "emotions", "heart", "soul", "family", "friends"),
+              _S("a", _P("boyfriend", "girlfriend"))))),
     # philosophical / general chit-chat
-    r"what\s+is\s+the\s+(meaning|purpose)\s+of\s+(life|everything)",
-    r"(is\s+god|does\s+god)\s+(real|exist)",
-    r"what\s+(happens|comes)\s+after\s+death",
+    _M(_S(_sfx("what"), "is", "the", W("meaning", "purpose"), "of", _P("life", "everything"))),
+    _M(_S(_sfx("is", "does"), "god", _P("real", "exist"))),
+    _M(_S(_sfx("what"), W("happens", "comes"), "after", _P("death"))),
     # comparisons with other AI
-    r"(better|worse)\s+than\s+(chatgpt|gpt|openai|claude|gemini|copilot|bard)",
-    r"\bvs\s+(chatgpt|gpt|claude|gemini|copilot|bard)\b",
+    _M(_S(_sfx("better", "worse"), "than",
+          _P("chatgpt", "gpt", "openai", "claude", "gemini", "copilot", "bard"))),
+    _M(_S("vs", W("chatgpt", "gpt", "claude", "gemini", "copilot", "bard"))),
     # random unrelated tasks
-    r"translate\s+(this|to|into)\s+",
-    r"(write|draft|compose)\s+(a\s+)?(email|letter|message|whatsapp|cv|resume|application\s+for\s+leave)",
-    r"solve\s+(this\s+)?(math|equation|sum|problem|puzzle)",
-    r"what\s+is\s+\d+\s*[\+\-\*\/x]\s*\d+",
-    r"(predict|forecast)\s+(the\s+)?(future|stock|crypto|price|weather|match)",
-    r"give\s+me\s+(advice|tips)\s+on\s+(life|love|money|career|health|relationship)",
+    _M(_S(_sfx("translate"), W("this", "to", "into"), ANY)),
+    _M(_S(_sfx("write", "draft", "compose"), Opt("a"),
+          _A(_P("email", "letter", "message", "whatsapp", "cv", "resume"),
+              _S("application", "for", _P("leave"))))),
+    _M(_S(_sfx("solve"), Opt("this"), _P("math", "equation", "sum", "problem", "puzzle"))),
+    _GRule(lambda t: _edge_arith(t)),
+    _M(_S(_sfx("predict", "forecast"), Opt("the"),
+          _P("future", "stock", "crypto", "price", "weather", "match"))),
+    _M(_S(_sfx("give"), "me", W("advice", "tips"), "on",
+          _P("life", "love", "money", "career", "health", "relationship"))),
     # insults aimed at the assistant
-    r"(stupid|dumb|useless|idiot|fool|trash|garbage|nonsense)\s*(bot|ai|system|app|assistant)?",
-    r"you\s+(suck|are\s+bad|are\s+useless|are\s+dumb|are\s+wrong\s+always)",
+    _M(Pred(lambda w: any(s in w.lower() for s in ("stupid", "dumb", "useless", "idiot", "fool",
+                                                   "trash", "garbage", "nonsense")))),
+    _M(_S(_sfx("you"), _A(_P("suck"), _S("are", _P("bad", "useless", "dumb")),
+                           _S("are", "wrong", _P("always"))))),
     # general knowledge that isn't ours
-    r"(capital|president|prime\s*minister|chief\s*minister|currency|population|area|gdp)\s+of\s+\w+",
-    r"who\s+(is|was)\s+(the\s+)?(president|prime\s*minister|king|queen|ceo|founder|inventor|actor|actress|elon|musk|modi|trump)\b",
-    r"(largest|smallest|tallest|longest|biggest|fastest|richest)\s+(country|city|river|mountain|building|company)",
-    r"(what|how)\s+(is|does|do)\s+(gravity|photosynthesis|evolution|inflation|blockchain|electricity)\b",
-    r"(recipe|ingredients|how\s+to\s+cook|how\s+to\s+make)\s+",
-    r"(symptom|treatment|cure|medicine)\s+(for|of)\s+",
-    r"\b(ipl|cricket|football|soccer|match\s+score|bollywood|hollywood|netflix)\b",
+    _M(_S(_A(_sfx("capital", "president", "currency", "population", "area", "gdp",
+                   "primeminister", "chiefminister"),
+              _S(_sfx("prime"), "minister"), _S(_sfx("chief"), "minister")),
+          "of", ANY)),
+    _M(_S(_sfx("who"), W("is", "was"), Opt("the"),
+          _A(W("president", "primeminister", "king", "queen", "ceo", "founder", "inventor", "actor",
+                "actress", "elon", "musk", "modi", "trump"), _S("prime", "minister")))),
+    _M(_S(_sfx("largest", "smallest", "tallest", "longest", "biggest", "fastest", "richest"),
+          _P("country", "city", "river", "mountain", "building", "company"))),
+    _M(_S(_sfx("what", "how"), W("is", "does", "do"),
+          W("gravity", "photosynthesis", "evolution", "inflation", "blockchain", "electricity"))),
+    _M(_S(_A(_sfx("recipe", "ingredients"), _S(_sfx("how"), "to", W("cook", "make"))), ANY)),
+    _M(_S(_sfx("symptom", "treatment", "cure", "medicine"), W("for", "of"), ANY)),
+    _M(_A(W("ipl", "cricket", "football", "soccer", "bollywood", "hollywood", "netflix"),
+          "match score")),
 ]
 
 _OFF_TOPIC = [
-    r"\b(weather|temperature|forecast|horoscope|zodiac|astrology|news\s+today)\b",
-    r"\b(stock|share\s+market|sensex|nifty|bitcoin|crypto|nft|mutual\s+fund|investment)\b",
-    r"\b(flight|train\s+ticket|irctc|hotel\s+booking|visa|passport|holiday\s+package|tourism)\b",
-    r"\b(amazon|flipkart|online\s+shopping|price\s+of\s+(a|an|the)\b)",
-    r"\b(exam\s+result|admission|jee|neet|upsc|board\s+result)\b",
+    _M(W("weather", "temperature", "forecast", "horoscope", "zodiac", "astrology"), "news today"),
+    _M(W("stock", "sensex", "nifty", "bitcoin", "crypto", "nft", "investment"), "share market",
+       "mutual fund"),
+    _M(W("flight", "irctc", "visa", "passport", "tourism"), "train ticket", "hotel booking",
+       "holiday package"),
+    _M(W("amazon", "flipkart"), "online shopping", _S("price", "of", W("a", "an", "the"))),
+    _M(W("admission", "jee", "neet", "upsc"), "exam result", "board result"),
 ]
 
 # PERSONAL financial advice — "where should I invest my money", "best way to
@@ -118,17 +318,19 @@ _OFF_TOPIC = [
 # the scheme-intent early exit: _SCHEME_STRONG counts a bare money unit
 # ("lakh", "crore") as scheme intent, so these were waved through to the
 # pipeline and collected the "which scheme?" picker instead of a refusal
-# (reported 2026-09-18). Every pattern is anchored on the ADVICE phrasing,
+# (reported 2026-09-18). Every rule is anchored on the ADVICE phrasing,
 # never on the money noun, so a real scheme question using the same units
 # ("total expenditure in lakh") is untouched.
 _MONEY_ADVICE = [
-    r"\b(?:where|how|what)\b[^?.!]{0,30}\b(?:should|can|do|would|could)\s+(?:i|we)\b"
-    r"[^?.!]{0,30}\b(?:invest|save|deposit|put)\b",
-    r"\b(?:best|safest|good)\s+(?:way|place|option|scheme)s?\s+to\s+"
-    r"(?:invest|save|deposit|park|grow)\b",
-    r"\b(?:invest|investing)\s+(?:my|our|his|her|their|the)?\s*(?:money|savings|funds|cash)\b",
-    r"\b(?:where|how)\s+to\s+(?:invest|save)\b",
-    r"\b(?:grow|double|multiply)\s+(?:my|our)\s+(?:money|savings|wealth)\b",
+    _M(Seq(W("where", "how", "what"), _GCharGap(30, "?.!"),
+           _S(W("should", "can", "do", "would", "could"), W("i", "we")), _GCharGap(30, "?.!"),
+           W("invest", "save", "deposit", "put"))),
+    _M(_S(W("best", "safest", "good"), _pl("way", "place", "option", "scheme"), "to",
+          W("invest", "save", "deposit", "park", "grow"))),
+    _M(_S(W("invest", "investing"), Opt(W("my", "our", "his", "her", "their", "the")),
+          W("money", "savings", "funds", "cash"))),
+    _M(_S(W("where", "how"), "to", W("invest", "save"))),
+    _M(_S(W("grow", "double", "multiply"), W("my", "our"), W("money", "savings", "wealth"))),
 ]
 
 # A personal request for money: "now give me five thousand loan for me i am in
@@ -139,26 +341,85 @@ _MONEY_ADVICE = [
 # the schemes that do offer support. Anchored on a FIRST-PERSON request for
 # money, never on the money noun alone: "how many loans were disbursed under CM
 # Elevate Legacy?" and "give me the amount disbursed" are untouched.
-_MONEY_NOUN = r"(?:loans?|money|cash|rupees?|funds?|financial\s+(?:help|aid|support|assistance))"
-_AMOUNT_WORDS = (r"(?:(?:rs\.?|inr|₹)\s*)?(?:[\d,]+(?:\.\d+)?\s*(?:k|lakhs?|lacs?|thousand|crores?)?|"
-                 r"(?:one|two|three|four|five|six|seven|eight|nine|ten|twenty|fifty|hundred|"
-                 r"thousand|lakh|lakhs|crore)(?:\s+(?:hundred|thousand|lakhs?|crores?))*)")
+def _pr_gap(g: str) -> bool:
+    """Whitespace, possibly with a ₹ sign or the dot of "rs." in it."""
+    return g != "" and g.replace("₹", "").replace(".", "").strip() == ""
+
+
+def _PR(*parts):
+    return _GSeq(*[_g_phrase_e(p) for p in parts], ok=_pr_gap)
+
+
+def _g_phrase_e(p):
+    if isinstance(p, str) and " " in p.strip():
+        return _GSeq(*p.split(), ok=_pr_gap)
+    return p
+
+
+_MONEY_NOUN = _A(W("loan", "loans", "money", "cash", "rupee", "rupees", "fund", "funds"),
+                  _PR("financial", W("help", "aid", "support", "assistance")))
+_UNIT = ("k", "lakh", "lakhs", "lac", "lacs", "thousand", "crore", "crores")
+
+
+def _amount_token(w: str) -> bool:
+    """Digits, optionally glued to a unit: "5000", "5k", "2lakh"."""
+    w = w.lower()
+    i = 0
+    while i < len(w) and w[i].isdigit():
+        i += 1
+    return i > 0 and (i == len(w) or w[i:] in _UNIT)
+
+
+class _EdgeNumber(Node):
+    r"""A written number: digit tokens joined by ',' / '.' ("1,00,000", "5.5"),
+    the last one possibly glued to a unit ("5k") — digits and commas, then an
+    optional '.' with digits."""
+
+    def ends(self, ctx, i, caps):
+        n, j, out = len(ctx.toks), i, []
+        while j < n and (j == i or ctx.gap(j) in (",", ".")):
+            raw = ctx.toks[j].raw
+            if raw.isdigit():
+                out.append(j + 1)
+            elif _amount_token(raw):
+                out.append(j + 1)
+                break
+            else:
+                break
+            j += 1
+        for e in reversed(out):
+            yield e, caps
+
+
+_NUMBER = _EdgeNumber()
+_AMOUNT_WORDS = _A(
+    _PR(Opt(W("rs", "inr")), _NUMBER, Opt(W(*_UNIT))),
+    _PR(Opt(W("rs", "inr")),
+        W("one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "twenty",
+          "fifty", "hundred", "thousand", "lakh", "lakhs", "crore"),
+        Rep(W("hundred", "thousand", "lakh", "lakhs", "crore", "crores"))),
+)
+_RS = Opt(W("rs", "rupee", "rupees"))
 _PERSONAL_REQUEST = [
     # "give me five thousand loan", "lend me 5000 rupees", "send us money"
-    r"\b(?:give|lend|loan|send|grant|provide|pay|transfer|arrange|sanction|approve|release)\s+"
-    r"(?:me|us)\s+(?:a\s+|an\s+|some\s+)?(?:" + _AMOUNT_WORDS + r"\s+)?(?:rs\.?\s+|rupees?\s+)?"
-    + _MONEY_NOUN + r"\b",
+    _M(_PR(W("give", "lend", "loan", "send", "grant", "provide", "pay", "transfer", "arrange",
+             "sanction", "approve", "release"), W("me", "us"), Opt(W("a", "an", "some")),
+           Opt(_AMOUNT_WORDS), _RS, _MONEY_NOUN)),
     # "a loan for me", "money for my family"
-    r"\b" + _MONEY_NOUN + r"\s+for\s+(?:me|myself|us|my\s+(?:family|son|daughter|wife|husband|"
-    r"mother|father|children|kids))\b",
+    _M(_PR(_MONEY_NOUN, "for",
+           _A(W("me", "myself", "us"),
+               _PR("my", W("family", "son", "daughter", "wife", "husband", "mother", "father",
+                           "children", "kids"))))),
     # "I need a loan", "I want 5000 rupees", "can I get money"
-    r"\b(?:i|we)\s+(?:need|want|require|urgently\s+need)\s+(?:a\s+|an\s+|some\s+)?"
-    r"(?:" + _AMOUNT_WORDS + r"\s+)?(?:rs\.?\s+|rupees?\s+)?" + _MONEY_NOUN + r"\b",
-    r"\bcan\s+(?:i|we)\s+(?:get|have|borrow)\s+(?:a\s+|an\s+|some\s+)?(?:" + _AMOUNT_WORDS
-    + r"\s+)?(?:rs\.?\s+|rupees?\s+)?" + _MONEY_NOUN + r"\b",
+    _M(_PR(W("i", "we"), _A(W("need", "want", "require"), _PR("urgently", "need")),
+           Opt(W("a", "an", "some")), Opt(_AMOUNT_WORDS), _RS, _MONEY_NOUN)),
+    _M(_PR("can", W("i", "we"), W("get", "have", "borrow"), Opt(W("a", "an", "some")),
+           Opt(_AMOUNT_WORDS), _RS, _MONEY_NOUN)),
     # "I am in crisis", "we are in debt"
-    r"\b(?:i\s*(?:am|'m)|we\s*(?:are|'re))\s+in\s+(?:a\s+|great\s+|serious\s+|financial\s+)*"
-    r"(?:crisis|debt|trouble|distress|emergency|need)\b",
+    _M(_S(_A(_GSeq("i", W("am", "m"), ok=lambda g: g.strip() in ("", "'")), W("iam"),
+              _GSeq("we", W("are", "re"), ok=lambda g: g.strip() in ("", "'")), W("weare")),
+          "in", Rep(W("a", "great", "serious", "financial")),
+          W("crisis", "debt", "trouble", "distress", "emergency", "need"))),
 ]
 
 
@@ -170,32 +431,76 @@ _PERSONAL_REQUEST = [
 # previous turn's scheme (reported 2026-09-24). Anchored on INTENT phrasing, so
 # a legitimate question about wrongdoing ("how are fake job cards detected?",
 # "fraud cases in MGNREGA social audits") is not refused.
-_HARMFUL_INTENT = (
-    r"(?:\bi\s+(?:want|wanna|plan|am\s+planning|need|intend|would\s+like)\s+to\b|"
-    r"\bwe\s+(?:want|plan|need)\s+to\b|\bhow\s+(?:can|do|could|should|would)\s+(?:i|we|one|someone)\b|"
-    r"\bhow\s+to\b|\bhelp\s+(?:me|us)\b|\bteach\s+me\b|\bshow\s+me\s+how\b|\bways?\s+to\b|"
-    r"\btips?\s+(?:to|for|on)\b|\bideas?\s+(?:to|for)\b|\bsuggest\w*\s+(?:to|for|how)\b|"
-    r"\bbest\s+way\s+to\b|\blet'?s\b|\bplan\s+to\b)")
-_HARMFUL_ACT = (
-    r"\b(?:rob\w*|loot\w*|steal\w*|burgl\w*|kidnap\w*|murder\w*|smuggl\w*|launder\w*|"
-    r"forg(?:e|ed|ing|ery)\b|brib\w*|embezzl\w*|defraud\w*|swindl\w*|extort\w*|"
-    r"counterfeit\w*|siphon\w*|hack\s+(?:into|the|a|an)\b|cheat\w*\s+(?:the\s+)?"
-    r"(?:government|govt|scheme|bank|system|officer|people)\b|"
-    r"(?:make|create|get|use|prepare)\s+(?:a\s+)?(?:fake|false|forged|duplicate)\s+\w+|"
-    r"fake\s+(?:documents?|certificates?|job\s*cards?|aadhaa?r|ids?|beneficiar\w*|bills?)\b|"
-    r"misuse\s+(?:the\s+)?(?:funds?|money|scheme)\b|evade\s+tax\w*|poison\w*|bomb\w*)")
+_HARMFUL_INTENT = _A(
+    _S("i", _A("want", "wanna", "plan", "am planning", "need", "intend", "would like"), "to"),
+    _S("we", W("want", "plan", "need"), "to"),
+    _S("how", W("can", "do", "could", "should", "would"), W("i", "we", "one", "someone")),
+    _S("how", "to"), _S("help", W("me", "us")), _S("teach", "me"), _S("show", "me", "how"),
+    _S(W("way", "ways"), "to"), _S(W("tip", "tips"), W("to", "for", "on")),
+    _S(W("idea", "ideas"), W("to", "for")), _S(_P("suggest"), W("to", "for", "how")),
+    _S("best", "way", "to"), W("lets"), Seq("let", "s"), _S("plan", "to"),
+)
+_HARMFUL_ACT = _A(
+    _P("rob", "loot", "steal", "burgl", "kidnap", "murder", "smuggl", "launder", "brib", "embezzl",
+       "defraud", "swindl", "extort", "counterfeit", "siphon", "poison", "bomb"),
+    W("forge", "forged", "forging", "forgery"),
+    _S("hack", W("into", "the", "a", "an")),
+    _S(_P("cheat"), Opt("the"),
+       W("government", "govt", "scheme", "bank", "system", "officer", "people")),
+    _S(W("make", "create", "get", "use", "prepare"), Opt("a"),
+       W("fake", "false", "forged", "duplicate"), ANY),
+    _S("fake", _A(_pl("document", "certificate", "id", "bill"), W("aadhaar", "aadhar"),
+                   W("jobcard", "jobcards"), _S("job", W("card", "cards")), _P("beneficiar"))),
+    _S("misuse", Opt("the"), W("fund", "funds", "money", "scheme")),
+    _S("evade", _P("tax")),
+)
 _HARMFUL = [
-    _HARMFUL_INTENT + r"[^.?!]{0,50}?" + _HARMFUL_ACT,
-    r"\brob(?:bing|bed)?\s+(?:a\s+|the\s+)?bank\b|\bbank\s+robbery\b|\bmoney\s+laundering\b",
+    _M(Seq(_HARMFUL_INTENT, _GCharGap(50, ".?!"), _HARMFUL_ACT)),
+    _M(_S(W("rob", "robbing", "robbed"), Opt(W("a", "the")), "bank"), "bank robbery",
+       "money laundering"),
 ]
 
 
+def _hm(w: str) -> bool:
+    """hmm, hmmm, … ("h" then two or more 'm')."""
+    w = w.lower()
+    return len(w) >= 3 and w[0] == "h" and set(w[1:]) == {"m"}
+
+
+def _um(w: str) -> bool:
+    w = w.lower()
+    return len(w) >= 3 and w[0] == "u" and set(w[1:]) == {"m"}
+
+
+def _rep_tail(head: str, ch: str):
+    """head followed by one or more `ch` ("uh", "uhhh", "ok", "okkk")."""
+    return lambda w: len(w) >= 2 and w.lower()[0] == head and set(w.lower()[1:]) == {ch}
+
+
+def _only_questionmarks(t: str) -> bool:
+    return t != "" and set(t) == {"?"}
+
+
+def _what_question(t: str) -> bool:
+    """Exactly "what?", then only whitespace / ! . ? to the end."""
+    return t[:5].lower() == "what?" and all(c.isspace() or c in "!.?" for c in t[5:])
+
+
 _CONFUSED = [
-    r"^(i\s+don.?t\s+(know|understand)|huh|what\?|confused|i\s*m\s+confused|no\s+idea)[\s!.?]*$",
-    r"^(help|help\s*me|i\s+need\s+help|guide\s*me|assist\s*me)[\s!.?]*$",
-    r"^(hmm+|umm+|uh+|ok+|okay|k|kk|yeah|nah|sure|right|got\s*it|fine)[\s!.?]*$",
-    r"^(start|begin|let.s\s*(start|begin|go)|go)[\s!.?]*$",
-    r"^\?+$",
+    _GRule(_what_question),
+    _EdgeWhole(_A(_S("i", _A(W("dont"), _GSeq("don", "t", ok=lambda g: len(g) == 1)),
+                      W("know", "understand")),
+                   W("huh", "confused"), _S("im", "confused"), _S("i", "m", "confused"),
+                   _S("no", "idea"))),
+    _EdgeWhole(_A(W("help", "helpme", "guideme", "assistme"), _S("help", "me"),
+                   _S("i", "need", "help"), _S("guide", "me"), _S("assist", "me"))),
+    _EdgeWhole(_A(Pred(_hm), Pred(_um), Pred(_rep_tail("u", "h")), Pred(_rep_tail("o", "k")),
+                   W("okay", "k", "kk", "yeah", "nah", "sure", "right", "fine", "gotit"),
+                   _S("got", "it"))),
+    _EdgeWhole(_A(W("start", "begin", "go", "letsstart", "letsbegin", "letsgo"),
+                   _S(_A(W("lets"), _GSeq("let", "s", ok=lambda g: len(g) == 1)),
+                      W("start", "begin", "go")))),
+    _GRule(_only_questionmarks),
     # "what should I do?" / "what do I ask?" / "where do I start?" — a user
     # who wants to be pointed somewhere, not an off-topic question. These have
     # no domain vocabulary, so before this they fell through to the step-6
@@ -203,25 +508,45 @@ _CONFUSED = [
     # schemes" bounce, which reads as a refusal to someone asking for guidance
     # (reported 2026-09-17). The _CONFUSED reply already says exactly what to
     # try, and carries the starter chips.
-    r"^\W*what\s+(should|shall|can|do|would)\s+i\s+(do|ask|say|type|start\s+with|query)\b",
-    r"^\W*(where|how)\s+(do|should|can)\s+i\s+(start|begin)\b",
-    r"^\W*what\s*(next|now)\b[\s!.?]*$",
-    r"^\W*(give|show|suggest)\s+(me\s+)?(some\s+)?(examples?|suggestions?|ideas?|options?)\b",
+    _EdgeLead(_S("what", W("should", "shall", "can", "do", "would"), "i",
+                 _A(W("do", "ask", "say", "type", "query"), _S("start", "with"))), lead=True),
+    _EdgeLead(_S(W("where", "how"), W("do", "should", "can"), "i", W("start", "begin")), lead=True),
+    _EdgeWhole(_A(W("whatnext", "whatnow"), _S("what", W("next", "now"))), lead=True),
+    _EdgeLead(_S(W("give", "show", "suggest"), Opt("me"), Opt("some"),
+                 _pl("example", "suggestion", "idea", "option")), lead=True),
 ]
 
 # Unmistakably-not-ours topics — blocked even if a place name (e.g. "Shillong")
 # also appears, since the strong-intent early exit would otherwise wave them through.
 _HARD_OFF_TOPIC = [
-    r"\b(weather|temperature|forecast|rain(fall|y)?|humidity|horoscope|zodiac|astrology)\b",
-    r"\b(bitcoin|crypto|sensex|nifty|share\s+price|stock\s+price)\b",
-    r"\b(cricket|ipl|football|match\s+score|movie|film|song\s+lyrics)\b",
+    _M(W("weather", "temperature", "forecast", "rain", "rainfall", "rainy", "humidity", "horoscope",
+         "zodiac", "astrology")),
+    _M(W("bitcoin", "crypto", "sensex", "nifty"), "share price", "stock price"),
+    _M(W("cricket", "ipl", "football", "movie", "film"), "match score", "song lyrics"),
 ]
+
+
+class _EdgeAnyOf:
+    """Matches when any of its matchers / checks does (.search returns the first hit)."""
+
+    def __init__(self, *parts):
+        self.parts = parts
+
+    def search(self, text):
+        for p in self.parts:
+            h = p.search(text)
+            if h:
+                return h
+        return None
+
+
 # ...unless the text also names a scheme outright, in which case route it.
-_SCHEME_NAMED = re.compile(
-    r"\b(mgnrega|mnrega|nrega|pmay[\s-]?g?|awaas|awas|focus[\s-]?plus|focusplus|"
-    r"cm[\s-]?elevate|cmelevate|focus[\s-]?legacy|focuslegacy|producer[\s-]?groups?)\b|"
-    r"focus\s*\+",
-    re.IGNORECASE,
+_SCHEME_NAMED = _EdgeAnyOf(
+    _M(W("mgnrega", "mnrega", "nrega", "pmay", "pmayg", "awaas", "awas", "focusplus", "cmelevate",
+         "focuslegacy"),
+       Joined("focus", "plus"), Joined("cm", "elevate"), Joined("focus", "legacy"),
+       Joined("producer", ("group", "groups"))),
+    _GRule(_focus_plus),
 )
 
 # ── Out-of-area — a place that is not in Meghalaya ─────────────────────────
@@ -231,132 +556,364 @@ _SCHEME_NAMED = re.compile(
 # "how many districts in Guwahati for PMAY-G") — so this is checked BEFORE
 # the strong-intent early exit, and stands down only when a Meghalaya place
 # is *also* named (e.g. "compare Meghalaya with Assam").
-_OUT_OF_AREA = re.compile(
-    r"\b("
-    r"assam|arunachal(\s+pradesh)?|nagaland|manipur|mizoram|tripura|sikkim|"
-    r"west\s+bengal|bengal|bihar|jharkhand|odisha|orissa|chhattisgarh|"
-    r"madhya\s+pradesh|uttar\s+pradesh|uttarakhand|rajasthan|gujarat|"
-    r"maharashtra|goa|karnataka|kerala|tamil\s*nadu|telangana|"
-    r"andhra(\s+pradesh)?|punjab|haryana|himachal(\s+pradesh)?|"
-    r"jammu|kashmir|ladakh|puducherry|pondicherry|chandigarh|"
-    r"andaman|nicobar|lakshadweep|"
-    r"guwahati|gauhati|dispur|silchar|dibrugarh|jorhat|tezpur|"
-    r"kolkata|calcutta|new\s+delhi|delhi|mumbai|bombay|bengaluru|bangalore|"
-    r"chennai|madras|hyderabad|pune|ahmedabad|jaipur|lucknow|kanpur|patna|"
-    r"bhopal|indore|nagpur|visakhapatnam|"
-    r"kohima|imphal|aizawl|agartala|itanagar|gangtok|dimapur|siliguri|"
-    r"all[\s-]?india|pan[\s-]?india|nation[\s-]?wide|india|"
-    r"across\s+the\s+country|whole\s+country|entire\s+country"
-    r")\b",
-    re.IGNORECASE,
+# (Alternatives are tried in this order at each word, longer names first:
+# "west bengal" before "bengal", "new delhi" before "delhi".)
+_OUT_OF_AREA = _M(
+    "assam", _S("arunachal", Opt("pradesh")), "nagaland", "manipur", "mizoram", "tripura", "sikkim",
+    "west bengal", "bengal", "bihar", "jharkhand", "odisha", "orissa", "chhattisgarh",
+    "madhya pradesh", "uttar pradesh", "uttarakhand", "rajasthan", "gujarat",
+    "maharashtra", "goa", "karnataka", "kerala", Joined("tamil", "nadu"), "telangana",
+    _S("andhra", Opt("pradesh")), "punjab", "haryana", _S("himachal", Opt("pradesh")),
+    "jammu", "kashmir", "ladakh", "puducherry", "pondicherry", "chandigarh",
+    "andaman", "nicobar", "lakshadweep",
+    "guwahati", "gauhati", "dispur", "silchar", "dibrugarh", "jorhat", "tezpur",
+    "kolkata", "calcutta", "new delhi", "delhi", "mumbai", "bombay", "bengaluru", "bangalore",
+    "chennai", "madras", "hyderabad", "pune", "ahmedabad", "jaipur", "lucknow", "kanpur", "patna",
+    "bhopal", "indore", "nagpur", "visakhapatnam",
+    "kohima", "imphal", "aizawl", "agartala", "itanagar", "gangtok", "dimapur", "siliguri",
+    Joined("all", "india"), Joined("pan", "india"), Joined("nation", "wide"), "india",
+    "across the country", "whole country", "entire country",
 )
+
+
+class _EdgeUS(Node):
+    """"u.s" / "u.s.a", then an optional '.' and whitespace, , ; : ? ! ) or the
+    end — so "U.s.t", the start of a longer dotted word, is not the country."""
+
+    def ends(self, ctx, i, caps):
+        toks, n = ctx.toks, len(ctx.toks)
+        if not (i + 1 < n and toks[i].low == "u" and toks[i + 1].low == "s" and ctx.gap(i + 1) == "."):
+            return
+        ends = []
+        if i + 2 < n and toks[i + 2].low == "a" and ctx.gap(i + 2) == ".":
+            ends.append(i + 3)
+        ends.append(i + 2)
+        for e in ends:
+            rest = ctx.text[toks[e - 1].end:]
+            if rest.startswith("."):
+                rest = rest[1:]
+            if rest == "" or rest[0].isspace() or rest[0] in ",;:?!)":
+                yield e, caps
+
+
 # Any country/continent outside India — "how many beneficiaries in Madagascar"
 # is exactly as out-of-scope as "... in Assam", but names no Indian place at
 # all, so it needs its own list rather than living in _OUT_OF_AREA above.
-# Not exhaustive (no regex list of world place names can be), but covers the
+# Not exhaustive (no list of world place names can be), but covers the
 # countries/continents/generic phrasing QA and users actually ask about.
-_FOREIGN_PLACE = re.compile(
-    r"\b("
-    r"madagasca\w*|nigeria|kenya|ethiopia|egypt|south\s+africa|morocco|ghana|"
-    r"uganda|tanzania|zimbabwe|sudan|algeria|tunisia|libya|senegal|cameroon|"
-    r"angola|mozambique|zambia|botswana|namibia|rwanda|"
-    r"pakistan|bangladesh|nepal|bhutan|sri\s*lanka|myanmar|burma|"
-    r"china|japan|north\s+korea|south\s+korea|vietnam|thailand|cambodia|laos|"
-    r"malaysia|singapore|indonesia|philippines|mongolia|kazakhstan|uzbekistan|"
-    r"afghanistan|iran|iraq|saudi\s+arabia|u\.?a\.?e\.?|dubai|abu\s+dhabi|qatar|"
-    r"kuwait|oman|bahrain|israel|turkey|syria|yemen|lebanon|"
-    r"united\s+kingdom|\buk\b|england|scotland|wales|ireland|france|germany|"
-    r"italy|spain|portugal|netherlands|belgium|switzerland|austria|sweden|"
-    r"norway|denmark|finland|poland|russia|ukraine|greece|hungary|romania|"
-    r"czech(\s+republic)?|iceland|"
+_FOREIGN_PLACE = _M(
+    _P("madagasca"), "nigeria", "kenya", "ethiopia", "egypt", "south africa", "morocco", "ghana",
+    "uganda", "tanzania", "zimbabwe", "sudan", "algeria", "tunisia", "libya", "senegal", "cameroon",
+    "angola", "mozambique", "zambia", "botswana", "namibia", "rwanda",
+    "pakistan", "bangladesh", "nepal", "bhutan", Joined("sri", "lanka"), "myanmar", "burma",
+    "china", "japan", "north korea", "south korea", "vietnam", "thailand", "cambodia", "laos",
+    "malaysia", "singapore", "indonesia", "philippines", "mongolia", "kazakhstan", "uzbekistan",
+    "afghanistan", "iran", "iraq", "saudi arabia", "uae", _GSeq("u", "a", "e", ok=lambda g: g == "."),
+    "dubai", "abu dhabi", "qatar",
+    "kuwait", "oman", "bahrain", "israel", "turkey", "syria", "yemen", "lebanon",
+    "united kingdom", "uk", "england", "scotland", "wales", "ireland", "france", "germany",
+    "italy", "spain", "portugal", "netherlands", "belgium", "switzerland", "austria", "sweden",
+    "norway", "denmark", "finland", "poland", "russia", "ukraine", "greece", "hungary", "romania",
+    _S("czech", Opt("republic")), "iceland",
     # "u.s." must not be the start of a longer dotted word ("Umiong U.s.t", a
     # Focus Legacy producer group — all-PG run 2026-09-29)
-    r"united\s+states(\s+of\s+america)?|\busa\b|\bu\.s(?:\.a)?(?=\.?(?:[\s,;:?!)]|$))|america|canada|"
-    r"mexico|brazil|argentina|chile|peru|colombia|venezuela|cuba|"
-    r"australia|new\s+zealand|\bfiji\b|"
-    r"africa|europe|south\s+america|north\s+america|antarctica|"
-    r"abroad|overseas|foreign\s+countr\w*|another\s+country|other\s+countr\w*|"
-    r"outside\s+india"
-    r")\b",
-    re.IGNORECASE,
+    _S("united", "states", Opt(_S("of", "america"))), "usa", _EdgeUS(), "america", "canada",
+    "mexico", "brazil", "argentina", "chile", "peru", "colombia", "venezuela", "cuba",
+    "australia", "new zealand", "fiji",
+    "africa", "europe", "south america", "north america", "antarctica",
+    "abroad", "overseas", _S("foreign", _P("countr")), "another country", _S("other", _P("countr")),
+    "outside india",
 )
+
 # A producer-group NAME the user labelled as one — "…named Rakkam China Banana
 # Group", "members in Umden Manipur Banana Pg" — is not a place. Five stored
 # Focus Legacy names hold a state or country word and were refused as
 # out-of-area (all-PG run 2026-09-29). Masked only for the out-of-area test; a
 # place written AFTER the name ("…producer groups in Assam") stays visible.
-_GROUP_WORD = r"(?:producer\s+groups?|p\.?\s*g\.?s?|group)"
-_NAMED_GROUP_SPAN = re.compile(
-    rf"\b{_GROUP_WORD}\s+(?:named|called)\s+(?P<name>[^?]*?)\s*[?.!]*\s*$", re.IGNORECASE)
-_MEMBERS_IN_GROUP_SPAN = re.compile(
-    rf"\bmembers?\s+(?:are\s+|were\s+|is\s+)?(?:there\s+)?(?:in|of)\s+(?P<name>[^?]*?\b{_GROUP_WORD}"
-    r"(?:[\s-]*\d+)?)\s*[?.!]*\s*$", re.IGNORECASE)
-_PLACE_AFTER = re.compile(r"\s(?:in|from|of|at|within)\s", re.IGNORECASE)
+def _pg_gap(g: str) -> bool:
+    r"""An optional '.' then optional whitespace (between the p and g of "pg")."""
+    rest = g[1:] if g.startswith(".") else g
+    return rest.strip() == ""
+
+
+_GROUP_WORD = _A(
+    _S("producer", W("group", "groups")), W("pg", "pgs", "group"),
+    _GSeq("pg", "s", ok=lambda g: g == "."),
+    _GSeq("p", _A(W("g", "gs"), _GSeq("g", "s", ok=lambda g: g == ".")), ok=_pg_gap),
+)
+_NAMED_GROUP_HEAD = Matcher(_GSeq(_GROUP_WORD, W("named", "called"),
+                                  ok=lambda g: g.lstrip(".") != "" and g.lstrip(".").strip() == ""
+                                  and len(g) - len(g.lstrip(".")) <= 1))
+_MEMBERS_HEAD = Matcher(_S(W("member", "members"), Opt(W("are", "were", "is")), Opt("there"),
+                           W("in", "of")))
+
+
+def _edge_tail_end(t: str) -> int:
+    """Where the trailing spaces / ? . ! / spaces tail starts (the end of a name before it)."""
+    e = len(t)
+    while e and t[e - 1].isspace():
+        e -= 1
+    while e and t[e - 1] in "?.!":
+        e -= 1
+    while e and t[e - 1].isspace():
+        e -= 1
+    return e
+
+
+def _edge_after_space(t: str, i: int) -> int:
+    """Index after the whitespace run at t[i:] (-1 when there is not at least one)."""
+    j = i
+    while j < len(t) and t[j].isspace():
+        j += 1
+    return j if j > i else -1
+
+
+def _ends_with_group_word(c: str) -> bool:
+    r"""`c` ends with producer group(s) / group / pg / p.g / p.g.s, optionally
+    followed by a number ("… Group 2", "… pg-3"), after any spaces / dashes."""
+    cands = [c]
+    i = len(c)
+    while i and c[i - 1].isdigit():
+        i -= 1
+    if i < len(c):
+        d = c[:i]
+        while d and (d[-1].isspace() or d[-1] == "-"):
+            d = d[:-1]
+        cands.append(d)
+    return any(x and _edge_is_word_char(x[-1]) and _GROUP_TAIL.search(x) for x in cands)
+
+
+_GROUP_TAIL = Matcher(Seq(_GROUP_WORD, END))
+
+
+def _named_span(ql: str):
+    """(start, end) of the name after "… group named / called", to the end."""
+    for h in _NAMED_GROUP_HEAD.finditer(ql):
+        s = _edge_after_space(ql, h.end())
+        if s < 0:
+            continue
+        e = max(_edge_tail_end(ql), s)
+        if "?" not in ql[s:e]:
+            return s, e
+    return None
+
+
+def _members_span(ql: str):
+    """(start, end) of "members in <name ending in a group word>", to the end."""
+    for h in _MEMBERS_HEAD.finditer(ql):
+        s = _edge_after_space(ql, h.end())
+        if s < 0:
+            continue
+        e = max(_edge_tail_end(ql), s)
+        name = ql[s:e]
+        if "?" not in name and _ends_with_group_word(name):
+            return s, e
+    return None
+
+
+def _place_after(name: str) -> bool:
+    """in / from / of / at / within between spaces inside the name."""
+    return any(w in ("in", "from", "of", "at", "within") for w in (" " + name + " ").split())
+
+
 # A Meghalaya VILLAGE can carry a state's name: "MANIPUR" is a village in Umling
 # block, Ri Bhoi (Focus Legacy all-villages run 2026-09-29). "… for X village" is
 # a village name, not the state.
-_NAMED_VILLAGE_SPAN = re.compile(
-    r"\b(?:in|for|of|at|to)\s+(?:the\s+)?(?P<name>[a-z0-9(&][\w().'&\- ]{0,60}?)\s+village\b", re.IGNORECASE)
+_VILLAGE_NAME_CHARS = "().'&- "
+
+
+def _village_name_end(ql: str, s: int) -> int:
+    """End of the shortest name at s (≤ 61 characters) followed by
+    whitespace + "village" + a word end, or -1."""
+    n = len(ql)
+    if s >= n or not ((ql[s].isascii() and ql[s].isalnum()) or ql[s] in "(&"):
+        return -1
+    for e in range(s + 1, min(n, s + 61) + 1):
+        if e > s + 1:
+            ch = ql[e - 1]
+            if not (_edge_is_word_char(ch) or ch in _VILLAGE_NAME_CHARS):
+                return -1
+        j = _edge_after_space(ql, e)
+        if j >= 0 and ql[j:j + 7].lower() == "village" and (
+                j + 7 == n or not _edge_is_word_char(ql[j + 7])):
+            return e
+    return -1
+
+
+def _mask_village_names(ql: str) -> str:
+    """"… in / for / of / at / to [the] X village": X replaced by a space."""
+    out, last = [], 0
+    toks = tokens(ql)
+    for tok in toks:
+        if tok.start < last or tok.low not in ("in", "for", "of", "at", "to"):
+            continue
+        q = _edge_after_space(ql, tok.end)
+        if q < 0:
+            continue
+        starts = []
+        if ql[q:q + 3].lower() == "the":
+            q2 = _edge_after_space(ql, q + 3)
+            if q2 >= 0:
+                starts.append(q2)
+        starts.append(q)
+        for s in starts:
+            e = _village_name_end(ql, s)
+            if e < 0:
+                continue
+            j = _edge_after_space(ql, e)
+            m_end = j + 7
+            whole = ql[tok.start:m_end]
+            out.append(ql[last:tok.start])
+            out.append(whole.replace(ql[s:e], " "))
+            last = m_end
+            break
+    out.append(ql[last:])
+    return "".join(out)
 
 
 # What a scheme / year chip appends after the name ("… Group for Focus Legacy
 # across all financial years") — removed before the name spans are matched.
-_CHIP_SCOPE_TAIL = re.compile(
-    r"(?:\s*,?\s+(?:for|under|in|across)\s+(?:the\s+)?(?:focus\s+legacy|focus\s+plus|mgnrega|pmay-?g|"
-    r"cm\s+elevate(?:\s+legacy)?|all\s+of\s+meghalaya|all\s+(?:the\s+)?(?:financial\s+)?years(?:\s+combined)?)"
-    r"(?:\s+scheme)?)+\s*[?.!]*\s*$", re.IGNORECASE)
+_CHIP_TARGET = _S(W("for", "under", "in", "across"), Opt("the"),
+                  _A(_S("focus", "legacy"), _S("focus", "plus"), W("mgnrega", "pmayg"),
+                      _GSeq("pmay", "g", ok=lambda g: g == "-"),
+                      _S("cm", "elevate", Opt("legacy")), _S("all", "of", "meghalaya"),
+                      _S("all", Opt("the"), Opt("financial"), "years", Opt("combined"))),
+                  Opt("scheme"))
+
+
+def _chip_gap(g: str) -> bool:
+    r"""Between chips: optional spaces, an optional ',', then one or more spaces."""
+    if g.strip() == "":
+        return g != ""
+    g2 = g.lstrip()
+    return g2.startswith(",") and g2[1:] != "" and g2[1:].strip() == ""
+
+
+class _EdgeChipLead(Node):
+    """Only where the separator before this word is a chip separator."""
+
+    def ends(self, ctx, i, caps):
+        if i > 0 and _chip_gap(ctx.gap(i)):
+            yield i, caps
+
+
+class _EdgeChipRun(Node):
+    """One or more chips, each after a chip separator, up to the last word."""
+
+    def ends(self, ctx, i, caps):
+        n = len(ctx.toks)
+        for j, c2 in _CHIP_TARGET.ends(ctx, i, caps):
+            if j == n:
+                yield j, c2
+            elif j > i and _chip_gap(ctx.gap(j)):
+                yield from self.ends(ctx, j, c2)
+
+
+_CHIP_SCOPE_RUN = Matcher(Seq(_EdgeChipLead(), _EdgeChipRun(), END))
+
+
+def _strip_chip_tail(ql: str) -> str:
+    """Drop trailing chips: ", for Focus Legacy across all financial years?"."""
+    if _edge_tail_end(ql) != _last_token_end(ql):
+        return ql
+    h = _CHIP_SCOPE_RUN.search(ql)
+    if h is None:
+        return ql
+    toks = tokens(ql)
+    k = next(n for n, t in enumerate(toks) if t.start == h.start())
+    return ql[:toks[k - 1].end]
+
+
+def _last_token_end(t: str) -> int:
+    toks = tokens(t)
+    return toks[-1].end if toks else 0
 
 
 def _mask_group_name(ql: str) -> str:
-    ql = _CHIP_SCOPE_TAIL.sub("", ql)
-    ql = _NAMED_VILLAGE_SPAN.sub(lambda m: m.group(0).replace(m.group("name"), " "), ql)
-    for rx in (_NAMED_GROUP_SPAN, _MEMBERS_IN_GROUP_SPAN):
-        m = rx.search(ql)
-        if m and not _PLACE_AFTER.search(" " + m.group("name") + " "):
-            return ql[:m.start("name")] + " " + ql[m.end("name"):]
+    ql = _strip_chip_tail(ql)
+    ql = _mask_village_names(ql)
+    for find in (_named_span, _members_span):
+        sp = find(ql)
+        if sp and not _place_after(ql[sp[0]:sp[1]]):
+            return ql[:sp[0]] + " " + ql[sp[1]:]
     return ql
 
 
-_MEGHALAYA_PLACE = re.compile(
-    r"\b("
-    r"meghalaya|"
-    r"(east|west|north|south|south\s+west|eastern\s+west)\s+(garo|khasi|jaintia)\s+hills?|"
-    r"garo\s+hills?|khasi\s+hills?|jaintia\s+hills?|ri[\s-]?bhoi|ribhoi|"
-    r"[ewns]\.?[gkj]\.?h|s\.?w\.?[gk]\.?h|e\.?w\.?k\.?h|"
-    r"shillong|tura|jowai|nongpoh|baghmara|williamnagar|resubelpara|"
-    r"nongstoin|mawkyrwat|ampati|khliehriat|mairang|nongthymmai|"
-    r"mawsynram|sohra|cherrapunj\w*|dawki|nartiang|mawphlang"
-    r")\b",
-    re.IGNORECASE,
+def _district_abbrev(t: str) -> bool:
+    r"""EGH / W.K.H / S.W.G.H / E.W.K.H style district abbreviations, as whole
+    words: one of e/w/n/s, then g/k/j, then h; or s, w, g/k, h; or e, w, k, h —
+    each letter optionally followed by a '.'."""
+    low = t.lower()
+    n = len(low)
+    shapes = (("ewns", "gkj", "h"), ("s", "w", "gk", "h"), ("e", "w", "k", "h"))
+    for i in range(n):
+        if i and _edge_is_word_char(low[i - 1]):
+            continue
+        for shape in shapes:
+            j, ok = i, True
+            for k, chars in enumerate(shape):
+                if k and j < n and low[j] == ".":
+                    j += 1
+                if j < n and low[j] in chars:
+                    j += 1
+                else:
+                    ok = False
+                    break
+            if ok and (j == n or not _edge_is_word_char(low[j])):
+                return True
+    return False
+
+
+_MEGHALAYA_PLACE = _EdgeAnyOf(
+    _M("meghalaya",
+       _S(_A(W("east", "west", "north", "south"), _S("south", "west"), _S("eastern", "west")),
+          W("garo", "khasi", "jaintia"), W("hill", "hills")),
+       _S(W("garo", "khasi", "jaintia"), W("hill", "hills")),
+       Joined("ri", "bhoi"), "ribhoi",
+       W("shillong", "tura", "jowai", "nongpoh", "baghmara", "williamnagar", "resubelpara",
+         "nongstoin", "mawkyrwat", "ampati", "khliehriat", "mairang", "nongthymmai",
+         "mawsynram", "sohra", "dawki", "nartiang", "mawphlang"),
+       _P("cherrapunj")),
+    _GRule(_district_abbrev),
 )
+
+
+def _fy_digits(w: str) -> bool:
+    """fy23, fy2023 ("fy" at a word start, then two or more digits glued on)."""
+    w = w.lower()
+    return w.startswith("fy") and len(w) >= 4 and w[2].isdigit() and w[3].isdigit()
+
+
+def _two_digits_lead(w: str) -> bool:
+    return len(w) >= 2 and w[0].isdigit() and w[1].isdigit()
+
 
 # ── Strong scheme intent (any of the four) — skip every edge check below ───
 _SCHEME_STRONG = [
-    r"\bmgnrega\b", r"\bmnrega\b", r"\bnrega\b", r"\bmgnregs\b",
-    r"\bpmay\b", r"\bpmayg\b", r"\bpmay[\s-]?g\b", r"\bawaas\b", r"\bawas\b",
-    r"\bfocus[\s-]?plus\b", r"\bfocusplus\b", r"focus\s*\+", r"\bproducer group",
-    r"\bcm[\s-]?elevate\b", r"\bcmelevate\b", r"\bpiggery\b", r"\bpoultry\b",
-    r"\bprime small enterprise\b", r"\bprime tourism vehicle\b", r"\bwarehouse scheme\b",
-    r"\bsericulture\b", r"\bmotorcaravan\b", r"\bapplicant_?category\b", r"\bdata_?verified\b",
-    r"\bmeghalayaone\b", r"\bmbda\b", r"\bdisbursement", r"\btranche\b", r"\bbatch_label\b",
-    r"\bindira\s+awaas\b", r"\brural\s+hous", r"\bgramin\b",
-    r"\bperson[\s-]?days?\b", r"\bmandays?\b", r"\bjob\s*card", r"\bmuster\b",
-    r"\bwage", r"\bexpenditure\b", r"\bunskilled\b", r"\bsemi[\s-]?skilled\b",
-    r"\bmaterial\s+(cost|exp)", r"\bhousehold", r"\bemployment\b",
-    r"\b100\s*days?\b", r"\bhundred\s+days?\b", r"\blabour\s+budget\b",
-    r"\bhouse(s)?\s+(sanction|complet|built|in\s+progress|pending)", r"\bsanction",
-    r"\brelease", r"\bunspent\b", r"\butili[sz]ation\b", r"\binstal", r"\btranche\b",
-    r"\bge[\s-]?tag", r"\bbeneficiar", r"\bpucca\b", r"\bkutcha\b",
-    r"\bdistrict\b", r"\bblock\b", r"\bvillage\b", r"\bpanchayat\b", r"\bgram\s+panchayat\b",
-    r"\bfinancial\s*year\b", r"\bfy\s*\d\d", r"\b(?:19|20|21)\d\d\s*[-/]\s*\d{2,4}\b",
-    r"\b(?:19|20|21)\d\d\b", r"\bcrore\b", r"\blakh\b",
-    r"\bmeghalaya\b", r"\bgaro\s+hills?\b", r"\bkhasi\s+hills?\b", r"\bjaintia\s+hills?\b",
-    r"\bri[\s-]?bhoi\b", r"\bshillong\b", r"\btura\b", r"\bjowai\b", r"\bnongstoin\b",
-    r"\bwilliamnagar\b", r"\bbaghmara\b", r"\bresubelpara\b", r"\bmairang\b",
-    r"\bmawkyrwat\b", r"\bkhliehriat\b", r"\bnongpoh\b", r"\bampati\b",
-    r"\beligib", r"\bscheme\b", r"\bcomponent", r"\bsubsidy\b", r"\bconvergence\b",
-    r"\bhow\s+many\b", r"\btotal\b", r"\bcompare\b", r"\bcomparison\b", r"\btrend\b",
-    r"\bby\s+(district|block|village|year)\b", r"\bcompletion\s+rate\b",
+    _M(W("mgnrega", "mnrega", "nrega", "mgnregs", "pmay", "pmayg", "awaas", "awas", "focusplus",
+         "cmelevate", "piggery", "poultry", "sericulture", "motorcaravan", "applicant_category",
+         "applicantcategory", "data_verified", "dataverified", "meghalayaone", "mbda", "tranche",
+         "batch_label", "gramin", "mandays", "manday", "muster", "expenditure", "unskilled",
+         "employment", "unspent", "utilisation", "utilization", "pucca", "kutcha", "district",
+         "block", "village", "panchayat", "crore", "lakh", "meghalaya", "shillong", "tura", "jowai",
+         "nongstoin", "williamnagar", "baghmara", "resubelpara", "mairang", "mawkyrwat",
+         "khliehriat", "nongpoh", "ampati", "scheme", "subsidy", "convergence", "total", "compare",
+         "comparison", "trend", "financialyear"),
+       _P("disbursement", "wage", "household", "sanction", "release", "instal", "beneficiar",
+          "eligib", "component", "getag", "jobcard"),
+       Joined("focus", "plus"), _S("producer", _P("group")), Joined("cm", "elevate"),
+       "prime small enterprise", "prime tourism vehicle", "warehouse scheme",
+       "indira awaas", _S("rural", _P("hous")), Joined("person", ("day", "days")),
+       _S("job", _P("card")), Joined("semi", "skilled"), _S("material", _P("cost", "exp")),
+       _A(W("100day", "100days"), _S("100", W("day", "days"))), _S("hundred", W("day", "days")),
+       "labour budget",
+       _S(W("house", "houses"), _A(_P("sanction", "complet", "built", "pending"),
+                                    _S("in", _P("progress")))),
+       Seq("ge", _P("tag")), "gram panchayat", _S("financial", "year"),
+       Pred(_fy_digits), _S("fy", Pred(_two_digits_lead)), Pred(_edge_year),
+       _S(W("garo", "khasi", "jaintia"), W("hill", "hills")), Joined("ri", "bhoi"),
+       "how many", _S("by", W("district", "block", "village", "year")), "completion rate"),
+    _GRule(_focus_plus),
 ]
 
 # ── Meta-conversation — about the chat itself, not the schemes ──────────────
@@ -380,15 +937,17 @@ _SCHEME_STRONG = [
 # are you", a different question) or left to the LLM.
 _CAPABILITY = [
     # "can/will/are you able to ... answer/help/tell/give"
-    r"\b(can|could|will|would|are)\s+(you|u)\s+(be\s+)?(able\s+to\s+)?"
-    r"(answer|reply|respond|help|assist|tell|give|provide|handle|do)\b",
-    r"\b(are|r)\s+(you|u)\s+(able|capable)\b",
-    r"\b(do|does)\s+(you|u)\s+(know|have|support|cover|handle)\b",
-    r"\bis\s+it\s+possible\s+(for\s+(you|u)\s+)?to\s+(answer|help|get|find|know)\b",
-    r"\b(you|u)\s+(can|could)\s+(answer|help|tell|give|provide)\b",
-    r"\bwhat\s+(kind|type|sort)s?\s+of\s+(questions?|queries|things|data)\b",
-    r"\bcan\s+i\s+(ask|get|know|find|query)\b",
-    r"\bhow\s+(accurate|reliable|correct|trustworthy)\s+(are|is)\b",
+    _M(_S(W("can", "could", "will", "would", "are"), W("you", "u"), Opt("be"), Opt(_S("able", "to")),
+          W("answer", "reply", "respond", "help", "assist", "tell", "give", "provide", "handle", "do"))),
+    _M(_S(W("are", "r"), W("you", "u"), W("able", "capable"))),
+    _M(_S(W("do", "does"), W("you", "u"), W("know", "have", "support", "cover", "handle"))),
+    _M(_S("is", "it", "possible", Opt(_S("for", W("you", "u"))), "to",
+          W("answer", "help", "get", "find", "know"))),
+    _M(_S(W("you", "u"), W("can", "could"), W("answer", "help", "tell", "give", "provide"))),
+    _M(_S("what", _pl("kind", "type", "sort"), "of", W("question", "questions", "queries", "things",
+                                                       "data"))),
+    _M(_S("can", "i", W("ask", "get", "know", "find", "query"))),
+    _M(_S("how", W("accurate", "reliable", "correct", "trustworthy"), W("are", "is"))),
 ]
 
 # A capability phrase wrapped around an ACTUAL request — "can you tell me the
@@ -397,61 +956,163 @@ _CAPABILITY = [
 # aggregate word, place or year makes it one, so it must reach the pipeline
 # normally. Kept narrow on purpose: the bare "questions"/"answers"/"data" of a
 # genuine capability check are NOT in here.
-_ASKS_FOR_A_FIGURE = re.compile(
+def _fy20(w: str) -> bool:
+    """fy2023 ("fy", "20", then two digits, with no space)."""
+    w = w.lower()
+    return len(w) == 6 and w.startswith("fy20") and w[4:].isdigit()
+
+
+def _y20(w: str) -> bool:
+    return len(w) == 4 and w.startswith("20") and w.isdigit()
+
+
+_ASKS_FOR_A_FIGURE = _M(
     # "tell me / explain / what is ... <scheme>" is a real KNOWLEDGE request,
     # even though it opens with a capability phrase ("can you tell me about
     # MGNREGA"). The scheme is the SUBJECT being asked about, not the topic of
     # a can-you check.
-    r"\b(?:tell|explain|describe)\b[^?]{0,30}"
-    r"\b(?:mgnrega|mnrega|nrega|pmay|awaas|awas|focus\s*\+?|focusplus|"
-    r"cm\s*elevate|cmelevate|focus\s*legacy|focuslegacy|producer\s*groups?)\b|"
-    r"\b(how\s+many|how\s+much|total|sum|count|number\s+of|average|avg|"
-    r"person[\s-]?days?|expenditure|spend(?:ing)?|spent|wages?|job\s?cards?|"
-    r"houses?|sanction\w*|complet\w*|disburs\w*|beneficiar\w*|applications?|"
-    r"breakdown|compare|comparison|list\s+of|top\s+\d|highest|lowest|"
-    r"by\s+(?:district|block|village|year)|district[\s-]?wise|block[\s-]?wise|"
-    r"eligib\w*|documents?\s+required|who\s+can\s+apply|how\s+(?:do|to)\s+i\s+apply|"
-    r"\bfy\s?20\d\d|\b20\d\d\b)\b",
-    re.IGNORECASE,
+    Seq(W("tell", "explain", "describe"), _GCharGap(30, "?"),
+        _A(W("mgnrega", "mnrega", "nrega", "pmay", "awaas", "awas", "focus", "focusplus",
+              "cmelevate", "focuslegacy"),
+            Joined("cm", "elevate"), Joined("producer", ("group", "groups")))),
+    _A(W("total", "sum", "count", "average", "avg", "expenditure", "spend", "spending", "spent",
+          "wage", "wages", "house", "houses", "applications", "application", "breakdown", "compare",
+          "comparison", "highest", "lowest"),
+        _P("sanction", "complet", "disburs", "beneficiar", "eligib"),
+        _A("how many", "how much", "number of", "list of", "who can apply"),
+        Joined("person", ("day", "days")), Joined("job", ("card", "cards")),
+        _S("top", Pred(lambda w: len(w) == 1 and w.isdigit())),
+        _S("by", W("district", "block", "village", "year")),
+        Joined("district", "wise"), Joined("block", "wise"),
+        _S(W("document", "documents"), "required"),
+        _S("how", W("do", "to"), "i", "apply"),
+        Pred(_fy20), _S("fy", Pred(_y20)), Pred(_y20)),
 )
 
 _META_CONV = [
-    r"\b(my|your)\s+(first|last|previous|prior|earlier)\s+(question|query|message|answer)",
-    r"what\s+did\s+(i|you)\s+(ask|say|answer|tell|reply)",
-    r"what\s+was\s+(my|your|the)\s+(question|answer|response|last|first)",
-    r"(repeat|rephrase|restate|say\s+again)\s+(my|the|that|your|it)\b",
-    r"(summari[sz]e|summary\s+of)\s+(our|this|the)\s+(conversation|chat|discussion)",
-    r"what\s+have\s+(we|i)\s+(discussed|talked|covered|asked)",
+    _M(_S(W("my", "your"), W("first", "last", "previous", "prior", "earlier"),
+          _P("question", "query", "message", "answer"))),
+    _M(_S(_sfx("what"), "did", W("i", "you"), _P("ask", "say", "answer", "tell", "reply"))),
+    _M(_S(_sfx("what"), "was", W("my", "your", "the"),
+          _P("question", "answer", "response", "last", "first"))),
+    _M(_S(_A(_sfx("repeat", "rephrase", "restate"), _S(_sfx("say"), "again")),
+          W("my", "the", "that", "your", "it"))),
+    _M(_S(_A(_sfx("summarise", "summarize"), _S(_sfx("summary"), "of")), W("our", "this", "the"),
+          _P("conversation", "chat", "discussion"))),
+    _M(_S(_sfx("what"), "have", W("we", "i"), _P("discussed", "talked", "covered", "asked"))),
 ]
+
+
+def _edge_together(t: str) -> bool:
+    """"what" / "how much" then, within 20 characters, together / combined /
+    altogether / in total (the last word ending at a word edge)."""
+    low = t.lower()
+    n = len(low)
+    ends = []
+    i = low.find("what")
+    while i >= 0:
+        ends.append(i + 4)
+        i = low.find("what", i + 1)
+    i = low.find("how")
+    while i >= 0:
+        j = _edge_after_space(low, i + 3)
+        if j >= 0 and low.startswith("much", j):
+            ends.append(j + 4)
+        i = low.find("how", i + 1)
+    for e in ends:
+        for s in range(e, min(n, e + 20) + 1):
+            if "\n" in low[e:s]:
+                break
+            for word in ("together", "combined", "altogether"):
+                f = s + len(word)
+                if low.startswith(word, s) and (f == n or not _edge_is_word_char(low[f])):
+                    return True
+            if low.startswith("in", s):
+                j = _edge_after_space(low, s + 2)
+                if j >= 0 and low.startswith("total", j) and (
+                        j + 5 == n or not _edge_is_word_char(low[j + 5])):
+                    return True
+    return False
+
+
+_PRONOUNS = ("it", "its", "that", "those", "these", "them", "they", "this")
+
+
+def _edge_wh_pronoun(t: str) -> bool:
+    """A wh-word first, a pronoun within 45 characters, then at most 15 more
+    characters before trailing spaces / '?' (the wh-word and pronoun whole words)."""
+    if not t or not _edge_is_word_char(t[0]):
+        return False
+    toks = tokens(t)
+    if not toks or toks[0].low not in ("how", "why", "when", "where", "what", "who"):
+        return False
+    e0 = toks[0].end
+    for k in range(1, len(toks)):
+        s = toks[k].start
+        if s - e0 > 45 or "\n" in t[e0:s]:
+            break
+        ends = []
+        low = toks[k].low
+        if low in _PRONOUNS:
+            ends.append(toks[k].end)
+        if low == "this" and k + 1 < len(toks) and toks[k + 1].low == "one" and _g_space(t[toks[k].end:toks[k + 1].start]):
+            ends.append(toks[k + 1].end)
+        if low == "the" and k + 1 < len(toks) and toks[k + 1].low == "same" and _g_space(t[toks[k].end:toks[k + 1].start]):
+            ends.append(toks[k + 1].end)
+        for e in ends:
+            a = _edge_rstrip(t[e:], "?")
+            if len(a) <= 15 and "\n" not in a:
+                return True
+    return False
+
 
 # ── Follow-up fragments — reference a prior answer via pronouns / arithmetic ──
 # No scheme keyword, but they only mean something in context — the pipeline's
 # follow-up rewrite handles them, so never block these here.
+_COMPARATIVE = ("more", "most", "less", "least", "higher", "highest", "lower", "lowest", "bigger",
+                "biggest", "smaller", "smallest", "greater", "greatest", "max", "min")
 _FOLLOWUP = [
-    r"\b(sum|total|add|plus|combined?|altogether)\b.{0,30}\b(both|them|these|those|two|it)\b",
-    r"\b(both|them|these|those)\b.{0,30}\b(sum|total|added?|plus|combined?|together|altogether)\b",
-    r"(what|how\s+much).{0,20}(together|combined|altogether|in\s+total)\b",
-    r"\b(difference|gap|subtract|minus)\b.{0,30}\b(both|them|these|those|two|the\s+other)\b",
-    r"which\s+(is|one\s+is|are|has)\s+(the\s+)?(more|most|less|least|higher|highest|lower|lowest|bigger|biggest|smaller|smallest|greater|greatest|max|min)\b",
-    r"(more|less|higher|lower|bigger|smaller|greater)\s+(of\s+)?(the\s+)?(two|both|them|these)\b",
-    r"\b(in\s+this|from\s+(this|above|that|the\s+above)|of\s+these|among\s+these)\b",
-    r"^(what\s+about|how\s+about|and|also|plus|what\s+of|what\s+if|now|then|ok(ay)?\s+and)\b.{0,45}$",
-    r"^(now\s+)?(show|give|tell|calculate|compute|find|sort|order|rank|list)\s+(me\s+)?(both|them|the\s+total|the\s+sum|the\s+combined|by\s+\w+|for\s+\w+)\b",
-    r"^(add|sum|combine|total)\s+(them|both|those|these)\s*(up)?[\s?]*$",
-    r"^(and|but|so)\s+(the|what|for|in|by|about)\b.{0,45}$",
-    r"^(how|why|when|where|what|who)\b.{0,45}\b(it|its|that|those|these|them|they|this(?:\s+one)?|the\s+same)\b.{0,15}[\s?]*$",
-    r"^(explain|why|reason|elaborate|expand|clarify|correct|right|wrong|is\s+this|is\s+that|you\s+gave|you\s+said)\b",
-    r"\b(is\s+this|is\s+that|is\s+it)\s+(correct|right|wrong|true|false|accurate|sure)\b",
-    r"\b(you\s+gave|you\s+said|you\s+told|you\s+mentioned|you\s+showed)\b",
-    r"^(yes|no|correct|wrong|exactly|not\s+right|that.?s\s+(right|wrong|correct|incorrect))\b",
+    _M(Seq(W("sum", "total", "add", "plus", "combine", "combined", "altogether"), _GCharGap(30, "\n"),
+           W("both", "them", "these", "those", "two", "it"))),
+    _M(Seq(W("both", "them", "these", "those"), _GCharGap(30, "\n"),
+           W("sum", "total", "add", "added", "plus", "combine", "combined", "together", "altogether"))),
+    _GRule(_edge_together),
+    _M(Seq(W("difference", "gap", "subtract", "minus"), _GCharGap(30, "\n"),
+           _A(W("both", "them", "these", "those", "two"), _S("the", "other")))),
+    _M(_S(_sfx("which"), _A(W("is", "are", "has"), _S("one", "is")), Opt("the"), W(*_COMPARATIVE))),
+    _M(_S(_sfx("more", "less", "higher", "lower", "bigger", "smaller", "greater"), Opt("of"),
+          Opt("the"), W("two", "both", "them", "these"))),
+    _M("in this", "of these", "among these",
+       _S("from", _A(W("this", "above", "that"), _S("the", "above")))),
+    _EdgeLead(_A("what about", "how about", "and", "also", "plus", "what of", "what if", "now",
+                 "then"), _S(W("ok", "okay"), "and"), upto=45),
+    _EdgeLead(_S(Opt("now"), W("show", "give", "tell", "calculate", "compute", "find", "sort", "order",
+                               "rank", "list"), Opt("me"),
+                 _A(W("both", "them"), _S("the", W("total", "sum", "combined")),
+                     _S(W("by", "for"), ANY)))),
+    _EdgeWhole(_S(W("add", "sum", "combine", "total"),
+                  _A(_S(W("them", "both", "those", "these"), Opt("up")),
+                      W("themup", "bothup", "thoseup", "theseup"))), tail="?"),
+    _EdgeLead(_S(W("and", "but", "so"), W("the", "what", "for", "in", "by", "about")), upto=45),
+    _GRule(_edge_wh_pronoun),
+    _EdgeLead(W("explain", "why", "reason", "elaborate", "expand", "clarify", "correct", "right",
+                "wrong"), _A("is this", "is that", "you gave", "you said")),
+    _M(_S("is", W("this", "that", "it"), W("correct", "right", "wrong", "true", "false", "accurate",
+                                          "sure"))),
+    _M(_S("you", W("gave", "said", "told", "mentioned", "showed"))),
+    _EdgeLead(W("yes", "no", "correct", "wrong", "exactly"), _S("not", "right"),
+              _S(_THAT_S, W("right", "wrong", "correct", "incorrect"))),
 ]
 
 # ── Domain whitelist — a question with NONE of these words is off-topic ─────
+# A plain string is found ANYWHERE in the lower-cased text (a substring, as
+# before: "beneficiar" matches "beneficiaries"; "focus" also covers "focus+",
+# found anywhere); the word-bounded entries are word matchers.
 _DOMAIN_WORDS = [
     # scheme names + synonyms
     "mgnrega", "mnrega", "nrega", "pmay", "pmayg", "pmay-g", "awaas", "awas",
     "indira awaas", "employment guarantee", "rural housing", "rural employment",
-    "focus plus", "focus+", "focusplus", "focus-plus", "producer group",
+    "focus plus", "focus", "focusplus", "focus-plus", "producer group",
     "focus legacy", "focuslegacy", "producer groups", "pg id", "pg member",
     "pg-focus", "pg-lamp",
     # "PG" is Focus Legacy's everyday shorthand — the UI's own starter chips say
@@ -459,21 +1120,34 @@ _DOMAIN_WORDS = [
     # "is there any pg group with name sakania?" had no domain word and was
     # bounced as off-topic while the identical question with "producer group"
     # went through (reported 2026-09-23). Word-boundary, never a bare "pg":
-    # these entries are used as unanchored regexes, and a loose "pg" matches
-    # inside "upgrade", "upgrading" and "mpg".
-    r"\bpgs?\b",
+    # plain entries are substring checks, and a loose "pg" matches inside
+    # "upgrade", "upgrading" and "mpg".
+    _M(W("pg", "pgs")),
     "cm elevate", "cmelevate", "cm-elevate", "piggery", "poultry", "warehouse scheme",
     # CM Elevate Legacy's own vocabulary (lender and desanction fields).
     "lifcom", "desanction", "loan entity", "lender",
     "sericulture", "motorcaravan", "prime small enterprise", "prime tourism vehicle",
     "any business venture", "cinema theatre", "sports and wellness", "green taxi",
     "meghalayaone", "mbda", "meghalaya basin development", "farmer cash benefit",
+    # "I want to know about farmers getting money" is a Focus question (live 2026-10-18)
+    "farmer",
+    # Scheme terms an officer asks the meaning of: "What is DBT?" had no domain
+    # word and got the "only schemes" reply (user report 2026-10-14).
+    _M(W("dbt", "secc")), "gram sabha", "muster roll", "social audit", "ombudsperson",
+    "awaas", _M(W("pfms", "shg", "shgs")), "self help group", "self-help group", "rozgar sahayak",
+    "geo-tagg", "c&rd", "direct benefit transfer",
     "benefit",
     # work / employment
     "beneficiar", "job card", "muster", "person day", "personday", "person-day",
     "manday", "man-day", "wage", "unskilled", "semi-skilled", "material cost",
     "100 day", "hundred day", "household", "worker", "labour", "labor",
     "employment", "works", "asset", "labour budget", "women employment",
+    # "Persons employed in Dalu constituency", "people who got work in Ampathi
+    # assembly constituency" had no domain word and were refused as off-topic
+    # (hierarchy matrix run 2026-10-14)
+    _M(W("employed"), _GSeq("got", W("work", "employment", "job", "jobs"), ok=lambda g: g == " "),
+       _P("constituenc")), "applicant", "application",
+    "disburse", "remitt", _M(W("member", "members")),
     # housing
     "house", "housing", "dwelling", "pucca", "kutcha", "sanction", "geotag",
     "geo-tag", "geo tag", "installment", "instalment", "tranche", "completion certificate",
@@ -507,9 +1181,11 @@ _DOMAIN_WORDS = [
     # time — any 4-digit year or FY-range form (in OR out of the data window, so
     # an out-of-bound year like "1999-20" reaches the pipeline's year guard
     # instead of being bounced here as off-topic)
-    r"\b(?:19|20|21)\d\d\b", r"(?:19|20|21)\d\d\s*[-/]\s*\d{2,4}",
+    _M(Pred(_edge_year)), _GRule(_edge_fy_range),
     "year", "month", "quarter", "period", "fiscal",
 ]
+
+
 
 
 # ── Response templates ─────────────────────────────────────────────────────
@@ -630,24 +1306,50 @@ _RESPONSES = {
 # starters — reads as if the question wasn't listened to (reported 2026-09-17).
 # When exactly one scheme is named, both the sentence and the chips narrow to
 # it; a question naming none, or several, keeps the general reply unchanged.
+def _edge_ws_dash(g: str) -> bool:
+    return all(c.isspace() or c == "-" for c in g)
+
+
+class _EdgeCMElevate:
+    """CM Elevate, not when qualified as the Legacy dataset: not right after
+    "legacy " and not followed by any spaces / dashes then legacy / disbursement(s)."""
+
+    def search(self, text):
+        t = text or ""
+        low = t.lower()
+        for h in _CM_ELEVATE.finditer(t):
+            if low[:h.start()].endswith("legacy "):
+                continue
+            rest = low[h.end():]
+            j = 0
+            while j < len(rest) and (rest[j].isspace() or rest[j] == "-"):
+                j += 1
+            nxt = tokens(rest[j:])
+            if (nxt and nxt[0].start == 0
+                    and nxt[0].low in ("legacy", "disbursement", "disbursements")):
+                continue
+            return h
+        return None
+
+
+_CM_ELEVATE = Matcher(_A(Joined("cm", "elevate"), W("cmelevate")))
 _SCHEME_ALIASES = {
-    "MGNREGA": re.compile(r"\b(mgnrega|mnrega|nrega)\b", re.IGNORECASE),
-    "PMAY-G": re.compile(r"\b(pmay[\s-]?g?|awaas|awas)\b", re.IGNORECASE),
-    "Focus Plus": re.compile(r"\b(focus[\s-]?plus|focusplus)\b|focus\s*\+", re.IGNORECASE),
+    "MGNREGA": _M(W("mgnrega", "mnrega", "nrega")),
+    "PMAY-G": _M(W("pmay", "pmayg", "awaas", "awas")),
+    "Focus Plus": _EdgeAnyOf(_M(Joined("focus", "plus"), W("focusplus")), _GRule(_focus_plus)),
     # Not when qualified as the Legacy dataset — that is its own entry below.
-    "CM Elevate": re.compile(
-        r"(?<!legacy )\b(cm[\s-]?elevate|cmelevate)\b(?![\s-]*(?:legacy|disbursements?)\b)",
-        re.IGNORECASE),
-    "CM Elevate Legacy": re.compile(
-        r"\b(cm[\s-]?elevate|cmelevate)[\s-]*(legacy|disbursements?)\b|"
-        r"\blegacy[\s-]+cm[\s-]?elevate\b|\belevate[\s-]?legacy\b",
-        re.IGNORECASE),
+    "CM Elevate": _EdgeCMElevate(),
+    "CM Elevate Legacy": _M(
+        _GSeq(_A(Joined("cm", "elevate"), W("cmelevate")),
+              W("legacy", "disbursement", "disbursements"), ok=_edge_ws_dash),
+        W("cmelevatelegacy", "cmelevatedisbursement", "cmelevatedisbursements"),
+        _GSeq("legacy", _A(Joined("cm", "elevate"), W("cmelevate")), ok=_edge_ws_dash),
+        Joined("elevate", "legacy")),
     # Qualified spellings only — a bare "focus" names neither Focus scheme on its
     # own (see pipeline._is_ambiguous_focus), so narrowing on it would pick one
     # of the two at random.
-    "Focus Legacy": re.compile(
-        r"\b(focus[\s-]?legacy|focuslegacy|legacy[\s-]?focus|producer[\s-]?groups?)\b",
-        re.IGNORECASE),
+    "Focus Legacy": _M(Joined("focus", "legacy"), Joined("legacy", "focus"),
+                       Joined("producer", ("group", "groups"))),
 }
 
 # What each scheme actually holds — the data side and the knowledge side — so
@@ -736,7 +1438,7 @@ _SCHEME_STARTERS = {
 def _named_scheme(question: str) -> "str | None":
     """The single scheme named in `question`, or None when it names none or
     more than one (both of which want the general four-scheme reply)."""
-    hits = [name for name, rx in _SCHEME_ALIASES.items() if rx.search(question or "")]
+    hits = [name for name, word_matcher in _SCHEME_ALIASES.items() if word_matcher.search(question or "")]
     return hits[0] if len(hits) == 1 else None
 
 
@@ -753,10 +1455,8 @@ def _capability_reply(scheme: str) -> str:
 # data?" / "can you give Assam figures?" / "do you cover Delhi?" are all asking
 # whether the assistant CAN — so the reply has to open with "No", not with a
 # statement of scope that leaves the question hanging.
-_YES_NO_ASK = re.compile(
-    r"^\W*(?:can|could|will|would|do|does|are|is|shall|may)\b",
-    re.IGNORECASE,
-)
+_YES_NO_ASK = Matcher(Seq(START, W("can", "could", "will", "would", "do", "does", "are", "is",
+                                  "shall", "may")))
 
 
 # Places whose natural spelling isn't plain Title Case, plus the "not a place"
@@ -851,7 +1551,45 @@ def is_personal_request(question: str) -> bool:
     """A first-person request for money or a loan ("give me five thousand
     loan for me"), see _PERSONAL_REQUEST."""
     ql = (question or "").lower()
-    return any(re.search(p, ql) for p in _PERSONAL_REQUEST)
+    return any(p.search(ql) for p in _PERSONAL_REQUEST)
+
+
+def _has_domain_word(ql: str) -> bool:
+    """Any _DOMAIN_WORDS entry in the lower-cased text (plain strings as substrings)."""
+    return any((w in ql) if isinstance(w, str) else w.search(ql) for w in _DOMAIN_WORDS)
+
+
+# A misspelt scheme word is still a scheme word. "gender wise breakup the
+# applicxations" had no exact domain word, so step 6 answered "I don't have
+# information about that" in a new chat, while the same question spelt right
+# got the "which scheme?" picker (user report 2026-10-19). The rephraser
+# already fixes such typos (_vocab_typo) — but it runs after this gate, so the
+# gate never let the question reach it. Tighter than the rephraser (ratio >= 88,
+# seven letters or more, same first letter): measured against a 15K-word English
+# list, ratio 85 let 56 real words through ("german" ~ gender, "distinct" ~
+# district); this lets 9 (release, document, beneficial …) and still catches
+# 23 of 24 realistic typos. A word it lets through only reaches the pipeline,
+# whose own router still declines a non-scheme question.
+_DOMAIN_TYPO_VOCAB = frozenset(
+    {w for w in _DOMAIN_WORDS if isinstance(w, str) and w.isalpha() and len(w) >= 6}
+    | {w + "s" for w in _DOMAIN_WORDS if isinstance(w, str) and w.isalpha() and len(w) >= 6}
+    | {"applications", "applicants", "beneficiary", "beneficiaries", "disbursement", "disbursed",
+       "districts", "villages", "blocks", "households", "payments", "installments", "instalments",
+       "sanctioned", "employment", "expenditure", "panchayats", "constituency", "constituencies"})
+
+
+def _has_domain_typo(ql: str) -> bool:
+    """A word that is a close misspelling of a domain word ("applicxations")."""
+    from rapidfuzz import fuzz
+    words = "".join(c if c.isalpha() else " " for c in ql).split()
+    for w in words:
+        if len(w) < 7:
+            continue
+        letters = sorted(w)
+        for v in _DOMAIN_TYPO_VOCAB:
+            if v[0] == w[0] and (fuzz.ratio(w, v) >= 88 or (len(v) == len(w) and sorted(v) == letters)):
+                return True
+    return False
 
 
 def has_domain_vocabulary(question: str) -> bool:
@@ -860,8 +1598,7 @@ def has_domain_vocabulary(question: str) -> bool:
     Used by pipeline's continuation check: a message with none of these
     cannot continue a scheme conversation on vocabulary alone."""
     ql = (question or "").lower()
-    return (any(re.search(w, ql) for w in _DOMAIN_WORDS)
-            or any(re.search(p, ql) for p in _SCHEME_STRONG))
+    return _has_domain_word(ql) or any(p.search(ql) for p in _SCHEME_STRONG)
 
 
 def guardrail_reply(category: str) -> dict:
@@ -883,7 +1620,7 @@ def detect_harmful(question: str) -> dict | None:
     if verdict:
         return guardrail_reply(verdict.category)
     ql = (question or "").lower()
-    if any(re.search(p, ql) for p in _HARMFUL):
+    if any(p.search(ql) for p in _HARMFUL):
         return {"type": "harmful", "response": _RESPONSES["harmful"]}
     return None
 
@@ -914,7 +1651,7 @@ def detect_edge_case(question: str, has_context: bool = False) -> dict | None:
 
     # 0. Hard off-topic (weather, markets, sport, film) wins even over a place
     #    name — unless a scheme is actually named.
-    if not _SCHEME_NAMED.search(ql) and any(re.search(p, ql) for p in _HARD_OFF_TOPIC):
+    if not _SCHEME_NAMED.search(ql) and any(p.search(ql) for p in _HARD_OFF_TOPIC):
         return _edge("off_topic", ql)
 
     # 0b. Out-of-area — anchored on a place outside Meghalaya (another state, a
@@ -945,10 +1682,10 @@ def detect_edge_case(question: str, has_context: bool = False) -> dict | None:
     #     a capability check either — answering "Yes, that's what I'm here for"
     #     to those is plainly wrong, so they fall through to the off-topic banks
     #     below, which now answer them with a direct "No".
-    if (any(re.search(p, ql) for p in _CAPABILITY)
+    if (any(p.search(ql) for p in _CAPABILITY)
             and not _ASKS_FOR_A_FIGURE.search(ql)
-            and not any(re.search(p, ql) for p in _SILLY)
-            and not any(re.search(p, ql) for p in _OFF_TOPIC)):
+            and not any(p.search(ql) for p in _SILLY)
+            and not any(p.search(ql) for p in _OFF_TOPIC)):
         return _edge("capability", ql)
 
     # 0d. Personal financial advice ("where should I invest my money one
@@ -961,7 +1698,7 @@ def detect_edge_case(question: str, has_context: bool = False) -> dict | None:
     #     money noun, so "total expenditure in lakh" is unaffected. A question
     #     that also names a scheme outright is left alone — "can MGNREGA wages
     #     help me save" is a scheme question, however it is phrased.
-    if not _SCHEME_NAMED.search(ql) and any(re.search(p, ql) for p in _MONEY_ADVICE):
+    if not _SCHEME_NAMED.search(ql) and any(p.search(ql) for p in _MONEY_ADVICE):
         return _edge("money_advice", ql)
 
     # 0e. A personal request for money ("give me five thousand loan for me, i
@@ -972,17 +1709,17 @@ def detect_edge_case(question: str, has_context: bool = False) -> dict | None:
         return _edge("personal_request", ql)
 
     # 1. Clear scheme intent → straight to the pipeline, skip every check.
-    if any(re.search(p, ql) for p in _SCHEME_STRONG):
+    if any(p.search(ql) for p in _SCHEME_STRONG):
         return None
 
     # 2. Canned-reply banks, most specific first.
     # An off-topic SUBJECT beats the conversational openers above it. "can you
     # help me book a flight?" matches _IDENTITY's generic "can you help me"
-    # pattern, which would answer with the friendly capabilities rundown and
+    # opener, which would answer with the friendly capabilities rundown and
     # never decline the thing actually asked for; the flight is what the
     # message is about, so the off-topic banks take it first.
     for bank, kind in ((_SILLY, "silly"), (_OFF_TOPIC, "off_topic")):
-        if any(re.search(p, ql) for p in bank):
+        if any(p.search(ql) for p in bank):
             return _edge(kind, ql)
 
     for bank, kind in (
@@ -995,16 +1732,16 @@ def detect_edge_case(question: str, has_context: bool = False) -> dict | None:
         (_OFF_TOPIC, "off_topic"),
         (_CONFUSED, "confused"),
     ):
-        if any(re.search(p, ql) for p in bank):
+        if any(p.search(ql) for p in bank):
             return _edge(kind, ql)
 
     # 3. Meta-conversation ("what did I ask before?") → let the pipeline see it.
-    if any(re.search(p, ql) for p in _META_CONV):
+    if any(p.search(ql) for p in _META_CONV):
         return None
 
     # 4. Context-dependent follow-up fragments ("add them up", "which is higher",
     #    "explain that") → the pipeline's follow-up rewrite handles these.
-    if any(re.search(p, ql) for p in _FOLLOWUP):
+    if any(p.search(ql) for p in _FOLLOWUP):
         return None
 
     # 5. Non-English (Khasi / Garo / Bengali / Hindi / Assamese script) → the
@@ -1026,7 +1763,7 @@ def detect_edge_case(question: str, has_context: bool = False) -> dict | None:
     # gate can give, and it is still a canned reply — no model call.
     if _NAMES_UNSUPPORTED_SCHEME(ql):
         return None
-    if not has_context and not any(re.search(w, ql) for w in _DOMAIN_WORDS):
+    if not has_context and not _has_domain_word(ql) and not _has_domain_typo(ql):
         return _edge("off_topic", ql)
 
     return None

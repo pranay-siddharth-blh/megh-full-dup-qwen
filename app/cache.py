@@ -19,7 +19,6 @@ import asyncio
 import hashlib
 import json
 import logging
-import re
 import time
 from collections import OrderedDict, deque
 
@@ -27,7 +26,6 @@ from app.config import settings
 
 logger = logging.getLogger("nlp_service.cache")
 
-_WS = re.compile(r"\s+")
 # Unit separator — cannot occur in a normalized question or a scope fingerprint,
 # so it joins the two into one cache key without any risk of collision.
 _KEYSEP = "\x1f"
@@ -89,7 +87,7 @@ def _redis_key(key: str) -> str:
 
 
 def normalize(question: str) -> str:
-    return _WS.sub(" ", question.strip().lower()).rstrip("?.! ")
+    return " ".join(question.lower().split()).rstrip("?.! ")
 
 
 def cache_key(question: str, scope_key: str = "") -> str:

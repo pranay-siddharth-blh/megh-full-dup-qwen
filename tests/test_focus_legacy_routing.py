@@ -24,7 +24,7 @@ import pytest
 from app import followups
 from app.pipeline import (
     _SCHEME_DATA_YEARS,
-    _SCHEME_NAME_PATTERN,
+    _SCHEME_NAME_MATCHER,
     _focus_ambiguity_clarification,
     _fuzzy_named_schemes,
     _infer_scheme_from_terms,
@@ -35,7 +35,7 @@ from app.schema_context import SCHEME_CATALOG, SCHEME_METRICS, build_schema_cont
 
 
 def _named(question: str) -> list[str]:
-    return [s for s, p in _SCHEME_NAME_PATTERN.items() if p.search(question)]
+    return [s for s, p in _SCHEME_NAME_MATCHER.items() if p.search(question)]
 
 
 # ── registration ────────────────────────────────────────────────────────────

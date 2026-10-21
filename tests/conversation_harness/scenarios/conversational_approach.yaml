@@ -1,0 +1,97 @@
+# documents/Megh_One_AI_Conversational_Memory_Approach.pdf (v1.0, 2026-10-19): the conversations of
+# Sections 2, 8, 11 and 13 — greet back, list the schemes, answer in a sentence, refer back to the earlier
+# figure, steer back once after a tangent, never re-introduce, keep the user's language, recap.
+
+- name: CONV_walkthrough_section13
+  doc: "PDF Section 13: hello -> catalog -> data -> tangent -> thanks + follow-up with callback -> go back -> Hinglish -> recap"
+  tags: [conversational]
+  account: superadmin
+  turns:
+    - say: "Hello, how are you?"
+      expect: {route: edge, answer_contains: ["doing well"]}
+    - say: "what schemes are there?"
+      expect: {route: knowledge, answer_contains: ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Which one"],
+               chips_contain: ["Tell me about PMAY-G", "Tell me about CM Elevate Legacy"], chips_min: 6}
+    - say: "MGNREGA person-days in East Khasi Hills 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23, numbers_any: [3408697],
+               answer_not_contains: ["East Khasi Hills district, FY 2022-23"]}
+    - say: "who won the cricket match yesterday?"
+      expect: {route: edge, answer_contains: ["MGNREGA"]}
+    - say: "thanks. what about 2023-24?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24, numbers_all: [3061525, 3408697],
+               answer_contains: ["You're welcome", "down from", "FY 2022-23"]}
+    - say: "go back to the first one"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23, from_earlier: true, numbers_any: [3408697]}
+    - say: "MGNREGA ka 2023-24 wala figure dobara batao"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24, numbers_any: [3061525]}
+    - say: "what did we discuss?"
+      expect: {route: edge, answer_contains: ["2022-23", "2023-24"], answer_not_contains: ["first one"]}
+
+- name: CONV_social_turns
+  doc: "PDF Section 8.1/8.2: first greeting introduces once, second greeting does not; how are you; capability; thanks twice; goodbye"
+  tags: [conversational]
+  account: superadmin
+  turns:
+    - say: "hi"
+      expect: {route: edge, answer_contains: ["Megh One AI"], chips_contain: ["What schemes are there?"]}
+    - say: "what can you do?"
+      expect: {route: edge}
+    - say: "How many PMAY-G houses were completed in Ri Bhoi in 2023-24?"
+      expect: {route: data, scheme: PMAY-G, place: Ri Bhoi, year: FY 2023-24}
+    - say: "hello"
+      expect: {route: edge, answer_contains: ["PMAY-G"], answer_not_contains: ["I'm Megh One AI"]}
+    - say: "how are you?"
+      expect: {route: edge, answer_contains: ["PMAY-G"]}
+    - say: "thanks"
+      expect: {route: edge, edge_type: thanks, answer_contains: ["PMAY-G"], chips_min: 2}
+    - say: "thank you"
+      expect: {route: edge, edge_type: thanks, answer_not_contains: ["PMAY-G"]}
+    - say: "bye"
+      expect: {route: edge}
+
+- name: CONV_mixed_greeting_and_question
+  doc: "PDF Section 4.1: 'Hi, how many job cards in West Garo Hills in 2024-25?' is a data turn that greets back"
+  tags: [conversational]
+  account: superadmin
+  turns:
+    - say: "Hi, how many MGNREGA job cards in West Garo Hills in 2024-25?"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2024-25, numbers_any: [64939],
+               answer_contains: ["Hello!"]}
+
+- name: CONV_out_of_scope_streak
+  doc: "PDF Section 8.2: steer back to the topic once per tangent streak, not on the second tangent in a row"
+  tags: [conversational]
+  account: superadmin
+  turns:
+    - say: "MGNREGA job cards in West Garo Hills in 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills}
+    - say: "who won the cricket match yesterday?"
+      expect: {route: edge, answer_contains: ["MGNREGA"], answer_not_contains: ["I'm Megh One AI"]}
+    - say: "what is the capital of France?"
+      expect: {route: edge, answer_contains: ["whenever you want"], answer_not_contains: ["Megh One AI"]}
+    - say: "what about 2023-24?"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2023-24}
+
+- name: CONV_coverage_catalog
+  doc: "PDF Section 8.3: 'which years do you have for MGNREGA?' / 'which districts can I see?' answered from the registry"
+  tags: [conversational]
+  account: superadmin
+  turns:
+    - say: "which years do you have for MGNREGA?"
+      expect: {route: edge, edge_type: coverage, answer_contains: ["2022-23", "2025-26"]}
+    - say: "which districts can I see?"
+      expect: {route: edge, edge_type: coverage, answer_contains: ["East Khasi Hills"]}
+    - say: "which district has the most MGNREGA person-days in 2023-24?"
+      expect: {route: data, scheme: MGNREGA}
+
+- name: CONV_user_name
+  doc: "PDF Section 8.1: 'I'm Ravi' -> 'Nice to meet you, Ravi!'; name used in a later greeting"
+  tags: [conversational]
+  account: superadmin
+  turns:
+    - say: "hi, I'm Ravi"
+      expect: {route: edge, answer_contains: ["Ravi"]}
+    - say: "hello again"
+      expect: {route: edge, answer_contains: ["Ravi"]}
+    - say: "I am a block officer from Dalu"
+      expect: {answer_not_contains: ["Nice to meet you"]}

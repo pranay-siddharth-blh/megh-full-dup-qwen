@@ -1,8 +1,14 @@
 """
 Live schema catalog — reads the SME-curated `semantic.*` tables in megh_db
-(table_catalog, column_catalog, glossary, join_graph, metric_definitions) once
-at startup and folds a compact view of them into the SQL-generation prompt,
-alongside the hand-written rules in schema_context.py.
+(table_catalog, column_catalog incl. unit and the exact VALUES lists,
+glossary, join_graph, metric_definitions, v_join_rules) and
+curated.v_data_coverage once at startup, and folds a compact view of them into
+the SQL-generation prompt, alongside the hand-written rules in schema_context.py.
+
+The chatbot does NOT embed semantic.v_embedding_documents or load
+semantic.v_prompt_bundles: those are rendered from these same tables, which it
+reads directly, so an ingestion-side catalog change reaches the prompt at the
+next restart with no re-embed.
 
 schema_context.py stays the source of truth for the *hazards* (which joins are
 invalid, which columns are stocks) — the catalog can't encode those. This module
@@ -11,7 +17,7 @@ database, so the generator sees the same vocabulary an analyst would.
 """
 import logging
 
-from app import db
+from app import db, sql_guard
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -29,11 +35,34 @@ _SUBJECT_TO_SCHEME = {"mgnrega": "MGNREGA", "pmay": "PMAY-G", "pmayg": "PMAY-G",
                       "cmelevatelegacy": "CM Elevate Legacy",
                       "cm elevate legacy": "CM Elevate Legacy",
                       "cm_elevate_disbursement": "CM Elevate Legacy",
-                      "cm elevate disbursement": "CM Elevate Legacy"}
+                      "cm elevate disbursement": "CM Elevate Legacy",
+                      # Not one of our schemes: mapped so its rows are scoped
+                      # OUT (an unmapped subject_area applies to every scheme).
+                      "nrlm": "NRLM"}
+
+# curated.v_data_coverage.scheme -> our scheme label (NRLM is not served here).
+_COVERAGE_TO_SCHEME = {"MGNREGA": "MGNREGA", "PMAY": "PMAY-G", "FOCUS_PLUS": "Focus Plus",
+                       "CM_ELEVATE": "CM Elevate", "FOCUS_LEGACY": "Focus Legacy",
+                       "CM_ELEVATE_DISBURSEMENT": "CM Elevate Legacy"}
+
+# Never shown to the SQL generator and refused by sql_guard: they carry unmasked
+# account numbers / holder names / applicant names (KI-004). The views mask them.
+PRIVATE_TABLES = sql_guard.PRIVATE_TABLES
+
+# The login generated SQL runs as. Columns it cannot SELECT (column-level
+# revokes, e.g. v_cm_elevate.scheme_specific since 2026-10-16) are left out of
+# the LIVE SCHEMA block, so the generator never writes a query that the
+# database will refuse — even while a dev box still runs as postgres.
+_READONLY_ROLE = "megh_readonly"
 
 _cache: dict = {
     "loaded": False, "tables": [], "glossary": [], "metrics": [], "joins": [],
     "columns": [],
+    # semantic.v_join_rules: {object_ref: set(objects it must never be row-joined with)},
+    # made symmetric. curated.v_data_coverage: {scheme label: [years present]}.
+    "join_rules": {}, "coverage": {},
+    # (schema, table, column) the read-only role cannot SELECT.
+    "denied": set(),
     # Live information_schema extract (structure, not SME prose). Populated by
     # _load_live_schema(); empty => the prompt falls back to the hand-written
     # schema_context.py backbone alone.
@@ -116,22 +145,111 @@ async def _load_semantic_catalog() -> None:
             # exactly the kind of manual sync that drifts. Loading it here means
             # a new data_quality_note SMEs add shows up in the prompt the next
             # time the process restarts, without a matching code change.
+            # unit and sample_values since 2026-10-16 (ingestion team, CHATBOT_DB_CHANGES):
+            # every measure column carries its UNIT (MGNREGA lakh rupees, the other
+            # schemes rupees, *_crore / *_cr crore) and 89 coded columns carry their
+            # complete list of stored values — the two things the generator used to
+            # guess (lakh vs rupees; a 'Pending' literal no row holds).
             _cache["columns"] = await db.fetch_rows(
                 """SELECT table_schema, table_name, column_name, description,
-                          data_quality_note
+                          data_quality_note, unit, sample_values
                    FROM semantic.column_catalog
                    WHERE is_chatbot_visible IS NOT FALSE
-                     AND (data_quality_note IS NOT NULL OR description IS NOT NULL)
+                     AND (data_quality_note IS NOT NULL OR description IS NOT NULL
+                          OR unit IS NOT NULL OR sample_values IS NOT NULL)
                    ORDER BY table_schema, table_name, column_name""")
         except Exception:  # noqa: BLE001 — table shape varies; optional
             _cache["columns"] = []
+        await _load_join_rules()
+        await _load_coverage()
         _cache["loaded"] = True
         logger.info("schema_introspect: catalog loaded — %d tables, %d glossary terms, "
-                    "%d metrics, %d column notes", len(_cache["tables"]), len(_cache["glossary"]),
-                    len(_cache["metrics"]), len(_cache["columns"]))
+                    "%d metrics, %d column notes, %d join rules, %d coverage schemes",
+                    len(_cache["tables"]), len(_cache["glossary"]), len(_cache["metrics"]),
+                    len(_cache["columns"]), len(_cache["join_rules"]), len(_cache["coverage"]))
     except Exception as e:  # noqa: BLE001 — never block startup on the catalog
         logger.warning("schema_introspect: catalog load failed (SQL prompt uses static "
                        "context only): %s", e)
+
+
+async def _load_join_rules() -> None:
+    """semantic.v_join_rules: for each fact or row-level view, the objects it
+    must never be ROW-joined with (a join of v_employment to v_expenditure on
+    year + district turned FY2024-25 person-days from 14.7 million into 6.69
+    billion). Stored symmetric; read by the fan-out guard in execute_with_repair."""
+    try:
+        rows = await db.fetch_rows(
+            "SELECT object_ref, never_row_join_with FROM semantic.v_join_rules")
+    except Exception as e:  # noqa: BLE001 — optional; the guard then has nothing to check
+        logger.warning("schema_introspect: semantic.v_join_rules not read: %s", e)
+        _cache["join_rules"] = {}
+        return
+    rules: dict[str, set[str]] = {}
+    for r in rows:
+        a = str(r["object_ref"] or "").lower()
+        for b in r["never_row_join_with"] or []:
+            b = str(b).lower()
+            if a and b and a != b:
+                rules.setdefault(a, set()).add(b)
+                rules.setdefault(b, set()).add(a)
+    _cache["join_rules"] = rules
+
+
+async def _load_coverage() -> None:
+    """curated.v_data_coverage: the financial years each dataset holds, computed
+    live. A year missing there means NO DATA, never 0 (Focus Plus has 2022-23 and
+    2025-26 only; Focus Legacy has no 2023-24; CM Elevate has no year at all)."""
+    try:
+        rows = await db.fetch_rows("SELECT scheme, years_present FROM curated.v_data_coverage")
+    except Exception as e:  # noqa: BLE001 — optional; the hand-kept year table stays
+        logger.warning("schema_introspect: curated.v_data_coverage not read: %s", e)
+        _cache["coverage"] = {}
+        return
+    cov: dict[str, list[str]] = {}
+    for r in rows:
+        label = _COVERAGE_TO_SCHEME.get(str(r["scheme"] or "").upper())
+        if label is None:
+            continue
+        years = cov.setdefault(label, [])
+        for y in str(r["years_present"] or "").split(","):
+            y = y.strip()
+            if y and y not in years:
+                years.append(y)
+    _cache["coverage"] = {k: sorted(v) for k, v in cov.items()}
+
+
+def never_row_join() -> dict:
+    """{'curated.v_employment': {'curated.v_expenditure', ...}, ...} or {}."""
+    return _cache["join_rules"]
+
+
+def readonly_denied() -> "set[tuple[str, str, str]]":
+    """(schema, table, column) the read-only role may not SELECT, or empty."""
+    return _cache["denied"]
+
+
+def coverage_years() -> dict:
+    """{'Focus Plus': ['2022-23', '2025-26'], 'CM Elevate': [], ...} or {} when unread."""
+    return _cache["coverage"]
+
+
+async def _readonly_denied_columns() -> "set[tuple[str, str, str]]":
+    """(schema, table, column) the read-only role may NOT select, or an empty set
+    when that role does not exist / cannot be checked."""
+    try:
+        rows = await db.fetch_rows(
+            """SELECT n.nspname AS s, c.relname AS t, a.attname AS col
+               FROM pg_class c
+               JOIN pg_namespace n ON n.oid = c.relnamespace
+               JOIN pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+               WHERE n.nspname = ANY($1::text[]) AND c.relkind IN ('r', 'v', 'm', 'p', 'f')
+                 AND EXISTS (SELECT 1 FROM pg_roles WHERE rolname = $2)
+                 AND NOT has_column_privilege($2, c.oid, a.attnum, 'SELECT')""",
+            [list(_QUERYABLE_SCHEMAS), _READONLY_ROLE])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("schema_introspect: %s column grants not read: %s", _READONLY_ROLE, e)
+        return set()
+    return {(r["s"], r["t"], r["col"]) for r in rows}
 
 
 async def _load_live_schema() -> None:
@@ -147,15 +265,22 @@ async def _load_live_schema() -> None:
                ORDER BY table_schema, table_name, ordinal_position""",
             [list(_QUERYABLE_SCHEMAS)],
         )
+        denied = await _readonly_denied_columns()
+        _cache["denied"] = denied
         by_table: dict[str, list[dict]] = {}
         for c in col_rows:
             key = f"{c['table_schema']}.{c['table_name']}"
+            if key in PRIVATE_TABLES or (c["table_schema"], c["table_name"], c["column_name"]) in denied:
+                continue
             by_table.setdefault(key, []).append({
                 "column": c["column_name"],
                 "type": c["data_type"],
                 "nullable": c["is_nullable"] == "YES",
             })
         _cache["live_columns"] = by_table
+        if denied:
+            logger.info("schema_introspect: %d column(s) %s cannot read left out of the live schema",
+                        len(denied), _READONLY_ROLE)
 
         # pg_catalog (not information_schema.constraint_column_usage) — the latter
         # returns nothing for a role that doesn't own the tables; pg_constraint is
@@ -183,6 +308,8 @@ async def _load_live_schema() -> None:
             {"from": f"{r['from_schema']}.{r['from_table']}", "from_column": r["from_column"],
              "to": f"{r['to_schema']}.{r['to_table']}", "to_column": r["to_column"]}
             for r in fk_rows
+            if f"{r['from_schema']}.{r['from_table']}" not in PRIVATE_TABLES
+            and f"{r['to_schema']}.{r['to_table']}" not in PRIVATE_TABLES
         ]
         _cache["live_loaded"] = True
         logger.info("schema_introspect: live schema — %d tables, %d FK edges",
@@ -207,6 +334,30 @@ def _matches_scheme(subject_area: str | None, schemes: list[str]) -> bool:
         return True  # shared objects (geography, year) apply to every scheme
     mapped = _SUBJECT_TO_SCHEME.get(str(subject_area).strip().lower())
     return mapped is None or mapped in schemes
+
+
+def _is_private_or_fact(c: dict) -> bool:
+    """A column note on a privacy table, or on a curated.fact_* table: the views
+    carry every fact column with the same notes (the ingestion team dropped the
+    fact-table documents on 2026-10-16), and the generator queries the views."""
+    table = str(c.get("table_name") or "").lower()
+    return f"{c.get('table_schema')}.{table}" in PRIVATE_TABLES or table.startswith("fact_")
+
+
+def _unit_and_values(c: dict, *, max_values: int = 40) -> str:
+    """'UNIT: lakh rupees. VALUES (complete list, use these exact literals): a, b'
+    from a column_catalog row; '' when it has neither."""
+    parts = []
+    unit = str(c.get("unit") or "").strip()
+    if unit:
+        parts.append(f"UNIT: {unit}.")
+    vals = c.get("sample_values")
+    if isinstance(vals, (list, tuple)) and vals:
+        shown = [str(v) for v in vals[:max_values]]
+        more = f", … ({len(vals)} values)" if len(vals) > max_values else ""
+        parts.append("VALUES (complete list, use these exact literals): "
+                     + ", ".join(f"'{v}'" for v in shown) + more)
+    return " ".join(parts)
 
 
 def catalog_block(schemes: list[str], *, max_terms: int = 24) -> str:
@@ -242,13 +393,25 @@ def catalog_block(schemes: list[str], *, max_terms: int = 24) -> str:
             lines.append(
                 f"  \"{g['term']}\": {(g.get('definition') or '')[:260]}{tail}{syn}")
 
-    if _cache["metrics"]:
+    # The table's columns are metric_key / sql_expression / base_object / unit /
+    # filters_required. Until 2026-10-16 this read metric / formula (keys the
+    # table never had), so not one definition reached the prompt — including
+    # cm_elevate_applications = COUNT(DISTINCT request_id) and the "count once
+    # over all rows, never add per-year results" rules.
+    metrics = [m for m in _cache["metrics"]
+               if m.get("is_active") is not False and _matches_scheme(m.get("subject_area"), schemes)]
+    if metrics:
         lines.append("\nLIVE CATALOG — metric definitions (from semantic.metric_definitions):")
-        for m in _cache["metrics"][:20]:
-            name = m.get("metric") or m.get("name") or m.get("metric_name")
-            formula = m.get("formula") or m.get("expression") or m.get("definition")
-            if name and formula:
-                lines.append(f"  {name} = {str(formula)[:200]}")
+        for m in metrics[:30]:
+            name = m.get("metric_key") or m.get("metric") or m.get("name")
+            formula = m.get("sql_expression") or m.get("formula") or m.get("expression")
+            if not (name and formula):
+                continue
+            base = f" FROM {m['base_object']}" if m.get("base_object") else ""
+            unit = f" [{m['unit']}]" if m.get("unit") else ""
+            rule = (m.get("filters_required") or "").strip().replace("\n", " ")
+            rule = f" — {rule[:300]}" if rule else ""
+            lines.append(f"  {name} = {str(formula)[:200]}{base}{unit}{rule}")
 
     # data_quality_note carries the traps that actually break queries (a new
     # identity column, a verbatim source misspelling, a case-sensitive storage
@@ -276,21 +439,27 @@ def catalog_block(schemes: list[str], *, max_terms: int = 24) -> str:
         # documented way to get a wrong number, so silently dropping the 25th
         # defeats the point of reading the catalogue at all. Descriptions are
         # nice-to-have context and stay capped.
+        # A UNIT or a VALUES list is load-bearing like a quality note (a guessed
+        # unit or literal is a wrong number), so it is never cut by the budget.
         _desc_budget = max_terms
         for c in cols:
+            if _is_private_or_fact(c) or (c.get("table_schema"), c.get("table_name"),
+                                          c.get("column_name")) in _cache["denied"]:
+                continue
             quality = (c.get("data_quality_note") or "").strip()
-            if not quality:
+            facts = _unit_and_values(c)
+            if not quality and not facts:
                 if _desc_budget <= 0:
                     continue
                 _desc_budget -= 1
             note = quality or (c.get("description") or "").strip()
-            if note:
+            if note or facts:
                 # Quality notes keep more room than descriptions: theirs is the
                 # text that names the other column, the trigger phrasing and the
                 # worked figures, and 280 chars routinely cut that mid-sentence.
                 limit = 600 if quality else 280
-                lines.append(
-                    f"  {c['table_schema']}.{c['table_name']}.{c['column_name']}: {note[:limit]}")
+                text = " ".join(p for p in (note[:limit], facts) if p)
+                lines.append(f"  {c['table_schema']}.{c['table_name']}.{c['column_name']}: {text}")
 
     return ("\n".join(lines) + "\n") if lines else ""
 
@@ -303,6 +472,8 @@ def snapshot() -> dict:
         "metrics": _cache["metrics"],
         "columns": _cache["columns"],
         "join_graph": _cache["joins"],
+        "join_rules": {k: sorted(v) for k, v in _cache["join_rules"].items()},
+        "coverage": _cache["coverage"],
         "live_loaded": _cache["live_loaded"],
         "live_columns": _cache["live_columns"],
         "live_fks": _cache["live_fks"],

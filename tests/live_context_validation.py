@@ -38,7 +38,6 @@ import argparse
 import asyncio
 import json
 import logging
-import re
 import socket
 import statistics
 import sys
@@ -47,19 +46,24 @@ import uuid
 from pathlib import Path
 from urllib.parse import urlparse
 
+from sqlglot import exp
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import context_policy, llm, pipeline, session_sync  # noqa: E402
+from app import (context_policy, conversation_layer, conversation_replies, llm, pipeline,  # noqa: E402
+                 session_sync, sql_ast)
 from app.config import settings  # noqa: E402
 from app.pipeline import ClarificationNeeded  # noqa: E402
 from app.routers import query as router  # noqa: E402
 from app.session_store import SessionStore  # noqa: E402
+from app.text_match import words  # noqa: E402
 
 # Focus Plus holds FY 2022-23 and FY 2025-26 only (scheme years loaded from megh_db,
 # 2026-09-26). The first live run asked about FY 2024-25, which correctly paused as
 # out of range, and every scenario built on it was testing the wrong thing.
 Q_FP = "How much was disbursed under Focus Plus in West Garo Hills in FY 2025-26?"
 Q_MG = "How many person-days were generated under MGNREGA in West Garo Hills in FY 2024-25?"
+Q_EKH = "How many person-days were generated under MGNREGA in East Khasi Hills in FY 2022-23?"
 ANSWER_G = ("Across Focus Plus, MGNREGA and PMAY-G, East Khasi Hills, Ri Bhoi and Jaintia Hills "
             "led; blocks Rongram, Tura and Selsella were next; villages Nongthymmai, Maska and "
             "Adugre reported most; FY 2019-20 and FY 2021-22 were the peak years; women were 54% "
@@ -88,9 +92,79 @@ SCENARIOS = {
            # Legacy by design (D-009), which is not what this step tests.
            "How many applications were received under CM Elevate?"]),
     "G": ("Contamination", [Q_FP, "What about Dalu block?", "How many beneficiaries were there?"]),
+    # ── open follow-up issues, 2026-10-16 (KNOWN_ISSUES KI-033 / KI-223 / KI-301 and
+    # the forward plan WI-1..WI-4 in documents/Context_Memory_Forward_Backward_Review_v3) ──
+    "H": ("KI-033: a knowledge digression keeps the data scope",
+          ["How many PMAY-G houses were completed in South Garo Hills in FY 2022-23?",
+           "Who is eligible for PMAY-G?", "And in West Garo Hills?"]),
+    "I": ("KI-223: a scheme switch typed while a pause waits",
+          ["How many PMAY-G beneficiaries are there?", "What about MGNREGA?"]),
+    "J": ("KI-301: a pronoun in a question that names a scheme",
+          ["What is Gram Panchayat?", "what is its role in PMAY-G?"]),
+    "K": ("Topic switch after a knowledge answer (WI-1 + WI-2)",
+          ["How many person-days were generated under MGNREGA in East Khasi Hills in FY 2022-23?",
+           "Who is eligible for PMAY-G?", "How many in 2023-24?"]),
+    "L": ("A standalone data question clears the old metric and comparison (WI-3)",
+          ["Compare MGNREGA person-days between East Khasi Hills and Ri Bhoi in FY 2023-24",
+           "How many PMAY-G houses were completed in West Garo Hills in FY 2023-24?",
+           "What about Ri Bhoi?"]),
+    "M": ("'this year' in a standalone question is not the session's old year (WI-4)",
+          ["How many person-days were generated under MGNREGA in West Garo Hills in FY 2022-23?",
+           "How many PMAY-G houses were sanctioned in Ri Bhoi this year?"]),
+    # ── Context Memory proposal (documents/MAIN_Contex.pdf, 2026-10-16): out of
+    # context in the middle (§9.2) and going back to an earlier QUESTION
+    # through the topic ledger (§9.3, Phase 3, built 2026-10-18) ──
+    "N": ("Out of context in the middle keeps the topic (§9.2)",
+          [Q_MG, "Who won the cricket match yesterday?", "What about FY 2023-24?"]),
+    "O": ("Back to an earlier question by content (§9.3, Figure 4)",
+          [Q_EKH, "Who is eligible for PMAY-G?",
+           "How many job cards were issued under MGNREGA in West Garo Hills in FY 2023-24?",
+           "How many PMAY-G houses were completed?", "Go back to the East Khasi Hills one"]),
+    "P": ("Back to the first question, with a new year",
+          [Q_EKH, "How many PMAY-G houses were completed in Ri Bhoi in FY 2023-24?",
+           "Go back to the first question, what about FY 2023-24?"]),
+    "Q": ("'What did we discuss?' lists the questions and keeps the topic",
+          [Q_EKH, "How many PMAY-G houses were completed in Ri Bhoi in FY 2023-24?",
+           "What did we discuss so far?", "What about FY 2022-23?"]),
+    # Phase 4: no place, year or question word matches; only the model can
+    # tell that "employment" means question 1's person-days.
+    # The user's own UI conversation of 2026-10-18 (app.conversation_turns,
+    # session_1792306638804): every turn after the first lost the context.
+    "U1": ("UI 2026-10-18: a measure after a data answer keeps its scheme and year",
+           ["Total MGNREGA person-days in 2023-24", "What is the total beneficiaries?",
+            "What is the total beneficiaries manraya?"]),
+    "U2": ("UI 2026-10-18: PMAY-G thread — spoken year, district list, meta follow-ups",
+           ["How many PMAY-G houses were sanctioned?",
+            "Okay. Ah, now give me how many houses are there in two zero, two three, two two zero two four.",
+            "Okay, now for the above question, don't give all of Meghalaya. Show me the districts. What are the districts are there?",
+            "Okay, now for the above query, you don't have a list of districts.",
+            "In the previous context, I am asking about PMAY-G, right? But why again you are giving the scheme names here?"]),
+    # ── wordings the matrix (tests/live_context_matrix.py) does not cover ──
+    "V1": ("'that number again' with one topic re-shows the last figure",
+           [Q_EKH, "What about Ri Bhoi?", "What was that number again?"]),
+    "V2": ("Hinglish backward reference",
+           [Q_EKH, "How many PMAY-G houses were completed in Ri Bhoi in FY 2023-24?",
+            "MGNREGA ka 2022 wala figure batao"]),
+    "V3": ("'same for PMAY-G' keeps the place and year",
+           [Q_EKH, "Same for PMAY-G"]),
+    "V4": ("mid-sentence comparison with an earlier answer",
+           [Q_EKH, "How many PMAY-G houses were completed in East Khasi Hills in FY 2022-23?",
+            "Compare this with the MGNREGA figure you showed"]),
+    "V5": ("'the second question' by order",
+           [Q_EKH, "How many PMAY-G houses were completed in Ri Bhoi in FY 2023-24?",
+            "Go back to the second question"]),
+    "V6": ("thanks + an off-topic question in a row, then a year follow-up",
+           [Q_EKH, "thanks", "who is the prime minister?", "and in FY 2023-24?"]),
+    "R": ("A reference only the model can place (Phase 4)",
+          [Q_EKH, "How many PMAY-G houses were completed in Ri Bhoi in FY 2023-24?",
+           "What was that employment figure you gave earlier?"]),
 }
 
-_AUTO_CHIP = re.compile(r"\ball\b|combined|overall|every", re.IGNORECASE)
+def _auto_chip(label: str) -> bool:
+    """A chip that covers everything: the word 'all', or 'combined' / 'overall' /
+    'every' anywhere (case-insensitive)."""
+    low = (label or "").lower()
+    return "all" in words(low) or any(w in low for w in ("combined", "overall", "every"))
 
 
 # ── Reachability ────────────────────────────────────────────────────────────
@@ -196,7 +270,24 @@ class Conversation:
             t0 = time.perf_counter()
             step = {"asked": q, "cacheable": router.is_cacheable(q, session)}
             try:
-                result = await pipeline.answer_question(q, session=session, scope=None)
+                # The router's conversation layer first (expiry, reset, recall,
+                # measure-after-knowledge), exactly as POST /api/query runs it.
+                layer = await conversation_layer.prepare_turn(session, q)
+                step["layer_action"] = layer.action
+                step["cacheable"] = step["cacheable"] and not layer.changed
+                if layer.response is not None:
+                    result = layer.response
+                elif layer.multi:
+                    result = await conversation_layer.answer_many(
+                        layer.multi, lambda x: pipeline.answer_question(x, session=session, scope=None))
+                else:
+                    result = await pipeline.answer_question(layer.question, session=session, scope=None)
+                # The router restyles a refusal before the turn is kept
+                # (routers.query._answer); that also marks it an aside, so the
+                # topic carries on after "who won the cricket match?".
+                styled = conversation_replies.restyle(session, q, result)
+                if styled is not None:
+                    result = styled
                 session.turns.append(router.build_turn(q, result))
                 step.update(kind="answer", result=result)
             except ClarificationNeeded as e:
@@ -218,7 +309,7 @@ class Conversation:
             rec["chain"].append(step)
             if step["kind"] == "clarification" and auto_click and step.get("clar_options"):
                 opts = step["clar_options"]
-                chip = next((o for o in opts if _AUTO_CHIP.search(o.get("label", ""))), opts[0])
+                chip = next((o for o in opts if _auto_chip(o.get("label", ""))), opts[0])
                 step["auto_clicked"] = chip.get("label")
                 q = chip.get("question") or chip.get("label")
                 continue
@@ -241,7 +332,8 @@ class Conversation:
             state=final["state"], provenance=final["provenance"], plan=final["plan"],
             rewrite_tiers=[p_.get("tiers") for p_ in final["prompts"] if p_.get("kind") == "rewrite"],
             rewrite_guard=[p_.get("guard") for p_ in final["prompts"] if p_.get("kind") == "rewrite"],
-            cacheable_first=rec["chain"][0]["cacheable"])
+            cacheable_first=rec["chain"][0]["cacheable"],
+            scope_banner=res.get("scope_banner"))
         return rec
 
 
@@ -264,6 +356,13 @@ def _year_in_sql(t, y):
     return str(y) in _sql(t)
 
 
+def _ranks(sql: str) -> bool:
+    """Ranks: an ORDER BY ... DESC anywhere in the query, or a MAX() (SQLGlot tree)."""
+    if sql_ast.has_aggregate(sql, "max"):
+        return True
+    return any(o.args.get("desc") for t in sql_ast.parse(sql) for o in t.find_all(exp.Ordered))
+
+
 def check(name, ok, detail=""):
     return {"check": name, "ok": bool(ok), "detail": str(detail)[:300]}
 
@@ -280,10 +379,11 @@ def expectations(key, turns):
         c += [check("T2 geography changes to Dalu block", _has(t2, "DALU"), t2["sql"]),
               check("T2 scheme and year kept", t2["schemes"] == ["Focus Plus"]
                     and _year_in_sql(t2, 2025), t2["sql"]),
-              check("T2 metric kept (money)", re.search(r"SUM\(", _sql(t2)), t2["sql"]),
+              check("T2 metric kept (money)", sql_ast.has_aggregate(t2.get("sql") or "", "sum"), t2["sql"]),
               check("T2 kind GEOGRAPHY_CHANGE", t2["plan"].get("kind") == "GEOGRAPHY_CHANGE",
                     t2["plan"]),
-              check("T3 metric changes to a count", re.search(r"COUNT\(", _sql(t3)), t3["sql"]),
+              check("T3 metric changes to a count", sql_ast.has_aggregate(t3.get("sql") or "", "count"),
+                    t3["sql"]),
               check("T3 scheme, Dalu and year kept", t3["schemes"] == ["Focus Plus"]
                     and _has(t3, "DALU") and _year_in_sql(t3, 2025), t3["sql"]),
               check("T3 kind METRIC_CHANGE, filters only", t3["plan"].get("kind") == "METRIC_CHANGE"
@@ -320,7 +420,7 @@ def expectations(key, turns):
         top = next((str(v) for v in (t2["rows_head"][0].values() if t2["rows_head"] else [])
                     if isinstance(v, str)), None)
         c += [check("T2 ranks (ORDER BY ... DESC / MAX)",
-                    re.search(r"ORDER BY .* DESC|MAX\(", _sql(t2)), t2["sql"]),
+                    _ranks(t2.get("sql") or ""), t2["sql"]),
               check("T2 not given the result rows", all("result" not in (x or [])
                                                         for x in t2["rewrite_tiers"]),
                     t2["rewrite_tiers"]),
@@ -349,8 +449,134 @@ def expectations(key, turns):
                     and "FOCUS_PLUS" not in _sql(t3) and _has(t3, "DALU"), t3["sql"]),
               check("T4 switches to Focus Legacy only", t4["schemes"] == ["Focus Legacy"]
                     and "V_EMPLOYMENT" not in _sql(t4), t4["sql"]),
-              check("T5 CM Elevate applications, not the Legacy dataset",
-                    t5["schemes"] == ["CM Elevate"] and "DISBURSEMENT" not in _sql(t5), t5["sql"])]
+              # User decision 2026-10-12: a bare "CM Elevate" data question goes to CM
+              # Elevate Legacy unless it uses applications-ONLY words; "applications"
+              # alone is not one (Legacy rows are applications too).
+              check("T5 a bare CM Elevate count follows the 2026-10-12 default (Legacy)",
+                    t5["schemes"] == ["CM Elevate Legacy"] and "DISBURSEMENT" in _sql(t5), t5["sql"])]
+    if key == "H":
+        t3 = turns[2]
+        c += [check("T3 stays PMAY-G", t3["schemes"] == ["PMAY-G"], t3["schemes"]),
+              check("T3 West Garo Hills, not the old South Garo Hills", _has(t3, "WEST GARO HILLS")
+                    and not _has(t3, "SOUTH GARO HILLS"), t3["sql"]),
+              check("T3 keeps FY 2022-23 from the data turn", _year_in_sql(t3, 2022), t3["sql"]),
+              check("T3 keeps the completed-houses measure", "IS_COMPLETED" in _sql(t3), t3["sql"])]
+    if key == "I":
+        t2 = turns[1]
+        c += [check("T2 switches to MGNREGA (not merged into the PMAY-G pause)",
+                    t2["schemes"] == ["MGNREGA"], t2["schemes"]),
+              check("T2 runs no PMAY-G query", "V_PMAY" not in _sql(t2), t2["sql"])]
+    if key == "J":
+        t2 = turns[1]
+        text = ((t2.get("rewritten") or "") + " " + (t2.get("answer") or "")).lower()
+        c += [check("T2 'its' is Gram Panchayat", "panchayat" in text, t2.get("rewritten")),
+              check("T2 not 'the assistant's role'", "assistant" not in (t2.get("rewritten") or "").lower(),
+                    t2.get("rewritten"))]
+    if key == "K":
+        t3 = turns[2]
+        c += [check("T3 is PMAY-G (the knowledge turn switched the topic)", t3["schemes"] == ["PMAY-G"],
+                    t3["schemes"]),
+              check("T3 FY 2023-24", _year_in_sql(t3, 2023), t3["sql"]),
+              check("T3 no MGNREGA / East Khasi Hills leak", not _no(t3, "V_EMPLOYMENT", "EAST KHASI"),
+                    t3["sql"])]
+    if key == "L":
+        t3 = turns[2]
+        c += [check("T3 stays PMAY-G completed houses", t3["schemes"] == ["PMAY-G"]
+                    and "IS_COMPLETED" in _sql(t3), t3["sql"]),
+              check("T3 Ri Bhoi", _has(t3, "RI BHOI"), t3["sql"]),
+              check("T3 no old metric / comparison leak", not _no(t3, "PERSON_DAYS", "EAST KHASI"), t3["sql"])]
+    if key == "M":
+        t2 = turns[1]
+        c += [check("T2 PMAY-G", t2["schemes"] == ["PMAY-G"] or t2["final_kind"] == "clarification",
+                    t2["schemes"]),
+              check("T2 'this year' is not the session's FY 2022-23",
+                    not _year_in_sql(t2, 2022) and "2022" not in (t2.get("rewritten") or ""),
+                    (t2.get("rewritten"), t2["sql"]))]
+    if key == "N":
+        t2, t3 = turns[1], turns[2]
+        c += [check("T2 answered as out of scope, no query", not t2.get("sql"), t2.get("sql")),
+              check("T3 MGNREGA, West Garo Hills, FY 2023-24", t3["schemes"] == ["MGNREGA"]
+                    and _has(t3, "WEST GARO HILLS") and _year_in_sql(t3, 2023)
+                    and not _year_in_sql(t3, 2024), t3["sql"])]
+    if key == "O":
+        t5 = turns[4]
+        c += [check("T5 restores question 1: MGNREGA, East Khasi Hills, FY 2022-23",
+                    t5["schemes"] == ["MGNREGA"] and _has(t5, "EAST KHASI HILLS") and _year_in_sql(t5, 2022),
+                    t5["sql"]),
+              check("T5 not the later West Garo Hills question", not _has(t5, "WEST GARO HILLS"), t5["sql"]),
+              check("T5 person-days, not job cards", "PERSON_DAYS" in _sql(t5), t5["sql"]),
+              check("T5 not cacheable", t5["cacheable_first"] is False, t5["cacheable_first"]),
+              check("T5 scope banner says it is from earlier",
+                    "East Khasi Hills" in (t5.get("scope_banner") or "")
+                    and "(from earlier)" in (t5.get("scope_banner") or ""), t5.get("scope_banner"))]
+    if key == "P":
+        t3 = turns[2]
+        c += [check("T3 MGNREGA East Khasi Hills (question 1's scope)", t3["schemes"] == ["MGNREGA"]
+                    and _has(t3, "EAST KHASI HILLS") and not _has(t3, "RI BHOI"), t3["sql"]),
+              check("T3 FY 2023-24", _year_in_sql(t3, 2023) and not _year_in_sql(t3, 2022), t3["sql"])]
+    if key == "Q":
+        t3, t4 = turns[2], turns[3]
+        c += [check("T3 lists the questions", t3["route"] == "edge" and "covered so far" in (t3["answer"] or ""),
+                    t3["answer"]),
+              check("T4 continues PMAY-G Ri Bhoi in FY 2022-23", t4["schemes"] == ["PMAY-G"]
+                    and _has(t4, "RI BHOI") and _year_in_sql(t4, 2022), t4["sql"])]
+    if key == "V1":
+        t3 = turns[2]
+        c += [check("T3 MGNREGA, Ri Bhoi (the last figure)", t3["schemes"] == ["MGNREGA"] and _has(t3, "RI BHOI"),
+                    [t3["schemes"], t3["sql"], (t3.get("answer") or "")[:120]])]
+    if key == "V2":
+        t3 = turns[2]
+        c += [check("T3 MGNREGA East Khasi Hills FY 2022-23", t3["schemes"] == ["MGNREGA"]
+                    and _has(t3, "EAST KHASI HILLS") and _year_in_sql(t3, 2022), [t3["schemes"], t3["sql"]])]
+    if key == "V3":
+        t2 = turns[1]
+        c += [check("T2 PMAY-G, East Khasi Hills, FY 2022-23", t2["schemes"] == ["PMAY-G"]
+                    and _has(t2, "EAST KHASI HILLS") and _year_in_sql(t2, 2022), [t2["schemes"], t2["sql"]])]
+    if key == "V4":
+        t3 = turns[2]
+        c += [check("T3 compares MGNREGA and PMAY-G (both named)", set(t3["schemes"] or []) >= {"MGNREGA", "PMAY-G"}
+                    or ("MGNREGA" in (t3.get("answer") or "") and "PMAY" in (t3.get("answer") or "")),
+                    [t3["schemes"], (t3.get("answer") or "")[:160]]),
+              check("T3 East Khasi Hills, FY 2022-23", ("EAST KHASI" in _sql(t3) or "East Khasi" in (t3.get("answer") or ""))
+                    and ("2022" in _sql(t3) or "2022-23" in (t3.get("answer") or "")), [t3["sql"], (t3.get("answer") or "")[:120]])]
+    if key == "V5":
+        t3 = turns[2]
+        c += [check("T3 PMAY-G Ri Bhoi FY 2023-24", t3["schemes"] == ["PMAY-G"] and _has(t3, "RI BHOI")
+                    and _year_in_sql(t3, 2023), [t3["schemes"], t3["sql"]])]
+    if key == "V6":
+        t4 = turns[3]
+        c += [check("T2/T3 no query", not turns[1].get("sql") and not turns[2].get("sql"),
+                    [turns[1].get("route"), turns[2].get("route")]),
+              check("T4 MGNREGA East Khasi Hills FY 2023-24", t4["schemes"] == ["MGNREGA"]
+                    and _has(t4, "EAST KHASI HILLS") and _year_in_sql(t4, 2023), [t4["schemes"], t4["sql"]])]
+    if key == "R":
+        t3 = turns[2]
+        c += [check("T3 the model restored question 1: MGNREGA, East Khasi Hills, FY 2022-23",
+                    t3["schemes"] == ["MGNREGA"] and _has(t3, "EAST KHASI HILLS") and _year_in_sql(t3, 2022)
+                    or t3["final_kind"] == "clarification", [t3["final_kind"], t3["sql"]]),
+              check("T3 not PMAY-G Ri Bhoi", not _has(t3, "RI BHOI"), t3["sql"])]
+    if key == "U1":
+        t2, t3 = turns[1], turns[2]
+        for i, t in ((2, t2), (3, t3)):
+            c += [check(f"T{i} MGNREGA only (not every scheme)", t["schemes"] == ["MGNREGA"], t["schemes"]),
+                  check(f"T{i} keeps FY 2023-24", _year_in_sql(t, 2023) or "2023-24" in (t.get("answer") or ""),
+                        [t.get("sql"), (t.get("answer") or "")[:120]])]
+    if key == "U2":
+        t2, t3, t4, t5 = turns[1:5]
+        first3 = t3["chain"][0]
+        c += [check("T2 FY 2023-24 read from the spoken year (not all years)",
+                    "all financial years" not in (t2.get("answer") or "").lower()
+                    and ("2023-24" in (t2.get("answer") or "") or _year_in_sql(t2, 2023)), (t2.get("answer") or "")[:150]),
+              check("T3 offers the districts (district chips) or answers by district",
+                    (first3.get("kind") == "clarification" and len(first3.get("options") or []) >= 5)
+                    or (t3["schemes"] == ["PMAY-G"] and "DISTRICT" in _sql(t3) and "GROUP BY" in _sql(t3)),
+                    [first3.get("kind"), (first3.get("options") or [])[:3], (t3.get("answer") or "")[:120]]),
+              check("T4 stays on PMAY-G (no 'which scheme?')", t4["chain"][0].get("rule") != "scheme-not-specified"
+                    and (t4["schemes"] in (["PMAY-G"], []) ), [t4["chain"][0].get("rule"), t4["schemes"],
+                                                                (t4.get("answer") or "")[:150]]),
+              check("T5 confirms PMAY-G, no refusal", "PMAY" in (t5.get("answer") or "")
+                    and "outside" not in (t5.get("answer") or "").lower()
+                    and "don't have information" not in (t5.get("answer") or "").lower(), (t5.get("answer") or "")[:200])]
     if key == "G":
         for i, t in enumerate(turns[1:], start=2):
             leaked = _no(t, *CONTAMINANTS)
@@ -440,7 +666,8 @@ async def main(args) -> int:
                 turns = []
                 for i, q in enumerate(qs):
                     turns.append(await conv.ask(
-                        q, capture, auto_click=not ((key == "E" and i == 0) or (key == "B" and i == 1)),
+                        q, capture, auto_click=not ((key == "E" and i == 0) or (key == "B" and i == 1)
+                                     or (key == "I" and i == 0)),
                         seed_answer=ANSWER_G if (key == "G" and i == 1) else None))
                 checks = expectations(key, turns)
                 if not args.no_db_sync:
@@ -493,7 +720,7 @@ def _sync_latency(results):
 
 def _followup_accuracy(results):
     fu = [c for r in results.values() for c in r["checks"]
-          if re.match(r"T[2-9]", c["check"])]
+          if c["check"][:1] == "T" and c["check"][1:2] in tuple("23456789")]
     return f"{sum(c['ok'] for c in fu)}/{len(fu)}"
 
 

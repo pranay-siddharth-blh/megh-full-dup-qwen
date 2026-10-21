@@ -35,11 +35,11 @@ def test_years_list_question(q, is_list):
 
 
 # ── figure summaries of a place are data, definitions stay knowledge ───────
-def test_figure_summary_patterns():
+def test_figure_summary_matchers():
     q = "What is the PMAY-G financial summary for Amlarem, the block, not another area type"
-    assert p._FIGURE_SUMMARY_RE.search(q) and p._AREA_CHIP_MARKER_RE.search(q)
-    assert p._DEFINITION_ASK_RE.search("What is a financial summary in PMAY-G?")
-    assert p._DEFINITION_ASK_RE.search("What does the house status breakdown mean in PMAY-G?")
+    assert p._FIGURE_SUMMARY_MATCH.search(q) and p._AREA_CHIP_MARKER_MATCH.search(q)
+    assert p._DEFINITION_ASK_MATCH.search("What is a financial summary in PMAY-G?")
+    assert p._DEFINITION_ASK_MATCH.search("What does the house status breakdown mean in PMAY-G?")
 
 
 # ── comparison and summary questions overrule a model scope verdict ────────

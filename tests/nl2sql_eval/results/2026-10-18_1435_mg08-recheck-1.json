@@ -1,0 +1,89 @@
+{
+ "label": "mg08-recheck-1",
+ "when": "2026-10-18T14:35:05",
+ "git": {
+  "commit": "9dda6a4",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b"
+ },
+ "readonly_login": "postgres",
+ "superuser_allowed": false,
+ "holdout_checked": true,
+ "selection": {
+  "scheme": null,
+  "ids": "MG-08"
+ },
+ "minutes": 0.2,
+ "summary": {
+  "items": 1,
+  "scored": 1,
+  "outcomes": {
+   "wrong": 1
+  },
+  "accuracy": 0.0,
+  "by": {
+   "MGNREGA": {
+    "accuracy": 0.0,
+    "wrong": 1
+   },
+   "difficulty:medium": {
+    "accuracy": 0.0,
+    "wrong": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "MG-08",
+   "scheme": "MGNREGA",
+   "difficulty": "medium",
+   "question": "Show MGNREGA person-days in West Jaintia Hills for each financial year from 2022-23 through 2025-26.",
+   "gold_rows": 4,
+   "outcome": "wrong",
+   "route": "data",
+   "schemes": [
+    "MGNREGA"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST JAINTIA HILLS",
+    "year_key": 2025
+   },
+   "sql": "SELECT financial_year_short, SUM(person_days) AS person_days\nFROM curated.v_employment\nWHERE lgd_district = 'WEST JAINTIA HILLS' AND year_key = 2025\nGROUP BY financial_year_short\nORDER BY financial_year_short\nLIMIT 100",
+   "seconds": 11.1,
+   "answer": "2025-26: 1,161,895 person days.",
+   "detail": "row count: gold 4, got 1",
+   "mapping": {},
+   "pred_rows": 1,
+   "gold_sample": [
+    {
+     "person_days": 976990
+    },
+    {
+     "person_days": 1510239
+    },
+    {
+     "person_days": 818826
+    }
+   ],
+   "pred_sample": [
+    {
+     "financial_year_short": "2025-26",
+     "person_days": 1161895
+    }
+   ]
+  }
+ ],
+ "compared_with": "2026-10-18_1433_conversation-meta-recheck.json",
+ "delta": {
+  "regressions": [],
+  "fixed": []
+ }
+}

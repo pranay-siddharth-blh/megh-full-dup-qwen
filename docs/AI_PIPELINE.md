@@ -15,12 +15,17 @@ Source of truth: [app/pipeline.py](../app/pipeline.py), [app/prompt_builder.py](
 | Role | Setting | Model (served name) | Timeout | max_tokens | Guided decoding |
 |---|---|---|---|---|---|
 | Classifier (intent, scheme, entity spans, follow-up rewrite, summary) | `CLASSIFIER_MODEL` | `qwen4-deploy` (Qwen3-4B-Instruct) | 30 s | 200 | `guided_json` |
-| SQL generation + repair | `SQL_GENERATION_MODEL` | `qwen-model` (Qwen3-Coder-30B FP8) | 30 s | 1024 | `guided_regex` `\s*(SELECT\|WITH\|select\|with)[\s\S]*` |
+| SQL generation + repair | `SQL_GENERATION_MODEL` | `qwen-model` (Qwen3-Coder-30B FP8) | 30 s | 1024 | none (no decoding constraint since 2026-10-15, D-046) |
 | SQL semantic verifier | `SQL_VERIFY_MODEL` | `qwen4-deploy` | 15 s | 200 | `guided_json` |
 | Answer composer (DATA + RAG) | `RESPONSE_MODEL` | `qwen35-9b` | 20 s | 800 | none |
 | Embeddings | `EMBEDDING_PROVIDER=local` | fastembed `BAAI/bge-small-en-v1.5` (384-dim, CPU) | – | – | – |
 | Reranker | `RERANKER_ENABLED=False` | `qwen3-reranker` (deployed, **disabled**: it inverted relevance, 2026-08-29) | 30 s | – | – |
 | ASR | `ASR_MODEL` | `qwen3-asr` | 60 s | – | `prompt` = `ASR_PROMPT` vocabulary hint |
+| Backward reference pick (topic ledger, D-050, 2026-10-18; role tag `reference`) | `REWRITE_MODEL` via `llm.call_rewriter` | `qwen35-9b` | `LLM_REFERENCE_TIMEOUT_SECONDS` 8 s | 8 | none — the output must be a listed ledger id / NONE / ASK, anything else is ASK |
+
+DOCUMENTATION CONFLICT — NEEDS VERIFICATION (noted 2026-10-18): the user's fixed role map (2026-10-15) puts
+follow-up rewrite + summary on the 9B (`REWRITE_MODEL`) and the SQL verifier on the 30B coder; the classifier
+and verifier rows above still say `qwen4-deploy`. Check `app/config.py` / `app/llm.py` and fix this table.
 
 - **Temperature and message shape:**
   - All temperatures are 0.0.
@@ -115,6 +120,8 @@ near-miss pause uses `entity-ambiguous`.
 ### 2.1 Pre-classification gates (no model call)
 In order:
 1. `_unsupported_scheme_named` → a clarification naming the scheme we don't hold.
+0a. `_geo_lookup_answer` → "village code of X" / "which block is X in": every village of that name from
+   `dim_geography` (also on the KNOWLEDGE path). **Returns.**
 1a. `cross_scheme.detect` (on `pre_rephrase_question`) → a comparison of 2+ schemes, or "which /
    each / all schemes" with a figure, ranking or compare word. Sets `d["cross"]` and skips the
    rest of this list; the entity stage then resolves against all six schemes, and
@@ -123,7 +130,12 @@ In order:
 2. `_wants_cross_scheme_money_ranking` → `_cross_scheme_money_answer`: deterministic SQL across
    every money-bearing scheme. **Returns.**
 3. `_is_ambiguous_focus` → the "which Focus?" two-way ask.
-4. `_needs_scheme_clarification` (`SCHEME_CLARIFY_ENABLED`) → the which-scheme chips.
+4. `_needs_scheme_clarification` (`SCHEME_CLARIFY_ENABLED`) → the which-scheme chips — unless
+   ANSWER_DEFAULTS_ENABLED and `cross_scheme.unnamed_schemes` names the schemes that record the measure
+   (then a cross-scheme answer). In `_data_clarification_stage`, with ANSWER_DEFAULTS_ENABLED (D-045) the scope,
+   year and tranche pauses become the chip text appended ("for all of Meghalaya", "across all financial years",
+   "across all tranches"); job-card questions get no year default (stock pinned by
+   `_mgnrega_job_cards_latest_year`).
 5. `_needs_topn_clarification` (`TOPN_CLARIFY_ENABLED`) → the Top 3/5/10/all chips.
 
 ### 2.2 Scheme classification — `classify_scheme`
@@ -144,12 +156,12 @@ In order:
     scheme implied, `_scheme_clarification` offers only the three AC-capable schemes.
   - Edge (`edge.detect_edge_case`, step 0b): a labelled producer-group name is masked from the
     out-of-area test (`_mask_group_name`, KI-152), so "Rakkam China Banana Group" is not refused.
-  - Resolution, explicit "X village": the whole `_VILLAGE_PHRASE_RE` phrase from the text
+  - Resolution, explicit "X village": the whole `_VILLAGE_PHRASE_MATCH` phrase from the text
     replaces an extractor fragment when the DB holds it exactly (KI-153; all village schemes).
   - Focus Legacy id/name-only group lists are written by `_focus_legacy_group_list_answer`
     (KI-154, D-031).
   - Village-disambiguation chips are pinned for Focus Legacy too (`_mgnrega_village_chip_pin`,
-    KI-156), including after a later year chip (`_CHIP_TAIL_PARSE_RE` allows the period tail).
+    KI-156), including after a later year chip (`_CHIP_TAIL_PARSE_MATCH` allows the period tail).
   - Group-name lookup (`_focus_legacy_pg_name_answer`) searches current names AND earlier spellings
     (`curated.v_focus_legacy_pg_search`, `NOT is_current`) in one pass, compares with "_" as a
     space, and keeps non-ASCII letters (KI-020, KI-155, KI-158). A "Focus" inside a group name
@@ -194,7 +206,7 @@ In order:
        "Focus Legacy", "CM Elevate Legacy")`. The whole-or-part drill-down reads the asking
        scheme's own rows (`constituency_contents(ac, scheme)`, KI-146).
      - **MGNREGA only (2026-09-26, KI-041):** `_explicit_level_in(question, schemes)` ignores
-       a NEGATED level (`_NEGATED_LEVEL_RE`, "not the village").
+       a NEGATED level (`_NEGATED_LEVEL_MATCH`, "not the village").
        - The block/village chip sends "…, the block, not the village". The finest-first
          detector used to read that as "village", so MAWKYRWAT resolved to its village
          (273 households) instead of the block (11,590).
@@ -245,10 +257,10 @@ In order:
     `year_key` (`_mgnrega_women_years_only`, in `execute_with_repair`).
 - **Calendar dates are not financial years (2026-09-27, KI-078).** "sanctioned on 2017-11-28" is
   a date filter:
-  - `_EXPLICIT_FY_RANGE_RE` (the FY back-fill) skips an `NNNN-NN` that continues as a date;
+  - `_EXPLICIT_FY_RANGE_MATCH` (the FY back-fill) skips an `NNNN-NN` that continues as a date;
   - `premise_check.extract_premises` blanks full dates, so their parts are never "assumed
     figures";
-  - a full date satisfies the scope gate (`_CALENDAR_DATE_RE` in `_needs_scope_clarification`).
+  - a full date satisfies the scope gate (`_CALENDAR_DATE_MATCH` in `_needs_scope_clarification`).
 - **Failure behaviour:**
   - `ClarificationNeeded` when a name is ambiguous;
   - `OutOfScope` when a place is outside Meghalaya (`OUT_OF_SCOPE_GUARD_ENABLED`);
@@ -390,9 +402,9 @@ retry, then the deterministic answer.
 Runs after the gates in §2.4, before SQL generation, only for `schemes == ["PMAY-G"]`:
 1. `_pmay_facts_query(question, schemes, resolved, notes)` returns None unless every resolved
    key is one it handles (`_PMAY_DET_KEYS`), the question is one of the fixed shapes
-   (`_pmay_metrics`; `_PMAY_DET_EXCLUDE_RE` sends rankings, "each", trends, allotment,
+   (`_pmay_metrics`; `_PMAY_DET_EXCLUDE_MATCH` sends rankings, "each", trends, allotment,
    instalments, averages, lists and "in progress" to the model path) and, for a statewide answer,
-   no place was left unresolved (`_PMAY_UNSETTLED_PLACE_RE`, resolver notes).
+   no place was left unresolved (`_PMAY_UNSETTLED_PLACE_MATCH`, resolver notes).
 2. The query is parameter-bound over `curated.v_pmay` (`NOT is_placeholder`; `COALESCE(amount_released, 0)`
    — 336 houses have a NULL release), one row per named area: houses, sanctioned, released,
    stage counts, full / partial / no release, fully-paid-but-incomplete (+ stage split), unique
@@ -415,7 +427,9 @@ build_schema_context(schemes)       # schema_context.py: _PREAMBLE, _SHARED_TABL
                                     #   (_X_TABLES, _X_RULES, _X_VOCAB), _CROSS_SCHEME if >1 scheme,
                                     #   _SHARED_RULES, _CLOSING
 _live_schema_block(schemes)         # schema_introspect: real columns + real FKs from megh_db
-schema_introspect.catalog_block()   # semantic.table_catalog / glossary / metric_definitions
+schema_introspect.catalog_block()   # semantic.table_catalog / glossary / metric_definitions (metric_key,
+                                    #   sql_expression) / column notes + UNIT + VALUES lists (D-049);
+                                    #   LIVE SCHEMA hides privacy tables and megh_readonly-denied columns
 _prohibited_block(schemes)          # annotations: PROHIBITED JOINS from *_foreign_key_augmentation.yaml
 _fewshot_block(...)                 # top_k=5 examples PER SCHEME (incl. UNANSWERABLE, sql=null)
 _common_mistakes_block(schemes)     # WRONG → RIGHT shapes
@@ -445,8 +459,8 @@ _entities_block(entity_result, …)   # "RESOLVED ENTITIES — MANDATORY" + "NOT
   - The rows are returned to the client in `data`. See KI-004.
 
 ### 2.6 SQL generation — `generate_sql(question, schemes, entity_result)`
-1. Call the **30B** with `guided_regex`.
-2. `_extract_sql` strips code fences and prose.
+1. Call the **30B** (no decoding constraint; the old `guided_regex` was removed, D-046).
+2. `_extract_sql` strips code fences and prose on the SQLGlot token stream (no regex).
 3. `_focusplus_single_district_beneficiary_guard` post-processes the result.
 
 **MGNREGA deterministic queries (2026-09-26, VERIFIED live).** For two MGNREGA shapes,
@@ -461,16 +475,30 @@ the SQL.
     has no village or block column.
   - The result was a KB fallback (DATA-028) or "couldn't build a query" (DATA-029, 4 runs of 5).
   - Rankings, breakdowns, components (wages/material), ratios and constituencies stay with the
-    generator (`_MG_COMBINED_EXCLUDE_RE`).
+    generator (`_MG_COMBINED_EXCLUDE_MATCH`).
 - `_mgnrega_admin_expenditure_query`: `SUM(admin_total_exp)`, answered by
   `_mgnrega_admin_expenditure_answer`. That answer states the recorded figure plus the
   "never populated at source" caveat, with the statewide non-zero count read live (D-025).
   - The pre-routing gate 1d now refuses only when the question is not MGNREGA.
   - PMAY-G and the multi-scheme wording are unchanged.
 
+**Guards added 2026-10-14 (VERIFIED live, hierarchy matrix):**
+- rewrite `_mgnrega_job_cards_latest_year` (SUM of job cards with no year → `year_key = MAX`); the verifier's
+  complaint about that pin is discarded;
+- `_execute_one_attempt` sends back: an all-years question split by financial year alone
+  (`_UNASKED_YEAR_SPLIT_SQL`, unless `_YEAR_SPLIT_ASKED`); an MGNREGA expenditure component named but its
+  column not read (`_MGNREGA_EXP_COMPONENTS`); a village ranking without the "Unresolved" filter;
+- `classify_intent`: a measure followed by "in <place> block/village/district/constituency" is DATA;
+- `guardrails._DATA_QUESTION` overrules an OUT_OF_SCOPE model verdict for a plain or terse data question;
+- `_correct_fy_spacing` ("FY2022-23" → "FY 2022-23", "for the state" → "for Meghalaya") before routing;
+- `_RELATIVE_THAT` ("households that completed …" is not a reference to an earlier answer);
+- `_data_entity_stage`: a chip resume ("…, X block, DISTRICT") is pinned deterministically for every scheme.
+
 ### 2.7 Authorization — `auth.authorize(scope, schemes, resolved_entities, sql)`
 - Runs only when `AUTH_ENABLED` and a scope is present.
-- Checks scheme, geography and granularity using regexes over the SQL.
+- Checks scheme, geography and granularity on the SQLGlot tree (`app/sql_ast.py`): every district/block value the
+  query filters on, including `UPPER(col)`, every `IN` value and `OR` branches. Unparseable SQL is refused for a
+  geo-restricted user (D-046, KI-303).
 - A deny returns `route:"denied"` and **no SQL runs**.
 
 ### 2.8 Validate → execute → repair — `execute_with_repair(..., max_repairs=MAX_SQL_REPAIRS)` (Flow C)
@@ -493,8 +521,8 @@ the rewrites and before it runs (`_repaired_sql_denial`; D-033, KI-183). A denia
   2026-09-27, CM Elevate: KI-068)
 - **CM Elevate only (2026-09-27, use-case QA, KI-069 / 070 / 072 / 074):**
   - `_cm_elevate_split_scheme_in_list`: a `scheme_name IN (…)` with 2+ programmes and no
-    `GROUP BY scheme_name` gets `scheme_name` added to the SELECT and the GROUP BY. The IN-list
-    regex matches literals, since "(SEED)" carries its own parenthesis.
+    `GROUP BY scheme_name` gets `scheme_name` added to the SELECT and the GROUP BY. The IN list is
+    read on the SQLGlot tree, so "(SEED)" inside a literal is no problem.
   - `_cm_elevate_sector_zero_groups`: a GROUP BY `sector_id` query with one
     `data_verified = '…'` in the WHERE moves that test into `COUNT(*) FILTER (…)`, so sectors
     with 0 stay listed.
@@ -740,6 +768,17 @@ dropped from the extracted village name when only the bare name is a stored vill
 4. **Result:** `route:"data"`, `rows[:20]`, `data` = all rows, `row_count`, `sql`.
 
 ---
+
+### 2.9b Answer framing (2026-10-19, D-054, KI-321)
+
+`compose_response` ends with `_finish_answer(answer, rows, schemes, entities)`, and the finalize node runs
+`_finish_data_result(result)` on every DATA result (composer, scheme deterministic facts, fixed queries alike): result
+figures of 4+ digits get thousands separators (a year-like value never), and a single-figure answer naming neither the
+scheme nor the area gets one closing scope sentence built from the resolved entities (`_display_from_resolved`,
+`_scope_words`). The deterministic fallback used when the composer misquotes numbers is `_framed_fallback`: a briefing
+sentence with a plain-words label per column (`_HUMAN_METRIC`), the money unit, and the household-years / person-years
+caveat (`_METRIC_CAVEAT`). `_deterministic_answer` is unchanged for its other callers; `_is_fallback_answer` recognises
+both forms (CM Elevate Legacy guarantees). Failed data turns (`answer_failed`) are left untouched.
 
 ## 3. Other flows
 
@@ -1162,7 +1201,7 @@ all financial years" means the **same operation on another scheme**.
 **The fix:**
 - `pipeline._scheme_substitution(q)` returns `(scheme, pure)`. It needs a continuation cue
   (same / do it / repeat / likewise / what about / now for / and for / instead / switch to …)
-  plus exactly one scheme from `_SCHEME_NAME_PATTERN`, the registry. No scheme name is
+  plus exactly one scheme from `_SCHEME_NAME_MATCHER`, the registry. No scheme name is
   hard-coded. `pure` means nothing else is asked once fillers are removed.
 - A **pure** substitution is a follow-up (`looks_like_followup`). The existing deterministic
   `_scheme_swap_rewrite` swaps only the scheme in the previous question, so intent, metric,
@@ -1207,7 +1246,7 @@ Off with `CONVERSATION_LAYER_ENABLED=false` (every message then runs exactly as 
 
 | Message | What happens |
 |---|---|
-| any, idle > `CONTEXT_IDLE_EXPIRY_SECONDS` (1800) | state, turns, summary, pending pause and topics cleared; a paused LangGraph run for the thread deleted; then the message runs fresh (cacheable) |
+| any, idle > `CONTEXT_IDLE_EXPIRY_SECONDS` (14400 = 4 h, D-051) | state, turns, summary, pending pause and topics cleared; a paused LangGraph run for the thread deleted; then the message runs fresh (cacheable) |
 | "start a new topic", "forget the previous question", "let's start again", "reset" | the same clearing; bare -> edge reply `edge_type: context_reset`; "Forget that. How many …?" -> only the question runs |
 | "what was the PMAY-G information again?", "remind me about PMAY-G" (a topic this chat holds, not the active one) | -> `Go back to PMAY-G, <PMAY-G's last question>` for topic_memory |
 | "How many beneficiaries are there?" right after a single-scheme KNOWLEDGE answer (also after "go back to X", and inside "coming back to X, …") | -> `… under PMAY-G?`, the pipeline's own `_measure_after_knowledge` rewrite (KI-222) |
@@ -1218,6 +1257,55 @@ scheme topic (state, last turn, last 5 questions, summary) and restores it on "g
 to / back to / switch back to …"; an unnamed "the previous topic" with two or more candidates asks
 which. `session.topics` and `session.context_at` are in the durable snapshot, so both work on any
 worker. A topic switch, a reset and a rewritten turn are never cached.
+
+**Backward context memory (2026-10-18, D-050; LIVE-VERIFIED).** Each topic also keeps a ledger of its last 6
+questions with the scope each ran in. In `_turn_context_stage`: `topic_memory.resolve_turn` restores an earlier
+QUESTION by order / content (or asks with `ledger-ambiguous` chips) and answers "what did we discuss?"; then,
+only for a backward cue the rules placed nowhere, `topic_memory.resolve_reference` asks the 9B to pick a ledger
+id (NONE / ASK otherwise). A restore re-runs the question in the restored scope. `node_finalize` adds
+`scope_banner` to every DATA answer (`_attach_scope_banner`, from the SQL's own entities; "(from earlier)" on a
+restore). After an idle expiry the router adds `continue_offer` ("Continue with MGNREGA (…)") to the first reply;
+tapping it restores the set-aside context (`conversation_layer`, `Session.expired_ctx`). A new district clears
+the old block and village (`context_manager.update_state`).
+
+**"Show me the districts, I'll choose one" (2026-10-18, KI-317; LIVE-VERIFIED).** Step 0g of `_turn_followup_stage`, before the follow-up rewrite: right after a DATA answer, a message that asks to see the districts in order to pick one (`_asks_to_pick_district`: "district(s)" plus choose / pick / select / "ask me" / "I will say" / list / "what are the"; never with a ranking or breakdown word, "district-wise", or "how many" without a choose word), that names no district / block and no other scheme, pauses with the previous question once per district (`_pick_district_clarification`, rule `scope-not-specified`, "for all of Meghalaya" / the earlier district taken out, plus an "All of Meghalaya" chip). `standalone_question` is that stem, so a typed "East Khasi Hills" merges back.
+
+**Talking about the conversation itself (2026-10-18, D-052, KI-310).** `c15_conversation_meta.py`. `_meta_kind(raw, prev)`
+reads the typed words (no model): a complaint lead ("why are you not giving me …", "that's wrong, I asked for …",
+"no, I meant …") followed by a dimension word is a **breakdown**, followed by content is a **correction**, followed by
+nothing is **misread**; otherwise recap / explain / misread / suggest word lists, each only when the message brings no
+scheme, place, year or measure of its own. Edge stage step 0-b (`_conversation_meta_answer`, before the edge banks):
+**recap** = the previous answer again with its scope line; **explain** = `llm.call_rewriter` (role `explain`, 9B,
+`LLM_REFERENCE_TIMEOUT_SECONDS`) on the previous question / answer / rows summary / scope, kept only when its numbers
+are a subset of those and its shape is sane, else `_c15_explain_fallback`; **misread** = "Sorry — I read your message
+as “<previous question>” …" (3 rotating wordings) + how to ask; **suggest** = a bullet list (`_c15_chips`: "Break that
+down by district / block", "Compare with the previous financial year", then `edge._SCHEME_STARTERS`). Replies are
+`route: edge`, `edge_type` = the kind, `context_dependent`, and set the topic-memory "aside" so the next message still
+continues the topic. Follow-up stage step 0h (`_meta_question`): **correction** -> the text after the lead runs as the
+follow-up ("completed houses", the normal rewrite keeps the scope); **breakdown** -> `_c05_statewide_stem(prev.question)
++ " by <dim>"`, standalone, no rewrite; both set `turn_context["answer_preface"]`, which `_attach_preface` (finalize)
+puts in front of a data / knowledge answer.
+Route stage step 1i: `_overview_question` (one scheme, one district / block, an overview cue, no measure) -> the scheme's
+headline question (`_C15_OVERVIEW_TEMPLATES`), intent DATA, preface "Here's an overview of …". Follow-up stage step 0i:
+`_relative_year_clarification` ("last year" / "this year" with no year in the thread state, no own scheme / place / year)
+-> `year-not-specified` pause with the scheme's FYs as single-year chips (no year-by-year chip for MGNREGA, KI-311).
+**reason** ("why is it so low?", a data turn behind it, not about the bot): a fixed reply plus `_c15_reason_chips`
+("<headline measure> by block in <parent district> in FY …" via `entity_resolver.block_parent_district`, by district,
+"Compare with the previous financial year", year by year except MGNREGA). `looks_like_followup` strips opening fillers
+(`_c01_strip_opening_fillers`: ok / okay / so / yes / sure / please …).
+Follow-up stage step 0h' (KI-316): `_rollup_question(raw, prev, session.turns, session)`: a roll-up cue (`_C15_ROLLUP_DISTRICT` /
+`_BLOCK` / `_STATE`) with no place, scheme or year of its own, after a DATA turn -> the topic's last aggregate question
+(`_c15_earlier_data_turns`: the topic ledger newest-first, then `session.turns`; breakdown-shaped questions skipped by
+`_c15_is_breakdown_question`) with the place swapped (`_c15_swap_place`, every form of the name), standalone, plus a
+`MergePlan(GEOGRAPHY_CHANGE)` that CLEARs the rolled-past levels (`_c15_rollup_plan`), kept through the stage as `_rollup_plan`
+so `_turn_data_context_stage.apply_merge_plan` drops them from `prior_resolved`. Asides: `conversation_replies.restyle` records
+the aside for EVERY kind (a harmful refusal included); `conversation_layer.resume_after_small_talk` also treats a `denied` turn as
+an aside. Acceptance: TESTING.md 2026-10-18 (context memory through the HTTP API).
+Follow-up stage step 0h'' (KI-320): `_compare_with_scheme_question(raw, prev)`: a compare cue (compare / compared / vs /
+versus / against) + exactly ONE scheme name that is not the previous turn's (exact name first, else the fuzzy spelling) + nothing
+else (no place, year or other words beyond fillers) after a single-scheme DATA turn -> "Compare <prev> and <named> in <place>
+in <FY>" (place / year from `_scope_banner_place` / `_scope_banner_year` of the previous resolved entities), standalone, no model
+call; `cross_scheme.detect` then takes it.
 
 ## 6. Post-answer
 - `followups.build_followups(route, question, schemes, resolved, sql, rows)`: up to 3
@@ -1232,7 +1320,7 @@ worker. A topic switch, a reset and a rewritten turn are never cached.
 
 | Symptom | Look at |
 |---|---|
-| Wrong scheme picked | `_shortcut_scheme`, `_SCHEME_NAME_PATTERN`, `_<X>_ONLY_TERMS`, `_infer_scheme_from_terms`, `_pin_cm_elevate_dataset` |
+| Wrong scheme picked | `_shortcut_scheme`, `_SCHEME_NAME_MATCHER`, `_<X>_ONLY_TERMS`, `_infer_scheme_from_terms`, `_pin_cm_elevate_dataset` |
 | Place misresolved | `entity_resolver.resolve_dimension` / YAML catalogues, `extract_entity_mentions` prompt, `_drop_producer_group_names` |
 | Wrong SQL shape | few-shot YAML (add a right-shaped example), `schema_context` rules, then a guard in `execute_with_repair` |
 | Verifier false positive | add a filter to `_verify_sql` (e.g. `_verifier_village_code_complaint_is_false`) or a calibration example in `prompt_builder._VERIFY_CALIBRATION` |

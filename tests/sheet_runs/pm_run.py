@@ -8,7 +8,6 @@ Usage (repo root): pm_run.py [PMAY-OFF-001 ...]  -> pm_results.json (PM_OUT)"""
 import asyncio
 import json
 import os
-import re
 import sys
 
 os.environ.setdefault("SHEET_SCHEME", "PMAY-G")
@@ -146,7 +145,7 @@ async def main():
                  c AS (SELECT p.village_code, MIN(p.lgd_village_name) name, MIN(p.lgd_block) b, MIN(p.lgd_district) d,
                               COUNT(*) h
                        FROM curated.v_pmay p JOIN u ON u.n = UPPER(p.lgd_village_name)
-                       WHERE NOT p.is_placeholder AND p.village_code IS NOT NULL AND p.lgd_village_name !~ '[^A-Za-z ]'
+                       WHERE NOT p.is_placeholder AND p.village_code IS NOT NULL AND TRANSLATE(UPPER(p.lgd_village_name), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ', '') = ''
                        GROUP BY 1 HAVING COUNT(*) >= 5),
                  x AS (SELECT c.*, ROW_NUMBER() OVER (PARTITION BY d ORDER BY md5(name)) rn FROM c)
             SELECT village_code, name, b, d FROM x WHERE rn <= 2 ORDER BY d, name""")
@@ -194,7 +193,7 @@ async def main():
         pairs = await fetch("""
             WITH c AS (SELECT village_code, MIN(lgd_village_name) n, MIN(lgd_block) b,
                               COUNT(*) FILTER (WHERE is_completed) comp
-                       FROM curated.v_pmay WHERE NOT is_placeholder AND lgd_village_name !~ '[^A-Za-z ]'
+                       FROM curated.v_pmay WHERE NOT is_placeholder AND TRANSLATE(UPPER(lgd_village_name), 'ABCDEFGHIJKLMNOPQRSTUVWXYZ ', '') = ''
                        GROUP BY 1),
                  u AS (SELECT UPPER(lgd_village_name) n FROM curated.v_pmay GROUP BY 1 HAVING COUNT(DISTINCT village_code)=1),
                  x AS (SELECT c.*, ROW_NUMBER() OVER (PARTITION BY b ORDER BY md5(c.n)) rn FROM c
@@ -207,7 +206,6 @@ async def main():
             def chk22(rec, p=p, win=win):
                 ok = num_ok(rec, p["c1"]) and num_ok(rec, p["c2"])
                 ans = (rec.get("answer") or "")
-                hi = re.search(r"([A-Za-z ]+?)\s+(?:village\s+)?(?:\([^)]*\)\s+)?(?:has|is)\s+(?:more|higher)", ans)
                 return ok and has_name(rec, win), f"{p['n1']}={p['c1']} {p['n2']}={p['c2']} winner={win}"
             T.append(run_case("PMAY-OFF-022", f"{p['n1']} vs {p['n2']}",
                               f"Which has more completed houses: {p['n1']} or {p['n2']}?", chk22, year="all",

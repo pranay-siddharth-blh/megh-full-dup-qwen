@@ -9,7 +9,7 @@ This module turns the seven hand-curated annotation YAMLs in this folder
 (`data/cm_elevate/`) into the prompts each pipeline stage would send to an
 LLM (schema linking, entity resolution, join discovery, the clarification
 gate, defaults, few-shot retrieval, response composition), plus a
-dependency-free regex-based SQL safety validator and one "everything"
+SQL safety validator that reads the parsed SQL tree, and one "everything"
 master prompt.
 
 NOTE ON THE LIVE SERVICE
@@ -53,7 +53,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import re
 import sys
 import difflib
 from pathlib import Path
@@ -61,6 +60,14 @@ from dataclasses import dataclass, field
 from typing import Any
 
 import yaml
+from sqlglot import exp
+
+# The service's SQLGlot guard (app/sql_guard.py), shared so the read-only
+# checks here and in app/db.py can never drift apart. The repo root goes on
+# sys.path for the `python data/cm_elevate/prompt_assembler.py` entry point.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+from app import sql_ast  # noqa: E402
+from app.sql_guard import UnsafeSQLError, assert_readonly  # noqa: E402
 
 SCHEME_NAME = "CM Elevate"
 VIEW_NAME = "curated.v_cm_elevate"
@@ -91,8 +98,46 @@ STOPWORDS = {
 }
 
 
+def _ascii_runs(text: str, keep) -> list[str]:
+    """Maximal runs of characters for which keep(ch) is true."""
+    out, cur = [], []
+    for ch in text:
+        if keep(ch):
+            cur.append(ch)
+        elif cur:
+            out.append("".join(cur))
+            cur = []
+    if cur:
+        out.append("".join(cur))
+    return out
+
+
+def _is_low_alnum(ch: str) -> bool:
+    return "a" <= ch <= "z" or "0" <= ch <= "9"
+
+
+def _is_up_alnum(ch: str) -> bool:
+    return "A" <= ch <= "Z" or "0" <= ch <= "9"
+
+
+def _is_word(ch: str) -> bool:
+    return ch.isalnum() or ch == "_"
+
+
+def _find_alone(hay: str, needle: str, inner=_is_up_alnum, start: int = 0) -> int:
+    """First index of `needle` in `hay` with no `inner` character right before
+    or right after it (for folded text: not inside a longer A-Z/0-9 run), or -1."""
+    i = hay.find(needle, start)
+    while i != -1:
+        j = i + len(needle)
+        if (i == 0 or not inner(hay[i - 1])) and (j >= len(hay) or not inner(hay[j])):
+            return i
+        i = hay.find(needle, i + 1)
+    return -1
+
+
 def _tokens(text: str) -> set[str]:
-    return {t for t in re.findall(r"[a-z0-9]+", text.lower()) if t not in STOPWORDS}
+    return {t for t in _ascii_runs(text.lower(), _is_low_alnum) if t not in STOPWORDS}
 
 
 def _overlap_score(a: set[str], b: set[str]) -> float:
@@ -174,26 +219,28 @@ _TRAILING_QUALIFIERS = [
 def _fold(text: str) -> str:
     """cmelevate_entity_resolver.yaml: normalisation.fold, applied in order."""
     t = text.strip()
-    t = re.sub(r"[-/().]", " ", t)          # treat -/(). as a single space
-    t = re.sub(r"\s+", " ", t).strip()
+    t = "".join(" " if ch in "-/()." else ch for ch in t)   # treat -/(). as a single space
+    t = " ".join(t.split())
     t = t.upper()
-    t = re.sub(r"\s*&\s*", " AND ", t)      # map & to AND
-    for w in _LEADING_QUALIFIERS:
-        t = re.sub(rf"^{w}\b\s*", "", t)
+    parts = t.split("&")                    # map & (and the spaces around it) to AND
+    t = " AND ".join(p.lstrip() if k else p for k, p in enumerate(
+        q.rstrip() if k < len(parts) - 1 else q for k, q in enumerate(parts)))
+    for w in _LEADING_QUALIFIERS:           # a leading whole word, and the spaces after it
+        if t.startswith(w) and (len(t) == len(w) or not _is_word(t[len(w)])):
+            t = t[len(w):].lstrip()
     changed = True
     while changed:
         changed = False
-        for w in _TRAILING_QUALIFIERS:
-            new_t = re.sub(rf"\s+{re.escape(w)}$", "", t)
-            if new_t != t:
-                t = new_t
+        for w in _TRAILING_QUALIFIERS:      # a trailing word after at least one space
+            if t.endswith(w) and len(t) > len(w) and t[-len(w) - 1].isspace():
+                t = t[:-len(w)].rstrip()
                 changed = True
-    return re.sub(r"\s+", " ", t).strip()
+    return " ".join(t.split())
 
 
 def _squash(text: str) -> str:
     """normalisation.squash: remove every non-alphanumeric char from the folded form."""
-    return re.sub(r"[^A-Z0-9]", "", _fold(text))
+    return "".join(ch for ch in _fold(text) if _is_up_alnum(ch))
 
 
 def _squash_window_match(cand_folded: str, question_folded: str) -> bool:
@@ -234,7 +281,7 @@ def _content_words(question_folded: str) -> str:
     the catalogue, not the whole sentence — a short, specific span like
     'PRIME vehicle' otherwise gets diluted into a low/noisy ratio against
     a 3-4 word scheme name once 6+ filler words are mixed in."""
-    clean = re.sub(r"[^A-Z0-9 ]", " ", question_folded)
+    clean = "".join(ch if (ch == " " or _is_up_alnum(ch)) else " " for ch in question_folded)
     words = [w for w in clean.split() if w not in _GENERIC_QUERY_WORDS]
     return " ".join(words) if words else question_folded
 
@@ -306,8 +353,7 @@ def _stage_match(kb: "CMElevateKB", dim_key: str, dim: dict, question_folded: st
             if question_folded == cand_folded:
                 hits.append((1.0, "1_exact", cand, val))
                 continue
-            pattern = r"(?<![A-Z0-9])" + re.escape(cand_folded) + r"(?![A-Z0-9])"
-            if re.search(pattern, question_folded):
+            if _find_alone(question_folded, cand_folded) != -1:
                 stage = "2_alias" if cand.lower() != canonical.lower() else "5_contains"
                 hits.append((0.98 if stage == "2_alias" else 0.85, stage, cand, val))
                 continue
@@ -318,7 +364,7 @@ def _stage_match(kb: "CMElevateKB", dim_key: str, dim: dict, question_folded: st
     if dim_key == "district":
         for val in values:
             acr = val.get("acronym")
-            if acr and re.search(r"(?<![A-Z0-9])" + re.escape(acr) + r"(?![A-Z0-9])", question_folded):
+            if acr and _find_alone(question_folded, acr) != -1:
                 hits.append((0.95, "4_acronym", acr, val))
 
     if hits:
@@ -401,8 +447,7 @@ def _village_collision_check(kb: "CMElevateKB", question: str) -> "EntityMatch |
         _VILLAGE_COLLISION_NAMES = reg.get("names", [])
     q_folded = _fold(question)
     for name in _VILLAGE_COLLISION_NAMES:
-        pattern = r"(?<![A-Z0-9])" + re.escape(_fold(name)) + r"(?![A-Z0-9])"
-        if re.search(pattern, q_folded):
+        if _find_alone(q_folded, _fold(name)) != -1:
             return EntityMatch(
                 dimension="village", status="ambiguous", matched_text=name,
                 candidates=["(multiple LGD codes — see dim_geography)"],
@@ -455,11 +500,10 @@ def _grouping_match(kb: "CMElevateKB", groupings_key: str, question: str):
             cand_folded = _fold(cand)
             if not cand_folded:
                 continue
-            pattern = r"(?<![A-Z0-9])" + re.escape(cand_folded) + r"(?![A-Z0-9])"
-            m = re.search(pattern, q_folded)
-            if not m:
+            at = _find_alone(q_folded, cand_folded)
+            if at == -1:
                 continue
-            preceding = q_folded[:m.start()].split()
+            preceding = q_folded[:at].split()
             if preceding and preceding[-1] in _DIRECTIONAL_PREFIXES:
                 continue  # e.g. "East Garo Hills" — a real district, not the region group
             if len(preceding) >= 2 and " ".join(preceding[-2:]) == "SOUTH WEST":
@@ -484,12 +528,36 @@ def detect_scheme_grouping(kb: "CMElevateKB", question: str):
 
 def _applicant_name_trigger(question: str) -> bool:
     q = question.lower()
-    if re.search(r"\bnamed\s+\w+", q):
-        return True
-    if re.search(r"\b(applicant|citizen|beneficiary)'?s?\s+name\b", q):
-        return True
-    if re.search(r"\bname of (the )?(applicant|citizen|beneficiary|person)\b", q):
-        return True
+    # "named <word>"
+    i = _find_alone(q, "named", _is_word)
+    while i != -1:
+        j = i + len("named")
+        k = j
+        while k < len(q) and q[k].isspace():
+            k += 1
+        if k > j and k < len(q) and _is_word(q[k]):
+            return True
+        i = _find_alone(q, "named", _is_word, i + 1)
+    # "applicant name", "applicant's name", "applicants name", "applicant' name" (also citizen / beneficiary)
+    for who in ("applicant", "citizen", "beneficiary"):
+        i = q.find(who)
+        while i != -1:
+            if i == 0 or not _is_word(q[i - 1]):
+                j = i + len(who)
+                for tail in ("'s", "'", "s", ""):
+                    if not q.startswith(tail, j):
+                        continue
+                    k = m = j + len(tail)
+                    while k < len(q) and q[k].isspace():
+                        k += 1
+                    if k > m and q.startswith("name", k) and (k + 4 >= len(q) or not _is_word(q[k + 4])):
+                        return True
+            i = q.find(who, i + 1)
+    # "name of [the] applicant / citizen / beneficiary / person"
+    for who in ("applicant", "citizen", "beneficiary", "person"):
+        for phrase in (f"name of the {who}", f"name of {who}"):
+            if _find_alone(q, phrase, _is_word) != -1:
+                return True
     return False
 
 
@@ -510,8 +578,7 @@ def detect_absent_dimensions(kb: "CMElevateKB", question: str) -> list:
             alias_folded = _fold(str(alias))
             if not alias_folded:
                 continue
-            pattern = r"(?<![A-Z0-9])" + re.escape(alias_folded) + r"(?![A-Z0-9])"
-            if re.search(pattern, q_folded):
+            if _find_alone(q_folded, alias_folded) != -1:
                 behaviour = spec.get("resolver_behaviour", "")
                 reason = behaviour.get("text", "") if isinstance(behaviour, dict) else behaviour
                 hits.append({
@@ -751,24 +818,19 @@ def _join_graph_block(kb: CMElevateKB) -> str:
 
 
 # ---------------------------------------------------------------------------
-# Safety — regex-based SQL guardrail
+# Safety — SQL guardrail
 #
 # architecture_alignment.safety specifies "SQLGlot read-only validation,
-# enforced LIMIT, SELECT-only database role." sqlglot isn't installable in
-# this offline environment, so this is a regex/heuristic stand-in covering
-# the CM-Elevate-specific failure modes documented across the seven YAMLs
-# (no SUM/AVG, no date handling, the on-hold trap, the prohibited joins,
-# the ungrounded scheme_specific read, type_raw, case folding). It is NOT a
-# substitute for a real parser-based validator (it can be fooled by
-# adversarial SQL — e.g. keywords inside string literals or comments) and
-# the read-only DB role remains the actual security boundary; treat this as
-# a second, defense-in-depth check on top of that role, not instead of it.
+# enforced LIMIT, SELECT-only database role." The read-only / single-statement
+# check (section 1) and the table references (section 10) come from the
+# SQLGlot parse tree (app/sql_guard.py), so a keyword inside a string literal
+# or comment can't fool them. Sections 2-9 are the CM-Elevate-specific lints
+# documented across the seven YAMLs (no SUM/AVG, no date handling, the on-hold
+# trap, the ungrounded scheme_specific read, type_raw, case folding). The
+# read-only DB role remains the actual security boundary; this is a second,
+# defense-in-depth check on top of that role, not instead of it.
 # ---------------------------------------------------------------------------
 
-_FORBIDDEN_STATEMENTS = re.compile(
-    r"\b(INSERT|UPDATE|DELETE|DROP|ALTER|CREATE|TRUNCATE|GRANT|REVOKE|"
-    r"CALL|EXECUTE|COPY|VACUUM|MERGE|REFRESH)\b", re.IGNORECASE,
-)
 _FORBIDDEN_TABLE_HINTS = [
     "fact_pmay_house", "fact_focus_plus_disbursement", "fact_mgnrega_employment",
     "fact_mgnrega_expenditure", "dim_geography_alias", "dim_pmay_house_status",
@@ -799,13 +861,134 @@ class SQLIssue:
     message: str
 
 
-def _strip_filter_clauses(lowered_sql: str) -> str:
-    """Removes the contents of every FILTER (WHERE ...) clause, so a
-    diagnostic query like
+# --- SQL inspection on the SQLGlot tree (app/sql_ast.py) -------------------
+# Project rule: nothing here searches the raw SQL text. A plain
+# text search sees `onhold` inside a string literal or a comment, misses a
+# column behind GROUP BY 1, and cannot tell a FILTER (WHERE ...) clause from
+# the query's own WHERE. Every check below walks the parsed tree.
+
+def _node_classes(*names: str) -> tuple[type, ...]:
+    return tuple(cls for cls in (getattr(exp, n, None) for n in names) if isinstance(cls, type))
+
+
+# String functions that cut a value apart; applied to request_id they "parse"
+# its date-like segment. Matched by node class and, for functions SQLGlot does
+# not model, by name. (`request_id ~ '...'` parses to one of these nodes.)
+_STRING_PARSE_NODES = _node_classes(
+    "Substring", "SplitPart", "RegexpLike", "RegexpILike", "RegexpReplace",
+    "RegexpExtract", "RegexpExtractAll", "RegexpSplit", "RegexpCount", "RegexpInstr",
+    "SimilarTo",
+)
+_STRING_PARSE_NAMES = {"substring", "substr", "split_part"}
+
+# Date handling (semantic_rules.time_rule): truncating, extracting a calendar
+# part, converting to a date, or reading the clock.
+_DATE_TRUNC_NODES = _node_classes("DateTrunc", "TimestampTrunc", "TimestampTzTrunc")
+_TO_DATE_NODES = _node_classes("StrToDate", "TsOrDsToDate")
+_CLOCK_NODES = _node_classes("CurrentTimestamp", "CurrentDate")
+_EXTRACT_PARTS = {"year", "month", "quarter"}
+
+
+def _name(node) -> str:
+    return str(getattr(node, "name", "") or "").lower()
+
+
+def _func_name(node: exp.Expression) -> str:
+    if isinstance(node, exp.Anonymous):
+        return _name(node)
+    if isinstance(node, exp.Func):
+        return node.sql_name().lower()
+    return ""
+
+
+def _inside(node: exp.Expression, *kinds: type) -> bool:
+    parent = node.parent
+    while parent is not None:
+        if isinstance(parent, kinds):
+            return True
+        parent = parent.parent
+    return False
+
+
+def _in_filter_clause(node: exp.Expression) -> bool:
+    """True if `node` sits inside an aggregate's FILTER (WHERE ...) clause, so
+    a diagnostic query like
         COUNT(*) FILTER (WHERE onhold IS TRUE)
     (checking whether a flag is populated) isn't mistaken for a query that
     uses the flag as its row-selection predicate."""
-    return re.sub(r"filter\s*\([^()]*\)", "", lowered_sql)
+    return _inside(node, exp.Filter)
+
+
+def _column_nodes(trees, name: str, *, skip_filter_clauses: bool = False) -> list[exp.Column]:
+    return [c for t in trees for c in t.find_all(exp.Column)
+            if _name(c) == name and not (skip_filter_clauses and _in_filter_clause(c))]
+
+
+def _grouped(trees, name: str) -> bool:
+    """`name` is in a GROUP BY — directly, or through an ordinal (GROUP BY 1)
+    or an output alias pointing at a SELECT item that reads it."""
+    if sql_ast.groups_by(trees, name):
+        return True
+    for t in trees:
+        for sel in t.find_all(exp.Select):
+            group = sel.args.get("group")
+            if group is None:
+                continue
+            items = sel.expressions
+            by_alias = {e.alias.lower(): e for e in items if e.alias}
+            for g in group.expressions:
+                target = None
+                if isinstance(g, exp.Literal) and not g.is_string and str(g.this).isdigit():
+                    i = int(g.this) - 1
+                    target = items[i] if 0 <= i < len(items) else None
+                elif isinstance(g, exp.Column) and not g.table:
+                    target = by_alias.get(_name(g))
+                if target is not None and sql_ast.references_column(target, name):
+                    return True
+    return False
+
+
+def _in_where(trees, name: str) -> bool:
+    """`name` is read by a WHERE (an aggregate's FILTER clause does not count)."""
+    return any(_inside(c, exp.Where) and not _in_filter_clause(c) for c in _column_nodes(trees, name))
+
+
+def _scheme_eq_filtered(trees, *, where_only: bool) -> bool:
+    """A `scheme_name = ...` / `cm_scheme_key = ...` comparison (single-scheme
+    scope). where_only=True requires it to sit in a WHERE."""
+    return any(
+        isinstance(node, exp.EQ) and (not where_only or _inside(node, exp.Where))
+        for t in trees for node in sql_ast.filter_conditions(t, "scheme_name", "cm_scheme_key")
+    )
+
+
+def _limit_one(trees) -> bool:
+    """Any LIMIT 1 (outer, CTE or subquery)."""
+    for t in trees:
+        for lim in t.find_all(exp.Limit):
+            value = lim.expression
+            if isinstance(value, exp.Literal) and not value.is_string and str(value.this) == "1":
+                return True
+    return False
+
+
+def _date_use(trees) -> str | None:
+    """A description of the first date-handling construct, or None."""
+    for t in trees:
+        for node in t.walk():
+            if isinstance(node, _DATE_TRUNC_NODES) or _func_name(node) == "date_trunc":
+                return "date_trunc(...)"
+            if isinstance(node, exp.Extract) and _name(node.this) in _EXTRACT_PARTS:
+                return f"EXTRACT({_name(node.this).upper()} FROM ...)"
+            if isinstance(node, _TO_DATE_NODES) or _func_name(node) == "to_date":
+                return "to_date(...)"
+            if isinstance(node, exp.Cast) and node.to is not None and node.to.is_type(exp.DataType.Type.DATE):
+                return "a cast to date (::date)"
+            if isinstance(node, _CLOCK_NODES) or _func_name(node) in {"now", "current_date"}:
+                return "the current date/time"
+            if isinstance(node, exp.Column) and _name(node) == "ingested_at":
+                return "ingested_at"
+    return None
 
 
 def validate_sql(kb: CMElevateKB, sql: str) -> list[SQLIssue]:
@@ -817,20 +1000,22 @@ def validate_sql(kb: CMElevateKB, sql: str) -> list[SQLIssue]:
     if sql is None:
         return issues
     stripped = sql.strip()
-    lowered = stripped.lower()
-    lowered_no_filter = _strip_filter_clauses(lowered)
 
-    # 1. Single read-only statement.
-    body = stripped[:-1] if stripped.endswith(";") else stripped
-    if ";" in body:
-        issues.append(SQLIssue("error", "multiple_statements",
-                                "More than one statement — only a single SELECT is allowed."))
-    if not re.match(r"^\s*(WITH|SELECT)\b", stripped, re.IGNORECASE):
-        issues.append(SQLIssue("error", "not_a_select",
-                                "Statement must start with SELECT or WITH (a CTE feeding a SELECT)."))
-    if _FORBIDDEN_STATEMENTS.search(stripped):
-        issues.append(SQLIssue("error", "write_operation",
-                                "Contains a write/DDL keyword; only SELECT is permitted (nlp_sql_rules.allowed_operations)."))
+    # 1. Single read-only statement (SQLGlot parse — app/sql_guard.py).
+    tree = None
+    try:
+        # schemas=None: section 10 reports table/schema problems with its own,
+        # more specific rules (prohibited join, read-role boundary).
+        tree = assert_readonly(stripped, schemas=None)
+    except UnsafeSQLError as e:
+        issues.append(SQLIssue("error", e.rule,
+                                f"{e} — only a single SELECT (or WITH ... SELECT) is permitted "
+                                "(nlp_sql_rules.allowed_operations)."))
+
+    # Sections 2-9 read the parse tree — every statement, so a text section 1
+    # rejected (say, two statements) still gets its content checks. SQL that
+    # does not parse has no tree, and section 1 has already flagged it.
+    trees = [tree] if tree is not None else sql_ast.parse(stripped)
 
     # 2. No measure at all (schema_partitions: no_measure, nlp_sql_rules.aggregation_note).
     # Only flags SUM/AVG applied directly to a REAL v_cm_elevate column —
@@ -839,25 +1024,30 @@ def validate_sql(kb: CMElevateKB, sql: str) -> list[SQLIssue]:
     # column, as in the share/concentration few-shot examples) is a
     # legitimate rollup of a count and is not flagged.
     real_columns = {c["name"].lower() for c in kb.view_columns}
-    for m in re.finditer(r"\b(SUM|AVG)\s*\(\s*([a-zA-Z_][a-zA-Z0-9_.]*)", stripped, re.IGNORECASE):
-        arg_bare = m.group(2).split(".")[-1].lower()
-        if arg_bare in real_columns:
-            issues.append(SQLIssue("error", "no_measure_exists",
-                                    f"{m.group(1).upper()}({m.group(2)}) — there is no numeric measure column on "
-                                    "v_cm_elevate; every column is an identifier, category or flag."))
+    for t in trees:
+        for agg in t.find_all(exp.Sum, exp.Avg):
+            arg = agg.this
+            while isinstance(arg, (exp.Cast, exp.Paren)) and arg.this is not None:
+                arg = arg.this
+            if isinstance(arg, exp.Column) and _name(arg) in real_columns:
+                fn = "SUM" if isinstance(agg, exp.Sum) else "AVG"
+                issues.append(SQLIssue("error", "no_measure_exists",
+                                        f"{fn}({arg.sql(dialect='postgres')}) — there is no numeric measure "
+                                        "column on v_cm_elevate; every column is an identifier, category or flag."))
 
     # 3. Date handling (semantic_rules.time_rule, nlp_sql_rules.date_behavior).
-    date_patterns = [r"\bdate_trunc\s*\(", r"\bextract\s*\(\s*(year|month|quarter)\b",
-                      r"\bto_date\s*\(", r"::date\b", r"\bnow\s*\(\s*\)", r"\bcurrent_date\b",
-                      r"\bingested_at\b"]
-    for pat in date_patterns:
-        if re.search(pat, lowered):
-            issues.append(SQLIssue("error", "date_handling",
-                                    f"Matches forbidden date pattern /{pat}/ — CM Elevate has no time dimension; "
-                                    "never filter/group by date, and never substitute ingested_at."))
-            break
-    if re.search(r"request_id[^,)\n]*(substring|split_part|regexp|~)", lowered) or \
-       re.search(r"(substring|split_part|regexp\w*)\s*\(\s*request_id\b", lowered):
+    date_use = _date_use(trees)
+    if date_use:
+        issues.append(SQLIssue("error", "date_handling",
+                                f"Uses {date_use} — CM Elevate has no time dimension; "
+                                "never filter/group by date, and never substitute ingested_at."))
+    parses_request_id = any(
+        (isinstance(node, _STRING_PARSE_NODES) or _func_name(node) in _STRING_PARSE_NAMES
+         or _func_name(node).startswith("regexp"))
+        and sql_ast.references_column(node, "request_id")
+        for t in trees for node in t.walk()
+    )
+    if parses_request_id:
         issues.append(SQLIssue("error", "request_id_date_parse",
                                 "Parses request_id — its date-like segment is genuinely ambiguous "
                                 "(resolved only 3,038/8,436 rows in testing) and must never be parsed."))
@@ -866,9 +1056,13 @@ def validate_sql(kb: CMElevateKB, sql: str) -> list[SQLIssue]:
     # absent_dimensions.money.columns_that_do_not_exist — they don't exist
     # anywhere on this fact under ANY name, so a bare reference (not just
     # inside SUM/AVG) is always a hallucination, not a legitimate alias.
+    # A reference is a column, or a key read out of a JSONB column
+    # (scheme_specific ->> 'loan') — the same name stored another way.
     money_cols = kb.resolver["absent_dimensions"]["money"].get("columns_that_do_not_exist", [])
+    referenced_names = sql_ast.columns(trees) | {
+        str(k.this or "").lower() for t in trees for k in t.find_all(exp.JSONPathKey)}
     for col in money_cols:
-        if re.search(rf"(?<![a-zA-Z_]){re.escape(col.lower())}(?![a-zA-Z_])", lowered):
+        if col.lower() in referenced_names:
             issues.append(SQLIssue("error", "hallucinated_money_column",
                                     f"References '{col}', which does not exist on fact_cm_elevate_application "
                                     "or anywhere else in this partition — no amount column exists at all."))
@@ -877,11 +1071,11 @@ def validate_sql(kb: CMElevateKB, sql: str) -> list[SQLIssue]:
     # FILTER(WHERE ...) diagnostic usage (checking whether the flag is
     # populated is fine and is exactly what the dead-flags few-shot does);
     # only flags onhold used as an actual row-selection predicate.
-    if re.search(r"\bonhold\b", lowered_no_filter):
+    if _column_nodes(trees, "onhold", skip_filter_clauses=True):
         issues.append(SQLIssue("error", "onhold_boolean_used",
                                 "Uses the `onhold` boolean as a row filter — it is FALSE on every row. "
                                 "'On hold' must route to data_verified = 'On Hold'."))
-    if re.search(r"\bis_withdraw\b", lowered_no_filter):
+    if _column_nodes(trees, "is_withdraw", skip_filter_clauses=True):
         issues.append(SQLIssue("warning", "is_withdraw_dead_flag",
                                 "is_withdraw used as a row filter — it is FALSE on every row (unverified_in_db) "
                                 "and will silently return nothing."))
@@ -890,27 +1084,32 @@ def validate_sql(kb: CMElevateKB, sql: str) -> list[SQLIssue]:
     # The rule is "never GROUP BY type_raw ACROSS schemes" — grouping by it
     # within a single scheme (WHERE scheme_name = '...' / cm_scheme_key = N)
     # is the documented audit use case and is fine.
-    if re.search(r"group\s+by[^;]*\btype_raw\b", lowered, re.DOTALL):
-        scheme_scoped = re.search(r"where[^;]*\b(scheme_name|cm_scheme_key)\s*=", lowered, re.DOTALL)
-        if not scheme_scoped:
-            issues.append(SQLIssue("error", "grouped_by_type_raw_unscoped",
-                                    "GROUP BY type_raw with no single-scheme filter — the taxonomy isn't "
-                                    "comparable across schemes. Use applicant_category, or scope to one scheme_name."))
+    if _grouped(trees, "type_raw") and not _scheme_eq_filtered(trees, where_only=True):
+        issues.append(SQLIssue("error", "grouped_by_type_raw_unscoped",
+                                "GROUP BY type_raw with no single-scheme filter — the taxonomy isn't "
+                                "comparable across schemes. Use applicant_category, or scope to one scheme_name."))
 
     # 6. Case folding (semantic_rules.status_rule: current_level / current_file_status).
     for col in ("current_level", "current_file_status"):
-        if col in lowered:
-            has_group_or_where_use = re.search(rf"(where|group\s+by)[^;]*\b{col}\b", lowered, re.DOTALL)
-            wrapped_in_lower = re.search(rf"lower\s*\(\s*{col}\b", lowered)
-            if has_group_or_where_use and not wrapped_in_lower:
-                issues.append(SQLIssue("warning", "case_not_folded",
-                                        f"{col} is filtered/grouped without LOWER() — 'level1'/'Level1' and similar "
-                                        "case variants will be split into separate groups."))
+        if not _column_nodes(trees, col):
+            continue
+        wrapped_in_lower = any(
+            isinstance(low.this, exp.Column) and _name(low.this) == col
+            for t in trees for low in t.find_all(exp.Lower)
+        )
+        if (_grouped(trees, col) or _in_where(trees, col)) and not wrapped_in_lower:
+            issues.append(SQLIssue("warning", "case_not_folded",
+                                    f"{col} is filtered/grouped without LOWER() — 'level1'/'Level1' and similar "
+                                    "case variants will be split into separate groups."))
 
     # 7. Village exclusion rule (semantic_rules.geography_exclusion_rule).
-    village_agg = re.search(r"count\s*\(\s*distinct\s+village_code\s*\)", lowered) or \
-        re.search(r"\blgd_village_name\b", lowered)
-    has_unresolved_filter = re.search(r"entity_type\s*(<>|!=)\s*'unresolved'", lowered)
+    village_agg = sql_ast.has_distinct_count(trees, "village_code") or \
+        sql_ast.references_column(trees, "lgd_village_name")
+    has_unresolved_filter = any(
+        isinstance(node, exp.NEQ)
+        and any(v.lower() == "unresolved" for v in sql_ast.filter_values(node, "entity_type"))
+        for t in trees for node in sql_ast.filter_conditions(t, "entity_type")
+    )
     if village_agg and not has_unresolved_filter:
         issues.append(SQLIssue("warning", "unresolved_not_excluded",
                                 "Counts/lists villages without excluding entity_type = 'Unresolved' "
@@ -918,12 +1117,21 @@ def validate_sql(kb: CMElevateKB, sql: str) -> list[SQLIssue]:
 
     # 8. scheme_specific JSONB reads must be scoped (nlp_sql_rules.jsonb_behavior),
     # except the one key documented as universal across all 15 schemes.
-    if "scheme_specific" in lowered and ("->>" in lowered or "@>" in lowered):
-        keys_read = set(re.findall(r"scheme_specific\s*->>\s*'([a-zA-Z0-9_]+)'", lowered))
-        is_scoped = bool(re.search(r"cm_scheme_key\s*=|scheme_name\s*=", lowered))
+    # `scheme_specific ->> 'k'` is a JSONExtractScalar; `scheme_specific @> '{...}'`
+    # (a containment test) is an ArrayContainsAll.
+    keys_read: set[str] = set()
+    contains_query = False
+    for t in trees:
+        for node in t.find_all(exp.JSONExtractScalar):
+            if sql_ast.references_column(node.this, "scheme_specific") and node.expression is not None:
+                keys_read |= {str(k.this or "").lower() for k in node.expression.find_all(exp.JSONPathKey)}
+        for node in t.find_all(exp.ArrayContainsAll):
+            if sql_ast.references_column(node, "scheme_specific"):
+                contains_query = True
+    if keys_read or contains_query:
+        is_scoped = _scheme_eq_filtered(trees, where_only=False)
         unscoped_non_universal_keys = keys_read - _UNIVERSAL_JSONB_KEYS
-        contains_query_unscoped = "@>" in lowered and not is_scoped
-        if (unscoped_non_universal_keys or (contains_query_unscoped and not keys_read)) and not is_scoped:
+        if (unscoped_non_universal_keys or (contains_query and not keys_read)) and not is_scoped:
             issues.append(SQLIssue("error", "unscoped_jsonb_read",
                                     "Reads scheme_specific without a cm_scheme_key/scheme_name filter — "
                                     "->> returns NULL for a missing key, indistinguishable from empty. "
@@ -931,24 +1139,37 @@ def validate_sql(kb: CMElevateKB, sql: str) -> list[SQLIssue]:
                                     "from this rule.)"))
 
     # 9. request_id + LIMIT 1 (schema: request_id may return more than one row).
-    if "request_id" in lowered and re.search(r"\blimit\s+1\b", lowered):
+    if sql_ast.references_column(trees, "request_id") and _limit_one(trees):
         issues.append(SQLIssue("warning", "limit_1_on_request_id",
                                 "request_id is not unique (36 duplicates in the source export) — "
                                 "LIMIT 1 may silently drop a real duplicate row."))
 
     # 10. Join graph — prohibited cross-scheme tables / read-role boundary / unrecognised FROM object.
+    # Every table the parse tree references, bare and schema-qualified (a CTE
+    # name is not a table). Skipped when the SQL didn't parse — section 1 has
+    # already flagged it.
+    if tree is None:
+        return issues
+    cte_names = {c.alias_or_name.lower() for c in tree.find_all(exp.CTE)}
+    referenced: set[str] = set()
+    for t in tree.find_all(exp.Table):
+        name = t.name.lower()
+        if name and name not in cte_names:
+            referenced.add(name)
+            if t.db:
+                referenced.add(f"{t.db.lower()}.{name}")
     for hint in _FORBIDDEN_TABLE_HINTS:
-        if hint in lowered:
+        if hint in referenced:
             issues.append(SQLIssue("error", "prohibited_join_or_table",
                                     f"References '{hint}' — a prohibited cross-scheme join "
                                     "or a table not exposed to CM Elevate questions."))
     for hint in _OUTSIDE_READ_ROLE_TABLES:
-        if hint in lowered:
+        if hint in referenced:
             issues.append(SQLIssue("error", "outside_read_role_boundary",
                                     f"References '{hint}', which is readable_by_read_role: false in the FK graph — "
                                     "a data-team/ops query, not something the standard megh_readonly NL->SQL "
                                     "pipeline can execute for an end-user question."))
-    if not any(t in lowered for t in _ALLOWED_CM_TABLES + _OUTSIDE_READ_ROLE_TABLES):
+    if not referenced & set(_ALLOWED_CM_TABLES + _OUTSIDE_READ_ROLE_TABLES):
         issues.append(SQLIssue("warning", "no_recognised_cm_elevate_table",
                                 "Doesn't reference curated.v_cm_elevate or any sanctioned CM Elevate table — "
                                 "double-check this is actually answering the question asked."))

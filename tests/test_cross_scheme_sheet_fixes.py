@@ -14,7 +14,7 @@ from app import pipeline_graph as pg
 
 
 def _named(q):
-    return [s for s, pat in p._SCHEME_NAME_PATTERN.items() if pat.search(q)]
+    return [s for s, pat in p._SCHEME_NAME_MATCHER.items() if pat.search(q)]
 
 
 def _detect(q):

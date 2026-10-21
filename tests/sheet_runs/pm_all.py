@@ -11,7 +11,6 @@ PM_ONLY_CODES=<file of codes> re-runs just those villages."""
 import asyncio
 import json
 import os
-import re
 import sys
 
 os.environ.setdefault("SHEET_SCHEME", "PMAY-G")
@@ -20,13 +19,19 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mg_run  # noqa: E402
 from pm_run import AGG, Q, VILLAGE_TCS, checks, shape  # noqa: E402
 from harness import fetch  # noqa: E402
+from tests._text_checks import has_phrase  # noqa: E402
 from app import main as app_main  # noqa: E402
 
 mg_run.ONLY = set()
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, os.environ.get("PM_ALL_OUT", "pm_all_results.json"))
-ZERO_RX = re.compile(r"\b0\b|\bno pmay-g houses\b|\bno sanctioned house\b|\bzero\b|not recorded|"
-                     r"no (?:records?|data)|(?:couldn.t|could not) find any matching records", re.I)
+
+
+def zero_said(answer):
+    """The answer states zero / no record (case-insensitive)."""
+    return (has_phrase(answer, "0", "no pmay-g houses", "no sanctioned house", "zero", bounded=True)
+            or has_phrase(answer, "not recorded", "no record", "no data",
+                          "couldn?t find any matching records", "could not find any matching records"))
 
 
 def casing(name, i):
@@ -61,7 +66,7 @@ async def main():
             lab = f"{v['name']} [{code}] {v['block']}/{v['district']} as '{nm}'"
             if a is None:   # placeholder-only village: must be a plain zero, not 'unknown place'
                 def chk(rec):
-                    return bool(ZERO_RX.search(rec.get("answer") or "")), "placeholder-only village: zero expected"
+                    return zero_said(rec.get("answer") or ""), "placeholder-only village: zero expected"
                 ex = 0
             else:
                 chk = checks(*shape(tc, a))

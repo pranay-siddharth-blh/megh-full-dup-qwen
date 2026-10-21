@@ -18,7 +18,6 @@ import json
 import logging
 import time
 import os
-import re
 from contextlib import asynccontextmanager
 
 import httpx
@@ -293,26 +292,36 @@ async def call_classifier(
     )
 
 
-async def call_rephraser(prompt: str) -> str:
-    """The query rephraser (pipeline.rephrase_question): the classifier model,
-    a short output and a short timeout, so a slow gateway costs little."""
+async def call_rewriter(prompt: str, *, max_tokens: int = 200, timeout: float | None = None,
+                        role: str = "rewrite") -> str:
+    """Query rewrite / follow-up resolution (REWRITE_MODEL, the 9B): the
+    follow-up rewrite and the conversation summary. Needs real language
+    understanding, so not the 4B classifier."""
     return await call_model(
-        base_url=settings.CLASSIFIER_BASE_URL,
-        model=settings.CLASSIFIER_MODEL,
-        api_key=settings.CLASSIFIER_API_KEY,
+        base_url=settings.REWRITE_BASE_URL,
+        model=settings.REWRITE_MODEL,
+        api_key=settings.REWRITE_API_KEY or settings.RESPONSE_MODEL_API_KEY,
         prompt=prompt,
         temperature=0.0,
-        max_tokens=120,
-        timeout=settings.QUERY_REPHRASE_TIMEOUT_SECONDS,
-        role="rephrase",
+        max_tokens=max_tokens,
+        timeout=timeout or settings.REWRITE_TIMEOUT_SECONDS,
+        role=role,
     )
+
+
+async def call_rephraser(prompt: str) -> str:
+    """The query rephraser (pipeline.rephrase_question): the rewrite model, a
+    short output and a short timeout, so a slow gateway costs little."""
+    return await call_rewriter(prompt, max_tokens=120,
+                               timeout=settings.QUERY_REPHRASE_TIMEOUT_SECONDS, role="rephrase")
 
 
 async def call_sql_generator(
     prompt: str,
-    *,
-    guided: dict | None = None,
 ) -> str:
+    # No decoding constraint: the old one was a text rule sent to vLLM, and no
+    # text rule shapes SQL. The pipeline's _extract_sql finds the statement on
+    # the sqlglot token stream.
 
     return await call_model(
         base_url=settings.SQL_GENERATION_BASE_URL,
@@ -323,7 +332,6 @@ async def call_sql_generator(
         max_tokens=1024,
         timeout=settings.SQL_GENERATION_TIMEOUT_SECONDS,
         role="sql",
-        guided=guided if settings.SQL_GUIDED_DECODING_ENABLED else None,
     )
 
 
@@ -422,14 +430,14 @@ async def call_sql_verifier(
     *,
     guided: dict | None = None,
 ) -> str:
-    """Second opinion on already-generated SQL — a distinct role from
-    call_classifier even though SQL_VERIFY_MODEL and CLASSIFIER_MODEL both
-    point at the same qwen4-deploy deployment."""
+    """Second opinion on already-generated SQL (SQL_VERIFY_MODEL, the 30B
+    coder) — its own role and timeout, though it shares the SQL generator's
+    deployment."""
 
     return await call_model(
         base_url=settings.SQL_VERIFY_BASE_URL,
         model=settings.SQL_VERIFY_MODEL,
-        api_key=settings.SQL_VERIFY_API_KEY,
+        api_key=settings.SQL_VERIFY_API_KEY or settings.SQL_GENERATION_API_KEY,
         prompt=prompt,
         temperature=settings.SQL_VERIFY_TEMPERATURE,
         max_tokens=200,
@@ -497,6 +505,21 @@ async def call_embedding(
         d["embedding"]
         for d in ordered
     ]
+
+
+def _llm_first_score(raw: str | None) -> str:
+    """The first '0' or '1' in `raw`, with any '.<digits>' right after it
+    ("Score: 0.85" -> "0.85"); "" when there is none."""
+    raw = raw or ""
+    for i, ch in enumerate(raw):
+        if ch in "01":
+            j = i + 1
+            if j + 1 < len(raw) and raw[j] == "." and raw[j + 1].isdigit():
+                j += 1
+                while j < len(raw) and raw[j].isdigit():
+                    j += 1
+            return raw[i:j]
+    return ""
 
 
 async def call_reranker(
@@ -586,15 +609,12 @@ async def call_reranker(
 
             raw = await call_classifier(prompt)
 
-            m = re.search(
-                r"[01](?:\.\d+)?",
-                raw,
-            )
+            score_text = _llm_first_score(raw)
 
             scored.append(
                 (
                     i,
-                    float(m.group(0)) if m else 0.0,
+                    float(score_text) if score_text else 0.0,
                 )
             )
 

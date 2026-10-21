@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CARD_QUESTIONS, SCHEME_CARDS, UNIFIED_SAMPLES } from '../constants.js';
+import { fetchSchemeStats } from '../api.js';
 
 /* The welcome card: hero, the scheme overview carousel and "Try a question".
    The carousel pages the cards --page-cols x --page-rows at a time (read from
@@ -27,7 +28,17 @@ export function WelcomeCard({ strings, prompts, setPrompts, onAsk }) {
   const trackRef = useRef(null);
   const [perPage, setPerPage] = useState(4);
   const [arrows, setArrows] = useState({ show: true, prevDisabled: true, nextDisabled: false });
-  const pages = chunk(SCHEME_CARDS, perPage);
+  // Live card figures from megh_db; the built-in numbers in SCHEME_CARDS only until
+  // (or unless) /api/scheme-stats answers.
+  const [liveStats, setLiveStats] = useState(null);
+  useEffect(() => {
+    let alive = true;
+    fetchSchemeStats().then((cards) => { if (alive && cards) setLiveStats(cards); });
+    return () => { alive = false; };
+  }, []);
+  const cards = SCHEME_CARDS.map((c) => (liveStats && Array.isArray(liveStats[c.key]) && liveStats[c.key].length
+    ? { ...c, stats: liveStats[c.key] } : c));
+  const pages = chunk(cards, perPage);
   const promptTimer = useRef(0);
 
   const readPageSize = useCallback(() => {

@@ -4,8 +4,11 @@ Checker corrections: a 0-vs-0 wages/materials tie with both zeros stated, and a
 percentage whose denominator is 0 answered 'cannot be calculated'."""
 import collections
 import json
-import re
+import os
 import sys
+
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))  # repo root, for tests._text_checks
+from tests._text_checks import zero_lakh  # noqa: E402
 
 R = json.load(open(sys.argv[1], encoding="utf-8"))
 
@@ -16,9 +19,9 @@ def verdict(tc, c):
     if t["kind"] == "answer" and not c["ok"]:
         exp = c.get("expected")
         if tc == "DATA-023" and isinstance(exp, dict) and not exp.get("wages") and not exp.get("material") \
-                and re.search(r"\b0(?:\.0+)?\s*lakh", a):
+                and zero_lakh(a):
             return "ok"
-        if exp is None and re.search(r"cannot be calculated|divided by is 0", a):
+        if exp is None and ("cannot be calculated" in a or "divided by is 0" in a):
             return "ok"
     if c["ok"] and not c["scheme_defect"]:
         return "ok"

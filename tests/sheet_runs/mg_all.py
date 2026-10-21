@@ -11,7 +11,6 @@ Resumable: villages already in the output file are skipped."""
 import asyncio
 import json
 import os
-import re
 import sys
 
 sys.path.insert(0, ".")
@@ -19,6 +18,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mg_run  # noqa: E402
 from mg_run import run_case, value_check, multi_check, has, fy, YEARS  # noqa: E402
 from harness import fetch  # noqa: E402
+from tests._text_checks import first_of, has_phrase, no_near, zero_lakh  # noqa: E402
 from app import main as app_main  # noqa: E402
 
 mg_run.ONLY = set()
@@ -113,11 +113,11 @@ async def main():
                 def chk(rec, wages=wages, mat=mat, unsk=e["unskilled_wage_exp"]):
                     ans = (rec.get("answer") or "").lower()
                     if not wages and not mat:
-                        return bool(re.search(r"\b0(?:\.0+)?\s*lakh|no (?:expenditure|spending)|zero", ans)), "both 0"
+                        return (zero_lakh(ans) or has_phrase(ans, "no expenditure", "no spending", "zero", case=True)), "both 0"
                     ok_v = has(rec, mat, 0.006, True) and (has(rec, wages, 0.006, True) or has(rec, unsk, 0.006, True))
                     win = "wage" if wages > mat else "material"
-                    first = re.search(r"(wage|material)", ans)
-                    return ok_v and bool(first) and first.group(1) == win, f"wages={wages:.2f} mat={mat:.2f}"
+                    first = first_of(ans, "wage", "material")
+                    return ok_v and first == win, f"wages={wages:.2f} mat={mat:.2f}"
                 q, ex = f"Was more spent on wages or materials in {nm}?", {"wages": wages, "material": mat}
             else:
                 q = f"How much was spent and how many person-days were generated in {nm} during {fy(y, st)}?"
@@ -145,8 +145,12 @@ def _zero_ok(chk, expected):
         if ok:
             return ok, note
         zero = (expected == 0) or (isinstance(expected, dict) and not any(expected.values()))
-        if zero and re.search(r"\b0(?:\.0+)?\b|\bno\b[^.]{0,40}\b(?:record|data|employment|expenditure)|\bzero\b|"
-                              r"not recorded|nothing (?:was )?(?:recorded|spent)|(?:couldn.t|could not) find any matching records", rec.get("answer") or "", re.I):
+        ans = rec.get("answer") or ""
+        if zero and (has_phrase(ans, "0", "zero", bounded=True)
+                     or no_near(ans, ("record", "data", "employment", "expenditure"), 40)
+                     or has_phrase(ans, "not recorded", "nothing recorded", "nothing spent", "nothing was recorded",
+                                   "nothing was spent", "couldn?t find any matching records",
+                                   "could not find any matching records")):
             return True, note + " (zero stated)"
         return ok, note
     return wrapped

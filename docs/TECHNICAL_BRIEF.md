@@ -510,7 +510,7 @@ Examples:
 
 #### G. Composer faithfulness: 14 corrected events
 
-Misquoted numbers (4), dropped metrics (3) and hedging over real values (7) were caught by `_answer_numbers_faithful`, `_answer_covers_metrics` and `_HEDGE_RE`, which triggers a strict retry and then the deterministic fallback (`pipeline.py:6723-6784`). This works as designed, but each case costs an extra model call.
+Misquoted numbers (4), dropped metrics (3) and hedging over real values (7) were caught by `_answer_numbers_faithful`, `_answer_covers_metrics` and `_HEDGE_MATCH`, which triggers a strict retry and then the deterministic fallback (`pipeline.py:6723-6784`). This works as designed, but each case costs an extra model call.
 
 #### H. Infrastructure and timeouts
 

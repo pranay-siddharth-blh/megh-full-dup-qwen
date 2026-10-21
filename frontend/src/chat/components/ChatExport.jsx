@@ -75,7 +75,7 @@ export function ChatExport({ messages, title, openSignal = 0 }) {
     setOpen(false);
     // The PDF's default file name comes from the page title while printing.
     const before = document.title;
-    document.title = fileName(name, 'pdf').replace(/\.pdf$/, '');
+    document.title = fileName(name, 'pdf').slice(0, -'.pdf'.length);   // fileName always ends in .pdf
     const restore = () => { document.title = before; window.removeEventListener('afterprint', restore); };
     window.addEventListener('afterprint', restore);
     // Let the menu close and the charts settle at print width first.

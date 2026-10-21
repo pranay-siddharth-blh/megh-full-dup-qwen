@@ -5,13 +5,19 @@
    - The browser's own keys are never taken: Ctrl + N / T / W / R / L and
      Ctrl + Shift + R (hard reload) stay the browser's. Our shortcuts use
      Ctrl + Shift + letter where a plain Ctrl + letter is the browser's.
-   - "mod" is Ctrl on Windows / Linux and ⌘ on a Mac.
+   - "mod" is Ctrl on Windows / Linux and ⌘ on a Mac. `macCtrl` keeps the
+     Control key on a Mac where ⌘ + key belongs to macOS itself (⌘M minimises
+     the window and no page can take it).
    - `whileTyping: false` shortcuts never fire while the cursor is in a text
      box (plain keys like "/" would otherwise eat a typed character).
    - Nothing destructive (delete a chat) has a shortcut. */
 
+// Apple keyboard? Any of the three platform signals may be blank or frozen
+// (platform is deprecated; userAgentData is Chromium-only), so all are read.
 export const IS_MAC = typeof navigator !== 'undefined'
-  && /Mac|iPhone|iPad|iPod/i.test(navigator.platform || navigator.userAgent || '');
+  && ['mac', 'iphone', 'ipad', 'ipod'].some((w) => [
+    navigator.userAgentData && navigator.userAgentData.platform, navigator.platform, navigator.userAgent,
+  ].some((v) => String(v || '').toLowerCase().includes(w)));
 
 // key: the KeyboardEvent.key, lower-cased for letters.
 export const SHORTCUTS = [
@@ -24,8 +30,10 @@ export const SHORTCUTS = [
   { id: 'copyLast', mod: true, shift: true, key: 'c', label: 'Copy the last answer', whileTyping: true },
   { id: 'regenerate', mod: true, shift: true, key: 'g', label: 'Regenerate the last answer', whileTyping: true },
   { id: 'download', mod: true, shift: true, key: 'd', label: 'Download chat (PDF / Excel)', whileTyping: true },
-  { id: 'mic', mod: true, key: 'm', label: 'Start / stop voice input', whileTyping: true },
-  { id: 'sidebar', mod: true, key: 'b', label: 'Show / hide the sidebar', whileTyping: false },
+  { id: 'mic', mod: true, macCtrl: true, key: 'm', label: 'Start / stop voice input', whileTyping: true },
+  // Works in the question box too: a plain text box has no bold, and the cursor
+  // lives there nearly all the time.
+  { id: 'sidebar', mod: true, key: 'b', label: 'Show / hide the sidebar', whileTyping: true },
   { id: 'help', mod: true, key: '/', label: 'Show keyboard shortcuts', whileTyping: true },
 ];
 // Shown in the help window but handled by the question box itself.
@@ -39,7 +47,7 @@ const NAMES = { Escape: 'Esc', ArrowUp: '↑', '/': '/' };
 // The keys of a shortcut as display labels: ["Ctrl", "Shift", "O"] / ["⌘", "⇧", "O"].
 export function keyParts(sc) {
   const parts = [];
-  if (sc.mod) parts.push(IS_MAC ? '⌘' : 'Ctrl');
+  if (sc.mod) parts.push(IS_MAC ? (sc.macCtrl ? '⌃' : '⌘') : 'Ctrl');
   if (sc.shift) parts.push(IS_MAC ? '⇧' : 'Shift');
   if (sc.alt) parts.push(IS_MAC ? '⌥' : 'Alt');
   parts.push(NAMES[sc.key] || (sc.key.length === 1 ? sc.key.toUpperCase() : sc.key));
@@ -52,7 +60,7 @@ export const keyLabel = (idOrSc) => {
 
 // Does this keydown event match the shortcut?
 export function matches(e, sc) {
-  const mod = IS_MAC ? e.metaKey : e.ctrlKey;
+  const mod = !IS_MAC ? e.ctrlKey : (sc.macCtrl ? e.ctrlKey && !e.metaKey : e.metaKey);
   if (!!sc.mod !== mod) return false;
   if (!!sc.shift !== e.shiftKey) return false;
   if (!!sc.alt !== e.altKey) return false;
@@ -63,4 +71,18 @@ export function matches(e, sc) {
   return k === sc.key || (sc.key.length === 1 && e.code === `Key${sc.key.toUpperCase()}`);
 }
 
-export const isTyping = (target) => !!target && (/^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName) || target.isContentEditable);
+export const isTyping = (target) => !!target && (['INPUT', 'TEXTAREA', 'SELECT'].includes(target.tagName) || target.isContentEditable);
+
+// Enter that only confirms a word in an input method (Hindi, Bengali, Chinese,
+// Japanese … keyboards on every OS) must never send the question.
+export const isComposing = (e) => !!((e.nativeEvent || e).isComposing || e.keyCode === 229);
+
+// A touch-only device (phone, tablet without a keyboard and trackpad): its
+// on-screen keyboard has no Shift + Enter, so Enter makes a new line there and
+// the Send button sends — the way the ChatGPT and Claude apps behave. Read at
+// key time, so plugging a keyboard into a tablet switches it at once.
+const touchOnly = () => typeof window !== 'undefined' && !!window.matchMedia
+  && window.matchMedia('(hover: none) and (pointer: coarse)').matches;
+
+// Does this keydown in a question box mean "send"?
+export const enterSends = (e) => e.key === 'Enter' && !e.shiftKey && !isComposing(e) && !touchOnly();

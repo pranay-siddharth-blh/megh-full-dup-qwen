@@ -56,6 +56,19 @@ class PostgresBackend:
 _default_backend = PostgresBackend()
 
 
+async def _retry_once(make_call, what: str):
+    """Await make_call() under the sync timeout; on any failure wait
+    CONTEXT_STATE_SYNC_RETRY_SECONDS and try exactly once more (KI-314: a
+    brief DB drop must not leave another worker with a stale scope)."""
+    try:
+        return await asyncio.wait_for(make_call(), timeout=settings.CONTEXT_STATE_SYNC_TIMEOUT_SECONDS)
+    except Exception as e:  # noqa: BLE001
+        pause = float(getattr(settings, "CONTEXT_STATE_SYNC_RETRY_SECONDS", 0.5) or 0)
+        logger.info("session_sync.%s: first attempt failed (%s) — retrying once after %.1fs", what, e, pause)
+        await asyncio.sleep(pause)
+        return await asyncio.wait_for(make_call(), timeout=settings.CONTEXT_STATE_SYNC_TIMEOUT_SECONDS)
+
+
 async def sync_in(session: Session, session_id: str, backend=None) -> str:
     """Bring this worker's copy of the session up to the durable revision.
     Returns "applied" | "current" | "none" | "unavailable" (logged, and
@@ -64,8 +77,7 @@ async def sync_in(session: Session, session_id: str, backend=None) -> str:
         return "none"
     backend = backend or _default_backend
     try:
-        durable = await asyncio.wait_for(backend.load(session_id),
-                                         timeout=settings.CONTEXT_STATE_SYNC_TIMEOUT_SECONDS)
+        durable = await _retry_once(lambda: backend.load(session_id), "sync_in")
     except Exception as e:  # noqa: BLE001 — never fail a request over shared state
         logger.warning("session_sync.sync_in: durable state unavailable (%s) — using local copy", e)
         return "unavailable"
@@ -90,11 +102,10 @@ async def sync_out(session: Session, session_id: str, *, tenant_id, user_id,
     backend = backend or _default_backend
     rev = session.rev + 1
     try:
-        ok = await asyncio.wait_for(
-            backend.save(tenant_id=tenant_id, user_id=user_id, session_id=session_id,
-                         title=title, snapshot=session.to_snapshot(), rev=rev,
-                         summary=session.summary),
-            timeout=settings.CONTEXT_STATE_SYNC_TIMEOUT_SECONDS)
+        ok = await _retry_once(
+            lambda: backend.save(tenant_id=tenant_id, user_id=user_id, session_id=session_id,
+                                 title=title, snapshot=session.to_snapshot(), rev=rev,
+                                 summary=session.summary), "sync_out")
     except Exception as e:  # noqa: BLE001
         logger.warning("session_sync.sync_out: could not store state (%s) — "
                        "the next request on another worker will not see this turn", e)

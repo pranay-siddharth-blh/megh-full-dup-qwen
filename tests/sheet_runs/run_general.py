@@ -166,7 +166,7 @@ async def main():
                  v AS (SELECT e.lgd_district, e.lgd_village_name, e.village_code, SUM(e.total_exp) AS t,
                               ROW_NUMBER() OVER (PARTITION BY e.lgd_district ORDER BY e.lgd_village_name) AS rn
                        FROM curated.v_expenditure e JOIN u USING (lgd_village_name)
-                       WHERE e.year_key=2023 AND e.lgd_village_name ~ '^[A-Z]+$' AND LENGTH(e.lgd_village_name) >= 6
+                       WHERE e.year_key=2023 AND (e.lgd_village_name <> '' AND TRANSLATE(e.lgd_village_name, 'ABCDEFGHIJKLMNOPQRSTUVWXYZ', '') = '') AND LENGTH(e.lgd_village_name) >= 6
                        GROUP BY 1,2,3 HAVING SUM(e.total_exp) > 0)
             SELECT * FROM v WHERE rn <= 2 ORDER BY 1, 2""")
         for v in villages:

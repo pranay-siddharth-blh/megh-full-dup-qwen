@@ -192,8 +192,9 @@ def test_sector_status_filter_moves_into_count_filter():
            "WHERE lgd_district = 'WEST KHASI HILLS'\n  AND data_verified = 'On Hold'\n"
            "GROUP BY 1\nORDER BY applications DESC\nLIMIT 100")
     out = p._cm_elevate_sector_zero_groups(CME, sql)
-    assert "COUNT(*) FILTER (WHERE data_verified = 'On Hold') AS applications" in out
-    assert "WHERE lgd_district = 'WEST KHASI HILLS'\nGROUP BY 1" in out
+    # rewritten on the SQLGlot tree, which prints FILTER(WHERE …) and one line
+    assert "COUNT(*) FILTER(WHERE data_verified = 'On Hold') AS applications" in out
+    assert "WHERE lgd_district = 'WEST KHASI HILLS' GROUP BY 1" in out
 
 
 def test_sector_guard_ignores_queries_already_using_filter():
@@ -299,8 +300,11 @@ def test_pin_keeps_count_filters_in_the_select_list():
            "COUNT(*) FILTER (WHERE data_verified IS DISTINCT FROM 'Valid') AS not_verified "
            "FROM curated.v_cm_elevate WHERE lgd_block = 'SAMANDA'")
     out = p._focusplus_pin_village_where(CME, {"resolved": {"village_code": 275365}}, sql)
-    assert out.startswith("SELECT COUNT(*) FILTER (WHERE data_verified = 'Valid') AS verified, "
-                          "COUNT(*) FILTER (WHERE data_verified IS DISTINCT FROM 'Valid') AS not_verified")
+    # the select list (both FILTER clauses) is unchanged; compared on the tree, since the
+    # rewrite regenerates the text with SQLGlot
+    from app import sql_ast
+    before, after = sql_ast.parse_one(sql), sql_ast.parse_one(out)
+    assert [sql_ast.to_sql(e) for e in after.expressions] == [sql_ast.to_sql(e) for e in before.expressions]
     assert out.endswith("WHERE village_code = 275365")
 
 
@@ -644,9 +648,13 @@ def test_applicants_counted_distinct_not_rows():
     assert "COUNT(DISTINCT request_id) AS applicants" in out and "COUNT(*)" not in out
 
 
-def test_applications_stay_a_row_count():
+def test_applications_are_distinct_request_ids_too():
+    # Changed 2026-10-16 (D-049): an application is a distinct request_id (ingestion team),
+    # so "applications" is no longer a row count.
     sql = "SELECT COUNT(*) AS applications FROM curated.v_cm_elevate WHERE current_level = 'level2'"
-    assert p._cm_elevate_applicants_distinct("How many CM ELEVATE applications are pending at level 2?",
-                                             ["CM Elevate"], sql) == sql
+    out = p._cm_elevate_applicants_distinct("How many CM ELEVATE applications are pending at level 2?",
+                                            ["CM Elevate"], sql)
+    assert "COUNT(DISTINCT request_id) AS applications" in out
+    # the CM Elevate Legacy view is a different dataset and stays a record count
     legacy = "SELECT COUNT(*) AS records FROM curated.v_cm_elevate_disbursement"
     assert p._cm_elevate_applicants_distinct("How many applicants?", ["CM Elevate"], legacy) == legacy

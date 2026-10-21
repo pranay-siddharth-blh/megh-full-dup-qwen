@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { countWords, isSpace, runEnd } from './text.js';
 
 /* Word-by-word reveal of a fresh answer.
 
@@ -27,25 +28,24 @@ function commonWordPrefix(a, b) {
   const n = Math.min(a.length, b.length);
   while (i < n && a[i] === b[i]) i++;
   if (i === b.length || i === a.length) return i;
-  while (i > 0 && !/\s/.test(b[i - 1])) i--;
+  while (i > 0 && !isSpace(b[i - 1])) i--;
   return i;
 }
 
 // End of the next `k` words of `text` from `pos` (a word plus its trailing space).
 function advanceWords(text, pos, k) {
-  const re = /\s*\S+\s*/y;
   for (let j = 0; j < k && pos < text.length; j++) {
-    re.lastIndex = pos;
-    const m = re.exec(text);
-    if (!m) return text.length;
-    pos = re.lastIndex;
+    const wordStart = runEnd(text, pos, isSpace);
+    const wordEnd = runEnd(text, wordStart, (c) => !isSpace(c));
+    if (wordEnd === wordStart) return text.length;          // only spaces left
+    pos = runEnd(text, wordEnd, isSpace);
   }
   return pos;
 }
 
 // A half-revealed "**17,2" would show its marker: hide an unmatched trailing **.
 function balanced(slice) {
-  const count = (slice.match(/\*\*/g) || []).length;
+  const count = slice.split('**').length - 1;
   if (count % 2 === 0) return slice;
   const at = slice.lastIndexOf('**');
   return slice.slice(0, at) + slice.slice(at + 2);
@@ -82,7 +82,7 @@ export function useReveal(text, key, animate = true) {
       const f = fullRef.current;
       setN((p) => {
         if (p >= f.length) return p;
-        const remaining = (f.slice(p).match(/\S+/g) || []).length;
+        const remaining = countWords(f.slice(p));
         return advanceWords(f, p, Math.max(1, Math.ceil(remaining / TARGET_TICKS)));
       });
     }, TICK_MS);

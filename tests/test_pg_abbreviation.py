@@ -27,14 +27,13 @@ Two registries carried the spelled-out forms but not a standalone "pg"/"pgs":
     "pg group ... with name" was not recognised as a lookup either.
 
 The pattern must be WORD-BOUNDED. _DOMAIN_WORDS entries are used as unanchored
-regexes (`re.search(w, ql)`), so a bare "pg" matches inside "upgrade", "mpg" and
+patterns, so a bare "pg" matches inside "upgrade", "mpg" and
 "upgrading" and would let genuinely off-topic questions through.
 """
-import re
-
 import pytest
 
 from app import edge
+from app.text_match import Matcher, W
 from app.pipeline import _DATA_HINTS, _KNOWLEDGE_HINTS, _infer_scheme_from_terms
 
 
@@ -108,24 +107,25 @@ def test_abbreviated_and_spelled_out_lookups_both_route_to_data(question):
 )
 def test_genuinely_off_topic_questions_are_still_bounced(question):
     """An unbounded "pg" would match inside upgrade/mpg and leak these through —
-    _DOMAIN_WORDS entries are unanchored regexes."""
+    plain _DOMAIN_WORDS entries are substring checks."""
     assert edge.detect_edge_case(question) is not None
 
 
 def test_the_whitelist_entry_is_word_bounded():
     from app.edge import _DOMAIN_WORDS
 
-    pg_entries = [w for w in _DOMAIN_WORDS if re.fullmatch(r"\\?b?pgs?\\?b?|\\bpgs\?\\b", w)]
-    # The entry exists in some bounded form...
-    assert any("pg" in w and "\\b" in w for w in _DOMAIN_WORDS), (
-        "no word-bounded pg entry; a bare 'pg' would false-match 'upgrade'"
-    )
+    # The entry exists in some bounded form: a word matcher that takes "pg" /
+    # "pgs" as whole words and never the "pg" inside "upgrade" or "mpg"...
+    bounded = [w for w in _DOMAIN_WORDS if not isinstance(w, str)
+               and w.search("any pg group") and w.search("top 5 pgs")]
+    assert bounded, "no word-bounded pg entry; a bare 'pg' would false-match 'upgrade'"
+    assert not any(w.search("how do i upgrade my job card") or w.search("mpg rating") for w in bounded)
     # ...and no entry is a bare unanchored "pg".
     assert "pg" not in _DOMAIN_WORDS
 
 
-def test_bounded_pattern_behaves_as_intended():
-    pat = re.compile(r"\bpgs?\b")
+def test_bounded_matcher_behaves_as_intended():
+    pat = Matcher(W("pg", "pgs"))          # a whole word, never inside "upgrade"
     assert pat.search("is there any pg group with name sakania?")
     assert pat.search("top 5 pgs by members")
     assert not pat.search("how do i upgrade my job card")

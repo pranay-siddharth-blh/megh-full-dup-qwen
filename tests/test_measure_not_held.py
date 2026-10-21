@@ -76,7 +76,7 @@ def test_measures_held_by_several_schemes_still_pause_where_none_holds_them(ques
     ("How much was disbursed under Focus Plus in Mawlai?", ["Focus Plus"]),
     ("How many Focus Plus payments in Mawlai block?", ["Focus Plus"]),
     ("Focus Plus payments by gender", ["Focus Plus"]),
-    ("How many CM Elevate applications from women?", ["CM Elevate"]),
+    ("How many CM Elevate applications are on hold?", ["CM Elevate"]),  # gender: not held since D-049
     ("How many producer groups were paid under Focus Legacy?", ["Focus Legacy"]),
     ("Total sanctioned amount under CM Elevate Legacy for the Warehouse scheme", ["CM Elevate Legacy"]),
     ("Subsidy and loan disbursed under CM Elevate Legacy", ["CM Elevate Legacy"]),

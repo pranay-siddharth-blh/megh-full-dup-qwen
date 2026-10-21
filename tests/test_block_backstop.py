@@ -35,7 +35,7 @@ The fix pairs a gate with a fallback:
 
 Ground truth, queried directly: 45 = Piggery 32 + Poultry 8 + SEED 5.
 
-Catalogue/regex level only — no model, no DB, no network. Plain script (no
+Catalogue/text-match level only — no model, no DB, no network. Plain script (no
 pytest in the venv): `python tests/test_block_backstop.py`, exit 0 = pass.
 """
 import sys
@@ -104,7 +104,7 @@ check("an unknown dimension is still refused",
 
 # ── 4. The pipeline actually consults the backstop ─────────────────────────
 print("4. THE BACKSTOP IS WIRED INTO resolve_entities")
-_SRC = (_ROOT / "app" / "pipeline.py").read_text(encoding="utf-8")
+_SRC = "".join(((_ROOT / "app" / "pipeline") / (n + ".py")).read_text(encoding="utf-8") for n in __import__("app.pipeline", fromlist=["_PIPELINE_FILES"])._PIPELINE_FILES)  # the pipeline package's files, in load order
 check("resolve_entities scans for a block when the level is explicit",
       'scan_dimension(question, schemes[0], "block",' in _SRC)
 check("  gated on level_is_explicit=True",

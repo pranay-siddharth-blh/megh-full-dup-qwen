@@ -17,7 +17,7 @@ Regression for the 2026-09-17 report. Two distinct failures, same root cause
          a scheme for a question that requests no scheme's data at all.
 
 Both now answer "Yes — that's exactly what I'm here for", then say what is
-covered. Pure regex, no model or DB — plain script (no pytest in the venv):
+covered. Pure text matching, no model or DB — plain script (no pytest in the venv):
 `python tests/test_edge_conversational.py`, exit code 0 = all pass.
 """
 import sys
@@ -204,11 +204,17 @@ for _q in ("what is PM kisan yojana?", "what is ujjwala scheme?",
 check("  a named unsupported scheme is recognised",
       pl._unsupported_scheme_named("what is PM kisan yojana?") is not None)
 
-_reply = pl._unsupported_scheme_clarification("what is PM kisan yojana?", "PM kisan").question
+_pause = pl._unsupported_scheme_clarification("what is PM kisan yojana?", "PM kisan")
+_reply = _pause.question
 check("the reply names the scheme asked about", _reply.startswith("PM Kisan"), _reply[:50])
 check("  and says plainly it is not covered", "isn't one of the schemes I cover" in _reply)
-check("  and names all four that ARE covered",
-      all(s in _reply for s in ("MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate")))
+# The covered schemes are the one-tap options (the UI shows them as cards), not
+# a list repeated in the sentence (user, 2026-10-18: keep the text short).
+_labels = " | ".join(o["label"] for o in _pause.options)
+check("  and offers every scheme that IS covered as an option",
+      all(s in _labels for s in ("MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy")))
+check("  and the text does not repeat the scheme list",
+      "MGNREGA" not in _reply and "PMAY-G" not in _reply, _reply)
 check("  and is not the old dead-end wording",
       "I don't have information about that" not in _reply)
 

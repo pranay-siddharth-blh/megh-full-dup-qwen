@@ -24,7 +24,6 @@ checking the model's own answer cannot.
 """
 from __future__ import annotations
 
-import re
 
 # Measured outputs above, plus their close variants. "yes"/"no" are
 # deliberately absent: they are real answers to the chatbot's clarifications.
@@ -38,7 +37,7 @@ _NO_SPEECH_OUTPUTS = frozenset({
 
 def _normalise(text: str) -> str:
     folded = (text or "").lower().replace("'", "").replace("’", "")
-    return " ".join(re.sub(r"[^a-z ]+", " ", folded).split())
+    return " ".join("".join(ch if ("a" <= ch <= "z" or ch == " ") else " " for ch in folded).split())
 
 
 # A real question can name a few districts in a row ("East Khasi Hills and

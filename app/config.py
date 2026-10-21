@@ -3,7 +3,7 @@ from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
     APP_NAME: str = "NLP Service - MGNREGA / PMAY-G / Focus Plus / CM Elevate"
-    PORT: int = 8400
+    PORT: int = 8401
     LOG_LEVEL: str = "INFO"
     REQUEST_TIMEOUT_SECONDS: int = 60  # hard ceiling on one /api/query, enforced in the router
 
@@ -126,9 +126,10 @@ class Settings(BaseSettings):
     # _extract_json / _extract_sql parsers still run, so a gateway that ignores
     # these fields keeps working unchanged.
     GUIDED_DECODING_ENABLED: bool = True
-    # Nudge SQL-gen to open on a bare SELECT/WITH (kills prose preambles and
-    # ```sql fences before they cost a repair round-trip). Deliberately looser
-    # than a full SQL grammar — it enforces shape, not join correctness.
+    # NOT READ ANY MORE (2026-10-15). It gated a text-shape decoding constraint on
+    # SQL generation, removed because no text matching reads or shapes SQL; prose preambles
+    # and ```sql fences are removed by _extract_sql on the sqlglot token stream.
+    # Kept only so an existing .env that still sets it loads without error.
     SQL_GUIDED_DECODING_ENABLED: bool = True
 
     # ── Database (megh_readonly-style role — SELECT only, enforced again in db.py) ──
@@ -137,9 +138,30 @@ class Settings(BaseSettings):
     # pool demand is well below the concurrent-user count. Sized for the 20-40
     # concurrent / 100-200 DAU target with headroom, on the shared megh_db box
     # (10.48.242.4) that also serves pgAdmin and any ad-hoc analyst sessions.
-    DB_POOL_MIN_SIZE: int = 10
+    # MIN is small on purpose (2026-10-16): megh_db hit max_connections = 100
+    # ("too many clients already"), almost all of it idle postgres logins — 20
+    # from one 2-worker container (2 x min 10) and 28 from a dev box with two
+    # servers up. A connection opened to fill min_size and never used is never
+    # closed by the inactivity timer, so min_size is what a worker holds idle
+    # forever. Grow on demand up to MAX; DB_POOL_IDLE_SECONDS closes the extra.
+    DB_POOL_MIN_SIZE: int = 1
     DB_POOL_MAX_SIZE: int = 30
     DB_POOL_TIMEOUT: int = 30
+    # Close a pooled connection idle this long (asyncpg max_inactive_connection_lifetime).
+    DB_POOL_IDLE_SECONDS: float = 120.0
+    # Model-generated SQL runs on its own pool, logged in as a SELECT-only role
+    # (megh_readonly — deploy/sql/03_readonly_role.sql) with every statement in
+    # a READ ONLY transaction and search_path = curated, semantic. DATABASE_URL
+    # (megh_app — sql/01) keeps the app's own users/chat/audit writes and our
+    # trusted parametrised queries. Blank falls back to DATABASE_URL, still in
+    # READ ONLY transactions, with a CRITICAL log line; a superuser login on
+    # this pool is refused unless READONLY_DB_ALLOW_SUPERUSER (dev only).
+    # Sized small: megh_db has max_connections = 100 and ~80 in use (2026-10-15),
+    # and this pool only holds a connection for the execute step.
+    READONLY_DATABASE_URL: str = ""
+    READONLY_DB_POOL_MIN_SIZE: int = 1
+    READONLY_DB_POOL_MAX_SIZE: int = 10
+    READONLY_DB_ALLOW_SUPERUSER: bool = False
     SQL_EXECUTION_TIMEOUT_MS: int = 15000
     SQL_MAX_RESULT_ROWS: int = 1000
 
@@ -148,24 +170,22 @@ class Settings(BaseSettings):
     #    The application tier does ZERO local inference; every model call is a
     #    network hop to this box. ──
     #
-    #    MODEL ROLES (deployment name -> what it does):
-    #      qwen-model   (qwen3-coder-30b-fp8) : SQL GENERATION ONLY. The scarce,
-    #          quality-critical model — a wrong join here is a wrong number. Kept
-    #          free of the cheap calls so its whole batch is available for SQL.
-    #      qwen4-deploy (Qwen3-4B-Instruct)   : scheme + intent + entity classification
-    #          (CLASSIFIER_MODEL) AND the SQL semantic verifier (SQL_VERIFY_MODEL) —
-    #          two distinct roles sharing one small deployment. Cheap pattern/format
-    #          tasks with guided-JSON decoding; keeps them off the 9B and the 30B.
-    #      qwen35-9b    (qwen3.5-9b)          : final answer composition only
-    #          (RESPONSE_MODEL). Freed from classify duty so composition never
-    #          queues behind the classify/entity/follow-up calls.
-    #      qwen3-embedding / qwen3-reranker   : RAG (scheme-knowledge) path.
-    #      qwen3-asr                          : voice input transcription.
-    #    Classifier handoff from the 9B to the 4B done 2026-09-10 (Task 6 in
-    #    docs/INFERENCE_REQUIREMENTS.md), once qwen4-deploy was confirmed reachable
-    #    via SQL_VERIFY_ENABLED. Watch qwen4-deploy queue depth — it now carries
-    #    both roles — and validate classify accuracy against the old 9B baseline
-    #    on ambiguous queries (abbreviations, cross-scheme, follow-ups).
+    #    MODEL ROLES — the agreed assignment (2026-10-15); change only by decision:
+    #      Intent classifier / router  qwen4-deploy (Qwen3-4B)    CLASSIFIER_MODEL
+    #          simple labelling; guided JSON / fixed labels. Also entity extraction.
+    #      Query rewrite / follow-up   qwen35-9b    (Qwen3.5-9B)  REWRITE_MODEL
+    #          needs real language understanding — a bad rewrite breaks the chain.
+    #          The rephraser, follow-up rewrite and conversation summary.
+    #      SQL generation              qwen-model   (qwen3-coder-30b)  SQL_GENERATION_MODEL
+    #      SQL error fix / retry       qwen-model   — the same call, given the DB
+    #          error and the failed SQL (prompt_builder.build_repair_prompt).
+    #      Verifier                    qwen-model   (not the 4B)   SQL_VERIFY_MODEL
+    #          after the free code checks (the guards in _execute_one_attempt).
+    #      Answer composer             qwen35-9b                  RESPONSE_MODEL
+    #      qwen3-embedding / qwen3-reranker : RAG (scheme-knowledge) path.
+    #      qwen3-asr                        : voice input transcription.
+    #    Each deployment has its own gateway key: a role moved to another model
+    #    takes that model's key (*_API_KEY).
     AI_MODEL_CA_BUNDLE_PATH: str = ""  # certs/enlight-aiops-internal-ca.pem, if verification is required
 
     # Classify / intent / entity-extract — on the dedicated 4B, NOT the 9B or the
@@ -177,7 +197,15 @@ class Settings(BaseSettings):
     CLASSIFIER_TIMEOUT_SECONDS: int = 30
     CLASSIFIER_TEMPERATURE: float = 0.0
 
-    # SQL generation — the 30B coder, and only this. Do not move other roles here.
+    # Query rewrite / follow-up resolution — the 9B (see MODEL ROLES above):
+    # the rephraser (pipeline p02), the follow-up rewrite (p01) and the
+    # conversation summary (context_manager). Same deployment as RESPONSE_MODEL.
+    REWRITE_MODEL: str = "qwen35-9b"
+    REWRITE_BASE_URL: str = "https://10.48.242.4/openai/v1"
+    REWRITE_API_KEY: str = ""                   # blank -> RESPONSE_MODEL_API_KEY (same deployment)
+    REWRITE_TIMEOUT_SECONDS: int = 30
+
+    # SQL generation and SQL repair — the 30B coder. The verifier runs here too.
     SQL_GENERATION_MODEL: str = "qwen-model"
     SQL_GENERATION_BASE_URL: str = "https://10.48.242.4/openai/v1"
     SQL_GENERATION_API_KEY: str = ""
@@ -195,11 +223,12 @@ class Settings(BaseSettings):
     RESPONSE_MAX_TOKENS: int = 800
     RESPONSE_TIMEOUT_SECONDS: int = 20
 
-    # ── SQL semantic verifier — qwen3-4b (docs/INFERENCE_REQUIREMENTS.md Task 6) ──
-    # Runs after generate_sql, before the query touches the database: a second
-    # opinion asking "does this SQL actually answer the question, per the schema
-    # rules and resolved entities above it?" (see prompt_builder.build_verify_prompt).
-    # The regex guards already in _execute_one_attempt only catch SQL shapes a past
+    # ── SQL semantic verifier — qwen3-coder-30b (qwen-model), not the 4B ──
+    # Execution checks first, then this (2026-10-15): it runs after the free code
+    # guards AND after the query has run, and is a second opinion asking "does
+    # this SQL actually answer the question, per the schema rules and resolved
+    # entities above it?" (prompt_builder.build_verify_prompt).
+    # The SQL shape guards already in _execute_one_attempt only catch SQL shapes a past
     # bug taught them to recognise (bare row read on an aggregate question,
     # village-name-instead-of-code, a phantom 'Meghalaya' filter, ...). This
     # catches the same CLASS of bug — syntactically valid, executes cleanly,
@@ -209,17 +238,13 @@ class Settings(BaseSettings):
     # Best-effort: any failure (model not deployed, timeout, unparseable JSON)
     # degrades to "no issue found" — a verifier outage must never block an
     # answer that would otherwise have worked.
-    # Deployed 2026-09-10 as served model name "qwen4-deploy" (not the "qwen3-4b"
-    # name docs/INFERENCE_REQUIREMENTS.md Task 6 originally planned) — vLLM
-    # runtime, confirmed reachable on /openai/v1. Verified working end to end.
-    # SQL_VERIFY_MODEL and CLASSIFIER_MODEL now both point at this same
-    # qwen4-deploy deployment — a distinct role each (verify runs once per SQL
-    # generation; classify runs several times per turn), sharing one small model
-    # rather than each getting its own GPU allocation.
+    # Was qwen4-deploy (2026-09-10); moved to the 30B on 2026-10-15 (MODEL ROLES
+    # above) — the 4B hallucinated violations on correct SQL, which is what the
+    # false-positive filters in p15_sql_verify_repair work around.
     SQL_VERIFY_ENABLED: bool = True
-    SQL_VERIFY_MODEL: str = "qwen4-deploy"
+    SQL_VERIFY_MODEL: str = "qwen-model"
     SQL_VERIFY_BASE_URL: str = "https://10.48.242.4/openai/v1"
-    SQL_VERIFY_API_KEY: str = ""
+    SQL_VERIFY_API_KEY: str = ""                # blank -> SQL_GENERATION_API_KEY (same deployment)
     SQL_VERIFY_TEMPERATURE: float = 0.0
     SQL_VERIFY_TIMEOUT_SECONDS: int = 15
 
@@ -277,11 +302,58 @@ class Settings(BaseSettings):
     # ── Vector store (Qdrant on the same data box) — scheme-knowledge base ──
     QDRANT_URL: str = "http://115.124.102.167:6335"
     QDRANT_API_KEY: str = ""
-    QDRANT_COLLECTION: str = "megh_scheme_kb"
+    # megh_scheme_kb_v2 since the RAG upgrade Phase 2 (2026-10-14): built from
+    # data/incoming/<scheme>/. Rollback: set QDRANT_COLLECTION=megh_scheme_kb.
+    # megh_scheme_kb_v3 since Phase 3 (2026-10-15): the same pieces plus a BM25
+    # keyword vector for hybrid search. Rollback: megh_scheme_kb_v2 / megh_scheme_kb.
+    QDRANT_COLLECTION: str = "megh_scheme_kb_v3"
     # Thresholds are on the bge-small (local) cosine scale: loosely-related
     # chunks score ~0.66-0.78, so HIGH sits above that — otherwise every
     # knowledge question clears it and returns its nearest chunk verbatim
     # instead of composing. MEDIUM is the real working tier for this KB.
+    # RAG upgrade Phase 3 (2026-10-14, app/local_rank.py): keyword (BM25) search
+    # fused with meaning search, then a local cross-encoder re-ranks the
+    # candidates. Hybrid needs a collection built with the "bm25" sparse vector
+    # (kb_ingest does this whenever RAG_SPARSE_MODEL is set); on an older
+    # collection search falls back to meaning only. "" switches a step off.
+    RAG_SPARSE_MODEL: str = "Qdrant/bm25"
+    RAG_HYBRID_ENABLED: bool = True
+    # OFF (user's decision, 2026-10-15, after the Phase 5 measurements).
+    # jina-turbo ("jinaai/jina-reranker-v1-turbo-en", ~150 MB, 12 candidates x
+    # 800 chars) put the right piece first 55.5% of the time (47.6% hybrid
+    # only), but answers did not improve (correct 90.9% with it vs 93.3%
+    # without, 188 questions) and it cost ~3 s per answer. Set the model name
+    # to switch it back on. The qwen3-reranker below (RERANKER_ENABLED) stays off.
+    RAG_LOCAL_RERANKER: str = ""
+    RAG_CANDIDATES: int = 12       # candidates searched for before re-ranking
+    # The re-ranker reads only the start of each piece (its heading and opening
+    # say what it is about): measured 2026-10-15 on one CPU, jina-turbo over 12
+    # pieces took 2.3 s at full length and 0.85 s at 800 characters.
+    RAG_RERANK_CHARS: int = 800
+    # Phase 4 (2026-10-15): search with the question AND this many other
+    # wordings of it written by the fast model ("documents?" -> "documents
+    # required for PMAY-G registration"), merged by rank. 0 = off. One short
+    # model call per knowledge question; a timeout or bad reply searches with
+    # the question alone.
+    # Khasi / Garo (the KHA / GAR buttons) translated to English before the
+    # pipeline runs (app/translate.py, Phase 4). OFF: the user wants English
+    # only for now (2026-10-15); built and tested, switch on with True.
+    TRANSLATE_ENABLED: bool = False
+    TRANSLATE_TIMEOUT_SECONDS: int = 10
+    # OFF until Phase 5. Measured 2026-10-15 (search only, 188 questions): on
+    # its own it HURT (right piece first 47.6% -> 39.0%; the extra wordings pull
+    # in generic pieces), but with the jina re-sorter it helps — in the top 3
+    # 78.0% -> 80.5%, found 90.9% -> 92.1%, and on the 27 real officer questions
+    # top 3 55.6% -> 74.1%, found 77.8% -> 88.9%. Phase 5 turns both on (2).
+    RAG_MULTI_QUERY: int = 0
+    RAG_MULTI_QUERY_TIMEOUT_SECONDS: int = 6
+    # Phase 5 (2026-10-15): after the composer writes, drop the sentences the
+    # passages do not support (rag.ground_answer). One more short model call.
+    # Measured with the re-sorter and 8 pieces: answers with a made-up sentence
+    # 16.5% -> 9.8%, made-up sentences 4.5% -> 2.9%. An answer whose EVERY
+    # sentence is flagged is kept (the check misread it; Q132).
+    RAG_GROUNDING_CHECK: bool = True
+    RAG_GROUNDING_TIMEOUT_SECONDS: int = 15
     RAG_TOP_K: int = 12            # candidates pulled from Qdrant
     RAG_RERANK_TOP_N: int = 8      # chunks handed to the composer as context
     RAG_MIN_SCORE: float = 0.30    # floor on the chunk score
@@ -293,9 +365,10 @@ class Settings(BaseSettings):
     # a chat so "what about East Garo Hills?" can be rewritten to a standalone
     # question. Lost on restart; not shared across workers — same stance as the
     # response caches.
-    SESSION_TTL_SECONDS: int = 1800          # 30 min sliding window
+    # User decision 2026-10-18 (D-051): 4 h idle window, 50 turns (was 30 min, 8).
+    SESSION_TTL_SECONDS: int = 28800         # 8 h sliding window (user, 2026-10-19; was 4 h, D-051)
     SESSION_MAX: int = 5000                   # sessions kept before oldest-first eviction
-    SESSION_MAX_TURNS: int = 8                # turns retained per session
+    SESSION_MAX_TURNS: int = 50               # turns retained per session (and questions in the snapshot)
     # Conversation layer (app/conversation_layer.py), run by the router before
     # the caches and the pipeline: idle expiry, "start a new topic" / "forget
     # the previous question", and "what was the PMAY-G information again?".
@@ -306,8 +379,23 @@ class Settings(BaseSettings):
     # chat history itself is kept. 0 = never expire. Same window as the
     # in-process session (SESSION_TTL_SECONDS), which the durable snapshot
     # used to outlive.
-    CONTEXT_IDLE_EXPIRY_SECONDS: int = 1800
-    FOLLOWUP_REWRITE_ENABLED: bool = True     # one classifier call when a turn looks like a follow-up
+    CONTEXT_IDLE_EXPIRY_SECONDS: int = 28800   # 8 h (user, 2026-10-19; was 4 h in D-051, 30 min before)
+    # Topic ledger + backward references (app/topic_memory.py, Context Memory
+    # proposal Phase 3, 2026-10-18): each topic keeps its last
+    # CONTEXT_LEDGER_PER_TOPIC questions with the scope each ran in, so "go
+    # back to the East Khasi Hills one", "the first question" and "what did we
+    # discuss?" restore / list an earlier question. Off = only the topic's
+    # last question can be returned to, exactly as before.
+    BACKWARD_RESOLVER_ENABLED: bool = True
+    CONTEXT_LEDGER_PER_TOPIC: int = 20         # D-051 (was 6): up to 8 x 20 = 160 questions
+    # Phase 4: when a message refers back ("that one", "the housing figure
+    # you gave") but the rules above place it nowhere, the rewrite model (9B,
+    # follow-up resolution in the fixed role map) PICKS one ledger question id,
+    # NONE or ASK. It never writes a scheme, place or year: any other output is
+    # discarded. One call, only on such turns. Off = those turns run as before.
+    LLM_REFERENCE_ENABLED: bool = True
+    LLM_REFERENCE_TIMEOUT_SECONDS: int = 8
+    FOLLOWUP_REWRITE_ENABLED: bool = True    # one classifier call when a turn looks like a follow-up
     # Query rephraser (graph node `rephrase`, D-037): a messy NEW question
     # (typos, Hinglish, voice-to-text, no question shape) is rewritten into one
     # clean question before routing. One classifier call, only when the
@@ -355,6 +443,15 @@ class Settings(BaseSettings):
     # YEAR_CLARIFY_ENABLED above. Focus Plus only — no other scheme has a
     # tranche_label column. Off => answer across every tranche silently, as before.
     TRANCHE_CLARIFY_ENABLED: bool = True
+    # User decision 2026-10-14: answer, don't ask. When a data question names no
+    # area / no financial year / no tranche, answer for all of Meghalaya / all
+    # financial years combined / all tranches combined — the same text the
+    # "All of Meghalaya" / "All financial years combined" chips add — and say so
+    # in the answer. A data question naming no scheme with a measure several
+    # schemes record is answered for each of them (app/cross_scheme.py). Real
+    # ambiguity (a name that is several places, a bare "Focus") still asks.
+    # Off => the scope / year / tranche / scheme pauses above, as before.
+    ANSWER_DEFAULTS_ENABLED: bool = True
     # Reply with the standard "I'm Megh One AI — I only cover Meghalaya's MGNREGA
     # / PMAY-G" message when a data question names a district or block that is not
     # in Meghalaya (resolver returns not_found), instead of dropping the filter,
@@ -445,6 +542,9 @@ class Settings(BaseSettings):
     # in-memory window) — keeps the common case (recent turn already in
     # session_store) free of an extra embed + Qdrant round trip.
     CONTEXT_MEMORY_MIN_SESSION_TURNS: int = 2
+    # Conversation memory older than this is never used and is deleted daily
+    # (conversation_memory.purge_old_turns; RAG upgrade Phase 7). 0 = keep all.
+    CONTEXT_MEMORY_RETENTION_DAYS: int = 30
     # Follow-up rewrite evidence tiers (context_manager.build_rewrite_evidence).
     # Tier 1, the previous turn's structured filters, is always sent and is
     # a single line. Tiers 2 and 3 are sent only when the follow-up points INTO
@@ -459,6 +559,10 @@ class Settings(BaseSettings):
     # memory only, which was the behaviour before 2026-09-26.
     CONTEXT_STATE_SHARED: bool = True
     CONTEXT_STATE_SYNC_TIMEOUT_SECONDS: float = 1.0
+    # KI-314 (2026-10-18): a brief DB drop (VPN flap) failed one snapshot save
+    # or load, and the next request on another worker answered in a stale
+    # scope. Both are retried once after this pause before giving up.
+    CONTEXT_STATE_SYNC_RETRY_SECONDS: float = 0.5
     CONTEXT_PREV_RESULT_MAX_TOKENS: int = 120
     CONTEXT_PREV_ANSWER_MAX_TOKENS: int = 120
 
@@ -536,4 +640,9 @@ def insecure_secrets() -> list[str]:
             problems.append("JWT_SECRET (default or shorter than 32 chars)")
     if settings.ADMIN_TOKEN in _DEFAULT_ADMIN_TOKENS and settings.ADMIN_TOKEN != "":
         problems.append("ADMIN_TOKEN (default 'CHANGE_ME')")
+    # The vector store holds the scheme knowledge base AND officers' chat
+    # history (conversation memory); without a key anyone who can reach its
+    # port can read, change or delete both (KI-200, RAG upgrade Phase 7).
+    if not settings.QDRANT_API_KEY:
+        problems.append("QDRANT_API_KEY (empty — Qdrant accepts requests without a key)")
     return problems
