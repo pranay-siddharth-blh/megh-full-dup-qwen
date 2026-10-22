@@ -25,7 +25,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from app.text_match import (Alt, Cap, Joined, Matcher, Node, Opt, Pred, Seq, W,
+from app.text_match import (Alt, Cap, Gap, Joined, Matcher, Node, Opt, Pred, Seq, W,
                             is_int, tokens)
 
 KEEP = "KEEP"
@@ -263,6 +263,24 @@ _ALL_GEO_MATCH = {
         Seq("all", Opt("the"), "villages"), "every village", Joined("village", "wise"),
         Seq(W("by", "per", "each"), "village"))),
 }
+# A question that RANKS a level ("which block has the highest number of
+# households?", "top 5 villages", "blocks with the lowest expenditure") asks
+# across every place at that level, so the chat's own place at that level is
+# dropped (the coarser one is kept: D-056 "by block keeps the district").
+# Reported 2026-10-22: after a Demdema block answer, "Which block has highest
+# number of households?" kept block DEMDEMA and answered Demdema's single row.
+_CP_SUPERLATIVE = W("highest", "lowest", "most", "least", "maximum", "minimum", "max", "min", "largest",
+                    "smallest", "biggest", "best", "worst", "top", "bottom", "greatest", "fewest")
+_RANK_OVER_GEO_MATCH = {
+    dim: Matcher(Alt(
+        Seq(W("which", "what"), W(dim, dim + "s"), Gap(8), _CP_SUPERLATIVE),
+        Seq(W("top", "bottom"), Opt(Pred(str.isdigit)), W(dim, dim + "s")),
+        Seq(W(dim, dim + "s"), W("with", "having", "that", "where"), Gap(4), _CP_SUPERLATIVE),
+        Seq(W("rank", "ranking", "ranked"), Opt("the"), W(dim + "s")),
+        Seq(_CP_SUPERLATIVE, W(dim, dim + "s")),
+        Seq(_CP_SUPERLATIVE, Gap(6), W("in", "of", "for", "by"), W("which", "what"), W(dim, dim + "s"))))
+    for dim in ("district", "block", "village")
+}
 _CP_BY_DIMS = ("district", "block", "village", "year", "tranche", "scheme", "gender", "category",
                "month", "status")
 _GROUP_BY_MATCH = Matcher(Alt(
@@ -410,6 +428,17 @@ def _places(text: str) -> dict[str, str]:
         return {}
 
 
+def _any_place(text: str) -> dict[str, str]:
+    """_places plus assembly constituencies and villages (entity_resolver.
+    place_mentions). Only the continuation signal uses it: the merge plan
+    below keeps reading districts and blocks alone."""
+    try:
+        from app.entity_resolver import place_mentions
+        return place_mentions(text)
+    except Exception:  # noqa: BLE001
+        return _places(text)
+
+
 def _schemes_named(text: str) -> set[str]:
     try:
         from app import pipeline as _p
@@ -484,7 +513,9 @@ def continuation_signals(question: str) -> list[str]:
         pass
     if _schemes_named(q):
         out.append("scheme")
-    if _places(q):
+    # Any level: "in ambare ading" (a village, no "village" word) continues a
+    # PMAY-G answer as surely as "in East Garo Hills" (user report 2026-10-21).
+    if _any_place(q):
         out.append("place")
     if extract_year_keys(q) or _RELATIVE_YEAR_MATCH.search(q) or _ALL_YEARS_MATCH.search(q):
         out.append("year")
@@ -537,6 +568,157 @@ _BARE_REFERENCE_MATCH = Matcher(Alt(
 
 def is_bare_reference(question: str) -> bool:
     return bool(_BARE_REFERENCE_MATCH.match(question or ""))
+
+
+# ── Standalone or follow-up? (D-061, user addendum 2026-10-22) ──────────────
+# "Context Memory: New Question = New Answer". After "MGNREGA person-days in
+# East Khasi Hills in 2022-23", "Which district has the highest beneficiaries
+# in MGNREGA?" was answered inside East Khasi Hills and FY 2022-23: naming the
+# chat's own scheme read as a follow-up (is_scopeless_followup), and a new
+# question inherited the chat's place and year anyway (D-056). The rule now:
+# the question wins; memory only fills the gaps a question leaves on purpose.
+#
+#   FOLLOWUP    a reference cue ("it", "there", "same", "compare this", "what
+#               about", "and ...") or a fragment with no measure of its own
+#               ("2023-24?", "Mawphlang?", "Which block is highest?"):
+#               inherits only what it leaves out.
+#   STANDALONE  the stranger test: its own scheme (named, or pinned by its
+#               measure) AND its own measure, and no reference cue. Inherits
+#               NOTHING; the year comes from the question or the default rule.
+#   VAGUE       a measure with no scheme and no cue ("how many
+#               beneficiaries?"): one open topic -> that topic; several -> ask.
+#
+# Out-of-scope, reset, correction and "go back to ..." are decided before
+# this (edge, conversation_layer, topic_memory) and never reach it. Naming the
+# chat's own scheme is never by itself a reason to inherit.
+TURN_FOLLOWUP = "followup"
+TURN_STANDALONE = "standalone"
+TURN_VAGUE = "vague"
+
+# Pointers into the conversation. "this"/"that"/"there" have ordinary uses
+# too ("this year", "households that got work", "are there"), filtered below.
+_TK_ALWAYS_REF = frozenset((
+    "it", "its", "those", "these", "them", "their", "they", "same", "above", "previous",
+    "instead", "former", "latter", "aforementioned", "here", "again", "earlier",
+    # Hinglish pointers ("wahi figure dobara", "uska total", "pehle wala"); "wala"
+    # alone is not one ("MGNREGA ka 2024-25 wala data" is a question of its own)
+    "dobara", "dubara", "phir", "wapas", "vapas", "pehle", "pichla", "pichle", "wahi", "wohi",
+    "wahan", "waha", "usi", "uska", "uski", "iska", "iski"))
+_TK_LEADS = frozenset(("and", "also"))
+_TK_TIME_NOUNS = frozenset(("year", "years", "fy", "financial", "month", "week", "quarter", "time",
+                            "season", "session"))
+# "that" points back when it closes the question or follows one of these
+# ("compare that", "of that", "is that"), or names a thing ("that district").
+_TK_THAT_AFTER = frozenset(("of", "for", "in", "with", "is", "was", "compare", "about", "than", "to",
+                            "from", "on", "under", "and", "at", "show", "give", "repeat", "explain"))
+_TK_THAT_BEFORE = frozenset(("district", "block", "village", "scheme", "figure", "number", "one", "place",
+                             "area", "data", "answer", "result", "amount", "total", "list", "constituency",
+                             "period", "query", "question"))
+_TK_EXISTENTIAL = frozenset(("is", "are", "was", "were", "be", "been", "any"))
+_TK_MULTI_REF = frozenset(("both", "either", "neither", "other", "rest", "remaining"))
+_TK_COMPARE = frozenset(("compare", "comparison", "versus", "vs", "vs."))
+# A request for the data itself names no measure but is still complete:
+# "MGNREGA ka 2024-25 wala district-wise data batao".
+_TK_DATA_NOUNS = frozenset(("data", "details", "detail", "figures", "figure", "numbers", "statistics",
+                            "stats", "summary", "overview", "report", "performance", "progress"))
+
+
+@dataclass(frozen=True)
+class TurnKind:
+    kind: str
+    reasons: tuple = ()
+    asked: tuple = ()          # place levels the question asks ABOUT (asked_levels)
+
+    def to_dict(self) -> dict:
+        return {"kind": self.kind, "reasons": list(self.reasons), "asked": list(self.asked)}
+
+
+def _tk_reference_cues(q: str, n_schemes: int) -> list[str]:
+    ws = [w for w in (t.low for t in tokens(q))]
+    out: list[str] = []
+    if ws and ws[0] in _TK_LEADS:
+        out.append("lead:" + ws[0])
+    if _LEAD_MATCH.search(q):
+        out.append("lead")
+    for i, w in enumerate(ws):
+        nxt = ws[i + 1] if i + 1 < len(ws) else ""
+        before = ws[i - 1] if i else ""
+        if w in _TK_ALWAYS_REF:
+            out.append(w)
+        elif w == "this" and nxt not in _TK_TIME_NOUNS:
+            out.append(w)
+        elif w == "that" and nxt not in _TK_TIME_NOUNS and (
+                not nxt or before in _TK_THAT_AFTER or nxt in _TK_THAT_BEFORE):
+            out.append(w)
+        elif w == "there" and before not in _TK_EXISTENTIAL:
+            out.append(w)
+        elif w in _TK_MULTI_REF and n_schemes < 2:
+            out.append(w)
+    # "compare with PMAY-G": one side is named, the other is the conversation.
+    if set(ws) & _TK_COMPARE:
+        sides = n_schemes + len(extract_year_keys(q)) + len(_places(q))
+        if sides < 2:
+            out.append("compare-one-side")
+    return list(dict.fromkeys(out))
+
+
+def _tk_named_schemes(q: str) -> bool:
+    """The question names a scheme in words (not only through its measure),
+    a bare "Focus" / "CM Elevate" included — those are asked, never guessed."""
+    try:
+        from app import pipeline as _p
+        return bool(_p._named_schemes(q) or _p._mentions_scheme(q) or _p._names_bare_focus_scheme(q))
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def asked_levels(question: str) -> tuple:
+    """The place levels a question asks ABOUT rather than filters BY: "which
+    district …", "top 5 villages", "district-wise", "by block", "each
+    village". The chat's place at that level and below cannot be its filter
+    (filtering by what you are ranking answers one row), the level above it
+    can. Coarsest first."""
+    q = question or ""
+    ws = [t.low for t in tokens(q)]
+    out = []
+    for dim in ("district", "block", "village"):
+        hit = _RANK_OVER_GEO_MATCH[dim].search(q) or _ALL_GEO_MATCH[dim].search(q)
+        if not hit:
+            hit = any(w == "which" and i + 1 < len(ws) and ws[i + 1] in (dim, dim + "s")
+                      for i, w in enumerate(ws))
+        if hit:
+            out.append(dim)
+    return tuple(out)
+
+
+def turn_kind(question: str) -> TurnKind:
+    """FOLLOWUP / STANDALONE / VAGUE for an in-scope message (see the block
+    comment above). Deterministic, offline; the chat's own state is never read,
+    so the same words get the same verdict in every conversation."""
+    q = (question or "").strip()
+    schemes = _schemes_named(q)
+    cues = _tk_reference_cues(q, len(schemes))
+    asked = asked_levels(q)
+    if not q:
+        return TurnKind(TURN_FOLLOWUP, ("empty",), asked)
+    if cues:
+        return TurnKind(TURN_FOLLOWUP, tuple("cue:" + c for c in cues), asked)
+    ws = set(t.low for t in tokens(q))
+    measure = sorted(metric_families(q)) + sorted(ws & _TK_DATA_NOUNS)
+    named = _tk_named_schemes(q)
+    # A scheme pinned only by its measure ("how many job cards?") is the short,
+    # vague step 6 of the addendum, like "how many beneficiaries?": it stands on
+    # its own only with a scope of its own ("person-days in 2023-24").
+    own_scope = bool(extract_year_keys(q) or _RELATIVE_YEAR_MATCH.search(q) or _ALL_YEARS_MATCH.search(q)
+                     or set(_any_place(q)) - {"MEGHALAYA"})
+    if measure and (named or (schemes and own_scope)):
+        return TurnKind(TURN_STANDALONE, ("scheme:" + "+".join(sorted(schemes)),
+                                          "named" if named else "pinned-by-measure",
+                                          "measure:" + "+".join(measure)), asked)
+    if measure:
+        return TurnKind(TURN_VAGUE, ("measure:" + "+".join(measure), "no-scheme"), asked)
+    return TurnKind(TURN_FOLLOWUP, ("fragment",) + (("scheme:" + "+".join(sorted(schemes)),) if schemes else ()),
+                    asked)
 
 
 # ── Merge plan ──────────────────────────────────────────────────────────────
@@ -592,6 +774,9 @@ def plan_state_merge(question: str, state=None, *, prev=None, is_followup: bool 
     for dim, word_matcher in _ALL_GEO_MATCH.items():
         if word_matcher.search(q) and act[dim] != REPLACE:
             set_(dim, CLEAR, "all / by " + dim)
+    for dim, rank_matcher in _RANK_OVER_GEO_MATCH.items():
+        if rank_matcher.search(q) and act[dim] == KEEP:
+            set_(dim, CLEAR, "ranks the " + dim + "s")
     # A coarser geography change invalidates the finer levels under it, unless
     # the question names them too ("Dalu block in West Garo Hills").
     for coarse in ("district", "block"):
@@ -781,6 +966,25 @@ def rewrite_violation(rewritten: str, *, question: str, allowed_text: str, denie
     for name, dim in _places(rewritten).items():
         if name not in permitted:
             return dim
+    # A village the user typed must come through letter for letter (its key is
+    # the folded text as typed; districts, blocks and constituencies are compared
+    # canonically above). Live 2026-10-21: "in dangar dombah" was rewritten "... in Dargar
+    # Dombah ...", which matched no village exactly and paused on a fuzzy
+    # DANGAR DOMBAH / DOMBAH choice for a name the user had spelt right.
+    try:
+        from app.entity_resolver import fold_words as _fold_words
+        _rw = f" {' '.join(_fold_words(rewritten))} "
+        _rw_places = _any_place(rewritten)
+        for name, dim in _any_place(question).items():
+            if dim == "village" and f" {name} " not in _rw:
+                return dim
+            # Any level: a bare "wapung" (an East Jaintia Hills block) after an
+            # East Khasi Hills answer was rewritten back to East Khasi Hills —
+            # the block dropped, the wrong place answered (live 2026-10-21).
+            if dim != "village" and name not in _rw_places:
+                return f"dropped:{dim}"
+    except Exception:  # noqa: BLE001 — no index: the checks above still hold
+        pass
     new_years = extract_year_keys(rewritten)
     if new_years:
         ok_years = extract_year_keys(allowed_text) | ({state_year} if state_year else set())

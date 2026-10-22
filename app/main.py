@@ -73,6 +73,8 @@ async def lifespan(app: FastAPI):
     await _try("qdrant", init_qdrant())
     load_annotations()                    # local YAML, no network
     load_entity_resolver()                # local YAML, no network
+    from app.entity_resolver import load_village_names
+    await _try("village_names", load_village_names())  # bare village names -> a place (2026-10-21)
     await _try("app_schema", appdb.ensure_schema())     # app.* tables + seed users
     await _try("schema_catalog", schema_introspect.load())  # semantic.* -> SQL prompt
     await _try("scheme_years", pipeline.refresh_scheme_years())  # per-scheme FY coverage from megh_db

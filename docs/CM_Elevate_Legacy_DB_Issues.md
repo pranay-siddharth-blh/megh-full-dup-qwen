@@ -173,3 +173,35 @@ README) should then show 2,823 curated and 0 quarantined.
 Re-run the 36 use cases. All 16 affected cases should then match the raw file with no bot change,
 taking the result to 36 of 36 against both the DB and the raw data. The bot team can re-run the test
 harness on request.
+
+---
+
+## Update — 2026-10-22 re-check (raw `raw_uc/Cm Elevate to share to BLH (1).csv` vs `curated.v_cm_elevate_disbursement`)
+
+Read-only comparison, counts and sums only (the name columns were not read). Full report:
+`new_docs/CM_Elevate_Legacy_Test_Report_2026-10-22.md`.
+
+**Issues 1 and 2 above are resolved in the current load:** 2,823 rows in both (raw `id` = `source_row_id`, same
+`application_number` on every row; source row 2392 is present), and the 404 records with no village carry their block
+(block totals equal the raw file). Every amount, scheme, FY, lender, district and constituency matches.
+
+### Issue 3 (NEW) — `year_note` carries MGNREGA caveats on CM Elevate Legacy rows (KI-385)
+
+| financial_year_short | Rows | `year_note` text (start) |
+|---|---|---|
+| 2024-25 | 2,291 | "EMPLOYMENT FIGURES FOR THIS YEAR APPEAR TO BE A PARTIAL EXTRACT. Person-days fell 46.2% …" |
+| 2025-26 | 137 | "women_employment_provided is zero on every row for this year -- a missing source feed …" |
+
+These are MGNREGA notes from the shared year dimension; they say nothing about CM Elevate Legacy. **Ask:** expose
+`year_note` per dataset (or NULL for CM Elevate Legacy). The bot did not show them in any answer on 2026-10-22, but any
+feature that surfaces `year_note` for this scheme would mislead.
+
+### Note (no action needed) — 4 impossible first-subsidy dates in the source
+
+Four source rows have a first subsidy disbursement date in the year **1014 / 1015** (date-only values; amounts present).
+The load stores those dates as NULL — correct. The source may want correcting (probably 2024 / 2025).
+
+### Note (no action needed) — label normalisation
+
+Block "TURA MUNICIPAL BOARD-MUNICIPAL BOARD" (2 rows, ₹5.82 lakh) is stored "TURA MUNICIPAL BOARD"; the 404 rows with
+no village code are grouped under "Unresolved / Not Yet Mapped (block known)" with block-level negative codes.

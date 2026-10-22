@@ -115,6 +115,8 @@
   account: superadmin
   turns:
     - say: "How many CM Elevate applications are there in Ri Bhoi?"
+      expect: {route: pause, pause_rule: cm-elevate-dataset}     # 2026-10-22: applications alone asks
+    - say: "applications"
       expect: {route: data, scheme: CM Elevate, place: Ri Bhoi}
     - say: "how many are on hold?"
       expect: {route: data, scheme: CM Elevate, place: Ri Bhoi}
@@ -197,6 +199,8 @@
     - say: "Focus Plus beneficiaries in East Khasi Hills in FY 2025-26"
       expect: {route: data, scheme: Focus Plus, place: East Khasi Hills, year: FY 2025-26}
     - say: "How many CM Elevate applications are there in Ri Bhoi?"
+      expect: {route: pause, pause_rule: cm-elevate-dataset}     # 2026-10-22: applications alone asks
+    - say: "applications"
       expect: {route: data, scheme: CM Elevate, place: Ri Bhoi}
     - say: "what have we discussed so far?"
       expect: {route: edge, answer_contains: ["Focus Plus", "CM Elevate"]}
@@ -404,16 +408,41 @@
     - say: "all of them combined"
       expect: {route: data, scheme: PMAY-G, place: Ri Bhoi}
 
-- name: AC04_cm_elevate_dataset_pause
+- name: AC04_cm_elevate_money_goes_to_legacy
+  doc: "User decision 2026-10-22: a bare CM Elevate with financial data is CM Elevate Legacy, never asked"
   tags: [audit, clarification]
   account: superadmin
   turns:
     - say: "How much has been disbursed under Focus Plus in East Garo Hills in FY 2025-26?"
       expect: {route: data, scheme: Focus Plus, place: East Garo Hills, year: FY 2025-26}
     - say: "give me for cm elevate"
+      expect: {route: data, scheme: CM Elevate Legacy, place: East Garo Hills}
+
+- name: AC04b_cm_elevate_dataset_pause
+  doc: "User decision 2026-10-22: a bare CM Elevate with no financial word asks applications or Legacy"
+  tags: [audit, clarification]
+  account: superadmin
+  turns:
+    - say: "How many CM-ELEVATE applications are there in East Garo Hills?"
       expect: {route: pause, pause_rule: cm-elevate-dataset}
     - say: "legacy"
+      expect: {route: pause, pause_rule: year-not-specified}     # Legacy has years; a new chat asks (D-056)
+    - say: "all of them combined"
       expect: {route: data, scheme: CM Elevate Legacy, place: East Garo Hills}
+
+- name: AC04c_sanction_word_leaves_the_applications_thread
+  doc: "CM Elevate Legacy sheet run 2026-10-22: on an applications thread the bot answered '8,840 applications have been sanctioned' (true 2,820)"
+  tags: [audit, clarification]
+  account: superadmin
+  turns:
+    - say: "How many CM Elevate applications are there in Ri Bhoi?"
+      expect: {route: pause, pause_rule: cm-elevate-dataset}
+    - say: "applications"
+      expect: {route: data, scheme: CM Elevate, place: Ri Bhoi}
+    - say: "How many applications have been sanctioned under CM-ELEVATE?"
+      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+    - say: "all of them combined"
+      expect: {route: data, scheme: CM Elevate Legacy}
 
 - name: AC05_focus_which_one
   tags: [audit, clarification]

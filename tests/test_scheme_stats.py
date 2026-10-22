@@ -20,7 +20,8 @@ def test_card_figures_from_rows():
         "focus_legacy": {"groups": 11906, "memberships": 102021, "amount": 510105000},
         "cm_elevate_legacy": {"records": 2823, "schemes": 13, "disbursed": 828978537.75},
     }
-    c = stats._cards(rows)
+    years = {"mgnrega": ["2022-23", "2023-24", "2024-25", "2025-26"]}
+    c = stats._cards(rows, years)
     assert c["pmay_g"][0] == ["1,70,981", "Houses sanctioned"]
     assert c["pmay_g"][2] == ["₹2,185.26 Cr", "Funds released"]
     assert c["mgnrega"] == [["9.09 Cr", "Person-days (4 yr)"], ["₹3,628.67 Cr", "Expenditure (4 yr)"],
@@ -31,3 +32,36 @@ def test_card_figures_from_rows():
     assert c["cm_elevate_legacy"][2] == ["₹82.90 Cr*", "Disbursed (subsidy + loan)*"]
     # same six keys as the cards in frontend/src/chat/constants.js
     assert set(c) == {"mgnrega", "pmay_g", "focus_plus", "cm_elevate", "focus_legacy", "cm_elevate_legacy"}
+
+
+# ── 2026-10-22: the cards follow the data (user: "kpi cards … need to update dynamically … based on the
+# data"). The period text and "(N yr)" come from the views; a figure the view did not return is "—".
+def test_period_text_from_the_years_held():
+    assert stats._period(["2022-23", "2023-24", "2024-25", "2025-26"]) == "FY 2022-23 to 2025-26"
+    assert stats._period(["2022-23", "2025-26"]) == "FY 2022-23 & 2025-26"                  # Focus Plus
+    assert stats._period(["2021-22", "2022-23", "2024-25", "2025-26"]) == \
+        "FY 2021-22 to 2025-26, no FY 2023-24"                                              # Focus Legacy
+    assert stats._period(["2024-25", "2025-26"]) == "FY 2024-25 to 2025-26"
+    assert stats._period(["2023-24"]) == "FY 2023-24"
+    assert stats._period([]) == "" and stats._period([None]) == ""
+
+
+def test_year_count_follows_the_data():
+    rows = {**{k: dict.fromkeys(("sanctioned", "completed", "released", "payments", "amount", "districts",
+                                 "applications", "schemes", "groups", "memberships", "records", "disbursed"), 1)
+               for k in ("pmay_g", "focus_plus", "cm_elevate", "focus_legacy", "cm_elevate_legacy")},
+            "mgnrega": {"person_days": 1, "exp_lakh": 1, "villages": 1}}
+    c = stats._cards(rows, {"mgnrega": ["2022-23", "2023-24", "2024-25", "2025-26", "2026-27"]})
+    assert c["mgnrega"][0][1] == "Person-days (5 yr)" and c["mgnrega"][1][1] == "Expenditure (5 yr)"
+
+
+def test_a_missing_figure_is_a_dash_not_zero():
+    rows = {"mgnrega": {"person_days": None, "exp_lakh": None, "villages": 0},
+            "pmay_g": {"sanctioned": 0, "completed": 0, "released": None},
+            "focus_plus": {"payments": 0, "amount": None, "districts": 0},
+            "cm_elevate": {"applications": 0, "schemes": 0, "districts": 0},
+            "focus_legacy": {"groups": 0, "memberships": None, "amount": None},
+            "cm_elevate_legacy": {"records": 0, "schemes": 0, "disbursed": None}}
+    c = stats._cards(rows, {})
+    assert c["mgnrega"][0] == ["—", "Person-days"] and c["mgnrega"][2] == ["0", "Villages with activity"]
+    assert c["pmay_g"][2] == ["—", "Funds released"] and c["focus_legacy"][1] == ["—", "Memberships paid"]

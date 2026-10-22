@@ -1273,7 +1273,10 @@ def collides_across_dimensions(text: str, scheme: str,
     if not text or not str(text).strip():
         return {}
     hits: list[str] = []
+    exact_dims: list[str] = []
     _canonical_by_dim: dict[str, str] = {}
+    _fuzzy_ratio: dict[str, float] = {}
+    _district_by_alias = False
     folded_input = fold(text)
     squashed_input = _squash(folded_input)
     for dim in _COLLISION_DIMENSIONS:
@@ -1286,7 +1289,10 @@ def collides_across_dimensions(text: str, scheme: str,
             if folded_input in (fold(c) for c in forms) or \
                     squashed_input in (_squash(fold(c)) for c in forms):
                 hits.append(dim)
+                exact_dims.append(dim)
                 _canonical_by_dim[dim] = _display_form(v["canonical"], dim)
+                if dim == "district" and folded_input != fold(v["canonical"]):
+                    _district_by_alias = True
                 matched = True
                 break
         if matched:
@@ -1297,6 +1303,12 @@ def collides_across_dimensions(text: str, scheme: str,
         # BAZAR" the RONGJENG constituency — 50+ villages in the MGNREGA
         # all-villages run (2026-10-09). Only exact / alias readings compete then.
         if exact_village:
+            continue
+        # The same holds for a village of that exact name ANYWHERE in Meghalaya,
+        # not only in the asking scheme's list: "How many CM Elevate applications
+        # from Ladmawphlang?" (a village with no CM Elevate rows) was offered the
+        # MAWPHLANG block and constituency as look-alikes (2026-10-21, D-059).
+        if _gazetteer_on() and is_village_name(text):
             continue
         # Fuzzy stage — same scorer and runner-up gap as resolve_dimension's
         # stage 6, at the looser floor explained above.
@@ -1309,6 +1321,39 @@ def collides_across_dimensions(text: str, scheme: str,
         if top_score >= _COLLISION_FUZZY_ACCEPT and top_score - runner_up >= _FUZZY_RUNNER_UP_GAP:
             hits.append(dim)
             _canonical_by_dim[dim] = _display_form(scored[0][2], dim)
+            _fuzzy_ratio[dim] = fuzz.ratio(folded_input, fold(scored[0][2]))
+    # A typo goes to the level it is CLEARLY closest to. "Ladmawplang" (one
+    # letter off the village LADMAWPHLANG) passed the 80 floor for the MAWPHLANG
+    # block and constituency too, and was asked "block, constituency or the
+    # village Ladmawplang?" — the chip carrying the typo (2026-10-21, D-059).
+    # Only a near-certain village (>= 90) that beats every look-alike level by
+    # 12 points wins (Ladmawplang: 96 vs 80). "malwai" still asks: the village
+    # MAWLWAI (92) beats the MAWLAI block (83) by only 9, and reading it as the
+    # village is the 2026-09-15 bug.
+    if _gazetteer_on() and _fuzzy_ratio and not exact_dims:
+        _vf = village_fuzzy(text)
+        if _vf and _vf[1] >= _VILLAGE_FUZZY_ACCEPT \
+                and all(_vf[1] - r >= _VILLAGE_FUZZY_LEAD for r in _fuzzy_ratio.values()):
+            hits = [d for d in hits if d not in _fuzzy_ratio]
+            village_hit = True
+            _canonical_by_dim["village"] = _vf[0].title()
+    # The same NAME, not a look-alike, is what makes a level question (user rule
+    # 2026-10-21: "if the same village name is there for a block or a
+    # constituency, ask"). A name spelt exactly as a block or constituency whose
+    # village probe found only near-matches — "Mendipathar" -> the village
+    # "Mendipathar - Ward No.10", "Dambo Rongjeng" -> "DAMBO RONGDENG", "Sohra"
+    # -> "Sohrarim" — is that block or constituency, and is answered as one.
+    # A real village of that exact name (MAWLAI, RAJABALA) still asks, and so
+    # does a typo that matches no level exactly ("malwai"). Without the
+    # village index the old reading stands.
+    if village_hit and exact_dims and not exact_village and is_village_name(text) is False:
+        village_hit = False
+    # The same holds between catalogue levels: "Dambo Rongjeng" (a block, exact)
+    # also fuzzy-matched the constituency RONGJENG (token_set_ratio 100 for a
+    # contained name). A look-alike level competes only when no level matched
+    # exactly — the typo case ("malwai") the fuzzy stage is for.
+    if exact_dims:
+        hits = [d for d in hits if d in exact_dims]
     if village_hit and "village" not in hits:
         hits.append("village")
     # A district name is never level-ambiguous: the SME catalogue records
@@ -1319,6 +1364,14 @@ def collides_across_dimensions(text: str, scheme: str,
     # on a plainly-named district because a weak village near-match exists
     # would interrupt the single most common question shape in the product, so
     # an exact district hit settles the level outright.
+    # ...but a district reached only through an ALIAS (its HQ town: "Jowai",
+    # "Nongpoh", "Mairang") is not a plainly named district: when the same name
+    # is exactly a block / constituency too, those are the readings (user rule
+    # 2026-10-21 19:50; Jowai tagged a constituency went to "whole constituency
+    # or part?" under PMAY-G, which has no constituency data — KI-349).
+    if "district" in hits and _gazetteer_on() and _district_by_alias \
+            and any(d in exact_dims for d in hits if d != "district"):
+        hits = [d for d in hits if d != "district"]
     if "district" in hits:
         return {}
     if len(hits) < 2:
@@ -1496,6 +1549,475 @@ def named_places(text: str) -> dict[str, str]:
             found.setdefault(canon, dim)
             padded = pat.sub(lambda m: " " * len(m.group(0)), padded)
     return found
+
+
+# Every village name and alias in curated.dim_geography, folded, held in memory
+# so a SYNC check can tell that a bare name is a Meghalaya place. User report
+# 2026-10-21: after "How much PMAY-G amount was released in East Garo Hills in
+# FY 2023-24?", "in ambare ading" got "I don't have information about that" —
+# only "in ambare ading village" was answered. The continuation check
+# (context_policy.continuation_signals) and the edge whitelist knew districts
+# and blocks from the YAML catalogues but no village, so a village named
+# without the word "village" shared nothing with the conversation and was
+# declined as off-topic. 9,431 distinct names (canonical + aliases, folded), loaded once.
+# {folded name: frozenset of its DISTRICTS (upper)}; None until loaded.
+_village_names: "dict[str, frozenset] | None" = None
+_village_names_failed_at = 0.0
+# The gazetteer half of the same index (PLACE_GAZETTEER, D-059): {folded name:
+# ((village_code, BLOCK, DISTRICT), ...)} — every village of that name with its
+# parents, so a level question can be settled by the chat's remembered block /
+# district and a chip can say where each reading lies.
+_village_places: "dict[str, tuple] | None" = None
+# {scheme: frozenset of village_code} — the villages each scheme holds rows for.
+# A scheme missing here (CM Elevate Legacy has no village_code) is "unknown",
+# never "no data".
+_village_scheme_codes: "dict[str, frozenset]" = {}
+# {village_code: lgd_village_name} — the canonical name (never an alias).
+_village_code_names: "dict[int, str]" = {}
+_VILLAGE_SCHEME_VIEWS = (
+    ("MGNREGA", "v_employment"), ("MGNREGA", "v_expenditure"), ("PMAY-G", "v_pmay"),
+    ("Focus Plus", "v_focus_plus"), ("CM Elevate", "v_cm_elevate"), ("Focus Legacy", "v_focus_legacy"),
+)
+# Typo floor for a village name (rapidfuzz WRatio, 0-100) and the shortest
+# folded name the fuzzy stage will try: "bir" / "mot" would match anything.
+_VILLAGE_FUZZY_ACCEPT = 90
+_VILLAGE_FUZZY_MIN_LEN = 4
+# How far (plain ratio points) a misspelt name must sit closer to a village
+# than to any look-alike block / constituency before the village alone is read.
+_VILLAGE_FUZZY_LEAD = 12
+# A one-word name must be at least this long and not an ordinary word: four
+# three-letter villages (ATS, BIR, KUT, MOT) would otherwise turn "bir" or "mot"
+# typed anywhere into a place, and "EAST" / "UPPER" alone are parts of names.
+_VILLAGE_SOLO_MIN = 4
+_VILLAGE_SOLO_DENY = frozenset({
+    "WHAT", "WHEN", "WHERE", "WHICH", "THERE", "THAT", "THIS", "THESE", "THOSE", "THEM", "THEY",
+    "WITH", "FROM", "INTO", "ONLY", "ALSO", "SAME", "MORE", "MOST", "LESS", "SOME", "MANY", "MUCH",
+    "EACH", "BOTH", "ALL", "TOTAL", "SHOW", "GIVE", "TELL", "LIST", "DATA", "YEAR", "YEARS", "NEXT",
+    "LAST", "THEN", "THAN", "WILL", "WOULD", "COULD", "SHOULD", "HAVE", "BEEN", "WERE", "ABOUT",
+    "OKAY", "THANKS", "HELLO", "GOOD", "BEST", "NAME", "HOME", "HOUSE", "HOUSES", "WORK", "WORKS",
+    "BLOCK", "BLOCKS", "VILLAGE", "VILLAGES", "DISTRICT", "DISTRICTS", "SCHEME", "SCHEMES",
+    "AMOUNT", "MONEY", "FUND", "FUNDS", "STATE", "MEGHALAYA", "INDIA", "MISSION", "MARKET",
+    "COLONY", "STATION", "GARDEN", "CAMP", "TOWN", "CITY", "ROAD", "WARD", "HILL", "HILLS",
+    "EAST", "WEST", "NORTH", "SOUTH", "UPPER", "LOWER", "CENTRAL", "MIDDLE", "MAIN", "NEW", "OLD",
+    # Ordinary English place-words (D-059): the index holds a village named
+    # CENTRE, so "houses near the centre" read as a village (2026-10-21).
+    "CENTRE", "CENTER", "POINT", "JUNCTION", "BAZAR", "BAZAAR", "SCHOOL", "CHURCH", "OFFICE",
+    "PARK", "LAKE", "FOREST", "VALLEY", "BRIDGE", "FARM", "FIELD", "ESTATE", "QUARRY", "LINE",
+    "LINES", "PLAIN", "UNION", "AREA", "ZONE", "SECTOR", "PANCHAYAT",
+})
+
+
+def fold_words(text: str) -> "list[str]":
+    """fold(text) split into words of letters and digits only: "Nongbri?" and
+    "Ward No.10" compare as "NONGBRI" and "WARD NO10"."""
+    return "".join(c if c.isalnum() or c.isspace() else " " for c in fold(text or "")).split()
+
+
+async def load_village_names(force: bool = False) -> int:
+    """Fill the village-name index from curated.dim_geography (+ aliases).
+    Best-effort: a DB failure leaves the index empty and is retried at most
+    once a minute, so a turn never waits on a dead connection twice."""
+    global _village_names, _village_names_failed_at, _village_places, _village_scheme_codes, _village_code_names
+    import time
+    if _village_names is not None and not force:
+        return len(_village_names)
+    if not force and time.monotonic() - _village_names_failed_at < 60:
+        return 0
+    try:
+        rows = await fetch_rows(
+            "SELECT g.lgd_village_name AS n, g.lgd_district AS d, g.village_code AS c, g.lgd_block AS b, "
+            "1 AS canon FROM curated.dim_geography g WHERE g.lgd_village_name IS NOT NULL "
+            "UNION SELECT a.source_village_name, g.lgd_district, g.village_code, g.lgd_block, 0 "
+            "FROM curated.dim_geography_alias a "
+            "JOIN curated.dim_geography g USING (geography_key) WHERE a.source_village_name IS NOT NULL")
+    except Exception as e:  # noqa: BLE001 — recognition degrades to districts/blocks only
+        _village_names_failed_at = time.monotonic()
+        logger.warning("village-name index not loaded: %s", e)
+        return 0
+    names: dict[str, set] = {}
+    places: dict[str, set] = {}
+    code_names: dict[int, str] = {}
+    for r in rows:
+        if r.get("canon") and r["c"] is not None and r["n"]:
+            code_names[int(r["c"])] = str(r["n"])
+        words = fold_words(str(r["n"] or ""))
+        if not words or not any(c.isalpha() for w in words for c in w):
+            continue
+        if len(words) == 1 and (len(words[0]) < _VILLAGE_SOLO_MIN or words[0] in _VILLAGE_SOLO_DENY):
+            continue
+        key = " ".join(words)
+        names.setdefault(key, set()).add(str(r["d"] or "").upper())
+        if r["c"] is not None:
+            places.setdefault(key, set()).add(
+                (int(r["c"]), str(r["b"] or "").upper(), str(r["d"] or "").upper()))
+    # Which villages each scheme holds rows for — best-effort per view: a
+    # failure leaves that scheme "unknown", which never filters a reading out.
+    codes: dict[str, set] = {}
+    for scheme, view in _VILLAGE_SCHEME_VIEWS:
+        try:
+            got = await fetch_rows(
+                f"SELECT DISTINCT village_code AS c FROM curated.{view} WHERE village_code IS NOT NULL")
+        except Exception as e:  # noqa: BLE001
+            logger.warning("village coverage of %s not loaded: %s", view, e)
+            continue
+        codes.setdefault(scheme, set()).update(int(x["c"]) for x in got)
+    _village_names = {k: frozenset(v) for k, v in names.items()}
+    _village_places = {k: tuple(sorted(v)) for k, v in places.items()}
+    _village_scheme_codes = {k: frozenset(v) for k, v in codes.items()}
+    _village_code_names = code_names
+    logger.info("village-name index loaded: %d names, coverage for %s",
+                len(_village_names), sorted(_village_scheme_codes))
+    return len(_village_names)
+
+
+def village_index_loaded() -> bool:
+    return _village_names is not None
+
+
+def is_village_name(text: str) -> "bool | None":
+    """True when `text` is, folded, exactly a village name or alias; None when
+    the index is not loaded (the caller keeps its old behaviour)."""
+    if _village_names is None:
+        return None
+    return " ".join(fold_words(text)) in _village_names
+
+
+def village_districts(name: str) -> frozenset:
+    """The districts (upper) holding a village of exactly this name; empty when
+    none or the index is not loaded."""
+    return (_village_names or {}).get(" ".join(fold_words(name)), frozenset())
+
+
+# ── Place gazetteer (PLACE_GAZETTEER, D-059) ────────────────────────────────
+# User report 2026-10-21: "How many job cards in Mawphlang?" — the level of a
+# place must come from the database, not from the word "village". Recognition
+# (place_mentions) already reads the village index; these helpers add what a
+# level DECISION needs: where each same-name village lies, which schemes hold
+# rows for it, and the nearest village to a misspelt name.
+
+def _gazetteer_on() -> bool:
+    from app.config import settings
+    return bool(getattr(settings, "PLACE_GAZETTEER", False))
+
+
+def village_places(name: str) -> tuple:
+    """((village_code, BLOCK, DISTRICT), ...) for every village of exactly this
+    name (folded); () when none or the index is not loaded."""
+    return (_village_places or {}).get(" ".join(fold_words(name)), ())
+
+
+_village_by_code_cache: "tuple[int, dict] | None" = None
+
+
+def _village_by_code(code) -> "tuple[str, str, str] | None":
+    """(NAME, BLOCK, DISTRICT) of a village_code, or None (unknown code / no index)."""
+    global _village_by_code_cache
+    places = _village_places or {}
+    if _village_by_code_cache is None or _village_by_code_cache[0] != id(places):
+        by_code: dict = {}
+        for name, vs in places.items():
+            for c, b, d in vs:
+                by_code.setdefault(c, (name, b, d))    # the first (sorted) name; aliases follow
+        _village_by_code_cache = (id(places), by_code)
+    try:
+        return _village_by_code_cache[1].get(int(code))
+    except (TypeError, ValueError):
+        return None
+
+
+def village_code_place(code) -> "tuple[str, str] | None":
+    """(BLOCK, DISTRICT) of a village_code, or None (unknown code / no index)."""
+    v = _village_by_code(code)
+    return (v[1], v[2]) if v else None
+
+
+def village_code_name(code) -> "str | None":
+    """The village's name, title-cased, for a village_code ("278445" -> "Rasong"),
+    or None. A bare code shown to a person — or to the rewrite model, which
+    copied it into the question ("in 278445 village", KI-348) — means nothing."""
+    try:
+        name = _village_code_names.get(int(code))
+    except (TypeError, ValueError):
+        return None
+    if name:
+        return name.title() if name.isupper() else name
+    v = _village_by_code(code)
+    return v[0].title() if v else None
+
+
+def village_scheme_data(name: str, scheme: str) -> "bool | None":
+    """Does `scheme` hold rows for a village of exactly this name? None when
+    unknown (index or that scheme's coverage not loaded, or no such village):
+    the caller then keeps its reading."""
+    places = village_places(name)
+    codes = _village_scheme_codes.get(scheme)
+    if not places or codes is None:
+        return None
+    return any(code in codes for code, _b, _d in places)
+
+
+def village_fuzzy(text: str) -> "tuple[str, float] | None":
+    """(folded village name, score) of the village nearest to a misspelt
+    `text`, or None. WRatio >= 90 AND a plain ratio >= 85: WRatio alone scores
+    a name inside a longer one at 95 ("MAWPHLANG" in "MISSION MAWPHLANG"),
+    which would read every block name as a look-alike village."""
+    if not _village_names:
+        return None
+    key = " ".join(fold_words(text))
+    if len(key.replace(" ", "")) < _VILLAGE_FUZZY_MIN_LEN:
+        return None
+    if key in _village_names:
+        return key, 100.0
+    # Searched with the plain ratio (several times cheaper than WRatio over
+    # 9,431 names; the 10 ms match_places budget) and confirmed with WRatio.
+    best = process.extractOne(key, _village_keys(), scorer=fuzz.ratio, score_cutoff=85,
+                              processor=None)
+    if not best or fuzz.WRatio(key, best[0]) < _VILLAGE_FUZZY_ACCEPT:
+        return None
+    return best[0], float(best[1])
+
+
+_village_keys_cache: "tuple[int, list] | None" = None
+
+
+def _village_keys() -> list:
+    """The index's names as a list, rebuilt only when the index changes."""
+    global _village_keys_cache
+    names = _village_names or {}
+    if _village_keys_cache is None or _village_keys_cache[0] != id(names):
+        _village_keys_cache = (id(names), list(names))
+    return _village_keys_cache[1]
+
+
+def match_places(question: str, is_ordinary=None) -> "list[dict]":
+    """The gazetteer: every place the question names, as
+    [{"typed", "name", "levels", "villages", "fuzzy"}] — `levels` every level
+    the database holds that name at ("district", "block",
+    "assembly_constituency", "village"), `villages` each same-name village as
+    (code, BLOCK, DISTRICT). Exact names first, longest first, never
+    overlapping (_place_scan); then a misspelt village among the words left
+    over, 3- to 1-word runs, skipping ordinary words (`is_ordinary(word)`:
+    question words, scheme names, metric vocabulary), numbers and years.
+
+    The level is the database's: "village" in the question is not needed and
+    does not add a level the name lacks. Which reading the question means is
+    decided by the resolver (collides_across_dimensions + the c09 gate)."""
+    found, typed, leftover = _place_scan(question)
+    out: list = []
+    for name, dim in found.items():
+        t = typed.get(name, name)
+        levels = place_levels(t) | {dim}
+        out.append({"typed": t, "name": name, "levels": sorted(levels),
+                    "villages": village_places(t) if "village" in levels else (), "fuzzy": False})
+    words = [w for w in leftover
+             if w and any(c.isalpha() for c in w) and not any(c.isdigit() for c in w)
+             and w not in _VILLAGE_SOLO_DENY and w not in _FOLD_QUALIFIERS
+             and not (is_ordinary and is_ordinary(w))]
+    i = 0
+    while i < len(words):
+        hit = None
+        for size in range(min(3, len(words) - i), 0, -1):
+            vf = village_fuzzy(" ".join(words[i:i + size]))
+            if vf:
+                hit = (size, vf)
+                break
+        if hit:
+            size, (name, score) = hit
+            out.append({"typed": " ".join(words[i:i + size]), "name": name,
+                        "levels": sorted(place_levels(name) | {"village"}),
+                        "villages": village_places(name), "fuzzy": True, "score": score})
+            i += size
+        else:
+            i += 1
+    return out
+
+
+_ac_forms_cache: "tuple | None" = None
+_level_index_cache: "tuple | None" = None
+
+
+def _catalog_key() -> tuple:
+    return tuple((s, id(d), len(d.get("district") or []), len(d.get("block") or []),
+                  len(d.get("assembly_constituency") or [])) for s, d in _catalog.items())
+
+
+def _level_index() -> "dict[str, frozenset]":
+    """{folded words of a catalogue form: the levels holding it} — place_levels'
+    lookup, built once per loaded catalogue (rebuilding it per call cost ~14 ms
+    of the 10 ms match_places budget, 2026-10-21)."""
+    global _level_index_cache
+    key = _catalog_key()
+    if _level_index_cache is not None and _level_index_cache[0] == key:
+        return _level_index_cache[1]
+    idx: dict = {}
+    for ff, _pat, _canon, dim in _place_matchers():
+        idx.setdefault(" ".join(fold_words(ff)), set()).add(dim)
+    for ff, _canon in _ac_forms():
+        idx.setdefault(" ".join(fold_words(ff)), set()).add("assembly_constituency")
+    # ...and every form collides_across_dimensions matches (_match_forms: the
+    # catalogue's aliases), so both agree on a name's levels. "Sohing" is an
+    # alias of the SOHIONG block AND the SOHING constituency; read from the
+    # scannable forms alone it looked like a constituency only (KI-349).
+    for dims in _catalog.values():
+        for dim in ("district", "block", "assembly_constituency"):
+            for v in dims.get(dim) or []:
+                for form in _match_forms(v):
+                    fk = " ".join(fold_words(str(form)))
+                    if fk and not fk.isdigit() and not fk.startswith("AC "):
+                        idx.setdefault(fk, set()).add(dim)
+    out = {k: frozenset(v) for k, v in idx.items()}
+    _level_index_cache = (key, out)
+    return out
+
+
+def _ac_forms() -> list:
+    """(folded form, CANONICAL) for every assembly constituency any catalogue
+    holds (MGNREGA's today), longest first. Cached per loaded catalogue."""
+    global _ac_forms_cache
+    key = _catalog_key()
+    if _ac_forms_cache is None or _ac_forms_cache[0] != key:
+        _ac_forms_cache = (key, _ac_forms_build())
+    return _ac_forms_cache[1]
+
+
+_ac_long_forms_cache: "tuple | None" = None
+
+
+def _ac_long_forms() -> list:
+    """The multi-word constituency forms that are no block / district form
+    ("NORTH TURA"), longest first — _place_scan's first pass. Cached."""
+    global _ac_long_forms_cache
+    key = _catalog_key()
+    if _ac_long_forms_cache is None or _ac_long_forms_cache[0] != key:
+        idx = _level_index()
+        _ac_long_forms_cache = (key, [(ff, canon) for ff, canon in _ac_forms()
+                                      if " " in ff and not ({"block", "district"}
+                                                            & set(idx.get(" ".join(fold_words(ff)), ())))])
+    return _ac_long_forms_cache[1]
+
+
+def _ac_forms_build() -> list:
+    forms = set()
+    for dims in _catalog.values():
+        for v in dims.get("assembly_constituency") or []:
+            for form in _scannable_forms(v):
+                ff = fold(form)
+                if len(ff) >= 4:
+                    forms.add((ff, str(v["canonical"]).upper()))
+    return sorted(forms, key=lambda f: len(f[0]), reverse=True)
+
+
+def place_mentions(text: str) -> dict[str, str]:
+    """Every Meghalaya place `text` names, at any level, as {NAME UPPER:
+    dimension}: districts and blocks (named_places, canonical), assembly
+    constituencies (the catalogue, canonical) and villages (the in-memory
+    index, see _village_names; the key is the name as typed, folded) — with or
+    without the words "village" / "block" / "constituency".
+
+    For RECOGNITION only (does this message talk about a place?): which level
+    a name means, and the same-name clarification, stay with the resolver
+    (resolve_dimension / collides_across_dimensions). A name that is both a
+    block and a village is reported once, at its catalogue level; a village
+    word inside a district's name ("Garo" in "East Garo Hills") is not one."""
+    return _place_scan(text)[0]
+
+
+def place_only(text: str, ignore: "frozenset[str]" = frozenset()) -> "tuple[str, str, str] | None":
+    """(NAME, dimension, the name's words as typed) when `text` names exactly
+    one place and nothing else besides words in `ignore` (folded: "IN", "WHAT",
+    "ABOUT", "VILLAGE" …); else None. "in ambare ading" -> ("AMBARE ADING",
+    "village", "AMBARE ADING")."""
+    found, typed, leftover = _place_scan(text)
+    if len(found) != 1 or any(w not in ignore for w in leftover):
+        return None
+    name, dim = next(iter(found.items()))
+    return name, dim, typed.get(name, name)
+
+
+def place_levels(typed: str) -> "set[str]":
+    """Every level whose catalogue / index holds exactly this name (folded):
+    "district", "block", "assembly_constituency", "village"."""
+    key = " ".join(fold_words(typed))
+    out = set(_level_index().get(key, ()))
+    if is_village_name(key):
+        out.add("village")
+    return out
+
+
+def _place_scan(text: str) -> "tuple[dict, dict, list]":
+    """place_mentions' scan: ({NAME: dim}, {NAME: typed words}, words that are
+    no part of any place)."""
+    found: dict = {}
+    typed: dict = {}
+    padded = f" {fold(text or '')} "
+    # A village whose name CONTAINS a block or district name is that village:
+    # "Lower Damalgre" is not the Damalgre block. Such longer names are taken
+    # first; a name that equals a catalogue form stays at the catalogue level.
+    if _village_names:
+        ws = fold_words(text)
+        for size in range(min(6, len(ws)), 1, -1):
+            for i in range(len(ws) - size + 1):
+                phrase = " ".join(ws[i:i + size])
+                if phrase not in _village_names:
+                    continue
+                inner = named_places(phrase)
+                if not inner or any(" ".join(fold_words(c)) == phrase for c in inner):
+                    continue
+                sp = _bounded_find(padded, phrase)
+                if sp:
+                    found.setdefault(phrase, "village")
+                    typed.setdefault(phrase, phrase)
+                    padded = padded[:sp[0]] + " " * (sp[1] - sp[0]) + padded[sp[1]:]
+    # A multi-word constituency that CONTAINS a block / district name is that
+    # constituency: "North Tura" is not the Tura block (place hierarchy sweep
+    # 2026-10-21, KI-349). Same rule as the long villages above.
+    for ff, canon in _ac_long_forms():
+        if ff not in padded:
+            continue
+        sp = _bounded_find(padded, ff)
+        if sp:
+            found.setdefault(canon, "assembly_constituency")
+            typed.setdefault(canon, ff)
+            padded = padded[:sp[0]] + " " * (sp[1] - sp[0]) + padded[sp[1]:]
+    for canon, dim in named_places(padded).items():
+        found.setdefault(canon, dim)
+    for ff, pat, canon, _dim in _place_matchers():
+        if ff in padded and pat.search(padded):
+            typed.setdefault(canon, ff)
+            padded = pat.sub(lambda m: " " * len(m.group(0)), padded)
+    for ff, canon in _ac_forms():
+        sp = _bounded_find(padded, ff)
+        if sp:
+            found.setdefault(canon, "assembly_constituency")
+            typed.setdefault(canon, ff)
+            padded = padded[:sp[0]] + " " * (sp[1] - sp[0]) + padded[sp[1]:]
+    # Words, with a blanked catalogue span acting as a break between them.
+    words: list = []
+    for chunk in padded.split("   "):
+        words.extend(fold_words(chunk))
+        words.append(None)
+    names = _village_names or {}
+    leftover: list = []
+    i, n = 0, len(words)
+    while i < n:
+        hit = 0
+        for size in range(min(6, n - i), 0, -1):
+            span = words[i:i + size]
+            if None in span:
+                continue
+            if " ".join(span) in names:
+                hit = size
+                break
+        if hit:
+            phrase = " ".join(words[i:i + hit])
+            found.setdefault(phrase, "village")
+            typed.setdefault(phrase, phrase)
+            i += hit
+        else:
+            if words[i] is not None:
+                leftover.append(words[i])
+            i += 1
+    return found, typed, leftover
 
 
 _ACRONYM_TOKEN_MATCH = Matcher(Pred(lambda w: 3 <= len(w) <= 5 and all(ch in _ASCII_LETTERS for ch in w)))
@@ -1775,6 +2297,26 @@ async def resolve_village(text: str, district: str | None = None, block: str | N
     """
     rows = await fetch_rows(sql, [folded, *scope_params])
 
+    # The village whose REAL name is the typed one (punctuation aside) beats a
+    # village that only carries it as an alias: "Nongspung B" matched the alias
+    # row of 277445 (NONGSPUNG - A) while NONGSPUNG - B (277444) missed the exact
+    # match on its hyphen, and the A figure was answered (place hierarchy sweep
+    # 2026-10-21, KI-349; the alias row is reported in docs/
+    # PlaceHierarchy_DB_Issues_2026-10-21.md).
+    if _gazetteer_on() and _village_code_names:
+        _key = " ".join(fold_words(folded))
+        _real = sorted({c for c, _b, _d in village_places(folded)
+                        if " ".join(fold_words(_village_code_names.get(c, ""))) == _key})
+        if _real and {r["village_code"] for r in rows} != set(_real):
+            _rr = await fetch_rows(
+                "SELECT DISTINCT g.village_code, g.lgd_village_name, g.lgd_district, g.lgd_block "
+                f"FROM curated.dim_geography g WHERE g.village_code = ANY($1::bigint[]) {scope_sql} LIMIT 10",
+                [_real, *scope_params])
+            if _rr:
+                logger.info("resolve_village: %r is the real name of %s (not the alias match %s)",
+                            text, _real, sorted(r["village_code"] for r in rows))
+                rows = _rr
+
     if not rows:
         # Trigram fuzzy fallback (uses the GIN trigram index already on dim_geography).
         # Both sides are UPPER()'d to match the exact-match stage's normalization
@@ -1793,6 +2335,23 @@ async def resolve_village(text: str, district: str | None = None, block: str | N
         rows = await fetch_rows(sql, [folded, *scope_params])
         if not rows:
             return Resolved("not_found", "village", text, message=f"'{text}' is not a known village")
+        # A typo one letter off a village is that village when every other
+        # look-alike is far behind: "Ladmawplang" listed LADMAWPHLANG (96) with
+        # LADMAWRENG (76) and LADMAWRONG (76) and asked which (2026-10-21,
+        # D-059). Same floor and lead as collides_across_dimensions; a close
+        # race ("Mawphlang": PAWPHLANG 89, DOM MAWPHLANG ...) still asks.
+        if _gazetteer_on() and len(rows) > 1:
+            _typed = " ".join(fold_words(folded))
+            _score = {r["village_code"]: fuzz.ratio(_typed, " ".join(fold_words(r["lgd_village_name"])))
+                      for r in rows}
+            _top = max(rows, key=lambda r: _score[r["village_code"]])
+            _top_name = fold(_top["lgd_village_name"])
+            _rest = [_score[r["village_code"]] for r in rows if fold(r["lgd_village_name"]) != _top_name]
+            if _score[_top["village_code"]] >= _VILLAGE_FUZZY_ACCEPT \
+                    and all(_score[_top["village_code"]] - s >= _VILLAGE_FUZZY_LEAD for s in _rest):
+                rows = [r for r in rows if fold(r["lgd_village_name"]) == _top_name]
+                logger.info("resolve_village: %r read as %r (clearly the closest village)",
+                            text, _top["lgd_village_name"])
 
     # NOTE: two rows can share the same (name, district) — e.g. two villages
     # both named "Adugre" in SOUTH WEST GARO HILLS, one in BETASING block with

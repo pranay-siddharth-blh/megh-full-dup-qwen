@@ -351,8 +351,8 @@ def comparison_with_earlier(session, question: str) -> "str | None":
     active = st.scheme or (topic_memory._memory(session).get("active") or "")
     if not active or " + " in active or topic_memory.same_scheme_family(active, named[0]):
         return None
-    place = st.village or st.block or st.district
-    where = f" in {str(place).title()}" if place else " in Meghalaya"
+    place = topic_memory.place_words(st)
+    where = f" in {place}" if place else " in Meghalaya"
     if st.year is not None:
         when = f" in {topic_memory._fy(st.year)}"
     elif st.year_all:
@@ -746,8 +746,8 @@ def _continue_chip(session) -> "str | None":
     scheme = st.scheme or (getattr(session, "topics", None) or {}).get("active")
     if not scheme:
         return None
-    place = st.village or st.block or st.district
-    bits = [b for b in (str(place).title() if place else None,
+    place = topic_memory.place_words(st)
+    bits = [b for b in (place,
                         topic_memory._fy(st.year) if st.year is not None else None) if b]
     return f"Continue with {scheme}" + (f" ({', '.join(bits)})" if bits else "")
 

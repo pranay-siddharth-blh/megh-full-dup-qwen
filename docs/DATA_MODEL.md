@@ -37,6 +37,7 @@ VERIFICATION**.*
 |---|---|
 | `curated.dim_geography` | PK `geography_key` (surrogate, **not stable across reloads**). Natural key `village_code` (LGD, unique). `lgd_village_name` (mixed case), `lgd_block` / `lgd_district` (**UPPERCASE names; there is no district or block code**), `entity_type` (includes `'Unresolved'` placeholders), `ac_number`, `ac_name`, `on_roster`, `has_geo_conflict`. GIN trigram index on the name. About 7,364 rows as of 2026-08-24 |
 | `curated.dim_geography_alias` | source spelling → `geography_key` (MGNREGA sources) |
+| (startup read, D-059) | `entity_resolver.load_village_names` reads every village name / alias with `village_code`, `lgd_block`, `lgd_district`, and `SELECT DISTINCT village_code` from `v_employment`, `v_expenditure` (MGNREGA), `v_pmay`, `v_focus_plus`, `v_cm_elevate`, `v_focus_legacy` (2026-10-21: 6,491 / 5,121 / 3,523 / 2,149 / 3,430 villages; < 0.15 s each). CM Elevate Legacy has no `village_code` (coverage unknown). App-owned, parameter-free, read-only |
 | `curated.bridge_geography_source` | village × source coverage |
 | `curated.dim_year` | `year_key` = **FY start year** (2023 ⇒ FY 2023-24), `financial_year` `'2023-2024'`, `financial_year_short` `'2023-24'`, `data_quality_note` |
 | `curated.dim_scheme` | `scheme_key`, `scheme_code` (PMAY-G is **`'PMAY'`**), `money_unit`, `time_semantics` |
@@ -121,8 +122,11 @@ and `origin/main` points at that commit (KI-022).
 7. **Stocks:** MGNREGA `job_cards_issued_total` is cumulative. Report one year and never sum
    across years.
 8. **Row-grain views** need `SUM … GROUP BY`, never a raw row read (`_rowgrain_no_aggregate`).
-9. **PMAY:** `WHERE NOT is_placeholder`; completion comes from the `is_completed` /
-   `is_in_progress` booleans; exclude the 126 `sanctioned_amount = 0` rows from rates.
+9. **PMAY:** the 126 `is_placeholder` rows (`sanctioned_amount = 0`, no year / sanction number) ARE
+   beneficiaries (D-060, 2026-10-22): no `NOT is_placeholder` on a beneficiary / house count (171,107
+   statewide); "full release" needs `sanctioned_amount > 0`; "houses sanctioned" (cross-scheme, stats card)
+   still excludes them. Completion comes from the `is_completed` /
+   `is_in_progress` booleans; exclude the 126 `sanctioned_amount = 0` rows from release rates and averages.
    `amount_released` is NULL on 336 non-placeholder houses (nothing released yet): COALESCE it
    to 0 in every release count or sum (VERIFIED 2026-09-28). `v_pmay` equals the raw
    `PMAY_FullyMapped_with_dates.csv` row for row (171,107 rows by `source_house_id` = raw `id`).

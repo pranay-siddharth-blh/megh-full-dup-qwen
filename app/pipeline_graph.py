@@ -394,6 +394,10 @@ async def _data(stage, state: dict, ctx: GraphContext) -> dict:
     # Read-only, never written back: the chat's active scheme (user rule
     # 2026-10-19). The decision that uses it lives in the stage.
     d["chat_scheme"] = pipeline._chat_active_scheme(ctx.session)
+    d["chat_has_scope"] = pipeline._chat_has_data_scope(ctx.session)
+    # D-061: standalone / follow-up / vague, as the follow-up stage decided it.
+    d["turn_kind"] = (getattr(ctx.session, "turn_context", None) or {}).get("turn_kind") \
+        if ctx.session is not None else None
     result = await stage(d, ctx.scope)
     upd = _dehydrate_data(d)
     if result is not None:
@@ -532,7 +536,9 @@ async def node_finalize(state, ctx):
     pipeline._attach_followups(result, result.get("rewritten_question") or state["raw_question"])
     pipeline._mark_context_dependent(result, ctx.session, raw_question=state.get("raw_question"),
                                      followup=state.get("is_followup_rewrite"), plan=state.get("plan"),
-                                     scope_resumed=state.get("scope_resumed"))
+                                     scope_resumed=state.get("scope_resumed"),
+                                     inherited=bool(state.get("prior_resolved"))
+                                     or bool((state.get("entity_result") or {}).get("answer_defaults")))
     pipeline._attach_scope_banner(result, ctx.session)
     pipeline._attach_preface(result, ctx.session)
     pipeline._finish_data_result(result)

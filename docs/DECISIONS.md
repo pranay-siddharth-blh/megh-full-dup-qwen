@@ -835,8 +835,9 @@ not recorded.*
 - **Rejected:** more prompt rules / few-shots for the generator (prose rules fail under sampling,
   CLAUDE.md §5); answering through `v_cross_scheme_money_district_year` (MGNREGA and PMAY-G only,
   district grain).
-- **Status:** Active. LIVE-VERIFIED 2026-10-13 (see TESTING.md: sheet + every scheme combination
-  at every level + every village).
+- **Status:** **Superseded by D-062 (2026-10-22)** — the answer is no longer a fixed table. Detection, the
+  place handling (`refine_block`, `refine_constituency`, `years_in_text`) and the twin-village chips stay.
+  LIVE-VERIFIED 2026-10-13 (see TESTING.md: sheet + every scheme combination at every level + every village).
 
 ### D-045 — Answer, don't ask (ANSWER_DEFAULTS_ENABLED)
 - **Date:** 2026-10-14. User decision: "whenever the user asks anything related to the data … you need to give
@@ -854,6 +855,8 @@ not recorded.*
 - **Amended by D-055 (2026-10-19):** an unnamed scheme is no longer answered for every scheme: a new chat asks, a chat with a scheme uses it.
 - **Amended by D-053 (2026-10-19):** the year default now applies only when the conversation already carries a year;
   a question with no year anywhere asks which financial year again.
+- **Amended by D-056 (2026-10-21):** the area default ("for all of Meghalaya") applies only inside a chat that has
+  answered a data question; a new chat asks the district first.
 
 ### D-046 — SQL is read and changed on the SQLGlot tree only; no regex on SQL
 - **Date:** 2026-10-15. User decision, stated firmly: "completely we need to use SQLGlot … I don't want regex here.
@@ -931,6 +934,362 @@ not recorded.*
 - **Pools:** `DB_POOL_MIN_SIZE` default 10 → 1, `DB_POOL_IDLE_SECONDS` 120 on both pools: megh_db ran out of its
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
+
+### D-066 — Cross-scheme figures of the four main schemes are worked out in code (2026-10-22)
+- **Date:** 2026-10-22 night. User: "fix these immediately", on `Cross_Scheme_Issues_and_Solutions_2026-10-22.md`
+  (the 60-case UAT sheet `raw_uc/cross_scheme.xlsx`, re-test 20/60, KI-387..393).
+- **Context:** under D-062 every scheme's figure was right somewhere, but the model never added, ranked or
+  compared across schemes (combined totals, district rankings, winner / second per district, "districts where
+  X > Y"), ignored "excluding", dropped MGNREGA in district answers, gave PMAY-G's sanctioned amount and FOCUS's
+  producer groups as the headline figures, copied one scheme's average onto another and cut FOCUS to its
+  village-mapped rows.
+- **Decision:** `app/cross_figures.py`. When a cross-scheme question is about **beneficiaries, money or village
+  coverage** of **MGNREGA, PMAY-G, Focus Plus and / or Focus Legacy** — statewide, for a district / districts / a
+  block, or per district, optionally one financial year — each scheme's figures come from a fixed,
+  parameter-bound query, the combine step (total, district ranking, winner, second, condition, per beneficiary,
+  ranking on several measures) runs in Python and the answer is written in code (`cross_figures.plan` /
+  `answer`, called from c13 `_cross_scheme_scope`). Everything else keeps the D-062 model path: village or
+  block lists, "top N" of villages / blocks, year-by-year, other measures, a village or constituency place,
+  CM Elevate / CM Elevate Legacy.
+  - Measures: MGNREGA households given work (household-years, every FY added) and `total_exp` lakh / 100;
+    PMAY-G houses and amount RELEASED (sanctioned beside it); Focus Plus distinct beneficiaries; Focus Legacy
+    members with PGs beside them; villages = distinct codes, 'Unresolved' rows out of the village count only.
+  - Geography: Focus Plus by its source district / block names (`district_name_raw` / `block_name_raw` = the
+    raw file); every other scheme by LGD. Totals of a per-district table come from the statewide query.
+  - Combined totals are given when asked ("combined", "together", "in total", "total … across / under"); a
+    count total says it adds different things. This replaces D-044 / D-062's "never add figures of different
+    schemes" for an explicit request only.
+  - Format: Indian grouping (18,73,378), ₹ crore, ₹ lakh below one crore.
+  - Exclusions ("excluding / leaving out / except / other than / apart from / not counting" + scheme names) are
+    read before scheme detection (c13 `_cross_exclusions`); excluding CM-ELEVATE drops both CM Elevate
+    datasets; with no names left the four main schemes minus the excluded are compared. c14 route keeps a
+    cross-scheme figure question DATA (`_cross_figures_question`). A bare FOCUS with no Focus+ beside it asks
+    which Focus (CLAUDE.md §4), instead of being dropped.
+- **Relation to D-062:** D-062 removed a fixed template because it answered every question with one card; here
+  only the shapes the code fully expresses are answered in code, and the answer follows the shape asked (a
+  condition list, a ranking, a per-district winner, a per-beneficiary order). The user's D-062 case ("top ten
+  highest villages in Mgnrega and pmay") still goes to the model (pinned in `tests/test_cross_figures_2026_10_22.py`).
+- **Rejected:** a regex exclusion parser as the issues document suggested (D-046 / D-047: word matcher only); the
+  ingestion-side catalogue changes in the same document (megh-ingestion owns `semantic.*` and `curated.*`).
+- **Trade-off:** answers to these shapes are fixed text, not composed; a new measure needs code.
+- **Tests:** `tests/test_cross_figures_2026_10_22.py` (39); live: the 60 UAT questions, 4 runs.
+
+### D-065 — A pause reply keeps the typed question's kind; a new question with no year is asked (2026-10-22)
+- **Date:** 2026-10-22, user report on a live chat: "How many CM Elevate Legacy records …" (all years) → "What is
+  the total disbursement amount for mairang?" → place chips → whole-or-part chips → answered "₹22.49 crore …
+  FY 2025-26 (new question)". User: "previous query, it is taking all financial years … why are you blindly giving
+  2025-26? … you need to take previous context or you need to ask … which year you want to choose".
+- **Why:** (1) the typed question names no scheme, so D-061 reads it VAGUE (one open topic → the chat's scope,
+  all years). Its chips append "under CM Elevate Legacy, the assembly constituency …", and the long chip text was
+  classified again on its own words → STANDALONE → no inherited year → (2) the D-061 latest-FY default.
+  (The ₹22.49 crore itself was the statewide FY 2025-26 total with the constituency filter dropped — KI-381.)
+- **Decision:**
+  1. A pause remembers the kind of the question that paused (`Session.pending_turn_kind`, in the durable snapshot,
+     set by `routers/query.remember_pause` from `turn_context["turn_kind"]`). A reply that resumes it — a scope merge,
+     a typed pick, or a tapped chip of any length — runs as that kind (`turn_context["resumed_turn_kind"]`, the
+     follow-up stage's `_tk`; `_same_scheme_context_year(kind=…)`). A chain of pauses keeps the typed kind. The
+     which-topic pause is not asked again on a resumed turn.
+  2. **Supersedes D-061's latest-FY default** (the open question left with the user): a STANDALONE question with no
+     year of its own inside a chat is **asked** the year with the chips (c13 `_data_clarification_stage`), like a new
+     chat (D-053). Its banner still says "(new question)". A follow-up / vague question keeps the chat's year.
+- **Not changed:** what counts as standalone / follow-up / vague (D-061 `turn_kind`), the new-chat order (D-056 §1).
+- **Tests:** `tests/test_new_vs_followup_2026_10_22.py` (D-065 block), harness `new_vs_followup_2026_10_22.yaml`
+  (`NQ_D065_*`; NQ01/07/08/09/11/12 now answer a year pause).
+
+### D-064 — A bare "CM Elevate": financial words go to Legacy, anything else asks (2026-10-22)
+- **Date:** 2026-10-22, user decision after the CM Elevate Legacy sheet re-test
+  (`new_docs/CM_Elevate_Legacy_Test_Report_2026-10-22.md`): "if we ask any financial data, it should directly redirect
+  to CM Elevate Legacy … if it just mentions applications, how many applications, it can ask whether CM Elevate
+  applications or CM Elevate Legacy … you can select and it should generate the answer from that".
+- **Why:** under the 2026-10-19 rule ("applications" = the applications dataset; money words = ask) the sheet's
+  "CM-ELEVATE applications … sanctioned" questions were answered from the applications data, which holds no sanction:
+  "80.63% sanctioned" (true 99.89%), "8,840 not sanctioned" (true 3), "West Garo Hills 1,733 sanctioned" (true 493),
+  and, on an applications thread, "8,840 applications have been sanctioned" (true 2,820). Plain "applications"
+  questions were answered 8,840 for a Legacy 2,823 without asking.
+- **Decision** (`app/pipeline/schemes/cm_elevate.py`, `_cm_elevate_dataset_choice`), for a question naming a bare
+  "CM Elevate" or only a CM Elevate sub-scheme (piggery, dairy … — in both datasets; `_names_cm_elevate`):
+  1. the dataset chip's marker **"CM Elevate (applications)"** → applications (the user chose it);
+  2. **financial words** (`_CMELEVATELEGACY_FORCING` / `_ONLY_TERMS`: money, sanction, subsidy, loan, lender, LIFCOM,
+     disbursement, a specific FY, expenditure / spent) → **CM Elevate Legacy, never asked**, the thread included.
+     "across all financial years" is scope wording, not a financial word (`_CME_ALL_YEARS_SCOPE`);
+  3. words only the applications dataset holds (on hold, verification, status, pending, level N, sent back, sector,
+     gender, SEED / Green Taxi / Cinema …) → applications (Legacy cannot answer them);
+  4. otherwise the thread's dataset;
+  5. otherwise a data question **asks** "CM Elevate (applications) or CM Elevate Legacy?" (rule `cm-elevate-dataset`)
+     — "applications", "applicants", "how many …", "by district".
+- **Chip marker:** the applications chip and the thread pin write "CM Elevate (applications)"; a typed "CM Elevate
+  applications" is NOT the chip (the rephrase model spells a typed "CM-ELEVATE applications" that way). The data stage
+  reads the question **before** the rephrase (`pre_rephrase_question`, c13). For a sub-scheme question the dataset is
+  appended ("… under CM Elevate Legacy") so a chip never repeats its question (`_cme_name_dataset`).
+- **Supersedes:** the 2026-10-19 rule (code comment, no D-entry) and the 2026-10-12 default to Legacy (KI-273).
+- **Tests:** `tests/test_cm_elevate_legacy.py` (§2), `tests/test_cmelevate_legacy_sheet_fixes.py`; graph fixtures in
+  `tests/test_pipeline_graph.py` name the dataset ("CM Elevate (applications)"); harness `AC04` / `AC04b` / `AC04c`,
+  `P5`, `AF11`, `AB03` updated.
+- **Status:** Active.
+
+### D-063 — A data answer takes the question's shape; derived figures are computed in code (2026-10-22)
+- **Date:** 2026-10-22. User report: "if I ask top 10, top 5 or compare, different things, you need to give
+  different answers … the template should be same [the UI], but LLM needs to give different answers" (KI-377).
+- **Context:** one composer prompt for every result ("one to three plain sentences; the first sentence must say what
+  the figure counts … scheme … area … period"), temperature 0, and one number-check fallback (`_framed_fallback`:
+  "Under X, … here are the N results:") gave a ranking, a comparison and a trend the same form. A composed gap or %
+  change was a number in no row, so it failed `_answer_numbers_faithful` and fell back to that same dump.
+- **Decision:** `app/pipeline/common/c12_answer_shapes.py` (loaded after c12, before c13):
+  1. `_answer_shape(question, sql, rows)` — deterministic: `ranking` = the outer ORDER BY's first key is a result
+     measure (SQLGlot: column, alias, aggregate or ordinal) and there is a LIMIT < 200 or a rank word, and no period
+     label varies; `trend` = a period label (year / fy / month / quarter part; financial_year + year_key count as one)
+     over ≥ 3 rows; `compare` = 2 rows, or ≤ 3 with a compare word (beats an ordered + limited SQL); `breakdown` =
+     other one-label splits; `cross_tab` = two varying labels; `list` = no measure; `profile` / `single_value` = one
+     row. `yes_no` = the question opens with an auxiliary verb. Rows of several schemes -> None (D-062 path).
+  2. `_shape_facts` — the figures the shape needs, computed from every row and added to the faithfulness whitelist:
+     #1 / #2 / last and the gaps, the ratio, the share of the ranked total; each side, difference and % for a
+     comparison; first -> last change and %, peak, lowest and "rose every period / mixed" for a trend; total and
+     shares for a breakdown. Rates / averages / percentages (`pct`, `rate`, `avg`, `per` …) are never summed.
+  3. `_SHAPE_GUIDE` — per-shape instructions + one worked example ("layout only — never copy its numbers"), in the
+     prompt as "Answer shape —"; a lowest-first ranking is told never to say "leads". A breakdown's rows reach the
+     composer largest first (`_breakdown_preview`; the table keeps the query's order).
+  4. `_shaped_fallback` — the deterministic answer in the same shape (numbered ranked list, verdict + difference,
+     first-to-last + peak + list, total + largest / smallest + list), tried before `_framed_fallback`.
+- **Kept:** the single-figure prompt text (2026-10-18 briefing-line rule), every faithfulness / hedge / list-size
+  check (the whitelist only gains code-computed figures), temperature 0 (variety comes from the shape, the same
+  question still gets the same answer), `_finish_answer` and the scheme guarantees, the UI layout.
+- **Rejected:** raising the composer temperature (variety without fitting the question, and less repeatable);
+  letting the composer compute gaps / percentages (prose rules fail under sampling, CLAUDE.md §5).
+- **Not yet (phase 2):** the fixed per-scheme answers that skip the composer (PMAY-G `_pmay_facts_answer`, MGNREGA
+  job cards / combined facts / wage-material / breakdown, Focus Legacy breakdown / group list, CM Elevate sectors).
+- **Status:** Active. LIVE-VERIFIED 2026-10-22 (TESTING.md). Offline `tests/test_answer_shapes_2026_10_22.py`.
+
+### D-062 — Cross-scheme questions are answered by the model, one query per scheme (2026-10-22)
+- **Date:** 2026-10-22. User report: "I have a query. Breakdown into I want top ten highest villages in Mgnrega and
+  pmay" got the statewide totals card ("Cross-scheme comparison — Meghalaya, all financial years"), the same card as
+  "Compare MGNREGA and PMAY-G spending". User decision: "no template … based on the user query … all possibilities",
+  for cross-scheme questions.
+- **Context:** D-044's fixed table (`cross_scheme.plan` + `answer`) could express only count / money / coverage, a
+  ranking sentence, and grouping by nothing / district / block. "Top N", villages, a block ranking ("top 5 blocks")
+  and any other shape were dropped silently, so different questions got the same card (KI-374).
+- **Decision:** a question `cross_scheme.detect` claims runs through the normal DATA path on the KI-011 per-scheme
+  machinery, always (not only when the prompt is over budget):
+  1. `_cross_scheme_scope` (clarification_gate): the D-044 place handling (urban blocks, Shillong constituencies,
+     "FY2022-23"), twin-village chips, no area / year pause ("for all of Meghalaya", "across all financial years" =
+     each scheme's own years).
+  2. `_cross_scheme_gaps`: what a scheme's data cannot hold is SAID, never queried — a constituency (only MGNREGA,
+     Focus Legacy, CM Elevate Legacy record one), a financial year it has no data for (years listed: Focus Legacy has
+     no FY 2023-24), CM Elevate for a money-only question.
+  3. `_cross_scheme_subquestion`: the rewrite model (9B, `call_rewriter`) writes one self-contained question per
+     scheme ("Which are the top ten highest villages in PMAY-G across all financial years?"), checked by
+     `_cross_subquestion_violation` (names only that scheme; same districts / blocks, years, numbers); else the
+     deterministic fallback `_cross_scheme_base_question` (every scheme name -> that scheme, repeats folded).
+  4. `generate_sql` per scheme with that scheme's own prompt / few-shots; `_data_per_scheme_rows` runs each through
+     its own rewrites, guards, verifier and repairs; rows tagged `scheme`. The fixed single-scheme queries
+     (`_data_deterministic_stage`) are skipped.
+  5. `compose_response` writes one answer (all its faithfulness checks), with cross notes (answer exactly the
+     shape asked, every row of each list, what each figure counts, PMAY-G released vs sanctioned). Guards after it:
+     every scheme with rows must be in the answer (`_cross_schemes_left_out` -> one retry -> `_cross_scheme_sections`),
+     the list-size check counts each scheme's list, each list given in full (`_cross_scheme_complete_lists`, up to
+     25 rows), money in each scheme's unit (`_cross_scheme_answer_units`), and a line for every scheme with no
+     figure added in code (`_cross_scheme_no_figure_lines`; told to the composer it set off the hedge check).
+  "Which scheme paid the most?" (`_wants_cross_scheme_money_ranking`) is the same path over every scheme with money;
+  `_cross_scheme_money_answer` / `_CROSS_SCHEME_MONEY_SQL` are removed.
+- **Kept from D-044:** never add figures of different schemes (composer note + faithfulness check: a sum is in no row);
+  each scheme in its own unit; places resolved against all six schemes.
+- **Rejected:** extending the template with a village grain and a top N (still one fixed shape per new question
+  type); one SQL over several schemas (KI-280: 18/20 paused, 2 wrong).
+- **Trade-off:** NL->SQL per scheme is sampled. The measure a vague word maps to is the scheme's own model's choice
+  ("highest villages" -> person-days for MGNREGA, sanctioned amount or houses for PMAY-G); the composer names it.
+  Latency ~10-25 s for two schemes, ~25-40 s for six (one 9B call and one 30B SQL call per scheme, in parallel).
+- **Status:** Active. LIVE-VERIFIED 2026-10-22 (TESTING.md). Offline `tests/test_cross_scheme_llm_2026_10_22.py`.
+
+### D-061 — New question = new answer: a self-sufficient question inherits nothing (2026-10-22)
+- **Date:** 2026-10-22. User addendum "Context Memory: New Question = New Answer" (addendum to the Context Memory
+  Solution Proposal v1.0), with the instruction to cover every scenario, not only follow-ups. Reported: after
+  "MGNREGA person-days in East Khasi Hills in 2022-23", "Which district has the highest beneficiaries in MGNREGA?"
+  was answered inside East Khasi Hills and FY 2022-23.
+- **Cause (VERIFIED):** (1) `is_scopeless_followup` read a question naming the chat's own scheme plus a measure as a
+  follow-up (rule from 2026-10-18), so it was rewritten in the old scope; (2) any new question inherited the chat's
+  place and year (D-056 §2, `_same_scheme_context_year`); (3) the place kept was the very level being ranked.
+- **Decision (the question wins; memory only fills the gaps a question leaves on purpose):**
+  1. `context_policy.turn_kind(question)` decides, deterministically and without reading the chat:
+     **FOLLOWUP** = a reference cue ("it", "there", "same", "this/that" as pointers, "compare this", "what about",
+     a leading "and/also", Hinglish "dobara / wahi / uska / pehle") or a fragment without a measure ("2023-24?",
+     "Mawphlang?", "Which block is highest?"); **STANDALONE** = the stranger test: its own measure AND its own
+     scheme — named, or pinned by the measure when the question also names its own year or place
+     ("person-days in 2023-24"); **VAGUE** = a measure with no scheme named ("how many beneficiaries?",
+     "how many job cards?"). Out of scope, reset, correction and "go back to …" are decided before it, unchanged.
+  2. STANDALONE is never rewritten (follow-up stage) and inherits NOTHING: statewide unless it names a place; its
+     own year, else the default rule = the scheme's latest FY in the data (**superseded by D-065: the year is asked**) (`_SCHEME_DATA_YEARS[s][-1]`, c13; not
+     cached, `answer_defaults`); several schemes with no year still get the year chips. A NEW chat is unchanged
+     (D-056 §1 asks scheme -> district -> year). The banner says "(new question)".
+  3. FOLLOWUP inherits only what it leaves out (unchanged machinery: merge plan, rewrite, `prior_resolved`).
+  4. VAGUE with ONE open topic runs in it (unchanged); with two or more single-scheme topics it asks, one chip per
+     topic ("Go back to MGNREGA: how many beneficiaries?" — a topic switch, rule `topic-ambiguous`); never a
+     default scheme. A measure that pins a scheme only offers that scheme's topic.
+  5. Slot-conflict guard: the level a question asks ABOUT (`context_policy.asked_levels`: "which X", "top N X",
+     "by / each / per X", "X-wise", superlative + X) and every level below it are never inherited as its filter;
+     the parent is kept ("which block" keeps the district).
+  6. Trace: `log_decision("turn_kind", kind, reasons, asked)`; `turn_context["turn_kind"]`, `["new_question"]`.
+- **Deliberately not changed:** `continuation_signals` (it decides whether a message is on-topic at all, for the
+  edge whitelist — not whether it inherits); the idle window stays 8 h (D-055) with its existing "Continue with …"
+  chip — the addendum's "30 min" row is one config value (`CONTEXT_IDLE_EXPIRY_SECONDS`) if wanted.
+- **Supersedes / amends:** D-056 §2 for self-sufficient questions (a measure with no named scheme, or a reference,
+  still carries the chat's scope); the 2026-10-18 same-scheme rule in `is_scopeless_followup`; KI-331's "a new
+  same-scheme question keeps the chat's year" (now: its own year, else the latest FY).
+- **Where:** `app/context_policy.py` (`turn_kind`, `asked_levels`, `TurnKind`); `c01 is_scopeless_followup`;
+  `c14 _turn_followup_stage`, `_vague_topic_clarification`, `_same_scheme_context_year`, `_c14_kept_place_fields`,
+  `_attach_scope_banner`; `c13 _data_clarification_stage` (latest-FY default); `pipeline_graph._data` (`turn_kind`,
+  read-only).
+- **Tests:** `tests/test_new_vs_followup_2026_10_22.py`; harness `scenarios/new_vs_followup_2026_10_22.yaml` (every
+  row of the addendum's §5 plus permutations); N3 / C_backward_restore / F3 re-specified.
+- **Status:** Active.
+
+### D-060 — PMAY-G: the 126 zero-sanction registrations are beneficiaries (2026-10-22)
+**Status:** Active. **Source:** user instruction 2026-10-22 ("126 rows sanctioned amount 0 is also considered as
+beneficiaries"), after the PMAY-G sheet re-test (`new_docs/PMAY-G_Test_Report_2026-10-22.md`). Closes the open
+product decision KI-127.
+
+**Decision.** Every PMAY-G beneficiary / house / registration count includes the 126 `is_placeholder` rows of
+`curated.v_pmay` (sanctioned ₹0, no year, no sanction number, nothing released; statuses: 73 "Existing site(Old
+House)", 40 "Proposed Site", 1 "Plinth", 12 blank; 72 real villages in 7 districts). Statewide all-years
+beneficiaries are **171,107** (was 170,981). Consequences, chosen so the figures add up:
+- not completed, "not received any amount", the status breakdown (their own statuses + "no status recorded") and the
+  completion-rate denominator include them;
+- "received the full sanctioned amount" and "full amount but house not completed" need `sanctioned_amount > 0`
+  (₹0 released of ₹0 is not a full release); partial release is unaffected;
+- money sums, the release % (already over `sanctioned_amount > 0`), unique sanction numbers and every
+  year / date figure are unchanged (the rows carry no year, date or sanction number);
+- the answer says how many of the count have ₹0 sanctioned ("… (including 40 registered with a sanctioned amount
+  of ₹0 and no house sanctioned yet)");
+- NOT changed: "houses sanctioned" measures (cross-scheme `cross_scheme.py`, the stats card, the cross-scheme
+  "houses sanctioned" prompt examples) keep `NOT is_placeholder` — these rows have no sanctioned house.
+
+**Where.** Fixed path `_pmay_facts_query` / `_pmay_lines` (pmay_g.py); model path: prompt `_PMAY_RULES` 1 and the
+cross-scheme beneficiary example (schema_context.py) + deterministic guard `_pmay_count_placeholders` in
+`_scheme_sql_rewrites` (drops `NOT is_placeholder`, kept on a release-vs-sanction comparison or an AVG); the c11
+village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 30 Sep "state both figures" answer
+(`_pmay_attach_placeholders`, removed).
+
+### D-059 — The level of a place comes from the database (place gazetteer, `PLACE_GAZETTEER`) (2026-10-21)
+- **Context:** user report 2026-10-21, "How many job cards in Mawphlang?" — "a bare village name is not recognised;
+  only '<name> village' works; the level must be decided by our database, not by a keyword". Diagnosis (live,
+  through the graph): on the D-058 code, bare villages already resolved (Ambare Ading, Ladmawphlang, PMAY-G too), and
+  MAWPHLANG is a block + constituency 24 with NO village of that name, so its "block or constituency?" question is
+  right. What failed was the level decision: (1) an exact village with no rows in the asking scheme (CM Elevate
+  "Ladmawphlang") was offered the look-alike MAWPHLANG block / constituency, because exactness was checked against
+  the scheme's own village list only; (2) a typo ("Ladmawplang") was asked "block, constituency or village
+  Ladmawplang?" (each fuzzy level judged alone; the chip echoed the typo), then "which of 3 villages?"; (3) the
+  chat's remembered place was not used ("what about Mawlai?" after West Khasi Hills was swapped to the Mawlai BLOCK
+  of East Khasi Hills; after Shallang block the rewrite model wrote "Mawlai block"); (4) the ordinary word "centre"
+  was a village. The extraction prompt never says when a name is a village ("tag an ambiguous bare name as block").
+- **Decision (all behind `settings.PLACE_GAZETTEER`, default on; off = D-058):**
+  1. The `entity_resolver` village index (D-058) is the gazetteer — no second module: it also holds each village's
+     `(village_code, BLOCK, DISTRICT)` (`village_places`) and the villages each scheme has rows for
+     (`village_scheme_data`, from `v_employment` + `v_expenditure`, `v_pmay`, `v_focus_plus`, `v_cm_elevate`,
+     `v_focus_legacy`; CM Elevate Legacy has no `village_code` = unknown, never filters). `match_places(question)`
+     lists every place with all its database levels; exact names first (longest, non-overlapping), then a misspelt
+     village among the left-over words (`village_fuzzy`: ratio-searched, WRatio >= 90 AND ratio >= 85 — WRatio alone
+     scores "MAWPHLANG" inside "MISSION MAWPHLANG" at 95), skipping ordinary words (`_is_known_word`), numbers and
+     years. p95 1.8 ms on the live index.
+  2. An exact village name anywhere in Meghalaya is never offered a look-alike block / constituency. A typo goes to a
+     village only when it is >= 90 and leads every look-alike level, and every other look-alike village, by
+     `_VILLAGE_FUZZY_LEAD` = 12 points ("malwai" still asks: Mawlwai leads the Mawlai block by 9 — the 2026-09-15 bug).
+  3. The level question is narrowed, in order, by: a stated level word (unchanged), the chat's remembered block (a
+     same-name village inside it -> the village; the block itself -> the block), the remembered district (the one
+     reading inside it), the asking scheme (a village it has no rows for drops out when another reading remains).
+     One reading left -> taken silently by resolving its own chip question (c09 `_c09_gazetteer_settle`); 2+ -> the
+     existing `entity-ambiguous` pause, whose chips now say where each reading lies ("The Mawlai village (Shallang
+     block, West Khasi Hills)"). None of these rules ever adds a reading. The c01 place swap uses the same rule.
+  4. The entity extractor is told the places the lookup found (`_c07_places_hint`); a name listed only as a village
+     goes in "village". Invented names are already dropped (`_mention_in_question`).
+  6. **User rule, 2026-10-21 19:50 (KI-348): "if the name is a block go to block, a village go to village, a
+     constituency go to constituency; if the same name is at several levels, ask — for the complete hierarchy; do
+     not hard-code anything."** So a level the text states counts only for a name the database holds at that level
+     (an explicit "not the block" choice is still honoured); a chip's level tail is never carried to the next
+     question; a district named with a finer place is the context that settles it; a reading the scheme has no data
+     for (constituency under PMAY-G) drops out and the one left is used. Verified by a sweep built from the
+     database (`tests/live_place_hierarchy_sweep.py`: every block, every constituency, every multi-level name and a
+     seeded village sample, per scheme).
+  5. NOT changed: the route node's village-NAME search (`_village_name_search`, "how many villages are named X")
+     keeps its "village(s) named / containing" trigger — it answers a name search, not data for a place; tying it to
+     every village match would hijack ordinary data questions.
+- **Status:** Active.
+
+### D-058 — A place is a place without its level word; the level question only for the SAME name (2026-10-21)
+- **Context:** user report 2026-10-21 (KI-340): "in ambare ading" after a PMAY-G East Garo Hills answer was declined
+  as off-topic; "in ambare ading village" was answered. The user's rule: the bot must recognise a village, block or
+  assembly constituency named bare — in a follow-up or a new question, in every scheme — and ask only when the same
+  name exists at more than one level. Live probes also showed the level question firing on look-alikes
+  ("Mendipathar" -> the village "Mendipathar - Ward No.10", "Dambo Rongjeng" -> "DAMBO RONGDENG", "WAPUNG" ->
+  "WAPUNG SKUR", "Sohra" -> "Sohrarim"), and the rewrite model mangling bare names.
+- **Decision:**
+  1. `entity_resolver` holds every village name and alias of `curated.dim_geography` (+ `dim_geography_alias`) in
+     memory with its districts (9,431 distinct names; `load_village_names` at startup, lazily in the c14 context stage, retried
+     at most once a minute). `place_mentions` reads districts, blocks, constituencies and villages, longest name first
+     ("Lower Damalgre" is the village, not the Damalgre block). It is RECOGNITION only: which level a name means stays
+     with the resolver.
+  2. A place at any level is a continuation signal ("place"), passes the edge whitelist, and a short place message
+     (<= 6 words) overrules a guardrail scope verdict.
+  3. A follow-up that is only a village, a constituency or a block of another district is rewritten deterministically
+     (c01 `_place_swap_rewrite`): the previous DATA question with its place swapped; the level word is added only when
+     the name has exactly one level; the chat's district stays when the village / block lies in it; "statewide" goes.
+     Districts and same-district blocks stay with the model rewrite (D-056, tested). The model rewrite is rejected if
+     it drops a typed place or respells a typed village (a near-copy is put back as typed).
+  4. The level question (`collides_across_dimensions`, both c09 block-branch gates) counts a village reading only when
+     a village of EXACTLY that name exists, and a fuzzy catalogue level only when no level matched exactly. A typo that
+     matches nothing exactly ("malwai") keeps the old fuzzy behaviour. Without the index, the old reading stands.
+- **Changes the 2026-09-15 Sohra rule (`tests/test_admin_level_collision.py`):** a bare "Sohra" is now answered as the
+  constituency (no village is named Sohra) instead of asking "constituency or the village Sohrarim?". The offline test
+  keeps passing because it runs without the index.
+- **Status:** Active.
+
+### D-057 — The year in an answer is the year asked, and the year the SQL read (2026-10-21)
+- **Date:** 2026-10-21. User decision, after the MGNREGA sheet report (DATA-007: 24 of 24 job-card answers said
+  "across all financial years" over SQL pinned to `year_key = 2025`): "which year we asked, the answer should come
+  accordingly … if I ask all years you need to give all years; don't take 2025-26 for all years … if no year is
+  mentioned, take the previous one from context memory, but don't give blindly … whatever you generate in the SQL
+  query, that you need to give in the composer layer."
+- **Decision:**
+  - A year asked -> that year, in the SQL and in the answer. No year -> the chat's year (context memory); no year
+    there either -> the year pause (D-053). Job cards are no longer exempt from that pause.
+  - All years -> all years. For job cards (a running total, KI-293) that is one figure per year, never a sum and
+    never the latest year in its place; the all-years chip reads "Every financial year (one figure each)".
+  - The period an answer states is the one the SQL read: the composer and the closing scope line are given the
+    single year the query's WHERE pins (`_entities_with_sql_year`), and a place known only by its code is never
+    called statewide.
+- **Implementation:** `_mgnrega_job_cards_query` / `_mgnrega_job_cards_answer` (deterministic, parameter-bound,
+  `/* mg-job-cards */`, answer written from the rows); `_mgnrega_job_cards_latest_year` pins the resolved year and
+  falls back to the latest year only when no year exists anywhere; the c11 stock guard asks for one row per year on
+  an all-years question; `few_shot.yaml` and `schema_context` rule 3 no longer teach `year_key = 2025` for a question
+  with no year. KI-336.
+- **Status:** Active.
+
+### D-056 — New chat asks scheme -> district -> year; a chat with a scope carries it to any scheme (2026-10-21)
+- **Date:** 2026-10-21. User decision, stated firmly after a live chat: "if a new chat is open, you need to give
+  follow-up questions [scheme, then district, then year] if there is nothing in context memory. If there is context
+  memory, you need to carry it forward; whatever new fields the user gives, update those." Live: "how many households"
+  -> scheme chips -> "for MGNREGA" asked only the YEAR (the district was silently all of Meghalaya, D-045); after
+  "MGNREGA · West Garo Hills · FY 2022-23", "how many households for PMAY-G" asked the year again and dropped the district.
+- **Decision:**
+  1. **New chat** (no answered data turn: `session.state` has no scheme / comparison, `_chat_has_data_scope`): a data
+     question that names no place and no statewide / breakdown words gets the district pause
+     (`scope-not-specified`, area-only wording, district chips + "All of Meghalaya") BEFORE the year pause, even when
+     it names a year. Order: scheme (`_data_scheme_stage`) -> district -> year (D-053). A district-restricted officer
+     (`scope.geo_restricted`) is not asked (auth scopes them). A chat that has answered keeps D-045's statewide default.
+  2. **Chat with a scope**: a new (not rewritten) question about ANY one scheme inherits, as the resolver's
+     `prior_resolved` fallback, the chat's year (only if the target scheme holds that FY, else the year chips ask;
+     never for CM Elevate) and its place (no "there" needed any more — amends KI-331). Words the user types replace
+     only what they name: a year of their own replaces the year; a place they name wins in the resolver; "all of
+     Meghalaya" / "statewide" / "by district" / "top districts" / "compare" drop the place; "by block / village"
+     keeps the district only. Another scheme's district / block are re-read in that scheme's catalogue
+     (`scan_dimension`); a village carries only as its LGD code. A comparison of several schemes carries nothing.
+  3. The resolver never carries an old block / village under a different district, and fills `display` for what it
+     carries (the closing scope sentence called a West Garo Hills figure "statewide" otherwise).
+- **Where:** `c13 _chat_has_data_scope` + `_data_clarification_stage`; `pipeline_graph._data` (`chat_has_scope`,
+  read-only); `c05 _scope_clarification(area_only=)`; `c14 _same_scheme_context_year`, `_c14_context_target_scheme`,
+  `_c14_place_in_scheme`, `_c14_kept_place_fields`; `c09` prior_resolved fallback.
+- **Tests:** `tests/test_new_chat_and_scheme_switch_2026_10_21.py`; harness `scenarios/user_reported_2026_10_21.yaml`.
+- **Amends:** D-045 (area default now only inside a chat with a scope), D-053 (the district is asked before the year),
+  D-055 / KI-331 (place no longer needs a reference word; carries across schemes).
+- **Status:** Active. Live-verified through the HTTP API on :8401. **§2 amended by D-061 (2026-10-22):** a
+  self-sufficient question (own scheme + own measure, no reference cue) inherits nothing.
 
 ### D-053 — Ask the financial year when neither the question nor the context has one (2026-10-19)
 - **Date:** 2026-10-19 (user decision, evening of 2026-10-18): "if context remembering is there you don't give the

@@ -44,40 +44,46 @@ export const LANGS = [
 // language set, so both are transcribed as English.
 export const VOICE_LANG = { en: 'en', kha: 'en', gar: 'en' };
 
-// Scheme overview cards. The `stats` are FALLBACKS only: the welcome card replaces them
-// with live figures from GET /api/scheme-stats (computed from megh_db), so the cards follow
-// every data refresh. Keep these close to the data anyway — last synced 2026-10-15.
+// Scheme overview cards. The `stats` and `period` are FALLBACKS only: the welcome card
+// replaces them with live figures and the financial years held, from GET /api/scheme-stats
+// (computed from megh_db), so the cards follow every data refresh (2026-10-22: the period
+// text was typed here and would go stale). Keep these close to the data anyway — last
+// synced STATS_SYNCED. A card's description line is `meta · periodLead period · metaTail`.
+export const STATS_SYNCED = '22 Oct 2026';
 // ORDER MATTERS — oldest scheme first, newest last: the
 // carousel pages this list in order, so a new scheme goes at the END.
 export const SCHEME_CARDS = [
   {
     key: 'mgnrega', cls: 'focus-card', ico: '🧑‍🌾', name: 'MGNREGA',
-    meta: 'Rural employment guarantee · village-year grain · FY 2022-23 to 2025-26',
+    meta: 'Rural employment guarantee · village-year grain', period: 'FY 2022-23 to 2025-26',
     stats: [['9.09 Cr', 'Person-days (4 yr)'], ['₹3,628.67 Cr', 'Expenditure (4 yr)'], ['6,491', 'Villages with activity']],
   },
   {
     key: 'pmay_g', cls: 'unified-card', ico: '🏠', name: 'PMAY-G',
-    meta: 'Rural housing · one row per sanctioned house · sanctions FY 2017-18 to 2023-24',
+    meta: 'Rural housing · one row per sanctioned house', periodLead: 'sanctions ', period: 'FY 2017-18 to 2023-24',
     stats: [['1,70,981', 'Houses sanctioned'], ['1,29,941', 'Houses completed'], ['₹2,185.26 Cr', 'Funds released']],
   },
   {
     key: 'focus_plus', cls: 'elevate-card', ico: '🌾', name: 'FOCUS+',
-    meta: 'Meghalaya farmer cash benefit (DBT) · one row per disbursement · FY 2022-23 & 2025-26 · figures provisional',
+    meta: 'Meghalaya farmer cash benefit (DBT) · one row per disbursement', period: 'FY 2022-23 & 2025-26',
+    metaTail: 'figures provisional',
     stats: [['3,85,671', 'Disbursements'], ['₹119.74 Cr*', 'Amount disbursed*'], ['12', 'Districts covered']],
   },
   {
     key: 'cm_elevate', cls: 'cmelevate-card', ico: '🚀', name: 'CM Elevate',
-    meta: 'Entrepreneurship & livelihood programme · one row per application across 15 schemes · no date/amount data',
+    meta: 'Entrepreneurship & livelihood programme · one row per application', metaTail: 'no date/amount data',
     stats: [['8,867', 'Applications'], ['15', 'Schemes'], ['12', 'Districts covered']],
   },
   {
     key: 'focus_legacy', cls: 'focus-card', ico: '🤝', name: 'Focus Legacy',
-    meta: 'Meghalaya producer-group scheme (original FOCUS) · one row per payment to a PG · FY 2021-22 to 2025-26, no FY 2023-24 · figures provisional',
+    meta: 'Meghalaya producer-group scheme (original FOCUS) · one row per payment to a PG',
+    period: 'FY 2021-22 to 2025-26, no FY 2023-24', metaTail: 'figures provisional',
     stats: [['11,906', 'Producer Groups'], ['1,02,021', 'Memberships paid'], ['₹51.01 Cr*', 'Amount remitted*']],
   },
   {
     key: 'cm_elevate_legacy', cls: 'cmelevate-card', ico: '💼', name: 'CM Elevate Legacy',
-    meta: 'CM-ELEVATE sanctions & disbursements · one row per sanctioned applicant across 13 schemes · FY 2024-25 & 2025-26 · figures provisional',
+    meta: 'CM-ELEVATE sanctions & disbursements · one row per sanctioned applicant',
+    period: 'FY 2024-25 to 2025-26', metaTail: 'figures provisional',
     stats: [['2,823', 'Sanction records'], ['13', 'Schemes'], ['₹82.90 Cr*', 'Disbursed (subsidy + loan)*']],
   },
 ];

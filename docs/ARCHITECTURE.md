@@ -121,6 +121,7 @@ and output, and how it fails.
 | `POST /api/auth/login` · `/logout` · `GET /me` · `POST /bootstrap` | – / user | username+password → HS256 JWT; bootstrap first super_admin |
 | `GET /api/history` · `GET/PATCH/DELETE /api/history/{session_id}` · `POST …/pin` · `…/archive` | user | officer-private chat history |
 | `GET /api/rag/status` · `POST /api/rag/reingest` | user / admin | KB point count; rebuild the KB |
+| `GET /api/scheme-stats` | user | welcome-card figures from megh_db, cached 10 min: `{cards: {key: [[value, label] ×3]}, periods: {key: "FY …"}, as_of}`; a NULL figure is "—"; 503 with no cached copy (the UI then shows its typed fallback and says so) (KI-378) |
 | `GET/POST /admin/tenants`, `/admin/roles`, `/admin/users[/{id}]` (CRUD), `/admin/logins`, `/admin/conversations[/{id}]`, `/admin/audit`, `/admin/stats`, `/admin/schema` | admin JWT (tenant-scoped) | admin console API |
 | `GET /health` | anonymous gets `{status}` only; admin JWT or `X-Metrics-Token` gets components | DB + Qdrant (+ Redis) status |
 | `GET /metrics` | admin JWT or `X-Metrics-Token` | route counts, latency percentiles, cache stats |
@@ -368,6 +369,7 @@ abandons (Stop) is cancelled and its question remembered; the next "continue" in
     `TRANCHE_CLARIFY_ENABLED`.
   - Guards: `OUT_OF_SCOPE_GUARD_ENABLED`, `PREMISE_CHECK_ENABLED`, `YEAR_RANGE_GUARD_ENABLED`,
     `SQL_VERIFY_ENABLED`.
+  - Places: `PLACE_GAZETTEER` (D-059, on): the level of a place from the database's village index.
   - Context layer: `CONTEXT_*`.
   - Follow-ups: `FOLLOWUP_REWRITE_ENABLED`, `FOLLOWUP_SUGGEST_ENABLED`.
   - Decoding: `GUIDED_DECODING_ENABLED` (classifier JSON). `SQL_GUIDED_DECODING_ENABLED` is no longer read (2026-10-15): SQL generation sends no decoding constraint.

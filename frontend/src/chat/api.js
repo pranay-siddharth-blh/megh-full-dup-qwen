@@ -254,7 +254,8 @@ export async function fetchSchemeStats() {
     const res = await apiFetch('/api/scheme-stats', { cache: 'no-store' });
     if (!res.ok) return null;
     const data = await res.json();
-    return data && data.cards ? data.cards : null;
+    // { cards: {key: [[value, label], ...]}, periods: {key: 'FY …'}, as_of: ISO time }
+    return data && data.cards ? data : null;
   } catch (e) {
     return null;
   }

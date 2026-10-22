@@ -59,8 +59,9 @@ def test_place_reference_brings_the_chat_place():
     out = p._same_scheme_context_year("what is the total expenditure there under MGNREGA?",
                                       "what is the total expenditure there?", st)
     assert out == {"year_key": 2023, "district": "RI BHOI"}
+    # D-061: its own scheme and measure -> a new question, nothing inherited
     out = p._same_scheme_context_year("MGNREGA expenditure by district", "MGNREGA expenditure by district", st)
-    assert out == {"year_key": 2023}
+    assert out is None
 
 
 PREV = Turn(question="How many PMAY-G houses were completed in Ri Bhoi in 2023-24?", raw_question="", route="data",

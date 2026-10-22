@@ -98,38 +98,110 @@ def test_application_questions_stay_on_cm_elevate(question):
     "CM-ELEVATE loans by lender",
     "how many CM Elevate records in FY 2024-25",
 ])
-def test_money_year_lender_questions_ask_which_dataset(question):
-    # User decision 2026-10-19 (replacing the 2026-10-12 default to Legacy): the
-    # user named CM Elevate, the money lives in Legacy — ask, never switch silently.
+def test_money_year_lender_questions_go_straight_to_legacy(question):
+    # User decision 2026-10-22 (replacing 2026-10-19's "ask"): financial data lives
+    # only in CM Elevate Legacy, so a money / FY / lender question goes there directly.
+    pinned = p._pin_cm_elevate_dataset(question)
+    assert LEGACY in pinned and p._shortcut_scheme(pinned) == [LEGACY]
+    assert p._cm_elevate_dataset_choice(question) == "legacy"
+    assert p._cm_elevate_dataset_pause(question) is None
+
+
+def test_applications_chip_wording_keeps_the_applications_dataset():
+    q = "CM Elevate (applications) by district"         # the dataset chip's marker
+    assert p._pin_cm_elevate_dataset(q) == q
+    assert p._cm_elevate_dataset_choice(q) == "applications"
+    assert p._shortcut_scheme(q) == ["CM Elevate"]
+    # ... even with the scope tail the chips append (not a financial-year filter)
+    assert p._cm_elevate_dataset_choice(q + " across all financial years") == "applications"
+    assert p._unpin_cm_elevate(q) == "CM Elevate by district"
+
+
+@pytest.mark.parametrize("question", [
+    "How many CM-ELEVATE applications are recorded in each district?",
+    "How many total applications are recorded under CM-ELEVATE?",
+    "How many CM ELEVATE applicants are there in Ri Bhoi?",
+    # the rephrase model's spelling of the first one: not the chip (live re-run 2026-10-22)
+    "How many CM Elevate applications are recorded in each district?",
+    # a sub-scheme in both datasets, no scheme named (Legacy sheet TC-12)
+    "How many applications are recorded under Meghalaya Piggery Development Scheme?",
+])
+def test_applications_word_alone_asks_which_dataset(question):
+    # 2026-10-22: both datasets hold applications -> ask (Legacy sheet TC-11/26 were
+    # answered 8,840 from the applications data for a Legacy 2,823).
     assert p._pin_cm_elevate_dataset(question) == question
     assert p._cm_elevate_dataset_choice(question) == "ask"
     pause = p._cm_elevate_dataset_pause(question)
     assert pause is not None and pause.rule == "cm-elevate-dataset"
     assert [o["label"].split(" (")[0] for o in pause.options] == ["CM Elevate", LEGACY]
+    # each chip settles it: the next turn never asks again
+    apps_q, legacy_q = (o["question"] for o in pause.options)
+    assert p._cm_elevate_dataset_choice(apps_q) == "applications" and p._shortcut_scheme(apps_q) == ["CM Elevate"]
+    assert p._cm_elevate_dataset_choice(legacy_q) is None and p._shortcut_scheme(legacy_q) == [LEGACY]
+
+
+def test_a_knowledge_turn_does_not_settle_the_dataset():
+    # one-chat run 2026-10-22: after "What is the CM-ELEVATE programme?" the next
+    # "How many total applications are recorded under CM-ELEVATE?" got 8,840 unasked
+    from types import SimpleNamespace as NS
+    kb = NS(route="knowledge", schemes=["CM Elevate"])
+    assert p._cm_thread_scheme(kb, NS(scheme="CM Elevate", last_route="knowledge")) is None
+    data = NS(route="data", schemes=[LEGACY])
+    assert p._cm_thread_scheme(data, NS(scheme=LEGACY, last_route="data")) == LEGACY
+    assert p._cm_thread_scheme(NS(route="edge", schemes=[]), NS(scheme=LEGACY, last_route="edge")) == LEGACY
+
+
+def test_each_scheme_follows_the_answer_dataset_not_the_typed_name():
+    # one-chat run 2026-10-22: "loan entities … CM-ELEVATE applications" (answered from
+    # Legacy) then "total amount disbursed under each scheme" -> "CM Elevate doesn't
+    # record rupee amounts"
+    from types import SimpleNamespace as NS
+    s = NS(last_turn=NS(schemes=[LEGACY], route="data",
+                        raw_question="Which loan entities are associated with CM-ELEVATE applications?",
+                        question="Which loan entities are associated with CM Elevate Legacy applications?"))
+    out = p._each_scheme_in_cm_thread("What is the total amount disbursed under each scheme?", s)
+    assert out.endswith("under CM Elevate Legacy?")
+
+
+def test_a_sub_scheme_follows_the_rule_too():
+    assert p._cm_elevate_dataset_choice("How many piggery applications are pending?") == "applications"
+    assert p._cm_elevate_dataset_choice("How many applications under the piggery scheme in Ri Bhoi?",
+                                        "CM Elevate Legacy") == "legacy"
+    assert LEGACY in p._pin_cm_elevate_dataset("How many applications under the piggery scheme in Ri Bhoi?",
+                                               "CM Elevate Legacy")
+    assert p._cm_elevate_dataset_choice("What is the piggery scheme?") is None      # knowledge: no ask
+    assert p._cm_elevate_dataset_choice("How many MGNREGA households in Ri Bhoi?") is None
 
 
 @pytest.mark.parametrize("question", [
-    "CM Elevate applications by district",
-    "How many CM-ELEVATE applications are recorded in each district?",
+    "What percentage of CM-ELEVATE applications have been sanctioned?",
+    "How many CM-ELEVATE applications have not been sanctioned?",
+    "Which loan entities are associated with CM-ELEVATE applications?",
+    "How many CM-ELEVATE applications are recorded for each financial year?",
 ])
-def test_applications_word_keeps_the_applications_dataset(question):
-    assert p._pin_cm_elevate_dataset(question) == question
-    assert p._cm_elevate_dataset_choice(question) == "applications"
-    assert p._shortcut_scheme(question) == ["CM Elevate"]
+def test_applications_plus_a_financial_word_is_legacy(question):
+    # Legacy sheet run 2026-10-22: these went to the applications data and answered
+    # "80.63% sanctioned" (true 99.89%) and "8,840 not sanctioned" (true 3).
+    assert p._cm_elevate_dataset_choice(question) == "legacy"
+    assert p._cm_elevate_dataset_choice(question, "CM Elevate") == "legacy"   # even in an applications chat
 
 
 def test_the_thread_settles_a_bare_cm_elevate():
-    q = "give me the amount disbursed under CM Elevate in Ri Bhoi"
+    q = "give me the applications under CM Elevate in Ri Bhoi"
     assert LEGACY in p._pin_cm_elevate_dataset(q, "CM Elevate Legacy")
     assert p._cm_elevate_dataset_choice(q, "CM Elevate Legacy") == "legacy"
     apps = p._pin_cm_elevate_dataset(q, "CM Elevate")
-    assert "CM Elevate applications" in apps and p._cm_elevate_dataset_choice(apps) == "applications"
+    assert "CM Elevate (applications)" in apps and p._cm_elevate_dataset_choice(apps) == "applications"
     assert p._pin_cm_elevate_dataset(q, "Focus Plus") == q       # another thread: ask
     assert p._cm_elevate_dataset_choice(q, "Focus Plus") == "ask"
+    # a financial word overrides the thread (the 2026-10-22 chat answered
+    # "8,840 applications have been sanctioned" on the applications thread)
+    money = "give me the amount disbursed under CM Elevate in Ri Bhoi"
+    assert LEGACY in p._pin_cm_elevate_dataset(money, "CM Elevate")
 
 
 def test_dataset_pause_chips_and_typed_replies_resolve():
-    pause = p._cm_elevate_dataset_pause("How much has been disbursed under CM Elevate in Dambo Rongjeng block?")
+    pause = p._cm_elevate_dataset_pause("How many applications are there under CM Elevate in Dambo Rongjeng block?")
     apps_q, legacy_q = (o["question"] for o in pause.options)
     assert p._cm_elevate_dataset_choice(apps_q) == "applications"
     assert p._cm_elevate_dataset_choice(legacy_q) is None and LEGACY in legacy_q
@@ -274,7 +346,9 @@ def test_registered_everywhere_a_scheme_must_be():
     opts = followups.build_followups("data", "CM Elevate Legacy disbursement", [LEGACY], {})
     assert opts and all("CM Elevate Legacy" in o["question"] or "Break that down" in o["question"]
                         for o in opts)
-    assert "curated.v_cm_elevate_disbursement" in p._CROSS_SCHEME_MONEY_SQL
+    # a cross-scheme money question asks CM Elevate Legacy (it records money; D-062)
+    assert LEGACY not in p._cross_scheme_gaps([LEGACY, "CM Elevate"], {}, {},
+                                              "which scheme spent the most money?")
 
 
 # ── 8. Knowledge (RAG): one knowledge base for both CM Elevate datasets ─────
@@ -327,10 +401,10 @@ def test_naming_both_retrieves_the_shared_docs_once(monkeypatch):
 
 def test_knowledge_question_is_not_shown_a_dataset_rewrite():
     q = "how much subsidy does CM Elevate provide"
-    assert p._pin_cm_elevate_dataset(q) == q              # nothing settled it: no silent rewrite
-    pinned = p._pin_cm_elevate_dataset(q, "CM Elevate Legacy")
-    assert pinned != q                                    # the thread's DATA-side decision
+    pinned = p._pin_cm_elevate_dataset(q)
+    assert pinned != q                                    # the DATA-side decision (a money word, 2026-10-22)
     assert p._unpin_cm_elevate(pinned) == q               # undone on the KNOWLEDGE route
+    assert p._unpin_cm_elevate(p._pin_cm_elevate_dataset(q, "CM Elevate Legacy")) == q
     assert p._unpin_cm_elevate(p._pin_cm_elevate_dataset(q, "CM Elevate")) == q
 
 

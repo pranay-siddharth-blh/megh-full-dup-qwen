@@ -320,14 +320,33 @@ sql_generation_examples:
     tables: [curated.v_employment]
 
   # ---- job cards (stock - one year at a time) ---------------------------
-  - question: "How many job cards have been issued?"
+  # The year is the one asked (FY 2025-26 -> 2025). These two once had no year
+  # in the question, which taught year_key = 2025 for every question (DATA-007,
+  # 2026-10-21).
+  - question: "How many job cards had been issued in FY 2025-26?"
     sql: |
       SELECT SUM(job_cards_issued_total) AS job_card_stock
       FROM curated.v_employment
       WHERE year_key = 2025;
     tables: [curated.v_employment]
 
-  - question: "Job cards by district"
+  - question: "How many job cards had been issued in West Garo Hills in FY 2023-24?"
+    sql: |
+      SELECT SUM(job_cards_issued_total) AS job_card_stock
+      FROM curated.v_employment
+      WHERE lgd_district = 'WEST GARO HILLS' AND year_key = 2023;
+    tables: [curated.v_employment]
+
+  # all years: one row per year (a running total is never added across years)
+  - question: "How many job cards were issued across all financial years?"
+    sql: |
+      SELECT year_key, SUM(job_cards_issued_total) AS job_card_stock
+      FROM curated.v_employment
+      GROUP BY year_key
+      ORDER BY year_key;
+    tables: [curated.v_employment]
+
+  - question: "Job cards by district in FY 2025-26"
     sql: |
       SELECT lgd_district, SUM(job_cards_issued_total) AS job_card_stock
       FROM curated.v_employment
@@ -568,6 +587,15 @@ sql_generation_examples:
       WHERE f.year_key = 2025
         AND UPPER(f.assembly_constituency_name) = UPPER('NONGPOH');
     tables: [curated.fact_mgnrega_employment]
+
+  # households received employment = SUM(households_employed), never a count of
+  # villages (DATA-016, 2026-10-21: answered 79 villages for 6,917 households)
+  - question: "How many households received employment in Amlarem block during 2023-24?"
+    sql: |
+      SELECT SUM(households_employed) AS households_employed
+      FROM curated.v_employment
+      WHERE lgd_block = 'AMLAREM' AND year_key = 2023;
+    tables: [curated.v_employment]
 
   # ---- bottom-N / lowest (mirror of the top-N examples above, ASC not DESC) --
   - question: "Which district spent the least on MGNREGA overall?"

@@ -671,6 +671,40 @@ def _resolved_district_list_literals(resolved: dict, sql: str) -> str:
     return out
 
 
+def _stray_block_literal(schemes: list[str], resolved: dict, sql: str) -> str:
+    """An lgd_block filter the resolver never chose, naming no block of this
+    scheme, goes (PLACE_GAZETTEER, D-059). "Total MGNREGA expenditure in Tura"
+    resolved to West Garo Hills (Tura is its HQ; MGNREGA has no Tura block), and
+    the 30B still wrote lgd_block = 'TURA' AND lgd_district = 'WEST GARO HILLS':
+    null, "the data doesn't cover", for a district that spent 14,880.51 lakh
+    (place hierarchy sweep 2026-10-21, KI-349). Only MGNREGA / PMAY-G (complete
+    block catalogues), only when the resolver pinned a place of its own and no
+    block, and only for a value that is no block of the scheme — a real block
+    the generator added is left to the scope guards."""
+    if not settings.PLACE_GAZETTEER or not sql or not schemes or schemes[0] not in ("MGNREGA", "PMAY-G"):
+        return sql
+    if resolved.get("block") or resolved.get("block_list"):
+        return sql
+    if not any(resolved.get(k) for k in ("district", "district_list", "village_code", "village_code_list",
+                                         "assembly_constituency")):
+        return sql
+    from app import entity_resolver as _er
+    own = {_er.fold(f) for v in (_er._catalog.get(schemes[0]) or {}).get("block", [])
+           for f in _er._match_forms(v)}
+    if not own:
+        return sql
+
+    def is_stray(c: exp.Expression) -> bool:
+        if not isinstance(c, exp.EQ) or not sql_ast._is_column(c.this, {"lgd_block"}):
+            return False
+        vals = sql_ast._string_values(c.expression)
+        return bool(vals) and all(_er.fold(v) not in own for v in vals)
+    out = sql_ast.remove_conditions(sql, is_stray)
+    if out != sql:
+        logger.info("stray lgd_block filter (no %s block) dropped: %s", schemes[0], out.replace("\n", " "))
+    return out
+
+
 def _resolved_district_literal(resolved: dict, sql: str) -> str:
     """The one district the question resolved is the district the SQL filters.
     KI-327 (live 2026-10-19): "now give me for Dambo Rongjeng block" after a West

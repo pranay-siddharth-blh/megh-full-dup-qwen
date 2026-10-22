@@ -473,6 +473,16 @@ class Settings(BaseSettings):
     # four years. Off => keep the old behaviour (add a soft note, then fall
     # through to the "which year?" pause or answer across the years that exist).
     YEAR_RANGE_GUARD_ENABLED: bool = True
+    # A place's LEVEL comes from the database, not from the word "village"
+    # (user report 2026-10-21, D-059). On: the in-memory village index also
+    # holds each village's code / block / district and the schemes with rows
+    # for it; an exact village anywhere in Meghalaya is never offered as a
+    # look-alike block or constituency; a typo goes to the clearly closest
+    # level; the level question is settled silently by the chat's remembered
+    # block / district or the asking scheme's data when that leaves one
+    # reading; the entity extractor is told which places the question names.
+    # Off => the D-058 behaviour.
+    PLACE_GAZETTEER: bool = True
 
     # ── Authorization (role + scope vs. what the query asks for) ──
     # Checks are pure Python (backend/auth.py). Users, tenants, conversations and

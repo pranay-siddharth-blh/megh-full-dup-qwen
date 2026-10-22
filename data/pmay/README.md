@@ -155,6 +155,9 @@ sanction_fy   houses  sanctioned_cr  released_cr  completed  pending_cr  complet
 > **The 126-row gap.** Summary total is **170,981**, detail total is **171,107**. The
 > difference is exactly the 126 records with a NULL `sanction_date`, which belong to no
 > financial year. An "all-time total" must say which population it used.
+> **Rule since 2026-10-22 (user instruction, `docs/DECISIONS.md` D-060):** these 126 ARE beneficiaries —
+> all-time beneficiary counts use **171,107** and the answer states how many have ₹0 sanctioned; they are
+> never a "full release"; "houses sanctioned" still means the 170,981.
 
 > **`pending_cr` is money, not houses.** A user asking for "pending houses" means
 > `house_status <> 'Completed'`. A user asking for "pending amount" means `pending_cr` /

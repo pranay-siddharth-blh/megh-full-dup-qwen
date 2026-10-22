@@ -1,0 +1,67 @@
+# User report 2026-10-21: "I asked MGNREGA for all of Meghalaya in one year, then asked for a
+# different district — it asked again / answered for all of Meghalaya; the year was forgotten."
+# Every way of naming the next district must keep the scheme AND the year (KI-335 / D-056).
+# Figures observed live 2026-10-21 (MGNREGA households FY 2023-24: state 410,200, EKH 59,114,
+# WGH 72,541, Ri Bhoi 33,736, SGH 30,371, WKH 16,940).
+
+- name: F1_statewide_then_bare_district
+  doc: "Statewide FY 2023-24 -> a bare district name keeps MGNREGA and FY 2023-24"
+  tags: [user_reported, forward, context]
+  account: superadmin
+  turns:
+    - say: "How many households got MGNREGA work in all of Meghalaya in FY 2023-24?"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2023-24, numbers_any: [410200]}
+    - say: "East Khasi Hills"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24, numbers_any: [59114]}
+
+- name: F2_statewide_then_what_about_district
+  doc: "Statewide FY 2023-24 -> 'what about West Garo Hills?' keeps the year"
+  tags: [user_reported, forward, context]
+  account: superadmin
+  turns:
+    - say: "How many households got MGNREGA work in all of Meghalaya in FY 2023-24?"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2023-24}
+    - say: "what about West Garo Hills?"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2023-24, numbers_any: [72541]}
+
+- name: F3_statewide_then_full_question_without_year
+  doc: "Statewide FY 2023-24 -> a full new question naming only a district: D-061: never the chat's year; D-065 (2026-10-22): the year is asked (was the latest FY)"
+  tags: [user_reported, forward, context]
+  account: superadmin
+  turns:
+    - say: "How many households got MGNREGA work in all of Meghalaya in FY 2023-24?"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2023-24}
+    - say: "How many households got MGNREGA work in Ri Bhoi?"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "2024-25"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2024-25, new_question: true}
+    - say: "show me for south garo hills district"
+      expect: {route: data, scheme: MGNREGA, place: South Garo Hills, same_scope_as: 3, except: [place]}
+
+- name: F4_chips_then_another_district
+  doc: "Scope built from chips (scheme -> All of Meghalaya -> FY 2023-24) -> 'now for West Khasi Hills' keeps the year"
+  tags: [user_reported, forward, context, clarification]
+  account: superadmin
+  turns:
+    - say: "how many households"
+      expect: {route: pause, pause_rule: scheme-not-specified}
+    - say: "MGNREGA"
+      expect: {route: pause, pause_rule: scope-not-specified}
+    - say: "All of Meghalaya"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "FY 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2023-24, numbers_any: [410200]}
+    - say: "now for West Khasi Hills"
+      expect: {route: data, scheme: MGNREGA, place: West Khasi Hills, year: FY 2023-24, numbers_any: [16940]}
+
+- name: F5_breakdown_then_one_district
+  doc: "Statewide -> 'give me district wise' -> 'only East Khasi Hills' keeps measure and year"
+  tags: [user_reported, forward, hierarchy, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in Meghalaya for 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2023-24, numbers_any: [27264054]}
+    - say: "give me district wise"
+      expect: {route: data, scheme: MGNREGA, year: FY 2023-24}
+    - say: "only East Khasi Hills"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24, numbers_any: [3061525]}

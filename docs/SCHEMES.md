@@ -44,11 +44,16 @@ Notes on the table:
 - Do not re-add a bare "focus" fuzzy alias.
 
 **CM Elevate vs CM Elevate Legacy.**
-- A bare "CM Elevate" is **pinned deterministically**, not asked (`_pin_cm_elevate_dataset`):
-  - money, sanction, subsidy, loan, lender, LIFCOM, desanction or FY words → Legacy;
-  - application-workflow words (on hold, verified, status, gender, withdrawn) → CM Elevate;
-  - neither → CM Elevate.
+- A bare "CM Elevate" (or only a CM Elevate sub-scheme such as piggery / dairy) — **D-064, user decision
+  2026-10-22** (`_cm_elevate_dataset_choice`, `_pin_cm_elevate_dataset`):
+  - money, sanction, subsidy, loan, lender, LIFCOM, desanction, disbursement, a specific FY, expenditure → **Legacy,
+    never asked** (also inside an applications chat). "across all financial years" alone is not a financial word;
+  - application-workflow words (on hold, verified, status, pending, level N, sent back, gender, sector, withdrawn,
+    SEED / Green Taxi / Cinema) → CM Elevate (applications);
+  - otherwise the chat's dataset; otherwise a data question **asks** "CM Elevate (applications) or CM Elevate
+    Legacy?" ("applications", "applicants", "how many …"). The applications chip writes "CM Elevate (applications)".
   - A bare "pending" is deliberately **not** a Legacy word.
+  - Replaces the 2026-10-19 rule and the 2026-10-12 default to Legacy (KI-273).
 - The pin is a DATA decision only. The KNOWLEDGE route undoes it (`_unpin_cm_elevate`), because
   both share one KB.
 - Every regex or table map mentioning `cm_elevate` must handle the Legacy form first: the
@@ -71,7 +76,8 @@ Notes on the table:
 - **Rules:**
   - never join the two facts (a fan-out);
   - always SUM … GROUP BY;
-  - job cards: one year only;
+  - job cards: a running total — the year asked; all years = one figure per year, never summed and never the
+    latest year in place of the year asked (D-057);
   - keep lakh (no ÷100 for small areas);
   - dues and pending figures do not exist;
   - wage compliance = unskilled ÷ total.
@@ -89,7 +95,8 @@ Notes on the table:
   - `v_pmay_monthly_sanctions` (statewide, crore, **no geography**);
   - `dim_pmay_house_status` (6 stages).
 - **Rules:**
-  - `WHERE NOT is_placeholder`;
+  - the 126 zero-sanction `is_placeholder` rows are beneficiaries (D-060, 2026-10-22): counted in every
+    beneficiary / house count, never as a "full release"; only "houses sanctioned" excludes them;
   - "completed" / "in progress" come from the booleans;
   - exclude `sanctioned_amount = 0` from rates;
   - "expenditure" means `amount_released`;
@@ -133,7 +140,12 @@ Notes on the table:
   - `_focusplus_single_district_beneficiary_guard`;
   - `_focusplus_answer_guarantees` (2026-09-27): shares, comparison difference, complete named
     lists and ₹ formatting after the composer (AI_PIPELINE §2.9 step 3);
-  - a named batch (12.5K / 93K) or tranche counts as a scope: there is no "which area?" pause.
+  - a named batch (12.5K / 93K) or tranche counts as a scope: there is no "which area?" pause;
+  - a batch status breakdown in any wording ("12.5K", "12.5k", "12.5 K", "93 K", "break down ... by status",
+    "status split") is a data question, never a guardrail refusal (KI-360, 2026-10-22);
+  - the five municipal boards (Baghmara, Resubelpara, Shillong, Tura, Williamnagar) are blocks: "X MB" /
+    "X Municipal Board" / "William Nagar Municipal Board" is the board, never the rural block, a look-alike
+    village or the constituency (KI-361, 2026-10-22).
 - **Unsupported:** producer-group questions (those are Focus Legacy), and dates (the only time
   grain is FY).
 - **All blocks / all villages (2026-09-27 night):** 204/204 block and 7,026/7,026 village
@@ -145,7 +157,9 @@ Notes on the table:
   `docs/Focus_Plus_UseCase_Test_Report_2026-09-27.xlsx`, and its failures (KI-060 to
   KI-063) are fixed. The DB matches raw on every total. The one exception: 175 rows in the Dalu area are
   stored under a different district (KI-065, `docs/Focus_Plus_DB_Issues.md`).
-- **Tests:** `test_focusplus_block_columns.py`.
+- **Tests:** `test_focusplus_block_columns.py`, `test_focusplus_sheet_run_2026_10_22.py`.
+- **Sheet re-test (2026-10-22):** `new_docs/Focus_Plus_Test_Report_2026-10-22.md` — raw CSV = DB row for row; every
+  village 3,513/3,513; FOCUS-019 / FOCUS-004 fixed (section 8 of the report). Open: KI-359, KI-362..365.
 
 ## CM Elevate
 - **Purpose:** **applications** to 15 livelihood/enterprise schemes under one programme.
@@ -218,6 +232,14 @@ Notes on the table:
     that names it substitutes the nearest year that holds data (`_apply_year_gap`).
   - Dates are treasury batches (30 distinct dates), so no monthly trends.
   - Bank-wise analysis is allowed via `bank_name`.
+  - **Constituency:** only through `v_focus_legacy f JOIN dim_geography g ON g.geography_key = f.geography_key`,
+    `UPPER(g.ac_name) = UPPER('<name>')` — `ac_name` is stored Title Case. Payments with no village (1,101) have no
+    constituency. Guarded since 2026-10-22 (KI-369): verifier overrule for this query, drift guard (a resolved
+    constituency must be filtered on `ac_name`), case rewrite `_focus_legacy_ac_name_case`.
+  - **"FOCUS PG(s)" is the scheme**, not the group type `FOCUS_PG` (Newly formed FOCUS Producer Group, 12,722 of
+    14,569 payments; also LAMP 1,794, EXISTING_COOPERATIVE 53). The type filter is kept only when the question asks
+    about the type / LAMPS / existing / newly formed / cooperatives (KI-370).
+  - A "members" question reads `SUM(no_of_pg_members)`, never a group count (KI-371).
 - **Special logic:**
   - `_focus_legacy_pg_name_answer` gives **deterministic** answers to "is there a PG named X" /
     "members in X";
@@ -230,7 +252,11 @@ Notes on the table:
 - **Tests:** `test_focus_legacy_routing.py`, `test_focus_legacy_usecase_fixes.py`,
   `test_pg_name_lookup.py`, `test_pg_abbreviation.py`, `test_lookup_intent.py`,
   `test_ac_focus_legacy.py`, `test_ac_flow_focus_legacy.py`, `test_year_gap_*.py`,
-  `test_stale_clarification.py`.
+  `test_stale_clarification.py`, `test_focus_legacy_sheet_run_2026_10_22.py`.
+- **QA (2026-10-22):** `raw_uc/Use_Cases_-_Focus.csv` (28 use cases) vs raw `raw_uc/Focus Legacy to share to BLH.csv`
+  (raw = DB: 14,569 rows, every field and every level). Before the fixes 25/28 use cases (TC-28 constituency 12/55,
+  TC-16 / TC-25 with "FOCUS PG"); after: sweep 231/231, sheet wording 84/84, constituencies 55/55. Report
+  `new_docs/Focus_Legacy_Test_Report_2026-10-22.md`.
 - **QA (2026-09-25):**
   - 28/28 use cases in round 3. VERIFIED from the summary sheet of
     `docs/Focus_Legacy_UseCase_Test_Report.xlsx`.
@@ -283,25 +309,40 @@ Notes on the table:
 
 ## Cross-scheme behaviour (VERIFIED)
 - **Any comparison of 2+ schemes** (or "which / each / all schemes" with a figure, ranking or
-  compare word) → `app/cross_scheme.py` (D-044, 2026-10-13), deterministic, at state, district,
-  block, village or constituency level, any FY, per scheme or per district / block:
-  - measures = each scheme's single-scheme rule (MGNREGA persons employed / expenditure; PMAY-G
-    houses sanctioned / released; Focus Plus beneficiaries / disbursed; Focus Legacy memberships
-    (+ groups) / remitted; CM Elevate applications, no money; CM Elevate Legacy sanctioned
-    applicants / disbursed). Never summed across schemes;
-  - names: a bare "FOCUS" beside "Focus+" = Focus Legacy; a bare "CM-ELEVATE" = CM Elevate Legacy
-    unless applications words are used; "CM Elevate applicants" + money / FY words = Legacy
-    (`_pin_cm_elevate_dataset`);
-  - constituency: MGNREGA counts via `assembly_constituency_name`; Focus Legacy and CM Elevate
-    Legacy via `dim_geography.ac_name`; PMAY-G, Focus Plus, CM Elevate and MGNREGA money say "not
-    recorded by constituency";
+  compare word; `app/cross_scheme.detect`) is answered by the model, **one query per scheme**
+  (D-062, 2026-10-22; until then a fixed table, D-044 — it could not express "top ten villages",
+  KI-374):
+  - each scheme gets its own one-scheme question (9B rewrite, checked; fallback = the question with
+    the other schemes' names replaced), its own SQL prompt and few-shots, guards, verifier and
+    repairs; the answer is composed from the rows tagged with their scheme. Never summed across
+    schemes. Whatever shape is asked (top N, villages, blocks, districts, years) is what each
+    scheme's query returns;
+  - names: a bare "FOCUS" beside "Focus+" = Focus Legacy; a bare "CM-ELEVATE" beside other schemes
+    = CM Elevate (applications) as written, Legacy when named — or when the question carries a
+    financial word, which the context-stage pin turns into "CM Elevate Legacy" first (D-064, 2026-10-22);
+  - said, never queried (`_cross_scheme_gaps`): constituency for PMAY-G, Focus Plus, CM Elevate
+    (only MGNREGA, Focus Legacy and CM Elevate Legacy record it); a financial year the scheme has
+    no data for (its years listed); CM Elevate for a money-only question (applications only);
   - places are resolved against all six schemes, plus `refine_block` (urban blocks),
-    `refine_constituency` (Shillong ACs) and twin-village LGD chips (KI-284..288).
-  - QA: `tests/sheet_runs/cross/` (`cross_run.py`, `truth.py`), report in
-    `reference_documents/Cross Scheme Test Cases.xlsx`.
-- "Which scheme paid out the most?" with no place → also cross_scheme now (it runs first);
-  `_cross_scheme_money_answer`, deterministic SQL across
-  every money-bearing scheme (`_CROSS_SCHEME_MONEY_SQL`). Test: `test_cross_scheme_money.py`.
+    `refine_constituency` (Shillong ACs) and twin-village LGD chips (KI-284..288); no area / year
+    pause (statewide, each scheme's own years).
+  - QA: offline `tests/test_cross_scheme_llm_2026_10_22.py`; the D-044 bulk harness
+    `tests/sheet_runs/cross/` checks the old table's exact figures and measures, so it no longer
+    applies as written (DOCUMENTATION CONFLICT — NEEDS VERIFICATION: rewrite its truth to the
+    per-scheme answers before re-using it).
+- **D-066 (2026-10-22 night): beneficiaries / money / village coverage of MGNREGA, PMAY-G, Focus Plus and
+  Focus Legacy** (statewide, a district / districts / a block, per district, one FY) are worked out in code
+  (`app/cross_figures.py`): fixed per-scheme queries, then totals, district rankings, the leading / second
+  scheme per district, "districts where X > Y" and per-beneficiary figures in Python. Measures: MGNREGA
+  households given work (household-years, FYs added) and `total_exp`; PMAY-G houses and the amount
+  **released**; Focus Plus distinct beneficiaries; Focus Legacy **members** (PGs beside them); villages without
+  'Unresolved' rows (money and members keep them). Focus Plus is grouped by its source district / block names
+  (`district_name_raw` / `block_name_raw`, = the raw file: West Garo Hills 35,059), every other scheme by LGD.
+  A combined total only when asked. "Excluding / leaving out <scheme>" removes it (CM-ELEVATE = both
+  datasets; none named -> the four main schemes minus the excluded). A bare FOCUS with no Focus+ beside it
+  asks which Focus. UAT: 59/60 = megh_db, 47/60 = raw files (the rest = KI-393 data differences).
+- "Which scheme paid out the most?" (`_wants_cross_scheme_money_ranking`) → the same path over every
+  scheme that records money (D-062; `_cross_scheme_money_answer` removed). Test: `test_cross_scheme_money.py`.
 - MGNREGA + PMAY: `v_cross_scheme_money_district_year` (crore) and
   `v_cross_scheme_village_coverage`. Focus Plus's presence in the money view is unconfirmed;
   CM Elevate is confirmed absent.
@@ -318,7 +359,7 @@ summary `docs/All_Schemes_LangGraph_Test_Results_Summary.xlsx` (all runs on the 
 | Set | Cases | Pass | Truth rule |
 |---|---|---|---|
 | MGNREGA (12 districts, 56 blocks, villages) | 6,378 | 6,378 | `SUM(person_days)` / `total_exp` (lakh) |
-| PMAY-G | 5,256 | 5,256 | `COUNT(*)` where `NOT is_placeholder` |
+| PMAY-G | 5,256 | 5,256 | `COUNT(*)` where `NOT is_placeholder` (rule of that run; since D-060, 2026-10-22, all rows) |
 | PMAY-G officer cases (PMAY-OFF-001..028, all places) | 5,833 | 5,833 | per case |
 | Focus Plus | 3,651 | 3,651 | `COUNT(DISTINCT beneficiary_key)`; block = `block_name_raw`, else `lgd_block` (KI-191) |
 | CM Elevate | 2,165 | 2,165 | `COUNT(DISTINCT request_id)` |

@@ -364,11 +364,25 @@ def _fy(year) -> str:
     return f"FY {y}-{str(y + 1)[-2:]}"
 
 
+def place_words(state) -> "str | None":
+    """The finest place of a state (object or dict), as a person reads it.
+    `village` holds the village CODE: "carry on with MGNREGA in 273567" (live
+    2026-10-21) meant nothing, and a "compare with PMAY-G in 273567" question
+    sent the code into the pipeline as a place name."""
+    get = state.get if isinstance(state, dict) else (lambda k: getattr(state, k, None))
+    if get("village"):
+        from app.entity_resolver import village_code_name
+        name = village_code_name(get("village"))
+        return f"{name} village" if name else str(get("village"))
+    place = get("block") or get("district")
+    return str(place).title() if place else None
+
+
 def _summary(key: str, item: dict) -> str:
     """One deterministic line: what this topic was about where it was left."""
     st = item.get("state") or {}
     bits = [b for b in (st.get("metric"),
-                        st.get("village") or st.get("block") or st.get("district"),
+                        place_words(st),
                         _fy(st.get("year")) if st.get("year") is not None else
                         ("all financial years" if st.get("year_all") else None)) if b]
     line = key + (": " + " · ".join(str(b) for b in bits) if bits else "")
@@ -689,7 +703,12 @@ def _score(e: dict, target: str, content: set, years: set) -> int:
     entry did not run for rules it out."""
     st = e.get("state") or {}
     score = 0
-    for place in (st.get("village"), st.get("block"), st.get("district")):
+    # The village by its NAME: the state holds its code, which no one types.
+    _vname = None
+    if st.get("village"):
+        from app.entity_resolver import village_code_name
+        _vname = village_code_name(st["village"])
+    for place in (_vname, st.get("block"), st.get("district")):
         if place and words(place) and Matcher(Seq(*words(place))).search(target):
             score += 3
             # counted once, as the place, not again as words of the question
@@ -736,8 +755,7 @@ def _match_entries(mem: dict, ref: BackRef, question: str) -> "tuple[list, str]"
 def _entry_label(key: str, e: dict) -> str:
     """A chip label: '#1 MGNREGA · East Khasi Hills · FY 2022-23 · person-days'."""
     st = e.get("state") or {}
-    place = st.get("village") or st.get("block") or st.get("district")
-    bits = [key] + [b for b in (str(place).title() if place else None,
+    bits = [key] + [b for b in (place_words(st),
                                 _fy(st.get("year")) if st.get("year") is not None else None,
                                 st.get("metric")) if b]
     if len(bits) == 1:
@@ -1061,7 +1079,7 @@ def _ask_which(candidates: list, remainder: str):
 def _acknowledge(key: str, item: dict) -> dict:
     from app import pipeline
     st = item.get("state") or {}
-    where = [b for b in (st.get("village") or st.get("block") or st.get("district"),
+    where = [b for b in (place_words(st),
                          _fy(st.get("year")) if st.get("year") is not None else None) if b]
     last = (item.get("last_turn") or {}).get("question")
     answer = f"Back to {key}."

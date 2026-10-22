@@ -32,18 +32,38 @@ def _with_rewritten_question(result: dict, question: str, raw_question: str) -> 
     return result
 
 
-def _mark_context_dependent(result: dict, session, *, raw_question, followup, plan, scope_resumed) -> None:
+def _mark_context_dependent(result: dict, session, *, raw_question, followup, plan, scope_resumed,
+                            inherited: bool = False) -> None:
     """WI-5 (forward plan, 2026-10-16): an answer built from THIS conversation —
     a follow-up rewrite, a merge plan, a resumed pause, or "the previous year"
     filled from the session — means something only here. Marked
     `context_dependent`, the router never writes it to the shared caches under
-    the raw words another user may type."""
-    sub = (getattr(session, "turn_context", None) or {}).get("substituted_question") if session is not None else None
-    if followup or plan or scope_resumed or (sub and sub != raw_question):
+    the raw words another user may type. `inherited` (D-056, 2026-10-21): the
+    chat's place / year seeded the resolver, or an answer default (all of
+    Meghalaya / all years) filled a gap — cached under the bare words, a NEW
+    chat typing them would skip its scheme / district / year questions."""
+    ctx = (getattr(session, "turn_context", None) or {}) if session is not None else {}
+    sub = ctx.get("substituted_question")
+    if followup or plan or scope_resumed or inherited or (sub and sub != raw_question):
         result["context_dependent"] = True
+    # A restored earlier question ran in place of the typed "go back to the
+    # first question": it is the turn's question, or the next follow-up has
+    # nothing to build on ("Boldoreng" then lost the measure; live 2026-10-21).
+    restored = ctx.get("restored_question")
+    if isinstance(restored, str) and restored:
+        result["context_dependent"] = True
+        if not result.get("rewritten_question"):
+            result["rewritten_question"] = restored
 
 
 def _scope_banner_place(resolved: dict) -> str:
+    # A village known only by its code is named from the village index: the
+    # banner said "All of Meghalaya" over a Rasong village answer (KI-348).
+    if not resolved.get("village") and resolved.get("village_code"):
+        from app import entity_resolver as _er
+        _vn = _er.village_code_name(resolved["village_code"])
+        if _vn:
+            return f"{_vn} village"
     for key in ("village", "block", "assembly_constituency", "district"):
         if resolved.get(key):
             name = str(resolved[key]).title()
@@ -84,6 +104,9 @@ def _attach_scope_banner(result: dict, session) -> None:
     ctx = (getattr(session, "turn_context", None) or {}) if session is not None else {}
     if ctx.get("restored_question"):
         banner += " (from earlier)"
+    elif ctx.get("new_question"):
+        # D-061: a self-sufficient question set the chat's scope aside.
+        banner += " (new question)"
     result["scope_banner"] = banner
 
 
@@ -157,6 +180,12 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
     """Spelling, dataset pin, turn facts, a pending pause's reply, and whether
     this message continues the conversation at all (graph: context)."""
     question = t["question"]
+    # The village-name index the continuation check and the edge whitelist read
+    # (entity_resolver.place_mentions; user report 2026-10-21, "in ambare
+    # ading"). Loaded at startup; this only fills it if startup could not.
+    from app import entity_resolver as _c14_er
+    if not _c14_er.village_index_loaded():
+        await _c14_er.load_village_names()
     # Topic memory (app/topic_memory.py): an explicit return to an earlier
     # topic ("go back to MGNREGA") puts that topic's state and last turn back
     # in place before anything below reads them; a bare one is answered here.
@@ -198,7 +227,13 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
     _cm_pinned = _pinned != question
     question = _pinned
     scope_resumed = False
-    question = _each_scheme_in_cm_thread(question, session)
+    _each_q = _each_scheme_in_cm_thread(question, session)
+    if _each_q != question:
+        # "each scheme" just gained "under CM Elevate": its money words must
+        # still go to Legacy (D-064) — "total amount disbursed under each
+        # scheme" after "What is CM-ELEVATE?" hit the not-held pause (2026-10-22).
+        question = _pin_cm_elevate_dataset(_each_q, _cm_thread)
+        _cm_pinned = _cm_pinned or question != _each_q
     has_antecedent = prev is not None and prev.route in _ANTECEDENT_ROUTES
     ctx_state = _turn_ctx_state(session)
     # Facts about this turn for provenance (context_manager.update_state):
@@ -222,11 +257,17 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
             # KI-330: a bare "CM Elevate" named as a switch from a Legacy thread;
             # read by the follow-up stage's dataset pin (set above, before this reset).
             "cm_dataset_switch": "CM Elevate" if _cm_switch else None,
+            # D-061: a topic picked ("go back to …", a chip of the "which topic?"
+            # pause) or an earlier question restored — its words run in that
+            # topic's context, so the vague-question pause must not ask again.
+            "topic_switched": _topic.action in ("switch", "restore"),
             # The rewritten follow-up, as it stood before any pause (see step 1f).
             "standalone_question": None,
             # This turn runs in an earlier question's restored scope (the topic
             # ledger): the scope banner says "(from earlier)".
-            "restored_question": _topic.action == "restore",
+            # (the question it runs, which _mark_context_dependent records as the
+            # turn's own).
+            "restored_question": _topic.question if _topic.action == "restore" else None,
         }
 
     # 0a. Resuming a "which area / year?" pause — fold the user's free-text reply
@@ -238,6 +279,16 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
     _village_hint = getattr(session, "pending_village_hint", None) if session is not None else None
     _pending_rule = getattr(session, "pending_scope_rule", None) if session is not None else None
     _pending_options = getattr(session, "pending_scope_options", None) if session is not None else None
+    # D-065: the kind of the question that paused (see Session.pending_turn_kind).
+    _pending_kind = getattr(session, "pending_turn_kind", None) if pending else None
+    if session is not None:
+        session.pending_turn_kind = None
+    # A tapped chip sends its own question. A long one (the "whole MAIRANG
+    # constituency" chip) is not taken as a pick by _resume_option_pause, but it
+    # is still the paused question answered, so it keeps that question's kind.
+    _tapped_chip = any(isinstance(o, dict) and o.get("question")
+                       and question.strip().rstrip(" ?.").lower() == str(o["question"]).strip().rstrip(" ?.").lower()
+                       for o in (_pending_options or []))
     if pending and _pending_rule in SCHEME_PAUSE_RULES:
         # 0a'. A "which scheme?" / "which Focus?" pause. This is a scheme choice,
         #      not a scope fragment, so the scope merge below does not apply. A
@@ -278,7 +329,7 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
             _cm_pinned = question != _picked
             session.turn_context["resumed_question"] = question
         else:
-            _stand_in = _paused_thread_antecedent(question, pending, prev)
+            _stand_in = _paused_thread_antecedent(question, pending, prev, rule=_pending_rule)
             if _stand_in is not None:
                 context_budget.log_decision("pause_reply", rule=_pending_rule,
                                             resumed="paused-thread", schemes=_stand_in.schemes)
@@ -312,9 +363,32 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
         # 2023-24"). Detect that and pass the chip's question straight through.
         _stem = pending.rstrip(" ?.").lower()
         _is_chip_resume = question.strip().lower().startswith(_stem)
+        _level_reply = (_c14_level_only_reply(question, _village_hint)
+                        if _pending_rule == "entity-ambiguous" and _village_hint else None)
+        _place_switch = (_c14_pause_place_switch(question, pending, _village_hint, ctx_state)
+                         if _pending_rule == "entity-ambiguous" and _village_hint and not _bailed
+                         and not _is_chip_resume and not _level_reply else None)
         if _is_chip_resume:
             scope_resumed = True
             logger.info("scope/year clarification resumed via full question -> %r", question)
+        elif not _bailed and _level_reply:
+            # "its block" to "“Dalu” corresponds to more than one village: …" is
+            # the level chip the pause did not offer: the paused question with
+            # that level stated (user, live 2026-10-21 18:37 — it went to the
+            # documents and answered about "Dalu village", KI-347).
+            question = _c14_restate_level(pending, _village_hint, _level_reply)
+            scope_resumed = True
+            context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="level", level=_level_reply)
+            logger.info("village pause resumed by a level reply -> %r", question)
+        elif _place_switch:
+            # Another place named instead of a pick: "Dugalgre" to "“Kotchugre”
+            # corresponds to more than one village" is the paused question asked
+            # for Dugalgre. Merged as a fragment with the old hint, it asked the
+            # Kotchugre question again (live 2026-10-21, MGNREGA West Garo Hills).
+            question, _village_hint = _place_switch, None
+            scope_resumed = True
+            context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="other-place")
+            logger.info("village pause answered with another place -> %r", question)
         elif not _bailed and _pending_rule == "year-not-specified" and _is_all_years_reply(question):
             # KI-324: a typed "all of them combined" / "all" / "combined" is the
             # "All financial years combined" chip, so it resumes with that chip's
@@ -382,10 +456,24 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
                                             schemes=_ps)
                 session.turn_context["antecedent_from_pause"] = True
                 logger.info("pause skipped by a scheme-less follow-up -> antecedent %r", prev.question)
+        if scope_resumed:
+            # The pin above read the bare reply; the merged question is the paused
+            # one, remembered unpinned. "How many applications have been sanctioned
+            # under CM-ELEVATE?" (Legacy: sanction words, D-064) paused for the year;
+            # "all of them combined" resumed it on the applications thread and
+            # answered "8,840 sanctioned" from the applications data (true 2,820;
+            # harness AC04c, 2026-10-22, once D-065 made the question ask its year).
+            _repinned = _pin_cm_elevate_dataset(question, _cm_thread)
+            _cm_pinned = _cm_pinned or _repinned != question
+            question = _repinned
         if scope_resumed and not session.turn_context.get("clarification_reply"):
             session.turn_context["clarification_reply"] = question
         if scope_resumed:
             session.turn_context["resumed_question"] = question
+    # D-065: a reply that resumed a pause (chip or typed pick) is the paused
+    # question, so it keeps that question's kind (the follow-up stage reads it).
+    if session is not None and _pending_kind and (session.turn_context.get("resumed_question") or _tapped_chip):
+        session.turn_context["resumed_turn_kind"] = _pending_kind
 
     # 0-c. Does this message continue the conversation at all? A previous
     #      answer is context only for a message that shares something with it:
@@ -544,6 +632,7 @@ async def _guardrail_check(raw_question: str, question: str, scope_resumed: bool
     # KILLING during 2023-24" was refused as violence (MGNREGA all-villages run,
     # 2026-10-09). An exact village name is masked for the checks; any harmful
     # wording around it is still judged.
+    _names_place = _names_place_only(raw_question)
     raw_question = await _mask_village_names(raw_question)
     question = await _mask_village_names(question)
     harm = edge.detect_harmful(raw_question) or edge.detect_harmful(question)
@@ -558,7 +647,8 @@ async def _guardrail_check(raw_question: str, question: str, scope_resumed: bool
     if scope_resumed or edge_type in _CONVERSATIONAL_EDGE:
         return None
     verdict = await guardrails.check_model(raw_question)
-    if verdict and verdict.is_scope and _overrules_scope_verdict(raw_question, has_context):
+    if verdict and verdict.is_scope and (_names_place
+                                         or _overrules_scope_verdict(raw_question, has_context)):
         context_budget.log_decision("guardrail", layer="model", outcome="scope_overruled",
                                     category=verdict.category)
         return None
@@ -771,7 +861,96 @@ _ABOUT_PREVIOUS_ANSWER = Matcher(Alt(
 
 _SCHEME_SUMMARY_MATCH = Matcher(W("overview", "summary", "summarise", "summarize", "summaryse", "summaryze",
                                 "briefing"))
+def _overview_names_a_place(question: str) -> bool:
+    """An "in / of / for <name>" slot left once the scheme names are removed: the
+    overview is of a place ("overview of Ri Bhoi"), a figures request (D-052)."""
+    q = question or ""
+    for pat in _SCHEME_NAME_MATCHER.values():
+        q = pat.sub(" ", q)
+    q = _C14_OFFICIAL_USE.sub(" ", q)          # "for an official briefing" is no place
+    return bool(_PLACE_SLOT.search(_KNOWLEDGE_HINTS.sub(" ", q)))
+
+
+_C14_OFFICIAL_USE = Matcher(Seq(Opt(W("an", "a", "the", "my", "our")), Opt(W("official", "formal", "internal")),
+                                W("briefing", "briefings", "brief", "note", "meeting", "presentation", "report")))
+
+
+# Words that make an overview a FIGURES request (see the KI-382 route rule).
+_C14_FIGURE_WORDS = Matcher(W("performance", "progress", "status", "figure", "figures", "financial", "pendency",
+                              "expenditure", "data", "numbers", "statistics", "stats", "achievement",
+                              "achievements", "district", "districts", "block", "blocks", "village", "villages",
+                              "wise", "year", "years", "fy"))
 _C14_FOCUS_WORD = Matcher(W("focus"))
+_C14_COHORT_WORD = Matcher(W("batch", "batches", "cohort", "cohorts"))
+
+
+_C14_LEVEL_REPLY_WORDS = {"BLOCK": "block", "VILLAGE": "village", "CONSTITUENCY": "assembly_constituency",
+                          "AC": "assembly_constituency", "DISTRICT": "district"}
+_C14_LEVEL_REPLY_FILLER = frozenset("IT ITS S IS A AN THE NO NOT I MEAN MEANT SAID THAT THIS ONE OK OKAY "
+                                    "PLEASE PLS YES ITSELF C RD CD WAS".split())
+
+
+def _c14_level_only_reply(reply: str, name: str) -> "str | None":
+    """The level a reply to a village pause states and nothing else ("its block",
+    "it's a block", "Dalu is the block", "constituency"), or None. Not
+    entity_resolver.fold_words: fold() strips a trailing "BLOCK" as a qualifier."""
+    def _words(text: str) -> list:
+        return "".join(c if c.isalnum() else " " for c in (text or "").upper()).split()
+    own = set(_words(name))
+    words = [w for w in _words(reply) if w not in _C14_LEVEL_REPLY_FILLER and w not in own]
+    if len(words) != 1:
+        return None
+    return _C14_LEVEL_REPLY_WORDS.get(words[0])
+
+
+def _c14_restate_level(paused: str, name: str, level: str) -> str:
+    """The paused question with `level` stated for `name`, as the level chip
+    states it; a level word the question put after the name goes."""
+    stem = paused.strip().rstrip(" ?.")
+    p0 = _ci_find(stem, name)
+    if p0 >= 0:
+        end = p0 + len(name)
+        tail = stem[end:]
+        nxt = tail.lstrip().split(" ", 1)[0].strip(",.").upper()
+        if nxt in _C14_LEVEL_REPLY_WORDS:
+            cut = len(tail) - len(tail.lstrip()) + len(tail.lstrip().split(" ", 1)[0])
+            stem = stem[:end] + tail[cut:]
+    return f"{stem}, the {_DIM_CHIP_WORD[level]}, not another area type"
+
+
+def _c14_pause_place_switch(reply: str, paused: str, name: str, state) -> "str | None":
+    """The paused question asked for the ONE other place `reply` names, or None.
+    None for a reply that picks among the villages called `name`: the name
+    itself, a district, or the block / district one of them lies in."""
+    from app.entity_resolver import fold_words, place_only, village_places
+    from app.session_store import Turn
+    only = place_only(reply, _C01_PLACE_ONLY_WORDS)
+    if not only or only[1] == "district" or fold_words(only[0]) == fold_words(name):
+        return None
+    if only[0].upper() in {lv for _c, b, d in village_places(name) for lv in (b, d)}:
+        return None
+    schemes = sorted(_exact_schemes(paused)) or ([state.scheme] if getattr(state, "scheme", None) else [])
+    district = getattr(state, "district", None)
+    prev = Turn(question=paused, raw_question=paused, route="data", schemes=schemes,
+                resolved_entities={"district": district} if district else {})
+    return _place_swap_rewrite(prev, reply, force=True)
+
+
+def _names_place_only(question: str) -> bool:
+    """A short message (six words or fewer) that names a Meghalaya place — a
+    district, block, constituency or village, with or without the level word
+    (entity_resolver.place_mentions). "ambare ading" in a new chat was refused by
+    the guardrail model as a general question (user report 2026-10-21): it is a
+    place question, and the pipeline asks for the scheme. Read on the text as
+    typed, before _mask_village_names turns the name into "the village"."""
+    q = question or ""
+    if len(q.split()) > 6 or guardrails.check_scope_rules(q):
+        return False
+    try:
+        from app.entity_resolver import place_mentions
+        return bool(place_mentions(q))
+    except Exception:  # noqa: BLE001 — no index: the model's verdict stands
+        return False
 
 
 def _overrules_scope_verdict(question: str, has_context: bool = False) -> bool:
@@ -787,6 +966,17 @@ def _overrules_scope_verdict(question: str, has_context: bool = False) -> bool:
     # question (MGNREGA sheet run 2026-10-09, 9 cases). Content / task requests in
     # scheme words are still caught by check_scope_rules above.
     if _is_data_shaped(q):
+        return True
+    # A Focus Plus batch is a data slot like a place or a year: "Give me the status
+    # breakdown for 12.5K batch." was refused 5/5 as "I can't do things on your
+    # behalf … make payments", "Give me the status split of 12.5K batch" as a
+    # general question, while "… for THE 12.5K batch" passed (_PLACE_SLOT needs a
+    # word starting with a letter) — FOCUS-019 re-test 2026-10-22, KI-360. "12.5K"
+    # alone is also an amount ("book a payment of 12.5K" stays the model's call),
+    # so it must be named a batch / cohort, or the question a status breakdown.
+    if _FOCUSPLUS_BATCH_WORD.search(q) and (
+            _FP_STATUS_BREAKDOWN_MATCH.search(q)
+            or (_C14_COHORT_WORD.search(q) and (_DATA_MEASURE_WORD.search(q) or _SCHEME_DATA_NOUN_MATCH.search(q)))):
         return True
     # A request about a named scheme's own data or an overview of it: "Show me all FOCUS
     # remittances made between April and June 2025" (refused as acting on the user's
@@ -1068,6 +1258,35 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
     _term_question = _is_scheme_term_question(raw_question)
     if _term_question:
         context_budget.log_decision("followup", skipped="scheme-term-question")
+    # D-061 (user addendum 2026-10-22, "New Question = New Answer"): decide what
+    # kind of turn this is BEFORE any rewrite. A self-sufficient question (its own
+    # scheme and measure, no reference cue) is never rewritten and inherits
+    # nothing; a vague one with several topics open asks which (chips).
+    # D-065 (user, 2026-10-22): a resumed pause keeps the kind of the question
+    # the user typed. The chip text adds the scheme and the place level, so it
+    # read as a new question ("… for mairang under CM Elevate Legacy, the
+    # assembly constituency …") and dropped the chat's year for FY 2025-26.
+    _resumed_kind = (session.turn_context or {}).get("resumed_turn_kind") if session is not None else None
+    if _resumed_kind:
+        _tk = context_policy.TurnKind(_resumed_kind, ("resumed-pause",), context_policy.asked_levels(raw_question))
+    else:
+        _tk = context_policy.turn_kind(raw_question) if (has_context and not scope_resumed) else None
+    _standalone = _tk is not None and _tk.kind == context_policy.TURN_STANDALONE and not _meta_rewrite
+    if _tk is not None:
+        context_budget.log_decision("turn_kind", kind=_tk.kind, reasons=list(_tk.reasons),
+                                    asked=list(_tk.asked), meta_rewrite=_meta_rewrite)
+        if session is not None:
+            session.turn_context["turn_kind"] = _tk.kind if not _meta_rewrite else context_policy.TURN_FOLLOWUP
+            # "(new question)" on the banner: the chat had a scope and this turn
+            # set it aside, so a wrong choice is visible at once.
+            session.turn_context["new_question"] = bool(_standalone and getattr(ctx_state, "scheme", None))
+        if _tk.kind == context_policy.TURN_VAGUE and not _meta_rewrite and not _resumed_kind \
+                and not (session is not None and session.turn_context.get("topic_switched")):
+            _ask = _vague_topic_clarification(raw_question, session)
+            if _ask is not None:
+                context_budget.log_decision("turn_kind", pause="which-topic",
+                                            topics=[o["label"] for o in _ask.options])
+                raise _ask
     if _meta_rewrite:
         # Already the standalone question (step 0h): no model rewrite needed.
         is_followup_rewrite = True
@@ -1077,7 +1296,8 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
             # "what is the wage part of that?", "how much of that was …": a
             # back-reference into the previous (or paused) question is a
             # follow-up whatever its opening words (context audit 2026-10-19).
-            or bool(_BACKREF_FOLLOWUP_MATCH.search(raw_question))) and not _bare_focus and not _term_question:
+            or bool(_BACKREF_FOLLOWUP_MATCH.search(raw_question))) and not _bare_focus and not _term_question \
+            and not _standalone:
         if has_context:
             # Field-by-field effect of this follow-up on the state (KEEP / REPLACE
             # / CLEAR / REQUIRE_CLARIFICATION) and its kind, which picks the
@@ -1140,10 +1360,19 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                 # completed in Ri Bhoi…", live harness U6 2026-10-19), answering the
                 # completed-houses figure again for a beneficiaries question.
                 _sch = prev.schemes[0]
+                # A question that names its own place keeps it alone: "Total
+                # sanctioned amount in Rasong village" became "... in Rasong village
+                # under PMAY-G in Rasong village in Mawkynrew block ..." (KI-348).
+                from app.entity_resolver import place_mentions as _c14_pm
                 question = (f"{question.strip().rstrip(' ?.')} under {_sch}"
-                            f"{_swap_scope_phrase(_thread_state, _sch, prev)}?")
+                            f"{_swap_scope_phrase(_thread_state, _sch, prev, with_place=not _c14_pm(question))}?")
                 context_budget.log_decision("followup", rewrite="deterministic-measure-change", scheme=_sch)
                 logger.info("follow-up measure change -> %r", question)
+            elif (_ranked_q := _ranking_followup_question(question, prev, _plan, _thread_state)) and not (
+                    session is not None and session.turn_context.get("antecedent_from_pause")):
+                question = _ranked_q
+                context_budget.log_decision("followup", rewrite="deterministic-ranking", scheme=prev.schemes[0])
+                logger.info("follow-up ranking -> %r", question)
             else:
                 question = await rewrite_followup(question, prev, extra_context=_extra_ctx,
                                                   kind=_plan.kind if _plan else None,
@@ -1400,6 +1629,14 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
             and _named_or_inferred_schemes(question) != ["MGNREGA"]:
         raise _admin_expenditure_clarification(question)
 
+    # 1d'. MGNREGA records actual expenditure only — no sanctioned amount or
+    #      budget (mgnrega_classification_rules.yaml budget_vs_actual_requested).
+    #      "Total sanctioned amount in Rasong" was answered from total_exp and
+    #      called "sanctioned" (user, live 2026-10-21 19:44, KI-350).
+    if _MG_SANCTION_REQUESTED.search(question) and _named_or_inferred_schemes(question) == ["MGNREGA"] \
+            and not _is_scheme_term_question(raw_question):
+        raise _mgnrega_sanction_clarification(question)
+
     # 1e. Named a scheme we simply don't hold ("PM-KISAN", "Ujjwala", "Jal
     #     Jeevan"). Checked HERE, before the DATA/KNOWLEDGE split, because the
     #     question is just as often a KNOWLEDGE one ("what is PM Kisan
@@ -1486,10 +1723,24 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
     if intent == "DATA" and _WHO_BENEFITS_MATCH.search(raw_question) \
             and not _C14_COUNT_WORDS.search(raw_question):
         intent = "KNOWLEDGE"
+    # "Give me a short overview of CM-ELEVATE that I can use for an official
+    # briefing" is about the scheme, not its figures: the sampled classifier sent it
+    # to DATA in 2 of 3 runs (dataset question, then Legacy totals — Legacy sheet
+    # TC-09, 2026-10-22, KI-382). A place or a figure word keeps it data ("overview
+    # of Ri Bhoi", "financial summary for Amlarem", D-052).
+    _scheme_overview = bool(_OVERVIEW_REQUEST.search(raw_question)) \
+        and not _C14_COUNT_WORDS.search(raw_question) and not _C14_FIGURE_WORDS.search(raw_question) \
+        and not named_places(raw_question) and not _AREA_CHIP_MARKER_MATCH.search(raw_question) \
+        and not _overview_names_a_place(raw_question)
+    if intent == "DATA" and _scheme_overview:
+        intent = "KNOWLEDGE"
     _no_scheme = question
     for _pat in _SCHEME_NAME_MATCHER.values():
         _no_scheme = _pat.sub(" ", _no_scheme)
-    if intent == "KNOWLEDGE" and _FIGURE_SUMMARY_MATCH.search(question) and not _DEFINITION_ASK_MATCH.search(question) and (
+    # (not for the scheme overview above: "overview of CM Elevate" names the scheme as
+    # its scope and was sent straight back to DATA here)
+    if intent == "KNOWLEDGE" and not _scheme_overview and _FIGURE_SUMMARY_MATCH.search(question) \
+            and not _DEFINITION_ASK_MATCH.search(question) and (
             _AREA_CHIP_MARKER_MATCH.search(question) or named_places(question)
             or _PLACE_SLOT.search(_KNOWLEDGE_HINTS.sub(" ", _no_scheme))
             # "…status distribution across CM ELEVATE": the scheme itself is the scope
@@ -1499,6 +1750,13 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
         # the PMAY-G financial summary for Amlarem, the block, …" and the reference
         # docs answered "no published summary" — 26 of 56 blocks (PMAY-G sheet
         # PMAY-OFF-012, run 2026-10-10).
+        intent = "DATA"
+    # A figure, ranking or comparison across two or more schemes is data: "What is
+    # the coverage of NREGA, PMAY-G and Focus+ in Dadenggiri block?" and "… spending
+    # in South Garo Hills, excluding CM-ELEVATE?" went to the reference documents
+    # (cross-scheme UAT re-test 2026-10-22, T09.2 / T11.2 / T13.2, KI-388 / KI-391).
+    if intent == "KNOWLEDGE" and not _DEFINITION_ASK_MATCH.search(raw_question) \
+            and not _is_entitlement_question(raw_question) and _cross_figures_question(raw_question):
         intent = "DATA"
     context_budget.log_decision("intent", intent=intent, followup=is_followup_rewrite,
                                 kind=_plan.kind if _plan else None,
@@ -1622,8 +1880,12 @@ async def _turn_knowledge_stage(t: dict, session: "Session | None" = None,
             # departments with no benefit amount, objective or scale (Focus Legacy
             # QA TC-09, 2026-09-25). Retrieve with the scheme-overview phrasing
             # instead; the answer is still written to the user's own question.
+            # Same for CM Elevate: its overview retrieved the dataset-description
+            # passages ("a unified API … contains no monetary data") instead of the
+            # subsidy, loan and sectors (Legacy sheet TC-09, 2026-10-22, KI-382).
             _retrieval_q = (_scheme_overview_question(_kb_scheme)
-                            if _kb_scheme == "Focus Legacy" and _OVERVIEW_REQUEST.search(question)
+                            if _kb_scheme in ("Focus Legacy", "CM Elevate", "CM Elevate Legacy")
+                            and _OVERVIEW_REQUEST.search(question)
                             else None)
             # "What is the toll-free helpline number for MGNREGA complaints?"
             # retrieved nothing on "toll-free number" and got the generic "not in
@@ -1699,7 +1961,9 @@ async def _turn_data_context_stage(t: dict, session: "Session | None" = None,
         # well as from the rewritten text, since resolve_entities seeds from it.
         _prior_resolved = {k: v for k, v in _prior_resolved.items() if k not in ("year_key", "year_all")}
     if not is_followup_rewrite and _prior_resolved is None:
-        _prior_resolved = _same_scheme_context_year(t["question"], t["raw_question"], _thread_state)
+        _prior_resolved = _same_scheme_context_year(
+            t["question"], t["raw_question"], _thread_state,
+            kind=(session.turn_context or {}).get("turn_kind") if session is not None else None)
     t["prior_resolved"] = _prior_resolved
 
 
@@ -1726,54 +1990,207 @@ def _pure_measure_change(question: str, prev, plan) -> bool:
     return True
 
 
-def _same_scheme_context_year(question: str, raw_question: str, state) -> "dict | None":
-    """KI-331 (live 2026-10-19 15:27): "give me cm elevate disbursement by district"
+def _ranking_followup_question(question: str, prev, plan, state) -> "str | None":
+    """The rewrite of a follow-up that ranks a place level and names its own
+    measure ("Which block has highest number of households?", "top 3 blocks by
+    households employed"), or None: the user's words, the chat's scheme, the
+    chat's place ABOVE the ranked level and the chat's year.
+
+    Reported 2026-10-22 (the Demdema chat): the 9B rewrite grafted these onto the
+    previous question — "How many households were employed under MGNREGA in the
+    top 3 blocks …" summed the top three (145,498), and "most job cards in which
+    block?" became households plus a block name. A ranking that names its
+    measure needs nothing from the previous question but its scope."""
+    if plan is None or prev is None or getattr(prev, "route", None) != "data":
+        return None
+    schemes = list(getattr(prev, "schemes", None) or [])
+    if len(schemes) != 1 or plan.action("metric") != context_policy.REPLACE:
+        return None
+    ranked = [dim for dim in ("district", "block", "village")
+              if (plan.reasons.get(dim) or "").startswith("ranks the ")]
+    if not ranked:
+        return None
+    sch = schemes[0]
+    if not set(_exact_schemes(question or "")) <= {sch}:
+        return None
+    if set(_c01_tm_words(question)) & (_C14_MEASURE_BACKREF - {"which"}):
+        return None
+    resolved = getattr(prev, "resolved_entities", None) or {}
+
+    def _get(name: str, key: str):
+        return getattr(state, name, None) if state is not None else resolved.get(key)
+
+    from types import SimpleNamespace
+    from app.entity_resolver import place_mentions as _c14_pm
+    keep = {"district": (), "block": ("district",), "village": ("district", "block")}[ranked[0]]
+    own_place = bool(_c14_pm(question))
+    own_year = plan.action("year") != context_policy.KEEP
+    scope_state = SimpleNamespace(
+        district=_get("district", "district") if "district" in keep and not own_place else None,
+        block=_get("block", "block") if "block" in keep and not own_place else None,
+        village=None,
+        year=None if own_year else _get("year", "year_key"),
+        year_all=False if own_year else _get("year_all", "year_all"))
+    return f"{question.strip().rstrip(' ?.')} under {sch}{_swap_scope_phrase(scope_state, sch)}?"
+
+
+def _vague_topic_clarification(question: str, session) -> "ClarificationNeeded | None":
+    """D-061: a vague question ("how many beneficiaries?") while two or more
+    topics are open is asked, one chip per topic — never a default scheme. With
+    one topic, None: the question runs in it (the existing scope-less follow-up),
+    and the banner shows the scope used. Each chip is a topic switch ("Go back to
+    MGNREGA: how many beneficiaries?", topic_memory), so the reply runs in that
+    topic's own place and year."""
+    if session is None:
+        return None
+    try:
+        mem = topic_memory._memory(session)
+    except Exception:  # noqa: BLE001 — no topic memory: the question runs as before
+        return None
+    # Single-scheme topics only: a comparison topic is not a scope one measure fits.
+    keys = [k for k in reversed(mem.get("order") or []) if k in (mem.get("items") or {})
+            and " + " not in k
+            and (((mem["items"][k].get("state") or {}).get("scheme"))
+                 or ((mem["items"][k].get("last_turn") or {}).get("route") == "data"))][:4]
+    # A measure that pins its scheme ("how many job cards?") fits only that
+    # scheme's topic: no question to ask when just one is open.
+    pinned = context_policy._schemes_named(question or "")
+    if pinned:
+        keys = [k for k in keys if k in pinned]
+    if len(keys) < 2:
+        return None
+    q = (question or "").strip()
+    names = ", ".join(keys[:-1]) + f" or {keys[-1]}"
+    return ClarificationNeeded(
+        f"Which topic is this about — {names}?",
+        options=[{"label": k, "question": f"Go back to {k}: {q}"} for k in keys],
+        rule=topic_memory.TOPIC_PAUSE_RULE)
+
+
+def _same_scheme_context_year(question: str, raw_question: str, state,
+                              kind: "str | None" = None) -> "dict | None":
+    """The chat's scope a new (not rewritten) data question inherits, as the
+    resolver's `prior_resolved` fallback, or None.
+
+    KI-331 (live 2026-10-19 15:27): "give me cm elevate disbursement by district"
     right after "How many CM Elevate Legacy records … across all financial years?"
-    stayed on Legacy but asked "which financial year?" again: a question that names
-    a scheme reads as a new one, so no prior_resolved reached the year gate (D-053).
-    The year the conversation is on carries into a new question about the SAME one
-    scheme that names no year of its own; its place only when the question points
-    at it ("there", "that district"). Breakdown and measure are the question's own.
-    A model-inferred value is not inherited."""
+    asked "which financial year?" again: a question that names a scheme reads as a
+    new one, so no prior_resolved reached the year gate (D-053).
+    User rule 2026-10-21 (D-056): "how many households for PMAY-G" after an MGNREGA
+    West Garo Hills FY 2022-23 answer asked the year again and dropped the district.
+    Whatever the user does not say again is carried forward, on ANY one scheme:
+    the year when the question names none (and the target scheme holds it — else
+    the year chips ask), the place when it names none (a place it names wins in the
+    resolver; a statewide or by-district question drops it). Another scheme's
+    district / block names are re-read against that scheme's own catalogue. A
+    model-inferred value is not inherited.
+
+    D-061 (user addendum 2026-10-22) narrows this to questions that are NOT self-
+    sufficient: a question with its own scheme and its own measure and no
+    reference cue ("Total PMAY-G houses completed in 2023-24", "Which district
+    has the highest beneficiaries in MGNREGA?") inherits nothing — the stranger
+    test (context_policy.turn_kind). Its year is the question's, else the default
+    rule (c13: ask the year, D-065).
+
+    `kind` is the turn's own kind when the follow-up stage decided it — for a
+    resumed pause, the kind of the question the user typed (D-065), not of the
+    chip text, which names the scheme and reads as standalone."""
     if state is None or not getattr(state, "scheme", None):
         return None
-    if (getattr(state, "provenance", None) or {}).get("year", {}).get("source") == "model_inference":
+    if (kind or context_policy.turn_kind(raw_question or question).kind) == context_policy.TURN_STANDALONE:
         return None
-    if sorted(_exact_schemes(question or "")) != [state.scheme]:
+    target = _c14_context_target_scheme(question, state)
+    if not target:
         return None
-    for q in (question or "", raw_question or ""):
-        if context_policy.extract_year_keys(q) or _ALL_YEARS_CUE.search(q) or _TIME_SERIES_CUE.search(q)                 or _WHICH_YEAR_CUE.search(q):
-            return None
-    out: dict = {}
-    if isinstance(getattr(state, "year", None), int):
-        out["year_key"] = state.year
-    elif getattr(state, "year_all", False):
-        out["year_all"] = True
-    # "what is the total expenditure THERE?" after an aside and a how-it-works
-    # question (live 2026-10-19 16:17, harness U7): the year came back, Ri Bhoi did
-    # not. A place reference word brings the thread's place with it; a place the
-    # question names itself still wins (prior_resolved is only the resolver's
-    # fallback). A model-inferred place is not inherited.
     _prov = getattr(state, "provenance", None) or {}
-    if _C14_PLACE_REFERENCE.search(raw_question or question or ""):
-        for fld, key in (("district", "district"), ("block", "block"), ("village", "village_code")):
-            v = getattr(state, fld, None)
-            if v and (_prov.get(fld) or {}).get("source") != "model_inference":
-                out[key] = v
+    out: dict = {}
+    _own_year = any(context_policy.extract_year_keys(q) or _ALL_YEARS_CUE.search(q) or _TIME_SERIES_CUE.search(q)
+                    or _WHICH_YEAR_CUE.search(q) for q in (question or "", raw_question or ""))
+    _years = _SCHEME_DATA_YEARS.get(target) or []
+    if not _own_year and _years and (_prov.get("year") or {}).get("source") != "model_inference":
+        year = getattr(state, "year", None)
+        if isinstance(year, int) and (target == state.scheme or _fy_short(year) in _years):
+            out["year_key"] = year
+        elif getattr(state, "year_all", False):
+            out["year_all"] = True
+    # A district the question names itself is its place (the resolver would let
+    # it win anyway; carrying nothing keeps the words shareable through the cache).
+    try:
+        _names_district = bool(scan_districts(raw_question or question or "", target))
+    except Exception:  # noqa: BLE001 — catalogue unavailable: the resolver decides
+        _names_district = False
+    for fld in () if _names_district else _c14_kept_place_fields(raw_question or question or ""):
+        v = getattr(state, fld, None)
+        if not v or (_prov.get(fld) or {}).get("source") == "model_inference":
+            continue
+        if target != state.scheme:
+            v = _c14_place_in_scheme(str(v), target, fld)
+            if v is None:
+                break          # a parent that does not exist there: carry nothing below it
+        out["village_code" if fld == "village" else fld] = v
     if not out:
         return None
-    context_budget.log_decision("data_context", inherited="context-scope", scheme=state.scheme,
+    context_budget.log_decision("data_context", inherited="context-scope", scheme=target,
+                                from_scheme=state.scheme,
                                 year=out.get("year_key") or ("all" if out.get("year_all") else None),
                                 place=out.get("village_code") or out.get("block") or out.get("district"))
     return out
 
 
-# "there", "here", "that district", "the same block" — a word that points at the
-# place the conversation is on (KI-331 follow-up, harness U7).
-_C14_PLACE_REFERENCE = Matcher(Alt(
-    W("there", "here"),
-    Seq(W("that", "this", "same", "the"), Opt("same"),
-        W("place", "district", "block", "village", "area", "constituency", "location"))))
+def _c14_context_target_scheme(question: str, state) -> "str | None":
+    """The one scheme a new question is about: the one it names, else the one its
+    words pin, else the chat's own (the scheme stage appends it). None when it
+    names several (a comparison carries nothing)."""
+    named = sorted(_exact_schemes(question or ""))
+    if len(named) > 1:
+        return None
+    if named:
+        return named[0]
+    inferred = list(_infer_scheme_from_terms(question or "") or [])
+    if len(inferred) == 1:
+        return inferred[0]
+    return getattr(state, "scheme", None)
+
+
+def _c14_place_in_scheme(value: str, scheme: str, fld: str) -> "str | None":
+    """The chat's district / block as `scheme` spells it, or None when that scheme
+    has no such place. A village carries only as its LGD code (shared by every
+    scheme); a village name is another scheme's spelling and is dropped."""
+    if fld == "village":
+        return value if value.isdigit() else None
+    try:
+        hit = scan_dimension(value, scheme, fld, level_is_explicit=True)
+    except Exception:  # noqa: BLE001 — catalogue unavailable: carry nothing
+        return None
+    return str(hit.canonical) if hit is not None and hit.status == "resolved" and hit.canonical else None
+
+
+# The chat's place a new question keeps (user rule 2026-10-21): all of it, unless
+# it asks for the whole state ("for all of Meghalaya", "statewide") or a span of
+# districts ("by district", "top 5 districts", "compare"), which drop it, or a
+# span below the district ("by block", "each village"), which keeps the district.
+_C14_STATEWIDE = Matcher(Alt(
+    "meghalaya", _c04Joined("state", ("wide", "level")), Seq("entire", "state"), Seq("whole", "state"),
+    Seq("all", Opt("the"), W("districts")), "statewide"))
+_C14_DISTRICT_SPAN = frozenset(("district", "districts", "compare", "comparison", "versus", "vs"))
+_C14_BELOW_DISTRICT = frozenset(("block", "blocks", "village", "villages", "panchayat", "panchayats", "gp", "gps"))
+
+
+def _c14_kept_place_fields(text: str) -> tuple:
+    if _C14_STATEWIDE.search(text or ""):
+        return ()
+    # D-061 slot-conflict guard: the level a question asks ABOUT ("which
+    # district …", "top 5 blocks") and every level below it are never its filter.
+    asked = context_policy.asked_levels(text or "")
+    if asked:
+        return {"district": (), "block": ("district",), "village": ("district", "block")}[asked[0]]
+    if _HAS_BREAKDOWN.search(text or ""):
+        ws = {w.lower() for w in _c01_tm_words(text)}
+        if ws & _C14_DISTRICT_SPAN:
+            return ()
+        if ws & _C14_BELOW_DISTRICT:
+            return ("district",)
+    return ("district", "block", "village")
 
 
 # "what is <something> scheme/yojana/mission?" — the user named a specific

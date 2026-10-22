@@ -61,6 +61,9 @@ def ordered(names_counts, *more_pairs, money=()):
     def chk(rec):
         ok, note = base(rec)
         a = (rec.get("answer") or "").upper()
+        # the order of the LIST: an opening sentence may name the smallest first
+        # ("… EAST JAINTIA HILLS is smallest with 35", answer shapes 2026-10-22)
+        a = a[a.find("\n"):] if "\n" in a else a
         pos = [a.find(n.upper()) for n, _ in sorted(names_counts, key=lambda x: -x[1])]
         if ok and all(p >= 0 for p in pos) and pos != sorted(pos):
             return False, "not in descending order"

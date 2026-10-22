@@ -4,7 +4,7 @@ import { fullStamp } from '../format.js';
 import { CompareCard, DynTable, GroupedChart, PivotTable, RecordCard, StackedChart, SwitchableChart, TwoDimChart } from './Charts.jsx';
 import { Markdown, plainText } from './Markdown.jsx';
 import { useReveal } from '../reveal.js';
-import { SCHEME_HUES, themeFor } from '../chartTheme.js';
+import { themeFor } from '../chartTheme.js';
 import { sendFeedbackApi } from '../api.js';
 import { inlineSpans } from '../text.js';
 import { enterSends } from '../shortcuts.js';
@@ -328,20 +328,18 @@ function SchemePicker({ response, onAsk }) {
 }
 
 // Clarifying question (#281): the question is the answer text above; under it,
-// each possible reply is a tappable chip that asks the full question for the
+// each possible reply is a tappable pill that asks the full question for the
 // officer, so nothing is guessed. The pause rule is a debugging detail and
 // shows only with the route badge.
-// The scheme question ("Which scheme does your question concern?") lists its
-// schemes in three cards (central / state / legacy — the heading is for screen
-// readers only), each scheme with its chart hue as a dot; any other reply
-// stays a chip under the cards.
-const SCHEME_GROUPS = [
-  { head: 'Central schemes', schemes: ['MGNREGA', 'PMAY-G'] },
-  { head: 'State schemes', schemes: ['Focus Plus', 'CM Elevate'] },
-  { head: 'Legacy data', schemes: ['Focus Legacy', 'CM Elevate Legacy'] },
-];
-// Longest name first, so "CM Elevate Legacy (…)" is not read as "CM Elevate".
-const SCHEME_NAMES = SCHEME_GROUPS.flatMap((g) => g.schemes).sort((a, b) => b.length - a.length);
+// Design #11 "Plain card · Pill chips" (user, 2026-10-21): a divider, a
+// "Choose a …" line that names what is being asked (scheme / financial year /
+// district / place), a search box when the list is long enough to need one,
+// then pills — the first few shown and a "+N more" pill for the rest. An
+// "All …" reply (all years, all of Meghalaya) is the outlined pill at the end;
+// the pill the officer tapped stays filled.
+const SCHEME_NAMES = ['MGNREGA', 'PMAY-G', 'Focus Plus', 'CM Elevate', 'Focus Legacy', 'CM Elevate Legacy']
+  // Longest name first, so "CM Elevate Legacy (…)" is not read as "CM Elevate".
+  .sort((a, b) => b.length - a.length);
 const schemeOf = (label) => SCHEME_NAMES.find((n) => label === n || (label.startsWith(n) && !isAsciiLetterOrDigit(label[n.length]))) || null;
 const isAsciiLetterOrDigit = (c) => typeof c === 'string' && c.length === 1
   && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'));
@@ -352,45 +350,97 @@ const isAsciiLetterOrDigit = (c) => typeof c === 'string' && c.length === 1
 const RETIRED_OPTIONS = ['compare across schemes'];
 const isRetiredOption = (label) => RETIRED_OPTIONS.some((r) => label.toLowerCase().startsWith(r));
 
-function groupSchemeOptions(opts) {
-  const tagged = opts.map((o) => ({ ...o, scheme: schemeOf(o.label) }));
-  const groups = SCHEME_GROUPS
-    .map((g) => ({ head: g.head, items: g.schemes.map((n) => tagged.find((o) => o.scheme === n)).filter(Boolean) }))
-    .filter((g) => g.items.length);
-  if (groups.length < 2) return null;              // not the scheme question
-  return { groups, rest: tagged.filter((o) => !o.scheme) };
+// What each kind of pause asks for. `search`: always show the search box
+// ('auto' = only when the list is longer than `limit`). `limit`: pills shown
+// before "+N more" (0 = all). `all`: the short label for its "All …" reply.
+const CLARIFY_KINDS = {
+  scheme: { head: 'Choose a scheme', search: 'Search schemes', always: true, limit: 8 },
+  year: { head: 'Choose a financial year', limit: 0, all: 'All years' },
+  district: { head: 'Choose a district', search: 'Search districts', always: true, limit: 8 },
+  place: { head: 'Choose a place', search: 'Search places', limit: 8 },
+  tranche: { head: 'Choose a tranche', limit: 0 },
+  other: { head: 'Choose one to continue', search: 'Search options', limit: 10 },
+};
+// The backend's pause rule (ClarificationNeeded.rule) says what is asked; the
+// labels decide when the rule is missing (older turns) or generic.
+const RULE_KIND = {
+  'scheme-not-specified': 'scheme', 'focus-scheme-ambiguous': 'scheme', 'cm-scheme-group-ambiguous': 'scheme',
+  'cm-elevate-dataset': 'scheme', 'scheme-not-available': 'scheme', 'scheme-comparison-not-specified': 'scheme',
+  'bank-scheme-not-specified': 'scheme',
+  'year-not-specified': 'year', 'year-out-of-range': 'year',
+  'scope-not-specified': 'district', 'region-needs-district': 'district',
+  'entity-ambiguous': 'place', 'village-or-outside-place': 'place',
+  'tranche-not-specified': 'tranche',
+};
+const isAllOption = (label) => label.toLowerCase().startsWith('all ');
+const isYearLabel = (label) => label.startsWith('FY ');
+
+function clarifyKind(rule, opts) {
+  const named = opts.filter((o) => !isAllOption(o.label));
+  if (named.length >= 2 && named.filter((o) => isYearLabel(o.label)).length >= named.length / 2) return 'year';
+  if (named.filter((o) => schemeOf(o.label)).length >= 2) return 'scheme';
+  return RULE_KIND[String(rule || '')] || 'other';
 }
 
 function Clarify({ response, onAsk }) {
   const c = response && response.clarification;
+  const [query, setQuery] = useState('');
+  const [expanded, setExpanded] = useState(false);
+  const [picked, setPicked] = useState(null);
   if (!c) return null;
   const opts = (Array.isArray(c.options) ? c.options : [])
     .map((o) => ({ q: String((o && o.question) || '').trim(), label: String((o && o.label) || '').trim() }))
     .filter((o) => o.q && o.label && !isRetiredOption(o.label));
   if (!opts.length && !(SHOW_ROUTE_BADGE && c.rule)) return null;
-  const grouped = groupSchemeOptions(opts);
-  const chips = grouped ? grouped.rest : opts;
+  const kind = clarifyKind(c.rule, opts);
+  const cfg = CLARIFY_KINDS[kind];
+  // The named replies first, the "All …" ones last (outlined).
+  const named = opts.filter((o) => !isAllOption(o.label));
+  const alls = opts.filter((o) => isAllOption(o.label));
+  const showSearch = !!cfg.search && (cfg.always || (cfg.limit > 0 && named.length > cfg.limit));
+  const needle = query.trim().toLowerCase();
+  const matches = needle ? named.filter((o) => o.label.toLowerCase().includes(needle)) : named;
+  const capped = !needle && !expanded && cfg.limit > 0 && matches.length > cfg.limit;
+  const visible = capped ? matches.slice(0, cfg.limit) : matches;
+  const ask = (o) => { setPicked(o.q); onAsk(o.q); };
+  // A scheme pill shows the bare name; its "(rural housing)" note stays in the tooltip.
+  const pill = (o, extra, label) => (
+    <button key={o.q} type="button" title={kind === 'scheme' && schemeOf(o.label) ? o.label : o.q}
+      className={'clarify-opt' + (extra ? ' ' + extra : '') + (picked === o.q ? ' picked' : '')}
+      aria-pressed={picked === o.q}
+      onClick={(e) => { e.preventDefault(); e.stopPropagation(); ask(o); }}>
+      {label || (kind === 'scheme' && schemeOf(o.label)) || o.label}
+    </button>
+  );
   return (
-    <div className="clarify-box">
-      {grouped && (
-        <div className="scheme-groups" role="group" aria-label="Choose a scheme">
-          {grouped.groups.map((g) => (
-            <div key={g.head} className="sg-card" role="group" aria-label={g.head}>
-              {g.items.map((o) => (
-                <button key={o.scheme} type="button" className="sg-item" title={o.label} {...askProps(onAsk, o.q)}>
-                  <span className="sg-dot" aria-hidden="true" style={{ background: (SCHEME_HUES[o.scheme] || {}).main }} />
-                  {o.scheme}
-                </button>
-              ))}
-            </div>
-          ))}
-        </div>
+    <div className={'clarify-box clarify-' + kind}>
+      {opts.length > 0 && <div className="clarify-head">{cfg.head}</div>}
+      {showSearch && (
+        <label className="clarify-search">
+          <svg viewBox="0 0 24 24" width="15" height="15" aria-hidden="true">
+            <circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" strokeWidth="2" />
+            <path d="M20 20l-3.5-3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
+          </svg>
+          <input type="search" value={query} placeholder={cfg.search} aria-label={cfg.search}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              e.stopPropagation();
+              // Enter on a search that leaves one pill picks it.
+              if (e.key === 'Enter') { e.preventDefault(); if (matches.length === 1) ask(matches[0]); }
+            }} />
+        </label>
       )}
-      {chips.length > 0 && (
-        <div className="clarify-opts" role="group" aria-label="Choose one to continue">
-          {chips.map((o, i) => (
-            <button key={i} type="button" className="clarify-opt" title={o.q} {...askProps(onAsk, o.q)}>{o.label}</button>
-          ))}
+      {opts.length > 0 && (
+        <div className="clarify-opts" role="group" aria-label={cfg.head}>
+          {visible.map((o) => pill(o))}
+          {needle && !matches.length && <span className="clarify-none">No match. Type it in the chat box instead.</span>}
+          {capped && (
+            <button type="button" className="clarify-opt clarify-all clarify-more"
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); setExpanded(true); }}>
+              +{matches.length - cfg.limit} more
+            </button>
+          )}
+          {!needle && alls.map((o) => pill(o, 'clarify-all', alls.length === 1 && cfg.all ? cfg.all : null))}
         </div>
       )}
       {SHOW_ROUTE_BADGE && c.rule && <div className="clarify-rule">rule: {String(c.rule)}</div>}

@@ -80,6 +80,9 @@
       expect: {route: pause, pause_rule: scheme-not-specified}
       note: "user rule 2026-10-19: a NEW chat with no scheme asks (was a cross-scheme table under D-045)"
     - say: "Focus Plus"
+      expect: {route: pause, pause_rule: scope-not-specified, chips_contain: ["All of Meghalaya"]}
+      note: "D-056 (2026-10-21): a new chat asks scheme -> district -> year"
+    - say: "All of Meghalaya"
       expect: {route: pause, pause_rule: year-not-specified, chips_contain: ["All financial years combined"]}
       note: "D-053 (2026-10-19): no year in the question or the context -> ask; the chip answers it"
     - say: "All financial years combined"
@@ -101,7 +104,8 @@
     - say: "MGNREGA job cards in West Garo Hills in 2023-24"
       expect: {route: data, place: West Garo Hills, year: FY 2023-24, numbers_any: [80923]}
     - say: "PMAY-G houses completed in 2023-24"
-      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24, numbers_any: [71976]}
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24, new_question: true}
+      note: "D-061 (2026-10-22): its own scheme, measure and year -> a new question, statewide (D-056 kept West Garo Hills, 13,964)"
     - say: "go back to the East Khasi Hills one"
       expect: {route: data, same_scope_as: 1, from_earlier: true, same_numbers_as: 1}
     - say: "the first question"

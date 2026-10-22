@@ -157,11 +157,12 @@ def no_db(monkeypatch):
     monkeypatch.setattr(p, "_verify_sql", ok)
 
 
-def test_pmay_village_ranking_is_told_the_pmay_placeholder_column(no_db):
+def test_pmay_village_ranking_is_not_asked_to_drop_placeholders(no_db):
+    # D-060 (2026-10-22): the zero-sanction registrations are beneficiaries in real
+    # villages and v_pmay has no "Unresolved" bucket, so nothing is demanded.
     q = "Top 3 villages in Ri Bhoi by PMAY-G houses sanctioned in 2021-22"
-    with pytest.raises(ValueError) as e:
-        asyncio.run(p._execute_one_attempt(q, ["PMAY-G"], {"resolved": {}, "unresolved": []}, PMAY_RANK))
-    assert "NOT is_placeholder" in str(e.value) and "entity_type" not in str(e.value)
+    rows = asyncio.run(p._execute_one_attempt(q, ["PMAY-G"], {"resolved": {}, "unresolved": []}, PMAY_RANK))
+    assert rows
 
 
 def test_pmay_village_ranking_with_is_placeholder_passes_the_guard(no_db):

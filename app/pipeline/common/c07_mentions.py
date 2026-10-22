@@ -415,6 +415,54 @@ def _backfill_explicit_year(question: str, schemes: list[str], mentions: dict) -
     return {**mentions, "year": fy}
 
 
+_C07_LEVEL_WORDS = {"district": "district", "block": "block",
+                    "assembly_constituency": "assembly constituency", "village": "village"}
+
+
+def _c07_places_hint(question: str) -> str:
+    """The places a database lookup found in the question, for the extractor
+    (PLACE_GAZETTEER, D-059). The prompt alone told the model to tag "an
+    ambiguous bare name as block" and said nothing of villages, so a bare
+    village reached the village resolver only through fallbacks (user report
+    2026-10-21, "How many job cards in Mawphlang?"). The level is the
+    database's; which reading is meant stays with the resolver's level gate.
+    "" with the flag off, the index not loaded, or nothing found."""
+    from app import entity_resolver
+    if not settings.PLACE_GAZETTEER or not entity_resolver.village_index_loaded():
+        return ""
+    try:
+        found = entity_resolver.match_places(question, is_ordinary=_is_known_word)
+    except Exception:  # noqa: BLE001 — a hint, never a reason to fail the turn
+        logger.exception("match_places failed")
+        return ""
+    # The prompt's own rule: "assembly_constituency" ONLY when the question
+    # signals a constituency. Listing it (first, alphabetically) for every
+    # block-and-constituency name made the 4B tag Nongpoh / Jowai / Umroi as
+    # constituencies, and the "whole constituency or part?" pause followed
+    # (place hierarchy sweep 2026-10-21, KI-349).
+    _signals_ac = bool({"CONSTITUENCY", "CONSTITUENCIES", "AC", "ASSEMBLY", "MLA"}
+                       & set("".join(c if c.isalnum() else " " for c in question.upper()).split()))
+    lines = []
+    for f in found:
+        # Coarse to fine, as the level gate orders them: "block or district"
+        # made the 4B tag Tura (West Garo Hills HQ) a block, which only CM
+        # Elevate's urban-body catalogue holds (KI-349).
+        _lv = [lv for lv in ("district", "block", "assembly_constituency", "village") if lv in f["levels"]]
+        if not _signals_ac and len(_lv) > 1:
+            _lv = [lv for lv in _lv if lv != "assembly_constituency"]
+        levels = " or ".join(_C07_LEVEL_WORDS[lv] for lv in _lv)
+        if f.get("fuzzy"):
+            levels += f" (a misspelling of the village {f['name'].title()})"
+        lines.append(f'- "{f["typed"].lower()}": {levels}')
+    if not lines:
+        return ""
+    return ("Places a database lookup found in this question (the level is the database's):\n"
+            + "\n".join(lines) + "\n"
+            "Extract these names verbatim as the user typed them, and do not invent any other place "
+            "name. A name the lookup lists ONLY as a village goes in \"village\", with or without the "
+            "word \"village\". A name the lookup does NOT list as a village is never a \"village\".\n\n")
+
+
 async def extract_entity_mentions(question: str) -> dict:
     """Which spans of the question name a district, block, village, year or
     assembly constituency? Span-finding only — resolving each span to a
@@ -492,7 +540,7 @@ JSON: {{"districts": ["ekh", "wgh"], "year": "2017-18"}}
 Question: "which district received highest total disbursement for Focus Plus"
 JSON: {{}}
 
-Question: "{question}"
+{_c07_places_hint(question)}Question: "{question}"
 JSON:"""
     raw = await llm.call_classifier(prompt, guided={"guided_json": _ENTITY_JSON_SCHEMA})
     payload = _extract_json(raw)
@@ -789,6 +837,26 @@ _DIM_CHIP_LABEL = {
 }
 
 
+def _c07_chip_where(dim: str, shown: str) -> str:
+    """" (Mylliem block, East Khasi Hills)" after a level chip, so the two
+    readings of one name are told apart by where they lie (PLACE_GAZETTEER,
+    D-059). Only with the village index loaded; "" when the place is not
+    known exactly or several same-name villages exist."""
+    from app import entity_resolver
+    if not settings.PLACE_GAZETTEER or not entity_resolver.village_index_loaded():
+        return ""
+    if dim == "village":
+        places = entity_resolver.village_places(shown)
+        if len(places) != 1:
+            return ""
+        _code, blk, dist = places[0]
+        return f" ({_place_title(blk)} block, {_place_title(dist)})" if blk and dist else ""
+    if dim == "block":
+        dist = entity_resolver.block_parent_district(shown)
+        return f" ({_place_title(dist)})" if dist else ""
+    return ""
+
+
 def _dimension_collision_clarification(question: str, name: str,
                                        dims: "dict[str, str]") -> "ClarificationNeeded":
     """Ask which ADMIN LEVEL a bare, level-ambiguous place name refers to.
@@ -811,7 +879,7 @@ def _dimension_collision_clarification(question: str, name: str,
         else:
             resumed = stem
         options.append({
-            "label": f"The {shown} {_DIM_CHIP_LABEL[dim]}",
+            "label": f"The {shown} {_DIM_CHIP_LABEL[dim]}{_c07_chip_where(dim, shown)}",
             "question": f"{resumed}, the {_DIM_CHIP_WORD[dim]}, not another area type",
         })
     labels = list(dims)

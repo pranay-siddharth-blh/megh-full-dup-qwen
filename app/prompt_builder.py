@@ -724,3 +724,35 @@ Rephrased question: How many person-days were given to women under MGNREGA in we
 
 def build_rephrase_prompt(question: str) -> str:
     return f"{_REPHRASE_RULES}\nMessage: {question.strip()}\nRephrased question:"
+
+
+# A question across several schemes is answered one scheme at a time, each from
+# its own data (D-062): this asks for the one-scheme question to put to each.
+_CROSS_SUBQUESTION_RULES = """A question compares several government schemes in Meghalaya. It is answered one
+scheme at a time, each from that scheme's own data. Write the question to ask of ONE scheme's data.
+
+Rules:
+1. Name only the scheme given. Name no other scheme.
+2. Keep everything else the question asks: the measure words as written, every place, year,
+   number, "top N", ranking, and level (village, block, district, constituency).
+3. When the question asks WHICH SCHEME leads or compares schemes, ask for this scheme's own
+   figure at the same level, so the schemes can be compared afterwards.
+4. Copy place names exactly as written. Add nothing of your own. Never answer.
+Return ONLY the question on one line.
+
+Examples:
+Question: top ten highest villages in Mgnrega and pmay across all financial years
+Scheme: PMAY-G
+One-scheme question: Which are the top ten highest villages in PMAY-G across all financial years?
+Question: which scheme has the highest beneficiary count in each district across all financial years
+Scheme: MGNREGA
+One-scheme question: What is the MGNREGA beneficiary count in each district across all financial years?
+Question: Compare Focus+ and FOCUS spending in ekh for FY 2024-25
+Scheme: Focus Legacy
+One-scheme question: What is the Focus Legacy spending in ekh for FY 2024-25?
+"""
+
+
+def build_cross_subquestion_prompt(question: str, scheme: str) -> str:
+    return (f"{_CROSS_SUBQUESTION_RULES}\nQuestion: {question.strip()}\nScheme: {scheme}\n"
+            f"One-scheme question:")

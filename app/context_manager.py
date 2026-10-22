@@ -511,6 +511,16 @@ def update_state(session: "Session | None", raw_question: str, standalone_questi
             state.block = str(resolved["block"])
         if resolved.get("village_code") or resolved.get("village"):
             state.village = str(resolved.get("village") or resolved.get("village_code"))
+            # A village's block and district are its own parents, never the
+            # chat's old ones: after the Chokpot block, Rasong village (Mawkynrew
+            # block, East Khasi Hills) kept "block=CHOKPOT" (KI-348, D-059).
+            if resolved.get("village_code") and not resolved.get("block"):
+                from app.entity_resolver import village_code_place
+                _vp = village_code_place(resolved["village_code"])
+                if _vp:
+                    state.block = _vp[0] or None
+                    if not resolved.get("district"):
+                        state.district = _vp[1] or state.district
         if resolved.get("year_key") is not None:
             try:
                 y = int(resolved["year_key"])
@@ -859,7 +869,10 @@ def build_state_block(state: "ConversationState | None") -> str:
     if state.block:
         parts.append(f"block={state.block}")
     if state.village:
-        parts.append(f"village={state.village}")
+        # The state keeps the village's CODE; the model copied "278445" into the
+        # question ("in 278445 village", KI-348). The name, when the index has it.
+        from app.entity_resolver import village_code_name
+        parts.append(f"village={village_code_name(state.village) or state.village}")
     if state.year is not None:
         parts.append(f"year={_fy_text(state.year)}")
     elif getattr(state, "year_all", False):

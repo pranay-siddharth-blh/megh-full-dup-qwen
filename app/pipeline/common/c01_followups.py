@@ -28,7 +28,7 @@ from sqlglot.errors import SqlglotError
 from sqlglot.tokens import TokenType
 
 from app import annotations, auth, context_manager, edge, followups, llm, premise_check, prompt_builder, rag
-from app import context_budget, context_policy, cross_scheme, guardrails, topic_memory
+from app import context_budget, context_policy, cross_figures, cross_scheme, guardrails, topic_memory
 from app import sql_ast, turn_trace
 from app.config import settings
 from app.db import UnsafeSQLError, fetch_rows, run_readonly
@@ -663,10 +663,18 @@ class ClarificationNeeded(Exception):
 # ── Follow-up ("what about East Garo Hills?") rewriting ──────────────────────
 # A cheap heuristic gates the one extra model call: only questions that read
 # like a fragment referring back to the previous turn get rewritten.
+# "show me for south garo hills district" / "give me for Ri Bhoi" (live 2026-10-21,
+# harness F3): a request verb straight onto the preposition asks for the previous
+# question in another scope, exactly as the scheme-swap _SUBSTITUTION_CUE reads it.
+# Not a follow-up, it went to SQL with no measure; the 30B guessed an overview or
+# dropped the year, three repairs failed and the KB fallback answered "application
+# steps". "show me the expenditure for X" names its own measure and stays standalone.
 _FOLLOWUP_LEAD = Matcher(Seq(_C01Begin(), Alt(
     _c01_ph("what about", "how about"),
     Seq(_c01_ph("and", "what of", "and for", "also", "ok and", "okay and", "same for", "what if",
-                "now", "then"), _C01SpaceNext()))))
+                "now", "then"), _C01SpaceNext()),
+    Seq(W("give", "show", "get", "fetch"), W("me", "us"), Opt("the"), Opt("same"),
+        W("for", "in", "under"), sep="space"))))
 _FOLLOWUP_PRONOUN = Matcher(Cap(Alt(
     Seq("this", "one", sep="space"),
     W("it", "its", "that", "those", "these", "them", "they", "there", "this"),
@@ -765,17 +773,12 @@ def is_scopeless_followup(question: str, prev: "object") -> bool:
     router's is_cacheable uses this too, so such a turn is never cached."""
     if prev is None or getattr(prev, "route", None) != "data":
         return False
-    if _is_measure_only(question):
-        return True
-    # The same scheme named again with only a measure ("What is the total
-    # beneficiaries MGNREGA?" right after MGNREGA person-days in 2023-24) is
-    # still this conversation's follow-up: it keeps the place and year (UI
-    # 2026-10-18; it was answered for all financial years). Another scheme
-    # named is a new question, as before.
-    named = _named_schemes(question)
-    if named and set(named) == set(getattr(prev, "schemes", None) or []):
-        return _is_measure_only(topic_memory._strip_scheme_words(question))
-    return False
+    # A question that names a scheme is never scope-less, the chat's own scheme
+    # included (D-061, 2026-10-22): "Which district has the highest beneficiaries
+    # in MGNREGA?" after an East Khasi Hills FY 2022-23 MGNREGA answer was kept
+    # in East Khasi Hills and 2022-23. It replaces the 2026-10-18 rule that read
+    # "What is the total beneficiaries MGNREGA?" as a follow-up on the same scheme.
+    return _is_measure_only(question)
 
 
 def _is_measure_only(question: str, allow_year: bool = False) -> bool:
@@ -1102,6 +1105,218 @@ def _scheme_swap_rewrite(prev_question: str, followup: str) -> "str | None":
         out = f"{out.rstrip(' ?.')} for {label}"
     out = _c01_tidy_space(out, ",", collapse=False).strip()
     logger.info("follow-up scheme-swap: %r + %r -> %r", prev_question, followup, out)
+    return out
+
+
+# ── A follow-up that is only a place ────────────────────────────────────────
+# User report 2026-10-21: after "How much PMAY-G amount was released in East
+# Garo Hills in FY 2023-24?", "in ambare ading" (a village, typed without the
+# word "village") was declined as off-topic. Recognising the place fixed that,
+# but the rewrite model then did what it liked with a bare name: "what about
+# danak dopgre" became "... for the Danak Dopgre tranche" (Focus Plus, the
+# district total answered again), "dangar dombah" became "Dargar Dombah", and
+# "wapung" (an East Jaintia Hills block) came back as East Khasi Hills. A
+# follow-up that names one place and nothing else means "the same question for
+# that place": the previous question with its place swapped, written here. The
+# level word goes in only when the name has exactly one level; a name that is a
+# block AND a village (Mawlai, Rajabala) goes in bare, so the level pause asks.
+_C01_PLACE_ONLY_WORDS = frozenset(
+    "IN FOR AT OF FROM WITHIN WHAT ABOUT HOW AND NOW THEN OK OKAY ALSO SAME SO THE PLEASE "
+    "SHOW GIVE TELL ME IT THIS VILLAGE BLOCK CONSTITUENCY AC DISTRICT".split())
+_C01_LEVEL_WORD = {"village": "village", "block": "block", "assembly_constituency": "constituency"}
+_C01_TYPED_LEVEL = {"VILLAGE": "village", "BLOCK": "block", "CONSTITUENCY": "constituency",
+                    "AC": "constituency", "DISTRICT": "district"}
+_C01_LEVEL_TAIL = ("village", "block", "district", "constituency", "ac")
+_C01_STATEWIDE_PHRASES = (" for all of Meghalaya", " across all of Meghalaya", " in all of Meghalaya",
+                          " across Meghalaya", " in Meghalaya", " for Meghalaya", " (statewide)",
+                          " statewide", " across the state", " for the whole state")
+
+
+# A breakdown no finer than the new place means nothing there: "How many PMAY-G
+# houses were completed by district for FY 2019-20" + "give me for dalu" became
+# "... completed by district in Dalu, West Garo Hills ..." (user, live
+# 2026-10-21 18:18, KI-346). Longest first, so "by districts" is not left as "s".
+# The verb the rewrite hangs on the breakdown goes with it, longest first: "…
+# across all financial years, shown by block" lost only "by block" and asked
+# "…, shown?" for a village (live 2026-10-21).
+_C01_BREAKDOWN_LEAD = (", shown", ", broken down", ", split", " shown", " broken down", " split", "")
+_C01_BREAKDOWN_AT = {
+    level: tuple(lead + phrase for lead in _C01_BREAKDOWN_LEAD for phrase in phrases)
+    for level, phrases in {
+        "district": (" for each district", " in each district", " by districts", " by district",
+                     " per district", " district-wise", " district wise", " districtwise"),
+        "block": (" for each block", " in each block", " by blocks", " by block", " per block",
+                  " block-wise", " block wise", " blockwise"),
+    }.items()
+}
+_C01_BREAKDOWNS_DROPPED = {"block": ("district",), "assembly_constituency": ("district",),
+                           "village": ("district", "block")}
+
+
+_C01_CHIP_LEVEL_WORDS = ("assembly constituency", "constituency", "district", "village", "block")
+_C01_CHIP_LEVEL_TAILS = tuple(
+    f", the {w}, not {tail}" for w in _C01_CHIP_LEVEL_WORDS
+    for tail in ("another area type", *(f"the {x}" for x in _C01_CHIP_LEVEL_WORDS if x != w)))
+
+
+def _c01_strip_chip_level(text: str, keep_if_in: str = "") -> str:
+    """`text` without a level chip's tail (", the block, not another area type",
+    ", the village, not the block") unless `keep_if_in` holds it. That tail
+    states the level of the place its chip was about; carried into the next
+    question it re-labels a DIFFERENT place: "Total sanctioned amount in Rasong."
+    after a Chokpot block chip became "... in Rasong for MGNREGA, the block, not
+    another area type ..." (Rasong is a village; user, live 2026-10-21, KI-348)."""
+    for tail in _C01_CHIP_LEVEL_TAILS:
+        if _ci_find(keep_if_in or "", tail) >= 0:
+            continue
+        p0 = _ci_find(text, tail)
+        while p0 >= 0:
+            text = text[:p0] + text[p0 + len(tail):]
+            p0 = _ci_find(text, tail)
+    return text
+
+
+def _c01_drop_coarser_breakdown(text: str, dim: str) -> str:
+    for level in _C01_BREAKDOWNS_DROPPED.get(dim, ()):
+        for phrase in _C01_BREAKDOWN_AT[level]:
+            p0 = _ci_find(text, phrase)
+            end = p0 + len(phrase)
+            if p0 >= 0 and (end == len(text) or not text[end].isalnum()):
+                text = text[:p0] + text[end:]
+                break
+    return text
+
+
+def _c01_place_span(text: str, typed: str) -> "tuple[int, int] | None":
+    """Span of "<prep> <name>" (or ", <name>") in `text`, with a following level
+    word ("village", "block", …) taken too; None when the name is not there."""
+    sp = _c07_place_phrase_span(text, typed, _C07_DROP_PREPS, word_end=True)
+    if sp is None:
+        p = _ci_find(text, typed)
+        if p < 0:
+            return None
+        k = p
+        while k > 0 and text[k - 1].isspace():
+            k -= 1
+        if k == 0 or text[k - 1] != ",":
+            return None
+        sp = (k - 1, p + len(typed))
+    e = sp[1]
+    j = _ws_run_end(text, e)
+    for w in _C01_LEVEL_TAIL:
+        if text[j:j + len(w)].lower() == w and (j + len(w) >= len(text) or not text[j + len(w)].isalnum()):
+            e = j + len(w)
+            break
+    return sp[0], e
+
+
+def _place_swap_rewrite(prev: "object", followup: str, force: bool = False,
+                        district: bool = False) -> "str | None":
+    """The previous DATA question asked again for the one place `followup`
+    names (village, block or constituency; districts stay with the model
+    rewrite, D-056), or None to fall back to it. See the note above.
+    `force`: also a block inside the chat's district — used when the model's
+    rewrite of it was rejected (KI-347). `district`: also a district — used when
+    the model's rewrite kept the old, finer place (KI-358)."""
+    from app.entity_resolver import place_levels, place_mentions, place_only, village_districts
+    prev_q = getattr(prev, "question", "") or ""
+    if not prev_q or getattr(prev, "route", None) != "data":
+        return None
+    only = place_only(followup, _C01_PLACE_ONLY_WORDS)
+    if not only or (only[1] == "district" and not district):
+        return None
+    name, dim, typed = only
+    # "What about Rongara block?" — the level word with its "?" is still the level
+    # (RONGARA is a block AND a constituency; PMAY-G sheet run 2026-10-22)
+    words = {w.strip("?.,!;:") for w in fold(followup).split()}
+    stated = next((_C01_TYPED_LEVEL[w] for w in words if w in _C01_TYPED_LEVEL), None)
+    levels = place_levels(typed)
+    if stated:
+        level = stated
+    elif len(levels) == 1:
+        level = _C01_LEVEL_WORD.get(next(iter(levels)))
+    else:
+        level = None                       # same name at 2+ levels: the gate asks
+        # ...unless the chat's remembered block / district settles it, by the
+        # gate's own rule (PLACE_GAZETTEER, D-059). After West Khasi Hills,
+        # "what about Mawlai?" was swapped to "Mawlai, East Khasi Hills" (the
+        # block's district) although the Mawlai village lies in West Khasi
+        # Hills; after Shallang block the model rewrite wrote "Mawlai block"
+        # although the Mawlai village lies in Shallang (2026-10-21).
+        if settings.PLACE_GAZETTEER and "village" in levels:
+            _readings = {lv: (name if lv != "village" else "") for lv in levels
+                         if lv in ("block", "assembly_constituency", "village")}
+            _settled = _c09_gazetteer_settle(
+                typed, _readings, (getattr(prev, "schemes", None) or [""])[0],
+                getattr(prev, "resolved_entities", None))
+            if list(_settled) == ["village"]:
+                level, dim = "village", "village"
+    prev_district = str((getattr(prev, "resolved_entities", None) or {}).get("district") or "").upper()
+    # A block inside the chat's district is left to the model rewrite, which
+    # handles it (tests/test_context_semantic_state.py); one in another district
+    # was rewritten back to the old district ("wapung").
+    if dim == "block":
+        _resolved = getattr(prev, "resolved_entities", None)
+        _parent = block_parent_district(name)
+        if _resolved is None or not _parent:
+            return None
+        if not force and (_parent == prev_district
+                          or (not prev_district and (_resolved.get("block") or _resolved.get("village_code")))):
+            return None
+    keep_district = bool(prev_district) and (
+        (level == "village" and prev_district in village_districts(typed))
+        or (level == "block" and dim == "block" and block_parent_district(name) == prev_district))
+    out, at = _c01_drop_coarser_breakdown(_c01_strip_chip_level(prev_q, followup), dim), None
+    for pname, pdim in sorted(place_mentions(out).items(), key=lambda kv: kv[1] == "district"):
+        if pdim == "district" and keep_district:
+            continue
+        sp = None
+        for form in (pname, pname.title()):
+            sp = _c01_place_span(out, form)
+            if sp:
+                break
+        if sp is None:
+            return None                    # cannot find the old place: let the model rewrite
+        # EVERY copy goes: "... in Rasong village under PMAY-G in Rasong village in
+        # Mawkynrew block ..." + "what about Chokpot?" kept the second Rasong and
+        # answered it again (KI-348).
+        while sp is not None:
+            if at is None:
+                at = sp[0]                 # the new place goes where the first old one was
+            elif sp[0] < at:
+                at -= sp[1] - sp[0]
+            out = out[:sp[0]] + out[sp[1]:]
+            sp = _c01_place_span(out, pname) or _c01_place_span(out, pname.title())
+    phrase = f" in {_place_title(typed)}" + (f" {level}" if level else "")
+    # Only a name that IS that block (one level, or stated) names the block's
+    # district: "in Mawlai" (block, constituency AND village) became "Mawlai,
+    # East Khasi Hills" and the West Khasi Hills village was answered under that
+    # label instead of asking which Mawlai (KI-348).
+    if dim == "block" and not keep_district and level == "block":
+        # A block of another district names its own (KI-327: "Dambo Rongjeng
+        # block, East Garo Hills" after a West Garo Hills village).
+        phrase += f", {_place_title(block_parent_district(name))}"
+    if at is None:
+        # A statewide question narrows to the place: its "statewide" goes.
+        for whole in _C01_STATEWIDE_PHRASES:
+            p0 = _ci_find(out, whole)
+            if p0 >= 0:
+                out, at = out[:p0] + out[p0 + len(whole):], p0
+                break
+    if at is not None:
+        out = out[:at] + phrase + out[at:]
+    elif keep_district:
+        sp = _c01_place_span(out, prev_district.title()) or _c01_place_span(out, prev_district)
+        if sp is None:
+            return None
+        out = out[:sp[0]] + phrase + out[sp[0]:]
+    else:
+        stem = out.rstrip(" ?.")
+        cut = next((i for i in (_ci_find(stem, " in FY"), _ci_find(stem, " for FY"),
+                                _ci_find(stem, " during")) if i >= 0), len(stem))
+        out = stem[:cut] + phrase + stem[cut:] + "?"
+    out = _c01_tidy_space(_c07_double_comma(out), ",?.").strip()
+    logger.info("follow-up place-swap: %r + %r -> %r", prev_q, followup, out)
     return out
 
 
@@ -1463,20 +1678,25 @@ def _sql_dimension_only_issue(schemes: "list[str]", sql: str) -> "str | None":
             "places that actually have records.")
 
 
-def _swap_scope_phrase(state: "object", scheme: str, prev: "object" = None) -> str:
+def _swap_scope_phrase(state: "object", scheme: str, prev: "object" = None,
+                       with_place: bool = True) -> str:
     """" in <place> in FY 2023-24" from the conversation state's committed
     scope (the previous turn's resolved filters when there is no state), for
     the offers of _swap_measure_gap. The most specific place only; the
-    resolver finds its parents."""
+    resolver finds its parents. `with_place=False`: the year only (the
+    question names its own place)."""
     resolved = getattr(prev, "resolved_entities", None) or {}
 
     def _get(name: str, key: str):
         return getattr(state, name, None) if state is not None else resolved.get(key)
 
     parts: list[str] = []
-    village = _get("village", "village")
-    block = _get("block", "block")
-    district = _get("district", "district")
+    village = _get("village", "village") if with_place else None
+    block = _get("block", "block") if with_place else None
+    district = _get("district", "district") if with_place else None
+    if village and str(village).isdigit():
+        from app.entity_resolver import village_code_name
+        village = village_code_name(village) or None
     if village:
         parts.append(f" in {str(village).title()} village"
                      + (f" in {str(block).title()} block" if block else ""))
@@ -1594,6 +1814,9 @@ async def rewrite_followup(question: str, prev: "object", extra_context: str = "
     swap = _scheme_swap_rewrite(getattr(prev, "question", "") or "", question)
     if swap:
         return swap
+    swap = _place_swap_rewrite(prev, question)
+    if swap:
+        return swap
     sections: list[tuple[str, str]] = []
     tiers: list[str] = []
     guard = "error"
@@ -1602,8 +1825,21 @@ async def rewrite_followup(question: str, prev: "object", extra_context: str = "
                                                             cleared)
         out = await llm.call_rewriter("".join(text for _, text in sections))
         out = out.strip().strip('"').splitlines()[0].strip()
+        if settings.PLACE_GAZETTEER:
+            out = _c01_tidy_space(_c01_strip_chip_level(out, question), ",?.").strip()
         if 3 <= len(out) <= 300:
             violation = _rewrite_provenance_violation(out, **provenance)
+            if violation == "village":
+                _fixed = _restore_typed_village(question, out)
+                if _fixed and not _rewrite_provenance_violation(_fixed, **provenance):
+                    logger.info("follow-up rewrite: village respelt as typed (%r -> %r)", out, _fixed)
+                    out, violation = _fixed, None
+            if not violation and settings.PLACE_GAZETTEER and _c01_invented_level(question, out):
+                violation = "level"
+            if not violation and settings.PLACE_GAZETTEER and _c01_place_only_drift(question, prev, out):
+                violation = "measure"
+            if not violation and settings.PLACE_GAZETTEER and _c01_kept_finer_place(question, prev, out):
+                violation = "place"
             guard = f"rejected:{violation}" if violation else "ok"
             if violation:
                 # The model put a scheme/district/block into the question that
@@ -1613,6 +1849,16 @@ async def rewrite_followup(question: str, prev: "object", extra_context: str = "
                 # The original fragment goes on instead: inject_scheme_hint and
                 # the prior_resolved carry still give it the previous turn's
                 # scheme and filters, deterministically.
+                # A place-only follow-up is better served by the deterministic
+                # swap than by the bare fragment: "in DADENGGIRI" (rewritten
+                # "Dadengiri", rejected) ran as "in DADENGGIRI under PMAY-G?",
+                # lost "amount released" and answered an overview; the next two
+                # turns built on that fragment (user, live 2026-10-21, KI-347).
+                _forced = _place_swap_rewrite(prev, question, force=True, district=violation == "place")
+                if _forced:
+                    logger.warning("follow-up rewrite rejected (%s: %r -> %r) — deterministic place swap %r",
+                                   violation, question, out, _forced)
+                    return _forced
                 logger.warning("follow-up rewrite introduced a %s no permitted source names "
                                "(%r -> %r) — using the original question", violation, question, out)
                 return question
@@ -1626,6 +1872,104 @@ async def rewrite_followup(question: str, prev: "object", extra_context: str = "
             context_budget.log_prompt_context("rewrite", sections, tiers=tiers, guard=guard,
                                               followup_kind=kind)
     return question
+
+
+_C01_DRIFT_FILLER = frozenset("WHAT WHICH IS WAS ARE WERE THE A AN OF IN FOR UNDER DURING TOTAL SCHEME FY "
+                              "DISTRICT BLOCK VILLAGE CONSTITUENCY AC C RD HOW MUCH MANY".split())
+
+
+def _c01_place_only_drift(question: str, prev: "object", rewritten: str) -> "list | None":
+    """Content words a model rewrite of a PLACE-ONLY follow-up brought in that
+    neither the previous question nor the follow-up holds, or None. "in dalu
+    block" after "Total PMAY-G amount released …" came back "What is the fund
+    utilization …" and answered a percentage (user, live 2026-10-21 18:37,
+    KI-347): a place swap keeps the measure, so a new word is drift."""
+    from app.entity_resolver import fold_words, place_mentions, place_only
+    if not place_only(question, _C01_PLACE_ONLY_WORDS):
+        return None
+    allowed = set(fold_words(getattr(prev, "question", "") or "")) | set(fold_words(question)) \
+        | _C01_DRIFT_FILLER | {w.upper() for w in _REPHRASE_VOCAB}
+    for name in place_mentions(rewritten):
+        allowed |= set(name.split())
+    novel = [w for w in fold_words(rewritten)
+             if w not in allowed and not any(c.isdigit() for c in w) and len(w) > 2]
+    return novel or None
+
+
+_C01_LEVEL_RANK = {"village": 0, "block": 1, "assembly_constituency": 1, "district": 2}
+
+
+def _c01_kept_finer_place(question: str, prev: "object", rewritten: str) -> "list | None":
+    """The previous question's finer places (village; block / constituency under a
+    district) that a model rewrite of a PLACE-ONLY follow-up naming a coarser place
+    kept, or None. "How many PMAY beneficiaries are there in Badimbari?" -> "how many
+    of those houses are completed?" -> "What about Rongara block?" came back "How many
+    of the 14 PMAY-G beneficiaries in Badimbari … are completed in the Rongara block?",
+    answered the village again, and so did the district turn after it (PMAY-G sheet
+    run 2026-10-22, 3 of 4 chats). The place the user names replaces the old one."""
+    from app.entity_resolver import place_mentions, place_only
+    only = place_only(question, _C01_PLACE_ONLY_WORDS)
+    if not only or only[1] not in ("block", "district"):
+        return None
+    rank = _C01_LEVEL_RANK[only[1]]
+    named = place_mentions(question)
+    now = place_mentions(rewritten)
+    kept = [p for p, d in place_mentions(getattr(prev, "question", "") or "").items()
+            if _C01_LEVEL_RANK.get(d, 3) < rank and p not in named and p in now]
+    return kept or None
+
+
+_C01_LEVEL_AFTER = {"VILLAGE": "village", "BLOCK": "block", "CONSTITUENCY": "assembly_constituency"}
+
+
+def _c01_invented_level(question: str, rewritten: str) -> "str | None":
+    """"<NAME> <LEVEL>" when the rewrite put a level word after a place the user
+    typed, the user did not type that word, and the database holds no such
+    level for the name (PLACE_GAZETTEER, D-059); else None. "in dalu" came back
+    "... in Dalu village ..." — DALU is a block and a constituency, and the
+    village pause that followed offered DALUAGRE / DALUGAON (user, live
+    2026-10-21 18:36, KI-347)."""
+    from app.entity_resolver import fold_words, place_levels, place_mentions
+    typed = set(fold_words(question))
+    words = fold_words(rewritten)
+    for name in place_mentions(question):
+        nw = name.split()
+        for i in range(len(words) - len(nw)):
+            if words[i:i + len(nw)] != nw:
+                continue
+            nxt = words[i + len(nw)]
+            lv = _C01_LEVEL_AFTER.get(nxt)
+            if lv and nxt not in typed and lv not in place_levels(name):
+                return f"{name} {nxt}"
+    return None
+
+
+def _restore_typed_village(question: str, rewritten: str) -> "str | None":
+    """`rewritten` with a misspelt copy of a village the user typed put back as
+    typed, or None. Live 2026-10-21: "in dangar dombah" came back "... in Dargar
+    Dombah ..."; rejecting the rewrite sent the bare fragment on, which lost the
+    measure. Only a window of the same word count scoring 80+ is replaced, and
+    the caller re-runs the provenance check on the result."""
+    from app.entity_resolver import fold_words, place_mentions
+    words = rewritten.split()
+    out = rewritten
+    for name, dim in place_mentions(question).items():
+        if dim != "village" or f" {name} " in f" {' '.join(fold_words(out))} ":
+            continue
+        n = len(name.split())
+        best, best_i = 0.0, -1
+        for i in range(len(words) - n + 1):
+            window = " ".join(w.strip(".,?!;:") for w in words[i:i + n])
+            score = fuzz.ratio(" ".join(fold_words(window)), name)
+            if score > best:
+                best, best_i = score, i
+        if best < 80:
+            return None
+        tail = words[best_i + n - 1]
+        punct = tail[len(tail.rstrip(".,?!;:")):]
+        words = words[:best_i] + name.title().split()[:-1] + [name.title().split()[-1] + punct]             + words[best_i + n:]
+        out = " ".join(words)
+    return out if out != rewritten else None
 
 
 # A follow-up that asks for every / the other schemes legitimately names schemes
@@ -1783,6 +2127,10 @@ _HINGLISH_GLOSS = {
     "aavedan": "applications", "avedan": "applications", "rozgar": "employment",
     "rojgar": "employment", "naukri": "jobs", "majdoori": "wages", "mazdoori": "wages",
     "parivar": "households", "pariwar": "households", "parivaron": "households",
+    # "MGNREGA ka 2024-25 wala district-wise data batao" (D-061 addendum, 2026-10-22):
+    # "wala" read as a dropped NAME, so the right rephrase was rejected and the raw
+    # Hinglish failed SQL four times and fell back to the documents.
+    "wala": "", "wali": "", "wale": "", "vala": "", "vali": "", "vale": "",
 }
 _HINGLISH_PHRASES = [
     (Matcher(Seq(W("kaam", "kam"), Opt("ke"), "din", sep="space")), "person-days"),

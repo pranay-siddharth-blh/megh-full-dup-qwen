@@ -1,0 +1,161 @@
+# User report 2026-10-21: after "How much PMAY-G amount was released in East Garo
+# Hills in FY 2023-24?", the bare "in ambare ading" got "I don't have information
+# about that"; only "in ambare ading village" was answered. A place name alone —
+# village, block or assembly constituency — must be recognised without the
+# "village" / "block" / "constituency" word, in a follow-up and in a new question.
+
+- name: P1_bare_village_followup
+  doc: "PMAY-G EGH FY 2023-24 -> 'in ambare ading' answers for the village, scheme and year kept"
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How much PMAY-G amount was released in East Garo Hills in FY 2023-24?"
+      expect: {route: data, scheme: PMAY-G, year: FY 2023-24}
+    - say: "in ambare ading"
+      expect: {route: data, scheme: PMAY-G, year: FY 2023-24, numbers_any: [3880000]}
+
+- name: P2_bare_village_every_scheme_mgnrega
+  doc: "MGNREGA district answer -> a bare village name"
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How many households were employed under MGNREGA in East Khasi Hills in FY 2023-24?"
+      expect: {route: data, scheme: MGNREGA, year: FY 2023-24}
+    - say: "in dangar dombah"
+      expect: {route: data, scheme: MGNREGA, year: FY 2023-24, answer_contains: ["Dangar Dombah"]}
+
+- name: P3_bare_village_pmayg_no_in
+  doc: "PMAY-G district answer -> the village name alone, no 'in'"
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How many PMAY-G houses were sanctioned in Ri Bhoi in FY 2022-23?"
+      expect: {route: data, scheme: PMAY-G, year: FY 2022-23}
+    - say: "mawbsein diengsohmaud"
+      expect: {route: data, scheme: PMAY-G, year: FY 2022-23, answer_contains: ["Mawbsein Diengsohmaud"]}
+
+- name: P4_bare_village_focus_plus
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How many Focus Plus beneficiaries are there in West Garo Hills in FY 2025-26?"
+      expect: {route: data, scheme: Focus Plus}
+    - say: "what about danak dopgre"
+      expect: {route: data, scheme: Focus Plus, answer_contains: ["Danak Dopgre"]}
+
+- name: P5_bare_village_cm_elevate
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How many CM Elevate applications were received in Ri Bhoi?"
+      expect: {route: pause, pause_rule: cm-elevate-dataset}     # 2026-10-22: applications alone asks
+    - say: "applications"
+      expect: {route: data, scheme: CM Elevate}
+    - say: "in kbet nongbri"
+      expect: {route: data, scheme: CM Elevate, answer_contains: ["Kbet Nongbri"]}
+
+- name: P6_bare_village_focus_legacy
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How many Focus Legacy producer groups are there in East Jaintia Hills in FY 2024-25?"
+      expect: {route: data, scheme: Focus Legacy}
+    - say: "in pamrakmai shnong"
+      expect: {route: data, scheme: Focus Legacy, answer_contains: ["Pamrakmai Shnong"]}
+
+- name: P7_bare_village_cm_elevate_legacy
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "Total amount disbursed under CM Elevate Legacy in South West Garo Hills in FY 2024-25"
+      expect: {route: data, scheme: CM Elevate Legacy}
+    - say: "in lower damalgre"
+      expect: {route: data, scheme: CM Elevate Legacy, answer_contains: ["Lower Damalgre"]}
+
+- name: P8_bare_constituency_and_village_asks
+  doc: "Rajabala is an assembly constituency AND a village: named bare, it asks which one"
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How many households were employed under MGNREGA in West Garo Hills in FY 2023-24?"
+      expect: {route: data, scheme: MGNREGA, year: FY 2023-24}
+    - say: "in rajabala"
+      expect: {route: pause, pause_rule: entity-ambiguous, chips_contain: ["constituency"]}
+
+- name: P9_bare_block_answered_as_block
+  doc: "Dambo Rongjeng is a block; villages only look like it (DAMBO RONGDENG): the block is answered, no level question"
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How much PMAY-G amount was released in East Garo Hills in FY 2023-24?"
+      expect: {route: data, scheme: PMAY-G, year: FY 2023-24}
+    - say: "dambo rongjeng"
+      expect: {route: data, scheme: PMAY-G, year: FY 2023-24, numbers_any: [283514000]}
+
+- name: P10_bare_name_block_and_village_asks
+  doc: "A name that is a block AND a village (and a constituency) still asks which one"
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How many households were employed under MGNREGA in East Khasi Hills in FY 2023-24?"
+      expect: {route: data, scheme: MGNREGA}
+    - say: "in mawlai"
+      expect: {route: pause}
+
+- name: P11_bare_village_new_chat
+  doc: "New chat, a bare village name: a place question (asks the scheme), not off-topic"
+  tags: [user_reported, bare_place, new_chat]
+  account: superadmin
+  turns:
+    - say: "ambare ading"
+      expect: {route: pause, pause_rule: scheme-not-specified}
+
+- name: P12_unrelated_still_off_topic
+  doc: "After an answer, a message naming no place, scheme or measure is still an aside"
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How much PMAY-G amount was released in East Garo Hills in FY 2023-24?"
+      expect: {route: data, scheme: PMAY-G}
+    - say: "who is harshit"
+      expect: {route: edge}
+
+- name: P13_bare_block_other_district
+  doc: "'wapung' (an East Jaintia Hills block) after an East Khasi Hills answer: Wapung, never East Khasi Hills again"
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How many households were employed under MGNREGA in East Khasi Hills in FY 2023-24?"
+      expect: {route: data, scheme: MGNREGA}
+    - say: "wapung"
+      expect: {route: data, scheme: MGNREGA, year: FY 2023-24, answer_contains: ["Wapung"], numbers_any: [9166]}
+    - say: "How many households were employed under MGNREGA in Wapung block in FY 2023-24?"
+      expect: {route: data, scheme: MGNREGA, numbers_any: [9166], answer_not_contains: ["East Khasi Hills"]}
+
+- name: P14_bare_block_with_word
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How much PMAY-G amount was released in East Garo Hills in FY 2023-24?"
+      expect: {route: data, scheme: PMAY-G}
+    - say: "in dambo rongjeng block"
+      expect: {route: data, scheme: PMAY-G, year: FY 2023-24, answer_contains: ["Dambo Rongjeng"]}
+
+- name: P15_bare_constituency_only
+  doc: "'mendipathar' is a constituency; villages only look like it ('Mendipathar - Ward No.10'): the constituency is answered"
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How many households were employed under MGNREGA in East Khasi Hills in FY 2023-24?"
+      expect: {route: data, scheme: MGNREGA}
+    - say: "in mendipathar"
+      expect: {route: data, scheme: MGNREGA, year: FY 2023-24, answer_contains: ["Mendipathar"], answer_not_contains: ["Ward No"]}
+
+- name: P16_statewide_then_bare_village
+  tags: [user_reported, bare_place, context]
+  account: superadmin
+  turns:
+    - say: "How many households were employed under MGNREGA statewide in FY 2023-24?"
+      expect: {route: data, scheme: MGNREGA}
+    - say: "dangar dombah"
+      expect: {route: data, scheme: MGNREGA, year: FY 2023-24, answer_contains: ["Dangar Dombah"]}

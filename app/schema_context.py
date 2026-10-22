@@ -277,13 +277,16 @@ MGNREGA RULES (breaking these produces a wrong number, not just an ugly query):
          Use GROUP BY in each CTE plus a FULL OUTER JOIN on the grain columns only when a
          per-block / per-village / per-year breakdown is asked for.
   2. Both MGNREGA facts are at source-row grain — always SUM ... GROUP BY, never read a row raw.
-  3. job_cards_issued_total is a cumulative STOCK. Report ONE financial year, never a sum
-     across years. It is still at source-row grain, so the figure for an area is
-     SUM(job_cards_issued_total) over that area for a single year_key. For a statewide
-     "how many job cards" with no year given, use the latest year:
-       SELECT SUM(job_cards_issued_total) AS job_card_stock
+  3. job_cards_issued_total is a cumulative STOCK: never a sum across years. It is still at
+     source-row grain, so the figure for an area is SUM(job_cards_issued_total) over that
+     area for the year_key the question asks for (FY 2023-24 -> year_key = 2023). Never put
+     the latest year in place of the year asked. For every / all financial years, report
+     one row per year:
+       SELECT year_key, SUM(job_cards_issued_total) AS job_card_stock
        FROM curated.v_employment
-       WHERE year_key = (SELECT MAX(year_key) FROM curated.v_employment);
+       GROUP BY year_key ORDER BY year_key;
+     Only a question that names no year at all reads the latest year
+     (year_key = (SELECT MAX(year_key) FROM curated.v_employment)).
      A bare `SELECT job_cards_issued_total ... LIMIT 1` (no SUM, no GROUP BY) is ALWAYS
      wrong — it returns one village's number as if it were the whole total.
   4. Money unit: MGNREGA expenditure is LAKH RUPEES — report it in LAKH and state the unit; do
@@ -295,6 +298,10 @@ MGNREGA RULES (breaking these produces a wrong number, not just an ugly query):
   5. MGNREGA "dues" / "pending liabilities" / "unpaid amount" have NO column in curated —
      do not compute or estimate one from any other column. Answer that this is not available
      in the current source.
+  4a. entity_type on v_employment / v_expenditure is the ROW's type (every row is 'Village');
+      it is NOT the level of the area asked about. A block / district / constituency is
+      filtered on lgd_block / lgd_district / assembly_constituency_name only — never add
+      entity_type = 'Block' / 'District' / 'Constituency' (it matches no row).
   5a. There is likewise NO "pending" / "unpaid" / "awaiting" count for beneficiaries,
       households, persons or job cards — the employment fact records what WAS provided,
       not a backlog or a waitlist. If the question asks for "pending beneficiaries",
@@ -394,8 +401,10 @@ PMAY-G TABLES
 
 _PMAY_RULES = """
 PMAY-G RULES (breaking these produces a wrong number, not just an ugly query):
-  1. curated.v_pmay: always filter `WHERE NOT is_placeholder` unless the question is explicitly
-     about data completeness.
+  1. curated.v_pmay: the 126 is_placeholder rows (sanctioned_amount = 0, no year, no sanction
+     number) ARE beneficiaries — count them in every beneficiary / house / registration count
+     (do NOT add `NOT is_placeholder`; 171,107 beneficiaries statewide). Only a full / partial
+     release count (amount_released vs sanctioned_amount) needs `sanctioned_amount > 0`.
   2. "Completed" / "in progress" questions use status_key's booleans is_completed /
      is_in_progress, never `status_name = 'Completed'` as a string match.
   3. Exclude `sanctioned_amount = 0` rows (126 known rows) from any utilisation-rate or
@@ -1286,7 +1295,8 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
         -> Compute EACH scheme's figure with EXACTLY the SQL its own single-scheme question
            would use: same view (curated.v_employment / curated.v_expenditure for MGNREGA,
            curated.v_pmay for PMAY-G, curated.v_focus_plus for Focus Plus), same filters
-           (curated.v_pmay ALWAYS `WHERE NOT is_placeholder`; a single latest year_key for
+           (curated.v_pmay beneficiaries count EVERY row, PMAY-G rule 1 — only "houses
+           sanctioned" adds `WHERE NOT is_placeholder`; a single latest year_key for
            MGNREGA households_employed / persons_employed / job-card counts, since there is
            no household id to dedupe across years), same aggregate (Focus Plus beneficiaries
            = COUNT(DISTINCT beneficiary_key), rule 6 — NOT COUNT(*), which is payments) —
@@ -1378,7 +1388,6 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
   UNION ALL
     SELECT 'PMAY-G', COUNT(*)
     FROM curated.v_pmay
-    WHERE NOT is_placeholder
   UNION ALL
     SELECT 'Focus Plus', COUNT(DISTINCT beneficiary_key)
     FROM curated.v_focus_plus
@@ -1387,8 +1396,8 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
     * MGNREGA has no household id, so a cross-year SUM double-counts the same household.
       Its unique reading is ONE financial year's SUM(households_employed) (latest if none
       named).
-    * curated.v_pmay is already one row per house, so COUNT(*) WHERE NOT is_placeholder IS
-      the distinct-house count.
+    * curated.v_pmay is already one row per beneficiary, so COUNT(*) over every row
+      (the 126 zero-sanction registrations included, PMAY-G rule 1) IS the beneficiary count.
     * curated.v_focus_plus COUNT(*) is PAYMENTS (the legacy 93K cohort has four rows per
       person). COUNT(DISTINCT beneficiary_key) (rule 6) is the correct unique-person count
       across both cohorts, no per-batch scoping needed. COUNT(DISTINCT member_id) counts

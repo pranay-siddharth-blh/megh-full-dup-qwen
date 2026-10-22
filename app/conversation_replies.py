@@ -464,8 +464,8 @@ def _topic(session) -> "tuple[str | None, str | None]":
         return None, None
     place = None
     if st is not None and st.scheme == scheme:
-        place = st.village or st.block or st.district
-    words = scheme + (f" in {str(place).title()}" if place else "")
+        place = topic_memory.place_words(st)
+    words = scheme + (f" in {place}" if place else "")
     return words, scheme
 
 

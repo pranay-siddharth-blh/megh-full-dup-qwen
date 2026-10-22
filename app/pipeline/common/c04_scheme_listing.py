@@ -986,17 +986,34 @@ def _recent_compared_schemes(session: "Session | None", n: int = 4) -> list[str]
 # "What is the total amount disbursed under each scheme?" right after a CM
 # Elevate Legacy turn was read as all six top-level schemes (CM Elevate Legacy
 # TC-18, test run 2026-10-06). With no such conversation it stays cross-scheme.
+# "Which schemes have the highest number of applications?" / "across schemes" / "by
+# scheme" in the same conversation were still read as every government scheme, even
+# after the user tapped the CM Elevate Legacy topic (Legacy sheet one-chat run
+# 2026-10-22: TC-13, TC-25).
 _EACH_SCHEME_MATCH = Matcher(Alt(
     Seq(Alt("each", "every", "per", Seq("all", "the"), "individual"), _C04_SCHEME_W),
     _c04Joined("scheme", "wise"),
+    Seq(W("which", "what"), W("schemes")), Seq("across", Opt("the"), W("schemes")), Seq("by", W("scheme")),
 ))
 
 
 def _each_scheme_in_cm_thread(question: str, session: "Session | None") -> str:
     q = question or ""
-    if not _EACH_SCHEME_MATCH.search(q) or _named_schemes(q) or _infer_scheme_from_terms(q):
+    # The question's own words may point at a CM Elevate dataset ("sanctioned
+    # applications" is Legacy vocabulary, TC-19) — that is the same conversation, not
+    # another scheme; any other scheme's words leave the question alone.
+    inferred = _infer_scheme_from_terms(q)
+    if not _EACH_SCHEME_MATCH.search(q) or _named_schemes(q) \
+            or (inferred and inferred not in (["CM Elevate"], ["CM Elevate Legacy"])):
         return question
-    prev = _previous_turn_schemes(session)
+    # The dataset the last answer came from wins over the name its question
+    # typed: "loan entities … CM-ELEVATE applications" was answered from CM
+    # Elevate Legacy, and the next "each scheme" was sent to the applications
+    # data as "under CM Elevate" (Legacy sheet one-chat run 2026-10-22).
+    last = getattr(session, "last_turn", None) if session is not None else None
+    own = [s for s in (getattr(last, "schemes", None) or []) if s in ("CM Elevate", "CM Elevate Legacy")]
+    prev = own if len(own) == 1 and len(getattr(last, "schemes", None) or []) == 1 \
+        else _previous_turn_schemes(session)
     if prev not in (["CM Elevate"], ["CM Elevate Legacy"]):
         return question
     out = _EACH_SCHEME_MATCH.sub(lambda m: f"{m.group(0)} under {prev[0]}", q, count=1)

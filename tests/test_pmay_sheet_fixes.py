@@ -7,20 +7,12 @@ import pytest
 from app import pipeline as p
 
 
-# ── placeholder registrations stated beside the beneficiary count (OFF-011/015) ─
-def test_beneficiary_line_states_placeholders_too():
+# ── zero-sanction registrations ARE beneficiaries (OFF-011/015; D-060, 2026-10-22) ─
+def test_beneficiary_line_counts_placeholders_and_says_so():
     spec = {"metrics": ["houses"], "word": "beneficiaries", "date": None, "year_key": None, "calendar_year": None}
-    line = p._pmay_lines(spec, {"houses": 6122, "placeholders": 3})[0]
-    assert "6,122 with a sanctioned house" in line and "6,125 registrations in all" in line
+    line = p._pmay_lines(spec, {"houses": 6125, "placeholders": 3})[0]
+    assert line.startswith("PMAY-G beneficiaries: 6,125 (including 3 registered with a sanctioned amount of ₹0")
     assert p._pmay_lines(spec, {"houses": 6122, "placeholders": 0})[0] == "PMAY-G beneficiaries: 6,122"
-
-
-def test_placeholder_query_skipped_for_a_year():
-    spec = {"metrics": ["houses"], "year_key": 2023, "date": None, "calendar_year": None, "stages": [],
-            "dim": "block", "entities": ["DEMDEMA"]}
-    rows = [{"entity_key": "DEMDEMA", "houses": 10}]
-    asyncio.run(p._pmay_attach_placeholders(spec, rows))
-    assert "placeholders" not in rows[0]
 
 
 # ── the year chip's scope is not a request for the list of years ────────────

@@ -539,6 +539,11 @@
   .unified-card .stat-val { color: var(--teal); }
   .elevate-card .stat-val { color: var(--amber); }
   .cmelevate-card .stat-val { color: var(--blue); }
+  /* Under the carousel: where the card figures came from (live DB, or the typed fallback). */
+  .stats-status {
+    font-size: 11px; color: var(--ink-3); text-align: center; margin: 8px 0 0;
+  }
+  .stats-status.offline { color: var(--amber); font-weight: 600; }
 
   /* PROMPT CHIPS */
   .prompts-section { margin: 16px 0 10px; }
@@ -914,46 +919,52 @@
   }
   .suggest-item:active { transform: scale(.995); }
 
-  /* ===== Clarifying question (#281, Royal Gradient): the question is the
-     answer text; these are its tappable replies. Outlined purple chips that
-     fill with the brand gradient on hover, focus and press. ===== */
-  .clarify-box { margin-top: 12px; }
-  .clarify-opts { display: flex; flex-wrap: wrap; gap: 8px; }
+/* ===== Clarifying question (#281; design #11 "Plain card · Pill chips",
+     2026-10-21): a divider under the question, a "Choose a …" line, an
+     optional rounded search box, then pills. Named replies are soft lavender
+     pills; the "All …" reply and "+N more" are outlined; the tapped one fills. ===== */
+  .clarify-box { margin-top: 14px; padding-top: 14px; border-top: 1px solid var(--line); }
+  .clarify-head { font-size: 13px; font-weight: 500; color: var(--ink-2); margin-bottom: 10px; }
+  .clarify-search {
+    display: flex; align-items: center; gap: 10px; max-width: 520px; margin-bottom: 12px;
+    padding: 0 16px; height: 40px; border: 1px solid var(--p-200); border-radius: 999px;
+    background: var(--surface); color: var(--ink-3); cursor: text;
+    transition: border-color .15s, box-shadow .15s;
+  }
+  .clarify-search:focus-within { border-color: var(--p-500); box-shadow: 0 0 0 3px var(--p-100); }
+  .clarify-search input {
+    flex: 1; min-width: 0; border: 0; outline: 0; background: transparent;
+    font-family: inherit; font-size: 13.5px; color: var(--ink);
+  }
+  .clarify-search input::placeholder { color: var(--ink-3); }
+  .clarify-search input::-webkit-search-cancel-button { cursor: pointer; }
+  .clarify-opts { display: flex; flex-wrap: wrap; gap: 8px 10px; align-items: center; }
   .clarify-opt {
-    padding: 8px 15px; border: 1.5px solid var(--p-500); border-radius: 10px;
-    background: var(--surface); color: var(--p-700);
-    font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1.3;
+    padding: 8px 16px; border: 1px solid var(--p-200); border-radius: 999px;
+    background: var(--p-100); color: var(--p-900, #3B1466);
+    font-family: inherit; font-size: 13.5px; font-weight: 500; line-height: 1.3;
     max-width: 100%; text-align: left; overflow-wrap: anywhere;
     cursor: pointer; transition: background .15s, border-color .15s, color .15s, transform .1s, box-shadow .15s;
   }
-  .clarify-opt:hover, .clarify-opt:focus-visible {
-    background: linear-gradient(135deg, var(--p-600), var(--p-700)); border-color: var(--p-700); color: #fff;
-    box-shadow: 0 2px 8px rgba(124,63,191,.3); outline: none;
+  .clarify-opt:hover { background: var(--p-200); border-color: var(--p-300); }
+  .clarify-opt:focus-visible { outline: none; box-shadow: 0 0 0 3px var(--p-200); border-color: var(--p-500); }
+  .clarify-opt.clarify-all { background: var(--surface); border: 1.5px solid var(--p-600); color: var(--p-700); font-weight: 600; }
+  .clarify-opt.clarify-all:hover { background: var(--p-50); }
+  .clarify-opt.picked, .clarify-opt.picked:hover {
+    background: var(--p-600); border-color: var(--p-600); color: #fff; box-shadow: 0 2px 8px rgba(124,63,191,.28);
   }
-  .clarify-opt:focus-visible { box-shadow: 0 0 0 3px var(--p-200), 0 2px 8px rgba(124,63,191,.3); }
   .clarify-opt:active { transform: scale(.97); }
-  /* The scheme question: three cards (central / state / legacy, unlabelled),
-     one row per scheme with its chart hue as a dot. */
-  .scheme-groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(190px, 100%), 1fr)); gap: 10px; }
-  .scheme-groups + .clarify-opts { margin-top: 10px; }
-  .sg-card { background: var(--p-50); border: 1px solid var(--line); border-radius: 12px; padding: 10px; min-width: 0; }
-  .sg-item {
-    display: flex; align-items: center; gap: 9px; width: 100%; padding: 8px 12px; margin-top: 6px;
-    border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--ink);
-    font-family: inherit; font-size: 13px; font-weight: 600; line-height: 1.3; text-align: left; cursor: pointer;
-    transition: border-color .15s, background .15s, box-shadow .15s, transform .1s;
-  }
-  .sg-item:first-of-type { margin-top: 0; }
-  .sg-item:hover, .sg-item:focus-visible { border-color: var(--p-500); background: var(--p-100); outline: none; }
-  .sg-item:focus-visible { box-shadow: 0 0 0 3px var(--p-200); }
-  .sg-item:active { transform: scale(.98); }
-  .sg-dot { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: var(--p-500); }
-  @media (prefers-reduced-motion: reduce) { .sg-item { transition: none; } .sg-item:active { transform: none; } }
+  .clarify-none { font-size: 13px; color: var(--ink-3); padding: 6px 2px; }
   .clarify-rule {
     margin-top: 9px; font-size: 10.5px; color: var(--ink-3);
     font-family: 'JetBrains Mono', monospace;
   }
-  @media (prefers-reduced-motion: reduce) { .clarify-opt { transition: none; } .clarify-opt:active { transform: none; } }
+  @media (max-width: 600px) {
+    .clarify-search { max-width: none; }
+    .clarify-opt { padding: 7px 14px; font-size: 13px; }
+  }
+  @media (prefers-reduced-motion: reduce) { .clarify-opt, .clarify-search { transition: none; } .clarify-opt:active { transform: none; } }
+
 
   /* ============== COMPOSER ============== */
   .composer-wrap {
@@ -1862,7 +1873,7 @@
   .sidebar, .sidebar-resizer, .sidebar-backdrop, .topbar, .composer-wrap, .scroll-top, .new-below,
   .conn-banner, .boot-splash, .hero, .scheme-carousel, .prompts-section, .prompt-grid,
   .msg-actions, .msg-more, .msg-menu, .xv-btn, .qctog, .rt-bar .xv-btn, .next-step-group, .suggest-box,
-  .clarify-opts, .orb-stop, .draft-cursor, .dl-menu, .modal-overlay, .xv-backdrop { display: none !important; }
+  .clarify-opts, .clarify-search, .orb-stop, .draft-cursor, .dl-menu, .modal-overlay, .xv-backdrop { display: none !important; }
   .msg { animation: none !important; padding: 8px 0; break-inside: avoid-page; }
   .msg.user .bubble { background: #f4ebfc !important; color: #1a1626 !important; border-color: #e5d2f6 !important; }
   .bubble { box-shadow: none !important; }

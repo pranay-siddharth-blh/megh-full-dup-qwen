@@ -853,8 +853,35 @@ def _cml_add_exact_after_crore(answer: str, cr: str, exact: str) -> str:
     return answer
 
 
+def _cml_no_records_sentence(rows: list[dict], display: dict) -> "str | None":
+    """One row whose figures are all empty (NULL sums, or a 0 count beside them):
+    nothing is recorded for that place / year. Said plainly — never "the data
+    available doesn't cover … the result is null" (Mahendraganj FY 2025-26, Legacy
+    sheet re-test 2026-10-22, KI-383) and never "₹0", which would claim a recorded
+    zero."""
+    if len(rows or []) != 1:
+        return None
+    vals = list(rows[0].values())
+    if not vals or not any(v is None for v in vals) or any(v is not None and _as_number(v) not in (0, None)
+                                                          for v in vals):
+        return None
+    disp = display or {}
+    key = next((k for k in ("village", "block", "constituency", "district") if disp.get(k)), None)
+    place = str(disp[key]) if key else ""
+    place = place.title() if place.isupper() else place
+    noun = {"constituency": " assembly constituency", "block": " block", "village": " village"}.get(key or "", "")
+    where = f" for {place}{noun if place and noun.strip() not in place.lower() else ''}" if place else ""
+    year = f" in {disp['year']}" if disp.get("year") else ""
+    return (f"No CM Elevate Legacy records are held{where}{year}, so there is no sanctioned or disbursed "
+            "amount to report.")
+
+
 async def _cm_legacy_answer_guarantees(question: str, sql: str, rows: list[dict], answer: str,
                                        display: dict) -> str:
+    _none = _cml_no_records_sentence(rows, display)
+    if _none:
+        logger.info("CM Elevate Legacy: empty result — no-records sentence (KI-383)")
+        return _none
     if len(rows or []) == 1 and _is_fallback_answer(answer, rows, ["CM Elevate Legacy"], display):
         answer = _cml_single_row_sentence(rows[0], display) or answer
     answer = _cml_complete_list(question, answer, rows)
@@ -1033,6 +1060,109 @@ def _cm_legacy_qualify_shared_geo_cols(schemes: list[str], sql: str) -> str:
     return out
 
 
+# ── constituency questions (sheet TC-31 / TC-32, KI-381) ────────────────────────
+# CM Elevate Legacy reaches the assembly constituency only through
+# v_cm_elevate_disbursement.geography_key -> curated.dim_geography.ac_name, which is
+# stored in Title Case ("Mahendraganj"). Sheet re-test 2026-10-22: 30-40 of 110
+# constituency questions failed per run — the model filtered the constituency as a
+# district (UPPER(lgd_district) = UPPER('DADENGGRE') -> "no data"), the repairs gave up
+# ("couldn't build a working query"), and in a chat the filter was dropped and the
+# statewide FY 2025-26 figures (137 records, ₹22.49 crore) were given as Mahendraganj's
+# (true 0). The Focus Legacy twin is KI-369; the same guards, plus a rewrite.
+_CML_VIEW_Q = "curated.v_cm_elevate_disbursement"
+_CML_PLACE_COLS = ("lgd_district", "lgd_block", "lgd_village_name")
+
+
+def _cml_resolved_ac(schemes: list[str], entity_result: dict) -> "str | None":
+    ac = ((entity_result or {}).get("resolved") or {}).get("assembly_constituency")
+    if schemes != ["CM Elevate Legacy"] or not isinstance(ac, str) or not ac.strip():
+        return None
+    return ac.strip().upper()
+
+
+def _cm_legacy_ac_as_place_filter(schemes: list[str], entity_result: dict, sql: str) -> str:
+    """The resolved constituency written as a district / block / village filter on a
+    plain one-view query -> the documented join, `UPPER(g.ac_name) = '<AC>'`. Any other
+    shape is left to the missing-filter guard (repair)."""
+    ac = _cml_resolved_ac(schemes, entity_result)
+    if not ac or not sql or not sql_ast.is_parseable(sql) or ac in _fl_ac_values(sql) \
+            or sql_ast.has_cte(sql) or len(sql_ast.selects(sql)) != 1 or sql_ast.joins(sql) \
+            or sql_ast.tables(sql, qualified=True) != {_CML_VIEW_Q}:
+        return sql
+    hits = [n for n in sql_ast.filter_conditions(sql, *_CML_PLACE_COLS)
+            if {v.strip().upper() for v in sql_ast.filter_values(n, *_CML_PLACE_COLS)} == {ac}]
+    if not hits:
+        return sql
+
+    def fn(tree):
+        frm = tree.find(exp.From)
+        if not isinstance(tree, exp.Select) or frm is None or not isinstance(frm.this, exp.Table):
+            return None
+        if any(c.table and c.table.lower() == "v_cm_elevate_disbursement" for c in tree.find_all(exp.Column)):
+            return None          # qualified by the table name: an alias would break it
+        alias = frm.this.alias
+        if not alias:
+            alias = "v"
+            frm.this.set("alias", exp.TableAlias(this=exp.to_identifier(alias)))
+        new = exp.EQ(this=exp.Upper(this=exp.column("ac_name", table="g")), expression=exp.Literal.string(ac))
+        for node in sql_ast.filter_conditions(tree, *_CML_PLACE_COLS):
+            if {v.strip().upper() for v in sql_ast.filter_values(node, *_CML_PLACE_COLS)} == {ac}:
+                node.replace(new.copy())
+        tree.join(f"{_CML_GEO_DIM} AS g", on=f"g.geography_key = {alias}.geography_key", copy=False)
+        return None
+
+    out = sql_ast.transform(sql, fn)
+    if out != sql:
+        logger.info("CM Elevate Legacy: constituency %s was filtered as a place column — rewritten to the "
+                    "dim_geography ac_name join (KI-381)", ac)
+    return out
+
+
+_CML_GEO_DIM = "curated.dim_geography"
+
+
+def _cm_legacy_ac_name_case(schemes: list[str], sql: str) -> str:
+    """`ac_name = 'X'` -> `UPPER(ac_name) = 'X'` (dim_geography keeps Title Case);
+    the Focus Legacy rewrite, for CM Elevate Legacy."""
+    if schemes != ["CM Elevate Legacy"]:
+        return sql
+    return _focus_legacy_ac_name_case(["Focus Legacy"], sql)
+
+
+def _cm_legacy_ac_filter_missing(schemes: list[str], entity_result: dict, sql: str) -> "str | None":
+    """The repair instruction when a constituency was resolved but the query does not
+    filter ac_name on it — it would report a district's (or the state's) figure as the
+    constituency's. None otherwise."""
+    ac = _cml_resolved_ac(schemes, entity_result)
+    if not ac or not sql or not sql_ast.is_parseable(sql) or ac in _fl_ac_values(sql):
+        return None
+    return (f"the question is about the assembly constituency {ac} (a RESOLVED, MANDATORY filter), but "
+            "this query does not filter on it, so it returns the figure of a district or of the whole "
+            "state. A constituency is not a district or a block. Use exactly this shape: FROM "
+            "curated.v_cm_elevate_disbursement v JOIN curated.dim_geography g ON g.geography_key = "
+            f"v.geography_key WHERE UPPER(g.ac_name) = '{ac}', drop any lgd_district / lgd_block filter, and "
+            "keep the measure, the year filter and the grouping exactly as they were.")
+
+
+def _cm_legacy_ac_verifier_complaint_is_false(issue: str, schemes: list[str], entity_result: dict,
+                                              sql: str) -> bool:
+    """A verifier complaint about the join, the resolved constituency or the case of
+    its literal, raised against the documented constituency query (KI-381). A
+    complaint about the measure or the grain still stands."""
+    ac = _cml_resolved_ac(schemes, entity_result)
+    if not ac or not sql_ast.is_parseable(sql or "") \
+            or not _FL_VERIFIER_JOIN_OR_ENTITY.search(issue or "") or _FL_VERIFIER_MEASURE.search(issue or ""):
+        return False
+    if sql_ast.tables(sql, qualified=True) != {_CML_VIEW_Q, _CML_GEO_DIM}:
+        return False
+    js = sql_ast.joins(sql)
+    if not js or not all(j.args.get("on") is not None
+                         and {c.name.lower() for c in j.args["on"].find_all(exp.Column)} == {"geography_key"}
+                         for j in js):
+        return False
+    return ac in _fl_ac_values(sql)
+
+
 # CM Elevate Legacy: "sanctioned applications" = COUNT(sanctioned_amount). 3 Any
 # Business Venture records (marked Refused) carry no sanctioned amount, so
 # COUNT(*) overstates it. The rule sat in schema_context (rule 2) and the
@@ -1205,6 +1335,44 @@ def _cm_legacy_order_by_records(question: str, schemes: list[str], sql: str) -> 
         + [exp.Ordered(this=exp.column("records"), desc=True, nulls_first=True)]
     order.set("expressions", keys)
     logger.info("CM Elevate Legacy: ranked the breakdown by records (applications asked first)")
+    return sql_ast.to_sql(tree)
+
+
+# The money columns of v_cm_elevate_disbursement, all in RUPEES.
+_CML_RUPEE_COLS = frozenset({
+    "sanctioned_amount", "bank_sanctioned_amount", "total_disbursement", "total_loan_disbursement",
+    "total_subsidy_disbursement", "loan_disbursement_1", "loan_disbursement_2", "loan_disbursement_3",
+    "subsidy_disbursement_1", "subsidy_disbursement_2", "subsidy_disbursement_3"})
+
+
+def _cm_legacy_crore_alias_on_rupees(schemes: list[str], sql: str) -> str:
+    """An output column named in crore (…_cr / …_crore) over rupee columns with no
+    ÷1e7 is divided, so the name is true: `SUM(sanctioned_amount) - SUM(total_disbursement)
+    AS pending_cr` was answered "₹74,976,008.70 crore pending" for ₹7.50 crore (D-062 live
+    check 2026-10-22, KI-375). Only the outer SELECT's own columns; a share or an average
+    (a division already there) is left alone."""
+    if schemes != ["CM Elevate Legacy"] or not sql:
+        return sql
+    tree = sql_ast.parse_one(sql)
+    sel = sql_ast.outer_select(tree) if tree is not None else None
+    if sel is None:
+        return sql
+    changed = []
+    for e in sel.expressions:
+        if not isinstance(e, exp.Alias) or not e.alias:
+            continue
+        low = e.alias.lower()
+        if not any(low == s or low.endswith("_" + s) for s in _PMAY_CRORE_SUFFIXES):
+            continue
+        cols = {(c.name or "").lower() for c in e.this.find_all(exp.Column)}
+        if not cols or not cols <= _CML_RUPEE_COLS or e.this.find(exp.Div, exp.Mul, exp.Avg, exp.Count):
+            continue
+        inner = e.this.this if isinstance(e.this, exp.Round) else e.this
+        e.set("this", sql_ast.parse_one(f"SELECT ROUND(({sql_ast.to_sql(inner)}) / 1e7, 2)").expressions[0])
+        changed.append(e.alias)
+    if not changed:
+        return sql
+    logger.info("CM Elevate Legacy: rupee columns named in crore divided by 1e7 (KI-375): %s", changed)
     return sql_ast.to_sql(tree)
 
 
