@@ -9,9 +9,9 @@ The document lists **29 problems** (Part A: 5, Part B: 5, Part C: 7, Part E: 12)
 | Status | Count |
 |---|---|
 | Solved | **0** |
-| Partly solved | **2** (A5, E10) |
+| Partly solved | **3** (A5, E10, E12) |
 | Already working before (rule to keep) | **1** (C6) |
-| Not started | **26** |
+| Not started | **25** |
 
 Today's work went into a groundwork task that the plan depends on: **moving the whole project to 1024-dim embeddings safely.** It finished that move and fixed 4 problems found along the way. The document's problems themselves are still open.
 
@@ -62,7 +62,7 @@ Today's work went into a groundwork task that the plan depends on: **moving the 
 | E9 | Composer | Not started | |
 | E10 | Cache, memory and orchestration | **Partly** | Semantic cache now also matches rank direction, N, status and measure (KI-401, fixed today by the D-067 session). Memory search improved (KI-408). Redis and plan-keyed cache not done |
 | E11 | UI | Not started | |
-| E12 | Security and data | Not started | `raw_uc/` still not gitignored; Qdrant has no API key; gateway CA file missing; token in the git remote; bank CSV in history |
+| E12 | Security and data | **Partly** | `raw_uc/`, `new_docs/*.csv` and Word lock files now gitignored (2026-10-24). Still open: Qdrant has no API key; gateway CA file missing; token in the git remote; bank CSV in history |
 
 ## Done today (groundwork, not in the document's list)
 

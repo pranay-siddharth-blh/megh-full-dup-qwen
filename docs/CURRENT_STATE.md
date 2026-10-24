@@ -4,7 +4,12 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
-## Latest: the 1024-dim switch is complete and LIVE on :8401 (2026-10-24 evening, D-067 follow-up). Code changed, uncommitted.
+## Latest: `.gitignore` now skips `raw_uc/`, `new_docs/*.csv`, `new_docs/~$*` (2026-10-24, RAG plan E12, part)
+- The raw use-case sheets (PII) and QA result CSVs can no longer be committed by a careless `git add .`; the files stay on
+  disk (13 in `raw_uc/`, 9 CSVs). No tracked file matches the new rules; the `new_docs/` .md/.html/.docx reports stay tracked.
+- Still open (E12): KI-022 CSV in the remote history, Qdrant API key, gateway CA file, read-only DB role, token in the remote URL.
+
+## Earlier: the 1024-dim switch is complete and LIVE on :8401 (2026-10-24 evening, D-067 follow-up). Committed `9c7c67c` on `update/2026-10-24`.
 - Backup: our 7 `megh_*` Qdrant collections snapshotted to `C:\Users\rohit\Downloads\qdrant_backup_2026-10-24\` (outside
   the repo; holds officers' chats — never commit or share).
 - KI-402 FIXED: `kb_ingest` rebuilds a KB of the wrong vector size; memory never writes into / deletes a wrong-size collection.

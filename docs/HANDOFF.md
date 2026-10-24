@@ -3,6 +3,10 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-10-24 late: branch `update/2026-10-24`, commit `9c7c67c` (everything below, not pushed).** Then `.gitignore`
+gained `raw_uc/`, `new_docs/*.csv`, `new_docs/~$*` (PII + QA CSVs + Word lock files; uncommitted). Status of the user's
+29-item RAG plan: `new_docs/RAG_Plan_Status_Report_2026-10-24.md`. The user wants one instruction at a time, no day plans.
+
 **2026-10-24 evening (code): the 1024-dim switch is finished and live on :8401.** Qdrant backup in
 `C:\Users\rohit\Downloads\qdrant_backup_2026-10-24\` (outside the repo). Code: `app/vectorstore.py` (`vector_size`,
 `collection_dim`), `app/kb_ingest.py` (size check -> rebuild, KI-402), `app/conversation_memory.py` (size refusal, purge of
