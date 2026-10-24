@@ -109,7 +109,8 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
   - `qwen-model` (30B coder) = SQL generation only;
   - `qwen4-deploy` (4B) = classifier + SQL verifier;
   - `qwen35-9b` = composer;
-  - embeddings are local fastembed;
+  - embeddings = gateway `qwen3-embedding`, 1024-dim (D-067, `.env`; rollback `EMBEDDING_PROVIDER=local` +
+    `megh_scheme_kb_v3`). A different embedding model needs NEW Qdrant collections and re-tuned cut-offs;
   - the local jina-turbo reranker (`RAG_LOCAL_RERANKER`) is **on**; the remote qwen3-reranker
     (`RERANKER_ENABLED`) is **off**.
 

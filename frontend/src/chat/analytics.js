@@ -48,6 +48,16 @@ const COL_WORDS = { lgd: '', exp: 'expenditure', amt: 'amount', cnt: 'count', qt
 export const humanCol = (c) => String(c).split('_').map((w) => (w.toLowerCase() in COL_WORDS ? COL_WORDS[w.toLowerCase()] : w))
   .filter(Boolean).join(' ') || String(c);
 
+/** Every column any row carries, in first-seen order. A cross-scheme figures
+    table (app/cross_figures.py) gives each scheme its own count column —
+    MGNREGA households_given_work, PMAY-G houses_sanctioned — so the first row's
+    keys alone dropped PMAY-G's count from the table and the export (2026-10-22). */
+export function tableColumns(data) {
+  const cols = [];
+  for (const r of data || []) for (const c of Object.keys(r || {})) if (!cols.includes(c)) cols.push(c);
+  return cols;
+}
+
 export function pivotStacked(data, xKey, sKey, vKey) {
   const xLabels = [...new Set(data.map((r) => r[xKey]))];
   const sLabels = [...new Set(data.map((r) => r[sKey]))];
@@ -211,7 +221,11 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
 
   if (data.length === 1) return { kind: 'record', row: data[0] };
 
-  const cols = Object.keys(data[0]);
+  // Only the columns every row carries are charted. A column some row lacks is a
+  // figure that row's scheme does not have (MGNREGA households given work against
+  // PMAY-G): read as 0 it drew "MGNREGA 14,94,437 vs PMAY-G 0" (user report
+  // 2026-10-22). A SQL NULL keeps its key and is unaffected.
+  const cols = Object.keys(data[0]).filter((c) => data.every((r) => r && c in r));
   const numCols = cols.filter((c) => {
     if (isLabelCol(c)) return false;
     let seen = false;

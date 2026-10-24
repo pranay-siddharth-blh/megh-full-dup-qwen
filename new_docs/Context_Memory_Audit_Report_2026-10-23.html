@@ -1,0 +1,464 @@
+<title>Megh One Context Memory Audit</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Source+Serif+4:opsz,wght@8..60,600;8..60,700&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one reading column with a sticky section index on wide screens; findings as severity-striped rows; readiness as a current-vs-target ladder. Same token set as the 2026-10-23 project audit so the reports read as one series. */
+:root{
+  --bg:#f6f8f7; --paper:#ffffff; --ink:#18231f; --ink-2:#44524c; --ink-3:#5f6e67; --rule:#d9e2de; --tint:#eaf2ef;
+  --accent:#0f6b55; --accent-soft:#d6ece5;
+  --crit:#b3261e; --crit-bg:#fbe9e7; --high:#b4540a; --high-bg:#fdf0e3; --med:#8a6d00; --med-bg:#fbf5dc; --low:#3b6a8f; --low-bg:#e6eff6; --ok:#1d7a3e; --ok-bg:#e3f3e8;
+  --f-display:"Source Serif 4", Georgia, "Times New Roman", serif;
+  --f-body:"IBM Plex Sans", "Segoe UI", system-ui, sans-serif;
+  --f-mono:"IBM Plex Mono", Consolas, "Courier New", monospace;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark){ :root:not([data-theme="light"]){
+  --bg:#101614; --paper:#161e1b; --ink:#e4ebe8; --ink-2:#b9c6c0; --ink-3:#93a29b; --rule:#2a3631; --tint:#1c2723;
+  --accent:#5cc7a6; --accent-soft:#1f3a32;
+  --crit:#ff8a80; --crit-bg:#3a1d1b; --high:#ffb574; --high-bg:#3a2715; --med:#e8cf6a; --med-bg:#332c12; --low:#8ec1ea; --low-bg:#17293a; --ok:#7fd69b; --ok-bg:#16301f;
+  color-scheme: dark; } }
+:root[data-theme="dark"]{
+  --bg:#101614; --paper:#161e1b; --ink:#e4ebe8; --ink-2:#b9c6c0; --ink-3:#93a29b; --rule:#2a3631; --tint:#1c2723;
+  --accent:#5cc7a6; --accent-soft:#1f3a32;
+  --crit:#ff8a80; --crit-bg:#3a1d1b; --high:#ffb574; --high-bg:#3a2715; --med:#e8cf6a; --med-bg:#332c12; --low:#8ec1ea; --low-bg:#17293a; --ok:#7fd69b; --ok-bg:#16301f;
+  color-scheme: dark; }
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion: reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 var(--f-body);
+  padding-left:max(16px, env(safe-area-inset-left, 0px));padding-right:max(16px, env(safe-area-inset-right, 0px));padding-block:0 64px}
+.wrap{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:220px minmax(0,1fr);gap:48px}
+@media (max-width:900px){.wrap{grid-template-columns:minmax(0,1fr);gap:0}.toc{display:none}}
+.toc{position:sticky;top:env(safe-area-inset-top,0px);align-self:start;padding-top:40px;font-size:13px}
+.toc b{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+.toc a{display:block;color:var(--ink-2);text-decoration:none;padding:4px 0 4px 10px;border-left:2px solid var(--rule)}
+.toc a:hover,.toc a:focus-visible{color:var(--accent);border-left-color:var(--accent)}
+main{min-width:0}
+header.top{padding:40px 0 24px;border-bottom:1px solid var(--rule)}
+.eyebrow{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--accent);font-weight:600}
+h1{font-family:var(--f-display);font-size:clamp(30px,4.4vw,44px);line-height:1.12;margin:8px 0 12px;text-wrap:balance}
+h2{font-family:var(--f-display);font-size:26px;line-height:1.2;margin:0 0 6px;text-wrap:balance}
+h3{font-size:16px;margin:24px 0 8px}
+p{max-width:72ch;margin:0 0 12px}
+.meta{color:var(--ink-3);font-size:13px;display:flex;flex-wrap:wrap;gap:6px 18px}
+section{padding:40px 0 8px;border-bottom:1px solid var(--rule)}
+section > .lede{color:var(--ink-2);margin-bottom:20px}
+.verdict{margin-top:20px;background:var(--paper);border:1px solid var(--rule);border-left:4px solid var(--high);padding:16px 20px;border-radius:4px}
+.verdict p{margin:0 0 8px}.verdict p:last-child{margin:0}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:20px}
+@media (max-width:760px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:12px 14px;min-width:0}
+.kpi .v{font-family:var(--f-display);font-size:28px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi .l{font-size:12px;color:var(--ink-3);margin-top:4px}
+.kpi.good .v{color:var(--ok)} .kpi.warn .v{color:var(--high)} .kpi.bad .v{color:var(--crit)}
+.tbl{overflow-x:auto;border:1px solid var(--rule);border-radius:4px;background:var(--paper);margin:8px 0 16px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);font-weight:600;background:var(--tint)}
+tr:last-child td{border-bottom:0}
+td.n{font-variant-numeric:tabular-nums;text-align:right;white-space:nowrap}
+code,.mono{font-family:var(--f-mono);font-size:12.5px;background:var(--tint);padding:1px 5px;border-radius:3px;word-break:break-word}
+.pill{display:inline-block;font-size:11px;font-weight:600;letter-spacing:.04em;padding:2px 8px;border-radius:999px;white-space:nowrap;text-transform:uppercase}
+.p-crit{color:var(--crit);background:var(--crit-bg)} .p-high{color:var(--high);background:var(--high-bg)}
+.p-med{color:var(--med);background:var(--med-bg)} .p-low{color:var(--low);background:var(--low-bg)} .p-ok{color:var(--ok);background:var(--ok-bg)}
+.findings{display:flex;flex-direction:column;gap:10px}
+.f{background:var(--paper);border:1px solid var(--rule);border-left:4px solid var(--low);border-radius:4px;padding:14px 18px}
+.f.crit{border-left-color:var(--crit)} .f.high{border-left-color:var(--high)} .f.med{border-left-color:var(--med)} .f.ok{border-left-color:var(--ok)}
+.f .h{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;margin-bottom:6px}
+.f .h strong{font-size:15.5px}
+.f .id{font-family:var(--f-mono);font-size:12px;color:var(--ink-3)}
+.f dl{display:grid;grid-template-columns:96px minmax(0,1fr);gap:4px 12px;margin:6px 0 0;font-size:14px}
+.f dt{color:var(--ink-3);font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding-top:2px}
+.f dd{margin:0;min-width:0}
+@media (max-width:520px){.f dl{grid-template-columns:minmax(0,1fr)}.f dt{padding-top:6px}}
+.quote{font-family:var(--f-mono);font-size:13px;background:var(--tint);border-radius:4px;padding:8px 12px;margin:6px 0;white-space:pre-wrap;word-break:break-word}
+.plan{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px}
+.plan > div{background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:14px 18px;min-width:0}
+.plan h3{margin:0 0 4px;font-size:15px}
+.plan .when{font-size:12px;color:var(--ink-3);margin-bottom:8px}
+.plan ol{margin:0;padding-left:20px}.plan li{margin-bottom:6px}
+ul.tight{margin:0 0 12px;padding-left:20px}ul.tight li{margin-bottom:4px;max-width:80ch}
+details{background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:10px 16px;margin:8px 0}
+summary{cursor:pointer;font-weight:600}
+summary:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.foot{color:var(--ink-3);font-size:13px;padding-top:24px}
+
+/* rules of the memory, as a three-lane reading */
+.rules{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px}
+@media (max-width:820px){.rules{grid-template-columns:minmax(0,1fr)}}
+.rule{background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:14px 16px;min-width:0}
+.rule .k{font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--accent);font-weight:600}
+.rule h3{margin:4px 0 8px}
+.rule .ex{font-family:var(--f-mono);font-size:12.5px;background:var(--tint);border-radius:4px;padding:8px 10px;margin-top:8px;white-space:pre-wrap;word-break:break-word}
+
+/* the turn pipeline */
+.flow{display:flex;flex-wrap:wrap;gap:6px;align-items:stretch;margin:8px 0 6px}
+.flow .st{background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:8px 10px;font-size:13px;flex:1 1 130px;min-width:0}
+.flow .st b{display:block;font-size:12.5px}
+.flow .st span{color:var(--ink-3);font-size:12px}
+.flow .st.hot{border-color:var(--high);background:var(--high-bg)}
+.flow .ar{align-self:center;color:var(--ink-3);font-size:14px}
+@media (max-width:620px){.flow .ar{display:none}}
+
+/* readiness ladder */
+.ladder{display:flex;flex-direction:column;gap:2px;background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:6px 0}
+.rung{display:grid;grid-template-columns:minmax(0,1.3fr) minmax(0,2fr) minmax(0,1.6fr);gap:14px;padding:10px 16px;align-items:center;border-bottom:1px solid var(--rule)}
+.rung:last-child{border-bottom:0}
+@media (max-width:720px){.rung{grid-template-columns:minmax(0,1fr);gap:6px}}
+.rung .nm{font-weight:600;font-size:14px}
+.rung .nm small{display:block;font-weight:400;color:var(--ink-3);font-size:12px}
+.track{position:relative;height:14px;background:var(--tint);border-radius:999px}
+.track .now{position:absolute;left:0;top:0;bottom:0;border-radius:999px}
+.track .tgt{position:absolute;top:-4px;bottom:-4px;width:2px;background:var(--ink)}
+.track.l1 .now{width:20%;background:var(--crit)} .track.l2 .now{width:40%;background:var(--high)}
+.track.l3 .now{width:60%;background:var(--med)} .track.l4 .now{width:80%;background:var(--ok)}
+.rung .gap{font-size:13px;color:var(--ink-2)}
+.scale{display:grid;grid-template-columns:repeat(5,1fr);font-size:11px;color:var(--ink-3);letter-spacing:.04em;max-width:100%;margin:6px 0 0}
+.legend{display:flex;flex-wrap:wrap;gap:6px 16px;font-size:12.5px;color:var(--ink-3);margin:8px 0}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-right:6px;vertical-align:-1px}
+
+/* chart */
+.chart{background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:12px 12px 6px;overflow-x:auto}
+.chart svg{display:block;min-width:620px;width:100%;height:auto}
+.chart text{fill:var(--ink-3);font:11px var(--f-body)}
+.chart .lbl{fill:var(--ink);font-weight:600}
+.chart .grid{stroke:var(--rule);stroke-width:1}
+.chart .bar-total{fill:var(--accent-soft)}
+.chart .bar-pass{fill:var(--accent)}
+.chart .bar-today{fill:var(--high)}
+</style>
+
+<div class="wrap">
+<nav class="toc" aria-label="Sections">
+  <b>Contents</b>
+  <a href="#summary">Where we stand</a>
+  <a href="#what">What context memory is</a>
+  <a href="#build">How it is built</a>
+  <a href="#tests">Tests run today</a>
+  <a href="#findings">Findings</a>
+  <a href="#readiness">Readiness scorecard</a>
+  <a href="#target">Production target</a>
+  <a href="#roadmap">How we get there</a>
+  <a href="#decide">Decisions needed</a>
+  <a href="#method">Method</a>
+</nav>
+<main>
+
+<header class="top">
+  <div class="eyebrow">Megh One AI · Conversational analytics for the Government of Meghalaya</div>
+  <h1>Context memory audit</h1>
+  <p>How well the chatbot remembers a conversation today, what it would take to run it in production for
+  district and state officers, and the order in which to do that work.</p>
+  <div class="meta"><span>23 October 2026</span><span>Branch <code>update/2026-10-22</code> at <code>6c95632</code> + uncommitted work</span><span>App on :8401, live database and model gateway (VPN)</span></div>
+</header>
+
+<section id="summary">
+  <h2>Where we stand</h2>
+  <p class="lede">The memory now behaves the way the user rules ask for in almost every scripted conversation.
+  It is not production-ready yet. The gaps are mostly not in the answers. They are in who can reach a
+  conversation, how long it is kept, how failures are seen, and how often the rules themselves change.</p>
+  <div class="kpis">
+    <div class="kpi good"><div class="v">99.2%</div><div class="l">Answered live turns passed today (382 / 385; 35 more lost to a VPN drop)</div></div>
+    <div class="kpi good"><div class="v">3,651</div><div class="l">Offline tests passed, 0 failed (full documented pytest set)</div></div>
+    <div class="kpi bad"><div class="v">2</div><div class="l">New high-severity defects found by this audit (both confirmed)</div></div>
+    <div class="kpi warn"><div class="v">10</div><div class="l">Context issues still open in KNOWN_ISSUES (of 71 ever logged)</div></div>
+  </div>
+  <div class="verdict">
+    <p><strong>Verdict: pilot-ready inside the office network, not production-ready.</strong> Conversation
+    behaviour is close to target (99.2% of live turns today; target 99% on a signed rule set). Five
+    things block a government production launch:</p>
+    <ul class="tight">
+      <li>Any signed-in user who has another user's conversation id can continue that conversation and see its history (F1).</li>
+      <li>One answer served from the shared cache makes the chat forget its other topics, so "go back to MGNREGA" stops working (F2).</li>
+      <li>Conversations are kept forever, and deleting one leaves copies in two other stores (F3).</li>
+      <li>The rules for carrying the year and the idle window have changed several times in a week and are not signed off (F5).</li>
+      <li>There are no numbers in production that would show a memory failure before an officer reports it (F8).</li>
+    </ul>
+  </div>
+</section>
+
+<section id="what">
+  <h2>What context memory is</h2>
+  <p class="lede">An officer rarely asks one complete question. They ask "MGNREGA person-days in East Garo Hills in
+  2024-25", then "and West Garo Hills?", then "what about PMAY-G?". Context memory is what lets the second and third
+  messages be answered correctly without repeating everything. These are the rules it follows today (D-056, D-061, D-065).</p>
+  <div class="rules">
+    <div class="rule">
+      <div class="k">Rule 1 · New chat</div>
+      <h3>Ask, one thing at a time</h3>
+      <p>Nothing is assumed. If the question does not name them, the bot asks for the scheme, then the district, then the year, one pause each, with chips to tap.</p>
+      <div class="ex">"How many job cards?"
+→ Which scheme? → Which district? → Which year?</div>
+    </div>
+    <div class="rule">
+      <div class="k">Rule 2 · Complete question inside a chat</div>
+      <h3>The question wins</h3>
+      <p>A question with its own scheme and measure inherits nothing. If it has no year, the bot asks for the year rather than picking the latest one. The answer is marked "(new question)".</p>
+      <div class="ex">"PMAY-G houses completed in East Garo Hills in FY 2023-24"
+→ banner: PMAY-G · East Garo Hills · FY 2023-24 (new question)</div>
+    </div>
+    <div class="rule">
+      <div class="k">Rule 3 · Follow-up</div>
+      <h3>Fill only the gaps</h3>
+      <p>A fragment or a reference ("and", "what about", "same for", "that") keeps everything it does not change. A vague one uses the only open topic, or asks which one when two are open.</p>
+      <div class="ex">"and in West Garo Hills?"
+→ MGNREGA · West Garo Hills · FY 2024-25</div>
+    </div>
+  </div>
+  <p style="margin-top:14px">Around these rules sit: a 50-turn window, up to 8 topics that can be returned to ("go back to MGNREGA"), an
+  8-hour idle window followed by a "Continue with …" chip, clarification pauses that survive a worker change, and a scope banner on every answer.</p>
+</section>
+
+<section id="build">
+  <h2>How it is built</h2>
+  <p class="lede">Every message passes through these steps. The highlighted ones decide what is remembered.</p>
+  <div class="flow" role="list">
+    <div class="st" role="listitem"><b>Sign-in and session id</b><span>id comes from the browser</span></div><div class="ar" aria-hidden="true">→</div>
+    <div class="st hot" role="listitem"><b>Load memory</b><span>worker copy, else Postgres snapshot</span></div><div class="ar" aria-hidden="true">→</div>
+    <div class="st hot" role="listitem"><b>Conversation layer</b><span>idle expiry, reset, stop, continue</span></div><div class="ar" aria-hidden="true">→</div>
+    <div class="st hot" role="listitem"><b>Cache gate</b><span>follow-ups must not be cached</span></div><div class="ar" aria-hidden="true">→</div>
+    <div class="st hot" role="listitem"><b>Topics and pause reply</b><span>"go back to …", chip taps</span></div><div class="ar" aria-hidden="true">→</div>
+    <div class="st hot" role="listitem"><b>Turn kind</b><span>new / follow-up / vague</span></div><div class="ar" aria-hidden="true">→</div>
+    <div class="st hot" role="listitem"><b>Follow-up rewrite</b><span>model + field-by-field check</span></div><div class="ar" aria-hidden="true">→</div>
+    <div class="st" role="listitem"><b>SQL and answer</b><span>scope re-checked</span></div><div class="ar" aria-hidden="true">→</div>
+    <div class="st hot" role="listitem"><b>Save memory</b><span>versioned upsert to Postgres</span></div>
+  </div>
+  <h3>Where the memory lives</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Store</th><th>What it holds</th><th>Lifetime today</th></tr></thead>
+    <tbody>
+      <tr><td>Worker memory (<code>session_store.py</code>)</td><td>The live copy: 20 state fields (scheme, district, block, village, year, measure, comparison …) plus their provenance, the last 50 turns, topics, pause</td><td>8 h sliding, 5,000 sessions per worker</td></tr>
+      <tr><td>Postgres <code>app.conversations.context_state</code></td><td>The durable snapshot any worker can load; revision number guards against stale writes</td><td>No expiry</td></tr>
+      <tr><td>Postgres LangGraph checkpoints</td><td>A paused graph run (clarification) and its partial results</td><td>30 min, swept every 10 min; deleted after an answer</td></tr>
+      <tr><td>Qdrant <code>megh_conversation_memory</code></td><td>Older question and answer text, for "relevant older turns"</td><td>30 days, purged daily</td></tr>
+      <tr><td>Exact and semantic answer caches</td><td>Shared answers to complete questions; keys carry the user's scope but not the conversation</td><td>Cache TTL</td></tr>
+    </tbody>
+  </table></div>
+  <h3>Size of the machinery</h3>
+  <div class="tbl"><table>
+    <thead><tr><th>Measure</th><th class="n">Value</th><th>Note</th></tr></thead>
+    <tbody>
+      <tr><td>Lines in the context-related modules</td><td class="n">≈13,340</td><td>14 files, e.g. <code>c14_turn_stages.py</code> 2,395, <code>c01_followups.py</code> 2,180, <code>topic_memory.py</code> 1,230</td></tr>
+      <tr><td>Word-pattern rules (<code>Matcher</code>) in those files</td><td class="n">173</td><td>Plus 64 fixed word lists. Most were added after a reported failure.</td></tr>
+      <tr><td>Separate "is this a follow-up?" checks</td><td class="n">5</td><td><code>turn_kind</code>, the follow-up gate, the cache gate, <code>continuation_signals</code>, the conversation layer</td></tr>
+      <tr><td>Context-focused offline test files / tests</td><td class="n">21 / ≈498</td><td>Inside the 3,651 total</td></tr>
+      <tr><td>Live conversation scenarios / turns</td><td class="n">139 / 420</td><td>9 YAML files in <code>tests/conversation_harness/scenarios/</code></td></tr>
+      <tr><td>Context issues ever logged</td><td class="n">71</td><td>61 fixed, 8 open, 2 partly closed</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="tests">
+  <h2>Tests run today</h2>
+  <p class="lede">All runs below are from 23 October 2026, on the code as it stands, against the live database and model gateway.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Suite</th><th>What it checks</th><th class="n">Result</th><th>Status</th></tr></thead>
+    <tbody>
+      <tr><td>Offline pytest (documented command)</td><td>Every unit and graph test, incl. ≈498 context tests</td><td class="n">3,651 passed · 0 failed · 3 skipped</td><td><span class="pill p-ok">Pass</span></td></tr>
+      <tr><td>Conversation harness, HTTP + streaming, cache off</td><td>The real server: 139 multi-turn chats, banners, figures, pauses, chips, leaks</td><td class="n">128 / 139 chats · 382 / 385 answered turns</td><td><span class="pill p-med">Partial</span></td></tr>
+      <tr><td>Live context validation (in-process)</td><td>The older 18-flow suite (A–R); last run 18 Oct</td><td class="n">Not run: VPN down</td><td><span class="pill p-med">Pending</span></td></tr>
+      <tr><td>Probe P1: another user's conversation id</td><td>Second account sends the first account's session id</td><td class="n">Function check: B gets A's session and state; live run pending (VPN)</td><td><span class="pill p-crit">Defect</span></td></tr>
+      <tr><td>Probe P2: "go back" after a cached answer</td><td>Two topics, one cached answer, then "go back to MGNREGA" (P3 is the same chat without the cache)</td><td class="n">Live run pending (VPN)</td><td><span class="pill p-med">Pending</span></td></tr>
+      <tr><td>Direct check of <code>topic_memory.checkpoint</code></td><td>Real Session, real <code>sync_out</code>, one non-graph turn between two graph turns</td><td class="n">Topics before: 1, after: 0</td><td><span class="pill p-crit">Defect</span></td></tr>
+    </tbody>
+  </table></div>
+  <div class="verdict" style="border-left-color:var(--med)">
+    <p><strong>Reading today's harness run.</strong> 128 of 139 chats and 382 of 420 turns passed. The 38 failed turns have two causes:</p>
+    <ul class="tight">
+      <li><strong>35 turns in 9 chats: the office VPN dropped</strong> during the 3-hour run (the database and the model gateway at 10.48.242.4 stopped answering; checked straight after). Every turn in those chats returned "internal error"; none of them reached the memory logic. Chats: U4–U9, N1–N3.</li>
+      <li><strong>3 turns in 2 chats: known, not new.</strong> <code>META_recap_explain_breakdown</code> turn 7 ("and 2022-23?" after a block-wise answer gives the block list, not the 375 total; open since 22 Oct). <code>CMP_compare_with_scheme</code> turns 2–3 look for the old "Cross-scheme comparison" card that D-062 removed: the answers are right, the expectation is stale.</li>
+    </ul>
+    <p>On the turns that were answered: <strong>382 of 385 (99.2%)</strong>. The 9 chats must be re-run once the VPN is back before this counts as a full pass.</p>
+  </div>
+  <h3>How the live harness has moved</h3>
+  <p>The scenario set has grown from 17 chats to 139 in six days, mostly from conversations the user reported. The pass rate has stayed between 96% and 100% of turns.</p>
+  <div class="chart" role="img" aria-label="Live conversation harness turns run and passed per run, 18 to 23 October">
+    <svg viewBox="0 0 720 250" xmlns="http://www.w3.org/2000/svg"><line class="grid" x1="48" x2="710" y1="200.0" y2="200.0"/><text x="40" y="204.0" text-anchor="end">0</text><line class="grid" x1="48" x2="710" y1="160.9" y2="160.9"/><text x="40" y="164.9" text-anchor="end">100</text><line class="grid" x1="48" x2="710" y1="121.8" y2="121.8"/><text x="40" y="125.8" text-anchor="end">200</text><line class="grid" x1="48" x2="710" y1="82.7" y2="82.7"/><text x="40" y="86.7" text-anchor="end">300</text><line class="grid" x1="48" x2="710" y1="43.6" y2="43.6"/><text x="40" y="47.6" text-anchor="end">400</text><rect class="bar-total" x="58.0" y="171.8" width="52.2" height="28.2"/><rect class="bar-pass" x="67.4" y="171.8" width="33.4" height="28.2"/><text class="lbl" x="84.1" y="165.8" text-anchor="middle">100%</text><text x="84.1" y="216" text-anchor="middle">18 Oct</text><text x="84.1" y="230" text-anchor="middle">first set · 72/72</text><rect class="bar-total" x="151.1" y="96.0" width="52.2" height="104.0"/><rect class="bar-pass" x="160.5" y="96.0" width="33.4" height="104.0"/><text class="lbl" x="177.2" y="90.0" text-anchor="middle">100%</text><text x="177.2" y="216" text-anchor="middle">21 Oct</text><text x="177.2" y="230" text-anchor="middle">HTTP · 266/266</text><rect class="bar-total" x="244.3" y="90.1" width="52.2" height="109.9"/><rect class="bar-pass" x="253.7" y="90.1" width="33.4" height="109.9"/><text class="lbl" x="270.4" y="84.1" text-anchor="middle">100%</text><text x="270.4" y="216" text-anchor="middle">21 Oct</text><text x="270.4" y="230" text-anchor="middle">stream · 281/281</text><rect class="bar-total" x="337.4" y="77.6" width="52.2" height="122.4"/><rect class="bar-pass" x="346.8" y="77.6" width="33.4" height="122.4"/><text class="lbl" x="363.5" y="71.6" text-anchor="middle">100%</text><text x="363.5" y="216" text-anchor="middle">22 Oct</text><text x="363.5" y="230" text-anchor="middle">12:00 · 313/313</text><rect class="bar-total" x="430.6" y="46.3" width="52.2" height="153.7"/><rect class="bar-pass" x="440.0" y="51.8" width="33.4" height="148.2"/><text class="lbl" x="456.7" y="40.3" text-anchor="middle">96.4%</text><text x="456.7" y="216" text-anchor="middle">22 Oct</text><text x="456.7" y="230" text-anchor="middle">13:51 · 379/393</text><rect class="bar-total" x="523.7" y="35.7" width="52.2" height="164.3"/><rect class="bar-pass" x="533.1" y="39.6" width="33.4" height="160.4"/><text class="lbl" x="549.8" y="29.7" text-anchor="middle">97.6%</text><text x="549.8" y="216" text-anchor="middle">22 Oct</text><text x="549.8" y="230" text-anchor="middle">19:06 · 410/420</text><rect class="bar-total" x="616.9" y="35.7" width="52.2" height="164.3"/><rect class="bar-today" x="626.2" y="50.6" width="33.4" height="149.4"/><text class="lbl" x="642.9" y="29.7" text-anchor="middle">91%</text><text x="642.9" y="216" text-anchor="middle">23 Oct</text><text x="642.9" y="230" text-anchor="middle">today* · 382/420</text></svg>
+  </div>
+  <div class="legend"><span><i style="background:var(--accent-soft)"></i>Turns run</span><span><i style="background:var(--accent)"></i>Turns passed</span><span><i style="background:var(--high)"></i>Today (*35 turns lost to the VPN drop, not to memory logic)</span></div>
+</section>
+
+<section id="findings">
+  <h2>Findings</h2>
+  <p class="lede">Ranked by what they would cost in production. F1 and F2 are new and were confirmed today; the rest were read in the code or the project records.</p>
+  <div class="findings">
+
+    <div class="f high"><div class="h"><span class="pill p-high">High</span><strong>F1 · A conversation is not tied to the user who owns it</strong><span class="id">security</span></div>
+      <dl>
+        <dt>What</dt><dd>The browser sends the conversation id. The server accepts it as is (<code>routers/query.py:144-155</code>). It never checks that the stored conversation belongs to the caller: <code>session_store.ensure</code> (<code>session_store.py:306-324</code>) does not compare user ids, the snapshot is loaded by id alone (<code>conversation_store.py:377-399</code>), the save upserts on id alone (<code>:348-374</code>), and the paused graph run uses the same id. The conversation history pages do filter by user; the question path does not.</dd>
+        <dt>Live</dt><dd>Checked with the real <code>SessionStore.ensure</code>: officer B asking with officer A's conversation id gets the same session object, owner still A, and sees A's scheme, district and last question. The live two-account probe is written and waits for the VPN.</dd>
+        <dt>Limits</dt><dd>Ids from the web UI are random, so guessing one is hard. Data access is still re-checked against the caller's own scope, so no restricted figures leak. Earlier questions, answers and places do.</dd>
+        <dt>Fix</dt><dd>Store the owner on first use; on a mismatch refuse (403) or start a fresh conversation. Add <code>AND user_id = $n</code> to the load and save SQL. Add a two-account test to the harness.</dd>
+      </dl></div>
+
+    <div class="f high"><div class="h"><span class="pill p-high">High</span><strong>F2 · One cached answer wipes the chat's topics</strong><span class="id">correctness · new</span></div>
+      <dl>
+        <dt>What</dt><dd>Every saved turn raises the conversation's revision by one. <code>topic_memory.checkpoint</code> (<code>topic_memory.py:401-404</code>) treats a jump of more than one since it last ran as "another worker served turns I never saw" and drops every topic. It only runs when a turn goes through the graph. A cache hit, a greeting, a reset or a Stop still saves a revision, so the next real turn sees a jump of two and resets.</dd>
+        <dt>Evidence</dt><dd>Direct check with the real functions: 1 topic before, 0 after. The live probe (two topics, one cached answer, then “go back to MGNREGA”, with a no-cache control chat) is written and waits for the VPN.</dd>
+        <dt>Effect</dt><dd>"Go back to MGNREGA", "repeat my first question" and the "which topic?" chips silently stop working after the first cached answer. Caches are on in production and the harness runs with them off, which is why the harness has not caught this.</dd>
+        <dt>Fix</dt><dd>Record the revision a worker itself writes (in <code>sync_out</code>) as seen, or run the checkpoint on every saved turn. Add a regression test and run the harness once with caches on.</dd>
+      </dl></div>
+
+    <div class="f med"><div class="h"><span class="pill p-med">Medium</span><strong>F3 · Conversations are kept forever, and deletion is partial</strong><span class="id">privacy · retention</span></div>
+      <dl>
+        <dt>What</dt><dd><code>app.conversations.context_state</code> and the turn rows have no expiry. Deleting a conversation (<code>conversation_store.py:262-276</code>) leaves its Qdrant memory points and any checkpoint rows. Purging a user keeps their conversations (<code>appdb.py:348-353</code>). A snapshot has no size cap: up to 8 topic answers of 2,000 characters plus 160 ledger answers of 300 characters each. The worker copy keeps full answers.</dd>
+        <dt>Why it matters</dt><dd>Questions name villages, groups and people's schemes. A government deployment needs a written retention period and a deletion that actually deletes; check it against the Digital Personal Data Protection Act, 2023 and the department's records policy.</dd>
+        <dt>Fix</dt><dd>One retention setting (for example 180 days) with a daily purge across all four stores; cascade deletes; a snapshot size cap; trim answers in the worker copy.</dd>
+      </dl></div>
+
+    <div class="f med"><div class="h"><span class="pill p-med">Medium</span><strong>F4 · Five separate checks decide "is this a follow-up?"</strong><span class="id">consistency</span></div>
+      <dl>
+        <dt>What</dt><dd><code>context_policy.turn_kind</code>, the follow-up gate in <code>c14_turn_stages.py:1293-1300</code>, the cache gate <code>is_cacheable</code> (<code>routers/query.py:416-462</code>), <code>continuation_signals</code> and the conversation layer each read the sentence with their own word lists. When they disagree, the result is a wrong inheritance or, worse, a shared cached answer for a follow-up. KI-337 ("show me for X" served from cache as a knowledge answer) was exactly this.</dd>
+        <dt>Fix</dt><dd>Decide the turn kind once per turn, store it on the turn, and have the cache gate, the rewrite and the banner read that one value. Longer term, the typed query-plan step from the NL→SQL benchmark report replaces most of these word lists.</dd>
+      </dl></div>
+
+    <div class="f med"><div class="h"><span class="pill p-med">Medium</span><strong>F5 · The rules keep changing and are not signed off</strong><span class="id">governance</span></div>
+      <dl>
+        <dt>What</dt><dd>The year rule for a new question in a running chat changed four times in four days: keep the chat's year (KI-331, 19 Oct), carry place and year (D-056, 21 Oct), latest year (D-061, 22 Oct), ask the year (D-065, 22 Oct night). The idle window moved 30 min → 4 h → 8 h; the 22 Oct addendum asked for 30 min and is still open. Harness scenario U5 still encodes the KI-331 behaviour (marked DOCUMENTATION CONFLICT).</dd>
+        <dt>Why it matters</dt><dd>Each change rewrites code, tests and scenarios, and earlier fixes are re-broken. Officers will be trained on one behaviour.</dd>
+        <dt>Fix</dt><dd>A one-page "conversation rulebook v1" signed by the department, with the 139 scenarios as its acceptance test. Changes after that go through a short change request.</dd>
+      </dl></div>
+
+    <div class="f med"><div class="h"><span class="pill p-med">Medium</span><strong>F6 · Time limits disagree with each other</strong><span class="id">reliability</span></div>
+      <dl>
+        <dt>What</dt><dd>Idle window 8 h (<code>config.py:369,382</code>); a paused graph run is swept after 30 min (<code>config.py:605</code>); stop → continue is capped at 30 min (D-050); the pause itself lives on in the session for 8 h, so a reply after 30 min resumes from the fallback copy. CURRENT_STATE records that the deploy <code>.env</code> files on the VMs still hold 30 min and 8 turns (they are not in the repository, so this could not be checked). Comments in <code>tests/test_stop_continue.py</code> still say 4 h.</dd>
+        <dt>Fix</dt><dd>One idle setting that drives all four, a check at startup that logs the values in force, and the deploy files updated to match.</dd>
+      </dl></div>
+
+    <div class="f med"><div class="h"><span class="pill p-med">Medium</span><strong>F7 · Two turns at once: one is silently lost</strong><span class="id">reliability</span></div>
+      <dl>
+        <dt>What</dt><dd>The save is versioned, and the first writer wins (<code>session_sync.py:115-119</code>). The losing request has already answered the officer, but its memory update is dropped with only a log line. The lock that serialises turns works within one worker only (<code>pipeline_graph.py:640-648</code>); production runs 2 workers on each of 2 VMs without stickiness.</dd>
+        <dt>Fix</dt><dd>Refuse a second turn on a busy conversation (409, the UI waits), or reload and re-apply. Count stale writes as a metric.</dd>
+      </dl></div>
+
+    <div class="f med"><div class="h"><span class="pill p-med">Medium</span><strong>F8 · Memory failures are invisible until an officer reports one</strong><span class="id">observability</span></div>
+      <dl>
+        <dt>What</dt><dd>There is a JSON decision log per turn (<code>pipeline_decision</code>, 95 call sites), but <code>/metrics</code> counts only requests, routes, errors and latency. Nothing counts follow-ups vs new questions, rejected rewrites, topic resets, sync failures, stale writes or expired pauses. The decision log also writes question text, although its own docstring says it never does (<code>context_budget.py:111-112</code>).</dd>
+        <dt>Fix</dt><dd>Eight counters (listed under Production target), an admin panel tile, and alerts on sudden changes. Strip question text from the decision log or mark it as personal data.</dd>
+      </dl></div>
+
+    <div class="f"><div class="h"><span class="pill p-low">Low</span><strong>F9 · Ten known context issues are still open</strong><span class="id">backlog</span></div>
+      <dl>
+        <dt>Open</dt><dd>KI-031 scheme swap keeps the old measure words · KI-037 block-vs-village choice not remembered · KI-038 provenance labels on resumes · KI-318 "go back to Mawphlang" · KI-363 "break it down by district" repeats the total · KI-364 "compare with Ri Bhoi" drops the district · KI-367 "most job cards in which block?" → knowledge · KI-396 Hinglish NQ06 → knowledge · KI-029 provenance skips villages, years, categories (mitigated) · KI-185 Postgres checkpointer partly verified.</dd>
+        <dt>Also</dt><dd>The provenance filter does not cover scheme or measure (<code>context_manager.py:283-284</code>).</dd>
+      </dl></div>
+
+    <div class="f"><div class="h"><span class="pill p-low">Low</span><strong>F10 · The records describe an older system</strong><span class="id">documentation</span></div>
+      <dl>
+        <dt>What</dt><dd><code>docs/CONTEXT_AND_LANGGRAPH.md</code> stops at D-030: no topics, idle expiry, turn kind or caches, and it still mentions the removed sequential path. Comments in <code>session_store.py:5-12</code> and <code>config.py:364-367</code> say memory is lost on restart (it is not). HANDOFF says D-061/D-065 are uncommitted (they are in <code>6c95632</code>). KI-337 and KI-230 each appear twice. TESTING cites a deleted 26 Sep report. The live context suites write no saved results.</dd>
+        <dt>Fix</dt><dd>Rewrite CONTEXT_AND_LANGGRAPH.md from this report's "How it is built" section, and make the live suites save a dated JSON under <code>logs/</code>.</dd>
+      </dl></div>
+
+  </div>
+</section>
+
+<section id="readiness">
+  <h2>Readiness scorecard</h2>
+  <p class="lede">Each area is placed on a five-step scale. The bar is where it is today; the black mark is where it needs to be for a state-wide production launch.</p>
+  <div class="scale" aria-hidden="true"><span>1 · Absent</span><span>2 · Ad hoc</span><span>3 · Works, unguarded</span><span>4 · Guarded</span><span>5 · Production</span></div>
+  <div class="ladder">
+    <div class="rung"><div class="nm">Conversation behaviour<small>do the rules work?</small></div><div class="track l4" aria-label="4 of 5, target 5"><div class="now"></div><div class="tgt" style="left:99%"></div></div><div class="gap">99.2% of live turns; 10 open issues; one wipe bug (F2)</div></div>
+    <div class="rung"><div class="nm">Rule stability<small>signed, stable behaviour</small></div><div class="track l2" aria-label="2 of 5, target 5"><div class="now"></div><div class="tgt" style="left:99%"></div></div><div class="gap">Year rule changed 4× in 4 days; idle window open (F5)</div></div>
+    <div class="rung"><div class="nm">Security and isolation<small>whose conversation is it?</small></div><div class="track l2" aria-label="2 of 5, target 5"><div class="now"></div><div class="tgt" style="left:99%"></div></div><div class="gap">Scope re-checked on SQL, but no owner check (F1)</div></div>
+    <div class="rung"><div class="nm">Privacy and retention<small>how long, who deletes</small></div><div class="track l1" aria-label="1 of 5, target 5"><div class="now"></div><div class="tgt" style="left:99%"></div></div><div class="gap">No retention period; partial delete; no size cap (F3)</div></div>
+    <div class="rung"><div class="nm">Reliability across workers<small>restarts, 4 workers, timeouts</small></div><div class="track l3" aria-label="3 of 5, target 5"><div class="now"></div><div class="tgt" style="left:99%"></div></div><div class="gap">Postgres snapshot with retry works; silent loss on races, mixed timeouts (F6, F7)</div></div>
+    <div class="rung"><div class="nm">Observability<small>would we see a failure?</small></div><div class="track l2" aria-label="2 of 5, target 4"><div class="now"></div><div class="tgt" style="left:79%"></div></div><div class="gap">Decision logs only; no counters, no alerts (F8)</div></div>
+    <div class="rung"><div class="nm">Regression testing<small>does a change get caught?</small></div><div class="track l3" aria-label="3 of 5, target 5"><div class="now"></div><div class="tgt" style="left:99%"></div></div><div class="gap">Strong suites, but live runs are manual, need the VPN, and do not run with caches on</div></div>
+    <div class="rung"><div class="nm">Maintainability<small>can a new engineer change it?</small></div><div class="track l2" aria-label="2 of 5, target 4"><div class="now"></div><div class="tgt" style="left:79%"></div></div><div class="gap">≈13,340 lines, 173 word rules, 5 follow-up checks (F4); stale docs (F10)</div></div>
+  </div>
+</section>
+
+<section id="target">
+  <h2>Production target</h2>
+  <p class="lede">"Production-ready" for this project should mean these measurable things, checked before launch and then every night.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Area</th><th>Measure</th><th>Today</th><th>Target</th></tr></thead>
+    <tbody>
+      <tr><td>Behaviour</td><td>Live harness turns passed, on the signed scenario set, caches off <em>and</em> on, 3 runs in a row</td><td>99.2%, caches off, 1 run</td><td>≥ 99%, no failing chat twice</td></tr>
+      <tr><td>Behaviour</td><td>Open High / Medium context issues</td><td>0 High logged, 2 High found today; 6 Medium</td><td>0 High; Medium each with an owner and a date</td></tr>
+      <tr><td>Security</td><td>Cross-user conversation test (P1)</td><td>Not refused (function check)</td><td>Refused, in the harness</td></tr>
+      <tr><td>Security</td><td>External security audit of the chat API (the usual CERT-In empanelled audit for state applications)</td><td>Not done</td><td>Done, findings closed</td></tr>
+      <tr><td>Privacy</td><td>Written retention period, purge across all four stores, delete that cascades</td><td>None</td><td>In place and tested</td></tr>
+      <tr><td>Reliability</td><td>Turns lost to races; pauses resumed from the fallback copy</td><td>Not measured</td><td>Counted; below 0.1% of turns</td></tr>
+      <tr><td>Load</td><td>Concurrent officers on 2 VMs × 2 workers, p95 time to answer</td><td>Not measured</td><td>Agreed number (for example 200 users), p95 within the agreed limit</td></tr>
+      <tr><td>Observability</td><td>Counters: new vs follow-up, rewrite rejected, topic reset, idle expiry, pause expired, sync failure, stale write, cache-served follow-up</td><td>0 of 8</td><td>8 of 8, on the admin panel, with alerts</td></tr>
+      <tr><td>Testing</td><td>Offline suite on every merge; live harness nightly with a saved report</td><td>Manual</td><td>Automatic, red build blocks the merge</td></tr>
+      <tr><td>Governance</td><td>Conversation rulebook signed by the department</td><td>Rules spread over 7 decisions</td><td>One page, version 1, signed</td></tr>
+      <tr><td>Acceptance</td><td>User acceptance with officers from at least two districts</td><td>Developer testing</td><td>Signed UAT sheet</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="roadmap">
+  <h2>How we get there</h2>
+  <p class="lede">Three steps. Each ends with a check that has to pass before the next starts.</p>
+  <div class="plan">
+    <div>
+      <h3>Step 1 · Close the gaps</h3>
+      <div class="when">About one week</div>
+      <ol>
+        <li>F1: bind each conversation to its owner; two-account harness scenario.</li>
+        <li>F2: fix the topic reset; regression test; one harness run with caches on.</li>
+        <li>Decide the idle window and U5 (see below); one setting for all time limits (F6); update the deploy <code>.env</code>.</li>
+        <li>Fix or re-scope the failing harness chats and KI-363, KI-364, KI-396.</li>
+        <li>Make the live suites save dated results; refresh CONTEXT_AND_LANGGRAPH.md (F10).</li>
+      </ol>
+      <p style="margin-top:8px"><strong>Exit:</strong> harness ≥ 99% with caches off and on; P1 refused; 0 High issues.</p>
+    </div>
+    <div>
+      <h3>Step 2 · Make it safe to run</h3>
+      <div class="when">Two to three weeks</div>
+      <ol>
+        <li>Retention period, daily purge across all stores, cascade delete, snapshot cap (F3).</li>
+        <li>The eight memory counters, an admin tile and alerts (F8).</li>
+        <li>Busy-conversation handling and a stale-write counter (F7).</li>
+        <li>One turn-kind decision per turn, read by the cache gate and rewrite (F4).</li>
+        <li>Offline suite on every merge; live harness nightly from a machine on the VPN.</li>
+        <li>Sign the conversation rulebook v1 (F5).</li>
+      </ol>
+      <p style="margin-top:8px"><strong>Exit:</strong> three nightly runs in a row ≥ 99%; rulebook signed; retention live.</p>
+    </div>
+    <div>
+      <h3>Step 3 · Prove it with officers</h3>
+      <div class="when">Three to six weeks</div>
+      <ol>
+        <li>Load test at the agreed number of concurrent officers on the production layout.</li>
+        <li>External security audit of the chat API.</li>
+        <li>UAT with officers from two districts; their real chats become new harness scenarios.</li>
+        <li>Pilot the typed query-plan step in shadow mode (logs only), compared against today's word rules, before any switch.</li>
+      </ol>
+      <p style="margin-top:8px"><strong>Exit:</strong> signed UAT, closed audit findings, load target met: production launch.</p>
+    </div>
+  </div>
+</section>
+
+<section id="decide">
+  <h2>Decisions needed from the department</h2>
+  <div class="tbl"><table>
+    <thead><tr><th>Question</th><th>Options</th><th>Recommendation</th></tr></thead>
+    <tbody>
+      <tr><td>How long should a quiet chat keep its context?</td><td>30 min (22 Oct addendum) · 8 h (in code now)</td><td>8 h for the working day, with the "Continue with …" chip already shown after it; confirm in writing</td></tr>
+      <tr><td>A new same-scheme question in a running chat, with no year: keep the chat's year or ask? (U5 / KI-331 vs D-065)</td><td>Keep · Ask</td><td>Ask, as D-065 does; then update U5 so the harness agrees</td></tr>
+      <tr><td>How long are conversations kept, and who may delete them?</td><td>90 days · 180 days · 1 year</td><td>Set by the department's records officer; the code then enforces it</td></tr>
+      <tr><td>What happens if a user opens someone else's conversation id?</td><td>Refuse · Start a fresh chat</td><td>Refuse with a clear message, and log the attempt</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="method">
+  <h2>Method</h2>
+  <ul class="tight">
+    <li>Read the context code (session store and sync, conversation layer, topic memory, context policy and manager, follow-up rewrite, turn stages, LangGraph pause and resume, caches, router) and the project records (DECISIONS, KNOWN_ISSUES, CURRENT_STATE, HANDOFF, TESTING, the two 23 Oct reports, harness logs).</li>
+    <li>Ran the documented offline pytest set and the full live conversation harness over HTTP with streaming and caches off against the app on :8401 (19:20–22:31). Confirmed F1 and F2 by calling the real functions (<code>SessionStore.ensure</code>; <code>sync_out</code> + <code>topic_memory.checkpoint</code>).</li>
+    <li>The office VPN dropped during the harness run. The live context validation suite, the two live probes and the re-run of the 9 affected chats are written and ready but were not run; they are the first thing to run when the VPN is back.</li>
+    <li>Counted lines with <code>wc -l</code> and rules by searching for <code>Matcher(</code> in the context modules. Severity reflects impact in a state-wide deployment.</li>
+    <li>Not done: load testing, a browser walk-through, a run with caches on across the whole harness, and any change to app code for this report.</li>
+    <li>Line and rule counts, the store table and the code references come from a read of the code on 23 Oct; the issue counts come from KNOWN_ISSUES.md, selected by keyword and checked row by row.</li>
+  </ul>
+  <p class="foot">Probe and check scripts are kept outside the repository; the harness report is in <code>logs/conversation_harness/</code>.
+  Companion reports: <code>new_docs/Megh_One_AI_Audit_Report_2026-10-23.html</code> and <code>new_docs/NL2SQL_LangGraph_Benchmark_Report_2026-10-23.html</code>.</p>
+</section>
+
+</main>
+</div>

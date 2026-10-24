@@ -5,7 +5,7 @@ the same reason on the calling (event-loop) thread: onnxruntime's Run()
 deadlocks on Windows when driven from a ThreadPoolExecutor worker.
 
   sparse  BM25 keyword vectors (RAG_SPARSE_MODEL, "Qdrant/bm25", ~10 MB). The
-          meaning model (bge-small) reads a bare acronym or an exact term
+          meaning model (bge-small or qwen3-embedding) reads a bare acronym or an exact term
           poorly — "SECC", "Form 6", "job card" — and keyword search finds the
           pieces that literally contain it. kb_ingest stores one per piece;
           vectorstore.search fuses it with the meaning search (RRF).

@@ -24,7 +24,9 @@ router = APIRouter(prefix="/api", tags=["stats"])
 STATS_TTL_SECONDS = 600
 
 # One fixed, read-only statement per card. Labels match the cards; the rules are the
-# chatbot's (schema_context): PMAY-G excludes placeholder rows, Focus Legacy counts
+# chatbot's (schema_context): PMAY-G counts every row (the 126 zero-sanction registrations
+# are houses sanctioned too, D-060 as widened by the user 2026-10-23: the card said 1,70,981
+# while the rule and the chatbot say 1,71,107; they add 0 completed and Rs 0), Focus Legacy counts
 # groups on pg_id, CM Elevate applications are rows, MGNREGA villages are those with
 # an employment or an expenditure record.
 _SQL = {
@@ -35,7 +37,7 @@ _SQL = {
                           WHERE village_code IS NOT NULL) AS villages""",
     "pmay_g": """SELECT COUNT(*) AS sanctioned, COUNT(*) FILTER (WHERE is_completed) AS completed,
                         SUM(COALESCE(amount_released, 0)) AS released
-                 FROM curated.v_pmay WHERE NOT is_placeholder""",
+                 FROM curated.v_pmay""",
     "focus_plus": """SELECT COUNT(*) AS payments, SUM(amount_disbursed) AS amount,
                             COUNT(DISTINCT lgd_district) AS districts FROM curated.v_focus_plus""",
     "cm_elevate": """SELECT COUNT(*) AS applications, COUNT(DISTINCT scheme_name) AS schemes,

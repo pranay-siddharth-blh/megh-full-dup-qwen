@@ -40,8 +40,15 @@ python3.11 -m venv .venv
 # or:  ./.venv/bin/pip install -r requirements.txt   (compatible updates)
 ```
 
-`fastembed` pulls `onnxruntime` and downloads the `bge-small-en-v1.5` model on
-first use (`EMBEDDING_PROVIDER=local`). Allow outbound HTTPS the first time, or
+Embeddings come from the gateway's `qwen3-embedding` (`EMBEDDING_PROVIDER=gateway`, D-067). Set
+`EMBEDDING_BASE_URL=https://10.48.242.4/openai/v1` (not `…/completions`), `QDRANT_COLLECTION=megh_scheme_kb_v4`,
+`CONTEXT_MEMORY_COLLECTION=megh_conversation_memory_1024`, `RAG_MEDIUM_CONFIDENCE=0.35` and
+`CONTEXT_MEMORY_MIN_SCORE=0.45` (see `.env.example`). The first start builds the KB collection by itself
+(and rebuilds it if its vector size does not match the model, KI-402). After that restart, carry chat recall over
+once — it re-embeds the last 30 days of `megh_conversation_memory` and only reads the old collection:
+`./.venv/bin/python deploy/migrate_conversation_memory.py --dry-run`, then without `--dry-run`.
+`fastembed` is still installed: it serves the BM25 keyword vectors, the local re-ranker and the
+`EMBEDDING_PROVIDER=local` rollback, and downloads its models on first use — allow outbound HTTPS once, or
 pre-seed the `fastembed_cache/`.
 
 ## 4. Configuration

@@ -14,7 +14,7 @@ def test_indian_grouping():
 def test_card_figures_from_rows():
     rows = {
         "mgnrega": {"person_days": 90915181, "exp_lakh": 362866.57, "villages": 6491},
-        "pmay_g": {"sanctioned": 170981, "completed": 129941, "released": 21852598500},
+        "pmay_g": {"sanctioned": 171107, "completed": 129941, "released": 21852598500},
         "focus_plus": {"payments": 385671, "amount": 1197392500, "districts": 12},
         "cm_elevate": {"applications": 8867, "schemes": 15, "districts": 12},
         "focus_legacy": {"groups": 11906, "memberships": 102021, "amount": 510105000},
@@ -22,7 +22,7 @@ def test_card_figures_from_rows():
     }
     years = {"mgnrega": ["2022-23", "2023-24", "2024-25", "2025-26"]}
     c = stats._cards(rows, years)
-    assert c["pmay_g"][0] == ["1,70,981", "Houses sanctioned"]
+    assert c["pmay_g"][0] == ["1,71,107", "Houses sanctioned"]
     assert c["pmay_g"][2] == ["₹2,185.26 Cr", "Funds released"]
     assert c["mgnrega"] == [["9.09 Cr", "Person-days (4 yr)"], ["₹3,628.67 Cr", "Expenditure (4 yr)"],
                             ["6,491", "Villages with activity"]]
@@ -65,3 +65,10 @@ def test_a_missing_figure_is_a_dash_not_zero():
     c = stats._cards(rows, {})
     assert c["mgnrega"][0] == ["—", "Person-days"] and c["mgnrega"][2] == ["0", "Villages with activity"]
     assert c["pmay_g"][2] == ["—", "Funds released"] and c["focus_legacy"][1] == ["—", "Memberships paid"]
+
+
+def test_pmay_card_counts_zero_sanction_registrations():
+    # user 2026-10-23: the card said 1,70,981; the 126 zero-sanction rows are houses
+    # sanctioned too (D-060), so the card's count must not drop them.
+    from app import sql_ast
+    assert not sql_ast.references_column(stats._SQL["pmay_g"], "is_placeholder")

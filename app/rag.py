@@ -524,7 +524,7 @@ async def retrieve(question: str, scheme: str | None = None, expand: bool = True
             candidates = [dict(candidates[i], rerank_score=sc) for sc, i in ranked]
 
     # Reranker is opt-in — the deployed qwen3-reranker inverts relevance on this
-    # KB, so by default we trust the vector order (bge-small) directly.
+    # KB, so by default we trust the embedding model's vector order directly.
     # RAG_MIN_SCORE is a real floor (2026-10-16): a piece below it never reaches
     # the composer. It used to fall back to the unfiltered top pieces when none
     # passed, so a question the KB does not cover was answered from unrelated text

@@ -3,9 +3,53 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-10-24 evening (code): the 1024-dim switch is finished and live on :8401.** Qdrant backup in
+`C:\Users\rohit\Downloads\qdrant_backup_2026-10-24\` (outside the repo). Code: `app/vectorstore.py` (`vector_size`,
+`collection_dim`), `app/kb_ingest.py` (size check -> rebuild, KI-402), `app/conversation_memory.py` (size refusal, purge of
+`CONTEXT_MEMORY_PURGE_ALSO`, KI-403), `app/config.py` (new setting + comments), comments in `rag.py` / `local_rank.py`; NEW
+`deploy/migrate_conversation_memory.py` (ran: 12,046 turns) and `tests/test_embedding_size_guard_2026_10_24.py`. Docs: D-067,
+KNOWN_ISSUES KI-402..407, TESTING, AI_PIPELINE, ARCHITECTURE, DEPLOYMENT, `.env.example`. Tests: pytest 3,661/0, scripts 14/14,
+live context 103/107 (same 4 fail on 384: KI-405 scheme switch in a pause, KI-406 year dropped / U5, KI-407 stale F-T5 check).
+Then KI-408: memory search exact + payload indexes (`conversation_memory.create_payload_indexes`; added live to
+`megh_conversation_memory_1024`), 60/60 vs exact, pytest 3,663/0, live context 103/107 again, :8401 = PID 17056.
+Nothing committed. **Next:** the user's RAG plan (`new_docs/RAG_Plan_Reference_Notes_2026-10-24_with_fixes.docx`), Step 0
+onward; the Step 4 metadata collection is built at 1024 with qwen3-embedding.
+
+**2026-10-24 (config + one code fix): embeddings switched to the gateway's `qwen3-embedding` (1024-dim), D-067.**
+`.env` changed (provider `gateway`, URL `…/openai/v1`, collections `megh_scheme_kb_v4` + `megh_conversation_memory_1024`,
+`RAG_MEDIUM_CONFIDENCE=0.35`, `CONTEXT_MEMORY_MIN_SCORE=0.45`; a pre-change copy was kept outside the repo). `megh_scheme_kb_v4`
+is built. Code: `app/semantic_cache.py` (KI-401, contrast words in the cache scope) + its test in `tests/test_forward_plan_wi.py`.
+Docs: DECISIONS D-067 (D-004 superseded), AI_PIPELINE, ARCHITECTURE, KNOWN_ISSUES KI-401, TESTING, CLAUDE.md §5,
+`.env.example`, `deploy/DEPLOYMENT.md`. **Next:** restart :8401 from `.venv` (the running one is system Python, old settings),
+ask 2-3 knowledge questions and one follow-up, check `megh_conversation_memory_1024` gets created; then copy the same `.env`
+lines to the deploy VMs. Rollback = D-067. Nothing committed.
+
+**2026-10-23 evening (report, no app code): context-memory audit** — `new_docs/Context_Memory_Audit_Report_2026-10-23.html`
+(also published as a private claude.ai artifact). New KI-399 (session not bound to its owner) and KI-400 (cached answer
+wipes topic memory), both High, both confirmed by calling the real functions. VPN dropped mid-harness: when it is back,
+re-run `--only` U4,U5,U6,U7,U8,U9,N1,N2,N3 (http --stream --skip-cache) and `tests/live_context_validation.py`; also run
+the harness once WITHOUT `--skip-cache` (KI-400 only shows with caches on). Next fixes in the report's Step 1.
+
+**2026-10-23 (code): PMAY-G card "Houses sanctioned" now 1,71,107** (user: include the 126 zero-sanction rows). Changed
+`app/routers/stats.py` (`_SQL["pmay_g"]` counts every row), `frontend/src/chat/constants.js` fallback, `tests/test_scheme_stats.py`;
+frontend rebuilt. The card cache is 10 min (`STATS_TTL_SECONDS`): restart :8401 to see it at once. Open KI-398 (prompt
+cross-scheme examples text). Nothing committed.
+
+**2026-10-23 (report only, no code):** `new_docs/NL2SQL_LangGraph_Benchmark_Report_2026-10-23.html` ranks the NL→SQL gaps.
+Suggested next step from it: re-run `tests/nl2sql_eval` on today's code (last full run 18 Oct, before D-060..066).
+
 **PORT RULE (user, 2026-10-19): the app runs on 8401 ONLY — dev box, docs, harness, probes. Never 8400 or any other port.
 Start it from the repo venv: `.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8401` (two servers started
 with the SYSTEM Python — no fastembed, RAG degrades silently — were found running on 8400 and 8401 at 13:05 and replaced).**
+
+**Latest (2026-10-23): full audit, no code changed.** Report `new_docs/Megh_One_AI_Audit_Report_2026-10-23.html` (findings,
+priorities). First actions it recommends: gitignore `raw_uc/` + `new_docs/*.csv`; FY24 / number-word parsing; phone KPI
+cards + compare-card verdict; CA bundle; read-only DB role; refresh CLAUDE.md. Awaiting the user's choice of what to fix.
+
+**Latest (2026-10-22 night, KI-397): comparison card "MGNREGA 14,94,437 vs PMAY-G 0".** Frontend only: `analytics.js`
+(charts use columns every row carries; NEW `tableColumns`), `Charts.jsx` `DynTable`, `ChatExport.jsx`; `npm run build`.
+NEW `tests/test_cross_compare_card_2026_10_22.py` (node). Nothing committed. NOT CHECKED in a browser: reload /megh-chat
+and ask "MGNREGA vs PMAY-G households" — expect the card on amount (₹ crore) and both count columns in the table.
 
 **Latest (2026-10-22 night, D-065 / KI-394 / KI-395): a pause reply keeps the typed question's kind; a new
 question with no year asks the year.** User's Mairang chat ("…for mairang?" -> chips -> "FY 2025-26 (new question)").

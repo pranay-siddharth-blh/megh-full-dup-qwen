@@ -726,6 +726,17 @@ async def _embed_all(texts: list[str]) -> list[list[float]]:
     return vectors
 
 
+async def _embedding_dim() -> int | None:
+    """Vector size the configured embedding model returns now, or None when the
+    model cannot be reached (then the size check is skipped, as before)."""
+    try:
+        vecs = await llm.call_embedding(["dimension check"])
+        return len(vecs[0]) if vecs else None
+    except Exception as e:  # noqa: BLE001 — unknown size: keep the other checks
+        logger.warning("kb_ingest: could not read the embedding size (%s)", e)
+        return None
+
+
 async def ingest_kb(force: bool = False) -> dict:
     """Build (or rebuild) the Qdrant KB collection. Returns a small status dict."""
     chunks = _collect_chunks()
@@ -745,7 +756,15 @@ async def ingest_kb(force: bool = False) -> dict:
         # the sources produce is actually PRESENT before trusting the skip.
         have_schemes = await vectorstore.distinct_schemes()
         missing = want_schemes - have_schemes
-        if settings.RAG_SPARSE_MODEL and not await vectorstore.has_sparse():
+        # The skip checks never looked at the vector SIZE (D-067, 2026-10-24): an
+        # EMBEDDING_PROVIDER change without a new QDRANT_COLLECTION left a 384-dim
+        # KB that every 1024-dim question fails to search, so each knowledge
+        # question answered "not covered" and a restart did not repair it.
+        have_dim, want_dim = await vectorstore.collection_dim(), await _embedding_dim()
+        if have_dim and want_dim and have_dim != want_dim:
+            logger.error("kb_ingest: %s holds %d-dim vectors but the embedding model "
+                         "returns %d — rebuilding", settings.QDRANT_COLLECTION, have_dim, want_dim)
+        elif settings.RAG_SPARSE_MODEL and not await vectorstore.has_sparse():
             # Built before the keyword vector existed (Phase 3): hybrid search
             # would silently run meaning-only on it, so rebuild with both.
             logger.warning("kb_ingest: %s has no keyword (BM25) vector — rebuilding",

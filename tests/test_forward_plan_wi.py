@@ -101,6 +101,52 @@ def test_semantic_hit_needs_the_same_scheme_place_and_year(monkeypatch):
     assert same is not None and same["answer"] == "A"
 
 
+# ── 2026-10-24: a semantic hit must also keep direction, status and measure ──
+def test_semantic_hit_needs_the_same_direction_status_and_measure(monkeypatch):
+    from app import semantic_cache as sc
+    from app.config import settings
+    monkeypatch.setattr(settings, "SEMANTIC_CACHE_ENABLED", True)
+    cache = sc.SemanticCache(ttl=600, max_entries=50, threshold=0.5)
+
+    async def same_vec(_q):
+        return [1.0, 0.0]
+    monkeypatch.setattr(cache, "_embed", same_vec)
+
+    stored = {
+        "top 5 districts by person days in MGNREGA": [
+            "bottom 5 districts by person days in MGNREGA",
+            "top 10 districts by person days in MGNREGA"],
+        "How many houses were sanctioned under PMAY-G in 2023-24?": [
+            "How many houses were completed under PMAY-G in 2023-24?"],
+        "PMAY-G amount released in 2023-24": ["PMAY-G amount sanctioned in 2023-24"],
+        "How many women were employed under MGNREGA?": ["How many men were employed under MGNREGA?"],
+        "CM Elevate applications on hold": ["CM Elevate applications approved"],
+        "average wage in MGNREGA": ["percentage of wage in MGNREGA expenditure"],
+    }
+    paraphrases = [
+        ("How many houses were sanctioned under PMAY-G in 2023-24?", "PMAY-G houses sanctioned in 2023-24"),
+        ("top 5 districts by person days in MGNREGA", "top 5 districts in MGNREGA by person days"),
+        ("how many producer groups are there in Focus Legacy",
+         "number of producer groups under Focus Legacy"),
+    ]
+
+    async def run():
+        misses, hits = [], []
+        for q, others in stored.items():
+            cache._store.clear()
+            await cache.put(q, {"answer": q}, scope_key="k")
+            for o in others:
+                misses.append((o, (await cache.lookup(o, "k"))[0]))
+        for a, b in paraphrases:
+            cache._store.clear()
+            await cache.put(a, {"answer": a}, scope_key="k")
+            hits.append((b, (await cache.lookup(b, "k"))[0]))
+        return misses, hits
+    misses, hits = asyncio.run(run())
+    assert [o for o, v in misses if v is not None] == []
+    assert [b for b, v in hits if v is None] == []
+
+
 # ── KI-301: a pronoun beside a scheme name points at the previous term ──────
 def test_its_after_a_term_question_is_a_followup():
     prev = _kturn("What is Gram Panchayat?", [])

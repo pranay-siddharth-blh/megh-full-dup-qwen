@@ -1,9 +1,59 @@
 # Current State
 
-**Last updated:** 2026-10-22 night, by the cross-scheme UAT D-066 fix session (KI-387..392; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 evening, by the CM Elevate Legacy sheet re-test + D-064 + KI-379..386 fix session (uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 evening, by the answer-shape + KPI-card session (D-063, KI-377, KI-378; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 afternoon, by the cross-scheme no-template session (D-062, KI-374; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 ~13:45, by the context-memory "New Question = New Answer" session (D-061, KI-373; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 ~13:30, by the Focus Legacy sheet re-test + fix session (KI-369..371 fixed, KI-372 opened; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 ~12:00, by the ranking follow-up session (KI-366 fixed, KI-367/368 opened; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22, by the Focus Plus FOCUS-019 / FOCUS-004 fix session (KI-360 / KI-361 fixed, code changed, uncommitted, LIVE-VERIFIED; see Latest). Before that: 2026-10-22, by the Focus Plus sheet re-test session (no app code changed; KI-359..365 opened). Before that: 2026-10-22 (~00:50), by the PMAY-G sheet re-test + fix session (D-060, KI-356..358). Before that: 2026-10-13 (evening), by the Cross Scheme sheet session (KI-280..290, D-044; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-03 (early morning), by the all-schemes all-places QA + fix session (KI-188..199, D-034; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-02, by the LangGraph integration session (D-032; code changed, uncommitted; **offline-verified only**, VPN down). Before that: 2026-09-29 (early morning), by the conversational scheme-swap session (KI-180; code changed, uncommitted). Before that: 2026-09-29 (late night), by the CM Elevate Legacy use-case re-test session (no code changed; KI-166..168 opened). Before that: 2026-09-29 (night), by the Focus Legacy all-levels fix session (KI-020, KI-145..165, D-031; code changed, uncommitted). Before that: 2026-09-29, by the context-relevance / semantic-contract session (code changed, uncommitted; D-030, KI-030/032/034 and KI-130 to KI-135; **offline-verified only**, VPN down). Before that: 2026-09-28 (evening), by the CM Elevate all-blocks / all-villages fix session (code changed in `app/pipeline.py`, tests; uncommitted). Before that: 2026-09-28, by the PMAY-G fix session (code changed, uncommitted; D-029, KI-089 to KI-097). Before that: 2026-09-27 night, by the Focus Plus all-blocks / all-villages session (code changed in `app/pipeline.py`, tests in `tests/test_focusplus_usecase_fixes.py` and `tests/test_mgnrega_usecase_fixes.py`; **uncommitted**). Earlier the same day: the CM Elevate use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/schema_context.py`, plus a new test file; **uncommitted**). Before that, the same day: the Focus Plus use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/routers/query.py`, **uncommitted**, on top of the uncommitted 2026-09-26 MGNREGA and context work).
+**Last updated:** 2026-10-24 evening, by the 1024-dim completion session (KI-402..407; uncommitted, LIVE on :8401). Before that: 2026-10-24, by the embedding switch session (D-067 gateway qwen3-embedding 1024-dim, KI-401 semantic-cache fix; uncommitted; offline + live RAG eval verified, the :8401 server NOT yet restarted). Before that: 2026-10-22 night, by the cross-scheme UAT D-066 fix session (KI-387..392; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 evening, by the CM Elevate Legacy sheet re-test + D-064 + KI-379..386 fix session (uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 evening, by the answer-shape + KPI-card session (D-063, KI-377, KI-378; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 afternoon, by the cross-scheme no-template session (D-062, KI-374; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 ~13:45, by the context-memory "New Question = New Answer" session (D-061, KI-373; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 ~13:30, by the Focus Legacy sheet re-test + fix session (KI-369..371 fixed, KI-372 opened; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 ~12:00, by the ranking follow-up session (KI-366 fixed, KI-367/368 opened; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22, by the Focus Plus FOCUS-019 / FOCUS-004 fix session (KI-360 / KI-361 fixed, code changed, uncommitted, LIVE-VERIFIED; see Latest). Before that: 2026-10-22, by the Focus Plus sheet re-test session (no app code changed; KI-359..365 opened). Before that: 2026-10-22 (~00:50), by the PMAY-G sheet re-test + fix session (D-060, KI-356..358). Before that: 2026-10-13 (evening), by the Cross Scheme sheet session (KI-280..290, D-044; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-03 (early morning), by the all-schemes all-places QA + fix session (KI-188..199, D-034; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-02, by the LangGraph integration session (D-032; code changed, uncommitted; **offline-verified only**, VPN down). Before that: 2026-09-29 (early morning), by the conversational scheme-swap session (KI-180; code changed, uncommitted). Before that: 2026-09-29 (late night), by the CM Elevate Legacy use-case re-test session (no code changed; KI-166..168 opened). Before that: 2026-09-29 (night), by the Focus Legacy all-levels fix session (KI-020, KI-145..165, D-031; code changed, uncommitted). Before that: 2026-09-29, by the context-relevance / semantic-contract session (code changed, uncommitted; D-030, KI-030/032/034 and KI-130 to KI-135; **offline-verified only**, VPN down). Before that: 2026-09-28 (evening), by the CM Elevate all-blocks / all-villages fix session (code changed in `app/pipeline.py`, tests; uncommitted). Before that: 2026-09-28, by the PMAY-G fix session (code changed, uncommitted; D-029, KI-089 to KI-097). Before that: 2026-09-27 night, by the Focus Plus all-blocks / all-villages session (code changed in `app/pipeline.py`, tests in `tests/test_focusplus_usecase_fixes.py` and `tests/test_mgnrega_usecase_fixes.py`; **uncommitted**). Earlier the same day: the CM Elevate use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/schema_context.py`, plus a new test file; **uncommitted**). Before that, the same day: the Focus Plus use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/routers/query.py`, **uncommitted**, on top of the uncommitted 2026-09-26 MGNREGA and context work).
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: the 1024-dim switch is complete and LIVE on :8401 (2026-10-24 evening, D-067 follow-up). Code changed, uncommitted.
+- Backup: our 7 `megh_*` Qdrant collections snapshotted to `C:\Users\rohit\Downloads\qdrant_backup_2026-10-24\` (outside
+  the repo; holds officers' chats — never commit or share).
+- KI-402 FIXED: `kb_ingest` rebuilds a KB of the wrong vector size; memory never writes into / deletes a wrong-size collection.
+- KI-403 FIXED: NEW `CONTEXT_MEMORY_PURGE_ALSO` — the 384-dim rollback memory is purged after 30 days too.
+- NEW `deploy/migrate_conversation_memory.py`: 12,046 turns re-embedded into `megh_conversation_memory_1024` (recall 20/20).
+- :8401 restarted (`.venv`, PID 24368, log `logs/server_8401_2026-10-24.log`); startup size check passed (v4 = 1024).
+- pytest 3,661 / 0 (3 skipped), scripts 14/14. Live context 103/107: the 4 failures are identical on 384 → not D-067;
+  opened KI-404..407. Stale comments fixed (config.py, rag.py, local_rank.py); AI_PIPELINE's old "top 8 returned anyway" corrected.
+- KI-408 FIXED: memory search is exact and the memory collection has payload indexes (tenant_id, user_id, session_id, ts):
+  60/60 equal to exact search (was 58/60, 1 usable turn missed), same speed. Live context re-run 103/107 (same 4 known).
+  pytest 3,663 / 0. :8401 now PID 17056 (log `logs/server_8401_2026-10-24b.log`).
+- NOT done: deploy VMs (`.env` lines + migration script); Qdrant API key + firewall; gateway CA file.
+
+## Earlier: embeddings from the gateway's qwen3-embedding, 1024-dim (2026-10-24, D-067). `.env` + one code fix (KI-401).
+- VERIFIED live: gateway `/openai/v1/embeddings` returns 1024-dim vectors for `qwen3-embedding`. The old `.env` URL
+  (`…/v1/completions`) gave 404; fixed to `…/openai/v1`.
+- `.env`: `EMBEDDING_PROVIDER=gateway`, `QDRANT_COLLECTION=megh_scheme_kb_v4`, `CONTEXT_MEMORY_COLLECTION=megh_conversation_memory_1024`,
+  `RAG_MEDIUM_CONFIDENCE=0.35`, `CONTEXT_MEMORY_MIN_SCORE=0.45`. `megh_scheme_kb_v4` BUILT (201 points, 1024-dim, BM25);
+  the 384-dim `megh_scheme_kb_v3` / `megh_conversation_memory` untouched (rollback in D-067). `config.py` defaults unchanged.
+- RAG eval (188 q): correct-or-honest 92.0 on v4 at 0.35 = 92.0 on v3 today; fewer made-up answers (13.9% vs 17.1%).
+- KI-401 FIXED: semantic-cache hits now also need the same rank direction / N / status / measure / category words.
+- pytest 3,652 / 0 (3 skipped), scripts 14/14.
+- NOT done: the running :8401 server (PID 32172, started with the SYSTEM Python) still has the old settings until restart;
+  deploy VMs' `.env`; CA file `certs/enlight-aiops-internal-ca.pem` still missing (TLS verify off, KI-015).
+
+## Latest: NL→SQL feature / benchmark gap report (2026-10-23). No app code changed, no new live runs.
+- `new_docs/NL2SQL_LangGraph_Benchmark_Report_2026-10-23.html`: feature checklist (built / partial / missing), LangGraph
+  capability check, public benchmarks (Spider, BIRD, Spider 2.0, SParC/CoSQL, Dr.Spider), PROPOSED targets vs latest recorded
+  results, 8 ranked gaps + roadmap. Top gaps: rule-based understanding (no `query_analyzer` node), no CI accuracy gate,
+  latency under load, no read-only DB role.
+
+## Latest: full system audit (2026-10-23). No app code changed. Report `new_docs/Megh_One_AI_Audit_Report_2026-10-23.html`.
+- VERIFIED: 5/5 model roles answer via `app/llm.py`; DB, Qdrant, :8401 up; pytest 3,650 / 0 (3 skipped), scripts 14/14.
+- Live ~110 questions over HTTP vs read-only DB truth: every figure given = DB; paraphrases 41/41, repeats 27/27, rankings 9/10,
+  follow-up chain 4/4. Found: "FY24" read as FY 2024-25 (no KI yet), "Five highest blocks" asks top-N (number words), Focus+
+  money shown in rupees in one wording and crore in another, API calls without session_id share one `day-<user>-<date>` chat.
+- Also found: `raw_uc/` (PII CSVs) NOT gitignored; KI-022 CSV still in remote history; gateway CA file missing -> verify=False;
+  `state_officer` capped at district (auth.py:64; confirm policy); UI phone cards truncate figures; compare card "% ahead"
+  mixes spent vs released. CLAUDE.md stale (verifier model, re-ranker, privacy-table guard, test counts). Not fixed: audit only.
+
+## Latest: KI-397 — cross-scheme comparison card showed "PMAY-G 0" (2026-10-22 night). Frontend only. Code changed, uncommitted. TESTED (node), not checked in a browser.
+- User screenshot: "MGNREGA vs PMAY-G — households given work: 14,94,437 vs 0". Cause: the D-066 rows give each scheme its own
+  count column; `analytics.js` read columns from the first row only, so PMAY-G (no `households_given_work`) showed 0. The
+  table and the Excel export also dropped PMAY-G's `houses_sanctioned`.
+- Fix: `analytics.js` charts only columns every row carries + NEW `tableColumns` (union of all rows' keys) used by
+  `Charts.jsx` `DynTable` and `ChatExport.jsx`. `npm run build` done. Card now compares amount (₹ crore), held by both.
+- Tests: NEW `tests/test_cross_compare_card_2026_10_22.py` 3/3 (2/3 fail on the old code); `test_history_charts.py`,
+  `test_ac_full_results.py`, `test_cross_figures_2026_10_22.py` 39/39. Full suite NOT re-run (frontend-only change).
+
 ## Latest: D-065 — a pause reply keeps the typed question's kind; a new question with no year is asked (2026-10-22 night). KI-394, KI-395 fixed, KI-396 opened. Code changed, uncommitted. LIVE-VERIFIED (in-process).
 - User report: after an all-years CM Elevate Legacy answer, "What is the total disbursement amount for mairang?" ->
   place chips -> whole-or-part chips -> "₹22.49 crore … FY 2025-26 (new question)". "Take previous context or ask
@@ -148,6 +198,21 @@
   KI-363 / KI-364 (follow-up "by district" / "compare with" lost), KI-365 (FY 2022-23 zero explained badly).
 - Raw `raw_uc/Focus Plus Master.csv` = DB row for row (385,671), every field; village codes differ by the ingestion's
   name mapping (45,280 rows filled, 57,649 "not yet mapped"). Report `new_docs/Focus_Plus_Test_Report_2026-10-22.md`.
+
+## Latest (2026-10-23 evening): context-memory audit (report only, no app code). KI-399, KI-400 opened.
+- Report `new_docs/Context_Memory_Audit_Report_2026-10-23.html`: verdict pilot-ready on the office network, not
+  production-ready; 10 findings, readiness scorecard, production targets, 3-step plan, 4 decisions for the department.
+- pytest (documented command) **3,651 passed, 0 failed**, 3 skipped. Harness http --stream --skip-cache full set
+  (`logs/conversation_harness/2026-10-23_2231_http.json`): 128/139, 382/420 — 35 error turns in 9 chats (U4..U9, N1..N3)
+  are a VPN drop (DB + gateway unreachable at 22:35), 3 logic fails are known (META_recap T7; CMP card removed by D-062,
+  stale expectation). Answered turns 382/385.
+- NEW High: KI-399 (no session ownership check), KI-400 (one cached answer wipes topic memory). NOT RUN (VPN down):
+  re-run of the 9 chats, `tests/live_context_validation.py` (last 18 Oct), the live two-account / cache-then-"go back" probes.
+
+## Latest (2026-10-23): PMAY-G welcome card "Houses sanctioned" = 1,71,107 (D-060 amended). Uncommitted. LIVE-VERIFIED.
+- `app/routers/stats.py`: the card query no longer has `WHERE NOT is_placeholder` (the 126 zero-sanction rows count);
+  live DB returns 171,107 / 129,941 completed / ₹2,185.26 Cr released. Fallback `frontend/src/chat/constants.js`
+  1,71,107; `npm run build` done. `tests/test_scheme_stats.py` 6/6 (+1 regression test). Open: KI-398.
 
 ## Earlier: PMAY-G sheet re-test and fixes (2026-10-22, ~00:50). D-060, KI-356..358 (KI-127 decided). Code changed, uncommitted. LIVE-VERIFIED.
 - User rule: the 126 zero-sanction PMAY-G registrations are beneficiaries (statewide 171,107; never a "full

@@ -18,7 +18,7 @@ Source of truth: [app/pipeline.py](../app/pipeline.py), [app/prompt_builder.py](
 | SQL generation + repair | `SQL_GENERATION_MODEL` | `qwen-model` (Qwen3-Coder-30B FP8) | 30 s | 1024 | none (no decoding constraint since 2026-10-15, D-046) |
 | SQL semantic verifier | `SQL_VERIFY_MODEL` | `qwen4-deploy` | 15 s | 200 | `guided_json` |
 | Answer composer (DATA + RAG) | `RESPONSE_MODEL` | `qwen35-9b` | 20 s | 800 | none |
-| Embeddings | `EMBEDDING_PROVIDER=local` | fastembed `BAAI/bge-small-en-v1.5` (384-dim, CPU) | – | – | – |
+| Embeddings | `EMBEDDING_PROVIDER=gateway` (`.env`, D-067, 2026-10-24; `config.py` default and rollback: `local` = fastembed `BAAI/bge-small-en-v1.5`, 384-dim, CPU) | `qwen3-embedding` (1024-dim) at `EMBEDDING_BASE_URL=…/openai/v1` + `/embeddings` | 30 s | – | – |
 | Reranker | `RERANKER_ENABLED=False` | `qwen3-reranker` (deployed, **disabled**: it inverted relevance, 2026-08-29) | 30 s | – | – |
 | ASR | `ASR_MODEL` | `qwen3-asr` | 60 s | – | `prompt` = `ASR_PROMPT` vocabulary hint |
 | Backward reference pick (topic ledger, D-050, 2026-10-18; role tag `reference`) | `REWRITE_MODEL` via `llm.call_rewriter` | `qwen35-9b` | `LLM_REFERENCE_TIMEOUT_SECONDS` 8 s | 8 | none — the output must be a listed ledger id / NONE / ASK, anything else is ASK |
@@ -968,14 +968,16 @@ through the same function.
    - no scope at all → the which-scheme ask;
    - two or more schemes named → `rag.answer_from_kb_multi` (per-scheme retrieval).
 3. **`rag.retrieve(question, scheme)`:**
-   1. embed with local bge-small;
+   1. embed with `qwen3-embedding` via the gateway (1024-dim; collection `megh_scheme_kb_v4`, D-067).
+      At startup `kb_ingest` rebuilds the KB if its vector size differs from the model's (KI-402), and
+      conversation memory refuses a collection of another size;
    2. `vectorstore.search` with an **exact** payload filter on `scheme`, taking `RAG_TOP_K=12`;
-   3. with the reranker off, keep the top 8 candidates scoring ≥ `RAG_MIN_SCORE=0.30`. If
-      **none** clear it, the top 8 are returned anyway. The confidence tiers below still apply,
-      so a low-scoring set ends as "not covered".
+   3. with the reranker off, keep the top 8 candidates scoring ≥ `RAG_MIN_SCORE=0.30`. The floor
+      is real (2026-10-16): if **none** clear it, nothing is returned and the answer is "not covered".
 4. **`rag.answer_from_kb`** answers by the top score:
    - ≥ `RAG_HIGH_CONFIDENCE=0.84` → the top chunk verbatim;
-   - ≥ `RAG_MEDIUM_CONFIDENCE=0.55` → the **9B** composes from the kept chunks. The scoped prompt
+   - ≥ `RAG_MEDIUM_CONFIDENCE` (`.env` 0.35 on the qwen3 scale since D-067; 0.55 was the bge-small value)
+     → the **9B** composes from the kept chunks. The scoped prompt
      includes `_naming_note`, which says for example that the docs call Focus Legacy "FOCUS".
      - A stray "that isn't covered" sentence is stripped from the answer.
      - An *outright* refusal gets **one retry** with the same prompt. A second refusal → None.

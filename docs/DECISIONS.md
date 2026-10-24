@@ -53,8 +53,8 @@ not recorded.*
 - **Reason:** the gateway had no embedding model deployed.
 - **Consequences:** CPU load on the app workers. RAG thresholds are tuned to the bge-small
   cosine scale (HIGH 0.84, MEDIUM 0.55).
-- **Status:** Active. Switch to `gateway` once `qwen3-embedding` is serving; this needs a KB
-  rebuild and re-tuned thresholds.
+- **Status:** **Superseded by D-067 (2026-10-24)** on the dev box: embeddings now come from the gateway's
+  `qwen3-embedding`. `config.py` still defaults to `local`, which remains the rollback.
 
 ### D-005 — Reranker disabled
 - **Date:** 2026-08-29 (`config.py`).
@@ -935,6 +935,63 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-067 — Embeddings from the gateway's qwen3-embedding (1024-dim), in new collections (2026-10-24)
+- **Date:** 2026-10-24. User: check whether the `.env` embedding model gives 1024 dimensions and works, then
+  switch to it without breaking the project.
+- **Measured (VERIFIED, live):** `qwen3-embedding` is listed by the gateway `/models` and `POST /openai/v1/embeddings`
+  returns 1024-dim vectors (Qwen3-Embedding-0.6B size). Passing `dimensions=1024` returns HTTP 500, so the app never
+  sends it. The old `.env` `EMBEDDING_BASE_URL=…/openai/v1/completions` gave 404 (the code appends `/embeddings`);
+  it is now `https://10.48.242.4/openai/v1`.
+- **Decision (`.env` only; `config.py` defaults stay `local`, which is the rollback):**
+  - `EMBEDDING_PROVIDER=gateway` — the KB, the semantic cache and conversation memory all embed via the gateway.
+  - New collections, because a 1024-dim query cannot search a 384-dim collection and `ingest_kb` checks only point
+    count, schemes and the BM25 vector, never the vector size: `QDRANT_COLLECTION=megh_scheme_kb_v4` (built
+    2026-10-24 by `ingest_kb`: 201 points, 1024-dim, BM25 keyword vector) and
+    `CONTEXT_MEMORY_COLLECTION=megh_conversation_memory_1024` (created on first use). The 384-dim
+    `megh_scheme_kb_v3` and `megh_conversation_memory` are left untouched for rollback.
+  - Cut-offs re-tuned to the qwen3 cosine scale, which runs ~0.1-0.15 lower than bge-small (answerable questions'
+    median top score 0.69 vs 0.78): `RAG_MEDIUM_CONFIDENCE` 0.55 → **0.35**, `CONTEXT_MEMORY_MIN_SCORE` 0.55 →
+    **0.45**. `RAG_HIGH_CONFIDENCE` 0.84, `RAG_MIN_SCORE` 0.30 and `SEMANTIC_CACHE_THRESHOLD` 0.93 kept (fewer verbatim
+    and fewer cache hits is the safe direction).
+- **Evidence (`tests/rag_eval/run_eval.py`, 188 questions, same day; the judge moves ±2 points):**
+
+  | Run | correct | wrong | wrongly "not covered" | not-covered handled | made-up answers | correct-or-honest |
+  |---|---|---|---|---|---|---|
+  | v3 bge-small 384 | 91.5 | 3.7 | 0.0 | 95.8 | 17.1 | 92.0 |
+  | v4 qwen3, MEDIUM 0.55 | 90.9 | 2.4 | 3.7 | 95.8 | 8.8 | 91.5 |
+  | v4 qwen3, MEDIUM 0.45 | 92.1 | 3.0 | 1.2 | 91.7 | 12.8 | 92.0 |
+  | **v4 qwen3, MEDIUM 0.35** | 92.1 | 4.3 | 0.0 | 91.7 | 13.9 | **92.0** |
+
+  At 0.55 six short questions ("How do I apply?", "docuements required?") were refused that bge-small answered.
+  Retrieval rank is a little better on qwen3 (hit@1 48.8-50.6 vs 47.0, MRR 0.637-0.646 vs 0.621).
+- **Found while checking:** the semantic cache's scope check missed words that flip the answer (KI-401, fixed the same
+  day in `semantic_cache.scope_signature`).
+- **Consequences:** knowledge answers, chat memory and the semantic cache now need the gateway (and the VPN); each
+  fails soft (KB "not covered", memory empty, cache miss). No CPU embedding load on the workers. Chat recall starts
+  empty in the new memory collection. TLS to the gateway is still `verify=False` (CA file missing, D-010 / KI-015).
+  The deploy VMs need the same `.env` lines.
+- **Rollback:** `EMBEDDING_PROVIDER=local`, `QDRANT_COLLECTION=megh_scheme_kb_v3`, remove
+  `CONTEXT_MEMORY_COLLECTION` and the two re-tuned cut-offs (back to 0.55 / 0.55), restart.
+- **Completed the same day (2026-10-24 evening, user: "change all to 1024 … don't create any problems"):**
+  - Backup first: snapshots of our 7 `megh_*` collections downloaded OUTSIDE the repo
+    (`C:\Users\rohit\Downloads\qdrant_backup_2026-10-24\`, `MANIFEST.txt` has point counts). The memory snapshot holds
+    officers' chats: never commit or share it.
+  - Vector-size guard (KI-402): `kb_ingest.ingest_kb` rebuilds a KB collection whose size differs from the model's
+    (`vectorstore.collection_dim` / `vector_size`, `kb_ingest._embedding_dim`); unknown size keeps the old skip.
+    `conversation_memory._ensure_collection` never writes into or deletes a memory collection of another size: memory
+    goes off with one ERROR.
+  - Retention for both memory collections (KI-403): NEW `CONTEXT_MEMORY_PURGE_ALSO` (default both names) — the
+    384-dim rollback copy still loses chats after 30 days.
+  - Recall carried over: NEW `deploy/migrate_conversation_memory.py` re-embedded all 12,046 in-window turns (same ids
+    and payloads; the source only read) into `megh_conversation_memory_1024`. Self-recall 20/20 sampled.
+  - :8401 restarted from `.venv` with the 1024 settings (the earlier "system Python" note was wrong: the `.venv`
+    launcher on Windows runs the base interpreter as a child process).
+  - `config.py` defaults stay `local` / `megh_scheme_kb_v3` / 0.55 on purpose: they are the rollback.
+  - Memory cut-off checked: on 50 real turns with older turns in their session, 384 at 0.55 and 1024 at 0.45 made the
+    same use/skip decision 49/50 (used 43 vs 44 times).
+  - Memory search made exact with payload indexes (KI-408): 60/60 equal to exact, 0 usable turns missed, same latency.
+- **Status:** Active (dev box, live). Deploy VMs: PLANNED (copy the `.env` lines, restart, run the migration script).
+
 ### D-066 — Cross-scheme figures of the four main schemes are worked out in code (2026-10-22)
 - **Date:** 2026-10-22 night. User: "fix these immediately", on `Cross_Scheme_Issues_and_Solutions_2026-10-22.md`
   (the 60-case UAT sheet `raw_uc/cross_scheme.xlsx`, re-test 20/60, KI-387..393).
@@ -1158,8 +1215,13 @@ beneficiaries are **171,107** (was 170,981). Consequences, chosen so the figures
   year / date figure are unchanged (the rows carry no year, date or sanction number);
 - the answer says how many of the count have ₹0 sanctioned ("… (including 40 registered with a sanctioned amount
   of ₹0 and no house sanctioned yet)");
-- NOT changed: "houses sanctioned" measures (cross-scheme `cross_scheme.py`, the stats card, the cross-scheme
+- NOT changed: "houses sanctioned" measures (cross-scheme `cross_scheme.py` village coverage, the cross-scheme
   "houses sanctioned" prompt examples) keep `NOT is_placeholder` — these rows have no sanctioned house.
+- **Amended 2026-10-23 (user: "houses sanctioned is 170981 … should be 171107 … change the UI also"):** the welcome
+  card "Houses sanctioned" (`app/routers/stats.py` `_SQL["pmay_g"]`) counts every row = **1,71,107** (completed
+  1,29,941 and funds released unchanged; live-checked). `cross_figures.py` already counted every record. The
+  schema_context cross-scheme examples that still write `WHERE NOT is_placeholder` for "houses sanctioned" are
+  overridden by the `_pmay_count_placeholders` guard on counts; aligning their text is open (KI-398).
 
 **Where.** Fixed path `_pmay_facts_query` / `_pmay_lines` (pmay_g.py); model path: prompt `_PMAY_RULES` 1 and the
 cross-scheme beneficiary example (schema_context.py) + deterministic guard `_pmay_count_placeholders` in

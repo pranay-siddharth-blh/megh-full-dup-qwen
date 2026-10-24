@@ -61,7 +61,7 @@ export const SCHEME_CARDS = [
   {
     key: 'pmay_g', cls: 'unified-card', ico: '🏠', name: 'PMAY-G',
     meta: 'Rural housing · one row per sanctioned house', periodLead: 'sanctions ', period: 'FY 2017-18 to 2023-24',
-    stats: [['1,70,981', 'Houses sanctioned'], ['1,29,941', 'Houses completed'], ['₹2,185.26 Cr', 'Funds released']],
+    stats: [['1,71,107', 'Houses sanctioned'], ['1,29,941', 'Houses completed'], ['₹2,185.26 Cr', 'Funds released']],
   },
   {
     key: 'focus_plus', cls: 'elevate-card', ico: '🌾', name: 'FOCUS+',

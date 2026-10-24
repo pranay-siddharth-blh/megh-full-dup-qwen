@@ -35,18 +35,63 @@ def _unit(v: list[float]) -> list[float] | None:
 
 
 def scope_signature(question: str) -> tuple:
-    """(schemes, places, years) the question names. WI-6 (forward plan,
+    """(schemes, places, years, contrasts) the question names. WI-6 (forward plan,
     2026-10-16): a semantic hit must name the same ones — "…in 2023-24" and
     "…in 2024-25" embed almost identically, and the 2024-25 answer was served
     for the 2023-24 question. Never raises: an unreadable question gets a
     signature that matches nothing but itself."""
     try:
         from app import context_policy, pipeline
-        return (tuple(sorted(pipeline._named_schemes(question or ""))),
-                tuple(sorted(str(p).upper() for p in context_policy._places(question or ""))),
-                tuple(sorted(context_policy.extract_year_keys(question or ""))))
+        q = question or ""
+        return (tuple(sorted(pipeline._named_schemes(q))),
+                tuple(sorted(str(p).upper() for p in context_policy._places(q))),
+                tuple(sorted(context_policy.extract_year_keys(q))),
+                tuple(sorted(_contrast_terms(q) | context_policy.metric_families(q)
+                             | context_policy.category_terms(q))))
     except Exception:  # noqa: BLE001
         return ("?", normalize(question or ""))
+
+
+# Words that flip the answer but barely move the embedding (measured 2026-10-24,
+# bge-small vs qwen3-embedding, cache threshold 0.93): "top 5 … by person days" vs
+# "bottom 5 …" scored 0.952 / 0.985, "houses sanctioned" vs "houses completed"
+# 0.953 on bge-small, "amount released" vs "amount sanctioned" 0.949 on qwen3 —
+# each would serve the other question's answer. No threshold separates them from
+# true paraphrases (0.927-0.950), so a hit must also name the same ones of these.
+_RANK_HIGH = {"top", "highest", "most", "largest", "biggest", "max", "maximum", "best",
+              "greatest", "higher", "more"}
+_RANK_LOW = {"bottom", "lowest", "least", "smallest", "fewest", "min", "minimum", "worst",
+             "lower", "less", "fewer"}
+_RANK_ENDS = {"first", "last"}
+_AGGREGATES = {"average": "avg", "avg": "avg", "mean": "avg", "percent": "pct",
+               "percentage": "pct", "share": "pct", "proportion": "pct"}
+# Prefix stems ("complet" catches completed/completion; "incomplet" is its own).
+_STATUS_STEMS = ("sanction", "complet", "incomplet", "releas", "approv", "reject", "pending",
+                 "hold", "disburs", "verif", "ongoing", "cancel", "expend", "spent")
+
+
+def _contrast_terms(question: str) -> set[str]:
+    from app.text_match import is_int, tokens
+    toks = [t.low for t in tokens(question)]
+    out: set[str] = set()
+    for i, w in enumerate(toks):
+        if w in _RANK_HIGH:
+            out.add("rank:high")
+        elif w in _RANK_LOW:
+            out.add("rank:low")
+        elif w in _RANK_ENDS:
+            out.add("rank:" + w)
+        if w in _AGGREGATES:
+            out.add("agg:" + _AGGREGATES[w])
+        for stem in _STATUS_STEMS:
+            if w.startswith(stem):
+                out.add("status:" + stem)
+        # The N of a ranking: "top 5", "5 highest" — not a year's "-24".
+        if w in _RANK_HIGH | _RANK_LOW | _RANK_ENDS:
+            for j in (i - 1, i + 1):
+                if 0 <= j < len(toks) and is_int(toks[j]) and len(toks[j]) <= 3:
+                    out.add("n:" + toks[j])
+    return out
 
 
 def _dot(a: list[float], b: list[float]) -> float:

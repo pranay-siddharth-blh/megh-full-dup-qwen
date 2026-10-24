@@ -69,7 +69,7 @@ browser ──HTTPS──► nginx (per app VM; TLS, WAF, rate zones)       depl
                      ├─ asyncpg pool (10–30/worker) ─► PostgreSQL 18.4 megh_db   10.48.242.4:5432
                      ├─ httpx AsyncClient ───────────► vLLM gateway             https://10.48.242.4/openai/v1
                      ├─ AsyncQdrantClient ───────────► Qdrant                   http://115.124.102.167:6335
-                     └─ fastembed (CPU, in-process) — bge-small-en-v1.5 embeddings
+                     └─ embeddings: gateway qwen3-embedding, 1024-dim (D-067); rollback = fastembed bge-small, CPU
 ```
 
 - **VERIFIED from the config and deploy files.** The target is two application VMs, each running
@@ -251,8 +251,12 @@ starts the paused-thread sweep and closes the checkpointer only when the graph i
   field-specific rewrite checks (AI_PIPELINE.md §5.4, D-024).
 - **`session_sync.py`:** cross-worker state (AI_PIPELINE.md §5.5, D-023).
 - **`conversation_memory.py`:** semantic memory of older turns in the Qdrant collection
-  `megh_conversation_memory`. It is used only when the in-process session has fewer than 2
-  turns.
+  `CONTEXT_MEMORY_COLLECTION` (`megh_conversation_memory_1024` since D-067; the 384-dim
+  `megh_conversation_memory` is the rollback and is purged on the same 30-day schedule,
+  `CONTEXT_MEMORY_PURGE_ALSO`). It is used only when the in-process session has fewer than 2
+  turns. A collection of another vector size is never written or deleted: memory goes off
+  with one ERROR (KI-402). Search is exact (`SearchParams(exact=True)`) over payload indexes on
+  `tenant_id`, `user_id`, `session_id`, `ts`, created with the collection (KI-408).
 
 ### 3.9 RAG and knowledge base (VERIFIED)
 - **`kb_ingest.py`:**
@@ -345,8 +349,8 @@ abandons (Stop) is cancelled and its question remembered; the next "continue" in
 |---|---|---|
 | `megh_db.curated` / `semantic` | Scheme data (read-only to this app) | ingestion team |
 | `megh_db.app` | `tenants`, `users`, `login_events`, `conversations`, `conversation_turns`, `query_audit` | this app (`appdb.ensure_schema`) |
-| Qdrant `megh_scheme_kb` | KB chunks (384-dim bge-small) | this app |
-| Qdrant `megh_conversation_memory` | past-turn vectors per tenant/user/session | this app |
+| Qdrant `megh_scheme_kb_v4` (`QDRANT_COLLECTION`) | KB chunks, 1024-dim qwen3-embedding + BM25 (D-067). `megh_scheme_kb_v3` (384-dim bge-small) kept for rollback | this app |
+| Qdrant `megh_conversation_memory_1024` (`CONTEXT_MEMORY_COLLECTION`) | past-turn vectors per tenant/user/session, 1024-dim. `megh_conversation_memory` (384-dim) kept for rollback | this app |
 | `logs/query_audit.jsonl` | JSONL audit mirror (questions, IPs) | this app (gitignored) |
 | `ASR_DEBUG_DIR` (e.g. `logs/asr_samples`) | **every voice upload saved as WAV plus its transcript** when set. It is set in the local dev `.env` (VERIFIED, 2026-09-26); diagnostics only | this app (gitignored under `logs/`) |
 
@@ -422,7 +426,7 @@ abandons (Stop) is cancelled and its question remembered; the next "continue" in
 |---|---|---|
 | vLLM model gateway | `https://10.48.242.4/openai/v1` | self-signed "Enlight AIOps" CA; microk8s/KServe (per `docs/INFERENCE_REQUIREMENTS.md`) |
 | PostgreSQL 18.4 `megh_db` | `10.48.242.4:5432` | shared box; pgAdmin on :8080 |
-| Qdrant 1.18.3 | `115.124.102.167:6335` (since 2026-10-03) | collections `megh_scheme_kb`, `megh_conversation_memory`; the `Metadata_*` collections there are not ours |
+| Qdrant 1.18.3 | `115.124.102.167:6335` (since 2026-10-03) | live collections `megh_scheme_kb_v4`, `megh_conversation_memory_1024` (1024-dim, D-067); rollback copies `megh_scheme_kb_v3`, `megh_conversation_memory` (384-dim); older `megh_scheme_kb`, `megh_scheme_kb_v2`, `megh_general_kb`, `megh_general_web_kb` unused; the `Metadata_*` collections there are not ours |
 | Redis | optional (`REDIS_URL`) | blank in local `.env`; production value UNKNOWN |
 
 The `10.48.242.4` host requires the office Fortinet VPN from dev machines (source: earlier
