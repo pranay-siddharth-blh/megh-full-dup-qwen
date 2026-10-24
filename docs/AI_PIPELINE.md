@@ -989,10 +989,11 @@ through the same function.
 5. **CM Elevate Legacy** has no docs of its own. `kb_scheme()` maps it to CM Elevate
    (`_KB_SCHEME_ALIAS`).
 6. **KB ingest** (`kb_ingest.ingest_kb`, a background task at startup):
-   - takes the 10 `_SOURCES` in `data/reference/` plus `data/web/*.md` tagged
-     `<!-- scheme: X -->`;
+   - takes every readable file in `data/incoming/<scheme>/` (`_INCOMING_SCHEMES`; the folder
+     decides the scheme tag) plus `data/web/*.md` tagged `<!-- scheme: X -->`;
    - chunks them by heading;
-   - rebuilds the collection when it is missing, has too few points, or lacks any scheme.
+   - rebuilds the collection when it is missing, has too few points, lacks any scheme, lacks the
+     BM25 vector, or has another vector size than the embedding model (KI-402).
    - **The collection is shared.** After editing the KB, call admin `POST /api/rag/reingest` or
      restart.
 

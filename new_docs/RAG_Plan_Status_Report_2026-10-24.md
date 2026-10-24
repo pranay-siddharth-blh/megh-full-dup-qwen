@@ -9,9 +9,9 @@ The document lists **29 problems** (Part A: 5, Part B: 5, Part C: 7, Part E: 12)
 | Status | Count |
 |---|---|
 | Solved | **0** |
-| Partly solved | **3** (A5, E10, E12) |
+| Partly solved | **4** (A3, A5, E10, E12) |
 | Already working before (rule to keep) | **1** (C6) |
-| Not started | **25** |
+| Not started | **24** |
 
 Today's work went into a groundwork task that the plan depends on: **moving the whole project to 1024-dim embeddings safely.** It finished that move and fixed 4 problems found along the way. The document's problems themselves are still open.
 
@@ -21,7 +21,7 @@ Today's work went into a groundwork task that the plan depends on: **moving the 
 |---|---|---|---|
 | A1 | Metadata collections never read; build our own metadata collection | Not started | The blocker is gone: the embedding model is settled (1024, qwen3). Collection `megh_metric_catalog_v1` not built yet |
 | A2 | Every layer decides from the wording (needs a query plan) | Not started | |
-| A3 | Wikipedia pages in the KB; CLAUDE.md names the wrong folder | Not started | `data/web/*_Wikipedia.md` still there; CLAUDE.md still says `data/reference/` (lines 13, 129); official documents not received |
+| A3 | Wikipedia pages in the KB; CLAUDE.md names the wrong folder | **Partly** | Folder fixed in CLAUDE.md, ARCHITECTURE, AI_PIPELINE and SCHEMES (now `data/incoming/<scheme>/`). Still open: `data/web/*_Wikipedia.md` in the KB; official documents not received |
 | A4 | Routing bugs between knowledge and data | Not started | New example logged: KI-404 ("How does MGNREGA job card registration work?" goes to DATA) |
 | A5 | Clean up unused Qdrant collections | **Partly** | Snapshots of all 7 of our collections taken (`Downloads/qdrant_backup_2026-10-24`). Nothing deleted, by design |
 

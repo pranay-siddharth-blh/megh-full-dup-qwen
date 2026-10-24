@@ -10,7 +10,7 @@ and CM Elevate Legacy.
 
 - **Data questions** → NL→SQL against PostgreSQL `megh_db` (schema `curated`), then an
   LLM-composed answer.
-- **"How does the scheme work"** questions → RAG over Qdrant (reference docs in `data/reference/`).
+- **"How does the scheme work"** questions → RAG over Qdrant (reference docs in `data/incoming/<scheme>/`).
 - **Greetings / off-topic / abuse** → regex edge layer, with no model call.
 
 All model inference is remote, on a self-hosted vLLM gateway (`10.48.242.4`). The UI is a **React**
@@ -126,7 +126,8 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
 - **Conversation state lives in Postgres** (`app.conversations.context_state`, versioned;
   `session_sync`, D-023). The in-process `SessionStore` is a per-worker cache. Anything the next
   turn needs must be in `Session.to_snapshot()`.
-- After adding or editing KB docs in `data/reference/`, re-ingest: admin `POST /api/rag/reingest`,
+- After adding or editing KB docs in `data/incoming/<scheme>/` (one folder per scheme, e.g. `data/incoming/MGNREGA/`;
+  `data/reference/` no longer exists since 2026-10-14), re-ingest: admin `POST /api/rag/reingest`,
   or restart the service. The Qdrant collection is shared.
 
 ## 6. SQL safety and database protection

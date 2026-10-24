@@ -45,7 +45,7 @@ meghalaya/
 ├── frontend/                  React UI source (Vite): src/chat (chat console), src/admin
 ├── web/app/                   the built UI the app serves (`npm run build` in frontend/)
 ├── data/                      SME inputs read at startup: data/<scheme>/*.yaml + README,
-│                              data/reference/*.md (KB), data/web/*.md (KB), data/schema/
+│                              data/incoming/<scheme>/ (KB), data/web/*.md (KB), data/schema/
 ├── docs/                      project documentation (this folder)
 ├── deploy/                    nginx (+ ModSecurity CRS), systemd unit, SQL role/retention scripts
 ├── tests/                     regression tests (pytest + plain scripts)
@@ -260,10 +260,13 @@ starts the paused-thread sweep and closes the checkpointer only when the graph i
 
 ### 3.9 RAG and knowledge base (VERIFIED)
 - **`kb_ingest.py`:**
-  - chunks the `_SOURCES` docs (10 SME docs in `data/reference/`) plus tagged `data/web/*.md`;
+  - chunks every readable file (.md/.txt/.docx/.pdf/.xlsx) in the per-scheme folders
+    `data/incoming/<scheme>/` (`_INCOMING_SCHEMES`, `_sme_sources`; the folder decides the scheme
+    tag) plus tagged `data/web/*.md`;
   - embeds them;
-  - on startup, recreates the Qdrant collection `megh_scheme_kb` if it is missing, too small, or
-    missing any scheme (`vectorstore.distinct_schemes`).
+  - on startup, recreates the Qdrant collection `QDRANT_COLLECTION` (`megh_scheme_kb_v4` in `.env`)
+    if it is missing, too small, missing any scheme (`vectorstore.distinct_schemes`), missing the
+    BM25 vector, or of another vector size than the embedding model (KI-402).
 - **`rag.py`:**
   - `retrieve` searches Qdrant with an **exact-match** `scheme` payload filter;
   - `answer_from_kb` answers in tiers: top score ≥ 0.84 → the chunk verbatim; ≥ 0.55 → composed

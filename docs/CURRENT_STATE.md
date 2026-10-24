@@ -4,7 +4,12 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
-## Latest: `.gitignore` now skips `raw_uc/`, `new_docs/*.csv`, `new_docs/~$*` (2026-10-24, RAG plan E12, part)
+## Latest: docs name the real KB folder `data/incoming/<scheme>/` (2026-10-24, RAG plan A3 doc part). Docs only.
+- CLAUDE.md (§1, §5), ARCHITECTURE (tree, §3.9), AI_PIPELINE (KB ingest), SCHEMES (adding a scheme) said `data/reference/`,
+  which does not exist since 2026-10-14. Also corrected there: `_SOURCES` -> `_INCOMING_SCHEMES` / `_sme_sources`, the KB
+  collection name (`QDRANT_COLLECTION`, v4) and the rebuild conditions (BM25, vector size). History entries left as written.
+
+## Earlier: `.gitignore` now skips `raw_uc/`, `new_docs/*.csv`, `new_docs/~$*` (2026-10-24, RAG plan E12, part)
 - The raw use-case sheets (PII) and QA result CSVs can no longer be committed by a careless `git add .`; the files stay on
   disk (13 in `raw_uc/`, 9 CSVs). No tracked file matches the new rules; the `new_docs/` .md/.html/.docx reports stay tracked.
 - Still open (E12): KI-022 CSV in the remote history, Qdrant API key, gateway CA file, read-only DB role, token in the remote URL.

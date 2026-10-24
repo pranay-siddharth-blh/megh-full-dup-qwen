@@ -376,8 +376,8 @@ village scheme, and a single-village query is pinned to its `village_code` (D-03
 Schemes are hand-registered. As of 2026-09-26, missing any one registry leaves the scheme
 half-wired. The symbols below were VERIFIED to exist.
 
-1. `data/<scheme>/`: the 7 SME YAMLs + README. KB docs go in `data/reference/`, tagged with the
-   canonical name.
+1. `data/<scheme>/`: the 7 SME YAMLs + README. KB docs go in a new folder `data/incoming/<Scheme>/`,
+   added to `kb_ingest._INCOMING_SCHEMES` with the canonical name (the folder decides the scheme tag).
 2. `app/annotations.py`: `_SCHEME_DIRS`, `_FEW_SHOT_FILE`, `_FK_FILE`.
 3. `app/entity_resolver.py`: `_RESOLVER_FILE`, `_ACTIVITY_VIEWS`.
 4. `app/schema_context.py`: `SCHEME_CATALOG`, `SCHEME_METRICS`, `_<X>_TABLES/_RULES/_VOCAB`,
@@ -403,7 +403,7 @@ half-wired. The symbols below were VERIFIED to exist.
 14. `web/ai_query.html`: the scheme card, i18n strings, `CARD_QUESTIONS`, `prettyName`.
 
 After adding a scheme: restart the service or re-ingest the KB, check
-`grep -ic "<label>" data/reference/<its docs>` (the composer fails if the label is absent from
+`grep -ic "<label>" data/incoming/<Scheme>/*` (the composer fails if the label is absent from
 the docs), and add a routing test.
 
 **Stale scheme-count text in code** (cosmetic; not fixed in this documentation task):
