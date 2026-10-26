@@ -98,7 +98,7 @@ def test_query_only_for_pmay_and_known_filters():
     assert p._pmay_facts_query(q, PM, {"district": "RI BHOI", "assembly_constituency": "X"}) is None
     spec = p._pmay_facts_query(q, PM, {"district": "RI BHOI"})
     assert spec["dim"] == "district" and spec["params"][0] == ["RI BHOI"]
-    assert "NOT is_placeholder" in spec["sql"] and "$1" in spec["sql"]         # parameter-bound
+    assert "NOT is_placeholder" not in spec["sql"] and "$1" in spec["sql"]     # D-060; parameter-bound
     assert "COALESCE(amount_released, 0)" in spec["sql"]                         # 336 NULL releases
 
 
@@ -248,11 +248,11 @@ def test_bare_rupee_cells_are_formatted_and_nothing_else():
     assert p._pmay_rupee_format("released 41.27 crore", [{"released_cr": 41.27}]) == "released 41.27 crore"
 
 
-def test_placeholder_only_village_is_a_plain_zero():
-    ans = p._pmay_no_houses_answer({"entities": [279069]}, {"placeholders": 1, "name": "RTIANG SANPHEW",
+def test_village_with_no_record_is_a_plain_zero():
+    ans = p._pmay_no_houses_answer({"entities": [279069]}, {"placeholders": 0, "name": "RTIANG SANPHEW",
                                                            "block": "NAMDONG", "district": "WEST JAINTIA HILLS"}, {})
     assert ans.startswith("No PMAY-G houses are recorded for Rtiang Sanphew village (Namdong block")
-    assert "placeholder" in ans and "doesn't cover" not in ans
+    assert "doesn't cover" not in ans and "not counted as a beneficiary" not in ans   # D-060
 
 
 # ---------------------------------------------------------------- KI-096 village resolution (all-villages run)

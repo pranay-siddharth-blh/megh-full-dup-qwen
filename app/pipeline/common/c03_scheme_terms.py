@@ -555,14 +555,27 @@ def _resume_option_pause(reply: str, options: "list | None") -> "str | None":
     return None
 
 
-def _paused_thread_antecedent(reply: str, paused_question: str, prev: "object") -> "object | None":
+def _paused_thread_antecedent(reply: str, paused_question: str, prev: "object",
+                              rule: "str | None" = None) -> "object | None":
     """A stand-in previous turn for a typed reply to an option pause that
     picked no chip ("houses completed in West Garo Hills" after the PMAY-G
     measure pause), or None to keep `prev`. The paused question is about
     another scheme than the last answered turn, and the reply names none of
     its own: the reply continues the PAUSED question, not the answered one."""
     schemes = _exact_schemes(paused_question)
-    if len(schemes) != 1 or _exact_schemes(reply):
+    if len(schemes) != 1:
+        return None
+    # A "not held in this scheme" pause, answered with just another scheme
+    # ("in pmay" after "MGNREGA has no sanctioned amount"): the PAUSED question
+    # is the one to swap, not the last answered turn (Chokpot women employment
+    # was swapped instead and "PMAY-G doesn't record employment" came back;
+    # user chat 2026-10-21, KI-350).
+    _rs = _exact_schemes(reply)
+    if rule == "column-not-held" and len(_rs) == 1 and _rs != schemes and len(reply.split()) <= 4:
+        from app.session_store import Turn
+        return Turn(question=paused_question, raw_question=paused_question, route="data",
+                    schemes=sorted(schemes), resolved_entities={}, answer="")
+    if _rs:
         return None
     target = next(iter(schemes))
     if prev is not None and target in (getattr(prev, "schemes", None) or []):

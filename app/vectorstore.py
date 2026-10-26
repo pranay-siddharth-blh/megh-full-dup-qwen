@@ -53,6 +53,29 @@ async def collection_count() -> int:
         return -1
 
 
+def vector_size(info) -> int | None:
+    """The meaning vector's size from a get_collection() result (the unnamed
+    vector of a hybrid collection), or None when it cannot be read."""
+    try:
+        vectors = info.config.params.vectors
+        if isinstance(vectors, dict):
+            vectors = vectors.get("")
+        return getattr(vectors, "size", None)
+    except Exception:  # noqa: BLE001 — unexpected shape: size unknown
+        return None
+
+
+async def collection_dim(name: str | None = None) -> int | None:
+    """Meaning-vector size of a collection (default: the KB), or None when it is
+    absent or unreachable. A 1024-dim question cannot search a 384-dim
+    collection (D-067), and Qdrant only says so per request."""
+    try:
+        info = await get_client().get_collection(name or settings.QDRANT_COLLECTION)
+    except Exception:  # noqa: BLE001 — missing/unreachable: size unknown
+        return None
+    return vector_size(info)
+
+
 async def distinct_schemes() -> set[str]:
     """Every distinct `scheme` payload tag currently in the collection.
 

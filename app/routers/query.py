@@ -433,6 +433,29 @@ def is_cacheable(question: str, session) -> bool:
     # its scope is the previous turn's (pipeline.is_scheme_substitution).
     if is_scopeless_followup(question, prev) or is_scheme_substitution(question, prev):
         return False
+    # D-056 (2026-10-21): a new question that will inherit the chat's place or
+    # year ("how many households for PMAY-G" after a West Garo Hills FY 2022-23
+    # answer) is answered in THIS chat's scope; a cached answer for the same
+    # words was computed in another scope.
+    _state = getattr(session, "state", None)
+    if _state is not None and getattr(_state, "scheme", None):
+        from app import pipeline as _p
+        try:
+            if _p._same_scheme_context_year(question, question, _state):
+                return False
+        except Exception:  # noqa: BLE001 — undecidable: do not share
+            return False
+    # Live 2026-10-21 (harness F3 with the caches on): "show me for south garo
+    # hills district" after an MGNREGA FY 2023-24 answer was served another
+    # chat's cached KNOWLEDGE answer ("application steps … South Garo Hills"):
+    # it opens like no follow-up, so it read as standalone. Inside a chat with
+    # an active scheme, words that name no scheme take THAT scheme (D-056), so
+    # the answer is this chat's alone (MAIN_Contex 8.6: only standalone turns
+    # are shared).
+    if _state is not None and getattr(_state, "scheme", None):
+        from app import pipeline as _p
+        if not _p._mentions_scheme(question):
+            return False
     # An explicit topic switch ("go back to MGNREGA, what about 2023-24?") runs
     # in the restored topic's context (app/topic_memory.py), so it is this
     # conversation's alone.
@@ -458,6 +481,9 @@ def remember_pause(session, question: str, e: ClarificationNeeded) -> None:
     """Remember a clarification pause so the next turn's reply resumes it.
     The pending fields are part of the durable snapshot (session_sync), so
     the reply may land on any worker."""
+    # D-065: the paused question's kind travels with it (a resumed pause keeps
+    # the kind it resumed with, so a chain of pauses keeps the typed one).
+    session.pending_turn_kind = (getattr(session, "turn_context", None) or {}).get("turn_kind")
     if e.rule in SCOPE_MERGE_RULES:
         # A scope pause ("which area / year?"), a year pause ("which FY?"), or
         # an entity-ambiguity pause ("which of these villages/districts/blocks?")

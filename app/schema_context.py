@@ -72,7 +72,7 @@ SCHEME_METRICS = {
     "Focus Plus": [
         "disbursements / payments made (COUNT(*), one row per payment)",
         "amount disbursed (SUM, in rupees; only two values exist, 5,000 and 2,500)",
-        "members with an id (COUNT(DISTINCT member_id) — 12.5K registration cohort only, "
+        "members with an id (COUNT(DISTINCT member_key) — 12.5K registration cohort only, "
         "~3.2% of rows; NOT the scheme total)",
         "batch split — 93K legacy paid cohort vs 12.5K newer registration cohort",
         "tranche breakdown (Tranch 1..4; categorical, never a time series)",
@@ -277,13 +277,16 @@ MGNREGA RULES (breaking these produces a wrong number, not just an ugly query):
          Use GROUP BY in each CTE plus a FULL OUTER JOIN on the grain columns only when a
          per-block / per-village / per-year breakdown is asked for.
   2. Both MGNREGA facts are at source-row grain — always SUM ... GROUP BY, never read a row raw.
-  3. job_cards_issued_total is a cumulative STOCK. Report ONE financial year, never a sum
-     across years. It is still at source-row grain, so the figure for an area is
-     SUM(job_cards_issued_total) over that area for a single year_key. For a statewide
-     "how many job cards" with no year given, use the latest year:
-       SELECT SUM(job_cards_issued_total) AS job_card_stock
+  3. job_cards_issued_total is a cumulative STOCK: never a sum across years. It is still at
+     source-row grain, so the figure for an area is SUM(job_cards_issued_total) over that
+     area for the year_key the question asks for (FY 2023-24 -> year_key = 2023). Never put
+     the latest year in place of the year asked. For every / all financial years, report
+     one row per year:
+       SELECT year_key, SUM(job_cards_issued_total) AS job_card_stock
        FROM curated.v_employment
-       WHERE year_key = (SELECT MAX(year_key) FROM curated.v_employment);
+       GROUP BY year_key ORDER BY year_key;
+     Only a question that names no year at all reads the latest year
+     (year_key = (SELECT MAX(year_key) FROM curated.v_employment)).
      A bare `SELECT job_cards_issued_total ... LIMIT 1` (no SUM, no GROUP BY) is ALWAYS
      wrong — it returns one village's number as if it were the whole total.
   4. Money unit: MGNREGA expenditure is LAKH RUPEES — report it in LAKH and state the unit; do
@@ -295,6 +298,10 @@ MGNREGA RULES (breaking these produces a wrong number, not just an ugly query):
   5. MGNREGA "dues" / "pending liabilities" / "unpaid amount" have NO column in curated —
      do not compute or estimate one from any other column. Answer that this is not available
      in the current source.
+  4a. entity_type on v_employment / v_expenditure is the ROW's type (every row is 'Village');
+      it is NOT the level of the area asked about. A block / district / constituency is
+      filtered on lgd_block / lgd_district / assembly_constituency_name only — never add
+      entity_type = 'Block' / 'District' / 'Constituency' (it matches no row).
   5a. There is likewise NO "pending" / "unpaid" / "awaiting" count for beneficiaries,
       households, persons or job cards — the employment fact records what WAS provided,
       not a backlog or a waitlist. If the question asks for "pending beneficiaries",
@@ -394,8 +401,10 @@ PMAY-G TABLES
 
 _PMAY_RULES = """
 PMAY-G RULES (breaking these produces a wrong number, not just an ugly query):
-  1. curated.v_pmay: always filter `WHERE NOT is_placeholder` unless the question is explicitly
-     about data completeness.
+  1. curated.v_pmay: the 126 is_placeholder rows (sanctioned_amount = 0, no year, no sanction
+     number) ARE beneficiaries — count them in every beneficiary / house / registration count
+     (do NOT add `NOT is_placeholder`; 171,107 beneficiaries statewide). Only a full / partial
+     release count (amount_released vs sanctioned_amount) needs `sanctioned_amount > 0`.
   2. "Completed" / "in progress" questions use status_key's booleans is_completed /
      is_in_progress, never `status_name = 'Completed'` as a string match.
   3. Exclude `sanctioned_amount = 0` rows (126 known rows) from any utilisation-rate or
@@ -446,7 +455,7 @@ FOCUS PLUS TABLES
         financial_year_short, geography_key, village_code, lgd_village_name, lgd_block,
         block_name_raw, lgd_district, on_roster, has_geo_conflict, batch_label,
         tranche_label, amount_disbursed, gender, occupation, focus_status,
-        verification_status, member_id, pincode, entity_type, bank_name_raw,
+        verification_status, member_key, pincode, entity_type, bank_name_raw,
         beneficiary_key
       BLOCK COLUMN — for Focus Plus, blocks are mapped on block_name_raw. USE IT.
         block_name_raw  = THE block column for this scheme. Populated on all
@@ -494,11 +503,11 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      every question needs to know which:
        '93K'   — legacy PAID cohort. 4 rows per beneficiary (one per tranche). Every
                  person-level column (gender, occupation, focus_status,
-                 verification_status, member_id, pincode) is BLANK on all of them.
+                 verification_status, member_key, pincode) is BLANK on all of them.
        '12.5K' — newer REGISTRATION cohort. 1 row per person, Tranch 4 only, person
                  columns populated. ~3.2% of all rows.
      ANY breakdown by gender / occupation / focus_status / verification_status /
-     member_id / pincode describes the 12.5K cohort ONLY — add
+     member_key / pincode describes the 12.5K cohort ONLY — add
      `WHERE batch_label = '12.5K'` and state the cohort and its coverage in the answer.
      Never present such a split as a scheme-wide figure. Conversely, do NOT add
      `WHERE batch_label = '12.5K'` to a plain payments/beneficiary COUNT, a money
@@ -508,8 +517,8 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      there in each district?" in the few-shot set). Confirmed live 2026-09-12: adding
      this filter to a bare per-district beneficiary count silently dropped the 373,144
      legacy-cohort rows and got the query rejected outright.
-  5. member_id and pincode are PII. NEVER SELECT, GROUP BY or ORDER BY them as a bare
-     column. `COUNT(DISTINCT member_id)` is the ONLY permitted use of member_id — and it
+  5. member_key and pincode are PII. NEVER SELECT, GROUP BY or ORDER BY them as a bare
+     column. `COUNT(DISTINCT member_key)` is the ONLY permitted use of member_key — and it
      counts the 12.5K cohort only (~12,527), NOT the scheme total. Do not label it
      "total Focus Plus beneficiaries" — use beneficiary_key (rule 6) for that.
   6. "Beneficiaries" (a PERSON count) = `COUNT(DISTINCT beneficiary_key)`.
@@ -533,8 +542,8 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      (rule 3) — a legacy member appears on up to four payment rows, so payments
      and beneficiaries are genuinely different numbers; return both, labelled,
      when the question is ambiguous between them. Do NOT use
-     `COUNT(DISTINCT member_id)` or a bare `COUNT(DISTINCT source_sl_no)` as a
-     beneficiary count — member_id only exists for the 12.5K cohort (rule 5) and
+     `COUNT(DISTINCT member_key)` or a bare `COUNT(DISTINCT source_sl_no)` as a
+     beneficiary count — member_key only exists for the 12.5K cohort (rule 5) and
      source_sl_no repeats across the two cohorts and needs a batch_label scope
      to mean anything on its own (rule 7 covers the one place that scoped reading
      is still needed: a per-tranche/per-batch breakdown).
@@ -644,7 +653,7 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
 _FOCUSPLUS_VOCAB = """
 FOCUS PLUS BUSINESS VOCABULARY (source: FOCUS+ NLP Use Cases workbook + focusplus_schema_partitions.yaml)
     "payments" / "disbursements" / "records" -> COUNT(*)              "amount" / "disbursed" / "paid" / "DBT amount" -> SUM(amount_disbursed)  (rupees)
-    "members with an id" -> COUNT(DISTINCT member_id)  (12.5K cohort only, NOT a beneficiary count)   "beneficiaries" (any shape — statewide, one district, "each district", a comparison) -> COUNT(DISTINCT beneficiary_key), no batch_label or has_geo_conflict filter (rule 6)
+    "members with an id" -> COUNT(DISTINCT member_key)  (12.5K cohort only, NOT a beneficiary count)   "beneficiaries" (any shape — statewide, one district, "each district", a comparison) -> COUNT(DISTINCT beneficiary_key), no batch_label or has_geo_conflict filter (rule 6)
     "legacy" / "paid cohort" -> batch_label = '93K'                  "newer" / "registration cohort" / "unpaid" -> batch_label = '12.5K'  (an inference from the batch, NOT a status column)
     "tranche" / "installment" / "tranch" -> tranche_label  (categorical, not time)   "batch" / "cohort" -> batch_label
     "farmers" -> occupation = 'Farmer'  (12.5K cohort only)          "women" / "female" -> gender = 'Female'  (12.5K cohort only)
@@ -1124,10 +1133,10 @@ CM ELEVATE LEGACY RULES (breaking these produces a wrong number, not just an ugl
   8. GEOGRAPHY. lgd_district and lgd_block are UPPERCASE literals ('WEST GARO HILLS',
      'UMLING'); Title Case returns zero rows silently. Municipal Board areas are separate
      block values: 'RESUBELPARA-MUNICIPAL BOARD', 'WILLIAM NAGAR-MUNICIPAL BOARD',
-     'TURA MUNICIPAL BOARD'. Regions are not a column: Garo Hills = EAST,
-     NORTH, SOUTH, SOUTH WEST and WEST GARO HILLS; Khasi Hills = EAST KHASI HILLS, EASTERN
-     WEST KHASI HILLS, SOUTH WEST KHASI HILLS, WEST KHASI HILLS; Jaintia Hills = EAST and
-     WEST JAINTIA HILLS; Ri Bhoi is its own group. "WKH" is WEST KHASI HILLS, not Eastern
+     'TURA MUNICIPAL BOARD'. Every view has a region column ('Garo' / 'Khasi' /
+     'Jaintia', from the LGD master): Garo = EAST, NORTH, SOUTH, SOUTH WEST and WEST GARO HILLS;
+     Khasi = EAST KHASI HILLS, EASTERN WEST KHASI HILLS, SOUTH WEST KHASI HILLS, WEST KHASI HILLS
+     and RI BHOI; Jaintia = EAST and WEST JAINTIA HILLS. Group by region; "Ri Bhoi" alone is the district. "WKH" is WEST KHASI HILLS, not Eastern
      West Khasi Hills.
   9. VILLAGES. Count with COUNT(DISTINCT village_code) and add entity_type <> 'Unresolved'
      to every village count and village list (404 records have no village). Group a village
@@ -1219,7 +1228,7 @@ FOCUS PLUS IN A CROSS-SCHEME QUESTION — read first:
     COUNT(*) FROM curated.v_focus_plus is PAYMENTS — the legacy 93K cohort carries four
     rows per person. Use COUNT(DISTINCT beneficiary_key) (rule 6 — spans both cohorts as
     one identifier space, no batch_label or has_geo_conflict filter needed);
-    COUNT(DISTINCT member_id) is the 12.5K registration cohort ONLY and is not a scheme
+    COUNT(DISTINCT member_key) is the 12.5K registration cohort ONLY and is not a scheme
     total. Put it in its OWN subquery / bare SELECT and UNION ALL (or CROSS JOIN) the
     finished per-scheme figures — never wrap the union in an outer COUNT/SUM.
 
@@ -1286,7 +1295,8 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
         -> Compute EACH scheme's figure with EXACTLY the SQL its own single-scheme question
            would use: same view (curated.v_employment / curated.v_expenditure for MGNREGA,
            curated.v_pmay for PMAY-G, curated.v_focus_plus for Focus Plus), same filters
-           (curated.v_pmay ALWAYS `WHERE NOT is_placeholder`; a single latest year_key for
+           (curated.v_pmay beneficiaries count EVERY row, PMAY-G rule 1 — only "houses
+           sanctioned" adds `WHERE NOT is_placeholder`; a single latest year_key for
            MGNREGA households_employed / persons_employed / job-card counts, since there is
            no household id to dedupe across years), same aggregate (Focus Plus beneficiaries
            = COUNT(DISTINCT beneficiary_key), rule 6 — NOT COUNT(*), which is payments) —
@@ -1378,7 +1388,6 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
   UNION ALL
     SELECT 'PMAY-G', COUNT(*)
     FROM curated.v_pmay
-    WHERE NOT is_placeholder
   UNION ALL
     SELECT 'Focus Plus', COUNT(DISTINCT beneficiary_key)
     FROM curated.v_focus_plus
@@ -1387,11 +1396,11 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
     * MGNREGA has no household id, so a cross-year SUM double-counts the same household.
       Its unique reading is ONE financial year's SUM(households_employed) (latest if none
       named).
-    * curated.v_pmay is already one row per house, so COUNT(*) WHERE NOT is_placeholder IS
-      the distinct-house count.
+    * curated.v_pmay is already one row per beneficiary, so COUNT(*) over every row
+      (the 126 zero-sanction registrations included, PMAY-G rule 1) IS the beneficiary count.
     * curated.v_focus_plus COUNT(*) is PAYMENTS (the legacy 93K cohort has four rows per
       person). COUNT(DISTINCT beneficiary_key) (rule 6) is the correct unique-person count
-      across both cohorts, no per-batch scoping needed. COUNT(DISTINCT member_id) counts
+      across both cohorts, no per-batch scoping needed. COUNT(DISTINCT member_key) counts
       the 12.5K registration cohort ONLY — never label it a Focus Plus total.
   The three figures measure different things (MGNREGA households given work in one FY,
   PMAY-G houses sanctioned across the window, Focus Plus distinct beneficiaries) — report

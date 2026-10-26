@@ -1527,6 +1527,23 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
             "SQL verifier demanded a single total for a question that asks for a breakdown the "
             "SQL already groups by (KI-315) — discarding: %s", issue)
         return None
+    if _focus_legacy_ac_verifier_complaint_is_false(issue, schemes, entity_result, sql):
+        logger.warning(
+            "SQL verifier rejected the documented Focus Legacy constituency query (v_focus_legacy -> "
+            "dim_geography on geography_key, ac_name = the resolved constituency; KI-369) — discarding: %s",
+            issue)
+        return None
+    if _cm_legacy_ac_verifier_complaint_is_false(issue, schemes, entity_result, sql):
+        logger.warning(
+            "SQL verifier rejected the documented CM Elevate Legacy constituency query "
+            "(v_cm_elevate_disbursement -> dim_geography on geography_key, ac_name = the resolved "
+            "constituency; KI-381) — discarding: %s", issue)
+        return None
+    if _focus_legacy_aggregate_complaint_is_false(issue, schemes, sql):
+        logger.warning(
+            "SQL verifier said a Focus Legacy measure is not aggregated while the SQL SUMs exactly that "
+            "column (KI-371) — discarding: %s", issue)
+        return None
     return issue
 
 
@@ -1590,6 +1607,90 @@ def _repaired_sql_denial(scope: "auth.UserScope | None", schemes: list[str], ent
 # The pieces of one attempt. The LangGraph execute_attempt -> repair nodes run
 # them: rewrites, re-authorization of a repair, guards, verifier, execution.
 
+_VR_PLACEHOLDER_VIEWS = frozenset({"v_employment", "v_expenditure", "v_focus_plus", "v_focus_legacy",
+                                   "v_cm_elevate", "v_cm_elevate_disbursement"})
+
+
+def _vr_excludes_placeholder_codes(sel: exp.Select) -> bool:
+    """WHERE village_code > 0 / >= 1: the placeholder codes (-900001 …) are out."""
+    for node in sql_ast.filter_conditions(sel, "village_code"):
+        if isinstance(node, (exp.GT, exp.GTE)) and isinstance(node.expression, exp.Literal) \
+                and not node.expression.is_string and float(node.expression.this) >= 0:
+            return True
+    return False
+
+
+def _village_rows_by_code(sql: str) -> str:
+    """One row per real village, named. A result grouped by village NAME gets
+    village_code and lgd_block, one grouped by CODE gets lgd_village_name and
+    lgd_block (GROUP BY and SELECT), and a village ranking leaves out the
+    "Unresolved / Not Yet Mapped" placeholder codes (entity_type <> 'Unresolved';
+    v_pmay has none). D-062 live check 2026-10-22: "top ten highest villages in
+    PMAY-G" summed same-named villages of different blocks into one row (KI-376);
+    "top 5 villages in Focus Plus" ranked village_code -900010, -900004, … (the
+    unmapped buckets, 20,758 payments) and named no village. The c11 guard asks for
+    the exclusion only when the NAME is grouped. The grouped column's own table
+    qualifier is reused; without one, a join is left alone (whose column: not guessed)."""
+    tree = sql_ast.parse_one(sql or "")
+    sel = sql_ast.outer_select(tree) if tree is not None else None
+    group = sel.args.get("group") if sel is not None else None
+    if group is None or sel.args.get("distinct") is not None:
+        return sql
+    keys = [c for c in group.expressions if isinstance(c, exp.Column)
+            and c.name.lower() in ("lgd_village_name", "village_code")]
+    if not keys:
+        return sql
+    qual = keys[0].table
+    tabs = sql_ast.tables(sel)
+    if not qual and len(tabs) > 1:
+        return sql
+    out_names = {(e.alias_or_name or "").lower() for e in sel.expressions}
+    added = []
+    for col in ("lgd_village_name", "lgd_block", "village_code"):
+        if sql_ast.groups_by(sel, col):
+            continue
+        group.append("expressions", exp.column(col, table=qual or None))
+        if col not in out_names:
+            sel.append("expressions", exp.column(col, table=qual or None))
+        added.append(col)
+    view = next(iter(tabs)) if len(tabs) == 1 else None
+    if view in _VR_PLACEHOLDER_VIEWS and sel.args.get("order") is not None \
+            and not _vr_mentions_unresolved(sql) and not _vr_excludes_placeholder_codes(sel):
+        col = f"{qual}.entity_type" if qual else "entity_type"
+        sel.where(f"{col} <> 'Unresolved'", copy=False)
+        added.append("entity_type <> 'Unresolved'")
+    if not added:
+        return sql
+    logger.info("village rows: one named row per real village (KI-376): +%s", added)
+    return sql_ast.to_sql(tree)
+
+
+def _unasked_having_threshold(question: str, sql: str) -> str:
+    """A ranking whose HAVING compares an aggregate with a number the question never
+    gave loses that HAVING. "Are there districts where Focus+ coverage is very low?"
+    became HAVING COUNT(DISTINCT village_code) < 10: an invented cut-off no real
+    district is under, so the answer was "no matching records" (UAT T13.3,
+    cross-scheme re-test 2026-10-22). The ORDER BY / LIMIT keep the lowest first."""
+    if any(ch.isdigit() for ch in question or "") or any(
+            w.lower() in _LIST_COUNT_WORDS for w in _c01_tm_words(question or "")):
+        return sql
+    tree = sql_ast.parse_one(sql or "")
+    sel = sql_ast.outer_select(tree) if tree is not None else None
+    having = sel.args.get("having") if sel is not None else None
+    if having is None or sel.args.get("order") is None:
+        return sql
+    cond = having.this
+    if not isinstance(cond, (exp.LT, exp.LTE, exp.GT, exp.GTE)):
+        return sql
+    sides = (cond.this, cond.expression)
+    if not (any(isinstance(x, exp.Literal) and x.is_number for x in sides)
+            and any(x.find(exp.AggFunc) is not None for x in sides)):
+        return sql
+    sel.set("having", None)
+    logger.info("ranking: unasked HAVING threshold dropped (T13.3): %s", cond.sql())
+    return sql_ast.to_sql(tree)
+
+
 async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result: dict,
                                sql: str) -> str:
     """The deterministic per-scheme SQL rewrites run before every attempt."""
@@ -1600,6 +1701,9 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _focus_legacy_unasked_year_coverage(question, schemes, sql)
     sql = _focus_legacy_place_not_group_name(schemes, entity_result, sql)
     sql = _uppercase_geo_literals(sql)
+    sql = _focus_legacy_ac_name_case(schemes, sql)
+    sql = _cm_legacy_ac_as_place_filter(schemes, entity_result, sql)
+    sql = _cm_legacy_ac_name_case(schemes, sql)
     sql = _focusplus_drop_unrequested_verification_status(question, schemes, sql)
     sql = _cm_legacy_keep_unresolved_off_village(question, schemes, sql)
     sql = _cm_legacy_sanctioned_count(question, schemes, sql)
@@ -1607,6 +1711,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _select_unselected_group_by(question, sql)
     sql = _cm_legacy_unselected_group_by(schemes, sql)
     sql = _cm_legacy_unrequested_limit(question, schemes, sql)
+    sql = _cm_legacy_crore_alias_on_rupees(schemes, sql)
     sql = _cm_legacy_order_by_records(question, schemes, sql)
     sql = await _cm_elevate_fix_literals(schemes, sql)
     sql = _cm_elevate_split_scheme_in_list(schemes, sql)
@@ -1616,6 +1721,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_elevate_compare_by_district(question, schemes, sql)
     sql = _resolved_district_list_literals(entity_result.get("resolved") or {}, sql)
     sql = _resolved_district_literal(entity_result.get("resolved") or {}, sql)
+    sql = _stray_block_literal(schemes, entity_result.get("resolved") or {}, sql)
     sql = _cm_elevate_sector_zero_groups(schemes, sql)
     sql = _cm_elevate_level_pending(question, schemes, sql)
     sql = _cm_elevate_pending_without_level(question, schemes, sql)
@@ -1624,7 +1730,12 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_elevate_decision_status_column(schemes, sql)
     sql = _cm_legacy_qualify_shared_geo_cols(schemes, sql)
     sql = _mgnrega_avg_of_ratio(schemes, sql)
-    sql = _mgnrega_job_cards_latest_year(schemes, sql)
+    sql = _mgnrega_fact_to_view(schemes, sql)
+    sql = _mgnrega_drop_area_level_entity_type(schemes, sql)
+    sql = _mgnrega_village_rank_placeholders(question, schemes, sql)
+    sql = _mgnrega_unit_count_not_villages(question, schemes, sql)
+    sql = _mgnrega_job_cards_latest_year(schemes, sql, question=question,
+                                         resolved=entity_result.get("resolved") or {})
     sql = _mgnrega_people_years_alias(schemes, sql)
     sql = _mgnrega_village_list_no_limit(question, schemes, sql)
     sql = _mgnrega_numeric_division(schemes, sql)
@@ -1632,15 +1743,162 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _mgnrega_pin_village_code(schemes, entity_result, sql)
     sql = _mgnrega_drop_geo_beside_village(schemes, entity_result, sql)
     sql = _focusplus_pin_village_where(schemes, entity_result, sql)
+    sql = _focusplus_district_group_not_null(schemes, sql)
+    sql = _unasked_having_threshold(question, sql)
     sql = await _focusplus_lgd_only_block(schemes, sql)
     sql = _mgnrega_women_years_only(schemes, sql)
+    sql = _pmay_count_placeholders(schemes, sql)
     sql = _pmay_comparison_limit(schemes, entity_result, sql)
+    sql = _stated_rank_count_limit(question, sql)
+    sql = _region_alias_not_the_column(sql)
+    sql = _star_without_hidden_columns(sql)
     sql = _pmay_crore_to_rupees(schemes, sql)
     # a village the SQL dropped (all schemes; live 2026-10-02, NOAGRE)
     sql = _cm_unasked_programme_beside_village(question, schemes, entity_result, sql)
     sql = _focus_legacy_beneficiary_four_measures(question, schemes, sql)
     sql = _pin_missing_village_code(schemes, entity_result, sql)
+    sql = _village_rows_by_code(sql)
     return sql
+
+
+# megh_readonly has column grants that leave out the PII columns (v_cm_elevate's
+# scheme_specific, the plain member_id / account numbers — ingestion answers
+# 2026-10-26), so `SELECT *` on such a table is refused ("permission denied") and
+# cost a repair round. The star is replaced by the columns the role CAN read, from
+# the live schema (schema_introspect.live_columns, which already leaves out what
+# the role may not select). Only a single-table SELECT; anything else is left alone.
+def _star_without_hidden_columns(sql: str) -> str:
+    if not sql or "*" not in sql:
+        return sql
+    from app import schema_introspect as _si
+    denied = {(s, t) for s, t, _c in (_si._cache.get("denied") or set())}
+    if not denied:
+        return sql
+    live = _si.live_columns()
+
+    def fn(tree):
+        for sel in tree.find_all(exp.Select):
+            stars = [e for e in sel.expressions
+                     if isinstance(e, exp.Star) or (isinstance(e, exp.Column) and isinstance(e.this, exp.Star))]
+            frm = sel.args.get("from_") or sel.args.get("from")
+            if not stars or frm is None or sel.args.get("joins") or not isinstance(frm.this, exp.Table):
+                continue
+            tbl = frm.this
+            key = (tbl.db or "curated", tbl.name)
+            cols = [c["column"] for c in live.get(f"{key[0]}.{key[1]}", [])]
+            if key not in denied or not cols:
+                continue
+            sel.set("expressions", [e for e in sel.expressions if e not in stars]
+                    + [exp.column(c) for c in cols])
+            logger.info("SQL: SELECT * on %s.%s expanded to the %d columns megh_readonly can read",
+                        key[0], key[1], len(cols))
+        return None
+
+    return sql_ast.transform(sql, fn)
+
+
+# Every scheme view gained a `region` column (ingestion note 2026-10-26: Garo /
+# Khasi / Jaintia, Ri Bhoi inside Khasi). A query that builds its OWN grouping
+# `CASE … END AS region` and then says `GROUP BY region` now groups by the view's
+# column — PostgreSQL resolves the name to the input column first — and fails
+# ("lgd_district must appear in the GROUP BY clause"). The few-shot banks taught
+# exactly that shape until 2026-10-26. The computed column is renamed region_group
+# in the SELECT list and in GROUP BY / ORDER BY, so the query keeps its own grouping.
+def _region_alias_not_the_column(sql: str) -> str:
+    if not sql or "region" not in sql.lower():
+        return sql
+
+    def fn(tree):
+        for sel in tree.find_all(exp.Select):
+            computed = [a for a in sel.expressions if isinstance(a, exp.Alias)
+                        and a.alias.lower() == "region"
+                        and not (isinstance(a.this, exp.Column) and a.this.name.lower() == "region")]
+            if not computed:
+                continue
+            for a in computed:
+                a.set("alias", exp.to_identifier("region_group"))
+            for clause in (sel.args.get("group"), sel.args.get("order")):
+                if clause is None:
+                    continue
+                for col in list(clause.find_all(exp.Column)):
+                    if col.name.lower() == "region" and not col.table:
+                        col.replace(exp.column("region_group"))
+            logger.info("SQL: computed 'region' renamed region_group (the views' own region column)")
+        return None
+
+    return sql_ast.transform(sql, fn)
+
+
+# The count the officer stated is the list length (RAG plan C2, 2026-10-24). The
+# count is in digits by now (_normalize_rank_counts: "five highest" -> "5 highest").
+# A deterministic LIMIT, not a repair round: a repair can make correct SQL worse
+# (RAG plan E8). Only where it is safe: exactly one stated count, a single ranked
+# SELECT (ORDER BY), no window function (ties / per-group ranks are the model's),
+# no UNION ("top 5 and bottom 5"), no OFFSET, no "in each district" (top N per group).
+_C11_RANK_BEFORE = frozenset("top bottom first last".split())
+_C11_PER_GROUP = frozenset("each every per".split())
+_C11_GROUP_NOUNS = frozenset("district districts block blocks village villages panchayat panchayats gp gps "
+                             "constituency constituencies scheme schemes year years".split())
+# Two directions asked at once ("highest and lowest 3"). "top"/"bottom" only as a
+# pair: "top 5 lowest districts" is ONE list of the 5 lowest.
+_C11_HIGH = frozenset("highest largest biggest best most leading strongest".split())
+_C11_LOW = frozenset("lowest smallest worst least poorest weakest".split())
+
+
+def _requested_rank_count(question: str) -> "int | None":
+    """The one list length the question states ("top 5", "5 highest", "which 3
+    blocks"), or None when it states none, several, or a per-group ranking."""
+    toks = _c01_tm_tokens(question or "")
+    low = [t.low for t in toks]
+    if (_C11_HIGH & set(low) and _C11_LOW & set(low)) or {"top", "bottom"} <= set(low):
+        return None                                   # "top 5 and bottom 5"
+    for k, w in enumerate(low):
+        if w in _C11_PER_GROUP and any(x in _C11_GROUP_NOUNS for x in low[k + 1:k + 4]):
+            return None                               # "top 5 in each district"
+        if w == "wise" and k and low[k - 1] in _C11_GROUP_NOUNS:
+            return None                               # "district-wise top 5"
+    found: set[int] = set()
+    text = question or ""
+    for k, t in enumerate(toks):
+        nxt = low[k + 1] if k + 1 < len(low) else ""
+        glued = next((t.low[len(r):] for r in ("top", "bottom") if t.low.startswith(r)), "")
+        if glued.isdecimal() and len(glued) <= 3:
+            found.add(int(glued))                     # "top5", "bottom10"
+            continue
+        if not (t.raw.isdecimal() and len(t.raw) <= 3):
+            continue
+        if text[t.start - 1:t.start] in ("-", "/"):
+            continue                                  # "2023-24 highest": a year, not a count
+        prev = low[k - 1] if k else ""
+        if (prev in _C11_RANK_BEFORE and nxt not in _C02_TIME_UNITS) or nxt in _C02_RANK_AFTER \
+                or (prev in _C02_WHICH and nxt in _C02_PLACES):
+            found.add(int(t.raw))
+    found = {n for n in found if 1 <= n <= 100}
+    return found.pop() if len(found) == 1 else None
+
+
+def _stated_rank_count_limit(question: str, sql: str) -> str:
+    n = _requested_rank_count(question)
+    if not n or not sql:
+        return sql
+    trees = sql_ast.parse(sql)
+    if len(trees) != 1:
+        return sql
+    tree = trees[0]
+    if isinstance(tree, exp.SetOperation) or any(True for _ in tree.find_all(exp.SetOperation)) \
+            or any(True for _ in tree.find_all(exp.Window)):
+        return sql
+    sel = sql_ast.outer_select(tree)
+    holder = tree if tree.args.get("limit") is not None else sel
+    if sel is None or holder is None or holder.args.get("offset") is not None:
+        return sql
+    if (tree.args.get("order") or sel.args.get("order")) is None:
+        return sql
+    cur = sql_ast.outer_limit(tree)
+    if cur == n or (cur is not None and cur < 0):
+        return sql
+    logger.info("stated ranking count %d: outer LIMIT %s -> %d", n, cur, n)
+    return sql_ast.set_limit(sql, n)
 
 
 # A breakdown asked for ("in each block of …") grouped on a column that is not
@@ -1856,6 +2114,18 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
         context_budget.log_decision("sql_guard", guard="resolved_scope", verdict="reject",
                                     missing=_scope_issue[0])
         raise ValueError(_scope_issue[1])
+    _fl_ac_issue = _focus_legacy_ac_filter_missing(schemes, entity_result, sql)
+    if _fl_ac_issue:
+        context_budget.log_decision("sql_guard", guard="fl_ac_filter_missing", verdict="reject")
+        raise ValueError(_fl_ac_issue)
+    _cml_ac_issue = _cm_legacy_ac_filter_missing(schemes, entity_result, sql)
+    if _cml_ac_issue:
+        context_budget.log_decision("sql_guard", guard="cml_ac_filter_missing", verdict="reject")
+        raise ValueError(_cml_ac_issue)
+    _fl_members_issue = _focus_legacy_members_counted_as_groups(question, schemes, sql)
+    if _fl_members_issue:
+        context_budget.log_decision("sql_guard", guard="fl_members_as_groups", verdict="reject")
+        raise ValueError(_fl_members_issue)
     if _focus_legacy_group_size_summed(question, schemes, sql):
         raise ValueError(
             "this question asks for a producer group's SIZE (its member count), but the "
@@ -1986,18 +2256,27 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
             and not _vr_filters_col(sql, ["year_key"], _VR_EQ + _VR_IN) \
             and not any(c == "year_key" or c.startswith("financial_year")
                         for c in sql_ast.group_by_columns(sql)):
+        # The year is the one asked: an all-years question gets one row per year,
+        # never the latest year in its place (MGNREGA sheet DATA-007, 2026-10-21).
         raise ValueError(
             "job_cards_issued_total is a STOCK (job cards held at year end), so it must never "
-            "be summed across financial years. Pin one year: add "
-            "year_key = (SELECT MAX(year_key) FROM curated.v_employment) unless the question "
-            "names a year, and keep every other clause exactly as it was.")
+            "be summed across financial years. " + (
+                "The question asks for every financial year: add year_key to SELECT and GROUP BY "
+                "(and ORDER BY year_key) so each year is reported on its own row"
+                if _ALL_YEARS_CUE.search(question or "") else
+                "Filter the financial year the question asks for (year_key = its start year); only "
+                "when it names no year use year_key = (SELECT MAX(year_key) FROM curated.v_employment)")
+            + ", and keep every other clause exactly as it was.")
     # "…across all financial years" is ONE combined figure. Split by year, the
     # composer added the rounded parts (₹1.85 + ₹0.39 = "₹2.24 crore" for
     # ₹2.2458) or listed the years with no total (matrix run 2026-10-14); the user
     # asked "I don't want year wise, I want complete all financial years"
     # (session 2026-10-13). A split nobody asked for is sent back.
+    # Job cards are the exception: a running total has no combined figure, so
+    # their all-years answer IS one row per year (see the stock guard above).
     if _vr_grouped_by_year_only(sql or "") and _ALL_YEARS_CUE.search(question or "") \
-            and not _YEAR_SPLIT_ASKED.search(question or ""):
+            and not _YEAR_SPLIT_ASKED.search(question or "") \
+            and not _vr_sums_column(sql, "job_cards_issued_total"):
         raise ValueError(
             "the question asks for ONE combined figure across all financial years, but the query "
             "splits it by financial year. Remove the financial-year column from SELECT, GROUP BY "
@@ -2027,17 +2306,18 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
     # (schema rule 1, NOT is_placeholder). Demanding entity_type there sent a PMAY
     # village ranking round the repair loop ("column entity_type does not exist",
     # then the same demand) until it gave up (NL->SQL accuracy set, 2026-10-16).
-    _pmay_view = sql_ast.reads_table(sql, "v_pmay")
+    # Since D-060 (2026-10-22) PMAY-G's zero-sanction registrations are beneficiaries
+    # in real villages (72 LGD codes; v_pmay holds no "Unresolved" bucket), so a PMAY
+    # village ranking is not asked to drop them.
     if sql_ast.groups_by(sql, "lgd_village_name") \
             and _vr_has_order_by(sql) \
             and not _vr_mentions_unresolved(sql) \
-            and not (_pmay_view and sql_ast.references_column(sql, "is_placeholder")) \
+            and not sql_ast.reads_table(sql, "v_pmay") \
             and _C11_RANKING_ASK.search(question or ""):
         raise ValueError(
             "this ranks villages but does not exclude the placeholder rows: add "
-            + ("NOT is_placeholder" if _pmay_view else
-               "entity_type <> 'Unresolved' (or lgd_village_name NOT ILIKE 'Unresolved%')")
-            + " to the WHERE clause, and keep every other clause exactly as it was.")
+            "entity_type <> 'Unresolved' (or lgd_village_name NOT ILIKE 'Unresolved%')"
+            " to the WHERE clause, and keep every other clause exactly as it was.")
     bad_view = _rowgrain_no_aggregate(question, sql)
     if bad_view:
         raise ValueError(
@@ -2047,8 +2327,9 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
             "metric in SUM(...): for a statewide total use "
             "SELECT SUM(<metric>) AS <name> FROM <view> [WHERE year_key = ...] with no "
             "GROUP BY; add GROUP BY <unit> only if the question asks for a per-district / "
-            "per-block / per-year breakdown. job_cards_issued_total is a STOCK — pin a "
-            "single year_key (the latest if none is named) and SUM across geographies, "
+            "per-block / per-year breakdown. job_cards_issued_total is a STOCK — pin the "
+            "year_key the question asks for (one row per year_key when it asks for every "
+            "year; the latest only if it names none) and SUM across geographies, "
             "never across years. Keep every other clause exactly as it was."
         )
     # Execution checks first, then the model (2026-10-15): the free guards

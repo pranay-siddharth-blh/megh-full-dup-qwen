@@ -10,7 +10,7 @@ and CM Elevate Legacy.
 
 - **Data questions** → NL→SQL against PostgreSQL `megh_db` (schema `curated`), then an
   LLM-composed answer.
-- **"How does the scheme work"** questions → RAG over Qdrant (reference docs in `data/reference/`).
+- **"How does the scheme work"** questions → RAG over Qdrant (reference docs in `data/incoming/<scheme>/`).
 - **Greetings / off-topic / abuse** → regex edge layer, with no model call.
 
 All model inference is remote, on a self-hosted vLLM gateway (`10.48.242.4`). The UI is a **React**
@@ -40,6 +40,8 @@ until 2026-10-15):
 `app/pipeline/__init__.py` executes the files in `_PIPELINE_FILES` order into ONE shared namespace, so
 `from app import pipeline as p`, `p.<name>` and `monkeypatch.setattr(p, …)` work as before. Function bodies may
 use names from any file; load-time code (constants, regexes, defaults) only names from files loaded before it.
+Every top-level name must be unique across the files: a second definition silently replaces the first for every caller
+(KI-413; `tests/test_pipeline_namespace_2026_10_26.py` fails on a duplicate).
 **Edit the file that holds the function** (there is no `app/pipeline.py` any more — recreating it would be
 shadowed by the package and silently ignored). It is written as
 **stage functions** (`_turn_*_stage`, `_data_*_stage`, `_execute_one_attempt`, …). **LangGraph is the only
@@ -109,7 +111,8 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
   - `qwen-model` (30B coder) = SQL generation only;
   - `qwen4-deploy` (4B) = classifier + SQL verifier;
   - `qwen35-9b` = composer;
-  - embeddings are local fastembed;
+  - embeddings = gateway `qwen3-embedding`, 1024-dim (D-067, `.env`; rollback `EMBEDDING_PROVIDER=local` +
+    `megh_scheme_kb_v3`). A different embedding model needs NEW Qdrant collections and re-tuned cut-offs;
   - the local jina-turbo reranker (`RAG_LOCAL_RERANKER`) is **on**; the remote qwen3-reranker
     (`RERANKER_ENABLED`) is **off**.
 
@@ -125,7 +128,8 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
 - **Conversation state lives in Postgres** (`app.conversations.context_state`, versioned;
   `session_sync`, D-023). The in-process `SessionStore` is a per-worker cache. Anything the next
   turn needs must be in `Session.to_snapshot()`.
-- After adding or editing KB docs in `data/reference/`, re-ingest: admin `POST /api/rag/reingest`,
+- After adding or editing KB docs in `data/incoming/<scheme>/` (one folder per scheme, e.g. `data/incoming/MGNREGA/`;
+  `data/reference/` no longer exists since 2026-10-14), re-ingest: admin `POST /api/rag/reingest`,
   or restart the service. The Qdrant collection is shared.
 
 ## 6. SQL safety and database protection

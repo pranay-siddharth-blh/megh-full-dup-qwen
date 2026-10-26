@@ -1,0 +1,64 @@
+# The conversation the user reported on 2026-10-21 (D-056), turn for turn:
+#  1. a NEW chat asks what it does not know, in order: scheme -> district -> year;
+#  2. a chat with a scope carries it into every new question, on ANY scheme; the
+#     user's new words replace only what they name.
+#     SUPERSEDED for self-sufficient questions by D-061 (user addendum 2026-10-22,
+#     "New Question = New Answer"): a question with its own scheme and measure and no
+#     reference cue inherits nothing (statewide; its year, else the latest FY). N3 below
+#     follows D-061; a measure with no scheme named still carries the chat's scope.
+# Figures observed live 2026-10-21 (MGNREGA households FY 2022-23: state 414,251, WGH 69,838).
+
+- name: N1_new_chat_asks_scheme_district_year
+  doc: "New chat: 'how many households' -> which scheme -> which district -> which year -> answer"
+  tags: [user_reported, new_chat, context]
+  account: superadmin
+  turns:
+    - say: "how many households"
+      expect: {route: pause, pause_rule: scheme-not-specified}
+    - say: "how many households for MGNREGA"
+      expect: {route: pause, pause_rule: scope-not-specified, chips_contain: ["West Garo Hills", "All of Meghalaya"]}
+    - say: "how many households for MGNREGA for all of Meghalaya"
+      expect: {route: pause, pause_rule: year-not-specified, chips_contain: ["FY 2022-23"]}
+    - say: "how many households for MGNREGA for all of Meghalaya for FY 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2022-23, numbers_any: [414251]}
+
+- name: N2_typed_district_reply_then_year
+  doc: "New chat: the district pause accepts a typed district; the year is asked next"
+  tags: [user_reported, new_chat, context]
+  account: superadmin
+  turns:
+    - say: "how many households for MGNREGA"
+      expect: {route: pause, pause_rule: scope-not-specified}
+    - say: "West Garo Hills"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "FY 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2022-23, numbers_any: [69838]}
+
+- name: N3_scheme_switch_carries_place_and_year
+  doc: "D-061: after MGNREGA West Garo Hills FY 2022-23, 'how many households for PMAY-G' is a NEW question (statewide, the year asked — D-065); a follow-up fragment still carries"
+  tags: [user_reported, scheme_switch, context]
+  account: superadmin
+  turns:
+    - say: "how many households for MGNREGA for all of Meghalaya for FY 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2022-23, numbers_any: [414251]}
+    - say: "in wgh"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2022-23, numbers_any: [69838]}
+    - say: "how many households for PMAY-G"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "2023-24"
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24, new_question: true}
+    - say: "how many households for PMAY-G in FY 2017-18"
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2017-18, new_question: true}
+    - say: "how many households for Focus Plus"
+      expect: {route: pause, pause_rule: year-not-specified}
+      note: "no year named: asked (D-065)"
+    - say: "2025-26"
+      expect: {route: data, scheme: Focus Plus, place: all, year: FY 2025-26, new_question: true}
+    - say: "and in West Garo Hills?"
+      expect: {route: data, scheme: Focus Plus, place: West Garo Hills, year: FY 2025-26, new_question: false}
+    - say: "how many households for MGNREGA"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "2024-25"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25, new_question: true}
+    - say: "same for 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2022-23, numbers_any: [414251]}

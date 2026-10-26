@@ -50,6 +50,7 @@ logger = logging.getLogger(__name__)
 
 _bg: set[asyncio.Task] = set()
 _collection_ready = False
+_collection_wrong_size = False
 
 
 def _spawn(coro) -> None:
@@ -62,17 +63,33 @@ async def _ensure_collection(dim: int) -> bool:
     """Create the conversation-memory collection on first use. Cheap after the
     first call (module-level flag); any failure just disables memory for this
     request — the collection may already exist from a previous worker, in
-    which case get_collection succeeds and we skip creation."""
-    global _collection_ready
+    which case get_collection succeeds and we skip creation.
+
+    An existing collection of another vector size (an EMBEDDING_PROVIDER change
+    without a new CONTEXT_MEMORY_COLLECTION, D-067) is never deleted — it holds
+    officers' chats — so memory stays off with one ERROR naming the fix, instead
+    of a warning on every turn."""
+    global _collection_ready, _collection_wrong_size
     if _collection_ready:
         return True
+    if _collection_wrong_size:
+        return False
     client = vectorstore.get_client()
     try:
-        await client.get_collection(settings.CONTEXT_MEMORY_COLLECTION)
+        info = await client.get_collection(settings.CONTEXT_MEMORY_COLLECTION)
+    except Exception:  # noqa: BLE001 — collection doesn't exist yet
+        info = None
+    if info is not None:
+        size = vectorstore.vector_size(info)
+        if size and size != dim:
+            _collection_wrong_size = True
+            logger.error("conversation_memory: %s holds %d-dim vectors but the embedding "
+                         "model returns %d — memory is off; set CONTEXT_MEMORY_COLLECTION "
+                         "to a %d-dim collection", settings.CONTEXT_MEMORY_COLLECTION,
+                         size, dim, dim)
+            return False
         _collection_ready = True
         return True
-    except Exception:  # noqa: BLE001 — collection doesn't exist yet
-        pass
     try:
         await client.create_collection(
             collection_name=settings.CONTEXT_MEMORY_COLLECTION,
@@ -81,10 +98,27 @@ async def _ensure_collection(dim: int) -> bool:
         _collection_ready = True
         logger.info("conversation_memory: created collection %s (dim=%d)",
                     settings.CONTEXT_MEMORY_COLLECTION, dim)
-        return True
     except Exception as e:  # noqa: BLE001
         logger.warning("conversation_memory: could not create collection: %s", e)
         return False
+    await create_payload_indexes(client, settings.CONTEXT_MEMORY_COLLECTION)
+    return True
+
+
+# Every search filters on these (scope + retention) and the purge on `ts`.
+PAYLOAD_INDEXES = (("tenant_id", "integer"), ("user_id", "integer"),
+                   ("session_id", "keyword"), ("ts", "float"))
+
+
+async def create_payload_indexes(client, name: str) -> None:
+    """Index the filtered fields of a memory collection. Best-effort: without
+    them search still works, only slower to plan."""
+    for field, schema in PAYLOAD_INDEXES:
+        try:
+            await client.create_payload_index(collection_name=name, field_name=field,
+                                              field_schema=schema, wait=True)
+        except Exception as e:  # noqa: BLE001 — never block memory on an index
+            logger.warning("conversation_memory: could not index %s.%s: %s", name, field, e)
 
 
 # ── Retention (RAG upgrade Phase 7, 2026-10-15) ─────────────────────────────
@@ -99,28 +133,40 @@ def _retention_floor() -> float:
     return time.time() - days * 86400 if days and days > 0 else 0.0
 
 
+async def _purge_collection(client, name: str, old: models.Filter) -> int | None:
+    try:
+        if not await client.collection_exists(name):
+            return None
+        n = (await client.count(name, count_filter=old, exact=True)).count
+        if n:
+            await client.delete(collection_name=name,
+                                points_selector=models.FilterSelector(filter=old), wait=True)
+            logger.info("conversation_memory: deleted %d turns older than %d days from %s",
+                        n, settings.CONTEXT_MEMORY_RETENTION_DAYS, name)
+        return n
+    except Exception as e:  # noqa: BLE001 — housekeeping must never break startup
+        logger.warning("conversation_memory: purge of %s failed (non-fatal): %s", name, e)
+        return None
+
+
 async def purge_old_turns() -> int | None:
     """Delete conversation-memory turns older than the retention window.
-    Returns how many were deleted, or None when there was nothing to do or
-    Qdrant could not be reached (never raises)."""
+    Returns how many were deleted from the live collection, or None when there
+    was nothing to do or Qdrant could not be reached (never raises).
+
+    The other memory collections in CONTEXT_MEMORY_PURGE_ALSO are purged too:
+    after the 1024-dim switch (D-067) the 384-dim collection is kept for
+    rollback, and its officers' chats must still go after the window."""
     floor = _retention_floor()
     if not floor or not settings.CONTEXT_SEMANTIC_MEMORY_ENABLED:
         return None
     client = vectorstore.get_client()
     old = models.Filter(must=[models.FieldCondition(key="ts", range=models.Range(lt=floor))])
-    try:
-        if not await client.collection_exists(settings.CONTEXT_MEMORY_COLLECTION):
-            return None
-        n = (await client.count(settings.CONTEXT_MEMORY_COLLECTION, count_filter=old, exact=True)).count
-        if n:
-            await client.delete(collection_name=settings.CONTEXT_MEMORY_COLLECTION,
-                                points_selector=models.FilterSelector(filter=old), wait=True)
-            logger.info("conversation_memory: deleted %d turns older than %d days",
-                        n, settings.CONTEXT_MEMORY_RETENTION_DAYS)
-        return n
-    except Exception as e:  # noqa: BLE001 — housekeeping must never break startup
-        logger.warning("conversation_memory: purge failed (non-fatal): %s", e)
-        return None
+    n = await _purge_collection(client, settings.CONTEXT_MEMORY_COLLECTION, old)
+    for name in (s.strip() for s in settings.CONTEXT_MEMORY_PURGE_ALSO.split(",")):
+        if name and name != settings.CONTEXT_MEMORY_COLLECTION:
+            await _purge_collection(client, name, old)
+    return n
 
 
 async def purge_loop(every_seconds: int = 86400) -> None:
@@ -209,12 +255,17 @@ async def search_relevant_turns(*, question: str, tenant_id: int | None, user_id
         query_filter = models.Filter(must=must) if must else None
 
         client = vectorstore.get_client()
+        # Exact, not HNSW (2026-10-24): one officer's 30-day turns are few, and the
+        # approximate graph under a user/session filter missed a usable turn (60 real
+        # queries: 58/60 top-5 equal to exact, 1 of 300 usable turns lost; exact 60/60,
+        # same p50 ~105 ms with the payload indexes below).
         response = await client.query_points(
             collection_name=settings.CONTEXT_MEMORY_COLLECTION,
             query=vecs[0],
             query_filter=query_filter,
             limit=top_k,
             with_payload=True,
+            search_params=models.SearchParams(exact=True),
         )
         out = []
         for h in response.points:

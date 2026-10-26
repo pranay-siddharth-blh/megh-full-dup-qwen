@@ -5,25 +5,29 @@ import pytest
 from app import pipeline as p
 
 
-# ── the user's decision (2026-10-19, replacing 2026-10-12): a bare "CM-ELEVATE" is never
-# defaulted to Legacy. "applications" is the applications dataset's own word, so these
-# stay on CM Elevate; a question with no dataset word asks which dataset. ──
+# ── the user's decision (2026-10-22, replacing 2026-10-19 and 2026-10-12): a bare
+# "CM-ELEVATE" with a financial word is CM Elevate Legacy, directly; with only
+# "applications" (held by both datasets) it asks which dataset — the sheet's TC-11/26
+# were answered 8,840 from the applications data for a Legacy 2,823. ──
 @pytest.mark.parametrize("q", ["How many total applications are recorded under CM-ELEVATE?",
                                "How many CM-ELEVATE applications are recorded in each district?",
                                "Which districts have the highest number of CM-ELEVATE applications?",
                                "How many CM-ELEVATE applications are mapped to Amlarem constituency?",
-                               "Show me the number of CM-ELEVATE applications in each block of West Garo Hills."])
-def test_cm_elevate_applications_questions_stay_on_cm_elevate(q):
-    assert "CM Elevate Legacy" not in p._pin_cm_elevate_dataset(q)
-    assert p._cm_elevate_dataset_choice(q) == "applications"
-
-
-@pytest.mark.parametrize("q", ["How many CM-ELEVATE records are there in each district?",
-                               "Give me a district-wise summary for CM-ELEVATE",
-                               "What is the total amount disbursed under CM Elevate?"])
-def test_bare_cm_elevate_without_a_dataset_word_asks(q):
+                               "Show me the number of CM-ELEVATE applications in each block of West Garo Hills.",
+                               "How many CM-ELEVATE records are there in each district?",
+                               "Give me a district-wise summary for CM-ELEVATE"])
+def test_cm_elevate_applications_questions_ask_which_dataset(q):
     assert p._pin_cm_elevate_dataset(q) == q
     assert p._cm_elevate_dataset_choice(q) == "ask"
+
+
+@pytest.mark.parametrize("q", ["What is the total amount disbursed under CM Elevate?",
+                               "How many applications have been sanctioned under CM-ELEVATE?",
+                               "Compare the number of sanctioned CM-ELEVATE applications across West Garo Hills "
+                               "and Ri Bhoi."])
+def test_bare_cm_elevate_with_a_financial_word_is_legacy(q):
+    assert "CM Elevate Legacy" in p._pin_cm_elevate_dataset(q)
+    assert p._cm_elevate_dataset_choice(q) == "legacy"
 
 
 @pytest.mark.parametrize("q", ["How many CM ELEVATE applicants are there in East Khasi Hills?",

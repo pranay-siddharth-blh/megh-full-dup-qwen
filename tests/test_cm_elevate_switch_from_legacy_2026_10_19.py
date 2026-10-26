@@ -36,7 +36,7 @@ def test_the_swapped_question_lands_on_the_applications_dataset():
     sw = p._scheme_swap_rewrite(prev, "now give me for cm elevate")
     assert "Legacy" not in sw
     pinned = p._pin_cm_elevate_dataset(sw, "CM Elevate")
-    assert "CM Elevate applications" in pinned
+    assert "CM Elevate (applications)" in pinned
     assert p._cm_elevate_dataset_pause(pinned) is None
 
 
@@ -48,22 +48,31 @@ def _st(**kw):
     return ConversationState(**kw)
 
 
-def test_all_years_thread_carries_into_a_same_scheme_question():
+def test_all_years_thread_carries_into_a_vague_question():
+    # D-061 (2026-10-22): "give me cm elevate disbursement by district" names its
+    # scheme and measure — a NEW question, it inherits nothing (the year comes
+    # from the default rule). A measure with no scheme of its own still carries.
     st = _st(scheme=LEGACY, year_all=True)
     assert p._same_scheme_context_year("give me CM Elevate Legacy disbursement by district",
-                                       "give me cm elevate disbursement by district", st) == {"year_all": True}
+                                       "give me cm elevate disbursement by district", st) is None
+    assert p._same_scheme_context_year("how much was disbursed?", "how much was disbursed?", st) == {"year_all": True}
 
 
-def test_a_single_year_thread_carries_its_year():
+def test_a_single_year_thread_carries_its_year_into_a_follow_up_only():
     st = _st(scheme="MGNREGA", year=2023)
     assert p._same_scheme_context_year("MGNREGA person-days by block in Dalu", "MGNREGA person-days by block in Dalu",
+                                       st) is None
+    assert p._same_scheme_context_year("person-days by block in Dalu", "person-days by block there",
                                        st) == {"year_key": 2023}
 
 
 @pytest.mark.parametrize("q", ["MGNREGA person-days in FY 2024-25", "MGNREGA person-days across all financial years",
                                "MGNREGA person-days year-wise", "which year had the most MGNREGA person-days",
-                               "PMAY-G houses completed", "compare MGNREGA and PMAY-G spending"])
+                               "compare MGNREGA and PMAY-G spending"])
 def test_own_year_other_scheme_or_several_schemes_carry_nothing(q):
+    # "PMAY-G houses completed" was here: since D-056 (user rule 2026-10-21) a new
+    # question on ANOTHER scheme carries the chat's year and place too
+    # (tests/test_new_chat_and_scheme_switch_2026_10_21.py).
     assert p._same_scheme_context_year(q, q, _st(scheme="MGNREGA", year=2023)) is None
 
 

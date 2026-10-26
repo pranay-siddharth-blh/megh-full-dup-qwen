@@ -40,8 +40,15 @@ python3.11 -m venv .venv
 # or:  ./.venv/bin/pip install -r requirements.txt   (compatible updates)
 ```
 
-`fastembed` pulls `onnxruntime` and downloads the `bge-small-en-v1.5` model on
-first use (`EMBEDDING_PROVIDER=local`). Allow outbound HTTPS the first time, or
+Embeddings come from the gateway's `qwen3-embedding` (`EMBEDDING_PROVIDER=gateway`, D-067). Set
+`EMBEDDING_BASE_URL=https://10.48.242.4/openai/v1` (not `…/completions`), `QDRANT_COLLECTION=megh_scheme_kb_v4`,
+`CONTEXT_MEMORY_COLLECTION=megh_conversation_memory_1024`, `RAG_MEDIUM_CONFIDENCE=0.35` and
+`CONTEXT_MEMORY_MIN_SCORE=0.45` (see `.env.example`). The first start builds the KB collection by itself
+(and rebuilds it if its vector size does not match the model, KI-402). After that restart, carry chat recall over
+once — it re-embeds the last 30 days of `megh_conversation_memory` and only reads the old collection:
+`./.venv/bin/python deploy/migrate_conversation_memory.py --dry-run`, then without `--dry-run`.
+`fastembed` is still installed: it serves the BM25 keyword vectors, the local re-ranker and the
+`EMBEDDING_PROVIDER=local` rollback, and downloads its models on first use — allow outbound HTTPS once, or
 pre-seed the `fastembed_cache/`.
 
 ## 4. Configuration
@@ -56,7 +63,7 @@ Fill in, at minimum:
 - `DATABASE_URL` — **use `megh_app`**, not the `postgres` superuser. Create it
   first with [sql/01_create_megh_app_role.sql](sql/01_create_megh_app_role.sql)
   (see *Database roles and retention* below)
-- `READONLY_DATABASE_URL` — **use `megh_readonly`**
+- `READONLY_DATABASE_URL` — **use `megh_readonly`** (the key is `READONLY_DATABASE_URL`, not `DATABASE_URL_READONLY`; set `READONLY_DB_ALLOW_SUPERUSER=False`). Pools: `READONLY_DB_POOL_MAX_SIZE=4`, `DB_POOL_MAX_SIZE=4`, `PIPELINE_GRAPH_PG_POOL_MAX=2` per worker — 2 workers = 20, the ingestion team's limit for all workers together (2026-10-26). Restart the app after the ingestion team announces a database change (the catalog is read at startup).
   ([sql/03_readonly_role.sql](sql/03_readonly_role.sql)). Model-generated SQL
   runs only on this login; a superuser here is refused
 - `JWT_SECRET` — long random string; `python -c "import secrets;print(secrets.token_urlsafe(48))"`
@@ -316,3 +323,22 @@ sudo systemctl restart megh-nlpservice
 
 No migrations need reversing: the schema work is `CREATE TABLE IF NOT EXISTS`
 plus `ADD COLUMN IF NOT EXISTS`, so an older build tolerates the newer schema.
+
+
+## Switching `DATABASE_URL` to `megh_app` (ingestion team, 2026-10-26)
+`megh_app` owns the `app` schema and reads `curated` / `semantic` exactly as `megh_readonly`. Checked before the switch
+(D-069): no fixed query reads a hidden column or `SELECT *` on a table that hides one; app SQL is `app.`-qualified (the
+checkpointer adds `search_path=app` itself); app queries stop at 15 s (megh_app: 60 s). Each worker holds
+`DB_POOL_MAX_SIZE` + `PIPELINE_GRAPH_PG_POOL_MAX` = 6 megh_app connections; keep the total across dev + deploy within the
+cap agreed with the ingestion team. After switching: restart, `/health`, the full test suite and the live checks.
+
+### Connection caps on megh_db (agreed with the ingestion team, 2026-10-26) — HARD caps
+| Login | Per worker | Workers (1 dev + 2 VMs x 2) | Total | Cap |
+|---|---|---|---|---|
+| `megh_app` (`DATABASE_URL` + checkpointer) | 4 + 2 = 6 | 5 | 30 | 30 |
+| `megh_readonly` (generated SQL + catalog reads) | 4 | 5 | 20 | 20 |
+
+The 31st `megh_app` connection is **refused, not queued**. Tell the ingestion team **before** adding a worker or a VM or
+raising any pool. These caps cover only this (LangGraph) build: while the old build (`megh-nlpservice` / Docker `megh-nlp`,
+very likely the `172.18.0.2` sessions as `postgres`) runs beside it, its connections come on top. **Stop the old build at
+switch-over** so nothing uses `postgres` on megh_db.

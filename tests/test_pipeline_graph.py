@@ -31,7 +31,7 @@ from app.config import settings  # noqa: E402
 from app.routers.query import build_turn, pause_question, remember_pause  # noqa: E402
 from app.session_store import Session  # noqa: E402
 
-CME = "How many applicants under CM Elevate in East Khasi Hills?"
+CME = "How many applicants under CM Elevate (applications) in East Khasi Hills?"
 SQL_OK = ("SELECT SUM(no_of_applications) AS applications FROM curated.v_cm_elevate "
           "WHERE lgd_district = 'EAST KHASI HILLS'")
 _DISTRICTS = ("East Khasi Hills", "West Khasi Hills", "West Garo Hills", "Ri Bhoi")
@@ -124,7 +124,7 @@ def env(monkeypatch, tmp_path):
                     base = base.replace(old, d)
                 return base
         if "mgnrega" in question.lower():
-            return base.replace("applicants under CM Elevate", "MGNREGA person-days")
+            return base.replace("applicants under CM Elevate (applications)", "MGNREGA person-days")
         return base
 
     async def kb(question, scheme=None, **_k):
@@ -297,20 +297,20 @@ def test_scheme_switch_does_not_keep_the_old_scheme(env, monkeypatch):
 
 
 def test_pause_then_reply_resumes(env, monkeypatch):
-    out = run_conv(env, monkeypatch, ["How many applicants under CM Elevate?", "East Khasi Hills"])
+    out = run_conv(env, monkeypatch, ["How many applicants under CM Elevate (applications)?", "East Khasi Hills"])
     assert out[0][0] == "pause" and out[0][1]["rule"]
     assert out[1][0] == "answer" and out[1][1]["resolved_entities"].get("district") == "EAST KHASI HILLS"
 
 
 def test_thanks_abandons_a_pause(env, monkeypatch):
-    out = run_conv(env, monkeypatch, ["How many applicants under CM Elevate?", "thanks"])
+    out = run_conv(env, monkeypatch, ["How many applicants under CM Elevate (applications)?", "thanks"])
     assert out[0][0] == "pause"
     assert out[1][0] == "answer" and out[1][1]["route"] == "edge"
     assert out[1][3] is None             # the pending pause is consumed
 
 
 def test_new_question_abandons_a_pause(env, monkeypatch):
-    out = run_conv(env, monkeypatch, ["How many applicants under CM Elevate?", "What is CM Elevate?"])
+    out = run_conv(env, monkeypatch, ["How many applicants under CM Elevate (applications)?", "What is CM Elevate?"])
     assert out[1][0] == "answer" and out[1][1]["route"] == "knowledge"
 
 
@@ -362,7 +362,7 @@ def test_pause_is_checkpointed_and_the_thread_dropped_after_the_answer(env, monk
 
     async def between(i, session):
         seen[i] = await pg.pending_pause(session.session_id)
-    out, _ = converse(["How many applicants under CM Elevate?", "East Khasi Hills", CME],
+    out, _ = converse(["How many applicants under CM Elevate (applications)?", "East Khasi Hills", CME],
                       monkeypatch=monkeypatch, between=between)
     assert seen[0] is None
     assert seen[1] and seen[1]["rule"] == out[0][1]["rule"] and seen[1]["node"]
@@ -376,9 +376,9 @@ def test_reply_resumes_even_when_the_checkpoint_is_gone(env, monkeypatch):
         if i == 1:
             rt = await pg._runtime()
             await rt.saver.adelete_thread(session.session_id)
-    kept, _ = converse(["How many applicants under CM Elevate?", "East Khasi Hills"],
+    kept, _ = converse(["How many applicants under CM Elevate (applications)?", "East Khasi Hills"],
                        monkeypatch=monkeypatch)
-    lost, _ = converse(["How many applicants under CM Elevate?", "East Khasi Hills"],
+    lost, _ = converse(["How many applicants under CM Elevate (applications)?", "East Khasi Hills"],
                        monkeypatch=monkeypatch, between=drop)
     assert lost == kept and lost[1][0] == "answer"
 
@@ -415,7 +415,7 @@ def test_turn_objects_round_trip():
 
 
 def test_run_trace_and_logs_carry_no_question_text(env, monkeypatch, caplog):
-    secret = "How many applicants under CM Elevate in Ri Bhoi?"
+    secret = "How many applicants under CM Elevate (applications) in Ri Bhoi?"
     with caplog.at_level(logging.INFO, logger="app.pipeline_graph"):
         out, _ = converse([secret], monkeypatch=monkeypatch)
     graph_logs = [r.getMessage() for r in caplog.records if r.name == "app.pipeline_graph"]
@@ -430,7 +430,7 @@ def test_expired_pause_threads_are_swept(env, monkeypatch):
     async def main():
         s = _session("t-sweep")
         with pytest.raises(p.ClarificationNeeded):
-            await p.answer_question("How many applicants under CM Elevate?", session=s)
+            await p.answer_question("How many applicants under CM Elevate (applications)?", session=s)
         assert await pg.pending_pause("t-sweep")
         assert await pg.sweep_expired_pauses(now=time.time()) == 0
         assert await pg.sweep_expired_pauses(now=time.time() + settings.PIPELINE_GRAPH_PAUSE_TTL_SECONDS + 5) == 1
@@ -451,7 +451,8 @@ def test_dataclass_shapes_the_graph_relies_on():
 # ── Pauses raised by other nodes (2026-10-02, node coverage) ─────────────────
 @pytest.mark.parametrize("question,node", [
     # entities: a district acronym with its letters reordered (KI-130 rule)
-    ("Compare CM Elevate applicants in WHK and EKH", "entities"),
+    # (the dataset named: a bare "CM Elevate applicants" asks which dataset first, 2026-10-22)
+    ("Compare CM Elevate (applications) in WHK and EKH", "entities"),
     # scope_scheme: a bare "Focus" names neither Focus scheme (D-009)
     ("How many beneficiaries under Focus in East Khasi Hills?", "scope_scheme"),
     # route: a bank question that names no scheme asks which one (_bank_clarification)
@@ -723,12 +724,16 @@ def test_cm_elevate_after_a_legacy_answer_switches_dataset(env, monkeypatch):
     assert out[1][1]["schemes"] == ["CM Elevate"]
 
 
-def test_a_new_question_on_the_same_scheme_keeps_the_conversation_year(env, monkeypatch):
+def test_a_new_question_on_the_same_scheme_asks_its_year(env, monkeypatch):
     # KI-331 (2026-10-19): after an all-years CM Elevate Legacy answer, "give me cm
-    # elevate legacy disbursement by district" asked "which financial year?" again.
+    # elevate legacy disbursement" asked "which financial year?" again. D-061
+    # (2026-10-22) answered the scheme's latest FY instead; D-065 (user, 2026-10-22:
+    # "why are you blindly giving 2025-26? … take previous context or ask which year"):
+    # a complete NEW question with no year is asked, with the year chips — never the
+    # chat's all-years choice, never a silent latest FY.
     monkeypatch.setattr(settings, "ANSWER_DEFAULTS_ENABLED", True)
     out = run_conv(env, monkeypatch, ["How many CM Elevate Legacy records are there in Meghalaya across all financial years?",
-                                      "give me CM Elevate Legacy disbursement by district"])
+                                      "give me CM Elevate Legacy disbursement"])
     assert out[0][0] == "answer", out[0][:2]
-    assert out[1][0] == "answer", out[1][:2]
-    assert out[1][1]["schemes"] == ["CM Elevate Legacy"]
+    assert out[1][0] == "pause", out[1][:2]
+    assert out[1][1]["rule"] == "year-not-specified", out[1]

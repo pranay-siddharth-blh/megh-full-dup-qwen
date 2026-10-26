@@ -268,7 +268,8 @@ async def _run_async_checks():
             self.points = points
 
     class _FakeClient:
-        async def query_points(self, *, collection_name, query, query_filter, limit, with_payload):
+        async def query_points(self, *, collection_name, query, query_filter, limit, with_payload,
+                               search_params=None):
             captured["filter"] = query_filter
             return _FakeResponse([_FakePoint(0.9, {"question": "q", "standalone_question": "q",
                                                     "answer": "a", "schemes": ["MGNREGA"],

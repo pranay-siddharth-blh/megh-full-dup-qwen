@@ -15,6 +15,16 @@ _C09_NON_PLACE_NOUNS = frozenset((
     "household households house houses tranche tranches bank banks lender lenders").split())
 
 
+def _c09_same_name_village(name: str) -> bool:
+    """Is there a village of exactly this name (or alias)? Only then is a block
+    name "the block or a village with that name" (user rule 2026-10-21: ask for
+    the SAME name at two levels). "WAPUNG" asked it off WAPUNG SKUR / WAPUNG
+    SHNONG, "DALU" off DALUPARA — near-matches, not the same name. True when the
+    village index is not loaded, keeping the old reading."""
+    from app.entity_resolver import is_village_name
+    return is_village_name(name) is not False
+
+
 def _c09_not_a_place(mention: str) -> bool:
     """A "district" mention that cannot be a place name: it holds a digit, an
     organisation / record noun ("LAMPS cooperatives", "registration batch
@@ -85,6 +95,25 @@ async def resolve_entities(question: str, schemes: list[str],
                 raise _year_out_of_range_clarification(question, _yraw, schemes)
 
     mentions = await extract_entity_mentions(question)
+    # The extractor intermittently returns no place for a plainly named one
+    # ("houses sanctioned in North Tura" -> {} -> "which area?", place hierarchy
+    # sweep 2026-10-21, KI-349). The gazetteer's EXACT matches fill the gap
+    # (PLACE_GAZETTEER, D-059): one place, at its database level — a name at
+    # several levels goes in the finest catalogue slot and the level gate asks.
+    from app import entity_resolver as _er
+    if settings.PLACE_GAZETTEER and _er.village_index_loaded() and not any(
+            mentions.get(s) for s in ("district", "block", "village", "assembly_constituency",
+                                      "districts", "blocks")):
+        _found = [f for f in _er.match_places(question, is_ordinary=_is_known_word) if not f.get("fuzzy")]
+        if len(_found) == 1:
+            _f = _found[0]
+            _slot = next((lv for lv in ("district", "block", "assembly_constituency", "village")
+                          if lv in _f["levels"]), None)
+            if _slot:
+                _typed = _f["typed"] if _ci_find(question, _f["typed"]) < 0 else \
+                    question[_ci_find(question, _f["typed"]):_ci_find(question, _f["typed"]) + len(_f["typed"])]
+                mentions = {**mentions, _slot: _typed}
+                logger.info("extractor found no place; the gazetteer reads %r as %s", _typed, _slot)
     mentions = _drop_producer_group_names(question, mentions)
     mentions = _backfill_explicit_year(question, schemes, mentions)
     # Every raw-text place SCAN below reads this copy, so a producer-group name
@@ -96,9 +125,15 @@ async def resolve_entities(question: str, schemes: list[str],
     # "the Mawkyrwat C&RD block or village?" — both chips wrong (CM Elevate
     # all-blocks run 2026-09-28, KI-107). Move it to the block slot; the
     # collision gate below leaves it alone.
+    # Focus Plus too (FOCUS-004 re-test 2026-10-22, KI-361): "Baghmara MB" /
+    # "Resubelpara MB" were asked "the Baghmara C&RD block or the Baghmara MB
+    # village?" and the block chip answered the rural block; "William Nagar
+    # Municipal Board" (the extractor's constituency slot) got the "whole
+    # WILLIAM NAGAR constituency?" pause and then 0. A name followed by an urban
+    # word is that urban body in any slot.
     _cme_urban_block = None
-    if schemes in (["CM Elevate"], ["CM Elevate Legacy"]):
-        for _uslot in ("district", "village", "block"):
+    if schemes in (["CM Elevate"], ["CM Elevate Legacy"], ["Focus Plus"]):
+        for _uslot in ("district", "village", "block", "assembly_constituency"):
             _uname = mentions.get(_uslot)
             if not _uname:
                 continue
@@ -108,7 +143,7 @@ async def resolve_entities(question: str, schemes: list[str],
             if _ublk and _URBAN_BODY_MATCH.search(_ublk):
                 mentions = {k: v for k, v in mentions.items() if k != _uslot}
                 mentions["block"] = _cme_urban_block = _ublk
-                logger.info("CM Elevate urban body %r -> block %r", _uname, _ublk)
+                logger.info("%s urban body %r -> block %r", schemes[0], _uname, _ublk)
                 break
 
     resolved: dict[str, object] = {}
@@ -153,6 +188,67 @@ async def resolve_entities(question: str, schemes: list[str],
             _rest = _ci_replace(question, _named[0], " ")
             if _explicit_level_in(_rest, schemes) is None:
                 _stated_level = None
+    # The extractor's "village" tag is the model's guess; the database decides
+    # (PLACE_GAZETTEER, D-059). "give me for dalu" after a PMAY-G by-district
+    # answer: the 4B tagged Dalu a village although the lookup it was given
+    # listed a block / constituency only, and the trigram village fallback asked
+    # "DALUAGRE or DALUGAON?" (user, live 2026-10-21 18:18, KI-346). A name no
+    # village carries that is exactly a block or constituency moves to that
+    # slot. Not when the user said "village" (stated level) or on a village chip.
+    # A level the TEXT states counts only for a name the database holds at that
+    # level (user rule 2026-10-21 19:50: "if the name is a block go to block, a
+    # village go to village, a constituency go to constituency; ask only when
+    # the same name is at several levels"). "Total sanctioned amount in Rasong."
+    # after a Chokpot block chip was rewritten "... in Rasong for MGNREGA, the
+    # block, not another area type ..."; RASONG is only a village (278445), the
+    # stated "block" forced lgd_block = 'RASONG' and a null "statewide" answer
+    # (KI-348). A name the database does not know keeps the stated level, and so
+    # does an explicit choice that rules a level out ("Dambo Rongjeng, the
+    # village, not the block": the user's deliberate pick is answered as asked,
+    # tests/test_block_in_other_district_2026_10_19.py).
+    from app import entity_resolver as _er
+    # Without the village index a name's village level is unknown, not absent:
+    # the database-level rules below need it (offline, the old reading stands).
+    _gz = settings.PLACE_GAZETTEER and _er.village_index_loaded()
+    if _gz and _stated_level in ("district", "block", "assembly_constituency", "village") \
+            and not _NEGATED_LEVEL_MATCH.search(question or ""):
+        _named = [str(v) for k, v in mentions.items()
+                  if k in ("district", "block", "village", "assembly_constituency")
+                  and isinstance(v, str) and v.strip()]
+        _named_levels = {n: _er.place_levels(n) for n in _named}
+        if _named and all(lv and _stated_level not in lv for lv in _named_levels.values()):
+            logger.info("stated level %r fits none of %s in the database — the database's level stands",
+                        _stated_level, _named_levels)
+            _stated_level = None
+    if _gz and _stated_level is None and not village_hint:
+        _vm = mentions.get("village")
+        if isinstance(_vm, str) and _er.is_village_name(_vm) is False:
+            _vlv = _c09_scheme_levels(_vm, schemes[0] if schemes else "")
+            for _dim in ("block", "assembly_constituency"):
+                if _dim in _vlv and not mentions.get(_dim):
+                    mentions = {**{k: v for k, v in mentions.items() if k != "village"}, _dim: _vm}
+                    logger.info("village mention %r is no village but the %s of that name — moved",
+                                _vm, _dim)
+                    break
+        # ...and in general: a mention the database holds at exactly ONE level
+        # goes to that level, whatever slot the extractor chose (user rule
+        # 2026-10-21 19:50). "Rasong" (village only) tagged block; "Sohing",
+        # "Rongjeng", "Shella", "North Tura" (constituencies only) tagged block
+        # and fuzzy-resolved to the SOHIONG / DAMBO RONGJENG / SHELLA BHOLAGANJ /
+        # TURA blocks — another area's figure (place hierarchy sweep, KI-349).
+        for _slot in ("district", "block", "assembly_constituency", "village"):
+            _sm = mentions.get(_slot)
+            if not isinstance(_sm, str) or not _sm.strip():
+                continue
+            _only = _c09_scheme_levels(_sm, schemes[0] if schemes else "")
+            if len(_only) != 1 or (_slot == "district" and "district" in _er.place_levels(_sm)):
+                continue
+            (_lvl,) = _only
+            if _lvl == _slot or _lvl not in ("block", "assembly_constituency", "village") or mentions.get(_lvl):
+                continue
+            mentions = {**{k: v for k, v in mentions.items() if k != _slot}, _lvl: _sm}
+            logger.info("%s mention %r is only a %s in the database — moved", _slot, _sm, _lvl)
+            break
     # MGNREGA: a resumed village chip names exactly one village — pin it from the
     # chip text and skip every place branch (see _mgnrega_village_chip_pin).
     _chip_pinned = False
@@ -405,15 +501,32 @@ async def resolve_entities(question: str, schemes: list[str],
             _typed_up = _tm.collapse_ws(_d_typed).upper()
             if _dr.status == "resolved" and _typed_up != str(_dr.canonical).strip().upper():
                 for _dim in ("block", "assembly_constituency"):
+                    # Only a level THIS scheme has: "Jowai" (West Jaintia Hills HQ)
+                    # is a block only in CM Elevate's urban catalogue, so MGNREGA /
+                    # PMAY-G answered "Jowai block: no records" (KI-349).
+                    if _gz and _dim not in _c09_scheme_levels(_d_typed, _scheme0):
+                        continue
                     _br = resolve_dimension(_d_typed, _scheme0, _dim)
                     if _br.status == "resolved" and str(_br.canonical).strip().upper() == _typed_up:
                         mentions = {**{k: v for k, v in mentions.items() if k != "district"}, _dim: _d_typed}
                         logger.info("admin-level gate: %r is %s only by alias but IS the %s %r — "
                                     "testing it at that level", _d_typed, _dr.canonical, _dim, _br.canonical)
                         break
+        # A district named WITH a finer place is that place's context, not the
+        # name to test: "Mawlai, East Khasi Hills" stopped at the district (never
+        # level-ambiguous) and Mawlai went to the village branch, which answered
+        # the West Khasi Hills village under the East Khasi Hills label (KI-348).
+        # The finer place is tested, and the named district settles it below.
+        _gate_district = None
+        if _gz and isinstance(mentions.get("district"), str) \
+                and any(mentions.get(s) for s in ("block", "village", "assembly_constituency")):
+            _gdr = resolve_dimension(str(mentions["district"]), _scheme0, "district")
+            _gate_district = str(_gdr.canonical) if _gdr.status == "resolved" else None
         for _slot in ("district", "block", "village", "assembly_constituency"):
             _name = mentions.get(_slot)
             if not _name:
+                continue
+            if _slot == "district" and _gate_district:
                 continue
             if _cme_urban_block and _name == _cme_urban_block:
                 break           # an urban body has one reading: the block (see above)
@@ -488,8 +601,39 @@ async def resolve_entities(question: str, schemes: list[str],
                 _dims = {k: v for k, v in _dims.items() if k != "assembly_constituency"}
                 logger.info("admin-level collision on %r: AC reading suppressed "
                             "(no constituency data for this metric)", _name)
+                # The one reading left is where the name goes: the extractor put
+                # "Chokpot" (block + constituency) in the constituency slot with
+                # no constituency word; PMAY-G has no constituency data, so it
+                # went down the constituency path and asked "whole constituency
+                # or part?" instead of answering the block (KI-348).
+                if len(_dims) == 1 and settings.PLACE_GAZETTEER:
+                    (_left,) = _dims
+                    if _left != _slot and _left in ("block", "village") and not mentions.get(_left):
+                        mentions = {**{k: v for k, v in mentions.items() if k != _slot},
+                                    _left: _dims[_left] or str(_name)}
+                        logger.info("admin-level collision on %r: the %s is the one reading left — moved",
+                                    _name, _left)
                 if len(_dims) < 2:
                     _dims = {}
+            if len(_dims) >= 2 and settings.PLACE_GAZETTEER:
+                _settle_ctx = ({**(prior_resolved or {}), "district": _gate_district, "block": None}
+                               if _gate_district else prior_resolved)
+                _settled = _c09_gazetteer_settle(str(_name), _dims, _scheme0, _settle_ctx)
+                if len(_settled) == 1:
+                    # One reading left: take it as if its chip had been clicked —
+                    # the chip's question states the level, so this gate is not
+                    # re-entered and every later level rule sees the choice.
+                    (_only,) = _settled
+                    _chip = next(o["question"] for o, d in zip(
+                        _dimension_collision_clarification(question, str(_name), _dims).options, _dims)
+                        if d == _only)
+                    logger.info("admin-level collision on %r: %s settled to %s by the gazetteer",
+                                _name, list(_dims), _only)
+                    _out = await resolve_entities(_chip, schemes, prior_resolved=prior_resolved,
+                                                  village_hint=village_hint)
+                    _out.setdefault("question", _chip)
+                    return _out
+                _dims = _settled
             if _dims:
                 logger.info("admin-level collision on %r: %s — asking", _name, list(_dims))
                 raise _dimension_collision_clarification(question, str(_name), _dims)
@@ -573,6 +717,11 @@ async def resolve_entities(question: str, schemes: list[str],
                 mentions.get(s) for s in ("district", "block", "assembly_constituency",
                                           "districts", "blocks")):
         _reread = await _mgnrega_admin_reading_of_village_mention(str(mentions["village"]), schemes[0])
+        # A constituency reading the metric cannot answer is no reading (as at
+        # the level gate, _ac_dimension_available) — KI-349.
+        if settings.PLACE_GAZETTEER and "assembly_constituency" in _reread \
+                and not _ac_dimension_available(question, schemes):
+            _reread = {k: v for k, v in _reread.items() if k != "assembly_constituency"}
         if len(_reread) >= 2:
             logger.info("MGNREGA village mention %r is %s — asking", mentions["village"], list(_reread))
             raise _dimension_collision_clarification(question, str(mentions["village"]), _reread)
@@ -754,7 +903,7 @@ async def resolve_entities(question: str, schemes: list[str],
                 continue
             if not _has_block_word:
                 _vcheck = await _resolve_village_for(schemes, _bname)
-                if _vcheck.status in ("resolved", "ambiguous"):
+                if _vcheck.status in ("resolved", "ambiguous") and _c09_same_name_village(_bname):
                     stem = question.strip().rstrip(" ?.")
                     raise ClarificationNeeded(
                         f"“{_bname}” could mean either the block or a village with "
@@ -863,10 +1012,10 @@ async def resolve_entities(question: str, schemes: list[str],
                 if _ac_also:
                     _dims3 = {"block": r.display or str(r.canonical).title(),
                               "assembly_constituency": _place_title(_ac_also)}
-                    if _vcheck.status in ("resolved", "ambiguous"):
+                    if _vcheck.status in ("resolved", "ambiguous")                             and _c09_same_name_village(str(mentions["block"])):
                         _dims3["village"] = ""
                     raise _dimension_collision_clarification(question, str(mentions["block"]), _dims3)
-                if _vcheck.status in ("resolved", "ambiguous"):
+                if _vcheck.status in ("resolved", "ambiguous") and _c09_same_name_village(str(mentions["block"])):
                     stem = question.strip().rstrip(" ?.")
                     raise ClarificationNeeded(
                         f"“{mentions['block']}” could mean either the block or a village with "
@@ -1102,6 +1251,12 @@ async def resolve_entities(question: str, schemes: list[str],
         # year straight from the text ("2023", "2023-24", "FY 2023-24" -> 2023).
         if year_key is None:
             year_key = _parse_year_key(raw_year)
+        # The extractor can hand back only the digits of "FY 24" ("24"), which name no
+        # year on their own, so no year was resolved and the SQL model read "FY 24" as
+        # FY 2024-25 (2026-10-24; "FY24" is spaced to "FY 24" by _correct_fy_spacing).
+        # The question's own wording places it: "FY 24" = FY 2023-24 (_parse_year_key).
+        if year_key is None and str(raw_year).strip().isdecimal() and len(str(raw_year).strip()) <= 2:
+            year_key = _parse_year_key(question)
         if year_key is not None and not _year_in_data_range(year_key, schemes):
             # A real, parseable year — just not one these scheme(s) hold.
             if settings.YEAR_RANGE_GUARD_ENABLED:
@@ -1417,15 +1572,55 @@ async def resolve_entities(question: str, schemes: list[str],
             display.pop("district", None)
 
     if prior_resolved:
+        # The chat's district is carried only around a place that lies in it:
+        # "How many households … in Wapung block" after an East Khasi Hills answer
+        # ANDed lgd_district = 'EAST KHASI HILLS' onto the East Jaintia Hills block
+        # and answered "no employment recorded" for 9,166 households (live
+        # 2026-10-21, found with the bare-place-name fix).
+        _own_block = resolved.get("block") if isinstance(resolved.get("block"), str) else None
+        _own_bp = block_parent_district(_own_block, schemes[0] if schemes else "") if _own_block else None
+        # The same for a village (PLACE_GAZETTEER): "in Pakregre" after a West
+        # Garo Hills block answered PAKREGRE (East Garo Hills, the only one) but
+        # labelled it "West Garo Hills district" (user, live 2026-10-21, KI-347).
+        if not _own_bp and settings.PLACE_GAZETTEER and isinstance(resolved.get("village_code"), int):
+            from app import entity_resolver as _er
+            _vp = _er.village_code_place(resolved["village_code"])
+            _own_bp = _vp[1] if _vp else None
+        _block_elsewhere = bool(_own_bp) and prior_resolved.get("district") \
+            and str(_own_bp).upper() != str(prior_resolved["district"]).upper()
         if not mentions.get("district") and "district" not in resolved and prior_resolved.get("district") \
-                and not resolved.get("assembly_constituency"):
+                and not resolved.get("assembly_constituency") and not _block_elsewhere:
             resolved["district"] = prior_resolved["district"]
-        if not mentions.get("block") and "block" not in resolved and prior_resolved.get("block"):
+        elif _block_elsewhere and not mentions.get("district") and "district" not in resolved:
+            # The block's own district instead, so the answer says where it is
+            # (KI-327: "Dambo Rongjeng block … East Garo Hills").
+            resolved["district"] = str(_own_bp).upper()
+            display["district"] = _place_title(str(_own_bp))
+        # A block / village is carried only inside the district it belongs to: a
+        # new question that names another district or a place of its own must not
+        # keep the old block under it (user rule 2026-10-21: every new question
+        # inherits the chat's place, so this fallback now runs on new questions too).
+        _same_district = not (resolved.get("district") and prior_resolved.get("district")) \
+            or str(resolved["district"]).upper() == str(prior_resolved["district"]).upper()
+        _own_place = any(resolved.get(k) for k in ("village_code", "village_code_list", "block_list",
+                                                   "district_list", "assembly_constituency"))
+        if not mentions.get("block") and "block" not in resolved and prior_resolved.get("block") \
+                and _same_district and not mentions.get("village") and not _own_place:
             resolved["block"] = prior_resolved["block"]
         if not mentions.get("year") and "year_key" not in resolved and prior_resolved.get("year_key"):
             resolved["year_key"] = prior_resolved["year_key"]
-        if not mentions.get("village") and "village_code" not in resolved and prior_resolved.get("village_code"):
+        if not mentions.get("village") and "village_code" not in resolved and prior_resolved.get("village_code") \
+                and _same_district and not mentions.get("block") and not _own_place:
             resolved["village_code"] = prior_resolved["village_code"]
+        # The display names follow the carried values: the answer's closing scope
+        # sentence reads `display`, and with only `resolved` filled it called a West
+        # Garo Hills figure "the statewide figure for all of Meghalaya" (live 2026-10-21).
+        for _k in ("district", "block"):
+            if resolved.get(_k) and resolved[_k] == prior_resolved.get(_k) and not display.get(_k):
+                display[_k] = _place_title(str(resolved[_k]))
+        _yk = resolved.get("year_key")
+        if isinstance(_yk, int) and _yk == prior_resolved.get("year_key") and not display.get("year"):
+            display["year"] = f"FY {_yk}-{(_yk + 1) % 100:02d}"
         # Focus Plus tranche pin — same fallback as district/block/village/year
         # above. There is no LLM `mentions` signal for tranche_label (it's
         # resolved deterministically, not via mention extraction — see
@@ -1658,6 +1853,68 @@ def _c09_without_village_suffix(text: str) -> "str | None":
     if len(t) > 7 and t[-7:].lower() == "village" and t[-8].isspace():
         return t[:-7].rstrip()
     return None
+
+
+def _c09_scheme_levels(name: str, scheme: str) -> "set[str]":
+    """The levels `name` has for THIS scheme (PLACE_GAZETTEER, D-059 §6): the
+    database's levels, without a block only another scheme's catalogue holds
+    ("Jowai": a CM Elevate urban body, no MGNREGA / PMAY-G block) and without a
+    district reached only through its HQ-town alias, when another level remains."""
+    from app import entity_resolver as _er
+    levels = set(_er.place_levels(name))
+    key = _er.fold(name)
+    own_blocks = (_er._catalog.get(scheme) or {}).get("block") or []
+    if "block" in levels and own_blocks and not any(
+            _er.fold(f) == key for v in own_blocks for f in _er._match_forms(v)):
+        levels.discard("block")
+    if "district" in levels and len(levels) > 1 and not any(
+            _er.fold(str(v["canonical"])) == key
+            for d in _er._catalog.values() for v in (d.get("district") or [])):
+        levels.discard("district")
+    return levels
+
+
+def _c09_gazetteer_settle(name: str, dims: "dict[str, str]", scheme: str,
+                          prior_resolved: "dict | None") -> "dict[str, str]":
+    """Narrow a level question ({dimension: canonical}) with what the database
+    and the chat already know (PLACE_GAZETTEER, D-059). Never guesses: a rule
+    only removes a reading when another one is certain, and returns `dims`
+    unchanged when nothing applies.
+
+    1. The asking scheme holds no rows for the village of that name, the other
+       reading is still there: the village goes (asking "the Mawlai village?"
+       under a scheme with no Mawlai village rows invites a dead end).
+    2. The chat's remembered block: a same-name village inside it is the
+       village; the block itself, with no such village inside it, is the block.
+    3. The chat's remembered district: the one reading inside it wins when the
+       other lies outside."""
+    from app import entity_resolver as _er
+    places = _er.village_places(name)
+    if "village" not in dims or not places:
+        return dims
+    out = dict(dims)
+    others = [d for d in out if d != "village"]
+    if others and _er.village_scheme_data(name, scheme) is False:
+        out.pop("village")
+        return out
+    prior = prior_resolved or {}
+    _blk = str(prior.get("block") or "").strip().upper()
+    _block_canon = str(out.get("block") or "").strip().upper()
+    if _blk:
+        if any(b == _blk for _c, b, _d in places):
+            return {"village": out["village"]}
+        if _block_canon and _block_canon == _blk:
+            return {"block": out["block"]}
+        return out
+    _dist = str(prior.get("district") or "").strip().upper()
+    if _dist and "block" in out:
+        v_in = any(d == _dist for _c, _b, d in places)
+        b_in = (_er.block_parent_district(out["block"], scheme) or "").upper() == _dist
+        if v_in and not b_in:
+            return {"village": out["village"]}
+        if b_in and not v_in:
+            return {k: v for k, v in out.items() if k != "village"}
+    return out
 
 
 def _c09_name_then_village(text: str, name: str) -> bool:

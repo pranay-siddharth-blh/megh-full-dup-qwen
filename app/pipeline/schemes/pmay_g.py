@@ -669,6 +669,21 @@ def _pmay_metrics(question: str, list_scope: bool) -> "list[str] | None":
     return list(dict.fromkeys(out)) or None
 
 
+# "Financial summary" (PMAY-OFF-012/016) and "(overall) performance" (019/024) are figures this
+# file answers, not a place overview. The overview (c15, D-052) rewrote them to "PMAY-G house
+# status in <place>": 019 gave every district a status breakdown, the "till date" was dropped
+# (so the year was asked) and "Amlarem block" came back as the village (sheet run 2026-10-22).
+_PMAY_NAMED_SUMMARY_MATCH = Matcher(Alt(W("performance", "performing"),
+                                        Seq("overall", _pmay_p("status", "progress", "picture", "position",
+                                                                "summary", "figures"))))
+
+
+def _pmay_named_summary(question: str) -> bool:
+    """The question asks for PMAY-G's financial summary or performance figures."""
+    return bool(_PMAY_M["fin_summary"].search(question or "")
+                or _PMAY_NAMED_SUMMARY_MATCH.search(question or ""))
+
+
 # A capitalised word after "in / at / for / of" that is not the scheme or a year:
 # a place the resolver did not settle. Never answer that as a statewide figure.
 def _pmay_unsettled_place_word(w: str) -> bool:
@@ -797,7 +812,11 @@ def _pmay_facts_query(question: str, schemes: list[str], resolved: dict,
         return None
 
     params: list = []
-    where = ["NOT is_placeholder"]
+    # The 126 zero-sanction registrations (is_placeholder: no year, no sanction number,
+    # ₹0) ARE beneficiaries (user rule 2026-10-22, D-060): every count includes them. They
+    # carry no year or date, so a year / date question is unchanged. "Received the full
+    # sanctioned amount" needs a sanctioned amount (> 0) — ₹0 released of ₹0 is not a full release.
+    where: list[str] = []
     if dim == "village":
         params.append([int(e) for e in ents]); where.append(f"village_code = ANY(${len(params)}::int[])")
         key, name = "village_code", "MAX(lgd_village_name) AS name, MAX(lgd_block) AS block, MAX(lgd_district) AS district"
@@ -830,17 +849,21 @@ def _pmay_facts_query(question: str, schemes: list[str], resolved: dict,
         "COUNT(*) FILTER (WHERE is_completed) AS completed",
         "COUNT(*) FILTER (WHERE NOT COALESCE(is_completed, FALSE)) AS incomplete",
         "COUNT(*) FILTER (WHERE status_name IS NULL) AS no_status",
-        f"COUNT(*) FILTER (WHERE {rel} >= sanctioned_amount) AS full_release",
+        f"COUNT(*) FILTER (WHERE sanctioned_amount > 0 AND {rel} >= sanctioned_amount) AS full_release",
         f"COUNT(*) FILTER (WHERE {rel} > 0 AND {rel} < sanctioned_amount) AS part_release",
         f"COUNT(*) FILTER (WHERE {rel} = 0) AS no_release",
-        f"COUNT(*) FILTER (WHERE {rel} >= sanctioned_amount AND NOT COALESCE(is_completed, FALSE)) AS full_not_done",
+        f"COUNT(*) FILTER (WHERE sanctioned_amount > 0 AND {rel} >= sanctioned_amount "
+        "AND NOT COALESCE(is_completed, FALSE)) AS full_not_done",
         "COUNT(DISTINCT sanction_no) AS sanction_numbers",
+        "COUNT(*) FILTER (WHERE is_placeholder) AS placeholders",
     ]
     for st, c in _PMAY_STAGE_COL.items():
         cols.append(f"COUNT(*) FILTER (WHERE status_name = '{st}') AS {c}")
-        cols.append(f"COUNT(*) FILTER (WHERE status_name = '{st}' AND {rel} >= sanctioned_amount) AS fnd_{c}")
+        cols.append(f"COUNT(*) FILTER (WHERE status_name = '{st}' AND sanctioned_amount > 0 "
+                    f"AND {rel} >= sanctioned_amount) AS fnd_{c}")
     group = "" if dim == "state" else f"\nGROUP BY {key}"
-    sql = ("SELECT " + ",\n       ".join(cols) + "\nFROM curated.v_pmay\nWHERE " + "\n  AND ".join(where) + group)
+    sql = ("SELECT " + ",\n       ".join(cols) + "\nFROM curated.v_pmay"
+           + ("\nWHERE " + "\n  AND ".join(where) if where else "") + group)
     shown = _pmay_inline_params(sql, params)
     return {"sql": sql, "params": params, "shown": shown, "metrics": metrics, "dim": dim,
             "entities": ents, "year_key": None if calendar_year is not None else yk, "date": day, "stages": stages,
@@ -880,39 +903,6 @@ def _pmay_inline_params(sql: str, params: list) -> str:
         return sql
     fn(trees[0])
     return trees[0].sql(dialect=sql_ast.DIALECT, pretty=True)
-
-
-async def _pmay_attach_placeholders(spec: dict, rows: list[dict]) -> None:
-    """Add each place's placeholder count to its row, for a beneficiary / house
-    count with no year, date or stage (placeholders carry none of those).
-
-    Placeholders are registrations whose status is "Existing site(Old House)":
-    no sanction number, no year, ₹0 sanctioned. The SME rule leaves them out of
-    every count, but the testers count registrations: "How many PMAY beneficiaries
-    are there in Demdema block?" was failed for 6,122 against their 6,125
-    (PMAY-G sheet PMAY-OFF-011/015, 30 Sep). The answer now gives both."""
-    if "houses" not in (spec.get("metrics") or []) or spec.get("year_key") is not None \
-            or spec.get("date") is not None or spec.get("calendar_year") is not None or spec.get("stages"):
-        return
-    dim, ents = spec["dim"], spec["entities"]
-    if dim == "village":
-        key, cond, param = "village_code", "village_code = ANY($1::int[])", [int(e) for e in ents]
-    elif dim == "block":
-        key, cond, param = "UPPER(lgd_block)", "UPPER(lgd_block) = ANY($1::text[])", [str(e).upper() for e in ents]
-    elif dim == "district":
-        key, cond, param = "UPPER(lgd_district)", "UPPER(lgd_district) = ANY($1::text[])", [str(e).upper() for e in ents]
-    else:
-        key, cond, param = "'MEGHALAYA'", "TRUE", None
-    sql = (f"SELECT {key} AS entity_key, COUNT(*) AS placeholders FROM curated.v_pmay "
-           f"WHERE is_placeholder AND {cond} GROUP BY 1")
-    try:
-        got = {str(r["entity_key"]).upper(): int(r["placeholders"])
-               for r in await fetch_rows(sql, [param] if param is not None else [])}
-    except Exception:  # noqa: BLE001 — the count without the note is still right
-        logger.warning("PMAY-G placeholder count failed — answering without it", exc_info=True)
-        return
-    for r in rows:
-        r["placeholders"] = got.get(str(r.get("entity_key")).upper(), 0)
 
 
 def _pmay_money(v) -> str:
@@ -998,13 +988,14 @@ def _pmay_lines(spec: dict, row: dict) -> list[str]:
     L: list[str] = []
     for m in spec["metrics"]:
         if m == "houses":
+            # The count includes the zero-sanction registrations (D-060); say how many.
             ph = int(row.get("placeholders") or 0)
             L.append((f"PMAY-G {word}: {h:,}"
                       if word == "beneficiaries" or (spec.get("date") is None and spec.get("year_key") is None
                                                      and spec.get("calendar_year") is None)
                       else f"PMAY-G houses sanctioned: {h:,}")
-                     + (f" with a sanctioned house, plus {ph:,} registered with an existing old house and no "
-                        f"sanction ({h + ph:,} registrations in all)" if ph else ""))
+                     + (f" (including {ph:,} registered with a sanctioned amount of ₹0 and no house "
+                        "sanctioned yet)" if ph else ""))
         elif m == "sanctioned":
             L.append(f"Total amount sanctioned: {_pmay_money(row['sanctioned'])}")
         elif m == "released":
@@ -1260,17 +1251,15 @@ def _pmay_sql_issue(question: str, schemes: list[str], sql: str) -> "str | None"
 
 
 def _pmay_no_houses_answer(spec: dict, row: "dict | None", display: dict) -> str:
-    """A village the resolver settled by LGD code but which holds no counted PMAY-G house —
-    a genuine zero (the code cannot be misspelled). Rtiang Sanphew's only record is a
-    zero-sanction placeholder; the model path answered "the data doesn't cover … shows 0"."""
+    """A village the resolver settled by LGD code but which holds no PMAY-G record —
+    a genuine zero (the code cannot be misspelled); the model path answered "the data
+    doesn't cover … shows 0". (A village whose only record is a zero-sanction
+    registration, Rtiang Sanphew, is now answered with that 1 beneficiary, D-060.)"""
     name = _place_title((row or {}).get("name") or display.get("village") or str(spec["entities"][0]))
     where = name + (f" village ({_place_title(row['block'])} block, {_place_title(row['district'])})"
                     if row and row.get("block") else " village")
-    ph = int((row or {}).get("placeholders") or 0)
     return (f"No PMAY-G houses are recorded for {where}: it has no sanctioned house in the data, so the "
-            "beneficiary count, amounts and completion are all zero." + (
-                f" Its {ph} record{'s are' if ph > 1 else ' is a'} placeholder{'s' if ph > 1 else ''} with a sanctioned "
-                "amount of ₹0, which is not counted as a beneficiary." if ph else ""))
+            "beneficiary count, amounts and completion are all zero.")
 
 
 # Money cells in a model-path PMAY-G result (rupees, not already crore / lakh).
@@ -1498,6 +1487,48 @@ def _pmay_crore_to_rupees(schemes: list[str], sql: str) -> str:
         return None
 
     return sql_ast.transform(sql, fn)
+
+
+def _pmay_is_placeholder_exclusion(node: exp.Expression) -> bool:
+    """`NOT is_placeholder`, `is_placeholder = FALSE` / `IS FALSE` / `<> TRUE` (any parentheses)."""
+    while isinstance(node, exp.Paren):
+        node = node.this
+    def col(n):
+        while isinstance(n, exp.Paren):
+            n = n.this
+        return isinstance(n, exp.Column) and n.name.lower() == "is_placeholder"
+    if isinstance(node, exp.Not):
+        return col(node.this)
+    if isinstance(node, (exp.EQ, exp.Is)) and isinstance(node.expression, exp.Boolean):
+        return col(node.this) and not node.expression.this
+    if isinstance(node, exp.NEQ) and isinstance(node.expression, exp.Boolean):
+        return col(node.this) and bool(node.expression.this)
+    return False
+
+
+def _pmay_release_vs_sanction(tree: exp.Expression) -> bool:
+    """A comparison of amount_released with sanctioned_amount (full / partial release)."""
+    for c in tree.find_all(exp.EQ, exp.NEQ, exp.GT, exp.GTE, exp.LT, exp.LTE):
+        if sql_ast.references_column(c, "amount_released") and sql_ast.references_column(c, "sanctioned_amount"):
+            return True
+    return False
+
+
+def _pmay_count_placeholders(schemes: list[str], sql: str) -> str:
+    """The 126 zero-sanction registrations (is_placeholder) are beneficiaries (user rule
+    2026-10-22, D-060): drop the model's `NOT is_placeholder` so its counts agree with the
+    fixed path (171,107 statewide, not 170,981). Kept where those rows would distort the
+    figure: a full / partial release comparison (₹0 released of ₹0 is no "full release")
+    and a per-house AVG. Sums of money are the same either way."""
+    if schemes != ["PMAY-G"] or not sql or not sql_ast.reads_table(sql, "v_pmay"):
+        return sql
+    trees = sql_ast.parse(sql)
+    if len(trees) != 1 or _pmay_release_vs_sanction(trees[0]) or sql_ast.has_aggregate(trees[0], "avg"):
+        return sql
+    out = sql_ast.remove_conditions(sql, _pmay_is_placeholder_exclusion)
+    if out != sql:
+        logger.info("PMAY-G: zero-sanction registrations counted (D-060): %s", out.replace("\n", " ")[:300])
+    return out
 
 
 def _pmay_comparison_limit(schemes: list[str], entity_result: dict, sql: str) -> str:

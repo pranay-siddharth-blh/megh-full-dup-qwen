@@ -224,6 +224,20 @@ _ALL_YEARS_CUE = Matcher(Alt(
     Seq(Opt("up"), W("to", "till", "until"), W("date", "now")), Seq("so", "far"), "cumulative",
     Seq("all", "years", "combined"), "overall", Seq("in", "total"), Seq("grand", "total"),
 ))
+# Other ways of saying "every year", each of which still asked "which financial
+# year?" (held-out NL->SQL set, 2026-10-24: "all <word> years", "altogether").
+# A wording that states the period must never be
+# asked for it (D-053: ask only when nothing is there). Read ONLY by the year gate
+# (_needs_year_clarification), never added to _ALL_YEARS_CUE: the SQL verifier
+# drops its mandatory-year check on that cue, and "altogether in FY 2024-25" must
+# keep it. Not asked, the question gets the standard "across all financial years"
+# (c13 _data_clarification_stage), which every later step already reads.
+_STATED_ALL_YEARS_CUE = Matcher(Alt(
+    Seq("all", ANY, _C06_YEAR_W), "altogether", "lifetime",
+    Seq("since", Opt("the"), W("start", "beginning", "launch")),
+    Seq("from", "the", W("start", "beginning")),
+    Seq(W("whole", "entire", "full"), W("period", "duration", "timeline")),
+))
 # The YEAR is what is asked for — "which year was the highest?", "in which FY
 # did it peak?". Asking "which financial year?" back answers nothing, and a year
 # carried over from the previous turn would pin the answer to that one year
@@ -305,7 +319,7 @@ def _needs_year_clarification(question: str, schemes: list[str], resolved: dict)
     # (see _ALL_YEARS_CUE) to get the old default without the prompt.
     if resolved.get("year_key") or _parse_year_key(q) is not None:
         return False
-    if _ALL_YEARS_CUE.search(q) or _TIME_SERIES_CUE.search(q):
+    if _ALL_YEARS_CUE.search(q) or _STATED_ALL_YEARS_CUE.search(q) or _TIME_SERIES_CUE.search(q):
         return False
     # A cross-scheme "which / how many districts are in both schemes" question is
     # a membership/overlap set question — inherently across the whole data window,
@@ -511,97 +525,6 @@ def _wants_cross_scheme_money_ranking(question: str) -> bool:
     return bool(_CROSS_SCHEME_SUPERLATIVE.search(q) and _MONEY_SUPERLATIVE.search(q))
 
 
-# One query, every scheme that records money, each normalised to CRORE.
-# curated.v_cross_scheme_money_district_year is the sanctioned MGNREGA-vs-PMAY
-# comparison object (docs/DATA_MODEL.md); Focus Plus keeps its money on its own
-# view in RUPEES (/1e7 -> crore). CM Elevate is deliberately absent — it has no
-# money column of any kind (v_cm_elevate carries applications only), so it is
-# reported as "not held" rather than as a misleading zero.
-_CROSS_SCHEME_MONEY_SQL = """
-SELECT scheme_code AS scheme,
-       ROUND(SUM(amount_crore), 2) AS amount_crore,
-       MIN(measure_semantics) AS measure_semantics
-FROM curated.v_cross_scheme_money_district_year
-GROUP BY scheme_code
-UNION ALL
-SELECT 'Focus Plus' AS scheme,
-       ROUND(SUM(amount_disbursed) / 1e7, 2) AS amount_crore,
-       'amount disbursed to farmers (DBT), rupees' AS measure_semantics
-FROM curated.v_focus_plus
-UNION ALL
-SELECT 'Focus Legacy' AS scheme,
-       ROUND(SUM(amount_disbursed) / 1e7, 2) AS amount_crore,
-       'amount remitted to producer groups, rupees' AS measure_semantics
-FROM curated.v_focus_legacy
-UNION ALL
-SELECT 'CM Elevate Legacy' AS scheme,
-       ROUND(SUM(total_disbursement) / 1e7, 2) AS amount_crore,
-       'subsidy and loan disbursed to sanctioned applicants, rupees' AS measure_semantics
-FROM curated.v_cm_elevate_disbursement
-ORDER BY amount_crore DESC
-""".strip()
-
-_SCHEME_DISPLAY_NAME = {"MGNREGA": "MGNREGA", "PMAY": "PMAY-G", "PMAY-G": "PMAY-G",
-                        "Focus Plus": "Focus Plus", "CM Elevate": "CM Elevate",
-                        "Focus Legacy": "Focus Legacy",
-                        "CM Elevate Legacy": "CM Elevate Legacy"}
-# Plain-English rendering of each scheme's measure_semantics. The stored strings
-# are written for the SQL prompt ("annual FLOW (lakh rupees)", "an EVENT, not a
-# clean annual flow") and read as database jargon in a chat bubble; the caveat
-# they carry is preserved in the closing paragraph either way.
-_MEASURE_PLAIN = {
-    "MGNREGA": "expenditure actually incurred",
-    "PMAY-G": "money released against sanctions",
-    "Focus Plus": "cash disbursed to farmers (DBT)",
-    "Focus Legacy": "cash remitted to producer groups",
-    "CM Elevate Legacy": "subsidy and loans disbursed to sanctioned applicants",
-}
-
-
-async def _cross_scheme_money_answer(question: str) -> dict:
-    """Rank the schemes by money, deterministically. Built from the rows rather
-    than composed by the LLM, for the same reason as the Focus Plus overall
-    summary above: several figures of DIFFERENT kinds in one answer is exactly
-    where a composer misattributes numbers, and the measure_semantics caveat
-    must survive verbatim — docs/DATA_MODEL.md requires carrying it into any
-    cross-scheme money comparison, because MGNREGA's figure is expenditure
-    incurred while PMAY-G's is money released against sanctions."""
-    rows = await run_readonly(_CROSS_SCHEME_MONEY_SQL)
-    ranked = [r for r in rows if r.get("amount_crore") is not None]
-    if not ranked:
-        return {"route": "data", "intent": "DATA", "confidence": "low",
-                "answer": "I couldn't read the scheme spending figures just now.",
-                **_empty_data_fields()}
-    top = ranked[0]
-    top_name = _SCHEME_DISPLAY_NAME.get(str(top["scheme"]), str(top["scheme"]))
-    lines = [
-        f"{top_name} has the highest amount at ₹{float(top['amount_crore']):,.2f} crore. "
-        "Across every scheme that records money:"
-    ]
-    for r in ranked:
-        name = _SCHEME_DISPLAY_NAME.get(str(r["scheme"]), str(r["scheme"]))
-        lines.append(f"- **{name}** — ₹{float(r['amount_crore']):,.2f} crore "
-                     f"({_MEASURE_PLAIN.get(name, r['measure_semantics'])})")
-    lines.append(
-        "\nThese are not the same kind of figure, so treat the ranking as indicative "
-        "rather than like-for-like: MGNREGA's is expenditure actually incurred, PMAY-G's "
-        "is money released against sanctions, Focus Plus's is cash disbursed to "
-        "individual farmers, and Focus Legacy's is cash remitted to producer groups "
-        "(where every payment is Rs 5,000 per member, so the figure is really a "
-        "membership count), and CM Elevate Legacy's is subsidy and loans together paid "
-        "to sanctioned applicants. The CM Elevate applications data records no payment "
-        "of any kind, so it cannot appear in a money comparison at all."
-    )
-    return {
-        "route": "data", "intent": "DATA", "confidence": "high",
-        "schemes": [_SCHEME_DISPLAY_NAME.get(str(r["scheme"]), str(r["scheme"])) for r in ranked],
-        "resolved_entities": {},
-        "sql": _CROSS_SCHEME_MONEY_SQL, "sql_query": _CROSS_SCHEME_MONEY_SQL,
-        "row_count": len(ranked), "rows": ranked, "data": ranked,
-        "answer": "\n".join(lines),
-    }
-
-
 def _money(v) -> str:
     return f"₹{float(v):,.2f}"
 
@@ -797,6 +720,28 @@ def _c06_year_range_tokens(text: str) -> "list[tuple[int, str]]":
     return out
 
 
+# Short financial-year forms the scan above never sees: "FY 25", "FY25", "FY'25",
+# "FY 23-24", and a two-digit range after a time word ("in 23-24"). Without them the
+# out-of-range guard and the year back-fill (c07) were blind to these forms, and a
+# year the extractor happened to drop was lost: a follow-up "give me FY 25" kept the
+# previous turn's FY 2022-23, and "Focus Legacy … FY 20" (no data) was answered for
+# a year the model made up (user screenshot / FY sweep, 2026-10-26). Each token is
+# read by _parse_year_key, so "FY 25" = FY 2024-25 everywhere (D-068).
+def _c06_short_fy_tokens(text: str) -> "list[tuple[int, str]]":
+    """(start, raw token) for each short FY form in `text` — the one shared reader,
+    context_policy.short_fy_tokens, so every year reader agrees."""
+    return [(s, tok) for s, tok, _y in context_policy.short_fy_tokens(text)]
+
+
+def _c06_all_year_tokens(text: str) -> "list[tuple[int, str]]":
+    """Every financial-year token, long forms and short forms, left to right."""
+    long_ = _c06_year_range_tokens(text)
+    spans = [(s, s + len(tok)) for s, tok in long_]
+    short = [(s, tok) for s, tok in _c06_short_fy_tokens(text)
+             if not any(a < s + len(tok) and s < b for a, b in spans)]
+    return sorted(long_ + short)
+
+
 def _c06_malformed_year_tail(text: str) -> "str | None":
     """The digit run (4-8 digits) that ends the question right after an explicit
     temporal cue — "in 20217", "for: 2023?", "FY2023" — else None. "of" is
@@ -862,7 +807,7 @@ def _years_in_question(text: str, schemes: "list[str] | None" = None
     largely answer."""
     ok: list[str] = []
     bad: list[str] = []
-    for start, tok in _c06_year_range_tokens(text or ""):
+    for start, tok in _c06_all_year_tokens(text or ""):
         yk = _calendar_month_fy_key(text, start, tok) or _parse_year_key(tok)
         if yk is not None:
             (ok if _year_in_data_range(yk, schemes) else bad).append(tok)
@@ -1107,7 +1052,7 @@ def _out_of_range_year_in(text: str, schemes: "list[str] | None" = None) -> "str
     """Raw text of the first financial-year token in `text` that NONE of the
     given scheme(s) hold, or None if every year mentioned is available / none is
     mentioned. Runs on raw text only — no LLM, no DB."""
-    for start, tok in _c06_year_range_tokens(text or ""):
+    for start, tok in _c06_all_year_tokens(text or ""):
         yk = _calendar_month_fy_key(text, start, tok) or _parse_year_key(tok)
         if yk is not None:
             if not _year_in_data_range(yk, schemes):

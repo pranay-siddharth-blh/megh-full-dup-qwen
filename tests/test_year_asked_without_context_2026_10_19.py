@@ -16,9 +16,12 @@ def _run(d):
     return asyncio.run(p._data_clarification_stage(d))
 
 
-def _turn(question, schemes, prior_resolved=None, resolved=None):
-    d = p._new_data_turn(question, prior_resolved=prior_resolved)
+def _turn(question, schemes, prior_resolved=None, resolved=None, chat_has_scope=True, skip=False):
+    # chat_has_scope=True: a chat that has answered before, so no D-056 district
+    # pause; the new-chat district pause is in tests/test_new_chat_and_scheme_switch_2026_10_21.py.
+    d = p._new_data_turn(question, prior_resolved=prior_resolved, skip_scope_clarify=skip)
     d["schemes"] = schemes
+    d["chat_has_scope"] = chat_has_scope
     d["entity_result"] = {"resolved": dict(resolved or {}), "display": {}, "question": None}
     return d
 
@@ -31,7 +34,14 @@ def _defaults_on(monkeypatch):
 
 
 def test_fresh_question_with_no_year_asks_which_year():
-    d = _turn("total beneficiaries for MGNREGA", ["MGNREGA"])
+    # D-056: a new chat asks the district first; its chip resumes the question
+    # (skip_scope_clarify) and THEN the year is asked.
+    d = _turn("total beneficiaries for MGNREGA", ["MGNREGA"], chat_has_scope=False)
+    with pytest.raises(p.ClarificationNeeded) as exc:
+        _run(d)
+    assert exc.value.rule == "scope-not-specified"
+    d = _turn("total beneficiaries for MGNREGA for West Garo Hills", ["MGNREGA"], chat_has_scope=False,
+              skip=True, resolved={"district": "WEST GARO HILLS"})
     with pytest.raises(p.ClarificationNeeded) as exc:
         _run(d)
     assert exc.value.rule == "year-not-specified"
@@ -70,11 +80,15 @@ def test_chip_reply_naming_the_year_is_not_asked_again():
     assert _run(d) is None
 
 
-def test_time_series_and_job_cards_are_not_asked():
+def test_time_series_is_not_asked_but_job_cards_are():
     d = _turn("how have MGNREGA person-days changed over the last three years in Meghalaya", ["MGNREGA"])
     assert _run(d) is None
+    # Job cards were exempt and silently read FY 2025-26 whatever was asked; the
+    # user's rule (2026-10-21): the year asked, else the chat's year, else ask.
     d = _turn("total MGNREGA job cards issued in Meghalaya", ["MGNREGA"])
-    assert _run(d) is None
+    with pytest.raises(p.ClarificationNeeded) as exc:
+        _run(d)
+    assert exc.value.rule == "year-not-specified"
 
 
 def test_scheme_without_years_is_never_asked():

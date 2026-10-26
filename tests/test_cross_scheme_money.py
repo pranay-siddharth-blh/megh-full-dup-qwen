@@ -77,27 +77,21 @@ for q in ("total MGNREGA expenditure in West Garo Hills",
 check("a scheme-named question still skips the pause",
       not p._needs_scheme_clarification("total MGNREGA expenditure in West Garo Hills"))
 
-# ── 5. The SQL covers every scheme that records money ──────────────────────
-# CM Elevate is deliberately ABSENT — v_cm_elevate has no money column at all
-# (applications only), so including it would report a misleading zero.
-print("5. THE RANKING SQL")
-_sql = p._CROSS_SCHEME_MONEY_SQL
-check("uses the sanctioned cross-scheme money view",
-      "curated.v_cross_scheme_money_district_year" in _sql)
-check("includes Focus Plus, whose money lives on its own view",
-      "curated.v_focus_plus" in _sql)
-check("converts Focus Plus rupees to crore", "/ 1e7" in _sql)
-check("carries measure_semantics (required for any cross-scheme money answer)",
-      "measure_semantics" in _sql)
-check("orders by amount so the top scheme is first", "ORDER BY amount_crore DESC" in _sql)
-# Read from the SQLGlot tree: curated.v_cm_elevate_disbursement (CM Elevate
-# Legacy, which DOES record money) is a different table, not a match.
-check("does NOT read CM Elevate (it records no money)",
-      not sql_ast.reads_table(_sql, "v_cm_elevate"))
-check("includes CM Elevate Legacy, whose subsidy + loan lives on its own view",
-      "curated.v_cm_elevate_disbursement" in _sql and "total_disbursement" in _sql)
-check("is a read-only single statement",
-      _sql.lstrip().upper().startswith("SELECT") and ";" not in _sql)
+# ── 5. Answered as a cross-scheme question over every scheme with money ────
+# Since D-062 (2026-10-22) the ranking is one model-written query per scheme and
+# a composed answer, no longer the fixed _CROSS_SCHEME_MONEY_SQL. CM Elevate
+# records no money (v_cm_elevate: applications only): it is never queried for an
+# amount and the answer says so, rather than a misleading zero.
+print("5. EVERY SCHEME WITH MONEY, CM ELEVATE SAID PLAINLY")
+from app import cross_scheme  # noqa: E402
+for q in ("which scheme spent the most money?", "rank the schemes by amount spent"):
+    gaps = p._cross_scheme_gaps(cross_scheme.ORDER, {}, {}, q)
+    check(f"{q[:46]!r} -> CM Elevate not queried for money", "CM Elevate" in gaps, gaps)
+    check("  and every other scheme is", set(gaps) == {"CM Elevate"}, gaps)
+check("a money AND count question still asks CM Elevate for its applications",
+      "CM Elevate" not in p._cross_scheme_gaps(
+          cross_scheme.ORDER, {}, {}, "compare MGNREGA spending and CM Elevate applications"))
+check("the template SQL is gone", not hasattr(p, "_CROSS_SCHEME_MONEY_SQL"))
 
 print()
 if _fails:

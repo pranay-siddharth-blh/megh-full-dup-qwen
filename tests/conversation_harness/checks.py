@@ -12,6 +12,10 @@ Expectation keys (all optional; every key present must hold):
                       "FY 2023-24"); place "all" = All of Meghalaya; year "none" = no year
   banner              the whole scope banner, exactly ("(from earlier)" suffix ignored)
   from_earlier        true when the banner must carry "(from earlier)" (a ledger restore)
+  new_question        true/false: the banner must / must not carry "(new question)" (D-061:
+                      a self-sufficient question set the chat's scope aside)
+  place_not / year_not  the banner's place / year must NOT be this (D-061: "not the old
+                      district / year", whatever the latest FY is when the run happens)
   numbers_any         at least one of these numbers appears in the answer (commas ignored)
   numbers_all         every one of these numbers appears in the answer
   answer_contains     every phrase appears in the answer (case-insensitive)
@@ -34,6 +38,7 @@ from app.text_match import numbers as _numbers
 
 BANNER_SEP = " · "
 FROM_EARLIER = "(from earlier)"
+NEW_QUESTION = "(new question)"
 
 
 @dataclass
@@ -42,9 +47,11 @@ class Scope:
     place: str | None = None
     year: str | None = None
     from_earlier: bool = False
+    new_question: bool = False
 
     def as_dict(self) -> dict:
-        return {"scheme": self.scheme, "place": self.place, "year": self.year, "from_earlier": self.from_earlier}
+        return {"scheme": self.scheme, "place": self.place, "year": self.year, "from_earlier": self.from_earlier,
+                "new_question": self.new_question}
 
 
 def parse_banner(banner: str | None) -> Scope:
@@ -56,13 +63,16 @@ def parse_banner(banner: str | None) -> Scope:
     from_earlier = text.endswith(FROM_EARLIER)
     if from_earlier:
         text = text[: -len(FROM_EARLIER)].strip()
+    new_question = text.endswith(NEW_QUESTION)
+    if new_question:
+        text = text[: -len(NEW_QUESTION)].strip()
     parts = [p.strip() for p in text.split(BANNER_SEP) if p.strip()]
     scheme = parts[0] if parts else None
     place = parts[1] if len(parts) > 1 else None
     year = parts[2] if len(parts) > 2 else None
     if place and place.startswith("FY ") and year is None:      # no place component
         place, year = None, place
-    return Scope(scheme, place, year, from_earlier)
+    return Scope(scheme, place, year, from_earlier, new_question)
 
 
 def answer_numbers(text: str | None) -> set[float]:
@@ -138,11 +148,17 @@ def check_turn(expect: dict | None, rec: TurnRecord, earlier: list[TurnRecord],
     if "year" in expect and not _year_matches(str(expect["year"]), sc.year):
         fails.append(f"year {sc.year!r}, expected {expect['year']!r}")
     if "banner" in expect:
-        got = (rec.banner or "").replace(FROM_EARLIER, "").strip()
+        got = (rec.banner or "").replace(FROM_EARLIER, "").replace(NEW_QUESTION, "").strip()
         if got != expect["banner"]:
             fails.append(f"banner {got!r}, expected {expect['banner']!r}")
     if "from_earlier" in expect and bool(expect["from_earlier"]) != sc.from_earlier:
         fails.append(f"from_earlier {sc.from_earlier}, expected {bool(expect['from_earlier'])}")
+    if "new_question" in expect and bool(expect["new_question"]) != sc.new_question:
+        fails.append(f"new_question {sc.new_question}, expected {bool(expect['new_question'])}")
+    if "place_not" in expect and sc.place is not None and _place_matches(str(expect["place_not"]), sc.place):
+        fails.append(f"place {sc.place!r} must not be {expect['place_not']!r}")
+    if "year_not" in expect and sc.year is not None and _year_matches(str(expect["year_not"]), sc.year):
+        fails.append(f"year {sc.year!r} must not be {expect['year_not']!r}")
     nums = answer_numbers(rec.answer)
     if "numbers_any" in expect:
         want = [_num(v) for v in expect["numbers_any"]]
@@ -198,7 +214,8 @@ def check_turn(expect: dict | None, rec: TurnRecord, earlier: list[TurnRecord],
 
 SCENARIO_KEYS = {"name", "doc", "account", "tags", "turns", "skip", "_file"}   # _file: set by the loader
 TURN_KEYS = {"say", "expect", "note"}
-EXPECT_KEYS = {"route", "edge_type", "pause_rule", "scheme", "place", "year", "banner", "from_earlier", "numbers_any",
+EXPECT_KEYS = {"route", "edge_type", "pause_rule", "scheme", "place", "year", "banner", "from_earlier", "new_question",
+               "place_not", "year_not", "numbers_any",
                "numbers_all", "answer_contains", "answer_not_contains", "chips_contain", "chips_min", "same_scope_as",
                "except", "same_numbers_as", "truth"}
 

@@ -911,6 +911,9 @@ _SCHEME_STRONG = [
                                     _S("in", _P("progress")))),
        Seq("ge", _P("tag")), "gram panchayat", _S("financial", "year"),
        Pred(_fy_digits), _S("fy", Pred(_two_digits_lead)), Pred(_edge_year),
+       # "FY'25" on its own: the apostrophe is not whitespace, so _S missed it and a
+       # bare "FY'25" follow-up was answered "didn't quite catch that" (2026-10-26).
+       _GSeq("fy", Pred(_two_digits_lead), ok=lambda g: g == "'"),
        _S(W("garo", "khasi", "jaintia"), W("hill", "hills")), Joined("ri", "bhoi"),
        "how many", _S("by", W("district", "block", "village", "year")), "completion rate"),
     _GRule(_focus_plus),
@@ -1129,6 +1132,11 @@ _DOMAIN_WORDS = [
     "sericulture", "motorcaravan", "prime small enterprise", "prime tourism vehicle",
     "any business venture", "cinema theatre", "sports and wellness", "green taxi",
     "meghalayaone", "mbda", "meghalaya basin development", "farmer cash benefit",
+    # Focus Plus batch labels and its stored tranche spelling ("Tranch 4"): "Break
+    # down the 12.5K batch by status" / "Give me the status split of 12.5K batch"
+    # had no domain word and got the "only those schemes" reply (FOCUS-019
+    # re-test 2026-10-22, KI-360).
+    "12.5k", "12.5 k", _M(W("93k"), _GSeq("93", "k", ok=lambda g: g == " ")), "tranch",
     # "I want to know about farmers getting money" is a Focus question (live 2026-10-18)
     "farmer",
     # Scheme terms an officer asks the meaning of: "What is DBT?" had no domain
@@ -1174,7 +1182,8 @@ _DOMAIN_WORDS = [
     "sc/st", "differently abled", "widow", "minority",
     # analytics
     "count", "total", "how many", "number of", "show", "list", "compare",
-    "comparison", "trend", "breakdown", "distribution", "by district", "by block",
+    "comparison", "trend", "breakdown", "break down", "breakup", "break-up", "status wise", "status-wise",
+    "by status", "distribution", "by district", "by block",
     "by year", "average", "percentage", "per cent", "percent", "rate",
     "completion rate", "top ", "highest", "lowest", "most", "least",
     "chart", "graph", "report", "data", "statistic", "summary",
@@ -1578,6 +1587,20 @@ _DOMAIN_TYPO_VOCAB = frozenset(
        "sanctioned", "employment", "expenditure", "panchayats", "constituency", "constituencies"})
 
 
+def _names_meghalaya_place(question: str) -> bool:
+    """A district, block, assembly constituency or village of Meghalaya named
+    anywhere in the text, with or without "village" / "block" / "constituency"
+    (entity_resolver.place_mentions). "ambare ading" in a new chat is a place
+    question — the pipeline asks which scheme — not off-topic (user report
+    2026-10-21). Lazy import, as _NAMES_UNSUPPORTED_SCHEME; any failure is
+    False, the behaviour before this check."""
+    try:
+        from app.entity_resolver import place_mentions
+        return bool(place_mentions(question))
+    except Exception:  # noqa: BLE001 — never let this break edge detection
+        return False
+
+
 def _has_domain_typo(ql: str) -> bool:
     """A word that is a close misspelling of a domain word ("applicxations")."""
     from rapidfuzz import fuzz
@@ -1763,7 +1786,8 @@ def detect_edge_case(question: str, has_context: bool = False) -> dict | None:
     # gate can give, and it is still a canned reply — no model call.
     if _NAMES_UNSUPPORTED_SCHEME(ql):
         return None
-    if not has_context and not _has_domain_word(ql) and not _has_domain_typo(ql):
+    if (not has_context and not _has_domain_word(ql) and not _has_domain_typo(ql)
+            and not _names_meghalaya_place(q)):
         return _edge("off_topic", ql)
 
     return None

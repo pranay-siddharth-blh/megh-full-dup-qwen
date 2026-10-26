@@ -18,6 +18,11 @@ from app.text_match import (ANY, END, Alt, Before, Matcher, Opt, Pred, Seq, W, c
 # asks "which scheme?".
 # "12.5k" is the words 12 and 5k with exactly "." between them.
 _FP_12_5K = _PmayAdj(W("12"), W("5k"), lambda g: g == ".")
+# "12.5 K" / "93 K" — the batch written with a space (FOCUS-019 re-test 2026-10-22,
+# KI-360): read as no scheme at all, so "status breakdown for 12.5 K batch" was
+# refused or asked "which scheme?".
+_FP_12_5_SPACE_K = _PmayAdj(_PmayAdj(W("12"), W("5"), lambda g: g == "."), W("k"), lambda g: g.isspace())
+_FP_93_SPACE_K = Seq("93", "k", sep="space")
 _FOCUSPLUS_ONLY_TERMS = Matcher(Alt(
     Seq("focus", "plus"), W("focusplus"),
     _PmayCharAfter(W("focus"), lambda rest: rest.lstrip().startswith("+")),
@@ -27,7 +32,7 @@ _FOCUSPLUS_ONLY_TERMS = Matcher(Alt(
     # column and focusplus_classification_rules.yaml refuses the question
     # outright (condition producer_group_requested).
     W("meghalayaone", "mbda"), "meghalaya basin development",
-    Seq("focus", "card"), W("focuscard"), W("93k"), _FP_12_5K,
+    Seq("focus", "card"), W("focuscard"), W("93k"), _FP_12_5K, _FP_12_5_SPACE_K, _FP_93_SPACE_K,
 ))
 
 
@@ -44,9 +49,7 @@ _FP_BLANK_BLOCK_LEAD = ("'Nan' is not a real block — it is how the Focus Plus 
 
 # The two Focus Plus cohorts by their stored batch_label ("12.5K" / "93K").
 # Focus Plus-only vocabulary: no other scheme has a batch of that name.
-_FOCUSPLUS_BATCH_WORD = Matcher(Alt(
-    _FP_12_5K, _PmayAdj(_PmayAdj(W("12"), W("5"), lambda g: g == "."), W("k"), lambda g: g.isspace()),
-    W("93k"), Seq("93", "k", sep="space")))
+_FOCUSPLUS_BATCH_WORD = Matcher(Alt(_FP_12_5K, _FP_12_5_SPACE_K, W("93k"), _FP_93_SPACE_K))
 
 
 # ════ years and tranches ══════════════════════════════════════════════════════════════════════════════
@@ -343,7 +346,14 @@ async def _focusplus_lgd_only_block(schemes: list[str], sql: str) -> str:
     filtered block_name_raw = 'ADOKGRE', matched nothing and was answered "0 /
     the data doesn't cover it" — Adokgre has 754 (all-blocks run 2026-10-02).
     A block that is not a raw block name is filtered on lgd_block, where those
-    villages were mapped."""
+    villages were mapped.
+    A raw block name the generator mistyped is snapped back first (KI-361,
+    FOCUS-004 re-test 2026-10-22): "Shillong Municipal Board" was written
+    `UPPER(block_name_raw) = 'SHILLONG-MUNICIPAL_BOARD'`, moved to lgd_block,
+    refused by the resolved-block check, and after 4 attempts answered
+    "couldn't build a working query" (5/5). A literal with the same letters as
+    exactly one raw block (punctuation / underscore / spacing ignored, as KI-112
+    does for CM Elevate) is that block."""
     if schemes != ["Focus Plus"] or not sql or not sql_ast.references_column(sql, "block_name_raw"):
         return sql
     try:
@@ -352,6 +362,12 @@ async def _focusplus_lgd_only_block(schemes: list[str], sql: str) -> str:
         return sql
     if not raw:
         return sql
+    # letters and digits only — NOT fold(), which drops a trailing "MUNICIPAL BOARD"
+    # and would make BAGHMARA and BAGHMARA-MUNICIPAL BOARD the same name
+    from app.entity_resolver import _squash
+    by_letters: dict[str, list[str]] = {}
+    for b in raw:
+        by_letters.setdefault(_squash(b.upper()), []).append(b)
 
     def _swap(tree: exp.Expression) -> None:
         for node in list(tree.find_all(exp.EQ, exp.ILike)):
@@ -363,6 +379,11 @@ async def _focusplus_lgd_only_block(schemes: list[str], sql: str) -> str:
             # an ILIKE pattern ('%siju%') is checked on its name and stays a pattern
             wild = isinstance(node, exp.ILike) and "%" in name
             if not name or name.replace("%", "").strip() in raw:
+                continue
+            same = [] if wild else by_letters.get(_squash(name), [])
+            if len(same) == 1:
+                logger.info("Focus Plus: block literal %r -> stored %r", name, same[0])
+                node.replace(exp.EQ(this=exp.Upper(this=col.copy()), expression=exp.Literal.string(same[0])))
                 continue
             logger.info("Focus Plus: block %r is not a block_name_raw value — filtered on lgd_block", name)
             lgd = exp.column("lgd_block", table=col.table or None)
@@ -577,6 +598,34 @@ def _fp_place_literal(cond: "str | exp.Expression", scheme: str = "Focus Plus") 
 # beside the code ('WEST JAINTEIA HILLS' → 0), and an upper-cased lgd_village_name
 # that matched nothing (PDENGSHNONG MAWPHYLLUN MARBISU → 0).
 _PIN_VILLAGE_WHERE_SCHEMES = (["Focus Plus"], ["CM Elevate"])
+
+
+def _focusplus_district_group_not_null(schemes: list[str], sql: str) -> str:
+    """A ranked (ORDER BY / HAVING) Focus Plus district breakdown leaves out the one
+    record with no district. "Are there districts where Focus+ coverage is very
+    low?" was answered "1 villages covered" — the NULL group ranked lowest (UAT
+    T13.3, cross-scheme re-test 2026-10-22, twice in three runs). A plain district
+    list keeps that row, so its figures still add up to the statewide total."""
+    if schemes != ["Focus Plus"]:
+        return sql
+    tree = sql_ast.parse_one(sql or "")
+    sel = sql_ast.outer_select(tree) if tree is not None else None
+    group = sel.args.get("group") if sel is not None else None
+    if group is None or (sel.args.get("order") is None and sel.args.get("having") is None):
+        return sql
+    if sql_ast.tables(sel) != {"v_focus_plus"}:
+        return sql
+    keys = [c for c in group.expressions if isinstance(c, exp.Column)
+            and c.name.lower() in ("lgd_district", "district_name_raw")]
+    if len(keys) != 1:
+        return sql
+    col = exp.column(keys[0].name, table=keys[0].table or None)
+    for node in sql_ast.filter_conditions(sql, keys[0].name.lower()):
+        if isinstance(node, exp.Not) or (isinstance(node, exp.Is) and node.args.get("negate")):
+            return sql                   # already "IS NOT NULL"
+    sel.where(exp.Not(this=exp.Is(this=col, expression=exp.Null())), append=True, copy=False)
+    logger.info("Focus Plus ranked district breakdown: no-district record left out (T13.3)")
+    return sql_ast.to_sql(tree)
 
 
 def _focusplus_pin_village_where(schemes: list[str], entity_result: dict, sql: str) -> str:

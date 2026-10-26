@@ -8,6 +8,9 @@
   account: superadmin
   turns:
     - say: "total beneficiaries for MGNREGA"
+      expect: {route: pause, pause_rule: scope-not-specified}
+      note: "D-056 (2026-10-21): a new chat asks the district before the year"
+    - say: "All of Meghalaya"
       expect: {route: pause, pause_rule: year-not-specified}
     - say: "FY 2023-24"
       expect: {route: data, scheme: MGNREGA, year: FY 2023-24, numbers_any: [410200]}
@@ -48,13 +51,15 @@
       expect: {route: data, scheme: CM Elevate Legacy, numbers_any: [2823]}
 
 - name: U5_same_scheme_new_question_keeps_year
-  doc: "KI-331: a new question on the thread's scheme keeps the thread's year choice"
+  doc: "KI-331 (2026-10-19) kept the thread's year; D-061 gave the latest FY; D-065 (2026-10-22): a new question with no year is asked. NOTE: conflicts with the KI-331 report — awaiting the user's call"
   tags: [user_reported, year, context]
   account: superadmin
   turns:
     - say: "How many CM Elevate Legacy records are there in Meghalaya across all financial years?"
       expect: {route: data, scheme: CM Elevate Legacy, numbers_any: [2823]}
     - say: "give me cm elevate disbursement by district"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "all of them combined"
       expect: {route: data, scheme: CM Elevate Legacy}
 
 - name: U6_scheme_never_asked_twice_in_a_chat

@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { plainText } from './Markdown.jsx';
 import { downloadBlob, fileName, headerLabel, toXLSXBook } from '../exporters.js';
 import { keyLabel } from '../shortcuts.js';
+import { tableColumns } from '../analytics.js';
 
 /* "Download chat": the whole conversation in one file, from the top bar.
 
@@ -36,7 +37,7 @@ function workbook(messages) {
     const sheet = data.length ? `Q${asked.n} table` : '';
     convo.push([asked.n, asked.time, asked.text, textOf(m), data.length || '', sheet]);
     if (data.length) {
-      const cols = Object.keys(data[0]);
+      const cols = tableColumns(data);
       tables.push({ name: sheet, header: cols.map(headerLabel), rows: data.map((r) => cols.map((c) => r[c])) });
     }
   }

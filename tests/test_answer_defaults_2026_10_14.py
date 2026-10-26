@@ -76,17 +76,9 @@ def test_terse_and_plain_data_questions_overrule_an_out_of_scope_verdict():
     assert not g._DATA_QUESTION.search("write an instagram post")
 
 
-# ── scheme pause -> each scheme that records it ─────────────────────────────
-
-def test_unnamed_scheme_questions_go_to_the_schemes_that_record_them():
-    assert cs.unnamed_schemes("How many applications are recorded in Tikrikilla block?") == \
-        ["CM Elevate", "CM Elevate Legacy"]
-    assert cs.unnamed_schemes("For FY 2022-23, how many beneficiary records are there in Dambo Rongjeng block?") == cs.ORDER
-    assert "CM Elevate" not in cs.unnamed_schemes("total amount disbursed in Ri Bhoi")
-    assert cs.unnamed_schemes("Give me total block count.") == cs.ORDER
-    assert cs.plan("Give me total block count.", cs.ORDER, {}).coverage
-    assert cs.unnamed_schemes("How many schemes are onboarded?") is None
-
+# The unnamed-scheme default (cross_scheme.unnamed_schemes) was replaced by D-055 (a new chat asks the
+# scheme, a chat on a scheme uses it) and the helper, left with no caller, was removed with the
+# cross-scheme table (D-062, 2026-10-22).
 
 def test_how_many_schemes_is_the_listing():
     assert p._SCHEME_LISTING_CUE.search("How many schemes are onboarded?")

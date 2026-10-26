@@ -1730,15 +1730,14 @@ dimensions:
         "personal names are not held in the curated layer" - not a did-you-mean list.
 
     member_id:
-      status: RETAINED_IN_JSONB_BUT_FORBIDDEN
-      column: "scheme_specific ->> 'member_id'"
+      status: NOT_READABLE
+      column: null   # scheme_specific is hidden from megh_readonly (ingestion team 2026-10-26); never point a query at it
       rule:
         critical: true
         text: >
-          This one DID survive, because the loader's strip list does not cover it - as
-          did dob, email_id, address, family_id, pds_id, account_holder_name and
-          ifsc_code. They are queryable and must never be resolved, surfaced, exported or
-          embedded. Refuse and offer the same question as a group total.
+          It is still stored inside scheme_specific, which the chatbot's role cannot read
+          (ingestion team, 2026-10-26). A person identifier is never resolved, surfaced,
+          exported or embedded. Refuse and offer the same question as a group total.
 
 # ---------------------------------------------------------------------------
 # MEASURE VOCABULARY - user phrasing to column. stage2 owns aggregation semantics.
@@ -1813,7 +1812,7 @@ region_groupings:
   note:
     critical: true
     text: >
-      THERE IS NO REGION COLUMN in dim_geography. These are the resolver's own groupings.
+      Every view has a region column (Garo / Khasi / Jaintia) from the LGD master; these groups match it (Khasi includes Ri Bhoi).
       Expand into an IN list and STATE in the answer that the grouping was applied here,
       not read from the data.
   groups:
@@ -1824,8 +1823,8 @@ region_groupings:
       aliases: [Garo, Garo region, Garo Hills region, GH]
     "Khasi Hills":
       districts: [East Khasi Hills, Eastern West Khasi Hills, South West Khasi Hills,
-                  West Khasi Hills]
-      applications: 2257
+                  West Khasi Hills, Ri Bhoi]
+      applications: 2257   # counted before Ri Bhoi joined Khasi (2026-10-26)
       aliases: [Khasi, Khasi region, Khasi Hills region, KH]
     "Jaintia Hills":
       districts: [East Jaintia Hills, West Jaintia Hills]
@@ -1836,7 +1835,7 @@ region_groupings:
       applications: 2592
       aliases: [Ri Bhoi region, Bhoi]
       note: >
-        Ri Bhoi belongs to no hill range - it is its own district and its own group. Both
+        Ri Bhoi is in the Khasi region (LGD master `Region` column; ingestion team 2026-10-26). Both
         readings produce the same filter, so no clarification is needed. Do not fold it
         into Khasi Hills. Note it is the LARGEST single unit in the programme, larger
         than the whole of Khasi Hills.

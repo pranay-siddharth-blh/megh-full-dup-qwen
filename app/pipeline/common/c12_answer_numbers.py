@@ -666,6 +666,10 @@ def _finish_answer(answer: str, rows: list[dict], schemes: "list[str] | None", e
     return f"{text.rstrip()} {tail}"
 
 
+_C12_CODE_ONLY_PLACES = ("village_code", "village_code_list", "block_list", "district_list",
+                         "assembly_constituency_list")
+
+
 def _display_from_resolved(resolved: "dict | None") -> dict:
     """The display-style entities (_scope_words reads) from a result's resolved
     entities: Title Case places and "FY 2023-24" for year_key."""
@@ -674,6 +678,14 @@ def _display_from_resolved(resolved: "dict | None") -> dict:
     for k in ("district", "block", "village", "assembly_constituency"):
         if r.get(k):
             out[k] = str(r[k]).title()
+    if not out.get("village") and r.get("village_code"):
+        # A village known by its code is named, or the district beside it was
+        # taken for the scope: "200 household-years … in Pamila village. This is
+        # the figure for West Garo Hills district" (live 2026-10-21).
+        from app.entity_resolver import village_code_name
+        _vn = village_code_name(r["village_code"])
+        if _vn:
+            out["village"] = _vn
     y = r.get("year_key")
     if y is not None:
         try:
@@ -693,8 +705,19 @@ def _finish_data_result(result: dict) -> None:
     if not isinstance(rows, list) or not rows or not isinstance(rows[0], dict):
         return
     try:
+        resolved = result.get("resolved_entities") or {}
+        display = _display_from_resolved(resolved)
+        # A finer place known only by its code is not the district beside it
+        # either ("in Pamila village … the figure for West Garo Hills district").
+        if not display.get("village") and any(resolved.get(k) for k in _C12_CODE_ONLY_PLACES):
+            # The place is known here only by its code (village_code 279198): it is not
+            # statewide. "967 job cards … in Barato village as of FY 2023-24. This is the
+            # statewide figure for all of Meghalaya." (job-card year fix, live 2026-10-21;
+            # MGNREGA sheet DATA-022/023/028 village answers, 2026-10-21.)
+            result["answer"] = _group_result_digits(result.get("answer") or "", rows)
+            return
         result["answer"] = _finish_answer(result.get("answer") or "", rows, result.get("schemes") or [],
-                                          _display_from_resolved(result.get("resolved_entities")))
+                                          display)
     except Exception:  # noqa: BLE001 — presentation only; the answer stands as written
         logger.warning("_finish_data_result failed (non-fatal)", exc_info=True)
 
@@ -774,7 +797,7 @@ def _entity_names_block(entities: dict[str, str] | None) -> str:
     """A context block naming the canonical form of every place / year / category
     the query actually filtered on, so the composer uses the full proper name in
     its answer instead of echoing the user's abbreviation, code or misspelling
-    ("wgh" -> "West Garo Hills", "fy24" -> "FY 2024-25")."""
+    ("wgh" -> "West Garo Hills", "fy24" -> "FY 2023-24")."""
     if not entities:
         return ""
     lines = [f"  - {_DIM_LABEL.get(k, k)}: {v}" for k, v in entities.items() if v]

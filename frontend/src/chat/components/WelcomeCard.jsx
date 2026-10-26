@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
-import { CARD_QUESTIONS, SCHEME_CARDS, UNIFIED_SAMPLES } from '../constants.js';
+import { CARD_QUESTIONS, SCHEME_CARDS, STATS_SYNCED, UNIFIED_SAMPLES } from '../constants.js';
 import { fetchSchemeStats } from '../api.js';
 
 /* The welcome card: hero, the scheme overview carousel and "Try a question".
@@ -11,6 +11,26 @@ function chunk(list, n) {
   const out = [];
   for (let i = 0; i < list.length; i += n) out.push(list.slice(i, i + n));
   return out;
+}
+
+const STATS_REFRESH_MS = 10 * 60 * 1000;
+const STATS_MIN_GAP_MS = 60 * 1000;   // focus + visibilitychange fire together; one read
+
+// "Rural housing · one row per sanctioned house · sanctions FY 2017-18 to 2023-24"
+export function cardMetaLine(card, period) {
+  const when = period ? (card.periodLead || '') + period : '';
+  return [card.meta, when, card.metaTail].filter(Boolean).join(' · ');
+}
+
+function statsStatusText(state, live) {
+  if (state === 'live') {
+    const at = live && live.as_of ? new Date(live.as_of) : null;
+    const time = at && !Number.isNaN(at.getTime())
+      ? at.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '';
+    return 'Figures from the live database' + (time ? ' · updated ' + time : '');
+  }
+  if (state === 'offline') return `Live figures unavailable — showing figures last synced ${STATS_SYNCED}`;
+  return 'Loading live figures…';
 }
 
 export function promptsForKeys(keys) {
@@ -28,16 +48,41 @@ export function WelcomeCard({ strings, prompts, setPrompts, onAsk }) {
   const trackRef = useRef(null);
   const [perPage, setPerPage] = useState(4);
   const [arrows, setArrows] = useState({ show: true, prevDisabled: true, nextDisabled: false });
-  // Live card figures from megh_db; the built-in numbers in SCHEME_CARDS only until
-  // (or unless) /api/scheme-stats answers.
-  const [liveStats, setLiveStats] = useState(null);
+  // Live card figures and financial years from megh_db; the built-in ones in SCHEME_CARDS
+  // only until (or unless) /api/scheme-stats answers. Re-read when the tab comes back into
+  // view and every STATS_REFRESH_MS, so a data load shows without a page reload (the server
+  // caches for 10 min, so this adds no load to the shared database). 2026-10-22.
+  const [live, setLive] = useState(null);
+  const [statsState, setStatsState] = useState('loading');   // loading | live | offline
   useEffect(() => {
     let alive = true;
-    fetchSchemeStats().then((cards) => { if (alive && cards) setLiveStats(cards); });
-    return () => { alive = false; };
+    let last = 0;
+    const load = () => {
+      if (Date.now() - last < STATS_MIN_GAP_MS) return;
+      last = Date.now();
+      fetchSchemeStats().then((data) => {
+        if (!alive) return;
+        if (data) { setLive(data); setStatsState('live'); } else { setStatsState((s) => (s === 'live' ? s : 'offline')); }
+      });
+    };
+    load();
+    const onVisible = () => { if (document.visibilityState === 'visible') load(); };
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+    const timer = setInterval(load, STATS_REFRESH_MS);
+    return () => {
+      alive = false;
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+      clearInterval(timer);
+    };
   }, []);
-  const cards = SCHEME_CARDS.map((c) => (liveStats && Array.isArray(liveStats[c.key]) && liveStats[c.key].length
-    ? { ...c, stats: liveStats[c.key] } : c));
+  const cards = SCHEME_CARDS.map((c) => {
+    const stats = live && live.cards && Array.isArray(live.cards[c.key]) && live.cards[c.key].length
+      ? live.cards[c.key] : c.stats;
+    const period = live && live.periods && typeof live.periods[c.key] === 'string' ? live.periods[c.key] : c.period;
+    return { ...c, stats, metaLine: cardMetaLine(c, period) };
+  });
   const pages = chunk(cards, perPage);
   const promptTimer = useRef(0);
 
@@ -134,7 +179,7 @@ export function WelcomeCard({ strings, prompts, setPrompts, onAsk }) {
                     <div className="ico">{s.ico}</div>
                     <div>
                       <h3>{s.name}</h3>
-                      <div className="meta">{s.meta}</div>
+                      <div className="meta">{s.metaLine}</div>
                     </div>
                   </div>
                   <div className="stats">
@@ -152,6 +197,7 @@ export function WelcomeCard({ strings, prompts, setPrompts, onAsk }) {
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
         </button>
       </div>
+      <div className={'stats-status ' + statsState} role="status">{statsStatusText(statsState, live)}</div>
 
       <div className="prompts-section">
         <div className="prompts-title">{prompts.title}</div>

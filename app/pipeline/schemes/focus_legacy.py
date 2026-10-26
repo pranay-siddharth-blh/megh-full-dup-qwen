@@ -1457,13 +1457,27 @@ def _focus_legacy_village_code_only(schemes: list[str], resolved: dict, sql: str
 # variant itself.
 _FL_VARIANT_ASKED = Matcher(Alt(W("variant", prefix=True), W("addnl", "additional"), Joined("top", "up"),
                                 _fl_sp("programme", "type")))
-_FL_GROUP_TYPE_ASKED = Matcher(W("type", "lamp", "existing"))
+_FL_GROUP_TYPE_ASKED = Matcher(W("type", "lamp", "lamps", "existing", "newly", "cooperative", "cooperatives"))
+# The group-type codes that only repeat the scheme's name: dim_pg_entity_type's
+# FOCUS_PG ("Newly formed FOCUS Producer Group") read off "FOCUS PG(s)" in the
+# question. Since the SQL prompt lists each column's stored values (2026-10-17),
+# "What is the total number of FOCUS PG members" came back
+# WHERE pg_entity_type = 'FOCUS_PG' — 94,766 members for a true 102,021, and
+# "FOCUS Producer Groups mapped to each district" lost the LAMPS and existing
+# cooperatives (West Garo Hills 2,240 for 2,701; Focus Legacy sheet re-test
+# 2026-10-22, KI-370). 9/9 and 6/6 on the 13 Oct code.
+_FL_SCHEME_NAME_TYPE_VALUES = ("focus", "focus_pg", "pg-focus", "pg-focus-", "newly formed focus producer group")
 
 
 def _fl_equals_focus(node, cols: set) -> bool:
-    """`<col> = 'FOCUS'` (any case, column optionally in LOWER() / UPPER())."""
+    """`<col> = 'FOCUS'` (any case, column optionally in LOWER() / UPPER()); on the
+    group-type columns also the FOCUS_PG code and its display name."""
     hit = _fl_col_vs_literal(node, cols) if isinstance(node, exp.EQ) else None
-    return bool(hit) and hit[1].lower() == "focus"
+    if not hit:
+        return False
+    if hit[0] in ("pg_entity_type", "pg_entity_type_name"):
+        return hit[1].strip().lower() in _FL_SCHEME_NAME_TYPE_VALUES
+    return hit[1].lower() == "focus"
 
 
 # Focus Legacy all-villages run (2026-10-12): "What is the total amount disbursed for
@@ -1560,6 +1574,11 @@ def _focus_legacy_scheme_name_not_variant(question: str, schemes: list[str], sql
     if not _FL_GROUP_TYPE_ASKED(question or ""):
         cols |= {"pg_entity_type", "pg_entity_type_name"}
     new = _fl_drop_and_conjuncts(sql, lambda n: _fl_equals_focus(n, cols))
+    # ...and when the group type is the ONLY condition (KI-370): the WHERE goes,
+    # the query then reads every group. programme_variant keeps the old rule.
+    if "pg_entity_type" in cols:
+        new = sql_ast.remove_conditions(
+            new, lambda n: _fl_equals_focus(n, {"pg_entity_type", "pg_entity_type_name"}))
     if new != sql:
         logger.info("Focus Legacy: dropped programme_variant = 'FOCUS' (the scheme name, not a variant)")
     return new
@@ -1633,6 +1652,144 @@ def _focus_legacy_group_size_summed(question: str, schemes: list[str], sql: str)
             and not _fl_money_q(question or "")
             and _fl_sums_column(sql or "", "no_of_pg_members", exact=True)
             and _fl_group_grain(sql or ""))
+
+
+# ── constituency questions (TC-28, KI-369) ──────────────────────────────────────
+# Focus Legacy reaches the assembly constituency only through the documented join
+# v_focus_legacy.geography_key -> curated.dim_geography.ac_name, and dim_geography
+# stores ac_name in Title Case ("Amlarem") while the resolver hands over 'AMLAREM'.
+# Sheet re-test 2026-10-22: 12 of 55 constituencies right (55/55 on the 13 Oct code).
+# The generator's FIRST query was correct (UPPER(g.ac_name) = UPPER('AMLAREM')); the
+# 30B verifier then called the join "a prohibited join path" (it misread the rule
+# that forbids fact_focus_legacy_disbursement) or demanded an UPPER() that was there,
+# and the repairs dropped the join: 29 questions ended in "couldn't build a working
+# query", others filtered the constituency's DISTRICT — Dalu answered 928 (all of
+# East Garo Hills) for 203 — or wrote g.ac_name = 'UMROI' and answered 0 for 142.
+_FL_VIEW = "curated.v_focus_legacy"
+_FL_GEO_DIM = "curated.dim_geography"
+
+
+def _fl_ac_values(sql: str) -> set:
+    """Upper-cased constituency names the query filters ac_name on (=, IN, any wrapper)."""
+    return {v.strip().upper() for v in sql_ast.filter_values(sql or "", "ac_name")}
+
+
+def _focus_legacy_ac_name_case(schemes: list[str], sql: str) -> str:
+    """`ac_name = 'X'` / `ac_name IN (...)` -> UPPER(ac_name) = UPPER('X') / IN (UPPER-cased
+    literals): dim_geography keeps Title Case, so a bare comparison with the resolver's
+    upper-case name matches nothing. Idempotent; a column already in UPPER() is left alone."""
+    if schemes != ["Focus Legacy"] or not sql or "ac_name" not in sql.lower():
+        return sql
+
+    def fn(tree):
+        for node in list(tree.find_all(exp.EQ, exp.In)):
+            sides = [node.this] if isinstance(node, exp.In) else [node.this, node.expression]
+            for side in sides:
+                if isinstance(side, exp.Column) and side.name.lower() == "ac_name":
+                    side.replace(exp.Upper(this=side.copy()))
+                    for lit in node.find_all(exp.Literal):
+                        if lit.is_string and lit.this != lit.this.upper():
+                            lit.replace(exp.Literal.string(lit.this.upper()))
+        return None
+
+    out = sql_ast.transform(sql, fn)
+    if out != sql:
+        logger.info("Focus Legacy: compared ac_name case-insensitively (dim_geography stores Title Case)")
+    return out
+
+
+def _focus_legacy_ac_filter_missing(schemes: list[str], entity_result: dict, sql: str) -> "str | None":
+    """The repair instruction when a constituency was resolved but the query does not
+    filter ac_name on it — it would report a district's (or the state's) figure as the
+    constituency's. None otherwise."""
+    ac = ((entity_result or {}).get("resolved") or {}).get("assembly_constituency")
+    if schemes != ["Focus Legacy"] or not isinstance(ac, str) or not ac.strip() \
+            or not sql or not sql_ast.is_parseable(sql):
+        return None
+    if ac.strip().upper() in _fl_ac_values(sql):
+        return None
+    return (f"the question is about the assembly constituency {ac} (a RESOLVED, MANDATORY filter), but "
+            "this query does not filter on it, so it returns the figure of a district or of the whole "
+            "state. A constituency is not a district or a block. Use exactly this shape: FROM "
+            "curated.v_focus_legacy f JOIN curated.dim_geography g ON g.geography_key = f.geography_key "
+            f"WHERE UPPER(g.ac_name) = UPPER('{ac}'), drop any lgd_district / lgd_block filter, and keep "
+            "the measure, the year filter and the grouping exactly as they were.")
+
+
+_FL_VERIFIER_JOIN_OR_ENTITY = Matcher(Alt(
+    W("prohibit", "join", "resolved", "entity", "entities", "upper", "uppercase", "lowercase", "verbatim",
+      "case", "geography", "dim_geography", "constituency", "ac_name", prefix=True),
+    _fl_sp("check", W("1", "2")), W("check1", "check2")))
+_FL_VERIFIER_MEASURE = Matcher(Alt(_fl_sp("check", W("3", "4")), W("check3", "check4"),
+                                   W("grain", "metric", "measure", "aggregat", prefix=True)))
+
+
+def _focus_legacy_ac_query_is_documented(entity_result: dict, sql: str) -> bool:
+    """The query is the documented constituency query: it reads only v_focus_legacy
+    and dim_geography, joins them on geography_key, and filters ac_name on the
+    resolved constituency."""
+    ac = ((entity_result or {}).get("resolved") or {}).get("assembly_constituency")
+    if not isinstance(ac, str) or not ac.strip() or not sql_ast.is_parseable(sql):
+        return False
+    if sql_ast.tables(sql, qualified=True) != {_FL_VIEW, _FL_GEO_DIM}:
+        return False
+    js = sql_ast.joins(sql)
+    if not js or not all(j.args.get("on") is not None
+                         and {c.name.lower() for c in j.args["on"].find_all(exp.Column)} == {"geography_key"}
+                         for j in js):
+        return False
+    return ac.strip().upper() in _fl_ac_values(sql)
+
+
+def _focus_legacy_ac_verifier_complaint_is_false(issue: str, schemes: list[str], entity_result: dict,
+                                                 sql: str) -> bool:
+    """A verifier complaint about the join, the resolved constituency or the case of
+    its literal, raised against the documented constituency query (KI-369). A
+    complaint about the measure or the grain still stands."""
+    return (schemes == ["Focus Legacy"]
+            and bool(_FL_VERIFIER_JOIN_OR_ENTITY.search(issue or ""))
+            and not _FL_VERIFIER_MEASURE.search(issue or "")
+            and _focus_legacy_ac_query_is_documented(entity_result, sql))
+
+
+# Same re-test (KI-371): "What is the total number of PG members recorded till now?" ran
+# SELECT SUM(no_of_pg_members) AS memberships … and the verifier answered "Check 3 fails:
+# … without aggregating the metric column no_of_pg_members … wrap it with SUM()" — on all
+# four attempts in 5 of 9 asks ("couldn't build a working query"; 9/9 on the 13 Oct code).
+# Discarded only when every measure column the complaint names IS summed in the SQL.
+_FL_MEASURE_COLUMNS = ("no_of_pg_members", "amount_disbursed")
+# "without aggregating" / "not aggregated" / "wrap … with SUM()" — never a complaint that
+# SUM itself is wrong ("summing double-counts the group size, use MAX").
+_FL_VERIFIER_NOT_AGGREGATED = Matcher(Alt(_fl_sp(W("without", "not", "no"), W("aggregat", prefix=True)),
+                                          W("wrap", prefix=True)))
+
+
+def _focus_legacy_aggregate_complaint_is_false(issue: str, schemes: list[str], sql: str) -> bool:
+    low = (issue or "").lower()
+    named = [c for c in _FL_MEASURE_COLUMNS if c in low]
+    return (schemes == ["Focus Legacy"] and bool(named)
+            and bool(_FL_VERIFIER_NOT_AGGREGATED.search(issue or ""))
+            and "max(" not in low
+            and sql_ast.is_parseable(sql or "")
+            and all(_fl_sums_column(sql, c, exact=True) for c in named))
+
+
+# Sheet re-test 2026-10-22 (KI-371): in a chat, "What is the total number of PG members
+# recorded till now?" was rewritten "How many PG members have been recorded so far?" and
+# the SQL counted GROUPS — "11,906 PG members" for a true 102,021. A members question
+# must read no_of_pg_members.
+_FL_MEMBERS_Q = Matcher(W("member", "members", "membership", "memberships"))
+
+
+def _focus_legacy_members_counted_as_groups(question: str, schemes: list[str], sql: str) -> "str | None":
+    if schemes != ["Focus Legacy"] or not _FL_MEMBERS_Q.search(question or "") or not sql \
+            or not sql_ast.is_parseable(sql) or sql_ast.references_column(sql, "no_of_pg_members") \
+            or not sql_ast.has_distinct_count(sql, "pg_id"):
+        return None
+    return ("the question asks for PG MEMBERS, but this query only counts producer groups "
+            "(COUNT(DISTINCT pg_id)), so it would report the number of groups as the number of members. "
+            "Members are SUM(no_of_pg_members) AS memberships (memberships paid for). Keep every filter, "
+            "the year and the grouping exactly as they were.")
 
 
 # ════ turn stages ═════════════════════════════════════════════════════════════════════════════════════

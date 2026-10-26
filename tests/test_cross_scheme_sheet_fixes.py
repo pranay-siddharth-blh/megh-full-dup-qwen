@@ -5,8 +5,11 @@ CROSS-1..CROSS-20) and the generated cross-scheme permutations, 2026-10-13.
 Before the fixes 18 of the 20 sheet questions paused (a nine-year "which FY?" list
 merged across schemes, "which area?", "which scheme?") and the two that answered
 were wrong ("(no label)" rows; a "total across all schemes" adding MGNREGA
-expenditure to PMAY-G releases). Cross-scheme comparisons are now answered by
-app/cross_scheme.py, deterministically. Every test calls the real function.
+expenditure to PMAY-G releases). Cross-scheme comparisons were then answered by a
+fixed table in app/cross_scheme.py (D-044); since D-062 (2026-10-22) they are
+answered by one model-written query per scheme and the composer
+(tests/test_cross_scheme_llm_2026_10_22.py). What stays tested here: detection,
+the place handling and the twin-village chips. Every test calls the real function.
 """
 from app import cross_scheme as cs
 from app import pipeline as p
@@ -69,69 +72,12 @@ def test_compare_the_schemes_is_all_schemes():
     assert _detect("Compare the schemes district-wise") == cs.ORDER
 
 
-# ── the measure plan ─────────────────────────────────────────────────────────
-
-def test_performance_based_on_counts_is_counts_only():
-    pl = cs.plan("Compare the performance of Focus+ and CM-ELEVATE across districts based on "
-                 "beneficiary/application counts.", ["Focus Plus", "CM Elevate Legacy"], {})
-    assert (pl.count, pl.money, pl.group) == (True, False, "district")
-
-
-def test_coverage_and_financial_performance():
-    pl = cs.plan("Give me an overall performance comparison of MGNREGA, PMAY-G, Focus+, FOCUS, and CM-ELEVATE "
-                 "based on coverage and financial performance.", cs.ORDER[:5], {})
-    assert pl.coverage and pl.count and pl.money and pl.group is None
-
-
-def test_widest_coverage_across_districts_is_places_reached():
-    pl = cs.plan("Which scheme has the widest coverage across districts of Meghalaya?", cs.ORDER, {})
-    assert pl.coverage and pl.group is None and not pl.leader_per_group
-
-
-def test_leader_per_district():
-    pl = cs.plan("For each district, identify which scheme has the highest beneficiary/application count.",
-                 cs.ORDER, {})
-    assert pl.group == "district" and pl.leader_per_group and pl.count and not pl.money
-
-
-def test_scheme_name_applicants_is_not_a_count_request():
-    pl = cs.plan("Give me a summary comparing mgnrega vs cm elevate applicants", ["MGNREGA", "CM Elevate"], {})
-    assert pl.count and pl.money
-
-
-def test_bigger_is_a_ranking():
-    pl = cs.plan("Which is bigger, Focus+ or FOCUS, by amount disbursed?", ["Focus Plus", "Focus Legacy"], {})
-    assert pl.rank and pl.money and not pl.count
-
-
-def test_a_named_block_is_not_grouped_by_district():
-    pl = cs.plan("Compare MGNREGA and PMAY-G across districts in Mylliem block", ["MGNREGA", "PMAY-G"],
-                 {"block": "MYLLIEM"})
-    assert pl.group is None
-
-
-# ── years, blocks, money format ─────────────────────────────────────────────
+# ── years ────────────────────────────────────────────────────────────────────
 
 def test_fy_without_a_space_is_read():
     assert cs.years_in_text("beneficiaries in FY2022-23") == [2022]
     assert cs.years_in_text("in 2017-2018") == [2017]
     assert cs.years_in_text("in 2022-25") == []
-
-
-def test_tura_is_one_block_spelled_two_ways():
-    assert cs._canon_block("TURA MUNICIPAL BOARD-MUNICIPAL BOARD") == cs._canon_block("Tura Municipal Board")
-    assert cs._canon_block("BAGHMARA-MUNICIPAL BOARD") != cs._canon_block("BAGHMARA")
-
-
-def test_money_unit_follows_the_size():
-    assert cs._cr(3_628_67_00_000) == "₹3,628.67 crore"
-    assert cs._cr(89_62_000) == "₹89.62 lakh"
-    assert cs._cr(5_000) == "₹5,000"
-
-
-def test_years_note_lists_a_gap():
-    assert cs._years_text({"Focus Plus": ["2022-23", "2025-26"]}, "Focus Plus") == "FY 2022-23 and 2025-26"
-    assert cs._years_text({"MGNREGA": ["2022-23", "2023-24", "2024-25"]}, "MGNREGA") == "FY 2022-23 to FY 2024-25"
 
 
 # ── the pipeline wiring ─────────────────────────────────────────────────────
@@ -141,11 +87,6 @@ def test_graph_carries_the_cross_plan_and_the_users_own_words():
     assert "pre_rephrase_question" in pg._DATA_READ_ONLY
     d = p._new_data_turn("q")
     assert d["cross"] is None and d["pre_rephrase_question"] is None
-
-
-def test_literal_sql_inlines_parameters():
-    assert p._literal_sql("SELECT 1 WHERE a = ANY($1::text[]) AND b = $2", [["X", "Y'Z"], 3]) == \
-        "SELECT 1 WHERE a = ANY(ARRAY['X', 'Y''Z']::text[]) AND b = 3"
 
 
 def test_compare_all_six_schemes_is_not_asked_back():

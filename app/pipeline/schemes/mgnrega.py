@@ -388,6 +388,14 @@ async def _mgnrega_admin_reading_of_village_mention(name: str, scheme: str = "MG
                 break
     if not hits:
         return {}
+    # A village of exactly this name anywhere in Meghalaya (the village index,
+    # aliases included) is a village too: "Phulbari" was re-read as the
+    # constituency although PHULBARI is a village (place hierarchy sweep
+    # 2026-10-21, KI-349). Same-name readings are the level gate's question.
+    if settings.PLACE_GAZETTEER:
+        from app import entity_resolver as _mg_er
+        if _mg_er.is_village_name(name):
+            return {}
     try:
         if (await village_names_exact([str(name).strip()])).get(str(name).strip().upper()):
             return {}          # a real village of this name: leave it to the village branch
@@ -524,11 +532,17 @@ _MGNREGA_EXP_COMPONENTS = [
 ]
 
 
-def _mgnrega_job_cards_latest_year(schemes: list[str], sql: str) -> str:
-    """SUM(job_cards_issued_total) with no year filter -> pinned to the latest year.
+def _mgnrega_job_cards_latest_year(schemes: list[str], sql: str, *, question: str = "",
+                                   resolved: "dict | None" = None) -> str:
+    """SUM(job_cards_issued_total) with no year filter -> pinned to the year asked.
     Job cards are a STOCK (held at year end); summing years answered 2,128,714
-    for the 520,999 cards held (user session 2026-10-13). Simple one-SELECT
-    queries without OR only; anything else is left to the repair guard."""
+    for the 520,999 cards held (user session 2026-10-13). The resolved year (or
+    years) is pinned when the model dropped it; an all-years question is left to
+    the repair guard, which asks for one row per year; only a question with no
+    year anywhere falls back to the latest year — FY 2025-26 was pinned for every
+    job-card question whatever was asked (MGNREGA sheet DATA-007, 2026-10-21).
+    Simple one-SELECT queries without OR only; anything else is left to the
+    repair guard."""
     if "MGNREGA" not in (schemes or []) or not sql:
         return sql
     tree = sql_ast.parse_one(sql)
@@ -541,9 +555,164 @@ def _mgnrega_job_cards_latest_year(schemes: list[str], sql: str) -> str:
     if "year_key" in names or any(n.startswith("financial_year") for n in names) \
             or len(sql_ast.selects(tree)) != 1 or tree.find(exp.Or) is not None:
         return sql
+    years = _mg_resolved_years(resolved or {})
+    if years:
+        pin = f"year_key = {years[0]}" if len(years) == 1 else f"year_key IN ({', '.join(map(str, years))})"
+        out = sql_ast.add_condition(sql, pin)
+        logger.info("job cards pinned to the year asked: %s", out.replace("\n", " "))
+        return out
+    if _ALL_YEARS_CUE.search(question or ""):
+        return sql
     out = sql_ast.add_condition(sql, _JOB_CARD_PIN)
-    logger.info("job cards pinned to the latest year: %s", out.replace("\n", " "))
+    logger.info("job cards pinned to the latest year (no year asked): %s", out.replace("\n", " "))
     return out
+
+
+# The MGNREGA fact tables carry only geography_key; the place columns and the FY
+# labels are on their views. Asked to add entity_type <> 'Unresolved' to a village
+# list, the repair model moved the query from curated.v_employment to
+# curated.fact_mgnrega_employment and failed "column f.lgd_village_name does not
+# exist" on every repair ("Which villages in Mawryngkneng constituency received
+# employment during 2025-26?", MGNREGA sheet DATA-014, 2026-10-21). A one-table read
+# of a fact that names a view-only column and no fact-only one reads the view.
+_MG_VIEW_ONLY_COLUMNS = frozenset({"village_code", "lgd_village_name", "lgd_block", "lgd_district", "entity_type",
+                                   "on_roster", "financial_year", "financial_year_short", "start_year", "year_note"})
+_MG_FACT_ONLY_COLUMNS = frozenset({"alias_key", "benefit_to_households", "admin_recurring_exp",
+                                   "admin_non_recurring_exp", "raw_id", "source_row_num", "batch_id",
+                                   "source_system", "ingested_at"})
+_MG_FACT_VIEW = {"fact_mgnrega_employment": "curated.v_employment",
+                 "fact_mgnrega_expenditure": "curated.v_expenditure"}
+
+
+def _mgnrega_fact_to_view(schemes: list[str], sql: str) -> str:
+    if "MGNREGA" not in (schemes or []) or not sql:
+        return sql
+    read = sql_ast.tables(sql)
+    if len(read) != 1 or not read <= set(_MG_FACT_VIEW):
+        return sql
+    cols = sql_ast.columns(sql)
+    if not (cols & _MG_VIEW_ONLY_COLUMNS) or (cols & _MG_FACT_ONLY_COLUMNS):
+        return sql
+    out = sql_ast.rename_tables(sql, _MG_FACT_VIEW)
+    logger.info("MGNREGA fact table read for view-only columns -> its view: %s", out.replace("\n", " "))
+    return out
+
+
+# The c11 guard's demand for a village ranking, made here instead of by a repair:
+# the round trip was where DATA-014 went wrong (see _mgnrega_fact_to_view), and the
+# condition is fixed text. One MGNREGA view, single SELECT, no CTE only.
+def _mgnrega_village_rank_placeholders(question: str, schemes: list[str], sql: str) -> str:
+    if "MGNREGA" not in (schemes or []) or not sql:
+        return sql
+    read = sql_ast.tables(sql)
+    if len(read) != 1 or not read <= {"v_employment", "v_expenditure"} \
+            or sql_ast.has_cte(sql) or len(sql_ast.selects(sql)) != 1:
+        return sql
+    if not (sql_ast.groups_by(sql, "lgd_village_name") and _vr_has_order_by(sql)
+            and not _vr_mentions_unresolved(sql) and _C11_RANKING_ASK.search(question or "")):
+        return sql
+    out = sql_ast.add_condition(sql, "entity_type <> 'Unresolved'")
+    logger.info("MGNREGA village ranking: placeholder rows excluded: %s", out.replace("\n", " "))
+    return out
+
+
+# "How many households received employment in Amlarem during 23-24?" (block chip)
+# was answered from COUNT(DISTINCT village_code) … AND households_employed > 0 —
+# the villages that had employment (79), not the households (6,917); WAPUNG's 46
+# villages were then called "46 households" (MGNREGA sheet DATA-016, runs
+# 2026-10-21; the few-shot "How many villages received employment in each
+# district" is worded almost the same). A households / persons count that names
+# no village, read as a village count, is rewritten to the SUM it asked for.
+_MG_COUNT_ASK = Matcher(Alt(Seq("how", "many"), Seq(W("number", "count", "no", "total"), Opt("of"))))
+_MG_COUNTED_UNIT = (
+    (Matcher(W("household", "households")), "households_employed"),
+    (Matcher(W("person", "persons", "people", "workers", "individuals")), "persons_employed"),
+)
+_MG_NOT_A_UNIT_COUNT = Matcher(Alt(
+    W("village", "villages", "which", "women", "woman", "completed", "100", "hundred", "percentage", "percent",
+      "share", "average", "avg"),
+    Joined("job", ("card", "cards")), Joined("person", ("day", "days")),
+))
+
+
+def _mgnrega_unit_count_not_villages(question: str, schemes: list[str], sql: str) -> str:
+    if "MGNREGA" not in (schemes or []) or not sql:
+        return sql
+    q = question or ""
+    if not _MG_COUNT_ASK.search(q) or _MG_NOT_A_UNIT_COUNT.search(q):
+        return sql
+    cols = [col for cue, col in _MG_COUNTED_UNIT if cue.search(q)]
+    if len(cols) != 1:
+        return sql
+    col = cols[0]
+    read = sql_ast.tables(sql)
+    if len(read) != 1 or not read <= _EMPLOYMENT_OBJECTS or sql_ast.has_cte(sql) \
+            or len(sql_ast.selects(sql)) != 1:
+        return sql
+
+    def is_village_count(e: exp.Expression) -> bool:
+        e = e.this if isinstance(e, exp.Alias) else e
+        return isinstance(e, exp.Count) and isinstance(e.this, exp.Distinct) \
+            and any(isinstance(c, exp.Column) and c.name.lower() == "village_code" for c in e.this.expressions)
+
+    tree = sql_ast.parse_one(sql)
+    sel = sql_ast.outer_select(tree) if tree is not None else None
+    if sel is None or not any(is_village_count(e) for e in sel.expressions) \
+            or any(isinstance(e, exp.Sum) for x in sel.expressions for e in x.find_all(exp.Sum)):
+        return sql
+    new = [exp.alias_(exp.Sum(this=exp.column(col)), col) if is_village_count(e) else e for e in sel.expressions]
+    sel.set("expressions", new)
+    out = sql_ast.to_sql(tree)
+
+    def is_positive_filter(c: exp.Expression) -> bool:      # "households_employed > 0": the village-count filter
+        return isinstance(c, (exp.GT, exp.GTE, exp.NEQ)) and sql_ast._is_column(c.this, {col}) \
+            and isinstance(c.expression, exp.Literal) and str(c.expression.this) in ("0", "1")
+    out = sql_ast.remove_conditions(out, is_positive_filter)
+    logger.info("MGNREGA %s count read as a village count -> SUM(%s): %s", col.split("_")[0], col,
+                out.replace("\n", " "))
+    return out
+
+
+# entity_type on the MGNREGA views is the ROW's type — every row is 'Village' (or the
+# 'Unresolved' placeholder) — not the level of the area asked about. The block chip
+# resumes "…, the block, not another area type", and the 30B added
+# entity_type = 'Block': SUM over no rows, "the data available doesn't cover …" for
+# AMLAREM / LUMSHNONG / MYLLIEM / RESUBELPARA / RONGARA households and BAJENGDOBA
+# expenditure (MGNREGA sheet DATA-016 / DATA-003, runs 2026-10-21). The block /
+# district / constituency filter does the scoping; the level filter is dropped.
+_MG_ROW_TYPES = frozenset({"village", "unresolved"})
+
+
+def _mgnrega_drop_area_level_entity_type(schemes: list[str], sql: str) -> str:
+    if "MGNREGA" not in (schemes or []) or not sql:
+        return sql
+    read = sql_ast.tables(sql)
+    if not read or not read <= (_EMPLOYMENT_OBJECTS | _EXPENDITURE_OBJECTS):
+        return sql
+
+    def is_level_filter(c: exp.Expression) -> bool:
+        if not isinstance(c, exp.EQ) or not sql_ast._is_column(c.this, {"entity_type"}):
+            return False
+        vals = sql_ast._string_values(c.expression)
+        return bool(vals) and all(v.strip().lower() not in _MG_ROW_TYPES for v in vals)
+    out = sql_ast.remove_conditions(sql, is_level_filter)
+    if out != sql:
+        logger.info("MGNREGA entity_type area-level filter dropped: %s", out.replace("\n", " "))
+    return out
+
+
+def _mg_resolved_years(resolved: dict) -> "list[int]":
+    """The financial years (year_key start years) the resolver pinned, sorted."""
+    yk = resolved.get("year_key")
+    raw = resolved.get("year_key_list") or (list(yk) if isinstance(yk, (list, tuple, set))
+                                           else [yk] if yk not in (None, "") else [])
+    out = set()
+    for y in raw:
+        try:
+            out.add(int(y))
+        except (TypeError, ValueError):
+            continue
+    return sorted(out)
 
 
 # households_employed / persons_employed are per-YEAR tallies with no household or person
@@ -1134,6 +1303,79 @@ def _mgnrega_admin_expenditure_query(question: str, schemes: list[str], resolved
         return ("SELECT ROUND(SUM(admin_total_exp)::numeric, 2) AS admin_expenditure_lakh, "
                 f"COUNT(*) AS source_rows FROM curated.v_expenditure{wh}")
     return build(where), params, build(shown)
+
+
+# Job cards are a running total (KI-293), so the years are never added. They were
+# pinned to the latest year whatever was asked, and the answer said "across all
+# financial years" for an FY 2025-26 figure (MGNREGA sheet DATA-007, run
+# 2026-10-21: 24 of 24). One area's job cards are built here, parameter-bound, for
+# exactly the year(s) asked — or, for all years, one row per year — and the answer
+# is written from those rows, so it can never name a period the query did not read.
+# Rankings, breakdowns and questions with another measure stay with the generator.
+_MG_JOB_CARD_CUE = Matcher(Joined("job", ("card", "cards")))
+_MG_JC_PLACE_W = W("district", "districts", "block", "blocks", "village", "villages",
+                   "constituency", "constituencies")
+_MG_JOB_CARD_EXCLUDE = Matcher(Alt(
+    W("by", "wise", "breakdown", "top", "highest", "lowest", "most", "least", "which", "versus", "vs",
+      "average", "avg", "share", "percentage", "percent"),
+    W("rank", "compar", "trend", prefix=True),
+    Seq(W("each", "every", "all", "per"), _MG_JC_PLACE_W),
+    Joined("person", ("day", "days")),
+    W("household", "households", "persons", "people", "women", "woman", "expenditure", "spent", "spend",
+      "spending", "wage", "wages", "material", "materials"),
+))
+
+
+def _mgnrega_job_cards_query(question: str, schemes: list[str], resolved: dict
+                             ) -> "tuple[str, list, str] | None":
+    """(parameterised SQL, params, display SQL) for one area's MGNREGA job cards,
+    one row per financial year asked, else None. A question with no year and no
+    all-years cue is None: the year pause asks first, the year is never guessed."""
+    q = question or ""
+    if schemes != ["MGNREGA"] or not _MG_JOB_CARD_CUE.search(q) or _MG_JOB_CARD_EXCLUDE.search(q):
+        return None
+    years = _mg_resolved_years(resolved)
+    if not years and not _ALL_YEARS_CUE.search(q):
+        return None
+    f = _mgnrega_filters({k: v for k, v in resolved.items() if k not in ("year_key", "year_key_list")},
+                         allow_ac=True)
+    if f is None:
+        return None
+    where, params, shown = f
+    if years:
+        params = params + [years]
+        where = where + [f"year_key = ANY(${len(params)}::int[])"]
+        shown = shown + [f"year_key = {years[0]}" if len(years) == 1
+                         else f"year_key IN ({', '.join(map(str, years))})"]
+
+    def build(w: list[str]) -> str:
+        wh = (" WHERE " + " AND ".join(w)) if w else ""
+        return ("/* mg-job-cards */ SELECT year_key, MAX(financial_year_short) AS financial_year, "
+                "SUM(job_cards_issued_total) AS job_cards_issued\n"
+                f"FROM curated.v_employment{wh}\nGROUP BY year_key ORDER BY year_key")
+    return build(where), params, build(shown)
+
+
+def _mgnrega_job_cards_answer(rows: list[dict], display: dict) -> str:
+    """The job-card figure for each year the query read, in the rows' own words."""
+    district = str(display.get("district") or "")
+    place = ((display.get("village") and f"{display['village']} village")
+             or (display.get("block") and f"{str(display['block']).title()} block")
+             or (display.get("assembly_constituency") and f"{display['assembly_constituency']} constituency")
+             or (district and (district if district.lower().endswith("district") else f"{district} district"))
+             or "Meghalaya")
+    held = [(str(r.get("financial_year") or ""), _as_number(r.get("job_cards_issued"))) for r in rows or []]
+    held = [(fy, n) for fy, n in held if fy and n is not None]
+    if not held:
+        return f"No MGNREGA job-card records are held for {place} for the financial year(s) asked."
+    if len(held) == 1:
+        fy, n = held[0]
+        return f"{int(n):,} MGNREGA job cards had been issued in {place} as of FY {fy}."
+    lines = "\n".join(f"- FY {fy}: {int(n):,}" for fy, n in held)
+    fy, n = held[-1]
+    return (f"MGNREGA job cards issued in {place}, by financial year:\n{lines}\n\n"
+            "Job cards are a running total — each year's figure already includes the cards issued in "
+            f"earlier years — so the years are not added together. The most recent, FY {fy}, is {int(n):,}.")
 
 
 def _mg_top_one(sql: str) -> bool:

@@ -3,8 +3,8 @@ The shape rotates over the sheet's 12 village cases (PMAY-OFF-001..010, 026, 028
 the name's case rotates UPPER / Title / lower; shared names must draw a
 which-village pause offering the right village. A year pause is answered "All
 financial years combined". Expected values: one grouped query on curated.v_pmay.
-A village whose only records are placeholders must be answered as having no
-sanctioned house (0), never as a missing place.
+A village whose only records are zero-sanction registrations counts them as
+beneficiaries (D-060), never as a missing place.
 
 Usage (repo root): pm_all.py  -> pm_all_results.json (PM_ALL_OUT); resumable;
 PM_ONLY_CODES=<file of codes> re-runs just those villages."""
@@ -41,7 +41,7 @@ def casing(name, i):
 async def main():
     async with app_main.lifespan(app_main.app):
         rows = await fetch(f"""SELECT village_code, {AGG} FROM curated.v_pmay
-                               WHERE NOT is_placeholder AND village_code IS NOT NULL GROUP BY 1""")
+                               WHERE village_code IS NOT NULL GROUP BY 1""")
         agg = {r["village_code"]: dict(r) for r in rows}
         villages = await fetch("""SELECT village_code, MIN(lgd_village_name) AS name, MIN(lgd_block) AS block,
                                          MIN(lgd_district) AS district, BOOL_AND(is_placeholder) AS only_ph

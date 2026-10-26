@@ -35,3 +35,7 @@ frontend/node_modules/
 # Nested older copy of the project (its own git repo) - not part of this app.
 meghalaya/
 tests/ui_device_shots/
+# Raw use-case sheets and QA result CSVs hold personal data; Word lock files are temporary (2026-10-24).
+raw_uc/
+new_docs/*.csv
+new_docs/~$*

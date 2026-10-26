@@ -1,5 +1,6 @@
 """PMAY-G sheet (PMAY-OFF-001..028) through the live LangGraph pipeline; every
-expected figure from curated.v_pmay (NOT is_placeholder, COALESCE(amount_released,0)).
+expected figure from curated.v_pmay (every row: the 126 zero-sanction registrations are
+beneficiaries, D-060; COALESCE(amount_released,0); a full release needs sanctioned_amount > 0).
 Hierarchy: 2 villages per district (24) for the village cases, EVERY block, EVERY
 district, village / block / district pairs, top sanction dates. A year pause is
 answered "All financial years combined" (the sheet's questions name no year).
@@ -22,17 +23,17 @@ mg_run.ONLY = set(sys.argv[1:])
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(HERE, os.environ.get("PM_OUT", "pm_results.json"))
 PM_YEARS = [2017, 2018, 2019, 2020, 2021, 2022, 2023]
-STAGES = ["Completed", "Roof Cast", "Plinth", "House Sanctioned"]
+STAGES = ["Completed", "Roof Cast", "Plinth", "House Sanctioned", "Existing site(Old House)", "Proposed Site"]
 
 AGG = """COUNT(*)::float8 AS houses,
  COALESCE(SUM(sanctioned_amount),0)::float8 AS sanctioned,
  COALESCE(SUM(COALESCE(amount_released,0)),0)::float8 AS released,
  COUNT(*) FILTER (WHERE is_completed)::float8 AS completed,
  COUNT(*) FILTER (WHERE NOT COALESCE(is_completed,false))::float8 AS incomplete,
- COUNT(*) FILTER (WHERE COALESCE(amount_released,0) >= sanctioned_amount)::float8 AS full_r,
+ COUNT(*) FILTER (WHERE sanctioned_amount > 0 AND COALESCE(amount_released,0) >= sanctioned_amount)::float8 AS full_r,
  COUNT(*) FILTER (WHERE COALESCE(amount_released,0) > 0 AND COALESCE(amount_released,0) < sanctioned_amount)::float8 AS part_r,
  COUNT(*) FILTER (WHERE COALESCE(amount_released,0) = 0)::float8 AS none_r,
- COUNT(*) FILTER (WHERE COALESCE(amount_released,0) >= sanctioned_amount AND NOT COALESCE(is_completed,false))::float8 AS fnd,
+ COUNT(*) FILTER (WHERE sanctioned_amount > 0 AND COALESCE(amount_released,0) >= sanctioned_amount AND NOT COALESCE(is_completed,false))::float8 AS fnd,
  COUNT(DISTINCT sanction_no)::float8 AS sanc_nos,
  COALESCE(SUM(COALESCE(amount_released,0)) FILTER (WHERE sanctioned_amount > 0),0)::float8 AS rel_pos,
  COALESCE(SUM(sanctioned_amount) FILTER (WHERE sanctioned_amount > 0),0)::float8 AS sanc_pos,
@@ -40,7 +41,7 @@ AGG = """COUNT(*)::float8 AS houses,
 
 
 async def agg(where, params):
-    r = await fetch(f"SELECT {AGG} FROM curated.v_pmay WHERE NOT is_placeholder AND {where}", params)
+    r = await fetch(f"SELECT {AGG} FROM curated.v_pmay WHERE {where}", params)
     return dict(r[0])
 
 

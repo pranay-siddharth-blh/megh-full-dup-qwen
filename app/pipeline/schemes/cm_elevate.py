@@ -184,7 +184,7 @@ _CMELEVATELEGACY_ONLY_TERMS = Matcher(Alt(
 # sub-scheme word such as "piggery"), so generic money words are safe here.
 _CMELEVATELEGACY_FORCING = Matcher(Alt(
     W("disburs", "sanction", prefix=True), W("subsidy", "subsidies"), _cme_sg("loan", "grant"),
-    _cme_sg("amount"), "money", _cme_sg("fund", "rupee", "crore", "lakh"),
+    _cme_sg("amount"), "money", _cme_sg("fund", "rupee", "crore", "lakh"), W("expenditure", "spent", "spend"),
     # "Rs 500", "Rs. 500", "Rs500"
     Seq("rs", Pred(lambda w: is_int(w[:1]))), Pred(lambda w: w.lower().startswith("rs") and is_int(w[2:3])),
     "paid", _cme_sg("payment"), "released", "entitlement", W("utilisation", "utilization"),
@@ -203,12 +203,16 @@ _CMELEVATELEGACY_FORCING = Matcher(Alt(
         Pred(lambda w: 2 <= len(w) <= 4 and is_int(w)), sep="dash"),
     _cme_join("year", "wise"),
 ))
-# Vocabulary only the APPLICATIONS dataset holds. Any of these keeps a bare
-# "CM Elevate" on that dataset even when a money word is also present.
+# Vocabulary only the APPLICATIONS dataset holds: it keeps a bare "CM Elevate"
+# on that dataset when no money word is present (a money word wins, see
+# _cm_elevate_dataset_choice). A typed "CM-ELEVATE applications" is NOT here:
+# it was, and "What percentage of CM-ELEVATE applications have been
+# sanctioned?" was answered 80.63% from the applications data, which holds no
+# sanction (true 99.89%, CM Elevate Legacy sheet run 2026-10-22). Only the
+# dataset chip's marker "CM Elevate (applications)" names that dataset outright
+# (_CME_APPS_MARKER): the rephrase model turns a typed "CM-ELEVATE applications"
+# into "CM Elevate applications", so that spelling cannot mean "chosen".
 _CMELEVATE_APPLICATIONS_ONLY = Matcher(Alt(
-    # "CM Elevate applications": the applications dataset named outright (the
-    # dataset pause's chip sends the question in this form).
-    _cme_join("elevate", ("applications", "application")),
     _cme_join("on", "hold"), W("verif", "withdraw", prefix=True), Joined("data", "verified"),
     _cme_stem_joined("applicant", "categor"), Joined("application", "mode"), "online",
     _cme_stem_joined("cm", "connect"), Joined("current", "level"), Joined("file", "status"),
@@ -218,27 +222,41 @@ _CMELEVATE_APPLICATIONS_ONLY = Matcher(Alt(
 ))
 
 
-# Which CM Elevate dataset a bare "CM Elevate" means (user decision 2026-10-19,
-# replacing the 2026-10-12 default to Legacy): the two datasets share a name and
-# nothing else, so a bare name is never settled by guessing.
-#   1. Words only one dataset holds settle it: applications vocabulary (applicants,
-#      pending, status, level, "CM Elevate applications" …) -> the applications
-#      dataset; money / lender / sanction words alone -> see 3.
-#   2. Otherwise the CONVERSATION settles it: a thread already on CM Elevate
+# Which CM Elevate dataset a bare "CM Elevate" means (user decision 2026-10-22,
+# replacing the 2026-10-19 rule and the 2026-10-12 default to Legacy). The two
+# datasets share a name and nothing else; the 2026-10-19 rule sent "CM-ELEVATE
+# applications … sanctioned" to the applications data, which answered "8,840 not
+# sanctioned" (true 3) and "80.63% sanctioned" (true 99.89%) — CM Elevate
+# Legacy sheet run 2026-10-22. Now:
+#   1. FINANCIAL words (money, sanction, subsidy, loan, lender, disbursement,
+#      financial year …) -> CM Elevate Legacy directly, never asked: only Legacy
+#      holds money. This wins over everything below, the thread included.
+#   2. Words only the applications dataset holds (on hold, verification, status,
+#      pending, level N, sent back, sector, gender …) -> the applications dataset;
+#      Legacy cannot answer them, so asking would offer a dead end.
+#   3. Otherwise the CONVERSATION settles it: a thread already on CM Elevate
 #      Legacy stays there, one on CM Elevate (applications) stays there.
-#   3. Otherwise a data question ASKS — "CM Elevate or CM Elevate Legacy?" — even
-#      when it uses money words, because the user named CM Elevate and the money
-#      lives in Legacy: switching silently is exactly what was complained about.
+#   4. Otherwise a data question ASKS "CM Elevate applications or CM Elevate
+#      Legacy?" — "How many CM-ELEVATE applications in each district?" holds in
+#      both (applications, and Legacy's sanctioned records).
 # Knowledge questions ("what is CM Elevate?") are left alone: both datasets share
 # one knowledge base.
 _CME_APPLICATIONS_VOCAB = Matcher(Alt(
-    W("applicant", "applicants", "application", "applications", "pending", "pendency"),
+    W("pending", "pendency"),
     _cme_join("sent", "back"), _cme_join("send", "back"), "status",
-    _cme_level_digit(one_digit=True), W("forwarde", "forwarded", "rejected", "program", "programs")))
+    _cme_level_digit(one_digit=True), W("forwarde", "forwarded", "rejected")))
+# Words both datasets answer ("applicants", "applications"): a data request,
+# never a dataset choice — rule 4 asks.
+_CME_BOTH_DATASETS_VOCAB = Matcher(W("applicant", "applicants", "application", "applications",
+                                     "program", "programs", "programme", "programmes"))
+# "across all financial years", "for all the years", "all financial years combined"
+_CME_ALL_YEARS_SCOPE = Matcher(Seq(Opt(W("across", "for", "in", "over", "during")), "all", Opt("the"),
+                                   Opt("financial"), W("year", "years"), Opt("combined")))
 _CME_DATA_REQUEST = Matcher(Alt(
     "how many", "number of",
     W("count", "total", "each", "per", "wise", "compare", "summary", "show", "list", "highest", "lowest", "most",
       "top", "recorded", "mapped", "give", "breakdown", "records", "record"),
+    W("beneficiar", "comparison", prefix=True),
     _cme_sg("district", "block", "village"), W("constituenc", prefix=True)))
 _CME_DATASETS = ("CM Elevate", "CM Elevate Legacy")
 
@@ -248,12 +266,17 @@ def _cm_thread_scheme(prev, state=None, pending_question: "str | None" = None) -
     previous turn's single scheme; else the conversation state's active
     scheme; else the dataset named in a question that is paused for its
     year or area ("CM Elevate Legacy disbursement by district" -> "which
-    FY?" -> "give me for cm elevate in Ri Bhoi" stays on Legacy)."""
-    schemes = list(getattr(prev, "schemes", None) or [])
-    if len(schemes) == 1 and schemes[0] in _CME_DATASETS:
-        return schemes[0]
+    FY?" -> "give me for cm elevate in Ri Bhoi" stays on Legacy).
+    A KNOWLEDGE answer never settles the dataset: both datasets share one
+    knowledge base, and after "What is the CM-ELEVATE programme?" the next "How
+    many applications under CM-ELEVATE?" was answered 8,840 from the
+    applications data unasked (D-064, Legacy sheet one-chat run 2026-10-22)."""
+    if prev is not None and getattr(prev, "route", None) != "knowledge":
+        schemes = list(getattr(prev, "schemes", None) or [])
+        if len(schemes) == 1 and schemes[0] in _CME_DATASETS:
+            return schemes[0]
     active = getattr(state, "scheme", None)
-    if active in _CME_DATASETS:
+    if active in _CME_DATASETS and getattr(state, "last_route", None) != "knowledge":
         return active
     if pending_question:
         if _SCHEME_NAME_MATCHER["CM Elevate Legacy"].search(pending_question):
@@ -281,25 +304,54 @@ def _cm_switch_to_applications(question: str, thread_scheme: "str | None") -> bo
     return bool(_SCHEME_SWAP_FOLLOWUP.match(frag) or _scheme_substitution(q)[1])
 
 
-def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None) -> "str | None":
-    """For a question that names a bare "CM Elevate": "applications", "legacy",
-    or "ask". None when no bare CM Elevate is named (or Legacy is named
-    outright), and for a question with no data words at all."""
+def _names_cm_elevate(question: str) -> bool:
+    """A bare "CM Elevate", or a CM Elevate sub-scheme with no scheme named
+    ("How many applications are recorded under Meghalaya Piggery Development
+    Scheme?"): piggery, dairy, poultry … are in BOTH datasets, and the sub-scheme
+    alone was answered from the applications data (3,064 for a Legacy 1,353,
+    Legacy sheet TC-12, 2026-10-22)."""
     q = question or ""
-    if not q or _SCHEME_NAME_MATCHER["CM Elevate Legacy"].search(q) \
-            or not _SCHEME_NAME_MATCHER["CM Elevate"].search(q):
+    if _SCHEME_NAME_MATCHER["CM Elevate"].search(q):
+        return True
+    return not any(pat.search(q) for pat in _SCHEME_NAME_MATCHER.values()) \
+        and _infer_scheme_from_terms(q) == ["CM Elevate"]
+
+
+def _cme_name_dataset(question: str, target: str) -> str:
+    """The question with its bare "CM Elevate" replaced by `target` ("CM Elevate
+    Legacy" or the applications marker), or `target` appended when only a
+    sub-scheme names it — a chip must never repeat the question it answers."""
+    q = question or ""
+    name = _SCHEME_NAME_MATCHER["CM Elevate"]
+    if name.search(q):
+        return name.sub(target, q)
+    return f"{q.strip().rstrip(' ?.')} under {target}"
+
+
+def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None) -> "str | None":
+    """For a question that names a bare "CM Elevate" (or only a sub-scheme of
+    it): "applications", "legacy", or "ask". None when no bare CM Elevate is
+    named (or Legacy is named outright), and for a question with no data words
+    at all."""
+    q = question or ""
+    if not q or _SCHEME_NAME_MATCHER["CM Elevate Legacy"].search(q) or not _names_cm_elevate(q):
         return None
-    if _CMELEVATE_APPLICATIONS_ONLY.search(q):
+    # The dataset chip's own marker: the user chose the applications dataset.
+    if _CME_APPS_MARKER in q:
         return "applications"
-    legacy_words = bool(_CMELEVATELEGACY_FORCING.search(q) or _CMELEVATELEGACY_ONLY_TERMS.search(q))
-    apps_words = bool(_CME_APPLICATIONS_VOCAB.search(q))
-    if apps_words and not legacy_words:
+    # "across all financial years" is the scope wording the chips and rewrites
+    # append to any question; it is not a financial-year filter, so it never
+    # moves a question to Legacy (a typed "FY 2024-25" still does).
+    unscoped = _CME_ALL_YEARS_SCOPE.sub(" ", q)
+    if _CMELEVATELEGACY_FORCING.search(unscoped) or _CMELEVATELEGACY_ONLY_TERMS.search(unscoped):
+        return "legacy"
+    if _CMELEVATE_APPLICATIONS_ONLY.search(q) or _CME_APPLICATIONS_VOCAB.search(q):
         return "applications"
     if thread_scheme == "CM Elevate Legacy":
         return "legacy"
     if thread_scheme == "CM Elevate":
         return "applications"
-    if apps_words or legacy_words or _CME_DATA_REQUEST.search(q):
+    if _CME_BOTH_DATASETS_VOCAB.search(q) or _CME_DATA_REQUEST.search(q):
         return "ask"
     return None
 
@@ -307,21 +359,22 @@ def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None
 def _pin_cm_elevate_dataset(question: str, thread_scheme: "str | None" = None) -> str:
     """Settle a bare "CM Elevate" ONCE, on the question text, before routing —
     the same way a misspelled scheme name is corrected — so every later word
-    check sees one consistent dataset. Rewrites only when the conversation
-    settles it: "CM Elevate Legacy" for a Legacy thread, "CM Elevate
-    applications" for an applications thread whose words alone would have had
-    to ask. A question the words settle, or one that must ask, is returned
+    check sees one consistent dataset. Rewrites to "CM Elevate Legacy" when
+    the question's financial words or a Legacy thread settle it (the answer and
+    `rewritten_question` then say Legacy), and to "CM Elevate (applications)" for
+    an applications thread whose words alone would have had to ask. A question
+    its applications-only words settle, or one that must ask, is returned
     unchanged (the ask is raised in the data stage, _cm_elevate_dataset_pause).
     The rewritten question is returned to the user as `rewritten_question`."""
     q = question or ""
     choice = _cm_elevate_dataset_choice(q, thread_scheme)
     if choice == "legacy":
-        out = _SCHEME_NAME_MATCHER["CM Elevate"].sub("CM Elevate Legacy", q)
-        logger.info("CM Elevate dataset settled by the thread: Legacy %r -> %r", q, out)
+        out = _cme_name_dataset(q, "CM Elevate Legacy")
+        logger.info("CM Elevate dataset settled: Legacy %r -> %r", q, out)
         return out
     if choice == "applications" and thread_scheme == "CM Elevate" \
             and _cm_elevate_dataset_choice(q) == "ask":
-        out = _SCHEME_NAME_MATCHER["CM Elevate"].sub("CM Elevate applications", q)
+        out = _cme_name_dataset(q, _CME_APPS_MARKER)
         logger.info("CM Elevate dataset settled by the thread: applications %r -> %r", q, out)
         return out
     return q
@@ -333,25 +386,26 @@ def _cm_elevate_dataset_pause(question: str) -> "ClarificationNeeded | None":
     if _cm_elevate_dataset_choice(question) != "ask":
         return None
     stem = (question or "").strip().rstrip(" ?.")
-    name = _SCHEME_NAME_MATCHER["CM Elevate"]
     return ClarificationNeeded(
         "CM Elevate has two datasets — applications, and sanctions and disbursements "
         "(CM Elevate Legacy). Which one do you mean?",
-        options=[{"label": "CM Elevate (applications)", "question": name.sub("CM Elevate applications", stem)},
+        options=[{"label": "CM Elevate (applications)", "question": _cme_name_dataset(stem, _CME_APPS_MARKER)},
                  {"label": "CM Elevate Legacy (sanctions & disbursements)",
-                  "question": name.sub("CM Elevate Legacy", stem)}],
+                  "question": _cme_name_dataset(stem, "CM Elevate Legacy")}],
         rule="cm-elevate-dataset")
 
 
 def _unpin_cm_elevate(question: str) -> str:
     """Undo _pin_cm_elevate_dataset. The pin only ever writes "CM Elevate
-    Legacy" or "CM Elevate applications" into a question that named neither
+    Legacy" or "CM Elevate (applications)" into a question that named neither
     form itself, so every occurrence came from the pin and reverts cleanly."""
-    return _CME_PINNED_APPS.sub("CM Elevate", _CME_PINNED_NAME.sub("CM Elevate", question or ""))
+    return _CME_PINNED_NAME.sub("CM Elevate", (question or "").replace(_CME_APPS_MARKER, "CM Elevate"))
 
 
 _CME_PINNED_NAME = Matcher(W("CM", case=True), W("Elevate", case=True), W("Legacy", case=True), sep="space")
-_CME_PINNED_APPS = Matcher(W("CM", case=True), W("Elevate", case=True), W("applications", case=True), sep="space")
+# The applications dataset named by its chip (label and question alike); a literal,
+# compared with string methods (D-047).
+_CME_APPS_MARKER = "CM Elevate (applications)"
 
 
 # ════ answers ═════════════════════════════════════════════════════════════════════════════════════════
@@ -576,11 +630,15 @@ async def _cm_elevate_block_from_mention(mention: str, schemes: "list[str] | Non
     """The stored CM Elevate block a place mention names, when nothing else
     resolved it: an urban body ("Jowai-municipal Board", "Nongpoh TC") or the
     data's exact block spelling. Used before a mention is refused as outside
-    Meghalaya (KI-107). CM Elevate Legacy uses its own stored blocks."""
-    if schemes not in (["CM Elevate"], ["CM Elevate Legacy"]) or not mention:
+    Meghalaya (KI-107). CM Elevate Legacy uses its own stored blocks; Focus Plus
+    its block_name_raw values, the column its block filter reads (its lgd_block
+    spells one board twice, WILLIAMNAGAR- / WILLIAM NAGAR-MUNICIPAL BOARD, which
+    would make the board ambiguous — KI-361)."""
+    if schemes not in (["CM Elevate"], ["CM Elevate Legacy"], ["Focus Plus"]) or not mention:
         return None
     try:
-        data_blocks = await _cm_elevate_block_names(schemes[0])
+        data_blocks = sorted(await _focusplus_raw_block_names()) if schemes == ["Focus Plus"] \
+            else await _cm_elevate_block_names(schemes[0])
     except Exception:  # noqa: BLE001
         return None
     m = collapse_ws(str(mention))
@@ -630,7 +688,21 @@ _CME_SECTOR_VALUE_MATCH = Matcher(Cap(W("piggery", "poultry", "dairy", "goatery"
 _CME_SECTOR_EACH_MATCH = Matcher(Alt(Seq(W("each", "every", "all", "by", "per"), Opt("the"), _cme_sg("sector"), sep="space"),
                                   _cme_join(("sector", "sectors"), "wise")))
 _CME_PENDING_MATCH = Matcher(Alt("pending", _cme_join("on", "hold")))
-_CME_SECTOR_FACT_KINDS = ("count", "pending", "programmes")
+_CME_SECTOR_FACT_KINDS = ("count", "pending", "programmes", "workflow")
+# A WORKFLOW status the data does not hold (ingestion team, 2026-10-26): "pending",
+# "approved", "rejected" and "sent back" live in an internal API field the chatbot
+# cannot read; data_verified ('On Hold' …) is the data-verification check, a different
+# field. Answering 903 on-hold applications to "how many are pending?" gave a confident
+# number for a different question. Such a question gets "not recorded", then the
+# figures that ARE recorded, labelled (cme-sector-workflow below).
+_CME_WORKFLOW_WORD = Matcher(Cap(Alt(
+    W("pending", "pendency", "approved", "approval", "approvals", "rejected", "rejection", "rejections"),
+    Seq(W("sent", "send"), "back"), "sendback")))
+# …unless the question names a field that IS recorded: then the model path answers it.
+_CME_RECORDED_STATUS_WORD = Matcher(Alt(
+    _CME_ON_HOLD_ANYWHERE, Pred(lambda w: "verif" in w.lower()),
+    W("forward", "forwarded", "resubmit", "resubmitted", "valid", "invalid", "wrong", "vdv", "citizen"),
+    W("level", "levels", "stage", "stages"), _cme_level_digit(one_digit=False)))
 
 
 def _cme_sector_fact_kind(sql: "str | None") -> "str | None":
@@ -682,10 +754,47 @@ def _cme_named_programmes(question: str) -> list[str]:
     return [p for p, m in _CME_PROGRAMME_WORDS.items() if m.search(q)]
 
 
+def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str] | None":
+    """'how many applications are pending / approved / rejected / sent back' -> the
+    recorded figures instead (see _CME_WORKFLOW_WORD), in DISTINCT applications
+    (request_id: ingestion team 2026-10-26), with the question's place and programme."""
+    q = question or ""
+    if not _CME_WORKFLOW_WORD.search(q) or _CME_RECORDED_STATUS_WORD.search(q):
+        return None
+    where, params = [], []
+    for single, many, col in (("village_code", "village_code_list", "village_code"),
+                              ("block", "block_list", "lgd_block"),
+                              ("district", "district_list", "lgd_district")):
+        one, lst = resolved.get(single), resolved.get(many)
+        if lst:
+            params.append([str(x).upper() if col != "village_code" else str(x) for x in lst])
+            where.append(f"{col}{'::text' if col == 'village_code' else ''} = ANY(${len(params)}::text[])")
+        elif one not in (None, "") and not isinstance(one, (list, dict, tuple, set)):
+            params.append(str(one) if col == "village_code" else str(one).upper())
+            where.append(f"{col}{'::text' if col == 'village_code' else ''} = ${len(params)}")
+    if resolved.get("assembly_constituency"):
+        return None
+    progs = resolved.get("cm_scheme")
+    if progs:
+        params.append([progs] if isinstance(progs, str) else list(progs))
+        where.append(f"scheme_name = ANY(${len(params)}::text[])")
+    wh = (" WHERE " + " AND ".join(where)) if where else ""
+    sql = ("/* cme-sector-workflow */ SELECT "
+           "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS on_hold, "
+           "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'forward') AS forward, "
+           "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'resubmit') AS resubmit, "
+           "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'sendback to vdv/citizen') AS sendback, "
+           f"COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate{wh}")
+    return sql, params, sql
+
+
 def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tuple[str, list, str] | None":
     if schemes != ["CM Elevate"]:
         return None
     q = question or ""
+    _wf = _cme_workflow_query(q, resolved or {}) if not (_CME_SECTOR_EACH_MATCH.search(q)) else None
+    if _wf is not None:
+        return _wf
     m = _CME_SECTOR_VALUE_MATCH.search(q)
     progs = _cme_named_programmes(q)
     f = _cme_sector_filters(resolved or {}, "v." if progs else "")
@@ -769,9 +878,30 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
     if kind == "pending":
         items = [f"{r['sector']} {int(_as_number(r.get('pending_on_hold')) or 0):,}" for r in rows]
         total = sum(int(_as_number(r.get("pending_on_hold")) or 0) for r in rows)
-        return (f"Pending (verification on hold) CM Elevate applications by sector{where}: " + "; ".join(items)
+        # "pending" is not recorded (ingestion team 2026-10-26); the figures are the
+        # data-verification hold, labelled as such.
+        return ("The CM Elevate data doesn't record a \"pending\" status. Applications on hold at data "
+                f"verification, by sector{where}: " + "; ".join(items)
                 + f". Total {total:,}. Sector is recorded only on Poultry, Dairy and Goat Farming applications, "
                   "so most applications fall under (not recorded).")
+    if kind == "workflow" and rows:
+        r = rows[0]
+        n = {k: int(_as_number(r.get(k)) or 0) for k in ("on_hold", "forward", "resubmit", "sendback", "applications")}
+        m = _CME_WORKFLOW_WORD.search(question or "")
+        word = " ".join((m.group(1) if m else "pending").lower().split())
+        word = {"pendency": "pending", "approval": "approved", "approvals": "approved", "rejection": "rejected",
+                "rejections": "rejected", "send back": "sent back", "sendback": "sent back"}.get(word, word)
+        prog = (display or {}).get("cm_scheme")
+        scope = f"{where}" + (f" under {prog}" if prog else "")
+        out = (f"The CM Elevate data doesn't record a \"{word}\" status. What it does record{scope}: "
+               f"{n['on_hold']:,} application{'s' if n['on_hold'] != 1 else ''} "
+               f"{'are' if n['on_hold'] != 1 else 'is'} on hold at data verification, and by file status "
+               f"{n['forward']:,} {'are' if n['forward'] != 1 else 'is'} forward, {n['resubmit']:,} resubmit and "
+               f"{n['sendback']:,} sendback to vdv/citizen (of {n['applications']:,} applications).")
+        if word == "sent back":
+            out += (" The file status \"sendback to vdv/citizen\" is not the department's own Send Back decision, "
+                    "which the data does not hold.")
+        return out
     return None
 
 

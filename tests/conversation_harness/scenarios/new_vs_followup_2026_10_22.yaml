@@ -1,0 +1,411 @@
+# D-061 — "Context Memory: New Question = New Answer" (user addendum, 2026-10-22).
+# Every row of the addendum's section 5, plus the same rules in other words.
+# Context for every scenario: turn 1 is "MGNREGA person-days in East Khasi Hills in 2022-23".
+#   standalone (own scheme + own measure, no reference cue) -> inherits NOTHING: statewide
+#     unless it names a place; its own year, else the year chips (D-065; never the old
+#     year, never a silent latest FY); banner "(new question)".
+#   follow-up (reference cue or fragment) -> inherits only what it leaves out; the level it
+#     asks about and below are cleared.
+#   vague ("how many beneficiaries?") -> one topic: that topic; two or more: chips.
+# place_not / year_not keep the checks true whatever the latest FY is on the day of the run.
+
+# ── Standalone = new question ────────────────────────────────────────────────
+- name: NQ01_which_district_highest_same_scheme
+  doc: "The reported bug: 'Which district has the highest beneficiaries in MGNREGA?' is all districts, not EKH, not 2022-23; the old question stays restorable"
+  tags: [new_vs_followup, standalone, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23, new_question: false}
+    - say: "Which district has the highest beneficiaries in MGNREGA?"
+      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+    - say: "2024-25"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25, new_question: true}
+    - say: "Go back to the East Khasi Hills one"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23, from_earlier: true}
+
+- name: NQ02_same_scheme_own_year_is_statewide
+  doc: "'How many person-days in MGNREGA in 2022-23?' is statewide; same scheme is not a follow-up"
+  tags: [new_vs_followup, standalone, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "How many person-days in MGNREGA in 2022-23?"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2022-23, new_question: true}
+
+- name: NQ03_top_villages_statewide
+  doc: "'Top 5 villages by job cards in MGNREGA, 2024-25': all villages statewide"
+  tags: [new_vs_followup, standalone, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Top 5 villages by job cards in MGNREGA, 2024-25"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25, new_question: true}
+
+- name: NQ04_other_scheme_is_a_new_topic
+  doc: "'Total PMAY-G houses completed in 2023-24': PMAY-G statewide; its own follow-up continues IT, not EKH"
+  tags: [new_vs_followup, standalone, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Total PMAY-G houses completed in 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24, new_question: true}
+    - say: "And West Garo Hills?"
+      expect: {route: data, scheme: PMAY-G, place: West Garo Hills, year: FY 2023-24, new_question: false}
+    - say: "Go back to MGNREGA"
+      expect: {route: edge}
+    - say: "What about 2023-24?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24}
+
+- name: NQ05_two_schemes_named
+  doc: "'Which has more beneficiaries, MGNREGA or PMAY-G, in 2023-24?': two schemes, statewide, 2023-24"
+  tags: [new_vs_followup, standalone, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Which has more beneficiaries, MGNREGA or PMAY-G, in 2023-24?"
+      expect: {route: data, place_not: East Khasi Hills, year_not: FY 2022-23}
+
+- name: NQ06_hinglish_district_wise
+  doc: "'MGNREGA ka 2024-25 wala district-wise data batao': statewide by district, 2024-25"
+  tags: [new_vs_followup, standalone, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "MGNREGA ka 2024-25 wala district-wise data batao"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25}
+
+- name: NQ07_same_scheme_measure_only
+  doc: "'What is the total beneficiaries MGNREGA?' (a follow-up until 2026-10-18's rule was replaced): statewide, not 2022-23"
+  tags: [new_vs_followup, standalone, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "What is the total beneficiaries MGNREGA?"
+      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+    - say: "2024-25"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25, new_question: true}
+
+- name: NQ08_other_scheme_no_year
+  doc: "'how many households for PMAY-G' (D-056 carried EKH and 2022-23): statewide, the year asked (D-065)"
+  tags: [new_vs_followup, standalone, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "how many households for PMAY-G"
+      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+    - say: "2023-24"
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24, new_question: true}   # PMAY-G ends at 2023-24
+
+- name: NQ09_ranking_with_named_scheme
+  doc: "'Which block has the highest person-days in MGNREGA?' names its scheme: every block statewide"
+  tags: [new_vs_followup, standalone, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Which block has the highest person-days in MGNREGA?"
+      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+    - say: "2024-25"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25, new_question: true}
+
+- name: NQ10_measure_pins_scheme_with_own_year
+  doc: "'person-days in 2023-24': the measure pins MGNREGA and the year is its own -> statewide"
+  tags: [new_vs_followup, standalone, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "person-days in 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2023-24}
+
+- name: NQ11_own_place_not_old_year
+  doc: "'MGNREGA job cards in Ri Bhoi': its own place; the year is asked (D-065), never 2022-23"
+  tags: [new_vs_followup, standalone, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "MGNREGA job cards in Ri Bhoi"
+      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+    - say: "2024-25"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2024-25, new_question: true}
+
+- name: NQ12_district_wise_english
+  doc: "'show district-wise person-days for MGNREGA': statewide by district, the year asked (D-065)"
+  tags: [new_vs_followup, standalone, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "show district-wise person-days for MGNREGA"
+      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+    - say: "2024-25"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25, new_question: true}
+
+# ── Follow-up = inherit only what is missing ─────────────────────────────────
+- name: FU01_year_replaced
+  doc: "'What about 2023-24?': MGNREGA · EKH · 2023-24"
+  tags: [new_vs_followup, followup, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "What about 2023-24?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24, new_question: false}
+
+- name: FU02_place_replaced
+  doc: "'And West Garo Hills?': MGNREGA · WGH · 2022-23"
+  tags: [new_vs_followup, followup, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "And West Garo Hills?"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2022-23, new_question: false}
+
+- name: FU03_asked_level_cleared
+  doc: "'Which block is highest?': EKH kept, grouped by block, 2022-23"
+  tags: [new_vs_followup, followup, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Which block is highest?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+
+- name: FU04_statewide
+  doc: "'Show it statewide': whole place path cleared; scheme and year kept"
+  tags: [new_vs_followup, followup, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Show it statewide"
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2022-23}
+
+- name: FU05_bare_place_name
+  doc: "'Mawphlang?': a block and a constituency of the same name -> chips (gazetteer, D-059)"
+  tags: [new_vs_followup, followup, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Mawphlang?"
+      expect: {route: pause, chips_contain: ["Mawphlang"]}
+
+- name: FU06_compare_this_with_scheme
+  doc: "'Compare this with PMAY-G': two schemes, same place and year"
+  tags: [new_vs_followup, followup, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Compare this with PMAY-G"
+      expect: {route: data, place: East Khasi Hills, year: FY 2022-23}
+
+- name: FU07_compare_with_last_year
+  doc: "'Compare it with last year': same place; 2022-23 and the year before"
+  tags: [new_vs_followup, followup, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24}
+    - say: "Compare it with last year"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, answer_contains: ["2022-23"]}
+
+- name: FU08_same_for_other_scheme
+  doc: "'same for PMAY-G': the scheme swapped, place and year kept. PMAY-G holds no person-days, so it offers PMAY-G's measures for EKH 2022-23; a chip answers there"
+  tags: [new_vs_followup, followup, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "same for PMAY-G"
+      expect: {route: pause, pause_rule: swap-measure-unavailable, answer_contains: ["East Khasi Hills", "2022-23"]}
+    - say: "How many PMAY-G houses were sanctioned in East Khasi Hills in FY 2022-23"
+      expect: {route: data, scheme: PMAY-G, place: East Khasi Hills, year: FY 2022-23}
+
+- name: FU09_reference_there
+  doc: "'How many job cards there?': 'there' points at EKH"
+  tags: [new_vs_followup, followup, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "How many job cards there?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+
+- name: FU10_compare_with_scheme_short
+  doc: "'compare with pmay': one side named, the other is this turn"
+  tags: [new_vs_followup, followup, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "compare with pmay"
+      expect: {route: data, place: East Khasi Hills, year: FY 2022-23}
+
+# ── Vague = ask, don't guess ─────────────────────────────────────────────────
+- name: VG01_one_topic_uses_it
+  doc: "'How many beneficiaries?' with one topic: that topic and its scope, banner shows it"
+  tags: [new_vs_followup, vague, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "How many beneficiaries?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23, new_question: false}
+
+- name: VG02_two_topics_ask
+  doc: "'How many beneficiaries?' with MGNREGA and PMAY-G open: one chip per topic; the chip runs in that topic's scope"
+  tags: [new_vs_followup, vague, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Total PMAY-G houses completed in 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24}
+    - say: "How many beneficiaries?"
+      expect: {route: pause, pause_rule: topic-ambiguous, chips_contain: ["MGNREGA", "PMAY-G"]}
+    - say: "Go back to MGNREGA: How many beneficiaries?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+
+- name: VG03_measure_pins_scheme_no_scope
+  doc: "'how many job cards' (short, vague, MGNREGA's measure): the MGNREGA topic's scope"
+  tags: [new_vs_followup, vague, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "how many job cards"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+
+- name: VG04_vague_ranking_keeps_parent
+  doc: "'Which block has highest person-days?' (no scheme named): EKH's blocks, 2022-23 (KI-366 rule)"
+  tags: [new_vs_followup, vague, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Which block has highest person-days?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+
+# ── Out of scope, knowledge, backward, correction, reset, authorisation ──────
+- name: OS01_cricket_keeps_topic
+  doc: "'Who won the cricket match yesterday?': polite reply; the next follow-up still on MGNREGA EKH"
+  tags: [new_vs_followup, out_of_scope, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Who won the cricket match yesterday?"
+      expect: {route: edge}
+    - say: "What about 2023-24?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24}
+
+- name: OS02_thanks_keeps_topic
+  doc: "'Thanks' / 'hi': small talk; the next follow-up still uses the MGNREGA topic"
+  tags: [new_vs_followup, out_of_scope, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Thanks"
+      expect: {route: edge}
+    - say: "hi"
+      expect: {route: edge}
+    - say: "And 2024-25?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2024-25}
+
+- name: KN01_knowledge_keeps_filters
+  doc: "'What is MGNREGA?': documents; same scheme, so the topic and filters are kept for later"
+  tags: [new_vs_followup, knowledge, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "What is MGNREGA?"
+      expect: {route: knowledge}
+    - say: "What about 2023-24?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24}
+
+- name: BK01_backward_after_new_topic
+  doc: "'Go back to the East Khasi Hills one' after a new PMAY-G question: restored, banner '(from earlier)'"
+  tags: [new_vs_followup, backward, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Total PMAY-G houses completed in 2023-24"
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24}
+    - say: "Go back to the East Khasi Hills one"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23, from_earlier: true}
+
+- name: CR01_correction_edits_last_scope
+  doc: "'No, I meant 2023-24': the last scope with the year corrected"
+  tags: [new_vs_followup, correction, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "No, I meant 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24}
+
+- name: RS01_reset_forgets
+  doc: "'Start a new topic': state cleared; a bare 'What about 2023-24?' no longer means MGNREGA EKH"
+  tags: [new_vs_followup, reset, context]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "Start a new topic"
+      expect: {route: edge}
+    - say: "What about 2023-24?"
+      expect: {place_not: East Khasi Hills}
+
+- name: AU01_refused_scope_not_stored
+  doc: "District officer (West Garo Hills only): 'And South West Khasi Hills?' refused; the next follow-up stays on WGH"
+  tags: [new_vs_followup, auth, context]
+  account: wgh-officer
+  turns:
+    - say: "MGNREGA person-days in West Garo Hills in 2022-23"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2022-23}
+    - say: "And South West Khasi Hills?"
+      expect: {route: denied}
+    - say: "What about 2023-24?"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2023-24}
+
+# ── D-065 (user report 2026-10-22): a pause reply keeps the typed question's kind ──
+- name: NQ_D065_mairang_keeps_the_chats_years
+  doc: "'total disbursement amount for mairang?' names no scheme: through the place and whole-or-part chips it stays a follow-up and keeps all years (was 'FY 2025-26 (new question)')"
+  tags: [new_vs_followup, followup, context, user_reported]
+  account: superadmin
+  turns:
+    - say: "How many CM Elevate Legacy records are there in Meghalaya across all financial years?"
+      expect: {route: data, scheme: CM Elevate Legacy, place: all}
+    - say: "What is the total disbursement amount for mairang?"
+      expect: {route: pause, pause_rule: entity-ambiguous}
+    - say: "What is the total disbursement amount for mairang under CM Elevate Legacy, the assembly constituency, not another area type"
+      expect: {route: pause, pause_rule: ac-narrow-scope}
+    - say: "What is the total disbursement amount for mairang under CM Elevate Legacy, the assembly constituency, not another area type, the whole constituency"
+      expect: {route: data, scheme: CM Elevate Legacy, year_not: FY 2025-26, new_question: false, answer_contains: ["all financial years"]}
+
+- name: NQ_D065_new_question_asks_the_year
+  doc: "A new question naming its scheme and measure but no year, in a chat that has a year, is asked the year with chips (never the chat's year, never a silent latest FY)"
+  tags: [new_vs_followup, standalone, context, user_reported]
+  account: superadmin
+  turns:
+    - say: "How many CM Elevate Legacy records are there in Meghalaya across all financial years?"
+      expect: {route: data, scheme: CM Elevate Legacy, place: all}
+    - say: "What is the total MGNREGA expenditure in Ri Bhoi?"
+      expect: {route: pause, pause_rule: year-not-specified}
+    - say: "2023-24"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2023-24, new_question: true}

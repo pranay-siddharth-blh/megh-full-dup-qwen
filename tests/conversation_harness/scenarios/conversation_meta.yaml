@@ -28,9 +28,12 @@
   account: superadmin
   turns:
     - say: "how many houses are there in 2023-2024"
+      expect: {route: pause, pause_rule: scope-not-specified}
+      note: "D-056 (2026-10-21): a new chat with no place asks the district"
+    - say: "All of Meghalaya"
       expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24, numbers_any: [106527]}
     - say: "why are you not giving me district wise?"
-      expect: {route: data, same_scope_as: 1, answer_contains: ["Sorry", "WEST GARO HILLS"]}
+      expect: {route: data, same_scope_as: 2, answer_contains: ["Sorry", "WEST GARO HILLS"]}
     - say: "okay give me for East Khasi Hills"
       expect: {route: data, scheme: PMAY-G, place: East Khasi Hills, year: FY 2023-24, numbers_any: [17281]}
     - say: "that's wrong, I asked for completed houses"
@@ -44,6 +47,9 @@
   account: superadmin
   turns:
     - say: "how many houses are there in 2023-2024"
+      expect: {route: pause, pause_rule: scope-not-specified, chips_contain: ["East Khasi Hills", "All of Meghalaya"]}
+      note: "D-056 (2026-10-21): a new chat now asks the district itself"
+    - say: "All of Meghalaya"
       expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24}
     - say: "Okay, now for the above question, don't give all all of Meghalaya. Ask me a follow up question. I will say one district. What are the districts are there? Then I will choose one."
       expect: {route: pause, pause_rule: scope-not-specified, chips_contain: ["East Khasi Hills", "All of Meghalaya"], chips_min: 12}

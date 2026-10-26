@@ -689,23 +689,16 @@ sql_generation_examples:
 
 - question: Applications by region
   sql: |
-    SELECT CASE
-             WHEN lgd_district IN ('EAST GARO HILLS','NORTH GARO HILLS','SOUTH GARO HILLS',
-                                   'SOUTH WEST GARO HILLS','WEST GARO HILLS') THEN 'Garo Hills'
-             WHEN lgd_district IN ('EAST KHASI HILLS','EASTERN WEST KHASI HILLS',
-                                   'SOUTH WEST KHASI HILLS','WEST KHASI HILLS') THEN 'Khasi Hills'
-             WHEN lgd_district IN ('EAST JAINTIA HILLS','WEST JAINTIA HILLS') THEN 'Jaintia Hills'
-             WHEN lgd_district = 'RI BHOI' THEN 'Ri Bhoi'
-           END AS region,
-           COUNT(*) AS applications
+    SELECT region,
+           COUNT(DISTINCT request_id) AS applications
     FROM curated.v_cm_elevate
     GROUP BY region
     ORDER BY applications DESC;
   tables:
   - curated.v_cm_elevate
   note: >
-    THERE IS NO REGION COLUMN. This CASE is the resolver's grouping and the answer must
-    say so. Ri Bhoi is its own group and is never folded into Khasi Hills.
+    The view's region column (LGD master, ingestion team 2026-10-26) puts Ri Bhoi in Khasi; group by it, never a hand-made CASE and the answer must
+    say so. Khasi includes Ri Bhoi district; say so in the answer.
 
 - question: Which district has the widest scheme coverage?
   sql: |
@@ -1329,11 +1322,11 @@ sql_generation_examples:
 
 - question: How many CM Elevate applicants are associated with poultry sector?
   sql: |
-    SELECT COUNT(*) FILTER (WHERE scheme_specific ->> 'sector_id' ILIKE 'poultry')
+    SELECT COUNT(DISTINCT request_id) FILTER (WHERE sector_id ILIKE 'poultry')
              AS poultry_sector_applicants,
-           COUNT(*) FILTER (WHERE scheme_specific ->> 'sector_id' IS NOT NULL)
+           COUNT(DISTINCT request_id) FILTER (WHERE sector_id IS NOT NULL)
              AS sector_recorded,
-           COUNT(*) AS scheme_total
+           COUNT(DISTINCT request_id) AS scheme_total
     FROM curated.v_cm_elevate
     WHERE scheme_name = 'Meghalaya Poultry Farming Scheme';
   tables:
@@ -1359,11 +1352,11 @@ sql_generation_examples:
 - question: How many applicants under Piggery and Poultry are associated with poultry sector in Ri Bhoi?
   sql: |
     SELECT scheme_name,
-           COUNT(*) FILTER (WHERE scheme_specific ->> 'sector_id' ILIKE 'poultry')
+           COUNT(DISTINCT request_id) FILTER (WHERE sector_id ILIKE 'poultry')
              AS poultry_sector_applicants,
-           COUNT(*) FILTER (WHERE scheme_specific ->> 'sector_id' IS NOT NULL)
+           COUNT(DISTINCT request_id) FILTER (WHERE sector_id IS NOT NULL)
              AS sector_recorded,
-           COUNT(*) AS scheme_total
+           COUNT(DISTINCT request_id) AS scheme_total
     FROM curated.v_cm_elevate
     WHERE scheme_name IN ('Meghalaya Piggery Development Scheme',
                           'Meghalaya Poultry Farming Scheme')
@@ -1387,8 +1380,8 @@ sql_generation_examples:
 
 - question: How many CM Elevate applicants are associated with each poultry sector?
   sql: |
-    SELECT COALESCE(scheme_specific ->> 'sector_id', '(not recorded)') AS sector,
-           COUNT(*) AS applicants
+    SELECT COALESCE(sector_id, '(not recorded)') AS sector,
+           COUNT(DISTINCT request_id) AS applicants
     FROM curated.v_cm_elevate
     WHERE scheme_name = 'Meghalaya Poultry Farming Scheme'
     GROUP BY 1
@@ -1408,9 +1401,9 @@ sql_generation_examples:
 - question: Give me the applicant count and pendency status for Piggery, Poultry and Dairy in Ri Bhoi, broken down by sector.
   sql: |
     SELECT scheme_name,
-           COALESCE(scheme_specific ->> 'sector_id', '(not recorded)') AS sector,
-           COUNT(*) AS applicant_count,
-           COUNT(*) FILTER (WHERE data_verified = 'On Hold') AS pending_applications
+           COALESCE(sector_id, '(not recorded)') AS sector,
+           COUNT(DISTINCT request_id) AS applicant_count,
+           COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS on_hold_applications
     FROM curated.v_cm_elevate
     WHERE scheme_name IN ('Meghalaya Piggery Development Scheme',
                           'Meghalaya Poultry Farming Scheme',

@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NL2SQL Benchmark Report</title>
+<meta name="description" content="What a production LangGraph NL→SQL chatbot should have, which benchmarks matter, how Megh One AI measures against them, and where it falls short.">
+<style>
+/* One reading column with a sticky index on wide screens. Status is carried by a pill + word, never colour alone. */
+:root{
+  --bg:#f6f7f9; --paper:#ffffff; --ink:#17202a; --ink-2:#3f4b57; --ink-3:#5d6a77; --rule:#d8dee5; --tint:#edf1f5;
+  --accent:#1f5fa8; --accent-soft:#dde8f5;
+  --bad:#b3261e; --bad-bg:#fbe9e7; --warn:#a15c00; --warn-bg:#fdf0dc; --ok:#1d7a3e; --ok-bg:#e3f3e8; --na:#5d6a77; --na-bg:#eceff3;
+  --f-display:Georgia,"Times New Roman",serif;
+  --f-body:"Segoe UI",system-ui,-apple-system,sans-serif;
+  --f-mono:Consolas,"Courier New",monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#0f1418; --paper:#161d23; --ink:#e3e9ef; --ink-2:#b8c3cd; --ink-3:#93a0ad; --rule:#2a343d; --tint:#1c252d;
+  --accent:#7fb2ec; --accent-soft:#1d2f44;
+  --bad:#ff8a80; --bad-bg:#3a1d1b; --warn:#ffb867; --warn-bg:#3a2a14; --ok:#7fd69b; --ok-bg:#16301f; --na:#a7b3bf; --na-bg:#232c34;
+  color-scheme:dark;}}
+:root[data-theme="dark"]{
+  --bg:#0f1418; --paper:#161d23; --ink:#e3e9ef; --ink-2:#b8c3cd; --ink-3:#93a0ad; --rule:#2a343d; --tint:#1c252d;
+  --accent:#7fb2ec; --accent-soft:#1d2f44;
+  --bad:#ff8a80; --bad-bg:#3a1d1b; --warn:#ffb867; --warn-bg:#3a2a14; --ok:#7fd69b; --ok-bg:#16301f; --na:#a7b3bf; --na-bg:#232c34;
+  color-scheme:dark;}
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+@media (prefers-reduced-motion:reduce){html{scroll-behavior:auto}}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.6 var(--f-body);padding:0 16px 64px}
+.wrap{max-width:1180px;margin:0 auto;display:grid;grid-template-columns:210px minmax(0,1fr);gap:44px}
+@media (max-width:900px){.wrap{grid-template-columns:minmax(0,1fr);gap:0}.toc{display:none}}
+.toc{position:sticky;top:0;align-self:start;padding-top:40px;font-size:13px}
+.toc b{display:block;font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-3);margin-bottom:8px}
+.toc a{display:block;color:var(--ink-2);text-decoration:none;padding:4px 0 4px 10px;border-left:2px solid var(--rule)}
+.toc a:hover,.toc a:focus-visible{color:var(--accent);border-left-color:var(--accent)}
+main{min-width:0}
+header.top{padding:40px 0 24px;border-bottom:1px solid var(--rule)}
+.eyebrow{font-size:12px;letter-spacing:.09em;text-transform:uppercase;color:var(--accent);font-weight:600}
+h1{font-family:var(--f-display);font-size:clamp(28px,4.2vw,42px);line-height:1.15;margin:8px 0 12px;text-wrap:balance}
+h2{font-family:var(--f-display);font-size:25px;line-height:1.2;margin:0 0 6px;text-wrap:balance}
+h3{font-size:16px;margin:24px 0 8px}
+p{max-width:74ch;margin:0 0 12px}
+.meta{color:var(--ink-3);font-size:13px;display:flex;flex-wrap:wrap;gap:6px 18px}
+section{padding:40px 0 8px;border-bottom:1px solid var(--rule)}
+.lede{color:var(--ink-2);margin-bottom:18px}
+.verdict{margin-top:20px;background:var(--paper);border:1px solid var(--rule);border-left:4px solid var(--warn);padding:16px 20px;border-radius:4px}
+.verdict p:last-child{margin:0}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px;margin-top:20px}
+@media (max-width:720px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.kpi{background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:12px 14px;min-width:0}
+.kpi .v{font-family:var(--f-display);font-size:26px;font-weight:700;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi .l{font-size:12px;color:var(--ink-3);margin-top:4px}
+.kpi.good .v{color:var(--ok)} .kpi.warn .v{color:var(--warn)} .kpi.bad .v{color:var(--bad)}
+.tbl{overflow-x:auto;border:1px solid var(--rule);border-radius:4px;background:var(--paper);margin:8px 0 16px}
+table{border-collapse:collapse;width:100%;font-size:14px}
+th,td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--rule);vertical-align:top}
+th{font-size:11.5px;letter-spacing:.06em;text-transform:uppercase;color:var(--ink-3);font-weight:600;background:var(--tint)}
+tr:last-child td{border-bottom:0}
+td.grp{background:var(--tint);font-weight:600;font-size:13px;color:var(--ink-2)}
+code{font-family:var(--f-mono);font-size:12.5px;background:var(--tint);padding:1px 5px;border-radius:3px;word-break:break-word}
+.pill{display:inline-block;font-size:11px;font-weight:700;letter-spacing:.04em;padding:2px 8px;border-radius:999px;white-space:nowrap;text-transform:uppercase}
+.ok{color:var(--ok);background:var(--ok-bg)} .pt{color:var(--warn);background:var(--warn-bg)}
+.no{color:var(--bad);background:var(--bad-bg)} .na{color:var(--na);background:var(--na-bg)}
+.meter{display:flex;align-items:center;gap:8px;min-width:150px}
+.meter .track{flex:1;height:8px;border-radius:999px;background:var(--rule);position:relative;overflow:hidden;max-width:160px}
+.meter .fill{position:absolute;inset:0 auto 0 0;border-radius:999px}
+.meter .fill.ok{background:var(--ok)} .meter .fill.pt{background:var(--warn)} .meter .fill.no{background:var(--bad)}
+.meter span{font-variant-numeric:tabular-nums;font-size:13px;white-space:nowrap}
+.gaps{display:flex;flex-direction:column;gap:10px}
+.g{background:var(--paper);border:1px solid var(--rule);border-left:4px solid var(--warn);border-radius:4px;padding:14px 18px}
+.g.bad{border-left-color:var(--bad)}
+.g .h{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 10px;margin-bottom:6px}
+.g .h strong{font-size:15.5px}
+.g dl{display:grid;grid-template-columns:110px minmax(0,1fr);gap:4px 12px;margin:6px 0 0;font-size:14px}
+.g dt{color:var(--ink-3);font-size:12px;letter-spacing:.04em;text-transform:uppercase;padding-top:2px}
+.g dd{margin:0;min-width:0}
+@media (max-width:520px){.g dl{grid-template-columns:minmax(0,1fr)}}
+.plan{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.plan>div{background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:14px 18px;min-width:0}
+.plan h3{margin:0 0 8px;font-size:15px}
+.plan ol{margin:0;padding-left:20px}.plan li{margin-bottom:6px}
+ul.tight{margin:0 0 12px;padding-left:20px}ul.tight li{margin-bottom:4px;max-width:80ch}
+.flow{font-family:var(--f-mono);font-size:12.5px;background:var(--paper);border:1px solid var(--rule);border-radius:4px;padding:12px 14px;overflow-x:auto;white-space:pre;line-height:1.5}
+.note{font-size:13px;color:var(--ink-3)}
+.foot{color:var(--ink-3);font-size:13px;padding-top:24px}
+a{color:var(--accent)}
+a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+</style>
+</head>
+<body>
+<div class="wrap">
+<nav class="toc" aria-label="Contents">
+  <b>Contents</b>
+  <a href="#verdict">Verdict</a>
+  <a href="#features">Features a chatbot needs</a>
+  <a href="#langgraph">LangGraph-specific</a>
+  <a href="#benchmarks">Benchmarks that matter</a>
+  <a href="#scorecard">Our scorecard</a>
+  <a href="#schemes">Per-scheme results</a>
+  <a href="#gaps">Where we lack</a>
+  <a href="#roadmap">Roadmap</a>
+  <a href="#method">Sources &amp; method</a>
+</nav>
+<main>
+<header class="top">
+  <div class="eyebrow">Benchmark &amp; gap report · Megh One AI</div>
+  <h1>Megh One AI's LangGraph NL→SQL chatbot: required features, benchmarks and gaps</h1>
+  <div class="meta">
+    <span>Date: 23 Oct 2026</span>
+    <span>Branch: <code>update/2026-10-22</code> @ <code>6c95632</code> + uncommitted work</span>
+    <span>Scope: 6 scheme datasets, <code>megh_db.curated</code>, LangGraph orchestrator</span>
+  </div>
+
+  <div class="verdict" id="verdict">
+    <p><strong>Short answer:</strong> we have built most of what a production NL→SQL chatbot needs. When the bot gives a
+    figure, it is almost always correct. In the 23 Oct audit, every figure in about 110 live answers matched the database.
+    On the 74-question held-out set, accuracy was 97.3%.</p>
+    <p>We fall short in four places:</p>
+    <ul class="tight">
+      <li><strong>Understanding real officers' wording.</strong> Testers' own phrasing scores 79–93% on the weakest sheets.</li>
+      <li><strong>Speed under load.</strong> Answers take 10–24 s with only 4 users at once.</li>
+      <li><strong>Measuring accuracy on every change.</strong> Two large accuracy drops reached the code while every unit test stayed green.</li>
+      <li><strong>Least-privilege data access.</strong> Model-written SQL runs as the main database login.</li>
+    </ul>
+    <p>The common cause is that question understanding is ~3,500 hand-written phrase rules instead of one structured
+    query-analysis step.</p>
+  </div>
+
+  <div class="kpis">
+    <div class="kpi good"><div class="v">97.3%</div><div class="l">Execution accuracy, held-out set (74 Qs, 18 Oct)</div></div>
+    <div class="kpi good"><div class="v">100%</div><div class="l">Figures shown that matched the DB (≈110 live Qs, 23 Oct)</div></div>
+    <div class="kpi warn"><div class="v">78–93%</div><div class="l">Testers' own wording, weakest sheets</div></div>
+    <div class="kpi bad"><div class="v">10–24 s</div><div class="l">Data answer latency with 4 concurrent users</div></div>
+    <div class="kpi good"><div class="v">97.6%</div><div class="l">Multi-turn turns passed (410/420, harness)</div></div>
+    <div class="kpi warn"><div class="v">≈48</div><div class="l">Open bot-side issues (KNOWN_ISSUES)</div></div>
+    <div class="kpi bad"><div class="v">0</div><div class="l">Accuracy benchmarks gating each change (manual only)</div></div>
+    <div class="kpi good"><div class="v">3,650 / 0</div><div class="l">pytest passed / failed (+14/14 scripts)</div></div>
+  </div>
+</header>
+
+<section id="features">
+  <h2>1. Features a production NL→SQL chatbot should have</h2>
+  <p class="lede">This checklist combines common industry practice for NL→SQL assistants with what a government analytics
+  bot needs. Each status was checked against the repository. <span class="pill ok">Have</span> means it is built and
+  verified. <span class="pill pt">Partial</span> means it exists but is incomplete or has open issues.
+  <span class="pill no">Missing</span> means it is not built.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Feature</th><th>Why it matters</th><th>Status</th><th>Our evidence</th></tr></thead>
+    <tbody>
+      <tr><td colspan="4" class="grp">A. Understanding the question</td></tr>
+      <tr><td>Intent routing (data / knowledge / chit-chat / abuse)</td><td>Not every question needs SQL</td><td><span class="pill ok">Have</span></td><td>Regex-free edge layer + 4B classifier; KNOWLEDGE → RAG</td></tr>
+      <tr><td>Entity resolution (place, scheme, year, metric)</td><td>Most wrong answers start with a misread filter</td><td><span class="pill pt">Partial</span></td><td><code>resolve_entities</code>, LGD place registry. Still open: "FY24" is read as 2024-25; "Demdema block" resolves to the village (KI-368)</td></tr>
+      <tr><td>Structured query analysis (one typed plan: scheme, metric, level, place, period, top-N, shape)</td><td>One source of truth for what was asked. This removes most wording sensitivity</td><td><span class="pill no">Missing</span></td><td>Spread over ~3,500 phrase rules in 36 files. The superlative word lists disagree in 3 places (audit). <code>query_analyzer</code> was never built (LANGGRAPH_ARCHITECTURE §2)</td></tr>
+      <tr><td>Ambiguity handling and clarification</td><td>Asking is better than guessing</td><td><span class="pill ok">Have</span></td><td>Chips and <code>interrupt()</code> pauses; Focus and CM Elevate collisions are never guessed. Over-asking is not measured</td></tr>
+      <tr><td>Multilingual / voice input</td><td>Field officers</td><td><span class="pill pt">Partial</span></td><td>Khasi and Garo by translation (<code>translate.py</code>); ASR with a no-speech guard. Hinglish works in places (KI-396 open)</td></tr>
+      <tr><td colspan="4" class="grp">B. Schema knowledge and grounding</td></tr>
+      <tr><td>Schema context and a metric catalogue (semantic layer)</td><td>The model must know what columns <em>mean</em></td><td><span class="pill pt">Partial</span></td><td><code>schema_context.py</code> + per-scheme SME YAMLs. The metric definitions live in prompts and YAML, not in one governed catalogue</td></tr>
+      <tr><td>Retrieved few-shot examples</td><td>The biggest single accuracy lever</td><td><span class="pill ok">Have</span></td><td>Per-scheme banks ranked by IDF (<code>annotations.few_shot_examples</code>)</td></tr>
+      <tr><td>Schema / column retrieval node</td><td>Smaller prompts and fewer distractor columns</td><td><span class="pill pt">Partial</span></td><td>Done inside <code>generate_sql</code>; no separate node, so it cannot be traced or tested alone</td></tr>
+      <tr><td>Value grounding (column values, codes)</td><td>Stops invented filters</td><td><span class="pill pt">Partial</span></td><td>Village registry and value lists exist. The model still copies a YAML example id as a filter (KI-372)</td></tr>
+      <tr><td colspan="4" class="grp">C. SQL generation, safety and execution</td></tr>
+      <tr><td>Dedicated SQL model and SQL verifier</td><td>Catches wrong joins and filters before execution</td><td><span class="pill ok">Have</span></td><td>30B coder generates; the 30B verifier checks. It sometimes rejects correct SQL (KI-002)</td></tr>
+      <tr><td>Self-repair loop on errors</td><td>Recovers from SQL errors</td><td><span class="pill ok">Have</span></td><td>Up to 3 repairs; every repaired SQL is re-authorised (D-033)</td></tr>
+      <tr><td>AST-level SQL guard (no regex)</td><td>Single statement, read-only, blocked tables, row cap</td><td><span class="pill ok">Have</span></td><td>SQLGlot through <code>sql_ast.py</code>; <code>run_readonly()</code>, auto LIMIT 1000, READ ONLY transaction</td></tr>
+      <tr><td>Least-privilege DB role</td><td>Defence in depth if a guard is bypassed</td><td><span class="pill no">Missing</span></td><td><code>READONLY_DATABASE_URL</code> is unset and superuser is allowed (KI-004, KI-304)</td></tr>
+      <tr><td>Row-level access control by officer level</td><td>A block officer should see only their block</td><td><span class="pill ok">Have</span></td><td><code>auth.authorize</code> on every SQL. Policy question: <code>state_officer</code> is capped at district level</td></tr>
+      <tr><td>Deterministic code for fixed-shape and cross-scheme figures</td><td>Known questions should not depend on sampling</td><td><span class="pill ok">Have</span></td><td>Fixed MGNREGA / PMAY-G queries; <code>cross_figures.py</code> (D-066)</td></tr>
+      <tr><td colspan="4" class="grp">D. Answering</td></tr>
+      <tr><td>Numeric faithfulness guard</td><td>The bot must never state a number that is not in the result</td><td><span class="pill ok">Have</span></td><td><code>compose_response</code> checks; 100% of figures matched the DB in the audit</td></tr>
+      <tr><td>Answer shape follows the question (ranking / compare / trend …)</td><td>"Top 5" and "compare" need different answers</td><td><span class="pill pt">Partial</span></td><td>D-063, phase 1. The fixed per-scheme answers still use old text</td></tr>
+      <tr><td>Consistent units and number format</td><td>Officers compare answers side by side</td><td><span class="pill no">Missing</span></td><td>The same figure appears as ₹5,237,500.00 or as ₹0.52 crore; grouping mixes Indian and Western styles</td></tr>
+      <tr><td>Transparency (show the SQL, data notes, sources)</td><td>Trust and auditability</td><td><span class="pill ok">Have</span></td><td>"SQL query used" disclosure, data notes, RAG citations</td></tr>
+      <tr><td>Charts, tables, export</td><td>Analysts reuse the output</td><td><span class="pill pt">Partial</span></td><td>Charts, sortable table and Excel export exist. A NULL is drawn as 0, the compare card mixes measures, phone cards cut numbers off</td></tr>
+      <tr><td>Suggested follow-ups</td><td>Discoverability</td><td><span class="pill ok">Have</span></td><td><code>followups.py</code>, built from the SQL's own entities</td></tr>
+      <tr><td colspan="4" class="grp">E. Conversation</td></tr>
+      <tr><td>Follow-up rewriting with structured context</td><td>"and in 2022-23?" must keep the earlier filters</td><td><span class="pill ok">Have</span></td><td>D-022 / D-024 / D-061 / D-065, provenance-checked. Harness: 410/420 turns</td></tr>
+      <tr><td>Durable conversation state</td><td>Several workers and VMs serve the same chat</td><td><span class="pill ok">Have</span></td><td>Postgres <code>context_state</code>, versioned (D-023)</td></tr>
+      <tr><td colspan="4" class="grp">F. Quality, operations and governance</td></tr>
+      <tr><td>Golden-set accuracy benchmark that gates every change</td><td>The only real proof of NL→SQL accuracy</td><td><span class="pill pt">Partial</span></td><td><code>tests/nl2sql_eval</code> exists (74 items, held out) but is run by hand; last full run 18 Oct</td></tr>
+      <tr><td>Paraphrase and robustness suite</td><td>Officers do not type the canonical wording</td><td><span class="pill pt">Partial</span></td><td>Done ad hoc in sheet runs and the audit; not an automated suite</td></tr>
+      <tr><td>Tracing (question → nodes → SQL → answer)</td><td>Debugging and audit</td><td><span class="pill pt">Partial</span></td><td>Node logs carry <code>request_id</code>. A failed attempt's SQL is not logged (KI-003). No trace viewer</td></tr>
+      <tr><td>User feedback that flows into evals</td><td>Real failures become test items</td><td><span class="pill pt">Partial</span></td><td>👍/👎 is stored with the question and answer. Nothing turns 👎 into eval items</td></tr>
+      <tr><td>Caching</td><td>Latency and cost</td><td><span class="pill pt">Partial</span></td><td>Exact and semantic caches (cosine 0.93), per worker only; no shared cache</td></tr>
+      <tr><td>Latency and concurrency budget</td><td>Officers abandon slow tools</td><td><span class="pill no">Missing</span></td><td>No p95 target is enforced; latency rises 3–4× at 4 users</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="langgraph">
+  <h2>2. What a LangGraph NL→SQL pipeline specifically should have</h2>
+  <p class="lede">LangGraph adds explicit state, branching, pausing and checkpointing to a pipeline. A mature NL→SQL graph
+  uses all of them, and keeps business logic out of the graph wiring.</p>
+  <div class="flow" role="img" aria-label="Our 21-node graph: context, edge, followup, route, then knowledge or the data branch with scope, entities, clarification, deterministic, SQL generate, authorize, execute and repair loop, post rows, compose, guarantees, assemble, finalize, context update. Clarification goes to a pause gate.">START → context → edge → followup → route ─KNOWLEDGE→ knowledge ──────────────────────┐
+                                        └─DATA→ data_context → scope_scheme → entities  │
+   → clarification_gate → deterministic → sql_generate → authorize                       │
+   → execute_attempt ─error→ repair ─→ execute_attempt   (≤ 3 repairs, re-authorised)     │
+          └─rows→ post_rows → compose → guarantees → assemble ────────────────────────────┤
+   any node: ClarificationNeeded → pause_gate [interrupt()] ─resume→ context              │
+                                                         finalize → context_update → END</div>
+  <div class="tbl"><table>
+    <thead><tr><th>LangGraph capability</th><th>Status</th><th>How we use it / what is missing</th></tr></thead>
+    <tbody>
+      <tr><td>Typed graph state, plain-data, serialisable</td><td><span class="pill ok">Have</span></td><td><code>MeghalayaGraphState</code>; <code>Decimal</code> and dates round-trip exactly; fresh state every turn</td></tr>
+      <tr><td>Thin nodes, logic in stages</td><td><span class="pill ok">Have</span></td><td>21 nodes wrap stage functions; LangGraph is the only orchestrator (D-032, D-036)</td></tr>
+      <tr><td>Conditional edges + bounded repair loop</td><td><span class="pill ok">Have</span></td><td><code>execute_attempt ⇄ repair</code>, capped by <code>MAX_SQL_REPAIRS</code></td></tr>
+      <tr><td>Human-in-the-loop with <code>interrupt()</code> / resume</td><td><span class="pill ok">Have</span></td><td>Clarification chips pause the graph. A resume authorises with the resuming request's scope</td></tr>
+      <tr><td>Durable checkpointer shared across workers</td><td><span class="pill ok">Have</span></td><td>Postgres checkpointer in <code>app.*</code>; only paused threads are kept, swept after a TTL</td></tr>
+      <tr><td>Streaming</td><td><span class="pill pt">Partial</span></td><td>SSE draft text with checks on the full answer (D-039). There are no per-node progress events, such as "understanding… writing SQL… checking…"</td></tr>
+      <tr><td>Parallel fan-out (<code>Send</code> / map-reduce) for multi-scheme work</td><td><span class="pill pt">Partial</span></td><td>Cross-scheme sub-questions run in parallel with <code>asyncio.gather</code> inside one stage. That fan-out is invisible to graph tracing and checkpointing</td></tr>
+      <tr><td>Query-analysis node producing a validated plan</td><td><span class="pill no">Missing</span></td><td>No <code>query_analyzer</code> node; understanding is scattered across rule files</td></tr>
+      <tr><td>Schema-retrieval node</td><td><span class="pill no">Missing</span></td><td>Happens inside <code>generate_sql</code></td></tr>
+      <tr><td>Node-level retry and timeout policy</td><td><span class="pill no">Missing</span></td><td>No <code>RetryPolicy</code>; the worst-case chain (4 × generate + verify) can pass the 60 s limit (KI-013)</td></tr>
+      <tr><td>Per-scheme subgraphs</td><td><span class="pill na">Optional</span></td><td>Scheme rules live in <code>schemes/*.py</code> and are called from shared stages. That is acceptable at this size</td></tr>
+      <tr><td>Graph-level tracing and evaluation (e.g. LangSmith-style traces and datasets)</td><td><span class="pill pt">Partial</span></td><td><code>pipeline_graph_node</code> / <code>pipeline_graph_run</code> log lines only. Nothing links a trace to an eval item</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="benchmarks">
+  <h2>3. Which benchmarks matter, and what "good" looks like</h2>
+  <p class="lede">Public NL→SQL benchmarks measure <strong>execution accuracy (EX)</strong>: does the generated SQL return
+  the same result as the gold SQL? They are useful reference points. They are <em>not</em> directly comparable with us,
+  because our database, domain and question style are our own.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Public benchmark</th><th>What it tests</th><th>Reference level (approximate)</th><th>Relevance to us</th></tr></thead>
+    <tbody>
+      <tr><td>Spider 1.0</td><td>Cross-domain SQL over ~200 small databases</td><td>Top systems ≈ high-80s to ~90% EX</td><td>Low. Clean schemas, single-turn</td></tr>
+      <tr><td>BIRD</td><td>Large, dirty, real-world databases; external knowledge; efficiency</td><td>Human ≈ 93% EX; leading systems roughly mid-70s to ~80%</td><td>High. Dirty data and domain knowledge, like ours</td></tr>
+      <tr><td>Spider 2.0</td><td>Enterprise warehouses and multi-step agentic workflows</td><td>Much harder; the best agents score well below Spider 1.0 levels</td><td>Medium. Shows how hard enterprise NL→SQL is</td></tr>
+      <tr><td>SParC / CoSQL</td><td>Multi-turn, context-dependent SQL; clarification</td><td>Question-level EX well below single-turn scores</td><td>High. Follow-ups are our main use pattern</td></tr>
+      <tr><td>Dr.Spider and similar robustness sets</td><td>Paraphrase, typo and synonym perturbations</td><td>Accuracy typically drops noticeably under perturbation</td><td>Very high. This is our main weakness</td></tr>
+    </tbody>
+  </table></div>
+  <p class="note">The figures above are approximate and come from public leaderboards up to mid-2026. Check the current
+  leaderboard before you quote them.</p>
+  <h3>Benchmarks a production chatbot should track (our proposed targets)</h3>
+  <p>A government analytics bot is judged less on leaderboard EX and more on these questions: <em>Is any number it shows
+  ever wrong? Does a different wording give the same answer? Is it fast enough? Is it safe?</em> The targets below come
+  from those questions and from the project's design load of 20–40 concurrent users.</p>
+</section>
+
+<section id="scorecard">
+  <h2>4. Scorecard: target vs. what we measure today</h2>
+  <p class="lede">Every "ours" figure comes from a repository test run or report, cited in the last column.</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Benchmark</th><th>Target</th><th>Ours</th><th>Status</th><th>Source</th></tr></thead>
+    <tbody>
+      <tr><td><strong>Execution accuracy</strong>, held-out gold set</td><td>≥ 90% on ≥ 300 items, every change</td>
+        <td><div class="meter"><div class="track"><div class="fill ok" style="width:97.3%"></div></div><span>97.3% (72/74)</span></div></td>
+        <td><span class="pill pt">Partial</span></td><td>Good score, but only 74 items, last full run 18 Oct, and 7 behaviour decisions since (D-060..066). <code>tests/nl2sql_eval/results</code></td></tr>
+      <tr><td><strong>Wrong-number rate</strong> (shown figure ≠ DB)</td><td>0</td>
+        <td><div class="meter"><div class="track"><div class="fill ok" style="width:100%"></div></div><span>0 in ≈110 Qs</span></div></td>
+        <td><span class="pill pt">Partial</span></td><td>Known intermittent wrong figures: KI-354 (1 in 7), KI-362 (1 in 20), KI-353. No seed is sent to vLLM</td></tr>
+      <tr><td><strong>Paraphrase robustness</strong>, auditor's wordings</td><td>≥ 95%</td>
+        <td><div class="meter"><div class="track"><div class="fill ok" style="width:100%"></div></div><span>41/41</span></div></td>
+        <td><span class="pill ok">Meets</span></td><td>8 facts × 5–6 wordings, incl. typos and Hinglish (audit 23 Oct)</td></tr>
+      <tr><td><strong>Testers' own wording</strong>, CM Elevate Legacy</td><td>≥ 95%</td>
+        <td><div class="meter"><div class="track"><div class="fill pt" style="width:88.9%"></div></div><span>88.9% (96/108)</span></div></td>
+        <td><span class="pill no">Below</span></td><td>Canonical wording 300/300. The 12 misses are "which schemes…" questions with no scheme named</td></tr>
+      <tr><td><strong>Testers' own wording</strong>, Focus Plus</td><td>≥ 95%</td>
+        <td><div class="meter"><div class="track"><div class="fill pt" style="width:92.9%"></div></div><span>92.9% (79/85)</span></div></td>
+        <td><span class="pill no">Below</span></td><td>Canonical wording 161/163 (audit)</td></tr>
+      <tr><td><strong>Cross-scheme</strong> figures vs DB</td><td>≥ 95%</td>
+        <td><div class="meter"><div class="track"><div class="fill ok" style="width:98.3%"></div></div><span>98.3% (59/60)</span></div></td>
+        <td><span class="pill ok">Meets</span></td><td>Was 17/60 before D-066. Against the raw files it is 47/60 (78%); the 13 differences are ingestion-team data issues (KI-393)</td></tr>
+      <tr><td><strong>Determinism</strong> (same question, same answer)</td><td>≥ 99%</td>
+        <td><div class="meter"><div class="track"><div class="fill ok" style="width:100%"></div></div><span>27/27</span></div></td>
+        <td><span class="pill pt">Partial</span></td><td>Sample too small to catch 1-in-20 events; see the wrong-number row</td></tr>
+      <tr><td><strong>Multi-turn context</strong></td><td>≥ 95% of turns</td>
+        <td><div class="meter"><div class="track"><div class="fill ok" style="width:97.6%"></div></div><span>97.6% (410/420)</span></div></td>
+        <td><span class="pill ok">Meets</span></td><td>Conversation harness over HTTP, 136/139 scenarios (22 Oct); live context suite 43/43</td></tr>
+      <tr><td><strong>Ranking wording</strong> (top N, lowest, "five highest")</td><td>≥ 95%</td>
+        <td><div class="meter"><div class="track"><div class="fill pt" style="width:92.3%"></div></div><span>12/13</span></div></td>
+        <td><span class="pill pt">Partial</span></td><td>"Five highest" asks for N because only digits are read. AC rankings 35/42 in the MGNREGA matrix (KI-352)</td></tr>
+      <tr><td><strong>Clarification precision</strong> (asks only when ambiguous)</td><td>Over-ask ≤ 5%</td>
+        <td><span class="pill na">Not measured</span></td>
+        <td><span class="pill no">Missing</span></td><td>Over-asks seen in the audit: "five highest", "in 2023" with no chips</td></tr>
+      <tr><td><strong>Latency</strong>, simple data question</td><td>p50 ≤ 3 s, p95 ≤ 8 s at 20–40 users</td>
+        <td><div class="meter"><div class="track"><div class="fill no" style="width:30%"></div></div><span>3.3–5.8 s (1 user); 10–24 s (4 users)</span></div></td>
+        <td><span class="pill no">Below</span></td><td>4–6 sequential model calls per question queue at one gateway. Cross-scheme takes 10–40 s</td></tr>
+      <tr><td><strong>Timeout / error rate</strong></td><td>≤ 1%</td>
+        <td><span class="pill na">Unknown</span></td>
+        <td><span class="pill no">Missing</span></td><td><code>/metrics</code> has the counters, but no load test reports them. The UI cuts answers off at 75 s</td></tr>
+      <tr><td><strong>SQL safety</strong></td><td>AST guard + least-privilege role</td>
+        <td><span>AST guard: yes · RO role: no</span></td>
+        <td><span class="pill pt">Partial</span></td><td>KI-004 / KI-304</td></tr>
+      <tr><td><strong>Regression gate</strong></td><td>Accuracy suite blocks a merge on regression</td>
+        <td><span>3,650 unit tests; no accuracy gate</span></td>
+        <td><span class="pill no">Missing</span></td><td>Focus Legacy constituencies fell 55/55 → 11/55, and CM Elevate Legacy fell 300 → 179, with every test green</td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="schemes">
+  <h2>5. Per-scheme results from the latest sheet runs</h2>
+  <p class="lede">Testers' use-case sheets were run live against the read-only DB after each fix session (21–22 Oct).</p>
+  <div class="tbl"><table>
+    <thead><tr><th>Scheme</th><th>Best result</th><th>Still failing</th><th>Report</th></tr></thead>
+    <tbody>
+      <tr><td>MGNREGA</td><td>Sweep 782/783; direct figures in the metric × level matrix 270/270</td><td>Constituency rankings 35/42 (KI-352); expenditure by constituency (KI-353); "FY24"</td><td><code>MGNREGA_Test_Report_2026-10-21.md</code></td></tr>
+      <tr><td>PMAY-G</td><td>Villages 24/24, year formats 30/30, comparisons 58/58</td><td>3 use cases: OFF-019 0/12, OFF-016 9/12, OFF-012 47/56 (bare block names)</td><td><code>PMAY-G_Test_Report_2026-10-22.md</code></td></tr>
+      <tr><td>Focus Plus</td><td>Most use cases pass on every variant</td><td>FOCUS-002 "each district" (KI-359), 1 of 50 blocks; FOCUS-019 / FOCUS-004 since fixed</td><td><code>Focus_Plus_Test_Report_2026-10-22.md</code></td></tr>
+      <tr><td>Focus Legacy</td><td>Sweep 231/231, sheet 84/84, constituencies 55/55</td><td>21 of 3,384 villages get an unasked <code>pg_id</code> filter (KI-372)</td><td><code>Focus_Legacy_Test_Report_2026-10-22.md</code></td></tr>
+      <tr><td>CM Elevate Legacy</td><td>Sweep 300/300, one chat 72/72</td><td>Sheet wording 96/108 ("which schemes" with no scheme named)</td><td><code>CM_Elevate_Legacy_Test_Report_2026-10-22.md</code></td></tr>
+      <tr><td>CM Elevate (applications)</td><td>513/529</td><td>Part of the remaining 16 are dataset-choice questions</td><td>same as above</td></tr>
+      <tr><td>Cross-scheme</td><td>59/60 vs DB</td><td>T13.3; 13 raw-vs-DB data differences (ingestion team)</td><td><code>Cross_Scheme_Test_Report_2026-10-22.md</code></td></tr>
+    </tbody>
+  </table></div>
+</section>
+
+<section id="gaps">
+  <h2>6. Where we are lacking, and why</h2>
+  <p class="lede">Ordered by impact on an officer. Each gap names its root cause and a concrete fix.</p>
+  <div class="gaps">
+    <div class="g bad">
+      <div class="h"><span class="pill no">1</span><strong>Question understanding is rule-based, so new wordings fall through</strong></div>
+      <dl>
+        <dt>Evidence</dt><dd>About 3,500 phrase rules (551 Matcher, 1,555 W(…), 948 Seq, 519 Alt) in 36 files. The same concept is listed in 3 places that disagree. Testers' wording scores 79–93% where canonical wording scores 98–100%. Open examples: "FY24" read as 2024-25, "five highest" not read as top 5, "Demdema block" resolved to the village.</dd>
+        <dt>Why it matters</dt><dd>Each fix covers one sentence. The next unseen wording takes a different path, and the result is a needless question, a refusal or a wrong year.</dd>
+        <dt>Fix</dt><dd>Add one <strong><code>query_analyzer</code> node</strong>. It turns every question into a typed plan <code>{scheme, metric, level, place, period, top_n, shape, compare}</code>, validates the plan in code against the registries, and normalises "FY24" and "five" once. Every later stage reads the plan, and the rules shrink to validators. This change needs a DECISIONS entry.</dd>
+      </dl>
+    </div>
+    <div class="g bad">
+      <div class="h"><span class="pill no">2</span><strong>No accuracy benchmark gates changes</strong></div>
+      <dl>
+        <dt>Evidence</dt><dd>The 74-item held-out eval is run by hand; last full run 18 Oct. Unit tests lock in old fixes but do not measure accuracy (KI-017). Two silent regressions in October: Focus Legacy constituencies 55 → 11, CM Elevate Legacy 300 → 179.</dd>
+        <dt>Fix</dt><dd>Grow the gold set to ≥ 300 items: ~50 per scheme, plus paraphrase variants (typos, Hinglish, number words, FY formats), multi-turn chains and cross-scheme items. Run it nightly and before every merge with <code>--fail-on-regression</code>. Track the clarification rate and the wrong-number rate as separate metrics.</dd>
+      </dl>
+    </div>
+    <div class="g bad">
+      <div class="h"><span class="pill no">3</span><strong>Latency under load</strong></div>
+      <dl>
+        <dt>Evidence</dt><dd>3.3–5.8 s for one user, 10–24 s at 4 users, 10–40 s for cross-scheme questions. A data answer makes 4–6 model calls in a row (up to ~13 in the worst case), all queuing at one vLLM gateway. The design target is 20–40 concurrent users.</dd>
+        <dt>Fix</dt><dd>Run a load test at 20/40 users and set a p95 budget per node. Skip the verifier for deterministic or cached SQL. Merge classify and rewrite into the analyzer call. Add a shared cache (Redis) so a hit on one worker is a hit on every worker. Stream per-node progress events so waiting feels shorter.</dd>
+      </dl>
+    </div>
+    <div class="g bad">
+      <div class="h"><span class="pill no">4</span><strong>Defence in depth on the database</strong></div>
+      <dl>
+        <dt>Evidence</dt><dd>Model SQL runs as the main login with superuser allowed (KI-004 / KI-304). Certificate checks to the gateway are off because the CA file is missing (KI-015). Qdrant is on a public IP with no API key (KI-200).</dd>
+        <dt>Fix</dt><dd>Set <code>READONLY_DATABASE_URL</code> to <code>megh_readonly</code> and remove the superuser allowance. Install the CA file and refuse to start without it. Put Qdrant behind an API key and a firewall.</dd>
+      </dl>
+    </div>
+    <div class="g">
+      <div class="h"><span class="pill pt">5</span><strong>Occasional wrong aggregates from sampling</strong></div>
+      <dl>
+        <dt>Evidence</dt><dd>KI-354 (1 in 7), KI-362 (1 in 20), KI-313 (year range narrowed). vLLM batching is not bit-exact at temperature 0, and no seed is sent. The verifier sometimes rejects correct SQL (KI-002), which starts repairs that drift.</dd>
+        <dt>Fix</dt><dd>Send a fixed seed. Add the project's usual 3-layer guard (prompt rule + few-shot + deterministic check of the plan against the SQL tree), so the SQL must filter exactly what the plan says. Add self-consistency on hard questions: generate 2 SQLs and compare their results.</dd>
+      </dl>
+    </div>
+    <div class="g">
+      <div class="h"><span class="pill pt">6</span><strong>Inconsistent presentation of the same number</strong></div>
+      <dl>
+        <dt>Evidence</dt><dd>₹5,237,500.00 in one answer and ₹0.52 crore in another; Western and Indian grouping mixed; NULL drawn as 0; the compare card puts "spent" against "released"; phone cards cut figures off.</dd>
+        <dt>Fix</dt><dd>Format money and counts in code after the composer (crore / lakh, <code>en-IN</code> grouping). Show no verdict when the two measures differ in kind. Wrap the welcome cards below 480 px.</dd>
+      </dl>
+    </div>
+    <div class="g">
+      <div class="h"><span class="pill pt">7</span><strong>Observability and the feedback loop are not connected</strong></div>
+      <dl>
+        <dt>Evidence</dt><dd>Node logs carry no question text. A failed attempt's SQL is not logged (KI-003). The audit table does not hold the SQL. 👍/👎 votes are stored but never reviewed into eval items.</dd>
+        <dt>Fix</dt><dd>Store one trace per turn (plan, node path, every SQL attempt, verifier verdicts, timings) in <code>app.*</code> with role-based access. Add an admin triage view where a 👎 becomes a gold-set candidate in one click.</dd>
+      </dl>
+    </div>
+    <div class="g">
+      <div class="h"><span class="pill pt">8</span><strong>Policy churn and stale docs</strong></div>
+      <dl>
+        <dt>Evidence</dt><dd>Seven behaviour decisions in one day (D-060..066). The CM Elevate rule changed on 12, 19 and 22 Oct. U5 / KI-331 vs D-065 is still open. CLAUDE.md is stale on the verifier model, the reranker and test counts.</dd>
+        <dt>Fix</dt><dd>Write each product rule as gold-set items before changing code, so every reversal shows up as a measured change. Get decisions on U5, KI-352, KI-353 and KI-359.</dd>
+      </dl>
+    </div>
+  </div>
+</section>
+
+<section id="roadmap">
+  <h2>7. Suggested roadmap</h2>
+  <div class="plan">
+    <div><h3>Week 1: measure and protect</h3><ol>
+      <li>Read-only DB role; remove superuser; install the CA file; Qdrant API key.</li>
+      <li>Re-run the 74-item eval on today's code; add it to CI with <code>--fail-on-regression</code>.</li>
+      <li>Load test at 20 and 40 users; record p50/p95 per node.</li>
+      <li>Shared number formatter (crore / lakh, <code>en-IN</code>).</li>
+    </ol></div>
+    <div><h3>Weeks 2–4: robustness</h3><ol>
+      <li>Grow the gold set to ≥ 300 items with paraphrase, multi-turn and cross-scheme cases.</li>
+      <li>Normalise number words and FY formats once, used by every stage.</li>
+      <li>Fixed seed; plan-vs-SQL deterministic guard.</li>
+      <li>Per-turn trace store and a 👎 triage view.</li>
+    </ol></div>
+    <div><h3>Month 2: architecture</h3><ol>
+      <li><code>query_analyzer</code> node with a validated typed plan (DECISIONS entry first).</li>
+      <li>Schema-retrieval node; cross-scheme fan-out moved to LangGraph <code>Send</code>.</li>
+      <li>Node <code>RetryPolicy</code> and time budgets; per-node progress streaming.</li>
+      <li>Retire phrase rules that the plan makes redundant, measured on the gold set.</li>
+    </ol></div>
+  </div>
+</section>
+
+<section id="method">
+  <h2>8. Sources and method</h2>
+  <ul class="tight">
+    <li><strong>Repository:</strong> <code>app/pipeline_graph.py</code>, <code>app/pipeline/</code>, <code>app/config.py</code>, <code>app/routers/</code>, <code>frontend/src</code>.</li>
+    <li><strong>Docs:</strong> <code>docs/CURRENT_STATE.md</code>, <code>docs/LANGGRAPH_ARCHITECTURE.md</code>, <code>docs/ARCHITECTURE.md</code> §7–8, <code>docs/TESTING.md</code>.</li>
+    <li><strong>Measurements:</strong>
+      <ul class="tight">
+        <li>Held-out eval: <code>tests/nl2sql_eval/results/2026-10-18_1621_context-memory-2026-10-18-rerun.json</code>.</li>
+        <li>Sheet reports in <code>new_docs/*_Test_Report_2026-10-2*.md</code>.</li>
+        <li>System audit: <code>new_docs/Megh_One_AI_Audit_Report_2026-10-23.html</code> (latency, paraphrase, security, UI).</li>
+      </ul>
+    </li>
+    <li><strong>Not re-run for this report:</strong> no new live queries were made. All "ours" figures are the latest recorded results. The held-out eval predates D-060..D-066.</li>
+    <li><strong>Public benchmark levels</strong> are approximate (public leaderboards up to mid-2026) and are not directly comparable with a domain-specific database.</li>
+    <li><strong>Targets in §4</strong> are this report's proposals, not agreed project SLAs.</li>
+  </ul>
+  <p class="foot">Megh One AI · NL→SQL benchmark &amp; gap report · 23 Oct 2026</p>
+</section>
+</main>
+</div>
+</body>
+</html>

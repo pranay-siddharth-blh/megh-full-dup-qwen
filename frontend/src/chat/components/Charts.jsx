@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Chart from 'chart.js/auto';
-import { pivotStacked } from '../analytics.js';
+import { pivotStacked, tableColumns } from '../analytics.js';
 import { isPeriodLabel, isPlainNumber } from '../text.js';
 import {
   INK, PLUGINS, alpha, categorySchemeColors, chartAnimation, fmt, fmtCompact, insightFor, insightForSeries,
@@ -781,7 +781,7 @@ function BigTable({ data, cols, title = 'Result table' }) {
 export function DynTable({ data, title = 'Result table' }) {
   const [open, setOpen] = useState(false);
   if (!data || !data.length) return null;
-  const cols = Object.keys(data[0]);
+  const cols = tableColumns(data);
   return (
     <div className="rt-block">
       <TableBar count={data.length} label="table" onExpand={() => setOpen(true)} />

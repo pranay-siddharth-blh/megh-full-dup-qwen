@@ -40,8 +40,9 @@ Legacy. Details: [SCHEMES.md](SCHEMES.md).
 
 ## Current capabilities (VERIFIED in code)
 
-- NL→SQL over all six schemes, including selected cross-scheme questions (money ranking, and
-  MGNREGA+PMAY coverage and money views).
+- NL→SQL over all six schemes, including cross-scheme questions of any shape (rankings, top N,
+  villages / blocks / districts, years): one model-written query per scheme, one composed answer
+  (D-062, 2026-10-22).
 - RAG answers on eligibility, documents, benefits and process, from SME reference docs and FAQs.
 - Clarification pauses with one-tap chips for:
   - which scheme;

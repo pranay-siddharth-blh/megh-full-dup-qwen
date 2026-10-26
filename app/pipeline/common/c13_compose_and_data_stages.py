@@ -13,6 +13,23 @@ from sqlglot import exp
 _ONE_FIGURE_SCHEMES = (["Focus Plus"], ["CM Elevate"])
 
 
+def _money_rounded_for_display(rows: list[dict]) -> list[dict]:
+    """The rows with crore / lakh money columns (by the SQL-prompt suffix:
+    _unit_suffix) rounded to 2 decimals, for the composer's eyes only (KI-417)."""
+    out = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            out.append(r)
+            continue
+        nr = {}
+        for k, v in r.items():
+            unit = _unit_suffix(str(k).lower())
+            n = _as_number(v) if unit and unit[1] in ("crore", "lakh") else None
+            nr[k] = round(n, 2) if isinstance(n, float) else v
+        out.append(nr)
+    return out
+
+
 async def compose_response(question: str, sql: str, rows: list[dict],
                            notes: list[str] | None = None,
                            entities: dict[str, str] | None = None,
@@ -117,17 +134,59 @@ async def compose_response(question: str, sql: str, rows: list[dict],
                       "correct any the result contradicts):\n" + \
                       "\n".join(f"  - {n}" for n in notes) + "\n"
     names_block = _entity_names_block(entities)
-    prompt = f"""Answer the user's question in one to three plain sentences, using ONLY the
+    # The answer takes the question's shape — a ranked list for "top 5", the verdict
+    # for a comparison, first-to-last for a trend (user report 2026-10-22: "if I ask
+    # top 10, top 5 or compare … you need to give different answers"). The shape is
+    # read from the SQL tree and the rows, and the figures it needs are computed here
+    # so the composer only words them (c12_answer_shapes.py).
+    # A ROLLUP's total row is the query's exact total, never one more category
+    # ("ALL DISTRICTS" read as a 13th district, Legacy sheet TC-36, KI-384).
+    _shape_rows, _total_rows = _c12s_rollup_split(sql, rows)
+    shape = _answer_shape(question, sql, _shape_rows)
+    if shape is not None and shape.kind == "breakdown":
+        # a split has no order of its own: the composer listed it in the query's order
+        # although told "largest first" (live 2026-10-22). The table keeps `rows` as is.
+        preview = (_breakdown_preview(_shape_rows, shape)[:40] + _total_rows)
+    shape_block = _shape_guide_block(shape)
+    facts_text, facts_nums = _shape_facts(shape, _shape_rows)
+    if _total_rows and shape is not None:
+        facts_text = (facts_text + "\n" if facts_text else "") + "\n".join(
+            "  the query's own TOTAL row (not a category; use it for the overall total): "
+            + ", ".join(f"{k} = {v}" for k, v in r.items()) for r in _total_rows)
+    facts_block = ""
+    if facts_text:
+        facts_block = (
+            "\nDerived figures — computed by code from EVERY row. Use THESE for any gap, "
+            "difference, % change, ratio or share; never work one out yourself.\n" + facts_text + "\n"
+        )
+    if shape is not None:
+        logger.info("compose_response: answer shape %s (metric %s, %d row(s))", shape.kind, shape.metric, len(rows))
+    if shape is None or shape.kind == "single_value":
+        opening = """Answer the user's question in one to three plain sentences, using ONLY the
 numbers in the result and the whole-result summary below — do not invent or round
 differently than shown. Write like a direct briefing: lead with the fact or figure
 itself, not with "The data shows..." or a description of what the query returned.
 The first sentence must say what the figure counts in plain words, for which scheme,
-which area and which period (say "across all financial years" when no year was
-asked). Write every number with thousands separators (27,264,054, never 27264054).
+which area and which period."""
+    else:
+        opening = """Answer the user's question in the shape given under "Answer shape" below, using
+ONLY the numbers in the result, the whole-result summary and the derived figures below —
+do not invent, compute or round differently than shown. Write like a direct briefing:
+lead with the answer itself, not with "The data shows..." or a description of what the
+query returned. Say once, in plain words, what the figures count, for which scheme,
+which area and which period."""
+    # Money in crore / lakh is shown to the composer at 2 decimals (KI-417): the raw
+    # SUM(amount) / 1e7 came through as "119.73925 crore" because the prompt says not to
+    # round differently than shown. Display only — `rows`, the table and the export keep
+    # the exact value, and the number check already accepts the 2-decimal form.
+    preview = _money_rounded_for_display(preview)
+    prompt = f"""{opening} The period is the year the query read: the year in
+the Entity names block below when it gives one; say "across all financial years"
+only when that block names no year. Write every number with thousands separators (27,264,054, never 27264054).
 Keep each sentence to one idea — short and declarative, not a chain of clauses
 joined by "so" / "as" / "which means".
 {guidance}
-{metrics_block}{names_block}{summary_block}{notes_block}{style_examples}
+{shape_block}{metrics_block}{names_block}{summary_block}{facts_block}{notes_block}{style_examples}
 Question: "{question}"
 Result ({len(rows)} row(s), showing up to {len(preview)}):
 {json.dumps(preview, default=str)}
@@ -136,12 +195,13 @@ Answer:"""
     context_budget.log_prompt_context("compose", [
         ("guidance", guidance), ("available_metrics", metrics_block),
         ("entity_names", names_block), ("result_summary", summary_block),
+        ("answer_shape", shape_block), ("derived_figures", facts_block),
         ("premise_notes", notes_block), ("style_examples", style_examples),
         ("question", question), ("result_rows", json.dumps(preview, default=str)),
     ], prompt=prompt, rows=len(rows), rows_shown=len(preview))
     answer = await llm.call_response_composer(prompt)
 
-    data_nums = _data_numbers(preview) | digest_nums | set(extra_numbers or ())
+    data_nums = _data_numbers(preview) | digest_nums | facts_nums | set(extra_numbers or ())
     # A note may ask the composer to name the figure the question wrongly assumed
     # ("not the 1.71 L assumed…") — allow those premise numbers through the
     # faithfulness check so the correction itself isn't flagged as a misquote.
@@ -202,7 +262,9 @@ Answer:"""
             and not _answer_covers_metrics(answer, preview[0]))
         if still_bad:
             logger.warning("compose_response: retry still wrong — using deterministic answer")
-            answer = _framed_fallback(rows if len(rows) > 1 else preview, schemes, entities)
+            # in the question's shape when it has one (a ranked list, a comparison …)
+            answer = (_shaped_fallback(shape, _shape_rows, schemes, entities)
+                      or _framed_fallback(rows if len(rows) > 1 else preview, schemes, entities))
 
     # Deterministic safety net for the opposite failure: the query DID return a
     # real, non-zero number, but the composer hedged with a "not covered / no
@@ -230,16 +292,20 @@ Answer:"""
             # chart/table built from the same rows showed real data.
             logger.warning("compose_response: hedged over a %d-row breakdown %r — "
                            "deterministic answer", len(preview), answer[:160])
-            answer = _framed_fallback(rows, schemes, entities)
+            answer = _shaped_fallback(shape, _shape_rows, schemes, entities) or _framed_fallback(rows, schemes, entities)
     # A list answer must state the list's true size: "Ten villages in the
     # Dadenggre constituency received employment" for 135 villages, and the
     # fallback's "Here are the 40 results" for 114 (it was handed only the
     # 40-row preview) — MGNREGA sheet DATA-014, run 2026-10-09. A spelled-out
     # count escapes the digit faithfulness check above.
-    if len(rows) > 1 and _states_wrong_list_count(answer, len(rows)):
+    # Rows of several schemes (one query per scheme) are one list per scheme:
+    # "the top 10 villages" of each is right for 20 rows (D-062, 2026-10-22).
+    _per_scheme_sizes = {len([r for r in rows if r.get("scheme") == s]) for s in {r.get("scheme") for r in rows}}
+    if len(rows) > 1 and all(_states_wrong_list_count(answer, n)
+                             for n in {len(rows), len(_shape_rows)} | _per_scheme_sizes):
         logger.warning("compose_response: answer states a list size other than %d — deterministic answer",
                        len(rows))
-        answer = _framed_fallback(rows, schemes, entities)
+        answer = _shaped_fallback(shape, _shape_rows, schemes, entities) or _framed_fallback(rows, schemes, entities)
     # Every data answer reads as a briefing line: result figures grouped, and the
     # scheme / area named at least once (user report 2026-10-18: "1,494,437
     # household years." was the whole answer).
@@ -710,6 +776,15 @@ def _chat_active_scheme(session) -> "str | None":
     return schemes[0] if len(schemes) == 1 else None
 
 
+def _chat_has_data_scope(session) -> bool:
+    """True once the chat has answered a data question (its structured state
+    holds a scheme or a comparison). A new chat — or one that has only paused,
+    greeted or answered how-it-works questions — has no place to carry, so a
+    question naming none asks which district (user rule 2026-10-21, D-056)."""
+    st = getattr(session, "state", None) if session is not None else None
+    return bool(st is not None and (getattr(st, "scheme", None) or getattr(st, "comparison_entities", None)))
+
+
 def _new_data_turn(question: str, *, skip_scope_clarify: bool = False,
                    prior_resolved: "dict | None" = None,
                    village_hint: "str | None" = None) -> dict:
@@ -720,6 +795,77 @@ def _new_data_turn(question: str, *, skip_scope_clarify: bool = False,
             "sql": None, "rows": None, "notes": None, "style": "",
             "fl_total": None, "fl_unplaced": None, "fl_breakdown": None, "answer": None,
             "cross": None, "pre_rephrase_question": None}
+
+
+# ── cross-scheme exclusions (KI-388) ──────────────────────────────────────────
+_XS_EXCLUDE_CUE = Matcher(Alt(
+    W("excluding", "except", "excluded", "exclude", "without"),
+    Seq(W("leaving", "leave", "left"), W("out"), sep="space"),
+    Seq(W("other"), W("than"), sep="space"), Seq(W("apart", "aside"), W("from"), sep="space"),
+    Seq(W("not"), W("counting", "including"), sep="space"),
+))
+# words that may sit between the excluded names: "excluding MGNREGA and the CM-ELEVATE scheme"
+_XS_EXCLUDE_GLUE = frozenset({"and", "or", "nor", "the", "scheme", "schemes", "both", "also", "as", "well"})
+
+
+def _cross_exclusions(text: str) -> "tuple[list[str], str]":
+    """(the schemes the question leaves out, the question with that phrase taken
+    out). "Excluding CM-ELEVATE" leaves out both CM Elevate datasets."""
+    t = text or ""
+    cue = _XS_EXCLUDE_CUE.search(t)
+    if cue is None:
+        return [], t
+    hits = sorted((h.start(), h.end(), s) for s, pat in _SCHEME_NAME_MATCHER.items()
+                  for h in pat.finditer(t) if h.start() >= cue.end())
+    out, pos, end = [], cue.end(), None
+    for a, b, s in hits:
+        if a < pos:
+            continue
+        if any(w.lower() not in _XS_EXCLUDE_GLUE for w in _c01_tm_words(t[pos:a])):
+            break
+        out.append(s)
+        pos = end = b
+    if not out:
+        return [], t
+    if "CM Elevate" in out or "CM Elevate Legacy" in out:
+        out += [s for s in ("CM Elevate", "CM Elevate Legacy") if s not in out]
+    kept = collapse_ws(t[:cue.start()] + " " + t[end:]).strip(" ,")
+    for a, b in ((" ,", ","), (", ?", "?"), (",?", "?"), (" ?", "?"), (", .", "."), (",,", ",")):
+        kept = kept.replace(a, b)
+    # "Leaving out X, which scheme …" -> "which scheme …": a leading comma goes too
+    return out, (kept[:1].upper() + kept[1:]) if kept else kept
+
+
+def _cross_after_exclusions(text: str, named: list, cross: "list | None", excluded: list) -> "list | None":
+    """The schemes a question with exclusions compares: the ones it names, else the
+    four main schemes (MGNREGA, PMAY-G, Focus Plus, Focus Legacy), minus the
+    excluded ones — when it asks a figure, a ranking or a comparison."""
+    if cross and len([s for s in cross if s not in excluded]) >= 2 and len(named) >= 2:
+        return [s for s in cross if s not in excluded]
+    if not (cross_scheme._MONEY.search(text) or cross_scheme._COUNT.search(text)
+            or cross_scheme._COVERAGE.search(text) or cross_scheme._RANK.search(text)
+            or cross_scheme._XS_COMPARISON.search(text)):
+        return None
+    left = [s for s in cross_figures.SUPPORTED if s not in excluded]
+    return left if len(left) >= 2 else None
+
+
+def _cross_figures_question(text: str) -> bool:
+    """A question across two or more schemes asking a figure, a ranking or a
+    comparison (with its exclusions read first): DATA, whatever the classifier
+    says. "What is the coverage of NREGA, PMAY-G and Focus+ in Dadenggiri block?"
+    and "… spending in South Garo Hills, excluding CM-ELEVATE?" were answered from
+    the reference documents (cross-scheme UAT re-test 2026-10-22, T09.2 / T11.2)."""
+    excluded, kept = _cross_exclusions(text)
+    named = [s for s, pat in _SCHEME_NAME_MATCHER.items() if pat.search(kept)]
+    cross = cross_scheme.detect(kept, named)
+    if excluded:
+        cross = _cross_after_exclusions(kept, named, cross, excluded)
+    if not cross or len(cross) < 2:
+        return False
+    return bool(cross_scheme._MONEY.search(kept) or cross_scheme._COUNT.search(kept)
+                or cross_scheme._RANK.search(kept)
+                or (cross_scheme._COVERAGE.search(kept) and cross_scheme.names_a_place(kept)))
 
 
 async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> "dict | None":
@@ -745,6 +891,15 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     # "Compare the coverage of …" into "How does the coverage of … compare …" on
     # some runs and dropped "coverage" on others (cross-scheme run 2026-10-13).
     _cross_text = d.get("pre_rephrase_question") or question
+    # "Leaving out MGNREGA and CM-ELEVATE, which scheme …" asks about the OTHER
+    # schemes: the excluded names are taken out before any scheme is detected. Read
+    # as named, the answer showed exactly the two excluded schemes (T07.2), went to
+    # the CM Elevate documents (T11.2, T13.2) or kept MGNREGA in (T15.3) — cross-
+    # scheme UAT re-test 2026-10-22, KI-388.
+    _excluded, _cross_text = _cross_exclusions(_cross_text)
+    if _excluded:
+        question = _cross_exclusions(question)[1]
+        d["question"] = question
     _named = [s for s, pat in _SCHEME_NAME_MATCHER.items() if pat.search(_cross_text)]
     # A bare "CM-ELEVATE" beside other schemes is CM Elevate, the applications
     # dataset, as written; Legacy only when named (user decision 2026-10-19,
@@ -753,15 +908,24 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     _cross = cross_scheme.detect(
         _cross_q, _named,
         measure_text=(await _mask_village_names(_cross_q)) if cross_scheme.other_measure(_cross_q) else None)
+    if _excluded:
+        _cross = _cross_after_exclusions(_cross_q, _named, _cross, _excluded)
+        logger.info("cross-scheme exclusions %s -> %s", _excluded, _cross)
     if _cross == ["CM Elevate"]:
         # the one-scheme card ("Same comparison for CM Elevate: ...") still asks
         # which CM Elevate when nothing settled it (user decision 2026-10-19)
-        _cme_pause = _cm_elevate_dataset_pause(question)
+        _cme_pause = _cm_elevate_dataset_pause(d.get("pre_rephrase_question") or question)
         if _cme_pause is not None:
             raise _cme_pause
+    if _cross and _is_ambiguous_focus(_cross_text):
+        # "Compare coverage of MGNREGA, PMAY-G and FOCUS in Songsak block": a bare
+        # FOCUS with no Focus+ beside it is still the two-way Focus ask (CLAUDE.md
+        # §4). Unasked, the comparison ran without it and never said so (T09.3,
+        # cross-scheme UAT re-test 2026-10-22).
+        raise _focus_ambiguity_clarification(_cross_text)
     if _cross:
         logger.info("cross-scheme comparison %r -> %s", _cross_text, _cross)
-        d["schemes"], d["cross"] = _cross, {"schemes": _cross, "text": _cross_text}
+        d["schemes"], d["cross"] = _cross, {"schemes": _cross, "text": _cross_text, "excluded": _excluded}
         return None
 
     # Ask which scheme before doing anything expensive, when the question could
@@ -769,9 +933,13 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     # "Which scheme paid out the most?" — the scheme is the ANSWER, not a
     # missing filter, so this must run before the "which scheme?" pause below
     # (which would otherwise ask the user to supply the very thing they asked
-    # for). Answered deterministically across every scheme that records money.
+    # for). A cross-scheme question over every scheme that records money (CM
+    # Elevate records none), answered like any other (D-062).
     if _wants_cross_scheme_money_ranking(question):
-        return await _cross_scheme_money_answer(question)
+        _money = [s for s in cross_scheme.ORDER if s != "CM Elevate" and s not in _excluded]
+        logger.info("cross-scheme money ranking %r -> %s", _cross_text, _money)
+        d["schemes"], d["cross"] = _money, {"schemes": _money, "text": _cross_text}
+        return None
 
     # "Focus" with nothing to say WHICH Focus — a two-way ask that keeps what the
     # user already told us, rather than the generic five-way pause below.
@@ -780,8 +948,11 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
 
     # A bare "CM Elevate" that neither its words nor the conversation settled
     # (the thread decision ran in the context stage): ask which dataset, never
-    # guess (user decision 2026-10-19).
-    _cme_pause = _cm_elevate_dataset_pause(question)
+    # guess (user decisions 2026-10-19 / 2026-10-22). Read on the words before the
+    # rephrase model: it turned "How many CM-ELEVATE applications ... each
+    # district?" into the chip-like "CM Elevate applications" and the answer came
+    # from the applications data unasked (Legacy sheet re-run 2026-10-22).
+    _cme_pause = _cm_elevate_dataset_pause(d.get("pre_rephrase_question") or question)
     if _cme_pause is not None:
         raise _cme_pause
 
@@ -920,7 +1091,7 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     question, schemes, entity_result = d["question"], d["schemes"], d["entity_result"]
     prior_resolved, skip_scope_clarify = d["prior_resolved"], d["skip_scope_clarify"]
     if d.get("cross"):
-        return await _cross_scheme_answer(d, scope)
+        return await _cross_scheme_scope(d)
     # "Garo Hills" / "Khasi Hills" name a hill RANGE, not a district. When one is
     # named and no specific district resolved, either offer its districts as one-tap
     # chips ("which Garo Hills district?") or, if the question already says "all of
@@ -958,7 +1129,13 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
                 raise _region_clarification(question, region)
             entity_result["resolved"]["district_list"] = [d.upper() for d in region["districts"]]
             entity_result["resolved"]["district_list_region"] = region["canonical"]
-            entity_result["display"]["district"] = region["canonical"]
+            # A district the region's name does not suggest is named in the label, so the
+            # total does not surprise: Khasi includes Ri Bhoi (LGD region; ingestion team
+            # 2026-10-26: "say so in one line").
+            _head = region["canonical"].split()[0].lower()
+            _extra = [d for d in region["districts"] if _head not in d.lower()]
+            entity_result["display"]["district"] = region["canonical"] + (
+                f" (includes {', '.join(_extra)})" if _extra else "")
 
     # "Give me an overall Focus+ data summary" — a genuinely whole-scheme
     # question with no district/year/tranche to pin. Handled before the scope/
@@ -976,10 +1153,24 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # appended text, so the SQL is told the scope and never silently picks the
     # latest year — and the answer states it.
     _defaults = settings.ANSWER_DEFAULTS_ENABLED
+    # User rule 2026-10-21 (D-056): a NEW chat asks what it does not know, in
+    # order — scheme (scheme stage), then district (here), then year (below).
+    # "how many households for MGNREGA" on a fresh chat skipped the district and
+    # asked only the year. A chat that has answered a data question carries its
+    # place instead (c14 _same_scheme_context_year), and statewide there stays
+    # statewide. A district-restricted officer is scoped by auth, not asked.
+    _place_res = {k: v for k, v in entity_result["resolved"].items() if k != "year_key"}
+    if _defaults and not skip_scope_clarify and not d.get("chat_has_scope") \
+            and not (scope is not None and scope.geo_restricted) \
+            and not any((prior_resolved or {}).get(k) for k in ("district", "block", "village_code")) \
+            and _needs_scope_clarification(question, _place_res):
+        logger.info("new chat, no place named -> asking which district")
+        raise _scope_clarification(question, schemes, area_only=True)
     if not skip_scope_clarify and _needs_scope_clarification(question, entity_result["resolved"]):
         if not _defaults:
             raise _scope_clarification(question, schemes)
         question = f"{question.strip().rstrip(' ?.')} for all of Meghalaya"
+        entity_result["answer_defaults"] = True      # never shared through the answer cache (D-056)
         logger.info("answer default: no area named -> %r", question)
 
     # Geography is settled but the year isn't: ask which financial year (one-tap
@@ -988,13 +1179,14 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # Every data question that names no year, not only the ones the year gate
     # would stop: "MGNREGA people who got work in Dadenggre constituency" was
     # answered for one unstated year (10,414 of 51,543) while "persons employed"
-    # elsewhere covered all years (hierarchy matrix run 2026-10-14). Stocks (job
-    # cards) are pinned to the latest year by _mgnrega_job_cards_latest_year.
+    # elsewhere covered all years (hierarchy matrix run 2026-10-14). Job cards
+    # follow the same rule: the year asked, else the chat's year, else this pause —
+    # they were exempt and silently pinned to FY 2025-26 (MGNREGA sheet DATA-007,
+    # 2026-10-21); their all-years answer is one figure per year (_mgnrega_job_cards_query).
     _res = entity_result["resolved"]
     _no_year = not _res.get("year_key") and not _res.get("year_key_list") \
         and _parse_year_key(question) is None and not _ALL_YEARS_CUE.search(question) \
         and not _TIME_SERIES_CUE.search(question) and not _WHICH_YEAR_CUE.search(question) \
-        and not _C13_JOB_CARD.search(question) \
         and any(_SCHEME_DATA_YEARS.get(s) for s in (schemes or []))
     # 2026-10-18 (D-053, user decision): the all-years default is for a question
     # whose conversation already carries a year. A follow-up inherits the previous
@@ -1008,10 +1200,19 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # resumed turn has a year and cannot be asked again.
     _context_year = bool(prior_resolved) and any(
         prior_resolved.get(k) for k in ("year_key", "year_key_list", "year_all"))
-    _ask_year = _defaults and _no_year and not _context_year \
+    # D-061 (user addendum 2026-10-22): a self-sufficient NEW question inside a
+    # chat inherits nothing, the chat's year included (_same_scheme_context_year
+    # gives it no prior_resolved). D-065 (user, 2026-10-22): with no year of its
+    # own it is ASKED, with the year chips, like a new chat (D-053) — never the
+    # latest FY by default: "total disbursement amount for mairang" after an
+    # all-years answer came back "FY 2025-26 (new question)" ("why are you
+    # blindly giving 2025-26? … take the previous context or ask which year").
+    # A follow-up keeps the chat's year (prior_resolved), so it never asks here.
+    _ask_year =_defaults and _no_year and not _context_year \
         and _needs_year_clarification(question, schemes, _res)
     if _defaults and _no_year and not _ask_year:
         question = f"{question.strip().rstrip(' ?.')} across all financial years"
+        entity_result["answer_defaults"] = True
         logger.info("answer default: no year named -> %r", question)
     if _ask_year:
         logger.info("year not named and none in context -> asking which financial year")
@@ -1024,7 +1225,13 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
                 raise
             except Exception:  # noqa: BLE001 — year map unavailable: the generic pause
                 pass
-        raise _year_clarification(question, schemes)
+        _yc = _year_clarification(question, schemes)
+        if schemes == ["MGNREGA"] and _C13_JOB_CARD.search(question or ""):
+            # a running total has no combined figure: the all-years chip lists every year
+            for _o in _yc.options or []:
+                if isinstance(_o, dict) and str(_o.get("question") or "").endswith("across all financial years"):
+                    _o["label"] = "Every financial year (one figure each)"
+        raise _yc
 
     # Focus Plus only: year is settled but the tranche isn't — ask which one
     # (one-tap chips) rather than silently combining every tranche's payments.
@@ -1037,6 +1244,7 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
         if not _defaults:
             raise _tranche_clarification(question)
         question = f"{question.strip().rstrip(' ?.')} across all tranches"
+        entity_result["answer_defaults"] = True
         logger.info("answer default: no tranche named -> %r", question)
 
     # A specific non-Tranch-4 tranche plus a person-level column (status/
@@ -1203,28 +1411,6 @@ async def _geo_lookup_answer(question: str) -> "dict | None":
             "rows": [dict(r) for r in rows], "data": [dict(r) for r in rows], "answer": "\n".join(lines)}
 
 
-def _literal_sql(sql: str, params: list) -> str:
-    """A display / authorization copy of parameter-bound SQL with the values inlined."""
-    def lit(v) -> str:
-        if isinstance(v, (list, tuple)):
-            return "ARRAY[" + ", ".join(lit(x) for x in v) + "]"
-        if isinstance(v, (int, float)):
-            return str(v)
-        return "'" + str(v).replace("'", "''") + "'"
-    # $1, $2 … are PARAMETER + NUMBER tokens; a '$1' inside a string literal is
-    # part of a STRING token and is left alone.
-    tokens = _sql_tokens(sql)
-    out, last = [], 0
-    for tok, nxt in zip(tokens, tokens[1:]):
-        if tok.token_type == TokenType.PARAMETER and nxt.token_type == TokenType.NUMBER \
-                and nxt.start == tok.end + 1 and nxt.text.isdigit():
-            out.append(sql[last:tok.start])
-            out.append(lit(params[int(nxt.text) - 1]))
-            last = nxt.end + 1
-    out.append(sql[last:])
-    return "".join(out)
-
-
 def _c13_chip_label_spans(label: str) -> list:
     """A label "<name> — <block> block, <district>" on one line: spans of the three parts."""
     body = label[:-1] if label.endswith("\n") else label
@@ -1329,29 +1515,124 @@ async def _cross_twin_village_pause(d: dict, schemes: list[str], resolved: dict)
         rule="entity-ambiguous", village_hint=str(cands[0]["name"]))
 
 
-async def _cross_scheme_answer(d: dict, scope: "auth.UserScope | None" = None) -> dict:
-    """The deterministic cross-scheme comparison (app/cross_scheme.py), with the
-    same authorization a generated query gets."""
-    schemes, entity_result = d["cross"]["schemes"], d["entity_result"]
+async def _cross_scheme_scope(d: dict) -> "dict | None":
+    """A cross-scheme question's places, year and scope (graph: clarification_gate).
+
+    It is answered like any data question, one model-written query per scheme
+    (_per_scheme_generate) and one composed answer (D-062, 2026-10-22). It used
+    to be a fixed table (D-044) that could show only per-scheme totals: "top ten
+    highest villages in Mgnrega and pmay" got the statewide totals card (user
+    report 2026-10-22). What the table's place handling learnt stays: the block
+    another scheme spells longer, a constituency only the registry knows,
+    "FY2022-23" with no space, twin villages. No area / year pause: a comparison
+    with no place is statewide and with no year covers each scheme's own years —
+    the merged nine-year "which FY?" pause is what D-044 removed."""
+    question, schemes, entity_result = d["question"], d["schemes"], d["entity_result"]
     resolved = entity_result["resolved"]
+    display = entity_result.setdefault("display", {})
+    text = d["cross"]["text"] or question
+    await cross_scheme.refine_block(text, resolved)
+    if resolved.get("block"):
+        display["block"] = resolved["block"]
+    await cross_scheme.refine_constituency(text, resolved)
+    if resolved.get("assembly_constituency"):
+        display["assembly_constituency"] = resolved["assembly_constituency"]
+    if not resolved.get("year_key") and not resolved.get("year_key_list"):
+        ys = cross_scheme.years_in_text(text)
+        if len(ys) == 1:
+            resolved["year_key"] = ys[0]
+        elif ys:
+            resolved["year_key_list"] = ys
+        if ys:
+            display["year"] = "FY " + ", ".join(f"{y}-{(y + 1) % 100:02d}" for y in ys)
     await _cross_twin_village_pause(d, schemes, resolved)
-    out = await cross_scheme.answer(d["cross"]["text"], schemes, entity_result, _SCHEME_DATA_YEARS)
-    sql = "\n;\n".join(_literal_sql(q, prm) for q, prm in out.pop("sql_pairs", []))
-    out["sql"] = out["sql_query"] = sql
-    # Authorized on the literal SQL (its place values and GROUP BY visible), the
-    # same check a generated query gets; nothing is returned on a deny.
-    if scope is not None and settings.AUTH_ENABLED:
-        decision = auth.authorize(scope, schemes=schemes, resolved_entities=resolved, sql=sql)
-        if not decision.allow:
-            logger.info("auth deny (%s) user=%s: %s", decision.check, scope.user_id, decision.reason)
-            return _denied(decision, schemes, resolved)
-    out["resolved_entities"] = resolved
-    return out
+    if not any(resolved.get(k) for k in cross_scheme.PLACE_KEYS):
+        # never present statewide figures as if they were the named place's
+        d["cross"]["place_unrecognised"] = cross_scheme.names_a_place(text)
+        if _needs_scope_clarification(question, resolved):
+            question = f"{question.strip().rstrip(' ?.')} for all of Meghalaya"
+            entity_result["answer_defaults"] = True
+    if not resolved.get("year_key") and not resolved.get("year_key_list") \
+            and _parse_year_key(question) is None and not _ALL_YEARS_CUE.search(question) \
+            and not _TIME_SERIES_CUE.search(question) and not _WHICH_YEAR_CUE.search(question):
+        question = f"{question.strip().rstrip(' ?.')} across all financial years"
+        entity_result["answer_defaults"] = True
+    # the user's own words: the "across all financial years" added above reads as money
+    gaps = _cross_scheme_gaps(schemes, resolved, display, text)
+    if gaps and len(gaps) == len(schemes):
+        # nothing to query: each scheme's own reason, said plainly
+        return {
+            "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
+            "resolved_entities": resolved, "sql": None, "sql_query": None,
+            "row_count": 0, "rows": [], "data": [], "answer": " ".join(f"{g}." for g in gaps.values()),
+        }
+    # The shapes whose arithmetic is known — totals, district rankings, the leading
+    # / second scheme per district, "districts where X > Y", per beneficiary — over
+    # beneficiaries, money and villages of the four main schemes: each scheme's
+    # figures from a fixed parameter-bound query and the combining done in code
+    # (D-066). The model wrote the parts right and never the whole: 40 of 60 UAT
+    # cases failed (cross-scheme re-test 2026-10-22, KI-387..392). Every other shape
+    # (village / block lists, top-N villages, other measures) goes on below (D-062).
+    _plan = None if d["cross"].get("place_unrecognised") else cross_figures.plan(
+        text, schemes, resolved, display, _SCHEME_NAME_MATCHER)
+    if _plan is not None:
+        _res = await cross_figures.answer(_plan)
+        return {
+            "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
+            "resolved_entities": resolved, "sql": _res["sql"], "sql_query": _res["sql"],
+            "row_count": len(_res["rows"]), "rows": _res["rows"][:20], "data": _res["rows"],
+            "answer": _res["answer"],
+        }
+    logger.info("cross-scheme question %r -> %s per-scheme queries%s", question, schemes,
+                f" (not held: {sorted(gaps)})" if gaps else "")
+    d["entity_result"] = entity_result
+    d["question"] = question
+    return None
+
+
+# Only these schemes record an assembly constituency (MGNREGA on v_employment,
+# Focus Legacy and CM Elevate Legacy through dim_geography.ac_name). PMAY-G, Focus
+# Plus and CM Elevate do not: a model asked for their constituency figure answers
+# the district or the state instead (cross-scheme run 2026-10-13, D-044).
+_CROSS_AC_RECORDED = frozenset({"MGNREGA", "Focus Legacy", "CM Elevate Legacy"})
+
+
+def _cross_scheme_gaps(schemes: list[str], resolved: dict, display: "dict | None" = None,
+                       question: str = "") -> dict:
+    """{scheme: the reason it has no figure} for what its data cannot hold — a
+    constituency it does not record, a financial year it has no data for, money
+    for CM Elevate (applications only). Said instead of queried: the model
+    returned 0 or the scheme's other years for these, which read as a real figure."""
+    gaps: dict = {}
+    ac = resolved.get("assembly_constituency")
+    years = resolved.get("year_key_list") or ([resolved["year_key"]] if resolved.get("year_key") else [])
+    asked = (display or {}).get("year") or "FY " + ", ".join(f"{int(y)}-{(int(y) + 1) % 100:02d}" for y in years)
+    money_only = cross_scheme.asks_money_only(question)
+    for s in schemes:
+        if money_only and s == "CM Elevate":
+            gaps[s] = "CM Elevate records applications only, no money, so it has no amount to compare"
+            continue
+        if ac and s not in _CROSS_AC_RECORDED:
+            gaps[s] = f"{s} does not record assembly constituency, so it has no figure for {str(ac).title()}"
+            continue
+        if not years:
+            continue
+        held = _SCHEME_DATA_YEARS.get(s)
+        if held == []:
+            gaps[s] = f"{s} records no financial year, so it has no figure for {asked}"
+        elif held and not ({int(h[:4]) for h in held} & {int(y) for y in years}):
+            # the years listed, not a range: Focus Legacy has no FY 2023-24 inside its range
+            gaps[s] = f"{s} has no data for {asked} (its data covers FY {', '.join(held)})"
+    return gaps
 
 
 async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = None) -> "dict | None":
     """The fixed-shape MGNREGA and PMAY-G queries built in code (graph: deterministic)."""
     question, schemes, entity_result = d["question"], d["schemes"], d["entity_result"]
+    if d.get("cross"):
+        # a cross-scheme question is one model-written query per scheme (D-062)
+        d.update(mg_admin=None, mg_women=None, mg_det=None)
+        return None
     # MGNREGA shapes that are fixed by the question and that the model kept
     # getting wrong — built from the resolved filters and run parameter-bound
     # (see _mgnrega_combined_facts_query / _mgnrega_admin_expenditure_query).
@@ -1394,7 +1675,6 @@ async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = No
         _pm_rows = [dict(r) for r in await fetch_rows(_pm_det["sql"], _pm_det["params"])]
         logger.info("PMAY-G deterministic query (%s): %s", ",".join(_pm_det["metrics"]),
                     _pm_det["shown"].replace("\n", " ")[:400])
-        await _pmay_attach_placeholders(_pm_det, _pm_rows)
         _pm_answer = _pmay_facts_answer(_pm_det, _pm_rows)
         if _pm_answer and _pm_det.get("bare_year") and _pm_det.get("year_key") == _pm_det["bare_year"]:
             # A plain year ("during 2017") is the CALENDAR year: the answer, the result table
@@ -1443,7 +1723,8 @@ async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = No
         logger.info("PMAY-G deterministic query found no houses for the place — model path")
     _mg_det = _mg_admin or (
         (_mg_women["sql"], _mg_women["params"], _mg_women["shown"]) if _mg_women else None
-    ) or _mgnrega_combined_facts_query(question, schemes, entity_result["resolved"]) \
+    ) or _mgnrega_job_cards_query(question, schemes, entity_result["resolved"]) \
+        or _mgnrega_combined_facts_query(question, schemes, entity_result["resolved"]) \
         or _mgnrega_breakdown_query(question, schemes, entity_result["resolved"]) \
         or _mgnrega_wage_material_query(question, schemes, entity_result["resolved"]) \
         or _cme_sector_query(question, schemes, entity_result["resolved"])         or _fp_status_cohort_query(question, schemes, entity_result["resolved"])         or _focus_legacy_duplicates_query(question, schemes, entity_result["resolved"])         or _focus_legacy_fy_compare_query(question, schemes, entity_result["resolved"])
@@ -1464,7 +1745,7 @@ def _sql_reads_a_table(sql: str) -> bool:
 # ── the fixed (deterministic) queries, recognised on the tree / token stream ──
 # Each fixed query opens with a /* <mark> */ comment or has a fixed shape; a
 # string literal or column that happens to hold the same words does not count.
-_CME_SECTOR_MARKS = frozenset({"cme-sector-count", "cme-sector-pending", "cme-sector-programmes"})
+_CME_SECTOR_MARKS = frozenset({"cme-sector-count", "cme-sector-pending", "cme-sector-programmes", "cme-sector-workflow"})
 
 
 def _sql_comment_marks(sql: "str | None") -> "set[str]":
@@ -1495,7 +1776,9 @@ async def _data_sql_stage(d: dict, scope: "auth.UserScope | None" = None) -> Non
     """The SQL to run: the deterministic query's, or generate_sql (graph: sql_generate)."""
     question, schemes, entity_result, _mg_det = d["question"], d["schemes"], d["entity_result"], d["mg_det"]
     d["per_scheme"] = None
-    if not _mg_det and _per_scheme_needed(question, schemes, entity_result):
+    # A cross-scheme question always runs per scheme (D-062): each scheme's own
+    # prompt, few-shots and guards, never one query over several schemas (KI-280).
+    if not _mg_det and (d.get("cross") or _per_scheme_needed(question, schemes, entity_result)):
         await _per_scheme_generate(d)
         return
     sql = _mg_det[2] if _mg_det else await generate_sql(question, schemes, entity_result)
@@ -1533,15 +1816,106 @@ def _per_scheme_question(question: str, scheme: str) -> str:
     return f"{(question or '').rstrip(' ?.')} — answer for {scheme} only?"
 
 
+def _per_scheme_q(d: dict, scheme: str) -> str:
+    """The question one scheme's SQL is written for: a cross-scheme question's
+    own one-scheme question (_cross_scheme_subquestion), else the suffixed form."""
+    q = ((d.get("cross") or {}).get("questions") or {}).get(scheme)
+    return q or _per_scheme_question(d["question"], scheme)
+
+
+_CROSS_JOINERS = (" and ", ", ", " & ", " vs. ", " vs ", " versus ", " or ", " with ", " / ", "/")
+
+
+def _cross_scheme_base_question(question: str, scheme: str) -> str:
+    """The question with every scheme it names replaced by `scheme`, repeats
+    folded: "top ten villages in Mgnrega and pmay" -> "top ten villages in
+    PMAY-G". The fallback when the model's one-scheme question fails its checks.
+    "Compare MGNREGA and PMAY-G spending — answer for MGNREGA only?" still named
+    PMAY-G, and the MGNREGA SQL went to the cross-scheme money view, failed four
+    repairs and MGNREGA dropped out of the answer (D-062 live check, 2026-10-22)."""
+    mark = "\x00"
+    text = question or ""
+    for pat in _SCHEME_NAME_MATCHER.values():
+        text = pat.sub(mark, text)
+    text = cross_scheme._BARE_FOCUS.sub(mark, text)
+    if mark not in text:
+        return _per_scheme_question(question, scheme)
+    changed = True
+    while changed:
+        changed = False
+        for j in _CROSS_JOINERS:
+            for a, b in ((mark + j + mark, mark), ("between " + mark, mark)):
+                if a in text:
+                    text, changed = text.replace(a, b), True
+    return collapse_ws(text.replace(mark, scheme)).strip()
+
+
+def _cross_subquestion_numbers(text: str) -> set[str]:
+    """The numbers in a question, years left out, "ten" read as 10."""
+    years_text = " ".join(str(y) for y in context_policy.extract_year_keys(text))
+    nums = _numbers(_GAP_YEAR.sub(" ", text)) - _numbers(years_text)
+    return nums | {str(_LIST_COUNT_WORDS[w]) for w in (text or "").lower().replace("?", " ").split()
+                   if w in _LIST_COUNT_WORDS and w not in ("zero", "one")}
+
+
+def _cross_subquestion_violation(question: str, out: str, scheme: str) -> "str | None":
+    """What a one-scheme question changed that it must not, else None: 'shape',
+    'scheme' (it must name `scheme` and no other), 'place', 'year', 'number'.
+    Narrower than the rephraser's checks on purpose: a one-scheme question drops
+    filler ("I have a query"), turns "Compare …" into "What is …" and names the
+    scheme's figure, all of which the rephraser rejects."""
+    if not (3 <= len(out) <= max(300, 3 * len(question or ""))) or any(c in out for c in "{}[]`") \
+            or _reads_like_sql(out):
+        return "shape"
+    if _exact_schemes(out) != {scheme}:
+        return "scheme"
+    gloss = _rephrase_gloss(question)
+    if set(context_policy._places(out)) != set(context_policy._places(gloss)):
+        return "place"
+    if context_policy.extract_year_keys(out) != context_policy.extract_year_keys(gloss):
+        return "year"
+    if _cross_subquestion_numbers(out) != _cross_subquestion_numbers(gloss):
+        return "number"
+    return None
+
+
+async def _cross_scheme_subquestion(question: str, scheme: str) -> str:
+    """The one-scheme question for `scheme` (D-062): the rewrite model's, when it
+    keeps the question's places, years, numbers, measures and names and names
+    only `scheme` (the rephraser's own checks, against the fallback question);
+    else the fallback. "Which scheme has the highest beneficiary count in each
+    district — for MGNREGA only?" was answered with LIMIT 1, the top district."""
+    base = _cross_scheme_base_question(question, scheme)
+    try:
+        out = await llm.call_rewriter(prompt_builder.build_cross_subquestion_prompt(question, scheme),
+                                      max_tokens=120, role="cross-subquestion")
+        out = (out or "").strip().splitlines()[0].strip().strip('"').strip("'").strip() if (out or "").strip() else ""
+    except Exception as e:  # noqa: BLE001 — the fallback question always goes on
+        logger.warning("cross-scheme sub-question failed for %s (%s) — %r", scheme, e, base)
+        return base
+    violation = _cross_subquestion_violation(question, out, scheme) if out else "empty"
+    if violation:
+        logger.info("cross-scheme sub-question for %s rejected (%s): %r — %r", scheme, violation, out, base)
+        return base
+    logger.info("cross-scheme sub-question for %s: %r", scheme, out)
+    return out
+
+
 async def _per_scheme_generate(d: dict) -> None:
     """generate_sql once per scheme, in parallel. d["per_scheme"] = [[scheme, sql or
     None, error or None], ...]; d["sql"] = the statements joined (what the
     authorize node checks)."""
     question, schemes, entity_result = d["question"], d["schemes"], d["entity_result"]
-    outs = await asyncio.gather(*(generate_sql(_per_scheme_question(question, s), [s], entity_result)
-                                  for s in schemes), return_exceptions=True)
-    plan: list = []
-    for s, out in zip(schemes, outs):
+    gaps = _cross_scheme_gaps(schemes, entity_result["resolved"], entity_result.get("display"),
+                              d["cross"].get("text") or question) if d.get("cross") else {}
+    asked = [s for s in schemes if s not in gaps]
+    if d.get("cross"):
+        subs = await asyncio.gather(*(_cross_scheme_subquestion(question, s) for s in asked))
+        d["cross"] = {**d["cross"], "questions": dict(zip(asked, subs))}
+    outs = await asyncio.gather(*(generate_sql(_per_scheme_q(d, s), [s], entity_result)
+                                  for s in asked), return_exceptions=True)
+    plan: list = [[s, None, _NOT_HELD + gaps[s]] for s in schemes if s in gaps]
+    for s, out in zip(asked, outs):
         if isinstance(out, (llm.ModelBusyError, asyncio.TimeoutError, httpx.TimeoutException,
                             httpx.TransportError)):
             raise out                       # the gateway, not the question
@@ -1568,7 +1942,7 @@ async def _data_per_scheme_rows(d: dict, scope: "auth.UserScope | None" = None) 
         s, sql = item[0], item[1]
         if not sql:
             continue
-        q = _per_scheme_question(question, s)
+        q = _per_scheme_q(d, s)
         for attempt in range(MAX_SQL_REPAIRS + 1):
             sql = await _scheme_sql_rewrites(q, [s], entity_result, sql)
             if attempt and _repaired_sql_denial(scope, [s], entity_result, sql) is not None:
@@ -1599,13 +1973,41 @@ async def _data_per_scheme_rows(d: dict, scope: "auth.UserScope | None" = None) 
     d["rows"] = rows_all
 
 
+_NOT_HELD = "not held: "     # a per_scheme error that is the scheme's data, said as written
+
+
 def _per_scheme_notes(d: dict) -> list[str]:
-    missing = [(s, err) for s, sql, err in (d.get("per_scheme") or []) if not sql]
     if not d.get("per_scheme"):
         return []
+    items = d["per_scheme"]
+    held = [err[len(_NOT_HELD):] for s, sql, err in items if not sql and (err or "").startswith(_NOT_HELD)]
+    missing = [(s, err) for s, sql, err in items if not sql and not (err or "").startswith(_NOT_HELD)]
     notes = ["The result covers several schemes; each row's `scheme` column says which scheme it "
              "comes from. Report each scheme's figures under its own name, and never add figures "
              "of different schemes together (they count different things)."]
+    if d.get("cross"):
+        notes.append("Answer exactly what the question asks (its ranking, its top N, its level — "
+                     "village, block, district — its years), one part per scheme. Say what each "
+                     "scheme's figure counts (for example persons employed, houses sanctioned, "
+                     "beneficiaries, applications) and which years it covers. A ranking or list "
+                     "gives every row of each scheme, one line each, under the scheme's name. A "
+                     "scheme with no rows has no records for what was asked: say that, never 0. "
+                     "PMAY-G money: the amount released is what was paid, the sanctioned amount "
+                     "what was approved — name which one each figure is. Every amount in the result "
+                     "is in ₹ crore (its column ends _crore): write it as ₹<figure> crore and compare "
+                     "amounts only in that unit.")
+        if d["cross"].get("place_unrecognised"):
+            notes.append("The place named in the question was not recognised, so every figure is "
+                         "statewide: say so first.")
+        # A scheme with no figure is said by _cross_scheme_no_figure_lines after the
+        # composer: told to the composer, "Focus Plus has no data for FY 2024-25" set
+        # off the hedge check and the CM Elevate Legacy figures were thrown away for
+        # a row dump (D-062 live check, 2026-10-22).
+        notes.append("Write only about the schemes in the result's `scheme` column; a line about "
+                     "any other scheme is added after your answer.")
+        return notes
+    for h in held:
+        notes.append(f"{h}. Say exactly this for that scheme; give no figure for it.")
     if missing:
         notes.append("No figure could be computed for: "
                      + ", ".join(s for s, _ in missing)
@@ -1642,6 +2044,14 @@ async def _data_post_rows_stage(d: dict, scope: "auth.UserScope | None" = None) 
     sql, rows, _mg_admin, _mg_women = d["sql"], d["rows"], d["mg_admin"], d["mg_women"]
     if _mg_admin:
         answer = await _mgnrega_admin_expenditure_answer(rows, entity_result.get("display") or {})
+        return {
+            "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
+            "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,
+            "row_count": len(rows), "rows": rows[:20], "data": rows, "answer": answer,
+        }
+    if schemes == ["MGNREGA"] and "mg-job-cards" in _sql_comment_marks(sql):
+        # written from the rows the query read: the year(s) in the answer are the SQL's
+        answer = _mgnrega_job_cards_answer(rows, entity_result.get("display") or {})
         return {
             "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
             "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,
@@ -1814,13 +2224,242 @@ async def _data_compose_stage(d: dict, scope: "auth.UserScope | None" = None) ->
                                                    d["sql"], d["rows"])
     notes, _style, _fl_breakdown = d["notes"], d["style"], d["fl_breakdown"]
     _fl_total, _fl_unplaced = d["fl_total"], d["fl_unplaced"]
+    if d.get("cross") and rows:
+        rows = _cross_scheme_rows_in_crore(d.get("per_scheme") or [], rows)
+        d["rows"] = rows
     answer = _fl_breakdown or await compose_response(question, sql, rows, notes=notes,
-                                    entities=entity_result.get("display"),
+                                    entities=await _entities_with_sql_year(sql, entity_result.get("display")),
                                     schemes=schemes, style_examples=_style,
                                     extra_numbers=({str(_fl_total[0])} if _fl_total else set()) | {
                                         str(int(n)) for v in (_fl_unplaced[1] if _fl_unplaced else {}).values()
                                         for n in [_as_number(v)] if n is not None} or None)
+    if d.get("cross") and rows and not _fl_breakdown:
+        # Every scheme with rows is in the answer. "Top 5 blocks in MGNREGA and
+        # PMAY-G by beneficiaries" was answered "MGNREGA has no beneficiary
+        # figures recorded for any block" over five MGNREGA rows (D-062 live
+        # check, 2026-10-22): one retry naming them, then a section per scheme.
+        entities = await _entities_with_sql_year(sql, entity_result.get("display"))
+        left = _cross_schemes_left_out(answer, rows)
+        if left:
+            logger.warning("cross-scheme answer left out %s — retry", left)
+            answer = await compose_response(
+                question, sql, rows, entities=entities, schemes=schemes, style_examples=_style,
+                notes=list(notes or []) + [
+                    f"An earlier answer left out {', '.join(left)}, whose rows ARE in the result. Give "
+                    "every scheme's figures from its own rows; never say a scheme with rows has no data."])
+            left = _cross_schemes_left_out(answer, rows)
+        if left:
+            logger.warning("cross-scheme answer still left out %s — a section per scheme", left)
+            answer = _cross_scheme_sections(rows, entities)
     d["answer"] = answer
+
+
+# The rupee money columns of the four rupee schemes' views (MGNREGA's, in lakh,
+# are _MGNREGA_MONEY_COLS).
+_CROSS_RUPEE_COLS = frozenset({
+    "sanctioned_amount", "amount_released", "amount_pending", "amount_disbursed", "bank_sanctioned_amount",
+    "total_disbursement", "total_loan_disbursement", "total_subsidy_disbursement",
+    "loan_disbursement_1", "loan_disbursement_2", "loan_disbursement_3",
+    "subsidy_disbursement_1", "subsidy_disbursement_2", "subsidy_disbursement_3"})
+
+
+def _cross_money_outputs(scheme: str, sql: "str | None") -> dict:
+    """{output column (lower-case): 'lakh' / 'rupees'} for the outer SELECT's
+    columns that read only `scheme`'s money columns, unscaled: no division or
+    multiplication (already crore, or a share) and no average (a per-unit
+    figure). Read on the tree: the model names columns freely
+    ("total_financial_assistance" is SUM(amount_disbursed))."""
+    if scheme == "MGNREGA":
+        raw, unit = _MGNREGA_MONEY_COLS, "lakh"
+    elif scheme in _CROSS_RUPEE_SCHEMES:
+        raw, unit = _CROSS_RUPEE_COLS, "rupees"
+    else:
+        return {}
+    out = {}
+    for tree in sql_ast.parse(sql or ""):
+        sel = sql_ast.outer_select(tree)
+        for e in (sel.expressions if sel is not None else []):
+            name = (e.alias_or_name or "").lower()
+            cols = {(c.name or "").lower() for c in e.find_all(exp.Column)}
+            if name and cols and cols <= raw and e.find(exp.Div, exp.Mul, exp.Avg, exp.Count) is None:
+                out[name] = unit
+    return out
+
+
+def _cross_scheme_rows_in_crore(per_scheme: list, rows: list[dict]) -> list[dict]:
+    """Every scheme's money in ₹ crore, and a scheme's all-NULL rows dropped,
+    before the composer reads the rows. "Which scheme provided the highest
+    total financial assistance?" named Focus Plus for its 1,197,392,500 RUPEES
+    over MGNREGA's 3,628.67 CRORE (D-062 sheet run 2026-10-22): every figure was
+    in a row, so the faithfulness check passed. An aggregate over no records is
+    one NULL row ("- MGNREGA" with nothing, Baghmara-Municipal Board block)."""
+    money = {s: _cross_money_outputs(s, sql_s) for s, sql_s, _e in per_scheme if sql_s}
+    one_row = {s for s in {r.get("scheme") for r in rows} if sum(r.get("scheme") == s for r in rows) == 1}
+    out = []
+    for r in rows:
+        s = r.get("scheme")
+        vals = [v for k, v in r.items() if k != "scheme"]
+        if all(v is None for v in vals):
+            continue
+        # one aggregate row over nothing: SUMs NULL, COUNTs 0 ("MGNREGA — financial
+        # years: 0" in East Shillong, which MGNREGA does not cover)
+        if s in one_row and None in vals and all(v is None or _as_number(v) == 0 for v in vals):
+            continue
+        new = {}
+        for k, v in r.items():
+            unit = (money.get(s) or {}).get(str(k).lower(), "")
+            n = _as_number(v) if unit else None
+            if n is None:
+                new[k] = v
+                continue
+            c = float(n) / (100.0 if unit == "lakh" else 1e7)
+            new[f"{k}_crore"] = round(c, 2) if abs(c) >= 0.01 or c == 0 else round(c, 6)
+        out.append(new)
+    return out
+
+
+# Columns that name a row, not a figure of it: a code, key, id or year is not
+# what a scheme's answer has to state.
+_CROSS_NOT_FIGURE_PARTS = ("code", "key", "_id", "year")
+
+
+def _cross_schemes_left_out(answer: str, rows: list[dict]) -> list[str]:
+    """The schemes with rows none of whose figures (or, for a list of names,
+    none of whose names) the answer states."""
+    flat = (answer or "").replace(",", "").lower()
+    out = []
+    for s in dict.fromkeys(r.get("scheme") for r in rows if r.get("scheme")):
+        rows_s = [r for r in rows if r.get("scheme") == s][:40]
+        forms, names = set(), set()
+        for r in rows_s:
+            for k, v in r.items():
+                if k == "scheme" or any(p in str(k).lower() for p in _CROSS_NOT_FIGURE_PARTS):
+                    continue
+                n = _as_number(v)
+                if n is None:
+                    if isinstance(v, str) and len(v.strip()) >= 3:
+                        names.add(v.strip().lower())
+                    continue
+                if n == 0:
+                    continue
+                forms |= {str(n), f"{float(n):.2f}".rstrip("0").rstrip("."), f"{float(n):.2f}"}
+        if forms:
+            if not any(f in flat for f in forms):
+                out.append(s)
+        elif names and not any(nm in flat for nm in names):
+            out.append(s)
+    return out
+
+
+def _cross_scheme_sections(rows: list[dict], entities: "dict | None") -> str:
+    """One deterministic section per scheme, each from that scheme's own rows."""
+    parts = []
+    for s in dict.fromkeys(r.get("scheme") for r in rows if r.get("scheme")):
+        rows_s = [{k: v for k, v in r.items() if k not in ("scheme", "scheme_code")}
+                  for r in rows if r.get("scheme") == s]
+        parts.append(f"**{s}:** {_framed_fallback(rows_s, [s], entities)}")
+    return "\n\n".join(parts)
+
+
+_CROSS_LOWEST = Matcher(W("lowest", "least", "minimum", "smallest", "lower", "less", "fewest"))
+
+
+def _cross_scheme_figure(row: dict, money: bool) -> "tuple[str, float] | None":
+    """The one figure a scheme's single row is ranked by: its ₹ crore amount for a
+    money question (the total disbursed / released / spent when there are several),
+    else its one count. None when that is not one clear figure."""
+    nums = [(str(k), float(n)) for k, v in row.items()
+            if k != "scheme" and not any(p in str(k).lower() for p in _CROSS_NOT_FIGURE_PARTS)
+            for n in [_as_number(v)] if n is not None]
+    is_crore = lambda k: "crore" in k.lower() or k.lower().endswith("_cr")  # noqa: E731
+    nums = [x for x in nums if is_crore(x[0]) == money]
+    if len(nums) > 1:
+        nums = [x for x in nums if "total" in x[0].lower() or "disburs" in x[0].lower()] or nums
+        nums = nums if len(nums) == 1 else [x for x in nums if "total" in x[0].lower()]
+    return nums[0] if len(nums) == 1 else None
+
+
+def _cross_scheme_leader(answer: str, rows: list[dict], question: str) -> str:
+    """"Which scheme is highest / lowest" with one figure per scheme: the answer
+    leads with the scheme the rows rank first. The composer named Focus Plus
+    (₹119.74 crore) the highest over MGNREGA's ₹3,628.67 crore, both in its own
+    answer (D-062 sheet run 2026-10-22, "highest total financial assistance");
+    every figure was right, so only this check sees it."""
+    if not cross_scheme._RANK.search(question or ""):
+        return answer
+    schemes = list(dict.fromkeys(r.get("scheme") for r in rows if r.get("scheme")))
+    if len(schemes) < 2 or any(sum(r.get("scheme") == s for r in rows) != 1 for s in schemes):
+        return answer
+    money = bool(cross_scheme._MONEY.search(question or ""))
+    figs = {s: _cross_scheme_figure(next(r for r in rows if r.get("scheme") == s), money) for s in schemes}
+    if any(f is None for f in figs.values()):
+        return answer
+    low = bool(_CROSS_LOWEST.search(question or ""))
+    leader = (min if low else max)(schemes, key=lambda s: figs[s][1])
+    first = (answer or "").partition(". ")[0]
+    hits = [(h.start(), s) for s, pat in _SCHEME_NAME_MATCHER.items() for h in [pat.search(first)] if h]
+    if hits and min(hits)[1] == leader:
+        return answer
+    def fig(s: str) -> str:
+        k, v = figs[s]
+        return f"₹{v:,.2f} crore" if money else f"{_fmt_num(int(v) if v.is_integer() else v)} {_human_metric(k)}"
+    logger.warning("cross-scheme answer led with %s, the rows rank %s first — ranked answer",
+                   min(hits)[1] if hits else None, leader)
+    ranked = sorted(schemes, key=lambda s: figs[s][1], reverse=not low)
+    return (f"{leader} is the {'lowest' if low else 'highest'}, at {fig(leader)}. In order: "
+            + "; ".join(f"{s} {fig(s)}" for s in ranked) + ".")
+
+
+_CROSS_LIST_MAX = 25      # a longer list stays in the result table
+
+
+def _cross_scheme_complete_lists(answer: str, rows: list[dict]) -> str:
+    """Each scheme's list in full, numbered, when the answer names only part of
+    it. "Top ten highest villages in Mgnrega and pmay" was answered with the
+    first and the last village of each scheme (the composer writes one to three
+    sentences), D-062 live check 2026-10-22."""
+    low = (answer or "").lower()
+    extra = []
+    for s in dict.fromkeys(r.get("scheme") for r in rows if r.get("scheme")):
+        rows_s = [r for r in rows if r.get("scheme") == s]
+        if not 2 <= len(rows_s) <= _CROSS_LIST_MAX:
+            continue
+        lines, complete = [], True
+        for i, r in enumerate(rows_s, 1):
+            labels = [str(v).strip() for k, v in r.items() if k not in ("scheme", "scheme_code")
+                      and isinstance(v, str) and _as_number(v) is None and str(v).strip()]
+            figs = [f"{_fmt_num(n)} {_human_metric(str(k))}" for k, v in r.items()
+                    if k != "scheme" and not any(p in str(k).lower() for p in _CROSS_NOT_FIGURE_PARTS)
+                    for n in [_as_number(v)] if n is not None]
+            if not labels:
+                complete = True
+                break
+            if not all(lb.lower() in low for lb in labels):
+                complete = False
+            lines.append(f"{i}. {' / '.join(labels)}" + (f" — {', '.join(figs)}" if figs else ""))
+        if not complete:
+            extra.append(f"**{s}:**\n" + "\n".join(lines))
+    if not extra:
+        return answer
+    return (answer or "").rstrip() + "\n\n" + "\n\n".join(extra)
+
+
+def _cross_scheme_no_figure_lines(answer: str, per_scheme: list, rows: list[dict]) -> str:
+    """A line for each scheme the answer has no figure for: its data does not
+    hold what was asked, its query failed, or it matched no records. Added
+    after the composer, never left to it (see _per_scheme_notes)."""
+    with_rows = {r.get("scheme") for r in rows}
+    lines = []
+    for s, sql_s, err in per_scheme:
+        if not sql_s and (err or "").startswith(_NOT_HELD):
+            lines.append(err[len(_NOT_HELD):] + ".")
+        elif not sql_s:
+            lines.append(f"No {s} figure could be worked out for this question.")
+        elif s not in with_rows:
+            lines.append(f"{s} has no records matching this question.")
+    if not lines:
+        return answer
+    return (answer or "").rstrip() + "\n\n" + " ".join(lines)
 
 
 # "Which villages in Tikrikila assembly constituency received employment?" (whole
@@ -1849,6 +2488,45 @@ def _sql_latest_year_view(sql: "str | None") -> "str | None":
     return None
 _YEAR_VIEWS = {"v_employment", "v_expenditure", "v_pmay", "v_focus_plus", "v_focus_legacy",
                "v_cm_elevate_disbursement"}
+
+
+# The answer states the period the QUERY read, not the one the question named:
+# 24 of 24 job-card answers said "across all financial years" over SQL pinned to
+# year_key = 2025, because the composer and the closing scope line were told only
+# that the question named no year (MGNREGA sheet DATA-007, run 2026-10-21).
+async def _entities_with_sql_year(sql: "str | None", entities: "dict | None") -> "dict | None":
+    """`entities` plus the one financial year the query's WHERE pins (a literal
+    year_key = N / IN (N), or the latest-year subquery), when the question named
+    none. A year range, several years or a per-year GROUP BY change nothing."""
+    if not sql or (entities or {}).get("year"):
+        return entities
+    if any(c == "year_key" or c.startswith("financial_year") for c in sql_ast.group_by_columns(sql)):
+        return entities
+    keys: set[int] = set()
+    for node in sql_ast.filter_conditions(sql, "year_key"):
+        if node.find_ancestor(exp.Where) is None:
+            continue                     # a CASE WHEN year_key = … inside SELECT is not a filter
+        if not isinstance(node, (exp.EQ, exp.In)):
+            return entities              # a range: not one year
+        for v in sql_ast.filter_values(node, "year_key", numeric=True):
+            try:
+                keys.add(int(float(v)))
+            except (TypeError, ValueError):
+                return entities
+    if len(keys) > 1:
+        return entities
+    if keys:
+        y = keys.pop()
+    else:
+        view = _sql_latest_year_view(sql)
+        if not view or view not in _YEAR_VIEWS:
+            return entities
+        try:
+            # the view name is checked against _YEAR_VIEWS above, never taken from model text
+            y = int((await fetch_rows(f"SELECT MAX(year_key) AS y FROM curated.{view}", []))[0]["y"])
+        except Exception:  # noqa: BLE001 — without it the answer keeps the question's wording
+            return entities
+    return {**(entities or {}), "year": f"FY {y}-{(y + 1) % 100:02d}"}
 def _c13_y20(w: str) -> bool:
     r"""A word that starts with 20 + two digits (anything may follow)."""
     return len(w) >= 4 and w[:2] == "20" and w[2:4].isdecimal()
@@ -1918,6 +2596,22 @@ def _sql_filters_amount(sql: "str | None", amount: int) -> bool:
     return False
 
 
+# Schemes whose money columns are in RUPEES (MGNREGA's total_exp is in lakh).
+_CROSS_RUPEE_SCHEMES = ("PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate Legacy")
+
+
+def _cross_scheme_answer_units(answer: str, per_scheme: list, rows: list[dict]) -> str:
+    """₹ formatting for the rupee cells left after _cross_scheme_rows_in_crore (a
+    per-unit figure: an average, a rate), read on that scheme's own rows: the
+    single-scheme guarantees run only for one scheme, so a cross-scheme answer
+    printed a bare "22,227,530,000.00" (D-062 live check, 2026-10-22). MGNREGA's
+    money is crore by then, so its "add lakh" pass is not run here."""
+    for s, sql_s, _err in per_scheme:
+        if sql_s and s in _CROSS_RUPEE_SCHEMES:
+            answer = _pmay_rupee_format(answer, [r for r in rows if r.get("scheme") == s])
+    return answer
+
+
 async def _data_guarantees_stage(d: dict, scope: "auth.UserScope | None" = None) -> None:
     """Per-scheme deterministic answer guarantees after composing (graph: guarantees)."""
     question, schemes, entity_result, sql, rows = (d["question"], d["schemes"], d["entity_result"],
@@ -1928,6 +2622,20 @@ async def _data_guarantees_stage(d: dict, scope: "auth.UserScope | None" = None)
     # digits when that value is in the result, every scheme (all-blocks run
     # 2026-10-02); a spelled-out number is invisible to the faithfulness checks.
     answer = _cme_digits_for_number_words(answer, rows)
+    # A region total that includes a district its name does not suggest says so in
+    # one line (ingestion team 2026-10-26: Khasi includes Ri Bhoi). The label is set
+    # where the region resolves; the composer dropped it live, so it is guaranteed here.
+    _reg_label = (entity_result.get("display") or {}).get("district") or ""
+    if (entity_result.get("resolved") or {}).get("district_list_region") and "(includes " in _reg_label \
+            and _reg_label.split("(includes ", 1)[1].rstrip(")") not in (answer or ""):
+        answer = (answer or "").rstrip() + (
+            f" {entity_result['resolved']['district_list_region']} here includes "
+            f"{_reg_label.split('(includes ', 1)[1].rstrip(')')} district, as in the department's district-to-region list.")
+    if d.get("cross"):
+        answer = _cross_scheme_leader(answer, rows, d["cross"].get("text") or question)
+        answer = _cross_scheme_complete_lists(answer, rows)
+        answer = _cross_scheme_answer_units(answer, d.get("per_scheme") or [], rows)
+        answer = _cross_scheme_no_figure_lines(answer, d.get("per_scheme") or [], rows)
     # A stated Focus Plus payment amount: the answer must say which payments it
     # covers, and that Focus Plus is not a loan when the user called it one.
     # The composer note alone was ignored live (2026-09-29: "Amount disbursed:

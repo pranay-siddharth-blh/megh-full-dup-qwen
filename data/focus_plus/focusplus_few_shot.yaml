@@ -20,7 +20,7 @@
 #                                   Copying PMAY's WHERE NOT is_placeholder
 #                                   here does not just mislead - it ERRORS.
 #   COUNT(*) is aliased `payments`  one row is one payment, never one person
-#   COUNT(DISTINCT member_id)       the 12.5K cohort ONLY - never the scheme total
+#   COUNT(DISTINCT member_key)       the 12.5K cohort ONLY - never the scheme total
 #   batch_label = '12.5K'           on every gender / occupation / status question
 #   lgd_district / lgd_block        UPPERCASE literals - dim_geography stores them so
 #   village_code                    for counting villages, never a name
@@ -28,7 +28,7 @@
 #                                   curated.dim_scheme.money_unit before formatting
 #   tranche_label                   grouped as a CATEGORY, never ordered as time
 #   'Tranch' not 'Tranche'          the stored spelling
-#   member_id / pincode             never in a SELECT list - rule 7. A null-test
+#   member_key / pincode             never in a SELECT list - rule 7. A null-test
 #                                   inside an aggregate is permitted; it returns a
 #                                   count, not an identifier.
 #
@@ -66,7 +66,7 @@ sql_generation_examples:
     "legacy paid batch" example below), which was previously believed undeliverable once
     epic_id was dropped at ingest. payments (COUNT(*)) is still a genuinely different
     number - a legacy member appears on up to four payment rows - so both are returned,
-    labelled. Do NOT use COUNT(DISTINCT member_id) here: it only exists for the 12.5K
+    labelled. Do NOT use COUNT(DISTINCT member_key) here: it only exists for the 12.5K
     cohort (~3.2% of rows) and undercounts the true total by ~97% if treated as universal.'
 
 - question: How many members are in the legacy paid batch?
@@ -153,7 +153,7 @@ sql_generation_examples:
   sql: |
     SELECT lgd_district,
            COUNT(*)                  AS payments,
-           COUNT(DISTINCT member_id) AS members_with_an_id,
+           COUNT(DISTINCT member_key) AS members_with_an_id,
            SUM(amount_disbursed)     AS amount_raw
     FROM curated.v_focus_plus
     GROUP BY lgd_district
@@ -445,18 +445,7 @@ sql_generation_examples:
 
 - question: Compare the Garo Hills and Khasi Hills regions on Focus Plus
   sql: |
-    SELECT CASE
-             WHEN lgd_district IN ('EAST GARO HILLS', 'NORTH GARO HILLS',
-                                   'SOUTH GARO HILLS', 'SOUTH WEST GARO HILLS',
-                                   'WEST GARO HILLS')        THEN 'Garo Hills'
-             WHEN lgd_district IN ('EAST KHASI HILLS', 'EASTERN WEST KHASI HILLS',
-                                   'SOUTH WEST KHASI HILLS',
-                                   'WEST KHASI HILLS')       THEN 'Khasi Hills'
-             WHEN lgd_district IN ('EAST JAINTIA HILLS',
-                                   'WEST JAINTIA HILLS')     THEN 'Jaintia Hills'
-             WHEN lgd_district = 'RI BHOI'                   THEN 'Ri Bhoi'
-             ELSE 'Unassigned'
-           END                   AS region,
+    SELECT region,
            COUNT(*)              AS payments,
            SUM(amount_disbursed) AS amount_raw
     FROM curated.v_focus_plus
@@ -880,7 +869,7 @@ sql_generation_examples:
 
 - question: How many Focus Plus members are registered but not yet paid?
   sql: |
-    SELECT COUNT(DISTINCT member_id) AS registered_members,
+    SELECT COUNT(DISTINCT member_key) AS registered_members,
            COUNT(*)                  AS registration_rows
     FROM curated.v_focus_plus
     WHERE batch_label = '12.5K';

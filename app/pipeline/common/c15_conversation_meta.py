@@ -536,6 +536,8 @@ def _overview_question(question: str) -> "tuple[str, str] | None":
     schemes = _named_or_inferred_schemes(question)
     if len(schemes) != 1 or schemes[0] not in _C15_OVERVIEW_TEMPLATES:
         return None
+    if schemes[0] == "PMAY-G" and _pmay_named_summary(question):
+        return None                        # its own figures (pmay_g.py), not house status
     (canon, dim), = places.items()
     place = f"{canon.title()} {dim}" if dim in ("block", "district") else canon.title()
     years = context_policy.extract_year_keys(question)
@@ -1084,6 +1086,16 @@ def _callback_sentence(head: dict, earlier: dict) -> str:
     then = _c15_value_words(earlier["col"], old)
     if cur == old:
         return f"That's the same as in {fy} ({then})."
+    if isinstance(earlier.get("year"), int) and isinstance(head.get("year"), int) and earlier["year"] > head["year"]:
+        # The figure asked earlier is for a LATER year: read time forwards. PMAY-G
+        # FY 2017-18 3,597 after FY 2022-23 572 said "That's up from 572 in FY
+        # 2022-23" (live 2026-10-21) — growth backwards in time.
+        tail = ""
+        if cur:
+            pct = abs(old - cur) / abs(cur) * 100
+            if pct >= 0.1:
+                tail = f", about {pct:.1f}% {'higher' if old > cur else 'lower'}"
+        return f"By {fy} it was {then}{tail}."
     tail = ""
     if old:
         pct = abs(cur - old) / abs(old) * 100

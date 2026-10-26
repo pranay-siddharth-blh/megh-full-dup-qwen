@@ -19,7 +19,7 @@ display_name: Focus Plus Curated Star-Schema Semantic Schema (megh_db)
 # WHAT MAKES THIS SCHEME DIFFERENT FROM PMAY AND MGNREGA - read before editing
 # ---------------------------------------------------------------------------
 #
-#   1. IT IS THE ONLY PERSON-LEVEL FACT IN THE DATABASE. member_id and pincode
+#   1. IT IS THE ONLY PERSON-LEVEL FACT IN THE DATABASE. member_key and pincode
 #      describe identifiable individuals. Rule 7 of SCHEMA_FOR_DEVELOPERS.md
 #      applies to every query written from this file. bank_name_raw is also on
 #      the row but identifies a bank, not a person - aggregate bank-wise
@@ -69,11 +69,11 @@ display_name: Focus Plus Curated Star-Schema Semantic Schema (megh_db)
 #
 #   *** epic_id IS THE CONSEQUENTIAL LOSS. ***
 #   In the source it is the only column that identifies a legacy beneficiary:
-#   93,286 distinct EPIC ids across the 93K batch. member_id is BLANK on every
+#   93,286 distinct EPIC ids across the 93K batch. member_key is BLANK on every
 #   one of those 373,144 rows. So in megh_db there is currently NO column that
 #   reproduces the 93,286 beneficiary figure that the Focus+ use-case workbook
-#   is built on. COUNT(DISTINCT member_id) returns the 12.5K batch only.
-#   Do not present COUNT(DISTINCT member_id) as "total Focus+ beneficiaries".
+#   is built on. COUNT(DISTINCT member_key) returns the 12.5K batch only.
+#   Do not present COUNT(DISTINCT member_key) as "total Focus+ beneficiaries".
 #   See semantic_rules.beneficiary_term.
 #
 # ---------------------------------------------------------------------------
@@ -101,7 +101,7 @@ architecture_alignment:
   safety: SQLGlot read-only validation, enforced LIMIT, SELECT-only database role.
   observability: Inputs, outputs, rule firings, SQL, results, chart spec, and response are traceable.
   pii_boundary: >
-    ADDITIONAL FOR THIS SCHEME. member_id and pincode must never enter the embedding
+    ADDITIONAL FOR THIS SCHEME. member_key and pincode must never enter the embedding
     set, a vector-store payload, an export, or a rendered answer. Set
     semantic.table_catalog.is_chatbot_visible = false on the fact and expose only the
     view. Aggregate before anything reaches a user. bank_name_raw is not an identifier
@@ -358,7 +358,7 @@ datasets:
       sample_values: ['93K', '12.5K']
       business_rules:
       - "THE MOST IMPORTANT COLUMN IN THIS SCHEME AND THE LEAST OBVIOUS. Only two values exist and they separate two structurally different datasets - see semantic_rules.batch_duality. Almost every Focus Plus question needs to know which one it means."
-      - "'93K' is the legacy paid cohort: 93,286 beneficiaries x 4 tranches = 373,144 rows. Every person-level attribute (gender, occupation, focus_status, verification_status, member_id, pincode) is BLANK on all of them."
+      - "'93K' is the legacy paid cohort: 93,286 beneficiaries x 4 tranches = 373,144 rows. Every person-level attribute (gender, occupation, focus_status, verification_status, member_key, pincode) is BLANK on all of them."
       - "'12.5K' is the newer registration cohort: 12,527 rows, one per person, Tranch 4 only, with the person-level attributes populated."
       - "It is a LABEL, not a size and not a date. Do not parse '93K' as a number and do not order the two values as time."
       - "TREATING batch_label AS THE PAID/UNPAID DISCRIMINATOR IS AN INFERENCE, NOT A DECLARED FACT. It is the best available reading and the SME workbook leans on it, but no column states it. Say it is an inference whenever an answer rests on it."
@@ -469,7 +469,7 @@ datasets:
       - Enumerate with SELECT DISTINCT before trusting this - it is a source-file observation.
 
     # ---- identifiers that must never be displayed --------------------------
-    - name: member_id
+    - name: member_key
       source_column: fact_focus_plus_disbursement.member_id
       meaning: Focus Plus internal member identifier.
       type: varchar(20)
@@ -483,11 +483,11 @@ datasets:
         DELIBERATELY OMITTED. semantic.column_catalog must not sample this column and it
         must not enter the embedding set. Rule 7.
       business_rules:
-      - "*** PERSONAL IDENTIFIER. NEVER SELECT IT INTO AN ANSWER, AN EXPORT OR A VECTOR PAYLOAD. *** Its only legitimate use is inside COUNT(DISTINCT member_id). Do not build a member-lookup feature."
-      - "*** NULL ON ALL 373,144 LEGACY ROWS. *** COUNT(DISTINCT member_id) therefore counts the 12.5K batch and nothing else - roughly 12,527, not the 93,286 the use-case workbook calls the Focus+ beneficiary total. THIS IS THE MOST DANGEROUS SINGLE MISREADING AVAILABLE IN THIS SCHEME."
+      - "*** PERSONAL IDENTIFIER. NEVER SELECT IT INTO AN ANSWER, AN EXPORT OR A VECTOR PAYLOAD. *** Its only legitimate use is inside COUNT(DISTINCT member_key). Do not build a member-lookup feature."
+      - "*** NULL ON ALL 373,144 LEGACY ROWS. *** COUNT(DISTINCT member_key) therefore counts the 12.5K batch and nothing else - roughly 12,527, not the 93,286 the use-case workbook calls the Focus+ beneficiary total. THIS IS THE MOST DANGEROUS SINGLE MISREADING AVAILABLE IN THIS SCHEME."
       - "Identifier only; never SUM or AVG."
-      - "SCHEMA_FOR_DEVELOPERS.md's example query offers COUNT(DISTINCT member_id) as 'people'. That is correct only for the covered cohort. Qualify it every time."
-      - "The workbook's premise that one member appears in several tranches does NOT hold in the source: within the 12.5K batch member_id is unique per row, and the legacy rows that DO repeat per tranche have no member_id at all. (unverified_in_db)"
+      - "SCHEMA_FOR_DEVELOPERS.md's example query offers COUNT(DISTINCT member_key) as 'people'. That is correct only for the covered cohort. Qualify it every time."
+      - "The workbook's premise that one member appears in several tranches does NOT hold in the source: within the 12.5K batch member_key is unique per row, and the legacy rows that DO repeat per tranche have no member_key at all. (unverified_in_db)"
 
     - name: pincode
       source_column: fact_focus_plus_disbursement.pincode
@@ -532,7 +532,7 @@ datasets:
       sql_operations: [WHERE, GROUP BY, ORDER BY]
       synonyms: [bank, bank name, disbursing bank, paying bank]
       business_rules:
-      - "NOT an identifier - identifies a bank, not a person. Safe to GROUP BY, ORDER BY and return in an answer, unlike member_id/pincode."
+      - "NOT an identifier - identifies a bank, not a person. Safe to GROUP BY, ORDER BY and return in an answer, unlike member_key/pincode."
       - "DIRTY. 42 distinct source values that are really 27 bank names plus 15 numeric codes: the legacy batch stores names, the 12.5K batch stores codes. Casing is inconsistent ('State Bank of India' vs 'BANK OF BARODA'), one value has a leading space (' UJJIVAN SMALL FINANCE BANK') and one is misspelled ('Cananra Bank'). A normalisation table does not exist. (unverified_in_db)"
       - "If a ranking or breakdown surfaces one of the numeric-code rows (e.g. '1', '6', '33'), flag it as an unresolved raw code rather than presenting it as a bank name. By total amount_disbursed these codes are far below the top real banks, so a top-1 'which bank' answer is unaffected."
       - "Only the name is held - no account number or IFSC exists anywhere in megh_db for this or any other scheme."
@@ -602,7 +602,7 @@ datasets:
       reason: >
         Voter-ID number. Not carried into the curated layer. THIS IS THE CONSEQUENTIAL
         LOSS: it was the only identifier for a legacy beneficiary (93,286 distinct), and
-        member_id is blank on every legacy row. No column in megh_db reproduces the
+        member_key is blank on every legacy row. No column in megh_db reproduces the
         93,286 beneficiary count. Questions keyed on an EPIC id - lookups, Member-360,
         AC-code derivation from the 3-letter prefix, cross-dataset overlap with other
         schemes - cannot be answered. Say the column is not held; never improvise a join.
@@ -742,7 +742,7 @@ semantic_rules:
       financial_years: ['2022-23 (Tranch 1)', '2025-26 (Tranches 2-4)']
       amounts: ['5000 in Tranch 1', '2500 in Tranches 2-4']
       populated_person_columns: none
-      null_person_columns: [gender, occupation, focus_status, verification_status, member_id, pincode]
+      null_person_columns: [gender, occupation, focus_status, verification_status, member_key, pincode]
       identifier_in_source: epic_id
       identifier_in_db: "NONE - epic_id was dropped. source_sl_no is the only proxy."
     registration_cohort:
@@ -753,10 +753,10 @@ semantic_rules:
       tranches: ['Tranch 4 - Feb-March only']
       financial_years: ['2025-26']
       amounts: ['2500']
-      populated_person_columns: [gender, occupation, focus_status, verification_status, member_id, pincode]
+      populated_person_columns: [gender, occupation, focus_status, verification_status, member_key, pincode]
       districts_reached: 6
     runtime_behavior: >
-      A question about gender, occupation, focus_status, verification_status, member_id
+      A question about gender, occupation, focus_status, verification_status, member_key
       or pincode can only be answered for the 12.5K cohort - 3.2% of rows. State the
       cohort and the coverage in the answer. A question about payments, money, tranches
       or geography spans both cohorts and should say so when the split matters.
@@ -769,11 +769,11 @@ semantic_rules:
     reason: >
       The curated grain is one row per PAYMENT. "Beneficiary" in the SME workbook means a
       legacy paid person - 93,286 of them - and that number is NOT currently derivable
-      from megh_db, because epic_id was dropped at ingest and member_id is NULL on every
+      from megh_db, because epic_id was dropped at ingest and member_key is NULL on every
       legacy row.
     three_different_numbers:
       payments: "COUNT(*) - every disbursement row. The source total is 385,671."
-      members_with_an_id: "COUNT(DISTINCT member_id) - the 12.5K cohort ONLY, about 12,527. NOT the scheme total."
+      members_with_an_id: "COUNT(DISTINCT member_key) - the 12.5K cohort ONLY, about 12,527. NOT the scheme total."
       legacy_beneficiaries: "93,286 in the source, via epic_id. NO COLUMN IN megh_db REPRODUCES THIS."
     runtime_behavior: >
       Never answer a bare "how many beneficiaries" with a single number. COUNT(*) is a
@@ -782,7 +782,7 @@ semantic_rules:
       COUNT(DISTINCT source_sl_no) per batch as the best available proxy, and say it is a
       file serial rather than a person key.
     forbidden: >
-      Do NOT present COUNT(DISTINCT member_id) as the Focus Plus beneficiary total. It
+      Do NOT present COUNT(DISTINCT member_key) as the Focus Plus beneficiary total. It
       silently answers for 3.2% of the scheme and looks authoritative doing it.
     name_lookup: >
       NOT POSSIBLE. beneficiary_name, epic_id and mobile_number are not in the curated
@@ -918,9 +918,9 @@ semantic_rules:
   pii_rule:
     critical: true
     text: >
-      This is the only person-level fact in megh_db. member_id and pincode identify
+      This is the only person-level fact in megh_db. member_key and pincode identify
       individuals. Query v_focus_plus, never the fact. Never select an identifier into
-      an answer, an export or a vector-store payload; member_id's only legitimate use
+      an answer, an export or a vector-store payload; member_key's only legitimate use
       is inside COUNT(DISTINCT). Do not build a member-lookup or Member-360 feature. Set
       semantic.table_catalog.is_chatbot_visible = false on the fact and keep both
       columns out of semantic.column_catalog.sample_values. Aggregate before display.
@@ -934,7 +934,7 @@ semantic_rules:
   attribute_coverage_rule:
     critical: true
     text: >
-      gender, occupation, focus_status, verification_status, member_id and pincode are
+      gender, occupation, focus_status, verification_status, member_key and pincode are
       populated on 3.2% of rows - the 12.5K cohort only. ANY breakdown by one of these
       columns describes that cohort and NOT the scheme. State the cohort and the
       denominator in the answer. A gender split presented as a Focus Plus figure is
@@ -948,7 +948,7 @@ semantic_rules:
   identifier_behavior:
   - focus_plus_fact_id and source_row_id are technical identifiers.
   - source_sl_no is a source file serial and the only proxy for a legacy beneficiary.
-  - member_id is a person identifier and is PII - COUNT(DISTINCT) only, never displayed.
+  - member_key is a person identifier and is PII - COUNT(DISTINCT) only, never displayed.
   - pincode is person locality and is PII - never displayed.
   - village_code and geography_key are geographic identifiers.
   - year_key and scheme_key are dimension keys.
@@ -998,14 +998,14 @@ nlp_sql_rules:
     disbursements: COUNT(*)
     records: COUNT(*)
     amount_disbursed: SUM(amount_disbursed)
-    members_with_an_id: COUNT(DISTINCT member_id)
+    members_with_an_id: COUNT(DISTINCT member_key)
     distinct_villages: COUNT(DISTINCT village_code)
     beneficiaries: ASK_FIRST
 
   beneficiary_count_behavior: >
     "Beneficiaries" has three possible readings and they differ by an order of magnitude -
     see semantic_rules.beneficiary_term. COUNT(*) is a PAYMENT count and must be labelled
-    as one. COUNT(DISTINCT member_id) covers 3.2% of the scheme. The workbook's 93,286 is
+    as one. COUNT(DISTINCT member_key) covers 3.2% of the scheme. The workbook's 93,286 is
     not derivable at all. Clarify before answering; never pick silently.
 
   batch_behavior: >
@@ -1064,7 +1064,7 @@ nlp_sql_rules:
     If the unit is unconfirmed, say so instead of publishing a converted number.
 
   pii_behavior: >
-    Never SELECT member_id or pincode into a result set. member_id is permitted only
+    Never SELECT member_key or pincode into a result set. member_key is permitted only
     inside COUNT(DISTINCT). Refuse person-lookup and Member-360 requests on privacy
     grounds, not on availability grounds - and note that beneficiary name, mobile
     number and EPIC id were dropped at ingest anyway. bank_name_raw is not covered by
@@ -1091,9 +1091,9 @@ few_shot_examples:
     and label each.
   sql: |
     SELECT COUNT(*)                                  AS payments,
-           COUNT(DISTINCT member_id)                 AS members_with_an_id,
+           COUNT(DISTINCT member_key)                 AS members_with_an_id,
            COUNT(DISTINCT source_sl_no)              AS source_serials,
-           COUNT(*) FILTER (WHERE member_id IS NULL) AS payments_with_no_member_id
+           COUNT(*) FILTER (WHERE member_key IS NULL) AS payments_with_no_member_id
     FROM curated.v_focus_plus;
 
 - question: How many Focus Plus beneficiaries are there in West Garo Hills?
@@ -1136,7 +1136,7 @@ few_shot_examples:
   sql: |
     SELECT lgd_district,
            COUNT(*)                  AS payments,
-           COUNT(DISTINCT member_id) AS members_with_an_id,
+           COUNT(DISTINCT member_key) AS members_with_an_id,
            SUM(amount_disbursed)     AS amount_raw_unit_per_dim_scheme
     FROM curated.v_focus_plus
     GROUP BY lgd_district
@@ -1396,7 +1396,7 @@ few_shot_examples:
 
 - question: List the member IDs of Focus Plus beneficiaries in Selsella
   explanation: >
-    member_id is a personal identifier on the only person-level fact in the database.
+    member_key is a personal identifier on the only person-level fact in the database.
     Rule 7 forbids emitting it into an answer, an export or a vector payload; its only
     legitimate use is inside COUNT(DISTINCT). Offer the aggregate count instead.
   sql: null

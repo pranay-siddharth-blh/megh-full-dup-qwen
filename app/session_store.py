@@ -147,6 +147,14 @@ class Session:
     # Cleared with pending_scope_q.
     pending_scope_rule: str | None = None
     pending_scope_options: list | None = None
+    # D-065: the kind of the question the user TYPED before the pause (D-061:
+    # follow-up / vague / standalone). The reply resumes as that kind, not as
+    # whatever the chip text reads like: "total disbursement amount for mairang?"
+    # (no scheme, a follow-up) came back from the place chips as "… under CM
+    # Elevate Legacy, the assembly constituency …", read as a NEW question and
+    # was answered for FY 2025-26 instead of the chat's all years (user,
+    # 2026-10-22). Read only while pending_scope_q is set.
+    pending_turn_kind: str | None = None
     # Structured conversation state (app/context_manager.py) — the L1 copy,
     # mirrored to app.conversations.context_state (L2) on each turn.
     state: ConversationState = field(default_factory=ConversationState)
@@ -221,6 +229,7 @@ class Session:
                 "village_hint": self.pending_village_hint,
                 "rule": self.pending_scope_rule,
                 "options": list(self.pending_scope_options or []) or None,
+                "turn_kind": self.pending_turn_kind,
             },
             # as many as the session keeps (SESSION_MAX_TURNS; questions only, short)
             "recent_questions": [t.question for t in self.turns[-max(1, settings.SESSION_MAX_TURNS):] if t.question],
@@ -255,6 +264,7 @@ class Session:
         self.pending_village_hint = pending.get("village_hint")
         self.pending_scope_rule = pending.get("rule")
         self.pending_scope_options = pending.get("options")
+        self.pending_turn_kind = pending.get("turn_kind")
         # Absent in a snapshot written before topic memory / the idle expiry
         # were stored: no topics, age unknown.
         self.topics = dict(extra.get("topics") or {})

@@ -251,8 +251,10 @@ class Settings(BaseSettings):
     # KB chunk + query embeddings for the RAG path, and the semantic cache.
     # "local"  -> fastembed CPU model (LOCAL_EMBEDDING_MODEL), no gateway call.
     # "gateway" -> EMBEDDING_MODEL on the OpenAI-compatible gateway.
-    # The gateway currently has no embedding model deployed, so "local" is the
-    # working default; switch to "gateway" once qwen3-embedding is up.
+    # The dev box runs "gateway" (qwen3-embedding, 1024-dim) from .env since
+    # D-067 (2026-10-24); "local" (384-dim) stays the default here as the
+    # rollback. Changing it needs NEW collections (QDRANT_COLLECTION,
+    # CONTEXT_MEMORY_COLLECTION) and the cut-offs re-tuned to the new scale.
     EMBEDDING_PROVIDER: str = "local"
     LOCAL_EMBEDDING_MODEL: str = "BAAI/bge-small-en-v1.5"  # 384-dim, ONNX, ~130 MB
     EMBEDDING_MODEL: str = "qwen3-embedding"
@@ -264,8 +266,8 @@ class Settings(BaseSettings):
     # qwen3-reranker — reorders the Qdrant candidate set before answer composition.
     # OFF by default: the deployed qwen3-reranker inverts relevance on this KB
     # (verified 2026-08-29 — it ranks "where to find info" above "application
-    # process" for a "what documents" query). bge-small vector order is better on
-    # its own. Re-enable once the reranker deployment is fixed/replaced.
+    # process" for a "what documents" query). The embedding model's vector order
+    # is better on its own. Re-enable once the reranker deployment is fixed/replaced.
     RERANKER_ENABLED: bool = False
     RERANKER_MODEL: str = "qwen3-reranker"
     RERANKER_BASE_URL: str = "https://10.48.242.4/openai/v1"
@@ -307,10 +309,12 @@ class Settings(BaseSettings):
     # megh_scheme_kb_v3 since Phase 3 (2026-10-15): the same pieces plus a BM25
     # keyword vector for hybrid search. Rollback: megh_scheme_kb_v2 / megh_scheme_kb.
     QDRANT_COLLECTION: str = "megh_scheme_kb_v3"
-    # Thresholds are on the bge-small (local) cosine scale: loosely-related
-    # chunks score ~0.66-0.78, so HIGH sits above that — otherwise every
-    # knowledge question clears it and returns its nearest chunk verbatim
-    # instead of composing. MEDIUM is the real working tier for this KB.
+    # These defaults are on the bge-small (local, 384-dim) cosine scale:
+    # loosely-related chunks score ~0.66-0.78, so HIGH sits above that —
+    # otherwise every knowledge question clears it and returns its nearest
+    # chunk verbatim instead of composing. MEDIUM is the real working tier for
+    # this KB. qwen3-embedding scores ~0.1-0.15 lower, so .env sets MEDIUM 0.35
+    # with megh_scheme_kb_v4 (D-067).
     # RAG upgrade Phase 3 (2026-10-14, app/local_rank.py): keyword (BM25) search
     # fused with meaning search, then a local cross-encoder re-ranks the
     # candidates. Hybrid needs a collection built with the "bm25" sparse vector
@@ -473,6 +477,16 @@ class Settings(BaseSettings):
     # four years. Off => keep the old behaviour (add a soft note, then fall
     # through to the "which year?" pause or answer across the years that exist).
     YEAR_RANGE_GUARD_ENABLED: bool = True
+    # A place's LEVEL comes from the database, not from the word "village"
+    # (user report 2026-10-21, D-059). On: the in-memory village index also
+    # holds each village's code / block / district and the schemes with rows
+    # for it; an exact village anywhere in Meghalaya is never offered as a
+    # look-alike block or constituency; a typo goes to the clearly closest
+    # level; the level question is settled silently by the chat's remembered
+    # block / district or the asking scheme's data when that leaves one
+    # reading; the entity extractor is told which places the question names.
+    # Off => the D-058 behaviour.
+    PLACE_GAZETTEER: bool = True
 
     # ── Authorization (role + scope vs. what the query asks for) ──
     # Checks are pure Python (backend/auth.py). Users, tenants, conversations and
@@ -545,6 +559,11 @@ class Settings(BaseSettings):
     # Conversation memory older than this is never used and is deleted daily
     # (conversation_memory.purge_old_turns; RAG upgrade Phase 7). 0 = keep all.
     CONTEXT_MEMORY_RETENTION_DAYS: int = 30
+    # Other memory collections purged on the same schedule, comma-separated.
+    # The 384-dim and 1024-dim collections both hold officers' chats (D-067:
+    # the unused one is kept for rollback), so both follow the window. A
+    # collection that does not exist is skipped.
+    CONTEXT_MEMORY_PURGE_ALSO: str = "megh_conversation_memory,megh_conversation_memory_1024"
     # Follow-up rewrite evidence tiers (context_manager.build_rewrite_evidence).
     # Tier 1, the previous turn's structured filters, is always sent and is
     # a single line. Tiers 2 and 3 are sent only when the follow-up points INTO

@@ -1198,22 +1198,15 @@ sql_generation_examples:
   question: "Compare the Garo Hills, Khasi Hills and Jaintia Hills regions"
   plan:
   - "Regions are not a column -> CASE over the district lists"
-  - "Ri Bhoi is its own group"
+  - "Khasi includes Ri Bhoi (LGD region)"
   sql: |
-    SELECT CASE
-             WHEN lgd_district IN ('EAST GARO HILLS','NORTH GARO HILLS','SOUTH GARO HILLS',
-                                   'SOUTH WEST GARO HILLS','WEST GARO HILLS')   THEN 'Garo Hills'
-             WHEN lgd_district IN ('EAST KHASI HILLS','EASTERN WEST KHASI HILLS',
-                                   'SOUTH WEST KHASI HILLS','WEST KHASI HILLS') THEN 'Khasi Hills'
-             WHEN lgd_district IN ('EAST JAINTIA HILLS','WEST JAINTIA HILLS')   THEN 'Jaintia Hills'
-             WHEN lgd_district = 'RI BHOI'                                      THEN 'Ri Bhoi'
-           END                                     AS region,
+    SELECT region,
            COUNT(*)                                AS records,
            ROUND(SUM(total_disbursement) / 1e7, 2) AS total_disbursed_cr
     FROM curated.v_cm_elevate_disbursement
     GROUP BY 1
     ORDER BY records DESC;
-  assumptions: ["Garo Hills covers 5 districts, Khasi Hills 4, Jaintia Hills 2; Ri Bhoi is its own group."]
+  assumptions: ["Garo Hills covers 5 districts, Khasi Hills 5 (including Ri Bhoi), Jaintia Hills 2."]
   caveats: [disbursement_split_caveat]
 
 - id: G08

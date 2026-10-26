@@ -48,6 +48,8 @@ _PIPELINE_FILES = (
     "common/c10_sql_generation_and_rewrites",
     "common/c11_sql_verify_repair",
     "common/c12_answer_numbers",
+    # the answer's shape — ranking / comparison / trend … (user report 2026-10-22)
+    "common/c12_answer_shapes",
     "common/c13_compose_and_data_stages",
     "common/c14_turn_stages",
     # talking about the conversation itself (D-052); called by the turn stages at run time

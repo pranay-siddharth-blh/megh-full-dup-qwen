@@ -46,11 +46,13 @@ def test_not_after_a_knowledge_answer_or_with_no_antecedent():
     assert not p.is_scopeless_followup("What is the total beneficiaries?", None)
 
 
-# ── The same scheme named again with only a measure keeps the scope ─────────
+# ── The same scheme named again is a NEW question (D-061, 2026-10-22) ────────
+# Was a follow-up from 2026-10-18; the user's addendum "New Question = New
+# Answer": naming the chat's own scheme is never by itself a reason to inherit.
 
 @pytest.mark.parametrize("q", ["What is the total beneficiaries MGNREGA?", "How many MGNREGA beneficiaries?"])
-def test_same_scheme_again_is_a_followup(q):
-    assert p.is_scopeless_followup(q, PREV)
+def test_same_scheme_again_is_a_new_question(q):
+    assert not p.is_scopeless_followup(q, PREV)
 
 
 @pytest.mark.parametrize("q", ["How many PMAY-G houses?", "MGNREGA beneficiaries in Ri Bhoi",

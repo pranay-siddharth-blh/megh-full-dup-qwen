@@ -1,3 +1,7 @@
+# NOT LOADED BY THE APP (see app/annotations.py) - kept as the scheme team's reference only.
+# Counts and percentages quoted below are historical (ingestion team note, 2026-10-26: CM Elevate is
+# re-pulled from the API, so figures change). Never wire this file into the app without re-checking
+# every figure against megh_db; tests/test_db_changes_2026_10_26.py fails if app code reads it.
 # pmay_default_rules.yaml
 #
 # Default rules for PMAY-G - node 5.5. Runs after the clarification gate.
@@ -139,7 +143,7 @@ default_rules:
 
   - condition: "ri_bhoi_as_region"
     default_value: "single_district"
-    assumption_text: "Ri Bhoi is its own group and is not counted under Khasi Hills."
+    assumption_text: "Khasi Hills includes Ri Bhoi district (LGD region)."
 
   - condition: "colliding_name_without_level"
     default_value: "block"

@@ -84,7 +84,7 @@ foreign_key_augmentation:
         COUNT(*) is a PAYMENT count, not a person count - a legacy member appears on four
         rows. There is NO placeholder predicate on this partition; do not carry PMAY's
         WHERE NOT is_placeholder across, because the column does not exist and the query
-        will error. member_id is NULL on the whole legacy cohort, so it is not a key
+        will error. member_key is NULL on the whole legacy cohort, so it is not a key
         either - focus_plus_fact_id is.
 
     curated.fact_focus_plus_disbursement:
@@ -409,18 +409,18 @@ foreign_key_augmentation:
         roll-up. Enumerate them with SELECT DISTINCT; never borrow PMAY's status values.
 
     - from_table: curated.v_focus_plus
-      from_column: member_id
+      from_column: member_key
       to_table: curated.v_focus_plus
-      to_column: member_id
+      to_column: member_key
       cardinality: many_to_many
       declared: false
       is_prohibited: true
-      use_instead: GROUP BY member_id on a single scan
+      use_instead: GROUP BY member_key on a single scan
       on_clause: null
       reason: >
         SELF-JOIN ON A PERSON IDENTIFIER. Two distinct problems. First it fans out: the
         legacy cohort has four rows per member, so a self-join squares that within each
-        member. Second and worse, member_id is PII on the only person-level fact in
+        member. Second and worse, member_key is PII on the only person-level fact in
         megh_db, and a self-join is how a "find members who appear more than once" or
         "Member-360" query gets built - both of which rule 7 forbids. Duplicate and
         repeat-payment questions are answered with GROUP BY and HAVING on one scan, and

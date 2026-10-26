@@ -115,8 +115,19 @@ def test_block_and_constituency_collision_is_detected(name):
 def test_an_unambiguous_name_still_asks_nothing():
     """The gate must not start pausing on names that are only one kind of
     place — that would interrupt the commonest question shape there is."""
-    assert entity_resolver.collides_across_dimensions("Nongstoin", "Focus Legacy") == {}
-    assert entity_resolver.collides_across_dimensions("Mairang", "Focus Legacy") == {}
+    assert entity_resolver.collides_across_dimensions("West Khasi Hills", "Focus Legacy") == {}
+    assert entity_resolver.collides_across_dimensions("Ri Bhoi", "Focus Legacy") == {}
+
+
+def test_a_district_hq_alias_no_longer_hides_a_block_and_constituency():
+    """User rule 2026-10-21 19:50 (D-059 §6, KI-349): a name that is a block AND a
+    constituency is asked about. NONGSTOIN / MAIRANG reach a district only through
+    its HQ-town alias, which used to end the check; the constituency reading is
+    still dropped downstream where the metric has no constituency data."""
+    assert set(entity_resolver.collides_across_dimensions("Nongstoin", "Focus Legacy")) == \
+        {"block", "assembly_constituency"}
+    assert set(entity_resolver.collides_across_dimensions("Mairang", "Focus Legacy")) == \
+        {"block", "assembly_constituency"}
 
 
 # ── the end-to-end clarification ───────────────────────────────────────────

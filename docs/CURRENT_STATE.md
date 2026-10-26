@@ -1,9 +1,411 @@
 # Current State
 
-**Last updated:** 2026-10-13 (evening), by the Cross Scheme sheet session (KI-280..290, D-044; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-03 (early morning), by the all-schemes all-places QA + fix session (KI-188..199, D-034; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-02, by the LangGraph integration session (D-032; code changed, uncommitted; **offline-verified only**, VPN down). Before that: 2026-09-29 (early morning), by the conversational scheme-swap session (KI-180; code changed, uncommitted). Before that: 2026-09-29 (late night), by the CM Elevate Legacy use-case re-test session (no code changed; KI-166..168 opened). Before that: 2026-09-29 (night), by the Focus Legacy all-levels fix session (KI-020, KI-145..165, D-031; code changed, uncommitted). Before that: 2026-09-29, by the context-relevance / semantic-contract session (code changed, uncommitted; D-030, KI-030/032/034 and KI-130 to KI-135; **offline-verified only**, VPN down). Before that: 2026-09-28 (evening), by the CM Elevate all-blocks / all-villages fix session (code changed in `app/pipeline.py`, tests; uncommitted). Before that: 2026-09-28, by the PMAY-G fix session (code changed, uncommitted; D-029, KI-089 to KI-097). Before that: 2026-09-27 night, by the Focus Plus all-blocks / all-villages session (code changed in `app/pipeline.py`, tests in `tests/test_focusplus_usecase_fixes.py` and `tests/test_mgnrega_usecase_fixes.py`; **uncommitted**). Earlier the same day: the CM Elevate use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/schema_context.py`, plus a new test file; **uncommitted**). Before that, the same day: the Focus Plus use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/routers/query.py`, **uncommitted**, on top of the uncommitted 2026-09-26 MGNREGA and context work).
+**Last updated:** 2026-10-24 evening, by the 1024-dim completion session (KI-402..407; uncommitted, LIVE on :8401). Before that: 2026-10-24, by the embedding switch session (D-067 gateway qwen3-embedding 1024-dim, KI-401 semantic-cache fix; uncommitted; offline + live RAG eval verified, the :8401 server NOT yet restarted). Before that: 2026-10-22 night, by the cross-scheme UAT D-066 fix session (KI-387..392; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 evening, by the CM Elevate Legacy sheet re-test + D-064 + KI-379..386 fix session (uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 evening, by the answer-shape + KPI-card session (D-063, KI-377, KI-378; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 afternoon, by the cross-scheme no-template session (D-062, KI-374; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 ~13:45, by the context-memory "New Question = New Answer" session (D-061, KI-373; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 ~13:30, by the Focus Legacy sheet re-test + fix session (KI-369..371 fixed, KI-372 opened; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22 ~12:00, by the ranking follow-up session (KI-366 fixed, KI-367/368 opened; uncommitted, LIVE-VERIFIED). Before that: 2026-10-22, by the Focus Plus FOCUS-019 / FOCUS-004 fix session (KI-360 / KI-361 fixed, code changed, uncommitted, LIVE-VERIFIED; see Latest). Before that: 2026-10-22, by the Focus Plus sheet re-test session (no app code changed; KI-359..365 opened). Before that: 2026-10-22 (~00:50), by the PMAY-G sheet re-test + fix session (D-060, KI-356..358). Before that: 2026-10-13 (evening), by the Cross Scheme sheet session (KI-280..290, D-044; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-03 (early morning), by the all-schemes all-places QA + fix session (KI-188..199, D-034; code changed, uncommitted; LIVE-VERIFIED). Before that: 2026-10-02, by the LangGraph integration session (D-032; code changed, uncommitted; **offline-verified only**, VPN down). Before that: 2026-09-29 (early morning), by the conversational scheme-swap session (KI-180; code changed, uncommitted). Before that: 2026-09-29 (late night), by the CM Elevate Legacy use-case re-test session (no code changed; KI-166..168 opened). Before that: 2026-09-29 (night), by the Focus Legacy all-levels fix session (KI-020, KI-145..165, D-031; code changed, uncommitted). Before that: 2026-09-29, by the context-relevance / semantic-contract session (code changed, uncommitted; D-030, KI-030/032/034 and KI-130 to KI-135; **offline-verified only**, VPN down). Before that: 2026-09-28 (evening), by the CM Elevate all-blocks / all-villages fix session (code changed in `app/pipeline.py`, tests; uncommitted). Before that: 2026-09-28, by the PMAY-G fix session (code changed, uncommitted; D-029, KI-089 to KI-097). Before that: 2026-09-27 night, by the Focus Plus all-blocks / all-villages session (code changed in `app/pipeline.py`, tests in `tests/test_focusplus_usecase_fixes.py` and `tests/test_mgnrega_usecase_fixes.py`; **uncommitted**). Earlier the same day: the CM Elevate use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/schema_context.py`, plus a new test file; **uncommitted**). Before that, the same day: the Focus Plus use-case QA **and fix** session (code changed in `app/pipeline.py` and `app/routers/query.py`, **uncommitted**, on top of the uncommitted 2026-09-26 MGNREGA and context work).
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: RBAC review (2026-10-26). No app code changed. Report `new_docs/Role_Based_Access_Report_2026-10-26.md`.
+- 8 roles (`auth.ROLE_PERMISSIONS`; `public` unreachable), 4 gates (`deps.py`), 3 data checks (`auth.authorize`).
+  Built and working: login/JWT, endpoint gates, tenant-scoped admin reads, SQL + repair checks, scope-keyed cache, audit.
+- New OPEN issues: KI-418 (HIGH: admin can PATCH self/others to super_admin), KI-419 (4 fixed answers skip `authorize`),
+  KI-420 (`/api/scheme-stats` unscoped), KI-421 (fail-open scheme list, unvalidated `granularity_cap`). KI-007 still open.
+  No tests for the admin/role endpoints.
+## Latest: connection caps agreed with the ingestion team (2026-10-26 night): megh_app 30, megh_readonly 20, both hard.
+- `172.18.0.2` = very likely the old build's Docker container (INFERRED); stop it at switch-over. Docs only; no code change.
+
+## Earlier: megh_app readiness checked; unused rule files marked NOT LOADED (2026-10-26 night).
+- Fixed curated reads run clean under megh_readonly's limits (0 permission denied); app SQL is `app.`-qualified; 15 s app
+  timeout < 60 s. Connection cap: need 30 (6 per worker x 5 workers), team asked. Chat-history backup policy: user decision.
+
+## Earlier: catalog reads also as megh_readonly; Khasi note wording (2026-10-26 late, team's reply). Code changed, uncommitted. LIVE-VERIFIED.
+- `schema_introspect` -> `db.fetch_rows_readonly`: the SQL prompt shows only what megh_readonly can read (same counts).
+- The `postgres` login (DATABASE_URL) now serves only the app's own tables (`app.*` in megh_db) and the app's fixed queries.
+- pytest 3,799 / 0; scripts 14/14. :8401 = PID 39908.
+
+## Earlier: D-069 extended — megh_readonly in use, Ri Bhoi in Khasi, "pending" not recorded, KI-417 (2026-10-26 evening). Code + rules + .env changed, uncommitted. LIVE-VERIFIED.
+- Generated SQL now runs as `megh_readonly` (dev `.env` key fixed, superuser override off, pools 4+4+2 per worker).
+  `SELECT *` on a table with hidden columns is expanded to the readable columns (c11).
+- Ri Bhoi is in the Khasi region everywhere (resolver, rules, prompt, examples); answers say so in one line.
+- CM Elevate "pending / approved / rejected / sent back": "not recorded" + the recorded figures (distinct applications).
+- KI-417 fixed (₹119.74 crore). Opened KI-422 (level-2 answer still says "pending").
+- pytest 3,799 / 0; scripts 14/14; held-out 42/74 (0 regressions, as megh_readonly); live context 103/107.
+
+## Earlier: D-069 — the ingestion team's 15-24 Oct DB changes picked up (2026-10-26). Code + rules changed, uncommitted. LIVE-VERIFIED.
+- `member_id` -> `member_key` (prompt + Focus Plus rules); six region examples -> `region_group` + c11 safeguard;
+  KI-415 FIXED (all in-prompt examples run). Reply to the team with answers and 5 questions:
+  `docs/Chatbot_Answers_to_Ingestion_Team_2026-10-26.md`. Open: `megh_readonly` credential (KI-304), KI-417 rounding.
+- pytest 3,784 / 0; scripts 14/14; known answers 7/12 exact, rest explained. :8401 = PID 29672.
+
+## Earlier: KI-414 — short FY forms read by every year reader; follow-up "give me FY 25" fixed (2026-10-26). Code changed, uncommitted. LIVE-VERIFIED.
+- One reader `context_policy.short_fy_tokens` -> `extract_year_keys`, the year-gap guard, the year back-fill; the rewrite
+  check keeps the user's own year; edge accepts "FY'25". Live follow-up sweep 81/81 (FY18-26 × 3 forms × 3 schemes).
+- Opened KI-415 (broken region few-shot examples; 2 `test_fewshot_headers` failures, not from this change) and KI-416
+  (bare year follow-up after a houses question switched to the amount).
+- pytest 3,777 passed / 2 failed (KI-415); scripts 14/14. :8401 = PID 7260. Another process also restarts :8401.
+
+## Earlier: ranking count words ("five highest" = top 5) and a shared-namespace guard (2026-10-26). Code changed, uncommitted. LIVE-VERIFIED.
+- KI-412 FIXED (RAG plan C2): c02 `_normalize_rank_counts` (count words -> digits in a ranking position) and c11
+  `_stated_rank_count_limit` (outer LIMIT = the stated count where safe). Five wordings of one ranking -> the same 5 blocks.
+- KI-413 FIXED: a name collision this change caused (shared pipeline namespace) broke spoken years; renamed, and NEW guard
+  test fails on any duplicate top-level name. CLAUDE.md §2 notes the rule.
+- pytest 3,742 / 0; scripts 14/14; held-out 42/74 (0 regressions); live context 103/107. :8401 = PID 36832.
+
+## Earlier: D-068 — a stated scope is never asked for; "FY24" = FY 2023-24 (2026-10-24 night). Code changed. LIVE-VERIFIED.
+- KI-409 FIXED (FY24 read as 2024-25, in the parser AND via the extractor's bare "24"); KI-410 FIXED (stated scope in
+  unrecognised wordings was asked). Nothing-stated questions still ask (D-053 / D-056 unchanged; option A NOT re-applied).
+- Held-out NL->SQL set: 54.1% (40/74, 0 wrong) earlier today -> **56.8% (42/74)**; the other 31 clarifications follow
+  D-053/D-056/D-064/D-065 (the set's expectations predate them: user decision pending). KI-411 opened (PM-04 split).
+- pytest 3,698 / 0; scripts 14/14; live context 103/107 (unchanged). :8401 = PID 44700.
+
+## Earlier: docs name the real KB folder `data/incoming/<scheme>/` (2026-10-24, RAG plan A3 doc part). Docs only.
+- CLAUDE.md (§1, §5), ARCHITECTURE (tree, §3.9), AI_PIPELINE (KB ingest), SCHEMES (adding a scheme) said `data/reference/`,
+  which does not exist since 2026-10-14. Also corrected there: `_SOURCES` -> `_INCOMING_SCHEMES` / `_sme_sources`, the KB
+  collection name (`QDRANT_COLLECTION`, v4) and the rebuild conditions (BM25, vector size). History entries left as written.
+
+## Earlier: `.gitignore` now skips `raw_uc/`, `new_docs/*.csv`, `new_docs/~$*` (2026-10-24, RAG plan E12, part)
+- The raw use-case sheets (PII) and QA result CSVs can no longer be committed by a careless `git add .`; the files stay on
+  disk (13 in `raw_uc/`, 9 CSVs). No tracked file matches the new rules; the `new_docs/` .md/.html/.docx reports stay tracked.
+- Still open (E12): KI-022 CSV in the remote history, Qdrant API key, gateway CA file, read-only DB role, token in the remote URL.
+
+## Earlier: the 1024-dim switch is complete and LIVE on :8401 (2026-10-24 evening, D-067 follow-up). Committed `9c7c67c` on `update/2026-10-24`.
+- Backup: our 7 `megh_*` Qdrant collections snapshotted to `C:\Users\rohit\Downloads\qdrant_backup_2026-10-24\` (outside
+  the repo; holds officers' chats — never commit or share).
+- KI-402 FIXED: `kb_ingest` rebuilds a KB of the wrong vector size; memory never writes into / deletes a wrong-size collection.
+- KI-403 FIXED: NEW `CONTEXT_MEMORY_PURGE_ALSO` — the 384-dim rollback memory is purged after 30 days too.
+- NEW `deploy/migrate_conversation_memory.py`: 12,046 turns re-embedded into `megh_conversation_memory_1024` (recall 20/20).
+- :8401 restarted (`.venv`, PID 24368, log `logs/server_8401_2026-10-24.log`); startup size check passed (v4 = 1024).
+- pytest 3,661 / 0 (3 skipped), scripts 14/14. Live context 103/107: the 4 failures are identical on 384 → not D-067;
+  opened KI-404..407. Stale comments fixed (config.py, rag.py, local_rank.py); AI_PIPELINE's old "top 8 returned anyway" corrected.
+- KI-408 FIXED: memory search is exact and the memory collection has payload indexes (tenant_id, user_id, session_id, ts):
+  60/60 equal to exact search (was 58/60, 1 usable turn missed), same speed. Live context re-run 103/107 (same 4 known).
+  pytest 3,663 / 0. :8401 now PID 17056 (log `logs/server_8401_2026-10-24b.log`).
+- NOT done: deploy VMs (`.env` lines + migration script); Qdrant API key + firewall; gateway CA file.
+
+## Earlier: embeddings from the gateway's qwen3-embedding, 1024-dim (2026-10-24, D-067). `.env` + one code fix (KI-401).
+- VERIFIED live: gateway `/openai/v1/embeddings` returns 1024-dim vectors for `qwen3-embedding`. The old `.env` URL
+  (`…/v1/completions`) gave 404; fixed to `…/openai/v1`.
+- `.env`: `EMBEDDING_PROVIDER=gateway`, `QDRANT_COLLECTION=megh_scheme_kb_v4`, `CONTEXT_MEMORY_COLLECTION=megh_conversation_memory_1024`,
+  `RAG_MEDIUM_CONFIDENCE=0.35`, `CONTEXT_MEMORY_MIN_SCORE=0.45`. `megh_scheme_kb_v4` BUILT (201 points, 1024-dim, BM25);
+  the 384-dim `megh_scheme_kb_v3` / `megh_conversation_memory` untouched (rollback in D-067). `config.py` defaults unchanged.
+- RAG eval (188 q): correct-or-honest 92.0 on v4 at 0.35 = 92.0 on v3 today; fewer made-up answers (13.9% vs 17.1%).
+- KI-401 FIXED: semantic-cache hits now also need the same rank direction / N / status / measure / category words.
+- pytest 3,652 / 0 (3 skipped), scripts 14/14.
+- NOT done: the running :8401 server (PID 32172, started with the SYSTEM Python) still has the old settings until restart;
+  deploy VMs' `.env`; CA file `certs/enlight-aiops-internal-ca.pem` still missing (TLS verify off, KI-015).
+
+## Latest: NL→SQL feature / benchmark gap report (2026-10-23). No app code changed, no new live runs.
+- `new_docs/NL2SQL_LangGraph_Benchmark_Report_2026-10-23.html`: feature checklist (built / partial / missing), LangGraph
+  capability check, public benchmarks (Spider, BIRD, Spider 2.0, SParC/CoSQL, Dr.Spider), PROPOSED targets vs latest recorded
+  results, 8 ranked gaps + roadmap. Top gaps: rule-based understanding (no `query_analyzer` node), no CI accuracy gate,
+  latency under load, no read-only DB role.
+
+## Latest: full system audit (2026-10-23). No app code changed. Report `new_docs/Megh_One_AI_Audit_Report_2026-10-23.html`.
+- VERIFIED: 5/5 model roles answer via `app/llm.py`; DB, Qdrant, :8401 up; pytest 3,650 / 0 (3 skipped), scripts 14/14.
+- Live ~110 questions over HTTP vs read-only DB truth: every figure given = DB; paraphrases 41/41, repeats 27/27, rankings 9/10,
+  follow-up chain 4/4. Found: "FY24" read as FY 2024-25 (no KI yet), "Five highest blocks" asks top-N (number words), Focus+
+  money shown in rupees in one wording and crore in another, API calls without session_id share one `day-<user>-<date>` chat.
+- Also found: `raw_uc/` (PII CSVs) NOT gitignored; KI-022 CSV still in remote history; gateway CA file missing -> verify=False;
+  `state_officer` capped at district (auth.py:64; confirm policy); UI phone cards truncate figures; compare card "% ahead"
+  mixes spent vs released. CLAUDE.md stale (verifier model, re-ranker, privacy-table guard, test counts). Not fixed: audit only.
+
+## Latest: KI-397 — cross-scheme comparison card showed "PMAY-G 0" (2026-10-22 night). Frontend only. Code changed, uncommitted. TESTED (node), not checked in a browser.
+- User screenshot: "MGNREGA vs PMAY-G — households given work: 14,94,437 vs 0". Cause: the D-066 rows give each scheme its own
+  count column; `analytics.js` read columns from the first row only, so PMAY-G (no `households_given_work`) showed 0. The
+  table and the Excel export also dropped PMAY-G's `houses_sanctioned`.
+- Fix: `analytics.js` charts only columns every row carries + NEW `tableColumns` (union of all rows' keys) used by
+  `Charts.jsx` `DynTable` and `ChatExport.jsx`. `npm run build` done. Card now compares amount (₹ crore), held by both.
+- Tests: NEW `tests/test_cross_compare_card_2026_10_22.py` 3/3 (2/3 fail on the old code); `test_history_charts.py`,
+  `test_ac_full_results.py`, `test_cross_figures_2026_10_22.py` 39/39. Full suite NOT re-run (frontend-only change).
+
+## Latest: D-065 — a pause reply keeps the typed question's kind; a new question with no year is asked (2026-10-22 night). KI-394, KI-395 fixed, KI-396 opened. Code changed, uncommitted. LIVE-VERIFIED (in-process).
+- User report: after an all-years CM Elevate Legacy answer, "What is the total disbursement amount for mairang?" ->
+  place chips -> whole-or-part chips -> "₹22.49 crore … FY 2025-26 (new question)". "Take previous context or ask
+  which year — don't blindly give 2025-26."
+- Cause: the typed question names no scheme (VAGUE -> the chat's scope), but the chip text names the scheme and the
+  level, was re-classified STANDALONE and got the D-061 latest-FY default. (₹22.49 crore = the statewide FY 2025-26
+  total with the Mairang filter dropped: KI-381, being fixed by a parallel session.)
+- Fix (D-065): `Session.pending_turn_kind` (snapshot `pending.turn_kind`) set by `routers/query.remember_pause`; c14
+  `_turn_context_stage` hands it to a resumed reply (scope merge, typed pick, tapped chip of any length) as
+  `turn_context["resumed_turn_kind"]`; `_turn_followup_stage` uses it as the turn kind;
+  `_same_scheme_context_year(kind=)`. c13: the D-061 latest-FY default is removed — a standalone question with no year
+  gets the year chips. KI-395: a scope resume re-pins the CM Elevate dataset on the merged question.
+- Live: the user's chat -> ₹1.14 crore, Mairang constituency, all financial years (= DB). pytest 3,604 passed (2
+  parallel-session failures, green alone), scripts 14/14, harness in-process 130/139 -> re-specified + re-run green
+  (TESTING). Open: KI-396 (NQ06 Hinglish -> knowledge), META_recap turn 7, **user's call on U5** (below).
+- **Conflict for the user:** KI-331 (2026-10-19) said "give me cm elevate disbursement by district" after an all-years
+  answer must NOT ask the year again; under D-065 it asks (a new question). Keep asking, or let a same-scheme new
+  question keep the chat's year? DOCUMENTATION CONFLICT — NEEDS VERIFICATION (user decision).
+
+## Latest: D-066 — cross-scheme figures of the four main schemes worked out in code (2026-10-22 night). KI-387..392 fixed, KI-393 bot side fixed (data part open). Code changed, uncommitted. LIVE-VERIFIED.
+- Sheet `raw_uc/cross_scheme.xlsx` (60 cases T01.1..T20.3). Before (report `new_docs/Cross_Scheme_Test_Report_2026-10-22.md`):
+  bot vs raw 20/60, vs DB 17/60. User then gave `Cross_Scheme_Issues_and_Solutions_2026-10-22.md`: "fix these immediately".
+- Changed: NEW `app/cross_figures.py` (plan + fixed parameter-bound per-scheme queries + combine step + answer text);
+  c01 import; c13 `_cross_exclusions` / `_cross_after_exclusions` / `_cross_figures_question`, `_data_scheme_stage`
+  (exclusions first, bare-FOCUS ask in a comparison), `_cross_scheme_scope` (D-066 answer); c14 route (cross figure
+  question stays DATA); schemes/focus_plus `_focusplus_district_group_not_null`; c11 `_unasked_having_threshold`
+  (+ both in `_scheme_sql_rewrites`). Tests: NEW `tests/test_cross_figures_2026_10_22.py` (39), 1 test in
+  `test_cross_scheme_llm_2026_10_22.py` stubs the D-066 answer.
+- After (final live run): every figure = megh_db in **59/60** (T13.3 lists low Focus+ districts by villages); = raw files
+  **47/60**, the 13 = KI-393 data (MGNREGA Genapara WGH/SWGH, Focus+ village codes) + T13.3. pytest 3,647 / 0, scripts 14/14.
+- Not done (ingestion team, `megh_db` not ours): the catalogue items of the issues document (metric defaults,
+  'Unresolved' note wording, Focus Legacy members / villages metrics, "coverage" glossary synonym) and KI-393 data.
+
+## Latest: CM Elevate Legacy sheet re-test; D-064 routing + KI-379..386 fixed (2026-10-22 evening). Code changed, uncommitted. LIVE-VERIFIED.
+- Sheet `raw_uc/Use_Cases_-_CM_Elevate.xlsx` (its one tab is "CM Elevate Legacy", TC-01..36) vs DB and the raw
+  `raw_uc/Cm Elevate to share to BLH (1).csv` (2,823 rows = DB, every field). Report + CSV:
+  `new_docs/CM_Elevate_Legacy_Test_Report_2026-10-22.md`, `new_docs/CM_Elevate_Legacy_all_conversations_2026-10-22.csv`.
+- **D-064 (user decision):** a bare "CM Elevate" (or a lone sub-scheme): financial words -> CM Elevate Legacy directly
+  (thread included); applications-only words -> applications; else the chat's dataset (a DATA answer, not a knowledge
+  one); else ask "CM Elevate (applications) or CM Elevate Legacy?". Chip marker "CM Elevate (applications)".
+- **Fixed (user: "fix all of these"):** KI-381 constituency questions on Legacy (rewrite to the `dim_geography.ac_name`
+  join + missing-filter guard + verifier discard), KI-384 ROLLUP total row read as a category (`_c12s_rollup_split`;
+  multi-measure breakdown fallback lists every measure), KI-382 briefing overview -> knowledge, KI-383 "no records"
+  sentence, "which / across / each schemes" inside a CM Elevate chat -> its sub-schemes (c04). KI-386 not reproducible.
+  KI-385 (MGNREGA `year_note` on Legacy rows) reported to megh-ingestion (`docs/CM_Elevate_Legacy_DB_Issues.md`).
+- Live final: sweep **300/300** (was 179), sheet wording **96/108** (32/36 use cases 3/3; the 4 left are "which
+  schemes" with no scheme named in a NEW chat = cross-scheme by design), one chat **72/72**; CM Elevate applications sheet
+  513/529 (no Legacy answers). pytest **3,608/0**, scripts 14/14. :8401 restarted from the venv onto this code.
+
+## Latest: answers take the question's shape; KPI cards follow the data (2026-10-22 evening). D-063, KI-377, KI-378. Code changed, uncommitted. LIVE-VERIFIED.
+- User: "if I ask top 10, top 5 or compare … you need to give different answers" (KI-377). New
+  `app/pipeline/common/c12_answer_shapes.py` (in `_PIPELINE_FILES` after c12): the answer's shape (ranking / compare /
+  trend / breakdown / cross_tab / list / profile / single_value + yes-no) is read from the SQL tree and the rows;
+  `compose_response` gives that shape's instructions + example and code-computed derived figures (gaps, difference and %,
+  first-to-last change, peak, shares — whitelisted), sorts a breakdown largest first, and falls back to a shaped answer.
+  Single-figure prompt unchanged; temperature still 0. AI_PIPELINE §2.9c.
+- Live (12 questions, VPN): top 5 -> numbered ranked list + gap; lowest 3 -> "has the lowest"; compare -> verdict +
+  difference + %; Ri Bhoi year-by-year -> first-to-last, peak, per-year list; district split -> total + shares + list.
+  Still the old fixed text (phase 2): MGNREGA summary / job cards / combined facts, PMAY-G facts, Focus Legacy
+  breakdowns, CM Elevate sectors.
+- User: "kpi cards data need to update dynamically … based on the data correctness" (KI-378). `/api/scheme-stats` now
+  also returns each card's financial years (`periods`, from the views), counts "(N yr)", shows "—" for a NULL figure;
+  the welcome card re-reads on tab focus and every 10 min and says whether the figures are live or the typed fallback.
+  All six cards checked against megh_db (= DB). `npm run build` done.
+- pytest **3,568 / 0** (3 skipped), scripts 14/14. :8401 restarted from the venv at 15:42 (user request) and checked
+  over HTTP: /health ok, /megh-chat serves the new build, /api/scheme-stats returns `periods`, POST /api/query "Top 5
+  blocks by MGNREGA person-days in West Garo Hills in 2023-24" -> ranked list + gap. Not committed (user: don't commit).
+
+## Latest: KI-375 / KI-376 fixed (2026-10-22 late afternoon). Code changed, uncommitted. LIVE-VERIFIED.
+- KI-375: CM Elevate Legacy `…_cr` columns over undivided rupees are divided by 1e7 (`_cm_legacy_crore_alias_on_rupees`).
+- KI-376 (+ Focus Plus unmapped buckets): c11 `_village_rows_by_code` — village rows are one named row per real village
+  (code + name + block grouped; a ranking leaves out `entity_type = 'Unresolved'`), every scheme.
+- pytest 3,537 / 2 (both green alone; parallel-session edits mid-run), scripts 14/14. :8401 restarted (venv).
+
+ (2026-10-22 afternoon). D-062, KI-374 fixed; KI-375/376 opened. Code changed, uncommitted. LIVE-VERIFIED.
+- User report: "top ten highest villages in Mgnrega and pmay" got the same statewide totals card as "compare MGNREGA and
+  PMAY-G spending": the D-044 table (`cross_scheme.plan` / `answer`) had no village grain and no top N. User decision:
+  no template for cross-scheme questions; answer whatever is asked.
+- Now (c13): `_cross_scheme_scope` (no pause, D-044 place handling) -> `_cross_scheme_gaps` (constituency / year / CM
+  Elevate money stated, not queried) -> a 9B one-scheme question per scheme (`_cross_scheme_subquestion`, checked) ->
+  per-scheme SQL, each with its own prompt, guards, verifier and repairs -> composer -> guards: money in ₹ crore for every
+  scheme (read on the SQL tree); a scheme left out -> retry, then sections; full lists; a wrong "highest" corrected;
+  no-figure lines. Removed: `cross_scheme.answer` / `plan`, `_cross_scheme_money_answer`, `_CROSS_SCHEME_MONEY_SQL`,
+  `unnamed_schemes`.
+- pytest 3,530 / 0, scripts 14/14, new `tests/test_cross_scheme_llm_2026_10_22.py` (26). Live: the user's question and
+  20/20 sheet questions answered. :8401 restarted from the venv (it was running under the system Python).
+- OPEN: KI-375 (CM Elevate Legacy `_cr` alias on a rupee value), KI-376 (PMAY-G village ranking grouped by name only);
+  the cross bulk harness needs new truth (DOCUMENTATION CONFLICT in SCHEMES.md). Latency 10-40 s per cross question.
+
+## Latest: New question = new answer (2026-10-22 ~13:45). D-061, KI-373. Code changed, uncommitted. LIVE-VERIFIED.
+- User addendum `Context_Memory_New_vs_Followup.pdf`: after "MGNREGA person-days in East Khasi Hills in 2022-23",
+  "Which district has the highest beneficiaries in MGNREGA?" was answered inside EKH / FY 2022-23.
+- Now `context_policy.turn_kind` decides before any rewrite: STANDALONE (own scheme + own measure, no reference cue)
+  inherits nothing — statewide unless named, its year else the scheme's latest FY, banner "(new question)";
+  FOLLOWUP (reference cue / fragment) inherits only what it leaves out; VAGUE (measure, no scheme named) uses the one
+  open topic or asks with one chip per topic. The level a question asks about and below are never its filter.
+  Hinglish "wala" no longer blocks the rephrase (NQ06).
+- **Behaviour change vs D-056 §2 / 2026-10-18 / KI-331:** "how many households for PMAY-G" after an MGNREGA West Garo
+  Hills FY 2022-23 answer is statewide, latest FY (was: WGH, 2022-23). Idle window left at 8 h (addendum said 30 min).
+- Verified: pytest 3,515 / 0 + scripts 14/14; harness new scenarios in-process 32/33 (AU01 needs auth -> http), http
+  --stream --skip-cache **33/33, 80/80**; re-specified N3 / C_backward_restore / F3 / CONV / U5 / P13 6/6 live.
+  Full http harness: see TESTING. :8401 restarted from the venv ~13:00 onto this code.
+
+## Earlier: Focus Legacy sheet re-tested and fixed (2026-10-22 ~13:30). KI-369, KI-370, KI-371 fixed; KI-372 open. Code changed, uncommitted. LIVE-VERIFIED.
+- 28 use cases (`raw_uc/Use_Cases_-_Focus.csv`) vs raw `raw_uc/Focus Legacy to share to BLH.csv`: raw = DB (14,569 rows,
+  every field, every level). Before: 25/28 use cases; TC-28 (constituency) 12-15/55 — a REGRESSION from the 17-20 Oct
+  commits (13 Oct code 55/55): the 30B verifier rejected the documented `dim_geography` join and the repairs answered the
+  district. TC-16 / TC-25 broke on "FOCUS PG" (`pg_entity_type = 'FOCUS_PG'`, learnt from the prompt's value lists).
+- Fixed, Focus Legacy only (`schemes/focus_legacy.py` + hooks in c11): verifier overrules (constituency query; "not
+  aggregated" when SUMmed), drift guard (resolved constituency must be filtered on `ac_name`), `ac_name` case rewrite,
+  FOCUS_PG dropped unless the group type is asked, members-as-groups guard.
+- After: sweep **231/231**, sheet wording **84/84**, constituencies **55/55**, TC-16 9/9, TC-25 6/6. pytest 3,416 / 0,
+  scripts 14/14. New `tests/test_focus_legacy_sheet_run_2026_10_22.py` (32).
+- Every village 3,363 / 3,384 on the fixed code. OPEN: KI-372 (19 of the 21 misses: an unasked `pg_id` — mostly the
+  resolver YAML's example id PG-FOCUS-WGH-7089 — / variant / group-type / year filter). :8401 NOT restarted.
+- DOCUMENTATION CONFLICT: CLAUDE.md §5 says the 4B is the SQL verifier; `app/config.py` `SQL_VERIFY_MODEL = "qwen-model"`
+  (30B) since 2026-10-15. AI_PIPELINE.md corrected; CLAUDE.md left for the user.
+
+## Earlier: ranking follow-ups drop the chat's place at the ranked level (2026-10-22 ~12:00). KI-366. Code changed, uncommitted. LIVE-VERIFIED.
+- User chat: after a Demdema block answer, "Which block has highest number of households?" answered Demdema's own 0.
+  Now: `context_policy._RANK_OVER_GEO_MATCH` clears the ranked level (district kept, D-056) and
+  `c14 _ranking_followup_question` rewrites a ranking that names its measure deterministically. Live: TIKRIKILLA
+  58,306 household-years in West Garo Hills (= DB); "top 3 blocks" lists all three (was a sum).
+- pytest 3,375 (+ the new file 21/21; known `test_scheme_years` artifact); scripts 14/14; http harness 102/102, 313/313.
+- Opened: KI-367 ("most X in which block?" -> knowledge), KI-368 ("which village … in Demdema block" -> village Demdema).
+- :8401 restarted ~11:30 from the venv: it serves this code.
+
+## Earlier: FOCUS-019 and FOCUS-004 fixed in every phrasing (2026-10-22). KI-360, KI-361. Code changed, uncommitted. LIVE-VERIFIED.
+- FOCUS-019: a Focus Plus batch status breakdown ("12.5K" / "12.5k" / "12.5 K" / "93 K", any word order, "break down
+  ... by status", "status split") is never refused (c14 overrule, edge whitelist, Focus Plus terms). Live 25/25 (was 18/25).
+- FOCUS-004: the five municipal boards in any spelling ("Shillong Municipal Board", "X MB", "William Nagar Municipal
+  Board") answer the board (c09 urban-body step for Focus Plus incl. the constituency slot; mistyped block literal
+  snapped in `_focusplus_lgd_only_block`). Live 96/96 (was 75/96); sheet blocks 50/50; ward villages 155/155.
+- pytest 3,363 / 0; scripts 14/14. New `tests/test_focusplus_sheet_run_2026_10_22.py`. Still open: KI-359, KI-362..365.
+- :8401 was NOT restarted then (it was restarted later, in the KI-366 session).
+
+## Earlier: Focus Plus sheet re-test, every level (2026-10-22). No app code changed. KI-359..365 opened.
+- 29 use cases (`raw_uc/Focus+ Test Case Observation.xlsx`): sweep **161/163**, every village **3,513/3,513**, sheet's
+  own wording **79/85**, follow-up chats **12/14** turns. 26 of 29 use cases fully pass.
+- OPEN: KI-359 ("each district" grouped by `district_name_raw`: WGH 35,059 vs 35,039 elsewhere, 5/5), KI-360 ("status
+  breakdown for 12.5K batch" refused, 5/5), KI-361 (Shillong Municipal Board block), KI-362 (rare per-payment average),
+  KI-363 / KI-364 (follow-up "by district" / "compare with" lost), KI-365 (FY 2022-23 zero explained badly).
+- Raw `raw_uc/Focus Plus Master.csv` = DB row for row (385,671), every field; village codes differ by the ingestion's
+  name mapping (45,280 rows filled, 57,649 "not yet mapped"). Report `new_docs/Focus_Plus_Test_Report_2026-10-22.md`.
+
+## Latest (2026-10-23 evening): context-memory audit (report only, no app code). KI-399, KI-400 opened.
+- Report `new_docs/Context_Memory_Audit_Report_2026-10-23.html`: verdict pilot-ready on the office network, not
+  production-ready; 10 findings, readiness scorecard, production targets, 3-step plan, 4 decisions for the department.
+- pytest (documented command) **3,651 passed, 0 failed**, 3 skipped. Harness http --stream --skip-cache full set
+  (`logs/conversation_harness/2026-10-23_2231_http.json`): 128/139, 382/420 — 35 error turns in 9 chats (U4..U9, N1..N3)
+  are a VPN drop (DB + gateway unreachable at 22:35), 3 logic fails are known (META_recap T7; CMP card removed by D-062,
+  stale expectation). Answered turns 382/385.
+- NEW High: KI-399 (no session ownership check), KI-400 (one cached answer wipes topic memory). NOT RUN (VPN down):
+  re-run of the 9 chats, `tests/live_context_validation.py` (last 18 Oct), the live two-account / cache-then-"go back" probes.
+
+## Latest (2026-10-23): PMAY-G welcome card "Houses sanctioned" = 1,71,107 (D-060 amended). Uncommitted. LIVE-VERIFIED.
+- `app/routers/stats.py`: the card query no longer has `WHERE NOT is_placeholder` (the 126 zero-sanction rows count);
+  live DB returns 171,107 / 129,941 completed / ₹2,185.26 Cr released. Fallback `frontend/src/chat/constants.js`
+  1,71,107; `npm run build` done. `tests/test_scheme_stats.py` 6/6 (+1 regression test). Open: KI-398.
+
+## Earlier: PMAY-G sheet re-test and fixes (2026-10-22, ~00:50). D-060, KI-356..358 (KI-127 decided). Code changed, uncommitted. LIVE-VERIFIED.
+- User rule: the 126 zero-sanction PMAY-G registrations are beneficiaries (statewide 171,107; never a "full
+  release"; "houses sanctioned" unchanged). Fixed path + model-SQL guard `_pmay_count_placeholders` + prompt rule 1.
+- Fixed: "financial summary" / "overall performance" no longer rewritten to "PMAY-G house status" by the c15 overview
+  (KI-356; also KI-357, a bare block name answered as the same-name village); a follow-up naming a block / district
+  replaces the previous village (KI-358, c01 `_c01_kept_finer_place`).
+- VERIFIED: sheet sweep 678/678 (was 654), tester scenarios 76/76, follow-up chats 4/4; pytest 3,300/0; scripts 14/14;
+  http harness 102/102, 313/313. Raw Excel = DB row for row. Report `new_docs/PMAY-G_Test_Report_2026-10-22.md`.
+- :8401 restarted from the venv at 00:35 onto this code.
+
+## Earlier: MGNREGA re-test, every metric at every level (2026-10-21, night). No app code changed. KI-352..355 opened.
+- 30 use cases (783 conversations): **782/783**. New `tests/sheet_runs/mg_matrix.py`: 12 metrics x state / district /
+  block / constituency / village x 4 FYs + all years = **270/270**; rankings **35/42**.
+- OPEN: KI-352 (ranking by assembly constituency: NULL-constituency rows win, wrong number; "25-26" read as an AC
+  name), KI-353 (expenditure by constituency: not in the data; usually "couldn't build a query", once the statewide
+  total labelled as the constituency), KI-354 (intermittent MAX-row ranking), KI-355 (admin ranking names no place).
+- Report: `new_docs/MGNREGA_Test_Report_2026-10-21.md` §10.
+
+## Earlier: bare village names inside a running chat (2026-10-21, ~22:00). KI-351. Code changed, uncommitted. LIVE-VERIFIED.
+- User flow: MGNREGA, West Garo Hills, all years, five questions, then villages named without "village". Recognition
+  already worked; the context around it did not. Now: another village typed at a "which <village>?" pause is asked
+  for (not the old pause again); a "go back to …" turn remembers the question it ran, so the next bare village keeps
+  the measure; the village is shown by NAME everywhere a person sees the state (aside reply, continue chip, topic
+  summary, ledger chips, "Back to …") and in the "compare with <scheme>" question; a village answer no longer closes
+  with "the figure for <district>"; no stray "shown?" in the place swap.
+- VERIFIED: live 13-turn chat (figures = DB); 5 new tests in `tests/test_bare_place_names_2026_10_21.py`; pytest and
+  scripts in TESTING.md.
+
+## Earlier: the complete place hierarchy, decided by the database (2026-10-21, ~21:00). D-059 §6, KI-348, KI-349. Code changed, uncommitted.
+- User rule (19:50, deadline next day): "block -> block, village -> village, constituency -> constituency; the same
+  name at several levels -> ask; the complete hierarchy; no hard-coding." Trigger: "Total sanctioned amount in
+  Rasong." after a Chokpot block chip was answered as "Rasong block", null, statewide (KI-348: the chip's level
+  tail was carried into the new question).
+- Now: a stated level counts only for a name the database holds at it (explicit "not the block" still honoured);
+  chip tails never carried; a name at ONE level (for the asking scheme) goes to that level whatever slot the model
+  chose; a district named with a finer place settles it; an HQ-alias district never ends the level question; a
+  reading the scheme / metric has no data for drops out; the village code is shown by name (banner, state line);
+  stray block literals dropped from SQL (Tura). Built and checked with a sweep generated from the database
+  (`tests/live_place_hierarchy_sweep.py`: every block, constituency, multi-level name + village sample, MGNREGA and
+  PMAY-G). Results: see TESTING.md (final sweep row).
+
+## Earlier: the level of a place comes from the database (2026-10-21, ~18:00). D-059, KI-342..345. Code changed, uncommitted. LIVE-VERIFIED in-process.
+- User report: "How many job cards in Mawphlang?" — bare village names not recognised. Diagnosis (live, through the
+  graph): on the D-058 code bare villages already resolved, and MAWPHLANG is a block + constituency with no village of
+  that name (its block-or-AC question is right). The real faults were in the LEVEL decision: an exact village offered a
+  look-alike block under a scheme without its rows (KI-342), typos asked three levels then three villages (KI-343),
+  the remembered block / district ignored (KI-344), "centre" read as a village (KI-345).
+- How (`settings.PLACE_GAZETTEER`, on): the `entity_resolver` village index also holds each village's code / block /
+  district and per-scheme coverage; `match_places` (p95 1.8 ms) feeds the extraction prompt; `collides_across_dimensions`
+  exact-village and typo-lead rules; c09 `_c09_gazetteer_settle` (remembered block -> district -> scheme rows; one
+  reading left = taken silently) also used by c01 `_place_swap_rewrite`; chips name where each reading lies;
+  `resolve_village` narrows to the clearly closest look-alike. The route village-NAME search is unchanged (D-059 §5).
+- KI-346 (user's live chat, 18:18): "give me for dalu" after a PMAY-G by-district answer offered village chips. Fixed:
+  a "village" mention no village carries that is exactly a block / constituency moves to that slot (c09), and the
+  place swap drops a coarser breakdown (c01) -> Dalu block 268 (DB 268).
+- KI-347 (user's live PMAY-G chat, 18:33-18:37): place-only follow-ups lost "amount released" (a rejected model
+  rewrite sent the bare fragment on), the chat's district was carried onto a village elsewhere (Pakregre), the model
+  invented "Dalu village" and "fund utilization", and "its block" to a village pause went to the documents. Fixed in
+  c01 (forced place swap on rejection; invented-level and measure-drift rejections), c09 (village's own district),
+  c14 (level-only pause reply). Every figure of that chat now equals the DB.
+- VERIFIED: `tests/live_bare_place_level.py` 17/17; harness in-process `bare_place` + `user_reported` 33/33; pytest /
+  scripts: see TESTING.md. :8401 runs this code. NOT done: full http harness set (stopped: it shares the rate limit
+  with the user's browser).
+
+## Earlier: a place named without its level word (2026-10-21, ~17:15). D-058, KI-339, KI-340, KI-341. Code changed, uncommitted. LIVE-VERIFIED in-process.
+- User report: after "How much PMAY-G amount was released in East Garo Hills in FY 2023-24?", "in ambare ading" got
+  "I don't have information about that"; "in ambare ading village" worked. Now a village, block or constituency
+  named bare is a place in a follow-up AND in a new chat (new chat -> the scheme chips), in all six schemes; the
+  level question is asked only when the SAME name exists at two levels (Mawlai, Rajabala ask; Wapung, Dalu,
+  Mendipathar, Dambo Rongjeng, Sohra answer).
+- How: `entity_resolver` village-name index (9,431 names from `dim_geography` + aliases, loaded at startup, lazily
+  in c14) -> `place_mentions`; continuation signal, edge whitelist, guardrail overrule; c01 `_place_swap_rewrite`;
+  rewrite provenance keeps typed places; `collides_across_dimensions` + c09 `_c09_same_name_village`.
+- Also fixed: KI-341 the chat's district was ANDed onto a block in another district (Wapung "no records" -> 9,166);
+  KI-339 (DALU / WAPUNG paused on look-alike villages). The ~17:00 http run's P9 / U3 misses (entry below) were
+  this work in progress; both fixed after that run (P9's expectation is now "answered as the block").
+- VERIFIED: pytest 3,234 / 0; scripts 14/14; harness in-process `bare_place` + `user_reported` 33/33; :8401 restarted
+  from the venv 16:53 onto this code, harness http `--stream --tags bare_place` **16/16, 32/32**.
+
+## Latest: context memory acceptance, all paths, caches on and off (2026-10-21, ~17:00). KI-337. Code changed, uncommitted.
+- VERIFIED (live :8401, harness http): plain `--skip-cache` **81/81, 266/266**; stream `--skip-cache` **86/86, 281/281**;
+  final: stream, caches ON, `--repeat 2`, all scenarios **200/204, 620/624** — the 4 misses are P9 (new
+  `bare_place_name.yaml`) and U3 (Dambo Rongjeng block after a Focus Plus village), both inside ANOTHER session's
+  in-progress place-only rewrite (c01 `_place_swap_rewrite`, c09; files saved 16:06-16:32 while the run was going).
+- `forward_after_statewide.yaml` F1-F5 (user report: statewide one FY -> another district keeps scheme and year) pass
+  in every run. KI-337 fixed (c01 `_FOLLOWUP_LEAD` "show me for X"; `is_cacheable` scheme rule).
+- pytest **3,212 passed, 0 failed**, 3 skipped; scripts 14/14. Stray :8400 servers stopped (user OK, 2026-10-21).
+
+## Latest: the year asked is the year answered — job cards and the composer (2026-10-21). D-057, KI-336. Code changed, uncommitted. LIVE-VERIFIED.
+- From the MGNREGA sheet report (`new_docs/MGNREGA_Test_Report_2026-10-21.md`): job cards were pinned to FY 2025-26
+  whatever was asked and answered "across all financial years". Now a job-card question takes the year asked, else
+  the chat's year, else the year pause (chip "Every financial year (one figure each)"); all years = one figure per
+  year, never summed. One area's job cards are a deterministic query + answer from its rows; the composer is given
+  the year the SQL pins (`_entities_with_sql_year`); a village known only by its code is never called "statewide".
+- Tests: `tests/test_job_cards_year_2026_10_21.py` (new); pytest **3,199 passed, 0 failed**, 3 skipped; scripts 14/14;
+  live job-card checks 11/11; MGNREGA sheet sweep **775/783** (was 755) — DATA-007 24/24 (was 8/24), 0 "statewide" lines
+  on local answers (was 74). Still open from the report: DATA-016 households answered as a village count (WAPUNG,
+  AMLAREM, MAWRYNGKNENG blocks); "FY24" read as FY 2024-25.
+- Same day, KI-338: DATA-016 households answered as a village count / NULL from `entity_type = 'Block'` fixed by
+  `_mgnrega_unit_count_not_villages` + `_mgnrega_drop_area_level_entity_type`; DATA-016 53/55 twice. **KI-339 OPEN
+  (regression from in-progress entity_resolver work, ~16:00): a bare block name (DALU, WAPUNG, Ri Muliang) pauses with
+  village look-alikes only, no block option** — DATA-003 51/55.
+- Same day, KI-337: DATA-014 "couldn't build a working query" (repair drifted to `fact_mgnrega_employment`) fixed by
+  `_mgnrega_fact_to_view` + `_mgnrega_village_rank_placeholders`; live DATA-014 **56/56 twice**; pytest **3,205 passed, 0 failed**.
+
+## Latest: new chat asks scheme -> district -> year; a chat carries its scope to any scheme (2026-10-21). D-056, KI-335. Code changed, uncommitted. LIVE-VERIFIED (:8401).
+- User report (live chat): a new chat asked the scheme, then only the year (the district silently defaulted to all of
+  Meghalaya); after "MGNREGA · West Garo Hills · FY 2022-23", "how many households for PMAY-G" re-asked the year and
+  dropped the district. Now: NEW chat -> scheme chips -> district chips (+ All of Meghalaya) -> FY chips -> answer;
+  inside a chat a new question on ANY one scheme keeps the chat's place and year (year only if that scheme holds it,
+  else the FY chips ask with the place kept); the user's own words replace only what they name ("for all of
+  Meghalaya", "by district", a district, a year).
+- Also fixed on the way: the closing scope sentence called an inherited West Garo Hills figure "statewide"
+  (c09 now fills `display`); the year callback read time backwards ("up from 572 in FY 2022-23" for FY 2017-18);
+  an answer that inherited a scope or used a default is never written to / served from the shared answer cache for a
+  question that would inherit (router `is_cacheable`, `_mark_context_dependent(inherited=)`).
+- VERIFIED: `tests/test_new_chat_and_scheme_switch_2026_10_21.py` (25); harness `scenarios/user_reported_2026_10_21.yaml`
+  N1-N3 = the user's conversation turn for turn, 12/12 user-reported scenarios live. See TESTING for the full runs.
+
+## Earlier: clarification pills, design #11 "Plain card · Pill chips" (2026-10-21). Frontend only (built), uncommitted. HEADLESS VERIFIED.
+- VERIFIED: `Clarify` in `frontend/src/chat/components/Messages.jsx` + the `.clarify-*` block in `chat.css`. Under the
+  question: a divider, a "Choose a …" line naming what is asked, a rounded search box, then pills; "+N more" past the
+  limit; the "All …" reply (All years / All of Meghalaya) is the outlined pill at the end; the tapped pill fills.
+- The kind comes from `clarification.rule` (`RULE_KIND`: scheme-* -> scheme, year-* -> year, scope-not-specified /
+  region-needs-district -> district, entity-ambiguous -> place, tranche) or, when absent, from the labels ("FY …" ->
+  year, scheme names -> scheme). Scheme: search + short names (the "(rural housing)" note is the tooltip); year: no
+  search, all pills, "All financial years combined" shown as "All years"; district: search, 8 + "+4 more".
+- The three-card scheme picker (`.scheme-groups` / `.sg-*`, chart-hue dots) is removed. No backend change.
+- Headless: `tests/ui_headless/clarify_pills.py` OK at 1280 and 390 px (scheme / year / district, no overflow).
 
 ## Latest: context memory per the user's rules (2026-10-19, ~16:30). D-055, KI-330, KI-331, KI-334. Code changed, uncommitted.
 - Idle window 8 h (`SESSION_TTL_SECONDS` = `CONTEXT_IDLE_EXPIRY_SECONDS` = 28800), turns 50, ledger 20/topic.

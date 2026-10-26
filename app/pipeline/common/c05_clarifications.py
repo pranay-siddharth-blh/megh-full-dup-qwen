@@ -252,6 +252,32 @@ def _admin_expenditure_scope(question: str) -> str:
     return f" in {name.title()}"
 
 
+# MGNREGA holds actual expenditure only (v_expenditure: wage / material / tax /
+# admin / total_exp) — no sanctioned amount, sanction or budget. The YAML's own
+# question for it (mgnrega_classification_rules.yaml, budget_vs_actual_requested)
+# was never wired in, so "Total sanctioned amount in Rasong" ran SUM(total_exp)
+# and the answer called expenditure "sanctioned" (user, live 2026-10-21, KI-350).
+_MG_SANCTION_REQUESTED = Matcher(W("sanctioned", "sanction", "sanctions", "budget", "budgeted", "budgets"))
+_MG_SANCTION_PHRASES = ("total sanctioned amount", "sanctioned amount", "amount sanctioned",
+                        "sanctioned budget", "total budget", "budget", "sanctioned", "sanction")
+
+
+def _mgnrega_sanction_clarification(question: str) -> "ClarificationNeeded":
+    stem = question.strip().rstrip(" ?.")
+    instead = stem
+    for phrase in _MG_SANCTION_PHRASES:
+        if _ci_find(instead, phrase) >= 0:
+            instead = _ci_replace(instead, phrase, "total expenditure", count=1)
+            break
+    instead = instead[:1].upper() + instead[1:]
+    return ClarificationNeeded(
+        "MGNREGA records only the expenditure actually incurred — there is no sanctioned "
+        "amount or budget in this data to report. Shall I report the total expenditure instead?",
+        options=[{"label": "Total expenditure instead", "question": f"{instead}?"}],
+        rule="column-not-held",
+    )
+
+
 def _admin_expenditure_clarification(question: str) -> "ClarificationNeeded":
     schemes = _named_or_inferred_schemes(question)
     if len(schemes) == 1 and schemes[0] in _ADMIN_EXPENDITURE_NOT_HELD_TEXT:
@@ -472,6 +498,11 @@ _HAS_BREAKDOWN = Matcher(Alt(
     Seq("which", _C04CharGap(25, "?.!"), _C05_SCHEME_DIM, _C04CharGap(40, "?"), _C05_SUPER),
     Seq(_C05_SUPER, _C04CharGap(40, "?"), "which", _C04CharGap(25, "?.!"), _C05_SCHEME_DIM),
     Seq("across", Opt("the"), Alt(_C05_GEO_SCHEME, W("state", "year", "years"))),
+    # "Which blocks have …", "list the districts with …": the answer IS the list of
+    # places, so it spans every area. A list question with a threshold and no
+    # superlative still asked "which area?" (held-out NL->SQL set, 2026-10-24).
+    Seq(W("which", "what"), W("districts", "blocks", "villages", "panchayats", "gps")),
+    Seq(W("list", "name"), Opt(W("the", "all")), W("districts", "blocks", "villages", "panchayats", "gps")),
 ))
 _EXPLICIT_STATEWIDE = Matcher(Alt(
     Seq(W("in", "for", "across", "over", "of"),
@@ -480,6 +511,11 @@ _EXPLICIT_STATEWIDE = Matcher(Alt(
     Seq("all", Opt("the"), W("years", "districts", "blocks", "villages")), Seq("entire", "state"),
     Seq("every", "year"), Seq("since", "inception"), _c04Joined("all", "time"),
     Seq(Opt("up"), W("to", "till", "until"), W("date", "now")), Seq("so", "far"), "cumulative",
+    # Other ways of saying "the whole state", each of which still asked "which
+    # area?" (held-out NL->SQL set, 2026-10-24). A wording that states the area
+    # must never be asked for it (D-053 / D-056).
+    "altogether", Seq(W("whole", "entire"), W("state", "meghalaya")),
+    Seq(W("for", "in", "across", "of", "at"), "the", "state"), Seq("state", "as", "a", "whole"),
 ))
 
 # A cross-scheme set / overlap question whose answer IS a geography list or its
@@ -859,7 +895,7 @@ def _pick_district_clarification(prev_question: str, schemes: list[str],
     return e
 
 
-def _scope_clarification(question: str, schemes: list[str]) -> "ClarificationNeeded":
+def _scope_clarification(question: str, schemes: list[str], area_only: bool = False) -> "ClarificationNeeded":
     stem = question.strip().rstrip(" ?.")
     # District chips first (picking one still leaves the year open, so it falls
     # straight into `_year_clarification` on the next turn — a second round of
@@ -879,7 +915,9 @@ def _scope_clarification(question: str, schemes: list[str]) -> "ClarificationNee
     # gate outright (an earlier pass tried skipping it entirely and lost the
     # district ask too — see cmelevate-routing-gates-bug memory).
     live = [s for s in (schemes or []) if s in _SCHEME_DATA_YEARS]
-    area_only = bool(live) and all(not _SCHEME_DATA_YEARS[s] for s in live)
+    # area_only=True: the new-chat district ask (D-056); the year, if still
+    # open, is asked on its own next, so this one names only the area.
+    area_only = area_only or (bool(live) and all(not _SCHEME_DATA_YEARS[s] for s in live))
     if area_only:
         options = [{"label": d, "question": f"{stem} for {d}"} for d in seen]
         options.append({
