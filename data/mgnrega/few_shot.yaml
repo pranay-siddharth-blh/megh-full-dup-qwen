@@ -718,18 +718,7 @@ sql_generation_examples:
 
   - question: "Compare the Garo Hills and Khasi Hills regions on MGNREGA expenditure for 2025-26"
     sql: |
-      SELECT CASE
-               WHEN lgd_district IN ('EAST GARO HILLS', 'NORTH GARO HILLS',
-                                     'SOUTH GARO HILLS', 'SOUTH WEST GARO HILLS',
-                                     'WEST GARO HILLS')        THEN 'Garo Hills'
-               WHEN lgd_district IN ('EAST KHASI HILLS', 'EASTERN WEST KHASI HILLS',
-                                     'SOUTH WEST KHASI HILLS',
-                                     'WEST KHASI HILLS')       THEN 'Khasi Hills'
-               WHEN lgd_district IN ('EAST JAINTIA HILLS',
-                                     'WEST JAINTIA HILLS')     THEN 'Jaintia Hills'
-               WHEN lgd_district = 'RI BHOI'                   THEN 'Ri Bhoi'
-               ELSE 'Unassigned'
-             END AS region,
+      SELECT region,
              ROUND(SUM(total_exp) / 100, 2) AS total_expenditure_crore
       FROM curated.v_expenditure
       WHERE year_key = 2025

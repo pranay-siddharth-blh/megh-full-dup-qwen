@@ -935,6 +935,89 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-069 — Follow the ingestion team's 15-24 Oct database changes (2026-10-26)
+- **Date:** 2026-10-26. Source: `CHATBOT_DB_CHANGES_2026-10-26.md` (ingestion team; replaces their 16 Oct note). Reply:
+  `docs/Chatbot_Answers_to_Ingestion_Team_2026-10-26.md`. User: map to the current columns without creating new problems.
+- **Checked live first** (read-only): `member_key` = the same 12,527 people as the old `member_id` (NULL on the 93K batch);
+  `region` on 11 views (Ri Bhoi in Khasi); CM Elevate `current_file_status` = forward / resubmit / sendback, `data_verified`
+  = Valid / On Hold / Invalid / Wrong; applications = distinct `request_id` (8,840).
+- **Decision:** `member_id` -> `member_key` wherever it names the view column (`app/schema_context.py`, `data/focus_plus/*`;
+  rule identifiers and the fact table's own column untouched; CM Elevate's `scheme_specific ->> 'member_id'` is a different
+  thing and is asked about). Six few-shot `CASE … END AS region` -> `region_group`; c11 `_region_alias_not_the_column`
+  renames a computed `region` in live SQL. The resolver's grouping (Ri Bhoi separate) is kept until the owners decide.
+  No change for action 1 (the catalog tables are read live, not the documents) or action 3 (no rule uses the absent
+  literals). `megh_readonly` waits for its credential (KI-304).
+- **Evidence:** `check_fewshots.py` 0 errors in the prompt pool (was 7); pytest 3,784 / 0; known answers 7/12 exact, the
+  other 5 explained (rounding KI-417, D-064 dataset ask, records vs distinct applications — question 1 to the team).
+- **Extended 2026-10-26, after the team's answers (`ANSWERS_TO_CHATBOT_TEAM_2026-10-26.md`); user: "implement step 2 and
+  step 3 … make everything change":**
+  - **megh_readonly in use (dev box).** `.env` key was `DATABASE_URL_READONLY` (ignored) -> renamed `READONLY_DATABASE_URL`;
+    `READONLY_DB_ALLOW_SUPERUSER=False`. Startup: "read-only pool ready as 'megh_readonly' (min=1 max=4)". Pools per worker
+    4 + 4 + 2 = 10, so 2 workers = 20 (the team's limit). c11 `_star_without_hidden_columns` expands `SELECT *` on a table
+    with columns the role cannot read to the readable columns (live schema), so it is not refused.
+  - **Applications = distinct `request_id`** everywhere (already enforced by c11; the team's corrected figures 8,837 / 903
+    match). The 4 in-prompt CM Elevate examples that read `scheme_specific ->> 'sector_id'` now read the plain `sector_id`
+    and count distinct applications; the resolver's `scheme_specific ->> 'member_id'` pointer is removed.
+  - **Region (team answer 2): Ri Bhoi is in Khasi** (LGD master). All six resolver files, the default-rule texts, the SQL
+    prompt's geography rule and the six region examples (now `SELECT region … GROUP BY region`) follow it. A Khasi answer
+    adds one line ("Khasi Hills here includes Ri Bhoi district …", c13 `_data_guarantees_stage`, label derived from the
+    data, not hard-coded); "Ri Bhoi" alone stays the district. This retires the four-group version.
+  - **"Pending" is not "on hold" (team answer 3).** A CM Elevate question with a workflow word (pending / approved /
+    rejected / sent back) and no recorded field (on hold, verification, forward, resubmit, level) gets a fixed answer:
+    not recorded, then the recorded figures, labelled (`cme-sector-workflow`, `_cme_workflow_query`). Replaces the
+    2026-10-16 "pending = On Hold" reading for these questions.
+  - **KI-417:** crore / lakh money is shown to the composer at 2 decimals (`_money_rounded_for_display`); display only.
+- **Team's reply to the evening update (2026-10-26):** the Khasi note now says "as in the department's district-to-region
+  list" (the national LGD directory has no regions); `schema_introspect` reads the catalog through `db.fetch_rows_readonly`
+  (megh_readonly, READ ONLY transaction), so the prompt lists exactly what generated SQL can read — identical counts to the
+  superuser load (29 tables, 62 metrics, 543 column notes, 46 live tables, 44 FKs), hidden columns absent. The pending
+  answer is computed per question (no fixed CM Elevate figure in any answer; the `*_default_rules.yaml` /
+  `*_response_template.yaml` texts are not loaded by the app). `sector_id` is never used for a programme question.
+- **megh_app readiness (team's reply to the late update, 2026-10-26):** the 12 unused `*_default_rules.yaml` /
+  `*_response_template.yaml` files are marked "NOT LOADED BY THE APP" (a test fails if app code reads them). Before
+  `DATABASE_URL` moves to `megh_app`: no fixed query hits a hidden column or `SELECT *` on a hidden-column table (static
+  scan + live run of startup loads and 9 fixed-query questions with curated reads as megh_readonly: 0 permission denied);
+  app SQL is schema-qualified (`app.*`); app queries stop at 15 s (< megh_app's 60 s). Connections: 4 + 2 (checkpointer)
+  = 6 per worker -> dev 6 + deploy 24 = 30 > the team's cap of 20 — asked them to raise it to 30.
+- **Connection caps agreed (2026-10-26 night):** megh_app 30 (6 per worker x 5), megh_readonly 20 (4 x 5); both hard —
+  any new worker, VM or larger pool is agreed with the ingestion team first. The old build (Docker `megh-nlp`, very likely
+  `172.18.0.2`) is stopped at switch-over.
+- **Status:** Active.
+
+### D-068 — A stated scope is never asked for; "FY24" = FY 2023-24 (2026-10-24)
+- **Date:** 2026-10-24. User: make different wordings of the same question give the same answer (RAG plan A2,
+  C1), without creating problems. The user picked "answer with a stated default" (option A) first; the code
+  history showed A had been tried (D-045, 2026-10-14) and reversed by the user (D-053, D-056, D-065: "if nothing is
+  there you need to ask"), so A was NOT re-applied. The gap was in reading the scope, not in the policy.
+- **Decision:**
+  - A question that states its scope in any wording is never asked for it: new phrasings in
+    `_STATED_ALL_YEARS_CUE` (year gate only), `_EXPLICIT_STATEWIDE` and `_HAS_BREAKDOWN` (scope gate). A question
+    that states nothing is still asked, in D-056's order (district, then year). The ask flow is unchanged (a
+    combined district + year ask was rejected: it breaks D-056 and an "all of Meghalaya, all years" chip would
+    bring back the D-053 household-years figure).
+  - `_STATED_ALL_YEARS_CUE` is kept out of `_ALL_YEARS_CUE` on purpose: the SQL verifier skips its mandatory-year
+    check on `_ALL_YEARS_CUE`, and "altogether in FY 2024-25" must keep that check.
+  - "FY<yy>" is the financial year ENDING in 20<yy> (FY24 = FY 2023-24), as every SME catalogue reads it
+    (`focusplus_entity_resolver.yaml` FY23 = 2022-23; CM Elevate Legacy FY25 = 2024-25). It was 2000 + yy.
+    "FY 23-24" stays the range starting 2023. A bare 1-2 digit extractor year is read from the question.
+- **Evidence:** held-out NL->SQL set 40/74 -> 42/74 (MG-11, PM-13, CL-03 fixed; PM-04's flip is identical on the
+  original code, KI-411); live: "FY24", "FY 24", "FY 23-24" all -> 8,996.36 lakh (FY 2023-24); "altogether"
+  answered across all years, not asked. pytest 3,698 / 0; scripts 14/14; live context 103/107 (unchanged).
+- **Where:** `c05_clarifications.py`, `c06_years_tranches.py`, `c07_mentions._parse_year_key`,
+  `c09_resolve_entities.py`; tests `tests/test_stated_scope_2026_10_24.py` (wordings are our own, never the
+  held-out questions).
+- **Extended 2026-10-26 (user screenshot: a follow-up "give me FY 25" answered for FY 2022-23):** four year readers each
+  knew a different subset of forms, so a year the extractor dropped was lost in some places only. ONE short-form reader,
+  `context_policy.short_fy_tokens` ("FY 25", "FY25", "FY'25", "FY 23-24", "in 23-24"), now feeds `extract_year_keys` (~25
+  callers: follow-up kinds, the rewrite check, the rephrase guard, the cache key), the pipeline's year-gap guard
+  (`_c06_all_year_tokens`) and the year back-fill (`_backfill_explicit_year`). The rewrite check (`rewrite_violation`)
+  also requires the follow-up's OWN year to survive ("FY20?" was rewritten to the previous FY 2022-23); a second year
+  may still be added. The edge filter accepts "FY'25". The extractor's year is still never overridden
+  (`test_backfill_never_overrides_the_extractor`): every failure seen was a DROPPED year, never a wrong one.
+  Live: 81/81 two-turn chats (FY18-FY26 × "give me FY nn" / "FYnn?" / "FY'nn" × MGNREGA, PMAY-G, Focus Legacy) give the
+  typed year, or the "data is available only for …" reply where the scheme has none.
+- **Status:** Active.
+
 ### D-067 — Embeddings from the gateway's qwen3-embedding (1024-dim), in new collections (2026-10-24)
 - **Date:** 2026-10-24. User: check whether the `.env` embedding model gives 1024 dimensions and works, then
   switch to it without breaking the project.

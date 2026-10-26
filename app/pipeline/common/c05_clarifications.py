@@ -498,6 +498,11 @@ _HAS_BREAKDOWN = Matcher(Alt(
     Seq("which", _C04CharGap(25, "?.!"), _C05_SCHEME_DIM, _C04CharGap(40, "?"), _C05_SUPER),
     Seq(_C05_SUPER, _C04CharGap(40, "?"), "which", _C04CharGap(25, "?.!"), _C05_SCHEME_DIM),
     Seq("across", Opt("the"), Alt(_C05_GEO_SCHEME, W("state", "year", "years"))),
+    # "Which blocks have …", "list the districts with …": the answer IS the list of
+    # places, so it spans every area. A list question with a threshold and no
+    # superlative still asked "which area?" (held-out NL->SQL set, 2026-10-24).
+    Seq(W("which", "what"), W("districts", "blocks", "villages", "panchayats", "gps")),
+    Seq(W("list", "name"), Opt(W("the", "all")), W("districts", "blocks", "villages", "panchayats", "gps")),
 ))
 _EXPLICIT_STATEWIDE = Matcher(Alt(
     Seq(W("in", "for", "across", "over", "of"),
@@ -506,6 +511,11 @@ _EXPLICIT_STATEWIDE = Matcher(Alt(
     Seq("all", Opt("the"), W("years", "districts", "blocks", "villages")), Seq("entire", "state"),
     Seq("every", "year"), Seq("since", "inception"), _c04Joined("all", "time"),
     Seq(Opt("up"), W("to", "till", "until"), W("date", "now")), Seq("so", "far"), "cumulative",
+    # Other ways of saying "the whole state", each of which still asked "which
+    # area?" (held-out NL->SQL set, 2026-10-24). A wording that states the area
+    # must never be asked for it (D-053 / D-056).
+    "altogether", Seq(W("whole", "entire"), W("state", "meghalaya")),
+    Seq(W("for", "in", "across", "of", "at"), "the", "state"), Seq("state", "as", "a", "whole"),
 ))
 
 # A cross-scheme set / overlap question whose answer IS a geography list or its

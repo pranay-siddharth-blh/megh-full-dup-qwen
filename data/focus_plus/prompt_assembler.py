@@ -467,7 +467,7 @@ Respond with ONLY this JSON:
 
     def _format_identifiers_dimension(self, spec: Dict[str, Any]) -> str:
         lines = [f"- **identifiers** -- {_fmt_note(spec.get('policy'))}"]
-        for sub in ("member_id", "pincode", "source_sl_no"):
+        for sub in ("member_key", "pincode", "source_sl_no"):
             s = spec.get(sub)
             if not s:
                 continue
@@ -585,7 +585,7 @@ this scheme carries PII):
 {json.dumps(contract, indent=2)}
 
 Hard rules, restated because they are the ones most often violated:
-- `member_id`, raw name, mobile number, or EPIC ID spans are ALWAYS
+- `member_key`, raw name, mobile number, or EPIC ID spans are ALWAYS
   `refused` (reason: privacy or not_held) -- never resolved, never listed
   as a candidate, never fuzzy-matched against.
 - District/block values are stored UPPERCASE; keep `canonical` in Title
@@ -981,9 +981,9 @@ Hard constraints, restated because they are the ones most often violated:
    query will error.
 3. `COUNT(*)` is a PAYMENT count, never a person count. Say so in any
    accompanying label/alias.
-4. Never SELECT, GROUP BY, ORDER BY, or otherwise surface `member_id` or
-   `pincode` as a bare column. `COUNT(DISTINCT member_id)` is the only
-   permitted use of `member_id`.
+4. Never SELECT, GROUP BY, ORDER BY, or otherwise surface `member_key` or
+   `pincode` as a bare column. `COUNT(DISTINCT member_key)` is the only
+   permitted use of `member_key`.
 5. `district_name`/`lgd_district` is stored UPPERCASE -- literal must be
    uppercase.
 6. `tranche_label` is a label, not a time axis -- never `ORDER BY tranche_label`
@@ -1057,7 +1057,7 @@ without checking each one:
    line.
 5. Does the figure touch geography? If so, note the 102,923 unmapped-row
    caveat where relevant (village/block-level answers only).
-6. Is any PII (`member_id`, `pincode`, a name) about to be printed? It
+6. Is any PII (`member_key`, `pincode`, a name) about to be printed? It
    must never be -- aggregate instead and say so.
 
 Respond with the final natural-language answer text only (no JSON), in
@@ -1173,8 +1173,8 @@ wins.
    lives in exactly one of the gate/defaults sections above.
 2. Every number is a source-CSV observation until measured against the
    database -- mark totals `unverified_in_db` and say so.
-3. PII is not negotiable: `member_id` and `pincode` never reach a user, an
-   export, or a vector store. `member_id` is permitted only inside
+3. PII is not negotiable: `member_key` and `pincode` never reach a user, an
+   export, or a vector store. `member_key` is permitted only inside
    `COUNT(DISTINCT ...)`. `bank_name_raw` is not PII -- it names a bank,
    not a person -- and may reach a user (e.g. in a bank-wise breakdown).
 4. Never copy a PMAY predicate across (`is_placeholder`, `is_completed`,

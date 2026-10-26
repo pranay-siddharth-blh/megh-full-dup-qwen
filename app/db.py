@@ -241,6 +241,19 @@ async def execute_script(sql: str) -> None:
         await conn.execute(sql)
 
 
+async def fetch_rows_readonly(sql: str, params: list | None = None) -> list[dict]:
+    """Our own trusted, parameter-bound catalog reads (schema_introspect) on the
+    read-only pool, in a READ ONLY transaction — so the SQL prompt is built from
+    what megh_readonly can see: information_schema hides the columns it may not
+    select (member_id, account_no, scheme_specific). Ingestion team, 2026-10-26.
+    Not for model text (use run_readonly)."""
+    pool = await ensure_readonly_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction(readonly=True):
+            rows = await conn.fetch(sql, *(params or []))
+    return [dict(r) for r in rows]
+
+
 async def run_readonly(sql: str) -> list[dict]:
     """Validate (SQLGlot — app/sql_guard.py: one SELECT, curated/semantic only),
     bound at SQL_MAX_RESULT_ROWS, then execute on the read-only pool inside a

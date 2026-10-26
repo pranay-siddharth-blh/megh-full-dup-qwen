@@ -4,7 +4,60 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
-## Latest: docs name the real KB folder `data/incoming/<scheme>/` (2026-10-24, RAG plan A3 doc part). Docs only.
+## Latest: RBAC review (2026-10-26). No app code changed. Report `new_docs/Role_Based_Access_Report_2026-10-26.md`.
+- 8 roles (`auth.ROLE_PERMISSIONS`; `public` unreachable), 4 gates (`deps.py`), 3 data checks (`auth.authorize`).
+  Built and working: login/JWT, endpoint gates, tenant-scoped admin reads, SQL + repair checks, scope-keyed cache, audit.
+- New OPEN issues: KI-418 (HIGH: admin can PATCH self/others to super_admin), KI-419 (4 fixed answers skip `authorize`),
+  KI-420 (`/api/scheme-stats` unscoped), KI-421 (fail-open scheme list, unvalidated `granularity_cap`). KI-007 still open.
+  No tests for the admin/role endpoints.
+## Latest: connection caps agreed with the ingestion team (2026-10-26 night): megh_app 30, megh_readonly 20, both hard.
+- `172.18.0.2` = very likely the old build's Docker container (INFERRED); stop it at switch-over. Docs only; no code change.
+
+## Earlier: megh_app readiness checked; unused rule files marked NOT LOADED (2026-10-26 night).
+- Fixed curated reads run clean under megh_readonly's limits (0 permission denied); app SQL is `app.`-qualified; 15 s app
+  timeout < 60 s. Connection cap: need 30 (6 per worker x 5 workers), team asked. Chat-history backup policy: user decision.
+
+## Earlier: catalog reads also as megh_readonly; Khasi note wording (2026-10-26 late, team's reply). Code changed, uncommitted. LIVE-VERIFIED.
+- `schema_introspect` -> `db.fetch_rows_readonly`: the SQL prompt shows only what megh_readonly can read (same counts).
+- The `postgres` login (DATABASE_URL) now serves only the app's own tables (`app.*` in megh_db) and the app's fixed queries.
+- pytest 3,799 / 0; scripts 14/14. :8401 = PID 39908.
+
+## Earlier: D-069 extended — megh_readonly in use, Ri Bhoi in Khasi, "pending" not recorded, KI-417 (2026-10-26 evening). Code + rules + .env changed, uncommitted. LIVE-VERIFIED.
+- Generated SQL now runs as `megh_readonly` (dev `.env` key fixed, superuser override off, pools 4+4+2 per worker).
+  `SELECT *` on a table with hidden columns is expanded to the readable columns (c11).
+- Ri Bhoi is in the Khasi region everywhere (resolver, rules, prompt, examples); answers say so in one line.
+- CM Elevate "pending / approved / rejected / sent back": "not recorded" + the recorded figures (distinct applications).
+- KI-417 fixed (₹119.74 crore). Opened KI-422 (level-2 answer still says "pending").
+- pytest 3,799 / 0; scripts 14/14; held-out 42/74 (0 regressions, as megh_readonly); live context 103/107.
+
+## Earlier: D-069 — the ingestion team's 15-24 Oct DB changes picked up (2026-10-26). Code + rules changed, uncommitted. LIVE-VERIFIED.
+- `member_id` -> `member_key` (prompt + Focus Plus rules); six region examples -> `region_group` + c11 safeguard;
+  KI-415 FIXED (all in-prompt examples run). Reply to the team with answers and 5 questions:
+  `docs/Chatbot_Answers_to_Ingestion_Team_2026-10-26.md`. Open: `megh_readonly` credential (KI-304), KI-417 rounding.
+- pytest 3,784 / 0; scripts 14/14; known answers 7/12 exact, rest explained. :8401 = PID 29672.
+
+## Earlier: KI-414 — short FY forms read by every year reader; follow-up "give me FY 25" fixed (2026-10-26). Code changed, uncommitted. LIVE-VERIFIED.
+- One reader `context_policy.short_fy_tokens` -> `extract_year_keys`, the year-gap guard, the year back-fill; the rewrite
+  check keeps the user's own year; edge accepts "FY'25". Live follow-up sweep 81/81 (FY18-26 × 3 forms × 3 schemes).
+- Opened KI-415 (broken region few-shot examples; 2 `test_fewshot_headers` failures, not from this change) and KI-416
+  (bare year follow-up after a houses question switched to the amount).
+- pytest 3,777 passed / 2 failed (KI-415); scripts 14/14. :8401 = PID 7260. Another process also restarts :8401.
+
+## Earlier: ranking count words ("five highest" = top 5) and a shared-namespace guard (2026-10-26). Code changed, uncommitted. LIVE-VERIFIED.
+- KI-412 FIXED (RAG plan C2): c02 `_normalize_rank_counts` (count words -> digits in a ranking position) and c11
+  `_stated_rank_count_limit` (outer LIMIT = the stated count where safe). Five wordings of one ranking -> the same 5 blocks.
+- KI-413 FIXED: a name collision this change caused (shared pipeline namespace) broke spoken years; renamed, and NEW guard
+  test fails on any duplicate top-level name. CLAUDE.md §2 notes the rule.
+- pytest 3,742 / 0; scripts 14/14; held-out 42/74 (0 regressions); live context 103/107. :8401 = PID 36832.
+
+## Earlier: D-068 — a stated scope is never asked for; "FY24" = FY 2023-24 (2026-10-24 night). Code changed. LIVE-VERIFIED.
+- KI-409 FIXED (FY24 read as 2024-25, in the parser AND via the extractor's bare "24"); KI-410 FIXED (stated scope in
+  unrecognised wordings was asked). Nothing-stated questions still ask (D-053 / D-056 unchanged; option A NOT re-applied).
+- Held-out NL->SQL set: 54.1% (40/74, 0 wrong) earlier today -> **56.8% (42/74)**; the other 31 clarifications follow
+  D-053/D-056/D-064/D-065 (the set's expectations predate them: user decision pending). KI-411 opened (PM-04 split).
+- pytest 3,698 / 0; scripts 14/14; live context 103/107 (unchanged). :8401 = PID 44700.
+
+## Earlier: docs name the real KB folder `data/incoming/<scheme>/` (2026-10-24, RAG plan A3 doc part). Docs only.
 - CLAUDE.md (§1, §5), ARCHITECTURE (tree, §3.9), AI_PIPELINE (KB ingest), SCHEMES (adding a scheme) said `data/reference/`,
   which does not exist since 2026-10-14. Also corrected there: `_SOURCES` -> `_INCOMING_SCHEMES` / `_sme_sources`, the KB
   collection name (`QDRANT_COLLECTION`, v4) and the rebuild conditions (BM25, vector size). History entries left as written.

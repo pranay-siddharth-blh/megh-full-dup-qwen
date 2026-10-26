@@ -405,6 +405,11 @@ def _backfill_explicit_year(question: str, schemes: list[str], mentions: dict) -
         return mentions
     toks = {yk for m in _EXPLICIT_FY_RANGE_MATCH.finditer(question or "")
             if (yk := _parse_year_key(m.group(1))) is not None}
+    # Short forms too ("FY 25", "FY'25", "FY 23-24", "in 23-24"): a follow-up "give
+    # me FY 25" lost its year to the extractor and kept the previous turn's
+    # (2026-10-26). _c06_short_fy_tokens + _parse_year_key: FY 25 = FY 2024-25.
+    toks |= {yk for _s, tok in _c06_short_fy_tokens(question or "")
+             if (yk := _parse_year_key(tok)) is not None}
     if len(toks) != 1:
         return mentions
     yk = next(iter(toks))
@@ -610,14 +615,29 @@ def _parse_year_key(text: str) -> "int | None":
         if _fy_start(t.raw) and text[t.end:toks[k + 1].start].strip() in ("-", "/") \
                 and nxt.isdecimal() and (len(nxt) == 2 or (len(nxt) == 4 and nxt[:2] == "20")):
             return int(t.raw)
+    def _fy_short(yy: int, end: int) -> int:
+        # "FY24" names the year that ENDS in March 2024, i.e. FY 2023-24 — the Indian
+        # convention, and the one every SME catalogue uses ("FY23" = 2022-23 in
+        # focusplus_entity_resolver.yaml, "FY25" = 2024-25 for CM Elevate Legacy).
+        # It was read as 2000 + 24 = FY 2024-25 (RAG plan C1, audit 2026-10-23).
+        # "FY 23-24" is a range: its first year is the start year, as before.
+        j = _ws_run_end(text, end)
+        if j < len(text) and text[j] in "-/":
+            j = _ws_run_end(text, j + 1)
+            if text[j:j + 2].isdecimal() and len(text[j:j + 2]) == 2 \
+                    and (j + 2 == len(text) or not text[j + 2].isdecimal()) \
+                    and int(text[j:j + 2]) == (yy + 1) % 100:
+                return 2000 + yy
+        return 2000 + yy - 1
+
     for k, t in enumerate(toks):                                     # FY23 / FY 23 / FY'23
         if t.low == "fy" and k + 1 < len(toks):
             g = text[t.end:toks[k + 1].start].lstrip()
             nxt = toks[k + 1].raw
             if g in ("", "'") and len(nxt) == 2 and nxt.isdecimal():
-                return 2000 + int(nxt)
+                return _fy_short(int(nxt), toks[k + 1].end)
         elif t.low.startswith("fy") and len(t.raw) == 4 and t.raw[2:].isdecimal():
-            return 2000 + int(t.raw[2:])
+            return _fy_short(int(t.raw[2:]), t.end)
     n = len(text)
     for i in range(n - 1):                                           # bare 25-26
         if text[i].isdecimal() and text[i + 1].isdecimal() and (i == 0 or not text[i - 1].isdecimal()):

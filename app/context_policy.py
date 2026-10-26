@@ -371,12 +371,69 @@ _CAP_WORD_MATCH = Matcher(Pred(lambda w: len(w) >= 3 and w.isascii() and w.isalp
 
 def extract_year_keys(text: str) -> set[int]:
     """Financial-year start years named in the text: "FY 2024-25", "2024-25",
-    "2024/25" -> 2024; a bare "2024" -> 2024."""
+    "2024/25" -> 2024; a bare "2024" -> 2024; the short forms of
+    short_fy_tokens ("FY 25" -> 2024, "FY 23-24" / "in 23-24" -> 2023)."""
     t = text or ""
     years = {int(m.group(1)[-4:]) for m in _YEAR_RANGE_MATCH.finditer(t)}
     stripped = _YEAR_RANGE_MATCH.sub(" ", t)
     years |= {int(m.group(1)[-4:]) for m in _YEAR_BARE_MATCH.finditer(stripped)}
+    years |= {y for _s, _tok, y in short_fy_tokens(t)}
     return years
+
+
+# ── Short financial-year forms: ONE reader for every caller (2026-10-26) ────────
+# "FY 25", "FY25", "FY'25" (the year ENDING March 2025 = FY 2024-25, D-068), "FY 23-24"
+# and a two-digit range after a time word ("in 23-24" = FY 2023-24). Four year readers
+# each knew a different subset, so a year the extractor dropped was lost in some
+# places only: a follow-up "FY20?" was rewritten to the previous turn's FY 2022-23 and
+# the rewrite check, reading no year in "FY20?", let it through (FY sweep 2026-10-26).
+# extract_year_keys, the pipeline's year-gap guard and its year back-fill all read this.
+_CP_SHORT_FY_LEAD = frozenset(("in", "for", "during", "of", "year"))
+
+
+def _cp_two_digits(s: str) -> bool:
+    return len(s) == 2 and s.isdecimal()
+
+
+def short_fy_tokens(text: str) -> list[tuple[int, str, int]]:
+    """(start, raw token, FY start year) for each short FY form, left to right."""
+    t = text or ""
+    toks = tokens(t)
+    out: list[tuple[int, str, int]] = []
+
+    def _range_end(k: int) -> int:
+        # "FY 23-24": the token after toks[k] is "-NN" / "/NN", the next year
+        if k + 1 < len(toks) and t[toks[k].end:toks[k + 1].start].strip() in ("-", "/") \
+                and _cp_two_digits(toks[k + 1].raw) \
+                and int(toks[k + 1].raw) == (int(toks[k].raw[-2:]) + 1) % 100:
+            return toks[k + 1].end
+        return toks[k].end
+
+    def _add(start: int, digits_k: int, digits: str) -> None:
+        end = _range_end(digits_k)
+        yy = int(digits)
+        # a range starts in its first year; a single "FY 25" ends in 2025
+        out.append((start, t[start:end], 2000 + yy if end != toks[digits_k].end else 2000 + yy - 1))
+
+    k = 0
+    while k < len(toks):
+        tk = toks[k]
+        nxt = toks[k + 1] if k + 1 < len(toks) else None
+        if tk.low == "fy" and nxt is not None and _cp_two_digits(nxt.raw) \
+                and t[tk.end:nxt.start].strip() in ("", "'"):
+            _add(tk.start, k + 1, nxt.raw)
+        elif len(tk.low) == 4 and tk.low.startswith("fy") and _cp_two_digits(tk.raw[2:]):
+            _add(tk.start, k, tk.raw[2:])
+        elif _cp_two_digits(tk.raw) and k and toks[k - 1].low in _CP_SHORT_FY_LEAD \
+                and 10 <= int(tk.raw) <= 39 and _range_end(k) != tk.end \
+                and t[tk.start - 1:tk.start] not in ("-", "/"):
+            _add(tk.start, k, tk.raw)
+        else:
+            k += 1
+            continue
+        while k < len(toks) and toks[k].start < out[-1][0] + len(out[-1][1]):
+            k += 1
+    return out
 
 
 _CP_HOW_MUCH = Matcher(Seq("how", "much"))
@@ -992,6 +1049,13 @@ def rewrite_violation(rewritten: str, *, question: str, allowed_text: str, denie
             ok_years |= {y + d for y in set(ok_years) for d in (-1, 1)}
         if new_years - ok_years:
             return "year"
+    # The follow-up's OWN year must survive the rewrite. "FY20?" after an FY 2022-23
+    # answer was rewritten "… in FY 2022-23 …": the state's year is a permitted source,
+    # so the check above passed while the year the user typed was gone (FY sweep
+    # 2026-10-26). A second year may still be added ("compare FY 25 with that").
+    own_years = extract_year_keys(question or "")
+    if own_years and not own_years <= new_years:
+        return "year"
     if metric_families(rewritten) - metric_families(allowed_text):
         return "metric"
     # The follow-up's OWN measure must survive the rewrite. Live 2026-09-29:

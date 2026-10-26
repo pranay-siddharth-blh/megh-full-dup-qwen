@@ -797,7 +797,7 @@ def _entity_names_block(entities: dict[str, str] | None) -> str:
     """A context block naming the canonical form of every place / year / category
     the query actually filtered on, so the composer uses the full proper name in
     its answer instead of echoing the user's abbreviation, code or misspelling
-    ("wgh" -> "West Garo Hills", "fy24" -> "FY 2024-25")."""
+    ("wgh" -> "West Garo Hills", "fy24" -> "FY 2023-24")."""
     if not entities:
         return ""
     lines = [f"  - {_DIM_LABEL.get(k, k)}: {v}" for k, v in entities.items() if v]

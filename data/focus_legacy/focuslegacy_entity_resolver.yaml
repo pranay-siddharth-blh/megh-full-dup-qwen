@@ -1260,8 +1260,8 @@ region_groupings:
       aliases: [Garo, Garo region, Garo Hills region, GH]
     "Khasi Hills":
       districts: [West Khasi Hills, Eastern West Khasi Hills, East Khasi Hills,
-                  South West Khasi Hills]
-      payments: 3553
+                  South West Khasi Hills, Ri Bhoi]
+      payments: 3553   # counted before Ri Bhoi joined Khasi (2026-10-26)
       aliases: [Khasi, Khasi region, Khasi Hills region, KH]
     "Jaintia Hills":
       districts: [West Jaintia Hills, East Jaintia Hills]
@@ -1272,7 +1272,7 @@ region_groupings:
       payments: 1233
       aliases: [Ri Bhoi region, Bhoi]
       note: >
-        Ri Bhoi belongs to no hill range - it is its own district and its own group. Both
+        Ri Bhoi is in the Khasi region (LGD master `Region` column; ingestion team 2026-10-26). Both
         readings produce the same filter, so no clarification is needed. Do not fold it
         into Khasi Hills.
   whole_state:

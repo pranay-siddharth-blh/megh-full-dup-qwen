@@ -865,6 +865,82 @@ _THE_STATE_MATCH = Matcher(Seq(
     Seq("state", _C01NotNextWord(("of",), _c01_ws)), sep="space"))
 
 
+# ── A ranking count written as a word ("five highest", "top ten") ───────────
+# "Five highest blocks by person-days" asked "top 3, 5 or 10?" although it says
+# five, while "top 5 blocks" was answered (audit 2026-10-23; RAG plan C2): the
+# count gate and the SQL rewrites read digits. The count is written as digits
+# here, once, so every later step sees one form ("5 highest", "top 5").
+# Only in a ranking position, so "five years", "the two schemes" and place names
+# are left alone; ordinals ("fifth highest" = one row at rank 5) are not counts.
+_C02_RANK_UNITS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+              "nine": 9}
+_C02_RANK_TEENS = {"ten": 10, "eleven": 11, "twelve": 12, "thirteen": 13, "fourteen": 14, "fifteen": 15,
+              "sixteen": 16, "seventeen": 17, "eighteen": 18, "nineteen": 19}
+_C02_RANK_TENS = {"twenty": 20, "thirty": 30, "forty": 40, "fifty": 50, "sixty": 60, "seventy": 70,
+             "eighty": 80, "ninety": 90, "hundred": 100}
+# After a number word: these make it a ranking count ("five highest", "ten lowest").
+_C02_RANK_AFTER = frozenset("highest lowest largest biggest smallest best worst top leading most least "
+                            "poorest weakest strongest".split())
+# Before a number word: "top five", "bottom ten", "first five".
+_C02_RANK_BEFORE = frozenset("top bottom first last".split())
+# "which five blocks", "what three districts".
+_C02_WHICH = frozenset(("which", "what"))
+_C02_PLACES = frozenset("districts blocks villages panchayats gps constituencies".split())
+# Never a ranking count when the number is a span of time ("last five years").
+_C02_TIME_UNITS = frozenset("year years month months day days week weeks fy fys".split())
+
+
+def _c02_count_at(toks, i: int, text: str) -> "tuple[int, int] | None":
+    """(value, index of the last token used) for the number word at toks[i]
+    ("five", "twenty five", "twenty-five"), or None."""
+    w = toks[i].low
+    if w in _C02_RANK_UNITS:
+        return _C02_RANK_UNITS[w], i
+    if w in _C02_RANK_TEENS:
+        return _C02_RANK_TEENS[w], i
+    if w in _C02_RANK_TENS:
+        if w != "hundred" and i + 1 < len(toks) and toks[i + 1].low in _C02_RANK_UNITS \
+                and text[toks[i].end:toks[i + 1].start] in (" ", "-"):
+            return _C02_RANK_TENS[w] + _C02_RANK_UNITS[toks[i + 1].low], i + 1
+        return _C02_RANK_TENS[w], i
+    return None
+
+
+def _normalize_rank_counts(question: str) -> str:
+    """'Five highest blocks' -> '5 highest blocks', 'top ten' -> 'top 10',
+    'which three districts' -> 'which 3 districts'. Everything else unchanged."""
+    if not question:
+        return question
+    toks = _c01_tm_tokens(question)
+    out, last, i = [], 0, 0
+    while i < len(toks):
+        hit = _c02_count_at(toks, i, question)
+        if hit is None:
+            i += 1
+            continue
+        value, j = hit
+        prev = toks[i - 1].low if i > 0 else ""
+        nxt = toks[j + 1].low if j + 1 < len(toks) else ""
+        # "one" is a count only after top / bottom: "the first one", "which one"
+        # and "one highest" are not.
+        ranking = (nxt in _C02_RANK_AFTER and value > 1) \
+            or (prev in _C02_RANK_BEFORE and (value > 1 or prev in ("top", "bottom"))) \
+            or (prev in _C02_WHICH and nxt in _C02_PLACES and value > 1)
+        if not ranking or nxt in _C02_TIME_UNITS:
+            i = j + 1
+            continue
+        out.append(question[last:toks[i].start])
+        out.append(str(value))
+        last = toks[j].end
+        i = j + 1
+    if last == 0:
+        return question
+    out.append(question[last:])
+    result = "".join(out)
+    logger.info("ranking count read as digits: %r -> %r", question, result)
+    return result
+
+
 def _correct_place_spelling(question: str) -> str:
     """'<range> Hils' / 'Hill' / 'Hlls' -> '<range> Hills' (district and region names)."""
     if not question:

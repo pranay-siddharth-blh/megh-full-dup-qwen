@@ -106,7 +106,7 @@ how_to_use:
   - "District and block have NO CODE COLUMN in the curated layer. A user who supplies an
     LGD district code can be resolved to the NAME using the catalogue below, but the code
     itself can never appear in a WHERE clause."
-  - "PERSON IDENTIFIERS ARE NOT RESOLVABLE. member_id and pincode are PII, and
+  - "PERSON IDENTIFIERS ARE NOT RESOLVABLE. member_key and pincode are PII, and
     beneficiary_name, epic_id and mobile_number were dropped at ingest. A person lookup
     returns not-held or refused - never a guess, and never a partial match."
   - "THERE IS NO MANDATORY PREDICATE. Do not carry PMAY's WHERE NOT is_placeholder into
@@ -176,7 +176,7 @@ matching_pipeline:
 pipeline_exclusions:
   critical: true
   never_fuzzy_match:
-  - member_id
+  - member_key
   - pincode
   reason: >
     These are person identifiers. A fuzzy match on an identifier returns the wrong human
@@ -243,7 +243,7 @@ output_contract:
     reason: privacy | not_held
     message: >
       A fourth shape PMAY does not have. Used when the span resolves to a real person
-      (member_id / pincode / a name) or to an account number / IFSC, none of which
+      (member_key / pincode / a name) or to an account number / IFSC, none of which
       exist as a queryable identifier here. bank_name_raw is NOT this case - it is a
       bank name, not a person, and resolves normally. Say the data cannot be shown,
       offer the aggregate, and do not list candidates - listing near-matches of a
@@ -259,15 +259,15 @@ overloaded_terms:
     critical: true
     readings:
     - { means: "COUNT(*)", when: "default - but it is a PAYMENT count, not a person count" }
-    - { means: "COUNT(DISTINCT member_id)", when: "the user means people AND the 12.5K cohort is in scope" }
+    - { means: "COUNT(DISTINCT member_key)", when: "the user means people AND the 12.5K cohort is in scope" }
     - { means: "93,286 legacy paid members", when: "the user means the figure published in the use-case workbook" }
     default: ask which. The three numbers differ by an order of magnitude.
     note:
       critical: true
       text: >
         The third reading IS NOT DERIVABLE FROM megh_db. It came from epic_id, which was
-        dropped at ingest, and member_id is NULL on all 373,144 legacy rows. Never present
-        COUNT(DISTINCT member_id) as the scheme beneficiary total - it silently answers
+        dropped at ingest, and member_key is NULL on all 373,144 legacy rows. Never present
+        COUNT(DISTINCT member_key) as the scheme beneficiary total - it silently answers
         for 3.2% of the data. COUNT(DISTINCT source_sl_no) per batch is the closest proxy
         and it is a file serial, not a person key. Say so when using it.
 
@@ -383,7 +383,7 @@ dimensions:
                 paid members, first batch, original batch, legacy paid]
       note: >
         The paid cohort. Every person-level column is NULL here - gender, occupation,
-        focus_status, verification_status, member_id and pincode. Its only identifier in
+        focus_status, verification_status, member_key and pincode. Its only identifier in
         the source was epic_id, which was dropped at ingest.
     - canonical: "12.5K"
       records: 12527
@@ -1212,8 +1212,8 @@ dimensions:
       SCHEMA_FOR_DEVELOPERS.md governs everything below. The resolver's job for these is
       to RECOGNISE the entity type and hand back a `refused` or `not_found` contract - not
       to find the person.
-    member_id:
-      column: member_id
+    member_key:
+      column: member_key
       pii: true
       resolvable: false
       output_contract: refused
@@ -1224,8 +1224,8 @@ dimensions:
       - Never fuzzy-match, never suggest near-matches - a near-match of a person id is
         itself a leak.
       - Never emit into a SELECT list, an export or a vector-store payload.
-      - The only permitted use is inside COUNT(DISTINCT member_id).
-      - "COUNT(DISTINCT member_id) covers the 12.5K cohort ONLY. It is not the scheme
+      - The only permitted use is inside COUNT(DISTINCT member_key).
+      - "COUNT(DISTINCT member_key) covers the 12.5K cohort ONLY. It is not the scheme
         beneficiary total. See overloaded_terms.beneficiaries."
     pincode:
       column: pincode
@@ -1324,10 +1324,10 @@ measure_vocabulary:
   member_count:
     aliases: [members, people, persons, individuals, distinct members, unique members,
               how many members]
-    aggregate: COUNT(DISTINCT member_id)
+    aggregate: COUNT(DISTINCT member_key)
     cohort_scope: registration
     critical: >
-      COVERS THE 12.5K COHORT ONLY - member_id is NULL on all 373,144 legacy rows. This is
+      COVERS THE 12.5K COHORT ONLY - member_key is NULL on all 373,144 legacy rows. This is
       NOT the scheme beneficiary total, and presenting it as one is the most dangerous
       single error available in this schema. For a legacy count use
       COUNT(DISTINCT source_sl_no) with batch_label = '93K', and say it is a file serial.
@@ -1384,8 +1384,8 @@ region_groupings:
         heavily lopsided - report the shares alongside the counts.
     "Khasi Hills":
       districts: [East Khasi Hills, Eastern West Khasi Hills, South West Khasi Hills,
-                  West Khasi Hills]
-      records: 89318
+                  West Khasi Hills, Ri Bhoi]
+      records: 89318   # counted before Ri Bhoi joined Khasi (2026-10-26)
       aliases: [Khasi, Khasi region, Khasi Hills region, KH]
     "Jaintia Hills":
       districts: [East Jaintia Hills, West Jaintia Hills]
@@ -1397,7 +1397,7 @@ region_groupings:
       records: 1676
       aliases: [Ri Bhoi region, Bhoi]
       note: >
-        Ri Bhoi belongs to no hill range - it is its own district and its own group. Both
+        Ri Bhoi is in the Khasi region (LGD master `Region` column; ingestion team 2026-10-26). Both
         readings produce the same filter, so no clarification is needed. Do not fold it
         into Khasi Hills.
   unassigned:
@@ -1499,7 +1499,7 @@ worked_examples:
   reason: not_held
   message: >
     EPIC ID is not held in the database - it was dropped at ingest. Separately, rule 7
-    forbids a person lookup against this fact. Do not offer member_id as a substitute and
+    forbids a person lookup against this fact. Do not offer member_key as a substitute and
     do not list near-matches.
 
 - user: "top 5 blocks by focus plus payments"
@@ -1590,7 +1590,7 @@ maintenance:
        access review and may be invisible or over-granted to megh_readonly."
     - "Cross-scheme presence: SELECT DISTINCT scheme_code FROM
        curated.v_cross_scheme_money_district_year."
-    - "Confirm member_id and pincode are excluded from semantic.column_catalog.sample_values
+    - "Confirm member_key and pincode are excluded from semantic.column_catalog.sample_values
        and from the embedding set. bank_name_raw is not an identifier and is exempt."
 
   regeneration_rules:
@@ -1607,7 +1607,7 @@ maintenance:
   - "Re-check the WGH / SWGH district reallocation against the use-case workbook. If a
     figure that used to match stops matching, the mapping changed - do not absorb it
     silently."
-  - "Never add a person-identifier catalogue. member_id and pincode are refused by design,
+  - "Never add a person-identifier catalogue. member_key and pincode are refused by design,
     not unfinished."
   - Bump resolver_version.
 

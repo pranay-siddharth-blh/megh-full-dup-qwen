@@ -80,7 +80,7 @@ Always query the `v_*` views. They pre-join geography, year and scheme dims.
 - `curated.fact_focus_legacy_disbursement` and `curated.bridge_pg_bank_history`: the unmasked
   `account_no` and `name_on_the_account`.
 - `curated.fact_cm_elevate_disbursement`: applicant first, middle and last names.
-- Focus Plus: `member_id`, `pincode` (person-level). Governed by rule 7 of
+- Focus Plus: `member_key` (masked person key; was `member_id`, removed from `v_focus_plus` 2026-10-26), `pincode` (person-level). Governed by rule 7 of
   `schema_for_developers.md`.
 
 These are enforced **only by the prompt** today (KI-004).
@@ -194,3 +194,16 @@ placeholders, and whether it is scheduled is UNKNOWN.
   - **The chatbot does not use them yet** (PLANNED; KI-020).
 - **Focus Legacy `block_name_raw` / `district_name_raw`** became NULL after the DB change. They
   are mapped to `lgd_*` by `_focus_legacy_geo_columns`.
+
+
+## Ingestion changes of 15-24 Oct 2026 (note `CHATBOT_DB_CHANGES_2026-10-26.md`, D-069)
+- `v_focus_plus.member_id` removed; `member_key` (HMAC-masked, same people: 12,527 on the 12.5K batch, NULL on all 373,144
+  93K rows). The prompt and Focus Plus rules use `member_key`; `fact_focus_plus_disbursement.member_id` still exists but is
+  not ours to read.
+- Every scheme view has `region` (Garo / Khasi / Jaintia; **Ri Bhoi is in Khasi**), `district_lgd_code`, `block_lgd_code`;
+  village-level views also `ac_number`, `ac_name`. The resolver, rules, prompt and examples follow it since the team's answer of
+  2026-10-26 (Khasi includes Ri Bhoi; "Ri Bhoi" alone is the district). A computed
+  `… AS region` is renamed `region_group` by c11 `_region_alias_not_the_column`.
+- New schemes in megh_db, not yet in the chatbot: Home Stay Legacy (`v_homestay_legacy`), CMSS (`v_cmss`).
+- CM Elevate applications = distinct `request_id` (8,840; 8,867 records). `current_file_status` holds only forward /
+  resubmit / sendback to vdv/citizen; `data_verified` holds Valid / On Hold / Invalid / Wrong.

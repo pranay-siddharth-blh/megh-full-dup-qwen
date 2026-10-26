@@ -1,11 +1,11 @@
 {
- "when": "2026-10-16T18:13:13",
+ "when": "2026-10-26T16:01:53",
  "files": {
   "data/mgnrega/few_shot.yaml": {
    "scheme": "MGNREGA",
-   "examples": 75,
+   "examples": 78,
    "counts": {
-    "ok": 74,
+    "ok": 77,
     "empty": 1
    },
    "all_pass": true,
@@ -48,12 +48,101 @@
    "scheme": "CM Elevate",
    "examples": 128,
    "counts": {
-    "ok": 126,
+    "ok": 115,
+    "error": 11,
     "blocked": 2
    },
    "all_pass": false,
    "failing_in_prompt": 0,
    "failing": [
+    {
+     "index": 97,
+     "key": "sql",
+     "question": "What is the gender split of CM Elevate applicants?",
+     "outcome": "error",
+     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "in_prompt": false
+    },
+    {
+     "index": 98,
+     "key": "sql",
+     "question": "How many women applied to CM Elevate?",
+     "outcome": "error",
+     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "in_prompt": false
+    },
+    {
+     "index": 99,
+     "key": "sql",
+     "question": "Gender split by scheme",
+     "outcome": "error",
+     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "in_prompt": false
+    },
+    {
+     "index": 100,
+     "key": "sql",
+     "question": "Gender split by district",
+     "outcome": "error",
+     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "in_prompt": false
+    },
+    {
+     "index": 101,
+     "key": "sql",
+     "question": "Which schemes are majority female?",
+     "outcome": "error",
+     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "in_prompt": false
+    },
+    {
+     "index": 102,
+     "key": "sql",
+     "question": "Gender split by application mode",
+     "outcome": "error",
+     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "in_prompt": false
+    },
+    {
+     "index": 103,
+     "key": "sql",
+     "question": "What extra fields does the Warehouse scheme record?",
+     "outcome": "error",
+     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "in_prompt": false
+    },
+    {
+     "index": 108,
+     "key": "sql",
+     "question": "How many scheme-specific fields does each scheme record?",
+     "outcome": "error",
+     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "in_prompt": false
+    },
+    {
+     "index": 109,
+     "key": "sql",
+     "question": "Read a scheme-specific field (occupation) for the Piggery scheme",
+     "outcome": "error",
+     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "in_prompt": false
+    },
+    {
+     "index": 110,
+     "key": "sql",
+     "question": "Find applications with a specific scheme-specific value",
+     "outcome": "error",
+     "detail": "InsufficientPrivilegeError: permission denied for table fact_cm_elevate_application",
+     "in_prompt": false
+    },
+    {
+     "index": 111,
+     "key": "sql",
+     "question": "Which scheme-specific fields are common to every scheme?",
+     "outcome": "error",
+     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "in_prompt": false
+    },
     {
      "index": 123,
      "key": "sql",

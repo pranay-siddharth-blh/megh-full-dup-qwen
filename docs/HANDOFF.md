@@ -3,6 +3,55 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-10-26 (review only): role-based access.** Report `new_docs/Role_Based_Access_Report_2026-10-26.md`; no code
+changed. Opened KI-418 (HIGH, `PATCH /admin/users` escalation to super_admin), KI-419 (cross_figures, Focus Plus summary,
+Focus Legacy PG-name, MGNREGA women-unrecorded answers run before `authorize`), KI-420, KI-421. Fix order in report §8.
+
+**2026-10-26 night (team agreed caps): megh_app cap 30, megh_readonly 20 (both HARD; tell the team before adding a worker,
+VM or pool).** `172.18.0.2` is very likely the OLD build's Docker container (`megh-nlp`; 2 workers x min pool 10 = the 20 idle
+`postgres` sessions) — INFERRED, server admin to confirm; stop the old build at switch-over. Waiting: megh_app password,
+the user's backup decision. Reply section added to `docs/Chatbot_Answers_to_Ingestion_Team_2026-10-26.md`.
+
+**2026-10-26 night: megh_app readiness.** The team is preparing `megh_app` (owns `app`, reads like megh_readonly, 60 s
+timeouts, 20-connection cap). Done: unused default-rule / template files marked NOT LOADED (+ guard test); readiness checks
+1-3 pass; check 4 needs the cap raised to 30 (asked). When the password arrives: set `DATABASE_URL` to megh_app, restart,
+run the full suite + live checks. **User decision pending:** may chat history stay in the team's 14-day `megh_db` backups?
+
+**2026-10-26 late (code): the team's reply to our evening update applied** — catalog reads as megh_readonly
+(`db.fetch_rows_readonly`), Khasi wording. **For the user to tell the team:** our app tables live in megh_db, schema `app`
+(created by `appdb.ensure_schema` since the start) — they asked to be told, and want a `megh_app` role there; plus the deploy
+VMs and `172.18.0.2`. The app's own fixed curated queries still run as `postgres` (DATABASE_URL).
+
+**2026-10-26 evening (code + rules + .env): D-069 extended after the team's answers** (`ANSWERS_TO_CHATBOT_TEAM_2026-10-26.md`,
+pasted by the user). megh_readonly live on the dev box; Ri Bhoi in Khasi; CM Elevate workflow statuses answered "not
+recorded" (`_cme_workflow_query`); KI-417 rounding; `_star_without_hidden_columns`. Still for the user: tell the team which
+of their 6 actions are done (reply doc updated), confirm `172.18.0.2` with the server admin, apply the same `.env` lines on
+the deploy VMs. Another session is editing KNOWN_ISSUES in parallel (KI-418..421 are theirs) — check numbers before adding.
+
+**2026-10-26 (code + rules): D-069, the ingestion team's DB changes.** Note `CHATBOT_DB_CHANGES_2026-10-26.md` (pasted by the
+user). Done: `member_key`, region alias (`region_group` + c11 `_region_alias_not_the_column`), few-shot check 0 errors.
+Waiting on the team (5 questions in `docs/Chatbot_Answers_to_Ingestion_Team_2026-10-26.md`: records vs applications,
+Ri Bhoi region, "pending", CM Elevate scheme_specific member_id, fact table access) and on the `megh_readonly` password.
+CMSS / Home Stay Legacy are new in megh_db and not in the chatbot.
+
+**2026-10-26 (code): KI-414 short FY forms everywhere.** `app/context_policy.py` (`short_fy_tokens`, `extract_year_keys`,
+`rewrite_violation` keeps the user's own year), c06 (`_c06_short_fy_tokens` delegates, `_c06_all_year_tokens` used by
+`_years_in_question` / `_out_of_range_year_in`), c07 `_backfill_explicit_year`, `app/edge.py` ("FY'25"). Tests
+`tests/test_short_fy_forms_2026_10_26.py`. Live 81/81. Open: KI-415 (fix the region few-shot SQL), KI-416 (measure drift on
+a bare year follow-up). Another process restarts :8401 too — check `netstat` before assuming whose server answers.
+
+**2026-10-26 (code): ranking count words, KI-412 / KI-413.** c02 `_normalize_rank_counts` (wired at c14 next to
+`_correct_fy_spacing`), c11 `_stated_rank_count_limit` (end of `_scheme_sql_rewrites`), NEW tests
+`test_rank_count_words_2026_10_26.py` and the namespace guard `test_pipeline_namespace_2026_10_26.py`. Option 2 of the
+ranking design (option 3, a structured RankingSpec + SQL compiler, waits for the metric catalogue). Uncommitted together
+with D-068; the user will commit.
+
+**2026-10-24 night (code): D-068.** A stated scope is never asked for (c05 / c06 cues; `_STATED_ALL_YEARS_CUE` kept
+out of `_ALL_YEARS_CUE` for the verifier's sake) and "FY24" = FY 2023-24 (c07 parser + c09 bare-digit fallback).
+Option A (answer with a default) was NOT re-applied: D-053/D-056/D-065 are the user's own reversals of it. Held-out set
+42/74 (0 wrong except PM-04, which flips on the original code too, KI-411). Open for the user: update the held-out set's
+expectations to D-053/D-056/D-064/D-065 (31 items ask by rule), KI-411, U5, KI-407.
+
 **2026-10-24 late: branch `update/2026-10-24`, commit `9c7c67c` (everything below, not pushed).** Then `.gitignore`
 gained `raw_uc/`, `new_docs/*.csv`, `new_docs/~$*` (PII + QA CSVs + Word lock files; uncommitted). Status of the user's
 29-item RAG plan: `new_docs/RAG_Plan_Status_Report_2026-10-24.md`. Then (docs only) every current-guidance mention

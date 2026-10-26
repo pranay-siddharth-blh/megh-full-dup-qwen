@@ -1,0 +1,128 @@
+{
+ "label": "check-384-subset",
+ "when": "2026-10-24T17:59:22",
+ "git": {
+  "commit": "dd8b58b",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b"
+ },
+ "readonly_login": "postgres",
+ "superuser_allowed": true,
+ "holdout_checked": true,
+ "selection": {
+  "scheme": null,
+  "ids": "MG-11,PM-13,FP-01,FL-02,CE-06"
+ },
+ "minutes": 0.1,
+ "summary": {
+  "items": 5,
+  "scored": 5,
+  "outcomes": {
+   "clarification": 5
+  },
+  "accuracy": 0.0,
+  "by": {
+   "CM Elevate": {
+    "accuracy": 0.0,
+    "clarification": 1
+   },
+   "Focus Legacy": {
+    "accuracy": 0.0,
+    "clarification": 1
+   },
+   "Focus Plus": {
+    "accuracy": 0.0,
+    "clarification": 1
+   },
+   "MGNREGA": {
+    "accuracy": 0.0,
+    "clarification": 1
+   },
+   "PMAY-G": {
+    "accuracy": 0.0,
+    "clarification": 1
+   },
+   "difficulty:easy": {
+    "accuracy": 0.0,
+    "clarification": 2
+   },
+   "difficulty:hard": {
+    "accuracy": 0.0,
+    "clarification": 2
+   },
+   "difficulty:medium": {
+    "accuracy": 0.0,
+    "clarification": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "MG-11",
+   "scheme": "MGNREGA",
+   "difficulty": "hard",
+   "question": "Which districts had an MGNREGA cost per person-day above Rs 400 in FY 2022-23?",
+   "gold_rows": 2,
+   "outcome": "clarification",
+   "detail": "scope-not-specified: Which area should the answer cover \u2014 a specific district, block, or village? Pick a district below, or choose the statewide total; you can also just type a block or village name.",
+   "seconds": 5.5,
+   "answer": ""
+  },
+  {
+   "id": "PM-13",
+   "scheme": "PMAY-G",
+   "difficulty": "hard",
+   "question": "Which blocks in West Garo Hills have over 1,000 PMAY-G houses that are not yet completed, taking all sanction years together?",
+   "gold_rows": 3,
+   "outcome": "clarification",
+   "detail": "year-not-specified: PMAY-G data is available for FY 2017-18, FY 2018-19, FY 2019-20, FY 2020-21, FY 2021-22, FY 2022-23 and FY 2023-24. Which of these is required \u2014 a single financial year, or all of them combined?",
+   "seconds": 7.4,
+   "answer": ""
+  },
+  {
+   "id": "FP-01",
+   "scheme": "Focus Plus",
+   "difficulty": "easy",
+   "question": "What is the total Focus Plus amount disbursed in South Garo Hills district?",
+   "gold_rows": 1,
+   "outcome": "clarification",
+   "detail": "year-not-specified: Focus Plus data is available for FY 2022-23 and FY 2025-26. Which of these is required \u2014 a single financial year, or all of them combined?",
+   "seconds": 5.9,
+   "answer": ""
+  },
+  {
+   "id": "FL-02",
+   "scheme": "Focus Legacy",
+   "difficulty": "easy",
+   "question": "What was the total Focus Legacy amount remitted to producer groups in FY 2024-25?",
+   "gold_rows": 1,
+   "outcome": "clarification",
+   "detail": "scope-not-specified: Which area should the answer cover \u2014 a specific district, block, or village? Pick a district below, or choose the statewide total; you can also just type a block or village name.",
+   "seconds": 0.5,
+   "answer": ""
+  },
+  {
+   "id": "CE-06",
+   "scheme": "CM Elevate",
+   "difficulty": "medium",
+   "question": "Which 3 blocks of Ri Bhoi have the most applicants under the CM Elevate Piggery Development scheme?",
+   "gold_rows": 3,
+   "outcome": "clarification",
+   "detail": "cm-elevate-dataset: CM Elevate has two datasets \u2014 applications, and sanctions and disbursements (CM Elevate Legacy). Which one do you mean?",
+   "seconds": 2.1,
+   "answer": ""
+  }
+ ],
+ "compared_with": "2026-10-24_1758_today-2026-10-24.json",
+ "delta": {
+  "regressions": [],
+  "fixed": []
+ }
+}

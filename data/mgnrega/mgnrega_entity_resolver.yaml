@@ -1368,7 +1368,7 @@ region_groupings:
       aliases: [Garo, Garo region, Garo Hills region, GH]
     "Khasi Hills":
       districts: [East Khasi Hills, Eastern West Khasi Hills, South West Khasi Hills,
-                  West Khasi Hills]
+                  West Khasi Hills, Ri Bhoi]
       aliases: [Khasi, Khasi region, Khasi Hills region, KH]
     "Jaintia Hills":
       districts: [East Jaintia Hills, West Jaintia Hills]
@@ -1377,8 +1377,8 @@ region_groupings:
       districts: [Ri Bhoi]
       aliases: [Ri Bhoi region, Bhoi]
       note: >
-        Ri Bhoi belongs to no hill range - it is its own district and its own group.
-        Do not fold it into Khasi Hills. This is the one name that is both a district
+        Ri Bhoi is in the Khasi region (LGD master `Region` column; ingestion team 2026-10-26).
+        A Khasi Hills answer includes it and says so. This is the one name that is both a district
         and a region; both readings produce the same filter, so no clarification is
         needed - resolve it as the district.
   whole_state:

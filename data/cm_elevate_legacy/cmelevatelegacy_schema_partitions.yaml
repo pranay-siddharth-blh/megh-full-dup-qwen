@@ -293,6 +293,18 @@ datasets:
       - "NO BLOCK CODE is exposed. The source's mapped_block_lgd_code is not carried into the curated layer."
       - "59 blocks in the source workbook (unverified_in_db). 19 rows sit in Municipal Boards - Resubelpara, William Nagar, Tura - which are urban wards, not villages. Do not describe this scheme as wholly rural."
 
+    - name: region
+      source_column: dim_geography.region
+      meaning: Hill region of the district, from the client's LGD master (Garo, Khasi or Jaintia). Khasi includes Ri Bhoi.
+      type: text
+      nullable: true
+      category: geographic_dimension
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [region, hill region, Garo Hills region, Khasi Hills region, Jaintia Hills region]
+      sample_values: [Garo, Khasi, Jaintia]
+      business_rules:
+      - "Added to every scheme view by the ingestion team (note 2026-10-26). Group a region question by it; Khasi includes Ri Bhoi, so say so. 'Ri Bhoi' alone is the district (lgd_district)."
     - name: lgd_district
       source_column: dim_geography.lgd_district
       meaning: LGD-standardised district name.

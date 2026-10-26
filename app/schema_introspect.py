@@ -116,21 +116,21 @@ async def load() -> None:
 
 async def _load_semantic_catalog() -> None:
     try:
-        _cache["tables"] = await db.fetch_rows(
+        _cache["tables"] = await db.fetch_rows_readonly(
             """SELECT table_schema, table_name, entity_role, grain, description,
                       subject_area, synonyms, row_count
                FROM semantic.table_catalog
                WHERE is_chatbot_visible IS NOT FALSE
                ORDER BY table_schema, table_name""")
-        _cache["glossary"] = await db.fetch_rows(
+        _cache["glossary"] = await db.fetch_rows_readonly(
             """SELECT term, definition, subject_area, synonyms, maps_to_object, maps_to_column
                FROM semantic.glossary ORDER BY term""")
         try:
-            _cache["metrics"] = await db.fetch_rows("SELECT * FROM semantic.metric_definitions")
+            _cache["metrics"] = await db.fetch_rows_readonly("SELECT * FROM semantic.metric_definitions")
         except Exception:  # noqa: BLE001 — table shape varies; optional
             _cache["metrics"] = []
         try:
-            _cache["joins"] = await db.fetch_rows("SELECT * FROM semantic.join_graph")
+            _cache["joins"] = await db.fetch_rows_readonly("SELECT * FROM semantic.join_graph")
         except Exception:  # noqa: BLE001
             _cache["joins"] = []
         try:
@@ -150,7 +150,7 @@ async def _load_semantic_catalog() -> None:
             # schemes rupees, *_crore / *_cr crore) and 89 coded columns carry their
             # complete list of stored values — the two things the generator used to
             # guess (lakh vs rupees; a 'Pending' literal no row holds).
-            _cache["columns"] = await db.fetch_rows(
+            _cache["columns"] = await db.fetch_rows_readonly(
                 """SELECT table_schema, table_name, column_name, description,
                           data_quality_note, unit, sample_values
                    FROM semantic.column_catalog
@@ -178,7 +178,7 @@ async def _load_join_rules() -> None:
     year + district turned FY2024-25 person-days from 14.7 million into 6.69
     billion). Stored symmetric; read by the fan-out guard in execute_with_repair."""
     try:
-        rows = await db.fetch_rows(
+        rows = await db.fetch_rows_readonly(
             "SELECT object_ref, never_row_join_with FROM semantic.v_join_rules")
     except Exception as e:  # noqa: BLE001 — optional; the guard then has nothing to check
         logger.warning("schema_introspect: semantic.v_join_rules not read: %s", e)
@@ -200,7 +200,7 @@ async def _load_coverage() -> None:
     live. A year missing there means NO DATA, never 0 (Focus Plus has 2022-23 and
     2025-26 only; Focus Legacy has no 2023-24; CM Elevate has no year at all)."""
     try:
-        rows = await db.fetch_rows("SELECT scheme, years_present FROM curated.v_data_coverage")
+        rows = await db.fetch_rows_readonly("SELECT scheme, years_present FROM curated.v_data_coverage")
     except Exception as e:  # noqa: BLE001 — optional; the hand-kept year table stays
         logger.warning("schema_introspect: curated.v_data_coverage not read: %s", e)
         _cache["coverage"] = {}
@@ -237,7 +237,7 @@ async def _readonly_denied_columns() -> "set[tuple[str, str, str]]":
     """(schema, table, column) the read-only role may NOT select, or an empty set
     when that role does not exist / cannot be checked."""
     try:
-        rows = await db.fetch_rows(
+        rows = await db.fetch_rows_readonly(
             """SELECT n.nspname AS s, c.relname AS t, a.attname AS col
                FROM pg_class c
                JOIN pg_namespace n ON n.oid = c.relnamespace
@@ -258,7 +258,7 @@ async def _load_live_schema() -> None:
     copy that drifts. Best-effort: any failure leaves live_columns empty and the
     prompt falls back to schema_context.py alone."""
     try:
-        col_rows = await db.fetch_rows(
+        col_rows = await db.fetch_rows_readonly(
             """SELECT table_schema, table_name, column_name, data_type, is_nullable
                FROM information_schema.columns
                WHERE table_schema = ANY($1::text[])
@@ -285,7 +285,7 @@ async def _load_live_schema() -> None:
         # pg_catalog (not information_schema.constraint_column_usage) — the latter
         # returns nothing for a role that doesn't own the tables; pg_constraint is
         # world-readable and handles composite keys.
-        fk_rows = await db.fetch_rows(
+        fk_rows = await db.fetch_rows_readonly(
             """SELECT ns.nspname   AS from_schema, cl.relname   AS from_table,
                       att.attname  AS from_column,
                       fns.nspname  AS to_schema,  fcl.relname  AS to_table,

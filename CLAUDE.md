@@ -40,6 +40,8 @@ until 2026-10-15):
 `app/pipeline/__init__.py` executes the files in `_PIPELINE_FILES` order into ONE shared namespace, so
 `from app import pipeline as p`, `p.<name>` and `monkeypatch.setattr(p, …)` work as before. Function bodies may
 use names from any file; load-time code (constants, regexes, defaults) only names from files loaded before it.
+Every top-level name must be unique across the files: a second definition silently replaces the first for every caller
+(KI-413; `tests/test_pipeline_namespace_2026_10_26.py` fails on a duplicate).
 **Edit the file that holds the function** (there is no `app/pipeline.py` any more — recreating it would be
 shadowed by the package and silently ignored). It is written as
 **stage functions** (`_turn_*_stage`, `_data_*_stage`, `_execute_one_attempt`, …). **LangGraph is the only

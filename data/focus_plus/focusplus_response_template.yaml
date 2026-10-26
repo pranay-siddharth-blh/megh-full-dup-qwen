@@ -1,3 +1,7 @@
+# NOT LOADED BY THE APP (see app/annotations.py) - kept as the scheme team's reference only.
+# Counts and percentages quoted below are historical (ingestion team note, 2026-10-26: CM Elevate is
+# re-pulled from the API, so figures change). Never wire this file into the app without re-checking
+# every figure against megh_db; tests/test_db_changes_2026_10_26.py fails if app code reads it.
 # focusplus_response_template.yaml
 #
 # ===========================================================================
@@ -64,7 +68,7 @@ response_templates:
     null_display: "not recorded"
     null_person_column_display: "not collected for this batch"
     null_person_column_rule: >
-      On gender, occupation, focus_status, verification_status, member_id and pincode,
+      On gender, occupation, focus_status, verification_status, member_key and pincode,
       NULL means the column was not collected for the legacy cohort - not that the value
       is unknown for an individual. Never render it as 'Unknown' or 'Other', which would
       imply it was asked and not answered.
@@ -80,10 +84,10 @@ response_templates:
       payments, members or beneficiaries. Never let a bare "beneficiaries" stand.
     cohort_statement_rule: >
       Any answer touching gender, occupation, focus_status, verification_status or
-      member_id must name the batch and give the denominator in the same sentence.
+      member_key must name the batch and give the denominator in the same sentence.
     person_level_rule: >
       RULE 7. This is the only person-level data in the database. Aggregate before
-      display. Never print member_id or pincode, never list individual rows, and never
+      display. Never print member_key or pincode, never list individual rows, and never
       name a person - the name columns were dropped at ingest anyway.
     provisional_rule: >
       No Focus Plus total has been verified against the database. Attach the provisional

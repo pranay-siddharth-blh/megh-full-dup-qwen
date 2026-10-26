@@ -13,6 +13,23 @@ from sqlglot import exp
 _ONE_FIGURE_SCHEMES = (["Focus Plus"], ["CM Elevate"])
 
 
+def _money_rounded_for_display(rows: list[dict]) -> list[dict]:
+    """The rows with crore / lakh money columns (by the SQL-prompt suffix:
+    _unit_suffix) rounded to 2 decimals, for the composer's eyes only (KI-417)."""
+    out = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            out.append(r)
+            continue
+        nr = {}
+        for k, v in r.items():
+            unit = _unit_suffix(str(k).lower())
+            n = _as_number(v) if unit and unit[1] in ("crore", "lakh") else None
+            nr[k] = round(n, 2) if isinstance(n, float) else v
+        out.append(nr)
+    return out
+
+
 async def compose_response(question: str, sql: str, rows: list[dict],
                            notes: list[str] | None = None,
                            entities: dict[str, str] | None = None,
@@ -158,6 +175,11 @@ do not invent, compute or round differently than shown. Write like a direct brie
 lead with the answer itself, not with "The data shows..." or a description of what the
 query returned. Say once, in plain words, what the figures count, for which scheme,
 which area and which period."""
+    # Money in crore / lakh is shown to the composer at 2 decimals (KI-417): the raw
+    # SUM(amount) / 1e7 came through as "119.73925 crore" because the prompt says not to
+    # round differently than shown. Display only — `rows`, the table and the export keep
+    # the exact value, and the number check already accepts the 2-decimal form.
+    preview = _money_rounded_for_display(preview)
     prompt = f"""{opening} The period is the year the query read: the year in
 the Entity names block below when it gives one; say "across all financial years"
 only when that block names no year. Write every number with thousands separators (27,264,054, never 27264054).
@@ -1107,7 +1129,13 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
                 raise _region_clarification(question, region)
             entity_result["resolved"]["district_list"] = [d.upper() for d in region["districts"]]
             entity_result["resolved"]["district_list_region"] = region["canonical"]
-            entity_result["display"]["district"] = region["canonical"]
+            # A district the region's name does not suggest is named in the label, so the
+            # total does not surprise: Khasi includes Ri Bhoi (LGD region; ingestion team
+            # 2026-10-26: "say so in one line").
+            _head = region["canonical"].split()[0].lower()
+            _extra = [d for d in region["districts"] if _head not in d.lower()]
+            entity_result["display"]["district"] = region["canonical"] + (
+                f" (includes {', '.join(_extra)})" if _extra else "")
 
     # "Give me an overall Focus+ data summary" — a genuinely whole-scheme
     # question with no district/year/tranche to pin. Handled before the scope/
@@ -1717,7 +1745,7 @@ def _sql_reads_a_table(sql: str) -> bool:
 # ── the fixed (deterministic) queries, recognised on the tree / token stream ──
 # Each fixed query opens with a /* <mark> */ comment or has a fixed shape; a
 # string literal or column that happens to hold the same words does not count.
-_CME_SECTOR_MARKS = frozenset({"cme-sector-count", "cme-sector-pending", "cme-sector-programmes"})
+_CME_SECTOR_MARKS = frozenset({"cme-sector-count", "cme-sector-pending", "cme-sector-programmes", "cme-sector-workflow"})
 
 
 def _sql_comment_marks(sql: "str | None") -> "set[str]":
@@ -2594,6 +2622,15 @@ async def _data_guarantees_stage(d: dict, scope: "auth.UserScope | None" = None)
     # digits when that value is in the result, every scheme (all-blocks run
     # 2026-10-02); a spelled-out number is invisible to the faithfulness checks.
     answer = _cme_digits_for_number_words(answer, rows)
+    # A region total that includes a district its name does not suggest says so in
+    # one line (ingestion team 2026-10-26: Khasi includes Ri Bhoi). The label is set
+    # where the region resolves; the composer dropped it live, so it is guaranteed here.
+    _reg_label = (entity_result.get("display") or {}).get("district") or ""
+    if (entity_result.get("resolved") or {}).get("district_list_region") and "(includes " in _reg_label \
+            and _reg_label.split("(includes ", 1)[1].rstrip(")") not in (answer or ""):
+        answer = (answer or "").rstrip() + (
+            f" {entity_result['resolved']['district_list_region']} here includes "
+            f"{_reg_label.split('(includes ', 1)[1].rstrip(')')} district, as in the department's district-to-region list.")
     if d.get("cross"):
         answer = _cross_scheme_leader(answer, rows, d["cross"].get("text") or question)
         answer = _cross_scheme_complete_lists(answer, rows)

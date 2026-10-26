@@ -1251,6 +1251,12 @@ async def resolve_entities(question: str, schemes: list[str],
         # year straight from the text ("2023", "2023-24", "FY 2023-24" -> 2023).
         if year_key is None:
             year_key = _parse_year_key(raw_year)
+        # The extractor can hand back only the digits of "FY 24" ("24"), which name no
+        # year on their own, so no year was resolved and the SQL model read "FY 24" as
+        # FY 2024-25 (2026-10-24; "FY24" is spaced to "FY 24" by _correct_fy_spacing).
+        # The question's own wording places it: "FY 24" = FY 2023-24 (_parse_year_key).
+        if year_key is None and str(raw_year).strip().isdecimal() and len(str(raw_year).strip()) <= 2:
+            year_key = _parse_year_key(question)
         if year_key is not None and not _year_in_data_range(year_key, schemes):
             # A real, parseable year — just not one these scheme(s) hold.
             if settings.YEAR_RANGE_GUARD_ENABLED:

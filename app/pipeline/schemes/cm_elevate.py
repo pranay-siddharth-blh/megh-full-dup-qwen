@@ -688,7 +688,21 @@ _CME_SECTOR_VALUE_MATCH = Matcher(Cap(W("piggery", "poultry", "dairy", "goatery"
 _CME_SECTOR_EACH_MATCH = Matcher(Alt(Seq(W("each", "every", "all", "by", "per"), Opt("the"), _cme_sg("sector"), sep="space"),
                                   _cme_join(("sector", "sectors"), "wise")))
 _CME_PENDING_MATCH = Matcher(Alt("pending", _cme_join("on", "hold")))
-_CME_SECTOR_FACT_KINDS = ("count", "pending", "programmes")
+_CME_SECTOR_FACT_KINDS = ("count", "pending", "programmes", "workflow")
+# A WORKFLOW status the data does not hold (ingestion team, 2026-10-26): "pending",
+# "approved", "rejected" and "sent back" live in an internal API field the chatbot
+# cannot read; data_verified ('On Hold' …) is the data-verification check, a different
+# field. Answering 903 on-hold applications to "how many are pending?" gave a confident
+# number for a different question. Such a question gets "not recorded", then the
+# figures that ARE recorded, labelled (cme-sector-workflow below).
+_CME_WORKFLOW_WORD = Matcher(Cap(Alt(
+    W("pending", "pendency", "approved", "approval", "approvals", "rejected", "rejection", "rejections"),
+    Seq(W("sent", "send"), "back"), "sendback")))
+# …unless the question names a field that IS recorded: then the model path answers it.
+_CME_RECORDED_STATUS_WORD = Matcher(Alt(
+    _CME_ON_HOLD_ANYWHERE, Pred(lambda w: "verif" in w.lower()),
+    W("forward", "forwarded", "resubmit", "resubmitted", "valid", "invalid", "wrong", "vdv", "citizen"),
+    W("level", "levels", "stage", "stages"), _cme_level_digit(one_digit=False)))
 
 
 def _cme_sector_fact_kind(sql: "str | None") -> "str | None":
@@ -740,10 +754,47 @@ def _cme_named_programmes(question: str) -> list[str]:
     return [p for p, m in _CME_PROGRAMME_WORDS.items() if m.search(q)]
 
 
+def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str] | None":
+    """'how many applications are pending / approved / rejected / sent back' -> the
+    recorded figures instead (see _CME_WORKFLOW_WORD), in DISTINCT applications
+    (request_id: ingestion team 2026-10-26), with the question's place and programme."""
+    q = question or ""
+    if not _CME_WORKFLOW_WORD.search(q) or _CME_RECORDED_STATUS_WORD.search(q):
+        return None
+    where, params = [], []
+    for single, many, col in (("village_code", "village_code_list", "village_code"),
+                              ("block", "block_list", "lgd_block"),
+                              ("district", "district_list", "lgd_district")):
+        one, lst = resolved.get(single), resolved.get(many)
+        if lst:
+            params.append([str(x).upper() if col != "village_code" else str(x) for x in lst])
+            where.append(f"{col}{'::text' if col == 'village_code' else ''} = ANY(${len(params)}::text[])")
+        elif one not in (None, "") and not isinstance(one, (list, dict, tuple, set)):
+            params.append(str(one) if col == "village_code" else str(one).upper())
+            where.append(f"{col}{'::text' if col == 'village_code' else ''} = ${len(params)}")
+    if resolved.get("assembly_constituency"):
+        return None
+    progs = resolved.get("cm_scheme")
+    if progs:
+        params.append([progs] if isinstance(progs, str) else list(progs))
+        where.append(f"scheme_name = ANY(${len(params)}::text[])")
+    wh = (" WHERE " + " AND ".join(where)) if where else ""
+    sql = ("/* cme-sector-workflow */ SELECT "
+           "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS on_hold, "
+           "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'forward') AS forward, "
+           "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'resubmit') AS resubmit, "
+           "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'sendback to vdv/citizen') AS sendback, "
+           f"COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate{wh}")
+    return sql, params, sql
+
+
 def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tuple[str, list, str] | None":
     if schemes != ["CM Elevate"]:
         return None
     q = question or ""
+    _wf = _cme_workflow_query(q, resolved or {}) if not (_CME_SECTOR_EACH_MATCH.search(q)) else None
+    if _wf is not None:
+        return _wf
     m = _CME_SECTOR_VALUE_MATCH.search(q)
     progs = _cme_named_programmes(q)
     f = _cme_sector_filters(resolved or {}, "v." if progs else "")
@@ -827,9 +878,30 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
     if kind == "pending":
         items = [f"{r['sector']} {int(_as_number(r.get('pending_on_hold')) or 0):,}" for r in rows]
         total = sum(int(_as_number(r.get("pending_on_hold")) or 0) for r in rows)
-        return (f"Pending (verification on hold) CM Elevate applications by sector{where}: " + "; ".join(items)
+        # "pending" is not recorded (ingestion team 2026-10-26); the figures are the
+        # data-verification hold, labelled as such.
+        return ("The CM Elevate data doesn't record a \"pending\" status. Applications on hold at data "
+                f"verification, by sector{where}: " + "; ".join(items)
                 + f". Total {total:,}. Sector is recorded only on Poultry, Dairy and Goat Farming applications, "
                   "so most applications fall under (not recorded).")
+    if kind == "workflow" and rows:
+        r = rows[0]
+        n = {k: int(_as_number(r.get(k)) or 0) for k in ("on_hold", "forward", "resubmit", "sendback", "applications")}
+        m = _CME_WORKFLOW_WORD.search(question or "")
+        word = " ".join((m.group(1) if m else "pending").lower().split())
+        word = {"pendency": "pending", "approval": "approved", "approvals": "approved", "rejection": "rejected",
+                "rejections": "rejected", "send back": "sent back", "sendback": "sent back"}.get(word, word)
+        prog = (display or {}).get("cm_scheme")
+        scope = f"{where}" + (f" under {prog}" if prog else "")
+        out = (f"The CM Elevate data doesn't record a \"{word}\" status. What it does record{scope}: "
+               f"{n['on_hold']:,} application{'s' if n['on_hold'] != 1 else ''} "
+               f"{'are' if n['on_hold'] != 1 else 'is'} on hold at data verification, and by file status "
+               f"{n['forward']:,} {'are' if n['forward'] != 1 else 'is'} forward, {n['resubmit']:,} resubmit and "
+               f"{n['sendback']:,} sendback to vdv/citizen (of {n['applications']:,} applications).")
+        if word == "sent back":
+            out += (" The file status \"sendback to vdv/citizen\" is not the department's own Send Back decision, "
+                    "which the data does not hold.")
+        return out
     return None
 
 

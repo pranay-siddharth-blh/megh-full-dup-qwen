@@ -72,7 +72,7 @@ SCHEME_METRICS = {
     "Focus Plus": [
         "disbursements / payments made (COUNT(*), one row per payment)",
         "amount disbursed (SUM, in rupees; only two values exist, 5,000 and 2,500)",
-        "members with an id (COUNT(DISTINCT member_id) — 12.5K registration cohort only, "
+        "members with an id (COUNT(DISTINCT member_key) — 12.5K registration cohort only, "
         "~3.2% of rows; NOT the scheme total)",
         "batch split — 93K legacy paid cohort vs 12.5K newer registration cohort",
         "tranche breakdown (Tranch 1..4; categorical, never a time series)",
@@ -455,7 +455,7 @@ FOCUS PLUS TABLES
         financial_year_short, geography_key, village_code, lgd_village_name, lgd_block,
         block_name_raw, lgd_district, on_roster, has_geo_conflict, batch_label,
         tranche_label, amount_disbursed, gender, occupation, focus_status,
-        verification_status, member_id, pincode, entity_type, bank_name_raw,
+        verification_status, member_key, pincode, entity_type, bank_name_raw,
         beneficiary_key
       BLOCK COLUMN — for Focus Plus, blocks are mapped on block_name_raw. USE IT.
         block_name_raw  = THE block column for this scheme. Populated on all
@@ -503,11 +503,11 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      every question needs to know which:
        '93K'   — legacy PAID cohort. 4 rows per beneficiary (one per tranche). Every
                  person-level column (gender, occupation, focus_status,
-                 verification_status, member_id, pincode) is BLANK on all of them.
+                 verification_status, member_key, pincode) is BLANK on all of them.
        '12.5K' — newer REGISTRATION cohort. 1 row per person, Tranch 4 only, person
                  columns populated. ~3.2% of all rows.
      ANY breakdown by gender / occupation / focus_status / verification_status /
-     member_id / pincode describes the 12.5K cohort ONLY — add
+     member_key / pincode describes the 12.5K cohort ONLY — add
      `WHERE batch_label = '12.5K'` and state the cohort and its coverage in the answer.
      Never present such a split as a scheme-wide figure. Conversely, do NOT add
      `WHERE batch_label = '12.5K'` to a plain payments/beneficiary COUNT, a money
@@ -517,8 +517,8 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      there in each district?" in the few-shot set). Confirmed live 2026-09-12: adding
      this filter to a bare per-district beneficiary count silently dropped the 373,144
      legacy-cohort rows and got the query rejected outright.
-  5. member_id and pincode are PII. NEVER SELECT, GROUP BY or ORDER BY them as a bare
-     column. `COUNT(DISTINCT member_id)` is the ONLY permitted use of member_id — and it
+  5. member_key and pincode are PII. NEVER SELECT, GROUP BY or ORDER BY them as a bare
+     column. `COUNT(DISTINCT member_key)` is the ONLY permitted use of member_key — and it
      counts the 12.5K cohort only (~12,527), NOT the scheme total. Do not label it
      "total Focus Plus beneficiaries" — use beneficiary_key (rule 6) for that.
   6. "Beneficiaries" (a PERSON count) = `COUNT(DISTINCT beneficiary_key)`.
@@ -542,8 +542,8 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      (rule 3) — a legacy member appears on up to four payment rows, so payments
      and beneficiaries are genuinely different numbers; return both, labelled,
      when the question is ambiguous between them. Do NOT use
-     `COUNT(DISTINCT member_id)` or a bare `COUNT(DISTINCT source_sl_no)` as a
-     beneficiary count — member_id only exists for the 12.5K cohort (rule 5) and
+     `COUNT(DISTINCT member_key)` or a bare `COUNT(DISTINCT source_sl_no)` as a
+     beneficiary count — member_key only exists for the 12.5K cohort (rule 5) and
      source_sl_no repeats across the two cohorts and needs a batch_label scope
      to mean anything on its own (rule 7 covers the one place that scoped reading
      is still needed: a per-tranche/per-batch breakdown).
@@ -653,7 +653,7 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
 _FOCUSPLUS_VOCAB = """
 FOCUS PLUS BUSINESS VOCABULARY (source: FOCUS+ NLP Use Cases workbook + focusplus_schema_partitions.yaml)
     "payments" / "disbursements" / "records" -> COUNT(*)              "amount" / "disbursed" / "paid" / "DBT amount" -> SUM(amount_disbursed)  (rupees)
-    "members with an id" -> COUNT(DISTINCT member_id)  (12.5K cohort only, NOT a beneficiary count)   "beneficiaries" (any shape — statewide, one district, "each district", a comparison) -> COUNT(DISTINCT beneficiary_key), no batch_label or has_geo_conflict filter (rule 6)
+    "members with an id" -> COUNT(DISTINCT member_key)  (12.5K cohort only, NOT a beneficiary count)   "beneficiaries" (any shape — statewide, one district, "each district", a comparison) -> COUNT(DISTINCT beneficiary_key), no batch_label or has_geo_conflict filter (rule 6)
     "legacy" / "paid cohort" -> batch_label = '93K'                  "newer" / "registration cohort" / "unpaid" -> batch_label = '12.5K'  (an inference from the batch, NOT a status column)
     "tranche" / "installment" / "tranch" -> tranche_label  (categorical, not time)   "batch" / "cohort" -> batch_label
     "farmers" -> occupation = 'Farmer'  (12.5K cohort only)          "women" / "female" -> gender = 'Female'  (12.5K cohort only)
@@ -1133,10 +1133,10 @@ CM ELEVATE LEGACY RULES (breaking these produces a wrong number, not just an ugl
   8. GEOGRAPHY. lgd_district and lgd_block are UPPERCASE literals ('WEST GARO HILLS',
      'UMLING'); Title Case returns zero rows silently. Municipal Board areas are separate
      block values: 'RESUBELPARA-MUNICIPAL BOARD', 'WILLIAM NAGAR-MUNICIPAL BOARD',
-     'TURA MUNICIPAL BOARD'. Regions are not a column: Garo Hills = EAST,
-     NORTH, SOUTH, SOUTH WEST and WEST GARO HILLS; Khasi Hills = EAST KHASI HILLS, EASTERN
-     WEST KHASI HILLS, SOUTH WEST KHASI HILLS, WEST KHASI HILLS; Jaintia Hills = EAST and
-     WEST JAINTIA HILLS; Ri Bhoi is its own group. "WKH" is WEST KHASI HILLS, not Eastern
+     'TURA MUNICIPAL BOARD'. Every view has a region column ('Garo' / 'Khasi' /
+     'Jaintia', from the LGD master): Garo = EAST, NORTH, SOUTH, SOUTH WEST and WEST GARO HILLS;
+     Khasi = EAST KHASI HILLS, EASTERN WEST KHASI HILLS, SOUTH WEST KHASI HILLS, WEST KHASI HILLS
+     and RI BHOI; Jaintia = EAST and WEST JAINTIA HILLS. Group by region; "Ri Bhoi" alone is the district. "WKH" is WEST KHASI HILLS, not Eastern
      West Khasi Hills.
   9. VILLAGES. Count with COUNT(DISTINCT village_code) and add entity_type <> 'Unresolved'
      to every village count and village list (404 records have no village). Group a village
@@ -1228,7 +1228,7 @@ FOCUS PLUS IN A CROSS-SCHEME QUESTION — read first:
     COUNT(*) FROM curated.v_focus_plus is PAYMENTS — the legacy 93K cohort carries four
     rows per person. Use COUNT(DISTINCT beneficiary_key) (rule 6 — spans both cohorts as
     one identifier space, no batch_label or has_geo_conflict filter needed);
-    COUNT(DISTINCT member_id) is the 12.5K registration cohort ONLY and is not a scheme
+    COUNT(DISTINCT member_key) is the 12.5K registration cohort ONLY and is not a scheme
     total. Put it in its OWN subquery / bare SELECT and UNION ALL (or CROSS JOIN) the
     finished per-scheme figures — never wrap the union in an outer COUNT/SUM.
 
@@ -1400,7 +1400,7 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
       (the 126 zero-sanction registrations included, PMAY-G rule 1) IS the beneficiary count.
     * curated.v_focus_plus COUNT(*) is PAYMENTS (the legacy 93K cohort has four rows per
       person). COUNT(DISTINCT beneficiary_key) (rule 6) is the correct unique-person count
-      across both cohorts, no per-batch scoping needed. COUNT(DISTINCT member_id) counts
+      across both cohorts, no per-batch scoping needed. COUNT(DISTINCT member_key) counts
       the 12.5K registration cohort ONLY — never label it a Focus Plus total.
   The three figures measure different things (MGNREGA households given work in one FY,
   PMAY-G houses sanctioned across the window, Focus Plus distinct beneficiaries) — report

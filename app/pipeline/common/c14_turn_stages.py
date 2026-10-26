@@ -203,7 +203,8 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
             _topic = _picked
     question = _topic.question
     raw_question = question
-    question = _correct_fy_spacing(_correct_place_spelling(_correct_scheme_spelling(question)))
+    question = _normalize_rank_counts(
+        _correct_fy_spacing(_correct_place_spelling(_correct_scheme_spelling(question))))
     # Computed early (moved ahead of the original follow-up step) so the step-0
     # edge check below can relax its whitelist gate for a plausible follow-up —
     # see edge.detect_edge_case's has_context param.

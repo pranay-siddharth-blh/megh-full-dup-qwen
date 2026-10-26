@@ -65,7 +65,7 @@ def test_catalog_block_skips_fact_private_and_locked_columns(catalog):
 def test_join_rules_are_loaded_symmetric(monkeypatch, catalog):
     async def rows(sql, params=None):
         return [{"object_ref": "curated.v_employment", "never_row_join_with": ["curated.v_expenditure"]}]
-    monkeypatch.setattr(schema_introspect.db, "fetch_rows", rows)
+    monkeypatch.setattr(schema_introspect.db, "fetch_rows_readonly", rows)
     asyncio.run(schema_introspect._load_join_rules())
     r = schema_introspect.never_row_join()
     assert "curated.v_expenditure" in r["curated.v_employment"]
@@ -82,7 +82,7 @@ def test_live_schema_hides_private_tables_and_locked_columns(monkeypatch, catalo
                     for t, c in (("v_cm_elevate", "request_id"), ("v_cm_elevate", "scheme_specific"),
                                  ("bridge_pg_bank_history", "account_no"))]
         return []
-    monkeypatch.setattr(schema_introspect.db, "fetch_rows", rows)
+    monkeypatch.setattr(schema_introspect.db, "fetch_rows_readonly", rows)
     asyncio.run(schema_introspect._load_live_schema())
     live = schema_introspect.live_columns()
     assert [c["column"] for c in live["curated.v_cm_elevate"]] == ["request_id"]

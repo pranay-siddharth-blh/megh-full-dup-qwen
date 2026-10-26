@@ -911,6 +911,9 @@ _SCHEME_STRONG = [
                                     _S("in", _P("progress")))),
        Seq("ge", _P("tag")), "gram panchayat", _S("financial", "year"),
        Pred(_fy_digits), _S("fy", Pred(_two_digits_lead)), Pred(_edge_year),
+       # "FY'25" on its own: the apostrophe is not whitespace, so _S missed it and a
+       # bare "FY'25" follow-up was answered "didn't quite catch that" (2026-10-26).
+       _GSeq("fy", Pred(_two_digits_lead), ok=lambda g: g == "'"),
        _S(W("garo", "khasi", "jaintia"), W("hill", "hills")), Joined("ri", "bhoi"),
        "how many", _S("by", W("district", "block", "village", "year")), "completion rate"),
     _GRule(_focus_plus),

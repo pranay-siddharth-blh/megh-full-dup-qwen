@@ -825,18 +825,7 @@ sql_generation_examples:
   - curated.v_pmay
 - question: Compare the Garo Hills and Khasi Hills regions on PMAY
   sql: |
-    SELECT CASE
-             WHEN lgd_district IN ('EAST GARO HILLS', 'NORTH GARO HILLS',
-                                   'SOUTH GARO HILLS', 'SOUTH WEST GARO HILLS',
-                                   'WEST GARO HILLS')        THEN 'Garo Hills'
-             WHEN lgd_district IN ('EAST KHASI HILLS', 'EASTERN WEST KHASI HILLS',
-                                   'SOUTH WEST KHASI HILLS',
-                                   'WEST KHASI HILLS')       THEN 'Khasi Hills'
-             WHEN lgd_district IN ('EAST JAINTIA HILLS',
-                                   'WEST JAINTIA HILLS')     THEN 'Jaintia Hills'
-             WHEN lgd_district = 'RI BHOI'                   THEN 'Ri Bhoi'
-             ELSE 'Unassigned'
-           END AS region,
+    SELECT region,
            COUNT(*) AS houses,
            COUNT(*) FILTER (WHERE is_completed) AS completed_houses
     FROM curated.v_pmay
@@ -845,4 +834,4 @@ sql_generation_examples:
     ORDER BY houses DESC;
   tables:
   - curated.v_pmay
-  note: 'Hill-range groupings are NOT a column in megh_db - they expand to a CASE over the district list. Districts must be uppercase to match storage.'
+  note: 'Every view has a region column (Garo / Khasi / Jaintia) from the LGD master; Khasi includes Ri Bhoi (ingestion team, 2026-10-26). Group by it; say Khasi includes Ri Bhoi district.'

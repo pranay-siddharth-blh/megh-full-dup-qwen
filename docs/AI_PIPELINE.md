@@ -174,7 +174,21 @@ In order:
    year and tranche pauses become the chip text appended ("for all of Meghalaya", "across all financial years",
    "across all tranches"); job-card questions get no year default (stock pinned by
    `_mgnrega_job_cards_latest_year`).
-5. `_needs_topn_clarification` (`TOPN_CLARIFY_ENABLED`) → the Top 3/5/10/all chips.
+4b. **CM Elevate workflow statuses (D-069, 2026-10-26):** pending / approved / rejected / sent back are not in the data
+   (ingestion team). `_cme_workflow_query` (via `_cme_sector_query`) answers "not recorded" plus the recorded figures
+   (on hold at verification, each file status; distinct applications) with the question's place and programme;
+   a recorded field (on hold, verification, forward, resubmit, level) keeps the model path.
+4c. **Regions (D-069):** Khasi includes Ri Bhoi (LGD master, the views' `region` column); `_data_guarantees_stage` adds
+   "Khasi Hills here includes Ri Bhoi district …" to the answer. SQL rewrites: `_region_alias_not_the_column`,
+   `_star_without_hidden_columns` (megh_readonly's hidden columns). Composer rows: crore / lakh at 2 decimals
+   (`_money_rounded_for_display`, KI-417). The catalog the SQL prompt is built from is read as megh_readonly
+   (`db.fetch_rows_readonly` in `schema_introspect`), so it lists only what generated SQL can read.
+5. `_needs_topn_clarification` (`TOPN_CLARIFY_ENABLED`) → the Top 3/5/10/all chips. It reads the digits
+   `_normalize_rank_counts` wrote, so "five highest" is no longer asked. The stated count is then the
+   SQL's outer LIMIT: `_stated_rank_count_limit` (c11 `_scheme_sql_rewrites`, after `_pmay_comparison_limit`)
+   sets it deterministically when exactly one count is stated (`_requested_rank_count`) and the query is a
+   single ranked SELECT (ORDER BY) with no window function, no UNION, no OFFSET, and the question is not
+   per-group ("in each district", "district-wise") or two-way ("top 5 and bottom 5").
 
 ### 2.2 Scheme classification — `classify_scheme`
 - **Source:** `pipeline.py`. **Input:** the question. **Output:** `list[str]` of canonical
@@ -437,6 +451,22 @@ retry, then the deterministic answer.
 4. **Year gate:** `_needs_year_clarification` fires when the place is fixed but the year isn't.
    The chips come from `_SCHEME_DATA_YEARS`, which `refresh_scheme_years` refreshes from the DB
    at startup.
+   - **A stated scope is never asked for (D-068, 2026-10-24).** The year gate also reads
+     `_STATED_ALL_YEARS_CUE` ("all <word> years", "altogether", "lifetime", "since the start", "for the
+     whole period"); that cue is deliberately NOT in `_ALL_YEARS_CUE`, which the SQL verifier uses to drop
+     its mandatory-year check. Not asked, the question gets the standard "across all financial years".
+     The scope gate's `_EXPLICIT_STATEWIDE` reads "altogether", "whole / entire state", "for the state",
+     "state as a whole"; `_HAS_BREAKDOWN` reads "which / what <districts|blocks|villages…>" and
+     "list / name the <places>". A question that states nothing is still asked (D-053 / D-056).
+   - **Financial-year forms (D-068):** `_parse_year_key` reads "FY24" / "FY'24" / "FY 24" as FY 2023-24
+     (the year ending March 2024, as every SME catalogue does); "FY 23-24" stays the range starting 2023.
+     When the extractor returns only the digits ("24"), `resolve_entities` reads the year from the
+     question's own wording.
+   - **One short-form reader (KI-414, 2026-10-26):** `context_policy.short_fy_tokens` ("FY 25", "FY25",
+     "FY'25", "FY 23-24", "in 23-24") feeds `extract_year_keys`, the year-gap guard (`_c06_all_year_tokens`)
+     and the year back-fill (`_backfill_explicit_year`), so a year the extractor drops is still read, and a
+     year the scheme lacks gets the "data is available only for …" reply. `rewrite_violation` refuses a
+     follow-up rewrite that loses the user's own year.
 5. **Tranche gate:** `_needs_tranche_clarification` (Focus Plus only).
 6. **Tranche conflict:** `_person_level_tranche_conflict` (Focus Plus; person-level columns exist
    only on Tranch 4) → a deterministic explanation.
@@ -560,6 +590,11 @@ the SQL.
   a batch / cohort with a measure word, overrules a scope verdict; the edge whitelist knows the batch labels,
   "tranch" and "break down" (KI-360, 2026-10-22);
 - `_correct_fy_spacing` ("FY2022-23" → "FY 2022-23", "for the state" → "for Meghalaya") before routing;
+- `_normalize_rank_counts` (c02, run right after it at c14 `_turn_*` line ~206; `raw_question` keeps the typed words):
+  a ranking count written as a word becomes digits, in a ranking position only — "five highest" → "5 highest",
+  "top ten" → "top 10", "twenty-five" → 25, "which three blocks" → "which 3 blocks". Left alone: ordinals
+  ("fifth highest"), time spans ("last five years"), "the first one", "which one", "the two schemes"
+  (RAG plan C2, 2026-10-26);
 - `_RELATIVE_THAT` ("households that completed …" is not a reference to an earlier answer);
 - `_data_entity_stage`: a chip resume ("…, X block, DISTRICT") is pinned deterministically for every scheme.
 

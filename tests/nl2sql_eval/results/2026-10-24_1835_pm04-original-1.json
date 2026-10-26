@@ -1,0 +1,91 @@
+{
+ "label": "pm04-original-1",
+ "when": "2026-10-24T18:35:12",
+ "git": {
+  "commit": "dd8b58b",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b"
+ },
+ "readonly_login": "postgres",
+ "superuser_allowed": true,
+ "holdout_checked": null,
+ "selection": {
+  "scheme": null,
+  "ids": "PM-04"
+ },
+ "minutes": 0.2,
+ "summary": {
+  "items": 1,
+  "scored": 1,
+  "outcomes": {
+   "wrong": 1
+  },
+  "accuracy": 0.0,
+  "by": {
+   "PMAY-G": {
+    "accuracy": 0.0,
+    "wrong": 1
+   },
+   "difficulty:easy": {
+    "accuracy": 0.0,
+    "wrong": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "PM-04",
+   "scheme": "PMAY-G",
+   "difficulty": "easy",
+   "question": "Counting every financial year, how many PMAY-G houses in East Jaintia Hills have reached the Roof Cast stage?",
+   "gold_rows": 1,
+   "outcome": "wrong",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "EAST JAINTIA HILLS",
+    "house_status": "Roof Cast"
+   },
+   "sql": "SELECT financial_year_short AS sanction_fy_start, COUNT(*) AS houses FROM curated.v_pmay WHERE lgd_district = 'EAST JAINTIA HILLS' AND status_name = 'Roof Cast' AND sanction_date IS NOT NULL GROUP BY sanction_fy_start ORDER BY sanction_fy_start LIMIT 7",
+   "seconds": 9.6,
+   "answer": "PMAY-G houses in East Jaintia Hills at the Roof Cast stage rose from 4 in FY 2019-20 to 3,312 in FY 2023-24 (+3,308, +82,700.0%). The peak was 3,312 in FY 2023-24 and the lowest was 3 in FY 2021-22.\n- FY 2019-20: 4\n- FY 2020-21: 38\n- FY 2021-22: 3\n- FY 2022-23: 184\n- FY 2023-24: 3,312",
+   "detail": "row count: gold 1, got 5",
+   "mapping": {},
+   "pred_rows": 5,
+   "gold_sample": [
+    {
+     "roof_cast_houses": 3541
+    }
+   ],
+   "pred_sample": [
+    {
+     "sanction_fy_start": "2019-20",
+     "houses": 4
+    },
+    {
+     "sanction_fy_start": "2020-21",
+     "houses": 38
+    },
+    {
+     "sanction_fy_start": "2021-22",
+     "houses": 3
+    }
+   ]
+  }
+ ],
+ "compared_with": "2026-10-24_1834_pm04-repeat-4.json",
+ "delta": {
+  "regressions": [],
+  "fixed": []
+ }
+}

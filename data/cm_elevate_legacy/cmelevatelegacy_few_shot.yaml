@@ -696,14 +696,7 @@ sql_generation_examples:
 
 - question: Compare the hill regions
   sql: |
-    SELECT CASE
-             WHEN lgd_district IN ('EAST GARO HILLS','NORTH GARO HILLS','SOUTH GARO HILLS',
-                                   'SOUTH WEST GARO HILLS','WEST GARO HILLS')        THEN 'Garo Hills'
-             WHEN lgd_district IN ('EAST KHASI HILLS','EASTERN WEST KHASI HILLS',
-                                   'SOUTH WEST KHASI HILLS','WEST KHASI HILLS')      THEN 'Khasi Hills'
-             WHEN lgd_district IN ('EAST JAINTIA HILLS','WEST JAINTIA HILLS')        THEN 'Jaintia Hills'
-             WHEN lgd_district = 'RI BHOI'                                           THEN 'Ri Bhoi'
-           END                                     AS region,
+    SELECT region,
            COUNT(*)                                AS records,
            ROUND(SUM(total_disbursement) / 1e7, 2) AS disbursed_cr
     FROM curated.v_cm_elevate_disbursement
@@ -711,7 +704,7 @@ sql_generation_examples:
     ORDER BY records DESC;
   tables:
   - curated.v_cm_elevate_disbursement
-  note: Regions are not a column - they are expanded here from the district list in the resolver, and the answer must say which districts each group covers.
+  note: The view's region column (LGD master, ingestion team 2026-10-26) puts Ri Bhoi in Khasi; it is used here from the district list in the resolver, and the answer must say which districts each group covers.
 
 # ---- data-quality register --------------------------------------------
 - question: Show the records with data-quality problems

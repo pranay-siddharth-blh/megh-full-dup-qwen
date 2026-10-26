@@ -1,4 +1,5 @@
 # Focus Plus Annotation Layer — How the YAMLs Are Built
+> **2026-10-26 (D-069):** the ingestion team removed `v_focus_plus.member_id`; the view's column is now `member_key` (same people, masked). The YAMLs and the SQL prompt use `member_key`; mentions of `member_id` below are historical.
 
 This folder holds the hand-curated annotation layer for the **Focus Plus** scheme (Meghalaya)
 of the Megh One AI NLP-to-SQL bot. Everything here is derived from two files in

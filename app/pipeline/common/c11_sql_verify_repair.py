@@ -1749,6 +1749,9 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _mgnrega_women_years_only(schemes, sql)
     sql = _pmay_count_placeholders(schemes, sql)
     sql = _pmay_comparison_limit(schemes, entity_result, sql)
+    sql = _stated_rank_count_limit(question, sql)
+    sql = _region_alias_not_the_column(sql)
+    sql = _star_without_hidden_columns(sql)
     sql = _pmay_crore_to_rupees(schemes, sql)
     # a village the SQL dropped (all schemes; live 2026-10-02, NOAGRE)
     sql = _cm_unasked_programme_beside_village(question, schemes, entity_result, sql)
@@ -1756,6 +1759,146 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _pin_missing_village_code(schemes, entity_result, sql)
     sql = _village_rows_by_code(sql)
     return sql
+
+
+# megh_readonly has column grants that leave out the PII columns (v_cm_elevate's
+# scheme_specific, the plain member_id / account numbers — ingestion answers
+# 2026-10-26), so `SELECT *` on such a table is refused ("permission denied") and
+# cost a repair round. The star is replaced by the columns the role CAN read, from
+# the live schema (schema_introspect.live_columns, which already leaves out what
+# the role may not select). Only a single-table SELECT; anything else is left alone.
+def _star_without_hidden_columns(sql: str) -> str:
+    if not sql or "*" not in sql:
+        return sql
+    from app import schema_introspect as _si
+    denied = {(s, t) for s, t, _c in (_si._cache.get("denied") or set())}
+    if not denied:
+        return sql
+    live = _si.live_columns()
+
+    def fn(tree):
+        for sel in tree.find_all(exp.Select):
+            stars = [e for e in sel.expressions
+                     if isinstance(e, exp.Star) or (isinstance(e, exp.Column) and isinstance(e.this, exp.Star))]
+            frm = sel.args.get("from_") or sel.args.get("from")
+            if not stars or frm is None or sel.args.get("joins") or not isinstance(frm.this, exp.Table):
+                continue
+            tbl = frm.this
+            key = (tbl.db or "curated", tbl.name)
+            cols = [c["column"] for c in live.get(f"{key[0]}.{key[1]}", [])]
+            if key not in denied or not cols:
+                continue
+            sel.set("expressions", [e for e in sel.expressions if e not in stars]
+                    + [exp.column(c) for c in cols])
+            logger.info("SQL: SELECT * on %s.%s expanded to the %d columns megh_readonly can read",
+                        key[0], key[1], len(cols))
+        return None
+
+    return sql_ast.transform(sql, fn)
+
+
+# Every scheme view gained a `region` column (ingestion note 2026-10-26: Garo /
+# Khasi / Jaintia, Ri Bhoi inside Khasi). A query that builds its OWN grouping
+# `CASE … END AS region` and then says `GROUP BY region` now groups by the view's
+# column — PostgreSQL resolves the name to the input column first — and fails
+# ("lgd_district must appear in the GROUP BY clause"). The few-shot banks taught
+# exactly that shape until 2026-10-26. The computed column is renamed region_group
+# in the SELECT list and in GROUP BY / ORDER BY, so the query keeps its own grouping.
+def _region_alias_not_the_column(sql: str) -> str:
+    if not sql or "region" not in sql.lower():
+        return sql
+
+    def fn(tree):
+        for sel in tree.find_all(exp.Select):
+            computed = [a for a in sel.expressions if isinstance(a, exp.Alias)
+                        and a.alias.lower() == "region"
+                        and not (isinstance(a.this, exp.Column) and a.this.name.lower() == "region")]
+            if not computed:
+                continue
+            for a in computed:
+                a.set("alias", exp.to_identifier("region_group"))
+            for clause in (sel.args.get("group"), sel.args.get("order")):
+                if clause is None:
+                    continue
+                for col in list(clause.find_all(exp.Column)):
+                    if col.name.lower() == "region" and not col.table:
+                        col.replace(exp.column("region_group"))
+            logger.info("SQL: computed 'region' renamed region_group (the views' own region column)")
+        return None
+
+    return sql_ast.transform(sql, fn)
+
+
+# The count the officer stated is the list length (RAG plan C2, 2026-10-24). The
+# count is in digits by now (_normalize_rank_counts: "five highest" -> "5 highest").
+# A deterministic LIMIT, not a repair round: a repair can make correct SQL worse
+# (RAG plan E8). Only where it is safe: exactly one stated count, a single ranked
+# SELECT (ORDER BY), no window function (ties / per-group ranks are the model's),
+# no UNION ("top 5 and bottom 5"), no OFFSET, no "in each district" (top N per group).
+_C11_RANK_BEFORE = frozenset("top bottom first last".split())
+_C11_PER_GROUP = frozenset("each every per".split())
+_C11_GROUP_NOUNS = frozenset("district districts block blocks village villages panchayat panchayats gp gps "
+                             "constituency constituencies scheme schemes year years".split())
+# Two directions asked at once ("highest and lowest 3"). "top"/"bottom" only as a
+# pair: "top 5 lowest districts" is ONE list of the 5 lowest.
+_C11_HIGH = frozenset("highest largest biggest best most leading strongest".split())
+_C11_LOW = frozenset("lowest smallest worst least poorest weakest".split())
+
+
+def _requested_rank_count(question: str) -> "int | None":
+    """The one list length the question states ("top 5", "5 highest", "which 3
+    blocks"), or None when it states none, several, or a per-group ranking."""
+    toks = _c01_tm_tokens(question or "")
+    low = [t.low for t in toks]
+    if (_C11_HIGH & set(low) and _C11_LOW & set(low)) or {"top", "bottom"} <= set(low):
+        return None                                   # "top 5 and bottom 5"
+    for k, w in enumerate(low):
+        if w in _C11_PER_GROUP and any(x in _C11_GROUP_NOUNS for x in low[k + 1:k + 4]):
+            return None                               # "top 5 in each district"
+        if w == "wise" and k and low[k - 1] in _C11_GROUP_NOUNS:
+            return None                               # "district-wise top 5"
+    found: set[int] = set()
+    text = question or ""
+    for k, t in enumerate(toks):
+        nxt = low[k + 1] if k + 1 < len(low) else ""
+        glued = next((t.low[len(r):] for r in ("top", "bottom") if t.low.startswith(r)), "")
+        if glued.isdecimal() and len(glued) <= 3:
+            found.add(int(glued))                     # "top5", "bottom10"
+            continue
+        if not (t.raw.isdecimal() and len(t.raw) <= 3):
+            continue
+        if text[t.start - 1:t.start] in ("-", "/"):
+            continue                                  # "2023-24 highest": a year, not a count
+        prev = low[k - 1] if k else ""
+        if (prev in _C11_RANK_BEFORE and nxt not in _C02_TIME_UNITS) or nxt in _C02_RANK_AFTER \
+                or (prev in _C02_WHICH and nxt in _C02_PLACES):
+            found.add(int(t.raw))
+    found = {n for n in found if 1 <= n <= 100}
+    return found.pop() if len(found) == 1 else None
+
+
+def _stated_rank_count_limit(question: str, sql: str) -> str:
+    n = _requested_rank_count(question)
+    if not n or not sql:
+        return sql
+    trees = sql_ast.parse(sql)
+    if len(trees) != 1:
+        return sql
+    tree = trees[0]
+    if isinstance(tree, exp.SetOperation) or any(True for _ in tree.find_all(exp.SetOperation)) \
+            or any(True for _ in tree.find_all(exp.Window)):
+        return sql
+    sel = sql_ast.outer_select(tree)
+    holder = tree if tree.args.get("limit") is not None else sel
+    if sel is None or holder is None or holder.args.get("offset") is not None:
+        return sql
+    if (tree.args.get("order") or sel.args.get("order")) is None:
+        return sql
+    cur = sql_ast.outer_limit(tree)
+    if cur == n or (cur is not None and cur < 0):
+        return sql
+    logger.info("stated ranking count %d: outer LIMIT %s -> %d", n, cur, n)
+    return sql_ast.set_limit(sql, n)
 
 
 # A breakdown asked for ("in each block of …") grouped on a column that is not
