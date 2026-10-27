@@ -1024,6 +1024,23 @@ def _vr_year_in_sql(year: int, sql: str) -> bool:
     return False
 
 
+def _vr_year_key_literals(sql: str) -> "set[int]":
+    """The number literals compared with year_key (= / IN) anywhere in the query."""
+    out: set[int] = set()
+    for tree in sql_ast.parse(sql):
+        for node in tree.find_all(exp.EQ, exp.In):
+            col, vals = node.this, ([node.expression] if isinstance(node, exp.EQ) else node.expressions)
+            if isinstance(node, exp.EQ) and not sql_ast._is_column(col, {"year_key"}):
+                col, vals = node.expression, [node.this]
+            if not sql_ast._is_column(col, {"year_key"}):
+                continue
+            for v in vals:
+                v = sql_ast._unwrap(v)
+                if isinstance(v, exp.Literal) and not v.is_string and v.this.isdigit():
+                    out.add(int(v.this))
+    return out
+
+
 def _resolved_scope_missing(question: str, schemes: list[str], entity_result: dict,
                             sql: str) -> "tuple[str, str] | None":
     """(field, repair instruction) when a place or year the question pinned is
@@ -1084,11 +1101,16 @@ def _resolved_scope_missing(question: str, schemes: list[str], entity_result: di
         absent_y = [y for y in years if not _vr_year_in_sql(y, sql)]
         if absent_y:
             fy = ", ".join(f"FY {y}-{(y + 1) % 100:02d}" for y in absent_y)
+            # KI-431: told "does not filter on it" about year_key = 2023 (a wrong year, not
+            # a missing one), the repair kept 2023 three times. Name the wrong year.
+            other = sorted(_vr_year_key_literals(sql) - set(years))
+            what = (f"this query filters year_key = {', '.join(map(str, other))} instead, a different year"
+                    if other else "this query does not filter on it, so it adds up every year")
             return "year", (
                 f"the question is about {fy} (a RESOLVED, MANDATORY filter; year_key = "
-                f"{absent_y[0]} is the FY start year), but this query does not filter on it, so "
-                "it adds up every year. Add the year filter in the scheme's own form (year_key = "
-                f"{absent_y[0]}, or its financial_year column) and keep every other clause as it was.")
+                f"{absent_y[0]} is the FY start year), but {what}. Use the year filter in the scheme's "
+                f"own form (year_key = {absent_y[0]}, or its financial_year column) and keep every "
+                "other clause as it was.")
     return None
 
 
@@ -2336,6 +2358,16 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
     # above, then the database itself — a query that errors goes to repair
     # with the real Postgres error — then the result checks below. Only a
     # query that has cleared all of them reaches the paid 30B verifier.
+    # The database's own plan check (semantic.check_query, DB team 2026-10-27)
+    # sees row joins through views and CTEs that the v_join_rules guard reads
+    # only from the SQL text. Fail-open: None when it can't run.
+    row_join = await db_precheck_readonly(sql)
+    if row_join:
+        raise ValueError(
+            f"the database's plan check found two fact tables joined row by row ({row_join[:200]}), "
+            "which multiplies the figures. Aggregate each fact table to a shared grain "
+            "(district / block / year) in its own CTE first, then join the aggregates. "
+            "Keep every filter exactly as it was.")
     rows = await run_readonly(sql)
     if _mgnrega_comparison_without_figures(question, schemes, rows):
         raise ValueError(
@@ -2379,7 +2411,7 @@ async def _repair_sql(question: str, schemes: list[str], entity_result: dict,
     # want of exactly that context — plus a targeted hint when the error names
     # a missing column.
     repair_prompt = prompt_builder.build_repair_prompt(
-        question, schemes, entity_result, failed_sql=sql, error=error,
+        context_policy.expand_short_fy(question), schemes, entity_result, failed_sql=sql, error=error,
         extra_hint=_repair_hint(error))
     raw = await llm.call_sql_generator(repair_prompt)
     sql = _extract_sql(raw)

@@ -358,7 +358,8 @@ def _c1x_loose_sub(name: str, repl: str, text: str, count: int = 0) -> str:
 async def generate_sql(question: str, schemes: list[str], entity_result: dict) -> str:
     # The whole prompt — hand-written backbone + live schema + SME catalog +
     # prohibited joins + few-shot + resolved entities — is assembled in one place.
-    prompt = prompt_builder.build_sql_prompt(question, schemes, entity_result)
+    # "FY 23" is FY 2022-23, which the model wrote as year_key = 2023 (KI-431)
+    prompt = prompt_builder.build_sql_prompt(context_policy.expand_short_fy(question), schemes, entity_result)
     raw = await llm.call_sql_generator(prompt)
     sql = _extract_sql(raw)
     return _focusplus_single_district_beneficiary_guard(question, schemes, entity_result, sql)

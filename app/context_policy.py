@@ -436,6 +436,22 @@ def short_fy_tokens(text: str) -> list[tuple[int, str, int]]:
     return out
 
 
+# "How many households received employment in Meghalaya in FY23?" (Excel sheet run
+# 2026-10-27, KI-431): the year was resolved right (FY 2022-23), but the SQL model read
+# "FY 23" as year_key = 2023 and kept it through every repair. The SQL and repair prompts
+# get each short form written out in full, the same reading short_fy_tokens gives.
+def expand_short_fy(text: str) -> str:
+    """`text` with each short FY form written as "FY YYYY-YY" ("FY23" -> "FY 2022-23")."""
+    t = text or ""
+    out, last = [], 0
+    for start, raw, y in short_fy_tokens(t):
+        out.append(t[last:start])
+        out.append(f"FY {y}-{(y + 1) % 100:02d}")
+        last = start + len(raw)
+    out.append(t[last:])
+    return "".join(out)
+
+
 _CP_HOW_MUCH = Matcher(Seq("how", "much"))
 
 

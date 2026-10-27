@@ -4,7 +4,39 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
-## Latest: KI-405 fixed — a scheme switch typed during an area / year pause (2026-10-27). Code changed, uncommitted. LIVE-VERIFIED.
+## Latest: generated SQL runs through `semantic.run_query` as megh_chatbot (2026-10-27 afternoon, D-073). Code changed, uncommitted. LIVE-VERIFIED in-process; :8401 NOT restarted.
+- `.env` `CHATBOT_DATABASE_URL` (key renamed from the user's `DATABASE_URL_CHATBOT`, which made settings refuse to load). Third pool, 4/worker.
+- Row values restored to asyncpg's types from run_query's `types` (added by the team today); 583/585 recent statements identical, 2 = same rows, no ORDER BY.
+- Refusals -> existing errors; class 08 / 53300 retried once; repairs stay 3 (team agreed). `application_name` = `megh-chatbot-v2:<pool>` on every connection.
+- Tests: pytest 3,902 / 0, scripts 14/14, eval 43/74 with 0 regressions. Still on `postgres`: the app pool + checkpointer (waiting for the user's go-ahead on 020_megh_app_role.sql, team will cap megh_app at 35); old container 172.18.0.2 (20 postgres sessions) to be stopped by the server admin.
+
+## Earlier: KI-431 — short FY forms ("FY23") reach the SQL model written in full (2026-10-27). Code changed, uncommitted. LIVE-VERIFIED in-process; :8401 not restarted.
+- `context_policy.expand_short_fy` (on `short_fy_tokens`) in `generate_sql` / `_repair_sql`; the year guard names a wrong
+  year_key (`_vr_year_key_literals`). Found by the MGNREGA Excel sheet run (`tests/sheet_runs/mg_excel_run.py`, expected
+  figures from the two raw Excels). Run: 763/919 right figure with no extra question, 863/919 incl. 100 "which scheme?"
+  pauses; report `new_docs/MGNREGA_Excel_Test_Report_2026-10-27.md`. New OPEN: KI-432 (HIGH: constituency expenditure
+  0/10, once the statewide figure), KI-433 ("completion rate" = count), KI-434 (guardrail refusals), KI-435, KI-436.
+- pytest 3,881 passed / 0 failed (3 skipped); scripts 14/14; live 6/6 (FY23, FY 23, FY25, FY 23-24, FY'24, 2022-23).
+- Excel vs megh_db: village, constituency and state figures identical; 15 villages sit under another block in megh_db
+  (2 under another district), so a few block totals and the SW / W Garo Hills district totals differ (as in the 2026-10-21 report §4).
+
+## Earlier: fixes for the DB team's changes (2026-10-27, D-072). Code changed, uncommitted. LIVE-VERIFIED in-process; :8401 not restarted.
+- KI-428 fixed: CMSS / Home Stay glossary terms AND ~40 `v_cmss` / `v_homestay_legacy` column notes no longer go into our six SQL prompts.
+- `semantic.check_query` runs before each generated query (row_join -> repair; fail-open; `SQL_DB_PRECHECK`).
+- 57014 / 53400 -> `QueryTooHeavyError` (504 "narrower question"); repair loop unchanged.
+- SQL guard refuses `pg_*` / `lo_*` / `dblink*` / `txid_*` / `inet_*` functions and `current_setting` / `version` / `current_database`.
+- KI-429 fixed: a block_officer with no block gets statewide figures only.
+- Tests: pytest 3,863 / 0, scripts 14/14, eval 41/74 with 0 regressions. Still open: KI-430 (retention), megh_app / megh_chatbot (waiting on the team).
+
+## Earlier: DB team changes of 2026-10-27 checked — nothing broken (review only, no code changed).
+- Report `new_docs/DB_Changes_Impact_Report_2026-10-27.md`. Live on megh_readonly: name-column locks, 30 s / 1 GB / 20-conn
+  limits active; 425 recent generated statements replayed via `run_readonly` with 0 failures, `semantic.check_query` 0 flags
+  (max cost 101,270); 6/6 schemes answered end to end. `megh_app` role not created yet; `megh_chatbot` exists, no password.
+- New open: KI-428 (CMSS/Home Stay glossary terms in every scheme's prompt), KI-429 (block_officer with no block = whole
+  district), KI-430 (audit previews, no retention). Moving generated SQL to `megh_chatbot` + `semantic.run_query` is PLANNED,
+  not started (report §5: JSON row types, no `$1` params, error mapping, their 2-repair ask vs our 3).
+
+## Earlier: KI-405 fixed — a scheme switch typed during an area / year pause (2026-10-27). Code changed, uncommitted. LIVE-VERIFIED.
 - c14 `_c14_pause_scheme_switch`: "What about MGNREGA?" while "How many PMAY-G beneficiaries…?" waits for its area ->
   "How many MGNREGA beneficiaries are there?" (asked its own area / year), not a merged two-scheme query.
 - Live context 105/107 (was 103; left KI-406 / KI-407, user decisions); pytest 3,833 / 0; scripts 14/14; :8401 PID 52752.
