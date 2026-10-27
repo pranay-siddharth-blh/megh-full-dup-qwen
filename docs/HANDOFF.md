@@ -3,9 +3,27 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-10-27 (code): KI-405 fixed.** One new branch in the c14 scope-pause step (`_c14_pause_scheme_switch`, before the
+merge): a pure "What about <other scheme>?" / "same for <other scheme>" reply re-asks the paused question for that scheme.
+Live suite 105/107; the 2 left are KI-406 (needs the user's U5 year-carry decision) and KI-407 (bare CM Elevate count:
+ask, or default to Legacy? — user decision). New KI-427 (MG-08 year range). :8401 restarted (PID 52752).
+
+**2026-10-26 night (code): D-071 metric catalogue, Parts 1-3 done.** `app/metric_catalog.py` (load / match / build),
+`app/pipeline/common/c16_metric_catalog.py` (decision; last in the c13 fixed-query chain), `data/metric_catalog_verified.yaml`
+(the evidence gate: total 28, breakdown 25, ranking 28, compare 23; `single_year`; `no_block_level`; `except_words`),
+`METRIC_CATALOG_MODE=on` (config default). A measure not in the file is shadow-logged only. To add or re-check a measure:
+`.venv/Scripts/python.exe -X utf8 tests/metric_catalog_eval.py --out <file> [--metrics k1,k2] [--mode on]` (VPN), then edit
+the file with the evidence. Report: `new_docs/Metric_Catalogue_Report_2026-10-26.md`. :8401 was restarted from the venv on
+2026-10-27 11:04 with the catalogue loaded (the old PID 32108 was the venv launcher's child, not a foreign process). Open: KI-424 (ask the owners what "sanctions" /
+"coverage" / "remittances" mean), KI-425, KI-426.
+
 **2026-10-26 (review only): role-based access.** Report `new_docs/Role_Based_Access_Report_2026-10-26.md`; no code
 changed. Opened KI-418 (HIGH, `PATCH /admin/users` escalation to super_admin), KI-419 (cross_figures, Focus Plus summary,
 Focus Legacy PG-name, MGNREGA women-unrecorded answers run before `authorize`), KI-420, KI-421. Fix order in report §8.
+
+**2026-10-26 night (code): D-070 / KI-423** — session-less API calls get their own `api-<random>` conversation
+(`routers/query._session_id`, cached per request); `conversation_store` hides `api-` threads from the user's list/search.
+API scripts that relied on the day bucket to answer a clarification must now send back the returned `session_id`.
 
 **2026-10-26 night (team agreed caps): megh_app cap 30, megh_readonly 20 (both HARD; tell the team before adding a worker,
 VM or pool).** `172.18.0.2` is very likely the OLD build's Docker container (`megh-nlp`; 2 workers x min pool 10 = the 20 idle

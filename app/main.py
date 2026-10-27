@@ -77,6 +77,8 @@ async def lifespan(app: FastAPI):
     await _try("village_names", load_village_names())  # bare village names -> a place (2026-10-21)
     await _try("app_schema", appdb.ensure_schema())     # app.* tables + seed users
     await _try("schema_catalog", schema_introspect.load())  # semantic.* -> SQL prompt
+    from app import metric_catalog
+    await _try("metric_catalog", metric_catalog.load())  # semantic.metric_definitions (D-071)
     await _try("scheme_years", pipeline.refresh_scheme_years())  # per-scheme FY coverage from megh_db
     asyncio.create_task(_ingest_kb_bg())
     # LangGraph orchestrator (D-032, D-036), the only one. The checkpointer

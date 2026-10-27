@@ -3,7 +3,6 @@ import json
 import logging
 import time
 import uuid
-from datetime import date
 
 from fastapi import (APIRouter, Depends, File, Form, HTTPException,
                      Request, UploadFile)
@@ -142,17 +141,33 @@ async def query_stream(req: QueryRequest, request: Request,
 
 
 def _session_id(req: QueryRequest, request: Request, scope: auth.UserScope) -> str:
-    """The conversation this request belongs to."""
+    """The conversation this request belongs to. Computed once per request and
+    reused (the stream's stop handler asks again; a fresh id would differ)."""
+    cached = getattr(request.state, "megh_session_id", None)
+    if cached:
+        return cached
     client_session = req.session_id or request.headers.get("x-session-id")
     # The client owns conversation identity: the chat UI mints a session_id per
-    # "New chat" so each thread is its own row in app.conversations. Only a
-    # caller that sends none falls back to the per-day bucket, which keeps API
-    # scripts and older clients from creating a thread per one-off question.
+    # "New chat" so each thread is its own row in app.conversations.
+    # A caller that sends none gets a conversation of its OWN (RAG plan E3,
+    # 2026-10-26). It used to share one per-day bucket per user
+    # ("day-<user>-<date>"), so every session-less API call that day was a
+    # "follow-up" of the last one: unrelated questions inherited each other's
+    # scheme, place and year. The id is returned in the response (session_id);
+    # sending it back continues that conversation, on any worker. "api-" threads
+    # are kept for audit but left out of the user's own history list
+    # (conversation_store.list_my_conversations), so scripts do not flood it.
     if client_session:
-        return client_session
-    if scope.db_user_id is not None:
-        return f"day-{scope.db_user_id}-{date.today().isoformat()}"
-    return f"one-{uuid.uuid4().hex[:16]}"
+        sid = client_session
+    elif scope.db_user_id is not None:
+        sid = f"api-{uuid.uuid4().hex[:16]}"
+    else:
+        sid = f"one-{uuid.uuid4().hex[:16]}"
+    try:
+        request.state.megh_session_id = sid
+    except Exception:  # noqa: BLE001 — a request without state: just not cached
+        pass
+    return sid
 
 
 _BACKGROUND: set = set()   # strong refs to fire-and-forget tasks

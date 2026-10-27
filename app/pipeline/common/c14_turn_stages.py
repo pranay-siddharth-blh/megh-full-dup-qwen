@@ -399,6 +399,20 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
             scope_resumed = True
             context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="all-years")
             logger.info("year clarification answered all-years -> %r", question)
+        elif not _bailed and _c14_pause_scheme_switch(question, pending, _pending_rule):
+            # KI-405 (KI-223 back): "What about MGNREGA?" typed while "How many
+            # PMAY-G beneficiaries are there?" waits for its area was glued onto
+            # it ("How many PMAY-G beneficiaries are there, What about MGNREGA?")
+            # and answered as a two-scheme figure (live suite scenario I,
+            # 2026-10-24). A pure switch to another scheme is the paused question
+            # asked for that scheme. Not a scope reply: scope_resumed stays False,
+            # so the new scheme's question is asked its own area / year (D-053).
+            _switched = _swap_scheme_in_question(pending, _c14_pause_scheme_switch(question, pending, _pending_rule))
+            context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="scheme-switch")
+            logger.info("scope pause answered with a scheme switch %r -> %r", question, _switched)
+            question = _pin_cm_elevate_dataset(_switched)
+            _cm_pinned = question != _switched
+            session.turn_context["resumed_question"] = question
         elif not _bailed and not _reply_abandons_scope_pause(question):
             session.turn_context["clarification_reply"] = question
             question = _merge_scope_reply(pending, question)
@@ -917,6 +931,26 @@ def _c14_restate_level(paused: str, name: str, level: str) -> str:
             cut = len(tail) - len(tail.lstrip()) + len(tail.lstrip().split(" ", 1)[0])
             stem = stem[:end] + tail[cut:]
     return f"{stem}, the {_DIM_CHIP_WORD[level]}, not another area type"
+
+
+# KI-405: the pauses a typed scheme switch can answer — "which area?" / "which year?".
+_C14_SWITCHABLE_PAUSES = frozenset({"scope-not-specified", "year-not-specified"})
+
+
+def _c14_pause_scheme_switch(reply: str, paused: str, rule: "str | None") -> "str | None":
+    """The scheme a reply to a "which area / year?" pause switches the paused
+    question to ("What about MGNREGA?", "same for Focus Plus"), else None. Only a
+    PURE switch (it says nothing else) to a scheme the paused question is not
+    about; a bare "Focus" is left to the which-Focus rule as before."""
+    if rule not in _C14_SWITCHABLE_PAUSES:
+        return None
+    target, pure = _scheme_substitution(reply)
+    if not target or not pure or target == "Focus":
+        return None
+    paused_schemes = set(_exact_schemes(paused or "")) or set(_infer_scheme_from_terms(paused or "") or [])
+    if not paused_schemes or target in paused_schemes:
+        return None
+    return target
 
 
 def _c14_pause_place_switch(reply: str, paused: str, name: str, state) -> "str | None":

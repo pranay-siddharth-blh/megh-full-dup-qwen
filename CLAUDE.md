@@ -32,7 +32,7 @@ deterministic pre-routing and edge → follow-up rewrite → intent (DATA/KNOWLE
 The orchestration lives in the **[app/pipeline/](app/pipeline/) package** (one 18,700-line `pipeline.py`
 until 2026-10-15):
 - [app/pipeline/common/](app/pipeline/common/) — the shared steps every scheme goes through,
-  `c01_followups.py` … `c14_turn_stages.py`;
+  `c01_followups.py` … `c16_metric_catalog.py` (the data team's metric catalogue as a fixed query, D-071);
 - [app/pipeline/schemes/](app/pipeline/schemes/) — **one file per scheme** (`mgnrega.py`, `pmay_g.py`,
   `focus_plus.py`, `cm_elevate.py`, `focus_legacy.py`, `cm_elevate_legacy.py`): that scheme's village
   rules, fixed queries, SQL rewrites and answer checks. A scheme-only fix goes in its scheme file.
@@ -113,8 +113,8 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
   - `qwen35-9b` = composer;
   - embeddings = gateway `qwen3-embedding`, 1024-dim (D-067, `.env`; rollback `EMBEDDING_PROVIDER=local` +
     `megh_scheme_kb_v3`). A different embedding model needs NEW Qdrant collections and re-tuned cut-offs;
-  - the local jina-turbo reranker (`RAG_LOCAL_RERANKER`) is **on**; the remote qwen3-reranker
-    (`RERANKER_ENABLED`) is **off**.
+  - the local jina-turbo reranker (`RAG_LOCAL_RERANKER`) is **off** (config default `""`, user decision
+    2026-10-15; `.env` does not set it, checked 2026-10-26); the remote qwen3-reranker (`RERANKER_ENABLED`) is **off**.
 
   Do not move roles without a DECISIONS entry.
 - The composer must never state a number that isn't in the result. The faithfulness checks in

@@ -8,10 +8,10 @@ The document lists **29 problems** (Part A: 5, Part B: 5, Part C: 7, Part E: 12)
 
 | Status | Count | Items |
 |---|---|---|
-| Solved | **1** | C2 (2026-10-26) |
-| Partly solved | **6** | A2, A3, A5, C1, E10, E12 |
+| Solved | **2** | C2 (number words); C7 (measured: SQL already stable, no change needed) |
+| Partly solved | **12** | A2, A3, A5, B1, C1, C4, C5, E3, E6, E9, E10, E12 |
 | Already working before (rule to keep) | **1** | C6 |
-| Not started | **21** | everything else |
+| Not started | **14** | A1, A4, B2-B5, C3, E1, E2, E4, E5, E7, E8, E11 |
 
 Most of the day went into **groundwork the plan depends on**: moving the whole project to 1024-dim embeddings safely, fixing what that move exposed, and measuring where accuracy stands.
 
@@ -39,7 +39,7 @@ Most of the day went into **groundwork the plan depends on**: moving the whole p
 | # | Problem | Status | Detail |
 |---|---|---|---|
 | A1 | Metadata never read; build our own collection | Not started | Blocker removed (embedding settled at 1024). Waits on: the ingestion team confirming the `semantic` tables are final, and an expert check |
-| A2 | Every layer decides from the wording (needs a query plan) | **Partly** | D-068: a stated scope (all years, statewide, place lists) is now read in any wording, so wordings converge; the query plan itself not started |
+| A2 | Every layer decides from the wording (needs a query plan) | **Partly** | D-068: a stated scope (all years, statewide, place lists) is now read in any wording, so wordings converge; D-071 (2026-10-26): one measure named in any of its catalogue words reads one fixed query (104 measure/shape pairs). The query plan itself not started |
 | A3 | Wikipedia in the KB; wrong folder in the docs | **Partly** | Docs fixed. Wikipedia still in `data/web/`; official documents not received |
 | A4 | Routing bugs between knowledge and data | Not started | New example: KI-404 |
 | A5 | Unused Qdrant collections | **Partly** | Backup done; nothing deleted (by design) |
@@ -48,7 +48,7 @@ Most of the day went into **groundwork the plan depends on**: moving the whole p
 
 | # | Item | Status |
 |---|---|---|
-| B1 | Metric / synonym detection | Not started |
+| B1 | Metric / synonym detection | **Partly** (2026-10-26, D-071): the data team's metric catalogue answers a question that names one measure and asks nothing else, in 4 shapes, for the 104 (measure, shape) pairs proven equal live; report `new_docs/Metric_Catalogue_Report_2026-10-26.md`. Meaning-based (vector) synonym matching not done |
 | B2 | Scheme from vocabulary | Not started |
 | B3 | Data vs knowledge from retrieval scores | Not started |
 | B4 | Prompt pruning | Not started |
@@ -61,8 +61,8 @@ Most of the day went into **groundwork the plan depends on**: moving the whole p
 | C1 | Years (FY24, last year) | **Partly** | D-068 + KI-414 (2026-10-26): every FY form (FY24, FY 24, FY'24, FY 23-24, 23-24) read the same by all year readers; follow-ups keep the typed year (live 81/81). "last year" and other relative forms not re-checked |
 | C2 | Number words ("five highest") | **Solved** | 2026-10-26, KI-412: count words become digits; the SQL LIMIT is the stated count. Five wordings of one ranking give the same 5 blocks |
 | C3 | Places | Not started | KI-368 open |
-| C4 | Follow-ups carry filters | Not started | KI-405, KI-406 found today |
-| C5 | Units and number checks | Not started | |
+| C4 | Follow-ups carry filters | **Partly** | KI-405 fixed 2026-10-27 (a scheme switch typed during a pause is the paused question for that scheme; live suite 105/107). KI-406 waits on the U5 decision |
+| C5 | Units and number checks | **Partly** | KI-417 (2026-10-26): crore / lakh shown at 2 decimals (₹119.74 Cr, a known answer). Rupees vs crore wording per scheme not yet unified |
 | C6 | Collision rules | Already working | Kept unchanged |
 | C7 | SQL variation (seed) | **Measured: not needed** | 2026-10-26: 10 questions × 5 runs gave identical SQL and results (temperature already 0). Paraphrases 9/10 same result; the 10th is a meaning ambiguity ("sanctions" = houses or amount), item B1 |
 
@@ -72,16 +72,16 @@ Most of the day went into **groundwork the plan depends on**: moving the whole p
 |---|---|---|---|
 | E1 | Query plan node | Not started | |
 | E2 | Guardrail | Not started | |
-| E3 | Follow-ups and context | Not started | Session-less API calls still share one chat; U5 decision pending |
+| E3 | Follow-ups and context | **Partly** | Session-less API calls now get their own conversation (D-070, KI-423, live-verified). Follow-ups editing a plan instead of text, and the U5 year-carry decision, not started |
 | E4 | Intent classifier | Not started | |
 | E5 | Scheme routing | Not started | |
-| E6 | Places and years | Not started | |
+| E6 | Places and years | **Partly** | Years: every FY form read the same everywhere (D-068, KI-414; live 81/81). Regions: Ri Bhoi in Khasi per the LGD region column (D-069). Places (KI-368) and splitting resolve_entities not started |
 | E7 | SQL generation | Not started | |
 | E8 | Verifier / repair | Not started | |
-| E9 | Composer | Not started | |
+| E9 | Composer | **Partly** | Money rounding (KI-417); CM Elevate workflow statuses answered in fixed wording (D-069). Number-to-label check and templates per shape not started |
 | E10 | Cache, memory, orchestration | **Partly** | Semantic-cache scope fix (KI-401); memory search exact (KI-408). Redis and plan-keyed cache not done |
 | E11 | UI | Not started | |
-| E12 | Security and data | **Partly** | PII files gitignored. Open: KI-022 CSV in the remote history, Qdrant key + firewall, gateway CA file, read-only DB login, token in the remote URL |
+| E12 | Security and data | **Partly** | Done: PII files gitignored; generated SQL AND catalog reads run as `megh_readonly` (dev box), pools within the team's caps, `SELECT *` on hidden columns handled (D-069). Open: deploy VMs, `megh_app` (password pending), KI-022 CSV in git history, Qdrant key + firewall, gateway CA file, token in the remote URL |
 
 ## 4. Accuracy today (data golden set, `tests/nl2sql_eval`, 74 questions)
 
