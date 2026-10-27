@@ -134,7 +134,9 @@ async def list_my_conversations(user_id: int, limit: int = 30,
         Pinned  ->  Recent (date-bucketed)  ->  Archived
     Passing True/False restricts to one shelf, which the admin views still use.
     """
-    where = "user_id = $1"
+    # "api-" threads (a session-less API call, routers/query._session_id) are kept
+    # for audit but are not the user's chats: one per call would flood this list.
+    where = "user_id = $1 AND left(session_id, 4) <> 'api-'"
     params: list = [user_id]
     if archived is not None:
         params.append(archived)
@@ -280,7 +282,7 @@ async def search_my_conversations(*, user_id: int, q: str, limit: int = 30,
                                   archived: bool | None = None) -> list[dict]:
     """Title or turn-text search across the caller's own conversations.
     archived=None searches both shelves, so a search can find an archived chat."""
-    where = "c.user_id = $1"
+    where = "c.user_id = $1 AND left(c.session_id, 4) <> 'api-'"   # see list_my_conversations
     params: list = [user_id, q.strip()[:200]]
     if archived is not None:
         params.append(archived)

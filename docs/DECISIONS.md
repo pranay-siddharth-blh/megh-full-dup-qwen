@@ -935,6 +935,50 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-071 — The data team's metric catalogue answers plain measure questions (2026-10-26)
+- **Date:** 2026-10-26. RAG plan B1 (metric / synonym detection) and A2 (same meaning, same answer). User: "implement all
+  the parts one by one … don't create new problems, don't change any other code".
+- **Context:** the model wrote its own SQL for every wording, so "spend", "outlay" and "money spent" could read different
+  figures, and a wording could be misread. `semantic.metric_definitions` (ingestion team) already holds 62 named measures
+  with their SQL expression, view, unit and synonyms.
+- **Decision:** `app/metric_catalog.py` loads the 39 measures of the six schemes at startup; `c16_metric_catalog.py` uses
+  one as a parameter-bound fixed query (read-only pool) when a question names exactly one measure and asks nothing else
+  (scheme, resolved place, year and grammar only), with only district / block / village / year filters, in one of four
+  shapes: total, breakdown (district / block / year), ranking (top / bottom N), compare (named places or years). It is the
+  LAST fixed query, so every existing one keeps priority. It answers only for a (measure, shape) listed in
+  `data/metric_catalog_verified.yaml` with live evidence; everything else is logged ("shadow") and goes to the model path.
+  `METRIC_CATALOG_MODE` off / shadow / on (default on).
+- **Not used:** the catalogue's free-text `filters_required` notes are not parsed; what they demand was reviewed by hand
+  into the verified file (`single_year`; `no_block_level: Focus Plus`). PMAY "Filter WHERE NOT is_placeholder" is not
+  applied: the expressions count every house, which is what the current answers (D-060) give. cmss, homestay_legacy and
+  nrlm are not schemes here.
+- **Evidence (live, 2026-10-26, `tests/metric_catalog_eval.py`, 312 questions):** shadow run — 207 questions built a
+  catalogue query; per (measure, shape) 105 of 111 pairs agreed with the current answer on every question; the 6 others
+  were wordings the model reads as another measure ("sanctions" = amount, "coverage", "remittances", "payments made" ranked
+  by amount), one model error (compared SANCTIONED beneficiaries when PAID were asked), and Focus Plus payments by
+  `district_name_raw`. Verified: total 28, breakdown 25, ranking 28, compare 23 (Focus Plus women left out: FY 2022-23
+  holds no gender, so 0 = 0 proves nothing). "On" run — the catalogue answered 183 of 312; all 183 returned the catalogue
+  figure and every total stated it. Golden set 42/74, 0 regressions; live context 103/107 (unchanged); known answers
+  13/14 in-process (the 14th is the D-064 ask); pytest 3,829 / 0.
+- **Tests:** `tests/test_metric_catalog_2026_10_26.py`; live: `tests/metric_catalog_eval.py`.
+- **Status:** Active.
+
+### D-070 — A call without a session id gets its own conversation (2026-10-26)
+- **Date:** 2026-10-26. RAG plan E3; user: "solve option one … a better solution … don't disturb any other thing".
+- **Context:** every session-less API call by one user on one day shared `day-<user>-<date>`, so an unrelated question was
+  read as a follow-up of the previous one (scheme, place and year leaked). The bucket existed so scripts would not create a
+  history row per question.
+- **Decision:** `routers/query._session_id` gives such a call `api-<random>`: fresh context, saved like any conversation
+  (so the returned `session_id` continues it on any worker, including a clarification reply), and left out of the user's
+  own history list and search (`conversation_store.list_my_conversations` / `search_my_conversations`); admin views and
+  the audit keep it. The id is computed once per request (the stream's stop handler asked again and would have got a
+  different id). No-user calls keep `one-<random>`.
+- **Evidence (live, 2026-10-26):** "MGNREGA person-days FY 2024-25 for all of Meghalaya" then "and in Ri Bhoi?" without
+  an id -> a new conversation asking "Which scheme?" (before: a silent follow-up); with the returned id -> 928,817
+  (MGNREGA, Ri Bhoi, FY 2024-25); no `api-` chat in the history list. pytest 3,805 / 0; scripts 14/14.
+- **Tests:** `tests/test_session_less_calls_2026_10_26.py`.
+- **Status:** Active.
+
 ### D-069 — Follow the ingestion team's 15-24 Oct database changes (2026-10-26)
 - **Date:** 2026-10-26. Source: `CHATBOT_DB_CHANGES_2026-10-26.md` (ingestion team; replaces their 16 Oct note). Reply:
   `docs/Chatbot_Answers_to_Ingestion_Team_2026-10-26.md`. User: map to the current columns without creating new problems.

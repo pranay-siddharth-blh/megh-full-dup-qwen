@@ -4,13 +4,31 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
-## Latest: RBAC review (2026-10-26). No app code changed. Report `new_docs/Role_Based_Access_Report_2026-10-26.md`.
+## Latest: KI-405 fixed — a scheme switch typed during an area / year pause (2026-10-27). Code changed, uncommitted. LIVE-VERIFIED.
+- c14 `_c14_pause_scheme_switch`: "What about MGNREGA?" while "How many PMAY-G beneficiaries…?" waits for its area ->
+  "How many MGNREGA beneficiaries are there?" (asked its own area / year), not a merged two-scheme query.
+- Live context 105/107 (was 103; left KI-406 / KI-407, user decisions); pytest 3,833 / 0; scripts 14/14; :8401 PID 52752.
+- New open: KI-427 (golden MG-08 year range keeps only the last year; intermittent, pre-existing).
+
+## Earlier: D-071 — the data team's metric catalogue answers plain measure questions (2026-10-26 night). Code changed, uncommitted. LIVE-VERIFIED.
+- `app/metric_catalog.py` + `app/pipeline/common/c16_metric_catalog.py`: one measure, nothing else asked -> parameter-bound
+  query from `semantic.metric_definitions` (total / breakdown / ranking / compare), last in the fixed-query chain, read-only
+  pool, only for the 104 (measure, shape) pairs in `data/metric_catalog_verified.yaml`. `METRIC_CATALOG_MODE=on`.
+- Live: 183/183 catalogue answers give the same figure; golden 42/74 (0 regressions); live context 103/107; known 13/14.
+- pytest 3,829 / 0; scripts 14/14. New open: KI-424 (ambiguous measure words), KI-425, KI-426.
+- :8401 restarted from the venv 2026-10-27 11:04 with D-071 loaded (log: 39 metrics, verified 28/25/28/23); live HTTP check OK.
+
+## Earlier: RBAC review (2026-10-26). No app code changed. Report `new_docs/Role_Based_Access_Report_2026-10-26.md`.
 - 8 roles (`auth.ROLE_PERMISSIONS`; `public` unreachable), 4 gates (`deps.py`), 3 data checks (`auth.authorize`).
   Built and working: login/JWT, endpoint gates, tenant-scoped admin reads, SQL + repair checks, scope-keyed cache, audit.
 - New OPEN issues: KI-418 (HIGH: admin can PATCH self/others to super_admin), KI-419 (4 fixed answers skip `authorize`),
   KI-420 (`/api/scheme-stats` unscoped), KI-421 (fail-open scheme list, unvalidated `granularity_cap`). KI-007 still open.
   No tests for the admin/role endpoints.
-## Latest: connection caps agreed with the ingestion team (2026-10-26 night): megh_app 30, megh_readonly 20, both hard.
+## Latest: D-070 — a call without a session id gets its own conversation (KI-423, RAG plan E3), 2026-10-26 night. Code changed, uncommitted. LIVE-VERIFIED.
+- `api-<random>` per session-less call (continue by sending the returned id); hidden from the user's history list/search.
+- pytest 3,805 / 0; scripts 14/14. :8401 = PID 10012.
+
+## Earlier: connection caps agreed with the ingestion team (2026-10-26 night): megh_app 30, megh_readonly 20, both hard.
 - `172.18.0.2` = very likely the old build's Docker container (INFERRED); stop it at switch-over. Docs only; no code change.
 
 ## Earlier: megh_app readiness checked; unused rule files marked NOT LOADED (2026-10-26 night).

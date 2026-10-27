@@ -614,6 +614,16 @@ class Settings(BaseSettings):
     PIPELINE_GRAPH_PAUSE_TTL_SECONDS: int = 1800
     PIPELINE_GRAPH_SWEEP_EVERY_SECONDS: int = 600
 
+    # ── Metric catalogue (app/metric_catalog.py, D-071) ──
+    # semantic.metric_definitions as a fixed query for a question that names
+    # one measure and asks nothing else. "off": not loaded. "shadow": matched
+    # and logged only. "on": a measure listed for that query type in
+    # data/metric_catalog_verified.yaml answers through the catalogue query;
+    # every other question takes the model path as before. "on" since
+    # 2026-10-26, after tests/metric_catalog_eval.py (report:
+    # new_docs/Metric_Catalogue_Report_2026-10-26.md).
+    METRIC_CATALOG_MODE: str = "on"
+
     # ── Input guardrails (app/guardrails.py) ──
     # Layer 1 (rules) always runs. Layer 2 is one classifier-model call per new
     # question that judges its meaning, so a harmful request phrased in words

@@ -18,7 +18,7 @@ meghalaya/
 │   ├── main.py                app, lifespan startup, /health, /metrics, static UI routes
 │   ├── config.py              every setting (pydantic-settings, reads .env)
 │   ├── pipeline/              the whole routing + NL→SQL orchestration, as stage functions (see 3.4)
-│   │   ├── common/            shared steps c01_followups.py … c14_turn_stages.py
+│   │   ├── common/            shared steps c01_followups.py … c16_metric_catalog.py
 │   │   └── schemes/           one file per scheme: mgnrega, pmay_g, focus_plus, cm_elevate,
 │   │                          focus_legacy, cm_elevate_legacy — ONE shared namespace
 │   ├── pipeline_graph.py      opt-in LangGraph orchestrator over the same stages (D-032)
@@ -26,6 +26,7 @@ meghalaya/
 │   ├── prompt_builder.py      SQL / repair / verifier prompt assembly
 │   ├── schema_context.py      hand-written per-scheme TABLES / RULES / VOCAB prompt blocks
 │   ├── schema_introspect.py   live information_schema + semantic.* catalogue → prompt blocks
+│   ├── metric_catalog.py      semantic.metric_definitions → one measure's fixed query (D-071)
 │   ├── annotations.py         loads few-shot + FK YAML from data/; IDF few-shot ranking
 │   ├── entity_resolver.py     district/block/year/AC/village resolution (YAML + live DB)
 │   ├── llm.py                 one httpx client; all model roles; concurrency gate
@@ -95,7 +96,8 @@ and output, and how it fails.
   4. `init_qdrant`;
   5. `load_annotations` and `load_entity_resolver` (local YAML);
   6. `appdb.ensure_schema` (creates `app.*`, seeds users);
-  7. `schema_introspect.load` (the live schema catalogue);
+  7. `schema_introspect.load` (the live schema catalogue), then `metric_catalog.load`
+     (`semantic.metric_definitions`, D-071; skipped when `METRIC_CATALOG_MODE=off`);
   8. `pipeline.refresh_scheme_years` (the per-scheme FY list from the DB);
   9. a **background** `ingest_kb` task.
 - **Failure behaviour:** every remote step is wrapped in `_try`. The server always boots,
@@ -134,7 +136,9 @@ matches `websocket` or `StreamingResponse`).
   stripped. `session_id` is optional and must match `^[A-Za-z0-9._:-]+$` (max 128).
 - **Steps:**
   1. `_identity` requires a JWT when `AUTH_ENABLED`.
-  2. Session id: the client's, else `day-<uid>-<date>`, else `one-<random>`.
+  2. Session id: the client's, else `api-<random>` (a logged-in caller that sends none: a conversation of its own,
+     returned in `session_id` — send it back to continue; hidden from the user's history list and search; D-070),
+     else `one-<random>` (no user; not saved). Computed once per request (`request.state.megh_session_id`).
   3. `session_store.ensure`. A fresh in-process session rehydrates its `ConversationState` from
      Postgres.
   4. If the question is not a follow-up fragment:

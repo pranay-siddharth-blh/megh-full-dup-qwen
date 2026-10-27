@@ -1,0 +1,251 @@
+# Metric catalogue — which measures may answer through the catalogue query (D-071).
+#
+# app/metric_catalog.py loads semantic.metric_definitions (the data team's 62
+# measures). A measure answers a question through its catalogue query ONLY when
+# it is listed below for that query type; every other measure is matched and
+# logged in shadow mode while the model path answers as before.
+#
+# A measure is listed after tests/metric_catalog_eval.py (live, VPN) showed its
+# catalogue figure equal to the figure the current pipeline gives for the same
+# question, at the state, a district, a block and a year. The evidence column
+# says what was compared and when. A measure that disagreed stays off this list
+# and is explained in new_docs/Metric_Catalogue_Report_2026-10-26.md.
+#
+# Edit this file only with fresh evidence; it is read once at startup.
+
+# Per-year tallies: adding financial years overstates them (the catalogue's own
+# filters_required notes). They are only built for exactly one year, or per year.
+single_year:
+  - mgnrega_job_card_stock
+  - mgnrega_households_employed
+  - mgnrega_households_100_days
+  - mgnrega_persons_employed
+
+# Schemes whose blocks are not on lgd_block: no block-level catalogue query.
+# Focus Plus maps its blocks on block_name_raw (lgd_block is NULL on 15% of its
+# rows, hiding Rs 18 crore — tests/test_focusplus_block_columns.py).
+no_block_level:
+  - Focus Plus
+
+# One figure for one place (or the state) and one year.
+total:
+  cm_elevate_applications_on_hold:
+    evidence: "run 2026-10-26: 4/4 agreed"
+  cm_elevate_applications_valid:
+    evidence: "run 2026-10-26: 2/2 agreed"
+  cm_elevate_disb_loan_disbursed:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  cm_elevate_disb_paid_beneficiaries:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  cm_elevate_disb_subsidy_disbursed:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  cm_elevate_disb_total_disbursed:
+    evidence: "run 2026-10-26: 3/3 agreed"
+  cm_elevate_disb_total_sanctioned:
+    evidence: "run 2026-10-26: 2/2 agreed"
+  focus_legacy_members_paid_for:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  focus_legacy_payments:
+    evidence: "run 2026-10-26: 4/5 agreed; the 1 that differs used \"remittances\", which the model path reads as the amount disbursed"
+    except_words: [remittances]
+  focus_legacy_pg_count:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  focus_legacy_total_disbursed:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  focus_plus_amount_disbursed:
+    evidence: "run 2026-10-26: 4/4 agreed"
+  focus_plus_beneficiaries:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  focus_plus_payments:
+    evidence: "run 2026-10-26: 3/3 agreed"
+  focus_plus_villages_covered:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  mgnrega_cost_per_person_day:
+    evidence: "run 2026-10-26: 4/4 agreed"
+  mgnrega_employment_generated:
+    evidence: "run 2026-10-26: 4/4 agreed"
+  mgnrega_households_100_days:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  mgnrega_households_employed:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  mgnrega_job_card_stock:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_material_expenditure:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  mgnrega_persons_employed:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  mgnrega_total_expenditure:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  mgnrega_wage_share_compliance:
+    evidence: "run 2026-10-26: 5/5 agreed"
+  pmay_amount_pending:
+    evidence: "run 2026-10-26: 2/2 agreed"
+  pmay_houses_in_progress:
+    evidence: "run 2026-10-26: 3/3 agreed"
+  pmay_houses_sanctioned:
+    evidence: "run 2026-10-26: 1/4 agreed; 1 the model path could not answer (\"couldn't build a working query\"), 2 used the word \"sanctions\", which the model path reads as the sanctioned AMOUNT"
+    except_words: [sanctions]
+  pmay_villages_covered:
+    evidence: "run 2026-10-26: 3/5 agreed; the 2 that differ used the word \"coverage\", which the model path reads as the houses/amount summary"
+    except_words: [coverage]
+
+# The figure per district, per block or per year.
+breakdown:
+  cm_elevate_applications_on_hold:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  cm_elevate_disb_beneficiaries:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  cm_elevate_disb_loan_disbursed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  cm_elevate_disb_paid_beneficiaries:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  cm_elevate_disb_subsidy_disbursed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_legacy_members_paid_for:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_legacy_payments:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_legacy_pg_count:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_legacy_total_disbursed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_plus_beneficiaries:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_cost_per_person_day:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_households_100_days:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_households_employed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_material_expenditure:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_persons_employed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_total_expenditure:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_wage_share_compliance:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_amount_pending:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_amount_released:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_amount_sanctioned:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_completion_rate:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_houses_in_progress:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_houses_sanctioned:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_underfunded_completions:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_villages_covered:
+    evidence: "run 2026-10-26: 1/1 agreed"
+
+# Top / bottom N districts or blocks.
+ranking:
+  cm_elevate_applications_on_hold:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  cm_elevate_disb_beneficiaries:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  cm_elevate_disb_loan_disbursed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  cm_elevate_disb_paid_beneficiaries:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  cm_elevate_disb_subsidy_disbursed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_legacy_members_paid_for:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_legacy_pg_count:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_legacy_total_disbursed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_plus_amount_disbursed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_plus_beneficiaries:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_plus_payments:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_cost_per_person_day:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_employment_generated:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_households_100_days:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_households_employed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_job_card_stock:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_material_expenditure:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_persons_employed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_total_expenditure:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_wage_share_compliance:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_amount_pending:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_amount_released:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_amount_sanctioned:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_completion_rate:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_houses_completed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_houses_in_progress:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_houses_sanctioned:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_underfunded_completions:
+    evidence: "run 2026-10-26: 1/1 agreed"
+
+# Named places or named years side by side.
+compare:
+  cm_elevate_applications_on_hold:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  cm_elevate_disb_beneficiaries:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  cm_elevate_disb_loan_disbursed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  cm_elevate_disb_paid_beneficiaries:
+    evidence: "run 2026-10-26: correction: the model path compared SANCTIONED beneficiaries (214 / 414) when PAID ones were asked; the catalogue gives paid (211 / 396)"
+  cm_elevate_disb_subsidy_disbursed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_legacy_members_paid_for:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_legacy_payments:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_legacy_pg_count:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_legacy_total_disbursed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_plus_amount_disbursed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_plus_beneficiaries:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_plus_payments:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  focus_plus_villages_covered:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_cost_per_person_day:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_employment_generated:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_households_100_days:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_households_employed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_job_card_stock:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_material_expenditure:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_persons_employed:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_total_expenditure:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  mgnrega_wage_share_compliance:
+    evidence: "run 2026-10-26: 1/1 agreed"
+  pmay_houses_in_progress:
+    evidence: "run 2026-10-26: 1/1 agreed"

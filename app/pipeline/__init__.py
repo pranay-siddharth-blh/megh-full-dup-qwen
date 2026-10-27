@@ -54,6 +54,8 @@ _PIPELINE_FILES = (
     "common/c14_turn_stages",
     # talking about the conversation itself (D-052); called by the turn stages at run time
     "common/c15_conversation_meta",
+    # the data team's metric catalogue as the last fixed query (D-071); called by c13 at run time
+    "common/c16_metric_catalog",
 )
 
 for _pipeline_name in _PIPELINE_FILES:

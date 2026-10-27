@@ -1727,7 +1727,7 @@ async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = No
         or _mgnrega_combined_facts_query(question, schemes, entity_result["resolved"]) \
         or _mgnrega_breakdown_query(question, schemes, entity_result["resolved"]) \
         or _mgnrega_wage_material_query(question, schemes, entity_result["resolved"]) \
-        or _cme_sector_query(question, schemes, entity_result["resolved"])         or _fp_status_cohort_query(question, schemes, entity_result["resolved"])         or _focus_legacy_duplicates_query(question, schemes, entity_result["resolved"])         or _focus_legacy_fy_compare_query(question, schemes, entity_result["resolved"])
+        or _cme_sector_query(question, schemes, entity_result["resolved"])         or _fp_status_cohort_query(question, schemes, entity_result["resolved"])         or _focus_legacy_duplicates_query(question, schemes, entity_result["resolved"])         or _focus_legacy_fy_compare_query(question, schemes, entity_result["resolved"])         or _metric_catalog_query(question, schemes, entity_result)
     d.update(mg_admin=_mg_admin, mg_women=_mg_women, mg_det=_mg_det)
     return None
 
@@ -2032,7 +2032,10 @@ async def _data_authorize_stage(d: dict, scope: "auth.UserScope | None" = None) 
 async def _data_deterministic_rows(d: dict, scope: "auth.UserScope | None" = None) -> None:
     """Run the deterministic MGNREGA query (parameter-bound, no repair loop)."""
     _mg_det = d["mg_det"]
-    rows = [dict(r) for r in await fetch_rows(_mg_det[0], _mg_det[1])]
+    # A catalogue query's measure text comes from semantic.metric_definitions,
+    # not from this code: it runs on the read-only pool (D-071).
+    _run = _c16_fetch_rows_readonly if metric_catalog.is_catalog_sql(_mg_det[0]) else fetch_rows
+    rows = [dict(r) for r in await _run(_mg_det[0], _mg_det[1])]
     logger.info("MGNREGA deterministic query: %s | params=%s", _mg_det[2].replace("\n", " "),
                 _mg_det[1])
     d["rows"] = rows

@@ -498,6 +498,36 @@ except on a release-vs-sanction comparison or an AVG), `_pmay_sql_issue` (repair
 `execute_with_repair`; `_pmay_rupee_format` after the composer; `_PMAY_RULES` 7–9 and three
 few-shots in `pmay_few_shot.yaml`.
 
+### 2.4b Metric catalogue fixed query (2026-10-26, D-071; LIVE-VERIFIED)
+
+The data team's `semantic.metric_definitions` (62 measures; 39 for the six schemes, all 39 loaded) is loaded at
+startup by `app/metric_catalog.py` (`METRIC_CATALOG_MODE`: off / shadow / **on**, default on). Code:
+`app/metric_catalog.py` (load, match, build) and `app/pipeline/common/c16_metric_catalog.py` (the decision).
+
+- **Where:** the LAST entry of the fixed-query chain in `_data_prepare_stage` (c13, `_mg_det = … or
+  _metric_catalog_query(...)`). Every existing fixed query (PMAY-G facts, MGNREGA job cards / combined / breakdown /
+  wage-material, CM Elevate sector, Focus Plus cohort, Focus Legacy duplicates / FY compare) keeps priority.
+- **Match (`metric_catalog.match`):** the measure's synonyms and display name (scheme words stripped, plural-blind,
+  helper verbs the rephraser adds such as "were" skipped). Longest phrase wins; two measures or a phrase two measures share
+  -> no match.
+- **Asks nothing else (`_c16_extra_words`):** every other word must be the scheme name, a resolved place, a year or
+  question grammar (`_C16_GRAMMAR`, plus the shape's own words). "wage expenditure" -> "wage" is extra -> model path.
+- **Filters (`_c16_filters`):** only district / block / village / year (and their lists). Any other resolved filter
+  (constituency, region, status, gender …) -> model path.
+- **Shapes (`_c16_shape`):** `total`; `breakdown` by district / block / year (`_c02_breakdowns`); `ranking`
+  (`_RANKING_CUE`, one direction, count from `_requested_rank_count`, 1 for a singular "which district"; plural with no
+  count -> model path, the "top how many" pause owns it); `compare` (a place list, or several years).
+- **Years:** a measure in the verified file's `single_year` (job cards, households / persons employed, 100 days) is built
+  only for exactly one year or per year. No year and no all-years cue -> not built (the year pause asks first).
+- **Gate:** the query answers only when the measure is listed for that shape in `data/metric_catalog_verified.yaml`
+  (evidence from `tests/metric_catalog_eval.py`), and not when the question named it only by an `except_words` wording.
+  Focus Plus has no block-level catalogue query (`no_block_level`: its blocks are on `block_name_raw`). Everything else
+  is logged (`metric catalogue (shadow): …`) and answered by the model path.
+- **Query:** `/* metric:<key> <shape> */ SELECT <expression> AS <alias> FROM <base view> WHERE … [GROUP BY …]`, values
+  bound as parameters, run on the READ-ONLY pool (`_data_deterministic_rows` -> `db.fetch_rows_readonly`). Units follow
+  the SQL prompt: lakh -> `_lakh`, rupees -> crore `_cr`, percent -> `_pct`. Place groupings leave out NULL places.
+  The rows go to `compose_response` as usual (every faithfulness check runs). `authorize` still checks the SQL.
+
 ### 2.5 Prompt assembly — `prompt_builder.build_sql_prompt(question, schemes, entity_result)`
 The prompt is concatenated in this order:
 
@@ -1170,6 +1200,14 @@ Previously a typed "Focus Plus" was answered as a new question and the paused as
 - **Batch / tranche is a scope.** `_needs_scope_clarification` no longer asks "which area?"
   when a Focus Plus tranche resolved or the question names the 12.5K / 93K batch. This follows
   the SME default `missing_geography → all_districts`.
+
+**Scheme switch while an area / year pause waits (KI-405, 2026-10-27; LIVE-VERIFIED).** In the scope-pause
+branch of `_turn_context_stage` (c14), before the merge: a reply that is a PURE switch to another scheme
+(`_c14_pause_scheme_switch` -> `_scheme_substitution`: "What about MGNREGA?", "same for Focus Plus"; rules
+`scope-not-specified` / `year-not-specified` only; not a bare "Focus") becomes the paused question asked for that scheme
+(`_swap_scheme_in_question`), remembered as `resumed_question`. `scope_resumed` stays False, so the new scheme is asked
+its own area / year. Before, it was merged ("How many PMAY-G beneficiaries are there, What about MGNREGA?") and answered
+as a two-scheme figure. Any other reply (a place, a year, the same scheme, a switch that also adds a year) is unchanged.
 
 ### 5.3 Prompt budgets and observability (VERIFIED offline, 2026-09-26)
 
