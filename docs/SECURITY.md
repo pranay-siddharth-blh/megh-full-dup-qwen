@@ -39,6 +39,9 @@ safe default, so local dev is unaffected.
 | Control | Where |
 | --- | --- |
 | LLM-generated SQL is validated: single statement, `SELECT`/`WITH` lead only, no write/DDL keywords, forced `LIMIT` | `app/db.py::_assert_safe`, `run_readonly` |
+| Generated SQL may not call side-effect or system-information functions: the block-list plus, since 2026-10-27 (DB team review), every `pg_*`, `lo_*`, `dblink*`, `txid_*`, `inet_*` function and `current_setting` / `version` / `current_database`. An open list rather than a full allow-list, so ordinary functions the model has not used yet still pass | `app/sql_guard.py::_is_forbidden_function` |
+| Before execution the database plans the query (`semantic.check_query`); a fact-to-fact row join goes to repair (fail-open, D-072) | `app/db.py::precheck_readonly`, c11 `_execute_one_attempt` |
+| A `block_officer` with no block assigned sees statewide figures only (KI-429, fail closed) | `app/auth.py::authorize` |
 | DB connection role — second layer, not a substitute. **Correction (2026-09-26):** `megh_app` is SELECT-only on `curated`/`semantic` but has **SELECT/INSERT/UPDATE/DELETE + CREATE on `app`**, and generated SQL runs on the same pool, so it is *not* a SELECT-only role for generated SQL. The local dev `.env` connects as `postgres`. See [KNOWN_ISSUES.md](KNOWN_ISSUES.md) KI-004 | `deploy/sql/01_create_megh_app_role.sql` |
 | Our own SQL is always parameter-bound, never interpolated | `app/db.py::fetch_rows` etc. |
 | `question` field length-capped (`MAX_QUESTION_CHARS`) and C0-control-char stripped; `session_id` pattern-restricted; length caps on every admin/auth free-text field and list | `app/routers/*.py` |

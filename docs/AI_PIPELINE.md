@@ -467,6 +467,10 @@ retry, then the deterministic answer.
      and the year back-fill (`_backfill_explicit_year`), so a year the extractor drops is still read, and a
      year the scheme lacks gets the "data is available only for …" reply. `rewrite_violation` refuses a
      follow-up rewrite that loses the user's own year.
+   - **The SQL and repair prompts see the full form (KI-431, 2026-10-27):** `generate_sql` and `_repair_sql`
+     pass the question through `context_policy.expand_short_fy` ("FY23" -> "FY 2022-23"); the model had read
+     "FY 23" as `year_key = 2023`. The year guard names a wrong year_key it finds (`_vr_year_key_literals`)
+     instead of saying the query has no year filter.
 5. **Tranche gate:** `_needs_tranche_clarification` (Focus Plus only).
 6. **Tranche conflict:** `_person_level_tranche_conflict` (Focus Plus; person-level columns exist
    only on Tranch 4) → a deterministic explanation.
@@ -744,7 +748,25 @@ since 2026-10-15; runs AFTER execution; `build_verify_prompt`, `guided_json {ok,
   only condition, unless the question asks about the group type (KI-370).
 
 **4. `db.run_readonly(sql)` [DB]:** the safety check, auto-`LIMIT 1000`, a 15 s statement
-timeout.
+timeout. **Since 2026-10-27 (D-073), with `CHATBOT_DATABASE_URL` set, the guarded statement runs as
+`semantic.run_query(sql, SQL_MAX_RESULT_ROWS, SQL_MAX_COST)` on the `megh_chatbot` login**: the database
+plans it, refuses fact row joins and plans above 1,000,000, and runs it with megh_readonly's rights.
+The JSON rows are turned back into exactly what asyncpg returned (column order from `columns`; each
+value's type from run_query's `types` list — sent since the team's 2026-10-27 reply — else from describing the statement on
+megh_readonly — parse only, never executed): 582/584 recent statements identical in values and types,
+the 2 others the same rows in another order (no ORDER BY). Refusals map onto existing errors:
+`row_join` -> `RowJoinRefusedError` (ValueError, repair), `rejected` -> `UnsafeSQLError`,
+`too_expensive` / 57014 / 53400 -> `QueryTooHeavyError`, class 08 / 53300 -> one retry after 1 s then
+`DatabaseUnavailableError`, anything else -> `RunQueryError` (PostgreSQL's message, to repair). The
+`check_query` pre-check below is skipped then (run_query makes it). Just before it (2026-10-27, D-072), `db.precheck_readonly` asks the database's
+`semantic.check_query` to plan the query: a `row_join` (two fact tables joined row by row, seen
+through views and CTEs) raises a `ValueError` that goes to repair without running the query.
+Fail-open: no pool yet (offline), a missing function, a 5 s timeout or any error means no check;
+`SQL_DB_PRECHECK=false` turns it off (~150–370 ms over the VPN). The server limits of megh_readonly
+(DB team 2026-10-27) — 57014 statement_timeout, 53400 temp_file_limit (1 GB) — come back as
+`db.QueryTooHeavyError`, a `TimeoutError`: one repair round with the reason, then the router's
+504 "try a narrower question" (not the KB fallback). Other errors are unchanged; repairs stay
+as they were (a timeout repaired into a working query on 2026-10-18, so timeouts are not made final).
 
 **5. On any exception:** `build_repair_prompt` (the same context **without few-shot examples**,
 plus the error and `_repair_hint`) → **30B** → `_extract_sql` → loop.

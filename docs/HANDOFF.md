@@ -3,6 +3,23 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-10-27 afternoon (code, D-073): generated SQL through `semantic.run_query` on megh_chatbot, uncommitted, :8401 NOT restarted.** Files: `app/db.py` (chatbot pool, `_run_via_run_query`, type restore, `application_name`), `app/config.py` (`CHATBOT_DATABASE_URL`, `CHATBOT_DB_POOL_*`, `SQL_MAX_COST`, `DB_APPLICATION_NAME`), `app/pipeline_graph.py` (checkpointer application_name), `tests/conftest.py` (tests keep the read-only path), `tests/test_readonly_pool.py` (pinned server_settings now include application_name), NEW `tests/test_run_query_path_2026_10_27.py`, `.env.example`, `.env` (key rename only). Rollback: blank `CHATBOT_DATABASE_URL`. Next: user's go-ahead for `020_megh_app_role.sql` (cap 35) -> set `DATABASE_URL` to megh_app; the admin stops the old 172.18.0.2 container; restart :8401.
+
+**2026-10-27 (code): KI-431 fixed** — the SQL model wrote "FY23" as `year_key = 2023` -> "couldn't build a working query".
+`context_policy.expand_short_fy` gives the SQL + repair prompts the full form; the guard names a wrong year. pytest 3,881/0,
+scripts 14/14, live 6/6. :8401 not restarted. New harness `tests/sheet_runs/mg_excel_run.py <expect.json> <out.json>`: MGNREGA
+DATA-001..030 + a 5-level hierarchy sweep, expected figures from the raw Excels (expect.json is built with the system
+python + pandas from `raw_uc/`; the venv has no pandas). Run 763/919 (863 incl. "which scheme?" pauses), report
+`new_docs/MGNREGA_Excel_Test_Report_2026-10-27.md`. Next (user's go-ahead): KI-432 first (wrong number), then KI-433..436;
+user decision: should "work / workers" wordings go straight to MGNREGA instead of asking the scheme?
+
+**2026-10-27 (code, D-072): fixes for the DB team's changes, uncommitted, :8401 NOT restarted (restart to take effect).** Files: `app/schema_introspect.py` (KI-428 scope-out maps), `app/db.py` (`QueryTooHeavyError`, `precheck_readonly`), `app/config.py` (`SQL_DB_PRECHECK`), `app/pipeline/common/c01_followups.py` (import), `c11_sql_verify_repair.py` (pre-check before `run_readonly`), `app/sql_guard.py` (system functions), `app/auth.py` (KI-429), NEW `tests/test_db_changes_2026_10_27.py`. Deliberately NOT done: making timeouts / 42501 final or cutting repairs to 2 (a timeout was repaired into an answer 2026-10-18; asked the team). Waiting on the team's reply to the message in report §7 / chat; KI-430 retention needs the user.
+
+**2026-10-27 (review only): DB team's changes checked.** Report `new_docs/DB_Changes_Impact_Report_2026-10-27.md`.
+No breakage. Waiting on the user: go-ahead for the KI-428 fix (2-line scope-out map), KI-429 (assign block or fail closed),
+KI-430 retention period, `020_megh_app_role.sql` go-ahead, and whether/when to move to `megh_chatbot` + `run_query`
+(report §5; repair 3 -> 2 would need a DECISIONS entry). The draft reply to the DB team is report §7.
+
 **2026-10-27 (code): KI-405 fixed.** One new branch in the c14 scope-pause step (`_c14_pause_scheme_switch`, before the
 merge): a pure "What about <other scheme>?" / "same for <other scheme>" reply re-asks the paused question for that scheme.
 Live suite 105/107; the 2 left are KI-406 (needs the user's U5 year-carry decision) and KI-407 (bare CM Elevate count:

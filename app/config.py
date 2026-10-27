@@ -164,6 +164,28 @@ class Settings(BaseSettings):
     READONLY_DB_ALLOW_SUPERUSER: bool = False
     SQL_EXECUTION_TIMEOUT_MS: int = 15000
     SQL_MAX_RESULT_ROWS: int = 1000
+    # Before a generated query runs, ask the database to plan it with
+    # semantic.check_query (DB team, 2026-10-27): it sees through views and CTEs
+    # and flags two fact tables joined row by row, which our SQLGlot join rules
+    # can miss. Advisory and fail-open: if the function is slow or missing, the
+    # query runs as before. Off = no extra round trip.
+    SQL_DB_PRECHECK: bool = True
+    # The DB team's execute-only login (2026-10-27, D-073): megh_chatbot may only
+    # call semantic.run_query, which plans the query (row joins, cost) and runs
+    # it with megh_readonly's rights. Set -> every generated query goes through
+    # run_query on this login; blank -> run_readonly executes on the read-only
+    # pool as before. Its own cap is 20 connections (4 per worker x 5).
+    CHATBOT_DATABASE_URL: str = ""
+    CHATBOT_DB_POOL_MIN_SIZE: int = 1
+    CHATBOT_DB_POOL_MAX_SIZE: int = 4
+    # run_query refuses a plan above this estimated cost (the team's default;
+    # our most expensive logged query was ~102K).
+    SQL_MAX_COST: int = 1_000_000
+    # PostgreSQL application_name on every megh_db connection, "<this>:<pool>"
+    # (app / readonly / chatbot / checkpointer). The DB team cannot tell builds
+    # apart without it (the 20 postgres sessions from 172.18.0.2, 2026-10-27).
+    # Blank = not set.
+    DB_APPLICATION_NAME: str = "megh-chatbot-v2"
 
     # ── Model gateway — all roles on the same self-hosted OpenAI-compatible vLLM
     #    gateway at 10.48.242.4, behind a self-signed "Enlight AIOps" internal CA.

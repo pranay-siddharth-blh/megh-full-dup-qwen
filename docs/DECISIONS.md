@@ -935,6 +935,41 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-073 — Generated SQL runs through `semantic.run_query` on the `megh_chatbot` login (2026-10-27)
+- **Date:** 2026-10-27. DB team's reply (megh_chatbot password, run_query `columns`, exact decimals); user: "check with the
+  changes we need to do. And make it".
+- **Decision:** `CHATBOT_DATABASE_URL` set -> `run_readonly` sends every guarded statement to `semantic.run_query` on a third
+  pool (4 per worker; the login's own cap 20). Fixed queries and catalog reads stay on megh_readonly (the team's rule).
+  Row values are restored to asyncpg's types — the answer checks treat Decimal / int / float differently — from run_query's
+  `types` if the team adds it (asked), else by describing the statement on megh_readonly (prepare = parse, no execution).
+  Refusals map onto the existing errors (AI_PIPELINE §execute step 4); the repair loop is unchanged (D-072).
+- **Rejected:** reading JSON numbers as-is (SUM(bigint) would become int instead of Decimal); a second run of the query for
+  `pg_typeof` (double cost).
+- **Evidence:** 584 recent generated statements: 582 identical rows + types, 2 same rows other order (no ORDER BY);
+  tests `tests/test_run_query_path_2026_10_27.py`.
+- **Rollback:** blank `CHATBOT_DATABASE_URL` and restart.
+- **Update (team's second reply, same day):** run_query now returns `types` (base names: `numeric`, `bigint`,
+  `character varying`, `double precision`, `timestamp with time zone`, arrays as `numeric[]`), also with no rows — used
+  directly, so the describe step on megh_readonly now runs only if `types` is ever missing. Up to 3 repairs is accepted by
+  the team (every attempt goes through run_query — it does, each repair calls run_readonly). Every connection now sets
+  `application_name` = `DB_APPLICATION_NAME:<pool>` (`megh-chatbot-v2:app|readonly|chatbot|checkpointer`) so the team
+  can tell builds apart in pg_stat_activity.
+- **Status:** Active.
+
+### D-072 — The DB team's plan check before each generated query; server limits end as "narrower question" (2026-10-27)
+- **Date:** 2026-10-27. The DB team's note "Database Changes and Next Actions for the Chatbot Team"; user: "fix the
+  issues raised because of the data changes … don't create new problems".
+- **Decision:** (1) call `semantic.check_query` as megh_readonly before `run_readonly` in `_execute_one_attempt`; act only on
+  `row_join` (repair). Fail-open, never opens a pool, `SQL_DB_PRECHECK` switch. (2) 57014 / 53400 from megh_readonly become
+  `QueryTooHeavyError(TimeoutError)`, so they end like our own timeout. (3) The repair loop is NOT changed (the team asks
+  for no retry on timeouts / 42501 and at most 2 repairs): a timeout was repaired into a working query on 2026-10-18 and no
+  42501 was ever logged; the 3-vs-2 question was sent to the team. (4) System-information functions refused by name and
+  prefix, not a full allow-list (it would refuse ordinary functions the model has not used yet).
+- **Not done (waiting on the team / the user):** `megh_chatbot` + `semantic.run_query` (JSON rows, no `$1` parameters),
+  `megh_app`, audit retention (KI-430).
+- **Evidence:** report `new_docs/DB_Changes_Impact_Report_2026-10-27.md`; tests `tests/test_db_changes_2026_10_27.py`.
+- **Status:** Active.
+
 ### D-071 — The data team's metric catalogue answers plain measure questions (2026-10-26)
 - **Date:** 2026-10-26. RAG plan B1 (metric / synonym detection) and A2 (same meaning, same answer). User: "implement all
   the parts one by one … don't create new problems, don't change any other code".

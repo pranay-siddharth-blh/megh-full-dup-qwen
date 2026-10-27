@@ -63,6 +63,7 @@ Fill in, at minimum:
 - `DATABASE_URL` — **use `megh_app`**, not the `postgres` superuser. Create it
   first with [sql/01_create_megh_app_role.sql](sql/01_create_megh_app_role.sql)
   (see *Database roles and retention* below)
+- `CHATBOT_DATABASE_URL` — **use `megh_chatbot`** (D-073; the key is exactly this — an unknown key like `DATABASE_URL_CHATBOT` makes settings refuse to load). `CHATBOT_DB_POOL_MAX_SIZE=4`. Startup logs `megh_db chatbot pool ready as 'megh_chatbot'`.
 - `READONLY_DATABASE_URL` — **use `megh_readonly`** (the key is `READONLY_DATABASE_URL`, not `DATABASE_URL_READONLY`; set `READONLY_DB_ALLOW_SUPERUSER=False`). Pools: `READONLY_DB_POOL_MAX_SIZE=4`, `DB_POOL_MAX_SIZE=4`, `PIPELINE_GRAPH_PG_POOL_MAX=2` per worker — 2 workers = 20, the ingestion team's limit for all workers together (2026-10-26). Restart the app after the ingestion team announces a database change (the catalog is read at startup).
   ([sql/03_readonly_role.sql](sql/03_readonly_role.sql)). Model-generated SQL
   runs only on this login; a superuser here is refused
@@ -247,7 +248,8 @@ access:
 | Pool | Setting | Role | Used for |
 |---|---|---|---|
 | app | `DATABASE_URL` | `megh_app` | the service's own `app.*` writes; trusted, parametrised queries |
-| read-only | `READONLY_DATABASE_URL` | `megh_readonly` | model-generated SQL only (`app/db.run_readonly`) |
+| read-only | `READONLY_DATABASE_URL` | `megh_readonly` | catalog reads at startup, the type description of a generated query (parse only), and generated SQL when `CHATBOT_DATABASE_URL` is blank |
+| chatbot | `CHATBOT_DATABASE_URL` | `megh_chatbot` | every model-generated query, as `semantic.run_query(sql, 1000, 1000000)` (D-073, 2026-10-27); the login can do nothing else |
 
 **[sql/01_create_megh_app_role.sql](sql/01_create_megh_app_role.sql)** — creates
 `megh_app`: SELECT-only on `curated.*` and `semantic.*`, USAGE on `public` (for
@@ -336,7 +338,8 @@ cap agreed with the ingestion team. After switching: restart, `/health`, the ful
 | Login | Per worker | Workers (1 dev + 2 VMs x 2) | Total | Cap |
 |---|---|---|---|---|
 | `megh_app` (`DATABASE_URL` + checkpointer) | 4 + 2 = 6 | 5 | 30 | 30 |
-| `megh_readonly` (generated SQL + catalog reads) | 4 | 5 | 20 | 20 |
+| `megh_readonly` (generated SQL + catalog reads) | 4 | 5 | 20 | 25 (raised by the team, VERIFIED 2026-10-27) |
+| `megh_chatbot` (only `semantic.run_query`; PLANNED for generated SQL, D-072) | — | — | — | 20, its own |
 
 The 31st `megh_app` connection is **refused, not queued**. Tell the ingestion team **before** adding a worker or a VM or
 raising any pool. These caps cover only this (LangGraph) build: while the old build (`megh-nlpservice` / Docker `megh-nlp`,

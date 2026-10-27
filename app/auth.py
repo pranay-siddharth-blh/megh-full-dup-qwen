@@ -268,6 +268,20 @@ def authorize(scope: UserScope, *, schemes: list[str], resolved_entities: dict,
         if (resolved_entities or {}).get("block"):
             want_b.add(str(resolved_entities["block"]).upper())
 
+        # A block officer whose block was never assigned has no area of their
+        # own: the block check below runs only when blocks are listed, so the
+        # account saw its whole district (ri-bhoi-bo, DB team review
+        # 2026-10-27, KI-429). Fail closed — statewide figures only, as for any
+        # restricted account that names no area — until a block is assigned.
+        if scope.role == "block_officer" and not allowed_b and (want_d or want_b or _finer(gran, "state")):
+            return AuthDecision(
+                False,
+                "Your block officer account has no block assigned yet, so area-level "
+                "data cannot be shown. Please ask your department administrator to "
+                "assign your block.",
+                gran, "geography",
+            )
+
         stray_d = {d for d in want_d if d not in allowed_d}
         if stray_d:
             return AuthDecision(

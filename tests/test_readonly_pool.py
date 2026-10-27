@@ -89,7 +89,8 @@ def test_generated_sql_uses_the_readonly_login_in_a_read_only_transaction(pools)
     (ro,) = made
     assert ro.dsn == "postgresql://megh_readonly:y@h/megh_db"
     assert ro.kw["server_settings"] == {"default_transaction_read_only": "on",
-                                        "search_path": "curated, semantic"}
+                                        "search_path": "curated, semantic",
+                                        "application_name": db.application_name("readonly")}
     assert ro.kw["max_size"] == settings.READONLY_DB_POOL_MAX_SIZE
     begin, fetch, end = ro.conn.log
     assert begin == ("begin", True)
@@ -102,7 +103,8 @@ def test_trusted_queries_stay_on_the_app_pool(pools):
     asyncio.run(db.fetch_rows("SELECT 1"))
     (app,) = made
     assert app.dsn == "postgresql://megh_app:x@h/megh_db"
-    assert "server_settings" not in app.kw
+    # not read-only, not pinned to curated / semantic: only its name (2026-10-27)
+    assert app.kw["server_settings"] == {"application_name": db.application_name("app")}
 
 
 def test_both_pools_are_separate(pools):

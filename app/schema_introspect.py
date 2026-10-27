@@ -38,7 +38,13 @@ _SUBJECT_TO_SCHEME = {"mgnrega": "MGNREGA", "pmay": "PMAY-G", "pmayg": "PMAY-G",
                       "cm elevate disbursement": "CM Elevate Legacy",
                       # Not one of our schemes: mapped so its rows are scoped
                       # OUT (an unmapped subject_area applies to every scheme).
-                      "nrlm": "NRLM"}
+                      # CMSS / Home Stay: their glossary terms ("combining CMSS
+                      # with Focus+", the DB team's 2026-10-27 relationship
+                      # rules) reached all six SQL prompts, pointing the
+                      # generator at v_cmss / v_homestay_legacy (KI-428).
+                      "nrlm": "NRLM", "cmss": "CMSS",
+                      "homestay": "Home Stay", "homestay_legacy": "Home Stay",
+                      "home stay": "Home Stay", "home_stay": "Home Stay"}
 
 # curated.v_data_coverage.scheme -> our scheme label (NRLM is not served here).
 _COVERAGE_TO_SCHEME = {"MGNREGA": "MGNREGA", "PMAY": "PMAY-G", "FOCUS_PLUS": "Focus Plus",
@@ -87,6 +93,10 @@ _TABLE_NAME_TO_SCHEME = {
     "producer_group": "Focus Legacy",
     "pg_entity_type": "Focus Legacy",
     "pg_bank_history": "Focus Legacy",
+    # Not our schemes: scoped OUT, like their glossary terms (KI-428). Without
+    # these, ~40 v_cmss / v_homestay_legacy column notes (ingestion 2026-10-26)
+    # went into every scheme's SQL prompt and spent its description budget.
+    "cmss": "CMSS", "homestay": "Home Stay", "nrlm": "NRLM",
 }
 
 

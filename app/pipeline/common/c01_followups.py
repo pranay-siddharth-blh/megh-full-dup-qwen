@@ -33,6 +33,7 @@ from app import sql_ast, turn_trace
 from app.config import settings
 from app.db import UnsafeSQLError, fetch_rows, run_readonly
 from app.db import DatabaseUnavailableError, is_connection_error as db_is_connection_error
+from app.db import precheck_readonly as db_precheck_readonly
 from app.entity_resolver import (
     Resolved,
     acronym_near_misses,

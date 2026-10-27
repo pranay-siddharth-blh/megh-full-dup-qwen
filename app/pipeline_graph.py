@@ -698,9 +698,13 @@ async def _open_saver():
     from langgraph.checkpoint.postgres.aio import AsyncPostgresSaver
     from psycopg.rows import dict_row
     from psycopg_pool import AsyncConnectionPool
+    from app import db
     pool = AsyncConnectionPool(_postgres_conninfo(dsn), min_size=1,
                                max_size=max(2, settings.PIPELINE_GRAPH_PG_POOL_MAX), open=False,
-                               kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row})
+                               kwargs={"autocommit": True, "prepare_threshold": 0, "row_factory": dict_row,
+                                       # which build / pool (db.application_name; DB team 2026-10-27)
+                                       **({"application_name": db.application_name("checkpointer")}
+                                          if db.application_name("checkpointer") else {})})
     await pool.open(wait=True, timeout=10)
     try:
         saver = AsyncPostgresSaver(pool, serde=_serde())

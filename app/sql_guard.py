@@ -74,7 +74,23 @@ _FORBIDDEN_FUNCTIONS = frozenset({
     "pg_advisory_lock", "pg_advisory_xact_lock", "pg_try_advisory_lock",
     "pg_notify", "query_to_xml", "query_to_xml_and_xmlschema", "table_to_xml",
     "cursor_to_xml",
+    # Server / session information (DB team review 2026-10-27, "reject
+    # system-catalog functions"): read-only, but nothing a scheme question needs.
+    # SQLGlot parses version() as CurrentVersion.
+    "current_setting", "version", "current_version", "current_database",
 })
+
+# Whole families refused by prefix (2026-10-27): every pg_* function (backend
+# pids, stats, file access, catalog lookups like pg_get_viewdef), large objects,
+# dblink, transaction ids and server / client addresses. Not one of the 657
+# distinct generated statements in app.query_audit calls any of them. A full
+# allow-list would also refuse ordinary functions the model has not used yet
+# (AVG, TO_CHAR, RANK ...), so the list of what IS allowed stays open.
+_FORBIDDEN_FUNCTION_PREFIXES = ("pg_", "lo_", "dblink", "txid_", "inet_")
+
+
+def _is_forbidden_function(name: str) -> bool:
+    return name in _FORBIDDEN_FUNCTIONS or name.startswith(_FORBIDDEN_FUNCTION_PREFIXES)
 
 
 def _parse_single(sql: str) -> exp.Expression:
@@ -140,7 +156,7 @@ def assert_readonly(sql: str, schemas: tuple[str, ...] | None = READONLY_SCHEMAS
         if isinstance(node, _FORBIDDEN_NODES):
             raise UnsafeSQLError(f"query contains a write/DDL operation ({node.key.upper()})",
                                  "write_operation")
-        if isinstance(node, exp.Func) and _function_name(node) in _FORBIDDEN_FUNCTIONS:
+        if isinstance(node, exp.Func) and _is_forbidden_function(_function_name(node)):
             raise UnsafeSQLError(f"query calls a forbidden function ({_function_name(node)})",
                                  "forbidden_function")
     if schemas is not None:
