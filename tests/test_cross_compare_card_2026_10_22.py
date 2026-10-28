@@ -11,6 +11,12 @@ the same way.
 
 Runs the real analytics.js in Node on the real cross_figures._rows output.
 Skipped when node is not installed.
+
+User report 2026-10-27: "Compare beneficiaries in mgnrega and PMAY-G" drew the card
+on amount (₹ crore) — the only column both rows had — and the table carried money,
+villages, sanctioned amounts and completed houses nobody asked for. Every scheme's
+count is now in one `beneficiaries` column and the table holds the asked measures
+only; the card picks the column of the measure the question names.
 """
 import json
 import shutil
@@ -25,9 +31,9 @@ _ANALYTICS = (Path(__file__).resolve().parents[1] / "frontend" / "src" / "chat" 
 _NODE = shutil.which("node")
 
 
-def _rows() -> list[dict]:
+def _rows(measures=("count",)) -> list[dict]:
     p = cf.Plan(schemes=["MGNREGA", "PMAY-G"], by_district=False, districts=None, block=None, year=None,
-                measures=["count"], op="leader")
+                measures=list(measures), op="leader")
     figs = {"MGNREGA": {cf.STATE: {"ben": 1494437, "money": 3200.5, "villages": 6500}},
             "PMAY-G": {cf.STATE: {"ben": 180000, "completed": 150000, "money": 1500.2, "sanctioned": 2000.1,
                                   "villages": 5800}}}
@@ -42,20 +48,46 @@ def _js(expr: str, rows: list[dict]) -> object:
     return json.loads(out.stdout)
 
 
-@pytest.mark.skipif(not _NODE, reason="node not installed")
-def test_compare_card_uses_a_figure_both_schemes_have():
+def test_a_count_question_gets_only_the_count_in_one_shared_column():
     rows = _rows()
-    assert "households_given_work" in rows[0] and "households_given_work" not in rows[1]
-    card = _js("a.buildAnalytics('MGNREGA vs PMAY-G households', rows, null)", rows)
+    assert rows == [{"scheme": "MGNREGA", "beneficiaries": 1494437},
+                    {"scheme": "PMAY-G", "beneficiaries": 180000}]
+
+
+def test_a_money_question_gets_only_the_money_columns():
+    rows = _rows(("money",))
+    assert rows == [{"scheme": "MGNREGA", "amount_crore": 3200.5},
+                    {"scheme": "PMAY-G", "amount_crore": 1500.2, "sanctioned_crore": 2000.1}]
+
+
+@pytest.mark.skipif(not _NODE, reason="node not installed")
+def test_compare_card_compares_beneficiaries_when_asked():
+    rows = _rows()
+    card = _js("a.buildAnalytics('Compare beneficiaries in mgnrega and PMAY-G.', rows, null)", rows)
     assert card["kind"] == "compare"
     assert card["a"]["value"] > 0 and card["b"]["value"] > 0          # never "PMAY-G 0"
-    assert card["a"]["value"] == 3200.5 and card["b"]["value"] == 1500.2
+    assert card["a"]["value"] == 1494437 and card["b"]["value"] == 180000
+    assert card["measure"] == "beneficiaries"
 
 
 @pytest.mark.skipif(not _NODE, reason="node not installed")
-def test_table_shows_every_schemes_count_column():
-    cols = _js("a.tableColumns(rows)", _rows())
-    assert "households_given_work" in cols and "houses_sanctioned" in cols and "sanctioned_crore" in cols
+def test_compare_card_follows_the_measure_the_question_names():
+    rows = _rows(("count", "money"))
+    card = _js("a.buildAnalytics('Compare amount spent in MGNREGA and PMAY-G', rows, null)", rows)
+    assert card["a"]["value"] == 3200.5 and card["b"]["value"] == 1500.2
+    card = _js("a.buildAnalytics('Compare beneficiaries and amount in MGNREGA and PMAY-G', rows, null)", rows)
+    assert card["a"]["value"] == 1494437                               # both named: the first column
+    # model-written SQL rows the same way: the asked measure, not the first column
+    sql_rows = [{"district": "A", "persondays": 10, "total_exp": 900}, {"district": "B", "persondays": 20, "total_exp": 700}]
+    assert _js("a.buildAnalytics('Compare expenditure of A and B', rows, null).a.value", sql_rows) == 900
+    assert _js("a.buildAnalytics('Compare A and B', rows, null).a.value", sql_rows) == 10
+    assert _js("a.buildAnalytics('Explain A vs B', rows, null).a.value", sql_rows) == 10   # "explain" is not money
+
+
+@pytest.mark.skipif(not _NODE, reason="node not installed")
+def test_table_shows_every_schemes_column():
+    cols = _js("a.tableColumns(rows)", _rows(("count", "money")))
+    assert cols == ["scheme", "beneficiaries", "amount_crore", "sanctioned_crore"]
 
 
 @pytest.mark.skipif(not _NODE, reason="node not installed")
