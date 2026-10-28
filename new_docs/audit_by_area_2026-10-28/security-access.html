@@ -1,0 +1,666 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Security &amp; access Audit</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: verdict first (honest assessment, corrections), then the merge plan, then the filterable task board, then the file matrix. */
+:root{
+  --bg:#f5f7f5; --surface:#ffffff; --sunk:#eaefeb; --fg:#17201b; --muted:#56635b; --line:#d3dbd5;
+  --accent:#1d6b55; --accent-soft:#dcefe7;
+  --crit:#b3261e; --crit-soft:#fbe4e1; --high:#b85c00; --high-soft:#fdebd8;
+  --med:#8a6d00; --med-soft:#f8f0cc; --low:#4b6478; --low-soft:#e3ebf1; --dec:#6a3fa0; --dec-soft:#eee5f8;
+  --ok:#2c7a3f; --ok-soft:#dff1e3;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(28px,4.6vw,42px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:24px;font-weight:600}
+h3{font-size:18px;font-weight:600}
+p{margin:0;max-width:74ch}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunk);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+a{color:var(--accent)}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+header{display:flex;flex-direction:column;gap:14px;border-bottom:2px solid var(--fg);padding-bottom:22px}
+.lede{font-size:17px;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:10px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.stat b{font:700 28px/1.1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{font-size:12.5px;color:var(--muted)}
+.stat.crit b{color:var(--crit)} .stat.high b{color:var(--high)} .stat.med b{color:var(--med)} .stat.low b{color:var(--low)}
+section{display:flex;flex-direction:column;gap:16px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.panel ol,.panel ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.verdict{border-left:4px solid var(--accent)}
+.prio{counter-reset:p;list-style:none;padding:0!important}
+.prio li{display:grid;grid-template-columns:auto auto auto 1fr;gap:10px;align-items:baseline}
+.prio li::before{counter-increment:p;content:counter(p);font:700 15px var(--f-display);color:var(--muted);width:1.4em;text-align:right}
+.idlink{font:600 13px var(--f-mono);text-decoration:none;white-space:nowrap}
+.pill{display:inline-block;font:600 11px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;padding:4px 7px;border-radius:999px;white-space:nowrap}
+.s-Critical{background:var(--crit-soft);color:var(--crit)} .s-High{background:var(--high-soft);color:var(--high)}
+.s-Medium{background:var(--med-soft);color:var(--med)} .s-Low{background:var(--low-soft);color:var(--low)} .s-Decision{background:var(--dec-soft);color:var(--dec)}
+.tag{font:500 11.5px var(--f-mono);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:2px 6px;white-space:nowrap}
+.tag.wave{color:var(--accent);border-color:var(--accent)}
+.controls{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{font:500 13px var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:5px 11px;border-radius:999px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.chip:focus-visible,.btn:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#q{flex:1 1 200px;min-width:0;font:14px var(--f-body);padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+select{font:14px var(--f-body);padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+.count{font:500 13px var(--f-mono);color:var(--muted);margin-left:auto}
+.btn{font:600 13px var(--f-body);border:1px solid var(--accent);color:var(--accent);background:transparent;padding:6px 12px;border-radius:7px;cursor:pointer}
+.btn:hover{background:var(--accent-soft)}
+.trackhead{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;padding-top:18px;border-top:1px solid var(--line)}
+.trackhead p{color:var(--muted);font-size:14px;flex-basis:100%}
+.tasks{display:flex;flex-direction:column;gap:12px}
+.task{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--low);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-width:0;scroll-margin-top:150px}
+.task.Critical{border-left-color:var(--crit)} .task.High{border-left-color:var(--high)} .task.Medium{border-left-color:var(--med)} .task.Decision{border-left-color:var(--dec)}
+.task:target{box-shadow:0 0 0 2px var(--accent)}
+.thead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tid{font:600 14px var(--f-mono)}
+.task h3{flex-basis:100%;font-size:19px}
+.status{font-size:13.5px;background:var(--ok-soft);color:var(--fg);border-radius:6px;padding:6px 10px}
+.status b{color:var(--ok)}
+.lbl{font:600 12px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:2px}
+.task details{border-top:1px dashed var(--line);padding-top:8px}
+.task summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.task ul{margin:6px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:5px}
+.task li{max-width:82ch}
+.dont li::marker{content:"✕  ";color:var(--crit)}
+.files li code{background:transparent;padding:0;color:var(--accent);font-weight:500}
+.tfoot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.after{font-size:13px;color:var(--muted)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--sunk)}
+.waves{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.wavebox{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.wavebox h3{font-size:16px}
+.wavebox .ids{display:flex;flex-wrap:wrap;gap:4px 8px}
+.wavebox p{font-size:13px;color:var(--muted)}
+.toast{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:14px}
+.note{font-size:13.5px;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.task{transition:box-shadow .2s}}
+
+.crumbs{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font:500 13px var(--f-mono)}
+.crumbs a{text-decoration:none}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.meta div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.meta b{display:block;font:600 11.5px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+pre.prompt{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px;font:12.5px/1.55 var(--f-mono);max-height:520px;overflow:auto;margin:0}
+.task details[open] summary{margin-bottom:4px}
+.idx td:first-child{white-space:nowrap}
+</style></head>
+<body><div class="wrap">
+<nav class="crumbs" aria-label="Areas"><a href="index.html">← Overview</a><b>Security & access</b><a href="context-memory.html">Context memory</a><a href="rag-knowledge-base.html">Knowledge base (RAG)</a><a href="composer-answer-text.html">Composer (answer text)</a><a href="frontend.html">Frontend</a><a href="nl2sql-scheme-rules.html">NL→SQL & scheme rules</a><a href="reliability-ops.html">Reliability & ops</a><a href="testing-evaluation.html">Testing & evaluation</a><a href="documentation.html">Documentation</a><a href="ingestion-team.html">Ingestion team</a></nav>
+<header>
+  <span class="eyebrow">Megh One AI audit v2 · 28 Oct 2026 · area SEC</span>
+  <h1>Security & access</h1>
+  <p class="lede">7 tasks in this area, in merge order. New KI ids for this area: KI-450–469. Each task is complete on this page: issue, solution, what not to do, evidence, files, tests, done-when, file overlaps, v1 corrections and the session prompt.</p>
+  <div class="stats"><div class="stat crit"><b>1</b><span>critical</span></div><div class="stat high"><b>4</b><span>high</span></div><div class="stat med"><b>1</b><span>medium</span></div><div class="stat low"><b>1</b><span>low</span></div></div>
+</header>
+<section>
+  <h2>Tasks in this area</h2>
+  <div class="tablewrap"><table class="idx"><thead><tr><th>Task</th><th>Severity</th><th>Wave</th><th>Title</th><th>Start after</th></tr></thead><tbody>
+  <tr><td><a class="idlink" href="#SEC-01">SEC-01</a></td><td><span class="pill s-Critical">Critical</span></td><td><span class="tag wave">W0</span></td><td>Purge personal data and credentials from git history, and clean the repo</td><td class="note">P0</td></tr><tr><td><a class="idlink" href="#SEC-02">SEC-02</a></td><td><span class="pill s-High">High</span></td><td><span class="tag wave">W1a</span></td><td>Close the geography leaks in authorize()</td><td class="note">-</td></tr><tr><td><a class="idlink" href="#SEC-04">SEC-04</a></td><td><span class="pill s-High">High</span></td><td><span class="tag wave">W1a</span></td><td>Stop tenant admins from taking over super_admin</td><td class="note">-</td></tr><tr><td><a class="idlink" href="#SEC-07">SEC-07</a></td><td><span class="pill s-High">High</span></td><td><span class="tag wave">W1a</span></td><td>Lock down Qdrant; fail-closed production boot that the dev box survives</td><td class="note">-</td></tr><tr><td><a class="idlink" href="#SEC-05">SEC-05</a></td><td><span class="pill s-Low">Low</span></td><td><span class="tag wave">W1a</span></td><td>Trust the right client IP; harden login and logout</td><td class="note">-</td></tr><tr><td><a class="idlink" href="#SEC-03">SEC-03</a></td><td><span class="pill s-High">High</span></td><td><span class="tag wave">W1b</span></td><td>Authorise the four fixed-answer paths</td><td class="note"><a class="idlink" href="security-access.html#SEC-02">SEC-02</a></td></tr><tr><td><a class="idlink" href="#SEC-06">SEC-06</a></td><td><span class="pill s-Medium">Medium</span></td><td><span class="tag wave">W1b</span></td><td>DB layer: acquire timeout, safe pool creation, tighter function block-list</td><td class="note"><a class="idlink" href="security-access.html#SEC-07">SEC-07</a></td></tr>
+  </tbody></table></div>
+</section>
+<section class="tasks"><article class="task Critical" id="SEC-01" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">SEC-01</span><span class="pill s-Critical">Critical</span><span class="tag wave">wave 0</span><span class="tag">KI-022</span><span class="tag">KI-023</span><span class="tag">KI-021</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Purge personal data and credentials from git history, and clean the repo</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Security & access</div>
+    <div><b>Wave</b>Wave 0: serial · step 1</div>
+    <div><b>Start after</b>P0 (commit the working tree)</div>
+    <div><b>Unblocks</b><a class="idlink" href="documentation.html#DOC-02">DOC-02</a></div>
+    <div><b>New KI ids</b>KI-450–469</div>
+  </div>
+  <div class="status"><b>CONFIRMED</b> from git metadata. File contents were never opened.</div>
+  <div><span class="lbl">The issue</span>The raw Focus Legacy CSV (unmasked account numbers and names) is deleted from the tree but is still in the history on origin/Main and six other remote branches. Four more things are in the history as well:<ul><li><code>Use_Cases_-_Focus.csv</code>, added and deleted in the same commits (contents unknown);</li><li><code>config/users.yaml</code> (dde9337) with 3 password lines;</li><li><code>app/users.yaml</code>, still tracked, with 2 real passwords plus a published default;</li><li><code>tests/ui_headless/token_sa.txt</code>, a tracked JWT signed with the real secret. It has expired, but it allows offline guessing of the secret.</li></ul></div>
+  <div><span class="lbl">The solution</span><ul><li><b>Rotate first.</b> Change the superadmin and rd-admin passwords on both VMs and rotate <code>JWT_SECRET</code>. This is the real fix for credentials; purging history is secondary.</li><li>Run one <code>git filter-repo</code> with <code>--path "Focus Legacy to share to BLH.csv" --path Use_Cases_-_Focus.csv --path tests/ui_headless/token_sa.txt --invert-paths</code>, plus <code>--replace-text</code> for the <code>password:</code> lines in both <code>users.yaml</code> files. In the same rewrite, move <code>reference_documents/</code> to LFS or shared storage; that is the only way the pack actually shrinks.</li><li>Force-push every branch, have everyone re-clone, ask Bitbucket for a GC or support purge, and review forks and access.</li><li>Seeding: remove the default password. A seed record without a password or env hash is skipped with a warning, and the log line that prints the default goes.</li><li>Run <code>git rm</code> on the strays. Add <code>/*.csv</code>, <code>.claude/</code>, <code>frontend/undefined/</code> and <code>tests/ui_headless/token*.txt</code> to <code>.gitignore</code>. No other task edits <code>.gitignore</code>.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Fixing an "exporter undefined path" bug. That bug does not exist: the files came from an external headless script.</li><li>Adding a <code>must_change_password</code> flag in this task. It needs a column, the login flow and the UI. Track it separately if wanted.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li><code>git log --all -- "Focus Legacy to share to BLH.csv"</code> shows 7064ab6 (added) and 9952770 (deleted). It is reachable from origin/Main, origin/HEAD, fix/ci-pipeline, meghalaya-import and update/2026-10-13, -10-20 and -10-24.</li><li><code>app/users.yaml</code>: line 7 is a comment that publishes the default (changeme123); lines 21 and 27 are real <code>password:</code> fields. <code>appdb._seed_users_from_yaml</code> (209-244) uses the default at :228 and logs it at :244.</li><li>Strays found: <code>.claude/settings.json</code> (another project's permissions), <code>frontend/undefined/*.xlsx</code>, <code>frontend/pie_*.png</code> and a 0-byte root <code>constants.js</code>. The pack is 312 MB, of which 101.5 MiB is <code>reference_documents/</code>.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>git history</code></li><li><code>app/users.yaml</code></li><li><code>app/appdb.py</code> · _seed_users_from_yaml</li><li><code>.gitignore</code> · all new patterns</li><li><code>tests/ui_headless/.gitignore</code></li></ul></details>
+  <details open><summary>Done when</summary><ul><li>On a fresh clone, <code>git log --all</code> for each purged path is empty.</li><li>No <code>password:</code> literal remains in the tracked tree.</li><li>A pytest calls the real <code>_seed_users_from_yaml</code> with a fake DB and shows a record without a password is skipped.</li><li>The old passwords and the old JWT secret no longer work on the VMs.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/appdb.py</code> (you: _seed_users_from_yaml)<ul><li><a class="idlink" href="security-access.html#SEC-05">SEC-05</a> <span class="tag wave">W1a</span> additive DDL, update_user bump: later wave</li><li><a class="idlink" href="context-memory.html#CTX-04">CTX-04</a> <span class="tag wave">W2</span> purge SQL: merges <b>after</b> you</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>SEC-01:</b> Missed <code>config/users.yaml</code>, <code>Use_Cases_-_Focus.csv</code> and the tracked JWT. Line 7 is a comment. Put rotation behind the purge. <i>Now:</i> Expanded. Rotation first. Absorbs the QA-04 strays and all <code>.gitignore</code> work.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for SEC-01</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-SEC-01">Copy session prompt</button></div>
+  <pre class="prompt" id="p-SEC-01">TASK SEC-01: Purge personal data and credentials from git history, and clean the repo
+Repo: meghoneai (Megh One AI). Area: Security &amp; access. Severity: Critical. Wave: 0. Related: KI-022, KI-023, KI-021.
+Start only after these are merged into Main: P0 (the uncommitted KI-437/KI-438 working tree is committed to Main). Then create branch task/sec-01 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+CONFIRMED from git metadata. File contents were never opened.
+
+THE ISSUE
+The raw Focus Legacy CSV (unmasked account numbers and names) is deleted from the tree but is still in the history on origin/Main and six other remote branches. Four more things are in the history as well:
+  - Use_Cases_-_Focus.csv, added and deleted in the same commits (contents unknown);
+  - config/users.yaml (dde9337) with 3 password lines;
+  - app/users.yaml, still tracked, with 2 real passwords plus a published default;
+  - tests/ui_headless/token_sa.txt, a tracked JWT signed with the real secret. It has expired, but it allows offline guessing of the secret.
+
+EVIDENCE
+- git log --all -- "Focus Legacy to share to BLH.csv" shows 7064ab6 (added) and 9952770 (deleted). It is reachable from origin/Main, origin/HEAD, fix/ci-pipeline, meghalaya-import and update/2026-10-13, -10-20 and -10-24.
+- app/users.yaml: line 7 is a comment that publishes the default (changeme123); lines 21 and 27 are real password: fields. appdb._seed_users_from_yaml (209-244) uses the default at :228 and logs it at :244.
+- Strays found: .claude/settings.json (another project's permissions), frontend/undefined/*.xlsx, frontend/pie_*.png and a 0-byte root constants.js. The pack is 312 MB, of which 101.5 MiB is reference_documents/.
+
+THE SOLUTION
+- Rotate first. Change the superadmin and rd-admin passwords on both VMs and rotate JWT_SECRET. This is the real fix for credentials; purging history is secondary.
+- Run one git filter-repo with --path "Focus Legacy to share to BLH.csv" --path Use_Cases_-_Focus.csv --path tests/ui_headless/token_sa.txt --invert-paths, plus --replace-text for the password: lines in both users.yaml files. In the same rewrite, move reference_documents/ to LFS or shared storage; that is the only way the pack actually shrinks.
+- Force-push every branch, have everyone re-clone, ask Bitbucket for a GC or support purge, and review forks and access.
+- Seeding: remove the default password. A seed record without a password or env hash is skipped with a warning, and the log line that prints the default goes.
+- Run git rm on the strays. Add /*.csv, .claude/, frontend/undefined/ and tests/ui_headless/token*.txt to .gitignore. No other task edits .gitignore.
+
+DO NOT
+- Fixing an "exporter undefined path" bug. That bug does not exist: the files came from an external headless script.
+- Adding a must_change_password flag in this task. It needs a column, the login flow and the UI. Track it separately if wanted.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- git history
+- app/users.yaml
+- app/appdb.py: _seed_users_from_yaml
+- .gitignore: all new patterns
+- tests/ui_headless/.gitignore
+
+DONE WHEN
+- On a fresh clone, git log --all for each purged path is empty.
+- No password: literal remains in the tracked tree.
+- A pytest calls the real _seed_users_from_yaml with a fake DB and shows a record without a password is skipped.
+- The old passwords and the old JWT secret no longer work on the VMs.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_sec01_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your SEC-01 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-450–469. New decisions as "D-SEC-01". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task High" id="SEC-02" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">SEC-02</span><span class="pill s-High">High</span><span class="tag wave">wave 1a</span><span class="tag">KI-007</span><span class="tag">KI-421</span><span class="tag">new</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Close the geography leaks in authorize()</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Security & access</div>
+    <div><b>Wave</b>Wave 1a: parallel</div>
+    <div><b>Start after</b>nothing (wave start)</div>
+    <div><b>Unblocks</b><a class="idlink" href="security-access.html#SEC-03">SEC-03</a></div>
+    <div><b>New KI ids</b>KI-450–469</div>
+  </div>
+  <div class="status"><b>REPRODUCED</b> with real <code>auth.authorize</code> calls for a district officer pinned to EAST KHASI HILLS.</div>
+  <div><span class="lbl">The issue</span><code>authorize</code> only checks that the district or block values named in the SQL are allowed. So <code>&lt;&gt;</code>, <code>NOT IN</code>, <code>OR 1=1</code>, an unfiltered <code>UNION</code> branch, a CTE with <code>OR … IS NOT NULL</code>, and a block from another district are all allowed. Worse, no trick is needed: <code>GROUP BY block_name_raw</code>, <code>district_name_raw</code> or <code>ac_name</code> is treated as statewide, so an ordinary "Focus Plus beneficiaries by block" shows a district officer every block in the state. There are three fail-open scope bugs as well:<ul><li>a scheme-name typo grants all six schemes;</li><li>an unknown role falls back to the analyst role (all geography);</li><li>a bogus <code>granularity_cap</code> crashes every question with <code>ValueError</code>.</li></ul></div>
+  <div><span class="lbl">The solution</span><ul><li>Add a new <code>sql_ast</code> function. For every SELECT that reads a base view directly, it returns the EQ and IN geo predicates found among the top-level AND conjuncts of its WHERE. NOT, NEQ, LIKE and OR never count.</li><li>For a geo-restricted user at finer-than-state grain, require every such SELECT to carry one, with all values allowed. A block counts only if <code>entity_resolver.block_parent_district</code> is an allowed district.</li><li>Add one geo-column registry in auth.py and use it in <code>infer_granularity</code>, <code>_districts_in_sql</code> and <code>_blocks_in_sql</code>: district = <code>lgd_district</code>, <code>district_name_raw</code>; block = <code>lgd_block</code>, <code>block_name_raw</code>; AC = <code>ac_name</code>, <code>assembly_constituency_name</code>, counted at block level.</li><li>In <code>scope_from_user</code>: an empty scheme intersection gives []; the cap is the coarser of the role cap and the user cap; an unknown cap is ignored; an unknown role gets public.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Changing <code>filter_values</code>. It has 13 other callers.</li><li>Injecting the scope predicate with <code>transform</code>. The views use different geo column names, and the result rows would change.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li><code>sql_ast.filter_values</code> (:325) walks every comparison, including NEQ and Not(In), without regard to AND or OR.</li><li>auth.py:172 (role fallback), :177 (<code>or schemes</code>), :191 (the user cap can widen the role cap).</li><li>An unfiltered <code>GROUP BY lgd_district</code> and <code>LIKE '%'</code> are already denied correctly.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/auth.py</code> · scope_from_user, infer_granularity, _districts_in_sql, _blocks_in_sql, authorize, new registry</li><li><code>app/sql_ast.py</code> · one new function, appended after filter_values</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>Every bypass listed above is denied, each with a test calling the real <code>authorize</code>.</li><li>"Beneficiaries by block" for a district officer returns only their blocks, or is denied.</li><li><code>tests/test_security.py</code> (a script) and <code>test_sql_ast.py</code> stay green.</li><li>Check for an import cycle between auth and entity_resolver.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/auth.py</code> (you: scope_from_user, infer_granularity, _districts_in_sql, _blocks_in_sql, authorize, new registry)<ul><li><a class="idlink" href="context-memory.html#CTX-04">CTX-04</a> <span class="tag wave">W2</span> audit writer, delete read_audit: later wave</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>SEC-02:</b> Missed that plain "by block" questions leak via <code>block_name_raw</code> and <code>ac_name</code>. Proposed changing <code>filter_values</code> (13 callers) or injecting predicates. <i>Now:</i> New positive-filter function; registry; fail-closed scope.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for SEC-02</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-SEC-02">Copy session prompt</button></div>
+  <pre class="prompt" id="p-SEC-02">TASK SEC-02: Close the geography leaks in authorize()
+Repo: meghoneai (Megh One AI). Area: Security &amp; access. Severity: High. Wave: 1a. Related: KI-007, KI-421, new.
+Start only after these are merged into Main: nothing. Then create branch task/sec-02 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+REPRODUCED with real auth.authorize calls for a district officer pinned to EAST KHASI HILLS.
+
+THE ISSUE
+authorize only checks that the district or block values named in the SQL are allowed. So &lt;&gt;, NOT IN, OR 1=1, an unfiltered UNION branch, a CTE with OR … IS NOT NULL, and a block from another district are all allowed. Worse, no trick is needed: GROUP BY block_name_raw, district_name_raw or ac_name is treated as statewide, so an ordinary "Focus Plus beneficiaries by block" shows a district officer every block in the state. There are three fail-open scope bugs as well:
+  - a scheme-name typo grants all six schemes;
+  - an unknown role falls back to the analyst role (all geography);
+  - a bogus granularity_cap crashes every question with ValueError.
+
+EVIDENCE
+- sql_ast.filter_values (:325) walks every comparison, including NEQ and Not(In), without regard to AND or OR.
+- auth.py:172 (role fallback), :177 (or schemes), :191 (the user cap can widen the role cap).
+- An unfiltered GROUP BY lgd_district and LIKE '%' are already denied correctly.
+
+THE SOLUTION
+- Add a new sql_ast function. For every SELECT that reads a base view directly, it returns the EQ and IN geo predicates found among the top-level AND conjuncts of its WHERE. NOT, NEQ, LIKE and OR never count.
+- For a geo-restricted user at finer-than-state grain, require every such SELECT to carry one, with all values allowed. A block counts only if entity_resolver.block_parent_district is an allowed district.
+- Add one geo-column registry in auth.py and use it in infer_granularity, _districts_in_sql and _blocks_in_sql: district = lgd_district, district_name_raw; block = lgd_block, block_name_raw; AC = ac_name, assembly_constituency_name, counted at block level.
+- In scope_from_user: an empty scheme intersection gives []; the cap is the coarser of the role cap and the user cap; an unknown cap is ignored; an unknown role gets public.
+
+DO NOT
+- Changing filter_values. It has 13 other callers.
+- Injecting the scope predicate with transform. The views use different geo column names, and the result rows would change.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/auth.py: scope_from_user, infer_granularity, _districts_in_sql, _blocks_in_sql, authorize, new registry
+- app/sql_ast.py: one new function, appended after filter_values
+
+DONE WHEN
+- Every bypass listed above is denied, each with a test calling the real authorize.
+- "Beneficiaries by block" for a district officer returns only their blocks, or is denied.
+- tests/test_security.py (a script) and test_sql_ast.py stay green.
+- Check for an import cycle between auth and entity_resolver.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_sec02_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your SEC-02 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-450–469. New decisions as "D-SEC-02". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task High" id="SEC-04" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">SEC-04</span><span class="pill s-High">High</span><span class="tag wave">wave 1a</span><span class="tag">KI-418</span><span class="tag">KI-420</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Stop tenant admins from taking over super_admin</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Security & access</div>
+    <div><b>Wave</b>Wave 1a: parallel</div>
+    <div><b>Start after</b>nothing (wave start)</div>
+    <div><b>Unblocks</b>no task waits on this</div>
+    <div><b>New KI ids</b>KI-450–469</div>
+  </div>
+  <div class="status"><b>CONFIRMED</b>, and worse than v1 said.</div>
+  <div><span class="lbl">The issue</span>A tenant admin can do three things to a super_admin:<ul><li>PATCH any user, the super_admin included, to the super_admin role;</li><li>deactivate the super_admin;</li><li>worst, reset the super_admin's password through <code>UpdateUser.password</code>.</li></ul>All seeded users share one tenant, so the tenant check does not protect anyone. Combined with the rd-admin seed password in git history, this is a full takeover path. Separately, the stats cards ignore the user's scheme list.</div>
+  <div><span class="lbl">The solution</span><ul><li>In <code>update_user</code> and <code>deactivate_user</code>, return 403 when the target is a super_admin, or the body sets <code>role=super_admin</code>, and the caller is not cross-tenant. Forbid changing your own role.</li><li>Add Pydantic validators to <code>NewUser</code> and <code>UpdateUser</code>: role in <code>ROLE_PERMISSIONS</code>; schemes a subset of the six; cap in <code>GRANULARITY_ORDER</code>. Import those constants from auth; do not edit auth.py.</li><li>Stats: filter the cards by <code>scope.schemes</code> when responding. The shared cache stays.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Per-district stats cards. Statewide totals are allowed for every role, so they add no protection.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>routers/admin.py:115-126 <code>update_user</code> checks only that the role exists and the tenant matches. The super_admin check exists only in <code>create_user</code> (:101).</li><li>appdb.update_user:333-335 applies the password.</li><li>stats.py:161-178 serves the cards. They are statewide aggregates, which every role may see, so only the scheme filter is missing.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/routers/admin.py</code> · models, update_user, deactivate_user</li><li><code>app/routers/stats.py</code> · scheme_stats</li><li><code>tests/test_admin_api_2026_10_28.py</code> · new</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>A tenant admin gets 403 on PATCH, password reset or deactivate of a super_admin.</li><li>Bad role, scheme or cap values return 422.</li><li>A PMAY-G-only user sees one card.</li></ul></details>
+  
+  <details open><summary>What changed from v1</summary><ul><li><b>SEC-04:</b> Missed the super_admin password reset, the worst part. Proposed per-district stats cards (not needed). <i>Now:</i> Severity confirmed High; scheme filter only for stats.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for SEC-04</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-SEC-04">Copy session prompt</button></div>
+  <pre class="prompt" id="p-SEC-04">TASK SEC-04: Stop tenant admins from taking over super_admin
+Repo: meghoneai (Megh One AI). Area: Security &amp; access. Severity: High. Wave: 1a. Related: KI-418, KI-420.
+Start only after these are merged into Main: nothing. Then create branch task/sec-04 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+CONFIRMED, and worse than v1 said.
+
+THE ISSUE
+A tenant admin can do three things to a super_admin:
+  - PATCH any user, the super_admin included, to the super_admin role;
+  - deactivate the super_admin;
+  - worst, reset the super_admin's password through UpdateUser.password.All seeded users share one tenant, so the tenant check does not protect anyone. Combined with the rd-admin seed password in git history, this is a full takeover path. Separately, the stats cards ignore the user's scheme list.
+
+EVIDENCE
+- routers/admin.py:115-126 update_user checks only that the role exists and the tenant matches. The super_admin check exists only in create_user (:101).
+- appdb.update_user:333-335 applies the password.
+- stats.py:161-178 serves the cards. They are statewide aggregates, which every role may see, so only the scheme filter is missing.
+
+THE SOLUTION
+- In update_user and deactivate_user, return 403 when the target is a super_admin, or the body sets role=super_admin, and the caller is not cross-tenant. Forbid changing your own role.
+- Add Pydantic validators to NewUser and UpdateUser: role in ROLE_PERMISSIONS; schemes a subset of the six; cap in GRANULARITY_ORDER. Import those constants from auth; do not edit auth.py.
+- Stats: filter the cards by scope.schemes when responding. The shared cache stays.
+
+DO NOT
+- Per-district stats cards. Statewide totals are allowed for every role, so they add no protection.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/routers/admin.py: models, update_user, deactivate_user
+- app/routers/stats.py: scheme_stats
+- tests/test_admin_api_2026_10_28.py: new
+
+DONE WHEN
+- A tenant admin gets 403 on PATCH, password reset or deactivate of a super_admin.
+- Bad role, scheme or cap values return 422.
+- A PMAY-G-only user sees one card.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_sec04_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your SEC-04 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-450–469. New decisions as "D-SEC-04". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task High" id="SEC-07" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">SEC-07</span><span class="pill s-High">High</span><span class="tag wave">wave 1a</span><span class="tag">KI-200</span><span class="tag">KI-015</span><span class="tag">KI-024</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Lock down Qdrant; fail-closed production boot that the dev box survives</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Security & access</div>
+    <div><b>Wave</b>Wave 1a: parallel</div>
+    <div><b>Start after</b>nothing (wave start)</div>
+    <div><b>Unblocks</b><a class="idlink" href="security-access.html#SEC-06">SEC-06</a>, <a class="idlink" href="nl2sql-scheme-rules.html#SQL-08">SQL-08</a>, <a class="idlink" href="rag-knowledge-base.html#RAG-06">RAG-06</a></div>
+    <div><b>New KI ids</b>KI-450–469</div>
+  </div>
+  <div class="status"><b>CONFIRMED</b> config facts. Not verified: that Qdrant answers without a key, which needs a live check. The v1 boot guard would have bricked the dev box.</div>
+  <div><span class="lbl">The issue</span><b>Qdrant:</b> it runs on a public IP over plain HTTP with no API key, and holds both the KB and officers' chat memory. Anyone who reaches it can plant KB text that the bot will repeat.<br><b>TLS:</b> gateway TLS is never verified, because the CA bundle path is set but the file is missing.<br><b>Boot:</b> production boots with only a log line for a default JWT secret, <code>AUTH_ENABLED=false</code> or voice recording switched on.<br><b>The trap:</b> <code>ENV</code> defaults to <code>prod</code>, and the dev box runs with <code>ENV=prod</code>, a missing CA and <code>ASR_DEBUG_DIR</code> set. A naive "refuse to start in prod" guard would stop the dev box.</div>
+  <div><span class="lbl">The solution</span><ul><li>Infra: give Qdrant an API key plus a firewall. It is a shared server that also holds the six <code>Metadata_*</code> collections, so coordinate with their owner.</li><li>Operator step first: set <code>ENV=dev</code> in the dev <code>.env</code>.</li><li>Then add <code>AUTH_ENABLED=false</code>, <code>ASR_DEBUG_DIR</code> set and CA missing to <code>insecure_secrets</code>. Have <code>lifespan</code> raise when <code>ENV=="prod"</code> and the list is not empty. Keep the Qdrant-key item warn-only until the infra work is done.</li><li>Drop <code>'unsafe-inline'</code> from <code>script-src</code>; the built HTML has only module scripts.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Merging the boot guard before the dev <code>.env</code> says <code>ENV=dev</code>.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>config.py:327 is the Qdrant URL, config.py:20 sets <code>ENV="prod"</code>, :47 has <code>'unsafe-inline'</code> and :683-699 is <code>insecure_secrets</code>.</li><li>llm.py:42-80 sets <code>verify=False</code> whenever the file is missing.</li><li>main.py:64-69 only logs.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/config.py</code> · insecure_secrets, CSP_ENFORCE</li><li><code>app/main.py</code> · lifespan guard (first in the main.py order)</li><li><code>app/llm.py</code> · _get_ssl_verify</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>Prod boot fails with a default secret, and dev boots.</li><li>An unauthenticated <code>GET /collections</code> on Qdrant is refused.</li><li><code>tests/test_security.py</code> is extended to cover the guard.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/config.py</code> (you: insecure_secrets, CSP_ENFORCE)<ul><li><a class="idlink" href="reliability-ops.html#REL-02">REL-02</a> <span class="tag wave">W0</span> model_config, delete 4 dead fields: earlier wave</li><li><a class="idlink" href="security-access.html#SEC-05">SEC-05</a> <span class="tag wave">W1a</span> TRUSTED_PROXIES line 70: same wave, separate region</li><li><a class="idlink" href="reliability-ops.html#REL-01">REL-01</a> <span class="tag wave">W1a</span> APP_BUILD (next to the Redis settings): same wave, separate region</li><li><a class="idlink" href="security-access.html#SEC-06">SEC-06</a> <span class="tag wave">W1b</span> DB_POOL_ACQUIRE_TIMEOUT next to the pool settings: merges <b>after</b> you</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-05">RAG-05</a> <span class="tag wave">W2</span> startup warning near the RAG settings: merges <b>after</b> you</li><li><a class="idlink" href="composer-answer-text.html#CMP-03">CMP-03</a> <span class="tag wave">W2</span> PROMPT_BUDGET_COMPOSER_TOKENS (line 669): later wave</li><li><a class="idlink" href="frontend.html#UI-02">UI-02</a> <span class="tag wave">W2</span> CSP font hosts: later wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-06">RAG-06</a> <span class="tag wave">W3</span> SCHEMA_RAG_* settings in a new block next to the RAG settings: merges <b>after</b> you</li><li><a class="idlink" href="reliability-ops.html#REL-04">REL-04</a> <span class="tag wave">W3</span> RAISE_INTERNAL_ERRORS: later wave</li></ul></li><li><code>app/main.py</code> (you: lifespan guard (first in the main.py order))<ul><li><a class="idlink" href="nl2sql-scheme-rules.html#SQL-08">SQL-08</a> <span class="tag wave">W1b</span> lifespan retry task, health components (second in the main.py order): merges <b>after</b> you</li><li><a class="idlink" href="context-memory.html#CTX-04">CTX-04</a> <span class="tag wave">W2</span> purge task (third in the main.py order): merges <b>after</b> you</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-04">RAG-04</a> <span class="tag wave">W2</span> health flag (fourth in the main.py order): merges <b>after</b> you</li><li><a class="idlink" href="reliability-ops.html#REL-03">REL-03</a> <span class="tag wave">W3</span> logging config, health (last in the main.py order): merges <b>after</b> you</li></ul></li><li><code>app/llm.py</code> (you: _get_ssl_verify)<ul><li><a class="idlink" href="reliability-ops.html#REL-02">REL-02</a> <span class="tag wave">W0</span> _slot, call_model: earlier wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-02">RAG-02</a> <span class="tag wave">W1b</span> call_response_composer signature: later wave</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>SEC-07:</b> The boot guard would have stopped the dev box (<code>ENV</code> defaults to prod). <i>Now:</i> <code>ENV=dev</code> operator step first; Qdrant key warn-only until infra.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for SEC-07</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-SEC-07">Copy session prompt</button></div>
+  <pre class="prompt" id="p-SEC-07">TASK SEC-07: Lock down Qdrant; fail-closed production boot that the dev box survives
+Repo: meghoneai (Megh One AI). Area: Security &amp; access. Severity: High. Wave: 1a. Related: KI-200, KI-015, KI-024.
+Start only after these are merged into Main: nothing. Then create branch task/sec-07 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+CONFIRMED config facts. Not verified: that Qdrant answers without a key, which needs a live check. The v1 boot guard would have bricked the dev box.
+
+THE ISSUE
+Qdrant: it runs on a public IP over plain HTTP with no API key, and holds both the KB and officers' chat memory. Anyone who reaches it can plant KB text that the bot will repeat.
+TLS: gateway TLS is never verified, because the CA bundle path is set but the file is missing.
+Boot: production boots with only a log line for a default JWT secret, AUTH_ENABLED=false or voice recording switched on.
+The trap: ENV defaults to prod, and the dev box runs with ENV=prod, a missing CA and ASR_DEBUG_DIR set. A naive "refuse to start in prod" guard would stop the dev box.
+
+EVIDENCE
+- config.py:327 is the Qdrant URL, config.py:20 sets ENV="prod", :47 has 'unsafe-inline' and :683-699 is insecure_secrets.
+- llm.py:42-80 sets verify=False whenever the file is missing.
+- main.py:64-69 only logs.
+
+THE SOLUTION
+- Infra: give Qdrant an API key plus a firewall. It is a shared server that also holds the six Metadata_* collections, so coordinate with their owner.
+- Operator step first: set ENV=dev in the dev .env.
+- Then add AUTH_ENABLED=false, ASR_DEBUG_DIR set and CA missing to insecure_secrets. Have lifespan raise when ENV=="prod" and the list is not empty. Keep the Qdrant-key item warn-only until the infra work is done.
+- Drop 'unsafe-inline' from script-src; the built HTML has only module scripts.
+
+DO NOT
+- Merging the boot guard before the dev .env says ENV=dev.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/config.py: insecure_secrets, CSP_ENFORCE
+- app/main.py: lifespan guard (first in the main.py order)
+- app/llm.py: _get_ssl_verify
+
+DONE WHEN
+- Prod boot fails with a default secret, and dev boots.
+- An unauthenticated GET /collections on Qdrant is refused.
+- tests/test_security.py is extended to cover the guard.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_sec07_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your SEC-07 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-450–469. New decisions as "D-SEC-07". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task Low" id="SEC-05" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">SEC-05</span><span class="pill s-Low">Low</span><span class="tag wave">wave 1a</span><span class="tag">KI-014</span><span class="tag">KI-016</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Trust the right client IP; harden login and logout</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Security & access</div>
+    <div><b>Wave</b>Wave 1a: parallel</div>
+    <div><b>Start after</b>nothing (wave start)</div>
+    <div><b>Unblocks</b><a class="idlink" href="reliability-ops.html#REL-03">REL-03</a></div>
+    <div><b>New KI ids</b>KI-450–469</div>
+  </div>
+  <div class="status"><b>REPRODUCED</b> (<code>net.client_ip</code>). Severity lowered: nginx already rate-limits logins on the real IP, and role changes already take effect at once.</div>
+  <div><span class="lbl">The issue</span>The app trusts the first <code>X-Forwarded-For</code> hop, which the client controls. So the app-level per-IP limiter and the audit IP can be spoofed. Spoofed IPs also grow the rate-limit table without bound. nginx itself resolves the real IP correctly and caps logins at 1 r/s. Two smaller gaps: unknown and inactive usernames skip the password hash, which allows timing enumeration; and a password change or logout does not revoke existing tokens.</div>
+  <div><span class="lbl">The solution</span><ul><li>When the peer is trusted, read <code>X-Real-IP</code>, falling back to the right-most XFF hop. Change the <code>TRUSTED_PROXIES</code> default to <code>127.0.0.1,::1</code>, and update DEPLOYMENT.md:114/311.</li><li>Run a dummy <code>verify_password</code> for unknown users. Use <code>hmac.compare_digest</code> in bootstrap. Add a per-username backoff delay, not a hard lockout, which would let anyone lock an officer out.</li><li>Add a <code>token_version</code> column, bump it on password change and logout, and check it in <code>current_scope</code>.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>A hard account lockout.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>net.py:46-55.</li><li><code>deploy/nginx/nginx-megh-langgraph.conf:105</code> already sends <code>X-Real-IP $remote_addr</code>; <code>real_ip_*</code> is at lines 38-41.</li><li>config.py:70 trusts all RFC1918 ranges by default.</li><li>deps.py:41-44 re-reads the user row on every request, so role and deactivation changes are already live.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/net.py</code></li><li><code>app/routers/auth.py</code> · login, bootstrap, logout</li><li><code>app/deps.py</code> · current_scope</li><li><code>app/appdb.py</code> · additive DDL, update_user bump</li><li><code>app/config.py</code> · TRUSTED_PROXIES line 70</li><li><code>deploy/DEPLOYMENT.md</code> · trusted proxies text</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>From a trusted peer, <code>XFF: 1.2.3.4, &lt;real&gt;</code> resolves to the real IP.</li><li>An old token fails after a password change.</li><li>Login takes the same time for unknown and wrong-password users.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/appdb.py</code> (you: additive DDL, update_user bump)<ul><li><a class="idlink" href="security-access.html#SEC-01">SEC-01</a> <span class="tag wave">W0</span> _seed_users_from_yaml: earlier wave</li><li><a class="idlink" href="context-memory.html#CTX-04">CTX-04</a> <span class="tag wave">W2</span> purge SQL: later wave</li></ul></li><li><code>app/config.py</code> (you: TRUSTED_PROXIES line 70)<ul><li><a class="idlink" href="reliability-ops.html#REL-02">REL-02</a> <span class="tag wave">W0</span> model_config, delete 4 dead fields: earlier wave</li><li><a class="idlink" href="security-access.html#SEC-07">SEC-07</a> <span class="tag wave">W1a</span> insecure_secrets, CSP_ENFORCE: same wave, separate region</li><li><a class="idlink" href="reliability-ops.html#REL-01">REL-01</a> <span class="tag wave">W1a</span> APP_BUILD (next to the Redis settings): same wave, separate region</li><li><a class="idlink" href="security-access.html#SEC-06">SEC-06</a> <span class="tag wave">W1b</span> DB_POOL_ACQUIRE_TIMEOUT next to the pool settings: later wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-05">RAG-05</a> <span class="tag wave">W2</span> startup warning near the RAG settings: later wave</li><li><a class="idlink" href="composer-answer-text.html#CMP-03">CMP-03</a> <span class="tag wave">W2</span> PROMPT_BUDGET_COMPOSER_TOKENS (line 669): later wave</li><li><a class="idlink" href="frontend.html#UI-02">UI-02</a> <span class="tag wave">W2</span> CSP font hosts: later wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-06">RAG-06</a> <span class="tag wave">W3</span> SCHEMA_RAG_* settings in a new block next to the RAG settings: later wave</li><li><a class="idlink" href="reliability-ops.html#REL-04">REL-04</a> <span class="tag wave">W3</span> RAISE_INTERNAL_ERRORS: later wave</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>SEC-05:</b> Said role changes are not revoked; they are live. Ignored that nginx already rate-limits on the real IP. Proposed a hard lockout (DoS risk). <i>Now:</i> Lowered to Low; backoff, not lockout.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for SEC-05</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-SEC-05">Copy session prompt</button></div>
+  <pre class="prompt" id="p-SEC-05">TASK SEC-05: Trust the right client IP; harden login and logout
+Repo: meghoneai (Megh One AI). Area: Security &amp; access. Severity: Low. Wave: 1a. Related: KI-014, KI-016.
+Start only after these are merged into Main: nothing. Then create branch task/sec-05 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+REPRODUCED (net.client_ip). Severity lowered: nginx already rate-limits logins on the real IP, and role changes already take effect at once.
+
+THE ISSUE
+The app trusts the first X-Forwarded-For hop, which the client controls. So the app-level per-IP limiter and the audit IP can be spoofed. Spoofed IPs also grow the rate-limit table without bound. nginx itself resolves the real IP correctly and caps logins at 1 r/s. Two smaller gaps: unknown and inactive usernames skip the password hash, which allows timing enumeration; and a password change or logout does not revoke existing tokens.
+
+EVIDENCE
+- net.py:46-55.
+- deploy/nginx/nginx-megh-langgraph.conf:105 already sends X-Real-IP $remote_addr; real_ip_* is at lines 38-41.
+- config.py:70 trusts all RFC1918 ranges by default.
+- deps.py:41-44 re-reads the user row on every request, so role and deactivation changes are already live.
+
+THE SOLUTION
+- When the peer is trusted, read X-Real-IP, falling back to the right-most XFF hop. Change the TRUSTED_PROXIES default to 127.0.0.1,::1, and update DEPLOYMENT.md:114/311.
+- Run a dummy verify_password for unknown users. Use hmac.compare_digest in bootstrap. Add a per-username backoff delay, not a hard lockout, which would let anyone lock an officer out.
+- Add a token_version column, bump it on password change and logout, and check it in current_scope.
+
+DO NOT
+- A hard account lockout.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/net.py
+- app/routers/auth.py: login, bootstrap, logout
+- app/deps.py: current_scope
+- app/appdb.py: additive DDL, update_user bump
+- app/config.py: TRUSTED_PROXIES line 70
+- deploy/DEPLOYMENT.md: trusted proxies text
+
+DONE WHEN
+- From a trusted peer, XFF: 1.2.3.4, &lt;real&gt; resolves to the real IP.
+- An old token fails after a password change.
+- Login takes the same time for unknown and wrong-password users.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_sec05_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your SEC-05 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-450–469. New decisions as "D-SEC-05". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task High" id="SEC-03" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">SEC-03</span><span class="pill s-High">High</span><span class="tag wave">wave 1b</span><span class="tag">KI-419</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Authorise the four fixed-answer paths</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Security & access</div>
+    <div><b>Wave</b>Wave 1b: parallel</div>
+    <div><b>Start after</b><a class="idlink" href="security-access.html#SEC-02">SEC-02</a></div>
+    <div><b>Unblocks</b>no task waits on this</div>
+    <div><b>New KI ids</b>KI-450–469</div>
+  </div>
+  <div class="status"><b>CONFIRMED</b> for 4 of 5 paths. v1 was wrong on <code>_mgnrega_admin_expenditure_answer</code>, which does go through authorize.</div>
+  <div><span class="lbl">The issue</span>Four fixed answers return figures without <code>authorize</code>. The most reachable is the cross-scheme by-district ranking, which shows every district to any officer.<ul><li>Focus Legacy PG-name lookup: it returns each group's district and block.</li><li>Focus Plus overall summary: it includes the top district.</li><li><code>cross_figures.answer</code> inside <code>_cross_scheme_scope</code>, which has no <code>scope</code> argument.</li><li>MGNREGA women-unrecorded: it uses the resolved place.</li></ul></div>
+  <div><span class="lbl">The solution</span><ul><li>Reuse <code>_repaired_sql_denial</code> plus <code>_denied</code> at each site. Add a <code>scope</code> parameter to <code>_cross_scheme_scope</code> and its single call.</li><li>Cross path: authorize <code>_res["sql"]</code> with <code>resolved</code> before returning. Focus Plus summary: authorize its fixed SQL. Women path: authorize <code>_mg_women["shown"]</code>.</li><li>PG-name path: do not authorize its SQL, because that would deny every lookup to district officers. Keep the rows whose district is allowed, after the scheme check.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Changing <code>cross_figures.py</code>; it is not needed.</li><li>Inserting code between <code>_mg_det = _mg_admin or (</code> and <code>d.update(mg_admin=_mg_admin</code>; a test slices that span.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>The call sites are c13:1002, :1145, :1579 (in <code>_cross_scheme_scope</code>, called at :1094) and :1649.</li><li><code>_repaired_sql_denial(scope, schemes, entity_result, sql)</code> (c11:1609) already wraps the scope, <code>AUTH_ENABLED</code> and the logging. <code>_denied()</code> is at c13:503.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/pipeline/common/c13_compose_and_data_stages.py</code> · _data_scheme_stage (~1002), _data_clarification_stage (~1145), _cross_scheme_scope + its call (~1094, 1579), _data_deterministic_stage (~1649)</li></ul><p class="note" style="margin-top:6px"><b>Tests that pin this source (update deliberately, never delete):</b></p><ul><li>test_measure_not_held.py:133 and test_scheme_years.py:75 (source of _data_scheme_stage)</li><li>test_metric_catalog_2026_10_26.py:220 (slices c13)</li><li>test_mgnrega_usecase_fixes.py:560 (source of _data_clarification_stage)</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>One denial test per path through <code>tests/_graph_turn.py</code>: a pinned district officer, and a user without the scheme.</li><li>Because SEC-02 makes authorize stricter, run every fixed path once as a geo-restricted user.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/pipeline/common/c13_compose_and_data_stages.py</code> (you: _data_scheme_stage (~1002), _data_clarification_stage (~1145), _cross_scheme_scope + its call (~1094, 1579), _data_deterministic_stage (~1649))<ul><li><a class="idlink" href="context-memory.html#CTX-09">CTX-09</a> <span class="tag wave">W0</span> D-065 block in _data_clarification_stage (~1205): earlier wave</li><li><a class="idlink" href="composer-answer-text.html#CMP-01">CMP-01</a> <span class="tag wave">W1b</span> compose_response check block (~211-270), _ONE_FIGURE_SCHEMES: same wave, separate region</li><li><a class="idlink" href="nl2sql-scheme-rules.html#SQL-03">SQL-03</a> <span class="tag wave">W1b</span> _data_per_scheme_rows loop: same wave, separate region</li><li><a class="idlink" href="composer-answer-text.html#CMP-03">CMP-03</a> <span class="tag wave">W2</span> compose_response prompt period line only: later wave</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>SEC-03:</b> Listed 5 paths; the admin-expenditure path is authorised. Proposed changing <code>cross_figures.py</code>. <i>Now:</i> 4 paths; reuse <code>_repaired_sql_denial</code>; PG lookup filters rows.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for SEC-03</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-SEC-03">Copy session prompt</button></div>
+  <pre class="prompt" id="p-SEC-03">TASK SEC-03: Authorise the four fixed-answer paths
+Repo: meghoneai (Megh One AI). Area: Security &amp; access. Severity: High. Wave: 1b. Related: KI-419.
+Start only after these are merged into Main: SEC-02. Then create branch task/sec-03 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+CONFIRMED for 4 of 5 paths. v1 was wrong on _mgnrega_admin_expenditure_answer, which does go through authorize.
+
+THE ISSUE
+Four fixed answers return figures without authorize. The most reachable is the cross-scheme by-district ranking, which shows every district to any officer.
+  - Focus Legacy PG-name lookup: it returns each group's district and block.
+  - Focus Plus overall summary: it includes the top district.
+  - cross_figures.answer inside _cross_scheme_scope, which has no scope argument.
+  - MGNREGA women-unrecorded: it uses the resolved place.
+
+EVIDENCE
+- The call sites are c13:1002, :1145, :1579 (in _cross_scheme_scope, called at :1094) and :1649.
+- _repaired_sql_denial(scope, schemes, entity_result, sql) (c11:1609) already wraps the scope, AUTH_ENABLED and the logging. _denied() is at c13:503.
+
+THE SOLUTION
+- Reuse _repaired_sql_denial plus _denied at each site. Add a scope parameter to _cross_scheme_scope and its single call.
+- Cross path: authorize _res["sql"] with resolved before returning. Focus Plus summary: authorize its fixed SQL. Women path: authorize _mg_women["shown"].
+- PG-name path: do not authorize its SQL, because that would deny every lookup to district officers. Keep the rows whose district is allowed, after the scheme check.
+
+DO NOT
+- Changing cross_figures.py; it is not needed.
+- Inserting code between _mg_det = _mg_admin or ( and d.update(mg_admin=_mg_admin; a test slices that span.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/pipeline/common/c13_compose_and_data_stages.py: _data_scheme_stage (~1002), _data_clarification_stage (~1145), _cross_scheme_scope + its call (~1094, 1579), _data_deterministic_stage (~1649)
+
+TESTS THAT PIN THIS SOURCE (update deliberately, never delete)
+- test_measure_not_held.py:133 and test_scheme_years.py:75 (source of _data_scheme_stage)
+- test_metric_catalog_2026_10_26.py:220 (slices c13)
+- test_mgnrega_usecase_fixes.py:560 (source of _data_clarification_stage)
+
+DONE WHEN
+- One denial test per path through tests/_graph_turn.py: a pinned district officer, and a user without the scheme.
+- Because SEC-02 makes authorize stricter, run every fixed path once as a geo-restricted user.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_sec03_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your SEC-03 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-450–469. New decisions as "D-SEC-03". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task Medium" id="SEC-06" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">SEC-06</span><span class="pill s-Medium">Medium</span><span class="tag wave">wave 1b</span><span class="tag">KI-004</span><span class="tag">KI-026</span><span class="tag">D-073</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">DB layer: acquire timeout, safe pool creation, tighter function block-list</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Security & access</div>
+    <div><b>Wave</b>Wave 1b: parallel</div>
+    <div><b>Start after</b><a class="idlink" href="security-access.html#SEC-07">SEC-07</a></div>
+    <div><b>Unblocks</b>no task waits on this</div>
+    <div><b>New KI ids</b>KI-450–469</div>
+  </div>
+  <div class="status"><b>REPRODUCED</b> (<code>sql_guard</code> calls) and <b>CONFIRMED</b>. Severity lowered to Medium: fixed SQL is app-written and parameter-bound. There are 62 call sites; v1 said about 45.</div>
+  <div><span class="lbl">The issue</span>Three gaps in the DB layer:<ul><li><code>pool.acquire()</code> has no timeout anywhere, so a stuck pool hangs requests indefinitely.</li><li>The lazy <code>ensure_*_pool</code> calls take no lock. After an outage, concurrent first requests each build a pool and leak the extras against the 20-connection caps.</li><li><code>sql_guard</code> lets <code>has_table_privilege</code>, <code>to_regclass</code>, <code>current_schemas</code>, <code>current_user</code>, <code>xpath</code>, <code>current_query()</code> and schema-qualified calls such as <code>semantic.run_query(...)</code> through.</li></ul>The 62 fixed curated queries run as the <code>postgres</code> superuser.</div>
+  <div><span class="lbl">The solution</span><ul><li>Wrap every acquire in <code>asyncio.timeout(DB_POOL_ACQUIRE_TIMEOUT)</code> and map a timeout to <code>DatabaseUnavailableError</code> (503). Put a per-pool <code>asyncio.Lock</code> around each lazy create.</li><li><code>sql_guard</code>: refuse any schema-qualified function call; block the <code>has_</code>, <code>to_reg</code> and <code>current_schema</code> prefixes and <code>xpath</code>.</li><li><b>Superuser:</b> first run every fixed query live as <code>megh_readonly</code>. Its column denials, statement timeout and 10-connection pool may break the heavy ones (cross_figures, stats). Only then route curated-only queries there inside <code>fetch_rows</code>, with no silent fallback on error 42501. Alternatively switch <code>DATABASE_URL</code> to the <code>megh_app</code> role with the DB team.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Routing fixed queries to <code>megh_readonly</code> without the live inventory run.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>db.py:248-274 (<code>ensure_*</code>); every <code>acquire</code> from :290 to :468.</li><li><code>sql_guard._FORBIDDEN_FUNCTION_PREFIXES</code>.</li><li>The dev <code>DATABASE_URL</code> user is postgres; <code>CHATBOT_DATABASE_URL</code> is blank.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/db.py</code> · ensure_* functions, every acquire, fetch_rows (routing, later)</li><li><code>app/sql_guard.py</code> · _FORBIDDEN_FUNCTION_PREFIXES, assert_readonly</li><li><code>app/config.py</code> · DB_POOL_ACQUIRE_TIMEOUT next to the pool settings</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>Ten concurrent <code>ensure_readonly_pool</code> calls create one pool.</li><li>Guard tests cover each new block.</li><li>The live inventory is recorded before any routing change.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/config.py</code> (you: DB_POOL_ACQUIRE_TIMEOUT next to the pool settings)<ul><li><a class="idlink" href="reliability-ops.html#REL-02">REL-02</a> <span class="tag wave">W0</span> model_config, delete 4 dead fields: earlier wave</li><li><a class="idlink" href="security-access.html#SEC-05">SEC-05</a> <span class="tag wave">W1a</span> TRUSTED_PROXIES line 70: earlier wave</li><li><a class="idlink" href="security-access.html#SEC-07">SEC-07</a> <span class="tag wave">W1a</span> insecure_secrets, CSP_ENFORCE: merges <b>before</b> you</li><li><a class="idlink" href="reliability-ops.html#REL-01">REL-01</a> <span class="tag wave">W1a</span> APP_BUILD (next to the Redis settings): earlier wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-05">RAG-05</a> <span class="tag wave">W2</span> startup warning near the RAG settings: later wave</li><li><a class="idlink" href="composer-answer-text.html#CMP-03">CMP-03</a> <span class="tag wave">W2</span> PROMPT_BUDGET_COMPOSER_TOKENS (line 669): later wave</li><li><a class="idlink" href="frontend.html#UI-02">UI-02</a> <span class="tag wave">W2</span> CSP font hosts: later wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-06">RAG-06</a> <span class="tag wave">W3</span> SCHEMA_RAG_* settings in a new block next to the RAG settings: later wave</li><li><a class="idlink" href="reliability-ops.html#REL-04">REL-04</a> <span class="tag wave">W3</span> RAISE_INTERNAL_ERRORS: later wave</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>SEC-06:</b> Said about 45 call sites (62). Routing to <code>megh_readonly</code> without a live test could break heavy queries. <i>Now:</i> Medium; live inventory first.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for SEC-06</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-SEC-06">Copy session prompt</button></div>
+  <pre class="prompt" id="p-SEC-06">TASK SEC-06: DB layer: acquire timeout, safe pool creation, tighter function block-list
+Repo: meghoneai (Megh One AI). Area: Security &amp; access. Severity: Medium. Wave: 1b. Related: KI-004, KI-026, D-073.
+Start only after these are merged into Main: SEC-07. Then create branch task/sec-06 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+REPRODUCED (sql_guard calls) and CONFIRMED. Severity lowered to Medium: fixed SQL is app-written and parameter-bound. There are 62 call sites; v1 said about 45.
+
+THE ISSUE
+Three gaps in the DB layer:
+  - pool.acquire() has no timeout anywhere, so a stuck pool hangs requests indefinitely.
+  - The lazy ensure_*_pool calls take no lock. After an outage, concurrent first requests each build a pool and leak the extras against the 20-connection caps.
+  - sql_guard lets has_table_privilege, to_regclass, current_schemas, current_user, xpath, current_query() and schema-qualified calls such as semantic.run_query(...) through.The 62 fixed curated queries run as the postgres superuser.
+
+EVIDENCE
+- db.py:248-274 (ensure_*); every acquire from :290 to :468.
+- sql_guard._FORBIDDEN_FUNCTION_PREFIXES.
+- The dev DATABASE_URL user is postgres; CHATBOT_DATABASE_URL is blank.
+
+THE SOLUTION
+- Wrap every acquire in asyncio.timeout(DB_POOL_ACQUIRE_TIMEOUT) and map a timeout to DatabaseUnavailableError (503). Put a per-pool asyncio.Lock around each lazy create.
+- sql_guard: refuse any schema-qualified function call; block the has_, to_reg and current_schema prefixes and xpath.
+- Superuser: first run every fixed query live as megh_readonly. Its column denials, statement timeout and 10-connection pool may break the heavy ones (cross_figures, stats). Only then route curated-only queries there inside fetch_rows, with no silent fallback on error 42501. Alternatively switch DATABASE_URL to the megh_app role with the DB team.
+
+DO NOT
+- Routing fixed queries to megh_readonly without the live inventory run.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/db.py: ensure_* functions, every acquire, fetch_rows (routing, later)
+- app/sql_guard.py: _FORBIDDEN_FUNCTION_PREFIXES, assert_readonly
+- app/config.py: DB_POOL_ACQUIRE_TIMEOUT next to the pool settings
+
+DONE WHEN
+- Ten concurrent ensure_readonly_pool calls create one pool.
+- Guard tests cover each new block.
+- The live inventory is recorded before any routing change.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_sec06_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your SEC-06 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-450–469. New decisions as "D-SEC-06". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details></section>
+<section><div class="cols"><div class="panel">
+      <h3>Rules every session follows</h3>
+      <ul>
+        <li><b>Branch:</b> name it <code>task/&lt;id&gt;</code>. Cut it from Main only after the tasks listed in its "start after" have merged. Merge through the Bitbucket merge queue, which tests each PR on top of everything already queued.</li>
+        <li><b>Docs:</b> edit only your task's pre-made stub in CURRENT_STATE and HANDOFF (DOC-02 creates them) and your own KI detail sections. Never edit the KI summary table, the TESTING history table or the "Last updated" lines; the integrator updates those at merge.</li>
+        <li><b>Ids:</b> new KI ids come only from your track's range (shown on the board). New decisions are written as <code>D-&lt;task id&gt;</code>, and the integrator numbers them from D-074.</li>
+        <li><b>Pipeline helpers:</b> prefix every new pipeline name with your file and task, for example <code>_c11_sql01_</code>. A duplicate top-level name silently replaces the other one (KI-413). Run <code>tests/test_pipeline_namespace_2026_10_26.py</code> before every PR.</li>
+        <li><b><code>config.py</code> and <code>.env.example</code>:</b> add settings next to related ones, in their own commented block. Never add at the end of the class, and never reorder.</li>
+        <li><b>Frontend:</b> never commit <code>web/app</code>. Before a PR, <code>git diff --name-only origin/Main...HEAD -- web/app</code> must be empty. The integrator builds once after the last frontend merge.</li>
+        <li><b>Requirements:</b> only QA-02 (wave 0) edits the requirements files.</li>
+      </ul>
+    </div><div class="panel">
+      <h3>Integration checklist after each wave</h3>
+      <ol>
+        <li>Run the full pytest command from TESTING.md §2 (baseline 3,910 passed and 3 skipped at HEAD; about 3,932 once P0 is in). After QA-02, <code>pytest tests -q</code> must finish too.</li>
+        <li>Run all 14 script suites; all must pass.</li>
+        <li>Run the namespace test and the duplicate KI and D id tests (from QA-02).</li>
+        <li>Run <code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code> and commit <code>web/app</code>. The node card and table tests must pass, not skip.</li>
+        <li>On the VPN: <code>live_context_validation.py</code> with caches on and off, <code>nl2sql_eval --fail-on-regression</code>, <code>rag_eval</code>, and one in-process answer per scheme as a district officer.</li>
+        <li>Restart on port 8401 and check <code>/health</code>, <code>/megh-chat</code> and <code>/admin-ui</code>.</li>
+        <li>Integrator only: update the KI table, the TESTING history and the "Last updated" lines.</li>
+      </ol>
+    </div></div></section>
+<nav class="crumbs" aria-label="Areas"><a href="index.html">← Overview</a><b>Security & access</b><a href="context-memory.html">Context memory</a><a href="rag-knowledge-base.html">Knowledge base (RAG)</a><a href="composer-answer-text.html">Composer (answer text)</a><a href="frontend.html">Frontend</a><a href="nl2sql-scheme-rules.html">NL→SQL & scheme rules</a><a href="reliability-ops.html">Reliability & ops</a><a href="testing-evaluation.html">Testing & evaluation</a><a href="documentation.html">Documentation</a><a href="ingestion-team.html">Ingestion team</a></nav>
+</div><script>
+document.addEventListener("click",function(e){var b=e.target.closest("[data-copy-pre]");if(!b)return;var pre=document.getElementById(b.getAttribute("data-copy-pre"));var t=pre.textContent;
+function sel(){var r=document.createRange();r.selectNodeContents(pre);var s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent="Selected, press Ctrl+C";}
+try{navigator.clipboard.writeText(t).then(function(){b.textContent="Copied";setTimeout(function(){b.textContent="Copy session prompt"},2000)},sel)}catch(err){sel()}});
+</script></body></html>

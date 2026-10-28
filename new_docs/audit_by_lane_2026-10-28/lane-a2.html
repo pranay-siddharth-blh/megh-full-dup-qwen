@@ -1,0 +1,380 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lane A2 Audit Report</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: four lanes side by side at the top, then setup, then one block per lane with its copyable prompt, then shared files and final integration. */
+:root{
+  --bg:#f5f7f5; --surface:#ffffff; --sunk:#eaefeb; --fg:#17201b; --muted:#56635b; --line:#d3dbd5;
+  --accent:#1d6b55; --accent-soft:#dcefe7;
+  --a1:#1d6b55; --a2:#2f6aa3; --b1:#8a5a00; --b2:#7a3f9a;
+  --warn:#9a4a00; --warn-soft:#fdebd8;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30; --a1:#5cc3a2; --a2:#7fb2e5; --b1:#e2b24f; --b2:#c99be6;
+  --warn:#ffb062; --warn-soft:#3a2714; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30; --a1:#5cc3a2; --a2:#7fb2e5; --b1:#e2b24f; --b2:#c99be6;
+  --warn:#ffb062; --warn-soft:#3a2714; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+.wrap{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(28px,4.6vw,42px);font-weight:700}
+h2{font-size:25px;font-weight:600}
+h3{font-size:18px;font-weight:600}
+p{margin:0;max-width:76ch}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunk);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+a{color:var(--accent)}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+header{display:flex;flex-direction:column;gap:14px;border-bottom:2px solid var(--fg);padding-bottom:22px}
+.lede{font-size:17px;color:var(--muted)}
+section{display:flex;flex-direction:column;gap:16px}
+.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.lane{background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.lane .who{font:600 12px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--c)}
+.lane ol{margin:0;padding-left:22px;font-size:14px;display:flex;flex-direction:column;gap:2px}
+.lane .meta{font-size:13px;color:var(--muted)}
+.A1{--c:var(--a1)} .A2{--c:var(--a2)} .B1{--c:var(--b1)} .B2{--c:var(--b2)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.panel ul,.panel ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.warnbox{border-left:4px solid var(--warn);background:var(--warn-soft)}
+.laneblock{border-top:1px solid var(--line);padding-top:22px;display:flex;flex-direction:column;gap:14px}
+.laneblock h2{color:var(--c)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--sunk)}
+td:first-child{white-space:nowrap;font-family:var(--f-mono);font-size:13px}
+.promptbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+pre.prompt{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px;font:12.5px/1.55 var(--f-mono);max-height:560px;overflow:auto;margin:0}
+.btn{font:600 13px var(--f-body);border:1px solid var(--accent);color:var(--accent);background:transparent;padding:6px 12px;border-radius:7px;cursor:pointer}
+.btn:hover{background:var(--accent-soft)}
+.btn:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+details summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.note{font-size:13.5px;color:var(--muted)}
+.tag{font:500 11.5px var(--f-mono);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:1px 6px;white-space:nowrap}
+
+.crumbs{display:flex;flex-wrap:wrap;gap:8px 16px;font:500 13px var(--f-mono)} .crumbs a{text-decoration:none}
+.task{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.thead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tid{font:600 14px var(--f-mono)}
+.ttl{flex-basis:100%;font-size:21px}
+.pill{font:600 11px/1 var(--f-mono);text-transform:uppercase;padding:4px 7px;border-radius:999px;background:var(--sunk);color:var(--fg)}
+.lbl{font:600 12px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:4px}
+.task ul{margin:4px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+.task p{margin:4px 0 0}
+.ev{border-top:1px dashed var(--line);padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.ev h4{margin:0;font:600 15px var(--f-display)}
+.status{font-size:13.5px;background:var(--sunk);border-radius:6px;padding:6px 10px}
+.tasks{display:flex;flex-direction:column;gap:14px}
+</style></head>
+<body><div class="wrap A2">
+<nav class="crumbs"><a href="index.html">← Lane plan &amp; setup</a><a href="lane-a1.html">Lane A1</a><b>Lane A2</b><a href="lane-b1.html">Lane B1</a><a href="lane-b2.html">Lane B2</a></nav>
+<header>
+  <span class="eyebrow">Lane audit report · 28 Oct 2026 · You · session 2</span>
+  <h1>Lane A2 · Conversation &amp; frontend</h1>
+  <p class="lede">10 tasks. Every task here depends only on earlier tasks in this lane, so this lane never waits for another. RAG tasks are left out of this round.</p>
+  <p><b>Owns:</b> <code>topic_memory</code>, <code>session_sync</code>, <code>session_store</code>, <code>conversation_store</code>, <code>conversation_memory</code>, the query and history routers, <code>context_policy</code>, <code>c01_followups</code>, <code>cache.py</code>, the conversation harness, and <b>the whole frontend, including <code>web/app</code></b>. A2 is the only lane that touches the UI, so it commits the rebuilt bundle with every frontend change.</p>
+  <p><b>Outside blockers, never waited on:</b> the VPN (CTX-07, QA-03) and your retention period (CTX-04a ships disabled until you choose one).</p>
+</header>
+<section>
+  <div class="promptbar"><h2>Session prompt</h2><button class="btn" type="button" data-copy="p-a2">Copy prompt</button></div>
+  <p class="note">Paste the whole prompt into a fresh Claude Code session, on the right machine, after setup is pushed. It holds the git, commit and doc rules and the file ownership, as well as the tasks.</p>
+  <pre class="prompt" id="p-a2">You are Claude Code session A2, one of FOUR parallel sessions on the meghoneai repo (Megh One AI). Lanes A1 and A2 run on one machine; B1 and B2 run on a colleague's machine; all four push to the same Bitbucket remote. You are lane A2, Conversation &amp; frontend.
+
+THE ONE RULE: no lane waits for another. Every task below depends only on earlier tasks in THIS list. Never pick up another lane's task.
+
+READ FIRST: CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md (including your "Lane A2" section; if it shows progress, resume at the first unfinished task). Your lane report, new_docs/audit_by_lane_2026-10-28/lane-a2.html, has the audit evidence for every task. The older area pages are in new_docs/audit_by_area_2026-10-28/. Where this prompt differs from that page, THIS PROMPT WINS.
+
+GIT, COMMIT AND CI RULES
+1. Branch lane/a2. First time: git fetch origin &amp;&amp; git switch -c lane/a2 origin/Main. After that: git switch lane/a2.
+2. Before each task: git fetch origin &amp;&amp; git rebase origin/Main. Resolve a conflict yourself only inside files or regions you own. Anywhere else, keep origin's version and re-apply only your own lines.
+3. Commit after EVERY change that leaves the tests you touched green. Stage only your files, by name (never git add -A or git add .). Message: "[A2][&lt;task id&gt;] &lt;what changed and why&gt;". Then: git push --force-with-lease origin lane/a2.
+4. Frontend: you are the ONLY lane that touches frontend/ and web/app/. After every frontend change, run npm run build in frontend/ and commit web/app in the same commit. CI checks the bundle matches the source.
+5. A task is finished when the full pytest command from docs/TESTING.md §2 and the 14 script suites are green. Then rebase on origin/Main, push, and open or update the PR lane/a2 → Main through the merge queue. Do not wait for it to merge; start the next task.
+6. Never push or force-push Main. Never commit .env, secrets or *.csv.
+7. If a test fails after a rebase, check whether it also fails on origin/Main. If it does, it belongs to another lane: note it under "Failing tests seen" in your HANDOFF lane section and carry on. If it fails only with your change, fix your change.
+8. If a fix needs a file or region you do not own, do not make it. Add it under "Requests for other lanes" in your HANDOFF lane section, commit, and move on.
+9. If something outside the code blocks part of a task (VPN, a user decision), do every other part, commit it, record the blocked part, and start the next task. Never sit idle and never guess a decision.
+
+PROJECT RULES (CLAUDE.md; never break)
+- Every fix gets a regression test that calls the real function.
+- No regex anywhere (D-046/D-047). Words via app/text_match.py; in JS, string methods.
+- Never change megh_db data or schema.
+- Change behaviour in stages, never in graph nodes.
+- The state the next turn needs must be in Session.to_snapshot().
+- New top-level names in app/pipeline get a file+task prefix (e.g. _c01_ctx07_). Run tests/test_pipeline_namespace_2026_10_26.py before committing pipeline changes.
+- Use .venv/Scripts/python.exe. Port 8401 only.
+
+DOCS RULES (the lane-safe form of CLAUDE.md §8)
+- Write notes only inside your "Lane A2" section of docs/CURRENT_STATE.md, HANDOFF.md, KNOWN_ISSUES.md, DECISIONS.md and TESTING.md, just above &lt;!-- end lane A2 --&gt;. Keep the "- Progress:" line current. Do not edit the rest of those five files.
+- New issue ids: only KI-480 to KI-509. New decisions: "D-A2-&lt;task id&gt;".
+- Area docs you may edit: docs/CONTEXT_AND_LANGGRAPH.md, docs/LANGGRAPH_PAUSE_RESUME.md, docs/LANGGRAPH_ARCHITECTURE.md. Any other doc change goes in your HANDOFF lane section.
+- End every task with the CLAUDE.md §8 summary in the chat.
+
+FILES YOU OWN (other lanes touch only the regions named)
+- app/topic_memory.py, app/session_sync.py, app/session_store.py, app/conversation_store.py, app/conversation_memory.py.
+- app/routers/query.py, app/routers/history.py.
+- app/context_policy.py.
+- app/pipeline/common/c01_followups.py: lane B2 does not touch it in this plan.
+- app/cache.py, app/semantic_cache.py.
+- app/pipeline_graph.py: only a new public drop-thread helper near _drop_thread. Lane B1 edits the repair state and nodes.
+- app/appdb.py: only one new purge function, right after purge_user. Lane A1 owns the rest.
+- app/config.py: only ONE new block, placed right after the Redis/session settings (around SESSION_TTL_SECONDS). Lane A1 owns the rest.
+- frontend/**, web/app/**, tests/conversation_harness/**, tests/live_context_validation.py.
+
+YOUR TASKS, IN ORDER
+
+1. CTX-02 · Stop topic memory being wiped; fix "go back to &lt;place&gt;"  [context-memory.html#CTX-02]
+- Delete the stale-jump reset at topic_memory.py:401-404 and the matching module docstring lines 33-36.
+- parse_backward, "go back to" branch: accept a place-only target (entity_resolver.place_only) as BackRef(None, …).
+- resolve_reference: skip the model call for a bare-place ref with no ledger match.
+- Do not record mem['rev'] in sync_out.
+- Done: new tests/test_topic_rev_2026_10_28.py, using the real checkpoint and sync_out with a fake backend:
+  - a cache turn, layer small talk ("how are you?") and expiry-continue each keep every topic;
+  - on a seeded ledger, "go back to Mawphlang" restores FY 2023-24.
+
+2. CTX-01 + REL-02b · Conversation ownership, turn integrity, non-stream deadline  [context-memory.html#CTX-01]
+- Ownership:
+  - load_context_state also returns user_id;
+  - sync_in returns "foreign" without applying the snapshot;
+  - _answer returns 403 and logs it when the in-memory or the durable owner differs from scope.user_id, and sets a flag so _remember_stopped skips;
+  - SQL backstop: AND user_id IS NOT DISTINCT FROM $n in the upsert's ON CONFLICT … WHERE, in save_session_state and _persist_turn.
+- Concurrency: a router-level per-session asyncio.Lock dict, added as a wrapper. Keep the public name _answer and rename the inner function. Do NOT reuse the graph's lock; it is not re-entrant and would deadlock.
+- Cancel: snapshot the Session at turn start, and restore it in _remember_stopped before recording stopped_ctx.
+- Client (frontend/src/chat/api.js): the stream timeout becomes an inactivity timer reset by any chunk, pings included. Mint session ids with crypto.getRandomValues. Rebuild and commit web/app.
+- REL-02b: cap the NON-stream /api/query total timeout at 110 s (query.py ~279). Leave the streamed route alone.
+- Do not: namespace the graph thread_id by user; add 409 + retry; build a request_id dedup table.
+- Pinned tests to update deliberately: test_query_stream.py:227-228, test_context_hardening.py:252-255 (exactly 2 sync_out calls in _answer), test_history_charts.py:67-72.
+- Done:
+  - two users on one id: the second gets 403 and the owner's row is unchanged;
+  - two concurrent turns on one id are serialised;
+  - a cancel after context_update leaves the pre-turn state plus stopped_ctx.
+
+3. CTX-06 · Cache gate: test first, fix only disagreements  [context-memory.html#CTX-06]
+- Write a table test of the real is_cacheable over every follow-up shape in the harness YAMLs, plus standalone questions.
+- Fix only the cases that come out wrong. No turn-kind pre-pass refactor.
+
+4. CTX-04a · Delete that really deletes; retention purge  [context-memory.html#CTX-04]
+- Delete cascade, all called from the delete route in routers/history.py:
+  - conversation_memory.delete_session(tenant, user, session): filter Qdrant on all three;
+  - a public pipeline_graph helper around _drop_thread;
+  - SessionStore.drop().
+- Retention: add CONVERSATION_RETENTION_DAYS to your config block, default 0 meaning disabled until the user picks a period.
+  - New appdb function right after purge_user deletes conversations, conversation_turns and query_audit rows older than that.
+  - Call it from the EXISTING conversation_memory.purge_loop, which main.py already starts. Do not edit main.py.
+- Not yours: the audit JSONL rotation (lane A1). No snapshot size cap; it is already bounded.
+- Done:
+  - after a delete, the Qdrant points, the checkpoint thread and the Session are gone, and the same id starts empty;
+  - the purge function has a test;
+  - a 0 setting purges nothing.
+
+5. REL-01 · Redis failure backoff and a build stamp  [reliability-ops.html#REL-01]
+- cache._redis(): remember the failure time and skip reconnects for 30 s.
+- Add APP_BUILD (the git sha) to your config block and to REDIS_CACHE_PREFIX.
+- No admin flush endpoint.
+- Done: with Redis down, 20 concurrent gets make at most one connect attempt.
+
+6. UI-01 · Charts and comparison card  [frontend.html#UI-01]
+- The twin-column pivot and cell formatting are already fixed in Main (from setup). Do the rest:
+  - PivotGrid: no total when either dimension is scheme; no stacked or doughnut for scheme series;
+  - a non-additive measure defaults to bar, and pie and donut leave the switcher for it;
+  - nulls stay null (Chart.js skips them);
+  - compareVerdict: no verdict for cross-scheme count rows, "N points" for pct, and a short lower-is-better stem list;
+  - askedMeasureCol gets a pct group;
+  - the Clarify pill shows the full label when it contains " vs " (use includes).
+- Pinned: test_history_charts.py, test_ac_full_results.py. Extend tests/test_table_view_2026_10_28.py.
+- Rebuild and commit web/app.
+
+7. UI-02 · Accessibility, smooth streaming, "figures corrected" marker  [frontend.html#UI-02]
+- Use &lt;button type="button"&gt; for the clickable divs (Sidebar.jsx 152, 158, 162, 211; App.jsx 841).
+- Keep the streaming draft in a ref and batch tokens with requestAnimationFrame. Memoise BotMessage and UserMessage.
+- Honour ?api= only when import.meta.env.DEV is set.
+- Self-host the fonts in frontend/index.html and admin.html. Leave the CSP in config.py alone (lane A1).
+- Hide lone *_key and *_code columns with a columns.js helper, but keep them in the Excel export.
+- Show a small "figures checked and corrected" note when the final text differs from the draft (reveal.js already has commonWordPrefix).
+- Delete the dead RouteBadge.
+- Pinned: test_asr_transcribe.py:48, test_history_charts.py.
+- Rebuild and commit web/app.
+
+8. CTX-07 · Follow-up rewrite fixes (needs the VPN)  [context-memory.html#CTX-07]
+- First reproduce live through pipeline.answer_question and log the rewritten question for each case:
+  - KI-363: "break it down by district" after a statewide answer;
+  - KI-364: "compare … with Ri Bhoi";
+  - KI-416: "FY20?" after a houses answer.
+- Then fix where the fault is:
+  - breakdown: the follow-up becomes a GROUP BY question;
+  - compare-with: a deterministic rewrite to the previous place plus X, same measure and year; document why it does not conflict with D-056;
+  - bare year: carry state.metric forward, and have context_policy.rewrite_violation reject a metric-family change when the follow-up named no measure.
+- Edit c01 rewrites near _comparison_swap only; leave _KNOWLEDGE_HINTS and _BREAKDOWN_CUE alone.
+- If the fault is in SQL generation (c10/c11), that is lane B1's: add a request instead.
+- Never add scheme or metric to the provenance filter.
+- Without the VPN: write the real-function tests you can, and record the live part.
+
+9. QA-03 · Live context runs that can catch cache, ownership and cross-VM bugs (VPN)  [testing-evaluation.html#QA-03]
+- The in-process harness driver calls sync_out and sync_in between turns.
+- live_context_validation writes a dated result file.
+- The driver can share one session id across two accounts. Add scenarios P1 (ownership) and P2 (topic, cache hit, go back).
+- Pause on VM1 and resume on VM2.
+- Re-run J2 and J3 for KI-037.
+- Without the VPN: build the driver changes and scenarios, and record the live runs.
+
+10. DOC-01b · Context docs  [documentation.html#DOC-01]
+- Rewrite docs/CONTEXT_AND_LANGGRAPH.md: topics, idle expiry, turn kind, caches, ownership (403).
+- docs/LANGGRAPH_PAUSE_RESUME.md: remove "sequential path" (lines 50, 66 and 96).
+- Fix the stale comments in session_store.py (10-11, 130) and topic_memory.py:486.
+- The stale comment at config.py:390-393 belongs to lane A1: add a request.
+
+When all 10 are done: set your Progress line to "Lane A2 complete", make sure the PR is merged or queued, and tell the user.</pre>
+</section>
+<section>
+  <h2>Tasks, in order</h2>
+  <div class="tasks"><article class="task High" id="CTX-02">
+      <div class="thead"><span class="tid">1. CTX-02</span><span class="pill s-High">High</span><h2 class="ttl">Stop topic memory being wiped; fix "go back to &lt;place&gt;"</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Delete the stale-jump reset at topic_memory.py:401-404 and the matching module docstring lines 33-36.</li><li>parse_backward, "go back to" branch: accept a place-only target (entity_resolver.place_only) as BackRef(None, …).</li><li>resolve_reference: skip the model call for a bare-place ref with no ledger match.</li><li>Do not record mem['rev'] in sync_out.</li><li>Done: new tests/test_topic_rev_2026_10_28.py, using the real checkpoint and sync_out with a fake backend:<ul><li>a cache turn, layer small talk ("how are you?") and expiry-continue each keep every topic;</li><li>on a seeded ledger, "go back to Mawphlang" restores FY 2023-24.</li></ul></li></ul></div>
+      <div class="ev"><h4>Audit evidence · CTX-02: Stop topic memory being wiped, and fix "go back to &lt;place&gt;"</h4>
+        
+        <div class="status"><b>REPRODUCED</b> with the real <code>checkpoint</code> and <code>sync_out</code> against a fake backend. Corrections from v1: "thanks" does not trigger the wipe; the KI-318 cause was wrong.</div>
+        <div><span class="lbl">The issue</span><code>topic_memory.checkpoint</code> wipes every topic when the revision jumps by more than one. Every saved turn bumps the revision, but only graph turns run checkpoint. So these all wipe the topics:<ul><li>a cache hit;</li><li>small talk handled by the conversation layer ("how are you?");</li><li>a typed "stop" with nothing running;</li><li>an early Stop;</li><li>every "Continue with …" tap after idle expiry, which restores a stale copy and keeps only one topic.</li></ul>After a wipe, "go back to MGNREGA", the topic chips and digression recovery stop working. Separately, "go back to Mawphlang" never reaches the ledger, because <code>parse_backward</code> rejects a bare place name.</div>
+        <details open><summary>Evidence</summary><ul><li>topic_memory.py:401-404 does the reset. Its reason ("another worker served turns") is obsolete: topics travel in the same durable snapshot.</li><li><code>test_cache_hit_context.py:59</code> replaces <code>sync_out</code> with a no-op, and the in-process harness never calls it. That is why no test caught this.</li><li><code>parse_backward("go back to Mawphlang")</code> returns None, while "go back to the Mawphlang one" works. <code>_score</code> already matches places correctly.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task Medium" id="CTX-01">
+      <div class="thead"><span class="tid">2. CTX-01 + REL-02b</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Conversation ownership, turn integrity, non-stream deadline</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Ownership:<ul><li>load_context_state also returns user_id;</li><li>sync_in returns "foreign" without applying the snapshot;</li><li>_answer returns 403 and logs it when the in-memory or the durable owner differs from scope.user_id, and sets a flag so _remember_stopped skips;</li><li>SQL backstop: AND user_id IS NOT DISTINCT FROM $n in the upsert's ON CONFLICT … WHERE, in save_session_state and _persist_turn.</li></ul></li><li>Concurrency: a router-level per-session asyncio.Lock dict, added as a wrapper. Keep the public name _answer and rename the inner function. Do NOT reuse the graph's lock; it is not re-entrant and would deadlock.</li><li>Cancel: snapshot the Session at turn start, and restore it in _remember_stopped before recording stopped_ctx.</li><li>Client (frontend/src/chat/api.js): the stream timeout becomes an inactivity timer reset by any chunk, pings included. Mint session ids with crypto.getRandomValues. Rebuild and commit web/app.</li><li>REL-02b: cap the NON-stream /api/query total timeout at 110 s (query.py ~279). Leave the streamed route alone.</li><li>Do not: namespace the graph thread_id by user; add 409 + retry; build a request_id dedup table.</li><li>Pinned tests to update deliberately: test_query_stream.py:227-228, test_context_hardening.py:252-255 (exactly 2 sync_out calls in _answer), test_history_charts.py:67-72.</li><li>Done:<ul><li>two users on one id: the second gets 403 and the owner's row is unchanged;</li><li>two concurrent turns on one id are serialised;</li><li>a cancel after context_update leaves the pre-turn state plus stopped_ctx.</li></ul></li></ul></div>
+      <div class="ev"><h4>Audit evidence · CTX-01: Conversation ownership and turn integrity</h4>
+        
+        <div class="status"><b>REPRODUCED</b>: <code>ensure('sid','alice')</code> then <code>ensure('sid','bob')</code> returns alice's session. Severity lowered: the attacker must be logged in and hold another user's id (about 46 random bits), and figures are still re-authorised. This card merges v1 CTX-01 and CTX-03.</div>
+        <div><span class="lbl">The issue</span>Nothing checks that a session id belongs to the caller. A user holding another's id inherits that chat's context, can ask "what did we discuss?" and receive the other user's questions, and overwrites the other user's state. Within one worker, two concurrent requests on one id interleave state, because only the graph run is locked. A Stop can save half-applied state. The client's 75 s limit applies to the whole stream, even while pings keep it alive.</div>
+        <details open><summary>Evidence</summary><ul><li>query.py:143-170 <code>_session_id</code>; session_store.py:306-324 <code>ensure</code>; conversation_store <code>load_context_state</code> (~379, session_id only), <code>save_session_state</code> (350) and <code>_persist_turn</code> (40-124).</li><li>pipeline_graph.py:789 locks only the graph. <code>_remember_stopped</code> (query.py:176-198) saves unconditionally.</li><li>api.js:96 and :134 apply the 75 s limit. <code>: ping</code> frames are skipped before <code>gotEvent</code>.</li><li>The history routes are already owner-scoped.</li></ul></details>
+        <details open><summary>Tests that pin this code</summary><ul><li>test_query_stream.py:227-228 (<code>return await _answer(req, request, scope)</code>)</li><li>test_context_hardening.py:252-255 (exactly 2 <code>sync_out(</code> calls in _answer)</li><li>test_history_charts.py:67-72 (conversation_store strings)</li></ul></details>
+      </div><div class="ev"><h4>Audit evidence · REL-02: Config hygiene, a non-stream deadline, safe retries</h4>
+        <p class="note"><b>Split task:</b> Lane A2 does only the non-stream deadline in routers/query.py. The config and retry part (REL-02a) is in lane A1.</p>
+        <div class="status"><b>CONFIRMED</b>. Two parts of the v1 fix would have caused harm: deleting settings would break boot, and a global 110 s cap would break streamed answers.</div>
+        <div><span class="lbl">The issue</span>Four settings are never read: <code>SQL_GENERATION_MAX_RETRIES</code>, <code>SQL_GUIDED_DECODING_ENABLED</code>, <code>MULTITENANCY_ENABLED</code> and <code>PORT</code>. But <code>Settings</code> rejects unknown keys, so deleting them breaks boot for any <code>.env</code> that still sets one. The non-stream <code>/api/query</code> can run 60 s × 6 parts while nginx cuts it at 120 s; the streamed route is safe because of its pings. Model calls never retry on a connection error. <code>wait_for(_gate.acquire())</code> can leak a semaphore slot on Python 3.11 when it is cancelled.</div>
+        <details open><summary>Evidence</summary><ul><li>The class-based <code>Config</code> is at config.py:671, with the pydantic-settings default <code>extra='forbid'</code>. DEPLOYMENT.md:206 sets <code>PORT=8410</code> in <code>.env</code>.</li><li>query.py:275-279 computes <code>REQUEST_TIMEOUT_SECONDS * len(layer.multi)</code>. The streamed route sends <code>: ping</code>.</li><li>llm.py:143 does the gate acquire. llm.py:193-273 retries only on guided-decoding 4xx errors.</li></ul></details>
+        <details open><summary>Tests that pin this code</summary><ul><li>test_query_stream.py:227-228 (source pin on query.py)</li></ul></details>
+      </div>
+    </article>
+<article class="task Low" id="CTX-06">
+      <div class="thead"><span class="tid">3. CTX-06</span><span class="pill s-Low">Low</span><h2 class="ttl">Cache gate: test first, fix only disagreements</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Write a table test of the real is_cacheable over every follow-up shape in the harness YAMLs, plus standalone questions.</li><li>Fix only the cases that come out wrong. No turn-kind pre-pass refactor.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · CTX-06: Cache gate: test first, then fix only the disagreements</h4>
+        
+        <div class="status"><b>CONFIRMED</b> structure. Two safeguards already exist, and the v1 pre-pass refactor is withdrawn.</div>
+        <div><span class="lbl">The issue</span><code>is_cacheable</code> combines six word-list checks to decide whether a turn is a follow-up before the pipeline knows. Two safeguards already limit the damage: a question naming no scheme is not cached inside a chat with an active scheme, and writes are blocked by <code>context_dependent</code>. The remaining risk is a follow-up shape that slips past all six.</div>
+        <details open><summary>Evidence</summary><ul><li>query.py:431-477, and :470-472 and :419 for the safeguards.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task Medium" id="CTX-04a">
+      <div class="thead"><span class="tid">4. CTX-04a</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Delete that really deletes; retention purge</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Delete cascade, all called from the delete route in routers/history.py:<ul><li>conversation_memory.delete_session(tenant, user, session): filter Qdrant on all three;</li><li>a public pipeline_graph helper around _drop_thread;</li><li>SessionStore.drop().</li></ul></li><li>Retention: add CONVERSATION_RETENTION_DAYS to your config block, default 0 meaning disabled until the user picks a period.<ul><li>New appdb function right after purge_user deletes conversations, conversation_turns and query_audit rows older than that.</li><li>Call it from the EXISTING conversation_memory.purge_loop, which main.py already starts. Do not edit main.py.</li></ul></li><li>Not yours: the audit JSONL rotation (lane A1). No snapshot size cap; it is already bounded.</li><li>Done:<ul><li>after a delete, the Qdrant points, the checkpoint thread and the Session are gone, and the same id starts empty;</li><li>the purge function has a test;</li><li>a 0 setting purges nothing.</li></ul></li></ul></div>
+      <div class="ev"><h4>Audit evidence · CTX-04: Retention for conversations and audit; deletion that really deletes</h4>
+        <p class="note"><b>Split task:</b> Lane A2 does the delete cascade and retention purge. The audit-log rotation (CTX-04b) is in lane A1.</p>
+        <div class="status"><b>CONFIRMED</b>, with corrections: Qdrant memory (30 days), paused threads and sessions do expire. Only the DB tables and the audit never expire.</div>
+        <div><span class="lbl">The issue</span>Three retention gaps:<ul><li><code>app.conversations</code>, <code>conversation_turns</code>, <code>query_audit</code> (26,717 old rows with result previews) and the JSONL audit never expire.</li><li>Deleting a chat removes only DB rows, not its Qdrant memory points, its graph checkpoint or the in-memory Session.</li><li>The JSONL audit is written with blocking file I/O on the event loop.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li>conversation_store.py:264-277 and history.py:69-77 handle the delete. <code>deploy/sql/02_retention_policy.sql</code> is never scheduled. <code>auth.read_audit</code> is dead code.</li><li>The snapshot is already bounded (8 topics, 20 ledger entries per topic).</li></ul></details>
+        <details open><summary>Tests that pin this code</summary><ul><li>test_history_charts.py:67-72</li></ul></details>
+      </div>
+    </article>
+<article class="task Low" id="REL-01">
+      <div class="thead"><span class="tid">5. REL-01</span><span class="pill s-Low">Low</span><h2 class="ttl">Redis failure backoff and a build stamp</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>cache._redis(): remember the failure time and skip reconnects for 30 s.</li><li>Add APP_BUILD (the git sha) to your config block and to REDIS_CACHE_PREFIX.</li><li>No admin flush endpoint.</li><li>Done: with Redis down, 20 concurrent gets make at most one connect attempt.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · REL-01: Redis failure backoff and a build stamp on cache keys</h4>
+        
+        <div class="status"><b>CONFIRMED</b>. Impact lowered: Redis is not set up on dev, and a deploy clears the per-worker cache anyway.</div>
+        <div><span class="lbl">The issue</span>When Redis is down, every request retries the connection under one lock, at 1.5 s per try, so the requests queue behind each other. The docstring of <code>_redis()</code> claims the failure is cached; it is not. A shared Redis would also serve answers from an older build.</div>
+        <details open><summary>Evidence</summary><ul><li>cache.py:37-68, keys at :93-96.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task Medium" id="UI-01">
+      <div class="thead"><span class="tid">6. UI-01</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Charts and comparison card</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>The twin-column pivot and cell formatting are already fixed in Main (from setup). Do the rest:<ul><li>PivotGrid: no total when either dimension is scheme; no stacked or doughnut for scheme series;</li><li>a non-additive measure defaults to bar, and pie and donut leave the switcher for it;</li><li>nulls stay null (Chart.js skips them);</li><li>compareVerdict: no verdict for cross-scheme count rows, "N points" for pct, and a short lower-is-better stem list;</li><li>askedMeasureCol gets a pct group;</li><li>the Clarify pill shows the full label when it contains " vs " (use includes).</li></ul></li><li>Pinned: test_history_charts.py, test_ac_full_results.py. Extend tests/test_table_view_2026_10_28.py.</li><li>Rebuild and commit web/app.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · UI-01: Charts and comparison card: no cross-scheme totals, correct verdicts</h4>
+        
+        <div class="status"><b>REPRODUCED</b> in node on the working tree. The twin-column pivot and cell formatting are <b>already fixed</b> in the uncommitted P0 work; this card covers what is left.</div>
+        <div><span class="lbl">The issue</span>Five display bugs remain:<ul><li>After KI-437, a cross-scheme district result becomes a pivot whose Total column adds MGNREGA household-years, PMAY-G houses and Focus Plus beneficiaries. Stacked and doughnut are also offered for scheme series.</li><li>The comparison card says "MGNREGA is 730% ahead on beneficiaries", comparing different units.</li><li>A pct gap is shown as relative % ("33% ahead" for 80 vs 60) instead of points. Lower-is-better measures are read as "ahead".</li><li>Percentage results default to a donut, and nulls are drawn as 0.</li><li>The comparison chips show only the first scheme name.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li>Working tree: <code>analytics.js</code> <code>toNumber</code> :21, <code>pivotStacked</code> :47, default type :323-325, <code>askedMeasureCol</code> :173-180 (no pct group).</li><li><code>Charts.jsx</code>: <code>PivotGrid</code> has no scheme-dimension check; <code>TWO_DIM_TYPES</code> is at :665; <code>CompareVerdict</code> at :949.</li><li><code>Messages.jsx</code>: <code>wantsAnalytics</code> :833 does not check <code>cross_scheme</code>; <code>schemeOf</code> :345 prefix-matches "MGNREGA vs PMAY-G".</li></ul></details>
+        <details open><summary>Tests that pin this code</summary><ul><li>test_history_charts.py and test_ac_full_results.py read the source of Charts.jsx and Messages.jsx</li></ul></details>
+      </div>
+    </article>
+<article class="task Low" id="UI-02">
+      <div class="thead"><span class="tid">7. UI-02</span><span class="pill s-Low">Low</span><h2 class="ttl">Accessibility, smooth streaming, "figures corrected" marker</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Use &lt;button type="button"&gt; for the clickable divs (Sidebar.jsx 152, 158, 162, 211; App.jsx 841).</li><li>Keep the streaming draft in a ref and batch tokens with requestAnimationFrame. Memoise BotMessage and UserMessage.</li><li>Honour ?api= only when import.meta.env.DEV is set.</li><li>Self-host the fonts in frontend/index.html and admin.html. Leave the CSP in config.py alone (lane A1).</li><li>Hide lone *_key and *_code columns with a columns.js helper, but keep them in the Excel export.</li><li>Show a small "figures checked and corrected" note when the final text differs from the draft (reveal.js already has commonWordPrefix).</li><li>Delete the dead RouteBadge.</li><li>Pinned: test_asr_transcribe.py:48, test_history_charts.py.</li><li>Rebuild and commit web/app.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · UI-02: Accessibility, smooth streaming, and a "figures corrected" marker</h4>
+        
+        <div class="status"><b>CONFIRMED</b>. This card merges v1 UI-04, the rest of UI-02 and the frontend part of v1 CMP-05.</div>
+        <div><span class="lbl">The issue</span>Five front-end gaps:<ul><li>Clickable <code>&lt;div&gt;</code>s cannot be reached with the keyboard.</li><li>Every streamed token re-renders the whole message list.</li><li><code>?api=</code> would send the JWT to another origin if the CSP were relaxed.</li><li>Both HTML entries load Google Fonts, which an air-gapped network cannot reach.</li><li>Lone <code>*_key</code> and <code>*_code</code> columns still show. When the final data answer differs from its streamed draft, nothing tells the officer.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li>Sidebar.jsx:152, 158, 162, 211; App.jsx:841; App.jsx:335-339 <code>patchTyping</code>; no <code>memo</code> anywhere.</li><li>api.js:7-8; <code>frontend/index.html</code> and <code>admin.html</code>.</li><li><code>reveal.js</code> already computes <code>commonWordPrefix</code>.</li></ul></details>
+        <details open><summary>Tests that pin this code</summary><ul><li>test_asr_transcribe.py:48 (api.js, App.jsx source)</li><li>test_history_charts.py</li></ul></details>
+      </div>
+    </article>
+<article class="task Medium" id="CTX-07">
+      <div class="thead"><span class="tid">8. CTX-07</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Follow-up rewrite fixes (needs the VPN)</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>First reproduce live through pipeline.answer_question and log the rewritten question for each case:<ul><li>KI-363: "break it down by district" after a statewide answer;</li><li>KI-364: "compare … with Ri Bhoi";</li><li>KI-416: "FY20?" after a houses answer.</li></ul></li><li>Then fix where the fault is:<ul><li>breakdown: the follow-up becomes a GROUP BY question;</li><li>compare-with: a deterministic rewrite to the previous place plus X, same measure and year; document why it does not conflict with D-056;</li><li>bare year: carry state.metric forward, and have context_policy.rewrite_violation reject a metric-family change when the follow-up named no measure.</li></ul></li><li>Edit c01 rewrites near _comparison_swap only; leave _KNOWLEDGE_HINTS and _BREAKDOWN_CUE alone.</li><li>If the fault is in SQL generation (c10/c11), that is lane B1's: add a request instead.</li><li>Never add scheme or metric to the provenance filter.</li><li>Without the VPN: write the real-function tests you can, and record the live part.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · CTX-07: Follow-up fixes: breakdown, compare-with-place, bare-year measure</h4>
+        
+        <div class="status"><b>DOCS</b>. These are LLM rewrites and cannot be reproduced offline. Verified: no deterministic handler covers them. The v1 provenance fix was harmful and is withdrawn.</div>
+        <div><span class="lbl">The issue</span>Three follow-ups go wrong, according to the live reports:<ul><li>"Break it down by district" after a statewide answer repeats the total.</li><li>"Compare … with Ri Bhoi" drops the previous district.</li><li>"FY20?" after a houses answer switches to the amount.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li><code>_comparison_swap</code> (c01:1338) and <code>conversation_layer.comparison_with_earlier</code> handle schemes only. <code>_place_swap_rewrite</code> (c01:1214) deliberately leaves districts to the model (D-056).</li><li>There is no deterministic year-only rewrite. KI-416 may be in SQL generation (c10), not in the rewrite.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task Medium" id="QA-03">
+      <div class="thead"><span class="tid">9. QA-03</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Live context runs that can catch cache, ownership and cross-VM bugs (VPN)</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>The in-process harness driver calls sync_out and sync_in between turns.</li><li>live_context_validation writes a dated result file.</li><li>The driver can share one session id across two accounts. Add scenarios P1 (ownership) and P2 (topic, cache hit, go back).</li><li>Pause on VM1 and resume on VM2.</li><li>Re-run J2 and J3 for KI-037.</li><li>Without the VPN: build the driver changes and scenarios, and record the live runs.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · QA-03: Live context runs that can catch cache, ownership and cross-VM bugs</h4>
+        
+        <div class="status"><b>CONFIRMED</b>, with corrections: the harness does write dated results and defaults to caches on. The in-process driver and <code>live_context_validation</code> are what bypass the caches and <code>sync_out</code>.</div>
+        <div><span class="lbl">The issue</span>The in-process harness driver never calls <code>sync_out</code>, which is why KI-400 was missed. <code>live_context_validation.py</code> overwrites one fixed results path. A two-account test on one session id is impossible today, because the driver mints its own id. A resume across VMs has never been verified live.</div>
+        <details open><summary>Evidence</summary><ul><li>harness <code>run.py:176-180</code> writes dated files; <code>drivers.py:126</code> defaults to caches on; <code>live_context_validation.py:741</code> writes a fixed path.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task Medium" id="DOC-01b">
+      <div class="thead"><span class="tid">10. DOC-01b</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Context docs</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Rewrite docs/CONTEXT_AND_LANGGRAPH.md: topics, idle expiry, turn kind, caches, ownership (403).</li><li>docs/LANGGRAPH_PAUSE_RESUME.md: remove "sequential path" (lines 50, 66 and 96).</li><li>Fix the stale comments in session_store.py (10-11, 130) and topic_memory.py:486.</li><li>The stale comment at config.py:390-393 belongs to lane A1: add a request.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · DOC-01: Bring the guide docs back in line with the code</h4>
+        <p class="note"><b>Split task:</b> Lane A2's share of DOC-01: the context and LangGraph docs.</p>
+        <div class="status"><b>CONFIRMED</b>, except one v1 claim: SECURITY.md has no regex text.</div>
+        <div><span class="lbl">The issue</span>The guide docs contradict the code in several places:<ul><li>CLAUDE.md gives wrong test counts (27 files / 1,453 passed versus 120 / 3,910) and a "graph off and on" switch that does not exist.</li><li>It names the wrong verifier model: the 4B, when <code>config</code> uses the 30B.</li><li>It says a restart re-ingests the KB; it does not.</li><li>It says the BLH CSV is in the repo root.</li><li>D-073 says fixed queries run on <code>megh_readonly</code>; they run on the app pool.</li><li>CONTEXT_AND_LANGGRAPH stops at D-030.</li><li>LANGGRAPH_PAUSE_RESUME still describes the "sequential path".</li><li>The RAG section of AI_PIPELINE leaves out hybrid search, grounding and citations.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li>CLAUDE.md lines 28, 111-112, 133, 151 and 166-170. <code>config.py:267 SQL_VERIFY_MODEL="qwen-model"</code>.</li><li><code>db.fetch_rows</code> (db.py:285) has 62 call sites, against 11 for <code>fetch_rows_readonly</code>.</li><li>Also stale: <code>PROJECT_CONTEXT.md:80,100</code>, <code>TESTING.md:31</code> ("46 files") and line 56 (port 8502), the AI_PIPELINE §0 model table and the "opt-in" heading in §8.</li><li>KI-372 blames YAML files that are never loaded. The real source of the leaked id is <code>schema_context.py:953-958</code>.</li><li>The ports conflict: systemd and nginx use 8410/8300, while the CLAUDE.md rule says 8401.</li></ul></details>
+        
+      </div>
+    </article></div>
+</section>
+<section>
+  <h2>Files two lanes share, and how each lane stays apart</h2>
+  <p class="note">All other files have exactly one owner. For each file below, the lanes edit separate regions that git merges on its own. If a rebase still conflicts, the lane keeps the other lane's lines and re-applies only its own.</p>
+  <div class="tablewrap"><table><thead><tr><th>File</th><th>Who edits which region</th></tr></thead><tbody>
+    <tr><td>app/config.py</td><td>A1: structure, security, pool, proxy and CSP settings. A2: one block after the Redis/session settings (retention, <code>APP_BUILD</code>). B2: one block after the <code>RAG_*</code> settings, plus the value of <code>PROMPT_BUDGET_COMPOSER_TOKENS</code>.</td></tr>
+    <tr><td>c13_compose_and_data_stages.py</td><td>A1: the four authorise sites (~1002, ~1094, ~1145, ~1579, ~1649). B1: the D-065 block (~1205) and <code>_data_per_scheme_rows</code> (~1933). B2: <code>compose_response</code> (~13, ~160-270).</td></tr>
+    <tr><td>app/appdb.py</td><td>A1: seeding, DDL, <code>update_user</code>. A2: one new purge function after <code>purge_user</code>.</td></tr>
+    <tr><td>app/pipeline_graph.py</td><td>A2: a public drop-thread helper. B1: the repair state field and repair nodes.</td></tr>
+    <tr><td>c06_years_tranches.py</td><td>A1: <code>refresh_scheme_years</code>. B1: everything else.</td></tr>
+    <tr><td>app/cross_figures.py</td><td>B1: the Focus Plus district lines (~35-137). B2: <code>_scheme_line</code> (~470-484).</td></tr>
+    <tr><td>tests/conftest.py</td><td>A1: top (<code>collect_ignore</code>). B2: bottom (<code>RAISE_INTERNAL_ERRORS</code>).</td></tr>
+    <tr><td>The five lane-sectioned docs</td><td>Each lane writes only inside its own section, above its end marker.</td></tr>
+  </tbody></table></div>
+</section>
+<nav class="crumbs"><a href="index.html">← Lane plan &amp; setup</a><a href="lane-a1.html">Lane A1</a><b>Lane A2</b><a href="lane-b1.html">Lane B1</a><a href="lane-b2.html">Lane B2</a></nav>
+</div>
+<script>
+document.addEventListener("click", function (e) {
+  var b = e.target.closest("[data-copy]"); if (!b) return;
+  var pre = document.getElementById(b.getAttribute("data-copy")); var label = b.textContent;
+  function sel() { var r = document.createRange(); r.selectNodeContents(pre); var s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "Selected, press Ctrl+C"; }
+  try { navigator.clipboard.writeText(pre.textContent).then(function () { b.textContent = "Copied"; setTimeout(function () { b.textContent = label; }, 2000); }, sel); } catch (err) { sel(); }
+});
+</script></body></html>

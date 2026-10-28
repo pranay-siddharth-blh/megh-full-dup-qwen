@@ -1,0 +1,404 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Lane A1 Audit Report</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: four lanes side by side at the top, then setup, then one block per lane with its copyable prompt, then shared files and final integration. */
+:root{
+  --bg:#f5f7f5; --surface:#ffffff; --sunk:#eaefeb; --fg:#17201b; --muted:#56635b; --line:#d3dbd5;
+  --accent:#1d6b55; --accent-soft:#dcefe7;
+  --a1:#1d6b55; --a2:#2f6aa3; --b1:#8a5a00; --b2:#7a3f9a;
+  --warn:#9a4a00; --warn-soft:#fdebd8;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30; --a1:#5cc3a2; --a2:#7fb2e5; --b1:#e2b24f; --b2:#c99be6;
+  --warn:#ffb062; --warn-soft:#3a2714; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30; --a1:#5cc3a2; --a2:#7fb2e5; --b1:#e2b24f; --b2:#c99be6;
+  --warn:#ffb062; --warn-soft:#3a2714; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+.wrap{max-width:1100px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(28px,4.6vw,42px);font-weight:700}
+h2{font-size:25px;font-weight:600}
+h3{font-size:18px;font-weight:600}
+p{margin:0;max-width:76ch}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunk);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+a{color:var(--accent)}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+header{display:flex;flex-direction:column;gap:14px;border-bottom:2px solid var(--fg);padding-bottom:22px}
+.lede{font-size:17px;color:var(--muted)}
+section{display:flex;flex-direction:column;gap:16px}
+.lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+.lane{background:var(--surface);border:1px solid var(--line);border-top:5px solid var(--c);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:8px;min-width:0}
+.lane .who{font:600 12px var(--f-mono);letter-spacing:.06em;text-transform:uppercase;color:var(--c)}
+.lane ol{margin:0;padding-left:22px;font-size:14px;display:flex;flex-direction:column;gap:2px}
+.lane .meta{font-size:13px;color:var(--muted)}
+.A1{--c:var(--a1)} .A2{--c:var(--a2)} .B1{--c:var(--b1)} .B2{--c:var(--b2)}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.panel ul,.panel ol{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.warnbox{border-left:4px solid var(--warn);background:var(--warn-soft)}
+.laneblock{border-top:1px solid var(--line);padding-top:22px;display:flex;flex-direction:column;gap:14px}
+.laneblock h2{color:var(--c)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--sunk)}
+td:first-child{white-space:nowrap;font-family:var(--f-mono);font-size:13px}
+.promptbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+pre.prompt{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px;font:12.5px/1.55 var(--f-mono);max-height:560px;overflow:auto;margin:0}
+.btn{font:600 13px var(--f-body);border:1px solid var(--accent);color:var(--accent);background:transparent;padding:6px 12px;border-radius:7px;cursor:pointer}
+.btn:hover{background:var(--accent-soft)}
+.btn:focus-visible,summary:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+details summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.note{font-size:13.5px;color:var(--muted)}
+.tag{font:500 11.5px var(--f-mono);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:1px 6px;white-space:nowrap}
+
+.crumbs{display:flex;flex-wrap:wrap;gap:8px 16px;font:500 13px var(--f-mono)} .crumbs a{text-decoration:none}
+.task{background:var(--surface);border:1px solid var(--line);border-left:5px solid var(--c);border-radius:10px;padding:16px 18px;display:flex;flex-direction:column;gap:12px;min-width:0}
+.thead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tid{font:600 14px var(--f-mono)}
+.ttl{flex-basis:100%;font-size:21px}
+.pill{font:600 11px/1 var(--f-mono);text-transform:uppercase;padding:4px 7px;border-radius:999px;background:var(--sunk);color:var(--fg)}
+.lbl{font:600 12px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:4px}
+.task ul{margin:4px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+.task p{margin:4px 0 0}
+.ev{border-top:1px dashed var(--line);padding-top:10px;display:flex;flex-direction:column;gap:8px}
+.ev h4{margin:0;font:600 15px var(--f-display)}
+.status{font-size:13.5px;background:var(--sunk);border-radius:6px;padding:6px 10px}
+.tasks{display:flex;flex-direction:column;gap:14px}
+</style></head>
+<body><div class="wrap A1">
+<nav class="crumbs"><a href="index.html">← Lane plan &amp; setup</a><b>Lane A1</b><a href="lane-a2.html">Lane A2</a><a href="lane-b1.html">Lane B1</a><a href="lane-b2.html">Lane B2</a></nav>
+<header>
+  <span class="eyebrow">Lane audit report · 28 Oct 2026 · You · session 1</span>
+  <h1>Lane A1 · Platform &amp; security</h1>
+  <p class="lede">12 tasks. Every task here depends only on earlier tasks in this lane, so this lane never waits for another. RAG tasks are left out of this round.</p>
+  <p><b>Owns:</b> <code>config.py</code> structure, <code>main.py</code>, <code>db.py</code>, <code>sql_guard.py</code>, <code>auth.py</code>, <code>net.py</code>, <code>deps.py</code>, the auth router, the middleware, <code>metric_catalog.py</code>, the CI files, requirements, <code>.gitignore</code>, <code>deploy/</code>. It also edits the four authorise sites in c13 and <code>refresh_scheme_years</code> in c06.</p>
+  <p><b>Outside blockers, never waited on:</b> the Qdrant key from infra (SEC-07), and the DB team plus a live query inventory for the superuser-routing part of SEC-06.</p>
+</header>
+<section>
+  <div class="promptbar"><h2>Session prompt</h2><button class="btn" type="button" data-copy="p-a1">Copy prompt</button></div>
+  <p class="note">Paste the whole prompt into a fresh Claude Code session, on the right machine, after setup is pushed. It holds the git, commit and doc rules and the file ownership, as well as the tasks.</p>
+  <pre class="prompt" id="p-a1">You are Claude Code session A1, one of FOUR parallel sessions on the meghoneai repo (Megh One AI). Lanes A1 and A2 run on one machine; B1 and B2 run on a colleague's machine; all four push to the same Bitbucket remote. You are lane A1, Platform &amp; security.
+
+THE ONE RULE: no lane waits for another. Every task below depends only on earlier tasks in THIS list. Never pick up another lane's task.
+
+READ FIRST: CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md (including your "Lane A1" section; if it shows progress, resume at the first unfinished task). Your lane report, new_docs/audit_by_lane_2026-10-28/lane-a1.html, has the audit evidence for every task. The older area pages are in new_docs/audit_by_area_2026-10-28/. Where this prompt differs from that page, THIS PROMPT WINS: the lane plan split some tasks and removed some cross-task dependencies.
+
+GIT, COMMIT AND CI RULES
+1. Branch lane/a1. First time: git fetch origin &amp;&amp; git switch -c lane/a1 origin/Main. After that: git switch lane/a1.
+2. Before each task: git fetch origin &amp;&amp; git rebase origin/Main. Resolve a conflict yourself only inside files or regions you own (list below). Anywhere else, keep origin's version and re-apply only your own lines.
+3. Commit after EVERY change that leaves the tests you touched green. Stage only your files, by name (never git add -A or git add .). Message: "[A1][&lt;task id&gt;] &lt;what changed and why&gt;". Then: git push --force-with-lease origin lane/a1, so CI runs.
+4. A task is finished when the full pytest command from docs/TESTING.md §2 and the 14 script suites are green. Then rebase on origin/Main, push, and open or update the PR lane/a1 → Main through the merge queue. Do not wait for it to merge; start the next task.
+5. Never push or force-push Main. Never commit .env, secrets, *.csv or anything under reference_documents/.
+6. If a test fails after a rebase, check whether it also fails on origin/Main. If it does, it belongs to another lane: note it under "Failing tests seen" in your HANDOFF lane section and carry on. If it fails only with your change, fix your change.
+7. If a fix needs a file or region you do not own, do not make it. Add it under "Requests for other lanes" in your HANDOFF lane section, commit, and move on.
+8. If something outside the code blocks part of a task (VPN, DB team, infra, a user decision), do every other part, commit it, record the blocked part in your HANDOFF lane section, and start the next task. Never sit idle and never guess a decision.
+
+PROJECT RULES (CLAUDE.md; never break)
+- Every fix gets a regression test that calls the real function.
+- No regex anywhere (D-046/D-047). For SQL use app/sql_ast.py (SQLGlot); for words, app/text_match.py; in JS, string methods.
+- Never change megh_db data or schema. Model-written SQL runs only through db.run_readonly.
+- Change behaviour in pipeline stages, never in graph nodes.
+- New top-level names in app/pipeline get a file+task prefix (e.g. _c13_sec03_). Run tests/test_pipeline_namespace_2026_10_26.py before committing pipeline changes.
+- Use .venv/Scripts/python.exe. Port 8401 only.
+
+DOCS RULES (the lane-safe form of CLAUDE.md §8)
+- Write notes only inside your "Lane A1" section of docs/CURRENT_STATE.md, HANDOFF.md, KNOWN_ISSUES.md, DECISIONS.md and TESTING.md, just above the line &lt;!-- end lane A1 --&gt;. Keep the "- Progress:" line current: done tasks, the current task, and blocked parts. Do not edit the rest of those five files; the one exception is the TESTING.md header line in DOC-01a.
+- New issue ids: only KI-450 to KI-479. New decisions: "D-A1-&lt;task id&gt;".
+- Area docs you may edit: CLAUDE.md, docs/SECURITY.md, docs/ARCHITECTURE.md, docs/PROJECT_CONTEXT.md, deploy/DEPLOYMENT.md, and docs/AI_PIPELINE.md §0 (model table) and §8. Any other doc change goes in your HANDOFF lane section.
+- End every task with the CLAUDE.md §8 summary in the chat.
+
+FILES YOU OWN (other lanes touch only the regions named)
+- app/config.py: structure, plus the security, DB pool, proxy and CSP settings. Other lanes may edit only these regions:
+  - A2 adds one block next to the Redis/session settings;
+  - B2 adds one block after the RAG_* settings and changes the value of PROMPT_BUDGET_COMPOSER_TOKENS.
+- app/main.py, app/db.py, app/sql_guard.py, app/net.py, app/deps.py, app/auth.py.
+- app/sql_ast.py: append only.
+- app/llm.py.
+- app/routers/auth.py; app/middleware/*. (app/routers/admin.py and stats.py belong to lane B2.)
+- app/metric_catalog.py, data/metric_catalog_verified.yaml.
+- app/appdb.py: lane A2 adds one purge function right after purge_user.
+- c13_compose_and_data_stages.py: only the four SEC-03 sites.
+- c06_years_tranches.py: only refresh_scheme_years.
+- tests/conftest.py (top part), requirements*.txt, requirements.lock, bitbucket-pipelines.yml, .gitignore, deploy/*.
+
+YOUR TASKS, IN ORDER
+
+1. REL-02a · Config hygiene and safe model-call retries  [reliability-ops.html#REL-02]
+- In ONE commit: switch Settings to model_config = SettingsConfigDict(env_file=".env", extra="ignore"), THEN delete SQL_GENERATION_MAX_RETRIES, SQL_GUIDED_DECODING_ENABLED, MULTITENANCY_ENABLED and PORT. Deleting them first breaks boot.
+- llm.py: add one jittered retry on httpx.ConnectError / ConnectTimeout only. Never retry 502 or 503. Put asyncio.timeout around _gate.acquire().
+- Add a test that every Settings field is referenced outside config.py, with an allowlist.
+- Not yours: the non-stream deadline in routers/query.py (lane A2).
+- Done: boot works with a .env that still sets a deleted key; a stubbed ConnectError gives exactly one retry.
+
+2. SEC-01a · Seed password and stray files  [security-access.html#SEC-01]
+- appdb._seed_users_from_yaml: remove the "changeme123" default. A seed record without a password or env hash is skipped with a warning. Delete the log line that prints the default.
+- app/users.yaml: remove the password lines.
+- git rm the strays: .claude/settings.json, frontend/undefined/*.xlsx, frontend/pie_*.png, the 0-byte root constants.js, tests/ui_headless/token_sa.txt.
+- Add /*.csv, .claude/, frontend/undefined/ and tests/ui_headless/token*.txt to .gitignore.
+- Not now: the git-history purge (SEC-01b, at final integration).
+- Done: a pytest calls the real _seed_users_from_yaml with a fake DB and shows a record without a password is skipped.
+
+3. QA-02 · Test tooling and CI  [testing-evaluation.html#QA-02]
+- tests/conftest.py, at the top: collect_ignore for the 14 script suites (files with no "def test_"), using plain string checks.
+- requirements-dev.txt with pytest and pytest-asyncio pinned. Regenerate requirements.lock on Python 3.11.9.
+- CI test step: install node and run npm ci in frontend/. Fail when CI=true and node is missing.
+- CI bundle-drift check (npm run build &amp;&amp; git diff --exit-code -- web/app) on Main and the merge queue only. Lane A2 commits web/app with every frontend change, so this check stays green.
+- New test: an AST no-regex check over app/ and tests/, plus a string scan of frontend/src.
+- Not now: the duplicate KI/D id test. It is added at final integration.
+- Done: "pytest tests -q" finishes with no INTERNALERROR; CI shows the node tests passing.
+
+4. SEC-02 · Close the geography leaks in authorize()  [security-access.html#SEC-02]
+- New function appended to sql_ast. For every SELECT that reads a base view, it returns the EQ/IN geo predicates among the top-level AND conjuncts. NOT, NEQ, LIKE and OR never count.
+- For a geo-restricted user at finer-than-state grain, every such SELECT needs one, with all values allowed. A block counts only via entity_resolver.block_parent_district; check for an import cycle.
+- One geo-column registry in auth.py, used by infer_granularity, _districts_in_sql and _blocks_in_sql:
+  - district: lgd_district, district_name_raw;
+  - block: lgd_block, block_name_raw;
+  - AC: ac_name, assembly_constituency_name, counted at block level.
+- scope_from_user fails closed: an empty scheme intersection gives []; take the coarser of role cap and user cap; ignore an unknown cap; an unknown role gets public.
+- Do not change sql_ast.filter_values (13 callers). Do not inject predicates with transform.
+- Done: tests calling the real authorize deny each case:
+  - &lt;&gt;, NOT IN, OR 1=1, an unfiltered UNION branch, a CTE with OR … IS NOT NULL;
+  - a block from another district;
+  - GROUP BY block_name_raw, ac_name or district_name_raw for a district officer.
+- Also: tests/test_security.py (a script) and test_sql_ast.py stay green.
+
+5. SEC-03 · Authorise the four fixed-answer paths (c13)  [security-access.html#SEC-03]
+- Reuse _repaired_sql_denial and _denied at each site:
+  - _data_scheme_stage (~1002, Focus Legacy PG name): after the scheme check, keep only rows whose district is allowed. Do not authorise its SQL.
+  - _data_clarification_stage (~1145, Focus Plus summary): authorise its fixed SQL.
+  - _cross_scheme_scope (~1579): add a scope parameter and update its single call (~1094); authorise _res["sql"] with resolved.
+  - _data_deterministic_stage (~1649, women): authorise _mg_women["shown"].
+- Do not change cross_figures.py. Do not insert anything between "_mg_det = _mg_admin or (" and "d.update(mg_admin=_mg_admin"; a test slices that span.
+- Lane B1 edits the D-065 block (~1205) in the same function as your ~1145 edit, so keep your hunks small.
+- Pinned tests to update deliberately: test_measure_not_held.py:133, test_scheme_years.py:75, test_metric_catalog_2026_10_26.py:220, test_mgnrega_usecase_fixes.py:560.
+- Done: one denial test per path through tests/_graph_turn.py.
+
+6. SEC-05 · Right client IP; harder login and logout  [security-access.html#SEC-05]
+- net.py: when the peer is trusted, read X-Real-IP, falling back to the right-most XFF hop. TRUSTED_PROXIES default "127.0.0.1,::1"; update DEPLOYMENT.md lines 114 and 311.
+- routers/auth.py: a dummy verify_password for unknown or inactive users; hmac.compare_digest in bootstrap; a per-username backoff delay, NOT a hard lockout.
+- token_version column (additive DDL in appdb), bumped on password change and logout, checked in deps.current_scope.
+- Done: tests for the XFF case, an old token failing after a password change, and equal timing for unknown and wrong-password users.
+
+7. SEC-07 · Lock down Qdrant; production boot guard  [security-access.html#SEC-07]
+- Check without printing values: does the dev .env say ENV=dev? Setup asked for ENV=dev on BOTH dev machines.
+  - If you cannot confirm it, add BOOT_GUARD_ENFORCE (default False), implement everything, record it in HANDOFF, and ask the user to flip it.
+- insecure_secrets also flags: AUTH_ENABLED=false, ASR_DEBUG_DIR set, a CA bundle configured but missing. The Qdrant-key item stays warn-only until infra provides the key.
+- lifespan: raise when ENV=="prod" and the list is not empty.
+- llm._get_ssl_verify: CA configured but missing gives a CRITICAL log and a refusal in prod.
+- Drop 'unsafe-inline' from script-src in CSP_ENFORCE, after checking that frontend/index.html and admin.html use only module scripts.
+- The Qdrant API key and firewall are an infra request: record it, do not wait.
+- Done: prod boot fails with a default secret, dev boots; tests/test_security.py extended.
+
+8. SEC-06 · DB layer  [security-access.html#SEC-06]
+- Wrap every pool.acquire in asyncio.timeout(DB_POOL_ACQUIRE_TIMEOUT), new setting next to the pool settings, and map a timeout to DatabaseUnavailableError. Put a per-pool asyncio.Lock around each lazy ensure_*_pool.
+- sql_guard: refuse schema-qualified function calls; block the has_, to_reg and current_schema prefixes and xpath.
+- BLOCKED, do not do: moving the 62 fixed curated queries off the postgres superuser. That needs a live run of every fixed query as megh_readonly and the DB team's agreement. Record it.
+- Done: 10 concurrent ensure_readonly_pool calls create one pool; guard tests for each new block.
+
+9. CTX-04b · Audit log hygiene  [context-memory.html#CTX-04]
+- auth.audit: write logs/query_audit.jsonl through asyncio.to_thread, with size-based rotation. Delete the dead auth.read_audit.
+- Not yours: the retention purge and the delete cascade (lane A2).
+- Done: tests for the threaded write and for rotation.
+
+10. SQL-08 · Catalogue pin and recovery from failed startup loads  [nl2sql-scheme-rules.html#SQL-08]
+- Add expression_sha per verified entry in data/metric_catalog_verified.yaml, over sql_expression + base_object + filters_required. On a mismatch, drop the entry from verified and log a WARNING.
+- Add one background task in main.py's lifespan that retries failed startup loads (schema_introspect, metric_catalog, refresh_scheme_years) with backoff, and refreshes daily.
+- refresh_scheme_years (c06) returns its status.
+- /health reports each load.
+- No 30-minute refresh and no admin endpoint.
+- Done: a changed expression makes verified() return None; a load that failed at startup recovers without a restart.
+
+11. REL-03 · Request ids in logs, a cheap /health, bounded rate-limit memory  [reliability-ops.html#REL-03]
+- A logging.Filter adds the request id and the user to every record.
+- Validate X-Request-ID to letters, digits and hyphens using string methods.
+- Cache /health component results for 5 s, with a 2 s timeout per probe.
+- Drop empty rate-limit deques.
+- Done: tests; /health answers within 2 s while the DB is down.
+
+12. DOC-01a · Guide docs back in line with the code  [documentation.html#DOC-01]
+- CLAUDE.md:
+  - the verifier is qwen-model (30B), not the 4B;
+  - there is no graph off/on switch and no "sequential path";
+  - replace the test counts with a pointer to one dated baseline line in the TESTING.md header;
+  - add new_docs/ to the doc map;
+  - the BLH CSV is not in the tree;
+  - KB re-ingest is via the admin endpoint (lane B2 is changing restart behaviour, so do not promise either way);
+  - the port conflict is "DOCUMENTATION CONFLICT, NEEDS VERIFICATION".
+- PROJECT_CONTEXT.md lines 80 and 100.
+- SECURITY.md A03: describe the three DB pools.
+- The D-073 text in DECISIONS.md: fixed queries run on the app pool.
+- AI_PIPELINE.md §0 model table and the §8 heading.
+- Done: one test count used everywhere; model roles match config.py.
+
+When all 12 are done: set your Progress line to "Lane A1 complete", make sure the PR is merged or queued, and tell the user.</pre>
+</section>
+<section>
+  <h2>Tasks, in order</h2>
+  <div class="tasks"><article class="task Medium" id="REL-02a">
+      <div class="thead"><span class="tid">1. REL-02a</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Config hygiene and safe model-call retries</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>In ONE commit: switch Settings to model_config = SettingsConfigDict(env_file=".env", extra="ignore"), THEN delete SQL_GENERATION_MAX_RETRIES, SQL_GUIDED_DECODING_ENABLED, MULTITENANCY_ENABLED and PORT. Deleting them first breaks boot.</li><li>llm.py: add one jittered retry on httpx.ConnectError / ConnectTimeout only. Never retry 502 or 503. Put asyncio.timeout around _gate.acquire().</li><li>Add a test that every Settings field is referenced outside config.py, with an allowlist.</li><li>Not yours: the non-stream deadline in routers/query.py (lane A2).</li><li>Done: boot works with a .env that still sets a deleted key; a stubbed ConnectError gives exactly one retry.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · REL-02: Config hygiene, a non-stream deadline, safe retries</h4>
+        <p class="note"><b>Split task:</b> Lane A1 does the config and llm.py part. The non-stream deadline (REL-02b) is in lane A2.</p>
+        <div class="status"><b>CONFIRMED</b>. Two parts of the v1 fix would have caused harm: deleting settings would break boot, and a global 110 s cap would break streamed answers.</div>
+        <div><span class="lbl">The issue</span>Four settings are never read: <code>SQL_GENERATION_MAX_RETRIES</code>, <code>SQL_GUIDED_DECODING_ENABLED</code>, <code>MULTITENANCY_ENABLED</code> and <code>PORT</code>. But <code>Settings</code> rejects unknown keys, so deleting them breaks boot for any <code>.env</code> that still sets one. The non-stream <code>/api/query</code> can run 60 s × 6 parts while nginx cuts it at 120 s; the streamed route is safe because of its pings. Model calls never retry on a connection error. <code>wait_for(_gate.acquire())</code> can leak a semaphore slot on Python 3.11 when it is cancelled.</div>
+        <details open><summary>Evidence</summary><ul><li>The class-based <code>Config</code> is at config.py:671, with the pydantic-settings default <code>extra='forbid'</code>. DEPLOYMENT.md:206 sets <code>PORT=8410</code> in <code>.env</code>.</li><li>query.py:275-279 computes <code>REQUEST_TIMEOUT_SECONDS * len(layer.multi)</code>. The streamed route sends <code>: ping</code>.</li><li>llm.py:143 does the gate acquire. llm.py:193-273 retries only on guided-decoding 4xx errors.</li></ul></details>
+        <details open><summary>Tests that pin this code</summary><ul><li>test_query_stream.py:227-228 (source pin on query.py)</li></ul></details>
+      </div>
+    </article>
+<article class="task Critical" id="SEC-01a">
+      <div class="thead"><span class="tid">2. SEC-01a</span><span class="pill s-Critical">Critical</span><h2 class="ttl">Seed password and stray files</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>appdb._seed_users_from_yaml: remove the "changeme123" default. A seed record without a password or env hash is skipped with a warning. Delete the log line that prints the default.</li><li>app/users.yaml: remove the password lines.</li><li>git rm the strays: .claude/settings.json, frontend/undefined/*.xlsx, frontend/pie_*.png, the 0-byte root constants.js, tests/ui_headless/token_sa.txt.</li><li>Add /*.csv, .claude/, frontend/undefined/ and tests/ui_headless/token*.txt to .gitignore.</li><li>Not now: the git-history purge (SEC-01b, at final integration).</li><li>Done: a pytest calls the real _seed_users_from_yaml with a fake DB and shows a record without a password is skipped.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · SEC-01: Purge personal data and credentials from git history, and clean the repo</h4>
+        <p class="note"><b>Split task:</b> Lane A1 does the code part. The git-history purge (SEC-01b) waits for final integration.</p>
+        <div class="status"><b>CONFIRMED</b> from git metadata. File contents were never opened.</div>
+        <div><span class="lbl">The issue</span>The raw Focus Legacy CSV (unmasked account numbers and names) is deleted from the tree but is still in the history on origin/Main and six other remote branches. Four more things are in the history as well:<ul><li><code>Use_Cases_-_Focus.csv</code>, added and deleted in the same commits (contents unknown);</li><li><code>config/users.yaml</code> (dde9337) with 3 password lines;</li><li><code>app/users.yaml</code>, still tracked, with 2 real passwords plus a published default;</li><li><code>tests/ui_headless/token_sa.txt</code>, a tracked JWT signed with the real secret. It has expired, but it allows offline guessing of the secret.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li><code>git log --all -- "Focus Legacy to share to BLH.csv"</code> shows 7064ab6 (added) and 9952770 (deleted). It is reachable from origin/Main, origin/HEAD, fix/ci-pipeline, meghalaya-import and update/2026-10-13, -10-20 and -10-24.</li><li><code>app/users.yaml</code>: line 7 is a comment that publishes the default (changeme123); lines 21 and 27 are real <code>password:</code> fields. <code>appdb._seed_users_from_yaml</code> (209-244) uses the default at :228 and logs it at :244.</li><li>Strays found: <code>.claude/settings.json</code> (another project's permissions), <code>frontend/undefined/*.xlsx</code>, <code>frontend/pie_*.png</code> and a 0-byte root <code>constants.js</code>. The pack is 312 MB, of which 101.5 MiB is <code>reference_documents/</code>.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task Medium" id="QA-02">
+      <div class="thead"><span class="tid">3. QA-02</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Test tooling and CI</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>tests/conftest.py, at the top: collect_ignore for the 14 script suites (files with no "def test_"), using plain string checks.</li><li>requirements-dev.txt with pytest and pytest-asyncio pinned. Regenerate requirements.lock on Python 3.11.9.</li><li>CI test step: install node and run npm ci in frontend/. Fail when CI=true and node is missing.</li><li>CI bundle-drift check (npm run build &amp;&amp; git diff --exit-code -- web/app) on Main and the merge queue only. Lane A2 commits web/app with every frontend change, so this check stays green.</li><li>New test: an AST no-regex check over app/ and tests/, plus a string scan of frontend/src.</li><li>Not now: the duplicate KI/D id test. It is added at final integration.</li><li>Done: "pytest tests -q" finishes with no INTERNALERROR; CI shows the node tests passing.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · QA-02: Fix the test tooling and CI</h4>
+        
+        <div class="status"><b>CONFIRMED</b>.</div>
+        <div><span class="lbl">The issue</span>Six tooling gaps:<ul><li>A bare <code>pytest tests</code> still crashes (KI-018).</li><li>pytest is in no requirements file, and the lock file lacks <code>python-docx</code>, <code>pypdf</code> and <code>openpyxl</code>. The dev venv lacks them too, which explains the 3 skips.</li><li>CI runs tests on <code>python:3.11</code> with no node, so the node-based card tests skip silently. After P0 there are about 29 of them, and they also need <code>esbuild</code> from <code>npm ci</code>.</li><li>Nothing catches a source change committed without a bundle rebuild.</li><li>Nothing enforces the no-regex rule.</li><li>Nothing catches duplicate KI or D ids.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li>There is no <code>pytest.ini</code>, <code>pyproject</code> or <code>collect_ignore</code>.</li><li><code>bitbucket-pipelines.yml</code> installs pytest inline. Its comment says "34 today".</li><li>There are 121 test files with a <code>def test_</code>.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task High" id="SEC-02">
+      <div class="thead"><span class="tid">4. SEC-02</span><span class="pill s-High">High</span><h2 class="ttl">Close the geography leaks in authorize()</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>New function appended to sql_ast. For every SELECT that reads a base view, it returns the EQ/IN geo predicates among the top-level AND conjuncts. NOT, NEQ, LIKE and OR never count.</li><li>For a geo-restricted user at finer-than-state grain, every such SELECT needs one, with all values allowed. A block counts only via entity_resolver.block_parent_district; check for an import cycle.</li><li>One geo-column registry in auth.py, used by infer_granularity, _districts_in_sql and _blocks_in_sql:<ul><li>district: lgd_district, district_name_raw;</li><li>block: lgd_block, block_name_raw;</li><li>AC: ac_name, assembly_constituency_name, counted at block level.</li></ul></li><li>scope_from_user fails closed: an empty scheme intersection gives []; take the coarser of role cap and user cap; ignore an unknown cap; an unknown role gets public.</li><li>Do not change sql_ast.filter_values (13 callers). Do not inject predicates with transform.</li><li>Done: tests calling the real authorize deny each case:<ul><li>&lt;&gt;, NOT IN, OR 1=1, an unfiltered UNION branch, a CTE with OR … IS NOT NULL;</li><li>a block from another district;</li><li>GROUP BY block_name_raw, ac_name or district_name_raw for a district officer.</li></ul></li><li>Also: tests/test_security.py (a script) and test_sql_ast.py stay green.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · SEC-02: Close the geography leaks in authorize()</h4>
+        
+        <div class="status"><b>REPRODUCED</b> with real <code>auth.authorize</code> calls for a district officer pinned to EAST KHASI HILLS.</div>
+        <div><span class="lbl">The issue</span><code>authorize</code> only checks that the district or block values named in the SQL are allowed. So <code>&lt;&gt;</code>, <code>NOT IN</code>, <code>OR 1=1</code>, an unfiltered <code>UNION</code> branch, a CTE with <code>OR … IS NOT NULL</code>, and a block from another district are all allowed. Worse, no trick is needed: <code>GROUP BY block_name_raw</code>, <code>district_name_raw</code> or <code>ac_name</code> is treated as statewide, so an ordinary "Focus Plus beneficiaries by block" shows a district officer every block in the state. There are three fail-open scope bugs as well:<ul><li>a scheme-name typo grants all six schemes;</li><li>an unknown role falls back to the analyst role (all geography);</li><li>a bogus <code>granularity_cap</code> crashes every question with <code>ValueError</code>.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li><code>sql_ast.filter_values</code> (:325) walks every comparison, including NEQ and Not(In), without regard to AND or OR.</li><li>auth.py:172 (role fallback), :177 (<code>or schemes</code>), :191 (the user cap can widen the role cap).</li><li>An unfiltered <code>GROUP BY lgd_district</code> and <code>LIKE '%'</code> are already denied correctly.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task High" id="SEC-03">
+      <div class="thead"><span class="tid">5. SEC-03</span><span class="pill s-High">High</span><h2 class="ttl">Authorise the four fixed-answer paths (c13)</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Reuse _repaired_sql_denial and _denied at each site:<ul><li>_data_scheme_stage (~1002, Focus Legacy PG name): after the scheme check, keep only rows whose district is allowed. Do not authorise its SQL.</li><li>_data_clarification_stage (~1145, Focus Plus summary): authorise its fixed SQL.</li><li>_cross_scheme_scope (~1579): add a scope parameter and update its single call (~1094); authorise _res["sql"] with resolved.</li><li>_data_deterministic_stage (~1649, women): authorise _mg_women["shown"].</li></ul></li><li>Do not change cross_figures.py. Do not insert anything between "_mg_det = _mg_admin or (" and "d.update(mg_admin=_mg_admin"; a test slices that span.</li><li>Lane B1 edits the D-065 block (~1205) in the same function as your ~1145 edit, so keep your hunks small.</li><li>Pinned tests to update deliberately: test_measure_not_held.py:133, test_scheme_years.py:75, test_metric_catalog_2026_10_26.py:220, test_mgnrega_usecase_fixes.py:560.</li><li>Done: one denial test per path through tests/_graph_turn.py.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · SEC-03: Authorise the four fixed-answer paths</h4>
+        
+        <div class="status"><b>CONFIRMED</b> for 4 of 5 paths. v1 was wrong on <code>_mgnrega_admin_expenditure_answer</code>, which does go through authorize.</div>
+        <div><span class="lbl">The issue</span>Four fixed answers return figures without <code>authorize</code>. The most reachable is the cross-scheme by-district ranking, which shows every district to any officer.<ul><li>Focus Legacy PG-name lookup: it returns each group's district and block.</li><li>Focus Plus overall summary: it includes the top district.</li><li><code>cross_figures.answer</code> inside <code>_cross_scheme_scope</code>, which has no <code>scope</code> argument.</li><li>MGNREGA women-unrecorded: it uses the resolved place.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li>The call sites are c13:1002, :1145, :1579 (in <code>_cross_scheme_scope</code>, called at :1094) and :1649.</li><li><code>_repaired_sql_denial(scope, schemes, entity_result, sql)</code> (c11:1609) already wraps the scope, <code>AUTH_ENABLED</code> and the logging. <code>_denied()</code> is at c13:503.</li></ul></details>
+        <details open><summary>Tests that pin this code</summary><ul><li>test_measure_not_held.py:133 and test_scheme_years.py:75 (source of _data_scheme_stage)</li><li>test_metric_catalog_2026_10_26.py:220 (slices c13)</li><li>test_mgnrega_usecase_fixes.py:560 (source of _data_clarification_stage)</li></ul></details>
+      </div>
+    </article>
+<article class="task Low" id="SEC-05">
+      <div class="thead"><span class="tid">6. SEC-05</span><span class="pill s-Low">Low</span><h2 class="ttl">Right client IP; harder login and logout</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>net.py: when the peer is trusted, read X-Real-IP, falling back to the right-most XFF hop. TRUSTED_PROXIES default "127.0.0.1,::1"; update DEPLOYMENT.md lines 114 and 311.</li><li>routers/auth.py: a dummy verify_password for unknown or inactive users; hmac.compare_digest in bootstrap; a per-username backoff delay, NOT a hard lockout.</li><li>token_version column (additive DDL in appdb), bumped on password change and logout, checked in deps.current_scope.</li><li>Done: tests for the XFF case, an old token failing after a password change, and equal timing for unknown and wrong-password users.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · SEC-05: Trust the right client IP; harden login and logout</h4>
+        
+        <div class="status"><b>REPRODUCED</b> (<code>net.client_ip</code>). Severity lowered: nginx already rate-limits logins on the real IP, and role changes already take effect at once.</div>
+        <div><span class="lbl">The issue</span>The app trusts the first <code>X-Forwarded-For</code> hop, which the client controls. So the app-level per-IP limiter and the audit IP can be spoofed. Spoofed IPs also grow the rate-limit table without bound. nginx itself resolves the real IP correctly and caps logins at 1 r/s. Two smaller gaps: unknown and inactive usernames skip the password hash, which allows timing enumeration; and a password change or logout does not revoke existing tokens.</div>
+        <details open><summary>Evidence</summary><ul><li>net.py:46-55.</li><li><code>deploy/nginx/nginx-megh-langgraph.conf:105</code> already sends <code>X-Real-IP $remote_addr</code>; <code>real_ip_*</code> is at lines 38-41.</li><li>config.py:70 trusts all RFC1918 ranges by default.</li><li>deps.py:41-44 re-reads the user row on every request, so role and deactivation changes are already live.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task High" id="SEC-07">
+      <div class="thead"><span class="tid">7. SEC-07</span><span class="pill s-High">High</span><h2 class="ttl">Lock down Qdrant; production boot guard</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Check without printing values: does the dev .env say ENV=dev? Setup asked for ENV=dev on BOTH dev machines.<ul><li>If you cannot confirm it, add BOOT_GUARD_ENFORCE (default False), implement everything, record it in HANDOFF, and ask the user to flip it.</li></ul></li><li>insecure_secrets also flags: AUTH_ENABLED=false, ASR_DEBUG_DIR set, a CA bundle configured but missing. The Qdrant-key item stays warn-only until infra provides the key.</li><li>lifespan: raise when ENV=="prod" and the list is not empty.</li><li>llm._get_ssl_verify: CA configured but missing gives a CRITICAL log and a refusal in prod.</li><li>Drop 'unsafe-inline' from script-src in CSP_ENFORCE, after checking that frontend/index.html and admin.html use only module scripts.</li><li>The Qdrant API key and firewall are an infra request: record it, do not wait.</li><li>Done: prod boot fails with a default secret, dev boots; tests/test_security.py extended.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · SEC-07: Lock down Qdrant; fail-closed production boot that the dev box survives</h4>
+        
+        <div class="status"><b>CONFIRMED</b> config facts. Not verified: that Qdrant answers without a key, which needs a live check. The v1 boot guard would have bricked the dev box.</div>
+        <div><span class="lbl">The issue</span><b>Qdrant:</b> it runs on a public IP over plain HTTP with no API key, and holds both the KB and officers' chat memory. Anyone who reaches it can plant KB text that the bot will repeat.<br><b>TLS:</b> gateway TLS is never verified, because the CA bundle path is set but the file is missing.<br><b>Boot:</b> production boots with only a log line for a default JWT secret, <code>AUTH_ENABLED=false</code> or voice recording switched on.<br><b>The trap:</b> <code>ENV</code> defaults to <code>prod</code>, and the dev box runs with <code>ENV=prod</code>, a missing CA and <code>ASR_DEBUG_DIR</code> set. A naive "refuse to start in prod" guard would stop the dev box.</div>
+        <details open><summary>Evidence</summary><ul><li>config.py:327 is the Qdrant URL, config.py:20 sets <code>ENV="prod"</code>, :47 has <code>'unsafe-inline'</code> and :683-699 is <code>insecure_secrets</code>.</li><li>llm.py:42-80 sets <code>verify=False</code> whenever the file is missing.</li><li>main.py:64-69 only logs.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task Medium" id="SEC-06">
+      <div class="thead"><span class="tid">8. SEC-06</span><span class="pill s-Medium">Medium</span><h2 class="ttl">DB layer</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Wrap every pool.acquire in asyncio.timeout(DB_POOL_ACQUIRE_TIMEOUT), new setting next to the pool settings, and map a timeout to DatabaseUnavailableError. Put a per-pool asyncio.Lock around each lazy ensure_*_pool.</li><li>sql_guard: refuse schema-qualified function calls; block the has_, to_reg and current_schema prefixes and xpath.</li><li>BLOCKED, do not do: moving the 62 fixed curated queries off the postgres superuser. That needs a live run of every fixed query as megh_readonly and the DB team's agreement. Record it.</li><li>Done: 10 concurrent ensure_readonly_pool calls create one pool; guard tests for each new block.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · SEC-06: DB layer: acquire timeout, safe pool creation, tighter function block-list</h4>
+        
+        <div class="status"><b>REPRODUCED</b> (<code>sql_guard</code> calls) and <b>CONFIRMED</b>. Severity lowered to Medium: fixed SQL is app-written and parameter-bound. There are 62 call sites; v1 said about 45.</div>
+        <div><span class="lbl">The issue</span>Three gaps in the DB layer:<ul><li><code>pool.acquire()</code> has no timeout anywhere, so a stuck pool hangs requests indefinitely.</li><li>The lazy <code>ensure_*_pool</code> calls take no lock. After an outage, concurrent first requests each build a pool and leak the extras against the 20-connection caps.</li><li><code>sql_guard</code> lets <code>has_table_privilege</code>, <code>to_regclass</code>, <code>current_schemas</code>, <code>current_user</code>, <code>xpath</code>, <code>current_query()</code> and schema-qualified calls such as <code>semantic.run_query(...)</code> through.</li></ul>The 62 fixed curated queries run as the <code>postgres</code> superuser.</div>
+        <details open><summary>Evidence</summary><ul><li>db.py:248-274 (<code>ensure_*</code>); every <code>acquire</code> from :290 to :468.</li><li><code>sql_guard._FORBIDDEN_FUNCTION_PREFIXES</code>.</li><li>The dev <code>DATABASE_URL</code> user is postgres; <code>CHATBOT_DATABASE_URL</code> is blank.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task Medium" id="CTX-04b">
+      <div class="thead"><span class="tid">9. CTX-04b</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Audit log hygiene</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>auth.audit: write logs/query_audit.jsonl through asyncio.to_thread, with size-based rotation. Delete the dead auth.read_audit.</li><li>Not yours: the retention purge and the delete cascade (lane A2).</li><li>Done: tests for the threaded write and for rotation.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · CTX-04: Retention for conversations and audit; deletion that really deletes</h4>
+        <p class="note"><b>Split task:</b> Lane A1 does only the audit-log rotation. The delete cascade and retention purge (CTX-04a) are in lane A2.</p>
+        <div class="status"><b>CONFIRMED</b>, with corrections: Qdrant memory (30 days), paused threads and sessions do expire. Only the DB tables and the audit never expire.</div>
+        <div><span class="lbl">The issue</span>Three retention gaps:<ul><li><code>app.conversations</code>, <code>conversation_turns</code>, <code>query_audit</code> (26,717 old rows with result previews) and the JSONL audit never expire.</li><li>Deleting a chat removes only DB rows, not its Qdrant memory points, its graph checkpoint or the in-memory Session.</li><li>The JSONL audit is written with blocking file I/O on the event loop.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li>conversation_store.py:264-277 and history.py:69-77 handle the delete. <code>deploy/sql/02_retention_policy.sql</code> is never scheduled. <code>auth.read_audit</code> is dead code.</li><li>The snapshot is already bounded (8 topics, 20 ledger entries per topic).</li></ul></details>
+        <details open><summary>Tests that pin this code</summary><ul><li>test_history_charts.py:67-72</li></ul></details>
+      </div>
+    </article>
+<article class="task Low" id="SQL-08">
+      <div class="thead"><span class="tid">10. SQL-08</span><span class="pill s-Low">Low</span><h2 class="ttl">Catalogue pin and recovery from failed startup loads</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Add expression_sha per verified entry in data/metric_catalog_verified.yaml, over sql_expression + base_object + filters_required. On a mismatch, drop the entry from verified and log a WARNING.</li><li>Add one background task in main.py's lifespan that retries failed startup loads (schema_introspect, metric_catalog, refresh_scheme_years) with backoff, and refreshes daily.</li><li>refresh_scheme_years (c06) returns its status.</li><li>/health reports each load.</li><li>No 30-minute refresh and no admin endpoint.</li><li>Done: a changed expression makes verified() return None; a load that failed at startup recovers without a restart.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · SQL-08: Pin catalogue definitions and recover from failed startup loads</h4>
+        
+        <div class="status"><b>CONFIRMED</b>. Severity lowered: a failed catalogue load falls back to the model path.</div>
+        <div><span class="lbl">The issue</span>Two catalogue risks:<ul><li>A metric stays "verified" even if the data team edits its SQL expression.</li><li>Schema, years and catalogue load once at startup. If the DB flaps during boot, the worker runs on defaults until it is restarted, and <code>/health</code> says ok. <code>refresh_scheme_years</code> even hides its own failures.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li><code>metric_catalog.load</code> (189-229) and <code>verified()</code> (241) do no hash check.</li><li>main.py:76-83 wraps each load in <code>_try</code>; <code>/health</code> (171-203) does not report them.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task Low" id="REL-03">
+      <div class="thead"><span class="tid">11. REL-03</span><span class="pill s-Low">Low</span><h2 class="ttl">Request ids in logs, a cheap /health, bounded rate-limit memory</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>A logging.Filter adds the request id and the user to every record.</li><li>Validate X-Request-ID to letters, digits and hyphens using string methods.</li><li>Cache /health component results for 5 s, with a 2 s timeout per probe.</li><li>Drop empty rate-limit deques.</li><li>Done: tests; /health answers within 2 s while the DB is down.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · REL-03: Request ids in logs, a cheap /health, bounded rate-limit memory</h4>
+        
+        <div class="status"><b>CONFIRMED</b>. Corrections: the files live in <code>app/middleware/</code>, and <code>X-Request-ID</code> is already trimmed to 64 characters.</div>
+        <div><span class="lbl">The issue</span>Three operability gaps:<ul><li>Log lines carry no request id.</li><li>An anonymous <code>/health</code> runs DB, Qdrant and Redis probes and can block for 30 s.</li><li>Rate-limit keys are never deleted, which SEC-05's spoofable IPs made a memory risk.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li>main.py:31-34 and :160-200; <code>app/middleware/rate_limit.py:58</code>; <code>security_headers.py:64-69</code>.</li></ul></details>
+        
+      </div>
+    </article>
+<article class="task Medium" id="DOC-01a">
+      <div class="thead"><span class="tid">12. DOC-01a</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Guide docs back in line with the code</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>CLAUDE.md:<ul><li>the verifier is qwen-model (30B), not the 4B;</li><li>there is no graph off/on switch and no "sequential path";</li><li>replace the test counts with a pointer to one dated baseline line in the TESTING.md header;</li><li>add new_docs/ to the doc map;</li><li>the BLH CSV is not in the tree;</li><li>KB re-ingest is via the admin endpoint (lane B2 is changing restart behaviour, so do not promise either way);</li><li>the port conflict is "DOCUMENTATION CONFLICT, NEEDS VERIFICATION".</li></ul></li><li>PROJECT_CONTEXT.md lines 80 and 100.</li><li>SECURITY.md A03: describe the three DB pools.</li><li>The D-073 text in DECISIONS.md: fixed queries run on the app pool.</li><li>AI_PIPELINE.md §0 model table and the §8 heading.</li><li>Done: one test count used everywhere; model roles match config.py.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · DOC-01: Bring the guide docs back in line with the code</h4>
+        <p class="note"><b>Split task:</b> Lane A1's share of DOC-01: CLAUDE.md, SECURITY, PROJECT_CONTEXT, D-073, the AI_PIPELINE model table.</p>
+        <div class="status"><b>CONFIRMED</b>, except one v1 claim: SECURITY.md has no regex text.</div>
+        <div><span class="lbl">The issue</span>The guide docs contradict the code in several places:<ul><li>CLAUDE.md gives wrong test counts (27 files / 1,453 passed versus 120 / 3,910) and a "graph off and on" switch that does not exist.</li><li>It names the wrong verifier model: the 4B, when <code>config</code> uses the 30B.</li><li>It says a restart re-ingests the KB; it does not.</li><li>It says the BLH CSV is in the repo root.</li><li>D-073 says fixed queries run on <code>megh_readonly</code>; they run on the app pool.</li><li>CONTEXT_AND_LANGGRAPH stops at D-030.</li><li>LANGGRAPH_PAUSE_RESUME still describes the "sequential path".</li><li>The RAG section of AI_PIPELINE leaves out hybrid search, grounding and citations.</li></ul></div>
+        <details open><summary>Evidence</summary><ul><li>CLAUDE.md lines 28, 111-112, 133, 151 and 166-170. <code>config.py:267 SQL_VERIFY_MODEL="qwen-model"</code>.</li><li><code>db.fetch_rows</code> (db.py:285) has 62 call sites, against 11 for <code>fetch_rows_readonly</code>.</li><li>Also stale: <code>PROJECT_CONTEXT.md:80,100</code>, <code>TESTING.md:31</code> ("46 files") and line 56 (port 8502), the AI_PIPELINE §0 model table and the "opt-in" heading in §8.</li><li>KI-372 blames YAML files that are never loaded. The real source of the leaked id is <code>schema_context.py:953-958</code>.</li><li>The ports conflict: systemd and nginx use 8410/8300, while the CLAUDE.md rule says 8401.</li></ul></details>
+        
+      </div>
+    </article></div>
+</section>
+<section>
+  <h2>Files two lanes share, and how each lane stays apart</h2>
+  <p class="note">All other files have exactly one owner. For each file below, the lanes edit separate regions that git merges on its own. If a rebase still conflicts, the lane keeps the other lane's lines and re-applies only its own.</p>
+  <div class="tablewrap"><table><thead><tr><th>File</th><th>Who edits which region</th></tr></thead><tbody>
+    <tr><td>app/config.py</td><td>A1: structure, security, pool, proxy and CSP settings. A2: one block after the Redis/session settings (retention, <code>APP_BUILD</code>). B2: one block after the <code>RAG_*</code> settings, plus the value of <code>PROMPT_BUDGET_COMPOSER_TOKENS</code>.</td></tr>
+    <tr><td>c13_compose_and_data_stages.py</td><td>A1: the four authorise sites (~1002, ~1094, ~1145, ~1579, ~1649). B1: the D-065 block (~1205) and <code>_data_per_scheme_rows</code> (~1933). B2: <code>compose_response</code> (~13, ~160-270).</td></tr>
+    <tr><td>app/appdb.py</td><td>A1: seeding, DDL, <code>update_user</code>. A2: one new purge function after <code>purge_user</code>.</td></tr>
+    <tr><td>app/pipeline_graph.py</td><td>A2: a public drop-thread helper. B1: the repair state field and repair nodes.</td></tr>
+    <tr><td>c06_years_tranches.py</td><td>A1: <code>refresh_scheme_years</code>. B1: everything else.</td></tr>
+    <tr><td>app/cross_figures.py</td><td>B1: the Focus Plus district lines (~35-137). B2: <code>_scheme_line</code> (~470-484).</td></tr>
+    <tr><td>tests/conftest.py</td><td>A1: top (<code>collect_ignore</code>). B2: bottom (<code>RAISE_INTERNAL_ERRORS</code>).</td></tr>
+    <tr><td>The five lane-sectioned docs</td><td>Each lane writes only inside its own section, above its end marker.</td></tr>
+  </tbody></table></div>
+</section>
+<nav class="crumbs"><a href="index.html">← Lane plan &amp; setup</a><b>Lane A1</b><a href="lane-a2.html">Lane A2</a><a href="lane-b1.html">Lane B1</a><a href="lane-b2.html">Lane B2</a></nav>
+</div>
+<script>
+document.addEventListener("click", function (e) {
+  var b = e.target.closest("[data-copy]"); if (!b) return;
+  var pre = document.getElementById(b.getAttribute("data-copy")); var label = b.textContent;
+  function sel() { var r = document.createRange(); r.selectNodeContents(pre); var s = getSelection(); s.removeAllRanges(); s.addRange(r); b.textContent = "Selected, press Ctrl+C"; }
+  try { navigator.clipboard.writeText(pre.textContent).then(function () { b.textContent = "Copied"; setTimeout(function () { b.textContent = label; }, 2000); }, sel); } catch (err) { sel(); }
+});
+</script></body></html>

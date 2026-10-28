@@ -1,0 +1,1039 @@
+<title>Megh One AI Audit Board</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: verdict first (honest assessment, corrections), then the merge plan, then the filterable task board, then the file matrix. */
+:root{
+  --bg:#f5f7f5; --surface:#ffffff; --sunk:#eaefeb; --fg:#17201b; --muted:#56635b; --line:#d3dbd5;
+  --accent:#1d6b55; --accent-soft:#dcefe7;
+  --crit:#b3261e; --crit-soft:#fbe4e1; --high:#b85c00; --high-soft:#fdebd8;
+  --med:#8a6d00; --med-soft:#f8f0cc; --low:#4b6478; --low-soft:#e3ebf1; --dec:#6a3fa0; --dec-soft:#eee5f8;
+  --ok:#2c7a3f; --ok-soft:#dff1e3;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(28px,4.6vw,42px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:24px;font-weight:600}
+h3{font-size:18px;font-weight:600}
+p{margin:0;max-width:74ch}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunk);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+a{color:var(--accent)}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+header{display:flex;flex-direction:column;gap:14px;border-bottom:2px solid var(--fg);padding-bottom:22px}
+.lede{font-size:17px;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:10px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.stat b{font:700 28px/1.1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{font-size:12.5px;color:var(--muted)}
+.stat.crit b{color:var(--crit)} .stat.high b{color:var(--high)} .stat.med b{color:var(--med)} .stat.low b{color:var(--low)}
+section{display:flex;flex-direction:column;gap:16px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.panel ol,.panel ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.verdict{border-left:4px solid var(--accent)}
+.prio{counter-reset:p;list-style:none;padding:0!important}
+.prio li{display:grid;grid-template-columns:auto auto auto 1fr;gap:10px;align-items:baseline}
+.prio li::before{counter-increment:p;content:counter(p);font:700 15px var(--f-display);color:var(--muted);width:1.4em;text-align:right}
+.idlink{font:600 13px var(--f-mono);text-decoration:none;white-space:nowrap}
+.pill{display:inline-block;font:600 11px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;padding:4px 7px;border-radius:999px;white-space:nowrap}
+.s-Critical{background:var(--crit-soft);color:var(--crit)} .s-High{background:var(--high-soft);color:var(--high)}
+.s-Medium{background:var(--med-soft);color:var(--med)} .s-Low{background:var(--low-soft);color:var(--low)} .s-Decision{background:var(--dec-soft);color:var(--dec)}
+.tag{font:500 11.5px var(--f-mono);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:2px 6px;white-space:nowrap}
+.tag.wave{color:var(--accent);border-color:var(--accent)}
+.controls{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{font:500 13px var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:5px 11px;border-radius:999px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.chip:focus-visible,.btn:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#q{flex:1 1 200px;min-width:0;font:14px var(--f-body);padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+select{font:14px var(--f-body);padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+.count{font:500 13px var(--f-mono);color:var(--muted);margin-left:auto}
+.btn{font:600 13px var(--f-body);border:1px solid var(--accent);color:var(--accent);background:transparent;padding:6px 12px;border-radius:7px;cursor:pointer}
+.btn:hover{background:var(--accent-soft)}
+.trackhead{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;padding-top:18px;border-top:1px solid var(--line)}
+.trackhead p{color:var(--muted);font-size:14px;flex-basis:100%}
+.tasks{display:flex;flex-direction:column;gap:12px}
+.task{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--low);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-width:0;scroll-margin-top:150px}
+.task.Critical{border-left-color:var(--crit)} .task.High{border-left-color:var(--high)} .task.Medium{border-left-color:var(--med)} .task.Decision{border-left-color:var(--dec)}
+.task:target{box-shadow:0 0 0 2px var(--accent)}
+.thead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tid{font:600 14px var(--f-mono)}
+.task h3{flex-basis:100%;font-size:19px}
+.status{font-size:13.5px;background:var(--ok-soft);color:var(--fg);border-radius:6px;padding:6px 10px}
+.status b{color:var(--ok)}
+.lbl{font:600 12px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:2px}
+.task details{border-top:1px dashed var(--line);padding-top:8px}
+.task summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.task ul{margin:6px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:5px}
+.task li{max-width:82ch}
+.dont li::marker{content:"✕  ";color:var(--crit)}
+.files li code{background:transparent;padding:0;color:var(--accent);font-weight:500}
+.tfoot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.after{font-size:13px;color:var(--muted)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--sunk)}
+.waves{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.wavebox{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.wavebox h3{font-size:16px}
+.wavebox .ids{display:flex;flex-wrap:wrap;gap:4px 8px}
+.wavebox p{font-size:13px;color:var(--muted)}
+.toast{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:14px}
+.note{font-size:13.5px;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.task{transition:box-shadow .2s}}
+</style>
+
+<div class="wrap">
+<header>
+  <span class="eyebrow">Audit v2 · re-verified 28 Oct 2026 · Main @ 8abfaf9 + uncommitted working tree</span>
+  <h1>Megh One AI: verified issues, fixes and a merge-safe task plan</h1>
+  <p class="lede">I re-checked every claim in version 1 against the code, calling the real functions offline wherever I could. Wrong claims are corrected or removed, and weak fixes are replaced. Tasks are regrouped and ordered so that each one can run in its own session and all of them merge into Main without conflicts.</p>
+  <div class="stats" id="stats"></div>
+</header>
+
+<section>
+  <h2>My honest assessment</h2>
+  <div class="cols">
+    <div class="panel verdict">
+      <h3>The state of the project</h3>
+      <p>The architecture is sound, and the team has been disciplined. Every regex, gate and guard cites the incident it fixes, and 3,910 tests pass. The weakness is underneath that discipline. Most correctness guarantees are string checks layered over a sampling model, and several of those checks match substrings when they should compare exactly:</p>
+      <ul>
+        <li>the scope guard accepts SOUTH WEST GARO HILLS for WEST GARO HILLS;</li>
+        <li>the year guard accepts <code>LIMIT 2023</code> as a year filter;</li>
+        <li>the number check accepts a misquote of 6,563 on 1,494,437.</li>
+      </ul>
+      <p>None of these is a big bug alone. Together they mean a wrong figure can reach an officer with every check passing. Nothing measures this, because there is no automatic accuracy gate.</p>
+      <p>The second real risk is access control. A district officer can see every other district's figures by asking a normal question, such as "Focus Plus beneficiaries by block". A tenant admin can reset the super_admin's password. For an internal government tool, these matter more than external threats.</p>
+      <p>The third risk is the process. The docs have grown too big to read: KNOWN_ISSUES is 314 KB and has duplicate ids. Parallel sessions already collide: today I found another session's uncommitted table work that overlaps three of my tasks.</p>
+    </div>
+    <div class="panel verdict">
+      <h3>How good version 1 of this report was</h3>
+      <p>None of the headline issues was false. But <b>about two-thirds of the 54 cards had something wrong</b>: a detail, the severity, the mechanism, or a fix that would have caused harm. The worst cases:</p>
+      <ul>
+        <li><b>RAG-01:</b> the proposed fix would not have changed the routing at all.</li>
+        <li><b>CTX-07:</b> the provenance fix would have broken same-scheme follow-ups.</li>
+        <li><b>SEC-07:</b> the boot guard would have stopped the dev box from starting, because it runs with <code>ENV=prod</code>.</li>
+        <li><b>REL-02:</b> deleting the dead settings would have broken boot for any <code>.env</code> that still sets them.</li>
+        <li><b>DOC-02:</b> the renumbering collided with KI-438, which already exists.</li>
+        <li><b>Examples:</b> four of them (Q181, PM-04, the CE-11 cause, KI-318) had the wrong cause.</li>
+        <li><b>Merging:</b> 11 pipeline files, <code>main.py</code>, <code>query.py</code>, every doc and the built frontend would have conflicted.</li>
+      </ul>
+      <p>Version 2 fixes all of that. The section "What changed from version 1" lists every correction. One caveat remains: I could not verify anything that needs the VPN, such as live answers, the production env, or whether Qdrant is reachable without a key. Cards say so where it applies.</p>
+    </div>
+  </div>
+</section>
+
+<section id="qdrant-metadata">
+  <h2>Does the bot use the Qdrant <code>Metadata_*</code> collections?</h2>
+  <div class="panel verdict">
+    <p><b>No.</b> Neither the knowledge path nor the NL→SQL path reads them. No code anywhere in <code>app/</code> names them; the only mentions are docs saying "not ours, never touch" (CLAUDE.md:246, ARCHITECTURE.md:439, HANDOFF.md:694). The knowledge path reads only <code>megh_scheme_kb_v4</code>, and conversation memory reads only <code>megh_conversation_memory_1024</code>.</p>
+    <p><b>Verified on 28 Oct, read-only:</b> there are 7 collections, 4,016 points, 1024-dim, cosine. Each point carries a <code>text</code> field and typed payload: column meanings with synonyms and sample values, entity values with row counts and parent places, formulas with SQL expressions, aggregation and NULL rules, clarification rules, the join graph, and example question→SQL pairs. <b>They were embedded with our own model</b>: re-embedding their text through our gateway's <code>qwen3-embedding</code> gives cosine 0.9999 to 1.0 against the stored vectors. So they are directly searchable with no re-embedding.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Collection</th><th>Points</th><th>Tables it describes</th><th>Matches what the bot queries?</th></tr></thead>
+    <tbody>
+      <tr><td><code>Metadata_CMElevate</code></td><td>917</td><td><code>curated.v_cm_elevate</code> (source <code>data/cm_elevate/cmelevate_schema_partitions.yaml</code>, already in our repo)</td><td><b>Yes</b></td></tr>
+      <tr><td><code>Metadata_FocusPlus</code></td><td>659</td><td><code>curated.dim_*</code> join graph and clarification rules (sources in <code>data/focus_plus/</code>)</td><td><b>Yes</b></td></tr>
+      <tr><td><code>Metadata_MGNREGA</code></td><td>360</td><td><code>mgnrega_employment</code> (<code>stage2_mgnrega_combined_production.yaml</code>, not in repo)</td><td><b>No</b>: the bot uses <code>curated.v_employment</code> and <code>v_expenditure</code></td></tr>
+      <tr><td><code>Metadata_PMAY</code></td><td>459</td><td><code>pmay_beneficiaries</code>, <code>mapped_*_lgd_name</code></td><td><b>No</b>: the bot uses <code>curated.v_pmay</code> and <code>lgd_district</code></td></tr>
+      <tr><td><code>Metadata_FocusLegacy</code></td><td>733</td><td><code>focus_legacy</code>, <code>mapped_constituency_name_and_number</code></td><td><b>No</b>: the bot uses <code>curated.v_focus_legacy</code></td></tr>
+      <tr><td><code>Metadata_CMElevateLegacy</code></td><td>501</td><td><code>cm_elevate_legacy</code>, <code>mapped_district_lgd_name</code></td><td><b>No</b></td></tr>
+      <tr><td><code>Metadata_NRLM</code></td><td>387</td><td><code>nrlm_shg</code></td><td>Not a scheme this bot serves</td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols">
+    <div class="panel">
+      <h3>The problem</h3>
+      <ul>
+        <li><b>A missed capability, not a bug.</b> The bot works without them. But SQL generation gets its schema from the hand-written <code>schema_context.py</code>, a large static block that falls back to all schemes (KI-011) and drifts from the SME YAMLs (KI-010). A question-relevant index of exactly that knowledge already exists and goes unused.</li>
+        <li><b>Four of the six scheme collections describe a different database layout</b> from the curated views the bot queries. Fed to the SQL model as they are, their column names and example SQL would steer it toward tables that are not in its schema, which means more repairs and more wrong SQL.</li>
+        <li><b>The bot does not own or control them.</b> Another team owns them, there is no versioning contract, five of the nine source YAMLs are not in our repo, and some entries are flagged <code>needs_sme_confirmation</code>.</li>
+        <li><b>They are unprotected.</b> Qdrant has no API key (SEC-07), so anyone who can reach it could rewrite them. Putting them into SQL prompts would add a prompt-poisoning path.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>The best solution (task RAG-06)</h3>
+      <ul>
+        <li><b>Do not</b> connect them to the officer-facing knowledge path. They are schema metadata, not scheme guidance.</li>
+        <li>Use them as an <b>optional, validated schema-retrieval step for SQL generation</b>, starting with the two collections that match (CM Elevate, Focus Plus).</li>
+        <li>Check every retrieved item against the live catalogue (<code>schema_introspect</code>). Drop any item whose table or column is not live. Never insert example SQL unless SQLGlot parses it and it references only live curated objects.</li>
+        <li>Run in shadow mode first (log what would be added), then A/B on the golden set, then switch on per scheme behind a flag. If it is not faster or more accurate, leave it off.</li>
+        <li>For the other four, ask the owner whether that layout is a planned new schema or the raw layer. Agree a version pin (<code>schema_version</code> plus <code>content_hash</code>) and a read-only key for the bot.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+<section>
+  <div class="cols">
+    <div class="panel">
+      <h2>Fix first</h2>
+      <ol class="prio" id="prio"></ol>
+    </div>
+    <div class="panel">
+      <h2>Decisions only you can make</h2>
+      <ol>
+        <li><b>Run SEC-01 first.</b> It rewrites git history, so it must happen before anyone branches.</li>
+        <li><b>Conversation rulebook v1</b> (CTX-09): year carry-over, and whether a bare "CM Elevate applicants" question asks or answers. QA-01 is blocked on this.</li>
+        <li><b>Retention period</b> for conversations, turns and the query audit (CTX-04).</li>
+        <li><b>Wikipedia pages in the KB:</b> keep them, drop them, or replace them with official documents (RAG-03).</li>
+        <li><b>Indian vs Western digit grouping</b> in answer text. Today the text uses 1,494,437 and the cards use 14,94,437. Many tests pin the Western form, so this is a product call, not a bug fix.</li>
+        <li><b>Docs workflow:</b> keep one shared CURRENT_STATE and HANDOFF (with a stub per task, my recommendation), or allow per-task files. CLAUDE.md §8 currently forbids new top-level docs.</li>
+        <li><b>Moving fixed queries off the superuser</b> (SEC-06) needs a live run of every fixed query as <code>megh_readonly</code> and the DB team's agreement.</li>
+        <li><b>Qdrant <code>Metadata_*</code> collections</b> (RAG-06): who owns them, whether the bot may read them, and what the MGNREGA, PMAY and Legacy table layout in them is.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section>
+  <h2>Merge plan: how to run these in parallel without breaking Main</h2>
+  <div class="panel">
+    <h3>Step P0: before anything else</h3>
+    <p>Commit the uncommitted working tree. It has KI-437 (<code>cross_figures.py</code>, <code>analytics.js</code>), and another session's KI-438 table work: the new <code>frontend/src/chat/columns.js</code>, changes to <code>Charts.jsx</code>, <code>Messages.jsx</code> and <code>chat.css</code>, <code>tests/test_table_view_2026_10_28.py</code>, the rebuilt <code>web/app</code> and 8 docs. Three cards below assume this work is in Main. If it is not committed first, every UI branch conflicts.</p>
+  </div>
+  <div class="waves" id="waves"></div>
+  <div class="cols">
+    <div class="panel">
+      <h3>Rules every session follows</h3>
+      <ul>
+        <li><b>Branch:</b> name it <code>task/&lt;id&gt;</code>. Cut it from Main only after the tasks listed in its "start after" have merged. Merge through the Bitbucket merge queue, which tests each PR on top of everything already queued.</li>
+        <li><b>Docs:</b> edit only your task's pre-made stub in CURRENT_STATE and HANDOFF (DOC-02 creates them) and your own KI detail sections. Never edit the KI summary table, the TESTING history table or the "Last updated" lines; the integrator updates those at merge.</li>
+        <li><b>Ids:</b> new KI ids come only from your track's range (shown on the board). New decisions are written as <code>D-&lt;task id&gt;</code>, and the integrator numbers them from D-074.</li>
+        <li><b>Pipeline helpers:</b> prefix every new pipeline name with your file and task, for example <code>_c11_sql01_</code>. A duplicate top-level name silently replaces the other one (KI-413). Run <code>tests/test_pipeline_namespace_2026_10_26.py</code> before every PR.</li>
+        <li><b><code>config.py</code> and <code>.env.example</code>:</b> add settings next to related ones, in their own commented block. Never add at the end of the class, and never reorder.</li>
+        <li><b>Frontend:</b> never commit <code>web/app</code>. Before a PR, <code>git diff --name-only origin/Main...HEAD -- web/app</code> must be empty. The integrator builds once after the last frontend merge.</li>
+        <li><b>Requirements:</b> only QA-02 (wave 0) edits the requirements files.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>Integration checklist after each wave</h3>
+      <ol>
+        <li>Run the full pytest command from TESTING.md §2 (baseline 3,910 passed and 3 skipped at HEAD; about 3,932 once P0 is in). After QA-02, <code>pytest tests -q</code> must finish too.</li>
+        <li>Run all 14 script suites; all must pass.</li>
+        <li>Run the namespace test and the duplicate KI and D id tests (from QA-02).</li>
+        <li>Run <code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code> and commit <code>web/app</code>. The node card and table tests must pass, not skip.</li>
+        <li>On the VPN: <code>live_context_validation.py</code> with caches on and off, <code>nl2sql_eval --fail-on-regression</code>, <code>rag_eval</code>, and one in-process answer per scheme as a district officer.</li>
+        <li>Restart on port 8401 and check <code>/health</code>, <code>/megh-chat</code> and <code>/admin-ui</code>.</li>
+        <li>Integrator only: update the KI table, the TESTING history and the "Last updated" lines.</li>
+      </ol>
+    </div>
+  </div>
+</section>
+
+<section aria-labelledby="board">
+  <h2 id="board">Task board</h2>
+  <div class="controls">
+    <div class="row" id="tracks" role="group" aria-label="Filter by area"></div>
+    <div class="row">
+      <span class="row" id="sevs" role="group" aria-label="Filter by severity"></span>
+      <label class="note" for="wavesel">Wave</label>
+      <select id="wavesel"><option value="ALL">All</option></select>
+      <input id="q" type="search" placeholder="Search tasks, files, KI ids" aria-label="Search tasks">
+      <button class="btn" id="expand" type="button">Expand all</button>
+      <span class="count" id="count"></span>
+    </div>
+  </div>
+  <div id="list"></div>
+</section>
+
+<section>
+  <h2>File matrix</h2>
+  <p class="note">Every file that two or more tasks edit, with the functions each task touches and its wave. Rows are in merge order. Where two tasks share a file, they either merge in the order shown, or they edit regions far apart that git merges cleanly. I checked every pair: the unordered same-wave pairs are config.py settings in different blocks, <code>query.py</code> lines 279-330 vs 431-477, c13 lines 211-270 vs ~1002-1649 vs 1933-1970, and c11 lines 150-203 vs 819-1115.</p>
+  <div class="tablewrap"><table><thead><tr><th>File</th><th>Tasks, in merge order</th></tr></thead><tbody id="matrix"></tbody></table></div>
+</section>
+
+<section>
+  <h2>What changed from version 1</h2>
+  <div class="tablewrap"><table><thead><tr><th>v1 card</th><th>What was wrong</th><th>Now</th></tr></thead><tbody id="changes"></tbody></table></div>
+</section>
+
+<section>
+  <h2>Method</h2>
+  <div class="cols">
+    <div class="panel">
+      <p><b>Pass 1:</b> six read-only reviewers audited context memory, RAG, the composer, NL→SQL and data, security and infrastructure, and tests, frontend and docs.</p>
+      <p><b>Pass 2:</b> six fresh reviewers each took one area and tried to <i>disprove</i> every pass-1 claim. They called the real functions offline (<code>auth.authorize</code>, <code>_resolved_scope_missing</code>, <code>_answer_numbers_faithful</code>, <code>topic_memory.checkpoint</code> with a fake backend, <code>classify_intent</code> with a stubbed model, <code>analytics.js</code> under node). They recomputed every eval metric from the result JSON, and checked every task's file and function overlap against the real code.</p>
+      <p>No project file was changed. No DB, gateway or Qdrant call was made.</p>
+    </div>
+    <div class="panel">
+      <p><b>Status labels</b> on each card:</p>
+      <ul>
+        <li><b>REPRODUCED</b>: shown by calling the real code.</li>
+        <li><b>CONFIRMED</b>: read in the code.</li>
+        <li><b>DOCS</b>: taken from a tracked report and not re-run (needs the VPN).</li>
+      </ul>
+      <p>Line numbers are from 28 Oct and from HEAD, unless a card says "working tree". Re-check them before editing.</p>
+      <p><b>Tests run for this audit:</b> the full pytest suite (3,910 passed, 0 failed, 3 skipped); the 14 script suites (14/14); and area runs of 72, 91, 160 and 195 tests, all green.</p>
+    </div>
+  </div>
+</section>
+</div>
+
+<script>
+const TRACKS = {
+  SEC:{name:"Security & access", ki:"KI-450–469"},
+  CTX:{name:"Context memory", ki:"KI-470–499"},
+  RAG:{name:"Knowledge base (RAG)", ki:"KI-500–519"},
+  CMP:{name:"Composer (answer text)", ki:"KI-520–539"},
+  UI:{name:"Frontend", ki:"KI-540–559"},
+  SQL:{name:"NL→SQL & scheme rules", ki:"KI-560–589"},
+  REL:{name:"Reliability & ops", ki:"KI-590–609"},
+  QA:{name:"Testing & evaluation", ki:"KI-610–619"},
+  DOC:{name:"Documentation", ki:"KI-620–629"},
+  DATA:{name:"Ingestion team", ki:"KI-630–649"}
+};
+const SEV = ["Critical","High","Medium","Low","Decision"];
+const WAVES = {
+  "0":{name:"Wave 0: serial", note:"One at a time, in this order, with no other branch open. These rewrite history, docs, CI and config, which everything else builds on."},
+  "1a":{name:"Wave 1a: parallel", note:"Independent. Start together once wave 0 has merged."},
+  "1b":{name:"Wave 1b: parallel", note:"Each starts after the 1a task named on its card."},
+  "2":{name:"Wave 2", note:"Builds on wave-1 changes in the same files or behaviour."},
+  "3":{name:"Wave 3: last", note:"These touch many files or need the accuracy gate, so they go after everything else."}
+};
+
+const T = [
+/* ═════════ WAVE 0 ═════════ */
+{id:"SEC-01",track:"SEC",sev:"Critical",wave:"0",order:1,after:["P0"],ki:["KI-022","KI-023","KI-021"],
+ status:"<b>CONFIRMED</b> from git metadata. File contents were never opened.",
+ title:"Purge personal data and credentials from git history, and clean the repo",
+ issue:"The raw Focus Legacy CSV (unmasked account numbers and names) is deleted from the tree but is still in the history on origin/Main and six other remote branches. Four more things are in the history as well:<ul><li><code>Use_Cases_-_Focus.csv</code>, added and deleted in the same commits (contents unknown);</li><li><code>config/users.yaml</code> (dde9337) with 3 password lines;</li><li><code>app/users.yaml</code>, still tracked, with 2 real passwords plus a published default;</li><li><code>tests/ui_headless/token_sa.txt</code>, a tracked JWT signed with the real secret. It has expired, but it allows offline guessing of the secret.</li></ul>",
+ evidence:["<code>git log --all -- \"Focus Legacy to share to BLH.csv\"</code> shows 7064ab6 (added) and 9952770 (deleted). It is reachable from origin/Main, origin/HEAD, fix/ci-pipeline, meghalaya-import and update/2026-10-13, -10-20 and -10-24.",
+  "<code>app/users.yaml</code>: line 7 is a comment that publishes the default (changeme123); lines 21 and 27 are real <code>password:</code> fields. <code>appdb._seed_users_from_yaml</code> (209-244) uses the default at :228 and logs it at :244.",
+  "Strays found: <code>.claude/settings.json</code> (another project's permissions), <code>frontend/undefined/*.xlsx</code>, <code>frontend/pie_*.png</code> and a 0-byte root <code>constants.js</code>. The pack is 312 MB, of which 101.5 MiB is <code>reference_documents/</code>."],
+ fix:["<b>Rotate first.</b> Change the superadmin and rd-admin passwords on both VMs and rotate <code>JWT_SECRET</code>. This is the real fix for credentials; purging history is secondary.",
+  "Run one <code>git filter-repo</code> with <code>--path \"Focus Legacy to share to BLH.csv\" --path Use_Cases_-_Focus.csv --path tests/ui_headless/token_sa.txt --invert-paths</code>, plus <code>--replace-text</code> for the <code>password:</code> lines in both <code>users.yaml</code> files. In the same rewrite, move <code>reference_documents/</code> to LFS or shared storage; that is the only way the pack actually shrinks.",
+  "Force-push every branch, have everyone re-clone, ask Bitbucket for a GC or support purge, and review forks and access.",
+  "Seeding: remove the default password. A seed record without a password or env hash is skipped with a warning, and the log line that prints the default goes.",
+  "Run <code>git rm</code> on the strays. Add <code>/*.csv</code>, <code>.claude/</code>, <code>frontend/undefined/</code> and <code>tests/ui_headless/token*.txt</code> to <code>.gitignore</code>. No other task edits <code>.gitignore</code>."],
+ dont:["Fixing an \"exporter undefined path\" bug. That bug does not exist: the files came from an external headless script.",
+  "Adding a <code>must_change_password</code> flag in this task. It needs a column, the login flow and the UI. Track it separately if wanted."],
+ files:[["git history",""],["app/users.yaml",""],["app/appdb.py","_seed_users_from_yaml"],[".gitignore","all new patterns"],["tests/ui_headless/.gitignore",""]],
+ pins:[],
+ accept:["On a fresh clone, <code>git log --all</code> for each purged path is empty.","No <code>password:</code> literal remains in the tracked tree.","A pytest calls the real <code>_seed_users_from_yaml</code> with a fake DB and shows a record without a password is skipped.","The old passwords and the old JWT secret no longer work on the VMs."]},
+
+{id:"DOC-02",track:"DOC",sev:"Medium",wave:"0",order:2,after:["SEC-01"],ki:["new"],
+ status:"<b>CONFIRMED</b>. The v1 renumbering plan collided with KI-438, which already exists.",
+ title:"Make KNOWN_ISSUES, CURRENT_STATE and HANDOFF usable, and pre-allocate ids and stubs",
+ issue:"The three main docs are too large to read:<ul><li>KNOWN_ISSUES is 314 KB and has duplicate table rows for KI-228, 229, 230, 231, 304, 305 and 337. DECISIONS has two D-055 entries.</li><li>CURRENT_STATE is 135 KB, and its header date is four days behind its newest entry.</li><li>HANDOFF says \"keep this short\" but is 113 KB.</li></ul>Every task updates these files, so without structure every pair of branches conflicts.",
+ evidence:["<code>KNOWN_ISSUES.md:312</code> and <code>:314</code> are both KI-304.","The KI-005 detail section says Open while the table says Fixed. The KI-022 detail says GitHub and that the file is in the tree. The KI-006 detail cites a regex that no longer exists.","DECISIONS.md lines 1534 and 1575 are both D-055."],
+ fix:["Renumber the 7 duplicates to the next free ids. KI-439 to 445 are free today; check again at merge. Renumber the second D-055, and fix every reference in <code>docs/</code>, <code>app/</code> and <code>tests/</code>.",
+  "Put an Open-only index at the top of KNOWN_ISSUES. Fix the stale detail sections.",
+  "Cut CURRENT_STATE down to works / broken / next. Cut HANDOFF to the last two sessions, moving older entries to git history or an archive section (your decision).",
+  "<b>Pre-allocate:</b> one empty stub paragraph per task id (from this board), separated by blank lines, in CURRENT_STATE and HANDOFF; one empty KI entry per task in its track range; and the id ranges table."],
+ dont:["Renumbering to KI-438+. KI-438 already exists."],
+ files:[["docs/KNOWN_ISSUES.md",""],["docs/CURRENT_STATE.md",""],["docs/HANDOFF.md",""],["docs/DECISIONS.md","D-055 only"]],
+ pins:[],
+ accept:["No duplicate KI or D ids; QA-02's test proves it.","The Open list fits on one screen.","CURRENT_STATE is under 300 lines and HANDOFF under 100.","Every task id on this board has a stub."]},
+
+{id:"DOC-01",track:"DOC",sev:"Medium",wave:"0",order:3,after:["DOC-02"],ki:["D-073","KI-002","KI-372"],
+ status:"<b>CONFIRMED</b>, except one v1 claim: SECURITY.md has no regex text.",
+ title:"Bring the guide docs back in line with the code",
+ issue:"The guide docs contradict the code in several places:<ul><li>CLAUDE.md gives wrong test counts (27 files / 1,453 passed versus 120 / 3,910) and a \"graph off and on\" switch that does not exist.</li><li>It names the wrong verifier model: the 4B, when <code>config</code> uses the 30B.</li><li>It says a restart re-ingests the KB; it does not.</li><li>It says the BLH CSV is in the repo root.</li><li>D-073 says fixed queries run on <code>megh_readonly</code>; they run on the app pool.</li><li>CONTEXT_AND_LANGGRAPH stops at D-030.</li><li>LANGGRAPH_PAUSE_RESUME still describes the \"sequential path\".</li><li>The RAG section of AI_PIPELINE leaves out hybrid search, grounding and citations.</li></ul>",
+ evidence:["CLAUDE.md lines 28, 111-112, 133, 151 and 166-170. <code>config.py:267 SQL_VERIFY_MODEL=\"qwen-model\"</code>.","<code>db.fetch_rows</code> (db.py:285) has 62 call sites, against 11 for <code>fetch_rows_readonly</code>.","Also stale: <code>PROJECT_CONTEXT.md:80,100</code>, <code>TESTING.md:31</code> (\"46 files\") and line 56 (port 8502), the AI_PIPELINE §0 model table and the \"opt-in\" heading in §8.","KI-372 blames YAML files that are never loaded. The real source of the leaked id is <code>schema_context.py:953-958</code>.","The ports conflict: systemd and nginx use 8410/8300, while the CLAUDE.md rule says 8401."],
+ fix:["Correct CLAUDE.md §1-3 and §5-7. Replace hard-coded test counts with one dated baseline line in TESTING.md and point to it. Add <code>new_docs/</code> to the doc map.",
+  "Rewrite CONTEXT_AND_LANGGRAPH.md. Fix LANGGRAPH_PAUSE_RESUME, the AI_PIPELINE model table and §2.9, §4 and §8, PROJECT_CONTEXT, the D-073 text and the SECURITY A03 description of the pools.",
+  "Mark the port question DOCUMENTATION CONFLICT until you decide. Changing the deploy files is out of scope here."],
+ dont:["Editing nginx or systemd here. SEC-05 owns the nginx config."],
+ files:[["CLAUDE.md",""],["docs/AI_PIPELINE.md","§0, §2.9, §4, §8"],["docs/PROJECT_CONTEXT.md",""],["docs/CONTEXT_AND_LANGGRAPH.md",""],["docs/LANGGRAPH_PAUSE_RESUME.md",""],["docs/DECISIONS.md","D-073 text"],["docs/SECURITY.md","A03 pools"],["docs/TESTING.md","header and baseline line"]],
+ pins:[],
+ accept:["One test count used everywhere.","Model roles match config.py.","No doc says a restart re-ingests the KB."]},
+
+{id:"QA-02",track:"QA",sev:"Medium",wave:"0",order:4,after:["DOC-01"],ki:["KI-018","D-046","D-047"],
+ status:"<b>CONFIRMED</b>.",
+ title:"Fix the test tooling and CI",
+ issue:"Six tooling gaps:<ul><li>A bare <code>pytest tests</code> still crashes (KI-018).</li><li>pytest is in no requirements file, and the lock file lacks <code>python-docx</code>, <code>pypdf</code> and <code>openpyxl</code>. The dev venv lacks them too, which explains the 3 skips.</li><li>CI runs tests on <code>python:3.11</code> with no node, so the node-based card tests skip silently. After P0 there are about 29 of them, and they also need <code>esbuild</code> from <code>npm ci</code>.</li><li>Nothing catches a source change committed without a bundle rebuild.</li><li>Nothing enforces the no-regex rule.</li><li>Nothing catches duplicate KI or D ids.</li></ul>",
+ evidence:["There is no <code>pytest.ini</code>, <code>pyproject</code> or <code>collect_ignore</code>.","<code>bitbucket-pipelines.yml</code> installs pytest inline. Its comment says \"34 today\".","There are 121 test files with a <code>def test_</code>."],
+ fix:["Compute a top-level <code>collect_ignore</code> in <code>tests/conftest.py</code>, right after the imports, with plain string checks (no regex).",
+  "Add <code>requirements-dev.txt</code> (pytest, pytest-asyncio) and regenerate <code>requirements.lock</code> on Python 3.11.9.",
+  "In the CI test step, install node and run <code>npm ci</code> in <code>frontend/</code>. Fail when <code>CI=true</code> and node is missing.",
+  "Add a bundle-drift check (<code>npm run build &amp;&amp; git diff --exit-code -- web/app</code>) on Main and the merge queue only, not on task branches.",
+  "Add tests: an AST-based no-regex check for Python, a string-scan for JS, and duplicate-KI and duplicate-D checks."],
+ dont:[],
+ files:[["tests/conftest.py","top of file"],["requirements-dev.txt","new"],["requirements.lock",""],["bitbucket-pipelines.yml","test and build steps"],["tests/test_repo_rules_2026_10_28.py","new"]],
+ pins:[],
+ accept:["<code>pytest tests -q</code> finishes with no INTERNALERROR.","No docx or openpyxl skips on a fresh venv.","The CI log shows the node tests passing."]},
+
+{id:"REL-02",track:"REL",sev:"Medium",wave:"0",order:5,after:["QA-02"],ki:["KI-008","KI-012","KI-013"],
+ status:"<b>CONFIRMED</b>. Two parts of the v1 fix would have caused harm: deleting settings would break boot, and a global 110 s cap would break streamed answers.",
+ title:"Config hygiene, a non-stream deadline, safe retries",
+ issue:"Four settings are never read: <code>SQL_GENERATION_MAX_RETRIES</code>, <code>SQL_GUIDED_DECODING_ENABLED</code>, <code>MULTITENANCY_ENABLED</code> and <code>PORT</code>. But <code>Settings</code> rejects unknown keys, so deleting them breaks boot for any <code>.env</code> that still sets one. The non-stream <code>/api/query</code> can run 60 s × 6 parts while nginx cuts it at 120 s; the streamed route is safe because of its pings. Model calls never retry on a connection error. <code>wait_for(_gate.acquire())</code> can leak a semaphore slot on Python 3.11 when it is cancelled.",
+ evidence:["The class-based <code>Config</code> is at config.py:671, with the pydantic-settings default <code>extra='forbid'</code>. DEPLOYMENT.md:206 sets <code>PORT=8410</code> in <code>.env</code>.",
+  "query.py:275-279 computes <code>REQUEST_TIMEOUT_SECONDS * len(layer.multi)</code>. The streamed route sends <code>: ping</code>.",
+  "llm.py:143 does the gate acquire. llm.py:193-273 retries only on guided-decoding 4xx errors."],
+ fix:["In one commit: switch to <code>model_config = SettingsConfigDict(env_file=\".env\", extra=\"ignore\")</code>, then delete the four fields. This also clears the Pydantic warning.",
+  "Cap the deadline on the <b>non-stream</b> route only, at 110 s.",
+  "Retry once, with jitter, on <code>httpx.ConnectError</code> and <code>ConnectTimeout</code> only.",
+  "Wrap <code>async with asyncio.timeout(...)</code> around <code>_gate.acquire()</code>.",
+  "Add a test that every Settings field is referenced outside config.py, with an allowlist."],
+ dont:["Deleting the settings before switching to <code>extra=\"ignore\"</code>. Boot fails.","A global 110 s cap. It would cut streamed multi-scheme answers that work today.","Retrying on 502/503. That adds load to a gateway that is already saturated."],
+ files:[["app/config.py","model_config, delete 4 dead fields"],["app/llm.py","_slot, call_model"],["app/routers/query.py","non-stream timeout (~279)"]],
+ pins:["test_query_stream.py:227-228 (source pin on query.py)"],
+ accept:["Boot succeeds with a <code>.env</code> that still sets a deleted key.","The non-stream route never exceeds 110 s.","A stubbed <code>ConnectError</code> produces exactly one retry."]},
+
+{id:"CTX-09",track:"CTX",sev:"Decision",wave:"0",order:6,after:[],ki:["KI-406","KI-407","D-056","D-064","D-065"],
+ status:"<b>REPRODUCED</b>. <code>_cm_elevate_dataset_choice</code> returns \"ask\" for CE-06, CE-08 and CE-12.",
+ title:"Sign off conversation rulebook v1, then align code, harness and eval",
+ issue:"Two behaviours are undecided:<ul><li>Whether a new same-scheme question carries the previous year. The rule has changed four times in four days.</li><li>Whether a bare \"CM Elevate applicants\" question pauses or answers. The code pauses; the eval expects an answer.</li></ul>The eval counts the pauses as misses: 31 of its 74 items are pauses.",
+ evidence:["KI-406 U1/U5 is OPEN — user decision.","<code>cm_elevate.py:250 _CME_BOTH_DATASETS_VOCAB</code>.","KI-407 covers a different case (F T5, which is answered now). Keep the two separate."],
+ fix:["Write one page with each rule and an example per rule, and get your sign-off. Record it as a new D entry.",
+  "Then align the D-065 code in c13, the U1/U5 harness scenarios, <code>questions.yaml</code> (add an <code>expect_pause</code> flag per item, for QA-01) and the CM Elevate vocab."],
+ dont:[],
+ files:[["docs/DECISIONS.md","new entry"],["tests/conversation_harness scenarios","U1, U5"],["tests/nl2sql_eval/questions.yaml","expect_pause flags"],["app/pipeline/schemes/cm_elevate.py","_CME_BOTH_DATASETS_VOCAB"],["app/pipeline/common/c13_compose_and_data_stages.py","D-065 block in _data_clarification_stage (~1205)"]],
+ pins:["test_mgnrega_usecase_fixes.py:560 and test_pmay_usecase_fixes.py:527 read the source of <code>_data_clarification_stage</code>"],
+ accept:["Signed rulebook recorded.","The harness, eval flags and code agree."]},
+
+/* ═════════ WAVE 1a ═════════ */
+{id:"SEC-02",track:"SEC",sev:"High",wave:"1a",after:[],ki:["KI-007","KI-421","new"],
+ status:"<b>REPRODUCED</b> with real <code>auth.authorize</code> calls for a district officer pinned to EAST KHASI HILLS.",
+ title:"Close the geography leaks in authorize()",
+ issue:"<code>authorize</code> only checks that the district or block values named in the SQL are allowed. So <code>&lt;&gt;</code>, <code>NOT IN</code>, <code>OR 1=1</code>, an unfiltered <code>UNION</code> branch, a CTE with <code>OR … IS NOT NULL</code>, and a block from another district are all allowed. Worse, no trick is needed: <code>GROUP BY block_name_raw</code>, <code>district_name_raw</code> or <code>ac_name</code> is treated as statewide, so an ordinary \"Focus Plus beneficiaries by block\" shows a district officer every block in the state. There are three fail-open scope bugs as well:<ul><li>a scheme-name typo grants all six schemes;</li><li>an unknown role falls back to the analyst role (all geography);</li><li>a bogus <code>granularity_cap</code> crashes every question with <code>ValueError</code>.</li></ul>",
+ evidence:["<code>sql_ast.filter_values</code> (:325) walks every comparison, including NEQ and Not(In), without regard to AND or OR.","auth.py:172 (role fallback), :177 (<code>or schemes</code>), :191 (the user cap can widen the role cap).","An unfiltered <code>GROUP BY lgd_district</code> and <code>LIKE '%'</code> are already denied correctly."],
+ fix:["Add a new <code>sql_ast</code> function. For every SELECT that reads a base view directly, it returns the EQ and IN geo predicates found among the top-level AND conjuncts of its WHERE. NOT, NEQ, LIKE and OR never count.",
+  "For a geo-restricted user at finer-than-state grain, require every such SELECT to carry one, with all values allowed. A block counts only if <code>entity_resolver.block_parent_district</code> is an allowed district.",
+  "Add one geo-column registry in auth.py and use it in <code>infer_granularity</code>, <code>_districts_in_sql</code> and <code>_blocks_in_sql</code>: district = <code>lgd_district</code>, <code>district_name_raw</code>; block = <code>lgd_block</code>, <code>block_name_raw</code>; AC = <code>ac_name</code>, <code>assembly_constituency_name</code>, counted at block level.",
+  "In <code>scope_from_user</code>: an empty scheme intersection gives []; the cap is the coarser of the role cap and the user cap; an unknown cap is ignored; an unknown role gets public."],
+ dont:["Changing <code>filter_values</code>. It has 13 other callers.","Injecting the scope predicate with <code>transform</code>. The views use different geo column names, and the result rows would change."],
+ files:[["app/auth.py","scope_from_user, infer_granularity, _districts_in_sql, _blocks_in_sql, authorize, new registry"],["app/sql_ast.py","one new function, appended after filter_values"]],
+ pins:[],
+ accept:["Every bypass listed above is denied, each with a test calling the real <code>authorize</code>.","\"Beneficiaries by block\" for a district officer returns only their blocks, or is denied.","<code>tests/test_security.py</code> (a script) and <code>test_sql_ast.py</code> stay green.","Check for an import cycle between auth and entity_resolver."]},
+
+{id:"SEC-04",track:"SEC",sev:"High",wave:"1a",after:[],ki:["KI-418","KI-420"],
+ status:"<b>CONFIRMED</b>, and worse than v1 said.",
+ title:"Stop tenant admins from taking over super_admin",
+ issue:"A tenant admin can do three things to a super_admin:<ul><li>PATCH any user, the super_admin included, to the super_admin role;</li><li>deactivate the super_admin;</li><li>worst, reset the super_admin's password through <code>UpdateUser.password</code>.</li></ul>All seeded users share one tenant, so the tenant check does not protect anyone. Combined with the rd-admin seed password in git history, this is a full takeover path. Separately, the stats cards ignore the user's scheme list.",
+ evidence:["routers/admin.py:115-126 <code>update_user</code> checks only that the role exists and the tenant matches. The super_admin check exists only in <code>create_user</code> (:101).","appdb.update_user:333-335 applies the password.","stats.py:161-178 serves the cards. They are statewide aggregates, which every role may see, so only the scheme filter is missing."],
+ fix:["In <code>update_user</code> and <code>deactivate_user</code>, return 403 when the target is a super_admin, or the body sets <code>role=super_admin</code>, and the caller is not cross-tenant. Forbid changing your own role.",
+  "Add Pydantic validators to <code>NewUser</code> and <code>UpdateUser</code>: role in <code>ROLE_PERMISSIONS</code>; schemes a subset of the six; cap in <code>GRANULARITY_ORDER</code>. Import those constants from auth; do not edit auth.py.",
+  "Stats: filter the cards by <code>scope.schemes</code> when responding. The shared cache stays."],
+ dont:["Per-district stats cards. Statewide totals are allowed for every role, so they add no protection."],
+ files:[["app/routers/admin.py","models, update_user, deactivate_user"],["app/routers/stats.py","scheme_stats"],["tests/test_admin_api_2026_10_28.py","new"]],
+ pins:[],
+ accept:["A tenant admin gets 403 on PATCH, password reset or deactivate of a super_admin.","Bad role, scheme or cap values return 422.","A PMAY-G-only user sees one card."]},
+
+{id:"SEC-05",track:"SEC",sev:"Low",wave:"1a",after:[],ki:["KI-014","KI-016"],
+ status:"<b>REPRODUCED</b> (<code>net.client_ip</code>). Severity lowered: nginx already rate-limits logins on the real IP, and role changes already take effect at once.",
+ title:"Trust the right client IP; harden login and logout",
+ issue:"The app trusts the first <code>X-Forwarded-For</code> hop, which the client controls. So the app-level per-IP limiter and the audit IP can be spoofed. Spoofed IPs also grow the rate-limit table without bound. nginx itself resolves the real IP correctly and caps logins at 1 r/s. Two smaller gaps: unknown and inactive usernames skip the password hash, which allows timing enumeration; and a password change or logout does not revoke existing tokens.",
+ evidence:["net.py:46-55.","<code>deploy/nginx/nginx-megh-langgraph.conf:105</code> already sends <code>X-Real-IP $remote_addr</code>; <code>real_ip_*</code> is at lines 38-41.","config.py:70 trusts all RFC1918 ranges by default.","deps.py:41-44 re-reads the user row on every request, so role and deactivation changes are already live."],
+ fix:["When the peer is trusted, read <code>X-Real-IP</code>, falling back to the right-most XFF hop. Change the <code>TRUSTED_PROXIES</code> default to <code>127.0.0.1,::1</code>, and update DEPLOYMENT.md:114/311.",
+  "Run a dummy <code>verify_password</code> for unknown users. Use <code>hmac.compare_digest</code> in bootstrap. Add a per-username backoff delay, not a hard lockout, which would let anyone lock an officer out.",
+  "Add a <code>token_version</code> column, bump it on password change and logout, and check it in <code>current_scope</code>."],
+ dont:["A hard account lockout."],
+ files:[["app/net.py",""],["app/routers/auth.py","login, bootstrap, logout"],["app/deps.py","current_scope"],["app/appdb.py","additive DDL, update_user bump"],["app/config.py","TRUSTED_PROXIES line 70"],["deploy/DEPLOYMENT.md","trusted proxies text"]],
+ pins:[],
+ accept:["From a trusted peer, <code>XFF: 1.2.3.4, &lt;real&gt;</code> resolves to the real IP.","An old token fails after a password change.","Login takes the same time for unknown and wrong-password users."]},
+
+{id:"SEC-07",track:"SEC",sev:"High",wave:"1a",after:[],ki:["KI-200","KI-015","KI-024"],
+ status:"<b>CONFIRMED</b> config facts. Not verified: that Qdrant answers without a key, which needs a live check. The v1 boot guard would have bricked the dev box.",
+ title:"Lock down Qdrant; fail-closed production boot that the dev box survives",
+ issue:"<b>Qdrant:</b> it runs on a public IP over plain HTTP with no API key, and holds both the KB and officers' chat memory. Anyone who reaches it can plant KB text that the bot will repeat.<br><b>TLS:</b> gateway TLS is never verified, because the CA bundle path is set but the file is missing.<br><b>Boot:</b> production boots with only a log line for a default JWT secret, <code>AUTH_ENABLED=false</code> or voice recording switched on.<br><b>The trap:</b> <code>ENV</code> defaults to <code>prod</code>, and the dev box runs with <code>ENV=prod</code>, a missing CA and <code>ASR_DEBUG_DIR</code> set. A naive \"refuse to start in prod\" guard would stop the dev box.",
+ evidence:["config.py:327 is the Qdrant URL, config.py:20 sets <code>ENV=\"prod\"</code>, :47 has <code>'unsafe-inline'</code> and :683-699 is <code>insecure_secrets</code>.","llm.py:42-80 sets <code>verify=False</code> whenever the file is missing.","main.py:64-69 only logs."],
+ fix:["Infra: give Qdrant an API key plus a firewall. It is a shared server that also holds the six <code>Metadata_*</code> collections, so coordinate with their owner.",
+  "Operator step first: set <code>ENV=dev</code> in the dev <code>.env</code>.",
+  "Then add <code>AUTH_ENABLED=false</code>, <code>ASR_DEBUG_DIR</code> set and CA missing to <code>insecure_secrets</code>. Have <code>lifespan</code> raise when <code>ENV==\"prod\"</code> and the list is not empty. Keep the Qdrant-key item warn-only until the infra work is done.",
+  "Drop <code>'unsafe-inline'</code> from <code>script-src</code>; the built HTML has only module scripts."],
+ dont:["Merging the boot guard before the dev <code>.env</code> says <code>ENV=dev</code>."],
+ files:[["app/config.py","insecure_secrets, CSP_ENFORCE"],["app/main.py","lifespan guard (first in the main.py order)"],["app/llm.py","_get_ssl_verify"]],
+ pins:[],
+ accept:["Prod boot fails with a default secret, and dev boots.","An unauthenticated <code>GET /collections</code> on Qdrant is refused.","<code>tests/test_security.py</code> is extended to cover the guard."]},
+
+{id:"CTX-02",track:"CTX",sev:"High",wave:"1a",after:[],ki:["KI-400","KI-318"],
+ status:"<b>REPRODUCED</b> with the real <code>checkpoint</code> and <code>sync_out</code> against a fake backend. Corrections from v1: \"thanks\" does not trigger the wipe; the KI-318 cause was wrong.",
+ title:"Stop topic memory being wiped, and fix \"go back to &lt;place&gt;\"",
+ issue:"<code>topic_memory.checkpoint</code> wipes every topic when the revision jumps by more than one. Every saved turn bumps the revision, but only graph turns run checkpoint. So these all wipe the topics:<ul><li>a cache hit;</li><li>small talk handled by the conversation layer (\"how are you?\");</li><li>a typed \"stop\" with nothing running;</li><li>an early Stop;</li><li>every \"Continue with …\" tap after idle expiry, which restores a stale copy and keeps only one topic.</li></ul>After a wipe, \"go back to MGNREGA\", the topic chips and digression recovery stop working. Separately, \"go back to Mawphlang\" never reaches the ledger, because <code>parse_backward</code> rejects a bare place name.",
+ evidence:["topic_memory.py:401-404 does the reset. Its reason (\"another worker served turns\") is obsolete: topics travel in the same durable snapshot.","<code>test_cache_hit_context.py:59</code> replaces <code>sync_out</code> with a no-op, and the in-process harness never calls it. That is why no test caught this.","<code>parse_backward(\"go back to Mawphlang\")</code> returns None, while \"go back to the Mawphlang one\" works. <code>_score</code> already matches places correctly."],
+ fix:["Delete the stale-jump block (401-404) and the matching docstring lines 33-36.",
+  "In <code>parse_backward</code>'s \"go back to\" branch, accept a place-only target (<code>entity_resolver.place_only</code>) as <code>BackRef(None, …)</code>. In <code>resolve_reference</code>, skip the model call for a bare-place ref with no ledger match."],
+ dont:["Recording <code>mem['rev']</code> inside <code>sync_out</code>. That couples session_sync to topic_memory internals in order to keep a guard that protects nothing."],
+ files:[["app/topic_memory.py","checkpoint, module docstring, parse_backward, resolve_reference"],["tests/test_topic_rev_2026_10_28.py","new"]],
+ pins:[],
+ accept:["With the real <code>checkpoint</code> and <code>sync_out</code>: a cache turn, layer small talk, and expiry-continue each keep every topic.","A seeded ledger: \"go back to Mawphlang\" restores FY 2023-24.","After merge, one live harness run with caches on."]},
+
+{id:"CTX-07",track:"CTX",sev:"Medium",wave:"1a",after:[],ki:["KI-363","KI-364","KI-416"],
+ status:"<b>DOCS</b>. These are LLM rewrites and cannot be reproduced offline. Verified: no deterministic handler covers them. The v1 provenance fix was harmful and is withdrawn.",
+ title:"Follow-up fixes: breakdown, compare-with-place, bare-year measure",
+ issue:"Three follow-ups go wrong, according to the live reports:<ul><li>\"Break it down by district\" after a statewide answer repeats the total.</li><li>\"Compare … with Ri Bhoi\" drops the previous district.</li><li>\"FY20?\" after a houses answer switches to the amount.</li></ul>",
+ evidence:["<code>_comparison_swap</code> (c01:1338) and <code>conversation_layer.comparison_with_earlier</code> handle schemes only. <code>_place_swap_rewrite</code> (c01:1214) deliberately leaves districts to the model (D-056).","There is no deterministic year-only rewrite. KI-416 may be in SQL generation (c10), not in the rewrite."],
+ fix:["<b>Reproduce live first</b>, through <code>pipeline.answer_question</code> on the VPN, and log the rewritten question for each case. Fix where the fault actually is.",
+  "Breakdown: an \"all of Meghalaya\" antecedent plus \"by district\" becomes a GROUP BY question.",
+  "Compare-with: a deterministic rewrite to the previous place plus X, with the same measure and year. Document why it does not conflict with D-056.",
+  "Bare year: carry <code>state.metric</code> forward. Have <code>rewrite_violation</code> reject a change of metric family when the follow-up named no measure."],
+ dont:["Adding scheme or metric to the provenance filter. A scheme inferred from terms (person-days → MGNREGA) is labelled <code>model_inference</code>, and blocking it breaks D-056 same-scheme follow-ups."],
+ files:[["app/pipeline/common/c01_followups.py","breakdown and compare rewrites near _comparison_swap; not _KNOWLEDGE_HINTS, not _BREAKDOWN_CUE"],["app/context_policy.py","rewrite_violation"]],
+ pins:[],
+ accept:["The live reproduction of each case is recorded before and after.","Real-function rewrite tests for each case.","The live context suite passes."]},
+
+{id:"CTX-08",track:"CTX",sev:"Low",wave:"1a",after:[],ki:["new"],
+ status:"<b>CONFIRMED</b> at 7 sites; v1 found 3. The v1 TTL claim was wrong and is dropped.",
+ title:"Keep question text out of the decision log",
+ issue:"<code>context_budget.log_decision</code> promises that question text never reaches the log, but seven call sites pass <code>question=…</code>, so the log holds officers' questions.",
+ evidence:["conversation_layer.py:1013, 1018 and 1029-30; c14_turn_stages.py:1219, 1238, 1252 and 1729.","The pause TTL (30 min) is not a bug: when the checkpoint has been swept, the reply resumes from <code>Session.pending_*</code>. A test pins this (<code>test_pipeline_graph.py:372</code>)."],
+ fix:["Log a hash and the length of the question instead of its text, at all seven sites.","Add a test that decision-log records hold no question text."],
+ dont:["Changing the pause TTL.","Building new counters in this task; they are optional and touch the shared metrics code."],
+ files:[["app/conversation_layer.py","log_decision call sites"],["app/pipeline/common/c14_turn_stages.py","log_decision lines 1219, 1238, 1252, 1729 only"]],
+ pins:[],
+ accept:["A test asserts that no log record contains the question string."]},
+
+{id:"RAG-01",track:"RAG",sev:"Medium",wave:"1a",after:["CTX-08"],ki:["KI-404"],
+ status:"<b>REPRODUCED</b> with a stubbed model. The v1 fix would not work: with both cue sets matching, the question goes to the same 4B model that fails.",
+ title:"Send \"how does X work\" questions to the knowledge base",
+ issue:"\"How does MGNREGA job card registration work?\", \"How is a job card issued?\" and \"How does PMAY-G house sanction work?\" return DATA <b>before any model call</b>, because \"job card\" is a data cue and there is no process cue. Officers get chips or SQL instead of the procedure. Note: KI-367 and KI-396 are the opposite misroute (data questions sent to the KB) and are not fixed by this task.",
+ evidence:["c13:470 <code>if _DATA_HINTS.search(q) and not _KNOWLEDGE_HINTS.search(q): return \"DATA\"</code>.","<code>_KNOWLEDGE_HINTS</code> also feeds c01:799, c03:363, c05:770 and c14:886, :1746 and :1780. Broad words added there would change pause handling and measure-only follow-ups.","The existing override pattern, <code>_is_entitlement_question</code>, is at c14:1753."],
+ fix:["Add an <code>_is_process_question</code> matcher, built with <code>text_match</code> (no regex): \"how does/do/is/are … work/issued/registered/done\", \"process/procedure/steps for/to/of\", \"how to get/obtain/register\".",
+  "Give it the same vetoes as the entitlement check: count words, named places, years, data continuation signals, <code>_BREAKDOWN_CUE</code>, <code>_METRIC_WHATIS_CUE</code> and <code>_MEASURE_IN_PLACE</code>.",
+  "Apply it once in <code>_turn_route_stage</code>: <code>if intent == \"DATA\" and _is_process_question(q): intent = \"KNOWLEDGE\"</code>. That covers both <code>classify_intent</code> and <code>_typed_intent</code>."],
+ dont:["Adding process words to <code>_KNOWLEDGE_HINTS</code>.","A retrieval-score tie-break: scores cannot separate the cases (negatives reach 0.695, positives go as low as 0.35), and it adds a Qdrant call to routing."],
+ files:[["app/pipeline/common/c14_turn_stages.py","new _c14_rag01_process_question; one line in _turn_route_stage"]],
+ pins:["test_scheme_years.py:82 reads the source of <code>_turn_route_stage</code>"],
+ accept:["The KI-404 wordings route to KNOWLEDGE.","\"How many job cards in Dalu block?\", \"job cards by district\", \"total number of job cards\" and \"How did people apply to CM Elevate?\" stay DATA.","The live context suite passes."]},
+
+{id:"RAG-03",track:"RAG",sev:"High",wave:"1a",after:[],ki:["new"],
+ status:"<b>CONFIRMED</b>. Correction: the Q181 \"invented list\" exists in the KB. It is speculative SME text, not a model invention.",
+ title:"Fix the knowledge-base content",
+ issue:"Four content problems:<ul><li>The MGNREGA FAQ says \"up to 100 days\", but the Act guarantees <b>at least</b> 100 days. The bot returns it word for word: Q024 came back verbatim at a 0.85 score.</li><li>The CM Elevate reference §7.1 lists documents as \"typically include\". The bot turns that into \"Required:\".</li><li>CM Elevate has only about 27 KB of content.</li><li>The Wikipedia pages are ingested and cited as if they were official.</li></ul>The CM_Elevate_Legacy folder is a byte-identical copy of CM_Elevate.",
+ evidence:["<code>data/incoming/MGNREGA/mgnrega_general_faq.md:19,45</code>.","<code>data/incoming/CM_Elevate/CM_Elevate_Complete_Reference.md:86-95</code>.","Measured CM Elevate made-up rate: 10/37 = 27%."],
+ fix:["Get the SME to correct the FAQ wording, rewrite §7.1 as fact or remove it, and add per-sub-scheme documents and eligibility.",
+  "Make the Wikipedia decision (keep, drop or replace with official documents) and apply it here.",
+  "Remove the duplicate Legacy folder and leave a README.",
+  "Re-ingest through <code>POST /api/rag/reingest</code>, because a restart does not re-ingest. Then re-run rag_eval."],
+ dont:["A code post-check that drops a documents list. It would not have fired on Q181."],
+ files:[["data/incoming/",""],["data/web/",""]],
+ pins:[],
+ accept:["Q024 correct.","CM Elevate made-up below 15% on a re-run with a different judge model."]},
+
+{id:"CMP-02",track:"CMP",sev:"High",wave:"1a",after:[],ki:["CE-11","new"],
+ status:"<b>REPRODUCED</b>. Correction: CE-11 failed because <code>LIMIT 100</code> on 8 rows was read as a \"Top N\" ranking. <code>metrics[0]</code> was not the cause.",
+ title:"Shape and digest: answer the asked measure, never sum a percentage",
+ issue:"Three problems in how the answer is shaped:<ul><li>The digest emits <code>sum=</code> for every numeric column, percentages included: <code>wage_compliance_pct</code> gives <code>sum=115.75</code>. That sum goes into the faithfulness allow-list, so \"combined 115.75%\" passes.</li><li>The answer shape measures the first numeric column, not the one asked about.</li><li>A LIMIT larger than the row count turns a plain list into \"Top N\".</li></ul>",
+ evidence:["c12_answer_numbers.py:386-401 <code>_result_digest</code>. <code>_c12s_additive</code> exists in c12_answer_shapes but is not used there.","c12_answer_shapes.py:172-195 uses <code>metrics[0]</code>. :183-190 applies the LIMIT rule."],
+ fix:["In <code>_result_digest</code>, use <code>_c12s_additive</code>: no <code>sum=</code> and no allow-listed total for non-additive columns. Add card, cards and cumulative to <code>_C12S_NON_ADDITIVE_PARTS</code>, matching the JS list.",
+  "Add <code>_c12s_asked_metric(question, metrics)</code> in c12_answer_shapes. It uses word stems and a pct group (share, percentage, rate, %). Use it in <code>_answer_shape</code> for every kind.",
+  "Treat a LIMIT as top-N only when <code>limit &lt;= len(rows)</code> or a rank word is present."],
+ dont:["A new <code>app/asked_measures.py</code> module; one pipeline function is enough.","Gating the Focus Legacy membership note. It is SME-required."],
+ files:[["app/pipeline/common/c12_answer_numbers.py","_result_digest only"],["app/pipeline/common/c12_answer_shapes.py","_answer_shape, new _c12s_asked_metric, _C12S_NON_ADDITIVE_PARTS, _SHAPE_GUIDE profile"]],
+ pins:[],
+ accept:["The pct digest has no <code>sum=</code>, and \"combined 115.75%\" fails the check.","CE-11 rows produce a breakdown on the pct measure.","8 rows with LIMIT 100 are not \"Top 8\"."]},
+
+{id:"UI-01",track:"UI",sev:"Medium",wave:"1a",after:["P0"],ki:["KI-437","KI-302"],
+ status:"<b>REPRODUCED</b> in node on the working tree. The twin-column pivot and cell formatting are <b>already fixed</b> in the uncommitted P0 work; this card covers what is left.",
+ title:"Charts and comparison card: no cross-scheme totals, correct verdicts",
+ issue:"Five display bugs remain:<ul><li>After KI-437, a cross-scheme district result becomes a pivot whose Total column adds MGNREGA household-years, PMAY-G houses and Focus Plus beneficiaries. Stacked and doughnut are also offered for scheme series.</li><li>The comparison card says \"MGNREGA is 730% ahead on beneficiaries\", comparing different units.</li><li>A pct gap is shown as relative % (\"33% ahead\" for 80 vs 60) instead of points. Lower-is-better measures are read as \"ahead\".</li><li>Percentage results default to a donut, and nulls are drawn as 0.</li><li>The comparison chips show only the first scheme name.</li></ul>",
+ evidence:["Working tree: <code>analytics.js</code> <code>toNumber</code> :21, <code>pivotStacked</code> :47, default type :323-325, <code>askedMeasureCol</code> :173-180 (no pct group).","<code>Charts.jsx</code>: <code>PivotGrid</code> has no scheme-dimension check; <code>TWO_DIM_TYPES</code> is at :665; <code>CompareVerdict</code> at :949.","<code>Messages.jsx</code>: <code>wantsAnalytics</code> :833 does not check <code>cross_scheme</code>; <code>schemeOf</code> :345 prefix-matches \"MGNREGA vs PMAY-G\"."],
+ fix:["<code>PivotGrid</code>: no total when either dimension is <code>scheme</code>. Do not offer stacked or doughnut for scheme series.",
+  "Default to bar when the measure is non-additive, and drop pie and donut from the switcher for it. Keep nulls as null so Chart.js skips them.",
+  "<code>compareVerdict</code>: no verdict for cross-scheme count rows; \"N points\" for pct; a short lower-is-better stem list. Add a pct group to <code>askedMeasureCol</code>.",
+  "Clarify pill: show the full label when it contains \" vs \", using <code>includes</code>."],
+ dont:["The \"All 3 schemes\" badge fix. The badge is switched off (<code>SHOW_ROUTE_BADGE=false</code>); delete it in UI-02 instead."],
+ files:[["frontend/src/chat/analytics.js","toNumber, pivotStacked, buildAnalyticsCore, compareVerdict, askedMeasureCol"],["frontend/src/chat/components/Charts.jsx","PivotGrid, CompareVerdict, TWO_DIM_TYPES"],["frontend/src/chat/components/Messages.jsx","Analytics, Clarify, wantsAnalytics"]],
+ pins:["test_history_charts.py and test_ac_full_results.py read the source of Charts.jsx and Messages.jsx"],
+ accept:["Node tests: no cross-scheme Total; pct defaults to bar; a pct verdict is given in points; a cross-scheme count gives no verdict.","Extend <code>test_table_view_2026_10_28.py</code>. Do not commit <code>web/app</code>."]},
+
+{id:"SQL-01",track:"SQL",sev:"High",wave:"1a",after:[],ki:["KI-034","KI-313","KI-431","KI-432"],
+ status:"<b>REPRODUCED</b>. It is worse than v1 said, and two parts of the v1 fix would have broken pinned tests.",
+ title:"Exact scope and year guards",
+ issue:"<code>_resolved_scope_missing</code> returns \"no problem\" for each of these:<ul><li>WEST GARO HILLS against <code>='SOUTH WEST GARO HILLS'</code>, <code>ILIKE '%WEST%'</code>, or a literal that appears only in the SELECT list;</li><li>the year check against <code>year_key &gt;= 2023</code>, <code>&lt;&gt; 2023</code> and even <code>LIMIT 2023</code>;</li><li>an assembly-constituency question answered with statewide SQL (the KI-432 incident).</li></ul>It also ignores <code>year_key_list</code>, so cross-scheme multi-year SQL with no year filter passes. <code>_verifier_year_complaint_is_false</code> crashes with TypeError on a year list, and drops valid BETWEEN complaints. No other step catches any of this, except the sampled LLM verifier.",
+ evidence:["c11:983-1002 <code>_geo_value_in_sql</code> (substring), :1016 <code>_vr_year_in_sql</code> (any literal), :1044-1115 <code>_resolved_scope_missing</code>, :819 <code>_verifier_year_complaint_is_false</code>, :150 <code>_vr_year_values</code> (EQ only).","The scheme rewrites (<code>_scheme_sql_rewrites</code>) leave these literals unchanged.","<code>prompt_builder._entities_block</code> (:364) renders only <code>year_key</code>."],
+ fix:["Place: exact match (upper and trim), and only in filter positions (WHERE, HAVING, ON) through EQ, IN or LIKE, via <code>_sql_filters_on</code>. Accept <code>lgd_district</code>, <code>lgd_block</code>, <code>UPPER(block_name_raw)</code>, and <code>district_name_raw</code> until DATA-02 decides. Accept a LIKE only when its pattern matches the resolved place and no other place at that level, checked with string methods against the district tuple and block catalogue.",
+  "Year: accept EQ or IN on <code>year_key</code>, an FY label on <code>financial_year(_short)</code>, or BETWEEN or <code>&gt;=</code>/<code>&lt;=</code> pairs whose integer set <b>equals</b> the resolved set. Keep the date-range form. Read both <code>year_key</code> and <code>year_key_list</code>.",
+  "Add an AC branch: <code>assembly_constituency_name</code> or <code>ac_name</code>, case-insensitive. Skip it for Focus Legacy and CM Elevate Legacy, which have their own AC guards.",
+  "Make <code>_verifier_year_complaint_is_false</code> list-safe and range-aware. Render <code>year_key_list</code> in <code>_entities_block</code>."],
+ dont:["\"Accept a LIKE only with the whole multi-word name\". It breaks the pinned <code>lgd_block ILIKE '%tura%'</code> case for TURA MUNICIPAL BOARD.","\"Range covers the list\". It must be set equality, because BETWEEN 2022 AND 2025 is wrong for a single-year question."],
+ files:[["app/pipeline/common/c11_sql_verify_repair.py","_geo_value_in_sql, _vr_year_in_sql, _vr_year_values, _resolved_scope_missing, _verifier_year_complaint_is_false"],["app/prompt_builder.py","_entities_block"],["tests/test_scope_guard_exact_2026_10_28.py","new"]],
+ pins:["test_context_relevance_and_contract.py (the ILIKE tura and date-range cases)","test_verifier_missing_geo.py:125 (a script; needs the verifier helpers to exist)"],
+ accept:["Each case above is flagged by the real function.","An AC question on <code>v_district_year_summary</code> is flagged.","A list <code>year_key</code> with BETWEEN raises no TypeError.","Pinned tests stay green."]},
+
+{id:"SQL-07",track:"SQL",sev:"Low",wave:"1a",after:[],ki:["KI-411","D-060"],
+ status:"<b>REPRODUCED</b>. The v1 cause was wrong: PM-04 groups by a SELECT alias. PM-04 has passed in the last 2 runs, so the failure is intermittent.",
+ title:"PMAY-G: one combined figure, and the leftover placeholder exclusions",
+ issue:"\"Counting every financial year…\" sometimes splits by year. The model writes <code>SELECT financial_year_short AS sanction_fy_start … GROUP BY sanction_fy_start</code>, and <code>_vr_grouped_by_year_only</code> does not resolve aliases, ordinals or columns pinned by WHERE. Separately, D-060 says PMAY-G placeholders count as beneficiaries, but four places in our own code still exclude them. So cross-scheme village coverage may undercount (INFERRED; check live).",
+ evidence:["c11:195-203. The real function returns False on the PM-04 SQL and on the <code>GROUP BY year_key, financial_year_short</code> shape.","Placeholder leftovers: <code>cross_scheme.py:47</code> (used at :415), <code>schema_context.py:1299</code>, c11 repair hints :305 and :318, <code>pmay_g.py:1243</code>."],
+ fix:["In <code>_vr_grouped_by_year_only</code>: resolve each GROUP BY item through the select's aliases and ordinals. The set is year-only when every item is a year column, or a column pinned by EQ in WHERE.",
+  "Placeholders: first run a live count with and without <code>NOT is_placeholder</code> on village coverage. If D-060 applies, remove the four exclusions."],
+ dont:["The \"sanctions\" houses-or-amount chip. It waits for the PMAY-G definition from the data team."],
+ files:[["app/pipeline/common/c11_sql_verify_repair.py","_vr_grouped_by_year_only; repair-hint lines 305 and 318"],["app/cross_scheme.py","base_where line 47"],["app/schema_context.py","line 1299 (cross-scheme rule)"],["app/pipeline/schemes/pmay_g.py","line 1243"]],
+ pins:[],
+ accept:["Real-function tests cover alias, ordinal, pinned and two-year-column shapes.","Live: PM-04 gives one row in 5 of 5 runs.","Placeholder decision recorded with the live counts."]},
+
+{id:"REL-01",track:"REL",sev:"Low",wave:"1a",after:[],ki:["KI-014"],
+ status:"<b>CONFIRMED</b>. Impact lowered: Redis is not set up on dev, and a deploy clears the per-worker cache anyway.",
+ title:"Redis failure backoff and a build stamp on cache keys",
+ issue:"When Redis is down, every request retries the connection under one lock, at 1.5 s per try, so the requests queue behind each other. The docstring of <code>_redis()</code> claims the failure is cached; it is not. A shared Redis would also serve answers from an older build.",
+ evidence:["cache.py:37-68, keys at :93-96."],
+ fix:["Remember the failure time and skip reconnects for 30 s.","Add <code>APP_BUILD</code> (the git sha) to <code>REDIS_CACHE_PREFIX</code>."],
+ dont:["An admin flush endpoint. It would clear only the one worker it lands on (2 workers × 2 VMs). If flushing is needed, keep a generation number in Redis."],
+ files:[["app/cache.py","_redis, cache_key prefix"],["app/config.py","APP_BUILD (next to the Redis settings)"]],
+ pins:[],
+ accept:["With Redis down, 20 concurrent gets make at most one connect attempt."]},
+
+{id:"DATA-01",track:"DATA",sev:"Medium",wave:"1a",after:[],ki:["KI-393","KI-352","KI-432","KI-322","KI-019","KI-424","KI-385","KI-305","KI-349"],
+ status:"<b>CONFIRMED</b> against the notes. Several asks in v1 had already been sent; this card lists only what is new and what to chase.",
+ title:"Ingestion-team follow-up: new asks and replies to chase",
+ issue:"The chatbot cannot fix data defects. Some asks are in no note yet; others were sent and never answered.",
+ evidence:["The notes exist: <code>docs/MGNREGA_DB_Issues.md</code>, <code>Focus_Plus_DB_Issues.md</code>, <code>Focus_Legacy_DB_Issues.md</code>, <code>CM_Elevate_Legacy_DB_Issues.md</code>, <code>Cross_Scheme_DB_Issues.md</code> and <code>PlaceHierarchy_DB_Issues_2026-10-21.md</code>.","DOCUMENTATION CONFLICT: <code>Cross_Scheme_DB_Issues.md:96</code> says Focus Plus is grouped by raw names, but the code uses <code>lgd_district</code>."],
+ fix:["<b>Add to MGNREGA:</b> 1,240 <code>v_employment</code> rows with NULL AC; the AC column name and case differ between views; the definitions of \"households employed\", \"beneficiaries\" and \"100-day completion rate\".",
+  "<b>Add to Focus Legacy:</b> the definitions of \"remittances\" and \"payments made\".",
+  "<b>Add to CM Elevate:</b> the forward count (8,864 records against 8,837 applications), and confirm that \"pending\" is not recorded.",
+  "<b>Add to PMAY-G</b> (Cross_Scheme note): the definitions of \"sanctions\" and \"coverage\".",
+  "<b>Chase:</b> the Focus Plus authoritative district column (asked on 22 Oct; it unblocks SQL-06), the Dalu↔SWGH correction workbook, the Focus Legacy NULL-block rows, the CM Elevate Legacy <code>year_note</code>, and a re-measure of the 345 bad aliases.",
+  "Fix the Cross_Scheme:96 conflict."],
+ dont:["Changing anything in <code>megh_db</code>."],
+ files:[["docs/MGNREGA_DB_Issues.md",""],["docs/Focus_Plus_DB_Issues.md",""],["docs/Focus_Legacy_DB_Issues.md",""],["docs/CM_Elevate_Legacy_DB_Issues.md",""],["docs/Cross_Scheme_DB_Issues.md",""],["docs/PlaceHierarchy_DB_Issues_2026-10-21.md",""]],
+ pins:[],
+ accept:["Every ask has a date and an owner.","Each reply is recorded."]},
+
+/* ═════════ WAVE 1b ═════════ */
+{id:"SEC-03",track:"SEC",sev:"High",wave:"1b",after:["SEC-02"],ki:["KI-419"],
+ status:"<b>CONFIRMED</b> for 4 of 5 paths. v1 was wrong on <code>_mgnrega_admin_expenditure_answer</code>, which does go through authorize.",
+ title:"Authorise the four fixed-answer paths",
+ issue:"Four fixed answers return figures without <code>authorize</code>. The most reachable is the cross-scheme by-district ranking, which shows every district to any officer.<ul><li>Focus Legacy PG-name lookup: it returns each group's district and block.</li><li>Focus Plus overall summary: it includes the top district.</li><li><code>cross_figures.answer</code> inside <code>_cross_scheme_scope</code>, which has no <code>scope</code> argument.</li><li>MGNREGA women-unrecorded: it uses the resolved place.</li></ul>",
+ evidence:["The call sites are c13:1002, :1145, :1579 (in <code>_cross_scheme_scope</code>, called at :1094) and :1649.","<code>_repaired_sql_denial(scope, schemes, entity_result, sql)</code> (c11:1609) already wraps the scope, <code>AUTH_ENABLED</code> and the logging. <code>_denied()</code> is at c13:503."],
+ fix:["Reuse <code>_repaired_sql_denial</code> plus <code>_denied</code> at each site. Add a <code>scope</code> parameter to <code>_cross_scheme_scope</code> and its single call.",
+  "Cross path: authorize <code>_res[\"sql\"]</code> with <code>resolved</code> before returning. Focus Plus summary: authorize its fixed SQL. Women path: authorize <code>_mg_women[\"shown\"]</code>.",
+  "PG-name path: do not authorize its SQL, because that would deny every lookup to district officers. Keep the rows whose district is allowed, after the scheme check."],
+ dont:["Changing <code>cross_figures.py</code>; it is not needed.","Inserting code between <code>_mg_det = _mg_admin or (</code> and <code>d.update(mg_admin=_mg_admin</code>; a test slices that span."],
+ files:[["app/pipeline/common/c13_compose_and_data_stages.py","_data_scheme_stage (~1002), _data_clarification_stage (~1145), _cross_scheme_scope + its call (~1094, 1579), _data_deterministic_stage (~1649)"]],
+ pins:["test_measure_not_held.py:133 and test_scheme_years.py:75 (source of _data_scheme_stage)","test_metric_catalog_2026_10_26.py:220 (slices c13)","test_mgnrega_usecase_fixes.py:560 (source of _data_clarification_stage)"],
+ accept:["One denial test per path through <code>tests/_graph_turn.py</code>: a pinned district officer, and a user without the scheme.","Because SEC-02 makes authorize stricter, run every fixed path once as a geo-restricted user."]},
+
+{id:"SEC-06",track:"SEC",sev:"Medium",wave:"1b",after:["SEC-07"],ki:["KI-004","KI-026","D-073"],
+ status:"<b>REPRODUCED</b> (<code>sql_guard</code> calls) and <b>CONFIRMED</b>. Severity lowered to Medium: fixed SQL is app-written and parameter-bound. There are 62 call sites; v1 said about 45.",
+ title:"DB layer: acquire timeout, safe pool creation, tighter function block-list",
+ issue:"Three gaps in the DB layer:<ul><li><code>pool.acquire()</code> has no timeout anywhere, so a stuck pool hangs requests indefinitely.</li><li>The lazy <code>ensure_*_pool</code> calls take no lock. After an outage, concurrent first requests each build a pool and leak the extras against the 20-connection caps.</li><li><code>sql_guard</code> lets <code>has_table_privilege</code>, <code>to_regclass</code>, <code>current_schemas</code>, <code>current_user</code>, <code>xpath</code>, <code>current_query()</code> and schema-qualified calls such as <code>semantic.run_query(...)</code> through.</li></ul>The 62 fixed curated queries run as the <code>postgres</code> superuser.",
+ evidence:["db.py:248-274 (<code>ensure_*</code>); every <code>acquire</code> from :290 to :468.","<code>sql_guard._FORBIDDEN_FUNCTION_PREFIXES</code>.","The dev <code>DATABASE_URL</code> user is postgres; <code>CHATBOT_DATABASE_URL</code> is blank."],
+ fix:["Wrap every acquire in <code>asyncio.timeout(DB_POOL_ACQUIRE_TIMEOUT)</code> and map a timeout to <code>DatabaseUnavailableError</code> (503). Put a per-pool <code>asyncio.Lock</code> around each lazy create.",
+  "<code>sql_guard</code>: refuse any schema-qualified function call; block the <code>has_</code>, <code>to_reg</code> and <code>current_schema</code> prefixes and <code>xpath</code>.",
+  "<b>Superuser:</b> first run every fixed query live as <code>megh_readonly</code>. Its column denials, statement timeout and 10-connection pool may break the heavy ones (cross_figures, stats). Only then route curated-only queries there inside <code>fetch_rows</code>, with no silent fallback on error 42501. Alternatively switch <code>DATABASE_URL</code> to the <code>megh_app</code> role with the DB team."],
+ dont:["Routing fixed queries to <code>megh_readonly</code> without the live inventory run."],
+ files:[["app/db.py","ensure_* functions, every acquire, fetch_rows (routing, later)"],["app/sql_guard.py","_FORBIDDEN_FUNCTION_PREFIXES, assert_readonly"],["app/config.py","DB_POOL_ACQUIRE_TIMEOUT next to the pool settings"]],
+ pins:[],
+ accept:["Ten concurrent <code>ensure_readonly_pool</code> calls create one pool.","Guard tests cover each new block.","The live inventory is recorded before any routing change."]},
+
+{id:"CTX-01",track:"CTX",sev:"Medium",wave:"1b",after:["REL-02"],ki:["KI-399","KI-028"],
+ status:"<b>REPRODUCED</b>: <code>ensure('sid','alice')</code> then <code>ensure('sid','bob')</code> returns alice's session. Severity lowered: the attacker must be logged in and hold another user's id (about 46 random bits), and figures are still re-authorised. This card merges v1 CTX-01 and CTX-03.",
+ title:"Conversation ownership and turn integrity",
+ issue:"Nothing checks that a session id belongs to the caller. A user holding another's id inherits that chat's context, can ask \"what did we discuss?\" and receive the other user's questions, and overwrites the other user's state. Within one worker, two concurrent requests on one id interleave state, because only the graph run is locked. A Stop can save half-applied state. The client's 75 s limit applies to the whole stream, even while pings keep it alive.",
+ evidence:["query.py:143-170 <code>_session_id</code>; session_store.py:306-324 <code>ensure</code>; conversation_store <code>load_context_state</code> (~379, session_id only), <code>save_session_state</code> (350) and <code>_persist_turn</code> (40-124).","pipeline_graph.py:789 locks only the graph. <code>_remember_stopped</code> (query.py:176-198) saves unconditionally.","api.js:96 and :134 apply the 75 s limit. <code>: ping</code> frames are skipped before <code>gotEvent</code>.","The history routes are already owner-scoped."],
+ fix:["Ownership: <code>load_context_state</code> also returns <code>user_id</code>. <code>sync_in</code> returns \"foreign\" without applying the snapshot. <code>_answer</code> returns 403 (and logs it) when the in-memory or durable owner differs from <code>scope.user_id</code>, and sets a flag so <code>_remember_stopped</code> skips. Add a SQL backstop: <code>AND user_id IS NOT DISTINCT FROM $n</code> in the upsert's <code>ON CONFLICT … WHERE</code>.",
+  "Concurrency: add a router-level per-session <code>asyncio.Lock</code> dict, as a wrapper. Keep the name <code>_answer</code> and rename the inner function. Do not reuse the graph's lock: it is not re-entrant and would deadlock.",
+  "Cancel: snapshot the Session when the turn starts, and restore it in <code>_remember_stopped</code> before recording <code>stopped_ctx</code>.",
+  "Client: make the stream timeout an inactivity timer that resets on any chunk, pings included."],
+ dont:["Namespacing the graph <code>thread_id</code> by user. It orphans live paused threads at deploy.","409 plus UI retry, or a server-side request_id dedup table. These are over-built; count stale writes instead."],
+ files:[["app/routers/query.py","_session_id, _answer wrapper, query_stream, _remember_stopped"],["app/session_sync.py","sync_in, _retry_once (stale counter)"],["app/conversation_store.py","load_context_state, save_session_state, _persist_turn"],["app/session_store.py","ensure"],["frontend/src/chat/api.js","stream timeout"]],
+ pins:["test_query_stream.py:227-228 (<code>return await _answer(req, request, scope)</code>)","test_context_hardening.py:252-255 (exactly 2 <code>sync_out(</code> calls in _answer)","test_history_charts.py:67-72 (conversation_store strings)"],
+ accept:["Two users on one id: the second gets 403, and the owner's row is unchanged. Test through the real <code>_answer</code> with stubs.","Two concurrent turns on one id are serialised.","A cancel after <code>context_update</code> leaves the pre-turn state plus <code>stopped_ctx</code>.","Pinned tests are updated deliberately, not deleted."]},
+
+{id:"RAG-02",track:"RAG",sev:"High",wave:"1b",after:["REL-02"],ki:["new"],
+ status:"<b>REPRODUCED</b> with stubs. Corrections: the multi path already handles a whole refusal, and the 13.9% made-up rate includes 9 cases of judge noise (about 9.1% without them). This card absorbs the KB part of v1 CMP-05.",
+ title:"Ground every knowledge answer, and do not stream KB drafts",
+ issue:"Five grounding gaps:<ul><li><code>answer_from_kb_multi</code> never runs <code>ground_answer</code>, has no medium-confidence gate (it answers at a score of 0.31 where the single path returns nothing) and has no Focus Legacy naming note.</li><li><code>ground_answer</code> fails open: when only a refusal is left after the unsupported sentences are dropped, it returns the original text <b>with the invented sentence</b> (for example a made-up helpline number).</li><li>The prompt's example phrase \"There is no single published checklist\" leaks into unrelated answers.</li><li>The data-to-KB fallback searches every scheme, drops citations and schemes, and flags a good KB answer as <code>answer_failed</code>.</li><li>Every KB answer streams to the officer before grounding runs.</li></ul>",
+ evidence:["rag.py:886-966 is the multi path, :755-757 the fail-open, :821 the prompt example, :856-870 and :946-954 the temperature-0 retries (the retry comment says \"non-zero temperature\").","c14 <code>_data_path_kb_fallback</code> :2375-2398.","llm.py:349-360 streams before any check."],
+ fix:["Multi path: gate on <code>best_score &gt;= RAG_MEDIUM_CONFIDENCE</code>, run <code>ground_answer</code> with all kept passages, and put a <code>_naming_note</code> in each scheme's section.",
+  "<code>ground_answer</code>: when <code>kept</code> is a whole refusal, return <code>kept</code>, not the original text.",
+  "Replace the prompt example with a neutral one. Delete both temperature-0 retries.",
+  "Fallback: use <code>_named_schemes(q) or _infer_scheme_from_terms(q)</code>; call the KB only when exactly one scheme is found; pass citations and schemes through; do not mark the turn failed.",
+  "Add a <code>stream: bool = True</code> argument to <code>llm.call_response_composer</code> and pass <code>stream=False</code> on every rag.py call."],
+ dont:["The \"documents list\" post-check from v1."],
+ files:[["app/rag.py","answer_from_kb (retry, stream flag), answer_from_kb_multi, ground_answer, prompt example line"],["app/pipeline/common/c14_turn_stages.py","_data_path_kb_fallback"],["app/llm.py","call_response_composer signature"]],
+ pins:["test_rag_general_scoping.py:311 (rag.py source)"],
+ accept:["Stubbed tests through the real functions: the multi path drops an unsupported sentence; it returns None below the medium score; a refusal remainder returns no invented sentence; the fallback passes <code>scheme=</code> and keeps citations; no token events come from <code>answer_from_kb</code>."]},
+
+{id:"CMP-01",track:"CMP",sev:"High",wave:"1b",after:["CMP-02"],ki:["KI-062","KI-167","KI-353","KI-433"],
+ status:"<b>REPRODUCED</b>, and worse than v1 said: there is also a 0.5% relative tolerance. This card merges v1 CMP-01 and CMP-03, because they edit the same 40 lines of <code>compose_response</code>.",
+ title:"The faithfulness check: exact precision, token coverage, units and comparisons",
+ issue:"The number check lets wrong figures through in five ways:<ul><li>A figure within 0.5 absolute <b>or 0.5% relative</b> of any allowed value passes. A misquote of 6,563 on 1,494,437 passes, and so does 15.7% for 15.33%.</li><li>Coverage is a substring test, so \"There are 11 pending\" counts as stating 1. That is why the one-figure rule cannot catch it.</li><li>The one-figure rule runs only for Focus Plus and CM Elevate.</li><li>Number words are converted only <b>after</b> the check.</li><li>Nothing binds a number to its claim or unit: \"82.91 lakh\" for a percentage, or a gap stated as the larger value (CL-05), both pass.</li></ul>",
+ evidence:["c12_answer_numbers.py:150-152 (both tolerances), :147 (integers below 100 skipped), :289-298 (<code>f in ans</code>).","c13:13 <code>_ONE_FIGURE_SCHEMES</code>, used at :222, :237 and :259-261. The number-word conversion runs for every scheme, but at c13:2627, after the checks."],
+ fix:["Precision: a token with d decimals passes only if <code>round(dv, d) == value</code> for some data value; an integer token passes if it equals <code>round(dv)</code>. Drop both blanket tolerances.",
+  "Coverage: compare against the answer's number tokens (<code>_NUM_TOKEN</code>), never substrings.",
+  "Apply the one-figure rule to every scheme, and convert number words before the check for every scheme.",
+  "Add <code>_answer_unit_conflicts</code>: a pct value followed by lakh, crore or ₹, or a lakh or crore value followed by %, counts as misquoted. A number directly followed by more, less, higher, ahead or below must be a computed difference from <code>facts_nums</code>.",
+  "Multi-row coverage: each asked measure (via CMP-02's <code>_c12s_asked_metric</code>) must appear, otherwise use <code>_shaped_fallback</code>."],
+ dont:["Removing the skip for integers below 100. \"top 5\", \"Tranche 4\" and \"100 days\" would all fire. Token coverage catches \"11 vs 1\" instead.","Having code write the verdict sentence. <code>_shaped_fallback</code> already does that on failure."],
+ files:[["app/pipeline/common/c12_answer_numbers.py","_answer_numbers_faithful, _answer_covers_metrics, new _answer_unit_conflicts"],["app/pipeline/common/c13_compose_and_data_stages.py","compose_response check block (~211-270), _ONE_FIGURE_SCHEMES"]],
+ pins:["test_pg_name_lookup.py:150 (source of compose_response)"],
+ accept:["Flagged: 15.7 vs 15.33; 1,501,000 vs 1,494,437; \"11 pending\" vs 1; MG-10; CL-05; CL-09.","Pass: 11.10 vs 11.10; 1,234 vs 1234.4.","Existing faithfulness tests stay green.","A live re-check on MGNREGA money columns."]},
+
+{id:"SQL-02",track:"SQL",sev:"Medium",wave:"1b",after:["SQL-01"],ki:["KI-427","KI-311","KI-036","KI-368"],
+ status:"<b>CONFIRMED</b> for single-year resolution. MG-08 is intermittent. Level collisions are <b>DOCS</b> (they need the DB catalogue).",
+ title:"Resolver: year ranges and stated place levels",
+ issue:"Two resolver gaps:<ul><li>\"From FY22 through FY25\" and \"FY 2023-24 and FY 2024-25\" resolve to one <code>year_key</code>.</li><li>A level word next to a name is ignored: \"Demdema block\" resolves to the village.</li></ul>This must land after SQL-01, which makes the prompt, the guard and the verifier understand <code>year_key_list</code>; until then a list breaks all three.",
+ evidence:["c09:1239-1278.","<code>_c06_year_range_tokens</code> (c06:707) is not a range parser; it returns every FY token."],
+ fix:["Add a span or pair parser on top of <code>_c06_all_year_tokens</code> (c06:736) and set <code>year_key_list</code> from it.","Let a stated level word (\"&lt;name&gt; block\", \"&lt;name&gt; constituency\") outrank a village match. Send headquarters-town aliases through the level-collision pause."],
+ dont:[],
+ files:[["app/pipeline/common/c09_resolve_entities.py","year block, level precedence"],["app/pipeline/common/c06_years_tranches.py","new _c06_sql02_year_span"]],
+ pins:["test_context_semantic_state.py:213, test_cm_elevate_legacy.py:979 and test_mgnrega_usecase_fixes.py:489 (source of resolve_entities)"],
+ accept:["MG-08 gives <code>year_key_list == [2022..2025]</code> in a graph-turn test.","Live MG-08 passes 5 of 5.","\"Demdema block\" resolves to the block on a live check."]},
+
+{id:"SQL-03",track:"SQL",sev:"Low",wave:"1b",after:["SQL-01"],ki:["KI-003","KI-025"],
+ status:"<b>CONFIRMED</b>. v1 missed a second, identical repair loop.",
+ title:"Stop repeating an identical failed repair",
+ issue:"The repair loop runs up to 3 repairs even when the model returns the same SQL with the same error. Each repair sees only the last error. <code>c13 _data_per_scheme_rows</code> (the cross-scheme path) has its own copy of the same loop. The cost is latency and model time; it rarely changes the answer.",
+ evidence:["pipeline_graph.py:446-487.","c13:1933-1970.","<code>prompt_builder.build_repair_prompt</code> (486-500)."],
+ fix:["Add a pure c11 helper, <code>_c11_sql03_repair_converged(history, sql, error)</code>: normalise the SQL with SQLGlot, hash it, and stop when both the SQL and the error string repeat.","Graph state gets one list field; the decision stays in the stage, per D-036. Use the same helper in <code>_data_per_scheme_rows</code>.","Pass the earlier errors as a short list in the repair prompt. Log the SQL hash."],
+ dont:["Stopping when the SQL repeats but the LLM verifier's wording differs. Re-verifying sometimes passes today.","Adding few-shots or <code>assemble_prioritized</code> to the repair prompt without evidence of overflow."],
+ files:[["app/pipeline/common/c11_sql_verify_repair.py","new helper near _repair_sql"],["app/pipeline_graph.py","MeghalayaGraphState field, node_execute_attempt, node_repair"],["app/pipeline/common/c13_compose_and_data_stages.py","_data_per_scheme_rows loop"],["app/prompt_builder.py","build_repair_prompt"]],
+ pins:["test_pipeline_graph.py:244-262 (node list)"],
+ accept:["A graph test with a stub generator that repeats bad SQL makes 2 attempts, not 4."]},
+
+{id:"SQL-05",track:"SQL",sev:"High",wave:"1b",after:["SQL-01","SQL-03"],ki:["KI-352","KI-353","KI-354","KI-433","KI-436"],
+ status:"<b>REPRODUCED</b>: <code>_scheme_sql_rewrites</code> leaves an AC ranking without <code>IS NOT NULL</code>, and no guard catches the ranking or rate shapes.",
+ title:"MGNREGA correctness pack",
+ issue:"Four MGNREGA errors:<ul><li>Constituency rankings put the NULL group first; 1,240 rows have no AC.</li><li>Constituency expenditure filters the wrong column (<code>ac_name</code> versus <code>assembly_constituency_name</code>).</li><li>\"100-day completion rate\" returns a count.</li><li>A ranking question answered by a bare <code>MAX()</code> is not caught.</li></ul>",
+ evidence:["A ready template exists: <code>focus_plus._focusplus_district_group_not_null</code> (~603-628)."],
+ fix:["Add <code>mgnrega._mgnrega_ac_group_not_null</code>, mirroring the template, and register it in <code>_scheme_sql_rewrites</code>.","Add a <code>v_expenditure</code> AC rewrite to <code>UPPER(ac_name) = UPPER(…)</code>.","Add guards: a rate or percentage question must divide; a ranking question needs a GROUP BY at the asked level. Add a few-shot with <code>IS NOT NULL</code>.","\"Households employed\" waits for the DATA-01 definition."],
+ dont:[],
+ files:[["app/pipeline/schemes/mgnrega.py","new rewrites and guards"],["app/pipeline/common/c11_sql_verify_repair.py","_scheme_sql_rewrites registration line only"],["data/mgnrega/ few-shot YAML","append"]],
+ pins:[],
+ accept:["Live: highest persons employed in 2022-23 by constituency answers SONGSAK 27,291.","AC expenditure passes 10 of 10.","Rate wordings pass 18 of 18."]},
+
+{id:"SQL-06",track:"SQL",sev:"Medium",wave:"1b",after:["SQL-01"],ki:["KI-359","KI-426","KI-362","KI-372"],
+ status:"<b>CONFIRMED</b>. Correction: the leaked pg_id comes mainly from <code>schema_context.py</code> rule 6 and the <code>c07</code> extractor prompt, not only from the few-shot.",
+ title:"Focus Plus and Focus Legacy correctness pack",
+ issue:"Three errors across the two Focus schemes:<ul><li>\"Average per beneficiary\" sometimes averages per payment. The few-shots exist, but no guard does.</li><li>Focus Legacy SQL adds filters nobody asked for, including <code>PG-FOCUS-WKH-7089</code>, which blends two example ids from the prompt.</li><li>Focus Plus district totals differ by path: <code>cross_figures</code> groups by <code>district_name_raw</code>, the other paths by <code>lgd_district</code>.</li></ul>",
+ evidence:["<code>schema_context.py:953-958</code> (rule 6, two ids), <code>c07_mentions.py:514</code>, <code>focuslegacy_few_shot.yaml:484-490</code>.","<code>_focus_legacy_village_code_only</code> is at focus_legacy.py:1434."],
+ fix:["Focus Plus: add a rewrite turning <code>AVG(amount_disbursed)</code> on a per-beneficiary question into <code>SUM(...)/NULLIF(COUNT(DISTINCT beneficiary_key),0)</code>.",
+  "Focus Legacy: extend <code>_focus_legacy_village_code_only</code>. With one <code>village_code</code> pinned and no group, variant or type named in the question, drop the <code>pg_id</code>, <code>programme_variant</code> and <code>pg_entity_type*</code> conjuncts.",
+  "Replace the example ids with obviously fake ones in schema_context rule 6, c07 and the few-shot.",
+  "District column: after DATA-01 gets the answer, align <code>cross_figures</code> and record the choice in DECISIONS. Do this as a separate commit."],
+ dont:[],
+ files:[["app/pipeline/schemes/focus_plus.py","new AVG rewrite"],["app/pipeline/schemes/focus_legacy.py","_focus_legacy_village_code_only"],["app/schema_context.py","rule 6 (953-958)"],["app/pipeline/common/c07_mentions.py","line 514"],["data/focus_legacy/focuslegacy_few_shot.yaml","484-490"],["app/cross_figures.py","Focus Plus district column (later commit)"]],
+ pins:[],
+ accept:["FOCUS-025 gives Rs 11,475.60 in 10 of 10 runs.","The Focus Legacy all-villages run reaches 3,384 of 3,384.","After the decision, the same district gives one figure on every path."]},
+
+{id:"SQL-08",track:"SQL",sev:"Low",wave:"1b",after:["SEC-07","SQL-02"],ki:["KI-027","D-071"],
+ status:"<b>CONFIRMED</b>. Severity lowered: a failed catalogue load falls back to the model path.",
+ title:"Pin catalogue definitions and recover from failed startup loads",
+ issue:"Two catalogue risks:<ul><li>A metric stays \"verified\" even if the data team edits its SQL expression.</li><li>Schema, years and catalogue load once at startup. If the DB flaps during boot, the worker runs on defaults until it is restarted, and <code>/health</code> says ok. <code>refresh_scheme_years</code> even hides its own failures.</li></ul>",
+ evidence:["<code>metric_catalog.load</code> (189-229) and <code>verified()</code> (241) do no hash check.","main.py:76-83 wraps each load in <code>_try</code>; <code>/health</code> (171-203) does not report them."],
+ fix:["Store an <code>expression_sha</code> per verified entry, over <code>sql_expression</code>, <code>base_object</code> and <code>filters_required</code>. On a mismatch, drop the entry from verified and log a WARNING.","Add one background task that retries failed loads with backoff and refreshes once a day. Report each load in <code>/health</code>. Have <code>refresh_scheme_years</code> return its status."],
+ dont:["A 30-minute refresh plus an admin endpoint; over-built."],
+ files:[["app/metric_catalog.py","load, verified"],["data/metric_catalog_verified.yaml","expression_sha"],["app/main.py","lifespan retry task, health components (second in the main.py order)"],["app/pipeline/common/c06_years_tranches.py","refresh_scheme_years return value"]],
+ pins:[],
+ accept:["A changed expression makes <code>verified()</code> return None.","A worker whose load failed at startup recovers without a restart."]},
+
+/* ═════════ WAVE 2 ═════════ */
+{id:"CTX-04",track:"CTX",sev:"Medium",wave:"2",after:["CTX-01","SQL-08"],ki:["KI-430"],
+ status:"<b>CONFIRMED</b>, with corrections: Qdrant memory (30 days), paused threads and sessions do expire. Only the DB tables and the audit never expire.",
+ title:"Retention for conversations and audit; deletion that really deletes",
+ issue:"Three retention gaps:<ul><li><code>app.conversations</code>, <code>conversation_turns</code>, <code>query_audit</code> (26,717 old rows with result previews) and the JSONL audit never expire.</li><li>Deleting a chat removes only DB rows, not its Qdrant memory points, its graph checkpoint or the in-memory Session.</li><li>The JSONL audit is written with blocking file I/O on the event loop.</li></ul>",
+ evidence:["conversation_store.py:264-277 and history.py:69-77 handle the delete. <code>deploy/sql/02_retention_policy.sql</code> is never scheduled. <code>auth.read_audit</code> is dead code.","The snapshot is already bounded (8 topics, 20 ledger entries per topic)."],
+ fix:["Delete cascade: add <code>conversation_memory.delete_session</code>, a public <code>pipeline_graph</code> helper around <code>_drop_thread</code>, and <code>SessionStore.drop()</code>, all called from the history delete route.","Add one daily purge task with the retention period you choose, covering conversations, turns and the query audit.","Write the JSONL audit through <code>asyncio.to_thread</code> with rotation. Delete <code>read_audit</code>."],
+ dont:["A snapshot size cap; it is already bounded."],
+ files:[["app/conversation_memory.py","new delete_session"],["app/conversation_store.py","delete_conversation, new purge"],["app/session_store.py","new drop() after ensure"],["app/pipeline_graph.py","public drop helper"],["app/routers/history.py","delete route"],["app/appdb.py","purge SQL"],["app/auth.py","audit writer, delete read_audit"],["app/main.py","purge task (third in the main.py order)"]],
+ pins:["test_history_charts.py:67-72"],
+ accept:["After a delete, the Qdrant points, the checkpoint thread and the Session are gone, and the same id starts empty.","The purge job has a test."]},
+
+{id:"CTX-06",track:"CTX",sev:"Low",wave:"2",after:["CTX-01"],ki:["KI-337"],
+ status:"<b>CONFIRMED</b> structure. Two safeguards already exist, and the v1 pre-pass refactor is withdrawn.",
+ title:"Cache gate: test first, then fix only the disagreements",
+ issue:"<code>is_cacheable</code> combines six word-list checks to decide whether a turn is a follow-up before the pipeline knows. Two safeguards already limit the damage: a question naming no scheme is not cached inside a chat with an active scheme, and writes are blocked by <code>context_dependent</code>. The remaining risk is a follow-up shape that slips past all six.",
+ evidence:["query.py:431-477, and :470-472 and :419 for the safeguards."],
+ fix:["Write a table test of the real <code>is_cacheable</code> over every follow-up shape in the harness YAMLs, plus standalone questions. Fix only the cases that come out wrong."],
+ dont:["A turn-kind pre-pass refactor. It breaks the project's \"no drive-by refactors\" rule."],
+ files:[["app/routers/query.py","is_cacheable"],["tests/test_cacheable_shapes_2026_10_28.py","new"]],
+ pins:[],
+ accept:["Every follow-up shape is not cacheable, and every standalone question is."]},
+
+{id:"RAG-04",track:"RAG",sev:"Medium",wave:"2",after:["RAG-02","CTX-04"],ki:["KI-402","D-067"],
+ status:"<b>CONFIRMED</b>. The size-mismatch delete is the deliberate KI-402 fix and is pinned by a test, so changing it needs a DECISIONS entry. The duplicate-point race is more likely than v1 said.",
+ title:"KB ingestion that is idempotent and notices edits",
+ issue:"Four ingestion problems:<ul><li>Every worker on both VMs ingests at startup with random point ids and no lock. On a deploy that needs a rebuild, they race, and duplicate chunks persist: a count of 2N passes the skip check. With multi-query off, duplicates take top-8 slots.</li><li>Editing a document does not trigger a rebuild on restart.</li><li>The per-worker KB text cache is never cleared, and can cache an empty KB.</li><li>Reingest runs inside the HTTP request.</li></ul>",
+ evidence:["main.py:83; kb_ingest.py:749 (skip check), :797 (recreate), :800 (<code>uuid4</code>).","rag.py:313 and :368-382 (cache).","<code>test_embedding_size_guard_2026_10_24.py::test_a_kb_of_another_vector_size_is_rebuilt</code> pins the delete."],
+ fix:["Deterministic <code>uuid5(doc|heading|sha1(text))</code> ids.","Store <code>corpus_hash</code> (source digests plus chunker version) in the payload; rebuild when the first point's hash differs.","Rebuild by upserting all ids and then deleting the ones no longer present, instead of recreate-then-fill. That is idempotent under concurrency and leaves no empty window.","On a vector-size mismatch, refuse with a CRITICAL log and a degraded <code>/health</code>, as <code>conversation_memory</code> does. Record the reversal of KI-402 in DECISIONS and rewrite the pinned test.","Key the text cache on (collection, hash), never cache an empty result, and run reingest in the background with its status in <code>/api/rag/status</code>."],
+ dont:["Alias swap plus an advisory lock. Not needed once the ids are deterministic."],
+ files:[["app/kb_ingest.py","ingest_kb, _collect_chunks"],["app/vectorstore.py","new delete-by-ids helper"],["app/routers/rag.py","reingest, status"],["app/rag.py","_kb_text_cache, _kb_texts_by_scheme"],["app/main.py","health flag (fourth in the main.py order)"]],
+ pins:["test_rag_general_scoping.py:221","test_embedding_size_guard_2026_10_24.py (rewrite)"],
+ accept:["Two concurrent <code>ingest_kb</code> runs leave exactly N points.","Changing one source byte triggers a rebuild.","A size mismatch never deletes."]},
+
+{id:"RAG-05",track:"RAG",sev:"Medium",wave:"2",after:["RAG-04","CTX-01"],ki:["D-067"],
+ status:"<b>CONFIRMED</b>. Corrections: the 0.35 and 0.45 cut-offs measure within noise of each other, and the 384-dim defaults are intentional (they are the D-067 rollback).",
+ title:"Show KB outages as outages; re-tune retrieval with an independent judge",
+ issue:"When the embedding call fails, <code>retrieve</code> returns [], and the officer is told the topic \"isn't covered\". It even swallows <code>ModelBusyError</code>, which the router already maps to 503. The thresholds were set by eye on an eval whose judge is the same model that writes the answers, and its golden set has no SME sign-off. No single cut-off separates the negatives (top scores up to 0.695) from the positives (down to 0.35).",
+ evidence:["rag.py:502-506; query.py:322 (<code>ModelBusyError</code> to 503).","<code>run_eval.py:75-77</code> uses the same 9B as judge. The golden set has <code>expert_checked: None</code>."],
+ fix:["Let <code>ModelBusyError</code> propagate. Raise <code>KnowledgeUnavailableError</code> for other embedding failures and map it to 503 in <code>routers/query.py</code>. Update <code>best_kb_scheme</code> and <code>run_eval</code>, which also call <code>retrieve</code>.","Add a startup warning when the provider is gateway but the cut-offs are still the 384-dim defaults.","Re-tune MIN, MEDIUM and HIGH on rag_eval with a different judge model and an SME-checked golden set. Try a query-instruction prefix in <code>retrieve</code> only."],
+ dont:["Changing the config defaults; they are the D-067 rollback."],
+ files:[["app/rag.py","retrieve, best_kb_scheme"],["app/routers/query.py","except mapping"],["app/config.py","startup warning near the RAG settings"],["tests/rag_eval/run_eval.py",""]],
+ pins:[],
+ accept:["An embedding failure gives a 503, not \"not covered\".","The tuned run is no worse on correct-or-honest."]},
+
+{id:"CMP-03",track:"CMP",sev:"Medium",wave:"2",after:["CMP-01"],ki:["KI-326","KI-437"],
+ status:"<b>REPRODUCED</b>. Correction: the config name is <code>PROMPT_BUDGET_COMPOSER_TOKENS</code>. Indian grouping moves to a decision (see the decisions list).",
+ title:"Answer wording: scope tail, ₹, no-data, year-over-year",
+ issue:"Five wording problems:<ul><li>Single-figure answers end \"…figure <b>for across</b> all financial years\" and repeat the period.</li><li>CM Elevate, which has no FY, gets an FY tail, also from the compose prompt rule.</li><li>Lakh values get no ₹.</li><li>\"No data\" does not name the scheme.</li><li>The year-over-year sentence uses relative % for pct measures and compares against an incomplete year.</li></ul>KI-437 hard-codes \"FY 2022-23 to 2025-26\".",
+ evidence:["c12_answer_numbers.py:663 (tail), :499 <code>_scope_words</code>, :725 <code>_unit_suffix</code>, :747 <code>_no_data_answer</code>.","c15:1081-1104; working-tree <code>cross_figures.py:476</code>; a data-driven span helper exists at c15:964."],
+ fix:["<code>_finish_answer</code>: drop \" for \" before \"across\", skip a period the text already states, and use longest-name and alias matching.","<code>_scope_words</code> and the compose prompt's period line: no period for CM Elevate or CM Elevate Legacy.","Add ₹ to lakh. Name the scheme in the no-data answer. Use points for pct and skip partial years in <code>_callback_sentence</code>.","Take the KI-437 span from the c15 helper. Set <code>PROMPT_BUDGET_COMPOSER_TOKENS</code>."],
+ dont:["Changing digit grouping here. It is a product decision, and many tests pin the Western form."],
+ files:[["app/pipeline/common/c12_answer_numbers.py","_finish_answer, _scope_words, _no_data_answer, _unit_suffix, _framed_fallback"],["app/pipeline/common/c13_compose_and_data_stages.py","compose_response prompt period line only"],["app/pipeline/common/c15_conversation_meta.py","_callback_sentence"],["app/cross_figures.py","_scheme_line"],["app/config.py","PROMPT_BUDGET_COMPOSER_TOKENS (line 669)"]],
+ pins:["test_no_data_answer.py:105-107","test_single_year_phrase_2026_10_19.py"],
+ accept:["The audit strings produce correct tails.","No FY tail for CM Elevate.","Pinned tests updated deliberately."]},
+
+{id:"SQL-04",track:"SQL",sev:"Medium",wave:"2",after:["SQL-01","SQL-03"],ki:["KI-002","KI-313"],
+ status:"<b>CONFIRMED</b> structure: 17 filters. v1 missed that the JSON schema lives in <code>c02_rephraser.py</code>.",
+ title:"A verifier that raises typed issues, each confirmed on the SQL tree",
+ issue:"False positives from the SQL verifier are patched one wording at a time, with 17 filters (13 in c11 and 4 in scheme files). Every new phrasing needs another filter. KI-313 failed 3 of 3 because the complaint used a phrasing no filter matched.",
+ evidence:["c11:752-1583; <code>c02_rephraser.py:516 _SQL_VERIFY_JSON_SCHEMA</code> (already guided JSON <code>{ok, issue}</code>)."],
+ fix:["Turn the schema into an enum of issue types: <code>wrong_table</code>, <code>wrong_measure</code>, <code>missing_filter{col,val}</code>, <code>wrong_grain</code>. Confirm each one on the AST (reusing SQL-01's exact helpers) before repairing, and drop it automatically when the SQL already satisfies it.","Keep the old filters until a replay of the logged false positives gives the same outcomes. Then delete them, and update the script suites that pin their names."],
+ dont:[],
+ files:[["app/pipeline/common/c11_sql_verify_repair.py","_verify_sql and the _verifier_* family"],["app/pipeline/common/c02_rephraser.py","_SQL_VERIFY_JSON_SCHEMA"],["app/prompt_builder.py","build_verify_prompt"]],
+ pins:["test_verifier_missing_geo.py:125 and test_cross_scheme_collision.py:130 (scripts that need the helper names)"],
+ accept:["The replay matches today's outcomes.","No new wrong answers on the golden set."]},
+
+{id:"UI-02",track:"UI",sev:"Low",wave:"2",after:["UI-01","CTX-01"],ki:["new"],
+ status:"<b>CONFIRMED</b>. This card merges v1 UI-04, the rest of UI-02 and the frontend part of v1 CMP-05.",
+ title:"Accessibility, smooth streaming, and a \"figures corrected\" marker",
+ issue:"Five front-end gaps:<ul><li>Clickable <code>&lt;div&gt;</code>s cannot be reached with the keyboard.</li><li>Every streamed token re-renders the whole message list.</li><li><code>?api=</code> would send the JWT to another origin if the CSP were relaxed.</li><li>Both HTML entries load Google Fonts, which an air-gapped network cannot reach.</li><li>Lone <code>*_key</code> and <code>*_code</code> columns still show. When the final data answer differs from its streamed draft, nothing tells the officer.</li></ul>",
+ evidence:["Sidebar.jsx:152, 158, 162, 211; App.jsx:841; App.jsx:335-339 <code>patchTyping</code>; no <code>memo</code> anywhere.","api.js:7-8; <code>frontend/index.html</code> and <code>admin.html</code>.","<code>reveal.js</code> already computes <code>commonWordPrefix</code>."],
+ fix:["Use <code>&lt;button type=\"button\"&gt;</code> for those elements. Keep the draft in a ref and batch tokens with <code>requestAnimationFrame</code>. Memoise <code>BotMessage</code> and <code>UserMessage</code>.","Honour <code>?api=</code> only when <code>import.meta.env.DEV</code> is set. Self-host the fonts and remove the font hosts from the CSP.","Hide lone technical columns with a <code>columns.js</code> helper (keep them in the Excel export). Show a small \"figures checked and corrected\" note when the final text differs from the draft. Delete the dead route badge."],
+ dont:["Masking digits in the draft; data answers are mostly digits."],
+ files:[["frontend/src/chat/components/Sidebar.jsx",""],["frontend/src/chat/App.jsx","patchTyping, backdrop"],["frontend/src/chat/api.js","API_BASE"],["frontend/src/chat/reveal.js",""],["frontend/src/chat/components/Messages.jsx","BotMessage memo, TypingMessage, RouteBadge removal"],["frontend/src/chat/columns.js","new helper"],["frontend/src/chat/components/Charts.jsx","DynTable, BigTable columns"],["frontend/index.html","fonts"],["frontend/admin.html","fonts"],["app/config.py","CSP font hosts"]],
+ pins:["test_asr_transcribe.py:48 (api.js, App.jsx source)","test_history_charts.py"],
+ accept:["Tab and Enter reach every control.","The profiler shows only the typing bubble re-rendering.","The production bundle has no <code>get(\"api\")</code>."]},
+
+{id:"QA-01",track:"QA",sev:"High",wave:"2",after:["CTX-09"],ki:["KI-017"],
+ status:"<b>REPRODUCED</b> from the result JSON: 74 items, 43 correct, 31 paused, 58.1%. Accuracy was 100% on 16 and 18 Oct; the whole drop comes from the D-053/D-056 pauses.",
+ title:"Turn the golden set into an automatic accuracy gate",
+ issue:"Three gaps:<ul><li>The eval counts every pause as a miss, including pauses the rules require.</li><li>It scores rows only, while the composer audit found 8 wrong answer texts among the 43 \"correct\".</li><li>It runs by hand, with one wording per question.</li></ul>KI-017 still says \"Next: a golden set\".",
+ evidence:["<code>tests/nl2sql_eval/results/2026-10-27_1337_*.json</code>.","Pauses by rule: 18 year-not-specified, 10 scope, 3 cm-elevate-dataset. <code>--fail-on-regression</code> already exists (run_eval.py:58)."],
+ fix:["Use the per-item <code>expect_pause</code> and <code>clarify_reply</code> fields (from CTX-09). In the <code>ClarificationNeeded</code> branch, resume through the real path (the same Session and a second <code>answer_question</code>), and score asked-then-correct, asked-unexpectedly and expected-pause separately.","Check the numbers in the answer text against <code>gold_rows</code> with the real faithfulness helper.","Append paraphrases to <code>questions.yaml</code>.","Run nightly. Bitbucket cloud runners cannot reach the VPN, so use a scheduled task on the dev box until a VPN runner exists."],
+ dont:["Auto-answering every pause with the gold scope. That hides whether the bot asked when it should have."],
+ files:[["tests/nl2sql_eval/run_eval.py","run_pipeline, summary"],["tests/nl2sql_eval/compare.py",""],["tests/nl2sql_eval/questions.yaml","append paraphrases"],["bitbucket-pipelines.yml","custom pipeline (later)"]],
+ pins:[],
+ accept:["Every item gets a scored outcome.","A nightly report exists and fails on a drop."]},
+
+/* ═════════ WAVE 3 ═════════ */
+{id:"RAG-06",track:"RAG",sev:"Medium",wave:"3",after:["SEC-07","QA-01","SQL-01"],ki:["KI-010","KI-011","new"],
+ status:"<b>REPRODUCED</b> on 28 Oct, read-only: no code reads any <code>Metadata_*</code> collection. Their 4,016 points re-embed with our <code>qwen3-embedding</code> at cosine 0.9999. Only CM Elevate and Focus Plus describe the curated views the bot queries.",
+ title:"Use the Qdrant Metadata_* schema collections for SQL retrieval, validated and measured",
+ issue:"Seven <code>Metadata_*</code> collections on our Qdrant server hold column meanings, synonyms, entity values with row counts, formulas, aggregation rules, clarification rules, the join graph and example question→SQL pairs, all embedded with our own model. <b>Neither RAG nor NL→SQL uses them.</b> SQL generation instead relies on the hand-written <code>schema_context.py</code>, which is large, falls back to all schemes (KI-011) and drifts from the SME YAMLs (KI-010). But they cannot be plugged in as they are:<ul><li>MGNREGA, PMAY, Focus Legacy and CM Elevate Legacy describe a different layout (<code>mgnrega_employment</code>, <code>pmay_beneficiaries</code>, <code>mapped_*_lgd_name</code>) from the curated views the bot queries.</li><li>NRLM is not one of our schemes.</li><li>Another team owns them, with no version contract.</li><li>They are writable by anyone until SEC-07.</li></ul>",
+ evidence:["A grep of <code>app/</code> finds no <code>Metadata_</code> reference. CLAUDE.md:246 and ARCHITECTURE.md:439 say \"not ours\".","Point counts: CMElevate 917, FocusPlus 659, FocusLegacy 733, CMElevateLegacy 501, PMAY 459, NRLM 387, MGNREGA 360.","The bot queries <code>curated.v_employment</code>, <code>v_pmay</code>, <code>v_focus_legacy</code> and <code>v_cm_elevate</code>, with <code>lgd_district</code>. <code>mapped_district_lgd_name</code> has 0 references in <code>app/</code>.","Five of the nine source YAMLs named in the payloads are not in <code>data/</code>.","Re-embedding the stored text with our gateway reproduces the stored vectors (cosine 0.9999 to 1.0, 6 of 6 samples)."],
+ fix:["<b>Step 1, no code in the answer path:</b> write an offline script that lists, per collection, which doc tables and columns exist in the live <code>schema_introspect</code> catalogue. Send the result to the owning team. Ask whether the <code>mapped_*</code> layout is a planned schema, and agree a pin on <code>schema_version</code> plus <code>content_hash</code> and a read-only Qdrant key for the bot.",
+  "<b>Step 2:</b> add a new <code>app/schema_rag.py</code>. Embed the question once. Search <code>Metadata_&lt;scheme&gt;</code> filtered to <code>excluded=False</code> and <code>doc_type</code> in column, formula, rule or clarification, top 8, with a 1.5 s timeout that fails open to today's prompt. <b>Drop every item whose table or column is not live.</b> Add example SQL only if SQLGlot parses it and it references only live curated objects.",
+  "Add the survivors as one short \"Relevant schema notes\" block in the SQL generation prompt, behind <code>SCHEMA_RAG_ENABLED</code> (default off), with a per-scheme allow-list that starts at CM Elevate and Focus Plus.",
+  "Shadow mode first: log the block without sending it. Then A/B on the golden set (QA-01). Switch on per scheme only if accuracy holds or improves and the prompt gets shorter. Record the result as a DECISIONS entry."],
+ dont:["Adding them to the officer-facing knowledge path (<code>megh_scheme_kb_v4</code> or <code>answer_from_kb</code>). They are schema metadata, not scheme guidance.","Feeding the MGNREGA, PMAY or Legacy collections to the SQL model before the layout question is answered. Their table names would steer it to tables it cannot query.","Writing to, re-indexing or deleting any <code>Metadata_*</code> collection."],
+ files:[["app/schema_rag.py","new"],["app/prompt_builder.py","one optional block in the SQL generation prompt builder (not _entities_block, build_repair_prompt or build_verify_prompt)"],["app/pipeline/common/c10_sql_generation_and_rewrites.py","generate_sql call site (not _c1x_apos0)"],["app/config.py","SCHEMA_RAG_* settings in a new block next to the RAG settings"],["scripts/metadata_schema_check.py","new"],["tests/test_schema_rag_2026_10_28.py","new; stubbed Qdrant client"]],
+ pins:[],
+ accept:["The offline check report is shared with the owner, and a reply is recorded.","Unit tests: any item naming a table or column outside the live catalogue is dropped; a timeout falls back to today's prompt; flag off means a byte-identical prompt.","The golden-set A/B is recorded, and the flag stays off unless accuracy is equal or better."]},
+
+{id:"QA-03",track:"QA",sev:"Medium",wave:"3",after:["CTX-01","CTX-02","CTX-04"],ki:["KI-184","KI-185","KI-037"],
+ status:"<b>CONFIRMED</b>, with corrections: the harness does write dated results and defaults to caches on. The in-process driver and <code>live_context_validation</code> are what bypass the caches and <code>sync_out</code>.",
+ title:"Live context runs that can catch cache, ownership and cross-VM bugs",
+ issue:"The in-process harness driver never calls <code>sync_out</code>, which is why KI-400 was missed. <code>live_context_validation.py</code> overwrites one fixed results path. A two-account test on one session id is impossible today, because the driver mints its own id. A resume across VMs has never been verified live.",
+ evidence:["harness <code>run.py:176-180</code> writes dated files; <code>drivers.py:126</code> defaults to caches on; <code>live_context_validation.py:741</code> writes a fixed path."],
+ fix:["Make the in-process driver call <code>sync_out</code> and <code>sync_in</code> between turns.","Date the output of <code>live_context_validation</code>.","Let the driver share a session id across two accounts, and add scenarios P1 (ownership) and P2 (topic, cache hit, go back).","Pause on VM1, resume on VM2. Re-run J2 and J3 and close or re-scope KI-037."],
+ dont:[],
+ files:[["tests/conversation_harness/","drivers, scenarios"],["tests/live_context_validation.py","output path"]],
+ pins:[],
+ accept:["P1 and P2 pass.","KI-184 and KI-185 closed with evidence."]},
+
+{id:"QA-04",track:"QA",sev:"Low",wave:"3",after:["SQL-02","CMP-03","SQL-07"],ki:["KI-021"],
+ status:"<b>CONFIRMED</b> by an AST scan. Exactly five functions are dead. The strays and <code>.gitignore</code> work moved to SEC-01.",
+ title:"Delete dead pipeline functions; fix the smoke-test port",
+ issue:"Five pipeline functions are never referenced anywhere. <code>smoke_restructure.py</code> hard-codes port 8502, which breaks the 8401-only rule.",
+ evidence:["<code>c06:289 _year_choices_for</code>, <code>c10:35 _c1x_apos0</code>, <code>cm_elevate.py:727 _cme_programme_named</code>, <code>:997 _cme_district_in_values</code>, <code>pmay_g.py:929 _pmay_money_short</code>.","The two <code>data/*/prompt_assembler.py</code> files are SME artefacts; delete them only with your agreement."],
+ fix:["Read each comment, then delete the five functions.","Set <code>BASE = os.environ.get(\"MEGH_BASE\", \"http://127.0.0.1:8401\")</code>."],
+ dont:[],
+ files:[["app/pipeline/common/c06_years_tranches.py","_year_choices_for"],["app/pipeline/common/c10_sql_generation_and_rewrites.py","_c1x_apos0"],["app/pipeline/schemes/cm_elevate.py","two functions"],["app/pipeline/schemes/pmay_g.py","_pmay_money_short"],["tests/smoke_restructure.py",""]],
+ pins:[],
+ accept:["Full tests green and the namespace test passes."]},
+
+{id:"REL-03",track:"REL",sev:"Low",wave:"3",after:["CTX-04","RAG-04","SEC-05"],ki:["KI-009"],
+ status:"<b>CONFIRMED</b>. Corrections: the files live in <code>app/middleware/</code>, and <code>X-Request-ID</code> is already trimmed to 64 characters.",
+ title:"Request ids in logs, a cheap /health, bounded rate-limit memory",
+ issue:"Three operability gaps:<ul><li>Log lines carry no request id.</li><li>An anonymous <code>/health</code> runs DB, Qdrant and Redis probes and can block for 30 s.</li><li>Rate-limit keys are never deleted, which SEC-05's spoofable IPs made a memory risk.</li></ul>",
+ evidence:["main.py:31-34 and :160-200; <code>app/middleware/rate_limit.py:58</code>; <code>security_headers.py:64-69</code>."],
+ fix:["Add a <code>logging.Filter</code> that injects the request id and user.","Cache <code>/health</code> component results for 5 s, with a 2 s timeout per probe.","Drop empty rate-limit deques. Validate <code>X-Request-ID</code> to letters, digits and hyphens."],
+ dont:["Moving to pure ASGI middleware in this task; that is a larger change."],
+ files:[["app/main.py","logging config, health (last in the main.py order)"],["app/middleware/rate_limit.py",""],["app/middleware/security_headers.py",""]],
+ pins:[],
+ accept:["Every log line has a request id.","<code>/health</code> answers within 2 s while the DB is down."]},
+
+{id:"REL-04",track:"REL",sev:"Low",wave:"3",after:["SQL-04","RAG-02"],ki:["KI-009"],
+ status:"<b>CONFIRMED</b> count (210). The v1 location was wrong: the single funnel is in c14, not in the graph.",
+ title:"Let programming errors fail tests instead of becoming \"couldn't answer\"",
+ issue:"Every data-node exception ends up in <code>c14._data_path_error_result</code>, which turns it into the KB fallback. A <code>NameError</code> introduced by a refactor therefore produces a polite non-answer, and no test fails.",
+ evidence:["<code>pipeline_graph._observed</code> (:288) calls <code>_data_path_error_result</code> (c14:122)."],
+ fix:["Add <code>settings.RAISE_INTERNAL_ERRORS</code>, set to true in <code>tests/conftest.py</code>. Under it, <code>_data_path_error_result</code> re-raises <code>NameError</code>, <code>UnboundLocalError</code>, <code>AttributeError</code>, <code>TypeError</code> and <code>ImportError</code> only.","The 14 script suites do not load conftest; set the flag in their shared helper if one exists."],
+ dont:["Re-raising everything except timeout, OS, DB and HTTP errors. That breaks tests that inject <code>RuntimeError</code> on purpose."],
+ files:[["app/pipeline/common/c14_turn_stages.py","_data_path_error_result"],["app/config.py","RAISE_INTERNAL_ERRORS"],["tests/conftest.py","bottom of file"]],
+ pins:[],
+ accept:["An injected <code>NameError</code> in a stage fails pytest."]}
+];
+
+const PRIO = [["SEC-01","Purge the bank-account file and seed passwords, and rotate credentials"],["SEC-02","District officers can see every other district"],["SEC-04","Tenant admin can reset the super_admin password"],["SQL-01","Wrong-place and wrong-year SQL passes the guards"],["CMP-01","Wrong figures pass the number check"],["CMP-02","Percentages get summed and allow-listed"],["SEC-03","Cross-scheme ranking skips authorize"],["CTX-02","Topic memory wiped by common turns"],["SEC-07","Qdrant open on a public IP"],["RAG-02","Invented sentences survive the grounding check"],["QA-01","No automatic accuracy gate"]];
+
+const CHANGES = [
+ ["SEC-01","Missed <code>config/users.yaml</code>, <code>Use_Cases_-_Focus.csv</code> and the tracked JWT. Line 7 is a comment. Put rotation behind the purge.","Expanded. Rotation first. Absorbs the QA-04 strays and all <code>.gitignore</code> work."],
+ ["SEC-02","Missed that plain \"by block\" questions leak via <code>block_name_raw</code> and <code>ac_name</code>. Proposed changing <code>filter_values</code> (13 callers) or injecting predicates.","New positive-filter function; registry; fail-closed scope."],
+ ["SEC-03","Listed 5 paths; the admin-expenditure path is authorised. Proposed changing <code>cross_figures.py</code>.","4 paths; reuse <code>_repaired_sql_denial</code>; PG lookup filters rows."],
+ ["SEC-04","Missed the super_admin password reset, the worst part. Proposed per-district stats cards (not needed).","Severity confirmed High; scheme filter only for stats."],
+ ["SEC-05","Said role changes are not revoked; they are live. Ignored that nginx already rate-limits on the real IP. Proposed a hard lockout (DoS risk).","Lowered to Low; backoff, not lockout."],
+ ["SEC-06","Said about 45 call sites (62). Routing to <code>megh_readonly</code> without a live test could break heavy queries.","Medium; live inventory first."],
+ ["SEC-07","The boot guard would have stopped the dev box (<code>ENV</code> defaults to prod).","<code>ENV=dev</code> operator step first; Qdrant key warn-only until infra."],
+ ["CTX-01 + CTX-03","High was too strong. Thread-id namespacing, 409 retry and request-id dedup were over-built. The graph lock would deadlock if reused.","Merged into CTX-01, Medium, 403 + router lock."],
+ ["CTX-02","\"thanks\" does not wipe topics. Missed the expiry-continue case. The KI-318 cause was wrong.","Delete the guard; fix <code>parse_backward</code>."],
+ ["CTX-04","Said nothing expires; Qdrant memory, threads and sessions do. The snapshot cap is unneeded.","Narrowed to DB tables, audit and the delete cascade."],
+ ["CTX-05","Impact wrong: every consumer falls back to the topic ledger.","Removed; re-measure after CTX-02."],
+ ["CTX-06","The pre-pass refactor broke the no-refactor rule.","Low: table test first."],
+ ["CTX-07","The provenance fix would break D-056 follow-ups.","Withdrawn; reproduce live first."],
+ ["CTX-08","The TTL claim was wrong. Found only 3 of 7 log sites.","Log text only, 7 sites."],
+ ["RAG-01","The fix would not change routing. Listed KI-367 and KI-396, which are the opposite bug.","New override in <code>_turn_route_stage</code>."],
+ ["RAG-02","The Q181 example was wrong. All-refusal handling already exists. The made-up rate included judge noise. Missed the fail-open and the missing gate.","Rewritten; absorbs the KB part of CMP-05."],
+ ["RAG-04","The delete is the pinned KI-402 fix. Alias swap and lock were over-built.","Deterministic ids, upsert and prune; DECISIONS entry."],
+ ["RAG-05","Moving the defaults conflicts with D-067. 0.35 vs 0.45 is within noise.","Outage as 503; independent judge."],
+ ["CMP-01 + CMP-03","Missed the 0.5% relative tolerance and that substring coverage defeats the one-figure rule. Number words already run for every scheme (after the check). Code-written verdicts were over-built.","Merged into CMP-01, the checks."],
+ ["CMP-02","The CE-11 cause was the LIMIT rule, not <code>metrics[0]</code>. A new module was over-built. Gating the Focus Legacy note is wrong (SME-required).","Shape + digest only."],
+ ["CMP-04","Wrong config name. Grouping is a product decision.","Becomes CMP-03, wording; grouping moved to decisions."],
+ ["CMP-05","Masking digits defeats streaming; a per-sentence check is infeasible.","Split into RAG-02 (KB no-stream) and UI-02 (marker)."],
+ ["UI-01..04","Most of UI-01 and UI-02 is already done in uncommitted work. The \"All 3 schemes\" badge is dead code.","UI-01 = what remains plus the comparison card; UI-02 = UX."],
+ ["SQL-01","Missed <code>LIMIT 2023</code>, the <code>year_key_list</code> gap and the TypeError. Two fix rules would break pinned tests.","Corrected rules."],
+ ["SQL-02","<code>_c06_year_range_tokens</code> is not a range parser. Ordering hazard with SQL-01.","After SQL-01; new span helper."],
+ ["SQL-03","Missed the second loop in c13.","Included; Low."],
+ ["SQL-06","The leaked pg_id comes from <code>schema_context</code> and c07, not just the few-shot.","All three sources fixed."],
+ ["SQL-07","PM-04 groups by an alias, not <code>GROUP BY 1</code>. Missed the D-060 placeholder leftovers.","Alias and ordinal resolution; live placeholder check."],
+ ["SQL-08","The 30-minute refresh and admin endpoint were over-built.","Hash pin plus retry-on-failure."],
+ ["DATA-01..06","Several asks had already been sent. DATA-05 claim about <code>NOT is_placeholder</code> was false for the single-scheme rule.","One follow-up task."],
+ ["REL-01","An admin flush clears one worker only.","Backoff plus build stamp."],
+ ["REL-02","Deleting the settings would break boot; a global cap would cut streams.","Wave 0, in safe order."],
+ ["REL-04","The re-raise belongs in c14, not the graph; the v1 exception list would break tests.","Programming errors only."],
+ ["QA-03","The harness does write dated results, with caches on by default.","Fix the drivers instead."],
+ ["QA-04","No exporter path bug exists. Missed the tracked JWT.","Dead functions only."],
+ ["DOC-01","SECURITY.md has no regex text. Missed CLAUDE.md:133 and :151 and PROJECT_CONTEXT.","Corrected list."],
+ ["DOC-02","Renumbering to KI-438+ collided with KI-438.","Next free ids; adds the stubs."]
+];
+
+/* ── render ── */
+const $ = s => document.querySelector(s);
+const esc = s => String(s).replaceAll("&","&amp;").replaceAll("<","&lt;");
+const byId = Object.fromEntries(T.map(t=>[t.id,t]));
+const sevRank = s => SEV.indexOf(s);
+const waveRank = w => ["0","1a","1b","2","3"].indexOf(w);
+
+(function stats(){
+  const c={}; T.forEach(t=>c[t.sev]=(c[t.sev]||0)+1);
+  const cells=[["",T.length,"tasks (54 in v1)"],["crit",c.Critical||0,"critical"],["high",c.High||0,"high"],["med",c.Medium||0,"medium"],["low",c.Low||0,"low"],["",c.Decision||0,"decision"],["",CHANGES.length,"v1 cards corrected"]];
+  $("#stats").innerHTML=cells.map(([k,n,l])=>`<div class="stat ${k}"><b>${n}</b><span>${l}</span></div>`).join("");
+})();
+$("#prio").innerHTML=PRIO.map(([id,why])=>{const t=byId[id];return `<li><a class="idlink" href="#${id}">${id}</a><span class="pill s-${t.sev}">${t.sev}</span><span class="tag wave">W${t.wave}</span><span>${why}</span></li>`}).join("");
+$("#waves").innerHTML=Object.entries(WAVES).map(([w,v])=>{
+  let items=T.filter(t=>t.wave===w);
+  if(w==="0") items=items.sort((a,b)=>a.order-b.order);
+  return `<div class="wavebox"><h3>${v.name}</h3><p>${v.note}</p><div class="ids">${items.map(t=>`<a class="idlink" href="#${t.id}">${w==="0"?t.order+". ":""}${t.id}</a>`).join("")}</div></div>`}).join("");
+$("#changes").innerHTML=CHANGES.map(([a,b,c])=>`<tr><td><b>${a}</b></td><td>${b}</td><td>${c}</td></tr>`).join("");
+
+const state={track:"ALL",sevs:new Set(SEV),q:"",wave:"ALL"};
+$("#tracks").innerHTML=[["ALL","All areas"],...Object.entries(TRACKS).map(([k,v])=>[k,v.name])].map(([k,n])=>`<button type="button" class="chip" data-track="${k}" aria-pressed="${k==="ALL"}">${n}</button>`).join("");
+$("#sevs").innerHTML=SEV.map(s=>`<button type="button" class="chip" data-sev="${s}" aria-pressed="true">${s}</button>`).join("");
+$("#wavesel").innerHTML+=Object.keys(WAVES).map(w=>`<option value="${w}">${w}</option>`).join("");
+
+function li(arr,cls){return arr&&arr.length?`<ul${cls?` class="${cls}"`:""}>${arr.map(x=>`<li>${x}</li>`).join("")}</ul>`:""}
+function afterTxt(t){return t.after.length?t.after.map(a=>a==="P0"?"P0 (commit working tree)":`<a class="idlink" href="#${a}">${a}</a>`).join(", "):"nothing (wave start)"}
+function card(t){
+  const files=`<ul class="files">${t.files.map(([p,f])=>`<li><code>${esc(p)}</code>${f?` · ${esc(f)}`:""}</li>`).join("")}</ul>`;
+  return `<article class="task ${t.sev}" id="${t.id}">
+  <div class="thead"><span class="tid">${t.id}</span><span class="pill s-${t.sev}">${t.sev}</span><span class="tag wave">wave ${t.wave}</span>${t.ki.map(k=>`<span class="tag">${k}</span>`).join("")}<h3>${t.title}</h3></div>
+  <div class="status">${t.status}</div>
+  <div><span class="lbl">The issue</span>${t.issue}</div>
+  <div><span class="lbl">The solution</span>${li(t.fix)}</div>
+  ${t.dont.length?`<div><span class="lbl">Don't do this</span>${li(t.dont,"dont")}</div>`:""}
+  <details><summary>Evidence</summary>${li(t.evidence)}</details>
+  <details><summary>Files and functions</summary>${files}${t.pins.length?`<p class="note" style="margin-top:6px"><b>Tests that pin this source:</b></p>${li(t.pins)}`:""}</details>
+  <details><summary>Done when</summary>${li(t.accept)}</details>
+  <div class="tfoot"><span class="after">Start after: ${afterTxt(t)}</span><button type="button" class="btn" data-copy="${t.id}">Copy session prompt</button></div>
+  </article>`;
+}
+function render(){
+  const q=state.q.toLowerCase(); let shown=0, html="";
+  for(const [k,tr] of Object.entries(TRACKS)){
+    if(state.track!=="ALL"&&state.track!==k) continue;
+    const items=T.filter(t=>t.track===k&&state.sevs.has(t.sev)&&(state.wave==="ALL"||t.wave===state.wave)&&(!q||(t.id+" "+t.title+" "+t.issue+" "+t.ki.join(" ")+" "+JSON.stringify(t.files)+t.evidence.join(" ")+t.fix.join(" ")).toLowerCase().includes(q)))
+      .sort((a,b)=>waveRank(a.wave)-waveRank(b.wave)||sevRank(a.sev)-sevRank(b.sev));
+    if(!items.length) continue; shown+=items.length;
+    html+=`<div class="trackhead"><h2 style="font-size:21px">${tr.name}</h2><span class="tag">${k}</span><span class="tag">new KI ids: ${tr.ki}</span></div><div class="tasks">${items.map(card).join("")}</div>`;
+  }
+  $("#list").innerHTML=html||`<p class="note" style="padding:20px 0">No tasks match these filters. Clear the search or turn a severity back on.</p>`;
+  $("#count").textContent=`${shown} of ${T.length} tasks`;
+}
+render();
+$("#tracks").addEventListener("click",e=>{const b=e.target.closest("[data-track]");if(!b)return;state.track=b.dataset.track;document.querySelectorAll("[data-track].chip").forEach(x=>x.setAttribute("aria-pressed",x===b));render()});
+$("#sevs").addEventListener("click",e=>{const b=e.target.closest("[data-sev]");if(!b)return;const s=b.dataset.sev;state.sevs.has(s)?state.sevs.delete(s):state.sevs.add(s);b.setAttribute("aria-pressed",state.sevs.has(s));render()});
+$("#wavesel").addEventListener("change",e=>{state.wave=e.target.value;render()});
+$("#q").addEventListener("input",e=>{state.q=e.target.value;render()});
+let expanded=false;
+$("#expand").addEventListener("click",()=>{expanded=!expanded;document.querySelectorAll(".task details").forEach(d=>d.open=expanded);$("#expand").textContent=expanded?"Collapse all":"Expand all"});
+
+function txt(html){const d=document.createElement("div");d.innerHTML=html.replaceAll("<li>","\n  - ").replaceAll("<br>","\n");return d.textContent.trim()}
+function prompt(t){
+  const tr=TRACKS[t.track], b=a=>a.map(x=>"- "+txt(x)).join("\n");
+  const files=t.files.map(([p,f])=>`- ${p}${f?": "+f:""}`).join("\n");
+  const after=t.after.map(a=>a==="P0"?"P0 (the uncommitted KI-437/KI-438 working tree is committed to Main)":a).join(", ")||"nothing";
+  return `TASK ${t.id}: ${txt(t.title)}
+Repo: meghoneai (Megh One AI). Area: ${tr.name}. Severity: ${t.sev}. Wave: ${t.wave}. Related: ${t.ki.join(", ")}.
+Start only after these are merged into Main: ${after}. Then create branch task/${t.id.toLowerCase()} from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+${txt(t.status)}
+
+THE ISSUE
+${txt(t.issue)}
+
+EVIDENCE
+${b(t.evidence)}
+
+THE SOLUTION
+${b(t.fix)}
+${t.dont.length?"\nDO NOT\n"+b(t.dont)+"\n":""}
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+${files}
+${t.pins.length?"\nTESTS THAT PIN THIS SOURCE (update deliberately, never delete)\n"+b(t.pins)+"\n":""}
+DONE WHEN
+${b(t.accept)}
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_${t.id.toLowerCase().replace("-","")}_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your ${t.id} stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from ${tr.ki}. New decisions as "D-${t.id}". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.`;
+}
+const toast=m=>{const d=document.createElement("div");d.className="toast";d.setAttribute("role","status");d.textContent=m;document.body.appendChild(d);setTimeout(()=>d.remove(),2200)};
+$("#list").addEventListener("click",e=>{
+  const b=e.target.closest("[data-copy]"); if(!b) return;
+  const text=prompt(byId[b.dataset.copy]);
+  const fallback=()=>{const host=b.closest(".task");host.querySelector("textarea")?.remove();const ta=document.createElement("textarea");ta.value=text;ta.style.cssText="width:100%;height:260px;font:12px var(--f-mono)";ta.setAttribute("aria-label","Session prompt");host.appendChild(ta);ta.focus();ta.select();toast("Copy was blocked. The prompt is selected below; press Ctrl+C")};
+  try{navigator.clipboard.writeText(text).then(()=>toast(`Copied the ${b.dataset.copy} prompt`),fallback)}catch(err){fallback()}
+});
+
+(function matrix(){
+  const m={};
+  T.forEach(t=>t.files.forEach(([p,f])=>{(m[p]=m[p]||[]).push(t)}));
+  const rows=Object.entries(m).filter(([,v])=>v.length>1).sort((a,b)=>b[1].length-a[1].length);
+  $("#matrix").innerHTML=rows.map(([p,ts])=>{
+    const sorted=[...ts].sort((a,b)=>waveRank(a.wave)-waveRank(b.wave)||(a.order||0)-(b.order||0));
+    return `<tr><td><code>${esc(p)}</code></td><td>${sorted.map(t=>{const f=t.files.find(x=>x[0]===p)[1];return `<a class="idlink" href="#${t.id}">${t.id}</a> <span class="tag wave">W${t.wave}</span> ${esc(f||"whole file")}`}).join("<br>")}</td></tr>`}).join("");
+})();
+</script>
