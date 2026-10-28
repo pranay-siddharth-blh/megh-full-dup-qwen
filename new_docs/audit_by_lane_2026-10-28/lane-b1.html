@@ -81,7 +81,7 @@ details summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;
 <header>
   <span class="eyebrow">Lane audit report · 28 Oct 2026 · Colleague · session 1</span>
   <h1>Lane B1 · NL→SQL, schemes &amp; evaluation</h1>
-  <p class="lede">10 tasks. Every task here depends only on earlier tasks in this lane, so this lane never waits for another. RAG tasks are left out of this round.</p>
+  <p class="lede">13 tasks. Every task here depends only on earlier tasks in this lane, so this lane never waits for another. RAG tasks are left out of this round.</p>
   <p><b>Owns:</b> <code>c11</code>, <code>c09</code>, most of <code>c06</code>, <code>c07</code>, the verify schema in <code>c02</code>, three prompt-builder functions, the repair state in the graph, every scheme file, <code>schema_context</code>, <code>cross_scheme</code>, the few-shot YAMLs, <code>tests/nl2sql_eval</code>, SCHEMES.md and DATA_MODEL.md.</p>
   <p><b>Outside blockers, never waited on:</b> data-team replies (parts of SQL-05 and SQL-06), the VPN for live checks, and your signed conversation rulebook (CTX-09).</p>
 </header>
@@ -126,11 +126,11 @@ FILES YOU OWN (other lanes touch only the regions named)
 - c06_years_tranches.py: everything except refresh_scheme_years (lane A1).
 - c02_rephraser.py: _SQL_VERIFY_JSON_SCHEMA.
 - c10_sql_generation_and_rewrites.py: only deleting _c1x_apos0. Lane B2 edits the generate_sql call site.
-- c13_compose_and_data_stages.py: only the _data_per_scheme_rows loop and the D-065 block in _data_clarification_stage (~1205). Lane A1 edits ~1145 in the same function; lane B2 edits compose_response.
+- c13_compose_and_data_stages.py: only _per_scheme_generate, the _data_per_scheme_rows loop and the D-065 block in _data_clarification_stage (~1205). Lane A1 edits ~1145 in the same function; lane B2 edits compose_response and _money_rounded_for_display.
 - app/prompt_builder.py: _entities_block, build_repair_prompt, build_verify_prompt. Lane B2 adds one block to the SQL generation prompt builder.
 - app/pipeline_graph.py: the repair state field, node_execute_attempt, node_repair. Lane A2 adds a drop-thread helper.
 - app/pipeline/schemes/*.py, app/schema_context.py, app/cross_scheme.py.
-- app/cross_figures.py: only the Focus Plus district-column lines (~35, 72-137). Lane B2 edits _scheme_line.
+- app/cross_figures.py: only the Focus Plus district-column lines (~35, 72-137). Lane B2 edits _scheme_line, _state_lines, _leader_sentence and _district_lines; do not edit those.
 - data/*/ few-shot YAMLs, tests/nl2sql_eval/**, tests/smoke_restructure.py.
 
 YOUR TASKS, IN ORDER
@@ -170,13 +170,29 @@ YOUR TASKS, IN ORDER
 - Pinned: test_pipeline_graph.py:244-262.
 - Done: a stub generator repeating bad SQL makes 2 attempts, not 4.
 
-4. SQL-02 · Year ranges and stated place levels in the resolver  [nl2sql-scheme-rules.html#SQL-02]
+4. SEC-09b · Authorise the SQL that actually runs, on every attempt
+- Add a c11 stage _c11_sec09_rewrite_then_authorize(scope, question, schemes, entity_result, sql) -&gt; (sql, denial or None). It runs _scheme_sql_rewrites, then auth.authorize on the rewritten SQL, on EVERY attempt including attempt 0.
+- Pass authorize a copy of resolved with district and block filled from the existing entity_resolver.village_code_place(code) when only a village_code is resolved. An unknown place is denied (fail closed). Do not edit auth.py or entity_resolver.py.
+- pipeline_graph.node_execute_attempt (~440-462) and the per-scheme loop in c13 _data_per_scheme_rows call this stage, instead of re-checking only on repair attempts. In _data_per_scheme_rows, authorise each statement separately, never the joined text.
+- Behaviour stays in the stage; the node only calls it.
+- Pinned: tests/test_pipeline_graph.py:471-489 (KI-183) stay green.
+- Done (graph-turn tests):
+  - a block officer plus a village outside the block, where the rewrite drops lgd_block, is denied;
+  - the same question for a village inside the block is allowed;
+  - a joined bundle with one unfiltered GROUP BY lgd_district is denied;
+  - model and DB call counts are unchanged.
+
+5. REL-05b · Cap the per-scheme SQL fan-out
+- In c13 _per_scheme_generate (~1904-1931), add a module constant _C13_REL05B_SQL_CONCURRENCY = 3 and a local asyncio.Semaphore around the generate_sql calls. No config setting.
+- Done: a fake generate_sql that counts concurrent calls never sees more than 3; the plan and d["sql"] are unchanged.
+
+6. SQL-02 · Year ranges and stated place levels in the resolver  [nl2sql-scheme-rules.html#SQL-02]
 - Add _c06_sql02_year_span (placed right after _c06_all_year_tokens) for "from X through Y" and "X and Y". Set year_key_list from it in c09.
 - A stated level word ("&lt;name&gt; block", "&lt;name&gt; constituency") outranks a village match. Headquarters-town aliases go through the level-collision pause.
 - Pinned (source of resolve_entities): test_context_semantic_state.py:213, test_cm_elevate_legacy.py:979, test_mgnrega_usecase_fixes.py:489.
 - Done: in a graph-turn test, MG-08 gives year_key_list == [2022..2025]. The live check of MG-08 and "Demdema block" needs the VPN; record it if unavailable.
 
-5. SQL-05 · MGNREGA pack  [nl2sql-scheme-rules.html#SQL-05]
+7. SQL-05 · MGNREGA pack  [nl2sql-scheme-rules.html#SQL-05]
 - Add mgnrega._mgnrega_ac_group_not_null, mirroring focus_plus._focusplus_district_group_not_null, and register it in _scheme_sql_rewrites.
 - A v_expenditure AC filter becomes UPPER(ac_name) = UPPER(…).
 - Guards:
@@ -189,7 +205,15 @@ YOUR TASKS, IN ORDER
   - AC expenditure 10 of 10;
   - rate wordings 18 of 18.
 
-6. SQL-06 · Focus Plus and Focus Legacy pack  [nl2sql-scheme-rules.html#SQL-06]
+8. SQL-09 · The village rewrite strips place filters from every WHERE in the query
+- mgnrega._mgnrega_drop_geo_beside_village (~1995) calls sql_ast.remove_conditions, which walks every WHERE, including CTEs and subqueries.
+- Use sql_ast.transform to drop geo conjuncts only from the WHERE of the SELECT that directly holds the village_code = &lt;resolved&gt; equality. Do not edit sql_ast.py (lane A1; it has 9 other callers).
+- Done:
+  - for MGNREGA, PMAY-G and Focus Plus, a CTE or scalar subquery with lgd_district='EAST KHASI HILLS' keeps that filter;
+  - the single-SELECT case still drops the district;
+  - tests/test_mgnrega_usecase_fixes.py and test_focus_legacy_usecase_fixes.py stay green.
+
+9. SQL-06 · Focus Plus and Focus Legacy pack  [nl2sql-scheme-rules.html#SQL-06]
 - Focus Plus: AVG(amount_disbursed) on a per-beneficiary question becomes SUM(...)/NULLIF(COUNT(DISTINCT beneficiary_key),0).
 - Focus Legacy: extend _focus_legacy_village_code_only. With one village_code pinned and no group, variant or type in the question, drop the pg_id, programme_variant and pg_entity_type* conjuncts.
 - Replace the example pg ids with obviously fake ones in:
@@ -199,14 +223,15 @@ YOUR TASKS, IN ORDER
 - Correct the KI-372 explanation in your KNOWN_ISSUES lane section.
 - The district-column part (cross_figures and focus_plus) waits for the data team's answer. Do it later as a separate commit, with a D-B1-SQL-06 decision.
 - Done: FOCUS-025 = Rs 11,475.60 in 10 of 10 runs; the Focus Legacy all-villages run reaches 3,384 of 3,384 (VPN).
+- Do not edit cross_figures._district_lines, _state_lines or _leader_sentence (lane B2). If the Focus Plus note line in _district_lines needs rewording, add a request.
 
-7. SQL-04 · A verifier that raises typed issues  [nl2sql-scheme-rules.html#SQL-04]
+10. SQL-04 · A verifier that raises typed issues  [nl2sql-scheme-rules.html#SQL-04]
 - _SQL_VERIFY_JSON_SCHEMA (c02) becomes an enum: wrong_table, wrong_measure, missing_filter{col,val}, wrong_grain.
 - Confirm each issue on the AST (reuse SQL-01's helpers) before repairing. Drop it automatically when the SQL already satisfies it.
 - Keep the old _verifier_* filters until a replay of the logged false positives gives the same outcomes. Then delete them and update the scripts that pin their names (test_verifier_missing_geo.py:125, test_cross_scheme_collision.py:130).
 - Done: the replay matches; no new wrong answers in tests/nl2sql_eval.
 
-8. QA-04 · Dead functions; smoke-test port  [testing-evaluation.html#QA-04]
+11. QA-04 · Dead functions; smoke-test port  [testing-evaluation.html#QA-04]
 - Read each comment, then delete:
   - c06 _year_choices_for;
   - c10 _c1x_apos0;
@@ -215,7 +240,7 @@ YOUR TASKS, IN ORDER
 - tests/smoke_restructure.py: BASE = os.environ.get("MEGH_BASE", "http://127.0.0.1:8401").
 - The data/*/prompt_assembler.py files go only with the user's agreement.
 
-9. CTX-09 · Conversation rulebook v1  [context-memory.html#CTX-09]
+12. CTX-09 · Conversation rulebook v1  [context-memory.html#CTX-09]
 - This needs the user's signed rules on two points:
   - does a new same-scheme question carry the previous year?
   - does a bare "CM Elevate applicants" question ask or answer?
@@ -227,8 +252,9 @@ YOUR TASKS, IN ORDER
   - add expect_pause flags in tests/nl2sql_eval/questions.yaml;
   - align cm_elevate._CME_BOTH_DATASETS_VOCAB.
 - Pinned: test_mgnrega_usecase_fixes.py:560, test_pmay_usecase_fixes.py:527.
+- The rulebook must also settle the cases behind the 27 Oct pauses (SQL-11): should a question that already names its place still be asked the year (FP-01, FP-06)? Should one that names a year be asked the area (FL-02, FL-06, FL-07, CL-02, CL-12)? And the CM Elevate "applicants" items CE-06, CE-08 and CE-12.
 
-10. QA-01 · Golden set as an automatic accuracy gate  [testing-evaluation.html#QA-01]
+13. QA-01 + SQL-11 · Golden set as an automatic accuracy gate  [testing-evaluation.html#QA-01]
 - run_eval.py:
   - support per-item expect_pause and clarify_reply;
   - in the ClarificationNeeded branch, resume through the real path (same Session, second answer_question);
@@ -238,8 +264,11 @@ YOUR TASKS, IN ORDER
 - Nightly: a scheduled task on a VPN machine. Bitbucket cloud cannot reach the DB, so do not add it to bitbucket-pipelines.yml.
 - If CTX-09 is not signed, build the support and leave the flags unset.
 - Done: every item gets a scored outcome; the run can fail on a drop.
+- SQL-11 (folded in): the 27 Oct "58%" run had 0 wrong answers. All 31 misses were deliberate pauses: 18 year, 10 scope, 3 CM Elevate dataset.
+- Report the clarification rate and the wrong rate separately, broken down by pause rule.
+- Answer a pause with the chip matching the gold scope only for items whose expect_pause says the pause is correct.
 
-When all 10 are done: set your Progress line to "Lane B1 complete" (listing anything still waiting on the data team, the VPN or the user), make sure the PR is merged or queued, and tell the user.</pre>
+When all 13 are done: set your Progress line to "Lane B1 complete" (listing anything still waiting on the data team, the VPN or the user), make sure the PR is merged or queued, and tell the user.</pre>
 </section>
 <section>
   <h2>Tasks, in order</h2>
@@ -276,8 +305,30 @@ When all 10 are done: set your Progress line to "Lane B1 complete" (listing anyt
         <details open><summary>Tests that pin this code</summary><ul><li>test_pipeline_graph.py:244-262 (node list)</li></ul></details>
       </div>
     </article>
+<article class="task Medium" id="SEC-09b">
+      <div class="thead"><span class="tid">4. SEC-09b</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Authorise the SQL that actually runs, on every attempt</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Add a c11 stage _c11_sec09_rewrite_then_authorize(scope, question, schemes, entity_result, sql) -&gt; (sql, denial or None). It runs _scheme_sql_rewrites, then auth.authorize on the rewritten SQL, on EVERY attempt including attempt 0.</li><li>Pass authorize a copy of resolved with district and block filled from the existing entity_resolver.village_code_place(code) when only a village_code is resolved. An unknown place is denied (fail closed). Do not edit auth.py or entity_resolver.py.</li><li>pipeline_graph.node_execute_attempt (~440-462) and the per-scheme loop in c13 _data_per_scheme_rows call this stage, instead of re-checking only on repair attempts. In _data_per_scheme_rows, authorise each statement separately, never the joined text.</li><li>Behaviour stays in the stage; the node only calls it.</li><li>Pinned: tests/test_pipeline_graph.py:471-489 (KI-183) stay green.</li><li>Done (graph-turn tests):<ul><li>a block officer plus a village outside the block, where the rewrite drops lgd_block, is denied;</li><li>the same question for a village inside the block is allowed;</li><li>a joined bundle with one unfiltered GROUP BY lgd_district is denied;</li><li>model and DB call counts are unchanged.</li></ul></li></ul></div>
+      <div class="ev"><h4>Audit evidence · SEC-09: On the first attempt, authorization checks SQL that is not the SQL that runs <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced. Authorising only after the rewrites would wrongly deny in-area village questions, because authorize never places a village_code, so the place must come from entity_resolver.village_code_place. Split: SEC-09a inside A1's SEC-02, SEC-09b in B1.</p>
+<p class="status"><b>REPRODUCED</b> at function level. On the first attempt the graph authorizes before the rewrites (re-checked by me). The live leak is INFERRED.</p>
+<h5>The problem</h5><p>Authorization runs on the model's SQL. About 60 deterministic rewrites then change it, several of them moving geography, and only repaired SQL is checked again. Cross-scheme bundles are checked once, as joined text.</p>
+<h5>What the officer sees</h5><p>A block officer for MYLLIEM: the model writes <code>WHERE lgd_block='MYLLIEM' AND village_code=271234</code> (allowed), and the rewrite turns it into <code>WHERE village_code = 271234</code>, which would be denied, but is never re-checked. A district officer's cross-scheme bundle in which one statement is filtered to their district passes for an unfiltered <code>GROUP BY lgd_district</code> in another statement.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>node_authorize</code> (pipeline_graph.py:440) runs before <code>_scheme_sql_rewrites</code> (:461). The re-check at :463-467 runs only <code>if attempt:</code> (the KI-183 fix covered repairs only).</li><li>Rewrites that move geography: <code>_mgnrega_drop_geo_beside_village</code>, <code>_stray_block_literal</code> (c10:675), <code>_resolved_district_literal(s)</code> (c10:643, :709), <code>_cm_elevate_compare_by_district</code> (cm_elevate.py:1359).</li><li>Cross-scheme: attempt 0 is authorized once on all statements joined with ";" (c13:1928). Per-scheme re-authorization also runs only <code>if attempt</code> (c13:1948).</li><li><code>auth.authorize</code> (auth.py:263-269) reads only <code>resolved["district"]</code> and <code>["block"]</code>. It ignores <code>district_list</code>, <code>block_list</code> and <code>village_code</code>.</li></ul>
+</div>
+    </article>
+<article class="task Medium" id="REL-05b">
+      <div class="thead"><span class="tid">5. REL-05b</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Cap the per-scheme SQL fan-out</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>In c13 _per_scheme_generate (~1904-1931), add a module constant _C13_REL05B_SQL_CONCURRENCY = 3 and a local asyncio.Semaphore around the generate_sql calls. No config setting.</li><li>Done: a fake generate_sql that counts concurrent calls never sees more than 3; the plan and d["sql"] are unchanged.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · REL-05: The model gate is per worker, so the gateway can get 4× the budget <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Confirmed in code; the gateway impact is inferred. The gate already has a queue timeout, so the fix is to document the per-worker budget.</p>
+<p class="status"><b>INFERRED</b> from the code; the gateway load was not measured.</p>
+<h5>The problem</h5><p><code>MODEL_MAX_CONCURRENCY=24</code> is documented as sized for the H200's ~24 decodes. But the <code>asyncio.Semaphore</code> is per worker: 2 workers on each of 2 VMs means ~96 calls in flight. Past capacity, the 30 s SQL and 15 s verifier timeouts fire, and become repairs or KB fallbacks instead of a clean 503.</p>
+<h5>What the officer sees</h5><p>Under load, more wrong answers and slow answers, not busy messages.</p>
+<h5>Where it comes from</h5><ul class=''><li>config.py:84-91; <code>llm._slot</code> (llm.py:103, :130-158).</li></ul>
+</div>
+    </article>
 <article class="task Medium" id="SQL-02">
-      <div class="thead"><span class="tid">4. SQL-02</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Year ranges and stated place levels in the resolver</h2></div>
+      <div class="thead"><span class="tid">6. SQL-02</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Year ranges and stated place levels in the resolver</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Add _c06_sql02_year_span (placed right after _c06_all_year_tokens) for "from X through Y" and "X and Y". Set year_key_list from it in c09.</li><li>A stated level word ("&lt;name&gt; block", "&lt;name&gt; constituency") outranks a village match. Headquarters-town aliases go through the level-collision pause.</li><li>Pinned (source of resolve_entities): test_context_semantic_state.py:213, test_cm_elevate_legacy.py:979, test_mgnrega_usecase_fixes.py:489.</li><li>Done: in a graph-turn test, MG-08 gives year_key_list == [2022..2025]. The live check of MG-08 and "Demdema block" needs the VPN; record it if unavailable.</li></ul></div>
       <div class="ev"><h4>Audit evidence · SQL-02: Resolver: year ranges and stated place levels</h4>
         
@@ -288,7 +339,7 @@ When all 10 are done: set your Progress line to "Lane B1 complete" (listing anyt
       </div>
     </article>
 <article class="task High" id="SQL-05">
-      <div class="thead"><span class="tid">5. SQL-05</span><span class="pill s-High">High</span><h2 class="ttl">MGNREGA pack</h2></div>
+      <div class="thead"><span class="tid">7. SQL-05</span><span class="pill s-High">High</span><h2 class="ttl">MGNREGA pack</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Add mgnrega._mgnrega_ac_group_not_null, mirroring focus_plus._focusplus_district_group_not_null, and register it in _scheme_sql_rewrites.</li><li>A v_expenditure AC filter becomes UPPER(ac_name) = UPPER(…).</li><li>Guards:<ul><li>a rate or percentage question must divide;</li><li>a ranking question needs a GROUP BY at the asked level.</li></ul></li><li>Add a few-shot with IS NOT NULL.</li><li>The "households employed" part waits for the data team's reply to DATA-01 (lane B2 sends the asks): record it.</li><li>Done (live, VPN):<ul><li>highest persons employed 2022-23 by constituency = SONGSAK 27,291;</li><li>AC expenditure 10 of 10;</li><li>rate wordings 18 of 18.</li></ul></li></ul></div>
       <div class="ev"><h4>Audit evidence · SQL-05: MGNREGA correctness pack</h4>
         
@@ -298,9 +349,20 @@ When all 10 are done: set your Progress line to "Lane B1 complete" (listing anyt
         
       </div>
     </article>
+<article class="task Medium" id="SQL-09">
+      <div class="thead"><span class="tid">8. SQL-09</span><span class="pill s-Medium">Medium</span><h2 class="ttl">The village rewrite strips place filters from every WHERE in the query</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>mgnrega._mgnrega_drop_geo_beside_village (~1995) calls sql_ast.remove_conditions, which walks every WHERE, including CTEs and subqueries.</li><li>Use sql_ast.transform to drop geo conjuncts only from the WHERE of the SELECT that directly holds the village_code = &lt;resolved&gt; equality. Do not edit sql_ast.py (lane A1; it has 9 other callers).</li><li>Done:<ul><li>for MGNREGA, PMAY-G and Focus Plus, a CTE or scalar subquery with lgd_district='EAST KHASI HILLS' keeps that filter;</li><li>the single-SELECT case still drops the district;</li><li>tests/test_mgnrega_usecase_fixes.py and test_focus_legacy_usecase_fixes.py stay green.</li></ul></li></ul></div>
+      <div class="ev"><h4>Audit evidence · SQL-09: The village rewrite strips place filters from every WHERE in the query, not just the village's <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced for MGNREGA, PMAY-G and Focus Plus with the full rewrite chain: CTE and subquery district filters are stripped.</p>
+<p class="status"><b>REPRODUCED</b> with the full <code>_scheme_sql_rewrites</code> chain on a CTE query.</p>
+<h5>The problem</h5><p>A rewrite meant for "village X" questions removes district and block conditions everywhere: in CTEs, subqueries and UNION branches. Any "village vs its district" query silently compares against the whole state.</p>
+<h5>What the officer sees</h5><p>"What share of East Khasi Hills person-days in 2023-24 came from village X?" The district CTE <code>WHERE lgd_district='EAST KHASI HILLS' AND year_key=2023</code> becomes <code>WHERE year_key = 2023</code>. The "district total" is the state total, so <code>share_pct</code> is wrong.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>_mgnrega_drop_geo_beside_village</code> (schemes/mgnrega.py:1995-2004) calls <code>sql_ast.remove_conditions</code>.</li><li><code>remove_conditions</code> (sql_ast.py:416-432) walks every WHERE in the tree. The rewrite runs for every village scheme (<code>_village_scheme</code>), not only MGNREGA.</li></ul>
+</div>
+    </article>
 <article class="task Medium" id="SQL-06">
-      <div class="thead"><span class="tid">6. SQL-06</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Focus Plus and Focus Legacy pack</h2></div>
-      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Focus Plus: AVG(amount_disbursed) on a per-beneficiary question becomes SUM(...)/NULLIF(COUNT(DISTINCT beneficiary_key),0).</li><li>Focus Legacy: extend _focus_legacy_village_code_only. With one village_code pinned and no group, variant or type in the question, drop the pg_id, programme_variant and pg_entity_type* conjuncts.</li><li>Replace the example pg ids with obviously fake ones in:<ul><li>schema_context.py rule 6 (953-958);</li><li>c07_mentions.py:514;</li><li>focuslegacy_few_shot.yaml:484-490.</li></ul></li><li>Correct the KI-372 explanation in your KNOWN_ISSUES lane section.</li><li>The district-column part (cross_figures and focus_plus) waits for the data team's answer. Do it later as a separate commit, with a D-B1-SQL-06 decision.</li><li>Done: FOCUS-025 = Rs 11,475.60 in 10 of 10 runs; the Focus Legacy all-villages run reaches 3,384 of 3,384 (VPN).</li></ul></div>
+      <div class="thead"><span class="tid">9. SQL-06</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Focus Plus and Focus Legacy pack</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Focus Plus: AVG(amount_disbursed) on a per-beneficiary question becomes SUM(...)/NULLIF(COUNT(DISTINCT beneficiary_key),0).</li><li>Focus Legacy: extend _focus_legacy_village_code_only. With one village_code pinned and no group, variant or type in the question, drop the pg_id, programme_variant and pg_entity_type* conjuncts.</li><li>Replace the example pg ids with obviously fake ones in:<ul><li>schema_context.py rule 6 (953-958);</li><li>c07_mentions.py:514;</li><li>focuslegacy_few_shot.yaml:484-490.</li></ul></li><li>Correct the KI-372 explanation in your KNOWN_ISSUES lane section.</li><li>The district-column part (cross_figures and focus_plus) waits for the data team's answer. Do it later as a separate commit, with a D-B1-SQL-06 decision.</li><li>Done: FOCUS-025 = Rs 11,475.60 in 10 of 10 runs; the Focus Legacy all-villages run reaches 3,384 of 3,384 (VPN).</li><li>Do not edit cross_figures._district_lines, _state_lines or _leader_sentence (lane B2). If the Focus Plus note line in _district_lines needs rewording, add a request.</li></ul></div>
       <div class="ev"><h4>Audit evidence · SQL-06: Focus Plus and Focus Legacy correctness pack</h4>
         
         <div class="status"><b>CONFIRMED</b>. Correction: the leaked pg_id comes mainly from <code>schema_context.py</code> rule 6 and the <code>c07</code> extractor prompt, not only from the few-shot.</div>
@@ -310,7 +372,7 @@ When all 10 are done: set your Progress line to "Lane B1 complete" (listing anyt
       </div>
     </article>
 <article class="task Medium" id="SQL-04">
-      <div class="thead"><span class="tid">7. SQL-04</span><span class="pill s-Medium">Medium</span><h2 class="ttl">A verifier that raises typed issues</h2></div>
+      <div class="thead"><span class="tid">10. SQL-04</span><span class="pill s-Medium">Medium</span><h2 class="ttl">A verifier that raises typed issues</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>_SQL_VERIFY_JSON_SCHEMA (c02) becomes an enum: wrong_table, wrong_measure, missing_filter{col,val}, wrong_grain.</li><li>Confirm each issue on the AST (reuse SQL-01's helpers) before repairing. Drop it automatically when the SQL already satisfies it.</li><li>Keep the old _verifier_* filters until a replay of the logged false positives gives the same outcomes. Then delete them and update the scripts that pin their names (test_verifier_missing_geo.py:125, test_cross_scheme_collision.py:130).</li><li>Done: the replay matches; no new wrong answers in tests/nl2sql_eval.</li></ul></div>
       <div class="ev"><h4>Audit evidence · SQL-04: A verifier that raises typed issues, each confirmed on the SQL tree</h4>
         
@@ -321,7 +383,7 @@ When all 10 are done: set your Progress line to "Lane B1 complete" (listing anyt
       </div>
     </article>
 <article class="task Low" id="QA-04">
-      <div class="thead"><span class="tid">8. QA-04</span><span class="pill s-Low">Low</span><h2 class="ttl">Dead functions; smoke-test port</h2></div>
+      <div class="thead"><span class="tid">11. QA-04</span><span class="pill s-Low">Low</span><h2 class="ttl">Dead functions; smoke-test port</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Read each comment, then delete:<ul><li>c06 _year_choices_for;</li><li>c10 _c1x_apos0;</li><li>cm_elevate _cme_programme_named and _cme_district_in_values;</li><li>pmay_g _pmay_money_short.</li></ul></li><li>tests/smoke_restructure.py: BASE = os.environ.get("MEGH_BASE", "http://127.0.0.1:8401").</li><li>The data/*/prompt_assembler.py files go only with the user's agreement.</li></ul></div>
       <div class="ev"><h4>Audit evidence · QA-04: Delete dead pipeline functions; fix the smoke-test port</h4>
         
@@ -332,8 +394,8 @@ When all 10 are done: set your Progress line to "Lane B1 complete" (listing anyt
       </div>
     </article>
 <article class="task Decision" id="CTX-09">
-      <div class="thead"><span class="tid">9. CTX-09</span><span class="pill s-Decision">Decision</span><h2 class="ttl">Conversation rulebook v1</h2></div>
-      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>This needs the user's signed rules on two points:<ul><li>does a new same-scheme question carry the previous year?</li><li>does a bare "CM Elevate applicants" question ask or answer?</li></ul></li><li>If the user has not given them yet: write a one-page draft with examples in your HANDOFF lane section, tell the user, and continue with task 10.</li><li>Once signed:<ul><li>record D-B1-CTX-09;</li><li>align the D-065 block in c13 _data_clarification_stage (~1205; keep hunks small);</li><li>align the harness scenarios U1 and U5;</li><li>add expect_pause flags in tests/nl2sql_eval/questions.yaml;</li><li>align cm_elevate._CME_BOTH_DATASETS_VOCAB.</li></ul></li><li>Pinned: test_mgnrega_usecase_fixes.py:560, test_pmay_usecase_fixes.py:527.</li></ul></div>
+      <div class="thead"><span class="tid">12. CTX-09</span><span class="pill s-Decision">Decision</span><h2 class="ttl">Conversation rulebook v1</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>This needs the user's signed rules on two points:<ul><li>does a new same-scheme question carry the previous year?</li><li>does a bare "CM Elevate applicants" question ask or answer?</li></ul></li><li>If the user has not given them yet: write a one-page draft with examples in your HANDOFF lane section, tell the user, and continue with task 10.</li><li>Once signed:<ul><li>record D-B1-CTX-09;</li><li>align the D-065 block in c13 _data_clarification_stage (~1205; keep hunks small);</li><li>align the harness scenarios U1 and U5;</li><li>add expect_pause flags in tests/nl2sql_eval/questions.yaml;</li><li>align cm_elevate._CME_BOTH_DATASETS_VOCAB.</li></ul></li><li>Pinned: test_mgnrega_usecase_fixes.py:560, test_pmay_usecase_fixes.py:527.</li><li>The rulebook must also settle the cases behind the 27 Oct pauses (SQL-11): should a question that already names its place still be asked the year (FP-01, FP-06)? Should one that names a year be asked the area (FL-02, FL-06, FL-07, CL-02, CL-12)? And the CM Elevate "applicants" items CE-06, CE-08 and CE-12.</li></ul></div>
       <div class="ev"><h4>Audit evidence · CTX-09: Sign off conversation rulebook v1, then align code, harness and eval</h4>
         
         <div class="status"><b>REPRODUCED</b>. <code>_cm_elevate_dataset_choice</code> returns "ask" for CE-06, CE-08 and CE-12.</div>
@@ -343,15 +405,21 @@ When all 10 are done: set your Progress line to "Lane B1 complete" (listing anyt
       </div>
     </article>
 <article class="task High" id="QA-01">
-      <div class="thead"><span class="tid">10. QA-01</span><span class="pill s-High">High</span><h2 class="ttl">Golden set as an automatic accuracy gate</h2></div>
-      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>run_eval.py:<ul><li>support per-item expect_pause and clarify_reply;</li><li>in the ClarificationNeeded branch, resume through the real path (same Session, second answer_question);</li><li>score asked-then-correct, asked-unexpectedly and expected-pause separately;</li><li>check the numbers in the answer text against gold_rows with the real faithfulness helper.</li></ul></li><li>Append paraphrases to questions.yaml.</li><li>Nightly: a scheduled task on a VPN machine. Bitbucket cloud cannot reach the DB, so do not add it to bitbucket-pipelines.yml.</li><li>If CTX-09 is not signed, build the support and leave the flags unset.</li><li>Done: every item gets a scored outcome; the run can fail on a drop.</li></ul></div>
+      <div class="thead"><span class="tid">13. QA-01 + SQL-11</span><span class="pill s-High">High</span><h2 class="ttl">Golden set as an automatic accuracy gate</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>run_eval.py:<ul><li>support per-item expect_pause and clarify_reply;</li><li>in the ClarificationNeeded branch, resume through the real path (same Session, second answer_question);</li><li>score asked-then-correct, asked-unexpectedly and expected-pause separately;</li><li>check the numbers in the answer text against gold_rows with the real faithfulness helper.</li></ul></li><li>Append paraphrases to questions.yaml.</li><li>Nightly: a scheduled task on a VPN machine. Bitbucket cloud cannot reach the DB, so do not add it to bitbucket-pipelines.yml.</li><li>If CTX-09 is not signed, build the support and leave the flags unset.</li><li>Done: every item gets a scored outcome; the run can fail on a drop.</li><li>SQL-11 (folded in): the 27 Oct "58%" run had 0 wrong answers. All 31 misses were deliberate pauses: 18 year, 10 scope, 3 CM Elevate dataset.</li><li>Report the clarification rate and the wrong rate separately, broken down by pause rule.</li><li>Answer a pause with the chip matching the gold scope only for items whose expect_pause says the pause is correct.</li></ul></div>
       <div class="ev"><h4>Audit evidence · QA-01: Turn the golden set into an automatic accuracy gate</h4>
         
         <div class="status"><b>REPRODUCED</b> from the result JSON: 74 items, 43 correct, 31 paused, 58.1%. Accuracy was 100% on 16 and 18 Oct; the whole drop comes from the D-053/D-056 pauses.</div>
         <div><span class="lbl">The issue</span>Three gaps:<ul><li>The eval counts every pause as a miss, including pauses the rules require.</li><li>It scores rows only, while the composer audit found 8 wrong answer texts among the 43 "correct".</li><li>It runs by hand, with one wording per question.</li></ul>KI-017 still says "Next: a golden set".</div>
         <details open><summary>Evidence</summary><ul><li><code>tests/nl2sql_eval/results/2026-10-27_1337_*.json</code>.</li><li>Pauses by rule: 18 year-not-specified, 10 scope, 3 cm-elevate-dataset. <code>--fail-on-regression</code> already exists (run_eval.py:58).</li></ul></details>
         
-      </div>
+      </div><div class="ev"><h4>Audit evidence · SQL-11: NL→SQL accuracy is 58% on the held-out set; find and fix the biggest failure classes <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> The main claim is wrong. The 27 Oct result file has 0 wrong answers; all 31 misses are the bot's deliberate clarification pauses. Folded into QA-01 (reporting) and CTX-09 (the rulebook decides those pauses).</p>
+<p class="status">Measured on 27 Oct, live: <b>43/74</b> on the held-out NL→SQL set, 0 regressions. The set exists; the gate does not (QA-01).</p>
+<h5>The problem</h5><p>This is the largest quality gap in the product. The held-out evaluation (<code>tests/nl2sql_eval/</code>, 74 questions) passes 43. Several items flip between runs (MG-08, PM-04, PM-10, PM-13; KI-427), which points to sampling, not logic. Nobody has grouped the 31 failures by cause.</p>
+<h5>What the officer sees</h5><p>About 4 in 10 unseen questions get a wrong or missing figure, or a refusal. The unit tests cannot see this.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>tests/nl2sql_eval/results/2026-10-27_1337_*.json</code> (latest run). <code>compare.py</code> shows pass and fail per item.</li></ul>
+</div>
     </article></div>
 </section>
 <section>
@@ -359,11 +427,11 @@ When all 10 are done: set your Progress line to "Lane B1 complete" (listing anyt
   <p class="note">All other files have exactly one owner. For each file below, the lanes edit separate regions that git merges on its own. If a rebase still conflicts, the lane keeps the other lane's lines and re-applies only its own.</p>
   <div class="tablewrap"><table><thead><tr><th>File</th><th>Who edits which region</th></tr></thead><tbody>
     <tr><td>app/config.py</td><td>A1: structure, security, pool, proxy and CSP settings. A2: one block after the Redis/session settings (retention, <code>APP_BUILD</code>). B2: one block after the <code>RAG_*</code> settings, plus the value of <code>PROMPT_BUDGET_COMPOSER_TOKENS</code>.</td></tr>
-    <tr><td>c13_compose_and_data_stages.py</td><td>A1: the four authorise sites (~1002, ~1094, ~1145, ~1579, ~1649). B1: the D-065 block (~1205) and <code>_data_per_scheme_rows</code> (~1933). B2: <code>compose_response</code> (~13, ~160-270).</td></tr>
+    <tr><td>c13_compose_and_data_stages.py</td><td>A1: the four authorise sites (~1002, ~1094, ~1145, ~1579, ~1649). B1: the D-065 block (~1205), <code>_per_scheme_generate</code> and <code>_data_per_scheme_rows</code> (~1904-1970). B2: <code>compose_response</code>, <code>_ONE_FIGURE_SCHEMES</code> and <code>_money_rounded_for_display</code> (~13-30, ~110-330).</td></tr>
     <tr><td>app/appdb.py</td><td>A1: seeding, DDL, <code>update_user</code>. A2: one new purge function after <code>purge_user</code>.</td></tr>
-    <tr><td>app/pipeline_graph.py</td><td>A2: a public drop-thread helper. B1: the repair state field and repair nodes.</td></tr>
+    <tr><td>app/pipeline_graph.py</td><td>A2: a public drop-thread helper. B1: the repair state field, <code>node_execute_attempt</code> (SQL-03, SEC-09b) and <code>node_repair</code>.</td></tr>
     <tr><td>c06_years_tranches.py</td><td>A1: <code>refresh_scheme_years</code>. B1: everything else.</td></tr>
-    <tr><td>app/cross_figures.py</td><td>B1: the Focus Plus district lines (~35-137). B2: <code>_scheme_line</code> (~470-484).</td></tr>
+    <tr><td>app/cross_figures.py</td><td>B1: the Focus Plus district lines (~35-137) and the Focus Plus note line in <code>_district_lines</code>. B2: <code>_scheme_line</code>, <code>_state_lines</code>, <code>_leader_sentence</code> and the <code>rank_districts</code> branch of <code>_district_lines</code>.</td></tr>
     <tr><td>tests/conftest.py</td><td>A1: top (<code>collect_ignore</code>). B2: bottom (<code>RAISE_INTERNAL_ERRORS</code>).</td></tr>
     <tr><td>The five lane-sectioned docs</td><td>Each lane writes only inside its own section, above its end marker.</td></tr>
   </tbody></table></div>
