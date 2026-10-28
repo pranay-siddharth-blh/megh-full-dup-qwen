@@ -165,6 +165,11 @@ In order:
    released; FOCUS = members; 'Unresolved' out of village counts only; Focus Plus by `district_name_raw` /
    `block_name_raw`. Village / block lists, top N of villages or blocks, years, other measures, CM Elevate:
    the model path above. The route stage keeps such questions DATA (`_cross_figures_question`).
+   **Only what was asked (KI-437, 2026-10-27):** the answer and the table carry the measures `plan` read
+   (count / money / villages), the count in one `beneficiaries` column for every scheme; PMAY-G completed
+   houses and FOCUS producer groups only when the question names them or is a broad ask (performance;
+   overview / summary / compare with no measure). The UI's two-way card compares the measure the question
+   names (`analytics.js` `askedMeasureCol`).
 2. `_wants_cross_scheme_money_ranking` → a cross-scheme question over every scheme that records
    money (all but CM Elevate), same path as 1a (D-062).
 3. `_is_ambiguous_focus` → the "which Focus?" two-way ask.

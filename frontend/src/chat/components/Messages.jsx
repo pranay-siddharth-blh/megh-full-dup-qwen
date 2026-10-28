@@ -163,7 +163,8 @@ function Analytics({ question, response, view, onAsk }) {
       <div className="analytics">
         <div className="dyn-grid single">
           <TwoDimChart title={a.title} labels={a.labels} datasets={a.datasets} xKey={a.xKey} sKey={a.sKey}
-                       periods={a.periods} initial={only2d || a.defType} types={only2d ? [only2d] : undefined} theme={theme} />
+                       periods={a.periods} initial={only2d || a.defType} types={only2d ? [only2d] : undefined} theme={theme}
+                       axisInfo={a.axes} />
         </div>
         {withTables && (a.extra ? <DynTable data={a.data} /> : <PivotTable data={a.data} xKey={a.xKey} sKey={a.sKey} vKey={a.vKey} />)}
       </div>
@@ -175,10 +176,11 @@ function Analytics({ question, response, view, onAsk }) {
       <div className={'dyn-grid' + (single ? ' single' : '')}>
         {a.charts.map((c, i) => (
           <SwitchableChart key={i} title={c.title} labels={c.labels} fullLabels={c.fullLabels} values={c.values}
-                           types={typesOr(['bar', 'pie', 'doughnut', 'line'])} initial={only || a.defType} theme={theme} />
+                           types={typesOr(['bar', 'pie', 'doughnut', 'line'])} initial={only || a.defType} theme={theme}
+                           axes={c.axes} />
         ))}
       </div>
-      {withTables && <DynTable data={a.data} />}
+      {withTables && <DynTable data={a.data} change={!!a.change} />}
     </div>
   );
 }

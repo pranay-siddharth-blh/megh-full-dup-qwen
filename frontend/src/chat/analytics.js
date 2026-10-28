@@ -3,23 +3,21 @@
    table. The rules are moved verbatim from buildAnalytics() in
    web/ai_query.html; the React components render the descriptor this returns. */
 
-import { hasSegment, isAsciiLetter, isDigit, isPeriodLabel, isPlainNumber, isSpace, splitSpaces } from './text.js';
+import { hasSegment, isAsciiLetter, isDigit, isPeriodLabel, isSpace, splitSpaces } from './text.js';
+import {
+  PERIOD_WORDS, asksChange, colTitle, humanCol, isLabelCol, isNumeric, tableColumns, unitOf, withoutTwins,
+} from './columns.js';
+
+// The column rules live in columns.js (2026-10-28); re-exported for the callers
+// and tests that import them from here.
+export { humanCol, tableColumns };
 
 // At most this many series (schemes, districts) share one chart; past it the two
 // label columns are joined into one axis label instead ("MGNREGA · 2023-24").
 const MAX_SERIES = 8;
-const PERIOD_WORDS = ['year', 'yr', 'fy', 'month', 'period', 'date', 'quarter'];
 
 const label18 = (v) => (String(v).length > 18 ? String(v).slice(0, 16) + '…' : String(v));
 
-// A column is a MEASURE only if every value is a plain number. parseFloat() is
-// too lenient: parseFloat("2017-08-01") === 2017 would chart a date column.
-const isNumeric = (v) => v !== null && v !== '' && v !== undefined
-  && isPlainNumber(String(v).trim());
-// Numbers that are labels, not measures: year_key 2024, an LGD code, an id.
-// Kept in step with pipeline._CHART_LABEL_COL.
-const LABEL_WORDS = ['year', 'yr', 'fy', 'code', 'id', 'lgd', 'pin', 'pincode', 'key', 'rank', 'sl', 'serial'];
-const isLabelCol = (k) => hasSegment(k, LABEL_WORDS);   // one '_'-separated part of the name, any case
 const toNumber = (v) => (isNumeric(v) ? Number(String(v).trim().replaceAll(',', '')) : 0);
 // "2024", "2024-03" or "2024-03-15"
 const isYearOrIsoDate = (s) => (s.length === 4 || s.length === 7 || s.length === 10)
@@ -37,25 +35,6 @@ export function compareVerdict(l1, v1, l2, v2, measure) {
   const diff = lv - tv;
   const pct = tv > 0 ? Math.round((diff / tv) * 100) : null;
   return { lead, trail, pct, diff, measure };
-}
-
-// A column name as words for a chart title: "total_exp_lakh" -> "total expenditure
-// (₹ lakh)", "lgd_district" -> "district". Codes in names are spelled out; the
-// rest only loses its underscores.
-const COL_WORDS = { lgd: '', exp: 'expenditure', amt: 'amount', cnt: 'count', qty: 'quantity', hh: 'households',
-  lakh: '(₹ lakh)', lakhs: '(₹ lakh)', cr: '(₹ crore)', crore: '(₹ crore)', rupees: '(₹)', rs: '(₹)', fy: 'FY',
-  pct: '%', perc: '%', avg: 'average', yr: 'year' };
-export const humanCol = (c) => String(c).split('_').map((w) => (w.toLowerCase() in COL_WORDS ? COL_WORDS[w.toLowerCase()] : w))
-  .filter(Boolean).join(' ') || String(c);
-
-/** Every column any row carries, in first-seen order. A cross-scheme figures
-    table (app/cross_figures.py) gives each scheme its own count column —
-    MGNREGA households_given_work, PMAY-G houses_sanctioned — so the first row's
-    keys alone dropped PMAY-G's count from the table and the export (2026-10-22). */
-export function tableColumns(data) {
-  const cols = [];
-  for (const r of data || []) for (const c of Object.keys(r || {})) if (!cols.includes(c)) cols.push(c);
-  return cols;
 }
 
 export function pivotStacked(data, xKey, sKey, vKey) {
@@ -174,6 +153,32 @@ function crossSummaryCharts(data) {
   return charts.length ? { kind: 'multi', charts, defType: 'bar', data, schemes, noTable: true } : null;
 }
 
+// The measure a question asks to compare, so the two-way card shows THAT figure
+// and not whichever column came first (user report 2026-10-27: "Compare
+// beneficiaries in mgnrega and PMAY-G" drew a card of the amount in ₹ crore).
+// Word stems, read on whole words of the question and on the '_' parts of a
+// column name; no regex (D-047).
+const MONEY_STEMS = ['amount', 'money', 'spen', 'expend', 'disburs', 'releas', 'crore', 'lakh', 'rupee',
+  'fund', 'cost', 'budget', 'wage', 'paid'];
+// a column may also be "total_exp"; a question word "exp…" is often "explain"
+const MONEY_COL_STEMS = [...MONEY_STEMS, 'exp'];
+const COUNT_STEMS = ['beneficiar', 'household', 'people', 'person', 'house', 'member', 'count', 'worker',
+  'farmer', 'application', 'job'];
+const hasStem = (parts, stems) => parts.some((w) => stems.some((s) => w.startsWith(s)));
+const colParts = (c) => String(c).toLowerCase().split('_').filter(Boolean);
+
+/** The numeric column whose name matches the one kind of measure (money, or a
+    count of people / houses) the question names; null when it names neither,
+    both, or no column matches — the caller keeps its first column then. */
+export function askedMeasureCol(question, numCols) {
+  const w = words(question);
+  const money = hasStem(w, MONEY_STEMS);
+  const count = hasStem(w, COUNT_STEMS);
+  if (money === count) return null;
+  const stems = money ? MONEY_COL_STEMS : COUNT_STEMS;
+  return numCols.find((c) => hasStem(colParts(c), stems)) || null;
+}
+
 /** `prefer` is chartPreference(question) (or 'chart' for /chart): a chart the
     officer asked for. It picks the first chart type, draws a one-row answer
     with several figures as a chart, and skips the two-tile card. */
@@ -187,11 +192,14 @@ export function buildAnalytics(question, rawData, hintType, prefer = null) {
 
 function buildAnalyticsCore(question, rawData, hintType, prefer) {
   if (!Array.isArray(rawData) || rawData.length === 0) return null;
-  const data = rawData.slice();
-  if (isCrossSummary(data)) {
-    const cs = crossSummaryCharts(data);
+  if (isCrossSummary(rawData)) {
+    const cs = crossSummaryCharts(rawData.slice());
     if (cs) return cs;
   }
+  // One thing written two ways (year_key 2023 and financial_year "2023-2024") is
+  // ONE dimension: read as two, it drew a diagonal grid of dashes (user report
+  // 2026-10-28). The readable twin stays; the download keeps every column.
+  const data = withoutTwins(rawData).slice();
 
   // One row of several figures: a bar (or the pie / donut asked for) per figure.
   const oneRowTypes = ['kpi_bar', 'bar', 'pie', 'doughnut'];
@@ -251,7 +259,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     const l1 = String(r1[lc] ?? '').trim();
     const l2 = String(r2[lc] ?? '').trim();
     if (l1 && l2 && l1 !== l2) {
-      const vc = numCols[0];
+      const vc = askedMeasureCol(question, numCols) || numCols[0];
       return {
         kind: 'compare',
         title: `${l1} vs ${l2}`,
@@ -290,6 +298,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
         xKey, sKey, vKey, labels: labels.map(String), datasets, periods,
         defType: SINGLE_TYPES.includes(hintType) && hintType !== 'pie' ? hintType : (periods ? 'line' : 'bar'),
         data, extra: numCols.length > 1,
+        axes: { x: colTitle(xKey), y: colTitle(vKey), unit: unitOf(vKey) },
       };
     }
     // Too many series for one legend: one axis label carrying both dimensions.
@@ -306,8 +315,9 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   // district names (user report 2026-10-19 16:01).
   const isTime = mentionsAny(lc, ['month', 'period', 'year', 'date', 'trend'])
     || data.every((r) => isPeriodLabel(r[lc]) || isYearOrIsoDate(String(r[lc] ?? '').trim()));
-  // A trend reads left-to-right: sort ISO dates / plain years (the table follows).
-  if (isTime && data.every((r) => isYearOrIsoDate(String(r[lc] ?? '').trim()))) {
+  // A trend reads left-to-right: sort ISO dates / plain years / financial years
+  // ("2023-24", "FY 2023-24" — these sort as text too); the table follows.
+  if (isTime && data.every((r) => isYearOrIsoDate(String(r[lc] ?? '').trim()) || isPeriodLabel(r[lc]))) {
     data.sort((a, b) => String(a[lc]).localeCompare(String(b[lc])));
   }
   const isFew = data.length <= 6;
@@ -342,6 +352,9 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     labels: data.map((r) => label18(r[lc])),
     fullLabels: data.map((r) => String(r[lc])),
     values: data.map((r) => toNumber(r[vc])),
+    axes: { x: colTitle(lc), y: colTitle(vc), unit: unitOf(vc) },
   }));
-  return { kind: 'multi', charts, defType, data };
+  // "How have … changed": the table adds the change from the previous period
+  // (only when the question asks how a figure moved — never by default).
+  return { kind: 'multi', charts, defType, data, change: isTime && asksChange(question) };
 }

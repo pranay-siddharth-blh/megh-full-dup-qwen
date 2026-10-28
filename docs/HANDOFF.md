@@ -3,6 +3,45 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-10-28 (config): `.env` `CHATBOT_DATABASE_URL` uncommented — generated SQL will run as megh_chatbot via
+`semantic.run_query` (D-073). LIVE-VERIFIED in-process: pool ready as megh_chatbot, 6/6 schemes answered (5 via run_query,
+Focus Plus via a fixed query); details in CURRENT_STATE.** The :8401 server (pid started 11:13, before the 16:17 `.env` edit)
+still sends generated SQL through megh_readonly — restart it to pick up the change. Rollback: comment the line out again
+(generated SQL falls back to megh_readonly). `DATABASE_URL` + checkpointer are still `postgres` (waiting on megh_app).
+
+**2026-10-28 (code, KI-438): tables and chart axes; uncommitted, `web/app/` rebuilt, :8401 not restarted (frontend
+only — a browser reload picks it up).** Files: NEW `frontend/src/chat/columns.js`, `analytics.js` (helpers moved to
+columns.js and re-exported; twins merged before the view; `axes`; `change`), `components/Charts.jsx` (formatCell in
+every table, totals rule, `withAxes`), `components/Messages.jsx`, `styles/chat.css`, NEW
+`tests/test_table_view_2026_10_28.py` (bundles the real components with the frontend's esbuild, renders with
+react-dom/server). Next: browser check of the screenshot question + a district×year, a % breakdown and a village list;
+`tests/ui_headless/chart_view_requests.py` needs :8401 + VPN (not run).
+
+**2026-10-28 (review only): table rendering audit.** Report `new_docs/Table_Rendering_Audit_Report_2026-10-28.md`;
+no code changed. Screenshot cause: `year_key` + `financial_year` read as two dimensions by `analytics.js:299-320`
+(twoDim) -> diagonal pivot of dashes; `PivotGrid` (`Charts.jsx:807`) prints raw cells but formatted totals and
+always adds row/column/grand totals (also for non-additive measures); `DynTable` never formats numbers; headers
+use `colLabel` not `humanCol`. Next (user's go-ahead): report §4 items 1-3.
+
+**2026-10-27 evening (review only): composer audit.** Report `new_docs/Composer_Audit_Report_2026-10-27.md`; no
+code changed. Extra content is by design across 5 layers (SQL companion-column rules + few-shots, the
+`dropped_metric` "state EVERY value" retry, mandatory shape extras in `_SHAPE_GUIDE`, post-composer appenders,
+fallbacks); plus wrong claims the number check cannot see (CL-05 wrong gap, CL-09 contradiction, MG-10 % as
+"lakh", CE-11 wrong measure via `metrics[0]`) and a `_finish_answer` tail bug ("figure for across all
+financial years"). 43 eval answers: 15 clean, 20 unrequested content, 8 wrong — the eval scores rows only.
+Next (user's go-ahead): report §5 items 1-4 first.
+
+**2026-10-27 evening (code, KI-437): cross-scheme comparisons show only what was asked; uncommitted, :8401 NOT restarted.**
+Files: `app/cross_figures.py` (`_rows` asked measures only, shared `beneficiaries` column, `Plan.completed` / `Plan.pgs`,
+MGNREGA note inline), `frontend/src/chat/analytics.js` (`askedMeasureCol` for the two-way card), `web/app/` (rebuilt),
+`tests/test_cross_figures_2026_10_22.py`, `tests/test_cross_compare_card_2026_10_22.py` (the KI-397 card test now
+expects beneficiaries, not money). The `.venv` had no `pytest` / `pytest-asyncio`; both installed. Next: with the VPN,
+ask "Compare beneficiaries in mgnrega and PMAY-G." live (expect two lines + the leader sentence, table = scheme +
+beneficiaries, card 14,94,437 vs 1,71,107), then "Compare amount spent in …" and "performance of …"; restart :8401.
+Not done: the model path (D-062) can still return extra columns (plan step 4: prompt rule + guard, needs a DECISIONS entry).
+Also found this session (not fixed): the comparison pause's "A vs B" chips render as the bare first scheme name
+(Messages.jsx `schemeOf`), so "MGNREGA" shows 5 times — open as part of the follow-up chip report to the user.
+
 **2026-10-27 afternoon (code, D-073): generated SQL through `semantic.run_query` on megh_chatbot, uncommitted, :8401 NOT restarted.** Files: `app/db.py` (chatbot pool, `_run_via_run_query`, type restore, `application_name`), `app/config.py` (`CHATBOT_DATABASE_URL`, `CHATBOT_DB_POOL_*`, `SQL_MAX_COST`, `DB_APPLICATION_NAME`), `app/pipeline_graph.py` (checkpointer application_name), `tests/conftest.py` (tests keep the read-only path), `tests/test_readonly_pool.py` (pinned server_settings now include application_name), NEW `tests/test_run_query_path_2026_10_27.py`, `.env.example`, `.env` (key rename only). Rollback: blank `CHATBOT_DATABASE_URL`. Next: user's go-ahead for `020_megh_app_role.sql` (cap 35) -> set `DATABASE_URL` to megh_app; the admin stops the old 172.18.0.2 container; restart :8401.
 
 **2026-10-27 (code): KI-431 fixed** — the SQL model wrote "FY23" as `year_key = 2023` -> "couldn't build a working query".
@@ -1140,3 +1179,21 @@ Do not reintroduce raw previous-answer text into the rewrite prompt (D-022). Do 
 conversation state back into process memory (D-023).
 
 **Never print or copy rows from `Focus Legacy to share to BLH.csv`.**
+
+## Parallel lanes (2026-10-28), temporary, folded in at final integration
+
+### Lane A1 · Platform & security (KI-450 to KI-479)
+- Progress: not started
+<!-- end lane A1 -->
+
+### Lane A2 · Conversation & frontend (KI-480 to KI-509)
+- Progress: not started
+<!-- end lane A2 -->
+
+### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
+- Progress: not started
+<!-- end lane B1 -->
+
+### Lane B2 · Answers & knowledge base (KI-540 to KI-569)
+- Progress: not started
+<!-- end lane B2 -->

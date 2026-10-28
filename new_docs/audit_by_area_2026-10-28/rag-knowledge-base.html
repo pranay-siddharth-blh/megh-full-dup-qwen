@@ -1,0 +1,640 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Knowledge base (RAG) Audit</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: verdict first (honest assessment, corrections), then the merge plan, then the filterable task board, then the file matrix. */
+:root{
+  --bg:#f5f7f5; --surface:#ffffff; --sunk:#eaefeb; --fg:#17201b; --muted:#56635b; --line:#d3dbd5;
+  --accent:#1d6b55; --accent-soft:#dcefe7;
+  --crit:#b3261e; --crit-soft:#fbe4e1; --high:#b85c00; --high-soft:#fdebd8;
+  --med:#8a6d00; --med-soft:#f8f0cc; --low:#4b6478; --low-soft:#e3ebf1; --dec:#6a3fa0; --dec-soft:#eee5f8;
+  --ok:#2c7a3f; --ok-soft:#dff1e3;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(28px,4.6vw,42px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:24px;font-weight:600}
+h3{font-size:18px;font-weight:600}
+p{margin:0;max-width:74ch}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunk);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+a{color:var(--accent)}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+header{display:flex;flex-direction:column;gap:14px;border-bottom:2px solid var(--fg);padding-bottom:22px}
+.lede{font-size:17px;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:10px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.stat b{font:700 28px/1.1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{font-size:12.5px;color:var(--muted)}
+.stat.crit b{color:var(--crit)} .stat.high b{color:var(--high)} .stat.med b{color:var(--med)} .stat.low b{color:var(--low)}
+section{display:flex;flex-direction:column;gap:16px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.panel ol,.panel ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.verdict{border-left:4px solid var(--accent)}
+.prio{counter-reset:p;list-style:none;padding:0!important}
+.prio li{display:grid;grid-template-columns:auto auto auto 1fr;gap:10px;align-items:baseline}
+.prio li::before{counter-increment:p;content:counter(p);font:700 15px var(--f-display);color:var(--muted);width:1.4em;text-align:right}
+.idlink{font:600 13px var(--f-mono);text-decoration:none;white-space:nowrap}
+.pill{display:inline-block;font:600 11px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;padding:4px 7px;border-radius:999px;white-space:nowrap}
+.s-Critical{background:var(--crit-soft);color:var(--crit)} .s-High{background:var(--high-soft);color:var(--high)}
+.s-Medium{background:var(--med-soft);color:var(--med)} .s-Low{background:var(--low-soft);color:var(--low)} .s-Decision{background:var(--dec-soft);color:var(--dec)}
+.tag{font:500 11.5px var(--f-mono);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:2px 6px;white-space:nowrap}
+.tag.wave{color:var(--accent);border-color:var(--accent)}
+.controls{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{font:500 13px var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:5px 11px;border-radius:999px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.chip:focus-visible,.btn:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#q{flex:1 1 200px;min-width:0;font:14px var(--f-body);padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+select{font:14px var(--f-body);padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+.count{font:500 13px var(--f-mono);color:var(--muted);margin-left:auto}
+.btn{font:600 13px var(--f-body);border:1px solid var(--accent);color:var(--accent);background:transparent;padding:6px 12px;border-radius:7px;cursor:pointer}
+.btn:hover{background:var(--accent-soft)}
+.trackhead{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;padding-top:18px;border-top:1px solid var(--line)}
+.trackhead p{color:var(--muted);font-size:14px;flex-basis:100%}
+.tasks{display:flex;flex-direction:column;gap:12px}
+.task{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--low);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-width:0;scroll-margin-top:150px}
+.task.Critical{border-left-color:var(--crit)} .task.High{border-left-color:var(--high)} .task.Medium{border-left-color:var(--med)} .task.Decision{border-left-color:var(--dec)}
+.task:target{box-shadow:0 0 0 2px var(--accent)}
+.thead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tid{font:600 14px var(--f-mono)}
+.task h3{flex-basis:100%;font-size:19px}
+.status{font-size:13.5px;background:var(--ok-soft);color:var(--fg);border-radius:6px;padding:6px 10px}
+.status b{color:var(--ok)}
+.lbl{font:600 12px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:2px}
+.task details{border-top:1px dashed var(--line);padding-top:8px}
+.task summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.task ul{margin:6px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:5px}
+.task li{max-width:82ch}
+.dont li::marker{content:"✕  ";color:var(--crit)}
+.files li code{background:transparent;padding:0;color:var(--accent);font-weight:500}
+.tfoot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.after{font-size:13px;color:var(--muted)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--sunk)}
+.waves{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.wavebox{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.wavebox h3{font-size:16px}
+.wavebox .ids{display:flex;flex-wrap:wrap;gap:4px 8px}
+.wavebox p{font-size:13px;color:var(--muted)}
+.toast{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:14px}
+.note{font-size:13.5px;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.task{transition:box-shadow .2s}}
+
+.crumbs{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font:500 13px var(--f-mono)}
+.crumbs a{text-decoration:none}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.meta div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.meta b{display:block;font:600 11.5px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+pre.prompt{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px;font:12.5px/1.55 var(--f-mono);max-height:520px;overflow:auto;margin:0}
+.task details[open] summary{margin-bottom:4px}
+.idx td:first-child{white-space:nowrap}
+</style></head>
+<body><div class="wrap">
+<nav class="crumbs" aria-label="Areas"><a href="index.html">← Overview</a><a href="security-access.html">Security & access</a><a href="context-memory.html">Context memory</a><b>Knowledge base (RAG)</b><a href="composer-answer-text.html">Composer (answer text)</a><a href="frontend.html">Frontend</a><a href="nl2sql-scheme-rules.html">NL→SQL & scheme rules</a><a href="reliability-ops.html">Reliability & ops</a><a href="testing-evaluation.html">Testing & evaluation</a><a href="documentation.html">Documentation</a><a href="ingestion-team.html">Ingestion team</a></nav>
+<header>
+  <span class="eyebrow">Megh One AI audit v2 · 28 Oct 2026 · area RAG</span>
+  <h1>Knowledge base (RAG)</h1>
+  <p class="lede">6 tasks in this area, in merge order. New KI ids for this area: KI-500–519. Each task is complete on this page: issue, solution, what not to do, evidence, files, tests, done-when, file overlaps, v1 corrections and the session prompt.</p>
+  <div class="stats"><div class="stat high"><b>2</b><span>high</span></div><div class="stat med"><b>4</b><span>medium</span></div></div>
+</header>
+<section>
+  <h2>Tasks in this area</h2>
+  <div class="tablewrap"><table class="idx"><thead><tr><th>Task</th><th>Severity</th><th>Wave</th><th>Title</th><th>Start after</th></tr></thead><tbody>
+  <tr><td><a class="idlink" href="#RAG-03">RAG-03</a></td><td><span class="pill s-High">High</span></td><td><span class="tag wave">W1a</span></td><td>Fix the knowledge-base content</td><td class="note">-</td></tr><tr><td><a class="idlink" href="#RAG-01">RAG-01</a></td><td><span class="pill s-Medium">Medium</span></td><td><span class="tag wave">W1a</span></td><td>Send "how does X work" questions to the knowledge base</td><td class="note"><a class="idlink" href="context-memory.html#CTX-08">CTX-08</a></td></tr><tr><td><a class="idlink" href="#RAG-02">RAG-02</a></td><td><span class="pill s-High">High</span></td><td><span class="tag wave">W1b</span></td><td>Ground every knowledge answer, and do not stream KB drafts</td><td class="note"><a class="idlink" href="reliability-ops.html#REL-02">REL-02</a></td></tr><tr><td><a class="idlink" href="#RAG-04">RAG-04</a></td><td><span class="pill s-Medium">Medium</span></td><td><span class="tag wave">W2</span></td><td>KB ingestion that is idempotent and notices edits</td><td class="note"><a class="idlink" href="rag-knowledge-base.html#RAG-02">RAG-02</a>, <a class="idlink" href="context-memory.html#CTX-04">CTX-04</a></td></tr><tr><td><a class="idlink" href="#RAG-05">RAG-05</a></td><td><span class="pill s-Medium">Medium</span></td><td><span class="tag wave">W2</span></td><td>Show KB outages as outages; re-tune retrieval with an independent judge</td><td class="note"><a class="idlink" href="rag-knowledge-base.html#RAG-04">RAG-04</a>, <a class="idlink" href="context-memory.html#CTX-01">CTX-01</a></td></tr><tr><td><a class="idlink" href="#RAG-06">RAG-06</a></td><td><span class="pill s-Medium">Medium</span></td><td><span class="tag wave">W3</span></td><td>Use the Qdrant Metadata_* schema collections for SQL retrieval, validated and measured</td><td class="note"><a class="idlink" href="security-access.html#SEC-07">SEC-07</a>, <a class="idlink" href="testing-evaluation.html#QA-01">QA-01</a>, <a class="idlink" href="nl2sql-scheme-rules.html#SQL-01">SQL-01</a></td></tr>
+  </tbody></table></div>
+</section>
+<section class="tasks"><article class="task High" id="RAG-03" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">RAG-03</span><span class="pill s-High">High</span><span class="tag wave">wave 1a</span><span class="tag">new</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Fix the knowledge-base content</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Knowledge base (RAG)</div>
+    <div><b>Wave</b>Wave 1a: parallel</div>
+    <div><b>Start after</b>nothing (wave start)</div>
+    <div><b>Unblocks</b>no task waits on this</div>
+    <div><b>New KI ids</b>KI-500–519</div>
+  </div>
+  <div class="status"><b>CONFIRMED</b>. Correction: the Q181 "invented list" exists in the KB. It is speculative SME text, not a model invention.</div>
+  <div><span class="lbl">The issue</span>Four content problems:<ul><li>The MGNREGA FAQ says "up to 100 days", but the Act guarantees <b>at least</b> 100 days. The bot returns it word for word: Q024 came back verbatim at a 0.85 score.</li><li>The CM Elevate reference §7.1 lists documents as "typically include". The bot turns that into "Required:".</li><li>CM Elevate has only about 27 KB of content.</li><li>The Wikipedia pages are ingested and cited as if they were official.</li></ul>The CM_Elevate_Legacy folder is a byte-identical copy of CM_Elevate.</div>
+  <div><span class="lbl">The solution</span><ul><li>Get the SME to correct the FAQ wording, rewrite §7.1 as fact or remove it, and add per-sub-scheme documents and eligibility.</li><li>Make the Wikipedia decision (keep, drop or replace with official documents) and apply it here.</li><li>Remove the duplicate Legacy folder and leave a README.</li><li>Re-ingest through <code>POST /api/rag/reingest</code>, because a restart does not re-ingest. Then re-run rag_eval.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>A code post-check that drops a documents list. It would not have fired on Q181.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li><code>data/incoming/MGNREGA/mgnrega_general_faq.md:19,45</code>.</li><li><code>data/incoming/CM_Elevate/CM_Elevate_Complete_Reference.md:86-95</code>.</li><li>Measured CM Elevate made-up rate: 10/37 = 27%.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>data/incoming/</code></li><li><code>data/web/</code></li></ul></details>
+  <details open><summary>Done when</summary><ul><li>Q024 correct.</li><li>CM Elevate made-up below 15% on a re-run with a different judge model.</li></ul></details>
+  
+  
+</article>
+
+<details><summary>Session prompt for RAG-03</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-RAG-03">Copy session prompt</button></div>
+  <pre class="prompt" id="p-RAG-03">TASK RAG-03: Fix the knowledge-base content
+Repo: meghoneai (Megh One AI). Area: Knowledge base (RAG). Severity: High. Wave: 1a. Related: new.
+Start only after these are merged into Main: nothing. Then create branch task/rag-03 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+CONFIRMED. Correction: the Q181 "invented list" exists in the KB. It is speculative SME text, not a model invention.
+
+THE ISSUE
+Four content problems:
+  - The MGNREGA FAQ says "up to 100 days", but the Act guarantees at least 100 days. The bot returns it word for word: Q024 came back verbatim at a 0.85 score.
+  - The CM Elevate reference §7.1 lists documents as "typically include". The bot turns that into "Required:".
+  - CM Elevate has only about 27 KB of content.
+  - The Wikipedia pages are ingested and cited as if they were official.The CM_Elevate_Legacy folder is a byte-identical copy of CM_Elevate.
+
+EVIDENCE
+- data/incoming/MGNREGA/mgnrega_general_faq.md:19,45.
+- data/incoming/CM_Elevate/CM_Elevate_Complete_Reference.md:86-95.
+- Measured CM Elevate made-up rate: 10/37 = 27%.
+
+THE SOLUTION
+- Get the SME to correct the FAQ wording, rewrite §7.1 as fact or remove it, and add per-sub-scheme documents and eligibility.
+- Make the Wikipedia decision (keep, drop or replace with official documents) and apply it here.
+- Remove the duplicate Legacy folder and leave a README.
+- Re-ingest through POST /api/rag/reingest, because a restart does not re-ingest. Then re-run rag_eval.
+
+DO NOT
+- A code post-check that drops a documents list. It would not have fired on Q181.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- data/incoming/
+- data/web/
+
+DONE WHEN
+- Q024 correct.
+- CM Elevate made-up below 15% on a re-run with a different judge model.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_rag03_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your RAG-03 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-500–519. New decisions as "D-RAG-03". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task Medium" id="RAG-01" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">RAG-01</span><span class="pill s-Medium">Medium</span><span class="tag wave">wave 1a</span><span class="tag">KI-404</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Send "how does X work" questions to the knowledge base</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Knowledge base (RAG)</div>
+    <div><b>Wave</b>Wave 1a: parallel</div>
+    <div><b>Start after</b><a class="idlink" href="context-memory.html#CTX-08">CTX-08</a></div>
+    <div><b>Unblocks</b>no task waits on this</div>
+    <div><b>New KI ids</b>KI-500–519</div>
+  </div>
+  <div class="status"><b>REPRODUCED</b> with a stubbed model. The v1 fix would not work: with both cue sets matching, the question goes to the same 4B model that fails.</div>
+  <div><span class="lbl">The issue</span>"How does MGNREGA job card registration work?", "How is a job card issued?" and "How does PMAY-G house sanction work?" return DATA <b>before any model call</b>, because "job card" is a data cue and there is no process cue. Officers get chips or SQL instead of the procedure. Note: KI-367 and KI-396 are the opposite misroute (data questions sent to the KB) and are not fixed by this task.</div>
+  <div><span class="lbl">The solution</span><ul><li>Add an <code>_is_process_question</code> matcher, built with <code>text_match</code> (no regex): "how does/do/is/are … work/issued/registered/done", "process/procedure/steps for/to/of", "how to get/obtain/register".</li><li>Give it the same vetoes as the entitlement check: count words, named places, years, data continuation signals, <code>_BREAKDOWN_CUE</code>, <code>_METRIC_WHATIS_CUE</code> and <code>_MEASURE_IN_PLACE</code>.</li><li>Apply it once in <code>_turn_route_stage</code>: <code>if intent == "DATA" and _is_process_question(q): intent = "KNOWLEDGE"</code>. That covers both <code>classify_intent</code> and <code>_typed_intent</code>.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Adding process words to <code>_KNOWLEDGE_HINTS</code>.</li><li>A retrieval-score tie-break: scores cannot separate the cases (negatives reach 0.695, positives go as low as 0.35), and it adds a Qdrant call to routing.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>c13:470 <code>if _DATA_HINTS.search(q) and not _KNOWLEDGE_HINTS.search(q): return "DATA"</code>.</li><li><code>_KNOWLEDGE_HINTS</code> also feeds c01:799, c03:363, c05:770 and c14:886, :1746 and :1780. Broad words added there would change pause handling and measure-only follow-ups.</li><li>The existing override pattern, <code>_is_entitlement_question</code>, is at c14:1753.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/pipeline/common/c14_turn_stages.py</code> · new _c14_rag01_process_question; one line in _turn_route_stage</li></ul><p class="note" style="margin-top:6px"><b>Tests that pin this source (update deliberately, never delete):</b></p><ul><li>test_scheme_years.py:82 reads the source of <code>_turn_route_stage</code></li></ul></details>
+  <details open><summary>Done when</summary><ul><li>The KI-404 wordings route to KNOWLEDGE.</li><li>"How many job cards in Dalu block?", "job cards by district", "total number of job cards" and "How did people apply to CM Elevate?" stay DATA.</li><li>The live context suite passes.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/pipeline/common/c14_turn_stages.py</code> (you: new _c14_rag01_process_question; one line in _turn_route_stage)<ul><li><a class="idlink" href="context-memory.html#CTX-08">CTX-08</a> <span class="tag wave">W1a</span> log_decision lines 1219, 1238, 1252, 1729 only: merges <b>before</b> you</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-02">RAG-02</a> <span class="tag wave">W1b</span> _data_path_kb_fallback: later wave</li><li><a class="idlink" href="reliability-ops.html#REL-04">REL-04</a> <span class="tag wave">W3</span> _data_path_error_result: later wave</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>RAG-01:</b> The fix would not change routing. Listed KI-367 and KI-396, which are the opposite bug. <i>Now:</i> New override in <code>_turn_route_stage</code>.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for RAG-01</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-RAG-01">Copy session prompt</button></div>
+  <pre class="prompt" id="p-RAG-01">TASK RAG-01: Send "how does X work" questions to the knowledge base
+Repo: meghoneai (Megh One AI). Area: Knowledge base (RAG). Severity: Medium. Wave: 1a. Related: KI-404.
+Start only after these are merged into Main: CTX-08. Then create branch task/rag-01 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+REPRODUCED with a stubbed model. The v1 fix would not work: with both cue sets matching, the question goes to the same 4B model that fails.
+
+THE ISSUE
+"How does MGNREGA job card registration work?", "How is a job card issued?" and "How does PMAY-G house sanction work?" return DATA before any model call, because "job card" is a data cue and there is no process cue. Officers get chips or SQL instead of the procedure. Note: KI-367 and KI-396 are the opposite misroute (data questions sent to the KB) and are not fixed by this task.
+
+EVIDENCE
+- c13:470 if _DATA_HINTS.search(q) and not _KNOWLEDGE_HINTS.search(q): return "DATA".
+- _KNOWLEDGE_HINTS also feeds c01:799, c03:363, c05:770 and c14:886, :1746 and :1780. Broad words added there would change pause handling and measure-only follow-ups.
+- The existing override pattern, _is_entitlement_question, is at c14:1753.
+
+THE SOLUTION
+- Add an _is_process_question matcher, built with text_match (no regex): "how does/do/is/are … work/issued/registered/done", "process/procedure/steps for/to/of", "how to get/obtain/register".
+- Give it the same vetoes as the entitlement check: count words, named places, years, data continuation signals, _BREAKDOWN_CUE, _METRIC_WHATIS_CUE and _MEASURE_IN_PLACE.
+- Apply it once in _turn_route_stage: if intent == "DATA" and _is_process_question(q): intent = "KNOWLEDGE". That covers both classify_intent and _typed_intent.
+
+DO NOT
+- Adding process words to _KNOWLEDGE_HINTS.
+- A retrieval-score tie-break: scores cannot separate the cases (negatives reach 0.695, positives go as low as 0.35), and it adds a Qdrant call to routing.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/pipeline/common/c14_turn_stages.py: new _c14_rag01_process_question; one line in _turn_route_stage
+
+TESTS THAT PIN THIS SOURCE (update deliberately, never delete)
+- test_scheme_years.py:82 reads the source of _turn_route_stage
+
+DONE WHEN
+- The KI-404 wordings route to KNOWLEDGE.
+- "How many job cards in Dalu block?", "job cards by district", "total number of job cards" and "How did people apply to CM Elevate?" stay DATA.
+- The live context suite passes.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_rag01_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your RAG-01 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-500–519. New decisions as "D-RAG-01". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task High" id="RAG-02" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">RAG-02</span><span class="pill s-High">High</span><span class="tag wave">wave 1b</span><span class="tag">new</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Ground every knowledge answer, and do not stream KB drafts</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Knowledge base (RAG)</div>
+    <div><b>Wave</b>Wave 1b: parallel</div>
+    <div><b>Start after</b><a class="idlink" href="reliability-ops.html#REL-02">REL-02</a></div>
+    <div><b>Unblocks</b><a class="idlink" href="rag-knowledge-base.html#RAG-04">RAG-04</a>, <a class="idlink" href="reliability-ops.html#REL-04">REL-04</a></div>
+    <div><b>New KI ids</b>KI-500–519</div>
+  </div>
+  <div class="status"><b>REPRODUCED</b> with stubs. Corrections: the multi path already handles a whole refusal, and the 13.9% made-up rate includes 9 cases of judge noise (about 9.1% without them). This card absorbs the KB part of v1 CMP-05.</div>
+  <div><span class="lbl">The issue</span>Five grounding gaps:<ul><li><code>answer_from_kb_multi</code> never runs <code>ground_answer</code>, has no medium-confidence gate (it answers at a score of 0.31 where the single path returns nothing) and has no Focus Legacy naming note.</li><li><code>ground_answer</code> fails open: when only a refusal is left after the unsupported sentences are dropped, it returns the original text <b>with the invented sentence</b> (for example a made-up helpline number).</li><li>The prompt's example phrase "There is no single published checklist" leaks into unrelated answers.</li><li>The data-to-KB fallback searches every scheme, drops citations and schemes, and flags a good KB answer as <code>answer_failed</code>.</li><li>Every KB answer streams to the officer before grounding runs.</li></ul></div>
+  <div><span class="lbl">The solution</span><ul><li>Multi path: gate on <code>best_score &gt;= RAG_MEDIUM_CONFIDENCE</code>, run <code>ground_answer</code> with all kept passages, and put a <code>_naming_note</code> in each scheme's section.</li><li><code>ground_answer</code>: when <code>kept</code> is a whole refusal, return <code>kept</code>, not the original text.</li><li>Replace the prompt example with a neutral one. Delete both temperature-0 retries.</li><li>Fallback: use <code>_named_schemes(q) or _infer_scheme_from_terms(q)</code>; call the KB only when exactly one scheme is found; pass citations and schemes through; do not mark the turn failed.</li><li>Add a <code>stream: bool = True</code> argument to <code>llm.call_response_composer</code> and pass <code>stream=False</code> on every rag.py call.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>The "documents list" post-check from v1.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>rag.py:886-966 is the multi path, :755-757 the fail-open, :821 the prompt example, :856-870 and :946-954 the temperature-0 retries (the retry comment says "non-zero temperature").</li><li>c14 <code>_data_path_kb_fallback</code> :2375-2398.</li><li>llm.py:349-360 streams before any check.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/rag.py</code> · answer_from_kb (retry, stream flag), answer_from_kb_multi, ground_answer, prompt example line</li><li><code>app/pipeline/common/c14_turn_stages.py</code> · _data_path_kb_fallback</li><li><code>app/llm.py</code> · call_response_composer signature</li></ul><p class="note" style="margin-top:6px"><b>Tests that pin this source (update deliberately, never delete):</b></p><ul><li>test_rag_general_scoping.py:311 (rag.py source)</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>Stubbed tests through the real functions: the multi path drops an unsupported sentence; it returns None below the medium score; a refusal remainder returns no invented sentence; the fallback passes <code>scheme=</code> and keeps citations; no token events come from <code>answer_from_kb</code>.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/rag.py</code> (you: answer_from_kb (retry, stream flag), answer_from_kb_multi, ground_answer, prompt example line)<ul><li><a class="idlink" href="rag-knowledge-base.html#RAG-04">RAG-04</a> <span class="tag wave">W2</span> _kb_text_cache, _kb_texts_by_scheme: merges <b>after</b> you</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-05">RAG-05</a> <span class="tag wave">W2</span> retrieve, best_kb_scheme: merges <b>after</b> you</li></ul></li><li><code>app/pipeline/common/c14_turn_stages.py</code> (you: _data_path_kb_fallback)<ul><li><a class="idlink" href="context-memory.html#CTX-08">CTX-08</a> <span class="tag wave">W1a</span> log_decision lines 1219, 1238, 1252, 1729 only: earlier wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-01">RAG-01</a> <span class="tag wave">W1a</span> new _c14_rag01_process_question; one line in _turn_route_stage: earlier wave</li><li><a class="idlink" href="reliability-ops.html#REL-04">REL-04</a> <span class="tag wave">W3</span> _data_path_error_result: merges <b>after</b> you</li></ul></li><li><code>app/llm.py</code> (you: call_response_composer signature)<ul><li><a class="idlink" href="reliability-ops.html#REL-02">REL-02</a> <span class="tag wave">W0</span> _slot, call_model: merges <b>before</b> you</li><li><a class="idlink" href="security-access.html#SEC-07">SEC-07</a> <span class="tag wave">W1a</span> _get_ssl_verify: earlier wave</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>RAG-02:</b> The Q181 example was wrong. All-refusal handling already exists. The made-up rate included judge noise. Missed the fail-open and the missing gate. <i>Now:</i> Rewritten; absorbs the KB part of CMP-05.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for RAG-02</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-RAG-02">Copy session prompt</button></div>
+  <pre class="prompt" id="p-RAG-02">TASK RAG-02: Ground every knowledge answer, and do not stream KB drafts
+Repo: meghoneai (Megh One AI). Area: Knowledge base (RAG). Severity: High. Wave: 1b. Related: new.
+Start only after these are merged into Main: REL-02. Then create branch task/rag-02 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+REPRODUCED with stubs. Corrections: the multi path already handles a whole refusal, and the 13.9% made-up rate includes 9 cases of judge noise (about 9.1% without them). This card absorbs the KB part of v1 CMP-05.
+
+THE ISSUE
+Five grounding gaps:
+  - answer_from_kb_multi never runs ground_answer, has no medium-confidence gate (it answers at a score of 0.31 where the single path returns nothing) and has no Focus Legacy naming note.
+  - ground_answer fails open: when only a refusal is left after the unsupported sentences are dropped, it returns the original text with the invented sentence (for example a made-up helpline number).
+  - The prompt's example phrase "There is no single published checklist" leaks into unrelated answers.
+  - The data-to-KB fallback searches every scheme, drops citations and schemes, and flags a good KB answer as answer_failed.
+  - Every KB answer streams to the officer before grounding runs.
+
+EVIDENCE
+- rag.py:886-966 is the multi path, :755-757 the fail-open, :821 the prompt example, :856-870 and :946-954 the temperature-0 retries (the retry comment says "non-zero temperature").
+- c14 _data_path_kb_fallback :2375-2398.
+- llm.py:349-360 streams before any check.
+
+THE SOLUTION
+- Multi path: gate on best_score &gt;= RAG_MEDIUM_CONFIDENCE, run ground_answer with all kept passages, and put a _naming_note in each scheme's section.
+- ground_answer: when kept is a whole refusal, return kept, not the original text.
+- Replace the prompt example with a neutral one. Delete both temperature-0 retries.
+- Fallback: use _named_schemes(q) or _infer_scheme_from_terms(q); call the KB only when exactly one scheme is found; pass citations and schemes through; do not mark the turn failed.
+- Add a stream: bool = True argument to llm.call_response_composer and pass stream=False on every rag.py call.
+
+DO NOT
+- The "documents list" post-check from v1.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/rag.py: answer_from_kb (retry, stream flag), answer_from_kb_multi, ground_answer, prompt example line
+- app/pipeline/common/c14_turn_stages.py: _data_path_kb_fallback
+- app/llm.py: call_response_composer signature
+
+TESTS THAT PIN THIS SOURCE (update deliberately, never delete)
+- test_rag_general_scoping.py:311 (rag.py source)
+
+DONE WHEN
+- Stubbed tests through the real functions: the multi path drops an unsupported sentence; it returns None below the medium score; a refusal remainder returns no invented sentence; the fallback passes scheme= and keeps citations; no token events come from answer_from_kb.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_rag02_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your RAG-02 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-500–519. New decisions as "D-RAG-02". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task Medium" id="RAG-04" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">RAG-04</span><span class="pill s-Medium">Medium</span><span class="tag wave">wave 2</span><span class="tag">KI-402</span><span class="tag">D-067</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">KB ingestion that is idempotent and notices edits</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Knowledge base (RAG)</div>
+    <div><b>Wave</b>Wave 2</div>
+    <div><b>Start after</b><a class="idlink" href="rag-knowledge-base.html#RAG-02">RAG-02</a>, <a class="idlink" href="context-memory.html#CTX-04">CTX-04</a></div>
+    <div><b>Unblocks</b><a class="idlink" href="rag-knowledge-base.html#RAG-05">RAG-05</a>, <a class="idlink" href="reliability-ops.html#REL-03">REL-03</a></div>
+    <div><b>New KI ids</b>KI-500–519</div>
+  </div>
+  <div class="status"><b>CONFIRMED</b>. The size-mismatch delete is the deliberate KI-402 fix and is pinned by a test, so changing it needs a DECISIONS entry. The duplicate-point race is more likely than v1 said.</div>
+  <div><span class="lbl">The issue</span>Four ingestion problems:<ul><li>Every worker on both VMs ingests at startup with random point ids and no lock. On a deploy that needs a rebuild, they race, and duplicate chunks persist: a count of 2N passes the skip check. With multi-query off, duplicates take top-8 slots.</li><li>Editing a document does not trigger a rebuild on restart.</li><li>The per-worker KB text cache is never cleared, and can cache an empty KB.</li><li>Reingest runs inside the HTTP request.</li></ul></div>
+  <div><span class="lbl">The solution</span><ul><li>Deterministic <code>uuid5(doc|heading|sha1(text))</code> ids.</li><li>Store <code>corpus_hash</code> (source digests plus chunker version) in the payload; rebuild when the first point's hash differs.</li><li>Rebuild by upserting all ids and then deleting the ones no longer present, instead of recreate-then-fill. That is idempotent under concurrency and leaves no empty window.</li><li>On a vector-size mismatch, refuse with a CRITICAL log and a degraded <code>/health</code>, as <code>conversation_memory</code> does. Record the reversal of KI-402 in DECISIONS and rewrite the pinned test.</li><li>Key the text cache on (collection, hash), never cache an empty result, and run reingest in the background with its status in <code>/api/rag/status</code>.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Alias swap plus an advisory lock. Not needed once the ids are deterministic.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>main.py:83; kb_ingest.py:749 (skip check), :797 (recreate), :800 (<code>uuid4</code>).</li><li>rag.py:313 and :368-382 (cache).</li><li><code>test_embedding_size_guard_2026_10_24.py::test_a_kb_of_another_vector_size_is_rebuilt</code> pins the delete.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/kb_ingest.py</code> · ingest_kb, _collect_chunks</li><li><code>app/vectorstore.py</code> · new delete-by-ids helper</li><li><code>app/routers/rag.py</code> · reingest, status</li><li><code>app/rag.py</code> · _kb_text_cache, _kb_texts_by_scheme</li><li><code>app/main.py</code> · health flag (fourth in the main.py order)</li></ul><p class="note" style="margin-top:6px"><b>Tests that pin this source (update deliberately, never delete):</b></p><ul><li>test_rag_general_scoping.py:221</li><li>test_embedding_size_guard_2026_10_24.py (rewrite)</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>Two concurrent <code>ingest_kb</code> runs leave exactly N points.</li><li>Changing one source byte triggers a rebuild.</li><li>A size mismatch never deletes.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/rag.py</code> (you: _kb_text_cache, _kb_texts_by_scheme)<ul><li><a class="idlink" href="rag-knowledge-base.html#RAG-02">RAG-02</a> <span class="tag wave">W1b</span> answer_from_kb (retry, stream flag), answer_from_kb_multi, ground_answer, prompt example line: merges <b>before</b> you</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-05">RAG-05</a> <span class="tag wave">W2</span> retrieve, best_kb_scheme: merges <b>after</b> you</li></ul></li><li><code>app/main.py</code> (you: health flag (fourth in the main.py order))<ul><li><a class="idlink" href="security-access.html#SEC-07">SEC-07</a> <span class="tag wave">W1a</span> lifespan guard (first in the main.py order): merges <b>before</b> you</li><li><a class="idlink" href="nl2sql-scheme-rules.html#SQL-08">SQL-08</a> <span class="tag wave">W1b</span> lifespan retry task, health components (second in the main.py order): merges <b>before</b> you</li><li><a class="idlink" href="context-memory.html#CTX-04">CTX-04</a> <span class="tag wave">W2</span> purge task (third in the main.py order): merges <b>before</b> you</li><li><a class="idlink" href="reliability-ops.html#REL-03">REL-03</a> <span class="tag wave">W3</span> logging config, health (last in the main.py order): merges <b>after</b> you</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>RAG-04:</b> The delete is the pinned KI-402 fix. Alias swap and lock were over-built. <i>Now:</i> Deterministic ids, upsert and prune; DECISIONS entry.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for RAG-04</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-RAG-04">Copy session prompt</button></div>
+  <pre class="prompt" id="p-RAG-04">TASK RAG-04: KB ingestion that is idempotent and notices edits
+Repo: meghoneai (Megh One AI). Area: Knowledge base (RAG). Severity: Medium. Wave: 2. Related: KI-402, D-067.
+Start only after these are merged into Main: RAG-02, CTX-04. Then create branch task/rag-04 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+CONFIRMED. The size-mismatch delete is the deliberate KI-402 fix and is pinned by a test, so changing it needs a DECISIONS entry. The duplicate-point race is more likely than v1 said.
+
+THE ISSUE
+Four ingestion problems:
+  - Every worker on both VMs ingests at startup with random point ids and no lock. On a deploy that needs a rebuild, they race, and duplicate chunks persist: a count of 2N passes the skip check. With multi-query off, duplicates take top-8 slots.
+  - Editing a document does not trigger a rebuild on restart.
+  - The per-worker KB text cache is never cleared, and can cache an empty KB.
+  - Reingest runs inside the HTTP request.
+
+EVIDENCE
+- main.py:83; kb_ingest.py:749 (skip check), :797 (recreate), :800 (uuid4).
+- rag.py:313 and :368-382 (cache).
+- test_embedding_size_guard_2026_10_24.py::test_a_kb_of_another_vector_size_is_rebuilt pins the delete.
+
+THE SOLUTION
+- Deterministic uuid5(doc|heading|sha1(text)) ids.
+- Store corpus_hash (source digests plus chunker version) in the payload; rebuild when the first point's hash differs.
+- Rebuild by upserting all ids and then deleting the ones no longer present, instead of recreate-then-fill. That is idempotent under concurrency and leaves no empty window.
+- On a vector-size mismatch, refuse with a CRITICAL log and a degraded /health, as conversation_memory does. Record the reversal of KI-402 in DECISIONS and rewrite the pinned test.
+- Key the text cache on (collection, hash), never cache an empty result, and run reingest in the background with its status in /api/rag/status.
+
+DO NOT
+- Alias swap plus an advisory lock. Not needed once the ids are deterministic.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/kb_ingest.py: ingest_kb, _collect_chunks
+- app/vectorstore.py: new delete-by-ids helper
+- app/routers/rag.py: reingest, status
+- app/rag.py: _kb_text_cache, _kb_texts_by_scheme
+- app/main.py: health flag (fourth in the main.py order)
+
+TESTS THAT PIN THIS SOURCE (update deliberately, never delete)
+- test_rag_general_scoping.py:221
+- test_embedding_size_guard_2026_10_24.py (rewrite)
+
+DONE WHEN
+- Two concurrent ingest_kb runs leave exactly N points.
+- Changing one source byte triggers a rebuild.
+- A size mismatch never deletes.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_rag04_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your RAG-04 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-500–519. New decisions as "D-RAG-04". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task Medium" id="RAG-05" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">RAG-05</span><span class="pill s-Medium">Medium</span><span class="tag wave">wave 2</span><span class="tag">D-067</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Show KB outages as outages; re-tune retrieval with an independent judge</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Knowledge base (RAG)</div>
+    <div><b>Wave</b>Wave 2</div>
+    <div><b>Start after</b><a class="idlink" href="rag-knowledge-base.html#RAG-04">RAG-04</a>, <a class="idlink" href="context-memory.html#CTX-01">CTX-01</a></div>
+    <div><b>Unblocks</b>no task waits on this</div>
+    <div><b>New KI ids</b>KI-500–519</div>
+  </div>
+  <div class="status"><b>CONFIRMED</b>. Corrections: the 0.35 and 0.45 cut-offs measure within noise of each other, and the 384-dim defaults are intentional (they are the D-067 rollback).</div>
+  <div><span class="lbl">The issue</span>When the embedding call fails, <code>retrieve</code> returns [], and the officer is told the topic "isn't covered". It even swallows <code>ModelBusyError</code>, which the router already maps to 503. The thresholds were set by eye on an eval whose judge is the same model that writes the answers, and its golden set has no SME sign-off. No single cut-off separates the negatives (top scores up to 0.695) from the positives (down to 0.35).</div>
+  <div><span class="lbl">The solution</span><ul><li>Let <code>ModelBusyError</code> propagate. Raise <code>KnowledgeUnavailableError</code> for other embedding failures and map it to 503 in <code>routers/query.py</code>. Update <code>best_kb_scheme</code> and <code>run_eval</code>, which also call <code>retrieve</code>.</li><li>Add a startup warning when the provider is gateway but the cut-offs are still the 384-dim defaults.</li><li>Re-tune MIN, MEDIUM and HIGH on rag_eval with a different judge model and an SME-checked golden set. Try a query-instruction prefix in <code>retrieve</code> only.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Changing the config defaults; they are the D-067 rollback.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>rag.py:502-506; query.py:322 (<code>ModelBusyError</code> to 503).</li><li><code>run_eval.py:75-77</code> uses the same 9B as judge. The golden set has <code>expert_checked: None</code>.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/rag.py</code> · retrieve, best_kb_scheme</li><li><code>app/routers/query.py</code> · except mapping</li><li><code>app/config.py</code> · startup warning near the RAG settings</li><li><code>tests/rag_eval/run_eval.py</code></li></ul></details>
+  <details open><summary>Done when</summary><ul><li>An embedding failure gives a 503, not "not covered".</li><li>The tuned run is no worse on correct-or-honest.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/rag.py</code> (you: retrieve, best_kb_scheme)<ul><li><a class="idlink" href="rag-knowledge-base.html#RAG-02">RAG-02</a> <span class="tag wave">W1b</span> answer_from_kb (retry, stream flag), answer_from_kb_multi, ground_answer, prompt example line: merges <b>before</b> you</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-04">RAG-04</a> <span class="tag wave">W2</span> _kb_text_cache, _kb_texts_by_scheme: merges <b>before</b> you</li></ul></li><li><code>app/routers/query.py</code> (you: except mapping)<ul><li><a class="idlink" href="reliability-ops.html#REL-02">REL-02</a> <span class="tag wave">W0</span> non-stream timeout (~279): merges <b>before</b> you</li><li><a class="idlink" href="context-memory.html#CTX-01">CTX-01</a> <span class="tag wave">W1b</span> _session_id, _answer wrapper, query_stream, _remember_stopped: merges <b>before</b> you</li><li><a class="idlink" href="context-memory.html#CTX-06">CTX-06</a> <span class="tag wave">W2</span> is_cacheable: same wave, separate region</li></ul></li><li><code>app/config.py</code> (you: startup warning near the RAG settings)<ul><li><a class="idlink" href="reliability-ops.html#REL-02">REL-02</a> <span class="tag wave">W0</span> model_config, delete 4 dead fields: merges <b>before</b> you</li><li><a class="idlink" href="security-access.html#SEC-05">SEC-05</a> <span class="tag wave">W1a</span> TRUSTED_PROXIES line 70: earlier wave</li><li><a class="idlink" href="security-access.html#SEC-07">SEC-07</a> <span class="tag wave">W1a</span> insecure_secrets, CSP_ENFORCE: merges <b>before</b> you</li><li><a class="idlink" href="reliability-ops.html#REL-01">REL-01</a> <span class="tag wave">W1a</span> APP_BUILD (next to the Redis settings): earlier wave</li><li><a class="idlink" href="security-access.html#SEC-06">SEC-06</a> <span class="tag wave">W1b</span> DB_POOL_ACQUIRE_TIMEOUT next to the pool settings: earlier wave</li><li><a class="idlink" href="composer-answer-text.html#CMP-03">CMP-03</a> <span class="tag wave">W2</span> PROMPT_BUDGET_COMPOSER_TOKENS (line 669): same wave, separate region</li><li><a class="idlink" href="frontend.html#UI-02">UI-02</a> <span class="tag wave">W2</span> CSP font hosts: same wave, separate region</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-06">RAG-06</a> <span class="tag wave">W3</span> SCHEMA_RAG_* settings in a new block next to the RAG settings: later wave</li><li><a class="idlink" href="reliability-ops.html#REL-04">REL-04</a> <span class="tag wave">W3</span> RAISE_INTERNAL_ERRORS: later wave</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>RAG-05:</b> Moving the defaults conflicts with D-067. 0.35 vs 0.45 is within noise. <i>Now:</i> Outage as 503; independent judge.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for RAG-05</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-RAG-05">Copy session prompt</button></div>
+  <pre class="prompt" id="p-RAG-05">TASK RAG-05: Show KB outages as outages; re-tune retrieval with an independent judge
+Repo: meghoneai (Megh One AI). Area: Knowledge base (RAG). Severity: Medium. Wave: 2. Related: D-067.
+Start only after these are merged into Main: RAG-04, CTX-01. Then create branch task/rag-05 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+CONFIRMED. Corrections: the 0.35 and 0.45 cut-offs measure within noise of each other, and the 384-dim defaults are intentional (they are the D-067 rollback).
+
+THE ISSUE
+When the embedding call fails, retrieve returns [], and the officer is told the topic "isn't covered". It even swallows ModelBusyError, which the router already maps to 503. The thresholds were set by eye on an eval whose judge is the same model that writes the answers, and its golden set has no SME sign-off. No single cut-off separates the negatives (top scores up to 0.695) from the positives (down to 0.35).
+
+EVIDENCE
+- rag.py:502-506; query.py:322 (ModelBusyError to 503).
+- run_eval.py:75-77 uses the same 9B as judge. The golden set has expert_checked: None.
+
+THE SOLUTION
+- Let ModelBusyError propagate. Raise KnowledgeUnavailableError for other embedding failures and map it to 503 in routers/query.py. Update best_kb_scheme and run_eval, which also call retrieve.
+- Add a startup warning when the provider is gateway but the cut-offs are still the 384-dim defaults.
+- Re-tune MIN, MEDIUM and HIGH on rag_eval with a different judge model and an SME-checked golden set. Try a query-instruction prefix in retrieve only.
+
+DO NOT
+- Changing the config defaults; they are the D-067 rollback.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/rag.py: retrieve, best_kb_scheme
+- app/routers/query.py: except mapping
+- app/config.py: startup warning near the RAG settings
+- tests/rag_eval/run_eval.py
+
+DONE WHEN
+- An embedding failure gives a 503, not "not covered".
+- The tuned run is no worse on correct-or-honest.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_rag05_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your RAG-05 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-500–519. New decisions as "D-RAG-05". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task Medium" id="RAG-06" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">RAG-06</span><span class="pill s-Medium">Medium</span><span class="tag wave">wave 3</span><span class="tag">KI-010</span><span class="tag">KI-011</span><span class="tag">new</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Use the Qdrant Metadata_* schema collections for SQL retrieval, validated and measured</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Knowledge base (RAG)</div>
+    <div><b>Wave</b>Wave 3: last</div>
+    <div><b>Start after</b><a class="idlink" href="security-access.html#SEC-07">SEC-07</a>, <a class="idlink" href="testing-evaluation.html#QA-01">QA-01</a>, <a class="idlink" href="nl2sql-scheme-rules.html#SQL-01">SQL-01</a></div>
+    <div><b>Unblocks</b>no task waits on this</div>
+    <div><b>New KI ids</b>KI-500–519</div>
+  </div>
+  <div class="status"><b>REPRODUCED</b> on 28 Oct, read-only: no code reads any <code>Metadata_*</code> collection. Their 4,016 points re-embed with our <code>qwen3-embedding</code> at cosine 0.9999. Only CM Elevate and Focus Plus describe the curated views the bot queries.</div>
+  <div><span class="lbl">The issue</span>Seven <code>Metadata_*</code> collections on our Qdrant server hold column meanings, synonyms, entity values with row counts, formulas, aggregation rules, clarification rules, the join graph and example question→SQL pairs, all embedded with our own model. <b>Neither RAG nor NL→SQL uses them.</b> SQL generation instead relies on the hand-written <code>schema_context.py</code>, which is large, falls back to all schemes (KI-011) and drifts from the SME YAMLs (KI-010). But they cannot be plugged in as they are:<ul><li>MGNREGA, PMAY, Focus Legacy and CM Elevate Legacy describe a different layout (<code>mgnrega_employment</code>, <code>pmay_beneficiaries</code>, <code>mapped_*_lgd_name</code>) from the curated views the bot queries.</li><li>NRLM is not one of our schemes.</li><li>Another team owns them, with no version contract.</li><li>They are writable by anyone until SEC-07.</li></ul></div>
+  <div><span class="lbl">The solution</span><ul><li><b>Step 1, no code in the answer path:</b> write an offline script that lists, per collection, which doc tables and columns exist in the live <code>schema_introspect</code> catalogue. Send the result to the owning team. Ask whether the <code>mapped_*</code> layout is a planned schema, and agree a pin on <code>schema_version</code> plus <code>content_hash</code> and a read-only Qdrant key for the bot.</li><li><b>Step 2:</b> add a new <code>app/schema_rag.py</code>. Embed the question once. Search <code>Metadata_&lt;scheme&gt;</code> filtered to <code>excluded=False</code> and <code>doc_type</code> in column, formula, rule or clarification, top 8, with a 1.5 s timeout that fails open to today's prompt. <b>Drop every item whose table or column is not live.</b> Add example SQL only if SQLGlot parses it and it references only live curated objects.</li><li>Add the survivors as one short "Relevant schema notes" block in the SQL generation prompt, behind <code>SCHEMA_RAG_ENABLED</code> (default off), with a per-scheme allow-list that starts at CM Elevate and Focus Plus.</li><li>Shadow mode first: log the block without sending it. Then A/B on the golden set (QA-01). Switch on per scheme only if accuracy holds or improves and the prompt gets shorter. Record the result as a DECISIONS entry.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Adding them to the officer-facing knowledge path (<code>megh_scheme_kb_v4</code> or <code>answer_from_kb</code>). They are schema metadata, not scheme guidance.</li><li>Feeding the MGNREGA, PMAY or Legacy collections to the SQL model before the layout question is answered. Their table names would steer it to tables it cannot query.</li><li>Writing to, re-indexing or deleting any <code>Metadata_*</code> collection.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>A grep of <code>app/</code> finds no <code>Metadata_</code> reference. CLAUDE.md:246 and ARCHITECTURE.md:439 say "not ours".</li><li>Point counts: CMElevate 917, FocusPlus 659, FocusLegacy 733, CMElevateLegacy 501, PMAY 459, NRLM 387, MGNREGA 360.</li><li>The bot queries <code>curated.v_employment</code>, <code>v_pmay</code>, <code>v_focus_legacy</code> and <code>v_cm_elevate</code>, with <code>lgd_district</code>. <code>mapped_district_lgd_name</code> has 0 references in <code>app/</code>.</li><li>Five of the nine source YAMLs named in the payloads are not in <code>data/</code>.</li><li>Re-embedding the stored text with our gateway reproduces the stored vectors (cosine 0.9999 to 1.0, 6 of 6 samples).</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/schema_rag.py</code> · new</li><li><code>app/prompt_builder.py</code> · one optional block in the SQL generation prompt builder (not _entities_block, build_repair_prompt or build_verify_prompt)</li><li><code>app/pipeline/common/c10_sql_generation_and_rewrites.py</code> · generate_sql call site (not _c1x_apos0)</li><li><code>app/config.py</code> · SCHEMA_RAG_* settings in a new block next to the RAG settings</li><li><code>scripts/metadata_schema_check.py</code> · new</li><li><code>tests/test_schema_rag_2026_10_28.py</code> · new; stubbed Qdrant client</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>The offline check report is shared with the owner, and a reply is recorded.</li><li>Unit tests: any item naming a table or column outside the live catalogue is dropped; a timeout falls back to today's prompt; flag off means a byte-identical prompt.</li><li>The golden-set A/B is recorded, and the flag stays off unless accuracy is equal or better.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/prompt_builder.py</code> (you: one optional block in the SQL generation prompt builder (not _entities_block, build_repair_prompt or build_verify_prompt))<ul><li><a class="idlink" href="nl2sql-scheme-rules.html#SQL-01">SQL-01</a> <span class="tag wave">W1a</span> _entities_block: merges <b>before</b> you</li><li><a class="idlink" href="nl2sql-scheme-rules.html#SQL-03">SQL-03</a> <span class="tag wave">W1b</span> build_repair_prompt: earlier wave</li><li><a class="idlink" href="nl2sql-scheme-rules.html#SQL-04">SQL-04</a> <span class="tag wave">W2</span> build_verify_prompt: earlier wave</li></ul></li><li><code>app/pipeline/common/c10_sql_generation_and_rewrites.py</code> (you: generate_sql call site (not _c1x_apos0))<ul><li><a class="idlink" href="testing-evaluation.html#QA-04">QA-04</a> <span class="tag wave">W3</span> _c1x_apos0: same wave, separate region</li></ul></li><li><code>app/config.py</code> (you: SCHEMA_RAG_* settings in a new block next to the RAG settings)<ul><li><a class="idlink" href="reliability-ops.html#REL-02">REL-02</a> <span class="tag wave">W0</span> model_config, delete 4 dead fields: earlier wave</li><li><a class="idlink" href="security-access.html#SEC-05">SEC-05</a> <span class="tag wave">W1a</span> TRUSTED_PROXIES line 70: earlier wave</li><li><a class="idlink" href="security-access.html#SEC-07">SEC-07</a> <span class="tag wave">W1a</span> insecure_secrets, CSP_ENFORCE: merges <b>before</b> you</li><li><a class="idlink" href="reliability-ops.html#REL-01">REL-01</a> <span class="tag wave">W1a</span> APP_BUILD (next to the Redis settings): earlier wave</li><li><a class="idlink" href="security-access.html#SEC-06">SEC-06</a> <span class="tag wave">W1b</span> DB_POOL_ACQUIRE_TIMEOUT next to the pool settings: earlier wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-05">RAG-05</a> <span class="tag wave">W2</span> startup warning near the RAG settings: earlier wave</li><li><a class="idlink" href="composer-answer-text.html#CMP-03">CMP-03</a> <span class="tag wave">W2</span> PROMPT_BUDGET_COMPOSER_TOKENS (line 669): earlier wave</li><li><a class="idlink" href="frontend.html#UI-02">UI-02</a> <span class="tag wave">W2</span> CSP font hosts: earlier wave</li><li><a class="idlink" href="reliability-ops.html#REL-04">REL-04</a> <span class="tag wave">W3</span> RAISE_INTERNAL_ERRORS: same wave, separate region</li></ul></li></ul></details>
+  
+</article>
+<section>
+  <h2>Does the bot use the Qdrant <code>Metadata_*</code> collections?</h2>
+  <div class="panel verdict">
+    <p><b>No.</b> Neither the knowledge path nor the NL→SQL path reads them. No code anywhere in <code>app/</code> names them; the only mentions are docs saying "not ours, never touch" (CLAUDE.md:246, ARCHITECTURE.md:439, HANDOFF.md:694). The knowledge path reads only <code>megh_scheme_kb_v4</code>, and conversation memory reads only <code>megh_conversation_memory_1024</code>.</p>
+    <p><b>Verified on 28 Oct, read-only:</b> there are 7 collections, 4,016 points, 1024-dim, cosine. Each point carries a <code>text</code> field and typed payload: column meanings with synonyms and sample values, entity values with row counts and parent places, formulas with SQL expressions, aggregation and NULL rules, clarification rules, the join graph, and example question→SQL pairs. <b>They were embedded with our own model</b>: re-embedding their text through our gateway's <code>qwen3-embedding</code> gives cosine 0.9999 to 1.0 against the stored vectors. So they are directly searchable with no re-embedding.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Collection</th><th>Points</th><th>Tables it describes</th><th>Matches what the bot queries?</th></tr></thead>
+    <tbody>
+      <tr><td><code>Metadata_CMElevate</code></td><td>917</td><td><code>curated.v_cm_elevate</code> (source <code>data/cm_elevate/cmelevate_schema_partitions.yaml</code>, already in our repo)</td><td><b>Yes</b></td></tr>
+      <tr><td><code>Metadata_FocusPlus</code></td><td>659</td><td><code>curated.dim_*</code> join graph and clarification rules (sources in <code>data/focus_plus/</code>)</td><td><b>Yes</b></td></tr>
+      <tr><td><code>Metadata_MGNREGA</code></td><td>360</td><td><code>mgnrega_employment</code> (<code>stage2_mgnrega_combined_production.yaml</code>, not in repo)</td><td><b>No</b>: the bot uses <code>curated.v_employment</code> and <code>v_expenditure</code></td></tr>
+      <tr><td><code>Metadata_PMAY</code></td><td>459</td><td><code>pmay_beneficiaries</code>, <code>mapped_*_lgd_name</code></td><td><b>No</b>: the bot uses <code>curated.v_pmay</code> and <code>lgd_district</code></td></tr>
+      <tr><td><code>Metadata_FocusLegacy</code></td><td>733</td><td><code>focus_legacy</code>, <code>mapped_constituency_name_and_number</code></td><td><b>No</b>: the bot uses <code>curated.v_focus_legacy</code></td></tr>
+      <tr><td><code>Metadata_CMElevateLegacy</code></td><td>501</td><td><code>cm_elevate_legacy</code>, <code>mapped_district_lgd_name</code></td><td><b>No</b></td></tr>
+      <tr><td><code>Metadata_NRLM</code></td><td>387</td><td><code>nrlm_shg</code></td><td>Not a scheme this bot serves</td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols">
+    <div class="panel">
+      <h3>The problem</h3>
+      <ul>
+        <li><b>A missed capability, not a bug.</b> The bot works without them. But SQL generation gets its schema from the hand-written <code>schema_context.py</code>, a large static block that falls back to all schemes (KI-011) and drifts from the SME YAMLs (KI-010). A question-relevant index of exactly that knowledge already exists and goes unused.</li>
+        <li><b>Four of the six scheme collections describe a different database layout</b> from the curated views the bot queries. Fed to the SQL model as they are, their column names and example SQL would steer it toward tables that are not in its schema, which means more repairs and more wrong SQL.</li>
+        <li><b>The bot does not own or control them.</b> Another team owns them, there is no versioning contract, five of the nine source YAMLs are not in our repo, and some entries are flagged <code>needs_sme_confirmation</code>.</li>
+        <li><b>They are unprotected.</b> Qdrant has no API key (SEC-07), so anyone who can reach it could rewrite them. Putting them into SQL prompts would add a prompt-poisoning path.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>The best solution (task RAG-06)</h3>
+      <ul>
+        <li><b>Do not</b> connect them to the officer-facing knowledge path. They are schema metadata, not scheme guidance.</li>
+        <li>Use them as an <b>optional, validated schema-retrieval step for SQL generation</b>, starting with the two collections that match (CM Elevate, Focus Plus).</li>
+        <li>Check every retrieved item against the live catalogue (<code>schema_introspect</code>). Drop any item whose table or column is not live. Never insert example SQL unless SQLGlot parses it and it references only live curated objects.</li>
+        <li>Run in shadow mode first (log what would be added), then A/B on the golden set, then switch on per scheme behind a flag. If it is not faster or more accurate, leave it off.</li>
+        <li>For the other four, ask the owner whether that layout is a planned new schema or the raw layer. Agree a version pin (<code>schema_version</code> plus <code>content_hash</code>) and a read-only key for the bot.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+
+<details><summary>Session prompt for RAG-06</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-RAG-06">Copy session prompt</button></div>
+  <pre class="prompt" id="p-RAG-06">TASK RAG-06: Use the Qdrant Metadata_* schema collections for SQL retrieval, validated and measured
+Repo: meghoneai (Megh One AI). Area: Knowledge base (RAG). Severity: Medium. Wave: 3. Related: KI-010, KI-011, new.
+Start only after these are merged into Main: SEC-07, QA-01, SQL-01. Then create branch task/rag-06 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+REPRODUCED on 28 Oct, read-only: no code reads any Metadata_* collection. Their 4,016 points re-embed with our qwen3-embedding at cosine 0.9999. Only CM Elevate and Focus Plus describe the curated views the bot queries.
+
+THE ISSUE
+Seven Metadata_* collections on our Qdrant server hold column meanings, synonyms, entity values with row counts, formulas, aggregation rules, clarification rules, the join graph and example question→SQL pairs, all embedded with our own model. Neither RAG nor NL→SQL uses them. SQL generation instead relies on the hand-written schema_context.py, which is large, falls back to all schemes (KI-011) and drifts from the SME YAMLs (KI-010). But they cannot be plugged in as they are:
+  - MGNREGA, PMAY, Focus Legacy and CM Elevate Legacy describe a different layout (mgnrega_employment, pmay_beneficiaries, mapped_*_lgd_name) from the curated views the bot queries.
+  - NRLM is not one of our schemes.
+  - Another team owns them, with no version contract.
+  - They are writable by anyone until SEC-07.
+
+EVIDENCE
+- A grep of app/ finds no Metadata_ reference. CLAUDE.md:246 and ARCHITECTURE.md:439 say "not ours".
+- Point counts: CMElevate 917, FocusPlus 659, FocusLegacy 733, CMElevateLegacy 501, PMAY 459, NRLM 387, MGNREGA 360.
+- The bot queries curated.v_employment, v_pmay, v_focus_legacy and v_cm_elevate, with lgd_district. mapped_district_lgd_name has 0 references in app/.
+- Five of the nine source YAMLs named in the payloads are not in data/.
+- Re-embedding the stored text with our gateway reproduces the stored vectors (cosine 0.9999 to 1.0, 6 of 6 samples).
+
+THE SOLUTION
+- Step 1, no code in the answer path: write an offline script that lists, per collection, which doc tables and columns exist in the live schema_introspect catalogue. Send the result to the owning team. Ask whether the mapped_* layout is a planned schema, and agree a pin on schema_version plus content_hash and a read-only Qdrant key for the bot.
+- Step 2: add a new app/schema_rag.py. Embed the question once. Search Metadata_&lt;scheme&gt; filtered to excluded=False and doc_type in column, formula, rule or clarification, top 8, with a 1.5 s timeout that fails open to today's prompt. Drop every item whose table or column is not live. Add example SQL only if SQLGlot parses it and it references only live curated objects.
+- Add the survivors as one short "Relevant schema notes" block in the SQL generation prompt, behind SCHEMA_RAG_ENABLED (default off), with a per-scheme allow-list that starts at CM Elevate and Focus Plus.
+- Shadow mode first: log the block without sending it. Then A/B on the golden set (QA-01). Switch on per scheme only if accuracy holds or improves and the prompt gets shorter. Record the result as a DECISIONS entry.
+
+DO NOT
+- Adding them to the officer-facing knowledge path (megh_scheme_kb_v4 or answer_from_kb). They are schema metadata, not scheme guidance.
+- Feeding the MGNREGA, PMAY or Legacy collections to the SQL model before the layout question is answered. Their table names would steer it to tables it cannot query.
+- Writing to, re-indexing or deleting any Metadata_* collection.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/schema_rag.py: new
+- app/prompt_builder.py: one optional block in the SQL generation prompt builder (not _entities_block, build_repair_prompt or build_verify_prompt)
+- app/pipeline/common/c10_sql_generation_and_rewrites.py: generate_sql call site (not _c1x_apos0)
+- app/config.py: SCHEMA_RAG_* settings in a new block next to the RAG settings
+- scripts/metadata_schema_check.py: new
+- tests/test_schema_rag_2026_10_28.py: new; stubbed Qdrant client
+
+DONE WHEN
+- The offline check report is shared with the owner, and a reply is recorded.
+- Unit tests: any item naming a table or column outside the live catalogue is dropped; a timeout falls back to today's prompt; flag off means a byte-identical prompt.
+- The golden-set A/B is recorded, and the flag stays off unless accuracy is equal or better.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_rag06_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your RAG-06 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-500–519. New decisions as "D-RAG-06". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details></section>
+<section><div class="cols"><div class="panel">
+      <h3>Rules every session follows</h3>
+      <ul>
+        <li><b>Branch:</b> name it <code>task/&lt;id&gt;</code>. Cut it from Main only after the tasks listed in its "start after" have merged. Merge through the Bitbucket merge queue, which tests each PR on top of everything already queued.</li>
+        <li><b>Docs:</b> edit only your task's pre-made stub in CURRENT_STATE and HANDOFF (DOC-02 creates them) and your own KI detail sections. Never edit the KI summary table, the TESTING history table or the "Last updated" lines; the integrator updates those at merge.</li>
+        <li><b>Ids:</b> new KI ids come only from your track's range (shown on the board). New decisions are written as <code>D-&lt;task id&gt;</code>, and the integrator numbers them from D-074.</li>
+        <li><b>Pipeline helpers:</b> prefix every new pipeline name with your file and task, for example <code>_c11_sql01_</code>. A duplicate top-level name silently replaces the other one (KI-413). Run <code>tests/test_pipeline_namespace_2026_10_26.py</code> before every PR.</li>
+        <li><b><code>config.py</code> and <code>.env.example</code>:</b> add settings next to related ones, in their own commented block. Never add at the end of the class, and never reorder.</li>
+        <li><b>Frontend:</b> never commit <code>web/app</code>. Before a PR, <code>git diff --name-only origin/Main...HEAD -- web/app</code> must be empty. The integrator builds once after the last frontend merge.</li>
+        <li><b>Requirements:</b> only QA-02 (wave 0) edits the requirements files.</li>
+      </ul>
+    </div><div class="panel">
+      <h3>Integration checklist after each wave</h3>
+      <ol>
+        <li>Run the full pytest command from TESTING.md §2 (baseline 3,910 passed and 3 skipped at HEAD; about 3,932 once P0 is in). After QA-02, <code>pytest tests -q</code> must finish too.</li>
+        <li>Run all 14 script suites; all must pass.</li>
+        <li>Run the namespace test and the duplicate KI and D id tests (from QA-02).</li>
+        <li>Run <code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code> and commit <code>web/app</code>. The node card and table tests must pass, not skip.</li>
+        <li>On the VPN: <code>live_context_validation.py</code> with caches on and off, <code>nl2sql_eval --fail-on-regression</code>, <code>rag_eval</code>, and one in-process answer per scheme as a district officer.</li>
+        <li>Restart on port 8401 and check <code>/health</code>, <code>/megh-chat</code> and <code>/admin-ui</code>.</li>
+        <li>Integrator only: update the KI table, the TESTING history and the "Last updated" lines.</li>
+      </ol>
+    </div></div></section>
+<nav class="crumbs" aria-label="Areas"><a href="index.html">← Overview</a><a href="security-access.html">Security & access</a><a href="context-memory.html">Context memory</a><b>Knowledge base (RAG)</b><a href="composer-answer-text.html">Composer (answer text)</a><a href="frontend.html">Frontend</a><a href="nl2sql-scheme-rules.html">NL→SQL & scheme rules</a><a href="reliability-ops.html">Reliability & ops</a><a href="testing-evaluation.html">Testing & evaluation</a><a href="documentation.html">Documentation</a><a href="ingestion-team.html">Ingestion team</a></nav>
+</div><script>
+document.addEventListener("click",function(e){var b=e.target.closest("[data-copy-pre]");if(!b)return;var pre=document.getElementById(b.getAttribute("data-copy-pre"));var t=pre.textContent;
+function sel(){var r=document.createRange();r.selectNodeContents(pre);var s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent="Selected, press Ctrl+C";}
+try{navigator.clipboard.writeText(t).then(function(){b.textContent="Copied";setTimeout(function(){b.textContent="Copy session prompt"},2000)},sel)}catch(err){sel()}});
+</script></body></html>
