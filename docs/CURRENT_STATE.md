@@ -4,7 +4,37 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
-## Latest: generated SQL runs through `semantic.run_query` as megh_chatbot (2026-10-27 afternoon, D-073). Code changed, uncommitted. LIVE-VERIFIED in-process; :8401 NOT restarted.
+## Latest: generated SQL switched to megh_chatbot in `.env` (2026-10-28). Config only. LIVE-VERIFIED in-process; the :8401 server (started 11:13, before the change) NOT restarted.
+- `.env` `CHATBOT_DATABASE_URL` uncommented (user, 2026-10-28): the D-073 path (`semantic.run_query` as megh_chatbot)
+  is now on for the next start. Settings load (user `megh_chatbot`, pool max 4, `SQL_MAX_COST` 1,000,000) — VERIFIED.
+  Live (VPN up), in-process through `app.main.lifespan`: startup logs `chatbot pool ready as 'megh_chatbot'`; session
+  `current_user` megh_chatbot, `application_name` megh-chatbot-v2:chatbot; run_query rows come back with int/date/bool types.
+  One generated-SQL question per scheme, each 1 run_query call, all answered: MGNREGA top-5 blocks EKH 2023-24 (5 rows),
+  PMAY-G top-5 blocks WGH 2022-23 (5), CM Elevate district 2025-26 (12), Focus Legacy district 2022-23 (11), CM Elevate
+  Legacy district 2024-25 (12); Focus Plus district 2025-26 answered by a fixed query (0 run_query calls, 12 rows) — VERIFIED.
+  Seen, not caused by the switch: "CM Elevate applications" answered as CM Elevate Legacy (keyword pin); Focus Legacy
+  "beneficiaries per district" answered with amount disbursed + memberships (composer extra content, see the 2026-10-27 audit).
+- Still on `postgres`: `DATABASE_URL` (app pool) and the checkpointer (`PIPELINE_GRAPH_CHECKPOINTER_DSN=postgres` reuses it);
+  moves to `megh_app` when the team sends the password + the user's go-ahead on `020_megh_app_role.sql`.
+
+## Latest: KI-438 — tables and chart axes show what the rows mean (2026-10-28). Frontend only, uncommitted, `web/app/` rebuilt. Offline-verified; browser check NOT run.
+- Twin columns (year_key + financial_year, name + code; one-to-one in the data) shown once — no diagonal grid of dashes.
+- Every table: Indian-grouped, right-aligned figures; readable headers; totals only for measures that add up.
+- Charts: axis titles, ₹ lakh / ₹ crore / % ticks and tooltips. "Change from previous" column only when the question
+  asks how a figure moved. Rows and the Excel download unchanged. New module `frontend/src/chat/columns.js`.
+- Tests: NEW `tests/test_table_view_2026_10_28.py` (28 with the card tests); full run in TESTING.md.
+
+## Latest: KI-437 — a cross-scheme comparison shows only what was asked (2026-10-27 evening). Code changed, uncommitted. Offline-verified; live check NOT run (VPN down); :8401 not restarted.
+- User screenshot: "Compare beneficiaries in mgnrega and PMAY-G." also gave PMAY-G completed houses, a separate MGNREGA
+  sentence, a table with money / villages / sanctioned ₹ crore, and a VS card comparing amount (₹ crore).
+- `app/cross_figures.py`: `_rows` has only the asked measures; one `beneficiaries` column for every scheme;
+  `Plan.completed` / `Plan.pgs` show PMAY-G completed / FOCUS producer groups only when asked or for a broad ask;
+  MGNREGA's household-year note is a clause on its own line. `frontend/src/chat/analytics.js` `askedMeasureCol`: the
+  two-way card compares the measure the question names. `web/app/` rebuilt.
+- Tests: pytest 3,910 passed / 0 failed (3 skipped; 2 async tests first failed because the fresh venv lacked
+  `pytest-asyncio` — installed with `pytest`, then green); scripts 14/14.
+
+## Earlier: generated SQL runs through `semantic.run_query` as megh_chatbot (2026-10-27 afternoon, D-073). Code changed, uncommitted. LIVE-VERIFIED in-process; :8401 NOT restarted.
 - `.env` `CHATBOT_DATABASE_URL` (key renamed from the user's `DATABASE_URL_CHATBOT`, which made settings refuse to load). Third pool, 4/worker.
 - Row values restored to asyncpg's types from run_query's `types` (added by the team today); 583/585 recent statements identical, 2 = same rows, no ORDER BY.
 - Refusals -> existing errors; class 08 / 53300 retried once; repairs stay 3 (team agreed). `application_name` = `megh-chatbot-v2:<pool>` on every connection.

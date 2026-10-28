@@ -335,7 +335,9 @@ Notes on the table:
   (`app/cross_figures.py`): fixed per-scheme queries, then totals, district rankings, the leading / second
   scheme per district, "districts where X > Y" and per-beneficiary figures in Python. Measures: MGNREGA
   households given work (household-years, FYs added) and `total_exp`; PMAY-G houses and the amount
-  **released**; Focus Plus distinct beneficiaries; Focus Legacy **members** (PGs beside them); villages without
+  **released**; Focus Plus distinct beneficiaries; Focus Legacy **members** (PGs beside them only when asked or for
+  a broad ask, as are PMAY-G completed houses — KI-437; the table holds only the asked measures, the count in one
+  `beneficiaries` column for every scheme); villages without
   'Unresolved' rows (money and members keep them). Focus Plus is grouped by its source district / block names
   (`district_name_raw` / `block_name_raw`, = the raw file: West Garo Hills 35,059), every other scheme by LGD.
   A combined total only when asked. "Excluding / leaving out <scheme>" removes it (CM-ELEVATE = both
