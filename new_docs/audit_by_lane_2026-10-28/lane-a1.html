@@ -81,7 +81,7 @@ details summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;
 <header>
   <span class="eyebrow">Lane audit report · 28 Oct 2026 · You · session 1</span>
   <h1>Lane A1 · Platform &amp; security</h1>
-  <p class="lede">12 tasks. Every task here depends only on earlier tasks in this lane, so this lane never waits for another. RAG tasks are left out of this round.</p>
+  <p class="lede">14 tasks. Every task here depends only on earlier tasks in this lane, so this lane never waits for another. RAG tasks are left out of this round.</p>
   <p><b>Owns:</b> <code>config.py</code> structure, <code>main.py</code>, <code>db.py</code>, <code>sql_guard.py</code>, <code>auth.py</code>, <code>net.py</code>, <code>deps.py</code>, the auth router, the middleware, <code>metric_catalog.py</code>, the CI files, requirements, <code>.gitignore</code>, <code>deploy/</code>. It also edits the four authorise sites in c13 and <code>refresh_scheme_years</code> in c06.</p>
   <p><b>Outside blockers, never waited on:</b> the Qdrant key from infra (SEC-07), and the DB team plus a live query inventory for the superuser-routing part of SEC-06.</p>
 </header>
@@ -141,7 +141,13 @@ YOUR TASKS, IN ORDER
 - Not yours: the non-stream deadline in routers/query.py (lane A2).
 - Done: boot works with a .env that still sets a deleted key; a stubbed ConnectError gives exactly one retry.
 
-2. SEC-01a · Seed password and stray files  [security-access.html#SEC-01]
+2. REL-05 · The model gate is per worker: document the real budget
+- llm.py:103 creates one asyncio.Semaphore(MODEL_MAX_CONCURRENCY) per process. With 2 workers on 2 VMs the gateway can see 4 × the setting.
+- Fix the comment at config.py:85-89 to say "per worker". Add the formula to deploy/DEPLOYMENT.md and docs/ARCHITECTURE.md (~line 190): per-worker value = gateway budget ÷ (VMs × workers), e.g. 24 ÷ 4 = 6.
+- No Redis-backed shared gate now. The gate's queue timeout already exists (llm.py:144-146).
+- Done: both docs state the formula, and the comment says per worker.
+
+3. SEC-01a · Seed password and stray files  [security-access.html#SEC-01]
 - appdb._seed_users_from_yaml: remove the "changeme123" default. A seed record without a password or env hash is skipped with a warning. Delete the log line that prints the default.
 - app/users.yaml: remove the password lines.
 - git rm the strays: .claude/settings.json, frontend/undefined/*.xlsx, frontend/pie_*.png, the 0-byte root constants.js, tests/ui_headless/token_sa.txt.
@@ -149,7 +155,7 @@ YOUR TASKS, IN ORDER
 - Not now: the git-history purge (SEC-01b, at final integration).
 - Done: a pytest calls the real _seed_users_from_yaml with a fake DB and shows a record without a password is skipped.
 
-3. QA-02 · Test tooling and CI  [testing-evaluation.html#QA-02]
+4. QA-02 · Test tooling and CI  [testing-evaluation.html#QA-02]
 - tests/conftest.py, at the top: collect_ignore for the 14 script suites (files with no "def test_"), using plain string checks.
 - requirements-dev.txt with pytest and pytest-asyncio pinned. Regenerate requirements.lock on Python 3.11.9.
 - CI test step: install node and run npm ci in frontend/. Fail when CI=true and node is missing.
@@ -158,7 +164,7 @@ YOUR TASKS, IN ORDER
 - Not now: the duplicate KI/D id test. It is added at final integration.
 - Done: "pytest tests -q" finishes with no INTERNALERROR; CI shows the node tests passing.
 
-4. SEC-02 · Close the geography leaks in authorize()  [security-access.html#SEC-02]
+5. SEC-02 + SEC-09a · Close the geography leaks in authorize()  [security-access.html#SEC-02]
 - New function appended to sql_ast. For every SELECT that reads a base view, it returns the EQ/IN geo predicates among the top-level AND conjuncts. NOT, NEQ, LIKE and OR never count.
 - For a geo-restricted user at finer-than-state grain, every such SELECT needs one, with all values allowed. A block counts only via entity_resolver.block_parent_district; check for an import cycle.
 - One geo-column registry in auth.py, used by infer_granularity, _districts_in_sql and _blocks_in_sql:
@@ -172,8 +178,10 @@ YOUR TASKS, IN ORDER
   - a block from another district;
   - GROUP BY block_name_raw, ac_name or district_name_raw for a district officer.
 - Also: tests/test_security.py (a script) and test_sql_ast.py stay green.
+- SEC-09a (part of this task): count village_code EQ/IN literals as geo predicates, placed with the existing entity_resolver.village_code_place (deny if the place is unknown). Also check district_list, block_list and village_code_list in resolved. Run the check on EVERY statement when several are joined with ";". Do not edit entity_resolver.py.
+- Done (SEC-09a): a block officer asking about a village in another block is denied; a village inside the block is allowed; a joined bundle with one unfiltered statement is denied.
 
-5. SEC-03 · Authorise the four fixed-answer paths (c13)  [security-access.html#SEC-03]
+6. SEC-03 · Authorise the four fixed-answer paths (c13)  [security-access.html#SEC-03]
 - Reuse _repaired_sql_denial and _denied at each site:
   - _data_scheme_stage (~1002, Focus Legacy PG name): after the scheme check, keep only rows whose district is allowed. Do not authorise its SQL.
   - _data_clarification_stage (~1145, Focus Plus summary): authorise its fixed SQL.
@@ -184,13 +192,13 @@ YOUR TASKS, IN ORDER
 - Pinned tests to update deliberately: test_measure_not_held.py:133, test_scheme_years.py:75, test_metric_catalog_2026_10_26.py:220, test_mgnrega_usecase_fixes.py:560.
 - Done: one denial test per path through tests/_graph_turn.py.
 
-6. SEC-05 · Right client IP; harder login and logout  [security-access.html#SEC-05]
+7. SEC-05 · Right client IP; harder login and logout  [security-access.html#SEC-05]
 - net.py: when the peer is trusted, read X-Real-IP, falling back to the right-most XFF hop. TRUSTED_PROXIES default "127.0.0.1,::1"; update DEPLOYMENT.md lines 114 and 311.
 - routers/auth.py: a dummy verify_password for unknown or inactive users; hmac.compare_digest in bootstrap; a per-username backoff delay, NOT a hard lockout.
 - token_version column (additive DDL in appdb), bumped on password change and logout, checked in deps.current_scope.
 - Done: tests for the XFF case, an old token failing after a password change, and equal timing for unknown and wrong-password users.
 
-7. SEC-07 · Lock down Qdrant; production boot guard  [security-access.html#SEC-07]
+8. SEC-07 · Lock down Qdrant; production boot guard  [security-access.html#SEC-07]
 - Check without printing values: does the dev .env say ENV=dev? Setup asked for ENV=dev on BOTH dev machines.
   - If you cannot confirm it, add BOOT_GUARD_ENFORCE (default False), implement everything, record it in HANDOFF, and ask the user to flip it.
 - insecure_secrets also flags: AUTH_ENABLED=false, ASR_DEBUG_DIR set, a CA bundle configured but missing. The Qdrant-key item stays warn-only until infra provides the key.
@@ -200,18 +208,27 @@ YOUR TASKS, IN ORDER
 - The Qdrant API key and firewall are an infra request: record it, do not wait.
 - Done: prod boot fails with a default secret, dev boots; tests/test_security.py extended.
 
-8. SEC-06 · DB layer  [security-access.html#SEC-06]
+9. SEC-06 · DB layer  [security-access.html#SEC-06]
 - Wrap every pool.acquire in asyncio.timeout(DB_POOL_ACQUIRE_TIMEOUT), new setting next to the pool settings, and map a timeout to DatabaseUnavailableError. Put a per-pool asyncio.Lock around each lazy ensure_*_pool.
 - sql_guard: refuse schema-qualified function calls; block the has_, to_reg and current_schema prefixes and xpath.
 - BLOCKED, do not do: moving the 62 fixed curated queries off the postgres superuser. That needs a live run of every fixed query as megh_readonly and the DB team's agreement. Record it.
 - Done: 10 concurrent ensure_readonly_pool calls create one pool; guard tests for each new block.
 
-9. CTX-04b · Audit log hygiene  [context-memory.html#CTX-04]
+10. SEC-08 · A CTE named after a private table gets past the guard
+- sql_guard._assert_schemas (~124-140) skips any table name that matches a CTE name. Refuse a CTE whose alias equals a PRIVATE_TABLES base name (rule private_table) or starts with pg_ (rule schema_not_allowed).
+- Full CTE scoping would be better but is riskier; not now.
+- In your HANDOFF lane section, record a question for the DB team: would megh_readonly or semantic.run_query also block this? The repo's grant script gives megh_readonly SELECT on all of curated.
+- Done:
+  - WITH fact_cm_elevate_disbursement AS (SELECT * FROM fact_cm_elevate_disbursement) SELECT … raises private_table; so do the same shapes for bridge_pg_bank_history and fact_focus_legacy_disbursement, and a CTE defined only inside a subquery;
+  - WITH pg_user AS (SELECT * FROM pg_user) SELECT … raises schema_not_allowed;
+  - tests/test_sql_guard.py and tests/test_db_changes_2026_10_16.py stay green.
+
+11. CTX-04b · Audit log hygiene  [context-memory.html#CTX-04]
 - auth.audit: write logs/query_audit.jsonl through asyncio.to_thread, with size-based rotation. Delete the dead auth.read_audit.
 - Not yours: the retention purge and the delete cascade (lane A2).
 - Done: tests for the threaded write and for rotation.
 
-10. SQL-08 · Catalogue pin and recovery from failed startup loads  [nl2sql-scheme-rules.html#SQL-08]
+12. SQL-08 · Catalogue pin and recovery from failed startup loads  [nl2sql-scheme-rules.html#SQL-08]
 - Add expression_sha per verified entry in data/metric_catalog_verified.yaml, over sql_expression + base_object + filters_required. On a mismatch, drop the entry from verified and log a WARNING.
 - Add one background task in main.py's lifespan that retries failed startup loads (schema_introspect, metric_catalog, refresh_scheme_years) with backoff, and refreshes daily.
 - refresh_scheme_years (c06) returns its status.
@@ -219,14 +236,14 @@ YOUR TASKS, IN ORDER
 - No 30-minute refresh and no admin endpoint.
 - Done: a changed expression makes verified() return None; a load that failed at startup recovers without a restart.
 
-11. REL-03 · Request ids in logs, a cheap /health, bounded rate-limit memory  [reliability-ops.html#REL-03]
+13. REL-03 · Request ids in logs, a cheap /health, bounded rate-limit memory  [reliability-ops.html#REL-03]
 - A logging.Filter adds the request id and the user to every record.
 - Validate X-Request-ID to letters, digits and hyphens using string methods.
 - Cache /health component results for 5 s, with a 2 s timeout per probe.
 - Drop empty rate-limit deques.
 - Done: tests; /health answers within 2 s while the DB is down.
 
-12. DOC-01a · Guide docs back in line with the code  [documentation.html#DOC-01]
+14. DOC-01a · Guide docs back in line with the code  [documentation.html#DOC-01]
 - CLAUDE.md:
   - the verifier is qwen-model (30B), not the 4B;
   - there is no graph off/on switch and no "sequential path";
@@ -241,7 +258,7 @@ YOUR TASKS, IN ORDER
 - AI_PIPELINE.md §0 model table and the §8 heading.
 - Done: one test count used everywhere; model roles match config.py.
 
-When all 12 are done: set your Progress line to "Lane A1 complete", make sure the PR is merged or queued, and tell the user.</pre>
+When all 14 are done: set your Progress line to "Lane A1 complete", make sure the PR is merged or queued, and tell the user.</pre>
 </section>
 <section>
   <h2>Tasks, in order</h2>
@@ -256,8 +273,19 @@ When all 12 are done: set your Progress line to "Lane A1 complete", make sure th
         <details open><summary>Tests that pin this code</summary><ul><li>test_query_stream.py:227-228 (source pin on query.py)</li></ul></details>
       </div>
     </article>
+<article class="task Medium" id="REL-05">
+      <div class="thead"><span class="tid">2. REL-05</span><span class="pill s-Medium">Medium</span><h2 class="ttl">The model gate is per worker: document the real budget</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>llm.py:103 creates one asyncio.Semaphore(MODEL_MAX_CONCURRENCY) per process. With 2 workers on 2 VMs the gateway can see 4 × the setting.</li><li>Fix the comment at config.py:85-89 to say "per worker". Add the formula to deploy/DEPLOYMENT.md and docs/ARCHITECTURE.md (~line 190): per-worker value = gateway budget ÷ (VMs × workers), e.g. 24 ÷ 4 = 6.</li><li>No Redis-backed shared gate now. The gate's queue timeout already exists (llm.py:144-146).</li><li>Done: both docs state the formula, and the comment says per worker.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · REL-05: The model gate is per worker, so the gateway can get 4× the budget <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Confirmed in code; the gateway impact is inferred. The gate already has a queue timeout, so the fix is to document the per-worker budget.</p>
+<p class="status"><b>INFERRED</b> from the code; the gateway load was not measured.</p>
+<h5>The problem</h5><p><code>MODEL_MAX_CONCURRENCY=24</code> is documented as sized for the H200's ~24 decodes. But the <code>asyncio.Semaphore</code> is per worker: 2 workers on each of 2 VMs means ~96 calls in flight. Past capacity, the 30 s SQL and 15 s verifier timeouts fire, and become repairs or KB fallbacks instead of a clean 503.</p>
+<h5>What the officer sees</h5><p>Under load, more wrong answers and slow answers, not busy messages.</p>
+<h5>Where it comes from</h5><ul class=''><li>config.py:84-91; <code>llm._slot</code> (llm.py:103, :130-158).</li></ul>
+</div>
+    </article>
 <article class="task Critical" id="SEC-01a">
-      <div class="thead"><span class="tid">2. SEC-01a</span><span class="pill s-Critical">Critical</span><h2 class="ttl">Seed password and stray files</h2></div>
+      <div class="thead"><span class="tid">3. SEC-01a</span><span class="pill s-Critical">Critical</span><h2 class="ttl">Seed password and stray files</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>appdb._seed_users_from_yaml: remove the "changeme123" default. A seed record without a password or env hash is skipped with a warning. Delete the log line that prints the default.</li><li>app/users.yaml: remove the password lines.</li><li>git rm the strays: .claude/settings.json, frontend/undefined/*.xlsx, frontend/pie_*.png, the 0-byte root constants.js, tests/ui_headless/token_sa.txt.</li><li>Add /*.csv, .claude/, frontend/undefined/ and tests/ui_headless/token*.txt to .gitignore.</li><li>Not now: the git-history purge (SEC-01b, at final integration).</li><li>Done: a pytest calls the real _seed_users_from_yaml with a fake DB and shows a record without a password is skipped.</li></ul></div>
       <div class="ev"><h4>Audit evidence · SEC-01: Purge personal data and credentials from git history, and clean the repo</h4>
         <p class="note"><b>Split task:</b> Lane A1 does the code part. The git-history purge (SEC-01b) waits for final integration.</p>
@@ -268,7 +296,7 @@ When all 12 are done: set your Progress line to "Lane A1 complete", make sure th
       </div>
     </article>
 <article class="task Medium" id="QA-02">
-      <div class="thead"><span class="tid">3. QA-02</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Test tooling and CI</h2></div>
+      <div class="thead"><span class="tid">4. QA-02</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Test tooling and CI</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>tests/conftest.py, at the top: collect_ignore for the 14 script suites (files with no "def test_"), using plain string checks.</li><li>requirements-dev.txt with pytest and pytest-asyncio pinned. Regenerate requirements.lock on Python 3.11.9.</li><li>CI test step: install node and run npm ci in frontend/. Fail when CI=true and node is missing.</li><li>CI bundle-drift check (npm run build &amp;&amp; git diff --exit-code -- web/app) on Main and the merge queue only. Lane A2 commits web/app with every frontend change, so this check stays green.</li><li>New test: an AST no-regex check over app/ and tests/, plus a string scan of frontend/src.</li><li>Not now: the duplicate KI/D id test. It is added at final integration.</li><li>Done: "pytest tests -q" finishes with no INTERNALERROR; CI shows the node tests passing.</li></ul></div>
       <div class="ev"><h4>Audit evidence · QA-02: Fix the test tooling and CI</h4>
         
@@ -279,18 +307,24 @@ When all 12 are done: set your Progress line to "Lane A1 complete", make sure th
       </div>
     </article>
 <article class="task High" id="SEC-02">
-      <div class="thead"><span class="tid">4. SEC-02</span><span class="pill s-High">High</span><h2 class="ttl">Close the geography leaks in authorize()</h2></div>
-      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>New function appended to sql_ast. For every SELECT that reads a base view, it returns the EQ/IN geo predicates among the top-level AND conjuncts. NOT, NEQ, LIKE and OR never count.</li><li>For a geo-restricted user at finer-than-state grain, every such SELECT needs one, with all values allowed. A block counts only via entity_resolver.block_parent_district; check for an import cycle.</li><li>One geo-column registry in auth.py, used by infer_granularity, _districts_in_sql and _blocks_in_sql:<ul><li>district: lgd_district, district_name_raw;</li><li>block: lgd_block, block_name_raw;</li><li>AC: ac_name, assembly_constituency_name, counted at block level.</li></ul></li><li>scope_from_user fails closed: an empty scheme intersection gives []; take the coarser of role cap and user cap; ignore an unknown cap; an unknown role gets public.</li><li>Do not change sql_ast.filter_values (13 callers). Do not inject predicates with transform.</li><li>Done: tests calling the real authorize deny each case:<ul><li>&lt;&gt;, NOT IN, OR 1=1, an unfiltered UNION branch, a CTE with OR … IS NOT NULL;</li><li>a block from another district;</li><li>GROUP BY block_name_raw, ac_name or district_name_raw for a district officer.</li></ul></li><li>Also: tests/test_security.py (a script) and test_sql_ast.py stay green.</li></ul></div>
+      <div class="thead"><span class="tid">5. SEC-02 + SEC-09a</span><span class="pill s-High">High</span><h2 class="ttl">Close the geography leaks in authorize()</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>New function appended to sql_ast. For every SELECT that reads a base view, it returns the EQ/IN geo predicates among the top-level AND conjuncts. NOT, NEQ, LIKE and OR never count.</li><li>For a geo-restricted user at finer-than-state grain, every such SELECT needs one, with all values allowed. A block counts only via entity_resolver.block_parent_district; check for an import cycle.</li><li>One geo-column registry in auth.py, used by infer_granularity, _districts_in_sql and _blocks_in_sql:<ul><li>district: lgd_district, district_name_raw;</li><li>block: lgd_block, block_name_raw;</li><li>AC: ac_name, assembly_constituency_name, counted at block level.</li></ul></li><li>scope_from_user fails closed: an empty scheme intersection gives []; take the coarser of role cap and user cap; ignore an unknown cap; an unknown role gets public.</li><li>Do not change sql_ast.filter_values (13 callers). Do not inject predicates with transform.</li><li>Done: tests calling the real authorize deny each case:<ul><li>&lt;&gt;, NOT IN, OR 1=1, an unfiltered UNION branch, a CTE with OR … IS NOT NULL;</li><li>a block from another district;</li><li>GROUP BY block_name_raw, ac_name or district_name_raw for a district officer.</li></ul></li><li>Also: tests/test_security.py (a script) and test_sql_ast.py stay green.</li><li>SEC-09a (part of this task): count village_code EQ/IN literals as geo predicates, placed with the existing entity_resolver.village_code_place (deny if the place is unknown). Also check district_list, block_list and village_code_list in resolved. Run the check on EVERY statement when several are joined with ";". Do not edit entity_resolver.py.</li><li>Done (SEC-09a): a block officer asking about a village in another block is denied; a village inside the block is allowed; a joined bundle with one unfiltered statement is denied.</li></ul></div>
       <div class="ev"><h4>Audit evidence · SEC-02: Close the geography leaks in authorize()</h4>
         
         <div class="status"><b>REPRODUCED</b> with real <code>auth.authorize</code> calls for a district officer pinned to EAST KHASI HILLS.</div>
         <div><span class="lbl">The issue</span><code>authorize</code> only checks that the district or block values named in the SQL are allowed. So <code>&lt;&gt;</code>, <code>NOT IN</code>, <code>OR 1=1</code>, an unfiltered <code>UNION</code> branch, a CTE with <code>OR … IS NOT NULL</code>, and a block from another district are all allowed. Worse, no trick is needed: <code>GROUP BY block_name_raw</code>, <code>district_name_raw</code> or <code>ac_name</code> is treated as statewide, so an ordinary "Focus Plus beneficiaries by block" shows a district officer every block in the state. There are three fail-open scope bugs as well:<ul><li>a scheme-name typo grants all six schemes;</li><li>an unknown role falls back to the analyst role (all geography);</li><li>a bogus <code>granularity_cap</code> crashes every question with <code>ValueError</code>.</li></ul></div>
         <details open><summary>Evidence</summary><ul><li><code>sql_ast.filter_values</code> (:325) walks every comparison, including NEQ and Not(In), without regard to AND or OR.</li><li>auth.py:172 (role fallback), :177 (<code>or schemes</code>), :191 (the user cap can widen the role cap).</li><li>An unfiltered <code>GROUP BY lgd_district</code> and <code>LIKE '%'</code> are already denied correctly.</li></ul></details>
         
-      </div>
+      </div><div class="ev"><h4>Audit evidence · SEC-09: On the first attempt, authorization checks SQL that is not the SQL that runs <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced. Authorising only after the rewrites would wrongly deny in-area village questions, because authorize never places a village_code, so the place must come from entity_resolver.village_code_place. Split: SEC-09a inside A1's SEC-02, SEC-09b in B1.</p>
+<p class="status"><b>REPRODUCED</b> at function level. On the first attempt the graph authorizes before the rewrites (re-checked by me). The live leak is INFERRED.</p>
+<h5>The problem</h5><p>Authorization runs on the model's SQL. About 60 deterministic rewrites then change it, several of them moving geography, and only repaired SQL is checked again. Cross-scheme bundles are checked once, as joined text.</p>
+<h5>What the officer sees</h5><p>A block officer for MYLLIEM: the model writes <code>WHERE lgd_block='MYLLIEM' AND village_code=271234</code> (allowed), and the rewrite turns it into <code>WHERE village_code = 271234</code>, which would be denied, but is never re-checked. A district officer's cross-scheme bundle in which one statement is filtered to their district passes for an unfiltered <code>GROUP BY lgd_district</code> in another statement.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>node_authorize</code> (pipeline_graph.py:440) runs before <code>_scheme_sql_rewrites</code> (:461). The re-check at :463-467 runs only <code>if attempt:</code> (the KI-183 fix covered repairs only).</li><li>Rewrites that move geography: <code>_mgnrega_drop_geo_beside_village</code>, <code>_stray_block_literal</code> (c10:675), <code>_resolved_district_literal(s)</code> (c10:643, :709), <code>_cm_elevate_compare_by_district</code> (cm_elevate.py:1359).</li><li>Cross-scheme: attempt 0 is authorized once on all statements joined with ";" (c13:1928). Per-scheme re-authorization also runs only <code>if attempt</code> (c13:1948).</li><li><code>auth.authorize</code> (auth.py:263-269) reads only <code>resolved["district"]</code> and <code>["block"]</code>. It ignores <code>district_list</code>, <code>block_list</code> and <code>village_code</code>.</li></ul>
+</div>
     </article>
 <article class="task High" id="SEC-03">
-      <div class="thead"><span class="tid">5. SEC-03</span><span class="pill s-High">High</span><h2 class="ttl">Authorise the four fixed-answer paths (c13)</h2></div>
+      <div class="thead"><span class="tid">6. SEC-03</span><span class="pill s-High">High</span><h2 class="ttl">Authorise the four fixed-answer paths (c13)</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Reuse _repaired_sql_denial and _denied at each site:<ul><li>_data_scheme_stage (~1002, Focus Legacy PG name): after the scheme check, keep only rows whose district is allowed. Do not authorise its SQL.</li><li>_data_clarification_stage (~1145, Focus Plus summary): authorise its fixed SQL.</li><li>_cross_scheme_scope (~1579): add a scope parameter and update its single call (~1094); authorise _res["sql"] with resolved.</li><li>_data_deterministic_stage (~1649, women): authorise _mg_women["shown"].</li></ul></li><li>Do not change cross_figures.py. Do not insert anything between "_mg_det = _mg_admin or (" and "d.update(mg_admin=_mg_admin"; a test slices that span.</li><li>Lane B1 edits the D-065 block (~1205) in the same function as your ~1145 edit, so keep your hunks small.</li><li>Pinned tests to update deliberately: test_measure_not_held.py:133, test_scheme_years.py:75, test_metric_catalog_2026_10_26.py:220, test_mgnrega_usecase_fixes.py:560.</li><li>Done: one denial test per path through tests/_graph_turn.py.</li></ul></div>
       <div class="ev"><h4>Audit evidence · SEC-03: Authorise the four fixed-answer paths</h4>
         
@@ -301,7 +335,7 @@ When all 12 are done: set your Progress line to "Lane A1 complete", make sure th
       </div>
     </article>
 <article class="task Low" id="SEC-05">
-      <div class="thead"><span class="tid">6. SEC-05</span><span class="pill s-Low">Low</span><h2 class="ttl">Right client IP; harder login and logout</h2></div>
+      <div class="thead"><span class="tid">7. SEC-05</span><span class="pill s-Low">Low</span><h2 class="ttl">Right client IP; harder login and logout</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>net.py: when the peer is trusted, read X-Real-IP, falling back to the right-most XFF hop. TRUSTED_PROXIES default "127.0.0.1,::1"; update DEPLOYMENT.md lines 114 and 311.</li><li>routers/auth.py: a dummy verify_password for unknown or inactive users; hmac.compare_digest in bootstrap; a per-username backoff delay, NOT a hard lockout.</li><li>token_version column (additive DDL in appdb), bumped on password change and logout, checked in deps.current_scope.</li><li>Done: tests for the XFF case, an old token failing after a password change, and equal timing for unknown and wrong-password users.</li></ul></div>
       <div class="ev"><h4>Audit evidence · SEC-05: Trust the right client IP; harden login and logout</h4>
         
@@ -312,7 +346,7 @@ When all 12 are done: set your Progress line to "Lane A1 complete", make sure th
       </div>
     </article>
 <article class="task High" id="SEC-07">
-      <div class="thead"><span class="tid">7. SEC-07</span><span class="pill s-High">High</span><h2 class="ttl">Lock down Qdrant; production boot guard</h2></div>
+      <div class="thead"><span class="tid">8. SEC-07</span><span class="pill s-High">High</span><h2 class="ttl">Lock down Qdrant; production boot guard</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Check without printing values: does the dev .env say ENV=dev? Setup asked for ENV=dev on BOTH dev machines.<ul><li>If you cannot confirm it, add BOOT_GUARD_ENFORCE (default False), implement everything, record it in HANDOFF, and ask the user to flip it.</li></ul></li><li>insecure_secrets also flags: AUTH_ENABLED=false, ASR_DEBUG_DIR set, a CA bundle configured but missing. The Qdrant-key item stays warn-only until infra provides the key.</li><li>lifespan: raise when ENV=="prod" and the list is not empty.</li><li>llm._get_ssl_verify: CA configured but missing gives a CRITICAL log and a refusal in prod.</li><li>Drop 'unsafe-inline' from script-src in CSP_ENFORCE, after checking that frontend/index.html and admin.html use only module scripts.</li><li>The Qdrant API key and firewall are an infra request: record it, do not wait.</li><li>Done: prod boot fails with a default secret, dev boots; tests/test_security.py extended.</li></ul></div>
       <div class="ev"><h4>Audit evidence · SEC-07: Lock down Qdrant; fail-closed production boot that the dev box survives</h4>
         
@@ -323,7 +357,7 @@ When all 12 are done: set your Progress line to "Lane A1 complete", make sure th
       </div>
     </article>
 <article class="task Medium" id="SEC-06">
-      <div class="thead"><span class="tid">8. SEC-06</span><span class="pill s-Medium">Medium</span><h2 class="ttl">DB layer</h2></div>
+      <div class="thead"><span class="tid">9. SEC-06</span><span class="pill s-Medium">Medium</span><h2 class="ttl">DB layer</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Wrap every pool.acquire in asyncio.timeout(DB_POOL_ACQUIRE_TIMEOUT), new setting next to the pool settings, and map a timeout to DatabaseUnavailableError. Put a per-pool asyncio.Lock around each lazy ensure_*_pool.</li><li>sql_guard: refuse schema-qualified function calls; block the has_, to_reg and current_schema prefixes and xpath.</li><li>BLOCKED, do not do: moving the 62 fixed curated queries off the postgres superuser. That needs a live run of every fixed query as megh_readonly and the DB team's agreement. Record it.</li><li>Done: 10 concurrent ensure_readonly_pool calls create one pool; guard tests for each new block.</li></ul></div>
       <div class="ev"><h4>Audit evidence · SEC-06: DB layer: acquire timeout, safe pool creation, tighter function block-list</h4>
         
@@ -333,8 +367,19 @@ When all 12 are done: set your Progress line to "Lane A1 complete", make sure th
         
       </div>
     </article>
+<article class="task Medium" id="SEC-08">
+      <div class="thead"><span class="tid">10. SEC-08</span><span class="pill s-Medium">Medium</span><h2 class="ttl">A CTE named after a private table gets past the guard</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>sql_guard._assert_schemas (~124-140) skips any table name that matches a CTE name. Refuse a CTE whose alias equals a PRIVATE_TABLES base name (rule private_table) or starts with pg_ (rule schema_not_allowed).</li><li>Full CTE scoping would be better but is riskier; not now.</li><li>In your HANDOFF lane section, record a question for the DB team: would megh_readonly or semantic.run_query also block this? The repo's grant script gives megh_readonly SELECT on all of curated.</li><li>Done:<ul><li>WITH fact_cm_elevate_disbursement AS (SELECT * FROM fact_cm_elevate_disbursement) SELECT … raises private_table; so do the same shapes for bridge_pg_bank_history and fact_focus_legacy_disbursement, and a CTE defined only inside a subquery;</li><li>WITH pg_user AS (SELECT * FROM pg_user) SELECT … raises schema_not_allowed;</li><li>tests/test_sql_guard.py and tests/test_db_changes_2026_10_16.py stay green.</li></ul></li></ul></div>
+      <div class="ev"><h4>Audit evidence · SEC-08: A CTE named after a private table gets past the private-table guard <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced with sql_guard.assert_readonly. Wider than the card: the same skip also lets pg_* system names through a same-named CTE. Whether production DB grants block it is still unknown; ask the DB team.</p>
+<p class="status"><b>REPRODUCED</b> at the guard (re-checked by me). Whether the DB grants also stop it: <b>UNKNOWN — NEEDS VERIFICATION</b> with the DB team.</p>
+<h5>The problem</h5><p>The guard skips any table name that matches a CTE name anywhere in the query. In PostgreSQL a non-recursive CTE cannot see its own name inside its body, so the inner reference reads the real <code>curated</code> table.</p>
+<h5>What the officer sees</h5><p><code>WITH fact_cm_elevate_disbursement AS (SELECT * FROM fact_cm_elevate_disbursement) SELECT …</code> is <b>allowed</b>. The same works for <code>bridge_pg_bank_history</code> and <code>fact_focus_legacy_disbursement</code>. Those tables hold applicant names and unmasked bank accounts. The plain <code>SELECT … FROM fact_cm_elevate_disbursement</code> is correctly blocked. The model does not write this by accident, but a prompt-injected question could steer it.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>sql_guard._assert_schemas</code> (sql_guard.py:125, :140): <code>name not in cte_names</code> skips the check.</li></ul>
+</div>
+    </article>
 <article class="task Medium" id="CTX-04b">
-      <div class="thead"><span class="tid">9. CTX-04b</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Audit log hygiene</h2></div>
+      <div class="thead"><span class="tid">11. CTX-04b</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Audit log hygiene</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>auth.audit: write logs/query_audit.jsonl through asyncio.to_thread, with size-based rotation. Delete the dead auth.read_audit.</li><li>Not yours: the retention purge and the delete cascade (lane A2).</li><li>Done: tests for the threaded write and for rotation.</li></ul></div>
       <div class="ev"><h4>Audit evidence · CTX-04: Retention for conversations and audit; deletion that really deletes</h4>
         <p class="note"><b>Split task:</b> Lane A1 does only the audit-log rotation. The delete cascade and retention purge (CTX-04a) are in lane A2.</p>
@@ -345,7 +390,7 @@ When all 12 are done: set your Progress line to "Lane A1 complete", make sure th
       </div>
     </article>
 <article class="task Low" id="SQL-08">
-      <div class="thead"><span class="tid">10. SQL-08</span><span class="pill s-Low">Low</span><h2 class="ttl">Catalogue pin and recovery from failed startup loads</h2></div>
+      <div class="thead"><span class="tid">12. SQL-08</span><span class="pill s-Low">Low</span><h2 class="ttl">Catalogue pin and recovery from failed startup loads</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Add expression_sha per verified entry in data/metric_catalog_verified.yaml, over sql_expression + base_object + filters_required. On a mismatch, drop the entry from verified and log a WARNING.</li><li>Add one background task in main.py's lifespan that retries failed startup loads (schema_introspect, metric_catalog, refresh_scheme_years) with backoff, and refreshes daily.</li><li>refresh_scheme_years (c06) returns its status.</li><li>/health reports each load.</li><li>No 30-minute refresh and no admin endpoint.</li><li>Done: a changed expression makes verified() return None; a load that failed at startup recovers without a restart.</li></ul></div>
       <div class="ev"><h4>Audit evidence · SQL-08: Pin catalogue definitions and recover from failed startup loads</h4>
         
@@ -356,7 +401,7 @@ When all 12 are done: set your Progress line to "Lane A1 complete", make sure th
       </div>
     </article>
 <article class="task Low" id="REL-03">
-      <div class="thead"><span class="tid">11. REL-03</span><span class="pill s-Low">Low</span><h2 class="ttl">Request ids in logs, a cheap /health, bounded rate-limit memory</h2></div>
+      <div class="thead"><span class="tid">13. REL-03</span><span class="pill s-Low">Low</span><h2 class="ttl">Request ids in logs, a cheap /health, bounded rate-limit memory</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>A logging.Filter adds the request id and the user to every record.</li><li>Validate X-Request-ID to letters, digits and hyphens using string methods.</li><li>Cache /health component results for 5 s, with a 2 s timeout per probe.</li><li>Drop empty rate-limit deques.</li><li>Done: tests; /health answers within 2 s while the DB is down.</li></ul></div>
       <div class="ev"><h4>Audit evidence · REL-03: Request ids in logs, a cheap /health, bounded rate-limit memory</h4>
         
@@ -367,7 +412,7 @@ When all 12 are done: set your Progress line to "Lane A1 complete", make sure th
       </div>
     </article>
 <article class="task Medium" id="DOC-01a">
-      <div class="thead"><span class="tid">12. DOC-01a</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Guide docs back in line with the code</h2></div>
+      <div class="thead"><span class="tid">14. DOC-01a</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Guide docs back in line with the code</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>CLAUDE.md:<ul><li>the verifier is qwen-model (30B), not the 4B;</li><li>there is no graph off/on switch and no "sequential path";</li><li>replace the test counts with a pointer to one dated baseline line in the TESTING.md header;</li><li>add new_docs/ to the doc map;</li><li>the BLH CSV is not in the tree;</li><li>KB re-ingest is via the admin endpoint (lane B2 is changing restart behaviour, so do not promise either way);</li><li>the port conflict is "DOCUMENTATION CONFLICT, NEEDS VERIFICATION".</li></ul></li><li>PROJECT_CONTEXT.md lines 80 and 100.</li><li>SECURITY.md A03: describe the three DB pools.</li><li>The D-073 text in DECISIONS.md: fixed queries run on the app pool.</li><li>AI_PIPELINE.md §0 model table and the §8 heading.</li><li>Done: one test count used everywhere; model roles match config.py.</li></ul></div>
       <div class="ev"><h4>Audit evidence · DOC-01: Bring the guide docs back in line with the code</h4>
         <p class="note"><b>Split task:</b> Lane A1's share of DOC-01: CLAUDE.md, SECURITY, PROJECT_CONTEXT, D-073, the AI_PIPELINE model table.</p>
@@ -383,11 +428,11 @@ When all 12 are done: set your Progress line to "Lane A1 complete", make sure th
   <p class="note">All other files have exactly one owner. For each file below, the lanes edit separate regions that git merges on its own. If a rebase still conflicts, the lane keeps the other lane's lines and re-applies only its own.</p>
   <div class="tablewrap"><table><thead><tr><th>File</th><th>Who edits which region</th></tr></thead><tbody>
     <tr><td>app/config.py</td><td>A1: structure, security, pool, proxy and CSP settings. A2: one block after the Redis/session settings (retention, <code>APP_BUILD</code>). B2: one block after the <code>RAG_*</code> settings, plus the value of <code>PROMPT_BUDGET_COMPOSER_TOKENS</code>.</td></tr>
-    <tr><td>c13_compose_and_data_stages.py</td><td>A1: the four authorise sites (~1002, ~1094, ~1145, ~1579, ~1649). B1: the D-065 block (~1205) and <code>_data_per_scheme_rows</code> (~1933). B2: <code>compose_response</code> (~13, ~160-270).</td></tr>
+    <tr><td>c13_compose_and_data_stages.py</td><td>A1: the four authorise sites (~1002, ~1094, ~1145, ~1579, ~1649). B1: the D-065 block (~1205), <code>_per_scheme_generate</code> and <code>_data_per_scheme_rows</code> (~1904-1970). B2: <code>compose_response</code>, <code>_ONE_FIGURE_SCHEMES</code> and <code>_money_rounded_for_display</code> (~13-30, ~110-330).</td></tr>
     <tr><td>app/appdb.py</td><td>A1: seeding, DDL, <code>update_user</code>. A2: one new purge function after <code>purge_user</code>.</td></tr>
-    <tr><td>app/pipeline_graph.py</td><td>A2: a public drop-thread helper. B1: the repair state field and repair nodes.</td></tr>
+    <tr><td>app/pipeline_graph.py</td><td>A2: a public drop-thread helper. B1: the repair state field, <code>node_execute_attempt</code> (SQL-03, SEC-09b) and <code>node_repair</code>.</td></tr>
     <tr><td>c06_years_tranches.py</td><td>A1: <code>refresh_scheme_years</code>. B1: everything else.</td></tr>
-    <tr><td>app/cross_figures.py</td><td>B1: the Focus Plus district lines (~35-137). B2: <code>_scheme_line</code> (~470-484).</td></tr>
+    <tr><td>app/cross_figures.py</td><td>B1: the Focus Plus district lines (~35-137) and the Focus Plus note line in <code>_district_lines</code>. B2: <code>_scheme_line</code>, <code>_state_lines</code>, <code>_leader_sentence</code> and the <code>rank_districts</code> branch of <code>_district_lines</code>.</td></tr>
     <tr><td>tests/conftest.py</td><td>A1: top (<code>collect_ignore</code>). B2: bottom (<code>RAISE_INTERNAL_ERRORS</code>).</td></tr>
     <tr><td>The five lane-sectioned docs</td><td>Each lane writes only inside its own section, above its end marker.</td></tr>
   </tbody></table></div>

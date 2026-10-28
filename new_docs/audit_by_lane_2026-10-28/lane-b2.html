@@ -81,7 +81,7 @@ details summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;
 <header>
   <span class="eyebrow">Lane audit report · 28 Oct 2026 · Colleague · session 2</span>
   <h1>Lane B2 · Answers, admin &amp; data-team notes</h1>
-  <p class="lede">8 tasks. Every task here depends only on earlier tasks in this lane, so this lane never waits for another. RAG tasks are left out of this round.</p>
+  <p class="lede">14 tasks. Every task here depends only on earlier tasks in this lane, so this lane never waits for another. RAG tasks are left out of this round.</p>
   <p><b>Owns:</b> <code>c12_answer_numbers</code>, <code>c12_answer_shapes</code>, <code>compose_response</code> in c13, <code>c15</code>, <code>c14</code>, the admin and stats routers, the DB-issue notes, and the decision-log lines in <code>conversation_layer</code>. <b>RAG is left out of this round</b>: no task touches <code>rag.py</code>, ingestion or the KB documents.</p>
   <p><b>Outside blockers, never waited on:</b> the data team's replies to DATA-01 (lane B1 uses them later), and your decision on digit grouping (not part of any task).</p>
 </header>
@@ -123,10 +123,10 @@ DOCS RULES (the lane-safe form of CLAUDE.md §8)
 
 FILES YOU OWN (other lanes touch only the regions named)
 - docs/*_DB_Issues.md (DATA-01).
-- app/routers/admin.py and app/routers/stats.py (SEC-04). You may import constants from app/auth.py, but do not edit auth.py (lane A1).
+- app/routers/admin.py and app/routers/stats.py (SEC-04, SEC-10). You may import constants from app/auth.py, but do not edit auth.py (lane A1).
 - app/pipeline/common/c12_answer_numbers.py, c12_answer_shapes.py, c15_conversation_meta.py (_callback_sentence), c14_turn_stages.py.
-- c13_compose_and_data_stages.py: only compose_response (its checks and its prompt) and _ONE_FIGURE_SCHEMES. Lanes A1 and B1 edit other functions in this file.
-- app/cross_figures.py: only _scheme_line. Lane B1 edits the Focus Plus district lines.
+- c13_compose_and_data_stages.py: only compose_response (its checks, its prompt and its fallback calls), _ONE_FIGURE_SCHEMES and _money_rounded_for_display. Lanes A1 and B1 edit other functions in this file.
+- app/cross_figures.py: _scheme_line, _state_lines, _leader_sentence and the rank_districts branch of _district_lines. Lane B1 owns lines ~35-137 and the Focus Plus note line in _district_lines.
 - app/conversation_layer.py: only the log_decision call sites.
 - app/config.py: only ONE new block right after the RAG_* settings, plus changing the value (not the line structure) of PROMPT_BUDGET_COMPOSER_TOKENS. Lane A1 owns the rest.
 - tests/conftest.py: bottom part only. Lane A1 owns the top.
@@ -149,7 +149,14 @@ YOUR TASKS, IN ORDER
 - stats: filter the cards by scope.schemes at response time. The cache stays shared.
 - Done: new tests/test_admin_api_2026_10_28.py covers each 403 and 422; a PMAY-G-only user sees one card.
 
-3. CMP-02 · Shape and digest: answer the asked measure, never sum a percentage
+3. SEC-10 · Welcome-card MGNREGA village count may include placeholder codes (check first)
+- routers/stats.py _SQL["mgnrega"] (~35-37) counts village_code IS NOT NULL. The pipeline's own rule (c11 _VR_PLACEHOLDER_VIEWS) treats only village_code &gt; 0 as a real village.
+- First, on the VPN, run a read-only count of village_code &lt;= 0 in v_employment and v_expenditure.
+  - If there are none, record "not a bug" and move on.
+  - If there are, change the filter to village_code &gt; 0.
+- Done: the live count is recorded; if the SQL changed, a unit test shows it parses and filters village_code &gt; 0.
+
+4. CMP-02 · Shape and digest: answer the asked measure, never sum a percentage
 - _result_digest: use _c12s_additive. A non-additive column gets no sum= and no allow-listed total. Add card, cards and cumulative to _C12S_NON_ADDITIVE_PARTS.
 - Add _c12s_asked_metric(question, metrics): word stems plus a pct group (share, percentage, rate, %). Use it in _answer_shape for every kind.
 - Treat a LIMIT as top-N only when limit &lt;= len(rows) or a rank word is present.
@@ -159,7 +166,7 @@ YOUR TASKS, IN ORDER
   - CE-11 rows become a breakdown on the pct measure;
   - 8 rows with LIMIT 100 are not "Top 8".
 
-4. CMP-01 · Faithfulness check: precision, token coverage, units, comparisons
+5. CMP-01 · Faithfulness check: precision, token coverage, units, comparisons
 - Precision: a token with d decimals passes only if round(dv, d) == value; an integer token passes only if it equals round(dv). Drop BOTH blanket tolerances (±0.5 absolute and 0.5% relative).
 - Coverage: compare against the answer's number tokens (_NUM_TOKEN), never substrings.
 - Apply the one-figure rule to every scheme. Convert number words BEFORE the check for every scheme.
@@ -168,20 +175,73 @@ YOUR TASKS, IN ORDER
   - so does a lakh or crore value followed by %;
   - a number directly followed by more, less, higher, ahead or below must be a computed difference from facts_nums.
 - Multi-row: each asked measure (from _c12s_asked_metric) must appear, otherwise use _shaped_fallback.
-- Keep the skip for integers below 100.
+- Keep the skip for integers below 100 for now; CMP-04 (two tasks later) narrows it.
 - Pinned: test_pg_name_lookup.py:150.
 - Done:
   - flagged: 15.7 vs 15.33; 1,501,000 vs 1,494,437; "11 pending" vs 1; MG-10; CL-05; CL-09;
   - passing: 11.10 vs 11.10; 1,234 vs 1234.4;
   - the existing faithfulness tests stay green.
 
-5. CTX-08 · Keep question text out of the decision log
+6. CMP-04 · Whole classes of numbers are never checked
+- In c12 _answer_numbers_faithful:
+  - a token containing a comma is never year-like; a 4-digit number is exempt as a year only after FY, in, since, during, from, to or between, or before a -YY / -YYYY span;
+  - lift the under-100 skip for unit-bearing tokens (N%, ₹N, N lakh/crore/million), and for an integer in a ranking, compare or breakdown answer whose asked metric is an integer under 100; keep exempting SQL literals, len(rows), N after top/bottom/tranche/phase/#, and "N days";
+  - scale: "N lakh/crore/million" means N×1e5/1e7/1e6 rupees, and "₹N" means rupees. Compare in rupees against _rupees, _lakh×1e5 and _cr×1e7 columns, at the token's own precision.
+- Make _answer_covers_metrics scale-aware too, so a correct crore answer counts as covering the value.
+- Done (compose_response with a stubbed composer):
+  - 33% for 3.39, ₹95 crore for 149443700, "2,047" for 3417, and a ranking 84/13/21 for 48/31/12 each go to the strict retry, then the fallback;
+  - "₹14.94 crore" for 149443700 passes in one call;
+  - "3.39% of households completed 100 days", "top 5" and "Tranche 4" still pass;
+  - test_answer_shapes_*, the MGNREGA few-shot tests and test_pg_name_lookup.py:150 stay green.
+
+7. CMP-05 · Small crore amounts round to 0.00, so any small figure passes
+- c13 _money_rounded_for_display (~16-30): leave a value with |v| &lt; 0.01 crore unrounded, or show it in ₹ lakh or rupees.
+- compose_response: build data_nums from the unrounded rows[:40] plus the rounded forms. Pass the unrounded rows to the fallbacks (~c13:267 and :279), so a fallback never prints ₹0 for a non-zero value.
+- Done:
+  - for _cr columns (Focus Legacy, PMAY-G, CM Elevate Legacy), 0.0035 crore with "₹0.45 crore" is rejected, and "₹35,000" passes;
+  - no fallback prints ₹0 for a non-zero value;
+  - the CM Elevate Legacy small-crore test and the KI-417 test stay green.
+
+8. SQL-10 + CMP-09 · Never call a capped result complete
+- The SQL guard silently caps results at 1,000 rows (sql_guard.prepare_readonly), and nothing tells the composer.
+- _result_digest takes a capped flag (len(rows) &gt;= settings.SQL_MAX_RESULT_ROWS). When capped, write "first N rows (result capped; more may exist)", with no sum= and no total in the allowed set.
+- compose_response (~c13:115-130), when capped:
+  - word the summary as "first N rows";
+  - drop the line telling the model not to say anything is missing;
+  - add a fixed note to the answer: "Only the first 1,000 rows were returned; totals cover these rows only."
+- The wrong comment at c13:2730-2735 ("row_count stays the true total") is outside your region: note it for final integration.
+- Done: 1,000 stub rows put the note in the prompt and the answer, and a "500,500 total" answer goes to the strict retry; 999 rows change nothing.
+
+9. CMP-08 · Answer shapes: points for percentages, "higher" not "ahead", periods in order
+- c12_answer_shapes:
+  - for non-additive measures, state the gap in points in _shape_facts and _shaped_fallback;
+  - add _C12S_LOWER_BETTER (delay, pending, rejected, hold, unspent) and say higher/lower instead of ahead;
+  - add _c12s_period_key (year_key or int, FY "YYYY-YY", month names or numbers in Apr→Mar order) and use it at the trend sorts (~c12s:311 and :479);
+  - treat time-part columns (month, quarter) as labels, never metrics, and add month and quarter to the digest's non-statistic parts (c12:307).
+- compose_response hedge check (~c13:274-279): replace a single-row answer only when _answer_covers_metrics is false.
+- Done:
+  - a pct compare says "20 points" and no "% more";
+  - a delay or pending compare says "higher";
+  - month-name and numeric-month trends run Apr→Mar, and a numeric month is never the metric;
+  - the CM Elevate hedge answer that states 12 is kept, and a hedge without the number is still replaced;
+  - test_answer_shapes_2026_10_22.py stays green.
+
+10. CMP-06 · Cross-scheme figures reverse their wording on "lowest / fewest" questions
+- cross_figures:
+  - in _leader_sentence, use "fewer than" / "less than" and " &lt; " when low;
+  - in _state_lines, say "Least money per beneficiary" when p.low;
+  - in the rank_districts branch of _district_lines, always set last = order[-1].
+- Leave the per-district arrow and the "leads in" wording.
+- Do not touch lines ~35-137 or the Focus Plus note line in _district_lines (lane B1).
+- Done: tests/test_cross_figures_2026_10_22.py gains leader-with-low, rank_districts bottom-2 and avg-with-low cases; the existing high-direction cases are unchanged.
+
+11. CTX-08 · Keep question text out of the decision log
 - At all 7 call sites, log a hash and the length of the question instead of its text:
   - conversation_layer.py: 1013, 1018, 1029-30;
   - c14_turn_stages.py: 1219, 1238, 1252, 1729.
 - Done: a test asserts no log record contains the question string. Do not change the pause TTL.
 
-6. CMP-03 · Answer wording: scope tail, ₹, no-data, year-over-year
+12. CMP-03 + CMP-07 · Answer wording: scope tail, ₹, no-data, year-over-year, no false "statewide"
 - _finish_answer:
   - drop " for " before "across";
   - skip a period the text already states;
@@ -194,17 +254,21 @@ YOUR TASKS, IN ORDER
 - Set the value of PROMPT_BUDGET_COMPOSER_TOKENS. Change the value only, and rebase first, because lane A1 edited the lines next to it.
 - No digit-grouping change; that is the user's decision.
 - Pinned: test_no_data_answer.py:105-107, test_single_year_phrase_2026_10_19.py.
+- CMP-07 (same functions): _finish_answer takes an optional sql. Write no "statewide" tail when the single row has a non-numeric label column, or when the SQL filters on pg_name, pg_id, tranche or category. Check the filter with sql_ast's existing inspection helpers; do not edit sql_ast.py.
+  - Pass sql from compose_response (~c13:312) and from result.get("sql") in _finish_data_result.
+- Done (CMP-07): a PG-filtered row gets no statewide tail; a truly statewide MGNREGA total still gets one.
 
-7. REL-04 · Programming errors fail tests
+13. REL-04 · Programming errors fail tests
 - RAISE_INTERNAL_ERRORS goes in your config block and is set true at the BOTTOM of tests/conftest.py.
 - Under it, c14 _data_path_error_result re-raises NameError, UnboundLocalError, AttributeError, TypeError and ImportError only.
 - Done: an injected NameError in a stage fails pytest.
 
-8. DOC-01c · Composer docs
+14. DOC-01c · Composer docs
 - docs/AI_PIPELINE.md §2.9: write down the real faithfulness rules after CMP-01: precision matching, token coverage, the unit and comparison checks, the one-figure rule for every scheme.
 - Do not edit §4 (RAG); RAG is out of scope this round.
+- Also describe CMP-04's unit and scale rules, CMP-05's small-crore rule and the capped-result note from SQL-10.
 
-When all 8 are done: set your Progress line to "Lane B2 complete" (listing anything still waiting on the data team or the user), make sure the PR is merged or queued, and tell the user.</pre>
+When all 14 are done: set your Progress line to "Lane B2 complete" (listing anything still waiting on the data team or the user), make sure the PR is merged or queued, and tell the user.</pre>
 </section>
 <section>
   <h2>Tasks, in order</h2>
@@ -230,8 +294,19 @@ When all 8 are done: set your Progress line to "Lane B2 complete" (listing anyth
         
       </div>
     </article>
+<article class="task Medium" id="SEC-10">
+      <div class="thead"><span class="tid">3. SEC-10</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Welcome-card MGNREGA village count may include placeholder codes (check first)</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>routers/stats.py _SQL["mgnrega"] (~35-37) counts village_code IS NOT NULL. The pipeline's own rule (c11 _VR_PLACEHOLDER_VIEWS) treats only village_code &gt; 0 as a real village.</li><li>First, on the VPN, run a read-only count of village_code &lt;= 0 in v_employment and v_expenditure.<ul><li>If there are none, record "not a bug" and move on.</li><li>If there are, change the filter to village_code &gt; 0.</li></ul></li><li>Done: the live count is recorded; if the SQL changed, a unit test shows it parses and filters village_code &gt; 0.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · SEC-10: Welcome-card MGNREGA village count includes placeholder codes <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Not confirmed offline: whether the MGNREGA views contain village codes of 0 or below is unknown. Check first; it is a data-accuracy issue, not security.</p>
+<p class="status"><b>INFERRED</b>.</p>
+<h5>The problem</h5><p><code>routers/stats.py</code> <code>_SQL["mgnrega"]</code> counts <code>village_code IS NOT NULL</code>, which includes the negative placeholder codes that c11 treats as non-villages (<code>_VR_PLACEHOLDER_VIEWS</code>).</p>
+<h5>What the officer sees</h5><p>The welcome card overstates the number of villages.</p>
+<h5>Where it comes from</h5><ul class=''><li>routers/stats.py</li></ul>
+</div>
+    </article>
 <article class="task High" id="CMP-02">
-      <div class="thead"><span class="tid">3. CMP-02</span><span class="pill s-High">High</span><h2 class="ttl">Shape and digest: answer the asked measure, never sum a percentage</h2></div>
+      <div class="thead"><span class="tid">4. CMP-02</span><span class="pill s-High">High</span><h2 class="ttl">Shape and digest: answer the asked measure, never sum a percentage</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>_result_digest: use _c12s_additive. A non-additive column gets no sum= and no allow-listed total. Add card, cards and cumulative to _C12S_NON_ADDITIVE_PARTS.</li><li>Add _c12s_asked_metric(question, metrics): word stems plus a pct group (share, percentage, rate, %). Use it in _answer_shape for every kind.</li><li>Treat a LIMIT as top-N only when limit &lt;= len(rows) or a rank word is present.</li><li>Do not create a new module. Do not gate the Focus Legacy membership note; it is SME-required.</li><li>Done:<ul><li>the pct digest has no sum=, and "combined 115.75%" fails the check;</li><li>CE-11 rows become a breakdown on the pct measure;</li><li>8 rows with LIMIT 100 are not "Top 8".</li></ul></li></ul></div>
       <div class="ev"><h4>Audit evidence · CMP-02: Shape and digest: answer the asked measure, never sum a percentage</h4>
         
@@ -242,8 +317,8 @@ When all 8 are done: set your Progress line to "Lane B2 complete" (listing anyth
       </div>
     </article>
 <article class="task High" id="CMP-01">
-      <div class="thead"><span class="tid">4. CMP-01</span><span class="pill s-High">High</span><h2 class="ttl">Faithfulness check: precision, token coverage, units, comparisons</h2></div>
-      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Precision: a token with d decimals passes only if round(dv, d) == value; an integer token passes only if it equals round(dv). Drop BOTH blanket tolerances (±0.5 absolute and 0.5% relative).</li><li>Coverage: compare against the answer's number tokens (_NUM_TOKEN), never substrings.</li><li>Apply the one-figure rule to every scheme. Convert number words BEFORE the check for every scheme.</li><li>Add _answer_unit_conflicts:<ul><li>a pct value followed by lakh, crore or ₹ counts as misquoted;</li><li>so does a lakh or crore value followed by %;</li><li>a number directly followed by more, less, higher, ahead or below must be a computed difference from facts_nums.</li></ul></li><li>Multi-row: each asked measure (from _c12s_asked_metric) must appear, otherwise use _shaped_fallback.</li><li>Keep the skip for integers below 100.</li><li>Pinned: test_pg_name_lookup.py:150.</li><li>Done:<ul><li>flagged: 15.7 vs 15.33; 1,501,000 vs 1,494,437; "11 pending" vs 1; MG-10; CL-05; CL-09;</li><li>passing: 11.10 vs 11.10; 1,234 vs 1234.4;</li><li>the existing faithfulness tests stay green.</li></ul></li></ul></div>
+      <div class="thead"><span class="tid">5. CMP-01</span><span class="pill s-High">High</span><h2 class="ttl">Faithfulness check: precision, token coverage, units, comparisons</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Precision: a token with d decimals passes only if round(dv, d) == value; an integer token passes only if it equals round(dv). Drop BOTH blanket tolerances (±0.5 absolute and 0.5% relative).</li><li>Coverage: compare against the answer's number tokens (_NUM_TOKEN), never substrings.</li><li>Apply the one-figure rule to every scheme. Convert number words BEFORE the check for every scheme.</li><li>Add _answer_unit_conflicts:<ul><li>a pct value followed by lakh, crore or ₹ counts as misquoted;</li><li>so does a lakh or crore value followed by %;</li><li>a number directly followed by more, less, higher, ahead or below must be a computed difference from facts_nums.</li></ul></li><li>Multi-row: each asked measure (from _c12s_asked_metric) must appear, otherwise use _shaped_fallback.</li><li>Keep the skip for integers below 100 for now; CMP-04 (two tasks later) narrows it.</li><li>Pinned: test_pg_name_lookup.py:150.</li><li>Done:<ul><li>flagged: 15.7 vs 15.33; 1,501,000 vs 1,494,437; "11 pending" vs 1; MG-10; CL-05; CL-09;</li><li>passing: 11.10 vs 11.10; 1,234 vs 1234.4;</li><li>the existing faithfulness tests stay green.</li></ul></li></ul></div>
       <div class="ev"><h4>Audit evidence · CMP-01: The faithfulness check: exact precision, token coverage, units and comparisons</h4>
         
         <div class="status"><b>REPRODUCED</b>, and worse than v1 said: there is also a 0.5% relative tolerance. This card merges v1 CMP-01 and CMP-03, because they edit the same 40 lines of <code>compose_response</code>.</div>
@@ -252,8 +327,69 @@ When all 8 are done: set your Progress line to "Lane B2 complete" (listing anyth
         <details open><summary>Tests that pin this code</summary><ul><li>test_pg_name_lookup.py:150 (source of compose_response)</li></ul></details>
       </div>
     </article>
+<article class="task Medium" id="CMP-04">
+      <div class="thead"><span class="tid">6. CMP-04</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Whole classes of numbers are never checked</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>In c12 _answer_numbers_faithful:<ul><li>a token containing a comma is never year-like; a 4-digit number is exempt as a year only after FY, in, since, during, from, to or between, or before a -YY / -YYYY span;</li><li>lift the under-100 skip for unit-bearing tokens (N%, ₹N, N lakh/crore/million), and for an integer in a ranking, compare or breakdown answer whose asked metric is an integer under 100; keep exempting SQL literals, len(rows), N after top/bottom/tranche/phase/#, and "N days";</li><li>scale: "N lakh/crore/million" means N×1e5/1e7/1e6 rupees, and "₹N" means rupees. Compare in rupees against _rupees, _lakh×1e5 and _cr×1e7 columns, at the token's own precision.</li></ul></li><li>Make _answer_covers_metrics scale-aware too, so a correct crore answer counts as covering the value.</li><li>Done (compose_response with a stubbed composer):<ul><li>33% for 3.39, ₹95 crore for 149443700, "2,047" for 3417, and a ranking 84/13/21 for 48/31/12 each go to the strict retry, then the fallback;</li><li>"₹14.94 crore" for 149443700 passes in one call;</li><li>"3.39% of households completed 100 days", "top 5" and "Tranche 4" still pass;</li><li>test_answer_shapes_*, the MGNREGA few-shot tests and test_pg_name_lookup.py:150 stay green.</li></ul></li></ul></div>
+      <div class="ev"><h4>Audit evidence · CMP-04: Whole classes of numbers are never checked: whole-number %, lakh/crore amounts, year-like counts, small counts <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced end to end through compose_response. The 2,047 case comes from the year rule, not the small-count rule.</p>
+<p class="status"><b>REPRODUCED</b> end to end: <code>compose_response</code> with the model stubbed, four cases.</p>
+<h5>The problem</h5><p>The faithfulness check skips some numbers without comparing them to the data. A wrong figure in one of these classes reaches the officer with every check passing. On scaled money the check is backwards: it accepts a wrong amount and rejects the right one.</p>
+<h5>What the officer sees</h5><p>All four of these passed unchanged:<ul><li>Row <code>completion_100_day_pct: 3.39</code>, answer "33% of households completed 100 days".</li><li>Row <code>total_expenditure_rupees: 149443700</code> (₹14.94 cr), answer "₹95 crore". The correct "₹14.94 crore" <b>fails</b>.</li><li>Row <code>houses_sanctioned: 3417</code>, answer "sanctioned 2,047 houses".</li><li>A village ranking 48 / 31 / 12, answered "84 / 13 / 21".</li></ul></p>
+<h5>Where it comes from</h5><ul class=''><li><code>_answer_numbers_faithful</code> (c12_answer_numbers.py:147) skips every whole number under 100 that has no decimal point, whatever unit follows it.</li><li><code>:141</code> with <code>_c12_year_like</code> (:82-88) skips every 4-digit number from 1900 to 2199, and every <code>-dd</code>, even when it is a count.</li><li><code>N lakh</code> / <code>N crore</code> are compared as N, not N×scale. Number words are converted only in the CM Elevate branch (c13:222-225).</li></ul>
+</div>
+    </article>
+<article class="task Medium" id="CMP-05">
+      <div class="thead"><span class="tid">7. CMP-05</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Small crore amounts round to 0.00, so any small figure passes</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>c13 _money_rounded_for_display (~16-30): leave a value with |v| &lt; 0.01 crore unrounded, or show it in ₹ lakh or rupees.</li><li>compose_response: build data_nums from the unrounded rows[:40] plus the rounded forms. Pass the unrounded rows to the fallbacks (~c13:267 and :279), so a fallback never prints ₹0 for a non-zero value.</li><li>Done:<ul><li>for _cr columns (Focus Legacy, PMAY-G, CM Elevate Legacy), 0.0035 crore with "₹0.45 crore" is rejected, and "₹35,000" passes;</li><li>no fallback prints ₹0 for a non-zero value;</li><li>the CM Elevate Legacy small-crore test and the KI-417 test stay green.</li></ul></li></ul></div>
+      <div class="ev"><h4>Audit evidence · CMP-05: Small crore amounts round to 0.00, and then any figure under 0.5 crore passes <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced, and worse than reported: the fallback can print 0 crore for a non-zero amount.</p>
+<p class="status"><b>REPRODUCED</b>. How often it happens live is INFERRED.</p>
+<h5>The problem</h5><p>Display rounding happens before the faithfulness check, so the check compares against the rounded value.</p>
+<h5>What the officer sees</h5><p>"Focus Legacy disbursed ₹0.45 crore to Sakania PG" passed when the true amount was ₹35,000, about 130 times smaller.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>_money_rounded_for_display</code> (c13:16-30) rounds every <code>_cr</code> / <code>_lakh</code> value to 2 decimals: <code>0.0035</code> (₹35,000) becomes <code>0.0</code>.</li><li><code>data_nums</code> is built from the rounded preview (c13:204), and the absolute tolerance of 0.5 lets anything near 0 through.</li><li><code>_cross_scheme_rows_in_crore</code> already keeps 6 decimals below 0.01. Only CM Elevate Legacy has a test for this.</li></ul>
+</div>
+    </article>
+<article class="task Medium" id="SQL-10">
+      <div class="thead"><span class="tid">8. SQL-10 + CMP-09</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Never call a capped result complete</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>The SQL guard silently caps results at 1,000 rows (sql_guard.prepare_readonly), and nothing tells the composer.</li><li>_result_digest takes a capped flag (len(rows) &gt;= settings.SQL_MAX_RESULT_ROWS). When capped, write "first N rows (result capped; more may exist)", with no sum= and no total in the allowed set.</li><li>compose_response (~c13:115-130), when capped:<ul><li>word the summary as "first N rows";</li><li>drop the line telling the model not to say anything is missing;</li><li>add a fixed note to the answer: "Only the first 1,000 rows were returned; totals cover these rows only."</li></ul></li><li>The wrong comment at c13:2730-2735 ("row_count stays the true total") is outside your region: note it for final integration.</li><li>Done: 1,000 stub rows put the note in the prompt and the answer, and a "500,500 total" answer goes to the strict retry; 999 rows change nothing.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · SQL-10: A result cut at the 1,000-row cap is reported as complete <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Confirmed by reading the code. Merged with CMP-09, the same fix on the composer side. The card's c12:340 reference is a docstring; the prompt text is at c13:126-128.</p>
+<p class="status"><b>CONFIRMED</b> by code reading (no live row count was run).</p>
+<h5>The problem</h5><p><code>prepare_readonly</code> silently adds or wraps <code>LIMIT 1000</code>, and nothing records that the cap was hit. Sums and counts over 1,000 rows are presented as totals.</p>
+<h5>What the officer sees</h5><p>"Which villages had zero person-days in FY 2023-24?" (statewide) or "person-days by village" returns 1,000 of several thousand rows, and the answer counts or sums them as if they were all.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>sql_guard.prepare_readonly</code> (:193-205). Nothing anywhere compares the row count with <code>SQL_MAX_RESULT_ROWS</code>.</li><li>The comment at c13:2730-2735 says <code>row_count</code> "stays the true total". It is <code>len(rows)</code>, at most 1,000.</li><li><code>_mgnrega_village_list_no_limit</code> (mgnrega.py:937-959) deliberately drops the model's LIMIT for "which villages" lists, so a statewide list reaches the cap.</li><li><code>focus_legacy._focus_legacy_list_total</code> already does the right thing: a COUNT(*) wrapper.</li></ul>
+</div><div class="ev"><h4>Audit evidence · CMP-09: Don't call a capped result "every row" <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced. Merged with SQL-10.</p>
+<p class="status">Composer half of new finding SQL-10.</p>
+<h5>The problem</h5><p><code>_result_digest</code> (c12:340) tells the composer that its totals are "computed from EVERY row … authoritative", even when the result stopped at the 1,000-row cap.</p>
+<h5>What the officer sees</h5><p>See SQL-10.</p>
+<h5>Where it comes from</h5><ul class=''><li>c12_answer_numbers.py:340. The cap itself is enforced in WP-4's files (see SQL-10).</li></ul>
+</div>
+    </article>
+<article class="task Medium" id="CMP-08">
+      <div class="thead"><span class="tid">9. CMP-08</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Answer shapes: points for percentages, "higher" not "ahead", periods in order</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>c12_answer_shapes:<ul><li>for non-additive measures, state the gap in points in _shape_facts and _shaped_fallback;</li><li>add _C12S_LOWER_BETTER (delay, pending, rejected, hold, unspent) and say higher/lower instead of ahead;</li><li>add _c12s_period_key (year_key or int, FY "YYYY-YY", month names or numbers in Apr→Mar order) and use it at the trend sorts (~c12s:311 and :479);</li><li>treat time-part columns (month, quarter) as labels, never metrics, and add month and quarter to the digest's non-statistic parts (c12:307).</li></ul></li><li>compose_response hedge check (~c13:274-279): replace a single-row answer only when _answer_covers_metrics is false.</li><li>Done:<ul><li>a pct compare says "20 points" and no "% more";</li><li>a delay or pending compare says "higher";</li><li>month-name and numeric-month trends run Apr→Mar, and a numeric month is never the metric;</li><li>the CM Elevate hedge answer that states 12 is kept, and a hedge without the number is still replaced;</li><li>test_answer_shapes_2026_10_22.py stays green.</li></ul></li></ul></div>
+      <div class="ev"><h4>Audit evidence · CMP-08: Answer shapes: relative % on percentages, "ahead" for worse, and trends sorted alphabetically <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced. Also found: a numeric month column was taken as the metric.</p>
+<p class="status"><b>REPRODUCED</b> at function level.</p>
+<h5>The problem</h5><p>The shape facts and the shape fallback assume an additive, higher-is-better measure and sortable labels.</p>
+<h5>What the officer sees</h5><p>Wage delay 80% vs 60% → "A is ahead on wage delay: a difference of 20, 33.3% more". Months sort April, January, June, May, so "went from 10 in April to 50 in May (+400%)" uses the wrong ends.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>_shape_facts</code> (c12_answer_shapes.py:287-303) and <code>_shaped_fallback</code> (:458-476) compute <code>(hi-lo)/lo</code> on <code>_pct</code> columns and always say "is ahead / higher".</li><li>Trend facts and the trend fallback sort by <code>str(label)</code> (:311, :479).</li><li>Related: the no-data / hedge check (c13:274-279) replaces a correct "12 pending… Approval dates are not available" with a worse sentence that adds a FY scope to CM Elevate, which has no FY.</li></ul>
+</div>
+    </article>
+<article class="task Medium" id="CMP-06">
+      <div class="thead"><span class="tid">10. CMP-06</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Cross-scheme figures reverse their wording on "lowest / fewest" questions</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>cross_figures:<ul><li>in _leader_sentence, use "fewer than" / "less than" and " &lt; " when low;</li><li>in _state_lines, say "Least money per beneficiary" when p.low;</li><li>in the rank_districts branch of _district_lines, always set last = order[-1].</li></ul></li><li>Leave the per-district arrow and the "leads in" wording.</li><li>Do not touch lines ~35-137 or the Focus Plus note line in _district_lines (lane B1).</li><li>Done: tests/test_cross_figures_2026_10_22.py gains leader-with-low, rank_districts bottom-2 and avg-with-low cases; the existing high-direction cases are unchanged.</li></ul></div>
+      <div class="ev"><h4>Audit evidence · CMP-06: Cross-scheme figures reverse their wording on "lowest / fewest" questions <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced from real questions. The text is deterministic, so no faithfulness check reads it.</p>
+<p class="status"><b>REPRODUCED</b> with the real <code>cross_figures.plan</code> and its line builders.</p>
+<h5>The problem</h5><p>The deterministic cross-scheme sentences (D-066) were written for "highest" only. With <code>low=True</code> they state false inequalities and mislabel the extremes. They are deterministic, so no faithfulness check looks at them.</p>
+<h5>What the officer sees</h5><p>"Which scheme has the lowest beneficiaries, MGNREGA or PMAY-G?" → "<b>PMAY-G</b> has the lowest (95,000), 13,99,437 <b>more than</b> MGNREGA". With three schemes: "Order: PMAY-G (95,000) &gt; Focus Plus (3,73,144) &gt; MGNREGA (14,94,437)".</p>
+<h5>Where it comes from</h5><ul class=''><li><code>_leader_sentence</code> (cross_figures.py:523-524) always says "more than" and always joins with " &gt; ".</li><li><code>_district_lines</code> (:585-587): on the <code>p.low</code> path, <code>last = order[0]</code> is labelled "Highest".</li><li><code>_state_lines</code> (:502-505): with <code>p.low</code> it picks the minimum but writes "Most money per beneficiary".</li></ul>
+</div>
+    </article>
 <article class="task Low" id="CTX-08">
-      <div class="thead"><span class="tid">5. CTX-08</span><span class="pill s-Low">Low</span><h2 class="ttl">Keep question text out of the decision log</h2></div>
+      <div class="thead"><span class="tid">11. CTX-08</span><span class="pill s-Low">Low</span><h2 class="ttl">Keep question text out of the decision log</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>At all 7 call sites, log a hash and the length of the question instead of its text:<ul><li>conversation_layer.py: 1013, 1018, 1029-30;</li><li>c14_turn_stages.py: 1219, 1238, 1252, 1729.</li></ul></li><li>Done: a test asserts no log record contains the question string. Do not change the pause TTL.</li></ul></div>
       <div class="ev"><h4>Audit evidence · CTX-08: Keep question text out of the decision log</h4>
         
@@ -264,18 +400,24 @@ When all 8 are done: set your Progress line to "Lane B2 complete" (listing anyth
       </div>
     </article>
 <article class="task Medium" id="CMP-03">
-      <div class="thead"><span class="tid">6. CMP-03</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Answer wording: scope tail, ₹, no-data, year-over-year</h2></div>
-      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>_finish_answer:<ul><li>drop " for " before "across";</li><li>skip a period the text already states;</li><li>use longest-name and alias matching.</li></ul></li><li>_scope_words and the compose prompt's period line: no period for CM Elevate or CM Elevate Legacy.</li><li>_unit_suffix: add ₹ to lakh.</li><li>_no_data_answer: name the scheme.</li><li>_callback_sentence (c15): points for pct; skip partial years.</li><li>cross_figures._scheme_line: take the year span from the c15 helper (~964).</li><li>Set the value of PROMPT_BUDGET_COMPOSER_TOKENS. Change the value only, and rebase first, because lane A1 edited the lines next to it.</li><li>No digit-grouping change; that is the user's decision.</li><li>Pinned: test_no_data_answer.py:105-107, test_single_year_phrase_2026_10_19.py.</li></ul></div>
+      <div class="thead"><span class="tid">12. CMP-03 + CMP-07</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Answer wording: scope tail, ₹, no-data, year-over-year, no false "statewide"</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>_finish_answer:<ul><li>drop " for " before "across";</li><li>skip a period the text already states;</li><li>use longest-name and alias matching.</li></ul></li><li>_scope_words and the compose prompt's period line: no period for CM Elevate or CM Elevate Legacy.</li><li>_unit_suffix: add ₹ to lakh.</li><li>_no_data_answer: name the scheme.</li><li>_callback_sentence (c15): points for pct; skip partial years.</li><li>cross_figures._scheme_line: take the year span from the c15 helper (~964).</li><li>Set the value of PROMPT_BUDGET_COMPOSER_TOKENS. Change the value only, and rebase first, because lane A1 edited the lines next to it.</li><li>No digit-grouping change; that is the user's decision.</li><li>Pinned: test_no_data_answer.py:105-107, test_single_year_phrase_2026_10_19.py.</li><li>CMP-07 (same functions): _finish_answer takes an optional sql. Write no "statewide" tail when the single row has a non-numeric label column, or when the SQL filters on pg_name, pg_id, tranche or category. Check the filter with sql_ast's existing inspection helpers; do not edit sql_ast.py.<ul><li>Pass sql from compose_response (~c13:312) and from result.get("sql") in _finish_data_result.</li></ul></li><li>Done (CMP-07): a PG-filtered row gets no statewide tail; a truly statewide MGNREGA total still gets one.</li></ul></div>
       <div class="ev"><h4>Audit evidence · CMP-03: Answer wording: scope tail, ₹, no-data, year-over-year</h4>
         
         <div class="status"><b>REPRODUCED</b>. Correction: the config name is <code>PROMPT_BUDGET_COMPOSER_TOKENS</code>. Indian grouping moves to a decision (see the decisions list).</div>
         <div><span class="lbl">The issue</span>Five wording problems:<ul><li>Single-figure answers end "…figure <b>for across</b> all financial years" and repeat the period.</li><li>CM Elevate, which has no FY, gets an FY tail, also from the compose prompt rule.</li><li>Lakh values get no ₹.</li><li>"No data" does not name the scheme.</li><li>The year-over-year sentence uses relative % for pct measures and compares against an incomplete year.</li></ul>KI-437 hard-codes "FY 2022-23 to 2025-26".</div>
         <details open><summary>Evidence</summary><ul><li>c12_answer_numbers.py:663 (tail), :499 <code>_scope_words</code>, :725 <code>_unit_suffix</code>, :747 <code>_no_data_answer</code>.</li><li>c15:1081-1104; working-tree <code>cross_figures.py:476</code>; a data-driven span helper exists at c15:964.</li></ul></details>
         <details open><summary>Tests that pin this code</summary><ul><li>test_no_data_answer.py:105-107</li><li>test_single_year_phrase_2026_10_19.py</li></ul></details>
-      </div>
+      </div><div class="ev"><h4>Audit evidence · CMP-07: "This is the statewide figure" is appended to answers about a producer group, tranche or category <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced through _finish_data_result. Wrong only for producer-group answers; for tranche and category answers it is merely misleading.</p>
+<p class="status"><b>REPRODUCED</b> through <code>_finish_answer</code>.</p>
+<h5>The problem</h5><p>The scope tail only knows four place levels. Any other filter looks like "no place", so the tail calls the figure statewide.</p>
+<h5>What the officer sees</h5><p>"Amount disbursed to Sakania PG" → "…to Sakania Producer Group. <b>This is the statewide figure for all of Meghalaya</b>, across all financial years." That is false.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>_scope_words</code> (c12:499-519) reads only village, block, AC and district.</li><li><code>_finish_answer</code> (c12:640-666), also run by <code>_finish_data_result</code>, therefore treats a PG, tranche or category filter as statewide.</li></ul>
+</div>
     </article>
 <article class="task Low" id="REL-04">
-      <div class="thead"><span class="tid">7. REL-04</span><span class="pill s-Low">Low</span><h2 class="ttl">Programming errors fail tests</h2></div>
+      <div class="thead"><span class="tid">13. REL-04</span><span class="pill s-Low">Low</span><h2 class="ttl">Programming errors fail tests</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>RAISE_INTERNAL_ERRORS goes in your config block and is set true at the BOTTOM of tests/conftest.py.</li><li>Under it, c14 _data_path_error_result re-raises NameError, UnboundLocalError, AttributeError, TypeError and ImportError only.</li><li>Done: an injected NameError in a stage fails pytest.</li></ul></div>
       <div class="ev"><h4>Audit evidence · REL-04: Let programming errors fail tests instead of becoming "couldn't answer"</h4>
         
@@ -286,8 +428,8 @@ When all 8 are done: set your Progress line to "Lane B2 complete" (listing anyth
       </div>
     </article>
 <article class="task Medium" id="DOC-01c">
-      <div class="thead"><span class="tid">8. DOC-01c</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Composer docs</h2></div>
-      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>docs/AI_PIPELINE.md §2.9: write down the real faithfulness rules after CMP-01: precision matching, token coverage, the unit and comparison checks, the one-figure rule for every scheme.</li><li>Do not edit §4 (RAG); RAG is out of scope this round.</li></ul></div>
+      <div class="thead"><span class="tid">14. DOC-01c</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Composer docs</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>docs/AI_PIPELINE.md §2.9: write down the real faithfulness rules after CMP-01: precision matching, token coverage, the unit and comparison checks, the one-figure rule for every scheme.</li><li>Do not edit §4 (RAG); RAG is out of scope this round.</li><li>Also describe CMP-04's unit and scale rules, CMP-05's small-crore rule and the capped-result note from SQL-10.</li></ul></div>
       <div class="ev"><h4>Audit evidence · DOC-01: Bring the guide docs back in line with the code</h4>
         <p class="note"><b>Split task:</b> Lane B2's share of DOC-01: AI_PIPELINE §2.9 only. The RAG section is out of this round.</p>
         <div class="status"><b>CONFIRMED</b>, except one v1 claim: SECURITY.md has no regex text.</div>
@@ -302,11 +444,11 @@ When all 8 are done: set your Progress line to "Lane B2 complete" (listing anyth
   <p class="note">All other files have exactly one owner. For each file below, the lanes edit separate regions that git merges on its own. If a rebase still conflicts, the lane keeps the other lane's lines and re-applies only its own.</p>
   <div class="tablewrap"><table><thead><tr><th>File</th><th>Who edits which region</th></tr></thead><tbody>
     <tr><td>app/config.py</td><td>A1: structure, security, pool, proxy and CSP settings. A2: one block after the Redis/session settings (retention, <code>APP_BUILD</code>). B2: one block after the <code>RAG_*</code> settings, plus the value of <code>PROMPT_BUDGET_COMPOSER_TOKENS</code>.</td></tr>
-    <tr><td>c13_compose_and_data_stages.py</td><td>A1: the four authorise sites (~1002, ~1094, ~1145, ~1579, ~1649). B1: the D-065 block (~1205) and <code>_data_per_scheme_rows</code> (~1933). B2: <code>compose_response</code> (~13, ~160-270).</td></tr>
+    <tr><td>c13_compose_and_data_stages.py</td><td>A1: the four authorise sites (~1002, ~1094, ~1145, ~1579, ~1649). B1: the D-065 block (~1205), <code>_per_scheme_generate</code> and <code>_data_per_scheme_rows</code> (~1904-1970). B2: <code>compose_response</code>, <code>_ONE_FIGURE_SCHEMES</code> and <code>_money_rounded_for_display</code> (~13-30, ~110-330).</td></tr>
     <tr><td>app/appdb.py</td><td>A1: seeding, DDL, <code>update_user</code>. A2: one new purge function after <code>purge_user</code>.</td></tr>
-    <tr><td>app/pipeline_graph.py</td><td>A2: a public drop-thread helper. B1: the repair state field and repair nodes.</td></tr>
+    <tr><td>app/pipeline_graph.py</td><td>A2: a public drop-thread helper. B1: the repair state field, <code>node_execute_attempt</code> (SQL-03, SEC-09b) and <code>node_repair</code>.</td></tr>
     <tr><td>c06_years_tranches.py</td><td>A1: <code>refresh_scheme_years</code>. B1: everything else.</td></tr>
-    <tr><td>app/cross_figures.py</td><td>B1: the Focus Plus district lines (~35-137). B2: <code>_scheme_line</code> (~470-484).</td></tr>
+    <tr><td>app/cross_figures.py</td><td>B1: the Focus Plus district lines (~35-137) and the Focus Plus note line in <code>_district_lines</code>. B2: <code>_scheme_line</code>, <code>_state_lines</code>, <code>_leader_sentence</code> and the <code>rank_districts</code> branch of <code>_district_lines</code>.</td></tr>
     <tr><td>tests/conftest.py</td><td>A1: top (<code>collect_ignore</code>). B2: bottom (<code>RAISE_INTERNAL_ERRORS</code>).</td></tr>
     <tr><td>The five lane-sectioned docs</td><td>Each lane writes only inside its own section, above its end marker.</td></tr>
   </tbody></table></div>

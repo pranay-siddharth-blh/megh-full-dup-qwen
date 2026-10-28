@@ -4,6 +4,28 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: audit v3 findings verified and merged into the 4-lane plan (2026-10-28 evening). Report only; no app code changed.
+- THE PLAN TO RUN is the 4-lane plan: `new_docs/Lane_Plan_2026-10-28.html` (setup, rules, final integration) and the lane
+  reports `new_docs/audit_by_lane_2026-10-28/lane-a1|a2|b1|b2.html` (prompt + audit evidence per task). Its setup commit
+  ([SETUP] lane sections) is done. RAG-01..RAG-06 are left out of this round (user decision).
+- `new_docs/Project_Audit_and_Work_Plan_2026-10-28.html` (audit v3, 7 packages) is kept as REFERENCE ONLY; do not run
+  its Step 0 or packages. Its 19 genuinely new findings were re-checked against the code (real functions, offline):
+  17 are in the lanes, SQL-11 is folded into QA-01/CTX-09 (its "58%" had 0 wrong answers, 31 deliberate pauses), and
+  CTX-15 is RAG (left out). Its other entries were splits of tasks the lanes already had.
+- New High findings (all REPRODUCED offline with the real functions, model stubbed, DB faked):
+  SEC-08 a CTE named after a private table passes `sql_guard._assert_schemas` (DB grants UNKNOWN — NEEDS VERIFICATION);
+  SEC-09 attempt 0 is authorized before `_scheme_sql_rewrites` (`pipeline_graph.node_execute_attempt` re-checks only
+  `if attempt`), cross-scheme bundles authorized once as joined text, `authorize` ignores district_list/block_list/village_code;
+  SQL-09 `_mgnrega_drop_geo_beside_village` strips geo filters from every WHERE incl. CTEs (district total becomes state);
+  SQL-10 results cut at the 1,000-row cap are reported as complete (CONFIRMED by code);
+  CMP-04 the number check skips ints < 100, year-like 1900-2199 and lakh/crore scaling ("33%" passes for 3.39%);
+  CMP-06 cross_figures says "more than" / ">" / "Highest" on "lowest" questions.
+  Medium: CTX-10..13 (error-path session divergence, summary resurrected after reset, KI-314 load retry dead on DB
+  errors, "stop" wipes the topic, Continue offer lost), CMP-05/07/08, REL-05. KIs are opened by the packages from their ranges.
+- Tests (this session): pytest 3,932 passed, 0 failed, 3 skipped; scripts 14/14. No live runs (none needed for a report).
+- Next: people steps (rotate credentials, ENV=dev on both dev machines), push the setup commits, then the four lane
+  sessions A1, A2 (machine 1) and B1, B2 (machine 2) with the prompts in the lane reports.
+
 ## Latest: generated SQL switched to megh_chatbot in `.env` (2026-10-28). Config only. LIVE-VERIFIED in-process; the :8401 server (started 11:13, before the change) NOT restarted.
 - `.env` `CHATBOT_DATABASE_URL` uncommented (user, 2026-10-28): the D-073 path (`semantic.run_query` as megh_chatbot)
   is now on for the next start. Settings load (user `megh_chatbot`, pool max 4, `SQL_MAX_COST` 1,000,000) — VERIFIED.

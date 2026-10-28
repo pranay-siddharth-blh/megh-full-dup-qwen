@@ -3,6 +3,11 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-10-28 evening (review only): audit v3 findings verified and merged into the 4-lane plan.** Run the lane plan, not
+the v3 packages: `new_docs/Lane_Plan_2026-10-28.html` + `new_docs/audit_by_lane_2026-10-28/lane-*.html`. Setup commit done;
+RAG left out this round. Machine 1 runs lanes A1 and A2, machine 2 runs B1 and B2; each lane's prompt is in its report.
+`new_docs/Project_Audit_and_Work_Plan_2026-10-28.html` (v3) is reference only. Baseline: pytest 3,932/0/3, scripts 14/14.
+
 **2026-10-28 (config): `.env` `CHATBOT_DATABASE_URL` uncommented — generated SQL will run as megh_chatbot via
 `semantic.run_query` (D-073). LIVE-VERIFIED in-process: pool ready as megh_chatbot, 6/6 schemes answered (5 via run_query,
 Focus Plus via a fixed query); details in CURRENT_STATE.** The :8401 server (pid started 11:13, before the 16:17 `.env` edit)

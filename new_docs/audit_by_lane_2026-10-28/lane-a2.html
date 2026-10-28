@@ -81,7 +81,7 @@ details summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;
 <header>
   <span class="eyebrow">Lane audit report · 28 Oct 2026 · You · session 2</span>
   <h1>Lane A2 · Conversation &amp; frontend</h1>
-  <p class="lede">10 tasks. Every task here depends only on earlier tasks in this lane, so this lane never waits for another. RAG tasks are left out of this round.</p>
+  <p class="lede">12 tasks. Every task here depends only on earlier tasks in this lane, so this lane never waits for another. RAG tasks are left out of this round.</p>
   <p><b>Owns:</b> <code>topic_memory</code>, <code>session_sync</code>, <code>session_store</code>, <code>conversation_store</code>, <code>conversation_memory</code>, the query and history routers, <code>context_policy</code>, <code>c01_followups</code>, <code>cache.py</code>, the conversation harness, and <b>the whole frontend, including <code>web/app</code></b>. A2 is the only lane that touches the UI, so it commits the rebuilt bundle with every frontend change.</p>
   <p><b>Outside blockers, never waited on:</b> the VPN (CTX-07, QA-03) and your retention period (CTX-04a ships disabled until you choose one).</p>
 </header>
@@ -142,7 +142,7 @@ YOUR TASKS, IN ORDER
   - a cache turn, layer small talk ("how are you?") and expiry-continue each keep every topic;
   - on a seeded ledger, "go back to Mawphlang" restores FY 2023-24.
 
-2. CTX-01 + REL-02b · Conversation ownership, turn integrity, non-stream deadline  [context-memory.html#CTX-01]
+2. CTX-01 + CTX-10 + REL-02b · Conversation ownership, turn integrity, error recovery, non-stream deadline  [context-memory.html#CTX-01]
 - Ownership:
   - load_context_state also returns user_id;
   - sync_in returns "foreign" without applying the snapshot;
@@ -158,12 +158,40 @@ YOUR TASKS, IN ORDER
   - two users on one id: the second gets 403 and the owner's row is unchanged;
   - two concurrent turns on one id are serialised;
   - a cancel after context_update leaves the pre-turn state plus stopped_ctx.
+- CTX-10 (part of this task): take snap = session.to_snapshot() and summary0 = session.summary right after sync_in and BEFORE conversation_layer.prepare_turn. A later snapshot breaks idle expiry.
+  - In every non-Clarification except branch of _answer (ModelBusyError 503, timeout 504, generic 502), call session.apply_snapshot(snap), set session.summary = summary0, and re-raise. Leave rev unchanged.
+  - Use this same snapshot for the cancel restore in _remember_stopped.
+- Done (CTX-10): data → pause → a reply whose data stage raises ModelBusyError: pending_scope_q still equals the paused question, and the next reply reaches the data stage as the merged question, with no rewriter call. The same holds for TimeoutError and a generic exception.
 
-3. CTX-06 · Cache gate: test first, fix only disagreements  [context-memory.html#CTX-06]
+3. CTX-11 + CTX-12 · A reset clears the summary everywhere; the load retry works on DB errors
+- CTX-11: in conversation_store.save_session_state's ON CONFLICT, set summary = EXCLUDED.summary (and summary_updated_at) instead of COALESCE. In session_sync.sync_in, set session.summary = durable["summary"] after apply_snapshot, even when it is None. Do not change session_store.apply_snapshot's default.
+- CTX-12: remove the try/except in conversation_store.load_context_state, so a DB error reaches _retry_once. Its only caller is PostgresBackend.load, and sync_in already catches the error and logs "unavailable". No raise_errors flag.
+- Tests: make FakeBackend in tests/test_context_hardening.py:60 copy the real upsert's behaviour; change Flaky in tests/test_session_sync_retry.py to patch conversation_store.db.fetchrow.
+- Done:
+  - summary set → reset → sync_out → a fresh Session's sync_in has summary None, and build_followup_context has no "Conversation summary";
+  - the same after an idle expiry;
+  - a summary written after the reset survives;
+  - with the real PostgresBackend, fetchrow failing once gives 2 calls and "applied"; failing twice gives "unavailable";
+  - test_old_durable_records_still_load stays green.
+
+4. CTX-13 + CTX-14 · "stop" keeps the topic; the Continue offer survives a pause; no cached translated_from
+- In _answer: skip session_store.add_turn when layer.action == "stop". persist_turn still records the turn for history.
+- In the ClarificationNeeded branch, call out = conversation_layer.attach_continue_offer(session, out) before persist_turn. The frontend already renders ContinueOffer for clarifications.
+- When layer.action == "continue-expired", clear session.pending_*, so the next question does not merge into an old paused one.
+- Do not edit conversation_layer.py (lane B2 edits its log_decision lines).
+- CTX-14, cache part: write the result to response_cache.put and semantic_cache.put without "translated_from" (query.py ~420-421).
+- Done:
+  - data → "stop" → "What about FY 2023-24?" reaches the data stage naming MGNREGA;
+  - the first message after idle expiry that pauses carries continue_offer;
+  - tapping the chip and then asking a follow-up runs in the restored scope;
+  - with TRANSLATE_ENABLED=True, a Khasi question then the same in English gives a cache hit without translated_from;
+  - test_stop_continue.py and test_conversation_layer.py stay green.
+
+5. CTX-06 · Cache gate: test first, fix only disagreements  [context-memory.html#CTX-06]
 - Write a table test of the real is_cacheable over every follow-up shape in the harness YAMLs, plus standalone questions.
 - Fix only the cases that come out wrong. No turn-kind pre-pass refactor.
 
-4. CTX-04a · Delete that really deletes; retention purge  [context-memory.html#CTX-04]
+6. CTX-04a + CTX-14 · Delete that really deletes; retention purge; memory timestamp  [context-memory.html#CTX-04]
 - Delete cascade, all called from the delete route in routers/history.py:
   - conversation_memory.delete_session(tenant, user, session): filter Qdrant on all three;
   - a public pipeline_graph helper around _drop_thread;
@@ -176,14 +204,16 @@ YOUR TASKS, IN ORDER
   - after a delete, the Qdrant points, the checkpoint thread and the Session are gone, and the same id starts empty;
   - the purge function has a test;
   - a 0 setting purges nothing.
+- CTX-14, memory part (same file): in conversation_memory.index_turn take ts = time.time() before spawning, and pass it into _index_turn.
+- Done (CTX-14): an embedding stub that sleeps, with a reset in between, gives a point ts earlier than memory_since.
 
-5. REL-01 · Redis failure backoff and a build stamp  [reliability-ops.html#REL-01]
+7. REL-01 · Redis failure backoff and a build stamp  [reliability-ops.html#REL-01]
 - cache._redis(): remember the failure time and skip reconnects for 30 s.
 - Add APP_BUILD (the git sha) to your config block and to REDIS_CACHE_PREFIX.
 - No admin flush endpoint.
 - Done: with Redis down, 20 concurrent gets make at most one connect attempt.
 
-6. UI-01 · Charts and comparison card  [frontend.html#UI-01]
+8. UI-01 · Charts and comparison card  [frontend.html#UI-01]
 - The twin-column pivot and cell formatting are already fixed in Main (from setup). Do the rest:
   - PivotGrid: no total when either dimension is scheme; no stacked or doughnut for scheme series;
   - a non-additive measure defaults to bar, and pie and donut leave the switcher for it;
@@ -194,7 +224,7 @@ YOUR TASKS, IN ORDER
 - Pinned: test_history_charts.py, test_ac_full_results.py. Extend tests/test_table_view_2026_10_28.py.
 - Rebuild and commit web/app.
 
-7. UI-02 · Accessibility, smooth streaming, "figures corrected" marker  [frontend.html#UI-02]
+9. UI-02 · Accessibility, smooth streaming, "figures corrected" marker  [frontend.html#UI-02]
 - Use &lt;button type="button"&gt; for the clickable divs (Sidebar.jsx 152, 158, 162, 211; App.jsx 841).
 - Keep the streaming draft in a ref and batch tokens with requestAnimationFrame. Memoise BotMessage and UserMessage.
 - Honour ?api= only when import.meta.env.DEV is set.
@@ -205,7 +235,7 @@ YOUR TASKS, IN ORDER
 - Pinned: test_asr_transcribe.py:48, test_history_charts.py.
 - Rebuild and commit web/app.
 
-8. CTX-07 · Follow-up rewrite fixes (needs the VPN)  [context-memory.html#CTX-07]
+10. CTX-07 · Follow-up rewrite fixes (needs the VPN)  [context-memory.html#CTX-07]
 - First reproduce live through pipeline.answer_question and log the rewritten question for each case:
   - KI-363: "break it down by district" after a statewide answer;
   - KI-364: "compare … with Ri Bhoi";
@@ -219,7 +249,7 @@ YOUR TASKS, IN ORDER
 - Never add scheme or metric to the provenance filter.
 - Without the VPN: write the real-function tests you can, and record the live part.
 
-9. QA-03 · Live context runs that can catch cache, ownership and cross-VM bugs (VPN)  [testing-evaluation.html#QA-03]
+11. QA-03 · Live context runs that can catch cache, ownership and cross-VM bugs (VPN)  [testing-evaluation.html#QA-03]
 - The in-process harness driver calls sync_out and sync_in between turns.
 - live_context_validation writes a dated result file.
 - The driver can share one session id across two accounts. Add scenarios P1 (ownership) and P2 (topic, cache hit, go back).
@@ -227,13 +257,14 @@ YOUR TASKS, IN ORDER
 - Re-run J2 and J3 for KI-037.
 - Without the VPN: build the driver changes and scenarios, and record the live runs.
 
-10. DOC-01b · Context docs  [documentation.html#DOC-01]
+12. DOC-01b · Context docs  [documentation.html#DOC-01]
 - Rewrite docs/CONTEXT_AND_LANGGRAPH.md: topics, idle expiry, turn kind, caches, ownership (403).
 - docs/LANGGRAPH_PAUSE_RESUME.md: remove "sequential path" (lines 50, 66 and 96).
 - Fix the stale comments in session_store.py (10-11, 130) and topic_memory.py:486.
 - The stale comment at config.py:390-393 belongs to lane A1: add a request.
+- docs/LANGGRAPH_PAUSE_RESUME.md §6 (~line 85): "An error deletes it too" is not true for a cancel or timeout, because pipeline_graph catches Exception, not CancelledError. Correct the sentence. Do not edit pipeline_graph.py.
 
-When all 10 are done: set your Progress line to "Lane A2 complete", make sure the PR is merged or queued, and tell the user.</pre>
+When all 12 are done: set your Progress line to "Lane A2 complete", make sure the PR is merged or queued, and tell the user.</pre>
 </section>
 <section>
   <h2>Tasks, in order</h2>
@@ -249,15 +280,21 @@ When all 10 are done: set your Progress line to "Lane A2 complete", make sure th
       </div>
     </article>
 <article class="task Medium" id="CTX-01">
-      <div class="thead"><span class="tid">2. CTX-01 + REL-02b</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Conversation ownership, turn integrity, non-stream deadline</h2></div>
-      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Ownership:<ul><li>load_context_state also returns user_id;</li><li>sync_in returns "foreign" without applying the snapshot;</li><li>_answer returns 403 and logs it when the in-memory or the durable owner differs from scope.user_id, and sets a flag so _remember_stopped skips;</li><li>SQL backstop: AND user_id IS NOT DISTINCT FROM $n in the upsert's ON CONFLICT … WHERE, in save_session_state and _persist_turn.</li></ul></li><li>Concurrency: a router-level per-session asyncio.Lock dict, added as a wrapper. Keep the public name _answer and rename the inner function. Do NOT reuse the graph's lock; it is not re-entrant and would deadlock.</li><li>Cancel: snapshot the Session at turn start, and restore it in _remember_stopped before recording stopped_ctx.</li><li>Client (frontend/src/chat/api.js): the stream timeout becomes an inactivity timer reset by any chunk, pings included. Mint session ids with crypto.getRandomValues. Rebuild and commit web/app.</li><li>REL-02b: cap the NON-stream /api/query total timeout at 110 s (query.py ~279). Leave the streamed route alone.</li><li>Do not: namespace the graph thread_id by user; add 409 + retry; build a request_id dedup table.</li><li>Pinned tests to update deliberately: test_query_stream.py:227-228, test_context_hardening.py:252-255 (exactly 2 sync_out calls in _answer), test_history_charts.py:67-72.</li><li>Done:<ul><li>two users on one id: the second gets 403 and the owner's row is unchanged;</li><li>two concurrent turns on one id are serialised;</li><li>a cancel after context_update leaves the pre-turn state plus stopped_ctx.</li></ul></li></ul></div>
+      <div class="thead"><span class="tid">2. CTX-01 + CTX-10 + REL-02b</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Conversation ownership, turn integrity, error recovery, non-stream deadline</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Ownership:<ul><li>load_context_state also returns user_id;</li><li>sync_in returns "foreign" without applying the snapshot;</li><li>_answer returns 403 and logs it when the in-memory or the durable owner differs from scope.user_id, and sets a flag so _remember_stopped skips;</li><li>SQL backstop: AND user_id IS NOT DISTINCT FROM $n in the upsert's ON CONFLICT … WHERE, in save_session_state and _persist_turn.</li></ul></li><li>Concurrency: a router-level per-session asyncio.Lock dict, added as a wrapper. Keep the public name _answer and rename the inner function. Do NOT reuse the graph's lock; it is not re-entrant and would deadlock.</li><li>Cancel: snapshot the Session at turn start, and restore it in _remember_stopped before recording stopped_ctx.</li><li>Client (frontend/src/chat/api.js): the stream timeout becomes an inactivity timer reset by any chunk, pings included. Mint session ids with crypto.getRandomValues. Rebuild and commit web/app.</li><li>REL-02b: cap the NON-stream /api/query total timeout at 110 s (query.py ~279). Leave the streamed route alone.</li><li>Do not: namespace the graph thread_id by user; add 409 + retry; build a request_id dedup table.</li><li>Pinned tests to update deliberately: test_query_stream.py:227-228, test_context_hardening.py:252-255 (exactly 2 sync_out calls in _answer), test_history_charts.py:67-72.</li><li>Done:<ul><li>two users on one id: the second gets 403 and the owner's row is unchanged;</li><li>two concurrent turns on one id are serialised;</li><li>a cancel after context_update leaves the pre-turn state plus stopped_ctx.</li></ul></li><li>CTX-10 (part of this task): take snap = session.to_snapshot() and summary0 = session.summary right after sync_in and BEFORE conversation_layer.prepare_turn. A later snapshot breaks idle expiry.<ul><li>In every non-Clarification except branch of _answer (ModelBusyError 503, timeout 504, generic 502), call session.apply_snapshot(snap), set session.summary = summary0, and re-raise. Leave rev unchanged.</li><li>Use this same snapshot for the cancel restore in _remember_stopped.</li></ul></li><li>Done (CTX-10): data → pause → a reply whose data stage raises ModelBusyError: pending_scope_q still equals the paused question, and the next reply reaches the data stage as the merged question, with no rewriter call. The same holds for TimeoutError and a generic exception.</li></ul></div>
       <div class="ev"><h4>Audit evidence · CTX-01: Conversation ownership and turn integrity</h4>
         
         <div class="status"><b>REPRODUCED</b>: <code>ensure('sid','alice')</code> then <code>ensure('sid','bob')</code> returns alice's session. Severity lowered: the attacker must be logged in and hold another user's id (about 46 random bits), and figures are still re-authorised. This card merges v1 CTX-01 and CTX-03.</div>
         <div><span class="lbl">The issue</span>Nothing checks that a session id belongs to the caller. A user holding another's id inherits that chat's context, can ask "what did we discuss?" and receive the other user's questions, and overwrites the other user's state. Within one worker, two concurrent requests on one id interleave state, because only the graph run is locked. A Stop can save half-applied state. The client's 75 s limit applies to the whole stream, even while pings keep it alive.</div>
         <details open><summary>Evidence</summary><ul><li>query.py:143-170 <code>_session_id</code>; session_store.py:306-324 <code>ensure</code>; conversation_store <code>load_context_state</code> (~379, session_id only), <code>save_session_state</code> (350) and <code>_persist_turn</code> (40-124).</li><li>pipeline_graph.py:789 locks only the graph. <code>_remember_stopped</code> (query.py:176-198) saves unconditionally.</li><li>api.js:96 and :134 apply the 75 s limit. <code>: ping</code> frames are skipped before <code>gotEvent</code>.</li><li>The history routes are already owner-scoped.</li></ul></details>
         <details open><summary>Tests that pin this code</summary><ul><li>test_query_stream.py:227-228 (<code>return await _answer(req, request, scope)</code>)</li><li>test_context_hardening.py:252-255 (exactly 2 <code>sync_out(</code> calls in _answer)</li><li>test_history_charts.py:67-72 (conversation_store strings)</li></ul></details>
-      </div><div class="ev"><h4>Audit evidence · REL-02: Config hygiene, a non-stream deadline, safe retries</h4>
+      </div><div class="ev"><h4>Audit evidence · CTX-10: A failed turn leaves one worker's session out of step, and its pending question is lost there <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced through the real router and graph. Correction: take the snapshot after sync_in and before prepare_turn, not later. Merged into CTX-01.</p>
+<p class="status"><b>REPRODUCED</b> with the real router <code>_answer</code> and session_sync, a stubbed model and a fake DB.</p>
+<h5>The problem</h5><p>When a turn fails with 503, 504 or 502, the worker that ran it keeps a half-changed copy of the session. The saved copy in Postgres still has the pending clarification. The next reply therefore behaves differently depending on which of the four workers gets it.</p>
+<h5>What the officer sees</h5><p>"How many MGNREGA person-days?" → bot asks "which area?" → officer: "West Garo Hills" → the gateway is busy (503). The officer retries "West Garo Hills". On the same worker (1 in 4) it is no longer a pause reply: it runs as a follow-up of the last answered turn, possibly another scheme. On the other workers it resumes correctly.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>_turn_context_stage</code> (c14:263-346) clears <code>session.pending_*</code> at the start of the turn.</li><li>The <code>except</code> branches in <code>routers/query.py:322-345</code> (<code>_answer</code>) raise without restoring the session and without calling <code>sync_out</code>.</li><li>On the next request, <code>session_sync.sync_in</code> (session_sync.py:88) sees <code>rev &lt;= session.rev</code> and returns "current", so it keeps the damaged local copy.</li></ul>
+</div><div class="ev"><h4>Audit evidence · REL-02: Config hygiene, a non-stream deadline, safe retries</h4>
         <p class="note"><b>Split task:</b> Lane A2 does only the non-stream deadline in routers/query.py. The config and retry part (REL-02a) is in lane A1.</p>
         <div class="status"><b>CONFIRMED</b>. Two parts of the v1 fix would have caused harm: deleting settings would break boot, and a global 110 s cap would break streamed answers.</div>
         <div><span class="lbl">The issue</span>Four settings are never read: <code>SQL_GENERATION_MAX_RETRIES</code>, <code>SQL_GUIDED_DECODING_ENABLED</code>, <code>MULTITENANCY_ENABLED</code> and <code>PORT</code>. But <code>Settings</code> rejects unknown keys, so deleting them breaks boot for any <code>.env</code> that still sets one. The non-stream <code>/api/query</code> can run 60 s × 6 parts while nginx cuts it at 120 s; the streamed route is safe because of its pings. Model calls never retry on a connection error. <code>wait_for(_gate.acquire())</code> can leak a semaphore slot on Python 3.11 when it is cancelled.</div>
@@ -265,8 +302,42 @@ When all 10 are done: set your Progress line to "Lane A2 complete", make sure th
         <details open><summary>Tests that pin this code</summary><ul><li>test_query_stream.py:227-228 (source pin on query.py)</li></ul></details>
       </div>
     </article>
+<article class="task Medium" id="CTX-11">
+      <div class="thead"><span class="tid">3. CTX-11 + CTX-12</span><span class="pill s-Medium">Medium</span><h2 class="ttl">A reset clears the summary everywhere; the load retry works on DB errors</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>CTX-11: in conversation_store.save_session_state's ON CONFLICT, set summary = EXCLUDED.summary (and summary_updated_at) instead of COALESCE. In session_sync.sync_in, set session.summary = durable["summary"] after apply_snapshot, even when it is None. Do not change session_store.apply_snapshot's default.</li><li>CTX-12: remove the try/except in conversation_store.load_context_state, so a DB error reaches _retry_once. Its only caller is PostgresBackend.load, and sync_in already catches the error and logs "unavailable". No raise_errors flag.</li><li>Tests: make FakeBackend in tests/test_context_hardening.py:60 copy the real upsert's behaviour; change Flaky in tests/test_session_sync_retry.py to patch conversation_store.db.fetchrow.</li><li>Done:<ul><li>summary set → reset → sync_out → a fresh Session's sync_in has summary None, and build_followup_context has no "Conversation summary";</li><li>the same after an idle expiry;</li><li>a summary written after the reset survives;</li><li>with the real PostgresBackend, fetchrow failing once gives 2 calls and "applied"; failing twice gives "unavailable";</li><li>test_old_durable_records_still_load stays green.</li></ul></li></ul></div>
+      <div class="ev"><h4>Audit evidence · CTX-11: "Start a new topic" does not clear the conversation summary on other workers <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced; it also happens after an idle expiry. Simpler fix than the card: no flag is needed.</p>
+<p class="status"><b>REPRODUCED</b> with a fake backend that copies the SQL's <code>COALESCE</code> rule.</p>
+<h5>The problem</h5><p>After a reset or idle expiry, the old rolling summary comes back on the other workers, and the follow-up rewrite is primed with the old scheme, place and year. This undoes the intent of KI-224.</p>
+<h5>What the officer sees</h5><p>Officer: "start a new topic", then "How many houses in Ri Bhoi?". On 3 of 4 workers, the rewrite prompt still says the chat was about MGNREGA in East Khasi Hills for FY 2022-23. Whether a wrong place actually leaks depends on the provenance checks (D-024); that part is INFERRED.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>clear_context</code> sets <code>session.summary = None</code> (conversation_layer.py:707).</li><li><code>save_session_state</code> writes <code>summary = COALESCE(EXCLUDED.summary, app.conversations.summary)</code> (conversation_store.py:370), so a None never clears the column.</li><li><code>apply_snapshot</code> restores any non-None summary (session_store.py:275-277). <code>build_followup_context</code> then emits "Conversation summary so far: …MGNREGA … East Khasi Hills …" (context_manager.py:952).</li></ul>
+</div><div class="ev"><h4>Audit evidence · CTX-12: The load retry (KI-314) never runs on a DB error <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Reproduced with the real PostgresBackend. The card's reason for adding a parameter is wrong: load_context_state has one caller.</p>
+<p class="status"><b>REPRODUCED</b> with the real <code>PostgresBackend</code> and <code>db.fetchrow</code> raising once.</p>
+<h5>The problem</h5><p>A brief DB drop when a conversation lands on a worker with no local copy means the turn runs with no context. The turn's own save is then refused as stale, so its state is lost too.</p>
+<h5>What the officer sees</h5><p>Officer: "What about 2023-24?" during a DB blip gets "Which scheme?" or the wrong scope, in the middle of a conversation.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>conversation_store.load_context_state</code> catches every exception and returns <code>{}</code> (conversation_store.py:385-392).</li><li><code>_retry_once</code> (session_sync.py:59-69) therefore only retries timeouts.</li><li><code>tests/test_session_sync_retry.py</code> passes only because its fake backend raises instead of returning <code>{}</code>.</li></ul>
+</div>
+    </article>
+<article class="task Medium" id="CTX-13">
+      <div class="thead"><span class="tid">4. CTX-13 + CTX-14</span><span class="pill s-Medium">Medium</span><h2 class="ttl">"stop" keeps the topic; the Continue offer survives a pause; no cached translated_from</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>In _answer: skip session_store.add_turn when layer.action == "stop". persist_turn still records the turn for history.</li><li>In the ClarificationNeeded branch, call out = conversation_layer.attach_continue_offer(session, out) before persist_turn. The frontend already renders ContinueOffer for clarifications.</li><li>When layer.action == "continue-expired", clear session.pending_*, so the next question does not merge into an old paused one.</li><li>Do not edit conversation_layer.py (lane B2 edits its log_decision lines).</li><li>CTX-14, cache part: write the result to response_cache.put and semantic_cache.put without "translated_from" (query.py ~420-421).</li><li>Done:<ul><li>data → "stop" → "What about FY 2023-24?" reaches the data stage naming MGNREGA;</li><li>the first message after idle expiry that pauses carries continue_offer;</li><li>tapping the chip and then asking a follow-up runs in the restored scope;</li><li>with TRANSLATE_ENABLED=True, a Khasi question then the same in English gives a cache hit without translated_from;</li><li>test_stop_continue.py and test_conversation_layer.py stay green.</li></ul></li></ul></div>
+      <div class="ev"><h4>Audit evidence · CTX-13: A typed "stop" with nothing running wipes the topic, and the "Continue with…" offer is lost after expiry <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Both halves reproduced through the real router. The fix stays in routers/query.py, so lane B2's conversation_layer lines are not touched.</p>
+<p class="status"><b>REPRODUCED</b> (stop/aside and expiry/pause, both through the real router).</p>
+<h5>The problem</h5><p>Two small conversation-layer slips with the same shape: a reply that should be treated as an aside is recorded as the antecedent, or returns before the offer is attached.</p>
+<h5>What the officer sees</h5><p>MGNREGA, East Khasi Hills, FY 2022-23 → "stop" → "What about FY 2023-24?" reaches the data path with no scheme. With "thanks" in between instead, it correctly becomes "…under MGNREGA". After 8 hours idle, a vague first question gets "which scheme?" with no Continue chip, and the set-aside context is silently dropped.</p>
+<h5>Where it comes from</h5><ul class=''><li>Stop: the router records the <code>nothing_running</code> edge reply as the last turn (query.py:373). <code>resume_after_small_talk</code> (conversation_layer.py:668-670) only restores the data turn after greetings, thanks, denials or a noted aside. The stop branch (conversation_layer.py:927) sets no aside, although its comment says "the topic carries on".</li><li>Expiry: the <code>ClarificationNeeded</code> branch returns at query.py:321, before <code>attach_continue_offer</code> (:356). The next message clears <code>expired_ctx</code> (conversation_layer.py:951). The 503 and 504 paths lose it the same way.</li></ul>
+</div><div class="ev"><h4>Audit evidence · CTX-14: Small memory leaks: a pre-reset turn can slip past memory_since, and cached answers carry another officer's fields <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Memory timestamp: confirmed by reading the code. Cached translated_from: reproduced with TRANSLATE_ENABLED=True, which is off by default. Stripping session_id and execution_time_ms, as the card suggests, is unnecessary.</p>
+<p class="status">N6 <b>INFERRED</b> (the timing window needs a slow embedding). N7 <b>CONFIRMED</b>, dormant while <code>TRANSLATE_ENABLED=False</code>.</p>
+<h5>The problem</h5><p>Two low-risk holes that are cheap to close now.</p>
+<h5>What the officer sees</h5><p>Low. The first can bring an old turn back into memory after a reset. The second is a privacy leak once translation is switched on.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>conversation_memory._index_turn</code> stamps <code>ts=time.time()</code> <i>after</i> awaiting the embedding (conversation_memory.py:196, :213). A slow gateway can give turn N-1 a timestamp later than a quick "start a new topic".</li><li><code>translated_from</code> is added at query.py:361 and cached at :420. A later English asker in the same scope receives the first officer's Khasi or Garo text in the API JSON.</li><li><code>answer_question_via_graph</code> catches only <code>Exception</code> (pipeline_graph.py:801), so a Stop (CancelledError) does not drop the thread. That is harmless (the sweep removes it), but <code>LANGGRAPH_PAUSE_RESUME.md</code> §6 says otherwise.</li></ul>
+</div>
+    </article>
 <article class="task Low" id="CTX-06">
-      <div class="thead"><span class="tid">3. CTX-06</span><span class="pill s-Low">Low</span><h2 class="ttl">Cache gate: test first, fix only disagreements</h2></div>
+      <div class="thead"><span class="tid">5. CTX-06</span><span class="pill s-Low">Low</span><h2 class="ttl">Cache gate: test first, fix only disagreements</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Write a table test of the real is_cacheable over every follow-up shape in the harness YAMLs, plus standalone questions.</li><li>Fix only the cases that come out wrong. No turn-kind pre-pass refactor.</li></ul></div>
       <div class="ev"><h4>Audit evidence · CTX-06: Cache gate: test first, then fix only the disagreements</h4>
         
@@ -277,18 +348,24 @@ When all 10 are done: set your Progress line to "Lane A2 complete", make sure th
       </div>
     </article>
 <article class="task Medium" id="CTX-04a">
-      <div class="thead"><span class="tid">4. CTX-04a</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Delete that really deletes; retention purge</h2></div>
-      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Delete cascade, all called from the delete route in routers/history.py:<ul><li>conversation_memory.delete_session(tenant, user, session): filter Qdrant on all three;</li><li>a public pipeline_graph helper around _drop_thread;</li><li>SessionStore.drop().</li></ul></li><li>Retention: add CONVERSATION_RETENTION_DAYS to your config block, default 0 meaning disabled until the user picks a period.<ul><li>New appdb function right after purge_user deletes conversations, conversation_turns and query_audit rows older than that.</li><li>Call it from the EXISTING conversation_memory.purge_loop, which main.py already starts. Do not edit main.py.</li></ul></li><li>Not yours: the audit JSONL rotation (lane A1). No snapshot size cap; it is already bounded.</li><li>Done:<ul><li>after a delete, the Qdrant points, the checkpoint thread and the Session are gone, and the same id starts empty;</li><li>the purge function has a test;</li><li>a 0 setting purges nothing.</li></ul></li></ul></div>
+      <div class="thead"><span class="tid">6. CTX-04a + CTX-14</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Delete that really deletes; retention purge; memory timestamp</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Delete cascade, all called from the delete route in routers/history.py:<ul><li>conversation_memory.delete_session(tenant, user, session): filter Qdrant on all three;</li><li>a public pipeline_graph helper around _drop_thread;</li><li>SessionStore.drop().</li></ul></li><li>Retention: add CONVERSATION_RETENTION_DAYS to your config block, default 0 meaning disabled until the user picks a period.<ul><li>New appdb function right after purge_user deletes conversations, conversation_turns and query_audit rows older than that.</li><li>Call it from the EXISTING conversation_memory.purge_loop, which main.py already starts. Do not edit main.py.</li></ul></li><li>Not yours: the audit JSONL rotation (lane A1). No snapshot size cap; it is already bounded.</li><li>Done:<ul><li>after a delete, the Qdrant points, the checkpoint thread and the Session are gone, and the same id starts empty;</li><li>the purge function has a test;</li><li>a 0 setting purges nothing.</li></ul></li><li>CTX-14, memory part (same file): in conversation_memory.index_turn take ts = time.time() before spawning, and pass it into _index_turn.</li><li>Done (CTX-14): an embedding stub that sleeps, with a reset in between, gives a point ts earlier than memory_since.</li></ul></div>
       <div class="ev"><h4>Audit evidence · CTX-04: Retention for conversations and audit; deletion that really deletes</h4>
         <p class="note"><b>Split task:</b> Lane A2 does the delete cascade and retention purge. The audit-log rotation (CTX-04b) is in lane A1.</p>
         <div class="status"><b>CONFIRMED</b>, with corrections: Qdrant memory (30 days), paused threads and sessions do expire. Only the DB tables and the audit never expire.</div>
         <div><span class="lbl">The issue</span>Three retention gaps:<ul><li><code>app.conversations</code>, <code>conversation_turns</code>, <code>query_audit</code> (26,717 old rows with result previews) and the JSONL audit never expire.</li><li>Deleting a chat removes only DB rows, not its Qdrant memory points, its graph checkpoint or the in-memory Session.</li><li>The JSONL audit is written with blocking file I/O on the event loop.</li></ul></div>
         <details open><summary>Evidence</summary><ul><li>conversation_store.py:264-277 and history.py:69-77 handle the delete. <code>deploy/sql/02_retention_policy.sql</code> is never scheduled. <code>auth.read_audit</code> is dead code.</li><li>The snapshot is already bounded (8 topics, 20 ledger entries per topic).</li></ul></details>
         <details open><summary>Tests that pin this code</summary><ul><li>test_history_charts.py:67-72</li></ul></details>
-      </div>
+      </div><div class="ev"><h4>Audit evidence · CTX-14: Small memory leaks: a pre-reset turn can slip past memory_since, and cached answers carry another officer's fields <span class="pill">audit v3</span></h4>
+        <p class="note"><b>Re-verified 28 Oct:</b> Memory timestamp: confirmed by reading the code. Cached translated_from: reproduced with TRANSLATE_ENABLED=True, which is off by default. Stripping session_id and execution_time_ms, as the card suggests, is unnecessary.</p>
+<p class="status">N6 <b>INFERRED</b> (the timing window needs a slow embedding). N7 <b>CONFIRMED</b>, dormant while <code>TRANSLATE_ENABLED=False</code>.</p>
+<h5>The problem</h5><p>Two low-risk holes that are cheap to close now.</p>
+<h5>What the officer sees</h5><p>Low. The first can bring an old turn back into memory after a reset. The second is a privacy leak once translation is switched on.</p>
+<h5>Where it comes from</h5><ul class=''><li><code>conversation_memory._index_turn</code> stamps <code>ts=time.time()</code> <i>after</i> awaiting the embedding (conversation_memory.py:196, :213). A slow gateway can give turn N-1 a timestamp later than a quick "start a new topic".</li><li><code>translated_from</code> is added at query.py:361 and cached at :420. A later English asker in the same scope receives the first officer's Khasi or Garo text in the API JSON.</li><li><code>answer_question_via_graph</code> catches only <code>Exception</code> (pipeline_graph.py:801), so a Stop (CancelledError) does not drop the thread. That is harmless (the sweep removes it), but <code>LANGGRAPH_PAUSE_RESUME.md</code> §6 says otherwise.</li></ul>
+</div>
     </article>
 <article class="task Low" id="REL-01">
-      <div class="thead"><span class="tid">5. REL-01</span><span class="pill s-Low">Low</span><h2 class="ttl">Redis failure backoff and a build stamp</h2></div>
+      <div class="thead"><span class="tid">7. REL-01</span><span class="pill s-Low">Low</span><h2 class="ttl">Redis failure backoff and a build stamp</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>cache._redis(): remember the failure time and skip reconnects for 30 s.</li><li>Add APP_BUILD (the git sha) to your config block and to REDIS_CACHE_PREFIX.</li><li>No admin flush endpoint.</li><li>Done: with Redis down, 20 concurrent gets make at most one connect attempt.</li></ul></div>
       <div class="ev"><h4>Audit evidence · REL-01: Redis failure backoff and a build stamp on cache keys</h4>
         
@@ -299,7 +376,7 @@ When all 10 are done: set your Progress line to "Lane A2 complete", make sure th
       </div>
     </article>
 <article class="task Medium" id="UI-01">
-      <div class="thead"><span class="tid">6. UI-01</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Charts and comparison card</h2></div>
+      <div class="thead"><span class="tid">8. UI-01</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Charts and comparison card</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>The twin-column pivot and cell formatting are already fixed in Main (from setup). Do the rest:<ul><li>PivotGrid: no total when either dimension is scheme; no stacked or doughnut for scheme series;</li><li>a non-additive measure defaults to bar, and pie and donut leave the switcher for it;</li><li>nulls stay null (Chart.js skips them);</li><li>compareVerdict: no verdict for cross-scheme count rows, "N points" for pct, and a short lower-is-better stem list;</li><li>askedMeasureCol gets a pct group;</li><li>the Clarify pill shows the full label when it contains " vs " (use includes).</li></ul></li><li>Pinned: test_history_charts.py, test_ac_full_results.py. Extend tests/test_table_view_2026_10_28.py.</li><li>Rebuild and commit web/app.</li></ul></div>
       <div class="ev"><h4>Audit evidence · UI-01: Charts and comparison card: no cross-scheme totals, correct verdicts</h4>
         
@@ -310,7 +387,7 @@ When all 10 are done: set your Progress line to "Lane A2 complete", make sure th
       </div>
     </article>
 <article class="task Low" id="UI-02">
-      <div class="thead"><span class="tid">7. UI-02</span><span class="pill s-Low">Low</span><h2 class="ttl">Accessibility, smooth streaming, "figures corrected" marker</h2></div>
+      <div class="thead"><span class="tid">9. UI-02</span><span class="pill s-Low">Low</span><h2 class="ttl">Accessibility, smooth streaming, "figures corrected" marker</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Use &lt;button type="button"&gt; for the clickable divs (Sidebar.jsx 152, 158, 162, 211; App.jsx 841).</li><li>Keep the streaming draft in a ref and batch tokens with requestAnimationFrame. Memoise BotMessage and UserMessage.</li><li>Honour ?api= only when import.meta.env.DEV is set.</li><li>Self-host the fonts in frontend/index.html and admin.html. Leave the CSP in config.py alone (lane A1).</li><li>Hide lone *_key and *_code columns with a columns.js helper, but keep them in the Excel export.</li><li>Show a small "figures checked and corrected" note when the final text differs from the draft (reveal.js already has commonWordPrefix).</li><li>Delete the dead RouteBadge.</li><li>Pinned: test_asr_transcribe.py:48, test_history_charts.py.</li><li>Rebuild and commit web/app.</li></ul></div>
       <div class="ev"><h4>Audit evidence · UI-02: Accessibility, smooth streaming, and a "figures corrected" marker</h4>
         
@@ -321,7 +398,7 @@ When all 10 are done: set your Progress line to "Lane A2 complete", make sure th
       </div>
     </article>
 <article class="task Medium" id="CTX-07">
-      <div class="thead"><span class="tid">8. CTX-07</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Follow-up rewrite fixes (needs the VPN)</h2></div>
+      <div class="thead"><span class="tid">10. CTX-07</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Follow-up rewrite fixes (needs the VPN)</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>First reproduce live through pipeline.answer_question and log the rewritten question for each case:<ul><li>KI-363: "break it down by district" after a statewide answer;</li><li>KI-364: "compare … with Ri Bhoi";</li><li>KI-416: "FY20?" after a houses answer.</li></ul></li><li>Then fix where the fault is:<ul><li>breakdown: the follow-up becomes a GROUP BY question;</li><li>compare-with: a deterministic rewrite to the previous place plus X, same measure and year; document why it does not conflict with D-056;</li><li>bare year: carry state.metric forward, and have context_policy.rewrite_violation reject a metric-family change when the follow-up named no measure.</li></ul></li><li>Edit c01 rewrites near _comparison_swap only; leave _KNOWLEDGE_HINTS and _BREAKDOWN_CUE alone.</li><li>If the fault is in SQL generation (c10/c11), that is lane B1's: add a request instead.</li><li>Never add scheme or metric to the provenance filter.</li><li>Without the VPN: write the real-function tests you can, and record the live part.</li></ul></div>
       <div class="ev"><h4>Audit evidence · CTX-07: Follow-up fixes: breakdown, compare-with-place, bare-year measure</h4>
         
@@ -332,7 +409,7 @@ When all 10 are done: set your Progress line to "Lane A2 complete", make sure th
       </div>
     </article>
 <article class="task Medium" id="QA-03">
-      <div class="thead"><span class="tid">9. QA-03</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Live context runs that can catch cache, ownership and cross-VM bugs (VPN)</h2></div>
+      <div class="thead"><span class="tid">11. QA-03</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Live context runs that can catch cache, ownership and cross-VM bugs (VPN)</h2></div>
       <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>The in-process harness driver calls sync_out and sync_in between turns.</li><li>live_context_validation writes a dated result file.</li><li>The driver can share one session id across two accounts. Add scenarios P1 (ownership) and P2 (topic, cache hit, go back).</li><li>Pause on VM1 and resume on VM2.</li><li>Re-run J2 and J3 for KI-037.</li><li>Without the VPN: build the driver changes and scenarios, and record the live runs.</li></ul></div>
       <div class="ev"><h4>Audit evidence · QA-03: Live context runs that can catch cache, ownership and cross-VM bugs</h4>
         
@@ -343,8 +420,8 @@ When all 10 are done: set your Progress line to "Lane A2 complete", make sure th
       </div>
     </article>
 <article class="task Medium" id="DOC-01b">
-      <div class="thead"><span class="tid">10. DOC-01b</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Context docs</h2></div>
-      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Rewrite docs/CONTEXT_AND_LANGGRAPH.md: topics, idle expiry, turn kind, caches, ownership (403).</li><li>docs/LANGGRAPH_PAUSE_RESUME.md: remove "sequential path" (lines 50, 66 and 96).</li><li>Fix the stale comments in session_store.py (10-11, 130) and topic_memory.py:486.</li><li>The stale comment at config.py:390-393 belongs to lane A1: add a request.</li></ul></div>
+      <div class="thead"><span class="tid">12. DOC-01b</span><span class="pill s-Medium">Medium</span><h2 class="ttl">Context docs</h2></div>
+      <div><span class="lbl">Do this (lane instructions; these override the audit's solution)</span><ul><li>Rewrite docs/CONTEXT_AND_LANGGRAPH.md: topics, idle expiry, turn kind, caches, ownership (403).</li><li>docs/LANGGRAPH_PAUSE_RESUME.md: remove "sequential path" (lines 50, 66 and 96).</li><li>Fix the stale comments in session_store.py (10-11, 130) and topic_memory.py:486.</li><li>The stale comment at config.py:390-393 belongs to lane A1: add a request.</li><li>docs/LANGGRAPH_PAUSE_RESUME.md §6 (~line 85): "An error deletes it too" is not true for a cancel or timeout, because pipeline_graph catches Exception, not CancelledError. Correct the sentence. Do not edit pipeline_graph.py.</li></ul></div>
       <div class="ev"><h4>Audit evidence · DOC-01: Bring the guide docs back in line with the code</h4>
         <p class="note"><b>Split task:</b> Lane A2's share of DOC-01: the context and LangGraph docs.</p>
         <div class="status"><b>CONFIRMED</b>, except one v1 claim: SECURITY.md has no regex text.</div>
@@ -359,11 +436,11 @@ When all 10 are done: set your Progress line to "Lane A2 complete", make sure th
   <p class="note">All other files have exactly one owner. For each file below, the lanes edit separate regions that git merges on its own. If a rebase still conflicts, the lane keeps the other lane's lines and re-applies only its own.</p>
   <div class="tablewrap"><table><thead><tr><th>File</th><th>Who edits which region</th></tr></thead><tbody>
     <tr><td>app/config.py</td><td>A1: structure, security, pool, proxy and CSP settings. A2: one block after the Redis/session settings (retention, <code>APP_BUILD</code>). B2: one block after the <code>RAG_*</code> settings, plus the value of <code>PROMPT_BUDGET_COMPOSER_TOKENS</code>.</td></tr>
-    <tr><td>c13_compose_and_data_stages.py</td><td>A1: the four authorise sites (~1002, ~1094, ~1145, ~1579, ~1649). B1: the D-065 block (~1205) and <code>_data_per_scheme_rows</code> (~1933). B2: <code>compose_response</code> (~13, ~160-270).</td></tr>
+    <tr><td>c13_compose_and_data_stages.py</td><td>A1: the four authorise sites (~1002, ~1094, ~1145, ~1579, ~1649). B1: the D-065 block (~1205), <code>_per_scheme_generate</code> and <code>_data_per_scheme_rows</code> (~1904-1970). B2: <code>compose_response</code>, <code>_ONE_FIGURE_SCHEMES</code> and <code>_money_rounded_for_display</code> (~13-30, ~110-330).</td></tr>
     <tr><td>app/appdb.py</td><td>A1: seeding, DDL, <code>update_user</code>. A2: one new purge function after <code>purge_user</code>.</td></tr>
-    <tr><td>app/pipeline_graph.py</td><td>A2: a public drop-thread helper. B1: the repair state field and repair nodes.</td></tr>
+    <tr><td>app/pipeline_graph.py</td><td>A2: a public drop-thread helper. B1: the repair state field, <code>node_execute_attempt</code> (SQL-03, SEC-09b) and <code>node_repair</code>.</td></tr>
     <tr><td>c06_years_tranches.py</td><td>A1: <code>refresh_scheme_years</code>. B1: everything else.</td></tr>
-    <tr><td>app/cross_figures.py</td><td>B1: the Focus Plus district lines (~35-137). B2: <code>_scheme_line</code> (~470-484).</td></tr>
+    <tr><td>app/cross_figures.py</td><td>B1: the Focus Plus district lines (~35-137) and the Focus Plus note line in <code>_district_lines</code>. B2: <code>_scheme_line</code>, <code>_state_lines</code>, <code>_leader_sentence</code> and the <code>rank_districts</code> branch of <code>_district_lines</code>.</td></tr>
     <tr><td>tests/conftest.py</td><td>A1: top (<code>collect_ignore</code>). B2: bottom (<code>RAISE_INTERNAL_ERRORS</code>).</td></tr>
     <tr><td>The five lane-sectioned docs</td><td>Each lane writes only inside its own section, above its end marker.</td></tr>
   </tbody></table></div>
