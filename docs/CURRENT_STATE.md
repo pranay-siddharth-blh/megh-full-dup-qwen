@@ -1469,3 +1469,21 @@ DDL.
   `schema_context.py` in step.
 - `app.*` DDL in `appdb.py`: additive `IF NOT EXISTS` only, because an older build must tolerate
   a newer schema.
+
+## Parallel lanes (2026-10-28), temporary, folded in at final integration
+
+### Lane A1 · Platform & security (KI-450 to KI-479)
+- Progress: not started
+<!-- end lane A1 -->
+
+### Lane A2 · Conversation & frontend (KI-480 to KI-509)
+- Progress: not started
+<!-- end lane A2 -->
+
+### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
+- Progress: not started
+<!-- end lane B1 -->
+
+### Lane B2 · Answers & knowledge base (KI-540 to KI-569)
+- Progress: not started
+<!-- end lane B2 -->

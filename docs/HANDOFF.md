@@ -1179,3 +1179,21 @@ Do not reintroduce raw previous-answer text into the rewrite prompt (D-022). Do 
 conversation state back into process memory (D-023).
 
 **Never print or copy rows from `Focus Legacy to share to BLH.csv`.**
+
+## Parallel lanes (2026-10-28), temporary, folded in at final integration
+
+### Lane A1 · Platform & security (KI-450 to KI-479)
+- Progress: not started
+<!-- end lane A1 -->
+
+### Lane A2 · Conversation & frontend (KI-480 to KI-509)
+- Progress: not started
+<!-- end lane A2 -->
+
+### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
+- Progress: not started
+<!-- end lane B1 -->
+
+### Lane B2 · Answers & knowledge base (KI-540 to KI-569)
+- Progress: not started
+<!-- end lane B2 -->

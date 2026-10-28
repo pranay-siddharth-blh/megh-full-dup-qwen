@@ -1352,3 +1352,21 @@ the DATA path stubbed (the VPN was down: `10.48.242.4` answered neither 5432 nor
   place's distinctive word and doubled apostrophes count as present.
 - **Not fixed here:** KI-035 (summing per-year distinct counts), KI-040 (MGNREGA
   "beneficiaries"), KI-036/037 (block/village level memory).
+
+## Parallel lanes (2026-10-28), temporary, folded in at final integration
+
+### Lane A1 · Platform & security (KI-450 to KI-479)
+- Progress: not started
+<!-- end lane A1 -->
+
+### Lane A2 · Conversation & frontend (KI-480 to KI-509)
+- Progress: not started
+<!-- end lane A2 -->
+
+### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
+- Progress: not started
+<!-- end lane B1 -->
+
+### Lane B2 · Answers & knowledge base (KI-540 to KI-569)
+- Progress: not started
+<!-- end lane B2 -->
