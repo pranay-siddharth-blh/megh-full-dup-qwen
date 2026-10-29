@@ -4,6 +4,14 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: structural data rules are checked live and alert when broken (2026-10-29, D-087 claims). Code changed, uncommitted.
+- `data_facts.CLAIMS` (17) run after every 10-min refresh: WARNING log, one `ALERT_WEBHOOK_URL` POST, `/metrics` `data_facts.broken_claims`. Live: 17/17 hold.
+- NOT yet running in the :8401 server: it is another session's (PID 10296, started 16:20:49, before the change at 16:24:56); stopping it was refused as interfering with that session. Its next restart picks it up.
+
+## Latest: PMAY-G "received no release" answers the count (2026-10-29, KI-573). Code changed, uncommitted.
+- `_PMAY_M["none"]` gained "releas": the question had fallen through to the statewide summary. Live: 462 statewide, 68 Ri Bhoi (= megh_db).
+- :8401 is now another session's server (PID 52, started 15:53 with `certs/dev-*.pem`, after both of today's code changes); left running.
+
 ## Latest: the SQL prompt's data figures are live from megh_db (2026-10-29, D-087, KI-572). Code changed, uncommitted; :8401 restarted.
 - NEW `app/data_facts.py`: 87 figures (row / NULL / distinct counts, shares, years held) read by 11 read-only SELECTs at startup and every 10 min; `schema_context` carries `[[name]]` tokens, filled by `build_schema_context` / `available_metrics_text`. `/metrics` shows `data_facts`.
 - Live: 87/87 read; 11 figures were stale (CM Elevate 8,948 records / 8,921 applications, Focus Legacy 14,569 payments / 11,906 groups, …).
