@@ -216,15 +216,17 @@ def _effective_prev(session):
     return last
 
 
-def _with_scheme(question: str, prev) -> "str | None":
+def _with_scheme(question: str, prev, state=None) -> "str | None":
     """pipeline._measure_after_knowledge's own rewrite, for a question its
-    follow-up branch would not reach. None when it does not apply."""
+    follow-up branch would not reach. None when it does not apply. `state`: the
+    chat's data state, whose scope the question keeps when the chat is on the
+    knowledge turn's scheme (pipeline._c01_kmeasure_question, test team Bug 1)."""
     from app import pipeline
     if not question or pipeline.looks_like_followup(question):
         return None   # the pipeline's follow-up branch already does this
     if not pipeline._measure_after_knowledge(question, prev):
         return None
-    return f"{question.strip().rstrip(' ?.')} under {prev.schemes[0]}?"
+    return pipeline._c01_kmeasure_question(question, prev, state)
 
 
 def knowledge_measure_question(session, question: str) -> "str | None":
@@ -242,7 +244,7 @@ def knowledge_measure_question(session, question: str) -> "str | None":
             return None   # not a topic of this conversation: runs as it is
         rewritten = _with_scheme(sw.remainder, topic_memory._turn_from(item["last_turn"]))
         return f"Go back to {key}, {rewritten}" if rewritten else None
-    return _with_scheme(question, _effective_prev(session))
+    return _with_scheme(question, _effective_prev(session), getattr(session, "state", None))
 
 
 # ── "What about X?" swaps X's counterpart, not the measure ──────────────────

@@ -1598,6 +1598,24 @@ async def resolve_entities(question: str, schemes: list[str],
             display.pop("district", None)
 
     if prior_resolved:
+        # A comparison's places travel as a list: after "compare it with Ri Bhoi"
+        # the chat is on West Garo Hills AND Ri Bhoi, and "what about expenditure?"
+        # names no place of its own. Only the single district / block was carried,
+        # so the list was dropped and the answer was statewide (test team report
+        # 2026-10-29, Bug 3). The list is carried under the same rule as a single
+        # place (the question names none), and then no single place beside it:
+        # a fixed query prefers the single district (KI-364's live finding).
+        _c09_names_place = any(mentions.get(k) for k in (
+            "district", "districts", "block", "blocks", "village", "villages", "assembly_constituency")) \
+            or any(resolved.get(k) for k in ("district", "district_list", "block", "block_list",
+                                             "village_code", "village_code_list", "assembly_constituency"))
+        if not _c09_names_place:
+            for _c09_lk, _c09_dim in (("district_list", "district"), ("block_list", "block")):
+                if prior_resolved.get(_c09_lk):
+                    resolved[_c09_lk] = list(prior_resolved[_c09_lk])
+                    display.setdefault(_c09_dim, " and ".join(_place_title(str(x)) for x in resolved[_c09_lk]))
+        _c09_list_carried = bool(resolved.get("district_list") or resolved.get("block_list")) \
+            and not _c09_names_place
         # The chat's district is carried only around a place that lies in it:
         # "How many households … in Wapung block" after an East Khasi Hills answer
         # ANDed lgd_district = 'EAST KHASI HILLS' onto the East Jaintia Hills block
@@ -1615,7 +1633,8 @@ async def resolve_entities(question: str, schemes: list[str],
         _block_elsewhere = bool(_own_bp) and prior_resolved.get("district") \
             and str(_own_bp).upper() != str(prior_resolved["district"]).upper()
         if not mentions.get("district") and "district" not in resolved and prior_resolved.get("district") \
-                and not resolved.get("assembly_constituency") and not _block_elsewhere:
+                and not resolved.get("assembly_constituency") and not _block_elsewhere \
+                and not _c09_list_carried:
             resolved["district"] = prior_resolved["district"]
         elif _block_elsewhere and not mentions.get("district") and "district" not in resolved:
             # The block's own district instead, so the answer says where it is
@@ -1631,7 +1650,8 @@ async def resolve_entities(question: str, schemes: list[str],
         _own_place = any(resolved.get(k) for k in ("village_code", "village_code_list", "block_list",
                                                    "district_list", "assembly_constituency"))
         if not mentions.get("block") and "block" not in resolved and prior_resolved.get("block") \
-                and _same_district and not mentions.get("village") and not _own_place:
+                and _same_district and not mentions.get("village") and not _own_place \
+                and not _c09_list_carried:
             resolved["block"] = prior_resolved["block"]
         if not mentions.get("year") and "year_key" not in resolved and prior_resolved.get("year_key"):
             resolved["year_key"] = prior_resolved["year_key"]

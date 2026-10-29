@@ -816,7 +816,13 @@ def _is_measure_only(question: str, allow_year: bool = False) -> bool:
         return False
     if named_places(q) or (context_policy.extract_year_keys(q) and not allow_year):
         return False
-    return bool(context_policy.metric_families(q) or "total" in _c01_tm_words(q))
+    # A measure the chat's own vocabulary knows counts too (context_manager.detect_metric,
+    # the keyword kept in state.metric): "and sanctioned?" names PMAY-G's houses-sanctioned
+    # but no measure FAMILY, "sanctioned" being houses or money (test team report
+    # 2026-10-29, Bug 2: after "what is PMAY-G and who is eligible?" it was rewritten
+    # against the aside and answered with the sanction process).
+    return bool(context_policy.metric_families(q) or "total" in _c01_tm_words(q)
+                or context_manager.detect_metric(q))
 
 
 def _measure_after_knowledge(question: str, prev: "object", allow_year: bool = True) -> bool:
@@ -840,6 +846,31 @@ def _measure_after_knowledge(question: str, prev: "object", allow_year: bool = T
     # house count).
     own = set(_infer_scheme_from_terms(question) or [])
     return not own or prev.schemes[0] in own
+
+
+def _c01_kmeasure_question(question: str, prev: "object", state: "object" = None) -> str:
+    """The data question a _measure_after_knowledge request runs as: the knowledge
+    turn's scheme, plus the chat's DATA scope when the chat is still on that scheme.
+    A knowledge aside does not change the data state (update_state), so after
+    "How many job cards in East Khasi Hills in 2024-25?" -> "what is a job card in
+    MGNREGA?" the state still holds East Khasi Hills, FY 2024-25. Appending the
+    scheme alone made "how many person-days?" a question that names its scheme
+    (a NEW question, D-061): asked the year, answered for all of Meghalaya,
+    "(new question)" (test team report 2026-10-29, Bug 1; Bug 2's "how many houses
+    were sanctioned?"). The scope comes from the same phrase the measure-change
+    rewrite uses (_swap_scope_phrase); a place or year the question names itself
+    is kept and not doubled. A chat with no scope of that scheme (it opened with
+    the knowledge question, or the aside was about another scheme, which resets
+    the state) gets the scheme alone, as before."""
+    scheme = prev.schemes[0]
+    q = (question or "").strip().rstrip(" ?.")
+    scope = ""
+    if state is not None and topic_memory.same_scheme_family(getattr(state, "scheme", None), scheme):
+        if context_policy.extract_year_keys(q):
+            state = dataclasses.replace(state, year=None, year_all=False)
+        from app.entity_resolver import place_mentions
+        scope = _swap_scope_phrase(state, scheme, None, with_place=not place_mentions(q))
+    return f"{q} under {scheme}{scope}?"
 
 
 def _typed_intent(question: str) -> "str | None":

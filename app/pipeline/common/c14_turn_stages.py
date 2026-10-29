@@ -503,6 +503,16 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
     #      new question: the whitelist applies and no rewrite runs. A pause reply
     #      always continues its paused question.
     _signals = context_policy.continuation_signals(question) if has_antecedent else []
+    if has_antecedent and not _signals:
+        # Read through the deterministic typo gloss as well (c02 _rephrase_gloss, the
+        # rephraser's own vocabulary): "toatal persendays" carries "total persondays"
+        # and continues the chat; read raw it carried no signal and became an
+        # unrelated question (test team report 2026-10-29). The text itself is unchanged.
+        # Only a corrected MEASURE counts: the gloss also turns "remember" into
+        # "member", and "he is my collik remember" must stay off-topic (2026-09-29).
+        _glossed = context_policy.continuation_signals(_rephrase_gloss(question))
+        if "metric" in _glossed:
+            _signals = _glossed
     has_context = has_antecedent and (bool(_signals) or scope_resumed)
     if session is not None:
         session.turn_context["continuation"] = _signals
@@ -1347,8 +1357,14 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
         if session is not None:
             session.turn_context["turn_kind"] = _tk.kind if not _meta_rewrite else context_policy.TURN_FOLLOWUP
             # "(new question)" on the banner: the chat had a scope and this turn
-            # set it aside, so a wrong choice is visible at once.
-            session.turn_context["new_question"] = bool(_standalone and getattr(ctx_state, "scheme", None))
+            # set it aside, so a wrong choice is visible at once. A question that
+            # names the chat's own scheme, place and year sets nothing aside
+            # (_c14_keeps_chat_scope): the conversation layer writes a measure after
+            # a knowledge aside that way, and it was labelled new (test team report
+            # 2026-10-29, Bug 1).
+            session.turn_context["new_question"] = bool(
+                _standalone and getattr(ctx_state, "scheme", None)
+                and not _c14_keeps_chat_scope(raw_question, ctx_state))
         if _tk.kind == context_policy.TURN_VAGUE and not _meta_rewrite and not _resumed_kind \
                 and not (session is not None and session.turn_context.get("topic_switched")):
             _ask = _vague_topic_clarification(raw_question, session)
@@ -1413,9 +1429,10 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                 question = _all_years_q
                 context_budget.log_decision("followup", rewrite="deterministic-all-years")
             elif _measure_after_knowledge(question, prev):
-                # After a KNOWLEDGE answer the only context is its scheme:
-                # append it; the typed measure stays word for word.
-                question = f"{question.strip().rstrip(' ?.')} under {prev.schemes[0]}?"
+                # After a KNOWLEDGE answer: its scheme, plus the chat's data scope
+                # when the chat is on that scheme (_c01_kmeasure_question); the
+                # typed measure stays word for word.
+                question = _c01_kmeasure_question(question, prev, _thread_state)
                 context_budget.log_decision("followup", rewrite="deterministic-measure-after-knowledge",
                                             scheme=prev.schemes[0])
             elif _pure_measure_change(question, prev, _plan) and not (
@@ -2126,6 +2143,9 @@ def _vague_topic_clarification(question: str, session) -> "ClarificationNeeded |
     pinned = context_policy._schemes_named(question or "")
     if pinned:
         keys = [k for k in keys if k in pinned]
+    else:
+        # vocabulary only one open topic's data holds ("on hold" = CM Elevate)
+        keys = _cme_open_topic_pin(question, keys) or keys
     if len(keys) < 2:
         return None
     q = (question or "").strip()
@@ -2174,8 +2194,14 @@ def _same_scheme_context_year(question: str, raw_question: str, state,
     if state is None or not getattr(state, "scheme", None):
         return None
     year_only = False
+    _drill = False
     if (kind or context_policy.turn_kind(raw_question or question).kind) == context_policy.TURN_STANDALONE:
-        if not _c14_repeats_chat_measure(raw_question or question, state):
+        # Test team report 2026-10-29, Bug 4: a question about a block of the
+        # chat's own district ("person-days in Tikrikilla block?" after West Garo
+        # Hills by block) moves down a level and keeps the year, like D-075's
+        # repeated measure: the year is kept, the place is the question's own.
+        _drill = _c14_drills_into_chat_place(raw_question or question, state)
+        if not (_c14_repeats_chat_measure(raw_question or question, state) or _drill):
             return None
         year_only = True
     target = _c14_context_target_scheme(question, state)
@@ -2210,7 +2236,8 @@ def _same_scheme_context_year(question: str, raw_question: str, state,
     if not out:
         return None
     context_budget.log_decision("data_context",
-                                inherited="same-measure-year" if year_only else "context-scope", scheme=target,
+                                inherited=("drill-down-year" if _drill else "same-measure-year") if year_only
+                                else "context-scope", scheme=target,
                                 from_scheme=state.scheme,
                                 year=out.get("year_key") or ("all" if out.get("year_all") else None),
                                 place=out.get("village_code") or out.get("block") or out.get("district"))
@@ -2224,6 +2251,42 @@ def _c14_repeats_chat_measure(question: str, state) -> bool:
     if not chat_metric or not set(context_policy._schemes_named(question or "")) <= {state.scheme}:
         return False
     return context_manager.detect_metric(question or "") == chat_metric
+
+
+def _c14_drills_into_chat_place(question: str, state) -> bool:
+    """The question names no scheme but the chat's own, and exactly one block,
+    which lies in the chat's district (the place catalogue's block -> district):
+    it moves down from the chat's place rather than starting elsewhere."""
+    district = getattr(state, "district", None)
+    if not district or not set(context_policy._schemes_named(question or "")) <= {state.scheme}:
+        return False
+    from app.entity_resolver import place_mentions
+    places = place_mentions(question or "")
+    blocks = [name for name, dim in places.items() if dim == "block"]
+    if len(blocks) != 1 or any(dim == "district" for dim in places.values()):
+        return False
+    parent = block_parent_district(blocks[0], state.scheme)
+    return bool(parent) and str(parent).upper() == str(district).upper()
+
+
+def _c14_keeps_chat_scope(question: str, state) -> bool:
+    """The question names the chat's own scheme, its place (if the chat has one)
+    and its year (if the chat has one), and no other: answering it sets nothing of
+    the chat aside, so it is not a "(new question)" (test team report 2026-10-29).
+    Read with the same recognisers the pipeline uses for scheme, place and year."""
+    if state is None or not getattr(state, "scheme", None):
+        return False
+    q = question or ""
+    named = _named_schemes(q)
+    if not named or not all(topic_memory.same_scheme_family(s, state.scheme) for s in named):
+        return False
+    from app.entity_resolver import place_mentions
+    chat_place = next((str(v).upper() for v in (state.village, state.block, state.district) if v), None)
+    places = {str(k).upper() for k in place_mentions(q)}
+    if (chat_place is None) != (not places) or (chat_place is not None and places != {chat_place}):
+        return False
+    years = context_policy.extract_year_keys(q)
+    return years == ({state.year} if state.year is not None else set())
 
 
 def _c14_context_target_scheme(question: str, state) -> "str | None":
