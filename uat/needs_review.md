@@ -46,3 +46,17 @@ Proposed diff:
 +            continue                      # the start of an exact village / ward name ("Kenches Trace - Ward No.23")
 ```
 Reach: every scheme's spelling pre-pass. Affected CM Elevate tests: the ward villages of C02 (listed in results.csv).
+
+### N2 — "<X> village of <X> block" when the village and its block share a name (c09) — NOT applied
+"How many CM ELEVATE applicants are there in Mawhati village of Mawhati block?" answers BOTH Mawhati villages
+(the twin narrowing from v1/B16 removes the village's own text before looking for a block name, which here also
+removes the block's name). Proposed: in c09 (B16 block), remove only the FIRST occurrence of the village text
+(`_qa.replace(_c09_alnum(_village_text), " ", 1)`) so "…of Mawhati block" still narrows. With the CM Elevate
+per-village answer (14ad455 + this run's commit) the asked village's own figure is stated, beside the twin's.
+
+### N3 — Personal identifiers asked of CM Elevate (edge / dataset choice) — NOT applied
+"List the CM Elevate applicants' bank account numbers in West Garo Hills." is routed to CM Elevate Legacy (the word
+"bank" pins Legacy) and answered with sanctioned amounts per application number — no account numbers (none are in
+the data), but no refusal either (C11-NAME-5). Proposed: a guardrail rule in app/guardrails.py / edge.py that
+declines requests for personal identifiers (account / Aadhaar / phone numbers, names of applicants) for every
+scheme before routing. Shared code.

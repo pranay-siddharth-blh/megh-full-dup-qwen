@@ -70,3 +70,14 @@ numbers … you would need to contact the Block office". No personal data is ret
 refusal phrases do not include "does not contain", so the test fails; the pass rule was not widened.
 SQL evidence: `SELECT column_name FROM information_schema.columns WHERE table_name='v_cm_elevate'` has no phone /
 name / address column (request_id only), so there is nothing personal the bot could have returned.
+
+## D4 — C14-ZERO-273559 "Chidekgre village of Rongram block" (two villages, same name, same block)
+The master list has TWO Chidekgre villages in Rongram block; the test picked the one with no applications.
+```sql
+SELECT g.village_code, g.lgd_village_name, g.lgd_block,
+       (SELECT COUNT(DISTINCT request_id) FROM curated.v_cm_elevate v WHERE v.village_code = g.village_code)
+  FROM curated.dim_geography g WHERE UPPER(g.lgd_village_name) = 'CHIDEKGRE' AND g.lgd_block = 'RONGRAM';
+-- 273499 CHIDEKGRE RONGRAM 6 | 273559 Chidekgre RONGRAM 0
+```
+"Chidekgre village of Rongram block" cannot single out 273559 in words; the bot answers the Chidekgre that has
+applications (6). The test's expected 0 is not determinable from the question.
