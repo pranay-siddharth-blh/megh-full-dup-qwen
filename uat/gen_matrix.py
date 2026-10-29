@@ -605,6 +605,88 @@ for i, (q, sch, checks) in enumerate(DIS):
         extra={"schemes": sch})
 counts["C16_disambiguation"] = (len(rows_out) - n0, "20 questions that name CM Elevate, its programmes / vocabulary, or a neighbour")
 
+# ══ REDUCED PLAN (user, 2026-10-30 ~02:35: deadline 7 AM) ════════════════════
+# Kept whole: sheet templates (+ constituency fills), every village (count), every shared name,
+# every place x every FY, all totals, invalid names, the "which scheme?" rule. About 20 each for
+# comparisons, top-N, date ranges, spelling variants, follow-up chats; 5 named-entity refusals
+# (CM Elevate exposes no names); 100 zero-record villages; 20 paraphrases. Dropped: C05, C07,
+# village programme / status metrics. IDs of kept tests are unchanged, so earlier results stand.
+REDUCED = "--full" not in sys.argv
+if REDUCED:
+    full_counts = dict(counts)
+
+    def spread(rows, n):
+        if len(rows) <= n:
+            return rows
+        step = len(rows) / n
+        return [rows[int(i * step)] for i in range(n)]
+
+    by = {}
+    for r in rows_out:
+        by.setdefault(r["category"], []).append(r)
+    keep = []
+    keep += by["C01_sheet"]
+    for i, a in enumerate(acs):                            # sheet templates filled with every constituency
+        add("C01_sheet", f"C01-001AC-{i+1:02}", f"How many CM ELEVATE applicants are there in {a} constituency?",
+            [[None, cnt("ac_name=%s", (a,))]], tc="CM-ELEVATE-OFF-001", level="Constituency", pick=["constituency"],
+            truth=f"ac_name='{a}'")
+        g = dict(grp(f"SELECT current_file_status, COUNT(DISTINCT request_id) FROM {V} WHERE ac_name=%s GROUP BY 1", (a,)))
+        add("C01_sheet", f"C01-017AC-{i+1:02}", f"What is the application status distribution in {a} constituency?",
+            [[U.STATUS_KW[k], v] for k, v in g.items()], tc="CM-ELEVATE-OFF-017", level="Constituency x Status",
+            pick=["constituency", "cm elevate"], truth=f"ac_name='{a}' GROUP BY current_file_status")
+    keep += [r for r in rows_out if r["id"].startswith(("C01-001AC-", "C01-017AC-"))]
+    keep += [r for r in by["C02_village"] if r["id"].startswith("C02-CNT-")]
+    keep += by["C03_shared"] + by["C04_places"] + by["C06_place_fy"] + by["C15_totals"] + by["C16_disambiguation"]
+    keep += by["C11_named"]
+    keep += spread(by["C08_daterange"], 20) + spread(by["C09_compare"], 20) + spread(by["C13_spelling"], 20)
+    c10 = by["C10_topbottom"]
+    keep += [r for r in c10 if r["id"].startswith(("C10-DIST", "C10-AC"))]
+    keep += spread([r for r in c10 if r["id"].startswith("C10-BLK-TOP")], 8)
+    keep += spread([r for r in c10 if r["id"].startswith("C10-VIL-TOP")], 8)
+    keep += by["C12_followup"]
+    for a in spread(acs, 8):                               # 8 constituency chains -> 20 follow-up chats
+        oh = cnt(f"{ONHOLD} AND ac_name=%s", (a,))
+        g = grp(f"SELECT current_file_status, COUNT(DISTINCT request_id) FROM {V} WHERE ac_name=%s GROUP BY 1", (a,))
+        turns = [{"say": f"How many CM Elevate applicants are there in {a} constituency?", "checks": [[None, acc[a]]]},
+                 {"say": "How many of them are on hold?", "checks": [[None, oh]]},
+                 {"say": "What is their file status distribution?", "checks": [[U.STATUS_KW[k], v] for k, v in g]}]
+        add("C12_followup", f"C12-AC-{U.norm(a).replace(' ', '_')}", turns, [], kind="chain", level="Constituency chain",
+            pick=["constituency"], truth="T1 ac_name; T2 + On Hold; T3 GROUP BY current_file_status")
+    keep += [r for r in rows_out if r["id"].startswith("C12-AC-")]
+    z = by["C14_zero_invalid"]
+    keep += spread([r for r in z if r["id"].startswith("C14-ZERO-")], 100) + [r for r in z if r["id"].startswith("C14-INV-")]
+    rb, pig = dc["RI BHOI"], cnt("scheme_name='Meghalaya Piggery Development Scheme'")
+    PARA = [(f"How many CM Elevate applicants are there in Ri Bhoi?", rb), ("Ri Bhoi CM-ELEVATE applicant count?", rb),
+            ("Number of applications under CM Elevate for Ri-Bhoi district", rb), ("cm elevate ri bhoi how many applied", rb),
+            ("In Ri Bhoi, how many people applied to CM Elevate?", rb), ("Total CMElevate applications in Ri Bhoi district", rb),
+            ("Ri Bhoi: CM ELEVATE applicants?", rb), ("What is the count of CM-Elevate applications from RiBhoi?", rb),
+            ("Applicants for the Chief Minister's Elevate programme in Ri Bhoi?", rb), ("tell me CM Elevate applicants ri-bhoi", rb),
+            ("How many piggery applicants are there under CM Elevate?", pig), ("CM Elevate Piggery scheme: number of applicants?", pig),
+            ("Meghalaya Piggery Development Scheme applicants count", pig), ("piggery applications total in CM ELEVATE", pig),
+            ("How many people applied for piggery under CM-Elevate?", pig), ("Total applicants, CM Elevate pig farming (piggery) scheme", pig),
+            ("Piggery Development Scheme: how many applications?", pig), ("count of piggery applicants across Meghalaya, CM Elevate", pig),
+            ("In CM Elevate, how many applicants are under Piggery?", pig), ("CMElevate piggery applicants statewide", pig)]
+    for i, (q, n) in enumerate(PARA):
+        add("C17_paraphrase", f"C17-{i+1:02}", q, [[None, n]], level="Paraphrase", pick=["district"],
+            truth="lgd_district='RI BHOI'" if n == rb else "scheme_name='Meghalaya Piggery Development Scheme'")
+    keep += [r for r in rows_out if r["category"] == "C17_paraphrase"]
+    rows_out[:] = keep
+    nc = {}
+    for r in rows_out:
+        nc[r["category"]] = nc.get(r["category"], 0) + 1
+    basis = {
+        "C01_sheet": "30 templates; every district (12) / block (66 places) / constituency (60, for 001 and 017) / sector / programme / level; FY: see C06",
+        "C02_village": f"{len(vil)} villages with CM Elevate data x 1 (applicant count)",
+        "C03_shared": full_counts["C03_shared"][1], "C04_places": full_counts["C04_places"][1],
+        "C06_place_fy": full_counts["C06_place_fy"][1], "C15_totals": full_counts["C15_totals"][1],
+        "C16_disambiguation": "20 'which scheme?' / dataset-choice questions",
+        "C08_daterange": "about 20 (reduced plan) of 84", "C09_compare": "about 20 (reduced plan) of 501",
+        "C10_topbottom": "about 20 (reduced plan) of 52", "C11_named": "CM Elevate exposes no names: 5 refusals",
+        "C12_followup": "20 chats: 12 districts + 8 constituencies, 3 turns each", "C13_spelling": "about 20 (reduced plan) of 414",
+        "C14_zero_invalid": f"100 of {len(zero)} zero-record villages (reduced plan, spread over the list) + 20 invalid names",
+        "C17_paraphrase": "20 rewordings of 2 questions"}
+    counts = {k: (v, basis.get(k, "")) for k, v in sorted(nc.items())}
+
 # ── write ──────────────────────────────────────────────────────────────────
 ids = [r["id"] for r in rows_out]
 dup = {i for i in ids if ids.count(i) > 1} if len(ids) != len(set(ids)) else set()

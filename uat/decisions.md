@@ -39,3 +39,28 @@
 14. **DB connections.** The app's role (`megh_chatbot`) has a connection cap shared with the parallel Focus Legacy
     session; "too many connections" is treated as transient (runner retries 3×, then once more at the end).
 15. **Smoke run** (17 tests, run tag `smoke`) kept in results.csv; superseded by later rows for the same IDs.
+16. **Reduced plan (user, ~02:35).** Deadline 7 AM: matrix cut from 18,381 to 4,837 (gen_matrix.py REDUCED block;
+    `--full` regenerates the old one, kept as test_matrix_full_v1.csv / matrix_counts_full_v1.txt). Kept IDs are
+    unchanged, so results already in results.csv stand. Zero-record villages: 100 spread over the 5,194 (the plan
+    says "edge cases", not "every"). Named entities: CM Elevate exposes none, so 5 refusals rather than 20.
+
+## Changes to pass rules / expected values made after seeing a result (each listed, with the reason)
+All are in tests/live_cme_uat.py (the pre-worktree harness; uat/run_matrix.py inherited the same rules).
+- R1 **Unrequested grand totals removed** (OFF-004, 005, 011; H-D>B, H-B>V, H-DIM, H-REG-ALL). The sheet's
+  expected results ask for the breakdown only; every breakdown figure is still checked. Combined totals the sheet
+  DOES ask for (OFF-009, 010, 014, 029: "and their combined total") are still required.
+- R2 **OFF-018 expected value: `current_level = N`** instead of `On Hold AND current_level = N`. The code and the
+  team define "pending at level N" as the applications whose file sits at level N (KI-070, KI-422); my first
+  expectation was my own reading, not the app's documented one.
+- R3 **Village lists exclude `entity_type = 'Unresolved'`** (OFF-026, H-B>V): the documented rule ("exclude
+  'Unresolved' only for village counts"); my first truth excluded only the literal name 'Unresolved'.
+- R4 **Shared-name villages (OFF-003 shared, C03 alone): each twin's count expected**, not one village: the J-10
+  design answers up to three same-name villages in different blocks each with its block.
+- R5 **Tura Municipal Board = both stored spellings (105)**: one place to a user.
+- R6 **Generic chip taps**: "CM Elevate" on "which scheme?", "complete list" on "how many results?" — what a user
+  does with the designed pause (decision 7). The bot still has to answer correctly after the tap.
+- R7 **no_time accepts a labelled CM Elevate Legacy answer** (decision 13) — added after C04-FY-2024-25 was answered
+  from Legacy. Reason: the dataset-choice rule (user decision 2026-10-22) routes any financial-year question to
+  Legacy, the only CM Elevate dataset with years; the answer names Legacy.
+- R8 **Region questions tap only a "region" chip** (never a district chip), so a pause that offers districts fails.
+No other rule was loosened; numbers are always compared exactly (Indian or plain grouping).
