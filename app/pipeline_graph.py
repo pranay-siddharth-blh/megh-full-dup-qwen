@@ -768,6 +768,19 @@ async def _drop_thread(rt: _Runtime, thread_id: str) -> None:
         logger.warning("pipeline_graph: could not delete thread %s", _thread_tag(thread_id), exc_info=True)
 
 
+async def delete_thread(thread_id: str) -> None:
+    """Delete this conversation's checkpoint now, whatever KEEP_THREADS says:
+    the officer deleted the chat (CTX-04, 2026-10-29). Under the thread's lock,
+    so a run in flight finishes first. Never raises; a failure is left to the
+    pause sweep."""
+    try:
+        rt = await _runtime()
+        async with rt.lock(thread_id):
+            await rt.saver.adelete_thread(thread_id)
+    except Exception:  # noqa: BLE001
+        logger.warning("pipeline_graph: could not delete thread %s", _thread_tag(thread_id), exc_info=True)
+
+
 async def pending_pause(thread_id: str) -> "dict | None":
     """The interrupt payload this thread is paused on, or None."""
     rt = await _runtime()
