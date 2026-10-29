@@ -323,6 +323,14 @@ class SessionStore:
                 self._store.popitem(last=False)
             return s
 
+    def drop(self, session_id: str | None) -> None:
+        """Forget this worker's copy of a session (a deleted chat, or the empty
+        copy `ensure` made for a caller who turned out not to own the chat)."""
+        if not session_id:
+            return
+        with self._lock:
+            self._store.pop(session_id, None)
+
     def add_turn(self, session_id: str, turn: Turn) -> None:
         with self._lock:
             s = self._store.get(session_id)

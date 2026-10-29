@@ -69,10 +69,15 @@ async def _retry_once(make_call, what: str):
         return await asyncio.wait_for(make_call(), timeout=settings.CONTEXT_STATE_SYNC_TIMEOUT_SECONDS)
 
 
-async def sync_in(session: Session, session_id: str, backend=None) -> str:
+async def sync_in(session: Session, session_id: str, backend=None, *, user_id=None) -> str:
     """Bring this worker's copy of the session up to the durable revision.
-    Returns "applied" | "current" | "none" | "unavailable" (logged, and
-    handy in tests)."""
+    Returns "applied" | "current" | "none" | "unavailable" | "foreign" (logged,
+    and handy in tests).
+
+    `user_id` is the caller's app.users id. When the stored conversation names
+    a different owner the snapshot is NOT applied and "foreign" comes back: the
+    router refuses the request (CTX-01, 2026-10-29). Either id unknown (a dev
+    run without logins, a row from before owners were recorded): no check."""
     if not settings.CONTEXT_STATE_SHARED:
         return "none"
     backend = backend or _default_backend
@@ -81,6 +86,10 @@ async def sync_in(session: Session, session_id: str, backend=None) -> str:
     except Exception as e:  # noqa: BLE001 — never fail a request over shared state
         logger.warning("session_sync.sync_in: durable state unavailable (%s) — using local copy", e)
         return "unavailable"
+    owner = (durable or {}).get("user_id")
+    if owner is not None and user_id is not None and str(owner) != str(user_id):
+        logger.warning("session_sync.sync_in: session %s belongs to another user — not applied", session_id)
+        return "foreign"
     state = (durable or {}).get("context_state") or {}
     if not state:
         return "none"

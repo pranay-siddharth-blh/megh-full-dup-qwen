@@ -408,6 +408,11 @@ class Settings(BaseSettings):
     SESSION_TTL_SECONDS: int = 28800         # 8 h sliding window (user, 2026-10-19; was 4 h, D-051)
     SESSION_MAX: int = 5000                   # sessions kept before oldest-first eviction
     SESSION_MAX_TURNS: int = 50               # turns retained per session (and questions in the snapshot)
+    # ── Lane A2: conversation integrity (2026-10-29) ──
+    # Total deadline of one plain POST /api/query (REL-02b). It has no keep-alive
+    # pings, and nginx closes it at 120 s; REQUEST_TIMEOUT_SECONDS per part, one
+    # part per scheme, could pass that. The streamed route is not capped.
+    QUERY_NONSTREAM_MAX_SECONDS: float = 110.0
     # Conversation layer (app/conversation_layer.py), run by the router before
     # the caches and the pipeline: idle expiry, "start a new topic" / "forget
     # the previous question", and "what was the PMAY-G information again?".
