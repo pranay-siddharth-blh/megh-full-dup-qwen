@@ -325,6 +325,12 @@ async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScop
     # caches: such a turn only means something in its own conversation.
     layer = await conversation_layer.prepare_turn(session, req.question)
     question = layer.question
+    if layer.action == "continue-expired":
+        # The "Continue with …" tap brings back the set-aside topic. A pause
+        # asked since the expiry ("which scheme?") belongs to the fresh start
+        # the officer just left: the next question must not merge into it
+        # (CTX-13, 2026-10-29).
+        topic_memory._clear_pending(session)
 
     # Response + semantic caches are keyed on (question + authorization
     # fingerprint): safe to share across users who resolve to the same scope,
@@ -357,7 +363,7 @@ async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScop
                 served_from = f"{sem_hit.get('route', 'data')}:semcache"
 
     if result is None:
-        deadline = settings.REQUEST_TIMEOUT_SECONDS * (len(layer.multi) if layer.multi else 1)
+        deadline: float = settings.REQUEST_TIMEOUT_SECONDS * (len(layer.multi) if layer.multi else 1)
         if getattr(request.state, "megh_nonstream", False):
             # REL-02b: one part per scheme could run past the proxy's own cut-off,
             # which the officer would see as a bare gateway error.
@@ -392,6 +398,10 @@ async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScop
                 "session_id": session_id,
                 **_empty_data_fields(),
             }
+            # After an idle expiry the first reply carries the "Continue with …"
+            # chip, a pause included: it returned before the offer was attached,
+            # and the next message dropped the set-aside context (CTX-13).
+            out = conversation_layer.attach_continue_offer(session, out)
             # A clarification pause is still a turn the user should see when they
             # reopen the thread — persist it durably (L2) exactly like an answered
             # turn, so the conversation appears in the sidebar and replays the
@@ -480,7 +490,13 @@ async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScop
             topic_memory.checkpoint(session)
         except Exception:  # noqa: BLE001 — bookkeeping must never fail the answer
             logger.warning("topic memory: checkpoint before a cache hit failed (non-fatal)", exc_info=True)
-    session_store.add_turn(session_id, build_turn(question, result))
+    if layer.action != "stop":
+        session_store.add_turn(session_id, build_turn(question, result))
+    # else: a typed "stop" with nothing running is not a turn of the topic. Recorded
+    # as the last turn, it became the follow-up antecedent and its topic filing
+    # skipped the answer before it: "What about FY 2023-24?" then reached the data
+    # path with no scheme (CTX-13, 2026-10-29). persist_turn still keeps it in the
+    # chat's history.
     if served_from is not None and layer.response is None:
         # KI-319 (2026-10-18): a cached answer skips the graph, so its
         # context_update node never ran — the structured state (scheme, place,
@@ -527,8 +543,11 @@ async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScop
     # node_finalize's context_dependent): cached under the raw words, another user
     # typing them would get an answer scoped by someone else's conversation.
     if cacheable and served_from is None and not result.get("context_dependent"):
-        await response_cache.put(req.question, result, scope_key)
-        await semantic_cache.put(req.question, result, vec=sem_vec, scope_key=scope_key)
+        # Never the officer's own Khasi / Garo words: a later asker in the same
+        # scope would receive them in the JSON (CTX-14, 2026-10-29).
+        shared = {k: v for k, v in result.items() if k != "translated_from"}
+        await response_cache.put(req.question, shared, scope_key)
+        await semantic_cache.put(req.question, shared, vec=sem_vec, scope_key=scope_key)
 
     metrics.record(served_from or result.get("route", "data"), latency_ms)
     return result
