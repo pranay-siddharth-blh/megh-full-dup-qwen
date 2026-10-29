@@ -690,6 +690,30 @@ def _cme_data_block(canon: str, question: str, data_blocks: "list[str]") -> "str
     return sorted(urban)[0] if urban else None
 
 
+_CME_COMBINED_Q = Matcher(Alt(W("total", "combined", "together", "altogether", "sum"), Seq("in", "all")))
+
+
+def _cme_villages_per_village(question: str, sql: str) -> str:
+    """`COUNT(DISTINCT request_id) … WHERE village_code IN (a, b)` with no GROUP BY summed two same-name
+    villages: "2 applicants in Nongshilliang (Mawpat block) and Nongshilliang (Mairang block)" (UAT
+    2026-10-30, C03). Several villages are answered one row each (village_code, lgd_block), the J-10 rule,
+    unless the question asks for a combined total."""
+    if _CME_COMBINED_Q.search(question or ""):
+        return sql
+    tree = sql_ast.parse_one(sql)
+    if not isinstance(tree, exp.Select) or tree.args.get("group") is not None or tree.args.get("joins")             or tree.args.get("with") is not None or not any(e.find(exp.AggFunc) for e in tree.expressions):
+        return sql
+    node = next((n for n in tree.find_all(exp.In) if _cme_col(n.this, "village_code") is not None
+                 and not isinstance(n.parent, exp.Not) and len(n.expressions) >= 2), None)
+    if node is None:
+        return sql
+    cols = ["village_code", "lgd_block"]
+    tree.set("expressions", [exp.column(c) for c in cols] + list(tree.expressions))
+    tree.set("group", exp.Group(expressions=[exp.column(c) for c in cols]))
+    logger.info("CM Elevate: several villages in one query -> one row per village")
+    return sql_ast.to_sql(tree)
+
+
 def _cme_ac_name_case(sql: str) -> str:
     """v_cm_elevate stores ac_name in Title Case ("West Shillong"): `ac_name = 'WEST SHILLONG'` matched
     nothing and the answer was "couldn't find any matching records" (UAT 2026-10-30, C01-017AC-59). An
@@ -750,6 +774,7 @@ async def _cm_elevate_urban_body_spellings(question: str, schemes: list[str], sq
     dropped, ac_name compared case-blind, then the urban-body spellings (_cme_urban_block_spellings)."""
     if schemes != ["CM Elevate"] or not sql:
         return sql
+    sql = _cme_villages_per_village(question, sql)
     sql = _cme_block_inside_constituency(question, sql)
     sql = _cme_ac_name_case(sql)
     return await _cme_urban_block_spellings(question, schemes, sql)
@@ -2485,12 +2510,36 @@ def _cme_compare_missing_zero(sql: str, rows: list[dict], answer: str) -> str:
             + "; ".join(f"{_cme_short(pr)} in {_place_title(d)}" for pr, d in miss) + ".")
 
 
+_CME_YEAR_PHRASE = Matcher(Seq(W("for", "in", "during"), Opt("the"), Opt(W("year", "fy", "financial")), Opt("year"),
+                               Pred(lambda w: len(w) == 4 and w[:2] == "20" and is_int(w)),
+                               Opt(Pred(lambda w: len(w) == 2 and is_int(w))), sep="any"))
+_CME_YEAR_IN_Q = Matcher(Alt(Pred(lambda w: len(w) == 4 and w[:2] == "20" and is_int(w)), W("fy", "year", "years")))
+
+
+def _cme_drop_invented_year(question: str, answer: str) -> str:
+    """"There are 16 CM ELEVATE applicants in Mawhati (Mawhati block) for the year 2024": the applications
+    data holds no date, and nobody asked about a year (UAT 2026-10-30). A year phrase the question did
+    not bring is removed from the answer."""
+    if not answer or _CME_YEAR_IN_Q.search(question or ""):
+        return answer
+    for _ in range(4):
+        h = _CME_YEAR_PHRASE.search(answer)
+        if h is None:
+            break
+        start = h.start()
+        while start > 0 and answer[start - 1] == " ":
+            start -= 1
+        answer = answer[:start] + answer[h.end():]
+    return answer
+
+
 async def _cm_elevate_answer_guarantees(question: str, sql: str, rows: list[dict], answer: str,
                                         display: dict) -> str:
     """Every CM Elevate DATA answer passes through here after the composer."""
     if not rows:
         return _cme_all_zero_answer(sql, answer, display)
     answer = _cme_digits_for_number_words(answer, rows)
+    answer = _cme_drop_invented_year(question, answer)
     answer = _cme_sector_answer_names_wrong_programme(answer, sql, rows)
     answer = _mgnrega_zero_backstop(answer, rows, display)   # a genuine 0 is stated as 0 (KI-070)
     answer = _cme_grouped_rows(answer, rows)
