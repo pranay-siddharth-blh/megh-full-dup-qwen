@@ -98,3 +98,18 @@ def test_one_row_with_a_column_per_category_matches_one_row_per_category():
     assert not long_as_wide(gold, [{"female_registrants": 501, "male_registrants": 1103}])
     assert not long_as_wide(gold, [{"total": 1604}])
     assert not long_as_wide(gold, [{"female": 1103, "male": 501}, {"female": 1, "male": 2}])
+
+
+# ── CTX-09: a deliberate pause is not an NL->SQL miss ───────────────────────
+def test_a_pause_with_the_expected_rule_is_an_expected_pause():
+    from tests.nl2sql_eval.compare import NOT_SCORED, pause_verdict
+    item = {"id": "X", "expect_pause": "year-not-specified"}
+    assert pause_verdict(item, "year-not-specified: Which financial year?") == "expected_pause"
+    assert "expected_pause" in NOT_SCORED and "gold_error" in NOT_SCORED
+
+
+def test_any_other_pause_still_counts_against_accuracy():
+    from tests.nl2sql_eval.compare import pause_verdict
+    assert pause_verdict({"expect_pause": "year-not-specified"}, "scope-not-specified: Which area?") \
+        == "clarification"
+    assert pause_verdict({}, "year-not-specified: Which financial year?") == "clarification"
