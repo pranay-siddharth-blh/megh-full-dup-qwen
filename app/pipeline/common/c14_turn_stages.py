@@ -152,7 +152,9 @@ def _attach_scope_banner(result: dict, session) -> None:
     held = result.get("schemes_with_data")
     if isinstance(held, list) and held and set(held) != set(named):
         lead = " + ".join(s for s in named if s in held)
-        lead += "".join(f" ({s}: no data)" for s in named if s not in held)
+        # I-13 (live run): CM Elevate's own list / a scheme left out is not "no data"
+        apart = result.get("schemes_apart") or {}
+        lead += "".join(f" ({s}: {apart.get(s, 'no data')})" for s in named if s not in held)
     else:
         lead = " + ".join(named)
     parts = [lead, _banner_place(resolved)]

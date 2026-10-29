@@ -200,6 +200,12 @@ def _answer_shape(question: str, sql: str, rows: list) -> "_AnswerShape | None":
 
 def _c12s_label(row: dict, shape: _AnswerShape) -> str:
     cols = shape.labels or [k for k in row if k not in shape.metrics]
+    # C-1 (chat UI audit live run 2026-10-29): "2024 is higher than 2023" — the year
+    # is named as the officer reads it ("2024-25") when the row carries it
+    _fy = next((c for c in ("financial_year", "financial_year_short", "fy") if row.get(c) is not None), None)
+    if _fy:
+        cols = [_fy if c == "year_key" else c for c in cols]
+        cols = list(dict.fromkeys(cols))
     parts = [str(row[c]) for c in cols if row.get(c) is not None]
     return " / ".join(parts) if parts else "(row)"
 

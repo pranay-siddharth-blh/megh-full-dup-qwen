@@ -1708,6 +1708,7 @@ async def _cross_scheme_scope(d: dict, scope: "auth.UserScope | None" = None) ->
             **({"column_totals": _res["totals"]} if _res.get("totals") else {}),
             **({"measure_notes": _res["measure_notes"]} if _res.get("measure_notes") else {}),
             **({"schemes_with_data": _res["schemes_with_data"]} if "schemes_with_data" in _res else {}),
+            **({"schemes_apart": _res["schemes_apart"]} if _res.get("schemes_apart") else {}),
         }
     logger.info("cross-scheme question %r -> %s per-scheme queries%s", question, schemes,
                 f" (not held: {sorted(gaps)})" if gaps else "")
@@ -3237,9 +3238,12 @@ def _c13_unify_scheme_rows(rows: list) -> list:
 # no unit in its name gets one from what the scheme stores (MGNREGA lakh rupees,
 # every other scheme rupees: schema_context) and any division in the SELECT, as a
 # name suffix the UI reads ("amount_released" -> "amount_released_rs").
-_C13_MONEY_WORDS = frozenset(("amount", "released", "sanctioned", "expenditure", "exp", "disbursed",
-                              "disbursement", "money", "spent", "paid", "pending", "subsidy", "loan",
+# "sanctioned" / "released" / "pending" / "disbursed" also name counts ("houses_sanctioned"
+# showed as "₹388" in the live run), so a column is money only with a money noun.
+_C13_MONEY_WORDS = frozenset(("amount", "expenditure", "exp", "money", "spent", "subsidy", "loan",
                               "cost", "wage", "wages", "fund", "funds"))
+_C13_COUNT_WORDS = frozenset(("houses", "house", "households", "beneficiaries", "persons", "count", "number",
+                              "villages", "works", "applications", "members", "memberships", "days"))
 _C13_UNIT_WORDS = frozenset(("rs", "rupees", "inr", "lakh", "lakhs", "cr", "crore", "crores", "pct",
                              "percent", "percentage", "per", "avg", "average", "share", "ratio", "rate"))
 
@@ -3254,7 +3258,8 @@ def _c13_money_units(result: dict) -> None:
     rename = {}
     for col, v in rows[0].items():
         parts = set(str(col).lower().split("_"))
-        if not parts & _C13_MONEY_WORDS or parts & _C13_UNIT_WORDS or measure_kinds.is_label_col(col):
+        if not parts & _C13_MONEY_WORDS or parts & (_C13_UNIT_WORDS | _C13_COUNT_WORDS) \
+                or measure_kinds.is_label_col(col):
             continue
         if not isinstance(v, (int, float, Decimal)) or isinstance(v, bool):
             continue

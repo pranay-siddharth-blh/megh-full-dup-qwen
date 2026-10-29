@@ -497,6 +497,43 @@ def low_end_queries(sql: str, measure: str) -> "tuple[str, str] | None":
     return zero, lowest
 
 
+def widen_village_filter(sql: str, codes: list) -> str:
+    """J-10 (chat UI audit live run 2026-10-29): villages that share a name are all
+    asked; a filter `village_code = <one of them>` becomes `village_code IN (all)`,
+    and a LIMIT smaller than their number is dropped. Anything else: unchanged."""
+    want = [int(c) for c in codes]
+    names = {str(c) for c in want}
+
+    def fn(tree):
+        hit = False
+        for eq in list(tree.find_all(exp.EQ)):
+            col, lit = eq.this, eq.expression
+            if isinstance(lit, exp.Column) and isinstance(col, exp.Literal):
+                col, lit = lit, col
+            if isinstance(col, exp.Column) and col.name.lower() == "village_code" \
+                    and isinstance(lit, exp.Literal) and lit.this in names:
+                eq.replace(exp.In(this=col.copy(), expressions=[exp.Literal.number(c) for c in want]))
+                hit = True
+        if hit and isinstance(tree, exp.Select) and tree.args.get("limit") is not None:
+            lim = tree.args["limit"].args.get("expression")
+            if isinstance(lim, exp.Literal) and lim.is_int and int(lim.this) < len(want):
+                tree.set("limit", None)
+        return None
+
+    return transform(sql, fn)
+
+
+def without_limit(sql: str) -> str:
+    """The query without its outer LIMIT / OFFSET (E-3: counting the rows past the cap).
+    Unparseable or not one SELECT: unchanged."""
+    tree = parse_one(sql)
+    if not isinstance(tree, exp.Select):
+        return sql
+    tree.set("limit", None)
+    tree.set("offset", None)
+    return tree.sql(dialect=DIALECT)
+
+
 def select_divisors(sql: str) -> dict:
     """X-14 (chat UI audit 2026-10-29): {output column: the number it is divided by}
     for the outer SELECT's columns written as `<expr> / <number>` (1e5 for lakh, 1e7

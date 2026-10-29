@@ -1768,6 +1768,9 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_elevate_unasked_programme_filter(question, schemes, sql)
     sql = _cm_elevate_applicants_distinct(question, schemes, sql)
     sql = _cm_elevate_compare_by_district(question, schemes, sql)
+    _twins = entity_result.get("resolved") or {}
+    if _twins.get("village_twins") and _twins.get("village_code_list"):
+        sql = sql_ast.widen_village_filter(sql, _twins["village_code_list"])   # J-10
     sql = _resolved_district_list_literals(entity_result.get("resolved") or {}, sql)
     sql = _resolved_district_literal(entity_result.get("resolved") or {}, sql)
     sql = _stray_block_literal(schemes, entity_result.get("resolved") or {}, sql)
@@ -2104,7 +2107,8 @@ def _breakdown_missing_issue(question: str, sql: str) -> "str | None":
 async def _c11_true_row_count(sql: str) -> "int | None":
     """How many rows `sql` returns without the row cap (E-3). None when it can't tell."""
     try:
-        got = await run_readonly(f"SELECT COUNT(*) AS total_rows FROM ({sql.strip().rstrip(';')}) AS capped_result")
+        body = sql_ast.without_limit(sql.strip().rstrip(';'))
+        got = await run_readonly(f"SELECT COUNT(*) AS total_rows FROM ({body}) AS capped_result")
         return int(got[0]["total_rows"]) if got else None
     except Exception as e:  # noqa: BLE001 — a count must never fail the answer
         logger.info("true row count failed (non-fatal): %s", e)
@@ -2407,6 +2411,15 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
             "which multiplies the figures. Aggregate each fact table to a shared grain "
             "(district / block / year) in its own CTE first, then join the aggregates. "
             "Keep every filter exactly as it was.")
+    # J-10 (chat UI audit live run 2026-10-29): with three villages named Apalgre the
+    # model filtered one code (and LIMIT 1) although the prompt listed all three
+    _codes = [str(c) for c in (entity_result.get("resolved") or {}).get("village_code_list") or []]
+    _missing = [c for c in _codes if c not in sql]
+    if _codes and _missing and (entity_result.get("resolved") or {}).get("village_twins"):
+        raise ValueError(
+            f"the question covers {len(_codes)} villages that share one name (village_code IN "
+            f"({', '.join(_codes)})), but the query leaves out {', '.join(_missing)}. Filter on ALL of them "
+            "with IN, GROUP BY village_code and SELECT the block, with no LIMIT. Keep every other filter.")
     rows = await run_readonly(sql)
     # E-3 (chat UI audit 2026-10-29): a result stopped at the row cap said "1,000
     # results" with no hint that more exist; the true total is counted once

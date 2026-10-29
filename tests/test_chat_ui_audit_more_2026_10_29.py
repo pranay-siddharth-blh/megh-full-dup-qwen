@@ -249,8 +249,8 @@ def test_i13_cm_elevate_gets_its_own_district_list(monkeypatch):
 @pytest.mark.parametrize("scheme, sql, col, want", [
     ("PMAY-G", "SELECT lgd_district, SUM(amount_released) AS amount_released FROM curated.v_pmay GROUP BY 1",
      "amount_released", "amount_released_rs"),
-    ("PMAY-G", "SELECT lgd_district, ROUND(SUM(amount_released) / 10000000, 2) AS released FROM curated.v_pmay GROUP BY 1",
-     "released", "released_crore"),
+    ("PMAY-G", "SELECT lgd_district, ROUND(SUM(amount_released) / 10000000, 2) AS released_amount FROM curated.v_pmay GROUP BY 1",
+     "released_amount", "released_amount_crore"),
     ("MGNREGA", "SELECT lgd_district, SUM(total_exp) AS total_expenditure FROM curated.v_expenditure GROUP BY 1",
      "total_expenditure", "total_expenditure_lakh"),
     ("MGNREGA", "SELECT lgd_district, SUM(total_exp) / 100 AS total_expenditure FROM curated.v_expenditure GROUP BY 1",
@@ -340,3 +340,57 @@ def test_e3_a_capped_table_says_the_true_total(bundle):
     html = _js(bundle, f"T.capped({rows}, 1532)")
     assert "The first 1,000 of 1,532 rows are shown." in html
     assert "there may be more" in _js(bundle, f"T.capped({rows}, null)")
+
+
+# ── found in the live run (2026-10-29 evening) ─────────────────────────────
+def test_c1_two_named_years_are_both_kept_for_one_scheme(monkeypatch):
+    async def extract(q):
+        return {"year": "2024-25"}            # the extractor hands back one year
+    monkeypatch.setattr(p, "extract_entity_mentions", extract)
+    out = asyncio.run(p.resolve_entities("Compare MGNREGA expenditure 2023-24 vs 2024-25", ["MGNREGA"]))
+    assert out["resolved"].get("year_key_list") == [2023, 2024] and "year_key" not in out["resolved"]
+    r = {"route": "data", "schemes": ["MGNREGA"], "sql": "S", "resolved_entities": out["resolved"]}
+    p._attach_scope_banner(r, None)
+    assert r["scope_banner"] == "MGNREGA · All of Meghalaya · FY 2023-24, FY 2024-25"   # never "All years"
+
+
+def test_i13_a_scheme_with_its_own_list_is_not_no_data_in_the_banner():
+    r = {"route": "data", "schemes": ["MGNREGA", "PMAY-G", "CM Elevate", "CM Elevate Legacy"], "sql": "S",
+         "resolved_entities": {}, "schemes_with_data": ["MGNREGA", "PMAY-G"],
+         "schemes_apart": {"CM Elevate": "own list", "CM Elevate Legacy": "not ranked"}}
+    p._attach_scope_banner(r, None)
+    assert r["scope_banner"].startswith("MGNREGA + PMAY-G (CM Elevate: own list) (CM Elevate Legacy: not ranked)")
+
+
+def test_e3_the_count_drops_the_querys_own_limit():
+    assert sql_ast.without_limit("SELECT a FROM curated.v_x ORDER BY a DESC LIMIT 1000") == \
+        "SELECT a FROM curated.v_x ORDER BY a DESC"
+
+
+def test_x14_a_count_named_sanctioned_is_not_money():
+    # live run: "houses_sanctioned" showed as "₹388"
+    r = {"route": "data", "schemes": ["PMAY-G"], "sql": "", "data": [{"lgd_village_name": "A", "houses_sanctioned": 388}]}
+    p._c13_money_units(r)
+    assert list(r["data"][0]) == ["lgd_village_name", "houses_sanctioned"]
+
+
+def test_i18_kis_district_is_a_question_word_not_a_place():
+    assert p._c09_not_a_place("kis district") and p._c09_not_a_place("which district")
+    assert not p._c09_not_a_place("Guwahati")
+
+
+def test_c1_the_comparison_names_the_financial_year():
+    shape = p._AnswerShape(kind="compare", labels=["year_key"], metrics=["total_expenditure_lakh"])
+    row = {"year_key": 2024, "financial_year": "2024-25", "total_expenditure_lakh": 5}
+    assert p._c12s_label(row, shape) == "2024-25"
+
+
+def test_j10_a_filter_on_one_twin_is_widened_to_all():
+    # live run: the model filtered one of three Apalgre villages, with LIMIT 1
+    sql = ("SELECT lgd_village_name, lgd_block, SUM(person_days) AS person_days, village_code "
+           "FROM curated.v_employment WHERE village_code = 273033 AND year_key = 2024 "
+           "GROUP BY lgd_village_name, lgd_block, village_code LIMIT 1")
+    out = sql_ast.widen_village_filter(sql, [273033, 272766, 273416])
+    assert "village_code IN (273033, 272766, 273416)" in out and "LIMIT" not in out
+    er = {"resolved": {"village_code_list": [273033, 272766, 273416], "village_twins": {"273033": "x"}}}
+    assert "IN (273033, 272766, 273416)" in asyncio.run(p._scheme_sql_rewrites("q", ["MGNREGA"], er, sql))

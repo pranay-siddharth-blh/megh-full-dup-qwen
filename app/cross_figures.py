@@ -819,6 +819,7 @@ async def answer(p: Plan) -> dict:
     if gaps:
         lines.append(" ".join(f"{g}." for g in gaps.values()))
     left_out = list(p.left_out)
+    apart: dict = {}
     if "CM Elevate" in left_out and p.op == "rank_districts":
         # I-13 (chat UI audit 2026-10-29): CM Elevate counts applications, so it is
         # never ranked with the others; its own district list is given beside them
@@ -827,6 +828,8 @@ async def answer(p: Plan) -> dict:
             lines.append(cme)
             shown = shown + [cme_sql]
             left_out.remove("CM Elevate")
+            apart["CM Elevate"] = "own list"
+    apart.update({s: "not ranked" for s in left_out})
     if left_out:
         lines.append(f"{' and '.join(left_out)} {'is' if len(left_out) == 1 else 'are'} not in this ranking: "
                      "they record applications and sanctions, not these figures; ask for their district "
@@ -842,7 +845,8 @@ async def answer(p: Plan) -> dict:
     logger.info("cross figures (D-066): %s %s op=%s measures=%s by_district=%s", p.schemes, p.place_label,
                 p.op, p.measures, p.by_district)
     return {"answer": "\n".join(ln for ln in lines if ln is not None), "rows": rows, "sql": "\n;\n".join(shown),
-            "totals": col_totals, "measure_notes": measure_notes(have), "schemes_with_data": have}
+            "totals": col_totals, "measure_notes": measure_notes(have), "schemes_with_data": have,
+            "schemes_apart": apart}
 
 
 # G-9 / B-11 (audit 2026-10-29): every scheme's count sits in one `beneficiaries`

@@ -7,7 +7,7 @@ import { hasSegment, isAsciiLetter, isDigit, isPeriodLabel, isSpace, splitSpaces
 import { fyMonthIndex, isMonthLabel, isQuarterLabel } from './chartTheme.js';
 import {
   PERIOD_WORDS, asksChange, canAdd, colTitle, dimOf, fractionPct, measureKind as measureKindOf, humanCol, isAdditive, isBlank, isLabelCol, isNumeric,
-  lowerIsBetter, nameParts, tableColumns, unifyPeriods, unitOf, withoutTwins,
+  lowerIsBetter, nameParts, placeTitle, tableColumns, unifyPeriods, unitOf, withoutTwins,
 } from './columns.js';
 
 // The column rules live in columns.js (2026-10-28); re-exported for the callers
@@ -415,7 +415,9 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   const say = details.filter((c) => !hasSegment(c, RANK_WORDS_COL));
   const lc = lblCols[0] || cols[0];
   // the label with its details: "Umling (Ri Bhoi)"; on the axis only when names repeat (E-7)
-  const full = (r, c) => (say.length ? `${r[c]} (${say.map((d) => r[d]).join(', ')})` : String(r[c]));
+  // C-5 (live run): chart labels and headlines read place names in Title Case, like the table
+  const full = (r, c) => (say.length ? `${placeTitle(r[c], c)} (${say.map((d) => placeTitle(r[d], d)).join(', ')})`
+    : placeTitle(r[c], c));
   const repeats = new Set(data.map((r) => String(r[lc]))).size < data.length;
 
   // I-8: each scheme's own top / bottom list, merged: one ranked chart per scheme
@@ -536,7 +538,8 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
         kind: 'twoDim',
         ...(gaps.length ? { note: `Gaps are years with no data: ${gaps.join('; ')}.` } : {}),
         title: `${titleCol(vKey)} by ${titleCol(xKey).toLowerCase()} and ${titleCol(sKey).toLowerCase()}${where}`,
-        xKey, sKey, vKey, labels: labels.map(String), datasets, periods, types, noAddWhy: whyS || whyX,
+        xKey, sKey, vKey, labels: labels.map((l) => placeTitle(l, xKey)),
+        datasets: datasets.map((d) => ({ ...d, label: placeTitle(d.label, sKey) })), periods, types, noAddWhy: whyS || whyX,
         defType: types.includes(hinted) ? hinted : (periods ? 'line' : 'bar'),
         data, extra: numCols.length > 1,
         axes: { x: colTitle(xKey), y: colTitle(vKey), unit: unitOf(vKey) },
@@ -647,7 +650,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     const scale = fractionPct(vc, raw) ? 100 : 1;          // D-6: 0.753 -> 75.3%
     return {
       title: `${titleCol(vc)} by ${titleCol(lc).toLowerCase()}${where}`,
-      labels: rowsAt.map((r, i) => (r ? label18(repeats ? full(r, lc) : r[lc]) : rowsAt.gapLabels[i])),
+      labels: rowsAt.map((r, i) => (r ? label18(repeats ? full(r, lc) : placeTitle(r[lc], lc)) : rowsAt.gapLabels[i])),
       fullLabels: rowsAt.map((r, i) => (r ? full(r, lc) : `${rowsAt.gapLabels[i]} (no data)`)),
       values: raw.map((v) => (v === null ? null : v * scale)),
       axes: { x: colTitle(lc), y: colTitle(vc), unit: unitOf(vc), lowerBetter: lowerIsBetter(vc),

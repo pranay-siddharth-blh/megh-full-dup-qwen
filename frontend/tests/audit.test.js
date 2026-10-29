@@ -199,8 +199,8 @@ test('E-1: a block\'s district is a detail, not a series of mostly-empty bars', 
   ];
   const a = buildAnalytics('Top 5 blocks by expenditure', rows, null);
   assert.equal(a.kind, 'multi');
-  assert.deepEqual(a.charts[0].labels.slice(0, 2), ['MYLLIEM', 'UMLING']);
-  assert.equal(a.charts[0].fullLabels[1], 'UMLING (RI BHOI)');
+  assert.deepEqual(a.charts[0].labels.slice(0, 2), ['Mylliem', 'Umling']);   // C-5: places in Title Case on the chart too
+  assert.equal(a.charts[0].fullLabels[1], 'Umling (Ri Bhoi)');
   assert.equal(a.defType, 'bar');
   assert.deepEqual(splitLabels(rows, ['block_name', 'district_name']).details, ['district_name']);
 });
@@ -219,7 +219,7 @@ test('E-7: villages with the same name are told apart by their block', () => {
   const rows = [{ village_name: 'Mawlai', block_name: 'MYLLIEM', person_days: 900 },
     { village_name: 'Mawlai', block_name: 'MAWPHLANG', person_days: 850 }, { village_name: 'Laitumkhrah', block_name: 'MYLLIEM', person_days: 800 }];
   const a = buildAnalytics('Top 3 villages by person days in East Khasi Hills', rows, null);
-  assert.deepEqual(a.charts[0].labels.slice(0, 2), ['Mawlai (MYLLIEM)', 'Mawlai (MAWPHLANG)']);
+  assert.deepEqual(a.charts[0].labels.slice(0, 2), ['Mawlai (Mylliem)', 'Mawlai (Mawphlang)']);   // C-5
 });
 
 test('I-8: each scheme\'s own top list is one ranked chart per scheme, not a union', () => {
