@@ -76,9 +76,10 @@ class FakeBackend:
         cur = self.rows.get(session_id)
         if cur and int(json.loads(cur["state"]).get("rev") or 0) >= rev:
             return False
+        # summary = EXCLUDED.summary, None included (CTX-11, 2026-10-29: a
+        # reset clears it everywhere; it was COALESCE)
         self.rows[session_id] = {"state": json.dumps({**snapshot, "rev": rev}, default=str),
-                                 "summary": summary if summary is not None
-                                 else (cur or {}).get("summary")}
+                                 "summary": summary}
         return True
 
 

@@ -97,6 +97,11 @@ async def sync_in(session: Session, session_id: str, backend=None, *, user_id=No
     if rev <= session.rev and session.turns:
         return "current"
     session.apply_snapshot(state, (durable or {}).get("summary"))
+    # The durable summary as it is, None included: a reset or idle expiry on
+    # another worker cleared it, and this copy must not keep the old one
+    # (CTX-11). apply_snapshot's own default (keep on None) is left alone.
+    if (durable or {}).get("summary") is None:
+        session.summary, session.summary_turn_count = None, 0
     session.rev = rev
     logger.info("session_sync.sync_in: session %s rehydrated at rev %d", session_id, rev)
     return "applied"

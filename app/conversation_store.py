@@ -369,7 +369,13 @@ async def save_session_state(*, tenant_id, user_id, session_id: str, title: str,
     `rev` guard rejects a stale write: two concurrent requests on the same
     session both start from rev N, the first to commit N+1 wins, and the other
     is refused rather than overwriting it. Last writer does NOT win. Nor does
-    another user: a row owned by someone else is never overwritten (CTX-01)."""
+    another user: a row owned by someone else is never overwritten (CTX-01).
+
+    The summary is written as the session holds it, None included: "start a
+    new topic" and the idle expiry clear it, and COALESCE kept the old one, so
+    the other workers brought the cleared chat's scheme, place and year back
+    into the follow-up rewrite (CTX-11, 2026-10-29). A worker whose copy is
+    stale cannot clear a newer summary: its revision is refused above."""
     snap = {**snapshot, "rev": int(rev)}
     row = await db.fetchrow(
         """INSERT INTO app.conversations
@@ -377,7 +383,9 @@ async def save_session_state(*, tenant_id, user_id, session_id: str, title: str,
            VALUES ($1, $2, $3, $4, 0, $5::jsonb, $6)
            ON CONFLICT (session_id) DO UPDATE
                SET context_state = EXCLUDED.context_state,
-                   summary = COALESCE(EXCLUDED.summary, app.conversations.summary)
+                   summary = EXCLUDED.summary,
+                   summary_updated_at = CASE WHEN EXCLUDED.summary IS DISTINCT FROM app.conversations.summary
+                                             THEN NOW() ELSE app.conversations.summary_updated_at END
                WHERE COALESCE((app.conversations.context_state->>'rev')::int, 0) < $7
                  AND app.conversations.user_id IS NOT DISTINCT FROM EXCLUDED.user_id
            RETURNING conv_id""",
@@ -392,15 +400,16 @@ async def load_context_state(session_id: str) -> dict:
     rehydrate app.session_store.Session.state when a conversation resumes on a
     worker that has never seen this session_id in-process (new worker, or the
     in-process session TTL'd out but the conversation itself hasn't). Returns
-    {} (never raises) if the conversation/columns aren't there yet."""
-    try:
-        row = await db.fetchrow(
-            "SELECT context_state, summary, user_id FROM app.conversations WHERE session_id = $1",
-            [session_id],
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("conversation_store: load_context_state failed (non-fatal): %s", e)
-        return {}
+    {} if the conversation isn't there yet.
+
+    A database error RAISES (CTX-12, 2026-10-29). It used to be swallowed into
+    {}, so session_sync's retry (KI-314) never saw a failure to retry: a brief
+    DB drop ran the turn with no context. The only caller,
+    session_sync.PostgresBackend.load, is retried and caught by sync_in."""
+    row = await db.fetchrow(
+        "SELECT context_state, summary, user_id FROM app.conversations WHERE session_id = $1",
+        [session_id],
+    )
     if not row:
         return {}
     state = row.get("context_state")
