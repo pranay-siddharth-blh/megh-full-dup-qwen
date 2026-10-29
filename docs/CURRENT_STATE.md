@@ -23,6 +23,28 @@
 - Not done here (lane A2 UI-01): pct verdict in points, lower-is-better wording, no cross-scheme Total in pivots,
   " vs " chip labels.
 
+
+## Latest: E12 security / RBAC — KI-418..421 fixed, gateway CA fails closed (2026-10-29, D-081). Code changed, uncommitted. LIVE-VERIFIED in-process; :8401 NOT restarted.
+- RAG-plan handover item E12, done on `update/2026-10-29` before the lanes start; it covers lane A1's SEC-03, the
+  `scope_from_user` part of SEC-02 and the CA part of SEC-07, and lane B2's SEC-04 (noted in both HANDOFF lane sections).
+- **KI-418:** `routers/admin.py` `_guard_super_admin` — only a cross-tenant super_admin may grant `super_admin` or change /
+  reset / deactivate a super_admin; nobody changes their own role.
+- **KI-421:** `auth.scope_from_user` fails closed (no real scheme -> no scheme; unknown role -> `public`; the user cap only
+  narrows; an unknown cap is ignored); `NewUser` / `UpdateUser` refuse an unknown role / scheme / cap (422).
+- **KI-419:** the four fixed answers before the authorize node are authorised: Focus Legacy group names (scheme check +
+  in-area groups only), the Focus Plus summary, cross_figures (from the plan, before any query; NOT its SQL, whose places
+  are bind parameters and whose village count reads as village level), MGNREGA women-not-recorded. The MGNREGA
+  admin-expenditure caveat drops its statewide figure for an area-pinned account.
+- **KI-420:** `/api/scheme-stats` returns only the caller's schemes' cards (cache shared); `WelcomeCard.jsx` shows only
+  those once the server answers. `web/app/` rebuilt (the build includes other sessions' uncommitted frontend edits).
+- **Gateway CA:** a configured CA file that is missing logs CRITICAL and is listed by `insecure_secrets`; with `ENV=prod`
+  and the new `BOOT_GUARD_ENFORCE=true` (default false) the model client refuses to start. This dev `.env` has ENV=prod
+  (not dev) and the CA file is missing, so the switch stays off here.
+- **Qdrant key:** the code already sends `QDRANT_API_KEY` from the one client (`vectorstore.py`) and flags it when empty;
+  the key itself and the firewall are an infra request (NOT done, not ours).
+- Live (VPN up, in-process via `app.main.lifespan`, real DB + models): 6/6 turns as expected (district officer refused the
+  Focus+ summary and the per-district ranking, answered its own district, refused West Garo Hills; state officer answered
+  both); cards: PMAY-G-only user 1, state officer 6.
 ## Latest: audit v3 findings verified and merged into the 4-lane plan (2026-10-28 evening). Report only; no app code changed.
 - THE PLAN TO RUN is the 4-lane plan: `new_docs/Lane_Plan_2026-10-28.html` (setup, rules, final integration) and the lane
   reports `new_docs/audit_by_lane_2026-10-28/lane-a1|a2|b1|b2.html` (prompt + audit evidence per task). Its setup commit

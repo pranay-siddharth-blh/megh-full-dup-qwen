@@ -159,14 +159,35 @@ def anonymous_scope() -> UserScope:
 
 def scope_from_user(rec: dict) -> UserScope:
     """Build the effective scope from an app.users row. The role sets the caps;
-    the per-user district/block/scheme lists only narrow them, never widen."""
+    the per-user district/block/scheme lists only narrow them, never widen.
+
+    Fails closed (KI-421, RBAC review 2026-10-26): a role the map does not know
+    gets `public` (it used to get the analyst role: all geography, village
+    level); a scheme list none of whose names is a real scheme gives NO scheme
+    (a typo used to grant all six); the per-user granularity cap can only make
+    the role's cap coarser, and an unknown cap is ignored (a bad value used to
+    widen the cap, or crash every data question in GRANULARITY_ORDER.index)."""
     role = rec.get("role") or settings.AUTH_DEFAULT_ROLE
-    base = ROLE_PERMISSIONS.get(role, ROLE_PERMISSIONS[settings.AUTH_DEFAULT_ROLE])
+    base = ROLE_PERMISSIONS.get(role)
+    if base is None:
+        logger.warning("scope_from_user: unknown role %r for user %r -> public", role, rec.get("username"))
+        role, base = "public", ROLE_PERMISSIONS["public"]
 
     schemes = list(base["schemes"])
     if rec.get("schemes"):
         allowed = {str(s).strip() for s in rec["schemes"]}
-        schemes = [s for s in schemes if s in allowed] or schemes
+        schemes = [s for s in schemes if s in allowed]
+        if not schemes:
+            logger.warning("scope_from_user: no known scheme in %r for user %r -> no scheme",
+                           rec["schemes"], rec.get("username"))
+
+    cap = base["granularity_cap"]
+    user_cap = str(rec.get("granularity_cap") or "").strip().lower()
+    if user_cap and user_cap not in GRANULARITY_ORDER:
+        logger.warning("scope_from_user: unknown granularity_cap %r for user %r ignored",
+                       rec.get("granularity_cap"), rec.get("username"))
+    elif user_cap and not _finer(user_cap, cap):
+        cap = user_cap
 
     districts, blocks = _upper_list(rec.get("districts")), _upper_list(rec.get("blocks"))
     if base["geographies"] == "all" and not districts and not blocks:
@@ -180,7 +201,7 @@ def scope_from_user(rec: dict) -> UserScope:
         db_user_id=rec.get("user_id"),
         tenant_id=rec.get("tenant_id"),
         role=role,
-        granularity_cap=rec.get("granularity_cap") or base["granularity_cap"],
+        granularity_cap=cap,
         schemes=schemes,
         geographies=geographies,
         name=rec.get("name") or "",
@@ -232,10 +253,13 @@ def authorize(scope: UserScope, *, schemes: list[str], resolved_entities: dict,
     if over:
         return AuthDecision(
             False,
-            f"This query relates to {', '.join(over)}. Your account is authorised "
-            f"for {', '.join(scope.schemes)} only. Please raise a query within the "
-            f"authorised scheme, or request scheme access from your department "
-            f"administrator.",
+            (f"This query relates to {', '.join(over)}. Your account is authorised "
+             f"for {', '.join(scope.schemes)} only. Please raise a query within the "
+             f"authorised scheme, or request scheme access from your department "
+             f"administrator.") if scope.schemes else
+            (f"This query relates to {', '.join(over)}. Your account is not yet "
+             f"authorised for any scheme. Please request scheme access from your "
+             f"department administrator."),
             gran, "scheme",
         )
 

@@ -18,6 +18,12 @@ class Settings(BaseSettings):
     # "prod" (default) or "dev". dev re-enables /docs + /openapi.json and drops
     # the secret guard to a warning; every other value is treated as prod.
     ENV: str = "prod"
+    # Fail-closed switch for the production checks that would otherwise stop a box
+    # running with ENV=prod by mistake (this dev box does, with a missing CA file):
+    # with it on and ENV=prod, a configured-but-missing AI_MODEL_CA_BUNDLE_PATH
+    # refuses to start the model client instead of falling back to verify=False.
+    # Off until every dev machine sets ENV=dev (E12 / SEC-07, 2026-10-29).
+    BOOT_GUARD_ENFORCE: bool = False
 
     # A04 — global ceiling on a request body, enforced in BodyLimitMiddleware.
     # The audio upload on /api/query/transcribe is exempt (it keeps its own
@@ -745,4 +751,8 @@ def insecure_secrets() -> list[str]:
     # port can read, change or delete both (KI-200, RAG upgrade Phase 7).
     if not settings.QDRANT_API_KEY:
         problems.append("QDRANT_API_KEY (empty — Qdrant accepts requests without a key)")
+    # E12 / SEC-07: a CA path with no file means gateway TLS is never verified
+    from pathlib import Path
+    if settings.AI_MODEL_CA_BUNDLE_PATH and not Path(settings.AI_MODEL_CA_BUNDLE_PATH).expanduser().is_file():
+        problems.append("AI_MODEL_CA_BUNDLE_PATH (configured but the file is missing — gateway TLS is not verified)")
     return problems

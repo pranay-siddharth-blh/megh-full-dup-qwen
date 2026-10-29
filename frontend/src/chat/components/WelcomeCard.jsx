@@ -77,7 +77,10 @@ export function WelcomeCard({ strings, prompts, setPrompts, onAsk }) {
       clearInterval(timer);
     };
   }, []);
-  const cards = SCHEME_CARDS.map((c) => {
+  // The server sends only the cards of the schemes this account may query (KI-420);
+  // once it has answered, a card it left out is not shown with its built-in figures.
+  const shown = live && live.cards ? SCHEME_CARDS.filter((c) => c.key in live.cards) : SCHEME_CARDS;
+  const cards = shown.map((c) => {
     const stats = live && live.cards && Array.isArray(live.cards[c.key]) && live.cards[c.key].length
       ? live.cards[c.key] : c.stats;
     const period = live && live.periods && typeof live.periods[c.key] === 'string' ? live.periods[c.key] : c.period;
@@ -122,11 +125,12 @@ export function WelcomeCard({ strings, prompts, setPrompts, onAsk }) {
 
   useLayoutEffect(() => { setPerPage(readPageSize()); }, [readPageSize]);
 
-  // A new page size re-groups the cards and returns to page 1.
+  // A new page size, or fewer cards once the account's schemes are known, re-groups
+  // the cards and returns to page 1.
   useEffect(() => {
     if (trackRef.current) trackRef.current.scrollLeft = 0;
     syncArrows();
-  }, [perPage, syncArrows]);
+  }, [perPage, pages.length, syncArrows]);
 
   useEffect(() => {
     const onResize = () => {

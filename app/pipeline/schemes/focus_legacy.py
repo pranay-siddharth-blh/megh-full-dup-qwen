@@ -1005,7 +1005,7 @@ def _pg_name_tokens(text: str) -> list[str]:
     return [t for t in alnum_only((text or "").lower(), space=True).split() if t not in _PG_STOP_WORDS]
 
 
-async def _focus_legacy_pg_name_answer(question: str) -> "dict | None":
+async def _focus_legacy_pg_name_answer(question: str, scope: "auth.UserScope | None" = None) -> "dict | None":
     parsed = _pg_name_question(question, allow_weak=True)
     if parsed is None:
         return None
@@ -1058,6 +1058,18 @@ async def _focus_legacy_pg_name_answer(question: str) -> "dict | None":
         rows = await run_readonly(sql)
         if rows:
             break
+    # KI-419 (RBAC review 2026-10-26): this answer returns before the graph's
+    # authorize node, so a district officer was shown groups (and their district
+    # and block) anywhere in the state. The SQL names a group, not a place, so it
+    # is not authorised; the groups outside the caller's area are dropped instead.
+    hidden = 0
+    if scope is not None and settings.AUTH_ENABLED and scope.geo_restricted and not scope.is_admin:
+        _ok_d, _ok_b = set(scope.allowed_districts()), set(scope.allowed_blocks())
+        # a block officer with no block assigned has no area of their own (KI-429)
+        _no_area = scope.role == "block_officer" and not _ok_b
+        kept = [r for r in rows if not _no_area and str(r.get("district") or "").upper() in _ok_d
+                and (not _ok_b or str(r.get("block") or "").upper() in _ok_b)]
+        hidden, rows = len(rows) - len(kept), kept
     exact = [r for r in rows if _pg_name_tokens(r.get("pg_name")) == toks
              or any(_pg_name_tokens(a) == toks for a in alias_of.get(r.get("pg_id"), []))]
     if kind == "size?":
@@ -1077,7 +1089,11 @@ async def _focus_legacy_pg_name_answer(question: str) -> "dict | None":
                 f"{r['group_size']} member{'s' if r['group_size'] != 1 else ''}")
 
     single = exact[0] if len(exact) == 1 else (rows[0] if len(rows) == 1 else None)
-    if not rows:
+    if not rows and hidden:
+        answer = (f"No producer group named “{name}” was found in the Focus Legacy data for your "
+                  "authorised area. Please ask about a group in your jurisdiction, or request revised "
+                  "access from your department administrator.")
+    elif not rows:
         answer = (f"No producer group named “{name}” was found in the Focus Legacy data "
                   "(names are matched on their words, ignoring “PG” / “Producer Group”)."
                   + (" So there is no member count to report." if kind == "size" else ""))

@@ -1065,9 +1065,11 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     # _focus_legacy_pg_name_answer) before any geography resolution, which would
     # otherwise read a group name like "Nongstoin PG" as a place.
     if schemes == ["Focus Legacy"]:
-        _pg_answer = await _focus_legacy_pg_name_answer(question)
+        # KI-419: scheme scope first; the answer itself keeps only in-area groups
+        _pg_answer = await _focus_legacy_pg_name_answer(question, scope)
         if _pg_answer is not None:
-            return _pg_answer
+            _denial = _repaired_sql_denial(scope, schemes, {"resolved": {}}, None)
+            return _denied(_denial, schemes, {}) if _denial else _pg_answer
     # CM Elevate Legacy: a question its data cannot answer (a sanction rate,
     # applicant names, constituency, monthly figures, ...) gets the reviewed
     # not-held explanation now, before any model call.
@@ -1157,7 +1159,7 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     question, schemes, entity_result = d["question"], d["schemes"], d["entity_result"]
     prior_resolved, skip_scope_clarify = d["prior_resolved"], d["skip_scope_clarify"]
     if d.get("cross"):
-        return await _cross_scheme_scope(d)
+        return await _cross_scheme_scope(d, scope)
     # "Garo Hills" / "Khasi Hills" name a hill RANGE, not a district. When one is
     # named and no specific district resolved, either offer its districts as one-tap
     # chips ("which Garo Hills district?") or, if the question already says "all of
@@ -1208,6 +1210,10 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # year/tranche clarification gates below so it never gets mistaken for an
     # aggregate question that merely forgot to name a scope.
     if _focusplus_wants_overall_summary(question, schemes):
+        # KI-419: a statewide summary naming the top district, authorised like any query
+        _denial = _repaired_sql_denial(scope, schemes, entity_result, _FOCUSPLUS_OVERALL_SUMMARY_SQL)
+        if _denial:
+            return _denied(_denial, schemes, entity_result["resolved"])
         return await _focusplus_overall_summary_answer(schemes, entity_result)
 
     # Ask which district / block / village / year when an aggregate question
@@ -1581,7 +1587,7 @@ async def _cross_twin_village_pause(d: dict, schemes: list[str], resolved: dict)
         rule="entity-ambiguous", village_hint=str(cands[0]["name"]))
 
 
-async def _cross_scheme_scope(d: dict) -> "dict | None":
+async def _cross_scheme_scope(d: dict, scope: "auth.UserScope | None" = None) -> "dict | None":
     """A cross-scheme question's places, year and scope (graph: clarification_gate).
 
     It is answered like any data question, one model-written query per scheme
@@ -1642,6 +1648,11 @@ async def _cross_scheme_scope(d: dict) -> "dict | None":
     _plan = None if d["cross"].get("place_unrecognised") else cross_figures.plan(
         text, schemes, resolved, display, _SCHEME_NAME_MATCHER)
     if _plan is not None:
+        # KI-419: the fixed per-scheme figures never reached the authorize node, so a
+        # by-district ranking showed every district to any officer
+        _denial = _c13_e12_cross_figures_denial(scope, schemes, _plan)
+        if _denial:
+            return _denied(_denial, schemes, resolved)
         _res = await cross_figures.answer(_plan)
         return {
             "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
@@ -1653,6 +1664,26 @@ async def _cross_scheme_scope(d: dict) -> "dict | None":
                 f" (not held: {sorted(gaps)})" if gaps else "")
     d["entity_result"] = entity_result
     d["question"] = question
+    return None
+
+
+def _c13_e12_cross_figures_denial(scope: "auth.UserScope | None", schemes: list[str],
+                                  plan: "cross_figures.Plan") -> "auth.AuthDecision | None":
+    """The denial for a cross_figures answer, or None (KI-419, E12 2026-10-29).
+    Its SQL cannot be authorised as written: the places are bind parameters, and
+    every statement counts DISTINCT village_code, which authorize reads as
+    village-level data (a state officer was refused every statewide comparison).
+    What the answer shows is in the plan: the districts and block it is filtered
+    to, and either one figure per district or one total. Each place is checked as
+    a resolved entity; a per-district answer as a query grouped by district."""
+    places = [{"district": d} for d in plan.districts] if plan.districts else [{}]
+    if plan.block:
+        places = [{**pl, "block": plan.block} for pl in places]
+    shape = "SELECT lgd_district FROM curated.v_employment GROUP BY lgd_district" if plan.by_district else None
+    for pl in places:
+        decision = _repaired_sql_denial(scope, schemes, {"resolved": pl}, shape)
+        if decision:
+            return decision
     return None
 
 
@@ -1712,6 +1743,10 @@ async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = No
         if not _mg_admin:
             _mg_women = await _mgnrega_women_query(question, schemes, entity_result["resolved"])
     if _mg_women and _mg_women["kind"] == "unrecorded":
+        # KI-419: returned before the authorize node; the latest-year figure is the place's
+        _denial = _repaired_sql_denial(scope, schemes, entity_result, _mg_women["shown"])
+        if _denial:
+            return _denied(_denial, schemes, entity_result["resolved"])
         answer = await _mgnrega_women_unrecorded_answer(_mg_women, entity_result.get("display") or {})
         return {
             "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
@@ -2118,7 +2153,8 @@ async def _data_post_rows_stage(d: dict, scope: "auth.UserScope | None" = None) 
     question, schemes, entity_result = d["question"], d["schemes"], d["entity_result"]
     sql, rows, _mg_admin, _mg_women = d["sql"], d["rows"], d["mg_admin"], d["mg_women"]
     if _mg_admin:
-        answer = await _mgnrega_admin_expenditure_answer(rows, entity_result.get("display") or {})
+        answer = await _mgnrega_admin_expenditure_answer(rows, entity_result.get("display") or {},
+                                                         statewide=not (scope and scope.geo_restricted))
         return {
             "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
             "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,

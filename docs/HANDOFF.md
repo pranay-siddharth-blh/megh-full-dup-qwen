@@ -14,6 +14,16 @@ significant session.*
 still owns the pct-points verdict, lower-is-better and cross-scheme pivot totals. :8401 is another session's HTTPS
 server (system Python, started 12:21); left running.
 
+**2026-10-29 (code, E12 security / RBAC): KI-418..421 fixed, gateway CA fails closed; uncommitted, :8401 NOT restarted
+(another process owns it; restart to take effect).** Files: `app/auth.py` (scope_from_user, empty-scheme message),
+`app/routers/admin.py` (validators, `_guard_super_admin`), `app/routers/stats.py` (`_for_scope`), c13 (four sites +
+`_c13_e12_cross_figures_denial`), `schemes/focus_legacy.py` (scope filter), `schemes/mgnrega.py` (women `shown`,
+`statewide=`), `app/llm.py` + `app/config.py` (`BOOT_GUARD_ENFORCE`, CA in `insecure_secrets`),
+`frontend/src/chat/components/WelcomeCard.jsx`, `web/app/`, NEW `tests/test_rbac_e12_2026_10_29.py`, `.env.example`, docs.
+Six other sessions were editing this checkout at the same time (E2 guardrail etc.): commit only the files above, by name.
+Needs people: set `ENV=dev` on the dev boxes, then `BOOT_GUARD_ENFORCE=true` in production with the CA file in place;
+the Qdrant key + firewall (infra); the git-history purge / token rotation (repo owner). Not run: browser check of the cards.
+
 **2026-10-28 evening (review only): audit v3 findings verified and merged into the 4-lane plan.** Run the lane plan, not
 the v3 packages: `new_docs/Lane_Plan_2026-10-28.html` + `new_docs/audit_by_lane_2026-10-28/lane-*.html`. Setup commit done;
 RAG left out this round. Machine 1 runs lanes A1 and A2, machine 2 runs B1 and B2; each lane's prompt is in its report.
@@ -1222,6 +1232,16 @@ conversation state back into process memory (D-023).
 
 ### Lane A1 · Platform & security (KI-450 to KI-479)
 - Progress: not started
+- Already done outside the lane (E12, 2026-10-29, branch update/2026-10-29; `tests/test_rbac_e12_2026_10_29.py`):
+  - SEC-03 is DONE: all four c13 sites. The cross-scheme site differs from the prompt on purpose: it is authorised
+    from the cross_figures Plan (`_c13_e12_cross_figures_denial`), NOT from `_res["sql"]`: that bundle's places are
+    bind parameters and every statement counts DISTINCT village_code, so authorising it denied a state officer
+    every statewide comparison. The PG-name site filters inside `_focus_legacy_pg_name_answer(question, scope)`.
+  - SEC-02, the `scope_from_user` part only, is DONE (empty scheme intersection -> [], coarser cap, unknown cap
+    ignored, unknown role -> public). The geo-predicate / SEC-09a part is still yours.
+  - SEC-07: `BOOT_GUARD_ENFORCE` (default False) exists in config.py; `llm._get_ssl_verify` refuses a missing CA
+    with ENV=prod + the switch, else logs CRITICAL; `insecure_secrets` flags a missing CA. Still yours: the
+    AUTH_ENABLED / ASR_DEBUG_DIR flags, the lifespan raise, the CSP change. This dev .env does NOT set ENV=dev.
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
@@ -1234,4 +1254,7 @@ conversation state back into process memory (D-023).
 
 ### Lane B2 · Answers & knowledge base (KI-540 to KI-569)
 - Progress: not started
+- Already done outside the lane (E12, 2026-10-29): SEC-04 is DONE apart from the test file name — the tests are in
+  `tests/test_rbac_e12_2026_10_29.py` (each 403 and 422, a PMAY-G-only user sees one card); `WelcomeCard.jsx` also
+  hides the cards the server leaves out. SEC-10 is untouched.
 <!-- end lane B2 -->

@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app import auth
+from app import auth, scheme_registry
 from app.config import settings
 from app.db import fetch_rows
 from app.deps import current_scope
@@ -152,6 +152,24 @@ async def _compute() -> dict:
             "as_of": datetime.now(timezone.utc).isoformat(timespec="seconds")}
 
 
+# Card key ("pmay_g") -> scheme name ("PMAY-G"): the frontend's SCHEME_CARDS keys.
+_CARD_SCHEME = {s.name.lower().replace(" ", "_").replace("-", "_"): s.name
+                for s in scheme_registry.SCHEMES}
+
+
+def _for_scope(body: dict, scope: auth.UserScope) -> dict:
+    """Only the cards of the schemes the caller may query (KI-420, RBAC review
+    2026-10-26: every logged-in user got all six). The figures are statewide totals,
+    which every role may see, so the scheme list is the only filter; the cache stays
+    shared and is never changed here."""
+    allowed = set(scope.schemes)
+    keep = [k for k in body["cards"] if _CARD_SCHEME.get(k) in allowed]
+    if len(keep) == len(body["cards"]):
+        return body
+    return {**body, "cards": {k: body["cards"][k] for k in keep},
+            "periods": {k: v for k, v in body["periods"].items() if k in keep}}
+
+
 async def _require_user(scope: auth.UserScope = Depends(current_scope)) -> auth.UserScope:
     if settings.AUTH_ENABLED and scope.db_user_id is None:
         raise HTTPException(401, "authentication required")
@@ -159,9 +177,14 @@ async def _require_user(scope: auth.UserScope = Depends(current_scope)) -> auth.
 
 
 @router.get("/scheme-stats")
-async def scheme_stats(_: auth.UserScope = Depends(_require_user)):
-    """Card figures for all six schemes, cached for STATS_TTL_SECONDS. A failed refresh
-    keeps serving the last good figures; with none yet, 503 (the UI keeps its own)."""
+async def scheme_stats(scope: auth.UserScope = Depends(_require_user)):
+    """Card figures for the caller's schemes, cached (all six) for STATS_TTL_SECONDS. A
+    failed refresh keeps serving the last good figures; with none yet, 503 (the UI keeps
+    its own)."""
+    return _for_scope(await _all_cards(), scope)
+
+
+async def _all_cards() -> dict:
     if _cache["body"] and time.monotonic() - _cache["at"] < STATS_TTL_SECONDS:
         return _cache["body"]
     async with _lock:

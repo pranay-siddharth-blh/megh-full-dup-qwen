@@ -954,6 +954,27 @@ not recorded.*
   and fake timers built in).
 - **Status:** Active. `npm run lint` 0 problems and `npm test` 13/13 on 2026-10-29.
 
+
+### D-081 — Fixed answers authorised where they return; cross_figures from its plan; BOOT_GUARD_ENFORCE (2026-10-29)
+- **Date:** 2026-10-29. RAG plan E12 (KI-418..421, gateway CA). Files: c13, `schemes/focus_legacy.py`,
+  `schemes/mgnrega.py`, `app/auth.py`, `app/routers/admin.py`, `app/routers/stats.py`, `app/llm.py`, `app/config.py`.
+- **Context:** four fixed answers returned before the graph's `authorize` node (KI-419). The lane plan (A1 SEC-03)
+  said to authorise `_res["sql"]` for cross_figures. Measured offline with the real functions: that bundle's places
+  are bind parameters (`filter_values` sees none) and every statement counts `DISTINCT village_code`, which
+  `infer_granularity` reads as village level, so a state officer was refused every statewide comparison and a
+  district officer their own district.
+- **Decision:**
+  - each fixed answer is authorised where it returns, with the existing `_repaired_sql_denial` / `_denied`; behaviour
+    stays in the stages (never in a graph node);
+  - cross_figures is authorised from its plan, before any query: each place (`plan.districts`, `plan.block`) as a
+    resolved entity, and a per-district answer as a `GROUP BY lgd_district` shape (`_c13_e12_cross_figures_denial`);
+  - the Focus Legacy group-name SQL names a group, not a place, so it is not authorised; the scheme is checked and
+    groups outside the caller's area are dropped;
+  - scope fails closed (`scope_from_user`); the admin API refuses unknown values instead of storing them;
+  - a missing configured CA file refuses the model client only with `ENV=prod` **and** `BOOT_GUARD_ENFORCE=true`
+    (default false). A plain prod check would stop the dev box, which runs with `ENV=prod` and no CA file.
+- **Rejected:** authorising the cross_figures SQL text (false denials above); a hard prod-only CA refusal (bricks dev).
+- **Rollback:** revert the files above; `BOOT_GUARD_ENFORCE=false` already gives the old CA fallback (now logged CRITICAL).
 ### D-079 — One scheme registry; the other registries are guarded against drift (2026-10-27)
 - **Date:** 2026-10-27. RAG plan E5; user decision "Registry + drift guard" (not a full migration).
 - **Context:** scheme names appear in ~124 places across 31 files (mapped by a scan for lines naming four or more

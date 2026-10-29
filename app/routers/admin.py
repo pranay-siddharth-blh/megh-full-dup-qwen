@@ -7,9 +7,9 @@ super_admin may pass ?tenant_id= to scope to any tenant (or omit for all).
 import logging
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
-from app import appdb, auth, conversation_store, schema_introspect
+from app import appdb, auth, conversation_store, schema_introspect, scheme_registry
 from app.deps import require_admin, require_super
 
 logger = logging.getLogger(__name__)
@@ -48,6 +48,34 @@ async def create_tenant(body: TenantBody, scope: auth.UserScope = Depends(requir
 
 
 # ── users ───────────────────────────────────────────────────────────────
+# KI-421 (RBAC review 2026-10-26): a role, scheme or cap that auth does not know
+# was stored as typed, and auth.scope_from_user then guessed what it meant. A bad
+# value is refused here, with the valid ones named.
+def _valid_role(v: str | None) -> str | None:
+    if v is not None and v not in auth.ROLE_PERMISSIONS:
+        raise ValueError(f"role must be one of {sorted(auth.ROLE_PERMISSIONS)}")
+    return v
+
+
+def _valid_schemes(v: list[str] | None) -> list[str] | None:
+    if v is None:
+        return v
+    v = [str(s).strip() for s in v]
+    bad = [s for s in v if s not in scheme_registry.NAMES]
+    if bad:
+        raise ValueError(f"unknown scheme(s) {bad}; schemes must be among {list(scheme_registry.NAMES)}")
+    return v
+
+
+def _valid_cap(v: str | None) -> str | None:
+    if v is None:
+        return v
+    v = v.strip().lower()
+    if v not in auth.GRANULARITY_ORDER:
+        raise ValueError(f"granularity_cap must be one of {auth.GRANULARITY_ORDER}")
+    return v
+
+
 class NewUser(BaseModel):
     username: str = Field(min_length=1, max_length=150)
     password: str = Field(min_length=8, max_length=256)
@@ -59,6 +87,21 @@ class NewUser(BaseModel):
     schemes: list[str] | None = Field(default=None, max_length=16)
     granularity_cap: str | None = Field(default=None, max_length=40)
 
+    @field_validator("role")
+    @classmethod
+    def check_role(cls, v):
+        return _valid_role(v)
+
+    @field_validator("schemes")
+    @classmethod
+    def check_schemes(cls, v):
+        return _valid_schemes(v)
+
+    @field_validator("granularity_cap")
+    @classmethod
+    def check_cap(cls, v):
+        return _valid_cap(v)
+
 
 class UpdateUser(BaseModel):
     name: str | None = Field(default=None, max_length=200)
@@ -69,6 +112,35 @@ class UpdateUser(BaseModel):
     granularity_cap: str | None = Field(default=None, max_length=40)
     is_active: bool | None = None
     password: str | None = Field(default=None, min_length=8, max_length=256)
+
+    @field_validator("role")
+    @classmethod
+    def check_role(cls, v):
+        return _valid_role(v)
+
+    @field_validator("schemes")
+    @classmethod
+    def check_schemes(cls, v):
+        return _valid_schemes(v)
+
+    @field_validator("granularity_cap")
+    @classmethod
+    def check_cap(cls, v):
+        return _valid_cap(v)
+
+
+def _guard_super_admin(scope: auth.UserScope, rec: dict, new_role: str | None = None) -> None:
+    """KI-418 (RBAC review 2026-10-26): update_user checked only the tenant, and all
+    seeded users share one tenant, so a tenant admin could raise anyone (itself
+    included) to super_admin, reset a super_admin's password or deactivate one —
+    create_user alone had this check. Only a cross-tenant (super_admin) caller may
+    touch a super_admin or hand out the role."""
+    if scope.cross_tenant:
+        return
+    if rec.get("role") == "super_admin":
+        raise HTTPException(403, "only super_admin can change a super_admin account")
+    if new_role == "super_admin":
+        raise HTTPException(403, "only super_admin can grant the super_admin role")
 
 
 @router.get("/roles")
@@ -122,6 +194,9 @@ async def update_user(user_id: int, body: UpdateUser,
         raise HTTPException(403, "user belongs to another tenant")
     if body.role and body.role not in auth.ROLE_PERMISSIONS:
         raise HTTPException(422, "bad role")
+    _guard_super_admin(scope, rec, body.role)
+    if body.role and body.role != rec.get("role") and scope.db_user_id == user_id:
+        raise HTTPException(403, "you cannot change your own role")
     updated = await appdb.update_user(user_id, **body.model_dump(exclude_none=True))
     return {"user": updated}
 
@@ -138,6 +213,7 @@ async def deactivate_user(user_id: int, hard: bool = False,
         raise HTTPException(403, "user belongs to another tenant")
     if scope.db_user_id == user_id:
         raise HTTPException(403, "you cannot delete your own account")
+    _guard_super_admin(scope, rec)
     if hard:
         if not scope.cross_tenant:
             raise HTTPException(403, "only super_admin can permanently delete a user")
