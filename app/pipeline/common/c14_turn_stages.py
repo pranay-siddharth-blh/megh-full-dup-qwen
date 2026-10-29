@@ -86,6 +86,55 @@ def _scope_banner_year(resolved: dict) -> "str | None":
     return ", ".join(out) or None
 
 
+# H-5 / H-6 / H-8 (chat UI audit 2026-10-29, decided by the user): the banner names
+# the place's type ("Umling block", "East Khasi Hills district" — a block and a
+# village can share a name), says "All years (FY … to …)" when no year was used
+# (the officer could not tell one year from every year added up), and prints a
+# run of 3+ consecutive years as a span. Banner only: topic labels keep
+# _scope_banner_place / _scope_banner_year.
+_BANNER_ONE_TYPE = ("village", "block", "district")
+_BANNER_LIST_TYPE = (("village_code_list", "villages"), ("block_list", "blocks"), ("district_list", "districts"))
+
+
+def _banner_place(resolved: dict) -> str:
+    if resolved.get("village_twins"):            # J-10: "Apalgre (Dadenggre block), Apalgre (…)"
+        return ", ".join(resolved["village_twins"].values())
+    place = _scope_banner_place(resolved)
+    if place == "All of Meghalaya" or place.endswith(" village") or place.endswith(" constituency"):
+        return place
+    for key in _BANNER_ONE_TYPE:
+        if resolved.get(key):
+            return f"{place} {key}"
+    for key, word in _BANNER_LIST_TYPE:
+        if resolved.get(key):
+            return f"{place} {word}"
+    return place
+
+
+def _banner_year(resolved: dict, schemes: list) -> "str | None":
+    raw = [resolved["year_key"]] if resolved.get("year_key") is not None else list(resolved.get("year_key_list") or [])
+    years = []
+    for y in raw:
+        try:
+            years.append(int(y))
+        except (TypeError, ValueError):
+            continue
+    years = sorted(set(years))
+    if not years:
+        held = [_SCHEME_DATA_YEARS.get(s) for s in schemes]
+        spans = [h for h in held if h]
+        if not spans:
+            return None                          # CM Elevate: no time dimension at all
+        first, last = spans[0][0], spans[0][-1]
+        if all(h[0] == first and h[-1] == last for h in spans) and len(spans) == len(held):
+            return f"All years (FY {first} to {last})" if first != last else f"FY {first}"
+        return "All years"
+    fy = [f"{y}-{str(y + 1)[-2:]}" for y in years]
+    if len(years) >= 3 and years[-1] - years[0] == len(years) - 1:
+        return f"FY {fy[0]} to {fy[-1]}"
+    return ", ".join(f"FY {f}" for f in fy)
+
+
 def _attach_scope_banner(result: dict, session) -> None:
     """The scope a DATA answer actually used, shown above it (Context Memory
     proposal S2, 2026-10-18): "MGNREGA · East Khasi Hills · FY 2022-23". Built
@@ -96,8 +145,20 @@ def _attach_scope_banner(result: dict, session) -> None:
     if result.get("route") != "data" or not result.get("schemes") or not (result.get("sql") or result.get("sql_query")):
         return
     resolved = result.get("resolved_entities") or {}
-    parts = [" + ".join(result["schemes"]), _scope_banner_place(resolved)]
-    year = _scope_banner_year(resolved)
+    # H-7 (chat UI audit 2026-10-29): "MGNREGA + Focus Plus · FY 2023-24" over an
+    # answer where only MGNREGA had figures read as if both were answered. The
+    # schemes that returned figures are named; the others say "no data".
+    named = list(result["schemes"])
+    held = result.get("schemes_with_data")
+    if isinstance(held, list) and held and set(held) != set(named):
+        lead = " + ".join(s for s in named if s in held)
+        # I-13 (live run): CM Elevate's own list / a scheme left out is not "no data"
+        apart = result.get("schemes_apart") or {}
+        lead += "".join(f" ({s}: {apart.get(s, 'no data')})" for s in named if s not in held)
+    else:
+        lead = " + ".join(named)
+    parts = [lead, _banner_place(resolved)]
+    year = _banner_year(resolved, named)
     if year:
         parts.append(year)
     banner = " · ".join(parts)

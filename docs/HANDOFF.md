@@ -3,6 +3,13 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-10-29 evening (code, chat UI audit, D-088 / D-089, KI-574): branch `fix/chat-ui-audit`, committed per phase, not merged.**
+Read `docs/audit_fix_log.md` first: every audit ID with its status, files and test. All 197 are handled; the 12
+product decisions were applied as recommended (D-089 — J-4 / J-5 narrows D-056; easy to revert, see D-089).
+Next: a live run with the VPN of the 20 browser questions in the session report and the "Needs live check" items
+(KI-574). New: `keep_turns` on /api/query (K-6), `total_row_count` on results (E-3), money columns get a unit
+suffix (X-14), fonts bundled (X-11, `@fontsource/*` 5.3.0). New shared rule: `app/measure_kinds.json` and `frontend/src/chat/measureKinds.js` must stay equal
+(a test fails otherwise). `web/app/` rebuilt in the last commit.
 **2026-10-29 15:55 (run only): all working-tree work committed + pushed as `678fa19` on `update/2026-10-29`; :8401 restarted over HTTPS
 with the repo cert `certs/dev-cert.pem` / `dev-key.pem` (gitignored; replaces the session-scratchpad cert of the 15:33 restart).**
 Start: `.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8401 --ssl-certfile certs/dev-cert.pem --ssl-keyfile certs/dev-key.pem`

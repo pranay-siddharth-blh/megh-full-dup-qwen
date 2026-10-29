@@ -55,7 +55,8 @@ test('a percentage is never a pie or donut', () => {
   const rows = [{ district: 'A', completion_pct: 80 }, { district: 'B', completion_pct: 60 }, { district: 'C', completion_pct: 70 }];
   const a = buildAnalytics('completion rate by district', rows, 'pie');
   assert.equal(a.defType, 'bar');
-  assert.deepEqual(a.types, ['bar', 'line']);
+  // X-4 (audit 2026-10-29, approved): Line only when the x-axis is a period
+  assert.deepEqual(a.types, ['bar']);
 });
 
 test('two schemes are shown side by side but never ranked', () => {

@@ -43,14 +43,26 @@ def _run(d, scope=None):
 
 # ── a new chat: district before year ──────────────────────────────────────────
 def test_new_chat_without_a_place_asks_the_district_first():
+    # J-4 / J-5 (chat UI audit 2026-10-29, user decision): only a question that does
+    # not name its own scheme still asks the district first
     with pytest.raises(p.ClarificationNeeded) as exc:
-        _run(_turn("how many households for MGNREGA", ["MGNREGA"]))
+        _run(_turn("how many households", ["MGNREGA"]))
     e = exc.value
     assert e.rule == "scope-not-specified"
     labels = [o["label"] for o in e.options]
     assert "West Garo Hills" in labels and labels[-1] == "All of Meghalaya"
     assert "time period" not in str(e)          # the year is its own next question
-    assert all(o["question"].startswith("how many households for MGNREGA") for o in e.options)
+    assert all(o["question"].startswith("how many households") for o in e.options)
+
+
+def test_new_chat_naming_its_scheme_is_statewide_and_asks_only_the_year():
+    # J-5: one tap (the year, D-053), not two; the area is all of Meghalaya, said in
+    # the question the year chips carry
+    with pytest.raises(p.ClarificationNeeded) as exc:
+        _run(_turn("how many households for MGNREGA", ["MGNREGA"]))
+    e = exc.value
+    assert e.rule == "year-not-specified"
+    assert all("all of Meghalaya" in o["question"] for o in e.options)
 
 
 def test_new_chat_district_chip_then_asks_the_year():
@@ -69,7 +81,11 @@ def test_new_chat_statewide_chip_then_asks_the_year():
 
 
 def test_new_chat_naming_a_year_but_no_place_still_asks_the_district():
+    # J-4 (user decision 2026-10-29): with its scheme named, it is answered statewide
     d = _turn("how many households for MGNREGA in FY 2022-23", ["MGNREGA"], resolved={"year_key": 2022})
+    assert _run(d) is None
+    # with no scheme of its own, the district is still asked first
+    d = _turn("how many households in FY 2022-23", ["MGNREGA"], resolved={"year_key": 2022})
     with pytest.raises(p.ClarificationNeeded) as exc:
         _run(d)
     assert exc.value.rule == "scope-not-specified"

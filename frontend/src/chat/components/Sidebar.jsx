@@ -5,6 +5,13 @@ import { histAgo, histBucket, initialsFor } from '../format.js';
 import { ADMIN_ROLES } from '../constants.js';
 import { API_BASE } from '../api.js';
 
+// X-9 (audit 2026-10-29): sidebar items were mouse-only <div>s; each is a button
+// for the keyboard and for screen readers (Enter or Space presses it).
+const pressable = (fn) => ({
+  role: 'button', tabIndex: 0, onClick: fn,
+  onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fn(e); } },
+});
+
 /* The left sidebar: brand + rail toggle, navigation, the officer's chat history
    (Pinned, date buckets, collapsible Archived), the collapsed-rail pins and the
    user chip. Same markup and classes as web/ai_query.html. */
@@ -149,17 +156,17 @@ export function Sidebar({
       </div>
 
       <div className="nav-section">Conversations</div>
-      <div className="nav-item" onClick={onNewChat} title={`New chat (${keyLabel('newChat')})`}>
+      <div className="nav-item" {...pressable(onNewChat)} title={`New chat (${keyLabel('newChat')})`}>
         <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 5v14M5 12h14" /></svg>
         New chat
       </div>
 
       <div className="nav-section">Resources</div>
-      <div className="nav-item" onClick={onGlossary}>
+      <div className="nav-item" {...pressable(onGlossary)}>
         <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 016.5 17H20" /><path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" /></svg>
         Glossary
       </div>
-      <div className="nav-item" onClick={onUseCases}>
+      <div className="nav-item" {...pressable(onUseCases)}>
         <svg className="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z" /><polyline points="14 2 14 8 20 8" /></svg>
         Use cases
       </div>
@@ -208,8 +215,7 @@ export function Sidebar({
         <div className="hist-arch">
           {signedIn && archived.length > 0 && (
             <>
-              <div className={'hist-day hist-arch-head' + (archOpen ? ' open' : '')} onClick={onToggleArch}
-                   role="button" tabIndex={0} title={(archOpen ? 'Hide' : 'Show') + ' archived chats'}>
+              <div className={'hist-day hist-arch-head' + (archOpen ? ' open' : '')} {...pressable(onToggleArch)} title={(archOpen ? 'Hide' : 'Show') + ' archived chats'}>
                 <svg className="chev" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><polyline points="9 18 15 12 9 6" /></svg>
                 Archived<span className="count">{archived.length}</span>
               </div>

@@ -6,13 +6,41 @@
 # file and the shared ones imported in c07_mentions.
 
 
+# J-10 (chat UI audit 2026-10-29): a village name shared by up to this many villages
+# (in different blocks) is answered for each of them instead of asking which.
+_TWINS_ANSWERED = True
+_TWINS_MAX = 3
+
+
+def _c09_twins(cands: list, resolved: dict, display: dict) -> bool:
+    """J-10 (chat UI audit 2026-10-29, KI-126, user decision): a name shared by a few
+    villages cost two taps ("which village?", then "which year?"). Each village is
+    answered on its own row, named with its block (prompt_builder: GROUP BY
+    village_code, SELECT the block). False (ask, as before) for more than
+    _TWINS_MAX, or when two share a block and the block cannot tell them apart."""
+    if not _TWINS_ANSWERED or not 2 <= len(cands) <= _TWINS_MAX:
+        return False
+    if any(not c.get("village_code") for c in cands) \
+            or len({str(c.get("block") or "").upper() for c in cands}) != len(cands):
+        return False
+    resolved["village_code_list"] = [c["village_code"] for c in cands]
+    resolved["village_twins"] = {
+        str(c["village_code"]): f"{_place_title(c['name'])} ({str(c['block']).title()} block)" for c in cands}
+    display["village"] = ", ".join(resolved["village_twins"].values())
+    return True
+
+
 # Nouns that name an organisation or a record, never a place: a "district"
 # mention holding one is the subject of the question, not where it happened.
 _C09_NON_PLACE_NOUNS = frozenset((
     "cooperative cooperatives coop coops society societies lamp lamps group groups pg pgs shg shgs "
     "payment payments record records batch batches registration registrations beneficiary beneficiaries "
     "applicant applicants application applications scheme schemes member members farmer farmers "
-    "household households house houses tranche tranches bank banks lender lenders").split())
+    "household households house houses tranche tranches bank banks lender lenders "
+    # I-18 (chat UI audit live run 2026-10-29): "kis district me" (Hinglish "in which
+    # district") came back as a district named "kis district" and was refused as
+    # outside Meghalaya; a question word never names a place
+    "which what kis kaun kaunsa konsa kon kaha kahan").split())
 
 
 def _c09_same_name_village(name: str) -> bool:
@@ -63,6 +91,9 @@ def _c09_stated_year_span(question: str) -> "tuple[int, int] | None":
     gap = tuple(w for w in _c01_tm_words(q[s1 + len(t1):s2]) if w not in _C09_SPAN_FILLER)
     before = [w for w in _c01_tm_words(q[:s1]) if w not in _C09_SPAN_FILLER]
     if gap in _C09_SPAN_JOINERS or (gap == ("and",) and before and before[-1] == "between"):
+        return y1, y2
+    # J-2: a dash between the two years ("2022-23 - 2024-25", "2022-23 – 2024-25")
+    if not gap and q[s1 + len(t1):s2].strip() in ("-", "–", "—", "to"):
         return y1, y2
     return None
 
@@ -1411,6 +1442,8 @@ async def resolve_entities(question: str, schemes: list[str],
             if len(_vhits) == 1:
                 resolved["village_code"] = _vhits[0]["village_code"]
                 display["village"] = _place_title(_vhits[0]["name"])
+            elif _c09_twins(_vhits, resolved, display):
+                pass
             else:
                 # Several real villages share this name — ask, never guess.
                 listed = ", ".join(
@@ -1427,6 +1460,8 @@ async def resolve_entities(question: str, schemes: list[str],
     if _village_text:
         r = await _resolve_village_for(schemes, _village_text, district=district_canon,
                                    block=resolved.get("block"))
+        if r.status == "ambiguous" and _c09_twins(r.candidates, resolved, display):
+            r.status = "twins"                   # J-10: each one answered, named with its block
         if r.status == "ambiguous":
             # Two candidates can share the same (name, district) while being
             # genuinely different villages in different blocks with their own
@@ -1472,7 +1507,7 @@ async def resolve_entities(question: str, schemes: list[str],
                         rule="entity-ambiguous")
             resolved["village_code"] = r.canonical
             display["village"] = r.display or _place_title(_village_text)
-        else:
+        elif r.status != "twins":
             # KI-327 (live 2026-10-19): "now give me for dambo rongjeng" after a
             # village turn. The rewrite guessed "village" for a name that is a BLOCK
             # and no village; the note below left the place unresolved and the
@@ -1827,6 +1862,31 @@ async def resolve_entities(question: str, schemes: list[str],
         resolved.pop("year_key", None)
         resolved["year_key_list"] = list(range(_a, _b + 1))
         display["year"] = f"FY {_a}-{(_a + 1) % 100:02d} to FY {_b}-{(_b + 1) % 100:02d}"
+    # C-1 / F-8 (chat UI audit live run 2026-10-29): "Compare MGNREGA expenditure
+    # 2023-24 vs 2024-25" kept one year (or none) from the extractor, so the banner
+    # said "All years" and a two-year comparison could come back with one year. Two
+    # or more named years are all the years asked (as on the cross-scheme path, A-14).
+    _named_ys = sorted({k for k in (_parse_year_key(y) for y in _years_in_question(question, schemes)[0])
+                        if k is not None})
+    if _span is None and len(_named_ys) >= 2 and not resolved.get("year_key_list"):
+        resolved.pop("year_key", None)
+        resolved["year_key_list"] = _named_ys
+        display["year"] = ", ".join(f"FY {y}-{(y + 1) % 100:02d}" for y in _named_ys)
+    # J-1 (audit 2026-10-29): "last 3 years", "this year", "last year" named no year
+    # the readers knew, so the officer was asked a year they had given (or Focus
+    # answered every year). Read against the years the schemes hold; the answer
+    # and the banner say which years were used.
+    if not resolved.get("year_key") and not resolved.get("year_key_list") and _parse_year_key(question) is None:
+        _rel = _relative_years(question, schemes)
+        if _rel is not None:
+            _ys, _label, _note = _rel
+            if len(_ys) == 1:
+                resolved["year_key"] = _ys[0]
+            else:
+                resolved["year_key_list"] = list(_ys)
+            display["year"] = _label
+            notes.append(f"The question names a relative period; it was read as {_label}. Say these years "
+                         f"in the answer's first line." + (f" {_note}." if _note else ""))
 
     out = {"resolved": resolved, "notes": notes, "display": display}
     if _district_swaps:

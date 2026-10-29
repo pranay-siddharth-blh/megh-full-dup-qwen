@@ -13,7 +13,8 @@ export function stampTime(date) {
   if (isNaN(d.getTime())) return nowTime();
   const time = d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
   if (d.toDateString() === new Date().toDateString()) return time;
-  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short' }) + ', ' + time;
+  const yr = d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {};   // K-38
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', ...yr }) + ', ' + time;
 }
 
 // The full time of a message, for its "⋯" menu: "Today, 11:34 AM",
@@ -42,7 +43,10 @@ export function histAgo(iso) {
   if (s < 3600) return Math.floor(s / 60) + 'm ago';
   if (s < 86400) return Math.floor(s / 3600) + 'h ago';
   if (s < 604800) return Math.floor(s / 86400) + 'd ago';
-  return new Date(iso).toLocaleDateString('en-GB', { day: '2-digit', month: 'short' });
+  const d = new Date(iso);
+  // K-38 (audit 2026-10-29): a chat from last year said "24 Sept" with no year
+  const yr = d.getFullYear() !== new Date().getFullYear() ? { year: 'numeric' } : {};
+  return d.toLocaleDateString('en-GB', { day: '2-digit', month: 'short', ...yr });
 }
 
 // Coarse bucket for the "Today / Yesterday / Earlier" separators.
@@ -81,3 +85,15 @@ export function prettyName(s) {
 }
 
 export const humanKey = (k) => String(k).replaceAll('_', ' ');
+
+// K-4 (audit 2026-10-29): the key was a page counter, which differs between a live
+// chat and the same chat reopened, so after a reload answer 3 showed answer 2's
+// thumb and a vote overwrote answer 2's stored feedback. The key is the answer's
+// own content (its question and text), the same however the chat was opened.
+export function answerKey(question, answer) {
+  let h = 0x811c9dc5;
+  const s = `${question || ''}
+${answer || ''}`;
+  for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; }
+  return `a${h.toString(36)}${s.length.toString(36)}`;
+}

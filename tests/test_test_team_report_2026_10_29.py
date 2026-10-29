@@ -120,7 +120,7 @@ def test_bug1_a_knowledge_aside_keeps_the_data_context(chat):
     assert out["route"] == "knowledge"
     out, (question, _prior) = chat("how many person-days?", "MGNREGA", {"district": EKH, "year_key": 2024})
     assert "East Khasi Hills" in question and "2024-25" in question          # the chat's scope, no year pause
-    assert out["scope_banner"] == "MGNREGA · East Khasi Hills · FY 2024-25"  # and not "(new question)"
+    assert out["scope_banner"] == "MGNREGA · East Khasi Hills district · FY 2024-25"  # and not "(new question)"; place type: H-6
 
 
 def test_bug2_a_measure_after_a_knowledge_aside_is_data(chat):

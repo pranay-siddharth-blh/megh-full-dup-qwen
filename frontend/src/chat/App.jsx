@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  adoptSessionId, archiveConversationApi, checkHealth, ConnectionError, deleteConversationApi, fetchMe, getConversation,
+  adoptSessionId, archiveConversationApi, checkHealth, ConnectionError, deleteConversationApi, fetchMe, friendlyError, getConversation,
   getToken, listHistory, login, logoutRemote, pinConversationApi, renameConversationApi, resetSessionId,
   setToken, setUnauthorizedHandler, StoppedError, storedSessionId, streamNLPResponse,
 } from './api.js';
@@ -8,6 +8,7 @@ import { GLOSSARY, UI_STRINGS, UNIFIED_SAMPLES } from './constants.js';
 import { nowTime, stampTime, todayLabel } from './format.js';
 import { useVoice } from './useVoice.js';
 import { isContinueText, isStopText } from './stopContinue.js';
+import { speechChunks } from './text.js';
 import { useSidebarResize } from './useSidebarResize.js';
 import { useComposerHeight } from './useComposerHeight.js';
 import { BotMessage, TextMessage, TypingMessage } from './components/Messages.jsx';
@@ -25,6 +26,10 @@ import { plainText } from './components/Markdown.jsx';
 import { copyText } from './components/Messages.jsx';
 import { IS_MAC, SHORTCUTS, enterSends, isComposing, isTyping, keyLabel, matches } from './shortcuts.js';
 import { WelcomeCard } from './components/WelcomeCard.jsx';
+
+// K-10 (audit 2026-10-29): the server refuses a question over 2,000 characters
+// (settings.MAX_QUESTION_CHARS); the box stops there and counts near the end.
+const MAX_QUESTION_CHARS = 2000;
 
 /* The chat console (was web/ai_query.html). Every behaviour of the original is
    kept: sign-in gate with a session check, server-backed chat history (pin,
@@ -61,6 +66,10 @@ function glossaryModal(filter) {
     )) : <div className="glossary-empty">No glossary term matches “{filter.trim()}”.</div>,
   };
 }
+
+// K-6: the turns the server saved for these messages — answers and pauses it
+// sent, not local redraws, hints or errors
+const savedTurns = (msgs) => msgs.filter((x) => (x.kind === 'rich' && x.response && !x.local) || x.saved).length;
 
 export default function App() {
   // ── Auth ────────────────────────────────────────────────────────────────
@@ -132,8 +141,11 @@ export default function App() {
 
   // ── History ─────────────────────────────────────────────────────────────
   // Silent on failure: the chat stays usable when the history table is down.
+  const histSeq = useRef(0);
   const loadHistory = useCallback(async () => {
     if (!getToken()) { historyRef.current = []; setHistory([]); return; }
+    // K-30 (audit 2026-10-29): an older search answering late replaced a newer one
+    const seq = ++histSeq.current;
     let list = [];
     try {
       list = await listHistory(filterRef.current);
@@ -141,6 +153,7 @@ export default function App() {
       if (String(e.message) === 'unauthorized') return;
       list = [];
     }
+    if (seq !== histSeq.current) return;
     historyRef.current = list;
     setHistory(list);
   }, []);
@@ -168,11 +181,17 @@ export default function App() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(hideUndo, 7000);
   };
+  const showUndoRef = useRef(showUndo);
+  showUndoRef.current = showUndo;
   const runUndo = async () => {
     const fn = toast && toast.fn;
     hideUndo();
     if (fn) await fn();
   };
+
+  // Filled in below (leaveChat is defined with the sending code); sign-out and
+  // opening a chat call it through this ref.
+  const leaveChatRef = useRef(() => {});
 
   // ── Auth flow ───────────────────────────────────────────────────────────
   const lockApp = useCallback(() => {
@@ -181,6 +200,12 @@ export default function App() {
   }, []);
 
   const handleLogout = useCallback((message) => {
+    // K-2 (audit 2026-10-29): the next officer on this computer must not see this
+    // officer's open chat or continue their conversation: stop the answer, clear
+    // the screen and start a new session id.
+    leaveChatRef.current();
+    setMessages([]);
+    setSessionId(resetSessionId());
     logoutRemote();
     try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
     speakingRef.current = null; setSpeakingId(null);
@@ -220,11 +245,12 @@ export default function App() {
         if (t.response && typeof t.response === 'object') {
           replay.push({ id: nextId(), time: answerTime, at: answeredAt && answeredAt.toISOString(), kind: 'rich', question: t.question, response: t.response });
         } else {
-          replay.push({ id: nextId(), time: answerTime, at: answeredAt && answeredAt.toISOString(), kind: 'bot', text: t.answer || '(no answer recorded)' });
+          replay.push({ id: nextId(), time: answerTime, at: answeredAt && answeredAt.toISOString(), kind: 'bot', saved: true, text: t.answer || '(no answer recorded)' });
         }
       }
       try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
       speakingRef.current = null; setSpeakingId(null);
+      leaveChatRef.current();
       followRef.current = true;
       setMessages(replay);
       setSessionId(sid);
@@ -246,6 +272,10 @@ export default function App() {
       // A refresh keeps the tab's session id: if it has recorded turns, replay it.
       const existing = historyRef.current.find((c) => c.session_id === sessionRef.current);
       if (existing) await openConversation(sessionRef.current);
+      // K-29 (audit 2026-10-29): a chat not in the latest list showed an empty screen
+      // while the old session went on, so the next question inherited its scheme,
+      // place and year unseen. It starts a new conversation instead.
+      else setSessionId(resetSessionId());
     }
     setAuth('unlocked');
   }, [loadHistory, openConversation]);
@@ -258,8 +288,9 @@ export default function App() {
         const me = await fetchMe();
         unlockApp(me);
       } catch (e) {
-        // A network blip must not discard a token that may still be valid.
-        if (!(e && e.name === 'AbortError')) setToken('');
+        // A network blip must not discard a token that may still be valid: only a
+        // token the server refused (401 / 403) is dropped (K-12, audit 2026-10-29).
+        if (e && (e.status === 401 || e.status === 403)) setToken('');
         lockApp();
       }
     })();
@@ -296,7 +327,11 @@ export default function App() {
   // written (/api/query/stream, D-039). Stop aborts the request, which also
   // cancels the turn on the server. `skipCache` (Regenerate) answers afresh.
   const stopRef = useRef(null);
-  const stopQuery = useCallback(() => { if (stopRef.current) stopRef.current.abort(); }, []);
+  // K-9 (audit 2026-10-29): one chip tap waits for the running answer, not one
+  // timer per tap; Stop and leaving the chat forget it.
+  const pendingAskRef = useRef(null);
+  const dropPendingAsk = () => { if (pendingAskRef.current) { clearInterval(pendingAskRef.current); pendingAskRef.current = null; } };
+  const stopQuery = useCallback(() => { dropPendingAsk(); if (stopRef.current) stopRef.current.abort(); }, []);
   // The question the officer last stopped, until another one runs.
   const stoppedRef = useRef(null);
   // ── Connection ──────────────────────────────────────────────────────────
@@ -315,7 +350,39 @@ export default function App() {
     backTimer.current = setTimeout(() => setConn((c) => (c === 'back' ? 'online' : c)), 4000);
   }, []);
 
-  const runQuestion = useCallback(async (q, { skipCache = false, addUser = true } = {}) => {
+  // K-1 / K-2 / K-8 / K-26 (audit 2026-10-29): leaving a chat — another chat, a new
+  // one, a delete, a sign-out — stops its running answer and forgets its stopped
+  // question, its waiting question and any chip tap. An answer that lands after the
+  // switch belongs to the chat it was asked in: it is dropped here (the server has
+  // saved it there) instead of appearing under the other chat.
+  const chatGenRef = useRef(0);
+  const leaveChat = useCallback(() => {
+    chatGenRef.current += 1;
+    dropPendingAsk();
+    if (stopRef.current) stopRef.current.abort();
+    stoppedRef.current = null;
+    waitingRef.current = null;
+  }, []);
+
+  leaveChatRef.current = leaveChat;
+
+  // K-14: the box takes focus back only when focus was already in the chat, and
+  // never on a touch screen (the keyboard would cover the answer)
+  const refocusComposer = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    try { if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return; } catch (e) { /* ignore */ }
+    const a = document.activeElement;
+    if (a && a !== document.body && a !== el && !(chatAreaRef.current && chatAreaRef.current.contains(a))) return;
+    el.focus();
+  }, []);
+
+  const keepTurnsRef = useRef(null);       // K-6: set by Edit for the run it starts
+  const englishRef = useRef(false);         // K-18: set by a chip tap for the run it starts
+  const runQuestion = useCallback(async (q, { skipCache = false, addUser = true, keepTurns = keepTurnsRef.current,
+    english = englishRef.current } = {}) => {
+    keepTurnsRef.current = null;
+    englishRef.current = false;
     if (runningRef.current) return;           // one question at a time
     // "/chart …" or "/table …" (#319): the question goes without its command;
     // the answer remembers the view. The bubble shows what was typed.
@@ -331,47 +398,62 @@ export default function App() {
       { id: typingId, kind: 'typing', steps: [], draft: '' },
     ]);
     const patchTyping = (fn) => setMessages((m) => m.map((x) => (x.id === typingId ? { ...x, ...fn(x) } : x)));
+    // X-10 (audit 2026-10-29): tokens are added once per animation frame, not one
+    // state update (and re-render) per word
+    let pending = '';
+    let frame = 0;
+    const flush = () => { frame = 0; const t = pending; pending = ''; if (t) patchTyping((x) => ({ draft: x.draft + t })); };
     const onEvent = (ev) => {
       if (ev.type === 'step') patchTyping((x) => ({ steps: [...x.steps, ev.node] }));
-      else if (ev.type === 'draft_reset') patchTyping(() => ({ draft: '' }));
-      else if (ev.type === 'token') patchTyping((x) => ({ draft: x.draft + ev.text }));
+      else if (ev.type === 'draft_reset') { pending = ''; patchTyping(() => ({ draft: '' })); }
+      else if (ev.type === 'token') {
+        pending += ev.text;
+        if (!frame) frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(flush) : setTimeout(flush, 16);
+      }
     };
     const stop = new AbortController();
     stopRef.current = stop;
     const dropTyping = (m) => m.filter((x) => x.id !== typingId);
+    const gen = chatGenRef.current;
+    const here = () => gen === chatGenRef.current;     // still the chat it was asked in (K-1)
+    const setMessagesHere = (fn) => { if (here()) setMessages(fn); };
     try {
-      const response = await streamNLPResponse(asked, lang, sessionRef.current, { skipCache, signal: stop.signal, onEvent });
-      setMessages((m) => [...dropTyping(m), response.answer
+      // K-18 (audit 2026-10-29): a chip's text is already the app's English; translating
+      // it again was slower, sometimes reworded it, and broke the "Continue" match
+      const response = await streamNLPResponse(asked, english ? 'en' : lang, sessionRef.current, { skipCache, signal: stop.signal, onEvent, keepTurns });
+      setMessagesHere((m) => [...dropTyping(m), response.answer
         ? { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'rich', question: q, response, animate: true, streamKey: typingId, view }
-        : { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Error: ${response.detail || 'Unable to process your query'}` }]);
+        : { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: friendlyError(response.detail || '') }]);
       connBack();                             // an answer arrived: the connection is fine
     } catch (err) {
       if (err instanceof ConnectionError) {
         // Not an error with the question: the banner explains, and the
         // question is asked again by itself when the connection is back.
         const msgId = nextId();
-        waitingRef.current = { msgId, q };
+        if (here()) waitingRef.current = { msgId, q };
         setConn('down');
-        setMessages((m) => [...dropTyping(m), { id: msgId, time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, waiting: true,
+        setMessagesHere((m) => [...dropTyping(m), { id: msgId, time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, waiting: true,
           text: 'Waiting for the connection. This question will be asked again as soon as it is back.' }]);
       } else if (err instanceof StoppedError) {
-        stoppedRef.current = q;
-        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q,
+        if (here()) stoppedRef.current = q;
+        setMessagesHere((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q,
           text: 'Stopped. Type "continue" when you want this answer.' }]);
       } else if (String(err.message) !== 'unauthorized') {
-        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Sorry, I encountered an error: ${err.message}` }]);
+        setMessagesHere((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: friendlyError(err.message) }]);
         console.error('Query error:', err);
       } else {
-        setMessages(dropTyping);
+        // K-27: signed out mid-answer; after signing back in the question can be asked again
+        setMessagesHere((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q,
+          text: 'You were signed out before this answer arrived. Sign in again, then use Try again.' }]);
       }
     } finally {
       if (stopRef.current === stop) stopRef.current = null;
       runningRef.current = false; setRunning(false);
-      if (textareaRef.current) textareaRef.current.focus();
+      refocusComposer();
       // The turn is persisted server-side; re-read the history shortly after.
       setTimeout(loadHistory, 600);
     }
-  }, [lang, loadHistory, connBack]);
+  }, [lang, loadHistory, connBack, refocusComposer]);
 
   // "stop" typed while an answer runs stops it, like the Stop button; a
   // "continue" typed right after a stop asks the stopped question again
@@ -381,17 +463,33 @@ export default function App() {
     const q = inputRef.current.trim();
     if (!q) return;
     const sc = parseSlash(q);
+    // K-39 (audit 2026-10-29): "/chart" alone, "/lang hindi" and "/help" did nothing
+    // (or "/help" was asked as a question); each says what to type instead
+    const hint = (text) => {
+      setInput('');
+      setMessages((m) => [...m, { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'user', text: q },
+        { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', text }]);
+    };
+    const SLASH_HELP = 'Commands: /chart <question> draws the answer as a chart, /table <question> shows it as a '
+      + 'table, /glossary <term> explains a term, /lang <language> sets the question language.';
+    if (!sc && q.startsWith('/') && !q.includes(' ')) { hint(`"${q}" is not a command. ${SLASH_HELP}`); return; }
     if (sc) {
-      if ((sc.cmd === 'chart' || sc.cmd === 'table') && !sc.rest) return;   // nothing asked yet
+      if ((sc.cmd === 'chart' || sc.cmd === 'table') && !sc.rest) {
+        hint(`Type a question after /${sc.cmd}, for example "/${sc.cmd} MGNREGA person days by district".`);
+        return;
+      }
       if (sc.cmd === 'glossary') { setInput(''); setModal(glossaryModal(sc.rest)); return; }
       if (sc.cmd === 'lang') {
         const code = langFromArg(sc.rest);
-        if (code) { setLang(code); setInput(''); }
-        return;                                  // no such language: the menu lists them
+        if (code) { setLang(code); setInput(''); } else hint(`"${sc.rest || ''}" is not a language here. ${SLASH_HELP}`);
+        return;
       }
     }
     if (runningRef.current) {
-      if (isStopText(q)) { setInput(''); stopQuery(); }
+      if (isStopText(q)) { setInput(''); stopQuery(); return; }
+      // K-23 (audit 2026-10-29): a question typed while an answer runs was ignored
+      // with no word; it stays in the box and the officer is told why
+      showUndoRef.current('An answer is still being written. Your question stays in the box: press Enter when it is done, or type "stop".');
       return;
     }
     setInput('');
@@ -410,8 +508,10 @@ export default function App() {
             text: `There is no data in this chat to show as ${VIEW_NAMES[viewOnly]} yet. Ask a data question, for example "MGNREGA person-days by district", and I'll draw it.` }];
         }
         const r = last.response;
+        const userCount = (upTo) => m.slice(0, m.indexOf(upTo) + 1).filter((x) => x.kind === 'user').length;
         return [...m, userMsg, { id: nextId(), ...now, kind: 'rich', question: last.question, view: viewOnly,
-          response: { ...r, answer: `Here is the same data as ${VIEW_NAMES[viewOnly]}.`, rewritten_question: undefined,
+          redrawOf: `Q${userCount(last)} table`, local: true,
+          response: { ...r, answer: `Here is the same data as ${VIEW_NAMES[viewOnly]}. (Drawn here from the answer above; it is not saved with the chat.)`, rewritten_question: undefined,
                       follow_up: '', follow_up_options: [], follow_ups: [], suggestions: [] } }];
       });
       return;
@@ -433,8 +533,11 @@ export default function App() {
   const rerun = useCallback((msgId, q) => {
     if (runningRef.current || !q) return;
     stopSpeaking();
+    const msgs = messagesRef.current;
+    const at = msgs.findIndex((x) => x.id === msgId);
     setMessages((m) => m.filter((x) => x.id !== msgId));
-    runQuestion(q, { skipCache: true, addUser: false });
+    // K-6: the replaced answer is removed on the server too
+    runQuestion(q, { skipCache: true, addUser: false, keepTurns: at < 0 ? null : savedTurns(msgs.slice(0, at)) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runQuestion]);
   const rerunRef = useRef(rerun);
@@ -454,7 +557,7 @@ export default function App() {
       clearTimeout(timer);
       const h = navigator.onLine === false ? 'down' : await checkHealth();
       if (stopped) return;
-      if (h === 'ok') {
+      if (h === 'ok' || h === 'degraded') {     // K-13: degraded is reachable
         connBack();
         const w = waitingRef.current;
         const msgs = messagesRef.current;
@@ -484,17 +587,23 @@ export default function App() {
   const ask = useCallback((text) => {
     const q = String(text == null ? '' : text).trim();
     if (!q) return;
-    setInput(q);
-    if (textareaRef.current) textareaRef.current.focus();
     if (runningRef.current) {
-      const retry = setInterval(() => {
-        if (!runningRef.current) { clearInterval(retry); setInput(q); sendQuery(); }
+      // the typed draft is left alone; the latest tap replaces an earlier one (K-9)
+      dropPendingAsk();
+      const gen = chatGenRef.current;
+      const started = Date.now();
+      pendingAskRef.current = setInterval(() => {
+        if (gen !== chatGenRef.current || Date.now() - started > 90000) { dropPendingAsk(); return; }
+        if (!runningRef.current) { dropPendingAsk(); setInput(q); englishRef.current = true; sendQueryRef.current(); englishRef.current = false; }
       }, 250);
-      setTimeout(() => clearInterval(retry), 90000);
       return;
     }
+    setInput(q);
+    refocusComposer();
+    englishRef.current = true;
     sendQuery();
-  }, [sendQuery]);
+    englishRef.current = false;
+  }, [sendQuery, refocusComposer]);
 
   // ── Chat pane ───────────────────────────────────────────────────────────
   // ── Read aloud (browser speech, no server call) ─────────────────────────
@@ -509,34 +618,51 @@ export default function App() {
     if (speakingRef.current === id) { stopSpeaking(); return; }     // second tap stops it
     speakingRef.current = id;                                       // before cancel: the old
     synth.cancel();                                                 // utterance's onend sees it
-    const u = new SpeechSynthesisUtterance(text);
     const voices = synth.getVoices();
     const voice = voices.find((v) => v.lang === 'en-IN') || voices.find((v) => (v.lang || '').startsWith('en'));
-    if (voice) u.voice = voice;
-    u.lang = voice ? voice.lang : 'en-IN';
-    u.onend = u.onerror = () => { if (speakingRef.current === id) { speakingRef.current = null; setSpeakingId(null); } };
+    // K-34: tables read as their cells, and the answer spoken in pieces
+    const parts = speechChunks(text);
+    if (!parts.length) { speakingRef.current = null; return; }
+    const done = () => { if (speakingRef.current === id) { speakingRef.current = null; setSpeakingId(null); } };
     setSpeakingId(id);
-    synth.speak(u);
+    parts.forEach((part, i) => {
+      const u = new SpeechSynthesisUtterance(part);
+      if (voice) u.voice = voice;
+      u.lang = voice ? voice.lang : 'en-IN';
+      u.onerror = done;
+      if (i === parts.length - 1) u.onend = done;
+      synth.speak(u);
+    });
   }, [stopSpeaking]);
   useEffect(() => () => { try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ } }, []);
 
   const newChat = useCallback(() => {
+    leaveChat();
     stopSpeaking();
     setSessionId(resetSessionId());          // fresh session -> no context bleed
     setMessages([]);
-  }, [stopSpeaking]);
+  }, [stopSpeaking, leaveChat]);
 
   // Edit a sent question: it and everything after it leave the screen, and the
   // edited text is asked in its place (in the same conversation).
   const editQuestion = useCallback((id, q) => {
     if (runningRef.current) return;
+    // K-31 (audit 2026-10-29): editing a question into /glossary, /lang or /chart cut
+    // the chat after it and asked nothing; a command runs without cutting anything
+    if (String(q || '').trim().startsWith('/')) { setInput(q); sendQuery(); return; }
     stopSpeaking();
+    const msgs = messagesRef.current;
+    const at = msgs.findIndex((x) => x.id === id);
     setMessages((m) => {
       const i = m.findIndex((x) => x.id === id);
       return i < 0 ? m : m.slice(0, i);
     });
     setInput(q);
+    // K-6 (audit 2026-10-29): the replaced turns came back when the chat was reopened
+    // and still steered follow-ups; the server now keeps only the turns before this one
+    keepTurnsRef.current = at < 0 ? null : savedTurns(msgs.slice(0, at));
     sendQuery();
+    keepTurnsRef.current = null;
   }, [sendQuery, stopSpeaking]);
 
   const scrollToEnd = useCallback((smooth) => {
@@ -682,6 +808,9 @@ export default function App() {
   const onMic = () => {
     sendAfterVoice.current = false;   // the mic button only stops: the text stays to check
     if (!voice.busy) dictBase.current = inputRef.current;
+    // K-40 (audit 2026-10-29): with Khasi / Garo chosen, speech was recognised as
+    // English with no warning; starting the mic now says so on every device
+    if (!voice.busy && lang && lang !== 'en') showUndo('Voice input is English only. Speak in English, or type your question in Khasi / Garo.');
     voice.toggleMic();
   };
 
@@ -883,12 +1012,12 @@ export default function App() {
                     return <BotMessage key={m.id} id={m.id} question={m.question} response={m.response} time={m.time}
                                        animate={m.animate} streamKey={m.streamKey} at={m.at} view={m.view}
                                        onAsk={ask} speakingId={speakingId} onSpeak={onSpeak}
-                                       onRegenerate={isLast && m.question ? () => rerun(m.id, m.question) : null}
+                                       onRegenerate={isLast && m.question && !m.local ? () => rerun(m.id, m.question) : null}
                                        sessionId={sessionId} />;
                   }
                   if (m.kind === 'user') {
                     return <TextMessage key={m.id} id={m.id} role="user" text={m.text} time={m.time}
-                                        busy={running} onEdit={(q) => editQuestion(m.id, q)}
+                                        busy={running} onEdit={editQuestion}
                                         editRequest={editRequest && editRequest.id === m.id ? editRequest.n : 0} />;
                   }
                   return <TextMessage key={m.id} id={m.id} role="bot" text={m.text} time={m.time} at={m.at}
@@ -926,7 +1055,11 @@ export default function App() {
                           readOnly={voice.busy} aria-hidden={voice.isRecording || undefined}
                           aria-autocomplete="list" aria-controls={slashItems.length ? 'slash-menu' : undefined}
                           aria-activedescendant={slashItems.length ? 'slash-opt-' + slashActive : undefined}
+                          maxLength={MAX_QUESTION_CHARS}
                           value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onComposerKey} />
+                {input.length > MAX_QUESTION_CHARS - 200 && (
+                  <span className="composer-count" role="status">{input.length.toLocaleString('en-IN')} / {MAX_QUESTION_CHARS.toLocaleString('en-IN')}</span>
+                )}
                 {voice.isRecording && (
                   <RecordingStrip startedAt={voice.startedAt} live={voice.phase === 'listening'}
                                   status={voice.status} levelRef={voice.levelRef} />
@@ -946,7 +1079,9 @@ export default function App() {
                   )}
                   <button className={'mic-btn' + (voice.isRecording ? ' recording' : '')} type="button"
                           onClick={onMic} disabled={voice.phase === 'finishing'}
-                          title={(voice.isRecording ? 'Stop recording' : 'Speak your question') + ` (${keyLabel('mic')})`}
+                          title={(voice.isRecording ? 'Stop recording' : 'Speak your question')
+                            // K-40 (audit 2026-10-29): speech is recognised as English whatever the question language
+                            + (lang && lang !== 'en' ? ' — voice input is English only' : '') + ` (${keyLabel('mic')})`}
                           aria-label={voice.isRecording ? 'Stop recording' : 'Speak your question'}>
                     {voice.isRecording
                       ? <svg className="orb-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>

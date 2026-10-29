@@ -395,6 +395,8 @@ async def _data(stage, state: dict, ctx: GraphContext) -> dict:
     # 2026-10-19). The decision that uses it lives in the stage.
     d["chat_scheme"] = pipeline._chat_active_scheme(ctx.session)
     d["chat_has_scope"] = pipeline._chat_has_data_scope(ctx.session)
+    # J-4: what the officer typed (did it name its scheme?); read-only
+    d["raw_question"] = state.get("raw_question")
     # D-061: standalone / follow-up / vague, as the follow-up stage decided it.
     d["turn_kind"] = (getattr(ctx.session, "turn_context", None) or {}).get("turn_kind") \
         if ctx.session is not None else None

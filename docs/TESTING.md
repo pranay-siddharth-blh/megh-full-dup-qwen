@@ -168,10 +168,28 @@ scope incl. leak, many asides, refusal, denied follow-up; forward; general; back
 conversation-meta flows (recap / explain / breakdown / correction / pick-a-district / overview / reason), comparisons
 with another scheme, and the farmers question. Format and rules: `tests/conversation_harness/README.md`.
 
+## 2c. Chat UI audit tests (2026-10-29)
+- `tests/test_chat_ui_audit_reading_2026_10_29.py` — sections I / J: the cross-scheme wordings through the real
+  `cross_figures.plan` (path, by_district, low, top_n), ranked answers on the real query row shape, `per_year_plan`
+  (place, N, years), relative periods, spans, the one-year rule.
+- `tests/test_chat_ui_audit_rows_2026_10_29.py` — section A / H / K: `answer_many` row shape, `_c13_unify_scheme_rows`,
+  the by-year mode, feedback upsert, the saved turn payload, 0-turn chats, village lookup.
+- `tests/test_chat_ui_audit_totals_2026_10_29.py` — section G / B / E / F: measure kinds (and the frontend copy check),
+  `_chart_hint` stacks, the village overlap, statewide totals, scheme comparisons, label words, NULLS LAST, chips.
+- `frontend/tests/audit.test.js` — the UI half: real `buildAnalytics` / `chartTheme` / `columns` / `exporters` on the
+  row shapes the backend sends (72 node tests in all with the existing files).
+- Plus `test_router_refuses_a_session_held_by_another_user` added to `tests/test_conversation_layer.py`.
+- `tests/test_chat_ui_audit_more_2026_10_29.py` — the second pass: K-6 truncate / restore, K-24, F-7, F-8, B-6,
+  E-3, E-9, I-10, I-13, X-14, J-10, G-10, and (through esbuild + node) K-36 table parsing and the E-3 table text.
+  `test_table_view_2026_10_28.py`, `test_cross_compare_card_2026_10_22.py` and this file run only when `node` is on
+  PATH (`PATH="/c/Program Files/nodejs:$PATH"` in Git Bash); otherwise they skip.
+
 ## 3. Latest results
 
 | Date | Suite | Result | Notes |
 |---|---|---|---|
+| 2026-10-29 late (chat UI audit second pass, D-089, KI-574) | pytest on every test file with a `def test_`, node on PATH (so the esbuild / node UI tests run too); the 14 script-style files; `node --test`; ESLint; `vite build` | pytest **4,367 passed, 2 skipped, 0 failed**. Scripts **14/14**. Node **78/78**. ESLint clean (now installed). Build clean. No live run (VPN off) | VPN off |
+| 2026-10-29 evening (chat UI audit, D-088, KI-574) | pytest on every test file with a `def test_` (offline, VPN off); the 14 script-style test files; `frontend` node tests; `vite build` | pytest **4,312 passed, 28 skipped, 0 failed**. Scripts **14/14 OK**. Node **72/72**. Build clean. ESLint not run (`@eslint/js` missing). No live run (no VPN) | VPN off |
 | 2026-10-29 (E9 answer formatting, D-082, KI-447/448) | NEW `tests/test_answer_format_e9_2026_10_29.py` (templates switched on per test; conftest keeps them off for the older suites); pytest (documented command); scripts; live in-process | pytest **4,151 passed, 1 failed** (`test_rag_general_scoping.py::test_naming_note_is_used_by_the_single_scheme_composer`: `app/rag.py` was being edited by the parallel re-ranker session during the run; re-run alone, the file is 38/38). Before E9 the same tree gave 4,052 passed / 5 failed (scheme-stage / graph tests from the parallel E12 edits, which pass now). Scripts **14/14**. Pinned fallback strings updated for ₹ (`test_answer_framing_2026_10_18`, `test_mgnrega_sheet_fixes`, `test_cm_elevate_legacy`). Live: 12 questions (real models + megh_db): ranking, trend, 2 compares and 2 splits templated and checked against their rows; the MG-10 share now reads "24.09%". After the :8401 restart (`.venv`, 13:28): 4 questions over HTTP `/api/query` (fresh JWT, state officer) — trend, split, share templated and correct; the block ranking was refused by the role's district-level cap (E12, not E9). Held-out golden set (`run_eval.py --label e9-answer-formatting`): **56.8% (42/74)**, 31 clarifications (unchanged), 1 wrong = FP-05: with the qdrant examples the SQL was `ROUND(SUM(amount)/1e7, 2)`, so a small block's ₹7,45,000 became 0.07 crore ("₹7.00 lakh", 6% off); the scorer rightly rejects it (it already maps crore to rupees). Correct with `yaml` in the run before (KI-438); SQL-side, not E9 | VPN up |
 | 2026-10-29 (D-087 claims: structural data rules checked live) | `tests/test_data_facts_2026_10_29.py` +6 (now 13: claim queries parse / no privacy table, a broken rule alerts once and clears, an outage changes nothing, the alert goes through the guardrail webhook sender, value-list problems name the new values); live `check_claims()`; the same queries with deliberately wrong expectations; pytest (documented command) | File **13/13**. Live: **17/17 claims hold**, 0 query errors; wrong expectations caught (7,392 'Valid' rows, a "new" FY, 292,385 ₹2,500 rows). Full pytest **4,270 passed, 0 failed** | :8401 (another session's, 16:20:49) predates the change; stopping it was refused — next restart picks it up |
 | 2026-10-29 (KI-573: PMAY-G "received no release") | NEW `tests/test_pmay_no_release_ki573_2026_10_29.py` (10: 4 wordings x with/without the all-years chip -> `none`, 5 neighbouring wordings unchanged, the statewide `_pmay_facts_query` builds `no_release`); PMAY-G files + namespace guard; pytest (documented command); live in-process x3 (scratchpad `live_facts_check.py`, with the lifespan's resolver loaders) | New file **10/10** (5 failed before the fix, reproducing the bug). PMAY-G files + namespace **131/0**. Full pytest **4,265 passed, 0 failed**. Live: statewide 462, Ri Bhoi 68, released ₹2,185.26 cr — each = megh_db | A first live run without `entity_resolver.load_all()` refused Ri Bhoi as "not in Meghalaya": harness error, not the app (HANDOFF) |

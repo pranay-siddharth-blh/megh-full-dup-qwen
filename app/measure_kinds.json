@@ -1,0 +1,13 @@
+{
+  "_about": "What each measure column IS, read from the parts of its name (audit 2026-10-29, section G). One list for the backend (app/measure_kinds.py) and the frontend (frontend/src/chat/measureKinds.js, a copy checked by tests/test_chat_ui_audit_totals_2026_10_29.py). rate: never added; stock: added across places only; distinct: added across places only (the same village / household repeats across years and schemes); flow: added across places and years. Nothing is added across schemes. Checked in this order: rate, stock, flow, distinct; anything else is a flow.",
+  "rate": ["pct", "percent", "percentage", "perc", "%", "share", "rate", "ratio", "avg", "average", "mean", "median",
+           "per", "min", "max", "minimum", "maximum", "participation", "growth", "yoy", "utilisation",
+           "utilization", "efficiency"],
+  "stock": ["card", "cards", "jobcard", "jobcards", "cumulative", "todate"],
+  "flow": ["day", "days", "mandays", "persondays", "exp", "expenditure", "amount", "amt", "money", "crore", "cr",
+           "lakh", "lakhs", "rupees", "rs", "inr", "wage", "wages", "paid", "released", "disbursed", "spent", "cost",
+           "payments", "transactions"],
+  "distinct": ["village", "villages", "household", "households", "hh", "beneficiary", "beneficiaries", "member",
+               "members", "people", "persons", "worker", "workers", "farmer", "farmers", "pg", "pgs", "groups",
+               "applicant", "applicants"]
+}

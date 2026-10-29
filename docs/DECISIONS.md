@@ -1012,6 +1012,43 @@ not recorded.*
   for two jobs in the safety call. Revisit only if a plan reader replaces calls on most turns.
 - **Status:** Active (code present, off). E2's latency goal is NOT met by parallelism on today's gateway.
 
+### D-089 — Chat UI audit product decisions (2026-10-29, user: "use your recommendations")
+- **Context:** 12 audit findings needed a product decision (KI-574). The user chose the recommended option for each.
+- **Decision:**
+  1. **J-4 / J-5 (narrows D-056 part 1):** a NEW chat whose question names its own scheme is answered for all of
+     Meghalaya (said in the banner, "by district" chip) instead of the district pause. The year is still asked when
+     none is given (D-053 / D-065 stand: no silent year), so it costs at most one tap. A question that names no
+     scheme still asks scheme -> district -> year. Revert: drop the `_named_schemes` clause in c13
+     `_data_clarification_stage`.
+  2. **J-10 (KI-126):** a name shared by 2–3 villages in different blocks is answered for each (one row per village,
+     with its block; banner names them). More twins still ask.
+  3. **G-10:** Focus Legacy members keep the D-066 figure (SUM over payments); the answer says a group paid twice
+     counts twice. Counting each group once waits for the data team and a live check.
+  4. **H-5 / H-6 / H-8:** the scope banner names the place type ("Umling block"), says "All years (FY … to …)" when
+     no year was used, and prints 3+ consecutive years as a span. Topic labels are unchanged.
+  5. **B-5:** the dead `isCrossSummary` UI path is deleted.
+  6. **K-6:** Edit / Regenerate delete the replaced turns on the server (`keep_turns`; app.query_audit untouched)
+     and restore the context saved with the first replaced turn.
+  7. **K-16:** the language menu is the "Question language — answers are in English".
+  8. **X-4:** Line is offered only when the x-axis is a period.
+  9. **X-16:** the app is light-only (`color-scheme: light`); no dark theme.
+- **Where:** `docs/audit_fix_log.md` (each ID), `tests/test_chat_ui_audit_more_2026_10_29.py`.
+
+### D-088 — One measure-kind rule for every total, share and stack (2026-10-29)
+- **Context:** the chat UI audit (section G) found the UI adding overlapping figures in four places (donut centre,
+  "% of the total", pivot Total row / column, stacked-bar top) and the backend sending `stacked` for any 2-label,
+  1-measure result: "Total 11,000" villages for a state of about 7,000; households + houses added; job cards and
+  percentages stacked across years. The frontend and backend kept separate non-additive word lists that disagreed.
+- **Decision:** every measure column has a kind read from its name — `rate` (%, average, per, min / max, growth …),
+  `stock` (job cards, cumulative), `flow` (money, days, payments) or `distinct` (villages, households, beneficiaries,
+  members) — from ONE list, `app/measure_kinds.json`, with a checked copy in `frontend/src/chat/measureKinds.js`
+  (`tests/test_chat_ui_audit_totals_2026_10_29.py` fails when they differ). A measure is added only along a dimension
+  its kind allows: flow across places and years; distinct and stock across places only; rate never; nothing across
+  schemes. The UI (`columns.canAdd` / `dimOf`) and the backend (`measure_kinds.can_add` in `_chart_hint`) apply it.
+  A chart type the rule forbids is refused with a one-line note and drawn as bars.
+- **Consequences:** no donut / share / Total across schemes or across years for counts; a stack only where it adds
+  honestly. A real union of villages across schemes is computed by `cross_figures` (overlap mode) instead.
+
 ### D-084 — Frontend lint and tests: ESLint (with the no-regex rule) + `node --test` (2026-10-29)
 - **Date:** 2026-10-29 (E11 UI fixes, KI-570). Files: `frontend/package.json` (`lint`, `test`; dev deps `eslint`
   9.17.0, `@eslint/js` 9.17.0, `eslint-plugin-react` 7.37.2, `eslint-plugin-react-hooks` 5.1.0, `globals` 15.14.0,
