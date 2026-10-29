@@ -62,10 +62,8 @@
     - say: "How many PMAY-G houses were completed in West Garo Hills in 2023-24?"
       expect: {route: data, scheme: PMAY-G}
     - say: "how many CM Elevate applications in West Garo Hills?"
-      expect: {route: pause, pause_rule: cm-elevate-dataset}     # D-064: "applications" alone asks
-    - say: "applications"
-      note: "the reply to the dataset question, as scenario P5 gives it (a chip sends its full question)"
-      expect: {route: data, scheme: CM Elevate, place: West Garo Hills}
+      note: "D-090 (user, 2026-10-29): 'applications' settles the applications dataset, no dataset pause"
+      expect: {route: data, scheme: CM Elevate, place: West Garo Hills, numbers_any: [1740]}
     - say: "how many are on hold?"
       expect: {route: data, scheme: CM Elevate, place: West Garo Hills}
 
