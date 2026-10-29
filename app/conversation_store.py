@@ -86,25 +86,34 @@ async def _persist_turn(tenant_id, user_id, session_id, result, question,
             "needs_clarification": result.get("needs_clarification", False),
         }, default=str)
 
+        # The owner backstop (CTX-01, 2026-10-29): another user's turn never
+        # updates this conversation, even if it got past the router's 403. The
+        # update is skipped, no conv_id comes back, and the turn is not added to
+        # someone else's history; the audit row below is still written.
         conv_id = await db.fetchval(
             """INSERT INTO app.conversations (tenant_id, user_id, session_id, title, turn_count)
                VALUES ($1,$2,$3,$4,1)
                ON CONFLICT (session_id) DO UPDATE
                    SET last_at = NOW(), turn_count = app.conversations.turn_count + 1
+                   WHERE app.conversations.user_id IS NOT DISTINCT FROM EXCLUDED.user_id
                RETURNING conv_id""",
             [tenant_id, user_id, session_id, question[:120]],
         )
-        await db.execute(
-            """INSERT INTO app.conversation_turns
-               (conv_id, tenant_id, user_id, session_id, question, rewritten_question,
-                answer, route, intent, schemes, resolved_entities, sql, row_count,
-                allowed, denied_by, latency_ms, response)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)""",
-            [conv_id, tenant_id, user_id, session_id, question[:2000], rewritten,
-             answer, route, result.get("intent"), list(schemes),
-             json.dumps(entities, default=str), sql, rows, allowed, denied_by, latency_ms,
-             response_payload],
-        )
+        if conv_id is None:
+            logger.warning("conversation_store: turn for session %s not stored: the conversation "
+                           "belongs to another user", session_id)
+        else:
+            await db.execute(
+                """INSERT INTO app.conversation_turns
+                   (conv_id, tenant_id, user_id, session_id, question, rewritten_question,
+                    answer, route, intent, schemes, resolved_entities, sql, row_count,
+                    allowed, denied_by, latency_ms, response)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)""",
+                [conv_id, tenant_id, user_id, session_id, question[:2000], rewritten,
+                 answer, route, result.get("intent"), list(schemes),
+                 json.dumps(entities, default=str), sql, rows, allowed, denied_by, latency_ms,
+                 response_payload],
+            )
         from app.auth import infer_granularity
         await db.execute(
             """INSERT INTO app.query_audit
@@ -359,7 +368,14 @@ async def save_session_state(*, tenant_id, user_id, session_id: str, title: str,
     state used to be dropped when the UPDATE ran before that insert did. The
     `rev` guard rejects a stale write: two concurrent requests on the same
     session both start from rev N, the first to commit N+1 wins, and the other
-    is refused rather than overwriting it. Last writer does NOT win."""
+    is refused rather than overwriting it. Last writer does NOT win. Nor does
+    another user: a row owned by someone else is never overwritten (CTX-01).
+
+    The summary is written as the session holds it, None included: "start a
+    new topic" and the idle expiry clear it, and COALESCE kept the old one, so
+    the other workers brought the cleared chat's scheme, place and year back
+    into the follow-up rewrite (CTX-11, 2026-10-29). A worker whose copy is
+    stale cannot clear a newer summary: its revision is refused above."""
     snap = {**snapshot, "rev": int(rev)}
     row = await db.fetchrow(
         """INSERT INTO app.conversations
@@ -367,8 +383,11 @@ async def save_session_state(*, tenant_id, user_id, session_id: str, title: str,
            VALUES ($1, $2, $3, $4, 0, $5::jsonb, $6)
            ON CONFLICT (session_id) DO UPDATE
                SET context_state = EXCLUDED.context_state,
-                   summary = COALESCE(EXCLUDED.summary, app.conversations.summary)
+                   summary = EXCLUDED.summary,
+                   summary_updated_at = CASE WHEN EXCLUDED.summary IS DISTINCT FROM app.conversations.summary
+                                             THEN NOW() ELSE app.conversations.summary_updated_at END
                WHERE COALESCE((app.conversations.context_state->>'rev')::int, 0) < $7
+                 AND app.conversations.user_id IS NOT DISTINCT FROM EXCLUDED.user_id
            RETURNING conv_id""",
         [tenant_id, user_id, session_id, (title or "")[:120],
          json.dumps(snap, default=str), summary, int(rev)],
@@ -381,15 +400,16 @@ async def load_context_state(session_id: str) -> dict:
     rehydrate app.session_store.Session.state when a conversation resumes on a
     worker that has never seen this session_id in-process (new worker, or the
     in-process session TTL'd out but the conversation itself hasn't). Returns
-    {} (never raises) if the conversation/columns aren't there yet."""
-    try:
-        row = await db.fetchrow(
-            "SELECT context_state, summary FROM app.conversations WHERE session_id = $1",
-            [session_id],
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("conversation_store: load_context_state failed (non-fatal): %s", e)
-        return {}
+    {} if the conversation isn't there yet.
+
+    A database error RAISES (CTX-12, 2026-10-29). It used to be swallowed into
+    {}, so session_sync's retry (KI-314) never saw a failure to retry: a brief
+    DB drop ran the turn with no context. The only caller,
+    session_sync.PostgresBackend.load, is retried and caught by sync_in."""
+    row = await db.fetchrow(
+        "SELECT context_state, summary, user_id FROM app.conversations WHERE session_id = $1",
+        [session_id],
+    )
     if not row:
         return {}
     state = row.get("context_state")
@@ -398,7 +418,9 @@ async def load_context_state(session_id: str) -> dict:
             state = json.loads(state)
         except (ValueError, TypeError):
             state = None
-    return {"context_state": state or {}, "summary": row.get("summary")}
+    # user_id: the owner, so session_sync.sync_in can refuse another user's
+    # conversation (CTX-01).
+    return {"context_state": state or {}, "summary": row.get("summary"), "user_id": row.get("user_id")}
 
 
 async def set_archived(*, session_id: str, user_id: int, archived: bool) -> bool:

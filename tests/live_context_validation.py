@@ -8,7 +8,7 @@ Needs the office VPN: the gateway and the DB are on 10.48.242.4 (Qdrant is on 11
     .venv/Scripts/python.exe tests/live_context_validation.py
     .venv/Scripts/python.exe tests/live_context_validation.py --legacy       # pre-2026-09-26 rewrite, for A/B
     .venv/Scripts/python.exe tests/live_context_validation.py --only A,E --no-db-sync
-    .venv/Scripts/python.exe tests/live_context_validation.py --out logs/live_ctx.json
+    .venv/Scripts/python.exe tests/live_context_validation.py --out logs/live_ctx.json   (default: a dated file in logs/)
 
 What it does, per scenario (A-G of the 2026-09-26 hardening brief):
   * runs every turn through pipeline.answer_question in-process, with the
@@ -739,5 +739,7 @@ if __name__ == "__main__":
     ap.add_argument("--only", default="", help="comma-separated scenario keys, e.g. A,E")
     ap.add_argument("--no-db-sync", action="store_true", help="single worker, no app.conversations writes")
     ap.add_argument("--tenant-id", type=int, default=1, help="tenant_id for the temporary rows")
-    ap.add_argument("--out", default="logs/live_context_validation.json")
+    # A dated file per run (QA-03, 2026-10-29): the fixed path overwrote the
+    # previous run, so a before / after pair could not be kept.
+    ap.add_argument("--out", default=f"logs/live_context_validation_{time.strftime('%Y-%m-%d_%H%M')}.json")
     sys.exit(asyncio.run(main(ap.parse_args())))

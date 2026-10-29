@@ -8,8 +8,9 @@ import logging
 from fastapi import APIRouter, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
 
-from app import auth, conversation_store
+from app import auth, conversation_memory, conversation_store, pipeline_graph
 from app.deps import require_user
+from app.session_store import session_store
 
 logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/api/history", tags=["history"])
@@ -74,6 +75,14 @@ async def delete_my_conversation(session_id: str,
         session_id=session_id, user_id=scope.db_user_id)
     if not ok:
         raise HTTPException(404, "no conversation for that session, or not yours")
+    # Everything else the chat left behind goes too (CTX-04, 2026-10-29): its
+    # turns in conversation memory (they came back as "relevant earlier turns"),
+    # a paused graph run, and this worker's copy of the Session. Only after the
+    # ownership-checked delete above succeeded. Each step is best-effort.
+    await conversation_memory.delete_session(tenant_id=scope.tenant_id, user_id=scope.db_user_id,
+                                             session_id=session_id)
+    await pipeline_graph.delete_thread(session_id)
+    session_store.drop(session_id)
     return {"deleted": session_id}
 
 

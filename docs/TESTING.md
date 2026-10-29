@@ -428,7 +428,34 @@ cases. Per file:
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
-- Progress: not started
+- Progress: context-memory tasks done (2026-10-29, branch `lane/a2`).
+- **Results on the final tree (offline, VPN down), rebased on Main 1360c3b (PR #17):** full pytest command (§2)
+  **4,402 passed, 0 failed, 3 skipped** (after the live KI-364 fix; 4,247 before the rebase); frontend `npm run lint` clean, `npm test` 13/13; 14/14 script suites; `test_pipeline_namespace_2026_10_26.py` green; all 141 harness scenarios validate.
+  Every new regression test was also run against the old code and fails there.
+- **New tests (214):** `test_topic_rev_2026_10_28.py` (9, real router + real sync_in/sync_out over a fake
+  app.conversations), `test_ownership_turns_2026_10_29.py` (13), `test_summary_reset_2026_10_29.py` (6),
+  `test_stop_offer_cache_2026_10_29.py` (5, real router + real graph), `test_cacheable_shapes_2026_10_28.py` (142:
+  the real `is_cacheable` over every harness turn, dependency derived, not labelled), `test_delete_retention_2026_10_29.py`
+  (10), `test_decision_log_text_2026_10_29.py` (2), `test_ctx07_followups_2026_10_29.py` (23),
+  `test_harness_qa03_2026_10_29.py` (4). Added: `test_nl2sql_eval_set.py` (expect_pause names a real rule),
+  `test_nl2sql_eval_compare.py` (2, pause_verdict).
+- **Changed deliberately:** `test_context_hardening.py` source pin follows the turn body to `_answer_turn` (CTX-01)
+  and its FakeBackend copies the new summary upsert (CTX-11); `test_session_sync_retry.py` drives the real
+  PostgresBackend over a failing `db.fetchrow` (CTX-12: the old fake raised where the real code returned {}).
+- **Harness (QA-03):** the in-process driver round-trips the durable snapshot every turn; `--fresh-worker`;
+  `as_account` + `expect.status`; `drivers:`; scenarios P1 (ownership, http) and P2 (topics + cache + go back).
+  `live_context_validation.py` writes `logs/live_context_validation_<date>_<time>.json` (was one fixed file).
+- **Eval (CTX-09):** `expected_pause` outcome; the 2026-10-27 run re-scored is 41/43 = 95.3% (was 41/74), 31/31
+  pauses as the rules require.
+- **Live (VPN, 2026-10-29):** live context suite 107/107 (follow-ups 74/74, SQL 68/68); harness P1 + P2 over HTTP
+  plain and stream pass (P2 also with the response cache on: a real cache hit); harness in-process `--fresh-worker
+  --tags context` 75/82 — the 7 failures are identical on Main (KI-485); nl2sql eval 97.7% (42/43) + 31
+  `expected_pause` (FL-12 flips between runs, model variance). Not run: VM1 → VM2 pause / resume, J2 / J3 (KI-037).
+- **Test team report fixes (2026-10-29):** NEW `tests/test_test_team_report_2026_10_29.py` (11; 9 fail on the old
+  code); NEW harness scenarios `test_team_report_2026_10_29.yaml` (TT1-TT6, all valid; the cache-gate table test now
+  covers them). Full pytest **4,413 passed, 0 failed, 3 skipped**; 14/14 scripts. Offline only (VPN down).
+- **Live retest (2026-10-29 evening):** TT1-TT6 6/6 and TTW1-TTW5 5/5 over HTTP; `--tags context` over HTTP 89/94
+  (5 = KI-485, pre-existing); live context suite 107/107 (`logs/live_context_validation_2026-10-29_1736.json`).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

@@ -1303,7 +1303,67 @@ conversation state back into process memory (D-023).
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
-- Progress: not started
+- Progress: context-memory tasks done on branch `lane/a2` (2026-10-29), one local commit per task, NOT pushed and no
+  PR yet (push / PR when the user says): CTX-02 → CTX-01 + CTX-10 + REL-02b → CTX-11 + CTX-12 → CTX-13 + CTX-14 →
+  CTX-06 → CTX-04a → CTX-08 → CTX-09 (eval) → CTX-07 (offline) → QA-03 (offline) → DOC-01b. Remaining lane tasks:
+  REL-01, UI-01, UI-02 (left for the UI work).
+- **Taken from other lanes, so they skip them:** CTX-08 (lane B2) was done at the source in `context_budget.log_decision`;
+  NO call site was edited, so B2's conversation_layer / c14 lines are untouched. CTX-09 (lane B1): rulebook entry +
+  eval `expect_pause`; B1 need only do QA-01 on top.
+- **Frontend:** only the session ids changed (`frontend/src/chat/api.js`, `crypto.getRandomValues`, 128 bits). The
+  stream's silence timer was already done on Main by E11 / UI-03 (PR #16); on the rebase (2026-10-29) Main's version
+  was kept and this lane's duplicate (with a 10 min ceiling) dropped. `web/app` rebuilt after the rebase; `npm run
+  lint` clean, `npm test` 13/13. A teammate editing the UI: on a `web/app` conflict, keep either side and run
+  `npm run build` again.
+- **Live checks, 2026-10-29 afternoon (VPN up), all on `lane/a2`:**
+  1. `tests/live_context_validation.py`: **107/107 checks**, follow-up resolution 74/74, SQL 68/68
+     (`logs/live_context_validation_2026-10-29_1458.json`).
+  2. HTTP harness on :8401 (restarted on `lane/a2` with the user's OK), plain and stream: P1 ownership **pass**
+     (403 for `state-rd` on superadmin's chat, owner continues); P2 **pass**. This box's `.env` has both answer
+     caches OFF, so P2 was re-run on a server started with `RESPONSE_CACHE_ENABLED=true` (env override, `.env`
+     untouched): turn 3 answered from the cache (294 ms) and both "go back to …" still restored their scope. The
+     server was then restarted with the normal configuration and is running `lane/a2`.
+  3. Harness in-process `--fresh-worker --tags context`: **75/82** scenarios, 251/262 turns. The 7 failures fail
+     identically on Main 1360c3b (worktree run, 15/26 turns ok on both): E_denied_block_keeps_topic and
+     AU01_refused_scope_not_stored need an account's permissions (http only); U4 expects 8,840, the data now has
+     8,921; NQ09 / NQ12 expect a year pause that D-075 replaced (same measure keeps the year);
+     CMP_compare_with_scheme and META_recap_explain_breakdown expect text the answer no longer has (E9
+     formatting). KI-485. Not caused by this lane.
+  4. CTX-07 live: KI-363 **fixed** (13 district rows). KI-364 rewrite was right but the PMAY-G fixed query still
+     answered one district (the inherited district stayed beside `district_list`): **fixed** with a clearing merge
+     plan, live after: East Khasi Hills 17,281 vs Ri Bhoi 11,334. KI-416 **not reproduced** ("FY20?" answers 542
+     houses sanctioned first, the amounts beside them).
+  5. `run_eval.py --label lane-a2-context`: **97.7% (42/43)**, 31 `expected_pause`; vs Main's 13:36 run FL-12
+     correct → wrong and FP-05 wrong → correct. FL-12 re-run three times on this branch: correct, wrong, wrong —
+     model variance on a hard ratio question whose path this lane does not touch (INFERRED); for lane B1.
+  6. Still to do (needs the VMs, not reachable from here): pause on VM1 / resume on VM2; re-run J2 / J3 for KI-037.
+- **Blocked on the user:** sign-off of D-A2-CTX-09 (and the four wordings it lists); retention periods
+  (`CONVERSATION_RETENTION_DAYS`, `QUERY_AUDIT_RETENTION_DAYS`, both 0 = keep); KI-482 (semantic memory: keep /
+  questions only / off) and KI-483 (summary).
+- **Requests for other lanes:**
+  - Lane B1: KI-416 ("FY20?" after a houses answer gives the amount). Offline the rewrite guard refuses every money
+    rewrite of a houses question (`tests/test_ctx07_followups_2026_10_29.py`, last test), so the measure is lost in
+    SQL generation (c10): "houses sanctioned in FY 2019-20" read as the sanctioned amount. Reproduce live.
+  - Lane A1: `config.py:390-393` comment ("Per-worker … Lost on restart; not shared across workers") is stale since
+    D-023 (the session is durable). Lane A2 added one block after `SESSION_MAX_TURNS` (QUERY_NONSTREAM_MAX_SECONDS,
+    CONVERSATION_RETENTION_DAYS, QUERY_AUDIT_RETENTION_DAYS).
+  - Lane B2 (composer), seen live 2026-10-29 in the KI-363 answer: a row with no district is named "(row)" ("(row)
+    is the smallest with ₹7,500.00"), and district amounts are shown as raw rupees (₹239,442,500.00) rather than
+    crore. KI-486.
+  - Integrator: update the 7 stale harness expectations (KI-485) after confirming each with its owner lane.
+  - Lane B2 / RAG: `routers/query.py` error branches now restore the session (CTX-10); RAG-05's error mapping must
+    keep `_restore_turn_start(request, session)` in each branch.
+- **Failing tests seen:** none on the final tree (one transient failure in a run that overlapped the harness edits;
+  re-run green).
+- **Test team report (2026-10-29), fixed offline on `lane/a2` (commit "Test team context report"):** Bugs 1-5 + typo,
+  causes in KNOWN_ISSUES KI-487..492. **First thing when the VPN is up:** restart :8401 on `lane/a2` and run
+  `.venv/Scripts/python.exe -m tests.conversation_harness.run --driver http --tags test_team_2026_10_29`, plus the
+  report's "What works" rows (live context suite, `--tags context`). For the user: the report asks that a bare
+  "applications" pick CM Elevate directly, which reverses D-064 — not changed. Bug 5's variant (pending dataset
+  pause) is still open.
+- **Live retest done (2026-10-29 evening):** TT1-TT6 6/6, TTW1-TTW5 5/5, context harness 89/94 (KI-485 only), live
+  suite 107/107. :8401 runs `lane/a2` (started by this session; restart it if the session ended). Open: Bug 5's variant,
+  the D-064 request, composer items (lane B2), the 8,921 vs 8,948 total (data).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

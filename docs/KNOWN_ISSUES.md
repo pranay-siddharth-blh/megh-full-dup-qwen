@@ -1382,7 +1382,90 @@ the DATA path stubbed (the VPN was down: `10.48.242.4` answered neither 5432 nor
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
-- Progress: not started
+- Progress: context-memory tasks done on branch `lane/a2` (2026-10-29, local commits, not pushed): CTX-02, CTX-01 +
+  CTX-10 + REL-02b, CTX-11 + CTX-12, CTX-13 + CTX-14, CTX-06, CTX-04a, CTX-08, CTX-09 (eval part), CTX-07 (offline
+  part), QA-03 (offline part), DOC-01b. Not done: REL-01, UI-01, UI-02 (not context memory; a teammate works on UI).
+- **Status changes for the integrator** (the summary table is not edited here):
+  - **KI-400** (topic memory wiped) — FIXED (CTX-02): no reset on a revision jump; a cache hit files the previous
+    turn; "go back to <place>". `tests/test_topic_rev_2026_10_28.py`. Live check pending (P2 scenario).
+  - **KI-399 / KI-028** (ownership, concurrent turns) — FIXED (CTX-01): 403 for a non-owner (memory and durable
+    owner, SQL backstop), one turn at a time per conversation per worker, restore on Stop.
+    `tests/test_ownership_turns_2026_10_29.py`. Live check pending (P1 scenario, http driver).
+  - **KI-430** (retention, delete) — FIXED in code (CTX-04a): delete cascade; retention settings ship at 0
+    (nothing purged) until the user picks the periods. The JSONL audit rotation is lane A1's (CTX-04b).
+  - **KI-337** (cache gate) — VERIFIED, no fix needed (CTX-06): 274 harness turns, 0 leaks.
+  - **KI-363** (breakdown after statewide) — FIXED (CTX-07), reproduced offline; live check pending.
+  - **KI-364** (compare with a place) — FIXED (CTX-07), reproduced offline (`followup=False`); live check pending.
+  - **KI-416** (bare year switches the measure) — NOT in the rewrite (offline: the guard rejects every money rewrite
+    of a houses question); request to lane B1 (SQL generation) in HANDOFF; live check pending.
+  - **KI-406 / KI-407** — the rules were decided (D-075, D-064); the eval now scores those pauses as
+    `expected_pause` (CTX-09). Rulebook D-A2-CTX-09 awaits the user's sign-off.
+- **KI-480** — A cached answer skipped the context stage's `topic_memory.checkpoint`, so the turn BEFORE a cache hit
+  was never filed under its topic (MGNREGA -> PMAY-G -> cached MGNREGA lost PMAY-G). Hidden by KI-400's reset.
+  **FIXED 2026-10-29** (CTX-02): the router checkpoints before recording a cache hit. Low · routers/query.py.
+- **KI-481** — "Compare … with <place>" is a follow-up to `context_policy.turn_kind` (`cue:compare-one-side`) but
+  to none of the follow-up gate's detectors (`looks_like_followup`, …), so the two disagreed and the earlier place
+  was dropped (KI-364's cause). **FIXED 2026-10-29** for the compare-with-place shape by a deterministic rewrite
+  (CTX-07); the general disagreement between `turn_kind` and the gate is left as is (aligning them would change
+  many follow-ups). Low · c14 follow-up gate.
+- **KI-482** — Semantic conversation memory (Qdrant) is consulted only while the session holds fewer than
+  `CONTEXT_MEMORY_MIN_SESSION_TURNS` (2) turns (`context_manager.build_followup_context`); since the snapshot restores
+  up to 50 questions as turns (2026-10-08) it is effectively never searched in a long chat, while every turn still
+  pays an embedding call and a Qdrant write. Its block also puts answer text into the rewrite prompt (D-022 says no
+  raw previous-answer text). **OPEN — user decision** (keep, questions only, or switch off). VERIFIED with the real
+  function, search stubbed. Medium · context_manager / conversation_memory.
+- **KI-483** — The rolling summary is rebuilt from the last `CONTEXT_RECENT_TURNS` (4) questions only, without the
+  previous summary, so topics older than four questions drop out of it. **OPEN — user decision** (fold the old
+  summary in, or build it from the topic records without a model call). VERIFIED by reading
+  `context_manager.maybe_update_summary`. Low · context_manager.
+- **Live results (2026-10-29, VPN up):** KI-400 and KI-399 VERIFIED live (harness P1 / P2 over HTTP, plain and
+  stream; P2 also with the response cache on: a real cache hit, topics kept). KI-363 VERIFIED live. KI-364: the live
+  run found a second cause (below) — now VERIFIED live. KI-416 NOT REPRODUCED live (houses answered first).
+  Live context suite 107/107.
+- **KI-364 (second cause, found live)** — the compare rewrite was right and resolve_entities found both districts,
+  but the previous turn's single `district` was inherited beside `district_list` and the PMAY-G fixed query (which
+  prefers the single district) answered East Khasi Hills alone. **FIXED 2026-10-29**: the rewrite hands the
+  data-context stage a plan that CLEARs the compared level and below (`_c01_ctx07_compare_place_plan`).
+- **KI-485** — 7 conversation-harness scenarios fail in-process on Main 1360c3b and on `lane/a2` alike: two need an
+  account's permissions (http only), U4's count drifted with the data (8,840 → 8,921), NQ09 / NQ12 still expect the
+  year pause D-075 replaced, CMP_compare_with_scheme / META_recap_explain_breakdown expect text the E9 formatting
+  removed. **OPEN** (stale expectations; integrator with the owning lanes). VERIFIED by running both trees.
+- **KI-486** — Composer (seen live 2026-10-29): a NULL-district row is labelled "(row)" in a by-district answer, and
+  district amounts are printed in raw rupees, not crore. **OPEN** (lane B2). Low.
+- **KI-484** — Another worker's in-memory copy of a deleted chat lives until its TTL: `sync_in` cannot tell "deleted"
+  from "never saved" (both load nothing) and keeps the local copy. Only reachable by re-sending the deleted id.
+  **OPEN** (INFERRED; low). routers/history.py, session_sync.
+- **Test team report 2026-10-29 (context memory 7/10)** — causes found in the code and fixed on `lane/a2`
+  (`tests/test_test_team_report_2026_10_29.py`, 11; 9 fail on the old code). Live retest pending (VPN):
+  `--tags test_team_2026_10_29` (TT1-TT6).
+  - **KI-487** (Bug 1, High) — a knowledge aside "wiped" the data context: `_measure_after_knowledge` appended only the
+    scheme ("how many person-days under MGNREGA?"), which then read as a NEW question (D-061): year asked, statewide,
+    "(new question)". **FIXED**: `_c01_kmeasure_question` keeps the chat's data scope of that scheme; a question that keeps
+    the chat's own scheme / place / year is not labelled new (`_c14_keeps_chat_scope`).
+  - **KI-488** (Bug 2, Medium) — "and sanctioned?" after a knowledge aside was rewritten against the aside: "sanctioned"
+    is a chat measure (`detect_metric`) but no measure family, so `_is_measure_only` refused it. **FIXED** (it reads
+    `detect_metric` too). The whole-chat effect needs the live run (offline the model rewrite does not happen).
+  - **KI-489** (Bug 3, High) — a follow-up to a comparison went statewide: `resolve_entities` carried a single district /
+    block from the previous turn but not `district_list` / `block_list`. **FIXED**.
+  - **KI-490** (Bug 4, Medium) — "person-days in Tikrikilla block?" after West Garo Hills by block is a new question
+    (D-061) and kept the year only on an exact measure match (D-075). **FIXED**: a block of the chat's own district keeps
+    the year (D-A2-REPORT). Live, the year was asked although offline D-075 applied: the live cause of the measure
+    mismatch is UNKNOWN — NEEDS VERIFICATION; the new rule covers it either way.
+  - **KI-491** (Bug 5, Medium) — "how many are on hold?" with CM Elevate, MGNREGA and PMAY-G topics open asked which topic.
+    **FIXED** (`cm_elevate._cme_open_topic_pin`). OPEN: the variant (typed while the CM Elevate dataset pause is pending:
+    CM Elevate missing from the chips) — not reproduced offline; needs the live run.
+  - **KI-492** (typo, Low) — "toatal persendays" carried no continuation signal read raw. **FIXED**: the continuation check
+    also reads the rephraser's typo gloss, accepted only when it yields a measure; measure typos are corrected against
+    the few-shot synonym table. "he is my collik remember" still does not continue.
+  - Not changed (not context memory, or a user decision): "applications" asking CM Elevate vs Legacy is D-064 (user
+    decision) — the report asks to reverse it; "CM Elevate (applications) applications", "across all financial years" for
+    CM Elevate, lakh vs crore (see KI-486) — composer, lane B2; 8,921 vs 8,948 applications — data / dashboard.
+- **Test team report — live retest (2026-10-29 evening, VPN up, :8401 on `lane/a2`):** TT1-TT6 **6/6 pass over HTTP**
+  (Bug 1 EKH FY 2024-25 1,632,188 person-days, no year pause; Bug 2 houses sanctioned 17,281; Bug 3 expenditure for both
+  districts; Bug 4 Tikrikilla FY 2023-24 then 2024-25; Bug 5 on hold 67 in West Garo Hills, no which-topic pause; typo
+  1,481,572 person-days). KI-487..492 VERIFIED live. The report's "What works" rows TTW1-TTW5 5/5. Context harness over
+  HTTP 89/94: the 5 failures are KI-485's (identical on Main); the two permission scenarios pass over HTTP. Live context
+  suite 107/107.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

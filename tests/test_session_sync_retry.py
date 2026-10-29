@@ -5,6 +5,7 @@ stale scope. Fake backend, no DB.
     .venv/Scripts/python.exe -m pytest tests/test_session_sync_retry.py -q
 """
 import asyncio
+import json
 import sys
 import time
 from pathlib import Path
@@ -13,7 +14,7 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from app import session_sync  # noqa: E402
+from app import conversation_store, session_sync  # noqa: E402
 from app.config import settings  # noqa: E402
 from app.session_store import Session  # noqa: E402
 
@@ -59,19 +60,36 @@ def test_a_save_that_fails_once_is_retried_and_stored():
     assert ok and be.calls["save"] == 2 and s.rev == 1 and be.stored["rev"] == 1
 
 
-def test_a_load_that_fails_once_is_retried_and_applied():
-    be = Flaky(fail=0)
-    s = _session()
-    asyncio.run(session_sync.sync_out(s, "s", tenant_id=1, user_id=1, backend=be))
-    be.fail["load"] = 1
+def _flaky_fetchrow(monkeypatch, fail):
+    """The REAL PostgresBackend -> conversation_store.load_context_state, over a
+    db.fetchrow that fails `fail` times (CTX-12: load_context_state swallowed
+    the error into {}, so the retry never ran; a fake backend that raised hid
+    that)."""
+    calls = {"n": 0, "fail": fail}
+
+    async def fetchrow(sql, params):
+        calls["n"] += 1
+        if calls["fail"] > 0:
+            calls["fail"] -= 1
+            raise ConnectionError("connection was closed in the middle of operation")
+        return {"context_state": json.dumps({"rev": 1, "scheme": "MGNREGA"}), "summary": None, "user_id": None}
+    monkeypatch.setattr(conversation_store.db, "fetchrow", fetchrow)
+    return calls
+
+
+def test_a_load_that_fails_once_is_retried_and_applied(monkeypatch):
+    calls = _flaky_fetchrow(monkeypatch, fail=1)
     other = _session()
-    assert asyncio.run(session_sync.sync_in(other, "s", backend=be)) == "applied"
-    assert be.calls["load"] == 2 and other.rev == 1
+    assert asyncio.run(session_sync.sync_in(other, "s", backend=session_sync.PostgresBackend())) == "applied"
+    assert calls["n"] == 2 and other.rev == 1 and other.state.scheme == "MGNREGA"
 
 
-def test_two_failures_in_a_row_still_give_up_quietly():
+def test_two_failures_in_a_row_still_give_up_quietly(monkeypatch):
     be = Flaky(fail=2)
     s = _session()
     assert asyncio.run(session_sync.sync_out(s, "s", tenant_id=1, user_id=1, backend=be)) is False
     assert be.calls["save"] == 2 and s.rev == 0
-    assert asyncio.run(session_sync.sync_in(_session(), "s", backend=be)) == "unavailable"
+    calls = _flaky_fetchrow(monkeypatch, fail=2)
+    assert asyncio.run(session_sync.sync_in(_session(), "s", backend=session_sync.PostgresBackend())) \
+        == "unavailable"
+    assert calls["n"] == 2
