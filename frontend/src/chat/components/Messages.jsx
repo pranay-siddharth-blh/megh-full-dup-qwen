@@ -929,9 +929,10 @@ export const BotMessage = memo(function BotMessage({ id, question, response, tim
       <div>
         <div className="bubble">
           <RouteBadge response={response} />
-          {response.translated_from && response.rewritten_question && (
-            // K-17 (audit 2026-10-29): a Khasi / Garo question is answered in English; say how it was read
-            <div className="understood-as">Understood as: “{response.rewritten_question}”</div>
+          {response.translated_from && (response.rewritten_question || response.translated_question) && (
+            // K-17 (audit 2026-10-29): a Khasi / Garo question is answered in English; say how it was
+            // read (a documents answer has no rewritten question, only the translation; live run)
+            <div className="understood-as">Understood as: “{response.rewritten_question || response.translated_question}”</div>
           )}
           <ScopeBanner response={response} />
           {response.answer && (

@@ -58,6 +58,30 @@ CASES = [
 ]
 
 
+# Role cases (RBAC): each runs as that role. "role" or "role:DISTRICT".
+ROLE_CASES = [
+    ("R1", "state_officer", ["top 5 villages by MGNREGA person days in Ri Bhoi in 2024-25"]),
+    ("R2", "state_officer", ["Which villages have both MGNREGA and PMAY-G?"]),
+    ("R3", "state_officer", ["Compare MGNREGA and PMAY-G beneficiaries by district"]),
+    ("R4", "district_officer:RI BHOI", ["MGNREGA person days in 2024-25"]),
+    ("R5", "district_officer:RI BHOI", ["MGNREGA person days in East Khasi Hills in 2024-25"]),
+    ("R6", "district_officer:RI BHOI", ["top 3 districts by beneficiaries in MGNREGA and PMAY-G"]),
+    ("R7", "district_officer:RI BHOI", ["lowest 5 villages by MGNREGA beneficiaries in 2024-25"]),
+    ("R8", "public", ["MGNREGA person days in 2024-25"]),
+    ("R9", "public", ["MGNREGA person days by district in 2024-25"]),
+]
+
+
+def _scope(spec: str):
+    role, _, district = spec.partition(":")
+    rec = {"role": role, "username": f"audit-live-{role}", "id": None}
+    if district:
+        rec["districts"] = [district]
+    s = auth.scope_from_user(rec)
+    s.user_id = rec["username"]
+    return s
+
+
 def _request():
     async def receive():
         await asyncio.sleep(3600)
@@ -112,12 +136,12 @@ async def _startup():
 async def main(out_path: str, only: "set | None"):
     await _startup()
     _quiet()
-    scope = auth.scope_from_user({"role": "admin", "username": "audit-live", "id": None})
-    scope.user_id = "audit-live"
     results = {}
-    for cid, turns in CASES:
+    cases = [(cid, "admin", turns) for cid, turns in CASES] + list(ROLE_CASES)
+    for cid, role, turns in cases:
         if only and cid not in only:
             continue
+        scope = _scope(role)
         sid = f"audit-live-{cid}-{uuid.uuid4().hex[:6]}"
         res, secs = {}, 0.0
         try:
@@ -126,9 +150,9 @@ async def main(out_path: str, only: "set | None"):
                 res = await router._answer(router.QueryRequest(question=q, session_id=sid, skip_cache=True),
                                            _request(), scope)
                 secs = time.monotonic() - t0
-            results[cid] = {"question": turns[-1], **_summary(res, secs)}
+            results[cid] = {"question": turns[-1], "role": role, **_summary(res, secs)}
         except Exception as e:  # noqa: BLE001
-            results[cid] = {"question": turns[-1], "error": f"{type(e).__name__}: {e}"[:500]}
+            results[cid] = {"question": turns[-1], "role": role, "error": f"{type(e).__name__}: {e}"[:500]}
         print(cid, results[cid].get("route") or results[cid].get("error"), results[cid].get("seconds"), flush=True)
         Path(out_path).write_text(json.dumps(results, indent=1, default=str, ensure_ascii=False), encoding="utf-8")
 

@@ -1768,6 +1768,10 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_elevate_unasked_programme_filter(question, schemes, sql)
     sql = _cm_elevate_applicants_distinct(question, schemes, sql)
     sql = _cm_elevate_compare_by_district(question, schemes, sql)
+    # I-2: a top / bottom N asked per year is ranked inside each year, whatever the
+    # model wrote (the prompt asks for it; this makes it certain)
+    if prompt_builder._per_period_rank_note(question):
+        sql = sql_ast.rank_within_period(sql) or sql
     _twins = entity_result.get("resolved") or {}
     if _twins.get("village_twins") and _twins.get("village_code_list"):
         sql = sql_ast.widen_village_filter(sql, _twins["village_code_list"])   # J-10

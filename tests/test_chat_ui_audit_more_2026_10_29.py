@@ -246,6 +246,21 @@ def test_i13_cm_elevate_gets_its_own_district_list(monkeypatch):
 
 
 # ── X-14: money with no unit in its name gets one ──────────────────────────
+# the units semantic.column_catalog records (read live 2026-10-29)
+_CATALOG = [
+    {"table_name": "v_pmay", "column_name": "amount_released", "unit": "rupees"},
+    {"table_name": "v_pmay", "column_name": "sanctioned_amount", "unit": "rupees"},
+    {"table_name": "v_expenditure", "column_name": "total_exp", "unit": "lakh rupees"},
+    {"table_name": "v_employment", "column_name": "person_days", "unit": "person-days"},
+]
+
+
+@pytest.fixture(autouse=True)
+def _units(monkeypatch):
+    from app import schema_introspect
+    monkeypatch.setitem(schema_introspect._cache, "columns", _CATALOG)
+
+
 @pytest.mark.parametrize("scheme, sql, col, want", [
     ("PMAY-G", "SELECT lgd_district, SUM(amount_released) AS amount_released FROM curated.v_pmay GROUP BY 1",
      "amount_released", "amount_released_rs"),
@@ -262,6 +277,33 @@ def test_x14_money_columns_carry_their_unit(scheme, sql, col, want):
     r = {"route": "data", "schemes": [scheme], "sql": sql, "data": [{"lgd_district": "A", col: 5}]}
     p._c13_money_units(r)
     assert list(r["data"][0]) == ["lgd_district", want]
+
+
+@pytest.mark.parametrize("sql, col", [
+    # a count whose name holds a money word: its source has no money unit
+    ("SELECT lgd_village_name, COUNT(*) AS houses_sanctioned_amount FROM curated.v_pmay GROUP BY 1",
+     "houses_sanctioned_amount"),
+    # a ratio of two columns is not money in rupees
+    ("SELECT lgd_district, SUM(amount_released) / SUM(sanctioned_amount) AS released_share FROM curated.v_pmay "
+     "GROUP BY 1", "released_share"),
+    # a source column the catalog has no unit for: nothing is guessed
+    ("SELECT lgd_district, SUM(mystery_amount) AS amount FROM curated.v_pmay GROUP BY 1", "amount"),
+    # person-days are not money
+    ("SELECT lgd_district, SUM(person_days) AS person_days FROM curated.v_employment GROUP BY 1", "person_days"),
+])
+def test_x14_only_catalog_money_is_renamed(sql, col):
+    r = {"route": "data", "schemes": ["PMAY-G"], "sql": sql, "data": [{"lgd_district": "A", col: 5}]}
+    p._c13_money_units(r)
+    assert list(r["data"][0]) == ["lgd_district", col]
+
+
+def test_x14_no_catalog_no_rename(monkeypatch):
+    from app import schema_introspect
+    monkeypatch.setitem(schema_introspect._cache, "columns", [])
+    r = {"route": "data", "schemes": ["PMAY-G"], "data": [{"d": "A", "amount_released": 5}],
+         "sql": "SELECT d, SUM(amount_released) AS amount_released FROM curated.v_pmay GROUP BY 1"}
+    p._c13_money_units(r)
+    assert list(r["data"][0]) == ["d", "amount_released"]
 
 
 def test_x14_several_schemes_are_left_alone():
@@ -400,3 +442,29 @@ def test_b8_the_bare_which_is_better_goes_to_the_figures():
     assert p._c13_bare_which_is_better("Which is better, MGNREGA or PMAY-G?")
     assert not p._c13_bare_which_is_better("Which is better for a landless family, MGNREGA or PMAY-G?")
     assert not p._c13_bare_which_is_better("Is MGNREGA better?")
+
+
+def test_i2_top_n_per_year_is_ranked_inside_each_year():
+    # live run: ORDER BY beneficiaries DESC LIMIT 5 over every year gave one year's top 5
+    sql = ("SELECT lgd_district AS district, financial_year, SUM(beneficiary_households) AS beneficiaries "
+           "FROM curated.v_employment GROUP BY lgd_district, financial_year ORDER BY beneficiaries DESC LIMIT 5")
+    out = asyncio.run(p._scheme_sql_rewrites("top 5 districts in MGNREGA year wise", ["MGNREGA"],
+                                             {"resolved": {}}, sql))
+    assert 'ROW_NUMBER() OVER (PARTITION BY "financial_year" ORDER BY "beneficiaries" DESC NULLS LAST)' in out
+    assert "rank_in_period <= 5" in out
+    # not a per-year question: unchanged
+    assert "ROW_NUMBER" not in asyncio.run(p._scheme_sql_rewrites("top 5 districts in MGNREGA", ["MGNREGA"],
+                                                                  {"resolved": {}}, sql))
+    # already windowed or no period column: left alone
+    assert sql_ast.rank_within_period("SELECT d, SUM(b) AS b FROM curated.v GROUP BY 1 ORDER BY b DESC LIMIT 5") is None
+
+
+def test_k17_a_translated_answer_carries_the_english_question(stubbed, monkeypatch):
+    # live run: a documents answer had no rewritten question, so "Understood as" never showed
+    async def to_english(text, lang):
+        return "How do I apply for PMAY-G?"
+    monkeypatch.setattr(router.translate, "to_english", to_english)
+    req = router.QueryRequest(question="Kumno nga lah ban apply ia ka PMAY-G?", session_id="k17", language="kha")
+    out = asyncio.run(router._answer(req, _request(), stubbed.scope))
+    assert out["translated_from"] == "Kumno nga lah ban apply ia ka PMAY-G?"
+    assert out["translated_question"] == "How do I apply for PMAY-G?"

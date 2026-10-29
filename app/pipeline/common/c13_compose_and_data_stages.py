@@ -3258,39 +3258,38 @@ def _c13_unify_scheme_rows(rows: list) -> list:
 
 # X-14 (chat UI audit 2026-10-29): PMAY-G money came as "22,22,75,30,000" under
 # "Amount released" — no ₹, no unit — beside MGNREGA in ₹ lakh. A money column with
-# no unit in its name gets one from what the scheme stores (MGNREGA lakh rupees,
-# every other scheme rupees: schema_context) and any division in the SELECT, as a
-# name suffix the UI reads ("amount_released" -> "amount_released_rs").
-# "sanctioned" / "released" / "pending" / "disbursed" also name counts ("houses_sanctioned"
-# showed as "₹388" in the live run), so a column is money only with a money noun.
-_C13_MONEY_WORDS = frozenset(("amount", "expenditure", "exp", "money", "spent", "subsidy", "loan",
-                              "cost", "wage", "wages", "fund", "funds"))
-_C13_COUNT_WORDS = frozenset(("houses", "house", "households", "beneficiaries", "persons", "count", "number",
-                              "villages", "works", "applications", "members", "memberships", "days"))
+# no unit in its name gets one from the database's catalog unit of its source column
+# and any division in the SELECT, as a name suffix the UI reads ("amount_released"
+# -> "amount_released_rs"). Names that already carry a unit are left alone.
 _C13_UNIT_WORDS = frozenset(("rs", "rupees", "inr", "lakh", "lakhs", "cr", "crore", "crores", "pct",
                              "percent", "percentage", "per", "avg", "average", "share", "ratio", "rate"))
 
 
 def _c13_money_units(result: dict) -> None:
-    schemes = result.get("schemes") or []
+    # The unit comes from semantic.column_catalog (the database's own UNIT for each
+    # source column), never from the column's name: the name-based first version
+    # showed "houses_sanctioned" as "₹388" in the live run. No recorded unit, a
+    # ratio of two columns, or columns of mixed units: nothing is renamed.
     rows = result.get("data") or []
-    if len(schemes) != 1 or not rows or not isinstance(rows[0], dict):
+    if len(result.get("schemes") or []) != 1 or not rows or not isinstance(rows[0], dict):
         return
-    base = "lakh" if schemes[0] == "MGNREGA" else "rupees"
-    divs = sql_ast.select_divisors(result.get("sql") or "")
+    from app import schema_introspect
+    srcs = sql_ast.output_sources(result.get("sql") or "")
+    rupees_per = {"rupees": 1.0, "lakh rupees": 1e5, "crore rupees": 1e7}
     rename = {}
     for col, v in rows[0].items():
         parts = set(str(col).lower().split("_"))
-        if not parts & _C13_MONEY_WORDS or parts & (_C13_UNIT_WORDS | _C13_COUNT_WORDS) \
-                or measure_kinds.is_label_col(col):
+        src = srcs.get(col)
+        if not src or src["ratio"] or not src["cols"] or parts & _C13_UNIT_WORDS:
             continue
         if not isinstance(v, (int, float, Decimal)) or isinstance(v, bool):
             continue
-        d = divs.get(col)
-        unit = base
-        if d:
-            rupees = d * (100000 if base == "lakh" else 1)
-            unit = "crore" if abs(rupees - 1e7) < 1 else "lakh" if abs(rupees - 1e5) < 1 else None
+        units = {schema_introspect.column_unit(t, c) for c in src["cols"] for t in src["tables"]} - {None}
+        if len(units) != 1 or next(iter(units)) not in rupees_per:
+            continue
+        rupees = rupees_per[next(iter(units))] * (src["div"] or 1.0)
+        unit = ("crore" if abs(rupees - 1e7) < 1 else "lakh" if abs(rupees - 1e5) < 1
+                else "rupees" if abs(rupees - 1) < 1e-9 else None)
         if unit:
             rename[col] = f"{col}_{'rs' if unit == 'rupees' else unit}"
     if rename:

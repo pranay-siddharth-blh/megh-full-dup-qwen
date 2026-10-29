@@ -97,6 +97,7 @@ async def _persist_turn(tenant_id, user_id, session_id, result, question,
             "execution_time_ms": result.get("execution_time_ms"),
             "total_row_count": result.get("total_row_count"),   # E-3
             "translated_from": result.get("translated_from"),
+            "translated_question": result.get("translated_question"),
             "chart_type": result.get("chart_type"),
             "chart_wide": result.get("chart_wide"),
             "column_totals": result.get("column_totals"),

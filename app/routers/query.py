@@ -375,7 +375,7 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
         result = offered
         cacheable = False
     if translated_from:
-        result = {**result, "translated_from": translated_from}
+        result = {**result, "translated_from": translated_from, "translated_question": req.question}
 
     latency_ms = (time.monotonic() - started) * 1000
     result["session_id"] = session_id
