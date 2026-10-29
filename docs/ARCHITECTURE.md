@@ -317,7 +317,10 @@ starts the paused-thread sweep and closes the checkpointer only when the graph i
       Copy and Read aloud (browser `speechSynthesis`, no server call) on an answer),
       `Charts.jsx` (Chart.js 4.4.1 from npm, tables), `Sidebar.jsx`, `WelcomeCard.jsx`
       (scheme carousel), `Overlays.jsx` (sign-in, modal, mic overlay, undo toast);
-    - `useVoice.js`: recording → 16 kHz mono WAV → transcribe; `analytics.js`: chart choice.
+    - `useVoice.js`: recording → 16 kHz mono WAV → transcribe; `analytics.js`: chart choice;
+      `columns.js` (2026-10-28, KI-438): what each result column is — twin columns shown once, cell format,
+      readable headers, units for axis titles / ticks, which measures may be totalled, the trend change column.
+      Presentation only: the rows and the Excel download are unchanged.
   - `frontend/admin.html` → `src/admin/AdminApp.jsx` — the admin console, served at `/admin-ui`.
 - `npm run build` writes `web/app/index.html`, `web/app/admin.html` and hashed bundles under
   `web/app/assets/` (loaded from `/static/app/assets/`). The build output is kept in the repo so

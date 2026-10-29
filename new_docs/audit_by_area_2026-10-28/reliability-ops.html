@@ -1,0 +1,423 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Reliability &amp; ops Audit</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: verdict first (honest assessment, corrections), then the merge plan, then the filterable task board, then the file matrix. */
+:root{
+  --bg:#f5f7f5; --surface:#ffffff; --sunk:#eaefeb; --fg:#17201b; --muted:#56635b; --line:#d3dbd5;
+  --accent:#1d6b55; --accent-soft:#dcefe7;
+  --crit:#b3261e; --crit-soft:#fbe4e1; --high:#b85c00; --high-soft:#fdebd8;
+  --med:#8a6d00; --med-soft:#f8f0cc; --low:#4b6478; --low-soft:#e3ebf1; --dec:#6a3fa0; --dec-soft:#eee5f8;
+  --ok:#2c7a3f; --ok-soft:#dff1e3;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(28px,4.6vw,42px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:24px;font-weight:600}
+h3{font-size:18px;font-weight:600}
+p{margin:0;max-width:74ch}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunk);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+a{color:var(--accent)}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+header{display:flex;flex-direction:column;gap:14px;border-bottom:2px solid var(--fg);padding-bottom:22px}
+.lede{font-size:17px;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:10px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.stat b{font:700 28px/1.1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{font-size:12.5px;color:var(--muted)}
+.stat.crit b{color:var(--crit)} .stat.high b{color:var(--high)} .stat.med b{color:var(--med)} .stat.low b{color:var(--low)}
+section{display:flex;flex-direction:column;gap:16px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.panel ol,.panel ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.verdict{border-left:4px solid var(--accent)}
+.prio{counter-reset:p;list-style:none;padding:0!important}
+.prio li{display:grid;grid-template-columns:auto auto auto 1fr;gap:10px;align-items:baseline}
+.prio li::before{counter-increment:p;content:counter(p);font:700 15px var(--f-display);color:var(--muted);width:1.4em;text-align:right}
+.idlink{font:600 13px var(--f-mono);text-decoration:none;white-space:nowrap}
+.pill{display:inline-block;font:600 11px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;padding:4px 7px;border-radius:999px;white-space:nowrap}
+.s-Critical{background:var(--crit-soft);color:var(--crit)} .s-High{background:var(--high-soft);color:var(--high)}
+.s-Medium{background:var(--med-soft);color:var(--med)} .s-Low{background:var(--low-soft);color:var(--low)} .s-Decision{background:var(--dec-soft);color:var(--dec)}
+.tag{font:500 11.5px var(--f-mono);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:2px 6px;white-space:nowrap}
+.tag.wave{color:var(--accent);border-color:var(--accent)}
+.controls{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{font:500 13px var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:5px 11px;border-radius:999px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.chip:focus-visible,.btn:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#q{flex:1 1 200px;min-width:0;font:14px var(--f-body);padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+select{font:14px var(--f-body);padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+.count{font:500 13px var(--f-mono);color:var(--muted);margin-left:auto}
+.btn{font:600 13px var(--f-body);border:1px solid var(--accent);color:var(--accent);background:transparent;padding:6px 12px;border-radius:7px;cursor:pointer}
+.btn:hover{background:var(--accent-soft)}
+.trackhead{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;padding-top:18px;border-top:1px solid var(--line)}
+.trackhead p{color:var(--muted);font-size:14px;flex-basis:100%}
+.tasks{display:flex;flex-direction:column;gap:12px}
+.task{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--low);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-width:0;scroll-margin-top:150px}
+.task.Critical{border-left-color:var(--crit)} .task.High{border-left-color:var(--high)} .task.Medium{border-left-color:var(--med)} .task.Decision{border-left-color:var(--dec)}
+.task:target{box-shadow:0 0 0 2px var(--accent)}
+.thead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tid{font:600 14px var(--f-mono)}
+.task h3{flex-basis:100%;font-size:19px}
+.status{font-size:13.5px;background:var(--ok-soft);color:var(--fg);border-radius:6px;padding:6px 10px}
+.status b{color:var(--ok)}
+.lbl{font:600 12px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:2px}
+.task details{border-top:1px dashed var(--line);padding-top:8px}
+.task summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.task ul{margin:6px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:5px}
+.task li{max-width:82ch}
+.dont li::marker{content:"✕  ";color:var(--crit)}
+.files li code{background:transparent;padding:0;color:var(--accent);font-weight:500}
+.tfoot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.after{font-size:13px;color:var(--muted)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--sunk)}
+.waves{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.wavebox{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.wavebox h3{font-size:16px}
+.wavebox .ids{display:flex;flex-wrap:wrap;gap:4px 8px}
+.wavebox p{font-size:13px;color:var(--muted)}
+.toast{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:14px}
+.note{font-size:13.5px;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.task{transition:box-shadow .2s}}
+
+.crumbs{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font:500 13px var(--f-mono)}
+.crumbs a{text-decoration:none}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.meta div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.meta b{display:block;font:600 11.5px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+pre.prompt{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px;font:12.5px/1.55 var(--f-mono);max-height:520px;overflow:auto;margin:0}
+.task details[open] summary{margin-bottom:4px}
+.idx td:first-child{white-space:nowrap}
+</style></head>
+<body><div class="wrap">
+<nav class="crumbs" aria-label="Areas"><a href="index.html">← Overview</a><a href="security-access.html">Security & access</a><a href="context-memory.html">Context memory</a><a href="rag-knowledge-base.html">Knowledge base (RAG)</a><a href="composer-answer-text.html">Composer (answer text)</a><a href="frontend.html">Frontend</a><a href="nl2sql-scheme-rules.html">NL→SQL & scheme rules</a><b>Reliability & ops</b><a href="testing-evaluation.html">Testing & evaluation</a><a href="documentation.html">Documentation</a><a href="ingestion-team.html">Ingestion team</a></nav>
+<header>
+  <span class="eyebrow">Megh One AI audit v2 · 28 Oct 2026 · area REL</span>
+  <h1>Reliability & ops</h1>
+  <p class="lede">4 tasks in this area, in merge order. New KI ids for this area: KI-590–609. Each task is complete on this page: issue, solution, what not to do, evidence, files, tests, done-when, file overlaps, v1 corrections and the session prompt.</p>
+  <div class="stats"><div class="stat med"><b>1</b><span>medium</span></div><div class="stat low"><b>3</b><span>low</span></div></div>
+</header>
+<section>
+  <h2>Tasks in this area</h2>
+  <div class="tablewrap"><table class="idx"><thead><tr><th>Task</th><th>Severity</th><th>Wave</th><th>Title</th><th>Start after</th></tr></thead><tbody>
+  <tr><td><a class="idlink" href="#REL-02">REL-02</a></td><td><span class="pill s-Medium">Medium</span></td><td><span class="tag wave">W0</span></td><td>Config hygiene, a non-stream deadline, safe retries</td><td class="note"><a class="idlink" href="testing-evaluation.html#QA-02">QA-02</a></td></tr><tr><td><a class="idlink" href="#REL-01">REL-01</a></td><td><span class="pill s-Low">Low</span></td><td><span class="tag wave">W1a</span></td><td>Redis failure backoff and a build stamp on cache keys</td><td class="note">-</td></tr><tr><td><a class="idlink" href="#REL-03">REL-03</a></td><td><span class="pill s-Low">Low</span></td><td><span class="tag wave">W3</span></td><td>Request ids in logs, a cheap /health, bounded rate-limit memory</td><td class="note"><a class="idlink" href="context-memory.html#CTX-04">CTX-04</a>, <a class="idlink" href="rag-knowledge-base.html#RAG-04">RAG-04</a>, <a class="idlink" href="security-access.html#SEC-05">SEC-05</a></td></tr><tr><td><a class="idlink" href="#REL-04">REL-04</a></td><td><span class="pill s-Low">Low</span></td><td><span class="tag wave">W3</span></td><td>Let programming errors fail tests instead of becoming "couldn't answer"</td><td class="note"><a class="idlink" href="nl2sql-scheme-rules.html#SQL-04">SQL-04</a>, <a class="idlink" href="rag-knowledge-base.html#RAG-02">RAG-02</a></td></tr>
+  </tbody></table></div>
+</section>
+<section class="tasks"><article class="task Medium" id="REL-02" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">REL-02</span><span class="pill s-Medium">Medium</span><span class="tag wave">wave 0</span><span class="tag">KI-008</span><span class="tag">KI-012</span><span class="tag">KI-013</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Config hygiene, a non-stream deadline, safe retries</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Reliability & ops</div>
+    <div><b>Wave</b>Wave 0: serial · step 5</div>
+    <div><b>Start after</b><a class="idlink" href="testing-evaluation.html#QA-02">QA-02</a></div>
+    <div><b>Unblocks</b><a class="idlink" href="context-memory.html#CTX-01">CTX-01</a>, <a class="idlink" href="rag-knowledge-base.html#RAG-02">RAG-02</a></div>
+    <div><b>New KI ids</b>KI-590–609</div>
+  </div>
+  <div class="status"><b>CONFIRMED</b>. Two parts of the v1 fix would have caused harm: deleting settings would break boot, and a global 110 s cap would break streamed answers.</div>
+  <div><span class="lbl">The issue</span>Four settings are never read: <code>SQL_GENERATION_MAX_RETRIES</code>, <code>SQL_GUIDED_DECODING_ENABLED</code>, <code>MULTITENANCY_ENABLED</code> and <code>PORT</code>. But <code>Settings</code> rejects unknown keys, so deleting them breaks boot for any <code>.env</code> that still sets one. The non-stream <code>/api/query</code> can run 60 s × 6 parts while nginx cuts it at 120 s; the streamed route is safe because of its pings. Model calls never retry on a connection error. <code>wait_for(_gate.acquire())</code> can leak a semaphore slot on Python 3.11 when it is cancelled.</div>
+  <div><span class="lbl">The solution</span><ul><li>In one commit: switch to <code>model_config = SettingsConfigDict(env_file=".env", extra="ignore")</code>, then delete the four fields. This also clears the Pydantic warning.</li><li>Cap the deadline on the <b>non-stream</b> route only, at 110 s.</li><li>Retry once, with jitter, on <code>httpx.ConnectError</code> and <code>ConnectTimeout</code> only.</li><li>Wrap <code>async with asyncio.timeout(...)</code> around <code>_gate.acquire()</code>.</li><li>Add a test that every Settings field is referenced outside config.py, with an allowlist.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Deleting the settings before switching to <code>extra="ignore"</code>. Boot fails.</li><li>A global 110 s cap. It would cut streamed multi-scheme answers that work today.</li><li>Retrying on 502/503. That adds load to a gateway that is already saturated.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>The class-based <code>Config</code> is at config.py:671, with the pydantic-settings default <code>extra='forbid'</code>. DEPLOYMENT.md:206 sets <code>PORT=8410</code> in <code>.env</code>.</li><li>query.py:275-279 computes <code>REQUEST_TIMEOUT_SECONDS * len(layer.multi)</code>. The streamed route sends <code>: ping</code>.</li><li>llm.py:143 does the gate acquire. llm.py:193-273 retries only on guided-decoding 4xx errors.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/config.py</code> · model_config, delete 4 dead fields</li><li><code>app/llm.py</code> · _slot, call_model</li><li><code>app/routers/query.py</code> · non-stream timeout (~279)</li></ul><p class="note" style="margin-top:6px"><b>Tests that pin this source (update deliberately, never delete):</b></p><ul><li>test_query_stream.py:227-228 (source pin on query.py)</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>Boot succeeds with a <code>.env</code> that still sets a deleted key.</li><li>The non-stream route never exceeds 110 s.</li><li>A stubbed <code>ConnectError</code> produces exactly one retry.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/config.py</code> (you: model_config, delete 4 dead fields)<ul><li><a class="idlink" href="security-access.html#SEC-05">SEC-05</a> <span class="tag wave">W1a</span> TRUSTED_PROXIES line 70: later wave</li><li><a class="idlink" href="security-access.html#SEC-07">SEC-07</a> <span class="tag wave">W1a</span> insecure_secrets, CSP_ENFORCE: later wave</li><li><a class="idlink" href="reliability-ops.html#REL-01">REL-01</a> <span class="tag wave">W1a</span> APP_BUILD (next to the Redis settings): later wave</li><li><a class="idlink" href="security-access.html#SEC-06">SEC-06</a> <span class="tag wave">W1b</span> DB_POOL_ACQUIRE_TIMEOUT next to the pool settings: later wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-05">RAG-05</a> <span class="tag wave">W2</span> startup warning near the RAG settings: merges <b>after</b> you</li><li><a class="idlink" href="composer-answer-text.html#CMP-03">CMP-03</a> <span class="tag wave">W2</span> PROMPT_BUDGET_COMPOSER_TOKENS (line 669): later wave</li><li><a class="idlink" href="frontend.html#UI-02">UI-02</a> <span class="tag wave">W2</span> CSP font hosts: merges <b>after</b> you</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-06">RAG-06</a> <span class="tag wave">W3</span> SCHEMA_RAG_* settings in a new block next to the RAG settings: later wave</li><li><a class="idlink" href="reliability-ops.html#REL-04">REL-04</a> <span class="tag wave">W3</span> RAISE_INTERNAL_ERRORS: merges <b>after</b> you</li></ul></li><li><code>app/llm.py</code> (you: _slot, call_model)<ul><li><a class="idlink" href="security-access.html#SEC-07">SEC-07</a> <span class="tag wave">W1a</span> _get_ssl_verify: later wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-02">RAG-02</a> <span class="tag wave">W1b</span> call_response_composer signature: merges <b>after</b> you</li></ul></li><li><code>app/routers/query.py</code> (you: non-stream timeout (~279))<ul><li><a class="idlink" href="context-memory.html#CTX-01">CTX-01</a> <span class="tag wave">W1b</span> _session_id, _answer wrapper, query_stream, _remember_stopped: merges <b>after</b> you</li><li><a class="idlink" href="context-memory.html#CTX-06">CTX-06</a> <span class="tag wave">W2</span> is_cacheable: merges <b>after</b> you</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-05">RAG-05</a> <span class="tag wave">W2</span> except mapping: merges <b>after</b> you</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>REL-02:</b> Deleting the settings would break boot; a global cap would cut streams. <i>Now:</i> Wave 0, in safe order.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for REL-02</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-REL-02">Copy session prompt</button></div>
+  <pre class="prompt" id="p-REL-02">TASK REL-02: Config hygiene, a non-stream deadline, safe retries
+Repo: meghoneai (Megh One AI). Area: Reliability &amp; ops. Severity: Medium. Wave: 0. Related: KI-008, KI-012, KI-013.
+Start only after these are merged into Main: QA-02. Then create branch task/rel-02 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+CONFIRMED. Two parts of the v1 fix would have caused harm: deleting settings would break boot, and a global 110 s cap would break streamed answers.
+
+THE ISSUE
+Four settings are never read: SQL_GENERATION_MAX_RETRIES, SQL_GUIDED_DECODING_ENABLED, MULTITENANCY_ENABLED and PORT. But Settings rejects unknown keys, so deleting them breaks boot for any .env that still sets one. The non-stream /api/query can run 60 s × 6 parts while nginx cuts it at 120 s; the streamed route is safe because of its pings. Model calls never retry on a connection error. wait_for(_gate.acquire()) can leak a semaphore slot on Python 3.11 when it is cancelled.
+
+EVIDENCE
+- The class-based Config is at config.py:671, with the pydantic-settings default extra='forbid'. DEPLOYMENT.md:206 sets PORT=8410 in .env.
+- query.py:275-279 computes REQUEST_TIMEOUT_SECONDS * len(layer.multi). The streamed route sends : ping.
+- llm.py:143 does the gate acquire. llm.py:193-273 retries only on guided-decoding 4xx errors.
+
+THE SOLUTION
+- In one commit: switch to model_config = SettingsConfigDict(env_file=".env", extra="ignore"), then delete the four fields. This also clears the Pydantic warning.
+- Cap the deadline on the non-stream route only, at 110 s.
+- Retry once, with jitter, on httpx.ConnectError and ConnectTimeout only.
+- Wrap async with asyncio.timeout(...) around _gate.acquire().
+- Add a test that every Settings field is referenced outside config.py, with an allowlist.
+
+DO NOT
+- Deleting the settings before switching to extra="ignore". Boot fails.
+- A global 110 s cap. It would cut streamed multi-scheme answers that work today.
+- Retrying on 502/503. That adds load to a gateway that is already saturated.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/config.py: model_config, delete 4 dead fields
+- app/llm.py: _slot, call_model
+- app/routers/query.py: non-stream timeout (~279)
+
+TESTS THAT PIN THIS SOURCE (update deliberately, never delete)
+- test_query_stream.py:227-228 (source pin on query.py)
+
+DONE WHEN
+- Boot succeeds with a .env that still sets a deleted key.
+- The non-stream route never exceeds 110 s.
+- A stubbed ConnectError produces exactly one retry.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_rel02_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your REL-02 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-590–609. New decisions as "D-REL-02". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task Low" id="REL-01" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">REL-01</span><span class="pill s-Low">Low</span><span class="tag wave">wave 1a</span><span class="tag">KI-014</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Redis failure backoff and a build stamp on cache keys</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Reliability & ops</div>
+    <div><b>Wave</b>Wave 1a: parallel</div>
+    <div><b>Start after</b>nothing (wave start)</div>
+    <div><b>Unblocks</b>no task waits on this</div>
+    <div><b>New KI ids</b>KI-590–609</div>
+  </div>
+  <div class="status"><b>CONFIRMED</b>. Impact lowered: Redis is not set up on dev, and a deploy clears the per-worker cache anyway.</div>
+  <div><span class="lbl">The issue</span>When Redis is down, every request retries the connection under one lock, at 1.5 s per try, so the requests queue behind each other. The docstring of <code>_redis()</code> claims the failure is cached; it is not. A shared Redis would also serve answers from an older build.</div>
+  <div><span class="lbl">The solution</span><ul><li>Remember the failure time and skip reconnects for 30 s.</li><li>Add <code>APP_BUILD</code> (the git sha) to <code>REDIS_CACHE_PREFIX</code>.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>An admin flush endpoint. It would clear only the one worker it lands on (2 workers × 2 VMs). If flushing is needed, keep a generation number in Redis.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>cache.py:37-68, keys at :93-96.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/cache.py</code> · _redis, cache_key prefix</li><li><code>app/config.py</code> · APP_BUILD (next to the Redis settings)</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>With Redis down, 20 concurrent gets make at most one connect attempt.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/config.py</code> (you: APP_BUILD (next to the Redis settings))<ul><li><a class="idlink" href="reliability-ops.html#REL-02">REL-02</a> <span class="tag wave">W0</span> model_config, delete 4 dead fields: earlier wave</li><li><a class="idlink" href="security-access.html#SEC-05">SEC-05</a> <span class="tag wave">W1a</span> TRUSTED_PROXIES line 70: same wave, separate region</li><li><a class="idlink" href="security-access.html#SEC-07">SEC-07</a> <span class="tag wave">W1a</span> insecure_secrets, CSP_ENFORCE: same wave, separate region</li><li><a class="idlink" href="security-access.html#SEC-06">SEC-06</a> <span class="tag wave">W1b</span> DB_POOL_ACQUIRE_TIMEOUT next to the pool settings: later wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-05">RAG-05</a> <span class="tag wave">W2</span> startup warning near the RAG settings: later wave</li><li><a class="idlink" href="composer-answer-text.html#CMP-03">CMP-03</a> <span class="tag wave">W2</span> PROMPT_BUDGET_COMPOSER_TOKENS (line 669): later wave</li><li><a class="idlink" href="frontend.html#UI-02">UI-02</a> <span class="tag wave">W2</span> CSP font hosts: later wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-06">RAG-06</a> <span class="tag wave">W3</span> SCHEMA_RAG_* settings in a new block next to the RAG settings: later wave</li><li><a class="idlink" href="reliability-ops.html#REL-04">REL-04</a> <span class="tag wave">W3</span> RAISE_INTERNAL_ERRORS: later wave</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>REL-01:</b> An admin flush clears one worker only. <i>Now:</i> Backoff plus build stamp.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for REL-01</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-REL-01">Copy session prompt</button></div>
+  <pre class="prompt" id="p-REL-01">TASK REL-01: Redis failure backoff and a build stamp on cache keys
+Repo: meghoneai (Megh One AI). Area: Reliability &amp; ops. Severity: Low. Wave: 1a. Related: KI-014.
+Start only after these are merged into Main: nothing. Then create branch task/rel-01 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+CONFIRMED. Impact lowered: Redis is not set up on dev, and a deploy clears the per-worker cache anyway.
+
+THE ISSUE
+When Redis is down, every request retries the connection under one lock, at 1.5 s per try, so the requests queue behind each other. The docstring of _redis() claims the failure is cached; it is not. A shared Redis would also serve answers from an older build.
+
+EVIDENCE
+- cache.py:37-68, keys at :93-96.
+
+THE SOLUTION
+- Remember the failure time and skip reconnects for 30 s.
+- Add APP_BUILD (the git sha) to REDIS_CACHE_PREFIX.
+
+DO NOT
+- An admin flush endpoint. It would clear only the one worker it lands on (2 workers × 2 VMs). If flushing is needed, keep a generation number in Redis.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/cache.py: _redis, cache_key prefix
+- app/config.py: APP_BUILD (next to the Redis settings)
+
+DONE WHEN
+- With Redis down, 20 concurrent gets make at most one connect attempt.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_rel01_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your REL-01 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-590–609. New decisions as "D-REL-01". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task Low" id="REL-03" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">REL-03</span><span class="pill s-Low">Low</span><span class="tag wave">wave 3</span><span class="tag">KI-009</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Request ids in logs, a cheap /health, bounded rate-limit memory</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Reliability & ops</div>
+    <div><b>Wave</b>Wave 3: last</div>
+    <div><b>Start after</b><a class="idlink" href="context-memory.html#CTX-04">CTX-04</a>, <a class="idlink" href="rag-knowledge-base.html#RAG-04">RAG-04</a>, <a class="idlink" href="security-access.html#SEC-05">SEC-05</a></div>
+    <div><b>Unblocks</b>no task waits on this</div>
+    <div><b>New KI ids</b>KI-590–609</div>
+  </div>
+  <div class="status"><b>CONFIRMED</b>. Corrections: the files live in <code>app/middleware/</code>, and <code>X-Request-ID</code> is already trimmed to 64 characters.</div>
+  <div><span class="lbl">The issue</span>Three operability gaps:<ul><li>Log lines carry no request id.</li><li>An anonymous <code>/health</code> runs DB, Qdrant and Redis probes and can block for 30 s.</li><li>Rate-limit keys are never deleted, which SEC-05's spoofable IPs made a memory risk.</li></ul></div>
+  <div><span class="lbl">The solution</span><ul><li>Add a <code>logging.Filter</code> that injects the request id and user.</li><li>Cache <code>/health</code> component results for 5 s, with a 2 s timeout per probe.</li><li>Drop empty rate-limit deques. Validate <code>X-Request-ID</code> to letters, digits and hyphens.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Moving to pure ASGI middleware in this task; that is a larger change.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>main.py:31-34 and :160-200; <code>app/middleware/rate_limit.py:58</code>; <code>security_headers.py:64-69</code>.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/main.py</code> · logging config, health (last in the main.py order)</li><li><code>app/middleware/rate_limit.py</code></li><li><code>app/middleware/security_headers.py</code></li></ul></details>
+  <details open><summary>Done when</summary><ul><li>Every log line has a request id.</li><li><code>/health</code> answers within 2 s while the DB is down.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/main.py</code> (you: logging config, health (last in the main.py order))<ul><li><a class="idlink" href="security-access.html#SEC-07">SEC-07</a> <span class="tag wave">W1a</span> lifespan guard (first in the main.py order): merges <b>before</b> you</li><li><a class="idlink" href="nl2sql-scheme-rules.html#SQL-08">SQL-08</a> <span class="tag wave">W1b</span> lifespan retry task, health components (second in the main.py order): merges <b>before</b> you</li><li><a class="idlink" href="context-memory.html#CTX-04">CTX-04</a> <span class="tag wave">W2</span> purge task (third in the main.py order): merges <b>before</b> you</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-04">RAG-04</a> <span class="tag wave">W2</span> health flag (fourth in the main.py order): merges <b>before</b> you</li></ul></li></ul></details>
+  
+</article>
+
+<details><summary>Session prompt for REL-03</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-REL-03">Copy session prompt</button></div>
+  <pre class="prompt" id="p-REL-03">TASK REL-03: Request ids in logs, a cheap /health, bounded rate-limit memory
+Repo: meghoneai (Megh One AI). Area: Reliability &amp; ops. Severity: Low. Wave: 3. Related: KI-009.
+Start only after these are merged into Main: CTX-04, RAG-04, SEC-05. Then create branch task/rel-03 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+CONFIRMED. Corrections: the files live in app/middleware/, and X-Request-ID is already trimmed to 64 characters.
+
+THE ISSUE
+Three operability gaps:
+  - Log lines carry no request id.
+  - An anonymous /health runs DB, Qdrant and Redis probes and can block for 30 s.
+  - Rate-limit keys are never deleted, which SEC-05's spoofable IPs made a memory risk.
+
+EVIDENCE
+- main.py:31-34 and :160-200; app/middleware/rate_limit.py:58; security_headers.py:64-69.
+
+THE SOLUTION
+- Add a logging.Filter that injects the request id and user.
+- Cache /health component results for 5 s, with a 2 s timeout per probe.
+- Drop empty rate-limit deques. Validate X-Request-ID to letters, digits and hyphens.
+
+DO NOT
+- Moving to pure ASGI middleware in this task; that is a larger change.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/main.py: logging config, health (last in the main.py order)
+- app/middleware/rate_limit.py
+- app/middleware/security_headers.py
+
+DONE WHEN
+- Every log line has a request id.
+- /health answers within 2 s while the DB is down.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_rel03_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your REL-03 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-590–609. New decisions as "D-REL-03". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details>
+<article class="task Low" id="REL-04" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">REL-04</span><span class="pill s-Low">Low</span><span class="tag wave">wave 3</span><span class="tag">KI-009</span><h2 style="flex-basis:100%;font-size:clamp(21px,3vw,28px)">Let programming errors fail tests instead of becoming "couldn't answer"</h2></div>
+  <div class="meta">
+    <div><b>Area</b>Reliability & ops</div>
+    <div><b>Wave</b>Wave 3: last</div>
+    <div><b>Start after</b><a class="idlink" href="nl2sql-scheme-rules.html#SQL-04">SQL-04</a>, <a class="idlink" href="rag-knowledge-base.html#RAG-02">RAG-02</a></div>
+    <div><b>Unblocks</b>no task waits on this</div>
+    <div><b>New KI ids</b>KI-590–609</div>
+  </div>
+  <div class="status"><b>CONFIRMED</b> count (210). The v1 location was wrong: the single funnel is in c14, not in the graph.</div>
+  <div><span class="lbl">The issue</span>Every data-node exception ends up in <code>c14._data_path_error_result</code>, which turns it into the KB fallback. A <code>NameError</code> introduced by a refactor therefore produces a polite non-answer, and no test fails.</div>
+  <div><span class="lbl">The solution</span><ul><li>Add <code>settings.RAISE_INTERNAL_ERRORS</code>, set to true in <code>tests/conftest.py</code>. Under it, <code>_data_path_error_result</code> re-raises <code>NameError</code>, <code>UnboundLocalError</code>, <code>AttributeError</code>, <code>TypeError</code> and <code>ImportError</code> only.</li><li>The 14 script suites do not load conftest; set the flag in their shared helper if one exists.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Re-raising everything except timeout, OS, DB and HTTP errors. That breaks tests that inject <code>RuntimeError</code> on purpose.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li><code>pipeline_graph._observed</code> (:288) calls <code>_data_path_error_result</code> (c14:122).</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/pipeline/common/c14_turn_stages.py</code> · _data_path_error_result</li><li><code>app/config.py</code> · RAISE_INTERNAL_ERRORS</li><li><code>tests/conftest.py</code> · bottom of file</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>An injected <code>NameError</code> in a stage fails pytest.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/pipeline/common/c14_turn_stages.py</code> (you: _data_path_error_result)<ul><li><a class="idlink" href="context-memory.html#CTX-08">CTX-08</a> <span class="tag wave">W1a</span> log_decision lines 1219, 1238, 1252, 1729 only: earlier wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-01">RAG-01</a> <span class="tag wave">W1a</span> new _c14_rag01_process_question; one line in _turn_route_stage: earlier wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-02">RAG-02</a> <span class="tag wave">W1b</span> _data_path_kb_fallback: merges <b>before</b> you</li></ul></li><li><code>app/config.py</code> (you: RAISE_INTERNAL_ERRORS)<ul><li><a class="idlink" href="reliability-ops.html#REL-02">REL-02</a> <span class="tag wave">W0</span> model_config, delete 4 dead fields: merges <b>before</b> you</li><li><a class="idlink" href="security-access.html#SEC-05">SEC-05</a> <span class="tag wave">W1a</span> TRUSTED_PROXIES line 70: earlier wave</li><li><a class="idlink" href="security-access.html#SEC-07">SEC-07</a> <span class="tag wave">W1a</span> insecure_secrets, CSP_ENFORCE: earlier wave</li><li><a class="idlink" href="reliability-ops.html#REL-01">REL-01</a> <span class="tag wave">W1a</span> APP_BUILD (next to the Redis settings): earlier wave</li><li><a class="idlink" href="security-access.html#SEC-06">SEC-06</a> <span class="tag wave">W1b</span> DB_POOL_ACQUIRE_TIMEOUT next to the pool settings: earlier wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-05">RAG-05</a> <span class="tag wave">W2</span> startup warning near the RAG settings: earlier wave</li><li><a class="idlink" href="composer-answer-text.html#CMP-03">CMP-03</a> <span class="tag wave">W2</span> PROMPT_BUDGET_COMPOSER_TOKENS (line 669): earlier wave</li><li><a class="idlink" href="frontend.html#UI-02">UI-02</a> <span class="tag wave">W2</span> CSP font hosts: earlier wave</li><li><a class="idlink" href="rag-knowledge-base.html#RAG-06">RAG-06</a> <span class="tag wave">W3</span> SCHEMA_RAG_* settings in a new block next to the RAG settings: same wave, separate region</li></ul></li><li><code>tests/conftest.py</code> (you: bottom of file)<ul><li><a class="idlink" href="testing-evaluation.html#QA-02">QA-02</a> <span class="tag wave">W0</span> top of file: merges <b>before</b> you</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>REL-04:</b> The re-raise belongs in c14, not the graph; the v1 exception list would break tests. <i>Now:</i> Programming errors only.</li></ul></details>
+</article>
+
+<details><summary>Session prompt for REL-04</summary>
+  <div class="row" style="justify-content:space-between;margin-top:8px"><p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p><button type="button" class="btn" data-copy-pre="p-REL-04">Copy session prompt</button></div>
+  <pre class="prompt" id="p-REL-04">TASK REL-04: Let programming errors fail tests instead of becoming "couldn't answer"
+Repo: meghoneai (Megh One AI). Area: Reliability &amp; ops. Severity: Low. Wave: 3. Related: KI-009.
+Start only after these are merged into Main: SQL-04, RAG-02. Then create branch task/rel-04 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+CONFIRMED count (210). The v1 location was wrong: the single funnel is in c14, not in the graph.
+
+THE ISSUE
+Every data-node exception ends up in c14._data_path_error_result, which turns it into the KB fallback. A NameError introduced by a refactor therefore produces a polite non-answer, and no test fails.
+
+EVIDENCE
+- pipeline_graph._observed (:288) calls _data_path_error_result (c14:122).
+
+THE SOLUTION
+- Add settings.RAISE_INTERNAL_ERRORS, set to true in tests/conftest.py. Under it, _data_path_error_result re-raises NameError, UnboundLocalError, AttributeError, TypeError and ImportError only.
+- The 14 script suites do not load conftest; set the flag in their shared helper if one exists.
+
+DO NOT
+- Re-raising everything except timeout, OS, DB and HTTP errors. That breaks tests that inject RuntimeError on purpose.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/pipeline/common/c14_turn_stages.py: _data_path_error_result
+- app/config.py: RAISE_INTERNAL_ERRORS
+- tests/conftest.py: bottom of file
+
+DONE WHEN
+- An injected NameError in a stage fails pytest.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_rel04_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your REL-04 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-590–609. New decisions as "D-REL-04". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</details></section>
+<section><div class="cols"><div class="panel">
+      <h3>Rules every session follows</h3>
+      <ul>
+        <li><b>Branch:</b> name it <code>task/&lt;id&gt;</code>. Cut it from Main only after the tasks listed in its "start after" have merged. Merge through the Bitbucket merge queue, which tests each PR on top of everything already queued.</li>
+        <li><b>Docs:</b> edit only your task's pre-made stub in CURRENT_STATE and HANDOFF (DOC-02 creates them) and your own KI detail sections. Never edit the KI summary table, the TESTING history table or the "Last updated" lines; the integrator updates those at merge.</li>
+        <li><b>Ids:</b> new KI ids come only from your track's range (shown on the board). New decisions are written as <code>D-&lt;task id&gt;</code>, and the integrator numbers them from D-074.</li>
+        <li><b>Pipeline helpers:</b> prefix every new pipeline name with your file and task, for example <code>_c11_sql01_</code>. A duplicate top-level name silently replaces the other one (KI-413). Run <code>tests/test_pipeline_namespace_2026_10_26.py</code> before every PR.</li>
+        <li><b><code>config.py</code> and <code>.env.example</code>:</b> add settings next to related ones, in their own commented block. Never add at the end of the class, and never reorder.</li>
+        <li><b>Frontend:</b> never commit <code>web/app</code>. Before a PR, <code>git diff --name-only origin/Main...HEAD -- web/app</code> must be empty. The integrator builds once after the last frontend merge.</li>
+        <li><b>Requirements:</b> only QA-02 (wave 0) edits the requirements files.</li>
+      </ul>
+    </div><div class="panel">
+      <h3>Integration checklist after each wave</h3>
+      <ol>
+        <li>Run the full pytest command from TESTING.md §2 (baseline 3,910 passed and 3 skipped at HEAD; about 3,932 once P0 is in). After QA-02, <code>pytest tests -q</code> must finish too.</li>
+        <li>Run all 14 script suites; all must pass.</li>
+        <li>Run the namespace test and the duplicate KI and D id tests (from QA-02).</li>
+        <li>Run <code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code> and commit <code>web/app</code>. The node card and table tests must pass, not skip.</li>
+        <li>On the VPN: <code>live_context_validation.py</code> with caches on and off, <code>nl2sql_eval --fail-on-regression</code>, <code>rag_eval</code>, and one in-process answer per scheme as a district officer.</li>
+        <li>Restart on port 8401 and check <code>/health</code>, <code>/megh-chat</code> and <code>/admin-ui</code>.</li>
+        <li>Integrator only: update the KI table, the TESTING history and the "Last updated" lines.</li>
+      </ol>
+    </div></div></section>
+<nav class="crumbs" aria-label="Areas"><a href="index.html">← Overview</a><a href="security-access.html">Security & access</a><a href="context-memory.html">Context memory</a><a href="rag-knowledge-base.html">Knowledge base (RAG)</a><a href="composer-answer-text.html">Composer (answer text)</a><a href="frontend.html">Frontend</a><a href="nl2sql-scheme-rules.html">NL→SQL & scheme rules</a><b>Reliability & ops</b><a href="testing-evaluation.html">Testing & evaluation</a><a href="documentation.html">Documentation</a><a href="ingestion-team.html">Ingestion team</a></nav>
+</div><script>
+document.addEventListener("click",function(e){var b=e.target.closest("[data-copy-pre]");if(!b)return;var pre=document.getElementById(b.getAttribute("data-copy-pre"));var t=pre.textContent;
+function sel(){var r=document.createRange();r.selectNodeContents(pre);var s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent="Selected, press Ctrl+C";}
+try{navigator.clipboard.writeText(t).then(function(){b.textContent="Copied";setTimeout(function(){b.textContent="Copy session prompt"},2000)},sel)}catch(err){sel()}});
+</script></body></html>

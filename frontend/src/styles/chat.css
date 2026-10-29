@@ -727,6 +727,9 @@
   .rtbl tr:last-child td { border-bottom: none; }
   .rtbl tr:hover td { background: var(--p-50); }
   .rtbl.record-card th { text-transform: capitalize; background: var(--p-50); position: static; }
+  /* Figures right-aligned in even-width digits, so a column reads like a ledger (2026-10-28). */
+  .rtbl th.num, .rtbl td.num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
+  .rtbl td.delta { color: var(--ink-3); font-size: 12px; }
   .rtbl-note { font-size: 11px; color: var(--ink-3); padding: 8px 12px; font-style: italic; }
 
   /* ===== Follow-up "Next step" + sources ===== */

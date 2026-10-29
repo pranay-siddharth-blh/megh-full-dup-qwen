@@ -4,6 +4,58 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: audit v3 findings verified and merged into the 4-lane plan (2026-10-28 evening). Report only; no app code changed.
+- THE PLAN TO RUN is the 4-lane plan: `new_docs/Lane_Plan_2026-10-28.html` (setup, rules, final integration) and the lane
+  reports `new_docs/audit_by_lane_2026-10-28/lane-a1|a2|b1|b2.html` (prompt + audit evidence per task). Its setup commit
+  ([SETUP] lane sections) is done. RAG-01..RAG-06 are left out of this round (user decision).
+- `new_docs/Project_Audit_and_Work_Plan_2026-10-28.html` (audit v3, 7 packages) is kept as REFERENCE ONLY; do not run
+  its Step 0 or packages. Its 19 genuinely new findings were re-checked against the code (real functions, offline):
+  17 are in the lanes, SQL-11 is folded into QA-01/CTX-09 (its "58%" had 0 wrong answers, 31 deliberate pauses), and
+  CTX-15 is RAG (left out). Its other entries were splits of tasks the lanes already had.
+- New High findings (all REPRODUCED offline with the real functions, model stubbed, DB faked):
+  SEC-08 a CTE named after a private table passes `sql_guard._assert_schemas` (DB grants UNKNOWN — NEEDS VERIFICATION);
+  SEC-09 attempt 0 is authorized before `_scheme_sql_rewrites` (`pipeline_graph.node_execute_attempt` re-checks only
+  `if attempt`), cross-scheme bundles authorized once as joined text, `authorize` ignores district_list/block_list/village_code;
+  SQL-09 `_mgnrega_drop_geo_beside_village` strips geo filters from every WHERE incl. CTEs (district total becomes state);
+  SQL-10 results cut at the 1,000-row cap are reported as complete (CONFIRMED by code);
+  CMP-04 the number check skips ints < 100, year-like 1900-2199 and lakh/crore scaling ("33%" passes for 3.39%);
+  CMP-06 cross_figures says "more than" / ">" / "Highest" on "lowest" questions.
+  Medium: CTX-10..13 (error-path session divergence, summary resurrected after reset, KI-314 load retry dead on DB
+  errors, "stop" wipes the topic, Continue offer lost), CMP-05/07/08, REL-05. KIs are opened by the packages from their ranges.
+- Tests (this session): pytest 3,932 passed, 0 failed, 3 skipped; scripts 14/14. No live runs (none needed for a report).
+- Next: people steps (rotate credentials, ENV=dev on both dev machines), push the setup commits, then the four lane
+  sessions A1, A2 (machine 1) and B1, B2 (machine 2) with the prompts in the lane reports.
+
+## Latest: generated SQL switched to megh_chatbot in `.env` (2026-10-28). Config only. LIVE-VERIFIED in-process; the :8401 server (started 11:13, before the change) NOT restarted.
+- `.env` `CHATBOT_DATABASE_URL` uncommented (user, 2026-10-28): the D-073 path (`semantic.run_query` as megh_chatbot)
+  is now on for the next start. Settings load (user `megh_chatbot`, pool max 4, `SQL_MAX_COST` 1,000,000) — VERIFIED.
+  Live (VPN up), in-process through `app.main.lifespan`: startup logs `chatbot pool ready as 'megh_chatbot'`; session
+  `current_user` megh_chatbot, `application_name` megh-chatbot-v2:chatbot; run_query rows come back with int/date/bool types.
+  One generated-SQL question per scheme, each 1 run_query call, all answered: MGNREGA top-5 blocks EKH 2023-24 (5 rows),
+  PMAY-G top-5 blocks WGH 2022-23 (5), CM Elevate district 2025-26 (12), Focus Legacy district 2022-23 (11), CM Elevate
+  Legacy district 2024-25 (12); Focus Plus district 2025-26 answered by a fixed query (0 run_query calls, 12 rows) — VERIFIED.
+  Seen, not caused by the switch: "CM Elevate applications" answered as CM Elevate Legacy (keyword pin); Focus Legacy
+  "beneficiaries per district" answered with amount disbursed + memberships (composer extra content, see the 2026-10-27 audit).
+- Still on `postgres`: `DATABASE_URL` (app pool) and the checkpointer (`PIPELINE_GRAPH_CHECKPOINTER_DSN=postgres` reuses it);
+  moves to `megh_app` when the team sends the password + the user's go-ahead on `020_megh_app_role.sql`.
+
+## Latest: KI-438 — tables and chart axes show what the rows mean (2026-10-28). Frontend only, uncommitted, `web/app/` rebuilt. Offline-verified; browser check NOT run.
+- Twin columns (year_key + financial_year, name + code; one-to-one in the data) shown once — no diagonal grid of dashes.
+- Every table: Indian-grouped, right-aligned figures; readable headers; totals only for measures that add up.
+- Charts: axis titles, ₹ lakh / ₹ crore / % ticks and tooltips. "Change from previous" column only when the question
+  asks how a figure moved. Rows and the Excel download unchanged. New module `frontend/src/chat/columns.js`.
+- Tests: NEW `tests/test_table_view_2026_10_28.py` (28 with the card tests); full run in TESTING.md.
+
+## Latest: KI-437 — a cross-scheme comparison shows only what was asked (2026-10-27 evening). Code changed, uncommitted. Offline-verified; live check NOT run (VPN down); :8401 not restarted.
+- User screenshot: "Compare beneficiaries in mgnrega and PMAY-G." also gave PMAY-G completed houses, a separate MGNREGA
+  sentence, a table with money / villages / sanctioned ₹ crore, and a VS card comparing amount (₹ crore).
+- `app/cross_figures.py`: `_rows` has only the asked measures; one `beneficiaries` column for every scheme;
+  `Plan.completed` / `Plan.pgs` show PMAY-G completed / FOCUS producer groups only when asked or for a broad ask;
+  MGNREGA's household-year note is a clause on its own line. `frontend/src/chat/analytics.js` `askedMeasureCol`: the
+  two-way card compares the measure the question names. `web/app/` rebuilt.
+- Tests: pytest 3,910 passed / 0 failed (3 skipped; 2 async tests first failed because the fresh venv lacked
+  `pytest-asyncio` — installed with `pytest`, then green); scripts 14/14.
+
 ## Latest: RAG-plan handover, Tasks 1-9 (2026-10-27 night). Code changed, uncommitted. LIVE-VERIFIED in-process; :8401 NOT restarted.
 - **KI-406 fixed (D-075, user's U5 decision):** a standalone question that only repeats the chat's measure on the chat's scheme keeps the chat's year (never the place) — c14 `_same_scheme_context_year` / `_c14_repeats_chat_measure`. **KI-407:** test-only (the app already asks which CM Elevate dataset, D-064). Live context suite **107/107**.
 - **KI-427 fixed:** a stated span ("from A to B", "between A and B") resolves to `year_key_list` = every year (c09 `_c09_stated_year_span`), prompt `year_key BETWEEN A AND B`, c11 guard, span end outside the data clamped (c06). **KI-411 fixed:** c11 `_vr_grouped_by_year_only` counts `GROUP BY year_key, financial_year_short`. **KI-441 (new, fixed):** trend answers said "rose" over a fall; `_c12s_fix_trend_direction`.
@@ -22,7 +74,7 @@
 - Accuracy: held-out NL->SQL set, 74 q, `compare_examples_source.py` 2026-10-27 16:00: **yaml 56.8% (42) vs qdrant 54.1% (40)**; SQL first try 43/43 vs 39/43 (**4 repairs vs 0**, 2 verifier rejections vs 0); median 5.0 s vs 6.0 s; correct only with yaml FP-05, MG-08 (MG-08 is the intermittent KI-427), none only with qdrant; 31 clarifications in BOTH runs (not caused by the switch). Likely cause: the YAML banks hold 70+ examples per scheme, megh_sql_metadata ~20-25 (KI-438). Rollback: `SQL_EXAMPLES_SOURCE=yaml`.
 - :8401 not running; not checked over HTTP.
 
-## Latest: generated SQL runs through `semantic.run_query` as megh_chatbot (2026-10-27 afternoon, D-073). Code changed, uncommitted. LIVE-VERIFIED in-process; :8401 NOT restarted.
+## Earlier: generated SQL runs through `semantic.run_query` as megh_chatbot (2026-10-27 afternoon, D-073). Code changed, uncommitted. LIVE-VERIFIED in-process; :8401 NOT restarted.
 - `.env` `CHATBOT_DATABASE_URL` (key renamed from the user's `DATABASE_URL_CHATBOT`, which made settings refuse to load). Third pool, 4/worker.
 - Row values restored to asyncpg's types from run_query's `types` (added by the team today); 583/585 recent statements identical, 2 = same rows, no ORDER BY.
 - Refusals -> existing errors; class 08 / 53300 retried once; repairs stay 3 (team agreed). `application_name` = `megh-chatbot-v2:<pool>` on every connection.
@@ -1468,3 +1520,21 @@ DDL.
   `schema_context.py` in step.
 - `app.*` DDL in `appdb.py`: additive `IF NOT EXISTS` only, because an older build must tolerate
   a newer schema.
+
+## Parallel lanes (2026-10-28), temporary, folded in at final integration
+
+### Lane A1 · Platform & security (KI-450 to KI-479)
+- Progress: not started
+<!-- end lane A1 -->
+
+### Lane A2 · Conversation & frontend (KI-480 to KI-509)
+- Progress: not started
+<!-- end lane A2 -->
+
+### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
+- Progress: not started
+<!-- end lane B1 -->
+
+### Lane B2 · Answers & knowledge base (KI-540 to KI-569)
+- Progress: not started
+<!-- end lane B2 -->

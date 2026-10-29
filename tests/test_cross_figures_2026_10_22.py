@@ -197,7 +197,8 @@ def test_combined_total_is_given(monkeypatch):
     total = sum(sum(v[0] for v in _DIST[s].values()) for s in FOUR)
     assert f"**Combined: {cf.indian(total)}**" in out["answer"]
     assert "3,73,823 households given work" in out["answer"]     # Indian grouping
-    assert "31,725 members in 3,965 producer groups" in out["answer"]   # members, not PGs
+    assert "- **Focus Legacy:** 31,725 members" in out["answer"]   # members, not PGs
+    assert "producer groups" not in out["answer"]                  # not asked (2026-10-27)
 
 
 def test_combined_money(monkeypatch):
@@ -277,6 +278,59 @@ def test_focus_plus_is_grouped_by_its_source_district_names(monkeypatch):
          {"district": "WEST GARO HILLS"})
     assert any("v_focus_plus" in s and "UPPER(district_name_raw) = ANY($1::text[])" in s for s in seen)
     assert any("v_focus_legacy" in s and "UPPER(lgd_district) = ANY($1::text[])" in s for s in seen)
+
+
+# ── only what was asked (user report 2026-10-27) ──────────────────────────────
+
+def test_compare_beneficiaries_shows_beneficiaries_only(monkeypatch):
+    # "Compare beneficiaries in mgnrega and PMAY-G." also showed completed houses,
+    # money, villages and sanctioned amounts, and a separate MGNREGA sentence
+    _fake_db(monkeypatch)
+    q = "Compare beneficiaries in mgnrega and PMAY-G."
+    pl = _plan(q, ["MGNREGA", "PMAY-G"])
+    assert pl.measures == ["count"] and pl.op == "leader" and not pl.completed and not pl.pgs
+    out = _ask(q, ["MGNREGA", "PMAY-G"])
+    assert out["rows"] == [{"scheme": "MGNREGA", "beneficiaries": 373823},
+                           {"scheme": "PMAY-G", "beneficiaries": 50712}]
+    a = out["answer"]
+    assert "- **MGNREGA:** 3,73,823 households given work (counted once per financial year" in a
+    assert "- **PMAY-G:** 50,712 houses sanctioned\n" in a
+    assert "**MGNREGA** has the most beneficiaries (3,73,823), 3,23,111 more than PMAY-G" in a
+    for extra in ("completed", "crore", "lakh", "villages", "sanctioned (", "counts a household"):
+        assert extra not in a, extra
+
+
+def test_the_detail_is_shown_when_asked(monkeypatch):
+    _fake_db(monkeypatch)
+    out = _ask("Compare completed houses and beneficiaries in MGNREGA and PMAY-G", ["MGNREGA", "PMAY-G"])
+    assert "50,712 houses sanctioned (25,356 completed)" in out["answer"]
+    assert out["rows"][1]["houses_completed"] == 25356
+    out = _ask("How many members and producer groups do Focus+ and FOCUS have?", ["Focus Plus", "Focus Legacy"])
+    assert "31,725 members in 3,965 producer groups" in out["answer"]
+    assert out["rows"][1]["producer_groups"] == 3965
+
+
+def test_a_broad_overview_keeps_every_figure(monkeypatch):
+    # "performance" reads as the scale and the money (T08, T14, T20.1), with the detail
+    _fake_db(monkeypatch)
+    out = _ask("What is the performance of MGNREGA and PMAY-G?", ["MGNREGA", "PMAY-G"])
+    assert "completed)" in out["answer"] and "released (sanctioned" in out["answer"]
+    assert {"beneficiaries", "houses_completed", "amount_crore", "sanctioned_crore"} <= set(out["rows"][1])
+
+
+def test_a_money_question_has_no_count_columns(monkeypatch):
+    _fake_db(monkeypatch)
+    out = _ask("Compare amount spent in MGNREGA and PMAY-G", ["MGNREGA", "PMAY-G"])
+    assert all("beneficiaries" not in r and "villages" not in r for r in out["rows"])
+    assert "households given work" not in out["answer"] and "₹" in out["answer"]
+
+
+def test_district_rows_share_one_count_column(monkeypatch):
+    _fake_db(monkeypatch)
+    out = _ask("Show district-wise beneficiary counts for Focus Plus, FOCUS and PMAY Gramin.",
+               ["PMAY-G", "Focus Plus", "Focus Legacy"])
+    assert out["rows"] and all(set(r) == {"district", "scheme", "beneficiaries"} for r in out["rows"])
+    assert "PGs" not in out["answer"]
 
 
 def test_indian_grouping():

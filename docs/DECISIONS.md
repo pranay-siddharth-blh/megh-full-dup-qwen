@@ -1838,3 +1838,21 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
   after the tap keeps the restored turn as antecedent (browser check with a 60 s idle window).
 - **Not built:** WI-9 (Qdrant search over archived turns on history cues — the 8 × 20 ledger covers a session).
 - **Status:** Active.
+
+## Parallel lanes (2026-10-28), temporary, folded in at final integration
+
+### Lane A1 · Platform & security (KI-450 to KI-479)
+- Progress: not started
+<!-- end lane A1 -->
+
+### Lane A2 · Conversation & frontend (KI-480 to KI-509)
+- Progress: not started
+<!-- end lane A2 -->
+
+### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
+- Progress: not started
+<!-- end lane B1 -->
+
+### Lane B2 · Answers & knowledge base (KI-540 to KI-569)
+- Progress: not started
+<!-- end lane B2 -->

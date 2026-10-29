@@ -24,9 +24,14 @@ Measures (docs/SCHEMES.md, the UAT sheet's definitions):
             money = SUM(total_exp) lakh / 100 -> crore; villages = distinct village codes.
   PMAY-G    houses (every record); money = amount RELEASED (sanctioned alongside).
   Focus+    distinct beneficiaries; money = amount_disbursed.
-  FOCUS     members = SUM(no_of_pg_members) with producer groups alongside; money =
+  FOCUS     members = SUM(no_of_pg_members) (producer groups alongside when asked); money =
             amount_disbursed. 'Unresolved' rows are left out of village counts ONLY —
             they are real payments and stay in every member / money total (T20.1).
+Only what was asked is shown (user report 2026-10-27: "Compare beneficiaries in mgnrega
+and PMAY-G" also showed money, villages, sanctioned amounts and completed houses, and
+the comparison card compared money): the table carries the asked measures' columns,
+the count in ONE `beneficiaries` column for every scheme, and PMAY-G's completed
+houses / FOCUS's producer groups only when asked or for a broad overview.
 Geography: Focus Plus by the SOURCE district / block name (district_name_raw /
 block_name_raw — what its catalogue notes lead with, and what the source file
 counts: West Garo Hills 35,059, not the LGD 35,039); every other scheme by the LGD
@@ -185,6 +190,9 @@ _COUNT = Matcher(Alt(
 # did … each cover in FY 2025-26?" asks for people)
 _VILLAGES = Matcher(Alt(W("coverage", "widest", "footprint", "presence", "spread"), W("village", "villages")))
 _PERFORMANCE = Matcher(W("performance", "performing", "doing", "perform", "performed"))
+# a scheme's own detail beside its count: PMAY-G completed houses, FOCUS producer groups
+_COMPLETED = Matcher(W("complet", prefix=True))
+_PGS = Matcher(Alt(S("producer", W("group", "groups")), W("pg", "pgs")))
 _SUMMARY = Matcher(Alt(W("overview"), W("compar", "summar", prefix=True)))
 _AVG = Matcher(Alt(S("per", W("beneficiary", "beneficiaries", "head", "house", "member", "household", "person")),
                    W("average", "avg")))
@@ -225,6 +233,8 @@ class Plan:
     rank_measures: bool = False
     lead_all: bool = False               # a leader line for every measure, not only the first
     first: str = "count"                 # the measure a ranking / comparison is decided on
+    completed: bool = False              # PMAY-G completed houses beside its count
+    pgs: bool = False                    # FOCUS producer groups beside its members
     place_label: str = "all of Meghalaya"
     period_label: str = "all financial years"
     notes: list = field(default_factory=list)
@@ -307,6 +317,10 @@ def plan(text: str, schemes: list, resolved: dict, display: "dict | None",
              avg=avg, low=bool(_LOW.search(text)), top_n=_top_n(text),
              rank_measures=bool(_RANK_MEASURES.search(text)) and not by_district,
              lead_all=perf or (count and money))
+    # a broad ask ("performance", "overview" with no measure) reads with the detail
+    broad = perf or (summary and not explicit)
+    p.completed = broad or bool(_COMPLETED.search(text))
+    p.pgs = broad or bool(_PGS.search(text))
     disp = display or {}
     if block:
         p.place_label = f"{str(disp.get('block') or block).title()} block"
@@ -347,11 +361,17 @@ _BEN_NOUN = {"MGNREGA": "households given work", "PMAY-G": "houses sanctioned",
 _MONEY_VERB = {"MGNREGA": "spent", "PMAY-G": "released", "Focus Plus": "disbursed", "Focus Legacy": "disbursed"}
 
 
-def count_text(s: str, f: dict, short: bool = False) -> str:
+def count_text(s: str, f: dict, short: bool = False, p: "Plan | None" = None) -> str:
+    """`p`: the plan, whose `completed` / `pgs` say whether the scheme's detail is
+    shown; without one the detail is shown."""
     n = indian(f.get("ben", 0))
     if s == "PMAY-G":
-        return n if short else f"{n} houses sanctioned ({indian(f.get('completed', 0))} completed)"
+        if short or (p is not None and not p.completed):
+            return n if short else f"{n} houses sanctioned"
+        return f"{n} houses sanctioned ({indian(f.get('completed', 0))} completed)"
     if s == "Focus Legacy":
+        if p is not None and not p.pgs:
+            return f"{n} members"
         return f"{n} members ({indian(f.get('pgs', 0))} PGs)" if short else \
             f"{n} members in {indian(f.get('pgs', 0))} producer groups"
     return n if short else f"{n} {_BEN_NOUN[s]}"
@@ -450,7 +470,11 @@ def _header(p: Plan) -> str:
 def _scheme_line(s: str, f: dict, p: Plan, state: bool) -> str:
     parts = []
     if "count" in p.measures:
-        parts.append(count_text(s, f))
+        n = count_text(s, f, p=p)
+        if s == "MGNREGA" and state and p.year is None:
+            # all years added: the same household is in it once per year it worked
+            n += " (counted once per financial year, FY 2022-23 to 2025-26)"
+        parts.append(n)
     if "money" in p.measures:
         parts.append(money_text(s, f))
     if "villages" in p.measures:
@@ -461,10 +485,8 @@ def _scheme_line(s: str, f: dict, p: Plan, state: bool) -> str:
 
 
 def _state_lines(p: Plan, f: dict, have: list) -> list:
+    # MGNREGA's household-year note is on its own line (_scheme_line), not a sentence of its own
     out = [_scheme_line(s, f[s], p, True) for s in have]
-    if "count" in p.measures and "MGNREGA" in have and p.year is None:
-        out.append("MGNREGA counts a household once for each financial year it was given work (FY 2022-23 "
-                   "to 2025-26 added).")
     if len(have) < 2:
         return out
     if p.combined:
@@ -571,7 +593,7 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
             f = figs[s].get(k, {})
             parts = []
             if "count" in p.measures:
-                parts.append(count_text(s, f, short=True))
+                parts.append(count_text(s, f, short=True, p=p))
             if "money" in p.measures:
                 parts.append(money_text(s, f, short=True))
             if "villages" in p.measures:
@@ -615,7 +637,11 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
 
 
 def _rows(p: Plan, figs: dict, have: list) -> list[dict]:
-    """The result table: one row per scheme (and district), the figures in clear columns."""
+    """The result table: one row per scheme (and district), the asked measures only.
+    Every scheme's count is in the one `beneficiaries` column (what each counts is
+    in the answer text), so a chart or the two-way card compares the asked measure
+    for every scheme — never money in its place, never a missing column read as 0
+    (user reports 2026-10-22, 2026-10-27)."""
     rows = []
     for s in have:
         for k, f in sorted(figs[s].items()):
@@ -623,15 +649,17 @@ def _rows(p: Plan, figs: dict, have: list) -> list[dict]:
                 continue
             r = {"district": k.title()} if k != STATE else {}
             r["scheme"] = s
-            r[{"MGNREGA": "households_given_work", "PMAY-G": "houses_sanctioned", "Focus Plus": "beneficiaries",
-               "Focus Legacy": "members"}[s]] = int(f.get("ben", 0))
-            if s == "PMAY-G":
-                r["houses_completed"] = int(f.get("completed", 0))
-            if s == "Focus Legacy":
-                r["producer_groups"] = int(f.get("pgs", 0))
-            r["amount_crore"] = round(f.get("money", 0.0), 2)
-            if s == "PMAY-G":
-                r["sanctioned_crore"] = round(f.get("sanctioned", 0.0), 2)
-            r["villages"] = int(f.get("villages", 0))
+            if "count" in p.measures:
+                r["beneficiaries"] = int(f.get("ben", 0))
+                if s == "PMAY-G" and p.completed:
+                    r["houses_completed"] = int(f.get("completed", 0))
+                if s == "Focus Legacy" and p.pgs:
+                    r["producer_groups"] = int(f.get("pgs", 0))
+            if "money" in p.measures:
+                r["amount_crore"] = round(f.get("money", 0.0), 2)
+                if s == "PMAY-G":
+                    r["sanctioned_crore"] = round(f.get("sanctioned", 0.0), 2)
+            if "villages" in p.measures:
+                r["villages"] = int(f.get("villages", 0))
             rows.append(r)
     return rows

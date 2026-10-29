@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Chart from 'chart.js/auto';
 import { pivotStacked, tableColumns } from '../analytics.js';
+import { changeColumn, colTitle, formatCell, isAdditive, isMeasureCol, withoutTwins } from '../columns.js';
 import { isPeriodLabel, isPlainNumber } from '../text.js';
 import {
   INK, PLUGINS, alpha, categorySchemeColors, chartAnimation, fmt, fmtCompact, insightFor, insightForSeries,
@@ -73,6 +74,38 @@ function horizontal(options) {
       y: { ...options.scales.x, ticks: { ...CAT_AXIS.ticks, autoSkip: false } },
     },
   };
+}
+
+// Axis titles and units (2026-10-28): the value axis says what it counts
+// ("Person days", "Total expenditure (₹ lakh)") and the category axis what the
+// bars are ("Financial year", "District"). A column already in lakh / crore is
+// never abbreviated again ("8,996" on a ₹ lakh axis, not "9K" / "0.1L"); a % axis
+// reads "45%". `axes` = { x, y, unit } from analytics.js; no `axes`, no change.
+const AXIS_TITLE = { display: true, color: INK.muted, font: { family: 'Inter', size: 11, weight: '600' }, padding: 4 };
+const UNIT_TEXT = { pct: (v) => `${fmt(v)}%`, lakh: (v) => `${fmt(v)} lakh`, crore: (v) => `${fmt(v)} crore` };
+
+function withAxes(config, axes) {
+  const sc = config && config.options && config.options.scales;
+  if (!axes || !sc || config.type === 'doughnut' || config.type === 'pie') return config;
+  const valKey = config.options.indexAxis === 'y' ? 'x' : 'y';
+  const catKey = valKey === 'y' ? 'x' : 'y';
+  const scales = { ...sc };
+  if (sc[catKey] && axes.x) scales[catKey] = { ...sc[catKey], title: { ...AXIS_TITLE, text: axes.x } };
+  if (sc[valKey] && axes.y) {
+    const tick = axes.unit === 'pct' ? UNIT_TEXT.pct : (axes.unit === 'lakh' || axes.unit === 'crore') ? (v) => fmt(v) : null;
+    scales[valKey] = { ...sc[valKey], title: { ...AXIS_TITLE, text: axes.y },
+      ...(tick ? { ticks: { ...sc[valKey].ticks, callback: tick } } : {}) };
+  }
+  let { plugins } = config.options;
+  const unit = UNIT_TEXT[axes.unit];
+  if (unit && plugins && plugins.tooltip && plugins.tooltip.callbacks) {
+    plugins = { ...plugins, tooltip: { ...plugins.tooltip, callbacks: { ...plugins.tooltip.callbacks,
+      label: (ctx) => {
+        const v = ctx.raw != null && typeof ctx.raw === 'object' ? ctx.parsed[valKey] : ctx.raw;
+        return `${ctx.dataset.label ? ctx.dataset.label + ': ' : ''}${unit(v)}`;
+      } } } };
+  }
+  return { ...config, options: { ...config.options, scales, plugins } };
 }
 
 // The pale bars wear a soft vertical wash of the hue; the highlight the full hue.
@@ -578,7 +611,7 @@ function CardHead({ title, theme, insight, children }) {
 const cardStyle = (theme) => ({ '--chart-accent': theme.main, '--chart-accent-2': theme.deep });
 
 // A chart card with Bar / Pie / Donut (/ Line) toggles, like the original swDyn().
-export function SwitchableChart({ title, labels, fullLabels, values, types, initial, theme = DEFAULT_THEME }) {
+export function SwitchableChart({ title, labels, fullLabels, values, types, initial, theme = DEFAULT_THEME, axes = null }) {
   const [type, setType] = useState(types.includes(initial) ? initial : types[0]);
   const [open, setOpen] = useState(false);
   const full = fullLabels || labels;
@@ -591,12 +624,12 @@ export function SwitchableChart({ title, labels, fullLabels, values, types, init
         <ExpandButton label="chart" onClick={() => setOpen(true)} />
       </CardHead>
       <div className={'chw' + (type === 'pie' || type === 'doughnut' ? ' round' : '')}>
-        <ChartCanvas build={() => singleConfig(type, labels, values, theme)} deps={[type, labels, values, theme]} zoom={type === 'line'} />
+        <ChartCanvas build={() => withAxes(singleConfig(type, labels, values, theme), axes)} deps={[type, labels, values, theme, axes]} zoom={type === 'line'} />
       </div>
       {open && (
         <ExpandModal title={title} onClose={() => setOpen(false)}>
           <div className="xv-toolbar"><TypeToggles types={types} type={type} setType={setType} /></div>
-          <ExpandedChart build={() => singleConfig(type, full, values, theme, true)} deps={[type, full, values, theme]}
+          <ExpandedChart build={() => withAxes(singleConfig(type, full, values, theme, true), axes)} deps={[type, full, values, theme, axes]}
                          rows={flat ? full.length : 0} zoom={type === 'line'} />
         </ExpandModal>
       )}
@@ -648,11 +681,11 @@ function twoDimConfig(type, labels, datasets, theme, expanded = false) {
   return groupedConfig(labels, datasets.map((d) => ({ label: d.label, values: d.data })), theme, expanded);
 }
 
-export function TwoDimChart({ title, labels, datasets, xKey, sKey, periods, initial, types = TWO_DIM_TYPES, theme = DEFAULT_THEME }) {
+export function TwoDimChart({ title, labels, datasets, xKey, sKey, periods, initial, types = TWO_DIM_TYPES, theme = DEFAULT_THEME, axisInfo = null }) {
   const [type, setType] = useState(types.includes(initial) ? initial : (types.length === 1 ? types[0] : (periods ? 'line' : 'bar')));
   const [open, setOpen] = useState(false);
   const insight = useMemo(() => insightForSeries(labels, datasets, periods), [labels, datasets, periods]);
-  const axes = `${String(sKey).replaceAll('_', ' ')} by ${String(xKey).replaceAll('_', ' ')}`;
+  const axes = `${colLabel(String(sKey))} by ${colLabel(String(xKey)).toLowerCase()}`;
   return (
     <div className="dyn-chart-card" style={cardStyle(theme)}>
       <CardHead title={title} theme={theme} insight={insight}>
@@ -660,13 +693,13 @@ export function TwoDimChart({ title, labels, datasets, xKey, sKey, periods, init
         <ExpandButton label="chart" onClick={() => setOpen(true)} />
       </CardHead>
       <div className={'chw tall' + (type === 'doughnut' || type === 'pie' ? ' round' : '')}>
-        <ChartCanvas build={() => twoDimConfig(type, labels, datasets, theme)} deps={[type, labels, datasets, theme]} zoom={type === 'line'} />
+        <ChartCanvas build={() => withAxes(twoDimConfig(type, labels, datasets, theme), axisInfo)} deps={[type, labels, datasets, theme, axisInfo]} zoom={type === 'line'} />
       </div>
       <div className="chd-axes" aria-label="What the axes show">{axes}</div>
       {open && (
         <ExpandModal title={title} onClose={() => setOpen(false)}>
           <div className="xv-toolbar"><TypeToggles types={types} type={type} setType={setType} /></div>
-          <ExpandedChart build={() => twoDimConfig(type, labels, datasets, theme, true)} deps={[type, labels, datasets, theme]}
+          <ExpandedChart build={() => withAxes(twoDimConfig(type, labels, datasets, theme, true), axisInfo)} deps={[type, labels, datasets, theme, axisInfo]}
                          rows={type !== 'line' && type !== 'doughnut' && type !== 'pie' && labels.length > HORIZONTAL_FROM ? labels.length * Math.max(1, datasets.length * 0.6) : 0}
                          zoom={type === 'line'} />
         </ExpandModal>
@@ -717,7 +750,10 @@ function compareCells(a, b) {
   return String(a).localeCompare(String(b), 'en-IN', { numeric: true, sensitivity: 'base' });
 }
 
-const colLabel = (c) => c.replaceAll('_', ' ');
+// A heading in words: "total_exp_lakh" -> "Total expenditure (₹ lakh)" (columns.js).
+const colLabel = (c) => colTitle(c);
+// Measure cells read right-aligned, like a ledger (2026-10-28).
+const numClass = (isNum) => (isNum ? 'num' : undefined);
 
 function TableBar({ count, label, onExpand }) {
   return (
@@ -733,10 +769,13 @@ function TableBar({ count, label, onExpand }) {
 function BigTable({ data, cols, title = 'Result table' }) {
   const [query, setQuery] = useState('');
   const [sort, setSort] = useState({ col: null, dir: 1 });
+  const nums = useMemo(() => new Set(cols.filter((c) => isMeasureCol(data, c))), [data, cols]);
   const rows = useMemo(() => {
     const needle = query.trim().toLowerCase();
+    // the search finds a figure as stored (27264054) or as shown (2,72,64,054)
     const out = needle
-      ? data.filter((r) => cols.some((c) => String(r[c] ?? '').toLowerCase().includes(needle)))
+      ? data.filter((r) => cols.some((c) => String(r[c] ?? '').toLowerCase().includes(needle)
+        || formatCell(r[c], c).toLowerCase().includes(needle)))
       : data.slice();
     if (sort.col) out.sort((a, b) => compareCells(a[sort.col], b[sort.col]) * sort.dir);
     return out;
@@ -758,7 +797,7 @@ function BigTable({ data, cols, title = 'Result table' }) {
           <thead>
             <tr>
               {cols.map((c) => (
-                <th key={c} aria-sort={sort.col === c ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}>
+                <th key={c} className={numClass(nums.has(c))} aria-sort={sort.col === c ? (sort.dir === 1 ? 'ascending' : 'descending') : 'none'}>
                   <button type="button" className="th-sort" onClick={() => toggleSort(c)} title="Sort">
                     {colLabel(c)}<span className="th-arrow">{sort.col === c ? (sort.dir === 1 ? '▲' : '▼') : '↕'}</span>
                   </button>
@@ -768,7 +807,7 @@ function BigTable({ data, cols, title = 'Result table' }) {
           </thead>
           <tbody>
             {rows.map((r, i) => (
-              <tr key={i}>{cols.map((c) => <td key={c}>{String(r[c] ?? '—')}</td>)}</tr>
+              <tr key={i}>{cols.map((c) => <td key={c} className={numClass(nums.has(c))}>{formatCell(r[c], c)}</td>)}</tr>
             ))}
           </tbody>
         </table>
@@ -778,19 +817,34 @@ function BigTable({ data, cols, title = 'Result table' }) {
   );
 }
 
-export function DynTable({ data, title = 'Result table' }) {
+// `change`: the question asked how a figure moved over time; a one-period,
+// one-measure table then adds "Change from previous" (columns.changeColumn).
+export function DynTable({ data: raw, title = 'Result table', change = false }) {
   const [open, setOpen] = useState(false);
-  if (!data || !data.length) return null;
+  if (!raw || !raw.length) return null;
+  // A twin column (year_key beside financial_year) is the same thing twice: shown
+  // once. The Excel download keeps every column (ChatExport reads the raw rows).
+  const data = withoutTwins(raw);
   const cols = tableColumns(data);
+  const nums = new Set(cols.filter((c) => isMeasureCol(data, c)));
+  const delta = change ? changeColumn(data) : null;
   return (
     <div className="rt-block">
       <TableBar count={data.length} label="table" onExpand={() => setOpen(true)} />
       <div className="rtwrap">
         <table className="rtbl">
-          <thead><tr>{cols.map((c) => <th key={c}>{colLabel(c)}</th>)}</tr></thead>
+          <thead>
+            <tr>
+              {cols.map((c) => <th key={c} className={numClass(nums.has(c))}>{colLabel(c)}</th>)}
+              {delta && <th className="num">{delta.column}</th>}
+            </tr>
+          </thead>
           <tbody>
             {data.map((r, i) => (
-              <tr key={i}>{cols.map((c) => <td key={c}>{String(r[c] ?? '—')}</td>)}</tr>
+              <tr key={i}>
+                {cols.map((c) => <td key={c} className={numClass(nums.has(c))}>{formatCell(r[c], c)}</td>)}
+                {delta && <td className="num delta">{delta.values[i]}</td>}
+              </tr>
             ))}
           </tbody>
         </table>
@@ -814,29 +868,37 @@ function PivotGrid({ data, xKey, sKey, vKey, expanded }) {
   const colTotals = {};
   sVals.forEach((sv) => { colTotals[sv] = xVals.reduce((s, x) => s + (parseFloat(lookup[`${x}||${sv}`]) || 0), 0); });
   const grand = xVals.reduce((s, x) => s + rowTotals[x], 0);
+  // Totals only where they mean something: a measure that adds up (never a %,
+  // a rate, an average or a running stock such as job cards), across 2+ values.
+  const additive = isAdditive(vKey);
+  const rowTot = additive && sVals.length >= 2;
+  const colTot = additive && xVals.length >= 2;
+  const total = (n) => formatCell(n, vKey);
   return (
     <div className={'rtwrap' + (expanded ? ' xv-table' : '')} style={{ overflowX: 'auto' }}>
       <table className="rtbl">
         <thead>
           <tr>
             <th>{colLabel(xKey)}</th>
-            {sVals.map((sv) => <th key={sv}>{sv}</th>)}
-            <th>Total</th>
+            {sVals.map((sv) => <th key={sv} className="num">{sv}</th>)}
+            {rowTot && <th className="num">Total</th>}
           </tr>
         </thead>
         <tbody>
           {xVals.map((x) => (
             <tr key={x}>
               <td><strong>{String(x)}</strong></td>
-              {sVals.map((sv) => <td key={sv}>{String(lookup[`${x}||${sv}`] ?? '—')}</td>)}
-              <td><strong>{rowTotals[x].toLocaleString('en-IN')}</strong></td>
+              {sVals.map((sv) => <td key={sv} className="num">{formatCell(lookup[`${x}||${sv}`], vKey)}</td>)}
+              {rowTot && <td className="num"><strong>{total(rowTotals[x])}</strong></td>}
             </tr>
           ))}
-          <tr style={{ background: 'var(--p-50)', fontWeight: 600 }}>
-            <td><strong>Total</strong></td>
-            {sVals.map((sv) => <td key={sv}>{colTotals[sv].toLocaleString('en-IN')}</td>)}
-            <td><strong>{grand.toLocaleString('en-IN')}</strong></td>
-          </tr>
+          {colTot && (
+            <tr style={{ background: 'var(--p-50)', fontWeight: 600 }}>
+              <td><strong>Total</strong></td>
+              {sVals.map((sv) => <td key={sv} className="num">{total(colTotals[sv])}</td>)}
+              {rowTot && <td className="num"><strong>{total(grand)}</strong></td>}
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
@@ -868,7 +930,7 @@ export function RecordCard({ row }) {
       <table className="rtbl record-card">
         <tbody>
           {entries.map(([k, v]) => (
-            <tr key={k}><th style={{ width: '42%' }}>{colLabel(k)}</th><td>{String(v)}</td></tr>
+            <tr key={k}><th style={{ width: '42%' }}>{colLabel(k)}</th><td>{formatCell(v, k)}</td></tr>
           ))}
         </tbody>
       </table>
