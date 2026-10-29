@@ -872,6 +872,22 @@ async def _cm_elevate_block_from_mention(mention: str, schemes: "list[str] | Non
     return exact[0] if len(exact) == 1 else None
 
 
+def _cme_block_only_in_constituency(question: str, block: str) -> bool:
+    """Every place the block's name is written, the next word (after at most one more name word) is
+    "constituency" / "assembly" and never "block" / "municipal" / "town"."""
+    base = _cme_block_base(block).lower()
+    words = ["".join(ch for ch in w.lower() if ch.isalnum()) for w in (question or "").split()]
+    hits = [i for i, w in enumerate(words) if w and w == base]
+    if not base or not hits:
+        return False
+    for i in hits:
+        after = [w for w in words[i + 1:i + 3] if w]
+        if not after or after[0] in ("block", "municipal", "town", "tc", "mb") \
+                or not any(w in ("constituency", "assembly", "ac") for w in after):
+            return False
+    return True
+
+
 async def _cm_elevate_blocks_to_data(question: str, resolved: dict, display: dict,
                                      scheme: str = "CM Elevate") -> None:
     """KI-107 (CM Elevate all-blocks run, 2026-09-28): the CM Elevate block
@@ -882,6 +898,15 @@ async def _cm_elevate_blocks_to_data(question: str, resolved: dict, display: dic
     "Jowai Municipal Board" to JOWAI, which has no rows ("no records"); a
     resolved RI-MULIANG never matched the stored "RI MULIANG". Rewrite the
     resolved block(s) to the spelling the data stores."""
+    # "status distribution in West Shillong constituency" resolved the block SHILLONG-MUNICIPAL BOARD from
+    # the town's name inside the constituency's; the missing-filter guard then demanded it on every repair
+    # and the turn ended "couldn't build a working query" (UAT 2026-10-30, C01-017AC-59). A block the
+    # text names only as part of "<name> constituency" is not a block filter.
+    if scheme == "CM Elevate" and isinstance(resolved.get("block"), str) \
+            and _cme_block_only_in_constituency(question, resolved["block"]):
+        logger.info("CM Elevate: block %r named only inside a constituency's name - dropped", resolved["block"])
+        resolved.pop("block", None)
+        display.pop("block", None)
     try:
         data_blocks = await _cm_elevate_block_names(scheme)
     except Exception:  # noqa: BLE001 — without the live list, keep the resolver's answer
@@ -1667,7 +1692,19 @@ def _cm_elevate_unasked_programme_filter(question: str, schemes: list[str], sql:
     tree = sql_ast.parse_one(sql)
     node = _cme_in_list(tree, "scheme_name")
     if node is None:
-        return sql
+        # one programme too: "Applicants for the Chief Minister's Elevate programme in Ri Bhoi" got
+        # scheme_name = 'Chief Minister''s Green Taxi Scheme' and "1 applicant" (UAT 2026-10-30, C17-09)
+        node = next((n for n in (tree.find_all(exp.EQ) if tree is not None else [])
+                     if _cme_col(n.this, "scheme_name") is not None and _cme_str(n.expression) is not None), None)
+        if node is None:
+            return sql
+        lits = [_cme_str(node.expression)]
+        if any(_cme_question_names(x, q) for x in lits):
+            return sql
+        if not _cme_drop_conjuncts(tree, lambda c: c is node):
+            return sql
+        logger.info("CM Elevate: dropped a programme filter the question never named: %s", lits)
+        return sql_ast.to_sql(tree)
     lits = _cme_in_values(node)
     if any(_cme_question_names(x, q) for x in lits):
         return sql
@@ -2510,6 +2547,50 @@ def _cme_compare_missing_zero(sql: str, rows: list[dict], answer: str) -> str:
             + "; ".join(f"{_cme_short(pr)} in {_place_title(d)}" for pr, d in miss) + ".")
 
 
+_CME_AC_NAMES: "set[str] | None" = None
+
+
+async def _cme_unknown_constituency(sql: str) -> "str | None":
+    """A constituency in the SQL that v_cm_elevate does not hold: "How many CM Elevate applicants are
+    there in El Dorado constituency?" ran UPPER(ac_name) = UPPER('El Dorado') and said "0 applicants — the
+    data records zero" for a place that does not exist (UAT 2026-10-30, C14-INV-17)."""
+    global _CME_AC_NAMES
+    vals = {str(v).strip() for v in _fl_ac_values(sql or "")} if sql else set()
+    if not vals:
+        return None
+    if _CME_AC_NAMES is None:
+        try:
+            rows = await fetch_rows("SELECT DISTINCT UPPER(ac_name) AS a FROM curated.v_cm_elevate WHERE ac_name IS NOT NULL", [])
+            _CME_AC_NAMES = {str(r["a"]) for r in rows}
+        except Exception:  # noqa: BLE001 — without the list, say nothing
+            return None
+    bad = [v for v in vals if v.upper() not in _CME_AC_NAMES]
+    return _place_title(bad[0]) if bad else None
+
+
+def _cme_village_not_in_named_block(question: str, rows: list[dict]) -> "str | None":
+    """"MAWBRI village of Mawkyrwat block" was answered with the Mawbri villages of Bhoirymbong and
+    Khatarshnong Laitkroh — no Mawbri in Mawkyrwat has an application (UAT 2026-10-30, C14). When the rows
+    carry their block and none is the block the question names, the answer is 0 for that village there."""
+    q = question or ""
+    low = q.lower()
+    i = low.find(" village of ")
+    j = low.find(" block", i + 12) if i >= 0 else -1
+    if i < 0 or j < 0 or not rows or "lgd_block" not in rows[0]:
+        return None
+    blk = q[i + 12:j].strip()
+    k = low.rfind(" in ", 0, i)
+    vil = q[k + 4:i].strip() if k >= 0 else ""
+    want = "".join(ch for ch in _cme_block_base(blk).lower() if ch.isalnum())
+    have = {"".join(ch for ch in _cme_block_base(str(r.get("lgd_block") or "")).lower() if ch.isalnum()) for r in rows}
+    if not want or want in have or not vil:
+        return None
+    return (f"There are no CM Elevate applicants (0) in {vil} village of {blk} block. "
+            f"Villages named {vil} in other blocks: "
+            + "; ".join(f"{_place_title(str(r.get('lgd_block')))} {int(_as_number(next((v for k2, v in r.items() if _as_number(v) is not None and k2 != 'village_code'), 0)) or 0):,}"
+                        for r in rows) + ".")
+
+
 _CME_YEAR_PHRASE = Matcher(Seq(W("for", "in", "during"), Opt("the"), Opt(W("year", "fy", "financial")), Opt("year"),
                                Pred(lambda w: len(w) == 4 and w[:2] == "20" and is_int(w)),
                                Opt(Pred(lambda w: len(w) == 2 and is_int(w))), sep="any"))
@@ -2536,6 +2617,13 @@ def _cme_drop_invented_year(question: str, answer: str) -> str:
 async def _cm_elevate_answer_guarantees(question: str, sql: str, rows: list[dict], answer: str,
                                         display: dict) -> str:
     """Every CM Elevate DATA answer passes through here after the composer."""
+    unknown = await _cme_unknown_constituency(sql)
+    if unknown:
+        return (f"I couldn't find an assembly constituency called “{unknown}” in the CM Elevate data. Please check "
+                "the name, or ask for a district or block instead.")
+    other = _cme_village_not_in_named_block(question, rows)
+    if other:
+        return other
     if not rows:
         return _cme_all_zero_answer(sql, answer, display)
     answer = _cme_digits_for_number_words(answer, rows)
