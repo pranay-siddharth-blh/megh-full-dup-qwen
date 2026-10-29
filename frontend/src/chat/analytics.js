@@ -5,7 +5,8 @@
 
 import { hasSegment, isAsciiLetter, isDigit, isPeriodLabel, isSpace, splitSpaces } from './text.js';
 import {
-  PERIOD_WORDS, asksChange, colTitle, humanCol, isAdditive, isLabelCol, isNumeric, tableColumns, unitOf, withoutTwins,
+  PERIOD_WORDS, asksChange, colTitle, humanCol, isAdditive, isLabelCol, isNumeric, tableColumns, unifyPeriods, unitOf,
+  withoutTwins,
 } from './columns.js';
 
 // The column rules live in columns.js (2026-10-28); re-exported for the callers
@@ -218,8 +219,9 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   }
   // One thing written two ways (year_key 2023 and financial_year "2023-2024") is
   // ONE dimension: read as two, it drew a diagonal grid of dashes (user report
-  // 2026-10-28). The readable twin stays; the download keeps every column.
-  const data = withoutTwins(rawData).slice();
+  // 2026-10-28). The readable twin stays; the download keeps every column. Year
+  // columns that differ from scheme to scheme become one financial_year (A-1).
+  const data = withoutTwins(unifyPeriods(rawData)).slice();
 
   // One row of several figures: a bar (or the pie / donut asked for) per figure.
   const oneRowTypes = ['kpi_bar', 'bar', 'pie', 'doughnut'];

@@ -107,6 +107,15 @@ export function insightForSeries(labels, datasets, periods) {
   if (!labels || !labels.length || !datasets || !datasets.length) return '';
   if (periods) {
     const last = labels.length - 1;
+    // A-13 (audit 2026-10-29): each scheme holds its own years. "Latest (2025-26):
+    // PMAY-G 0" read a year PMAY-G does not hold; each series is headlined at
+    // its own latest year with a figure.
+    const lastHeld = (d) => { for (let j = d.data.length - 1; j >= 0; j--) if (isFiniteValue(d.data[j])) return j; return -1; };
+    if (datasets.length >= 2 && datasets.some((d) => lastHeld(d) !== last)) {
+      const parts = datasets.filter((d) => lastHeld(d) >= 0)
+        .map((d) => `${d.label} ${fmtCompact(d.data[lastHeld(d)])} (${labels[lastHeld(d)]})`);
+      return parts.length ? `Latest: ${parts.join(' · ')}` : '';
+    }
     const parts = datasets.map((d) => `${d.label} ${isFiniteValue(d.data[last]) ? fmtCompact(d.data[last]) : '—'}`);
     return `Latest (${labels[last]}): ${parts.join(' · ')}`;
   }

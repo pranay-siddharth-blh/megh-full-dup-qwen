@@ -274,7 +274,8 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
             # one after another and merged (conversation_layer.answer_many).
             result = await asyncio.wait_for(
                 conversation_layer.answer_many(
-                    layer.multi, lambda q: answer_question(q, session=session, scope=scope))
+                    layer.multi, lambda q: answer_question(q, session=session, scope=scope),
+                    notes=layer.multi_notes)
                 if layer.multi else answer_question(question, session=session, scope=scope),
                 timeout=settings.REQUEST_TIMEOUT_SECONDS * (len(layer.multi) if layer.multi else 1),
             )

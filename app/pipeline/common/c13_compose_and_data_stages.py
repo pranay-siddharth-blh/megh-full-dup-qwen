@@ -1634,6 +1634,15 @@ async def _cross_scheme_scope(d: dict, scope: "auth.UserScope | None" = None) ->
     await cross_scheme.refine_constituency(text, resolved)
     if resolved.get("assembly_constituency"):
         display["assembly_constituency"] = resolved["assembly_constituency"]
+    # A-14 (audit 2026-10-29): "2023-24 vs 2024-25", "in FY24 and FY25" — the
+    # extractor hands back one year (KI-427), and the text was read only when the
+    # resolver found none, so the comparison lost a year. Two or more named years
+    # are always every one of them.
+    _named_ys = cross_scheme.years_in_text(text)
+    if len(_named_ys) >= 2 and not resolved.get("year_key_list"):
+        resolved.pop("year_key", None)
+        resolved["year_key_list"] = _named_ys
+        display["year"] = "FY " + ", ".join(f"{y}-{(y + 1) % 100:02d}" for y in _named_ys)
     if not resolved.get("year_key") and not resolved.get("year_key_list"):
         ys = cross_scheme.years_in_text(text)
         if len(ys) == 1:
@@ -3113,10 +3122,90 @@ def _chart_hint(question: str, raw_question: str, rows: list) -> "str | None":
     return None
 
 
+# ── one shape for rows merged from several schemes (audit 2026-10-29, A-1 / I-9) ──
+# Each scheme's model-written query names its columns its own way: MGNREGA's year is
+# year_key 2023, PMAY-G's financial_year_short "2023-24"; one says village_name, the
+# other lgd_village_name; one counts beneficiaries, the other houses_sanctioned. The
+# UI charts only the columns every row has, so the year disappeared ("MGNREGA,
+# MGNREGA, MGNREGA, PMAY-G …" donut) and two half-empty columns were all that was
+# left. The rows the UI gets carry one financial_year ("2023-24"), one place column
+# per level, and — when each scheme has its own single measure — one `value` column
+# with what it counts in `measure`. The composer has already read the original rows.
+_C13U_ID_PARTS = frozenset({"code", "id", "lgd", "key", "rank", "sl", "serial", "pin", "pincode"})
+_C13U_PLACES = (("district", "district"), ("block", "block"), ("village", "village"),
+                ("constituency", "constituency"))
+
+
+def _c13u_parts(col) -> list:
+    return [x for x in str(col).lower().replace(" ", "_").split("_") if x]
+
+
+def _c13u_is_year_col(col) -> bool:
+    low = str(col).lower()
+    return "financial" in low or any(x in ("year", "fy", "yr") for x in _c13u_parts(col))
+
+
+def _c13u_fy(v) -> "str | None":
+    """'2023-24' from 2023, '2023', '2023-2024', 'FY 2023-24'; None otherwise."""
+    s = str(v if v is not None else "").strip()
+    if s.lower().startswith("fy"):
+        s = s[2:].strip()
+    head, rest = s[:4], s[4:]
+    if len(head) == 4 and head.isdigit() and head[:2] in ("19", "20") and (
+            rest == "" or (rest[:1] == "-" and rest[1:].isdigit() and len(rest[1:]) in (2, 4))):
+        return f"{int(head)}-{(int(head) + 1) % 100:02d}"
+    return None
+
+
+def _c13u_measure_cols(row: dict) -> list:
+    return [k for k, v in row.items() if k != "scheme" and not _c13u_is_year_col(k) and _chart_is_number(v)
+            and not any(x in _C13U_ID_PARTS for x in _c13u_parts(k))]
+
+
+def _c13_unify_scheme_rows(rows: list) -> list:
+    """Rows from two or more schemes in one shape (see above); other rows as they are."""
+    if not rows or not all(isinstance(r, dict) and r.get("scheme") for r in rows) \
+            or len({r["scheme"] for r in rows}) < 2:
+        return rows
+    per_scheme = {}
+    for r in rows:
+        per_scheme.setdefault(r["scheme"], set()).update(_c13u_measure_cols(r))
+    one_each = all(len(c) == 1 for c in per_scheme.values())
+    differ = len({next(iter(c)) for c in per_scheme.values() if c}) > 1
+    out = []
+    for r in rows:
+        years = [k for k in r if _c13u_is_year_col(k)]
+        fy = next((_c13u_fy(r[k]) for k in sorted(years, key=lambda k: str(k).endswith("_key"))
+                   if _c13u_fy(r[k])), None)
+        n: dict = {}
+        for k, v in r.items():
+            if k in years:
+                if "financial_year" not in n:
+                    n["financial_year"] = fy if fy is not None else v
+                continue
+            parts = _c13u_parts(k)
+            name = k
+            if isinstance(v, str) and not any(x in _C13U_ID_PARTS for x in parts if x != "lgd"):
+                name = next((canon for word, canon in _C13U_PLACES if any(word in x for x in parts)), k)
+            if one_each and differ and k in per_scheme.get(r["scheme"], ()):
+                n["measure"] = str(k).replace("_", " ")
+                n["value"] = v
+                continue
+            if name not in n:
+                n[name] = v
+        out.append(n)
+    return out
+
+
 def _attach_chart_hint(result: dict, question: str, raw_question: str) -> None:
     """Set `chart_type` on a DATA result that has rows. Best-effort."""
     try:
         if result.get("route") == "data" and result.get("data"):
+            unified = _c13_unify_scheme_rows(result["data"])
+            if unified is not result["data"]:
+                result["data"] = unified
+                result["rows"] = unified[:20]
+                result["row_count"] = len(unified)
             hint = _chart_hint(question, raw_question, result["data"])
             if hint:
                 result["chart_type"] = hint

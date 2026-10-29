@@ -64,6 +64,9 @@ def _c09_stated_year_span(question: str) -> "tuple[int, int] | None":
     before = [w for w in _c01_tm_words(q[:s1]) if w not in _C09_SPAN_FILLER]
     if gap in _C09_SPAN_JOINERS or (gap == ("and",) and before and before[-1] == "between"):
         return y1, y2
+    # J-2: a dash between the two years ("2022-23 - 2024-25", "2022-23 – 2024-25")
+    if not gap and q[s1 + len(t1):s2].strip() in ("-", "–", "—", "to"):
+        return y1, y2
     return None
 
 
@@ -1796,6 +1799,21 @@ async def resolve_entities(question: str, schemes: list[str],
         resolved.pop("year_key", None)
         resolved["year_key_list"] = list(range(_a, _b + 1))
         display["year"] = f"FY {_a}-{(_a + 1) % 100:02d} to FY {_b}-{(_b + 1) % 100:02d}"
+    # J-1 (audit 2026-10-29): "last 3 years", "this year", "last year" named no year
+    # the readers knew, so the officer was asked a year they had given (or Focus
+    # answered every year). Read against the years the schemes hold; the answer
+    # and the banner say which years were used.
+    if not resolved.get("year_key") and not resolved.get("year_key_list") and _parse_year_key(question) is None:
+        _rel = _relative_years(question, schemes)
+        if _rel is not None:
+            _ys, _label, _note = _rel
+            if len(_ys) == 1:
+                resolved["year_key"] = _ys[0]
+            else:
+                resolved["year_key_list"] = list(_ys)
+            display["year"] = _label
+            notes.append(f"The question names a relative period; it was read as {_label}. Say these years "
+                         f"in the answer's first line." + (f" {_note}." if _note else ""))
 
     out = {"resolved": resolved, "notes": notes, "display": display}
     if _district_swaps:

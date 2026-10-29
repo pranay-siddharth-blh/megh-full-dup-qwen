@@ -382,7 +382,10 @@ _PER_YEAR_CUE = Matcher(Alt(
     Seq("only", Alt(W("one", "1", "single"), "a single"), Opt("financial"), "year"),
     Seq("not", "in", Opt("a"), "single", "year"),
     Seq(W("two", "three", "four", "five", "six", "seven", "2", "3", "4", "5", "6", "7"), Opt("financial"), "years"),
-    Seq("by", Opt("financial"), "year")))
+    Seq("by", Opt("financial"), "year"),
+    # A-15: the same per-year words as cross_figures' (annually / yearly / year-wise trend)
+    W("annually", "yearly", "annual", "yearwise", "trend", "trends"),
+    Seq("over", "the", "years"), Seq("year", "on", "year")))
 _ALL_SCHEMES_CUE = Matcher(Alt(Seq(W("all", "every", "each"), Opt("the"), W("scheme", "schemes")), "all of them"))
 _REFERS_BACK = Matcher(Alt(
     Seq(W("above", "previous", "last", "earlier", "that", "this", "same"),
@@ -404,35 +407,139 @@ def _cl_pair(a: tuple, b: tuple) -> Seq:
     return Seq(_cp_ends(*a), _CpSep(_cl_ws_gap), _cp_starts(*b))
 
 
-# (label in the question, pattern, "how many" or "total")
+# (label in the question, pattern, "how many" / "total" / "villages", the schemes that hold
+# it — None: every scheme). A-9 / A-11 (audit 2026-10-29): money words other than
+# "expenditure / spent" (money, amount, released, disbursed, funds) and "villages"
+# were not here, so "… amount released each year" was answered with beneficiaries;
+# and the first measure found was asked of every scheme ("PMAY-G person-days").
 _YEAR_METRICS = [
-    ("person-days", Matcher(_cp_glued("person", "day")), "count"),
-    ("households", Matcher(_cp_has("household")), "count"),
-    ("job cards", Matcher(_cp_glued("job", "card", gap=_cl_ws_gap)), "count"),
+    ("person-days", Matcher(_cp_glued("person", "day")), "count", ("MGNREGA",)),
+    ("households", Matcher(_cp_has("household")), "count", ("MGNREGA",)),
+    ("job cards", Matcher(_cp_glued("job", "card", gap=_cl_ws_gap)), "count", ("MGNREGA",)),
     ("houses sanctioned", Matcher(Alt(_cl_pair(("house", "houses"), ("sanction",)),
-                                      _cl_pair(("sanctioned",), ("house",)))), "count"),
+                                      _cl_pair(("sanctioned",), ("house",)))), "count", ("PMAY-G",)),
     ("houses completed", Matcher(Alt(_cl_pair(("house", "houses"), ("complet",)),
-                                     _cl_pair(("completed",), ("house",)))), "count"),
-    ("applications", Matcher(_cp_has("application", "applicant")), "count"),
-    ("payments", Matcher(_cp_has("payment", "disbursement")), "count"),
-    ("expenditure", Matcher(Alt(_cp_has("expenditure"), _cl_pair(("amount",), ("spent",)), W("spend", "spent"))),
-     "money"),
-    ("beneficiaries", Matcher(_cp_has("beneficiar")), "count"),
+                                     _cl_pair(("completed",), ("house",)))), "count", ("PMAY-G",)),
+    # "houses" alone is PMAY-G's houses sanctioned ("person days and houses each year")
+    ("houses sanctioned", Matcher(W("house", "houses")), "count", ("PMAY-G",)),
+    ("applications", Matcher(_cp_has("application", "applicant")), "count", ("CM Elevate",)),
+    ("payments", Matcher(_cp_has("payment", "disbursement")), "count", ("Focus Plus", "Focus Legacy")),
+    ("expenditure", Matcher(Alt(_cp_has("expenditure"), _cl_pair(("amount",), ("spent",)), W("spend", "spent"),
+                                W("money", "amount", "amounts", "fund", "funds", "funding", "released", "disbursed",
+                                  "spending", "crore", "lakh", "rupees"),
+                                W("releas", "disburs", prefix=True))), "money", None),
+    ("villages", Matcher(W("village", "villages")), "villages", ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy")),
+    ("beneficiaries", Matcher(_cp_has("beneficiar")), "count", None),
 ]
+# what each scheme's money is (the money measure is asked in the scheme's own kind)
+_MONEY_LABEL = {"MGNREGA": "expenditure", "PMAY-G": "amount released", "Focus Plus": "amount disbursed",
+                "Focus Legacy": "amount disbursed", "CM Elevate Legacy": "amount disbursed",
+                "CM Elevate": "amount disbursed"}
+
+
+def _year_measures(*texts) -> list:
+    """[(label, kind, holders), ...]: every measure the first text that names one
+    names, in table order; [] when none does."""
+    for t in texts:
+        found = []
+        for label, word_matcher, kind, held in _YEAR_METRICS:
+            if t and word_matcher.search(t) and all(f[0] != label for f in found):
+                found.append((label, kind, held))
+        if found:
+            return found
+    return []
 
 
 def _year_metric(*texts) -> "tuple[str, str]":
-    for t in texts:
-        for label, word_matcher, kind in _YEAR_METRICS:
-            if t and word_matcher.search(t):
-                return label, kind
-    return "beneficiaries", "count"
+    found = _year_measures(*texts)
+    return (found[0][0], found[0][1]) if found else ("beneficiaries", "count")
 
 
-def per_year_plan(session, question: str) -> "list[str] | None":
-    """The per-scheme, per-year questions a follow-up asks for, or None."""
+_CL_LEVEL_WORDS = frozenset({"district", "districts", "block", "blocks", "village", "villages",
+                              "constituency", "constituencies"})
+_CL_JOINERS = frozenset({"and", "or", "vs", "versus", "with", "plus"})
+_CL_NOT_PLACES = frozenset({"fy", "meghalaya", "financial", "each", "every", "all", "the", "which", "year", "years"})
+
+
+def _cl_carries_scope(q: str, scheme_spans: list) -> bool:
+    """The question names more than a measure: a place, a place level, a top /
+    bottom N or a rank word (I-2: "top 5 districts in MGNREGA and PMAY-G year wise",
+    "… in East Khasi Hills year wise" were rewritten to statewide per-year totals)."""
+    from app import cross_figures
+    from app.text_match import tokens
+    if cross_figures.rank_ask(q) or cross_figures._top_n(q):
+        return True
+    toks = tokens(q)
+    inside = lambda t: any(a <= t.start < b for a, b in scheme_spans)  # noqa: E731
+    for i, t in enumerate(toks):
+        # a level of breakdown ("district wise", "each block", "by village"), not the
+        # villages MEASURE ("villages covered each year")
+        if t.low in _CL_LEVEL_WORDS and ((i and toks[i - 1].low in ("each", "every", "per", "by", "which", "what"))
+                                         or (i + 1 < len(toks) and toks[i + 1].low == "wise")):
+            return True
+        # "in East Khasi Hills", "for Ri Bhoi": a capitalised name after a preposition
+        if t.low in ("in", "for", "at", "of") and i + 1 < len(toks):
+            nxt = toks[i + 1]
+            if nxt.raw[:1].isupper() and not inside(nxt) and nxt.low not in _CL_NOT_PLACES \
+                    and not nxt.raw[:1].isdigit():
+                return True
+    return False
+
+
+def _cl_one_scheme_question(q: str, keep: str, spans: list) -> str:
+    """The question with every scheme but `keep` taken out, with the joining word
+    ("MGNREGA and PMAY-G" -> "MGNREGA")."""
+    from app.text_match import tokens
+    out = q
+    for a, b, s in sorted(spans, reverse=True):
+        if s == keep:
+            continue
+        before = out[:a].rstrip()
+        after = out[b:]
+        toks = tokens(before)
+        if toks and toks[-1].low in _CL_JOINERS and toks[-1].end == len(before):
+            before = before[:toks[-1].start].rstrip()
+        elif before.endswith((",", "&", "/")):
+            before = before[:-1].rstrip()
+        else:
+            nxt = tokens(after)
+            if nxt and nxt[0].low in _CL_JOINERS and after[:nxt[0].start].strip(" ,") == "":
+                after = after[nxt[0].end:]
+            elif after.lstrip().startswith((",", "&", "/")):
+                after = after.lstrip()[1:]
+        out = (before + " " + after.lstrip()).strip()
+    return " ".join(out.split())
+
+
+def _cl_year_phrase(q: str, scheme: str) -> str:
+    """The asked years, written out for a per-scheme question (A-3: the range was
+    dropped and every year held came back): " from FY 2022-23 to FY 2024-25",
+    " in FY 2023-24 and FY 2024-25", or the relative period read for this scheme."""
+    from app import cross_scheme, pipeline
+    ys = cross_scheme.years_in_text(q)
+    span = pipeline._c09_stated_year_span(q)
+    if span:
+        ys = list(range(span[0], span[1] + 1))
+    if not ys:
+        rel = pipeline._relative_years(q, [scheme])
+        if rel is None:
+            return ""
+        ys = rel[0]
+    fy = lambda y: f"FY {y}-{(y + 1) % 100:02d}"  # noqa: E731
+    if len(ys) == 1:
+        return f" in {fy(ys[0])}"
+    if ys == list(range(ys[0], ys[-1] + 1)):
+        return f" from {fy(ys[0])} to {fy(ys[-1])}"
+    return " in " + ", ".join(fy(y) for y in ys[:-1]) + f" and {fy(ys[-1])}"
+
+
+def per_year_parts(session, question: str) -> "dict | None":
+    """{"questions": the per-scheme, per-year questions a follow-up asks for,
+    "notes": what the answer must say (a scheme that holds none of the measures),
+    "ask": a "which figure?" pause when no measure is named}, or None."""
     from app import pipeline
-    q = question or ""
+    # a misspelt scheme ("mgnerga and pmayg") is read as at turn start (I-17)
+    q = pipeline._correct_scheme_spelling(question or "")
     if not _PER_YEAR_CUE.search(q):
         return None
     named = list(pipeline._named_schemes(q))
@@ -457,19 +564,70 @@ def per_year_plan(session, question: str) -> "list[str] | None":
     schemes = sorted(dict.fromkeys(schemes), key=lambda s: order.index(s) if s in order else len(order))
     if not schemes:
         return None
-    label, kind = _year_metric(q, getattr(prev, "raw_question", "") if prev else "",
-                               getattr(prev, "question", "") if prev else "")
+    measures = _year_measures(q, getattr(prev, "raw_question", "") if prev else "",
+                              getattr(prev, "question", "") if prev else "")
+    labels = [m[0] for m in measures]
     # CM Elevate's applications data has no year; per-year beneficiaries / money
     # are CM Elevate Legacy's (the pipeline pins the same way). Never both.
-    if "CM Elevate" in schemes and label != "applications":
+    if "CM Elevate" in schemes and labels != ["applications"]:
         schemes = [s for s in schemes if s != "CM Elevate"]
         if "CM Elevate Legacy" not in schemes:
             schemes.append("CM Elevate Legacy")
         schemes = sorted(schemes, key=lambda s: order.index(s) if s in order else len(order))
-    if kind == "money":
-        return [f"What was the total {s} {label} in each financial year?" for s in schemes]
-    return [f"How many {s} {label} were there in each financial year?" for s in schemes]
+    spans = [(h.start(), h.end(), s) for s, pat in pipeline._SCHEME_NAME_MATCHER.items() for h in pat.finditer(q)]
+    if len(named) >= 2 and set(schemes) <= set(named) and _cl_carries_scope(q, [(a, b) for a, b, _ in spans]):
+        # I-2: the officer's own question, one scheme at a time, keeps its place,
+        # its top / bottom N, its level and its years
+        return {"questions": [_cl_one_scheme_question(q, s, spans) for s in schemes], "notes": [], "ask": None}
+    if not measures:
+        # A-9: no measure named here or in the last answer — ask which one,
+        # never default to beneficiaries
+        return {"questions": None, "notes": [], "ask": _cl_measure_ask(schemes, q)}
+    questions, notes = [], []
+    for s in schemes:
+        held = [m for m in measures if m[2] is None or s in m[2]]
+        if not held:
+            # A-11: "PMAY-G person-days" was asked; PMAY-G records none
+            notes.append(f"{s} records no {' or '.join(m[0] for m in measures)}")
+            continue
+        yp = _cl_year_phrase(q, s)
+        for label, kind, _held in held:
+            if kind == "money":
+                questions.append(f"What was the total {s} {_MONEY_LABEL.get(s, label)} in each financial year{yp}?")
+            elif kind == "villages":
+                questions.append(f"How many villages did {s} cover in each financial year{yp}?")
+            else:
+                questions.append(f"How many {s} {label} were there in each financial year{yp}?")
+    if not questions:
+        return None
+    return {"questions": questions, "notes": notes, "ask": None}
 
+
+def _cl_measure_ask(schemes: list, q: str) -> dict:
+    """The "which figure?" pause for a per-year question that names no measure (A-9)."""
+    from app import pipeline
+    who = " and ".join(schemes) if len(schemes) <= 2 else ", ".join(schemes[:-1]) + " and " + schemes[-1]
+    opts = [{"label": lab, "question": f"{lab} of {who} in each financial year"}
+            for lab in ("Beneficiaries", "Money spent", "Villages covered")]
+    text = f"Which figure do you want for {who}, year by year?"
+    return {"route": "clarification", "intent": "CLARIFY", "confidence": "high", "answer": text,
+            "needs_clarification": True, "question": text,
+            "clarification": {"options": opts, "rule": "per-year-measure"}, **pipeline._empty_data_fields()}
+
+
+def per_year_plan(session, question: str) -> "list[str] | None":
+    """The per-scheme, per-year questions a follow-up asks for, or None."""
+    parts = per_year_parts(session, question)
+    return parts["questions"] if parts else None
+
+
+# ── merging the per-scheme answers into one scheme x year table ─────────────
+# A-1 / A-2 / A-10 / A-12 (audit 2026-10-29): each scheme's answer names its
+# year column its own way (year_key 2023, financial_year_short "2023-24",
+# "2023-2024"), its first number may be a code or another figure, and MGNREGA
+# money is in ₹ lakh while PMAY-G's and Focus's is in rupees. Merged as they
+# came, the chart lost the year, zig-zagged between "2022-23" and "2022-2023",
+# charted an LGD code, and drew PMAY-G 11,000 times bigger than MGNREGA.
 
 def _cl_yearish_col(name: str) -> bool:
     """A column naming the financial year: a 'year' / 'fy' part between
@@ -478,34 +636,122 @@ def _cl_yearish_col(name: str) -> bool:
     return "financial" in low or any(part in ("year", "fy") for part in low.split("_"))
 
 
+def _cl_fy(v) -> "str | None":
+    """One financial-year label, "2023-24": from 2023, "2023", "2023-2024",
+    "FY 2023-24", "2023-24"; None when `v` is not a year."""
+    s = str(v if v is not None else "").strip()
+    if s.lower().startswith("fy"):
+        s = s[2:].strip()
+    head = s[:4]
+    if len(head) == 4 and head.isdigit() and head[:2] in ("19", "20"):
+        rest = s[4:]
+        if rest == "" or (rest.startswith("-") and rest[1:].isdigit() and len(rest[1:]) in (2, 4)):
+            y = int(head)
+            return f"{y}-{(y + 1) % 100:02d}"
+    return None
+
+
+_CL_ID_PARTS = frozenset({"code", "id", "lgd", "key", "rank", "sl", "serial", "pin", "pincode", "no"})
+# column-name stems of each measure (A-12: the column that matches the asked measure)
+_CL_MEASURE_STEMS = {
+    "person-days": ("person", "day", "persondays", "mandays"),
+    "households": ("household", "hh"),
+    "job cards": ("job", "card", "jobcard"),
+    "houses sanctioned": ("house", "sanction"),
+    "houses completed": ("complet",),
+    "applications": ("application", "applicant"),
+    "payments": ("payment", "disbursement", "transaction"),
+    "expenditure": ("exp", "amount", "amt", "money", "releas", "disburs", "spent", "fund", "crore", "lakh",
+                    "rupee", "rs", "cost"),
+    "villages": ("village",),
+    "beneficiaries": ("beneficiar", "member", "household", "house", "count", "total"),
+}
+_CL_PLACE_COLS = (("district", "district"), ("block", "block"), ("village", "village"),
+                  ("constituency", "constituency"), ("panchayat", "gram_panchayat"))
+
+
+def _cl_parts(col) -> list:
+    return [x for x in str(col).lower().replace("(", "_").replace(")", "_").replace(" ", "_").split("_") if x]
+
+
+def _cl_is_number(v) -> bool:
+    if isinstance(v, bool) or v is None:
+        return False
+    try:
+        float(str(v).replace(",", ""))
+        return True
+    except (TypeError, ValueError):
+        return False
+
+
+def _cl_money_crore(col: str, scheme: str, v) -> float:
+    """A money figure in ₹ crore, from its column's unit (or the scheme's own:
+    MGNREGA money is in ₹ lakh, every other scheme's in rupees)."""
+    parts = _cl_parts(col)
+    n = float(str(v).replace(",", ""))
+    if any(x in ("crore", "crores", "cr") for x in parts):
+        return n
+    if any(x in ("lakh", "lakhs") for x in parts):
+        return n / 100
+    if any(x in ("rupees", "rs", "inr") for x in parts):
+        return n / 1e7
+    return n / 100 if scheme == "MGNREGA" else n / 1e7
+
+
+def _year_row(row: dict, scheme: str, label: str, kind: str) -> "dict | None":
+    """One merged row {scheme, [place columns], financial_year, <measure>} from a
+    sub-answer's row; None when it has no figure."""
+    years = [k for k in row if _cl_yearish_col(str(k))]
+    fy = next((_cl_fy(row[k]) for k in sorted(years, key=lambda k: str(k).endswith("_key")) if _cl_fy(row[k])),
+              None)
+    cands = [k for k, v in row.items() if k not in years and k != "scheme" and _cl_is_number(v)
+             and not any(x in _CL_ID_PARTS for x in _cl_parts(k))]
+    if not cands:
+        return None
+    stems = _CL_MEASURE_STEMS.get(label, ())
+    col = next((k for k in cands if any(x.startswith(st) for x in _cl_parts(k) for st in stems)), cands[0])
+    out = {"scheme": scheme}
+    for k, v in row.items():
+        if k in years or k == "scheme" or _cl_is_number(v):
+            continue
+        low = str(k).lower()
+        out[next((canon for word, canon in _CL_PLACE_COLS if word in low), str(k))] = v
+    out["financial_year"] = fy
+    if kind == "money":
+        out["money_crore"] = round(_cl_money_crore(str(col), scheme, row[col]), 4)
+    else:
+        v = float(str(row[col]).replace(",", ""))
+        out[(label or "value").replace(" ", "_").replace("-", "_")] = int(v) if v.is_integer() else v
+    return out
+
+
 def _year_and_value(row: dict) -> "tuple[object, object] | None":
     """(financial year, figure) of one result row; None when the row has no figure."""
-    year = next((v for k, v in row.items() if _cl_yearish_col(str(k)) and not str(k).endswith("_key")), None)
-    if year is None:
-        year = next((v for k, v in row.items() if _cl_yearish_col(str(k))), None)
-    value = None
-    for k, v in row.items():
-        if _cl_yearish_col(str(k)):
-            continue
-        try:
-            float(str(v).replace(",", ""))
-        except (TypeError, ValueError):
-            continue
-        value = v
-        break
-    return None if value is None else (year, value)
+    r = _year_row(row, "", "", "count")
+    if r is None:
+        return None
+    return r["financial_year"], r["value"]
 
 
-async def answer_many(questions: list, ask) -> dict:
+_CL_LEGACY_NOTE = ("CM Elevate's applications carry no financial year, so its per-year figures are CM Elevate "
+                   "Legacy's: the sanction and disbursement records of the same scheme")
+
+
+async def answer_many(questions: list, ask, notes: "list | None" = None) -> dict:
     """Run each question through the pipeline (`ask`), one after another, and
     merge the answers: the text scheme by scheme, one scheme x year table.
-    A question that pauses or fails is reported in the text, never guessed."""
+    A question that pauses or fails is reported in the text, never guessed.
+    `notes`: lines the answer must carry (a scheme that holds none of the measures)."""
     from app import pipeline
-    sections, rows, schemes, sqls, notes = [], [], [], [], []
-    label = None
+    sections, rows, schemes, sqls = [], [], [], []
+    notes = [f"{n}." for n in (notes or [])]
+    labels: list = []
+    no_year: list = []
     for q in questions:
         scheme = next(iter(pipeline._named_schemes(q)), q)
-        label = label or _year_metric(q)[0]
+        label, kind = _year_metric(q)
+        if label not in labels:
+            labels.append(label)
         try:
             r = await ask(q)
         except pipeline.ClarificationNeeded as e:
@@ -524,19 +770,44 @@ async def answer_many(questions: list, ask) -> dict:
         if r.get("sql_query"):
             sqls.append(f"-- {scheme}\n{r['sql_query']}")
         for row in r.get("data") or []:
-            yv = _year_and_value(row)
-            if yv is not None:
-                rows.append({"scheme": scheme, "financial_year": yv[0] if yv[0] is not None else "(no year)",
-                             (label or "value").replace(" ", "_").replace("-", "_"): yv[1]})
-    head = f"{(label or 'Figures').capitalize()} in each financial year, scheme by scheme:"
-    answer = "\n\n".join([head] + sections + notes) if (sections or notes) else \
-        "I couldn't fetch these figures just now. Please try again in a moment."
-    out = {"route": "data", "intent": "DATA", "confidence": "high", "answer": answer,
+            yr = _year_row(dict(row), scheme, label, kind)
+            if yr is None:
+                continue
+            if yr["financial_year"] is None:
+                # H-2: a figure with no year is not a year on the chart
+                if scheme not in no_year:
+                    no_year.append(scheme)
+                continue
+            rows.append(yr)
+    if no_year:
+        notes.append(f"{' and '.join(no_year)} {'has' if len(no_year) == 1 else 'have'} figures with no financial "
+                     "year; they are in the text above, not in the year table.")
+    if "CM Elevate Legacy" in schemes:
+        notes.append(f"{_CL_LEGACY_NOTE}.")                   # A-17
+    measure_cols = {k for r in rows for k, v in r.items() if k not in ("scheme", "financial_year")
+                    and not isinstance(v, str)}
+    if len(measure_cols) > 1:
+        # different measures per scheme (person-days, houses): one value column
+        # and what it counts, so every scheme's figure is in the same column (I-9)
+        for r in rows:
+            k = next(k for k in list(r) if k in measure_cols)
+            r["measure"] = k.replace("_", " ")
+            r["value"] = r.pop(k)
+    one = labels[0] if len(labels) == 1 else None
+    head = f"{(one or 'Figures').capitalize()} in each financial year, scheme by scheme:"
+    failed = not sections and not rows
+    if failed:
+        answer = "\n\n".join(["I couldn't fetch these figures just now. Please try again in a moment."] + notes)
+    else:
+        answer = "\n\n".join([head] + sections + notes)
+    out = {"route": "data", "intent": "DATA", "confidence": "low" if failed else "high", "answer": answer,
            **pipeline._empty_data_fields()}
     out.update({"schemes": schemes, "data": rows, "rows": rows, "row_count": len(rows),
                 "sql_query": "\n\n".join(sqls),
-                "rewritten_question": f"{(label or 'beneficiaries').capitalize()} in each financial year for "
+                "rewritten_question": f"{(one or 'figures').capitalize()} in each financial year for "
                                       + ", ".join(schemes or [])})
+    if failed:
+        out["answer_failed"] = True       # H-2: the UI shows it as failed, with Retry
     return out
 
 
@@ -835,6 +1106,8 @@ class LayerTurn:
     changed: bool = False
     # Several questions to run and merge (answer_many): "each year, for all schemes".
     multi: "list | None" = None
+    # what the merged answer must say ("PMAY-G records no person-days", A-11)
+    multi_notes: "list | None" = None
 
 
 def _enabled(session) -> bool:
@@ -1001,12 +1274,17 @@ async def _prepare(session, question: str) -> LayerTurn:
         # checks, which read the last turn.
         resume_after_small_talk(session)
 
-        plan = per_year_plan(session, question)
+        parts = per_year_parts(session, question)
+        if parts and parts.get("ask"):
+            context_budget.log_decision("conversation", action="per-year-ask")
+            return LayerTurn(question=question, action="per-year", changed=True, response=parts["ask"])
+        plan = parts["questions"] if parts else None
         if plan:
             context_budget.log_decision("conversation", action="per-year", questions=len(plan))
-            if len(plan) == 1:
+            if len(plan) == 1 and not parts["notes"]:
                 return LayerTurn(question=plan[0], action="per-year", changed=True)
-            return LayerTurn(question=question, action="per-year", changed=True, multi=plan)
+            return LayerTurn(question=question, action="per-year", changed=True, multi=plan,
+                             multi_notes=parts["notes"])
 
         compared = comparison_with_earlier(session, question)
         if compared is not None:

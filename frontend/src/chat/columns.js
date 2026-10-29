@@ -101,6 +101,58 @@ export function twinColumns(data) {
   return out;
 }
 
+// ── One financial-year column (audit 2026-10-29, A-1 / A-8) ─────────────────
+// Rows merged from several schemes name their year their own way (MGNREGA
+// year_key 2023, PMAY-G financial_year_short "2023-24"), so no year column was in
+// every row and the chart fell back to the scheme alone: a donut of "MGNREGA,
+// MGNREGA, MGNREGA, PMAY-G …" with no year anywhere. A lone year_key showed as
+// "2022, 2023" titled "Year key".
+
+/** "2023-24" for a financial-year value (2023, "2023", "2023-2024", "FY 2023-24",
+    "2023-24"); null when the value is not one. */
+export function fyLabel(v) {
+  if (v === null || v === undefined) return null;
+  let s = String(v).trim();
+  if (s.slice(0, 2).toLowerCase() === 'fy') s = s.slice(2).trim();
+  const head = s.slice(0, 4);
+  const rest = s.slice(4);
+  if (head.length !== 4 || !Array.from(head).every(isDigit) || !['19', '20'].includes(head.slice(0, 2))) return null;
+  const tail = rest.slice(1);
+  if (rest !== '' && !(rest[0] === '-' && (tail.length === 2 || tail.length === 4) && Array.from(tail).every(isDigit))) return null;
+  const y = Number(head);
+  return `${y}-${String((y + 1) % 100).padStart(2, '0')}`;
+}
+
+const isFyCol = (c) => (hasSegment(c, ['year', 'yr', 'fy', 'financial']))
+  && !hasSegment(c, ['month', 'date', 'quarter', 'week', 'day']);
+
+/** The rows with every financial-year column folded into one `financial_year`
+    ("2023-24") when rows carry different year columns, or the only one is a
+    year_key; otherwise the rows as they are. */
+export function unifyPeriods(data) {
+  if (!Array.isArray(data) || !data.length) return data;
+  const cols = tableColumns(data).filter((c) => isFyCol(c)
+    && data.some((r) => r && !isBlank(r[c]))
+    && data.every((r) => !r || isBlank(r[c]) || fyLabel(r[c]) !== null));
+  if (!cols.length) return data;
+  const differs = cols.length >= 2 && data.some((r) => cols.some((c) => !r || isBlank(r[c])));
+  const keyOnly = cols.length === 1 && hasSegment(cols[0], ['key']);
+  if (!differs && !keyOnly) return data;
+  return data.map((r) => {
+    const o = {};
+    const fy = cols.map((c) => fyLabel(r && r[c])).find((x) => x) || null;
+    for (const [k, v] of Object.entries(r || {})) {
+      if (cols.includes(k)) {
+        if (!('financial_year' in o)) o.financial_year = fy;
+        continue;
+      }
+      o[k] = v;
+    }
+    if (!('financial_year' in o)) o.financial_year = fy;
+    return o;
+  });
+}
+
 /** The rows without their hidden twin columns (new objects; the input is untouched). */
 export function withoutTwins(data) {
   const hidden = Object.keys(twinColumns(data));
