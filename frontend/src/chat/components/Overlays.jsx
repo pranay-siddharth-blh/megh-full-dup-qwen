@@ -1,4 +1,4 @@
-import { forwardRef, useState } from 'react';
+import { forwardRef, useEffect, useRef, useState } from 'react';
 
 /* The sign-in gate, the generic modal and the undo toast. */
 
@@ -70,15 +70,38 @@ export const LoginScreen = forwardRef(function LoginScreen({ error, invalid, bus
 });
 
 export function Modal({ modal, onClose }) {
+  const card = useRef(null);
+  // K-15 (audit 2026-10-29): focus moves into the window, Tab stays inside it, and
+  // focus returns to what opened it on close
+  useEffect(() => {
+    if (!modal || !card.current) return undefined;
+    const opener = document.activeElement;
+    const focusables = () => Array.from(card.current.querySelectorAll(
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])')).filter((el) => !el.disabled);
+    const first = focusables()[0];
+    if (first) first.focus();
+    const onKey = (e) => {
+      if (e.key !== 'Tab' || !card.current) return;
+      const f = focusables();
+      if (!f.length) return;
+      if (e.shiftKey && document.activeElement === f[0]) { e.preventDefault(); f[f.length - 1].focus(); }
+      else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { e.preventDefault(); f[0].focus(); }
+    };
+    document.addEventListener('keydown', onKey, true);
+    return () => {
+      document.removeEventListener('keydown', onKey, true);
+      if (opener && typeof opener.focus === 'function') opener.focus();
+    };
+  }, [modal]);
   return (
     <div className={'modal-backdrop' + (modal ? ' show' : '')} onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <div className="modal-card">
+      <div className="modal-card" ref={card} role="dialog" aria-modal="true" aria-labelledby="modal-title-text">
         <div className="modal-head">
           <div>
-            <div className="modal-title">{modal ? modal.title : ''}</div>
+            <div className="modal-title" id="modal-title-text">{modal ? modal.title : ''}</div>
             <div className="modal-sub">{modal ? modal.sub : ''}</div>
           </div>
-          <button className="modal-close" type="button" onClick={onClose} title="Close (Esc)">&times;</button>
+          <button className="modal-close" type="button" onClick={onClose} title="Close (Esc)" aria-label="Close">&times;</button>
         </div>
         <div className="modal-body">{modal ? modal.body : null}</div>
       </div>

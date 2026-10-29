@@ -85,7 +85,7 @@ export async function fetchMe(timeoutMs = 8000) {
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders(), signal: ctrl.signal });
-    if (!res.ok) throw new Error('stale token');
+    if (!res.ok) { const e = new Error('stale token'); e.status = res.status; throw e; }
     return await res.json();
   } finally {
     clearTimeout(timer);
@@ -167,6 +167,33 @@ export function questionAbort(stopSignal, idleMs = QUERY_IDLE_MS) {
   };
 }
 
+// X-17 (audit 2026-10-29): "Sorry, I encountered an error: Internal Server Error"
+// told the officer nothing. A plain sentence, with the technical text after it.
+export function friendlyError(message) {
+  const m = String(message || '').trim();
+  const low = m.toLowerCase();
+  let say = 'Something went wrong while answering. Try again, or ask it in other words.';
+  if (!m || low.includes('internal server error') || low.includes('api request failed') || low.includes('bad gateway')
+    || low.includes('timeout') || low.includes('timed out')) {
+    say = 'The data service did not respond. Try again in a minute.';
+  } else if (low.includes('another signed-in user') || low.includes('belongs to another account')) {
+    return m;
+  } else if (low.includes('at most') || low.includes('too long') || low.includes('2000 characters')) {
+    say = 'The question is too long. Ask it in 2,000 characters or fewer.';
+  }
+  return m ? `${say} (Details: ${m})` : say;
+}
+
+// K-10 (audit 2026-10-29): a validation error's detail is a list of objects and
+// showed as "[object Object]"; its message is said instead.
+export function detailText(detail) {
+  if (Array.isArray(detail)) {
+    const msgs = detail.map((d) => (d && typeof d === 'object' ? d.msg : String(d))).filter(Boolean);
+    return msgs.join('; ');
+  }
+  return detail && typeof detail === 'object' ? String(detail.msg || '') : String(detail || '');
+}
+
 // The error for a non-2xx response: a ConnectionError when it means the
 // network or the data service, else the app's own message.
 async function httpFailure(response) {
@@ -174,12 +201,14 @@ async function httpFailure(response) {
   let fromApp = false;
   try { detail = (await response.json()).detail || ''; fromApp = !!detail; } catch (e) { /* not the app's JSON */ }
   if (isConnectionStatus(response.status, detail, fromApp)) return new ConnectionError();
-  return new Error(detail || 'API request failed');
+  return new Error(detailText(detail) || 'API request failed');
 }
 
-// opts: { skipCache, signal } — skipCache answers afresh (Regenerate); signal is Stop.
+// opts: { skipCache, signal, keepTurns } — skipCache answers afresh (Regenerate); signal is Stop;
+// keepTurns (K-6): the saved turns to keep — the rest were replaced by Edit / Regenerate.
 export async function fetchNLPResponse(question, language, sessionId, opts = {}) {
   const body = { question, language, session_id: sessionId, include_sql: true, skip_cache: !!opts.skipCache };
+  if (Number.isInteger(opts.keepTurns)) body.keep_turns = opts.keepTurns;   // K-6
   const ab = questionAbort(opts.signal);
   let response;
   try {
@@ -209,6 +238,7 @@ export async function fetchNLPResponse(question, language, sessionId, opts = {})
 export async function streamNLPResponse(question, language, sessionId, opts = {}) {
   const onEvent = opts.onEvent || (() => {});
   const body = { question, language, session_id: sessionId, include_sql: true, skip_cache: !!opts.skipCache };
+  if (Number.isInteger(opts.keepTurns)) body.keep_turns = opts.keepTurns;   // K-6
   const ab = questionAbort(opts.signal);
   let gotEvent = false;
   let response;
@@ -245,7 +275,7 @@ export async function streamNLPResponse(question, language, sessionId, opts = {}
         if (ev.type === 'done') return ev.result;
         if (ev.type === 'error') {
           if (ev.status === 401) { onUnauthorized('Your session has expired — please sign in again.'); throw new Error('unauthorized'); }
-          const e = isConnectionStatus(ev.status, ev.detail, true) ? new ConnectionError() : new Error(ev.detail || 'API request failed');
+          const e = isConnectionStatus(ev.status, ev.detail, true) ? new ConnectionError() : new Error(detailText(ev.detail) || 'API request failed');
           throw Object.assign(e, { fromServer: true });
         }
         onEvent(ev);
@@ -306,11 +336,17 @@ export async function checkHealth(timeoutMs = 6000) {
 
 // ── Conversation history (server-backed, per officer) ───────────────────────
 export async function listHistory(filter) {
-  const qs = filter ? '&q=' + encodeURIComponent(filter) : '';
-  const res = await apiFetch('/api/history?limit=60' + qs);
-  if (!res.ok) throw new Error('history ' + res.status);
-  const data = await res.json();
-  return data.conversations || [];
+  const one = async (qs) => {
+    const res = await apiFetch('/api/history?limit=60' + qs);
+    if (!res.ok) throw new Error('history ' + res.status);
+    const data = await res.json();
+    return data.conversations || [];
+  };
+  if (filter) return one('&q=' + encodeURIComponent(filter));
+  // K-28 (audit 2026-10-29): one list of 60 with archived chats last cut the Archived
+  // section off for an officer with 60+ active chats; each shelf is fetched on its own
+  const [active, archived] = await Promise.all([one('&archived=false'), one('&archived=true')]);
+  return [...active, ...archived];
 }
 
 export async function getConversation(sid) {

@@ -84,7 +84,10 @@ def test_screenshot_rows_are_one_period_series(bundle):
     assert a["kind"] == "multi" and a["change"] is True            # was twoDim (diagonal grid)
     c = a["charts"][0]
     assert c["fullLabels"] == ["2023-2024", "2024-2025", "2025-2026"]
-    assert c["axes"] == {"x": "Financial year", "y": "Person days", "unit": None}
+    # chat UI audit 2026-10-29 (D-5 / I-10): the axes also say whether less is better,
+    # whether the low end was asked, and the measure's words for the headline
+    assert c["axes"] == {"x": "Financial year", "y": "Person days", "unit": None,
+                         "lowerBetter": False, "measure": "person days", "low": False}
     assert all("year_key" not in r for r in a["data"])
 
 
@@ -146,7 +149,7 @@ def test_only_true_twins_are_merged(bundle):
     (2023, "year_key", "2023"),               # a year is a label: never "2,023"
     (274001, "village_code", "274001"),
     (None, "x", "—"), ("None", "x", "—"), ("", "x", "—"),
-    ("RI BHOI", "lgd_district", "RI BHOI"),
+    ("RI BHOI", "lgd_district", "Ri Bhoi"),   # C-5 (chat UI audit 2026-10-29): places in Title Case
     ("2023-24", "financial_year", "2023-24"),
     ("0012", "sanction_no", "0012"),          # an identifier in digits is shown as stored
     ("1234567890123", "account_ref", "1234567890123"),
@@ -182,7 +185,9 @@ def test_other_views_keep_their_kind(bundle):
                {"scheme": "PMAY-G", "count": 20, "count_measure": "houses", "amount_rupees": 2e9,
                 "money_measure": "released"}]
     a = _js(bundle, "T.analytics.buildAnalytics('q', rows, null)", rows=summary)
-    assert a["kind"] == "multi" and a["noTable"] is True
+    # B-5 (audit 2026-10-29, decided): the old cross_scheme summary special case is gone;
+    # two schemes are a side-by-side card that never names a scheme "ahead"
+    assert a["kind"] == "compare" and a["verdict"] == {"unlike": True, "measure": "count"}
     # a twin pair in two rows reads as a two-way comparison card of the readable labels
     card = _js(bundle, "T.analytics.buildAnalytics('compare', rows, null)", rows=SHOT[:2])
     assert card["kind"] == "compare" and card["title"] == "2023-2024 vs 2024-2025"

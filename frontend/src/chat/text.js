@@ -157,7 +157,10 @@ export function figureSpans(text) {
     const numEnd = numberEnd(text, numStart);
     const num = text.slice(numStart, numEnd);
     const after = text[numEnd];
-    if ((after !== undefined && (isWordChar(after) || FIG_GLUE.includes(after))) || !isPlainNumber(num, 2, 3) || !groupedOk(num) || (!hasCurrency && isYear(num))) {
+    // K-35 (audit 2026-10-29): a figure that ends a sentence or a clause ("… 1,234.",
+    // "… 1,234, then") is still a figure; only "." / "," glued to more text is not
+    const closes = (after === '.' || after === ',') && (numEnd + 1 >= text.length || isSpace(text[numEnd + 1]));
+    if ((after !== undefined && !closes && (isWordChar(after) || FIG_GLUE.includes(after))) || !isPlainNumber(num, 2, 3) || !groupedOk(num) || (!hasCurrency && isYear(num))) {
       p = numEnd;                              // not a figure: skip past the whole token
       continue;
     }
@@ -232,4 +235,37 @@ export function unwrapSpans(text, spans) {
   let last = 0;
   for (const s of spans) { out += text.slice(last, s.start) + s.inner; last = s.end; }
   return out + text.slice(last);
+}
+
+/* K-34 (audit 2026-10-29): Read aloud read table pipes and "---" aloud, and a long
+   answer as one utterance (browsers cut those off). A table row is read as its
+   cells joined by commas, its rule line is dropped, and the text is cut into
+   pieces of at most `max` characters at sentence ends (else at a space). */
+const isRuleCell = (c) => c.length > 0 && [...c].every((ch) => ch === '-' || ch === ':' || isSpace(ch));
+
+export function speechText(text) {
+  return String(text || '').split('\n').map((line) => {
+    const t = line.trim();
+    if (!t.startsWith('|')) return line;
+    const cells = t.split('|').map((c) => c.trim()).filter((c) => c.length > 0);
+    if (!cells.length || cells.every(isRuleCell)) return '';
+    return cells.join(', ') + '.';
+  }).filter((line) => line.trim().length > 0).join('\n');
+}
+
+export function speechChunks(text, max = 220) {
+  const out = [];
+  let rest = speechText(text).trim();
+  while (rest.length > max) {
+    let cut = -1;
+    for (let i = max; i > max / 3; i--) {
+      if ((rest[i - 1] === '.' || rest[i - 1] === '?' || rest[i - 1] === '!' || rest[i - 1] === '\n') &&(i >= rest.length || isSpace(rest[i]))) { cut = i; break; }
+    }
+    if (cut < 0) cut = rest.lastIndexOf(' ', max);
+    if (cut <= 0) cut = max;
+    out.push(rest.slice(0, cut).trim());
+    rest = rest.slice(cut).trim();
+  }
+  if (rest) out.push(rest);
+  return out;
 }

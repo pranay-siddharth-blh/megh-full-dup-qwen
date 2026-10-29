@@ -1,12 +1,13 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { buildAnalytics, chartPreference, withoutChartPhrase } from '../analytics.js';
-import { fullStamp } from '../format.js';
-import { CompareCard, DynTable, GroupedChart, PivotTable, RecordCard, StackedChart, SwitchableChart, TwoDimChart } from './Charts.jsx';
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react';
+import { buildAnalytics, chartPreference, humanCol, withoutChartPhrase } from '../analytics.js';
+import { answerKey, fullStamp } from '../format.js';
+import { rowsAsTsv } from '../exporters.js';
+import { CompareCard, DynTable, GroupedChart, PivotTable, RecordCard, RowTotal, StackedChart, SwitchableChart, TwoDimChart } from './Charts.jsx';
 import { Markdown, plainText } from './Markdown.jsx';
 import { useReveal } from '../reveal.js';
-import { themeFor } from '../chartTheme.js';
+import { isMonthLabel, isQuarterLabel, themeFor } from '../chartTheme.js';
 import { sendFeedbackApi } from '../api.js';
-import { inlineSpans } from '../text.js';
+import { inlineSpans, isPeriodLabel } from '../text.js';
 import { enterSends } from '../shortcuts.js';
 
 /* One chat message. A bot answer (`response` from /api/query) renders the same
@@ -64,8 +65,12 @@ function Analytics({ question, response, view, onAsk }) {
   // A named type ("pie chart", "bar graph", "line chart") is that chart ONLY —
   // no Bar / Pie / Donut / Line switcher. A plain "chart" / "graph", or nothing
   // asked, keeps every type on offer (user, 2026-10-19).
-  const only = prefer && prefer !== 'chart' ? (prefer === 'stacked' ? 'bar' : prefer) : null;
-  const only2d = prefer && prefer !== 'chart' ? prefer : null;
+  // A type the rows cannot honestly be drawn as (a donut of overlapping counts,
+  // a stack of schemes) was refused by buildAnalytics: bars, with its note.
+  const named = prefer && prefer !== 'chart' && !a.refused;
+  const only = named ? (prefer === 'stacked' ? 'bar' : prefer) : null;
+  const only2d = named ? prefer : null;
+  const note = a.note ? <div className="chart-note"><p>{a.note}</p></div> : null;
   const typesOr = (all) => (only ? [only] : all);
   // A chart was asked for but the answer is one figure: say so, and offer the
   // breakdowns that can be drawn, instead of silently showing the number again.
@@ -101,14 +106,29 @@ function Analytics({ question, response, view, onAsk }) {
   }
   if (a.kind === 'record') return <div className="analytics"><RecordCard row={a.row} /></div>;
   if (a.kind === 'compare') {
+    // G-9 / B-11: what the figure is for each scheme ("household-years", "money released")
+    const said = (side) => (response.measure_notes && response.measure_notes[side.label]
+      && response.measure_notes[side.label][a.vKey]) || side.detail;
     return (
       <div className="analytics">
-        <CompareCard title={a.title} measure={a.measure} a={a.a} b={a.b} verdict={a.verdict} />
+        <CompareCard title={a.title} measure={a.measure} a={{ ...a.a, detail: said(a.a) }} b={{ ...a.b, detail: said(a.b) }}
+                     verdict={a.verdict} unit={a.unit} />
+        {(a.more || []).map((c) => (
+          <CompareCard key={c.vKey} title={a.title} measure={c.measure} unit={c.unit} verdict={c.verdict}
+                       a={{ ...c.a, detail: (response.measure_notes && response.measure_notes[c.a.label] && response.measure_notes[c.a.label][c.vKey]) || c.a.detail }}
+                       b={{ ...c.b, detail: (response.measure_notes && response.measure_notes[c.b.label] && response.measure_notes[c.b.label][c.vKey]) || c.b.detail }} />
+        ))}
         {withTables && a.extra && <DynTable data={a.data} />}
       </div>
     );
   }
-  if (a.kind === 'table') return <div className="analytics"><DynTable data={a.data} /></div>;
+  if (a.kind === 'table') {
+    return (
+      <div className="analytics">{note}
+        {a.pivot ? <PivotTable data={a.data} xKey={a.pivot.xKey} sKey={a.pivot.sKey} vKey={a.pivot.vKey} /> : <DynTable data={a.data} />}
+      </div>
+    );
+  }
   // A chart type was asked for: answers whose card has no type switch (grouped,
   // stacked) are drawn by the cards that have one, so the asked type is used.
   if (prefer && a.kind === 'stacked') {
@@ -127,7 +147,7 @@ function Analytics({ question, response, view, onAsk }) {
         <div className={'dyn-grid' + (a.datasets.length === 1 ? ' single' : '')}>
           {a.datasets.map((d) => (
             <SwitchableChart key={d.label} title={d.label} labels={a.labels} fullLabels={a.fullLabels} values={d.values}
-                             types={typesOr(['bar', 'pie', 'doughnut', 'line'])} initial={only || 'bar'} theme={theme} />
+                             types={typesOr(['bar', 'pie', 'doughnut', ...(periodAxis(a.labels) ? ['line'] : [])])} initial={only || 'bar'} theme={theme} />
           ))}
         </div>
       </div>
@@ -161,26 +181,45 @@ function Analytics({ question, response, view, onAsk }) {
   if (a.kind === 'twoDim') {
     return (
       <div className="analytics">
+        {note}
         <div className="dyn-grid single">
           <TwoDimChart title={a.title} labels={a.labels} datasets={a.datasets} xKey={a.xKey} sKey={a.sKey}
-                       periods={a.periods} initial={only2d || a.defType} types={only2d ? [only2d] : undefined} theme={theme}
+                       periods={a.periods} initial={only2d || a.defType} types={only2d ? [only2d] : a.types} theme={theme}
                        axisInfo={a.axes} />
+          {(a.more || []).map((m) => (
+            <TwoDimChart key={m.vKey} title={m.title} labels={m.labels} datasets={m.datasets} xKey={a.xKey} sKey={a.sKey}
+                         periods={a.periods} initial={only2d || a.defType} types={only2d ? [only2d] : a.types} theme={theme}
+                         axisInfo={m.axes} />
+          ))}
         </div>
-        {withTables && (a.extra ? <DynTable data={a.data} /> : <PivotTable data={a.data} xKey={a.xKey} sKey={a.sKey} vKey={a.vKey} />)}
+        {withTables && (a.extra ? <DynTable data={a.data} />
+          : <PivotTable data={a.data} xKey={a.xKey} sKey={a.sKey} vKey={a.vKey} totals={response.column_totals} />)}
       </div>
     );
   }
   const single = a.charts.length === 1;
+  // G-9 / B-11: a scheme's bar tooltip says what its figure is
+  const notes = response.measure_notes || {};
+  const tip = (c, i) => {
+    const vk = Object.keys((notes[c.fullLabels[i]] || {})).find((k) => c.title.toLowerCase().startsWith(humanCol(k).toLowerCase()));
+    return vk ? `${c.fullLabels[i]} — ${notes[c.fullLabels[i]][vk]}` : c.fullLabels[i];
+  };
   return (
     <div className="analytics">
+      {note}
       <div className={'dyn-grid' + (single ? ' single' : '')}>
         {a.charts.map((c, i) => (
-          <SwitchableChart key={i} title={c.title} labels={c.labels} fullLabels={c.fullLabels} values={c.values}
-                           types={typesOr(a.types || ['bar', 'pie', 'doughnut', 'line'])} initial={only || a.defType} theme={theme}
+          <SwitchableChart key={i} title={c.title} labels={c.labels} fullLabels={c.fullLabels.map((_, j) => tip(c, j))} values={c.values}
+                           types={typesOr(a.types || ['bar', 'pie', 'doughnut', ...(periodAxis(c.labels) ? ['line'] : [])])} initial={only || a.defType}
+                           theme={c.scheme ? themeFor([c.scheme]) : theme}
                            axes={c.axes} />
         ))}
       </div>
-      {withTables && <DynTable data={a.data} change={!!a.change} />}
+      {withTables && <DynTable data={a.data} change={!!a.change} rank={!!a.ranked} />}
+      {!withTables && !a.noTable && (
+        // X-15: an asked-for chart keeps its figures one tap away (and for screen readers)
+        <details className="chart-figures"><summary>Show the figures as a table</summary><DynTable data={a.data} rank={!!a.ranked} /></details>
+      )}
     </div>
   );
 }
@@ -280,6 +319,10 @@ function fallbackCopy(text, done) {
 }
 
 // Copy `text` to the clipboard; `done` runs once it is there.
+// X-4 (audit 2026-10-29): Line is offered only when the x-axis is a period
+const periodAxis = (labels) => Array.isArray(labels) && labels.length > 0
+  && labels.every((l) => isPeriodLabel(l) || isMonthLabel(l) || isQuarterLabel(l));
+
 export function copyText(text, done) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
@@ -309,10 +352,51 @@ function SqlDisclosure({ response }) {
 
 // ── Follow-up area ──────────────────────────────────────────────────────────
 // Every chip runs its question exactly like anything the user types.
+// X-9 / F-5 (audit 2026-10-29): "Next steps", "Try asking" and "Earlier" chips were
+// mouse-only; every chip is reachable with Tab and taps with Enter or Space.
 const askProps = (onAsk, q) => ({
   style: { cursor: 'pointer' },
+  role: 'button',
+  tabIndex: 0,
   onClick: (e) => { e.preventDefault(); e.stopPropagation(); onAsk(q); },
+  onKeyDown: (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onAsk(q); }
+  },
 });
+
+// F-3 / F-4 (audit 2026-10-29): a data answer that failed looked like any other
+// ("0 results", no retry), and one with no rows offered nothing to try next.
+function AnswerState({ response, question, onAsk }) {
+  if (response.route !== 'data' || response.intent === 'CLARIFY' || response.denied) return null;
+  const rows = Array.isArray(response.data) ? response.data.length : 0;
+  const q = String(question || '').trim();
+  if (response.answer_failed || (response.confidence === 'low' && !rows)) {
+    return (
+      <div className="chart-note answer-failed" role="status">
+        <p>Could not get the figures for this question. Try again, or ask it in other words.</p>
+        {onAsk && q && <div className="clarify-opts"><button type="button" className="clarify-opt" {...askProps(onAsk, q)}>Try again</button></div>}
+      </div>
+    );
+  }
+  if (rows || !q) return null;
+  const low = q.toLowerCase();
+  return (
+    <div className="chart-note" role="status">
+      <p>No records for this question.</p>
+      {onAsk && (
+        <div className="clarify-opts">
+          {!low.includes('all financial years') && (
+            <button type="button" className="clarify-opt" {...askProps(onAsk, `${stripEnd(q)} across all financial years`)}>For all financial years</button>
+          )}
+          {!low.includes('all of meghalaya') && (
+            <button type="button" className="clarify-opt" {...askProps(onAsk, `${stripEnd(q)} for all of Meghalaya`)}>For all of Meghalaya</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+const stripEnd = (q) => { let t = String(q).trim(); while (t && '?.!'.includes(t[t.length - 1])) t = t.slice(0, -1); return t; };
 
 function SchemePicker({ response, onAsk }) {
   const opts = ((response && response.scheme_options) || [])
@@ -342,7 +426,8 @@ function SchemePicker({ response, onAsk }) {
 const SCHEME_NAMES = ['MGNREGA', 'PMAY-G', 'Focus Plus', 'CM Elevate', 'Focus Legacy', 'CM Elevate Legacy']
   // Longest name first, so "CM Elevate Legacy (…)" is not read as "CM Elevate".
   .sort((a, b) => b.length - a.length);
-const schemeOf = (label) => SCHEME_NAMES.find((n) => label === n || (label.startsWith(n) && !isAsciiLetterOrDigit(label[n.length]))) || null;
+// F-1 (audit 2026-10-29): "MGNREGA vs PMAY-G" is a pair, not MGNREGA — shown in full
+const schemeOf = (label) => (String(label).includes(' vs ') ? null : SCHEME_NAMES.find((n) => label === n || (label.startsWith(n) && !isAsciiLetterOrDigit(label[n.length]))) || null);
 const isAsciiLetterOrDigit = (c) => typeof c === 'string' && c.length === 1
   && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'));
 
@@ -515,7 +600,8 @@ const fbKey = (sessionId, id) => `megh_fb:${sessionId || ''}:${id}`;
 function readVote(key) { try { return Number(sessionStorage.getItem(key)) || 0; } catch (e) { return 0; } }
 function saveVote(key, v) { try { if (v) sessionStorage.setItem(key, String(v)); else sessionStorage.removeItem(key); } catch (e) { /* ignore */ } }
 
-function FeedbackActions({ id, sessionId, question, response, answer }) {
+function FeedbackActions({ sessionId, question, response, answer }) {
+  const id = answerKey(question, answer);
   const key = fbKey(sessionId, id);
   const [vote, setVote] = useState(() => readVote(key));
   const [asking, setAsking] = useState(false);
@@ -537,7 +623,8 @@ function FeedbackActions({ id, sessionId, question, response, answer }) {
     send(next).catch(() => { setVote(prev); saveVote(key, prev); setAsking(false); setState('error'); });
   };
   const submitNote = () => {
-    const comment = [reason, note.trim()].filter(Boolean).join(' — ');
+    // K-37: the reason and the note together stay inside the server's 1,000 characters
+    const comment = [reason, note.trim()].filter(Boolean).join(' — ').slice(0, 1000);
     setAsking(false);
     if (!comment) return;
     send(-1, comment).then(() => setState('sent')).catch(() => setState('error'));
@@ -692,8 +779,11 @@ function UserMessage({ text, time, onEdit, busy, editRequest = 0 }) {
   );
 }
 
-export function TextMessage({ id, role, text, time, at, onEdit, busy, speakingId, onSpeak, onRetry, editRequest }) {
-  if (role === 'user') return <UserMessage text={text} time={time} onEdit={onEdit} busy={busy} editRequest={editRequest} />;
+// X-10 (audit 2026-10-29): every streamed word re-rendered every message and its
+// charts; a message now re-renders only when its own props change. onEdit takes
+// (id, text), so the parent can pass one stable function to every message.
+export const TextMessage = memo(function TextMessage({ id, role, text, time, at, onEdit, busy, speakingId, onSpeak, onRetry, editRequest }) {
+  if (role === 'user') return <UserMessage text={text} time={time} onEdit={onEdit && ((q) => onEdit(id, q))} busy={busy} editRequest={editRequest} />;
   return (
     <div className="msg bot">
       <div className="av">M</div>
@@ -711,7 +801,7 @@ export function TextMessage({ id, role, text, time, at, onEdit, busy, speakingId
       </div>
     </div>
   );
-}
+});
 
 // ── An answer in flight ─────────────────────────────────────────────────────
 // What the officer sees while waiting: the steps the pipeline has reached (from
@@ -825,13 +915,10 @@ function RegenerateAction({ onRegenerate, label = 'Regenerate answer' }) {
   );
 }
 
-export function BotMessage({ id, question, response, time, at, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey, sessionId, view }) {
+export const BotMessage = memo(function BotMessage({ id, question, response, time, at, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey, sessionId, view }) {
   // A fresh answer is revealed word by word (reveal.js); the charts, SQL and
   // chips follow once the text is all there. A replayed one shows at once.
   const [shown, revealed] = useReveal(response.answer, streamKey, !!animate);
-  // A cross-scheme comparison (app/cross_scheme.py) writes its per-scheme table
-  // into the answer text; its rows are charted one measure per chart
-  // (analytics.js crossSummaryCharts), never pivoted into a second table.
   const wantsAnalytics = response.intent !== 'EDGE'
     && Array.isArray(response.data) && response.data.length >= 1;
   // A CLARIFY pause fetched nothing, so a "0 results" meta line would mislead.
@@ -843,6 +930,11 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
       <div>
         <div className="bubble">
           <RouteBadge response={response} />
+          {response.translated_from && (response.rewritten_question || response.translated_question) && (
+            // K-17 (audit 2026-10-29): a Khasi / Garo question is answered in English; say how it was
+            // read (a documents answer has no rewritten question, only the translation; live run)
+            <div className="understood-as">Understood as: “{response.rewritten_question || response.translated_question}”</div>
+          )}
           <ScopeBanner response={response} />
           {response.answer && (
             <div className="answer-text md">
@@ -855,9 +947,12 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
               {wantsAnalytics && (
                 // "give me a wide frame": the backend sets chart_wide, the charts are drawn taller
                 <div className={response.chart_wide ? 'chart-wide' : undefined}>
-                  <Analytics question={question} response={response} view={view} onAsk={onAsk} />
+                  <RowTotal.Provider value={response.total_row_count ?? null}>
+                    <Analytics question={question} response={response} view={view} onAsk={onAsk} />
+                  </RowTotal.Provider>
                 </div>
               )}
+              <AnswerState response={response} question={question} onAsk={onAsk} />
               <SqlDisclosure response={response} />
               <FollowUp response={response} onAsk={onAsk} />
               <ContinueOffer response={response} onAsk={onAsk} />
@@ -866,13 +961,15 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
         </div>
         <div className="msg-foot">
           <div className="mtime">
-            {showMeta
-              ? `${time} · ${response.row_count || 0} result${response.row_count === 1 ? '' : 's'} · ${response.execution_time_ms || 0}ms`
+            {/* K-33: the result count only under a data answer */}
+            {showMeta && response.route === 'data'
+              ? `${time} · ${response.row_count || 0} result${response.row_count === 1 ? '' : 's'}${response.execution_time_ms ? ` · ${response.execution_time_ms}ms` : ''}`
               : time}
           </div>
           {answer && (
             <div className="msg-actions">
-              <CopyAction text={answer} label="Copy answer" />
+              <CopyAction text={Array.isArray(response.data) && response.data.length ? `${answer}\n\n${rowsAsTsv(response.data)}` : answer}
+                          label="Copy answer" />
               {onSpeak && <SpeakAction id={id} text={answer} speakingId={speakingId} onSpeak={onSpeak} />}
               {onRegenerate && <RegenerateAction onRegenerate={onRegenerate} />}
               {response.intent !== 'EDGE' && response.intent !== 'CLARIFY' && (
@@ -885,4 +982,4 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
       </div>
     </div>
   );
-}
+});

@@ -461,6 +461,167 @@ def set_limit(sql: str, n: int | None) -> str:
     return transform(sql, fn)
 
 
+def nulls_last_on_desc(sql: str) -> str:
+    """Every descending ORDER BY key sorted NULLS LAST. PostgreSQL sorts NULL first
+    on DESC, so a "top N" opened with the places that have no figure (chat UI
+    audit 2026-10-29, E-5)."""
+
+    def fn(tree):
+        for o in tree.find_all(exp.Ordered):
+            if o.args.get("desc") and o.args.get("nulls_first") is not False:
+                o.set("nulls_first", False)
+        return None
+
+    return transform(sql, fn)
+
+
+def low_end_queries(sql: str, measure: str) -> "tuple[str, str] | None":
+    """I-10 / J-7 (chat UI audit 2026-10-29): "lowest 5 villages" over hundreds of
+    villages tied at 0 picked 5 of them at random. For a ranking query ending in
+    LIMIT n: (how many rows have no `measure`, the n lowest rows that have one),
+    both over the query without its ORDER BY / LIMIT. None when it has no LIMIT."""
+    tree = parse_one(sql)
+    if not isinstance(tree, exp.Select) or tree.args.get("limit") is None:
+        return None
+    lim = tree.args["limit"].args.get("expression")
+    if not isinstance(lim, exp.Literal) or not lim.is_int:
+        return None
+    n = int(lim.this)
+    inner = tree.copy()
+    inner.set("limit", None)
+    inner.set("order", None)
+    body = inner.sql(dialect=DIALECT)
+    col = exp.to_identifier(measure, quoted=True).sql(dialect=DIALECT)
+    zero = f"SELECT COUNT(*) AS zero_places FROM ({body}) AS ranked_q WHERE COALESCE({col}, 0) = 0"
+    lowest = f"SELECT * FROM ({body}) AS ranked_q WHERE {col} > 0 ORDER BY {col} ASC LIMIT {n}"
+    return zero, lowest
+
+
+def widen_village_filter(sql: str, codes: list) -> str:
+    """J-10 (chat UI audit live run 2026-10-29): villages that share a name are all
+    asked; a filter `village_code = <one of them>` becomes `village_code IN (all)`,
+    and a LIMIT smaller than their number is dropped. Anything else: unchanged."""
+    want = [int(c) for c in codes]
+    names = {str(c) for c in want}
+
+    def fn(tree):
+        hit = False
+        for eq in list(tree.find_all(exp.EQ)):
+            col, lit = eq.this, eq.expression
+            if isinstance(lit, exp.Column) and isinstance(col, exp.Literal):
+                col, lit = lit, col
+            if isinstance(col, exp.Column) and col.name.lower() == "village_code" \
+                    and isinstance(lit, exp.Literal) and lit.this in names:
+                eq.replace(exp.In(this=col.copy(), expressions=[exp.Literal.number(c) for c in want]))
+                hit = True
+        if hit and isinstance(tree, exp.Select) and tree.args.get("limit") is not None:
+            lim = tree.args["limit"].args.get("expression")
+            if isinstance(lim, exp.Literal) and lim.is_int and int(lim.this) < len(want):
+                tree.set("limit", None)
+        return None
+
+    return transform(sql, fn)
+
+
+def without_limit(sql: str) -> str:
+    """The query without its outer LIMIT / OFFSET (E-3: counting the rows past the cap).
+    Unparseable or not one SELECT: unchanged."""
+    tree = parse_one(sql)
+    if not isinstance(tree, exp.Select):
+        return sql
+    tree.set("limit", None)
+    tree.set("offset", None)
+    return tree.sql(dialect=DIALECT)
+
+
+def output_sources(sql: str) -> dict:
+    """X-14: for each output column of the outer SELECT, {"tables": every table the
+    query reads, "cols": the source column names in its expression, "div": the number
+    it is divided by (None), "ratio": True when it is divided by another column}.
+    {} when the query is not one plain SELECT."""
+    tree = parse_one(sql)
+    if not isinstance(tree, exp.Select):
+        return {}
+    tables = sorted({t.name.lower() for t in tree.find_all(exp.Table) if t.name})
+    out = {}
+    for e in tree.expressions:
+        name = e.alias_or_name
+        cols = sorted({c.name.lower() for c in e.find_all(exp.Column) if c.name})
+        div, ratio = None, False
+        for d in e.find_all(exp.Div):
+            right = d.expression.this if isinstance(d.expression, exp.Paren) else d.expression
+            if isinstance(right, exp.Literal) and not right.is_string:
+                try:
+                    div = float(right.this)
+                except ValueError:
+                    ratio = True
+            elif list(right.find_all(exp.Column)) or isinstance(right, exp.Column):
+                ratio = True
+        out[name] = {"tables": tables, "cols": cols, "div": div, "ratio": ratio}
+    return out
+
+
+_PERIOD_OUTPUTS = ("financial_year", "financial_year_short", "fy", "year_key", "year", "month", "month_name",
+                   "quarter")
+
+
+def rank_within_period(sql: str) -> "str | None":
+    """I-2 (chat UI audit live run 2026-10-29): "top 5 districts year wise" was
+    answered with ORDER BY measure DESC LIMIT 5 over every year (one year's top 5).
+    A query ending in ORDER BY <measure> LIMIT N whose output has a period column
+    is rewritten to the top N of EACH period:
+      SELECT * FROM (SELECT q.*, ROW_NUMBER() OVER (PARTITION BY <period> ORDER BY
+      <measure> <dir>) AS rank_in_period FROM (<query without ORDER BY / LIMIT>) q) r
+      WHERE rank_in_period <= N ORDER BY <period>, rank_in_period
+    None when the query has no such shape or already ranks with a window."""
+    tree = parse_one(sql)
+    if not isinstance(tree, exp.Select) or tree.args.get("limit") is None or tree.find(exp.Window):
+        return None
+    lim = tree.args["limit"].args.get("expression")
+    order = tree.args.get("order")
+    if not isinstance(lim, exp.Literal) or not lim.is_int or order is None or not order.expressions:
+        return None
+    names = [e.alias_or_name for e in tree.expressions]
+    period = next((n for n in names if n and n.lower() in _PERIOD_OUTPUTS), None)
+    key = order.expressions[0]
+    measure = key.this
+    m_name = measure.alias_or_name if isinstance(measure, exp.Column) else None
+    if m_name not in names:
+        # ORDER BY SUM(x) when SUM(x) is selected under an alias: use that alias
+        m_sql = measure.sql(dialect=DIALECT)
+        m_name = next((e.alias for e in tree.expressions
+                       if isinstance(e, exp.Alias) and e.this.sql(dialect=DIALECT) == m_sql), None)
+    if not period or not m_name or m_name == period:
+        return None
+    inner = tree.copy()
+    inner.set("limit", None)
+    inner.set("order", None)
+    direction = "DESC" if key.args.get("desc") else "ASC"
+    q = lambda n: exp.to_identifier(n, quoted=True).sql(dialect=DIALECT)  # noqa: E731
+    return (f"SELECT * FROM (SELECT ranked_q.*, ROW_NUMBER() OVER (PARTITION BY {q(period)} ORDER BY "
+            f"{q(m_name)} {direction} NULLS LAST) AS rank_in_period FROM ({inner.sql(dialect=DIALECT)}) AS ranked_q) "
+            f"AS per_period WHERE rank_in_period <= {int(lim.this)} ORDER BY {q(period)}, rank_in_period")
+
+
+def tie_count_query(sql: str, measure: str, value) -> "tuple[int, str] | None":
+    """E-9 (chat UI audit 2026-10-29): a "top N" cut at LIMIT N dropped one of the
+    places tied for the Nth place at random. (N, how many rows of the query without
+    its ORDER BY / LIMIT have `measure` = `value`). None when there is no LIMIT N."""
+    tree = parse_one(sql)
+    if not isinstance(tree, exp.Select) or tree.args.get("limit") is None:
+        return None
+    lim = tree.args["limit"].args.get("expression")
+    if not isinstance(lim, exp.Literal) or not lim.is_int:
+        return None
+    inner = tree.copy()
+    inner.set("limit", None)
+    inner.set("order", None)
+    col = exp.to_identifier(measure, quoted=True).sql(dialect=DIALECT)
+    lit = exp.Literal.number(value).sql(dialect=DIALECT)
+    return int(lim.this), (f"SELECT COUNT(*) AS tied FROM ({inner.sql(dialect=DIALECT)}) AS ranked_q "
+                           f"WHERE {col} = {lit}")
+
+
 # ── text around a query ─────────────────────────────────────────────────────
 
 def statement_text(sql: str) -> str:

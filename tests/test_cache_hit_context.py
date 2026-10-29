@@ -73,7 +73,7 @@ def test_a_cached_answer_updates_the_structured_state_and_carries_the_banner(cac
     out = _post(cached, Q, "cache-ctx-1")
     s = session_store.ensure("cache-ctx-1", "u")
     assert (s.state.scheme, s.state.district, s.state.year) == ("MGNREGA", "EAST KHASI HILLS", 2022)
-    assert out["scope_banner"] == "MGNREGA · East Khasi Hills · FY 2022-23"
+    assert out["scope_banner"] == "MGNREGA · East Khasi Hills district · FY 2022-23"   # H-6
     assert s.last_turn is not None and s.last_turn.schemes == ["MGNREGA"]
 
 

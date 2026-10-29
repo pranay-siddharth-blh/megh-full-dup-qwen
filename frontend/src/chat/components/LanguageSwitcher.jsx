@@ -72,8 +72,8 @@ export function LanguageSwitcher({ lang, onChange }) {
   return (
     <div className={'lang-switch' + (open ? ' open' : '')} ref={ref}>
       <button type="button" className="lang-switch-btn" ref={btnRef}
-              aria-haspopup="listbox" aria-expanded={open} aria-label={`Answer language: ${current.name}`}
-              title="Answer language" data-lang={current.code}
+              aria-haspopup="listbox" aria-expanded={open} aria-label={`Question language: ${current.name} (answers are in English)`}
+              title="Question language — answers are in English" data-lang={current.code}
               onClick={() => (open ? setOpen(false) : openAt(idxOf(current.code)))}
               onKeyDown={onButtonKey}>
         <span className="ls-globe">{GLOBE}</span>
@@ -82,7 +82,7 @@ export function LanguageSwitcher({ lang, onChange }) {
         <span className="ls-chev">{CHEVRON}</span>
       </button>
       {open && (
-        <ul className="lang-menu" role="listbox" aria-label="Answer language" onKeyDown={onListKey}>
+        <ul className="lang-menu" role="listbox" aria-label="Question language" onKeyDown={onListKey}>
           {LANGS.map((l, i) => {
             const selected = l.code === current.code;
             return (

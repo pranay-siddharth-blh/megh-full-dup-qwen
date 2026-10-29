@@ -650,12 +650,58 @@ def build_followups(route: str, question: str, schemes: list[str],
 
     # Drop any suggestion that just restates the question, and any duplicate.
     asked_norm = _norm(q)
+    asked_words = _content_words(q)
+    year = _year_phrase(ents)
     seen: set[str] = set()
     cleaned: list[dict] = []
     for o in opts:
         key = _norm(o["question"])
         if not key or key == asked_norm or key in seen:
             continue
+        # F-12 (chat UI audit 2026-10-29): "How much has been disbursed under Focus Plus
+        # in Ri Bhoi?" after "Focus Plus amount disbursed in Ri Bhoi" — a chip that adds
+        # no word of its own asks the question just answered
+        if route == "data" and _content_words(o["question"]) <= asked_words:
+            continue
         seen.add(key)
+        # F-10: the answer's year goes into every chip that names none; a full new
+        # question inherits no year (D-061 / D-065), so the chip asked "which year?" again
+        if year and not _names_time(o["question"]):
+            o = {**o, "question": _with_year(o["question"], year)}
         cleaned.append(o)
     return cleaned[:_MAX]
+
+
+_F_STOP = frozenset("a an the of in on for to is are was were be been has have had how many much what which who "
+                    "whom whose total number count give me show tell under by with and or meghalaya all overall "
+                    "there did do does amount figure figures".split())
+_F_TIME = frozenset("year years fy yearwise annual annually trend trends month months monthly quarter "
+                    "since till until each financial".split())
+
+
+def _content_words(text: str) -> set:
+    return {w for w in _norm(text).split() if w not in _F_STOP}
+
+
+def _names_time(text: str) -> bool:
+    words = _norm(text).split()
+    return any(w in _F_TIME for w in words) or any(len(w) >= 4 and w[:2] in ("19", "20") and w[:4].isdigit()
+                                                   for w in words)
+
+
+def _year_phrase(ents: dict) -> "str | None":
+    ys = [ents["year_key"]] if ents.get("year_key") is not None else list(ents.get("year_key_list") or [])
+    try:
+        ys = sorted(int(y) for y in ys)
+    except (TypeError, ValueError):
+        return None
+    if not ys:
+        return None
+    fy = (lambda y: f"FY {y}-{(y + 1) % 100:02d}")
+    return f"in {fy(ys[0])}" if len(ys) == 1 else f"from {fy(ys[0])} to {fy(ys[-1])}"
+
+
+def _with_year(question: str, phrase: str) -> str:
+    q = (question or "").rstrip()
+    end = q[-1] if q and q[-1] in "?." else ""
+    return f"{q[:-1] if end else q} {phrase}{end}"

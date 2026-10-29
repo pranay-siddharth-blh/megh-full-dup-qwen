@@ -6,6 +6,9 @@
 const POLITE = new Set(['ok', 'okay', 'yes', 'yeah', 'yep', 'sure', 'please', 'pls', 'plz', 'now', 'so', 'then', 'haan', 'ha']);
 const STOP_HEAD = new Set(['stop', 'cancel', 'abort', 'halt', 'ruko', 'band']);
 const STOP_TAIL = new Set(['it', 'this', 'that', 'now', 'please', 'pls', 'karo']);
+// K-23 (audit 2026-10-29): "stop the query", "cancel the question", "रुको" did nothing
+const STOP_OBJECT = new Set(['query', 'question', 'answer', 'request', 'search', 'answering', 'searching']);
+const STOP_NATIVE = ['रुको', 'रुकिए', 'रोको', 'बंद करो', 'बस करो'];
 const CONTINUE_PHRASES = [
   ['continue'], ['resume'], ['proceed'], ['contiue'], ['contnue'], ['continu'],
   ['go', 'on'], ['go', 'ahead'], ['carry', 'on'], ['keep', 'going'],
@@ -36,8 +39,13 @@ function trimPolite(ws) {
 }
 
 export function isStopText(text) {
+  const raw = String(text || '').trim().replaceAll('।', '').replaceAll('!', '').trim();
+  if (STOP_NATIVE.includes(raw)) return true;
   const ws = trimPolite(words(text));
-  return ws.length >= 1 && ws.length <= 2 && STOP_HEAD.has(ws[0]) && (ws.length === 1 || STOP_TAIL.has(ws[1]));
+  if (ws.length >= 1 && ws.length <= 2 && STOP_HEAD.has(ws[0]) && (ws.length === 1 || STOP_TAIL.has(ws[1]))) return true;
+  // "stop the query", "cancel this question", "stop answering"
+  const rest = ws.slice(1).filter((w) => !['the', 'this', 'that', 'my'].includes(w));
+  return ws.length >= 2 && ws.length <= 4 && STOP_HEAD.has(ws[0]) && rest.length === 1 && STOP_OBJECT.has(rest[0]);
 }
 
 export function isContinueText(text) {

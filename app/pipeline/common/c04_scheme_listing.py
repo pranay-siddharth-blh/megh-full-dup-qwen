@@ -920,10 +920,20 @@ _ALL_SCHEMES_NAMED = Matcher(Alt(
 ))
 
 
-def _scheme_comparison_clarification() -> "ClarificationNeeded":
+def _scheme_comparison_clarification(question: str = "") -> "ClarificationNeeded":
     names = list(SCHEME_CATALOG)
+    # F-2 (chat UI audit 2026-10-29): a pause over a question that asks figures
+    # ("compare beneficiaries of the schemes") asked "difference between A and B"
+    # on the chip, which is answered from the documents with no figures. The chip
+    # asks for the figures the officer named; a question with none keeps the
+    # "how do they differ" wording.
+    from app import cross_scheme
+    q = question or ""
+    measure = ("money spent" if cross_scheme._MONEY.search(q) else
+               "beneficiaries" if cross_scheme._COUNT.search(q) else None)
+    ask = (lambda a, b: f"Compare {measure} in {a} and {b}") if measure else         (lambda a, b: f"difference between {a} and {b}")
     options = [
-        {"label": f"{a} vs {b}", "question": f"difference between {a} and {b}"}
+        {"label": f"{a} vs {b}", "question": ask(a, b)}
         for a, b in itertools.combinations(names, 2)
     ]
     _all = ", ".join(names[:-1]) + " and " + names[-1]
@@ -1045,7 +1055,7 @@ def _scheme_comparison_answer(question: str, prev_schemes: "list[str] | None" = 
     if len(named) < 2 and _ALL_SCHEMES_NAMED.search(question or ""):
         named = list(SCHEME_CATALOG)
     if len(named) < 2:
-        raise _scheme_comparison_clarification()
+        raise _scheme_comparison_clarification(question)
     targets = named
     folded = {d: p for p, ds in _PROGRAMME_DATASETS.items() for d in ds}
     lines = []
@@ -1065,8 +1075,16 @@ def _scheme_comparison_answer(question: str, prev_schemes: "list[str] | None" = 
         "\n\nAsk about a specific one — eligibility, benefits, or the application "
         "process — for more detail."
     )
-    return {"route": "knowledge", "intent": "RAG", "confidence": "high", "sources": [],
-            "answer": answer, **_empty_data_fields()}
+    out = {"route": "knowledge", "intent": "RAG", "confidence": "high", "sources": [],
+           "answer": answer, **_empty_data_fields()}
+    # B-6 (chat UI audit 2026-10-29): "Compare MGNREGA and PMAY-G" (no figure named)
+    # gave text only; the chips ask the two figures every scheme pair can compare
+    pair = " and ".join(targets) if len(targets) == 2 else ", ".join(targets[:-1]) + " and " + targets[-1]
+    chips = [{"label": f"Compare beneficiaries in {pair}", "question": f"Compare beneficiaries in {pair}"},
+             {"label": f"Compare money spent in {pair}", "question": f"Compare money spent in {pair}"}]
+    out.update(follow_up_options=chips, follow_ups=[c["question"] for c in chips],
+               follow_up=chips[0]["question"], keep_follow_ups=True)
+    return out
 
 
 # ── Named a scheme we simply don't hold ─────────────────────────────────────

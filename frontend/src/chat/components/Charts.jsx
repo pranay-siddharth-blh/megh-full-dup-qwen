@@ -1,11 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Chart from 'chart.js/auto';
 import { pivotStacked, tableColumns } from '../analytics.js';
-import { changeColumn, colTitle, formatCell, isAdditive, isMeasureCol, withoutTwins } from '../columns.js';
+import { canAdd, changeColumn, colTitle, dimOf, formatCell, isAdditive, isMeasureCol, withoutTwins } from '../columns.js';
 import { isPeriodLabel, isPlainNumber } from '../text.js';
 import {
-  INK, PLUGINS, alpha, categorySchemeColors, chartAnimation, fmt, fmtCompact, insightFor, insightForSeries,
+  INK, PLUGINS, alpha, categorySchemeColors, chartAnimation, fmt, fmtCompact, fmtUnit, insightFor, insightForSeries, verdictText,
   ordinalSteps, seriesColors, shade, themeFor, wrapLabel,
 } from '../chartTheme.js';
 
@@ -481,7 +481,7 @@ function ZoomBar({ zoom, labels }) {
 
 // One canvas, one chart; `config` is rebuilt whenever `deps` change. With
 // `zoom`, a line chart gets the zoom controls below it (useLineZoom).
-function ChartCanvas({ build, deps, zoom = false }) {
+function ChartCanvas({ build, deps, zoom = false, label = '' }) {
   const ref = useRef(null);
   const chartRef = useRef(null);
   const [n, setN] = useState(0);
@@ -501,11 +501,11 @@ function ChartCanvas({ build, deps, zoom = false }) {
   // A rebuilt chart (new type or data) starts with the whole line.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { z.setView(null); }, deps);
-  if (!z.zoomable) return <canvas ref={ref} />;
+  if (!z.zoomable) return <canvas ref={ref} role="img" aria-label={label || 'Chart'} />;
   const labels = (chartRef.current && chartRef.current.data.labels) || [];
   return (
     <>
-      <canvas ref={ref} className="zoomable" />
+      <canvas ref={ref} className="zoomable" role="img" aria-label={label || 'Chart'} />
       <div ref={z.brushRef} className="zoom-brush" aria-hidden="true" />
       <ZoomBar zoom={z} labels={labels} />
     </>
@@ -610,12 +610,16 @@ function CardHead({ title, theme, insight, children }) {
 const cardStyle = (theme) => ({ '--chart-accent': theme.main, '--chart-accent-2': theme.deep });
 
 // A chart card with Bar / Pie / Donut (/ Line) toggles, like the original swDyn().
+const WARN = { main: '#C2410C', deep: '#9A3412', hover: '#FDBA74' };
+
 export function SwitchableChart({ title, labels, fullLabels, values, types, initial, theme = DEFAULT_THEME, axes = null }) {
   const [type, setType] = useState(types.includes(initial) ? initial : types[0]);
   const [open, setOpen] = useState(false);
   const full = fullLabels || labels;
   const flat = type === 'bar' && full.length > HORIZONTAL_FROM;
-  const insight = useMemo(() => insightFor(type, full, values), [type, full, values]);
+  const insight = useMemo(() => insightFor(type, full, values, axes || {}), [type, full, values, axes]);
+  // D-12: the largest of a lower-is-better measure (pending works) is a warning, not a win
+  if (axes && axes.lowerBetter) theme = { ...theme, main: WARN.main, deep: WARN.deep, hover: WARN.hover };
   return (
     <div className="dyn-chart-card" style={cardStyle(theme)}>
       <CardHead title={title} theme={theme} insight={insight}>
@@ -623,7 +627,8 @@ export function SwitchableChart({ title, labels, fullLabels, values, types, init
         <ExpandButton label="chart" onClick={() => setOpen(true)} />
       </CardHead>
       <div className={'chw' + (type === 'pie' || type === 'doughnut' ? ' round' : '')}>
-        <ChartCanvas build={() => withAxes(singleConfig(type, labels, values, theme), axes)} deps={[type, labels, values, theme, axes]} zoom={type === 'line'} />
+        <ChartCanvas build={() => withAxes(singleConfig(type, labels, values, theme), axes)} deps={[type, labels, values, theme, axes]} zoom={type === 'line'}
+                     label={`${title}. ${insight}`} />
       </div>
       {open && (
         <ExpandModal title={title} onClose={() => setOpen(false)}>
@@ -683,8 +688,10 @@ function twoDimConfig(type, labels, datasets, theme, expanded = false) {
 export function TwoDimChart({ title, labels, datasets, xKey, sKey, periods, initial, types = TWO_DIM_TYPES, theme = DEFAULT_THEME, axisInfo = null }) {
   const [type, setType] = useState(types.includes(initial) ? initial : (types.length === 1 ? types[0] : (periods ? 'line' : 'bar')));
   const [open, setOpen] = useState(false);
-  const insight = useMemo(() => insightForSeries(labels, datasets, periods), [labels, datasets, periods]);
-  const axes = `${colLabel(String(sKey))} by ${colLabel(String(xKey)).toLowerCase()}`;
+  const insight = useMemo(() => insightForSeries(labels, datasets, periods, axisInfo || {}), [labels, datasets, periods, axisInfo]);
+  // C-16: say what the axis and the colours are ("Financial year by district" read backwards)
+  // (browser run 2026-10-29: "Lines: financial year" named the axis as the lines; each line is a series)
+  const axes = `X-axis: ${colLabel(String(xKey)).toLowerCase()} · ${type === 'line' ? 'Lines' : 'Colours'}: ${colLabel(String(sKey)).toLowerCase()}`;
   return (
     <div className="dyn-chart-card" style={cardStyle(theme)}>
       <CardHead title={title} theme={theme} insight={insight}>
@@ -692,7 +699,8 @@ export function TwoDimChart({ title, labels, datasets, xKey, sKey, periods, init
         <ExpandButton label="chart" onClick={() => setOpen(true)} />
       </CardHead>
       <div className={'chw tall' + (type === 'doughnut' || type === 'pie' ? ' round' : '')}>
-        <ChartCanvas build={() => withAxes(twoDimConfig(type, labels, datasets, theme), axisInfo)} deps={[type, labels, datasets, theme, axisInfo]} zoom={type === 'line'} />
+        <ChartCanvas build={() => withAxes(twoDimConfig(type, labels, datasets, theme), axisInfo)} deps={[type, labels, datasets, theme, axisInfo]} zoom={type === 'line'}
+                     label={`${title}. ${insight}`} />
       </div>
       <div className="chd-axes" aria-label="What the axes show">{axes}</div>
       {open && (
@@ -818,8 +826,12 @@ function BigTable({ data, cols, title = 'Result table' }) {
 
 // `change`: the question asked how a figure moved over time; a one-period,
 // one-measure table then adds "Change from previous" (columns.changeColumn).
-export function DynTable({ data: raw, title = 'Result table', change = false }) {
+// E-3: the rows the query would return without the 1,000-row cap (server count)
+export const RowTotal = createContext(null);
+
+export function DynTable({ data: raw, title = 'Result table', change = false, rank = false }) {
   const [open, setOpen] = useState(false);
+  const total = useContext(RowTotal);
   if (!raw || !raw.length) return null;
   // A twin column (year_key beside financial_year) is the same thing twice: shown
   // once. The Excel download keeps every column (ChatExport reads the raw rows).
@@ -830,10 +842,17 @@ export function DynTable({ data: raw, title = 'Result table', change = false }) 
   return (
     <div className="rt-block">
       <TableBar count={data.length} label="table" onExpand={() => setOpen(true)} />
+      {data.length >= 1000 && (
+        // E-3 (audit 2026-10-29): the result stops at 1,000 rows (the query cap)
+        <p className="rt-capped">{total > data.length
+          ? `The first ${data.length.toLocaleString('en-IN')} of ${Number(total).toLocaleString('en-IN')} rows are shown.`
+          : 'The first 1,000 rows are shown; there may be more.'} Narrow the question (a district or a year) to see the rest.</p>
+      )}
       <div className="rtwrap">
         <table className="rtbl">
           <thead>
             <tr>
+              {rank && <th className="num">#</th>}
               {cols.map((c) => <th key={c} className={numClass(nums.has(c))}>{colLabel(c)}</th>)}
               {delta && <th className="num">{delta.column}</th>}
             </tr>
@@ -841,6 +860,7 @@ export function DynTable({ data: raw, title = 'Result table', change = false }) 
           <tbody>
             {data.map((r, i) => (
               <tr key={i}>
+                {rank && <td className="num">{i + 1}</td>}
                 {cols.map((c) => <td key={c} className={numClass(nums.has(c))}>{formatCell(r[c], c)}</td>)}
                 {delta && <td className="num delta">{delta.values[i]}</td>}
               </tr>
@@ -857,7 +877,7 @@ export function DynTable({ data: raw, title = 'Result table', change = false }) 
   );
 }
 
-function PivotGrid({ data, xKey, sKey, vKey, expanded }) {
+function PivotGrid({ data, xKey, sKey, vKey, expanded, totals = null }) {
   const xVals = [...new Set(data.map((r) => r[xKey]))];
   const sVals = [...new Set(data.map((r) => r[sKey]))];
   const lookup = {};
@@ -866,12 +886,19 @@ function PivotGrid({ data, xKey, sKey, vKey, expanded }) {
   xVals.forEach((x) => { rowTotals[x] = sVals.reduce((s, sv) => s + (parseFloat(lookup[`${x}||${sv}`]) || 0), 0); });
   const colTotals = {};
   sVals.forEach((sv) => { colTotals[sv] = xVals.reduce((s, x) => s + (parseFloat(lookup[`${x}||${sv}`]) || 0), 0); });
+  // G-12 (audit 2026-10-29): the backend's own total per series (a scheme's
+  // statewide figure, which counts records with no district) when it sends one:
+  // the screen and the answer text then give the same Total.
+  const given = totals && sVals.every((sv) => totals[sv] && totals[sv][vKey] !== undefined);
+  if (given) sVals.forEach((sv) => { colTotals[sv] = Number(totals[sv][vKey]); });
   const grand = xVals.reduce((s, x) => s + rowTotals[x], 0);
   // Totals only where they mean something: a measure that adds up (never a %,
-  // a rate, an average or a running stock such as job cards), across 2+ values.
+  // a rate or an average), across 2+ values, and only along a dimension it adds
+  // along (audit 2026-10-29, G-3 / G-4 / B-3): villages and beneficiaries add down
+  // the districts but not across schemes or years; nothing adds across schemes.
   const additive = isAdditive(vKey);
-  const rowTot = additive && sVals.length >= 2;
-  const colTot = additive && xVals.length >= 2;
+  const rowTot = additive && sVals.length >= 2 && canAdd(vKey, dimOf(sKey, data));
+  const colTot = additive && xVals.length >= 2 && canAdd(vKey, dimOf(xKey, data));
   const total = (n) => formatCell(n, vKey);
   return (
     <div className={'rtwrap' + (expanded ? ' xv-table' : '')} style={{ overflowX: 'auto' }}>
@@ -893,7 +920,9 @@ function PivotGrid({ data, xKey, sKey, vKey, expanded }) {
           ))}
           {colTot && (
             <tr style={{ background: 'var(--p-50)', fontWeight: 600 }}>
-              <td><strong>Total</strong></td>
+              <td title={given ? 'Includes records with no district' : undefined}>
+                <strong>{given ? 'Total (all records)' : 'Total'}</strong>
+              </td>
               {sVals.map((sv) => <td key={sv} className="num">{total(colTotals[sv])}</td>)}
               {rowTot && <td className="num"><strong>{total(grand)}</strong></td>}
             </tr>
@@ -904,17 +933,20 @@ function PivotGrid({ data, xKey, sKey, vKey, expanded }) {
   );
 }
 
-export function PivotTable({ data, xKey, sKey, vKey }) {
+export function PivotTable({ data, xKey, sKey, vKey, totals = null }) {
   const [open, setOpen] = useState(false);
   if (!data || !data.length) return null;
   const rows = new Set(data.map((r) => r[xKey])).size;
   return (
     <div className="rt-block">
       <TableBar count={rows} label="table" onExpand={() => setOpen(true)} />
-      <PivotGrid data={data} xKey={xKey} sKey={sKey} vKey={vKey} />
+      {/* browser run 2026-10-29: the grid's columns are the series ("MGNREGA",
+          "PMAY-G"), so the figures' measure and unit are said above it */}
+      <div className="pivot-measure">Figures: {colLabel(vKey)}</div>
+      <PivotGrid data={data} xKey={xKey} sKey={sKey} vKey={vKey} totals={totals} />
       {open && (
         <ExpandModal title={`${colLabel(vKey)} by ${colLabel(xKey)} & ${colLabel(sKey)}`} onClose={() => setOpen(false)}>
-          <PivotGrid data={data} xKey={xKey} sKey={sKey} vKey={vKey} expanded />
+          <PivotGrid data={data} xKey={xKey} sKey={sKey} vKey={vKey} totals={totals} expanded />
         </ExpandModal>
       )}
     </div>
@@ -945,17 +977,15 @@ export { pivotStacked };
 // font's proportional figures (a stat tile is not a column).
 const compactValue = (v) => (Number.isFinite(v) ? v.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—');
 
-function CompareVerdict({ v }) {
+function CompareVerdict({ v, unit }) {
   if (!v) return null;
   // Two schemes count and spend different things: show both, rank neither (E11).
-  if (v.unlike) return <p className="cmp-verdict">Each scheme measures this differently, so the two are not ranked.</p>;
-  if (v.equal) return <p className="cmp-verdict">Both record <strong>{compactValue(v.value)}</strong> {v.measure}.</p>;
-  const by = v.pct === null ? <strong>{compactValue(v.diff)} more</strong>
-    : <><strong>{v.pct}% ahead</strong> ({compactValue(v.diff)} more)</>;
-  return <p className="cmp-verdict">{v.lead} is {by} on {v.measure}.</p>;
+  return <p className="cmp-verdict">{verdictText(v, unit)}</p>;
 }
 
-export function CompareCard({ title, measure, a, b, verdict }) {
+export function CompareCard({ title, measure, a, b, verdict, unit = null }) {
+  // D-10 / D-11: the value in its unit ("80.5%", "₹9,000 lakh"); a side with no figure says so
+  const tileValue = (v) => (Number.isFinite(v) ? (unit ? fmtUnit(v, unit) : compactValue(v)) : 'no figure');
   return (
     <div className="dyn-chart-card compare-card">
       <div className="chd">
@@ -965,15 +995,17 @@ export function CompareCard({ title, measure, a, b, verdict }) {
       <div className="cmp-tiles">
         <div className="cmp-tile">
           <div className="cmp-label">{a.label}</div>
-          <div className="cmp-value">{compactValue(a.value)}</div>
+          <div className="cmp-value">{tileValue(a.value)}</div>
+          {a.detail && <div className="cmp-sub">{a.detail}</div>}
         </div>
         <div className="cmp-vs" aria-hidden="true">vs</div>
         <div className="cmp-tile">
           <div className="cmp-label">{b.label}</div>
-          <div className="cmp-value">{compactValue(b.value)}</div>
+          <div className="cmp-value">{tileValue(b.value)}</div>
+          {b.detail && <div className="cmp-sub">{b.detail}</div>}
         </div>
       </div>
-      <CompareVerdict v={verdict} />
+      <CompareVerdict v={verdict} unit={unit} />
     </div>
   );
 }

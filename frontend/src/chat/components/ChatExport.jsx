@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { plainText } from './Markdown.jsx';
-import { downloadBlob, fileName, headerLabel, toXLSXBook } from '../exporters.js';
+import { downloadBlob, fileName, tableSheet, tablesAsLines, toXLSXBook } from '../exporters.js';
 import { keyLabel } from '../shortcuts.js';
 import { tableColumns } from '../analytics.js';
+import { screenRows } from '../exportShape.js';
 
 /* "Download chat": the whole conversation in one file, from the top bar.
 
@@ -13,10 +14,11 @@ import { tableColumns } from '../analytics.js';
            device without a PDF library.
    Excel — one workbook: a "Conversation" sheet (each question with its
            answer as plain text) and one sheet per answer that has a table
-           ("Q2 table", ...), its rows exactly as returned. */
+           ("Q2 table", ...) in the shape shown on screen, plus "Q2 data" with
+           the rows exactly as returned when that shape differs (H-9). */
 
 const textOf = (m) => {
-  if (m.kind === 'rich') return plainText((m.response && (m.response.answer || m.response.question)) || '');
+  if (m.kind === 'rich') return tablesAsLines(plainText((m.response && (m.response.answer || m.response.question)) || ''));
   return String(m.text || '');
 };
 
@@ -34,16 +36,25 @@ function workbook(messages) {
     const asked = pendingQ || { n: ++q, time: '', text: m.question || '' };
     pendingQ = null;
     const data = m.kind === 'rich' && Array.isArray(m.response && m.response.data) ? m.response.data : [];
-    const sheet = data.length ? `Q${asked.n} table` : '';
-    convo.push([asked.n, asked.time, asked.text, textOf(m), data.length || '', sheet]);
-    if (data.length) {
-      const cols = tableColumns(data);
-      tables.push({ name: sheet, header: cols.map(headerLabel), rows: data.map((r) => cols.map((c) => r[c])) });
+    const scope = (m.kind === 'rich' && m.response && m.response.scope_banner) || '';
+    // H-11: a "pie chart" / "as a table" redraw repeats an earlier answer's rows
+    const redraw = !!(m.kind === 'rich' && m.view && m.redrawOf);
+    const sheet = data.length ? (redraw ? m.redrawOf : `Q${asked.n} table`) : '';
+    convo.push([asked.n, asked.time, asked.text, textOf(m), scope, data.length || '', sheet]);
+    if (data.length && !redraw) {
+      // H-9: the table as on screen (a grid, a two-way card, the change column)
+      const screen = screenRows(m.question || asked.text, data, m.response && m.response.chart_type);
+      tables.push(tableSheet(sheet, screen, scope));
+      const cols = tableColumns(screen);
+      const raw = tableColumns(data);
+      if (screen.length !== data.length || cols.length !== raw.length || cols.some((c, i) => c !== raw[i])) {
+        tables.push(tableSheet(`Q${asked.n} data`, data, scope));      // the rows exactly as returned
+      }
     }
   }
-  if (pendingQ) convo.push([pendingQ.n, pendingQ.time, pendingQ.text, '(no answer)', '', '']);
-  return [{ name: 'Conversation', header: ['#', 'Time', 'Question', 'Answer', 'Rows', 'Table sheet'], rows: convo },
-    ...tables];
+  if (pendingQ) convo.push([pendingQ.n, pendingQ.time, pendingQ.text, '(no answer)', '', '', '']);
+  return [{ name: 'Conversation', header: ['#', 'Time', 'Question', 'Answer', 'Answered for', 'Rows', 'Table sheet'],
+    rows: convo }, ...tables];
 }
 
 export function ChatExport({ messages, title, openSignal = 0 }) {
