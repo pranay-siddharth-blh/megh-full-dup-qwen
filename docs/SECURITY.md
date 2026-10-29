@@ -134,7 +134,7 @@ if tokens ever need to be killed mid-session.
 ## A10 — Server-Side Request Forgery
 
 - The only outbound calls are to fixed, config-pinned hosts (the model gateway and
-  Postgres on `10.48.242.4`, Qdrant on `115.124.102.167:6335`). No user input controls a URL, host, or
+  Postgres on `10.48.242.4`, Qdrant on `10.48.242.4:6333` since 2026-10-27, D-074). No user input controls a URL, host, or
   port anywhere in the request path.
 
 ---

@@ -95,7 +95,9 @@ def git_info() -> dict:
 def models() -> dict:
     return {"classifier": settings.CLASSIFIER_MODEL, "rewrite": settings.REWRITE_MODEL,
             "sql": settings.SQL_GENERATION_MODEL, "verifier": settings.SQL_VERIFY_MODEL,
-            "verifier_enabled": settings.SQL_VERIFY_ENABLED, "composer": settings.RESPONSE_MODEL}
+            "verifier_enabled": settings.SQL_VERIFY_ENABLED, "composer": settings.RESPONSE_MODEL,
+            # where the SQL prompt's worked examples came from (D-074)
+            "sql_examples": settings.SQL_EXAMPLES_SOURCE}
 
 
 def select(items: list[dict]) -> list[dict]:
@@ -160,8 +162,11 @@ async def run_gold(item: dict) -> "tuple[list[dict] | None, str | None]":
 
 
 async def run_pipeline(item: dict) -> dict:
-    from app import pipeline
+    from app import pipeline, turn_trace
     from app.session_store import Session
+    # The per-turn trace the router keeps (repairs, verifier rejections, the
+    # few-shot ids the prompt carried) — read back into the record below.
+    trace = turn_trace.start(f"nl2sql-eval-{item['id']}")
     now = time.time()
     session = Session(session_id=f"nl2sql-eval-{uuid.uuid4().hex[:12]}", user_id="nl2sql-eval",
                       created=now, last_seen=now)
@@ -171,17 +176,24 @@ async def run_pipeline(item: dict) -> dict:
                                      timeout=ARGS.timeout)
     except pipeline.ClarificationNeeded as e:
         return {"outcome": "clarification", "detail": f"{getattr(e, 'rule', '')}: {e}"[:300],
-                "seconds": round(time.perf_counter() - t0, 1)}
+                "seconds": round(time.perf_counter() - t0, 1), **_trace_fields(trace)}
     except Exception as e:  # noqa: BLE001
         return {"outcome": "error", "detail": f"{type(e).__name__}: {e}"[:300],
-                "seconds": round(time.perf_counter() - t0, 1)}
+                "seconds": round(time.perf_counter() - t0, 1), **_trace_fields(trace)}
     rows = res.get("data") if res.get("data") is not None else res.get("rows")
     return {"outcome": "answered", "route": res.get("route"), "schemes": res.get("schemes"),
             # for diagnosing a miss: what the question became, and the places / years pinned
             "rewritten": res.get("rewritten_question"),
             "resolved": json.loads(json.dumps(res.get("resolved_entities") or {}, default=str)),
             "sql": res.get("sql"), "rows": rows if res.get("sql") else None,
-            "answer": res.get("answer") or "", "seconds": round(time.perf_counter() - t0, 1)}
+            "answer": res.get("answer") or "", "seconds": round(time.perf_counter() - t0, 1),
+            **_trace_fields(trace)}
+
+
+def _trace_fields(trace: dict) -> dict:
+    return {"repairs": int(trace.get("repairs") or 0),
+            "verifier_rejections": int(trace.get("verifier_rejections") or 0),
+            "few_shot_ids": list(trace.get("few_shot_ids") or [])}
 
 
 async def evaluate(item: dict, sem: asyncio.Semaphore) -> dict:

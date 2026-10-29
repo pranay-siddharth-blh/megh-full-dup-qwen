@@ -876,8 +876,12 @@ _C08_LEVEL_WORDS = _tm.Alt(
     _tm.Seq("assembly", _C08_WS, _tm.W("constituenc", prefix=True)),
     _tm.W("constituenc", prefix=True),
 )
+# "which village" / "what block" names the level being RANKED or asked for, never the
+# place: "Which village has the highest households … in Demdema block" read "village"
+# as the stated level and resolved the VILLAGE Demdema (272799, no rows) instead of the
+# block (KI-368, 2026-10-22; 2/2 live runs).
 _BREAKDOWN_LEVEL_PHRASE_MATCH = _tm.Matcher(_tm.Alt(
-    _tm.Seq(_tm.W("by", "per", "each", "every", "all", "across"), _C08_WS,
+    _tm.Seq(_tm.W("by", "per", "each", "every", "all", "across", "which", "what"), _C08_WS,
             _tm.Opt(_tm.Seq("the", _C08_WS)), _C08_LEVEL_WORDS),
     # "village-wise" / "village wise" / "villagewise"
     _tm.W("villagewise", "blockwise", "districtwise"),

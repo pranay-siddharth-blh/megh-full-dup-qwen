@@ -1,0 +1,362 @@
+[
+ {
+  "key": "MEG-81",
+  "backlog_id": "E1",
+  "summary": "Epic 1: LangGraph orchestration for the Megh One AI pipeline"
+ },
+ {
+  "key": "MEG-84",
+  "backlog_id": "E1-01",
+  "summary": "1.01 Split the sequential pipeline into stage functions"
+ },
+ {
+  "key": "MEG-85",
+  "backlog_id": "E1-02",
+  "summary": "1.02 Build the 21-node LangGraph graph over the stages"
+ },
+ {
+  "key": "MEG-86",
+  "backlog_id": "E1-03",
+  "summary": "1.03 Clarification pauses as interrupt() with checkpointing"
+ },
+ {
+  "key": "MEG-87",
+  "backlog_id": "E1-04",
+  "summary": "1.04 Run the conversation context window inside the graph"
+ },
+ {
+  "key": "MEG-88",
+  "backlog_id": "E1-05",
+  "summary": "1.05 Re-authorize every repaired SQL query (D-033)"
+ },
+ {
+  "key": "MEG-89",
+  "backlog_id": "E1-06",
+  "summary": "1.06 Graph observability and performance measurement"
+ },
+ {
+  "key": "MEG-90",
+  "backlog_id": "E1-07",
+  "summary": "1.07 Cut over: LangGraph is the only orchestrator (D-036)"
+ },
+ {
+  "key": "MEG-91",
+  "backlog_id": "E1-08",
+  "summary": "1.08 Add the rephrase node for messy new questions (D-037)"
+ },
+ {
+  "key": "MEG-92",
+  "backlog_id": "E1-09",
+  "summary": "1.09 Restructure the pipeline into a package (common c01..c15 + one file per scheme)"
+ },
+ {
+  "key": "MEG-93",
+  "backlog_id": "E1-10",
+  "summary": "1.10 Graph tests and CI"
+ },
+ {
+  "key": "MEG-94",
+  "backlog_id": "E1-11",
+  "summary": "1.11 Fix the AI_PIPELINE model-roster documentation conflict"
+ },
+ {
+  "key": "MEG-95",
+  "backlog_id": "E1-12",
+  "summary": "1.12 Commit and deploy the LangGraph-era code"
+ },
+ {
+  "key": "MEG-96",
+  "backlog_id": "E1-13",
+  "summary": "1.13 Conversation-meta module c15 runs inside graph stages"
+ },
+ {
+  "key": "MEG-97",
+  "backlog_id": "E1-14",
+  "summary": "1.14 Graph node progress events feed the streaming UI"
+ },
+ {
+  "key": "MEG-98",
+  "backlog_id": "E1-15",
+  "summary": "1.15 Finalize node: briefing-line framing and chart hint for every data answer"
+ },
+ {
+  "key": "MEG-99",
+  "backlog_id": "E1-16",
+  "summary": "1.16 Fix graph test isolation leak from test_admin_level_collision"
+ },
+ {
+  "key": "MEG-82",
+  "backlog_id": "E2",
+  "summary": "Epic 2: Context memory: forward and backward conversation memory"
+ },
+ {
+  "key": "MEG-100",
+  "backlog_id": "E2-01",
+  "summary": "2.01 P1/P2 Forward memory: topic switch and year handling (WI-1..WI-6)"
+ },
+ {
+  "key": "MEG-101",
+  "backlog_id": "E2-02",
+  "summary": "2.02 P3 Backward memory: per-topic question ledger and resolver (D-050)"
+ },
+ {
+  "key": "MEG-102",
+  "backlog_id": "E2-03",
+  "summary": "2.03 P4 Constrained model pick for vague backward references"
+ },
+ {
+  "key": "MEG-103",
+  "backlog_id": "E2-04",
+  "summary": "2.04 P5 Place-level clearing and permissions on restore"
+ },
+ {
+  "key": "MEG-104",
+  "backlog_id": "E2-05",
+  "summary": "2.05 P6 Scope banner and 'Continue with ...?' after idle expiry"
+ },
+ {
+  "key": "MEG-105",
+  "backlog_id": "E2-06",
+  "summary": "2.06 Stop, then 'continue' resumes the stopped question"
+ },
+ {
+  "key": "MEG-106",
+  "backlog_id": "E2-07",
+  "summary": "2.07 Longer memory window: 50 turns, 20 per topic, 8-hour idle (D-051 amended)"
+ },
+ {
+  "key": "MEG-107",
+  "backlog_id": "E2-08",
+  "summary": "2.08 Conversation about the conversation: meta turns (D-052)"
+ },
+ {
+  "key": "MEG-108",
+  "backlog_id": "E2-09",
+  "summary": "2.09 Out-of-scope, refusal and denial asides; roll-up from the topic ledger"
+ },
+ {
+  "key": "MEG-109",
+  "backlog_id": "E2-10",
+  "summary": "2.10 'Compare with <scheme>' and mid-sentence comparison with an earlier figure"
+ },
+ {
+  "key": "MEG-110",
+  "backlog_id": "E2-11",
+  "summary": "2.11 Cache-hit answers update the context state and carry the banner (KI-319)"
+ },
+ {
+  "key": "MEG-111",
+  "backlog_id": "E2-12",
+  "summary": "2.12 Snapshot sync retry across workers (KI-314)"
+ },
+ {
+  "key": "MEG-112",
+  "backlog_id": "E2-13",
+  "summary": "2.13 'Show me the districts, I will choose one' offers district chips (KI-317)"
+ },
+ {
+  "key": "MEG-113",
+  "backlog_id": "E2-14",
+  "summary": "2.14 Fix the user's own UI thread losing context on follow-ups (KI-309, KI-308)"
+ },
+ {
+  "key": "MEG-114",
+  "backlog_id": "E2-15",
+  "summary": "2.15 Live context matrix: 7 flows x 6 schemes"
+ },
+ {
+  "key": "MEG-115",
+  "backlog_id": "E2-16",
+  "summary": "2.16 Conversation harness: YAML scenarios through the HTTP API"
+ },
+ {
+  "key": "MEG-116",
+  "backlog_id": "E2-17",
+  "summary": "2.17 Headless browser checks for banner, stop/continue, go back, history"
+ },
+ {
+  "key": "MEG-117",
+  "backlog_id": "E2-18",
+  "summary": "2.18 Answer framing: every data answer reads as a briefing line (D-054)"
+ },
+ {
+  "key": "MEG-118",
+  "backlog_id": "E2-19",
+  "summary": "2.19 Ask the financial year when neither question nor context has one (D-053)"
+ },
+ {
+  "key": "MEG-119",
+  "backlog_id": "E2-20",
+  "summary": "2.20 WI-9 Qdrant search over archived turns on history cues"
+ },
+ {
+  "key": "MEG-120",
+  "backlog_id": "E2-21",
+  "summary": "2.21 Verify the idle-expiry 'Continue with ...' chip in a real browser"
+ },
+ {
+  "key": "MEG-121",
+  "backlog_id": "E2-22",
+  "summary": "2.22 KI-318 'go back to <place>' with a bare place name after the year moved"
+ },
+ {
+  "key": "MEG-122",
+  "backlog_id": "E2-23",
+  "summary": "2.23 KI-324 MGNREGA year pause: 'all of them combined' chip and typed acceptance"
+ },
+ {
+  "key": "MEG-123",
+  "backlog_id": "E2-24",
+  "summary": "2.24 KI-311 / KI-312 / KI-313 / KI-322 two-year, overview and verifier shapes"
+ },
+ {
+  "key": "MEG-124",
+  "backlog_id": "E2-25",
+  "summary": "2.25 Nightly run of the conversation harness and live context matrix"
+ },
+ {
+  "key": "MEG-125",
+  "backlog_id": "E2-26",
+  "summary": "2.26 One chat never re-asks the scheme; only a new chat asks (D-055)"
+ },
+ {
+  "key": "MEG-126",
+  "backlog_id": "E2-27",
+  "summary": "2.27 Same-scheme new question keeps the chat's year and place (KI-331)"
+ },
+ {
+  "key": "MEG-127",
+  "backlog_id": "E2-28",
+  "summary": "2.28 A follow-up that only changes the measure drops the old measure (KI-334)"
+ },
+ {
+  "key": "MEG-128",
+  "backlog_id": "E2-29",
+  "summary": "2.29 'now give me for cm elevate' after a Legacy answer switches dataset (KI-330)"
+ },
+ {
+  "key": "MEG-129",
+  "backlog_id": "E2-30",
+  "summary": "2.30 Scheme swap after a comparison keeps the comparison (KI-332)"
+ },
+ {
+  "key": "MEG-130",
+  "backlog_id": "E2-31",
+  "summary": "2.31 Block in another district replaces the inherited district (KI-327)"
+ },
+ {
+  "key": "MEG-131",
+  "backlog_id": "E2-32",
+  "summary": "2.32 'compare with pmay' keeps place and year (KI-320)"
+ },
+ {
+  "key": "MEG-132",
+  "backlog_id": "E2-33",
+  "summary": "2.33 Single-year answers never say 'across all financial years' (KI-326)"
+ },
+ {
+  "key": "MEG-133",
+  "backlog_id": "E2-34",
+  "summary": "2.34 Conversational layer: greetings, names, thanks, callbacks to earlier figures (D-055)"
+ },
+ {
+  "key": "MEG-134",
+  "backlog_id": "E2-35",
+  "summary": "2.35 Verifier no longer rejects a correct by-block breakdown (KI-315)"
+ },
+ {
+  "key": "MEG-135",
+  "backlog_id": "E2-37",
+  "summary": "2.36 Deploy .env: 8-hour idle window and 50 turns on every server"
+ },
+ {
+  "key": "MEG-83",
+  "backlog_id": "E3",
+  "summary": "Epic 3: Chat UI: React console, streaming answers, charts and responsive design"
+ },
+ {
+  "key": "MEG-136",
+  "backlog_id": "E3-01",
+  "summary": "3.01 Rebuild the chat and admin consoles in React (D-038)"
+ },
+ {
+  "key": "MEG-137",
+  "backlog_id": "E3-02",
+  "summary": "3.02 Streamed answers with live progress steps, Stop and Regenerate (D-039)"
+ },
+ {
+  "key": "MEG-138",
+  "backlog_id": "E3-03",
+  "summary": "3.03 Answer reveal, formatting, smart auto-scroll and connection banner"
+ },
+ {
+  "key": "MEG-139",
+  "backlog_id": "E3-04",
+  "summary": "3.04 Chart hint from the backend; charts and tables expand full screen (D-042)"
+ },
+ {
+  "key": "MEG-140",
+  "backlog_id": "E3-05",
+  "summary": "3.05 '...' actions menu under every answer"
+ },
+ {
+  "key": "MEG-141",
+  "backlog_id": "E3-06",
+  "summary": "3.06 Scheme cards show live megh_db figures (/api/scheme-stats)"
+ },
+ {
+  "key": "MEG-142",
+  "backlog_id": "E3-07",
+  "summary": "3.07 Cross-scheme answers no longer show an empty duplicate table (KI-302)"
+ },
+ {
+  "key": "MEG-143",
+  "backlog_id": "E3-08",
+  "summary": "3.08 Charts show both dimensions: scheme x year, district x year (KI-325)"
+ },
+ {
+  "key": "MEG-144",
+  "backlog_id": "E3-09",
+  "summary": "3.09 Chart-type requests redraw the last answer (KI-333)"
+ },
+ {
+  "key": "MEG-145",
+  "backlog_id": "E3-10",
+  "summary": "3.10 Design rules: one scheme = one hue family, no repeated labels, Indian units"
+ },
+ {
+  "key": "MEG-146",
+  "backlog_id": "E3-11",
+  "summary": "3.11 Every feature works on every device and browser"
+ },
+ {
+  "key": "MEG-147",
+  "backlog_id": "E3-12",
+  "summary": "3.12 Scheme picker lists only schemes that record what was asked"
+ },
+ {
+  "key": "MEG-148",
+  "backlog_id": "E3-13",
+  "summary": "3.13 Composer returns to normal height after voice dictation"
+ },
+ {
+  "key": "MEG-149",
+  "backlog_id": "E3-14",
+  "summary": "3.14 Verify streaming, Stop and Regenerate against the live gateway"
+ },
+ {
+  "key": "MEG-150",
+  "backlog_id": "E3-15",
+  "summary": "3.15 Browser check of 'show that as a pie chart' through the live pipeline"
+ },
+ {
+  "key": "MEG-151",
+  "backlog_id": "E3-16",
+  "summary": "3.16 Run ui_devices_probe.py in CI after every frontend build"
+ },
+ {
+  "key": "MEG-152",
+  "backlog_id": "E3-17",
+  "summary": "3.17 Commit the built web/app/ with the frontend source"
+ }
+]

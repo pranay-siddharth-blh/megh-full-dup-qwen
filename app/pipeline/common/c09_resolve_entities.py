@@ -41,6 +41,32 @@ def _c09_not_a_place(mention: str) -> bool:
                             or all(_is_known_word(w) for w in words))
 
 
+# Words between two financial years that make them a span ("from A to B", "A through
+# B", "A up to B"); "and" only after "between". "fy" / "financial year" are skipped.
+_C09_SPAN_JOINERS = frozenset({("to",), ("through",), ("thru",), ("till",), ("until",), ("upto",),
+                               ("up", "to"), ("up", "till")})
+_C09_SPAN_FILLER = frozenset({"fy", "financial", "year", "the"})
+
+
+def _c09_stated_year_span(question: str) -> "tuple[int, int] | None":
+    """(first, last) year_key when the question names exactly two financial years
+    as a span (KI-427), else None. Two years joined by a plain "and" ("2022-23 and
+    2024-25") are two years, not a span."""
+    q = question or ""
+    toks = _c06_all_year_tokens(q)
+    if len(toks) != 2:
+        return None
+    (s1, t1), (s2, t2) = toks
+    y1, y2 = _parse_year_key(t1), _parse_year_key(t2)
+    if y1 is None or y2 is None or y2 <= y1:
+        return None
+    gap = tuple(w for w in _c01_tm_words(q[s1 + len(t1):s2]) if w not in _C09_SPAN_FILLER)
+    before = [w for w in _c01_tm_words(q[:s1]) if w not in _C09_SPAN_FILLER]
+    if gap in _C09_SPAN_JOINERS or (gap == ("and",) and before and before[-1] == "between"):
+        return y1, y2
+    return None
+
+
 async def resolve_entities(question: str, schemes: list[str],
                             prior_resolved: "dict | None" = None,
                             village_hint: "str | None" = None) -> dict:
@@ -1759,6 +1785,17 @@ async def resolve_entities(question: str, schemes: list[str],
         await _cm_elevate_blocks_to_data(question, resolved, display, "CM Elevate Legacy")
     if schemes == ["Focus Plus"] and (resolved.get("block") or resolved.get("block_list")):
         await _cm_elevate_blocks_to_data(question, resolved, display, "Focus Plus")
+
+    # KI-427: "each financial year from 2022-23 through 2025-26" — the extractor hands
+    # back one year (the last), so year_key pinned that one and the SQL often filtered
+    # it alone. A stated span resolves to every year in it (year_key_list, the key the
+    # cross-scheme path, the catalogue and the year guards already read).
+    _span = _c09_stated_year_span(question)
+    if _span is not None and not resolved.get("year_key_list"):
+        _a, _b = _span
+        resolved.pop("year_key", None)
+        resolved["year_key_list"] = list(range(_a, _b + 1))
+        display["year"] = f"FY {_a}-{(_a + 1) % 100:02d} to FY {_b}-{(_b + 1) % 100:02d}"
 
     out = {"resolved": resolved, "notes": notes, "display": display}
     if _district_swaps:

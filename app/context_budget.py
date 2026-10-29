@@ -20,8 +20,10 @@ optional sections shrink: few-shot examples (5 -> 3 -> 1), and catalogue
 lines the schema text already states verbatim. If the required part alone
 is over budget, the prompt goes out over budget and says so in the log.
 Measured 2026-09-26 (offline, few-shot banks loaded, no LIVE SCHEMA or catalogue), the SQL
-prompt is ~3.0k-6.9k tokens per scheme against a 15,360-token budget, so no
-compression happens today. The verifier and composer prompts are
+prompt was ~3.0k-6.9k tokens per scheme. Measured LIVE 2026-10-27 (with the catalogue
+and megh_sql_metadata): 15.9k-17.1k, so every prompt was compressed and the examples
+went 5 -> 1 (KI-442). The catalogue now shrinks first (prompt_builder, B4): 12.7k-14.2k
+with the 5 examples kept. The verifier and composer prompts are
 log-and-warn only. The follow-up rewrite context is budgeted per tier: see
 context_manager.build_rewrite_evidence / build_followup_context.
 

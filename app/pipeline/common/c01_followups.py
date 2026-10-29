@@ -29,7 +29,7 @@ from sqlglot.tokens import TokenType
 
 from app import annotations, auth, context_manager, edge, followups, llm, premise_check, prompt_builder, rag
 from app import context_budget, context_policy, cross_figures, cross_scheme, guardrails, topic_memory
-from app import sql_ast, turn_trace
+from app import scheme_registry, sql_ast, sql_examples, turn_trace
 from app.config import settings
 from app.db import UnsafeSQLError, fetch_rows, run_readonly
 from app.db import DatabaseUnavailableError, is_connection_error as db_is_connection_error
@@ -632,6 +632,20 @@ _PROGRAMME_DESIGN_CUE = Matcher(Alt(
     Seq(W("target", "targeted"), W("number", "figure", "count"), "of", sep="space"),
     Seq(W("entrepreneur", "employment", "job", "outreach"), _C01Gap(_c01_wsdash),
         Opt(Seq("reach", _C01Gap(_c01_ws))), W("target", "targets"))))
+
+# KI-404 (live 2026-10-24): "How does MGNREGA job card registration work?" tripped the
+# "job card" DATA cue, matched no knowledge cue, and went down the data path (year
+# chips, then an area question). "How does / is <X> work / get issued / processed" and
+# "the process / procedure / steps for" ask how the scheme WORKS — never a figure.
+# classify_intent applies it only when the question counts nothing and names no year.
+_PROCESS_QUESTION_CUE = Matcher(Alt(
+    Seq("how", W("does", "do", "is", "are", "can"), _C01CharGap(70, "?.\n"),
+        W("work", "works", "working", "processed", "issued", "registered", "verified", "approved",
+          "handled", "done", "obtained", "renewed", "released", "paid", "calculated", "selected",
+          "allotted", "sanctioned")),
+    _c01_ph("what is the process", "what is the procedure", "process for", "process of",
+            "procedure for", "procedure to", "steps to", "steps for", "step by step"),
+))
 
 
 class OutOfScope(Exception):
@@ -1459,8 +1473,7 @@ _SCHEMES_WITHOUT_YEAR = {"CM Elevate"}
 # Holders are what the curated views actually carry (information_schema,
 # 2026-10-06; SCHEME_METRICS). Money, gender and applications span several
 # schemes and are gated only where no chosen scheme has them.
-_ALL_SCHEMES = frozenset({"MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy",
-                          "CM Elevate", "CM Elevate Legacy"})
+_ALL_SCHEMES = frozenset(scheme_registry.NAMES)   # E5, D-079
 _MEASURE_HOLDERS: "list[tuple[str, Matcher, frozenset[str]]]" = [
     ("person-days", Matcher(Alt(
         _c01_chain(["person", ("day", "days")], ["opt1u"]),

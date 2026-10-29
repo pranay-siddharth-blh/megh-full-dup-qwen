@@ -324,13 +324,24 @@ class Settings(BaseSettings):
     ASR_DEBUG_DIR: str = ""
 
     # ── Vector store (Qdrant on the same data box) — scheme-knowledge base ──
-    QDRANT_URL: str = "http://115.124.102.167:6335"
+    # Since 2026-10-27 (D-074) the project uses ONLY two collections on the
+    # data box's Qdrant: megh_knowledge (scheme reference pieces, RAG) and
+    # megh_sql_metadata (question->SQL examples, SQL_EXAMPLES_SOURCE=qdrant).
+    # Both are loaded by another pipeline; the app only reads them.
+    QDRANT_URL: str = "http://10.48.242.4:6333"
     QDRANT_API_KEY: str = ""
     # megh_scheme_kb_v2 since the RAG upgrade Phase 2 (2026-10-14): built from
     # data/incoming/<scheme>/. Rollback: set QDRANT_COLLECTION=megh_scheme_kb.
     # megh_scheme_kb_v3 since Phase 3 (2026-10-15): the same pieces plus a BM25
     # keyword vector for hybrid search. Rollback: megh_scheme_kb_v2 / megh_scheme_kb.
-    QDRANT_COLLECTION: str = "megh_scheme_kb_v3"
+    # megh_knowledge since 2026-10-27 (D-074), read-only (below).
+    QDRANT_COLLECTION: str = "megh_knowledge"
+    # True: the app never deletes, rebuilds or writes the KB collection —
+    # startup ingest and POST /api/rag/reingest skip, recreate/upsert refuse.
+    # megh_knowledge belongs to the loading pipeline: the old ingest would
+    # have DELETED it on the first start (no BM25 vector -> "rebuilding").
+    # False = the app owns its collection and builds it from data/incoming/.
+    QDRANT_KB_READ_ONLY: bool = True
     # These defaults are on the bge-small (local, 384-dim) cosine scale:
     # loosely-related chunks score ~0.66-0.78, so HIGH sits above that —
     # otherwise every knowledge question clears it and returns its nearest
@@ -569,7 +580,10 @@ class Settings(BaseSettings):
     # semantic response cache — see app/conversation_memory.py). Reuses the
     # existing Qdrant client + embedding pipeline. Off, or any Qdrant failure,
     # falls back to PostgreSQL recent history / in-session turns only.
-    CONTEXT_SEMANTIC_MEMORY_ENABLED: bool = True
+    # OFF since 2026-10-27 (D-074): only megh_knowledge and megh_sql_metadata
+    # may be used, and memory needs a collection of its own. Postgres
+    # (context_state, recent history) still carries the conversation.
+    CONTEXT_SEMANTIC_MEMORY_ENABLED: bool = False
     CONTEXT_MEMORY_COLLECTION: str = "megh_conversation_memory"
     CONTEXT_MEMORY_MIN_SCORE: float = 0.55
     CONTEXT_MEMORY_TOP_K: int = 5
@@ -585,7 +599,9 @@ class Settings(BaseSettings):
     # The 384-dim and 1024-dim collections both hold officers' chats (D-067:
     # the unused one is kept for rollback), so both follow the window. A
     # collection that does not exist is skipped.
-    CONTEXT_MEMORY_PURGE_ALSO: str = "megh_conversation_memory,megh_conversation_memory_1024"
+    # Empty since 2026-10-27 (D-074): those two lived on the old Qdrant server
+    # (115.124.102.167:6335), which the app no longer uses.
+    CONTEXT_MEMORY_PURGE_ALSO: str = ""
     # Follow-up rewrite evidence tiers (context_manager.build_rewrite_evidence).
     # Tier 1, the previous turn's structured filters, is always sent and is
     # a single line. Tiers 2 and 3 are sent only when the follow-up points INTO
@@ -645,6 +661,24 @@ class Settings(BaseSettings):
     # 2026-10-26, after tests/metric_catalog_eval.py (report:
     # new_docs/Metric_Catalogue_Report_2026-10-26.md).
     METRIC_CATALOG_MODE: str = "on"
+    # B1 (RAG plan, user decision 2026-10-27): a data question whose wording names
+    # no catalogue measure logs its wording and the nearest measure by meaning
+    # (one embedding call, in the background; never used to answer) to
+    # METRIC_MEANING_FILE, for review: tests/metric_meaning/review.py. Approved
+    # wordings go to data/metric_catalog_synonyms.yaml as exact synonyms.
+    METRIC_MEANING_SHADOW: bool = True
+    # B3 (RAG plan, 2026-10-27): a DATA verdict for a question with no place, year,
+    # ranking or breakdown is overturned to KNOWLEDGE when the best megh_knowledge
+    # passage beats the best megh_sql_metadata worked example by >= 0.10 (c13
+    # classify_intent; measured with tests/intent_scores/run_eval.py).
+    INTENT_SCORE_TIEBREAK: bool = True
+    # E1 stage 1 (RAG plan, D-078): after each data / knowledge turn, one background
+    # classifier call reads the question into a typed plan and logs it beside the
+    # pipeline's own decisions to QUERY_PLAN_FILE (app/query_plan.py). Shadow only:
+    # nothing reads the plan. Agreement report: tests/query_plan/compare.py.
+    QUERY_PLAN_SHADOW: bool = True
+    QUERY_PLAN_FILE: str = "logs/query_plan_shadow.jsonl"
+    METRIC_MEANING_FILE: str = "logs/metric_meaning_shadow.jsonl"
 
     # ── Input guardrails (app/guardrails.py) ──
     # Layer 1 (rules) always runs. Layer 2 is one classifier-model call per new
@@ -664,6 +698,21 @@ class Settings(BaseSettings):
     # qwen35-9b's max-model-len is not recorded in the repo, so the composer
     # budget is 0 (unchecked). These budgets log and warn only; nothing is
     # pruned (see context_budget's docstring for why).
+    # Where the SQL prompt's worked examples come from (2026-10-27, D-074):
+    # "yaml"   -> the per-scheme few-shot banks in data/ (annotations), ranked by
+    #             IDF token overlap — the behaviour before this switch;
+    # "qdrant" -> the kind=example points of SQL_EXAMPLES_COLLECTION, ranked by
+    #             meaning (one embedding call per data question, made in
+    #             _data_sql_stage), plus the collection's kind=view / kind=join
+    #             notes in the prompt (prompt_builder._sql_metadata_block).
+    #             Any failure, timeout or empty result falls back to "yaml"
+    #             for that turn.
+    # "qdrant" since 2026-10-27 evening (user: use everything in both
+    # collections across the app). Compare the two with
+    # tests/nl2sql_eval/compare_examples_source.py; "yaml" is the rollback.
+    SQL_EXAMPLES_SOURCE: str = "qdrant"
+    SQL_EXAMPLES_COLLECTION: str = "megh_sql_metadata"
+    SQL_EXAMPLES_TIMEOUT_SECONDS: float = 4.0
     PROMPT_BUDGET_SQL_TOKENS: int = 15360
     PROMPT_BUDGET_CLASSIFIER_TOKENS: int = 7992
     PROMPT_BUDGET_COMPOSER_TOKENS: int = 0

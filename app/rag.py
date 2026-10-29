@@ -375,7 +375,11 @@ async def _kb_texts_by_scheme() -> dict[str, list[str]]:
             pts, offset = await client.scroll(coll, limit=256, offset=offset, with_payload=["scheme", "text"])
             for p in pts:
                 pl = p.payload or {}
-                out.setdefault(pl.get("scheme", ""), []).append(str(pl.get("text", "")).lower())
+                # megh_knowledge tags a piece with a LIST of schemes, and keeps
+                # CM Elevate Legacy's own tag (D-074): each tag counts, under
+                # the knowledge base it is searched by (kb_scheme).
+                for tag in vectorstore.scheme_tags(pl) or [""]:
+                    out.setdefault(kb_scheme(tag) or "", []).append(str(pl.get("text", "")).lower())
             if offset is None:
                 break
         _kb_text_cache[coll] = out
@@ -619,7 +623,9 @@ def citations(chunks: list[dict], n: int = 2) -> list[dict]:
     out: list[dict] = []
     seen: set[tuple] = set()
     for c in chunks:
-        title = _doc_title(c.get("doc", ""), c.get("scheme", ""))
+        # megh_knowledge names each document itself (doc_title, D-074); the
+        # app's own pieces fall back to a title built from the file name
+        title = c.get("title") or _doc_title(c.get("doc", ""), c.get("scheme", ""))
         section = _section_title(c.get("heading", ""))
         key = (title, section.split(" › ")[0])
         if key in seen:

@@ -88,9 +88,10 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
 - **Almost every regex, gate and guard in the pipeline (`app/pipeline/`) exists because of a real reported
   failure.** The comment above it usually says which one. Read that comment before changing or
   removing it.
-- **Schemes are enumerated by hand in about 14 registries** (listed in
-  [docs/SCHEMES.md §Adding a scheme](docs/SCHEMES.md#adding-a-scheme)). Changing one scheme's
-  name or pattern means checking all of them.
+- **Scheme facts live in `app/scheme_registry.py`** (D-079); the other registries (listed in
+  [docs/SCHEMES.md §Adding a scheme](docs/SCHEMES.md#adding-a-scheme)) keep their own shape and are
+  checked against it by `tests/test_scheme_registry_e5_2026_10_27.py`. Changing one scheme's name or
+  pattern means running that guard and fixing every registry it names.
 - **Two name collisions must never be guessed:**
   - A bare "Focus" → ask *which* Focus (Focus Plus or Focus Legacy).
   - A bare "CM Elevate" → pinned by keywords (`_pin_cm_elevate_dataset`).
@@ -121,6 +122,9 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
   `compose_response` enforce this. Don't weaken them.
 - **Few-shot examples are per scheme, ranked by IDF** (`annotations.few_shot_examples`). The
   CM Elevate Legacy bank is `cmelevatelegacy_prompt_few_shots.yaml` (v2), not the v1 file.
+  Since 2026-10-27 `SQL_EXAMPLES_SOURCE=qdrant` (the default) takes them from `megh_sql_metadata` instead, plus its
+  view / join notes (D-074; `yaml` = rollback, and what tests use via `tests/conftest.py`;
+  compare with `tests/nl2sql_eval/compare_examples_source.py` before switching, KI-438).
 - **Follow-up context is structured, not sliced** (D-022). The rewrite gets the previous turn's
   filters, and gets its result rows only when the follow-up points into them. Its output is
   provenance-checked field by field (D-024). Do not put raw previous-answer text back into a
@@ -128,9 +132,10 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
 - **Conversation state lives in Postgres** (`app.conversations.context_state`, versioned;
   `session_sync`, D-023). The in-process `SessionStore` is a per-worker cache. Anything the next
   turn needs must be in `Session.to_snapshot()`.
-- After adding or editing KB docs in `data/incoming/<scheme>/` (one folder per scheme, e.g. `data/incoming/MGNREGA/`;
-  `data/reference/` no longer exists since 2026-10-14), re-ingest: admin `POST /api/rag/reingest`,
-  or restart the service. The Qdrant collection is shared.
+- **The KB is `megh_knowledge`, loaded by another pipeline and read-only to the app (D-074,
+  `QDRANT_KB_READ_ONLY=true`)**: editing `data/incoming/<scheme>/` or `POST /api/rag/reingest` no longer
+  changes RAG answers (KI-440); KB doc changes go to the loading team. With `QDRANT_KB_READ_ONLY=false`
+  (an app-owned collection) the old flow applies: re-ingest after editing `data/incoming/<scheme>/`.
 
 ## 6. SQL safety and database protection
 
@@ -242,6 +247,9 @@ above instead.
   `npm run build` writes `web/app/`, which is what the app serves.
 - `megh_db` and the model gateway are on `10.48.242.4`, which needs the Fortinet VPN.
   The DB connection sometimes times out briefly, so retry.
-- Qdrant moved on 2026-10-03 to `http://115.124.102.167:6335` (no VPN). It also holds six
-  `Metadata_*` collections that are NOT ours (1024-dim schema metadata); never write to or delete them.
+- Qdrant is `http://10.48.242.4:6333` (data box, needs the VPN) since 2026-10-27 (D-074). The project uses
+  **only two collections, both READ-ONLY to the app**: `megh_knowledge` (RAG, `QDRANT_COLLECTION`,
+  `QDRANT_KB_READ_ONLY=true`) and `megh_sql_metadata` (SQL examples + view / join notes, `SQL_EXAMPLES_SOURCE=qdrant`,
+  the default; `yaml` = rollback). Conversation memory is off (it needs its own collection). Never create, write or delete
+  any collection there (`Metadata_*`, `sql_examples`, `megh_scheme_kb`, ... are not ours).
 - `.env` is gitignored and holds real secrets. Never print or commit it.

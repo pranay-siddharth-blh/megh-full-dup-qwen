@@ -382,7 +382,8 @@ _SHAPE_GUIDE = {
         "A CHANGE OVER TIME. Open with the overall movement from the first period to the last: from X to Y, "
         "the change and the % change from the derived figures. Then name the peak and the lowest period. "
         "Then, for six periods or fewer, the period-by-period figures as a short list '- FY 2021-22: value'. "
-        "Call it a steady rise or fall ONLY when the derived figures say it rose / fell every period.",
+        "Call it a steady rise or fall ONLY when the derived figures say it rose / fell every period. "
+        "The opening verb follows the sign of the derived change: 'rose' for +, 'fell' for − (KI-441).",
         "MGNREGA expenditure in Ri Bhoi rose from 6,120.50 lakh in FY 2020-21 to 7,904.10 lakh in FY 2023-24 "
         "(+1,783.6 lakh, +29.1%). It peaked in FY 2022-23 at 8,215.00 lakh.\n- FY 2020-21: 6,120.50\n"
         "- FY 2021-22: 6,880.25\n- FY 2022-23: 8,215.00\n- FY 2023-24: 7,904.10"),
@@ -427,6 +428,38 @@ def _shape_guide_block(shape: "_AnswerShape | None") -> str:
     yn = "\n" + _YES_NO_RULE if shape.yes_no else ""
     return (f"\nAnswer shape — {rule}{yn}\nExample of this shape (layout only — its places and numbers are "
             f"NOT this result's; never copy them):\n{example}\n")
+
+
+# The movement verb the trend example opens with. Live 2026-10-27 (KI-441): "person-days in
+# Ri Bhoi rose from 1,212,513 in FY 2022-23 to 928,817 in FY 2024-25 (-283,696 …)" — the
+# 9B copied the example's "rose" over a fall the derived figures stated.
+_C12S_UP_VERBS = ("rose from", "increased from", "grew from", "went up from")
+_C12S_DOWN_VERBS = ("fell from", "decreased from", "dropped from", "declined from", "went down from")
+
+
+def _c12s_fix_trend_direction(answer: str, shape: "_AnswerShape | None", rows: list) -> str:
+    """The answer with its first movement verb matching the sign of the first-to-last
+    change of the trend's first measure (sorted by its time column, as _shape_facts)."""
+    if not answer or shape is None or shape.kind != "trend" or not shape.metrics:
+        return answer
+    tcol = next((c for c in shape.labels if _c12s_is_time_col(c)), shape.labels[0] if shape.labels else None)
+    cp = _c12s_vals(rows, shape.metrics[0])
+    if len(cp) < 2:
+        return answer
+    if tcol:
+        cp = sorted(cp, key=lambda p: str(p[0].get(tcol)))
+    change = cp[-1][1] - cp[0][1]
+    wrong, right = (_C12S_UP_VERBS, "fell from") if change < 0 else \
+        (_C12S_DOWN_VERBS, "rose from") if change > 0 else ((), "")
+    low = answer.lower()
+    hits = [(low.find(v), v) for v in (*_C12S_UP_VERBS, *_C12S_DOWN_VERBS) if low.find(v) >= 0]
+    if not hits:
+        return answer
+    at, verb = min(hits)
+    if verb not in wrong:
+        return answer
+    logger.warning("compose_response: trend verb %r against a change of %s — corrected", verb, change)
+    return answer[:at] + right + answer[at + len(verb):]
 
 
 def _shaped_fallback(shape: "_AnswerShape | None", rows: list, schemes: "list[str] | None",

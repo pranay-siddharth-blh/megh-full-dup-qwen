@@ -370,9 +370,34 @@ def _unit_and_values(c: dict, *, max_values: int = 40) -> str:
     return " ".join(parts)
 
 
-def catalog_block(schemes: list[str], *, max_terms: int = 24) -> str:
+# Name parts too common to tell a shared table's notes apart: nearly every question
+# says "district" or "year", so matching on them would keep every shared note.
+_FOCUS_GENERIC = frozenset({"v", "dim", "bridge", "fact", "curated", "semantic", "id", "key", "code", "name",
+                            "names", "lgd", "raw", "year", "years", "financial", "fy", "district", "districts",
+                            "block", "blocks", "village", "villages", "state", "total", "count", "amount",
+                            "scheme", "schemes", "source", "short", "label", "type", "the", "of", "in"})
+
+
+def _focus_words(text: str) -> "set[str]":
+    """Lower-case words of `text` and of snake_case names, a plural 's' dropped."""
+    from app.text_match import words
+    out = set()
+    for w in words((text or "").replace("_", " ")):
+        w = w.lower()
+        out.add(w[:-1] if len(w) > 3 and w.endswith("s") else w)
+    return out - _FOCUS_GENERIC
+
+
+def catalog_block(schemes: list[str], *, max_terms: int = 24, focus: "str | None" = None) -> str:
     """A compact 'LIVE CATALOG' block scoped to the classified scheme(s).
-    Empty string when the catalog didn't load."""
+    Empty string when the catalog didn't load.
+
+    `focus` (B4 prompt pruning, 2026-10-27): the question text. Given, a SHARED
+    table's column notes (dim_*, v_cross_scheme_*, v_district_year_summary,
+    v_place_names …) are kept only when the question's words name that table or
+    column; every scheme-specific note, table note, term and metric stays. Used
+    only as a compressor when the SQL prompt is over budget: the over-budget
+    prompts were cutting the worked examples from 5 to 1 instead."""
     if not _cache["loaded"]:
         return ""
     lines: list[str] = []
@@ -452,9 +477,13 @@ def catalog_block(schemes: list[str], *, max_terms: int = 24) -> str:
         # A UNIT or a VALUES list is load-bearing like a quality note (a guessed
         # unit or literal is a wrong number), so it is never cut by the budget.
         _desc_budget = max_terms
+        _qwords = _focus_words(focus) if focus is not None else None
         for c in cols:
             if _is_private_or_fact(c) or (c.get("table_schema"), c.get("table_name"),
                                           c.get("column_name")) in _cache["denied"]:
+                continue
+            if _qwords is not None and not _is_scheme_specific_table(c.get("table_name")) \
+                    and not (_focus_words(f"{c.get('table_name')} {c.get('column_name')}") & _qwords):
                 continue
             quality = (c.get("data_quality_note") or "").strip()
             facts = _unit_and_values(c)

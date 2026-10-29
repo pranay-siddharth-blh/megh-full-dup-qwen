@@ -1,0 +1,19 @@
+# Approved officer wordings for the metric catalogue (B1, RAG plan; user decision 2026-10-27).
+#
+# Each entry is an EXACT synonym added to that measure's catalogue phrases at startup
+# (app/metric_catalog.py SYNONYMS_FILE), the same as the data team's own synonyms in
+# semantic.metric_definitions. A wording here answers through the catalogue query only
+# for the (measure, query type) pairs data/metric_catalog_verified.yaml lists.
+#
+# How a wording gets here: the app logs every data question whose wording names no
+# catalogue measure, with its nearest measure by meaning (logs/metric_meaning_shadow.jsonl).
+#   .venv/Scripts/python.exe -X utf8 tests/metric_meaning/review.py
+# lists them. A PERSON checks each one: does the wording mean exactly that measure,
+# with no qualifier that changes it ("administrative expenditure" is NOT total
+# expenditure; "wage rate" is NOT the wage share)? Only then add it below, restart the
+# app, and send the same wording to the ingestion team for semantic.metric_definitions.
+#
+# Format:
+#   mgnrega_employment_generated:
+#     - labour days
+{}

@@ -281,6 +281,10 @@ async def _run_async_checks():
     orig_get_client = conversation_memory.vectorstore.get_client
     conversation_memory.llm.call_embedding = _fake_embed
     conversation_memory.vectorstore.get_client = lambda: _FakeClient()
+    # Semantic memory is OFF by default since D-074 (2026-10-27); these checks
+    # are about how the search scopes and reads hits when it is on.
+    orig_mem = conversation_memory.settings.CONTEXT_SEMANTIC_MEMORY_ENABLED
+    conversation_memory.settings.CONTEXT_SEMANTIC_MEMORY_ENABLED = True
     try:
         hits = await conversation_memory.search_relevant_turns(
             question="expenditure in west garo hills", tenant_id=7, user_id=42, session_id="sess-a")
@@ -294,6 +298,7 @@ async def _run_async_checks():
     finally:
         conversation_memory.llm.call_embedding = orig_embed
         conversation_memory.vectorstore.get_client = orig_get_client
+        conversation_memory.settings.CONTEXT_SEMANTIC_MEMORY_ENABLED = orig_mem
 
     # ── 10. Summary generation failure tolerance ───────────────────────────
     print("10. SUMMARY GENERATION FAILURE TOLERANCE")

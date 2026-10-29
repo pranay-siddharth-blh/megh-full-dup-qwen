@@ -195,10 +195,13 @@ _VR_YEAR_GROUP_COLS = frozenset({"financial_year_short", "financial_year", "year
 def _vr_grouped_by_year_only(sql: str) -> bool:
     """Some GROUP BY of the query (outer, CTE or subquery) groups by the
     financial year alone (financial_year_short / financial_year / year_key /
-    start_year, COALESCEd or not)."""
+    start_year, COALESCEd or not) — one year column or several.
+
+    KI-411: "GROUP BY year_key, financial_year_short" (two names for one year) was
+    read as not year-only, so an all-years PMAY-G total split per year passed."""
     for tree in sql_ast.parse(sql):
         for g in tree.find_all(exp.Group):
-            if len(g.expressions) == 1 and _vr_col_name(g.expressions[0]) in _VR_YEAR_GROUP_COLS:
+            if g.expressions and all(_vr_col_name(e) in _VR_YEAR_GROUP_COLS for e in g.expressions):
                 return True
     return False
 
@@ -1111,7 +1114,31 @@ def _resolved_scope_missing(question: str, schemes: list[str], entity_result: di
                 f"{absent_y[0]} is the FY start year), but {what}. Use the year filter in the scheme's "
                 f"own form (year_key = {absent_y[0]}, or its financial_year column) and keep every "
                 "other clause as it was.")
+    # KI-427: a stated span (year_key_list) — every year must be in the query, as a
+    # literal or inside a BETWEEN whose ends are the span's ends.
+    span = sorted({int(y) for y in (resolved.get("year_key_list") or []) if isinstance(y, int)})
+    if not years and len(span) >= 2 and timed and not _ALL_YEARS_CUE.search(question or ""):
+        absent_y = [y for y in span if not _vr_year_in_sql(y, sql)]
+        if absent_y and not _vr_between_covers(sql, span[0], span[-1]):
+            fy = ", ".join(f"FY {y}-{(y + 1) % 100:02d}" for y in absent_y)
+            return "year", (
+                f"the question asks for every financial year from FY {span[0]}-{(span[0] + 1) % 100:02d} "
+                f"to FY {span[-1]}-{(span[-1] + 1) % 100:02d} (a RESOLVED, MANDATORY filter), but this "
+                f"query leaves out {fy}. Filter year_key BETWEEN {span[0]} AND {span[-1]} (or the "
+                "scheme's own financial-year column for the same years) and keep every other clause "
+                "as it was.")
     return None
+
+
+def _vr_between_covers(sql: str, lo: int, hi: int) -> bool:
+    """A BETWEEN in the query with number or year-string ends lo and hi."""
+    for tree in sql_ast.parse(sql):
+        for node in tree.find_all(exp.Between):
+            low, high = sql_ast._unwrap(node.args.get("low")), sql_ast._unwrap(node.args.get("high"))
+            if isinstance(low, exp.Literal) and isinstance(high, exp.Literal) \
+                    and _vr_digits_in(low.this, str(lo)) and _vr_digits_in(high.this, str(hi)):
+                return True
+    return False
 
 
 # The converse false positive: the SQL filters exactly the resolved village_code

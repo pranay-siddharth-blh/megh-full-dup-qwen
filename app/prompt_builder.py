@@ -30,7 +30,7 @@ The repair prompt now carries the SAME schema + resolved-entities context as the
 first attempt (plus the failure), instead of the thin schema-only prompt used
 before — a repair most often needs exactly the entity block it was missing.
 """
-from app import context_budget, schema_introspect, turn_trace
+from app import context_budget, schema_introspect, sql_examples, turn_trace
 from app.annotations import common_mistakes_text, few_shot_examples, prohibited_joins_text
 from app.schema_context import build_schema_context
 
@@ -110,8 +110,37 @@ def _live_schema_block(schemes: list[str]) -> str:
     return "\n".join(lines) + "\n"
 
 
+def _fewshot_examples(schemes: list[str], question: str, top_k: int) -> list[dict]:
+    """Per scheme: the Qdrant examples _data_sql_stage fetched for this turn
+    (SQL_EXAMPLES_SOURCE=qdrant, D-074), else that scheme's YAML bank."""
+    out: list[dict] = []
+    seen: set = set()
+    for scheme in schemes:
+        fetched = sql_examples.current(scheme, schemes)
+        if not fetched:
+            out += few_shot_examples([scheme], question, top_k=top_k)
+            continue
+        # a two-scheme example is found under both schemes: show it once
+        fresh = [ex for ex in fetched if ex["id"] not in seen][:top_k]
+        seen.update(ex["id"] for ex in fresh)
+        out += [{k: ex[k] for k in ("question", "sql", "id", "notes") if ex.get(k) is not None}
+                for ex in fresh]
+    return out
+
+
+def _sql_metadata_block(schemes: list[str], kinds: tuple = ("view", "join")) -> str:
+    """megh_sql_metadata's view descriptions and join rules for the schemes in
+    play (SQL_EXAMPLES_SOURCE=qdrant, D-074), or "". Optional in the budget:
+    under pressure the views go first, then the joins."""
+    text = sql_examples.metadata_text(schemes, kinds)
+    if not text:
+        return ""
+    return ("\nVIEW AND JOIN NOTES (megh_sql_metadata — the schema rules above still win where they "
+            "differ):\n" + text + "\n")
+
+
 def _fewshot_block(schemes: list[str], question: str = "", top_k: int = 5) -> str:
-    examples = few_shot_examples(schemes, question, top_k=top_k)
+    examples = _fewshot_examples(schemes, question, top_k)
     # the audit trail records which examples this prompt carried
     turn_trace.note_few_shots(ex.get("id") for ex in examples)
     if not examples:
@@ -128,6 +157,8 @@ def _fewshot_block(schemes: list[str], question: str = "", top_k: int = 5) -> st
         elif ex.get("plan"):
             plan = " -> ".join(ex["plan"])
             parts.append(f'Q: "{ex["question"]}"\nPlan: {plan}\nSQL: {ex["sql"]}')
+        elif ex.get("notes"):
+            parts.append(f'Q: "{ex["question"]}"\nNote: {ex["notes"]}\nSQL: {ex["sql"]}')
         else:
             parts.append(f'Q: "{ex["question"]}"\nSQL: {ex["sql"]}')
     return "\nEXAMPLES (verified SQL, and known-unanswerable questions):\n" + "\n\n".join(parts) + "\n"
@@ -363,6 +394,17 @@ def _entities_block(entity_result: dict, question: str = "",
                         "for the other.")
             elif k == "year_key":
                 lines.append(f"  year_key = {v!r}")
+            elif k == "year_key_list":
+                # KI-427: a stated span ("from 2022-23 through 2025-26") — every year
+                # in it, never only the last one the extractor handed back.
+                ys = sorted(int(y) for y in (v if isinstance(v, (list, tuple)) else [v]))
+                fys = ", ".join(f"FY {y}-{(y + 1) % 100:02d}" for y in ys)
+                cond = (f"year_key BETWEEN {ys[0]} AND {ys[-1]}" if ys == list(range(ys[0], ys[-1] + 1))
+                        else f"year_key IN ({', '.join(map(str, ys))})")
+                lines.append(
+                    f"  {cond}   -- the question asks for every one of {fys}. Filter on ALL "
+                    "of them (or the scheme's own financial-year column for the same years), "
+                    "never on only one of them.")
             elif k == "house_status":
                 vals = v if isinstance(v, list) else [v]
                 quoted = ", ".join(f"'{s}'" for s in vals)
@@ -467,12 +509,23 @@ def build_sql_prompt(question: str, schemes: list[str], entity_result: dict) -> 
     # counted is required and never shortened. Only the worked examples and
     # the catalogue's restatements of the schema can shrink, and only when
     # the prompt is over PROMPT_BUDGET_SQL_TOKENS (context_budget).
+    # B4 (RAG plan, measured 2026-10-27): every scheme's prompt was 15.9k-17.1k
+    # tokens, the catalogue alone ~8.5k, so the examples were cut 5 -> 1 and the
+    # view / join notes dropped on every question. The catalogue now shrinks
+    # FIRST: its schema restatements, then the shared tables' column notes the
+    # question does not touch (schema_introspect.catalog_block focus=).
+    def _focused_catalog() -> str:
+        c = schema_introspect.catalog_block(schemes, focus=rank_text)
+        return _dedupe_catalog((c + "\n") if c else "", backbone, live)
+
     return context_budget.assemble_prioritized("sql", [
         S("schema_backbone", backbone), S("schema_backbone", "\n\n"),
         S("live_schema", live),
-        S("catalog", catalog_text, required=False, priority=20,
-          compress=(lambda: _dedupe_catalog(catalog_text, backbone, live),)),
+        S("catalog", catalog_text, required=False, priority=1,
+          compress=(lambda: _dedupe_catalog(catalog_text, backbone, live), _focused_catalog)),
         S("prohibited_joins", _prohibited_block(schemes)),
+        S("sql_metadata", _sql_metadata_block(schemes), required=False, priority=5,
+          compress=(lambda: _sql_metadata_block(schemes, ("join",)), lambda: "")),
         S("few_shot", _fewshot_block(schemes, rank_text), required=False, priority=10,
           compress=(lambda: _fewshot_block(schemes, rank_text, top_k=3),
                     lambda: _fewshot_block(schemes, rank_text, top_k=1))),

@@ -375,38 +375,37 @@ village scheme, and a single-village query is pinned to its `village_code` (D-03
 
 ## Adding a scheme
 
-Schemes are hand-registered. As of 2026-09-26, missing any one registry leaves the scheme
-half-wired. The symbols below were VERIFIED to exist.
+**Start at `app/scheme_registry.py` (E5, D-079, 2026-10-27).** It holds the facts for each scheme (canonical
+name, metric-catalogue subject area, KB folder and tag, main view, document label, constituency capability).
+These read it directly: `auth.ROLE_PERMISSIONS` (every role), c01 `_ALL_SCHEMES`, `query_plan.SCHEMES`,
+`metric_catalog.SUBJECT_TO_SCHEME`. Then run `tests/test_scheme_registry_e5_2026_10_27.py`: it fails, naming
+each registry below that does not yet agree. Mapped 2026-10-27: scheme names appear in ~124 places across 31
+files; the registries that must change (VERIFIED to exist on 2026-10-27):
 
-1. `data/<scheme>/`: the 7 SME YAMLs + README. KB docs go in a new folder `data/incoming/<Scheme>/`,
-   added to `kb_ingest._INCOMING_SCHEMES` with the canonical name (the folder decides the scheme tag).
+1. `data/<scheme>/`: the SME YAMLs + README; KB docs in `data/incoming/<Folder>/` (`kb_ingest._INCOMING_SCHEMES`;
+   since D-074 the live KB is `megh_knowledge`, loaded by another pipeline, KI-440).
 2. `app/annotations.py`: `_SCHEME_DIRS`, `_FEW_SHOT_FILE`, `_FK_FILE`.
-3. `app/entity_resolver.py`: `_RESOLVER_FILE`, `_ACTIVITY_VIEWS`.
-4. `app/schema_context.py`: `SCHEME_CATALOG`, `SCHEME_METRICS`, `_<X>_TABLES/_RULES/_VOCAB`,
-   `_SCHEME_BLOCKS`.
-5. `app/pipeline.py`:
-   - `_SCHEME_NAME_MATCHER`, `_SCHEME_FUZZY_ALIASES`, the canonical spelling map;
-   - `_<X>_ONLY_TERMS` + `_infer_scheme_from_terms`;
-   - `_SCHEME_DATA_YEARS` + `refresh_scheme_years`;
-   - `_scheme_clarification`, the scheme blurbs, `_SCHEME_FIT`;
-   - `_CROSS_SCHEME_MONEY_SQL` if the scheme has money;
-   - `_bank_clarification`;
-   - `_AC_CAPABLE_SCHEMES` if AC is answerable;
-   - every regex whose scheme name is a prefix of the new one.
-6. `app/followups.py`: `_SCHEME_MATCH`, `_primary_schemes`, the knowledge ladder, a
-   `_<x>_data()` builder + its dispatch.
-7. `app/edge.py`: scheme regexes, capability blurbs, `STARTERS`, `_DOMAIN_WORDS`.
-8. `app/prompt_builder.py`: `_scheme_of` and the per-scheme exact-match helpers.
-9. `app/schema_introspect.py`: the subject→scheme and table-name→scheme maps.
-10. `app/kb_ingest.py`: `_SOURCES`.
-11. `app/rag.py`: `_SCHEME_DOC_NAMES` (+ `_KB_SCHEME_ALIAS` if it has no docs).
-12. `app/auth.py`: every role's `schemes` list, plus the `app/users.yaml` comments.
-13. `app/config.py`: `ASR_PROMPT` scheme list. Optionally, `APP_NAME` (already stale; see below).
-14. `web/ai_query.html`: the scheme card, i18n strings, `CARD_QUESTIONS`, `prettyName`.
+3. `app/entity_resolver.py`: `_RESOLVER_FILE`, `_ACTIVITY_VIEWS`, `_VILLAGE_SCHEME_VIEWS`.
+4. `app/schema_context.py`: `SCHEME_CATALOG`, `SCHEME_METRICS`, `_<X>_TABLES/_RULES/_VOCAB`, `_SCHEME_BLOCKS`.
+5. `app/pipeline/` (one namespace):
+   - c02 `_SCHEME_CANONICAL_SPELLING`; `_SCHEME_NAME_MATCHER`, `_SCHEME_FUZZY_ALIASES`; `_<X>_ONLY_TERMS` +
+     `_infer_scheme_from_terms`; `_SCHEME_DATA_YEARS` + `refresh_scheme_years`;
+   - c05 `_scheme_clarification`, the scheme blurbs, `_SCHEME_FIT`; c08 `_AC_CAPABLE_SCHEMES`,
+     `_VILLAGE_FACT_SCHEMES`, `_VILLAGE_NARROW_SCHEMES`; c13 `_CROSS_AC_RECORDED`, `_CROSS_SCHEME_MONEY_SQL`;
+     `_bank_clarification`; c15 `_C15_HEADLINE_MEASURE`;
+   - `app/pipeline/schemes/<scheme>.py` — the scheme's own file;
+   - every matcher whose scheme name is a prefix of the new one.
+6. `app/followups.py`: `_SCHEME_MATCH`, `_primary_schemes`, the knowledge ladder, a `_<x>_data()` builder.
+7. `app/edge.py` (`_OUT_OF_SCOPE_REPLY`, `STARTERS`, `_DOMAIN_WORDS`), `app/guardrails.py` (`_SCOPE`),
+   `app/conversation_replies.py`, `app/topic_memory.py` (`_SCHEME_ABOUT`).
+8. `app/prompt_builder.py`: `_scheme_of` and the exact-name sets; `app/schema_introspect.py`: `_TABLE_NAME_TO_SCHEME`.
+9. `app/cross_scheme.py` (`SPECS`), `app/cross_figures.py`.
+10. `app/rag.py`: `_SCHEME_DOC_NAMES` (+ `_KB_SCHEME_ALIAS` if it has no docs).
+11. `app/config.py`: `ASR_PROMPT`.
+12. `frontend/src`: `chat/components/Messages.jsx` `SCHEME_NAMES`, `chat/chartTheme.js` (one hue family per
+    scheme), `chat/constants.js` (cards, i18n), then `npm run build`.
 
-After adding a scheme: restart the service or re-ingest the KB, check
-`grep -ic "<label>" data/incoming/<Scheme>/*` (the composer fails if the label is absent from
-the docs), and add a routing test.
+After adding a scheme: restart the service, run the registry guard and a routing test.
 
 **Stale scheme-count text in code** (cosmetic; not fixed in this documentation task):
 - `config.APP_NAME` lists four schemes.

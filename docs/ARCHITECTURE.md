@@ -27,6 +27,8 @@ meghalaya/
 │   ├── schema_context.py      hand-written per-scheme TABLES / RULES / VOCAB prompt blocks
 │   ├── schema_introspect.py   live information_schema + semantic.* catalogue → prompt blocks
 │   ├── metric_catalog.py      semantic.metric_definitions → one measure's fixed query (D-071)
+│   ├── query_plan.py          E1 query plan, stage 1: typed plan per turn, shadow-logged only (D-078)
+│   ├── scheme_registry.py     the six schemes' facts, one place; other registries guarded (D-079)
 │   ├── annotations.py         loads few-shot + FK YAML from data/; IDF few-shot ranking
 │   ├── entity_resolver.py     district/block/year/AC/village resolution (YAML + live DB)
 │   ├── llm.py                 one httpx client; all model roles; concurrency gate
@@ -69,7 +71,7 @@ browser ──HTTPS──► nginx (per app VM; TLS, WAF, rate zones)       depl
                 uvicorn app.main:app --workers 2                  deploy/systemd/megh-nlpservice.service
                      ├─ asyncpg pool (10–30/worker) ─► PostgreSQL 18.4 megh_db   10.48.242.4:5432
                      ├─ httpx AsyncClient ───────────► vLLM gateway             https://10.48.242.4/openai/v1
-                     ├─ AsyncQdrantClient ───────────► Qdrant                   http://115.124.102.167:6335
+                     ├─ AsyncQdrantClient ───────────► Qdrant                   http://10.48.242.4:6333
                      └─ embeddings: gateway qwen3-embedding, 1024-dim (D-067); rollback = fastembed bge-small, CPU
 ```
 
@@ -254,7 +256,9 @@ starts the paused-thread sweep and closes the checkpointer only when the graph i
 - **`context_policy.py`:** the per-field merge actions, follow-up kinds, provenance and
   field-specific rewrite checks (AI_PIPELINE.md §5.4, D-024).
 - **`session_sync.py`:** cross-worker state (AI_PIPELINE.md §5.5, D-023).
-- **`conversation_memory.py`:** semantic memory of older turns in the Qdrant collection
+- **`conversation_memory.py`:** **OFF since 2026-10-27 (D-074, `CONTEXT_SEMANTIC_MEMORY_ENABLED=false`):
+  only two Qdrant collections may be used and memory needs its own.** When on: semantic memory of older
+  turns in the Qdrant collection
   `CONTEXT_MEMORY_COLLECTION` (`megh_conversation_memory_1024` since D-067; the 384-dim
   `megh_conversation_memory` is the rollback and is purged on the same 30-day schedule,
   `CONTEXT_MEMORY_PURGE_ALSO`). It is used only when the in-process session has fewer than 2
@@ -268,9 +272,17 @@ starts the paused-thread sweep and closes the checkpointer only when the graph i
     `data/incoming/<scheme>/` (`_INCOMING_SCHEMES`, `_sme_sources`; the folder decides the scheme
     tag) plus tagged `data/web/*.md`;
   - embeds them;
-  - on startup, recreates the Qdrant collection `QDRANT_COLLECTION` (`megh_scheme_kb_v4` in `.env`)
-    if it is missing, too small, missing any scheme (`vectorstore.distinct_schemes`), missing the
-    BM25 vector, or of another vector size than the embedding model (KI-402).
+  - **with `QDRANT_KB_READ_ONLY=true` (the default since D-074) it does nothing**: `megh_knowledge`
+    is loaded by another pipeline, startup and `POST /api/rag/reingest` return `skipped: read-only
+    collection`, and `vectorstore.recreate_collection` / `upsert` raise `ReadOnlyCollectionError`;
+  - with `QDRANT_KB_READ_ONLY=false` (an app-owned collection), on startup it recreates
+    `QDRANT_COLLECTION` if it is missing, too small, missing any scheme (`vectorstore.distinct_schemes`),
+    missing the BM25 vector, or of another vector size than the embedding model (KI-402).
+- **`vectorstore.py`** reads both payload shapes (`piece()`): the app's own `{doc, heading, scheme: str}`
+  and megh_knowledge's `{source_file, section, scheme: [..]}`; the scheme filter is `MatchAny`, and
+  "CM Elevate" also matches megh_knowledge's "CM Elevate Legacy" tag.
+- **`sql_examples.py`** (D-074): with `SQL_EXAMPLES_SOURCE=qdrant`, `_data_sql_stage` fetches the SQL
+  prompt's worked examples from `megh_sql_metadata` (kind=example); any failure keeps the YAML banks.
 - **`rag.py`:**
   - `retrieve` searches Qdrant with an **exact-match** `scheme` payload filter;
   - `answer_from_kb` answers in tiers: top score ≥ 0.84 → the chunk verbatim; ≥ 0.55 → composed
@@ -359,8 +371,8 @@ abandons (Stop) is cancelled and its question remembered; the next "continue" in
 |---|---|---|
 | `megh_db.curated` / `semantic` | Scheme data (read-only to this app) | ingestion team |
 | `megh_db.app` | `tenants`, `users`, `login_events`, `conversations`, `conversation_turns`, `query_audit` | this app (`appdb.ensure_schema`) |
-| Qdrant `megh_scheme_kb_v4` (`QDRANT_COLLECTION`) | KB chunks, 1024-dim qwen3-embedding + BM25 (D-067). `megh_scheme_kb_v3` (384-dim bge-small) kept for rollback | this app |
-| Qdrant `megh_conversation_memory_1024` (`CONTEXT_MEMORY_COLLECTION`) | past-turn vectors per tenant/user/session, 1024-dim. `megh_conversation_memory` (384-dim) kept for rollback | this app |
+| Qdrant `megh_knowledge` (`QDRANT_COLLECTION`) | scheme reference pieces, 1024-dim, no BM25 vector; read-only to the app (D-074) | the loading pipeline (not this app) |
+| Qdrant `megh_sql_metadata` (`SQL_EXAMPLES_COLLECTION`) | question->SQL examples (kind=example), views and joins, 1024-dim; read-only, used only with `SQL_EXAMPLES_SOURCE=qdrant` (D-074) | the loading pipeline (not this app) |
 | `logs/query_audit.jsonl` | JSONL audit mirror (questions, IPs) | this app (gitignored) |
 | `ASR_DEBUG_DIR` (e.g. `logs/asr_samples`) | **every voice upload saved as WAV plus its transcript** when set. It is set in the local dev `.env` (VERIFIED, 2026-09-26); diagnostics only | this app (gitignored under `logs/`) |
 
@@ -436,7 +448,7 @@ abandons (Stop) is cancelled and its question remembered; the next "continue" in
 |---|---|---|
 | vLLM model gateway | `https://10.48.242.4/openai/v1` | self-signed "Enlight AIOps" CA; microk8s/KServe (per `docs/INFERENCE_REQUIREMENTS.md`) |
 | PostgreSQL 18.4 `megh_db` | `10.48.242.4:5432` | shared box; pgAdmin on :8080 |
-| Qdrant 1.18.3 | `115.124.102.167:6335` (since 2026-10-03) | live collections `megh_scheme_kb_v4`, `megh_conversation_memory_1024` (1024-dim, D-067); rollback copies `megh_scheme_kb_v3`, `megh_conversation_memory` (384-dim); older `megh_scheme_kb`, `megh_scheme_kb_v2`, `megh_general_kb`, `megh_general_web_kb` unused; the `Metadata_*` collections there are not ours |
+| Qdrant | `10.48.242.4:6333` (since 2026-10-27, D-074; VPN) | the app reads ONLY `megh_knowledge` and `megh_sql_metadata`; every other collection there (`Metadata_*`, `sql_examples`, `megh_scheme_kb`, `megh_conversation_memory`) is not used. The old server `115.124.102.167:6335` (D-067 collections `megh_scheme_kb_v4`, `megh_conversation_memory_1024`) is no longer used |
 | Redis | optional (`REDIS_URL`) | blank in local `.env`; production value UNKNOWN |
 
 The `10.48.242.4` host requires the office Fortinet VPN from dev machines (source: earlier
