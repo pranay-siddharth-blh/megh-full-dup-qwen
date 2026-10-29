@@ -468,3 +468,65 @@ test('X-3: one row with figures in different units is a record card, not one axi
   const same = [{ wage_exp_lakh: 600, material_exp_lakh: 300 }];
   assert.equal(buildAnalytics('wages vs material', same, 'kpi_bar').kind, 'kpi');
 });
+
+// ── Phase 7: more measures, big tables, ranks, names, errors ─────────────────
+import { placeTitle } from '../src/chat/columns.js';
+
+test('A-6: beneficiaries and expenditure year wise — one chart per measure, the asked one first', () => {
+  const rows = ['2022-23', '2023-24'].flatMap((fy) => ['MGNREGA', 'PMAY-G'].map((s, i) => ({
+    scheme: s, financial_year: fy, money_crore: 100 + i, beneficiaries: 5000 + i })));
+  const a = buildAnalytics('MGNREGA and PMAY-G beneficiaries and expenditure year wise', rows, null);
+  assert.equal(a.kind, 'twoDim');
+  assert.equal(a.vKey, 'beneficiaries');
+  assert.deepEqual(a.more.map((m) => m.vKey), ['money_crore']);
+});
+
+test('B-4: two asked measures are two rows of tiles', () => {
+  const rows = [{ district: 'East Khasi Hills', beneficiaries: 120, amount_crore: 30 }, { district: 'Ri Bhoi', beneficiaries: 100, amount_crore: 45 }];
+  const a = buildAnalytics('Compare East Khasi Hills and Ri Bhoi beneficiaries and amount', rows, null);
+  assert.equal(a.kind, 'compare');
+  assert.equal(a.vKey, 'beneficiaries');
+  assert.deepEqual(a.more.map((c) => c.vKey), ['amount_crore']);
+});
+
+test('J-9: five figures still make a compare card, on the asked measure (names with spaces)', () => {
+  const rows = ['East Khasi Hills', 'Ri Bhoi'].map((d, i) => ({ district: d, 'houses sanctioned': 900 - i * 100,
+    'amount sanctioned (Rs)': 1e8, 'amount released (Rs)': 9e7, 'houses completed': 400, 'completion rate (%)': 44 }));
+  const a = buildAnalytics('PMAY-G compare East Khasi Hills and Ri Bhoi on houses sanctioned', rows, null);
+  assert.equal(a.kind, 'compare');
+  assert.equal(a.vKey, 'houses sanctioned');
+});
+
+test('C-12: 12 districts × 12 months is a table, not 144 joined bars', () => {
+  const ds = Array.from({ length: 12 }, (_, i) => `D${i}`);
+  const ms = ['Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec', 'Jan', 'Feb', 'Mar'];
+  const rows = ds.flatMap((d) => ms.map((m) => ({ district: d, month: m, person_days: 1 })));
+  const a = buildAnalytics('MGNREGA person days by district and month in 2024-25', rows, null);
+  assert.equal(a.kind, 'table');
+  assert.deepEqual(a.pivot, { xKey: 'district', sKey: 'month', vKey: 'person_days' });
+});
+
+test('E-8: a ranking table is numbered', () => {
+  const rows = [{ block: 'A', person_days: 9 }, { block: 'B', person_days: 8 }, { block: 'C', person_days: 7 }];
+  assert.equal(buildAnalytics('Top 3 blocks by person days', rows, null).ranked, true);
+  assert.equal(buildAnalytics('person days by block', rows, null).ranked, false);
+});
+
+test('C-5: place names in capitals read in Title Case', () => {
+  assert.equal(placeTitle('EAST KHASI HILLS', 'lgd_district'), 'East Khasi Hills');
+  assert.equal(placeTitle('MGNREGA', 'scheme'), 'MGNREGA');                    // not a place column
+  assert.equal(placeTitle('East Khasi Hills', 'district'), 'East Khasi Hills');
+});
+
+// ── Phase 7: stop words, copy ────────────────────────────────────────────────
+import { isStopText } from '../src/chat/stopContinue.js';
+import { rowsAsTsv } from '../src/chat/exporters.js';
+
+test('K-23: more ways to say stop', () => {
+  for (const t of ['stop', 'stop the query', 'cancel the question', 'stop answering', 'रुको']) assert.ok(isStopText(t), t);
+  assert.ok(!isStopText('stop MGNREGA wages in Ri Bhoi'));
+});
+
+test('K-21: the copied answer carries its table, tab-separated', () => {
+  assert.equal(rowsAsTsv([{ lgd_district: 'Ri Bhoi', person_days: 5 }]), 'District\tPerson days\nRi Bhoi\t5');
+});

@@ -1494,14 +1494,18 @@ async def _geo_lookup_answer(question: str) -> "dict | None":
             [[int(c) for c in codes]])
     if not rows:
         return None
-    lines = [f"**{name.title()}** — {len(rows)} village{'s' if len(rows) > 1 else ''} in the Meghalaya geography "
-             "registry:\n", "| Village | LGD village code | Block | District | Assembly constituency |",
-             "|---|---|---|---|---|"]
-    for r in rows:
-        lines.append(f"| {r['lgd_village_name']} | {r['village_code']} | {str(r['lgd_block'] or '—').title()} | "
-                     f"{str(r['lgd_district'] or '—').title()} | {r['ac_name'] or '—'} |")
-    if len(rows) > 1:
-        lines.append("\nThey are different villages that share a name, told apart by their LGD code.")
+    # H-1 (chat UI audit 2026-10-29): the same table was written into the answer
+    # and sent again as the result rows, so it showed twice (Title Case in one,
+    # CAPITALS in the other). One sentence here; the rows are the table.
+    if len(rows) == 1:
+        r = rows[0]
+        lines = [f"**{name.title()}** is in {str(r['lgd_block'] or '—').title()} block, "
+                 f"{str(r['lgd_district'] or '—').title()} district"
+                 + (f" ({str(r['ac_name']).title()} constituency)" if r["ac_name"] else "")
+                 + f", LGD village code {r['village_code']}."]
+    else:
+        lines = [f"**{name.title()}** is {len(rows)} different villages in the Meghalaya geography registry that "
+                 "share a name, told apart by their LGD code; they are listed in the table below."]
     sql = "SELECT village_code, lgd_village_name, lgd_block, lgd_district, ac_name FROM curated.dim_geography"
     return {"route": "data", "intent": "DATA", "confidence": "high", "schemes": [],
             "resolved_entities": {}, "sql": sql, "sql_query": sql, "row_count": len(rows),

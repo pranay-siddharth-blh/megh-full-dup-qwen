@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import {
-  adoptSessionId, archiveConversationApi, checkHealth, ConnectionError, deleteConversationApi, fetchMe, getConversation,
+  adoptSessionId, archiveConversationApi, checkHealth, ConnectionError, deleteConversationApi, fetchMe, friendlyError, getConversation,
   getToken, listHistory, login, logoutRemote, pinConversationApi, renameConversationApi, resetSessionId,
   setToken, setUnauthorizedHandler, StoppedError, storedSessionId, streamNLPResponse,
 } from './api.js';
@@ -393,7 +393,7 @@ export default function App() {
       const response = await streamNLPResponse(asked, lang, sessionRef.current, { skipCache, signal: stop.signal, onEvent });
       setMessagesHere((m) => [...dropTyping(m), response.answer
         ? { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'rich', question: q, response, animate: true, streamKey: typingId, view }
-        : { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Error: ${response.detail || 'Unable to process your query'}` }]);
+        : { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: friendlyError(response.detail || '') }]);
       connBack();                             // an answer arrived: the connection is fine
     } catch (err) {
       if (err instanceof ConnectionError) {
@@ -409,7 +409,7 @@ export default function App() {
         setMessagesHere((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q,
           text: 'Stopped. Type "continue" when you want this answer.' }]);
       } else if (String(err.message) !== 'unauthorized') {
-        setMessagesHere((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Sorry, I encountered an error: ${err.message}` }]);
+        setMessagesHere((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: friendlyError(err.message) }]);
         console.error('Query error:', err);
       } else {
         setMessagesHere(dropTyping);
@@ -431,13 +431,26 @@ export default function App() {
     const q = inputRef.current.trim();
     if (!q) return;
     const sc = parseSlash(q);
+    // K-39 (audit 2026-10-29): "/chart" alone, "/lang hindi" and "/help" did nothing
+    // (or "/help" was asked as a question); each says what to type instead
+    const hint = (text) => {
+      setInput('');
+      setMessages((m) => [...m, { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'user', text: q },
+        { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', text }]);
+    };
+    const SLASH_HELP = 'Commands: /chart <question> draws the answer as a chart, /table <question> shows it as a '
+      + 'table, /glossary <term> explains a term, /lang <language> sets the question language.';
+    if (!sc && q.startsWith('/') && !q.includes(' ')) { hint(`"${q}" is not a command. ${SLASH_HELP}`); return; }
     if (sc) {
-      if ((sc.cmd === 'chart' || sc.cmd === 'table') && !sc.rest) return;   // nothing asked yet
+      if ((sc.cmd === 'chart' || sc.cmd === 'table') && !sc.rest) {
+        hint(`Type a question after /${sc.cmd}, for example "/${sc.cmd} MGNREGA person days by district".`);
+        return;
+      }
       if (sc.cmd === 'glossary') { setInput(''); setModal(glossaryModal(sc.rest)); return; }
       if (sc.cmd === 'lang') {
         const code = langFromArg(sc.rest);
-        if (code) { setLang(code); setInput(''); }
-        return;                                  // no such language: the menu lists them
+        if (code) { setLang(code); setInput(''); } else hint(`"${sc.rest || ''}" is not a language here. ${SLASH_HELP}`);
+        return;
       }
     }
     if (runningRef.current) {
@@ -463,7 +476,7 @@ export default function App() {
         const userCount = (upTo) => m.slice(0, m.indexOf(upTo) + 1).filter((x) => x.kind === 'user').length;
         return [...m, userMsg, { id: nextId(), ...now, kind: 'rich', question: last.question, view: viewOnly,
           redrawOf: `Q${userCount(last)} table`, local: true,
-          response: { ...r, answer: `Here is the same data as ${VIEW_NAMES[viewOnly]}.`, rewritten_question: undefined,
+          response: { ...r, answer: `Here is the same data as ${VIEW_NAMES[viewOnly]}. (Drawn here from the answer above; it is not saved with the chat.)`, rewritten_question: undefined,
                       follow_up: '', follow_up_options: [], follow_ups: [], suggestions: [] } }];
       });
       return;

@@ -481,7 +481,7 @@ function ZoomBar({ zoom, labels }) {
 
 // One canvas, one chart; `config` is rebuilt whenever `deps` change. With
 // `zoom`, a line chart gets the zoom controls below it (useLineZoom).
-function ChartCanvas({ build, deps, zoom = false }) {
+function ChartCanvas({ build, deps, zoom = false, label = '' }) {
   const ref = useRef(null);
   const chartRef = useRef(null);
   const [n, setN] = useState(0);
@@ -501,11 +501,11 @@ function ChartCanvas({ build, deps, zoom = false }) {
   // A rebuilt chart (new type or data) starts with the whole line.
   // eslint-disable-next-line react-hooks/exhaustive-deps
   useEffect(() => { z.setView(null); }, deps);
-  if (!z.zoomable) return <canvas ref={ref} />;
+  if (!z.zoomable) return <canvas ref={ref} role="img" aria-label={label || 'Chart'} />;
   const labels = (chartRef.current && chartRef.current.data.labels) || [];
   return (
     <>
-      <canvas ref={ref} className="zoomable" />
+      <canvas ref={ref} className="zoomable" role="img" aria-label={label || 'Chart'} />
       <div ref={z.brushRef} className="zoom-brush" aria-hidden="true" />
       <ZoomBar zoom={z} labels={labels} />
     </>
@@ -627,7 +627,8 @@ export function SwitchableChart({ title, labels, fullLabels, values, types, init
         <ExpandButton label="chart" onClick={() => setOpen(true)} />
       </CardHead>
       <div className={'chw' + (type === 'pie' || type === 'doughnut' ? ' round' : '')}>
-        <ChartCanvas build={() => withAxes(singleConfig(type, labels, values, theme), axes)} deps={[type, labels, values, theme, axes]} zoom={type === 'line'} />
+        <ChartCanvas build={() => withAxes(singleConfig(type, labels, values, theme), axes)} deps={[type, labels, values, theme, axes]} zoom={type === 'line'}
+                     label={`${title}. ${insight}`} />
       </div>
       {open && (
         <ExpandModal title={title} onClose={() => setOpen(false)}>
@@ -697,7 +698,8 @@ export function TwoDimChart({ title, labels, datasets, xKey, sKey, periods, init
         <ExpandButton label="chart" onClick={() => setOpen(true)} />
       </CardHead>
       <div className={'chw tall' + (type === 'doughnut' || type === 'pie' ? ' round' : '')}>
-        <ChartCanvas build={() => withAxes(twoDimConfig(type, labels, datasets, theme), axisInfo)} deps={[type, labels, datasets, theme, axisInfo]} zoom={type === 'line'} />
+        <ChartCanvas build={() => withAxes(twoDimConfig(type, labels, datasets, theme), axisInfo)} deps={[type, labels, datasets, theme, axisInfo]} zoom={type === 'line'}
+                     label={`${title}. ${insight}`} />
       </div>
       <div className="chd-axes" aria-label="What the axes show">{axes}</div>
       {open && (
@@ -823,7 +825,7 @@ function BigTable({ data, cols, title = 'Result table' }) {
 
 // `change`: the question asked how a figure moved over time; a one-period,
 // one-measure table then adds "Change from previous" (columns.changeColumn).
-export function DynTable({ data: raw, title = 'Result table', change = false }) {
+export function DynTable({ data: raw, title = 'Result table', change = false, rank = false }) {
   const [open, setOpen] = useState(false);
   if (!raw || !raw.length) return null;
   // A twin column (year_key beside financial_year) is the same thing twice: shown
@@ -835,10 +837,15 @@ export function DynTable({ data: raw, title = 'Result table', change = false }) 
   return (
     <div className="rt-block">
       <TableBar count={data.length} label="table" onExpand={() => setOpen(true)} />
+      {data.length >= 1000 && (
+        // E-3 (audit 2026-10-29): the result stops at 1,000 rows (the query cap)
+        <p className="rt-capped">The first 1,000 rows are shown; there may be more. Narrow the question (a district or a year) to see the rest.</p>
+      )}
       <div className="rtwrap">
         <table className="rtbl">
           <thead>
             <tr>
+              {rank && <th className="num">#</th>}
               {cols.map((c) => <th key={c} className={numClass(nums.has(c))}>{colLabel(c)}</th>)}
               {delta && <th className="num">{delta.column}</th>}
             </tr>
@@ -846,6 +853,7 @@ export function DynTable({ data: raw, title = 'Result table', change = false }) 
           <tbody>
             {data.map((r, i) => (
               <tr key={i}>
+                {rank && <td className="num">{i + 1}</td>}
                 {cols.map((c) => <td key={c} className={numClass(nums.has(c))}>{formatCell(r[c], c)}</td>)}
                 {delta && <td className="num delta">{delta.values[i]}</td>}
               </tr>

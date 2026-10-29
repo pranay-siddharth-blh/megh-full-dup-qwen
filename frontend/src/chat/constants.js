@@ -7,7 +7,7 @@ export const UNIFIED_SAMPLES = [
   { ico: '📅', text: 'Total MGNREGA person-days in 2023-24' },
   { ico: '💳', text: 'Job cards issued in 2025-26' },
   { ico: '🏠', text: 'PMAY-G houses completed by district' },
-  { ico: '💰', text: 'Total PMAY-G amount released in 2024-25' },
+  { ico: '💰', text: 'Total PMAY-G amount released in 2023-24' },
   { ico: '🌾', text: 'How many FOCUS+ payments were made in each batch' },
   { ico: '📍', text: 'FOCUS+ payments by district' },
   { ico: '🚀', text: 'How many CM Elevate applications are on hold?' },
@@ -105,7 +105,7 @@ export const CARD_QUESTIONS = {
     title: 'Try a PMAY-G question',
     items: [
       { ico: '🏠', text: 'PMAY-G houses completed by district' },
-      { ico: '💰', text: 'Total PMAY-G amount released in 2024-25' },
+      { ico: '💰', text: 'Total PMAY-G amount released in 2023-24' },
       { ico: '🧱', text: 'How many PMAY-G houses were sanctioned?' },
       { ico: '📊', text: 'Top 5 districts by PMAY-G completion' },
       { ico: '⏳', text: 'How many PMAY-G houses are still incomplete?' },
@@ -129,8 +129,8 @@ export const CARD_QUESTIONS = {
       { ico: '👥', text: 'How many FOCUS+ beneficiaries are there?' },
       { ico: '📊', text: 'Top 5 districts by FOCUS+ beneficiaries' },
       { ico: '🏦', text: 'Which bank serves the most FOCUS+ beneficiaries?' },
-      { ico: '📍', text: 'How many beneficiaries in West Garo Hills?' },
-      { ico: '💰', text: 'What is the total amount paid out?' },
+      { ico: '📍', text: 'How many FOCUS+ beneficiaries in West Garo Hills?' },
+      { ico: '💰', text: 'What is the total FOCUS+ amount paid out?' },
     ],
   },
   cm_elevate: {
@@ -190,7 +190,7 @@ export const USE_CASES = {
   'PMAY-G': [
     'PMAY-G houses completed by district',
     'PMAY-G houses sanctioned vs completed in East Garo Hills',
-    'Total PMAY-G amount released in 2024-25',
+    'Total PMAY-G amount released in 2023-24',
     'Who is eligible for PMAY-G?',
   ],
   'FOCUS+': [

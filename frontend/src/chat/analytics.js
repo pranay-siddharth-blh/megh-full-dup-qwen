@@ -7,7 +7,7 @@ import { hasSegment, isAsciiLetter, isDigit, isPeriodLabel, isSpace, splitSpaces
 import { fyMonthIndex, isMonthLabel, isQuarterLabel } from './chartTheme.js';
 import {
   PERIOD_WORDS, asksChange, canAdd, colTitle, dimOf, fractionPct, measureKind as measureKindOf, humanCol, isAdditive, isBlank, isLabelCol, isNumeric,
-  lowerIsBetter, tableColumns, unifyPeriods, unitOf, withoutTwins,
+  lowerIsBetter, nameParts, tableColumns, unifyPeriods, unitOf, withoutTwins,
 } from './columns.js';
 
 // The column rules live in columns.js (2026-10-28); re-exported for the callers
@@ -256,7 +256,7 @@ const MONEY_COL_STEMS = [...MONEY_STEMS, 'exp'];
 const COUNT_STEMS = ['beneficiar', 'household', 'people', 'person', 'house', 'member', 'count', 'worker',
   'farmer', 'application', 'job'];
 const hasStem = (parts, stems) => parts.some((w) => stems.some((s) => w.startsWith(s)));
-const colParts = (c) => String(c).toLowerCase().split('_').filter(Boolean);
+const colParts = (c) => nameParts(c);   // '_', spaces and brackets (J-9: "amount sanctioned (Rs)")
 
 /** The numeric column whose name matches the one kind of measure (money, or a
     count of people / houses) the question names; null when it names neither,
@@ -318,6 +318,17 @@ export function splitLabels(data, lbl, ranking = false) {
     }
   }
   return { dims: rest, fixed, details };
+}
+
+/** B-4 / A-6 (audit 2026-10-29): every measure column the question names, the
+    asked one first ("beneficiaries and amount" -> both); [] when it names none. */
+export function askedMeasureCols(question, numCols) {
+  const w = words(question);
+  const out = [];
+  if (w.includes('per')) { const c = numCols.find((x) => colParts(x).includes('per')); if (c) out.push(c); }
+  if (hasStem(w, COUNT_STEMS)) { const c = numCols.find((x) => !out.includes(x) && hasStem(colParts(x), COUNT_STEMS)); if (c) out.push(c); }
+  if (hasStem(w, MONEY_STEMS)) { const c = numCols.find((x) => !out.includes(x) && hasStem(colParts(x), MONEY_COL_STEMS)); if (c) out.push(c); }
+  return out;
 }
 
 /** `prefer` is chartPreference(question) (or 'chart' for /chart): a chart the
@@ -474,12 +485,13 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   // Two things side by side (#397): "East Khasi Hills vs West Garo Hills". Two
   // rows, one label column, a measure -> two stat tiles and a one-line verdict
   // instead of a two-slice chart. Extra measures stay in the table below.
-  if (data.length === 2 && lblCols.length === 1 && numCols.length <= 3 && !(prefer && prefer !== 'table')) {
+  if (data.length === 2 && lblCols.length === 1 && !(prefer && prefer !== 'table')) {
     const [r1, r2] = data;
     const l1 = String(r1[lc] ?? '').trim();
     const l2 = String(r2[lc] ?? '').trim();
     if (l1 && l2 && l1 !== l2) {
-      const vc = askedMeasureCol(question, numCols) || numCols[0];
+      const asked = askedMeasureCols(question, numCols);
+      const vc = askedMeasureCol(question, numCols) || asked[0] || numCols[0];
       const sub = (r) => (say.length ? say.map((d) => r[d]).filter((x) => x !== null && x !== '').join(' · ') : null);
       return {
         kind: 'compare',
@@ -496,6 +508,14 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
         }),
         data,
         extra: numCols.length > 1,
+        // B-4: a second asked measure is a second row of tiles, never only in the table
+        more: asked.filter((c) => c !== vc).map((c) => ({
+          vKey: c, measure: humanCol(c), unit: unitOf(c),
+          a: { label: l1, value: toNumber(r1[c]), detail: sub(r1) }, b: { label: l2, value: toNumber(r2[c]), detail: sub(r2) },
+          verdict: compareVerdict(l1, toNumber(r1[c]), l2, toNumber(r2[c]), humanCol(c), isSchemeCol(lc), {
+            periods: [l1, l2].every((l) => isPeriodLabel(l) || isMonthLabel(l) || isQuarterLabel(l)),
+            unit: unitOf(c), lowerBetter: lowerIsBetter(c) }),
+        })),
       };
     }
   }
@@ -525,7 +545,8 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     let sKey = xKey ? two.find((c) => c !== xKey) : null;
     if (!xKey) [xKey, sKey] = distinct(two[0]) >= distinct(two[1]) ? two : [two[1], two[0]];
     if (distinct(sKey) > MAX_SERIES && distinct(xKey) <= MAX_SERIES) [xKey, sKey] = [sKey, xKey];
-    const vKey = numCols[0];
+    const order = [...askedMeasureCols(question, numCols), ...numCols.filter((c) => !askedMeasureCols(question, numCols).includes(c))];
+    const vKey = order[0];
     if (distinct(sKey) <= MAX_SERIES && distinct(xKey) > 1) {
       if (data.every((r) => isPeriodLabel(r[xKey]))) data.sort((a, b) => String(a[xKey]).localeCompare(String(b[xKey])));
       const piv = pivotStacked(data, xKey, sKey, vKey);
@@ -545,7 +566,21 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
         defType: types.includes(hinted) ? hinted : (periods ? 'line' : 'bar'),
         data, extra: numCols.length > 1,
         axes: { x: colTitle(xKey), y: colTitle(vKey), unit: unitOf(vKey) },
+        // A-6: the other measures get their own chart (at most 3 in all), never dropped
+        more: order.slice(1, 3).map((m) => {
+          const pm = pivotStacked(data, xKey, sKey, m);
+          const f = fillYearGaps(pm.labels, pm.datasets);
+          return { title: `${titleCol(m)} by ${titleCol(xKey).toLowerCase()} and ${titleCol(sKey).toLowerCase()}${where}`,
+            labels: f.labels.map(String), datasets: f.datasets, vKey: m, axes: { x: colTitle(xKey), y: colTitle(m), unit: unitOf(m) } };
+        }),
       };
+    }
+    // C-12 (audit 2026-10-29): 12 districts × 12 months drew 144 bars named
+    // "East Garo Hills · Apr" in a small card. Both dimensions large: a table with
+    // one dimension down and the other across.
+    if (distinct(xKey) > MAX_SERIES && distinct(sKey) > MAX_SERIES) {
+      return { kind: 'table', data, pivot: { xKey: isPeriodCol(xKey) ? sKey : xKey, sKey: isPeriodCol(xKey) ? xKey : sKey, vKey },
+        note: `${distinct(xKey)} × ${distinct(sKey)} figures are too many for one chart, so they are shown as a table.` };
     }
     // Too many series for one legend: one axis label carrying both dimensions.
     const joined = data.map((r) => two.map((c) => String(r[c] ?? '')).join(' · '));
@@ -647,6 +682,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   // (only when the question asks how a figure moved — never by default).
   return {
     kind: 'multi', charts, defType, data, change: isTime && asksChange(question),
+    ranked: asksRanking(question) && !isTime && !allLbl.some((c) => hasSegment(c, RANK_WORDS_COL)),
     ...(many ? { note: `${low ? 'Bottom' : 'Top'} 15 of ${many} shown; the full list is in the table.` } : {}),
     ...(unranked ? { note: `${unranked} of ${data.length} ${unranked === 1 ? 'has' : 'have'} no figure for ${humanCol(numCols[0])} and ${unranked === 1 ? 'is' : 'are'} left out of the ranking (they are in the table).` } : {}),
     ...(partOfWhole ? {} : { types: whyNot === 'scheme' ? ['bar'] : ['bar', 'line'], noAddWhy: whyNot }),

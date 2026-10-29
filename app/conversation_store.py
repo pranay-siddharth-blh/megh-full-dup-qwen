@@ -84,6 +84,20 @@ async def _persist_turn(tenant_id, user_id, session_id, result, question,
             # question and its option chips exactly as first shown.
             "clarification": result.get("clarification"),
             "needs_clarification": result.get("needs_clarification", False),
+            # K-3 / C-7 (chat UI audit 2026-10-29): a reopened chat lost "Source:",
+            # "Try asking", the "Earlier" chip, the timings and the chart the answer
+            # was drawn as. Saved with the turn so it is redrawn the same way.
+            "citations": result.get("citations") or [],
+            "suggestions": result.get("suggestions") or [],
+            "continue_offer": result.get("continue_offer"),
+            "execution_time_ms": result.get("execution_time_ms"),
+            "translated_from": result.get("translated_from"),
+            "chart_type": result.get("chart_type"),
+            "chart_wide": result.get("chart_wide"),
+            "column_totals": result.get("column_totals"),
+            "measure_notes": result.get("measure_notes"),
+            "schemes_with_data": result.get("schemes_with_data"),
+            "answer_failed": result.get("answer_failed"),
         }, default=str)
 
         conv_id = await db.fetchval(
@@ -136,7 +150,9 @@ async def list_my_conversations(user_id: int, limit: int = 30,
     """
     # "api-" threads (a session-less API call, routers/query._session_id) are kept
     # for audit but are not the user's chats: one per call would flood this list.
-    where = "user_id = $1 AND left(session_id, 4) <> 'api-'"
+    # K-7 (chat UI audit 2026-10-29): a chat stopped on its first question has 0 turns;
+    # listed, it opened as "Could not open that conversation" — it is not a chat yet.
+    where = "user_id = $1 AND left(session_id, 4) <> 'api-' AND turn_count > 0"
     params: list = [user_id]
     if archived is not None:
         params.append(archived)
@@ -282,7 +298,7 @@ async def search_my_conversations(*, user_id: int, q: str, limit: int = 30,
                                   archived: bool | None = None) -> list[dict]:
     """Title or turn-text search across the caller's own conversations.
     archived=None searches both shelves, so a search can find an archived chat."""
-    where = "c.user_id = $1 AND left(c.session_id, 4) <> 'api-'"   # see list_my_conversations
+    where = "c.user_id = $1 AND left(c.session_id, 4) <> 'api-' AND c.turn_count > 0"   # see list_my_conversations
     params: list = [user_id, q.strip()[:200]]
     if archived is not None:
         params.append(archived)

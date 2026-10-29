@@ -808,6 +808,15 @@ async def answer_many(questions: list, ask, notes: "list | None" = None) -> dict
                                       + ", ".join(schemes or [])})
     if failed:
         out["answer_failed"] = True       # H-2: the UI shows it as failed, with Retry
+    # H-3 (chat UI audit 2026-10-29): this answer runs outside the pipeline, so it had
+    # no scope banner, no "Next steps" and no chart hint, unlike every other data answer
+    elif schemes:
+        out["scope_banner"] = f"{' + '.join(schemes)} · each financial year"
+        try:
+            pipeline._attach_chart_hint(out, out["rewritten_question"], out["rewritten_question"])
+            pipeline._attach_followups(out, out["rewritten_question"])
+        except Exception:  # noqa: BLE001 — the finishing touches never break the answer
+            logger.warning("conversation layer: per-year finishing steps failed", exc_info=True)
     return out
 
 

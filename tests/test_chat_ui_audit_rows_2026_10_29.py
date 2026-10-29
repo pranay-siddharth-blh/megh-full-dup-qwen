@@ -211,3 +211,59 @@ def test_feedback_upsert_keeps_the_votes_own_question_and_answer(monkeypatch):  
     scope = SimpleNamespace(tenant_id=1, db_user_id=7, username="u")
     asyncio.run(feedback.give_feedback(body, scope))
     assert "question = EXCLUDED.question, answer = EXCLUDED.answer" in seen[0]
+
+
+def test_per_year_answer_gets_the_banner_and_chips(monkeypatch):                     # H-3
+    async def ask(q):
+        return {"answer": "x", "schemes": ["MGNREGA"], "data": [{"year_key": 2023, "person_days": 5},
+                                                              {"year_key": 2024, "person_days": 6}]}
+    out = asyncio.run(cl.answer_many(["How many MGNREGA person-days were there in each financial year?"], ask))
+    assert out["scope_banner"] == "MGNREGA · each financial year"
+
+
+def test_village_lookup_is_one_sentence_and_the_table(monkeypatch):                   # H-1
+    async def fetch_rows(sql, params):
+        return [{"village_code": 1, "lgd_village_name": "MAWKYNREW", "lgd_block": "MAWKYNREW",
+                 "lgd_district": "EAST KHASI HILLS", "ac_name": "MAWKYNREW"}]
+    monkeypatch.setattr(p, "fetch_rows", fetch_rows)
+    out = asyncio.run(p._geo_lookup_answer("Which block is Mawkynrew village in?"))
+    assert out["answer"] == ("**Mawkynrew** is in Mawkynrew block, East Khasi Hills district (Mawkynrew "
+                             "constituency), LGD village code 1.")
+    assert "|" not in out["answer"] and len(out["data"]) == 1
+
+
+def test_a_reopened_turn_keeps_its_sources_chips_timing_and_chart(monkeypatch):      # K-3, C-7
+    import json
+
+    from app import conversation_store, db
+    calls = []
+
+    async def fetchval(sql, params):
+        return 1
+
+    async def execute(sql, params):
+        calls.append((sql, params))
+    monkeypatch.setattr(db, "fetchval", fetchval)
+    monkeypatch.setattr(db, "execute", execute)
+    result = {"route": "knowledge", "intent": "KNOWLEDGE", "answer": "PMAY-G is …",
+              "citations": [{"title": "PMAY-G guidelines", "section": "2.1"}], "suggestions": ["Who is eligible?"],
+              "continue_offer": {"label": "Earlier"}, "execution_time_ms": 2345, "translated_from": "ka …",
+              "chart_type": "stacked", "chart_wide": True}
+    asyncio.run(conversation_store._persist_turn("t1", 1, "s1", result, "what is PMAY-G", 10.0, "u", "127.0.0.1"))
+    payload = json.loads(next(c for c in calls if "conversation_turns" in c[0])[1][-1])
+    for k in ("citations", "suggestions", "continue_offer", "execution_time_ms", "translated_from",
+              "chart_type", "chart_wide"):
+        assert payload[k] == result[k], k
+
+
+def test_chats_with_no_turns_are_not_listed(monkeypatch):                             # K-7
+    from app import conversation_store, db
+    seen = []
+
+    async def fetch_rows(sql, params):
+        seen.append(sql)
+        return []
+    monkeypatch.setattr(db, "fetch_rows", fetch_rows)
+    asyncio.run(conversation_store.list_my_conversations(1))
+    asyncio.run(conversation_store.search_my_conversations(user_id=1, q="mgnrega"))
+    assert all("turn_count > 0" in s for s in seen)

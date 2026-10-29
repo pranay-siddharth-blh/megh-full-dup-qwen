@@ -298,9 +298,19 @@ const NUM = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 });
 /** One table cell as shown: a measure with Indian grouping and at most 2
     decimals (27264054 -> 2,72,64,054; 119.73925 -> 119.74); a label — a year, a
     code, an id — exactly as it is (2023 never becomes 2,023); a missing value "—". */
+// C-5 (audit 2026-10-29): one path returns "EAST KHASI HILLS", another "East Khasi
+// Hills"; a place name in capitals is shown in Title Case (the rows are unchanged).
+const PLACE_PARTS = ['district', 'block', 'village', 'constituency', 'panchayat', 'gp', 'ac'];
+export function placeTitle(v, col) {
+  const s = String(v);
+  if (!nameParts(col).some((p) => PLACE_PARTS.includes(p)) || s !== s.toUpperCase() || s === s.toLowerCase()) return s;
+  return s.toLowerCase().split(' ').map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
+}
+
 export function formatCell(v, col) {
   if (isBlank(v)) return '—';
-  if (isLabelCol(col) || !isNumeric(v)) return String(v);
+  if (!isNumeric(v)) return placeTitle(v, col);
+  if (isLabelCol(col)) return String(v);
   // An identifier written in digits is shown as stored: a leading zero ("0012")
   // or 13+ digits (an account / sanction number) is never a quantity.
   const s = String(v).trim();

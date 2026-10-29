@@ -163,3 +163,31 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | H-10 | Fixed ("Answered for: …" above each table sheet; an "Answered for" column on the Conversation sheet) | ChatExport.jsx, exporters.js | UI `H-4 / H-10 …` |
 | H-11 | Fixed (a redraw writes no new sheet; its row points to the original sheet) | App.jsx (`redrawOf`), ChatExport.jsx | browser check |
 | H-12 | Fixed (text tables become lines in the Answer cell) | exporters.js (`tablesAsLines`) | UI `H-12 …` |
+| A-6 | Fixed (one chart per measure, at most 3, the asked one first) | analytics.js (`askedMeasureCols`, `more`), Messages.jsx | UI `A-6 …` |
+| B-4 | Fixed (a row of tiles per asked measure) | analytics.js, Messages.jsx | UI `B-4 …` |
+| J-9 | Fixed in the UI (a compare card whatever the number of figures, on the asked measure; names with spaces / "(Rs)" read) — the backend still returns the extra PMAY-G figures, which stay in the table | analytics.js (`colParts` = `nameParts`) | UI `J-9 …` |
+| C-12 | Fixed (both dimensions above 8 values: a table, one dimension down and one across, with a note) | analytics.js, Messages.jsx | UI `C-12 …` |
+| E-3 | Partly fixed — at the 1,000-row cap the table says "The first 1,000 rows are shown; there may be more"; the true total needs a COUNT the backend does not run | Charts.jsx (`DynTable`) | browser check |
+| E-4 | Fixed by X-3 | analytics.js | UI `X-3 …` |
+| E-8 | Fixed (a "#" column on ranking tables) | analytics.js (`ranked`), Charts.jsx (`DynTable rank`) | UI `E-8 …` |
+| C-5 | Fixed (place names in CAPITALS shown in Title Case; rows unchanged) | columns.js (`placeTitle`, `formatCell`) | UI `C-5 …` |
+| X-8 | Fixed (a redraw says it is drawn here and not saved) | App.jsx | browser check |
+| X-15 | Fixed (each chart canvas has role="img" and a label from its title and headline; an asked-for chart keeps a "Show the figures as a table" toggle) | Charts.jsx (`ChartCanvas label`), Messages.jsx | browser check |
+| X-17 | Fixed (plain sentence, technical text in "(Details: …)") | api.js (`friendlyError`), App.jsx | browser check |
+| H-1 | Fixed (one sentence; the rows are the table) | c13 `_geo_lookup_answer` | `test_village_lookup_is_one_sentence_and_the_table` |
+| H-3 | Fixed (scope banner, next-step chips and chart hint on the merged per-year answer) | app/conversation_layer.py (`answer_many`) | `test_per_year_answer_gets_the_banner_and_chips` |
+| K-3 | Fixed (citations, suggestions, continue offer, timing, translated_from saved with the turn) | app/conversation_store.py | `test_a_reopened_turn_keeps_its_sources_chips_timing_and_chart` |
+| C-7 | Fixed (chart_type and chart_wide saved with the turn) | app/conversation_store.py | same test |
+| K-7 | Fixed (chats with no turns are not listed or found) | app/conversation_store.py | `test_chats_with_no_turns_are_not_listed` |
+| K-11 | Already fixed (the timeout counts only silence; frontend/tests/stream-timeout.test.js) | | existing |
+| K-32 | Already fixed (pings restart the silence timer, api.js) | | existing |
+| K-15 | Fixed (the glossary / use-case window: role="dialog", focus moved in and kept inside, returned on close, "Close" label; the expand window already was) | Overlays.jsx | browser check |
+| K-19 | Fixed (sample asks PMAY-G 2023-24, the last year it holds) | frontend/src/chat/constants.js | browser check |
+| K-20 | Fixed (Focus+ card questions name FOCUS+) | constants.js | browser check |
+| K-21 | Fixed (Copy answer adds the table, tab-separated) | exporters.js (`rowsAsTsv`), Messages.jsx | UI `K-21 …` |
+| K-22 | Fixed (answer-text tables wrap in print) | chat.css | browser / PDF check |
+| K-23 | Partly fixed — "stop the query", "cancel the question", "stop answering", "रुको" stop the answer; a typed question while one runs still waits in the box with no hint | stopContinue.js | UI `K-23 …` |
+| K-39 | Fixed ("/chart" alone, an unknown language, an unknown command each get a hint) | App.jsx | browser check |
+| F-6 | Fixed by J-1 for "last 3 years / this year / last year / current financial year" (read, so no pause and no garbled chip); other unread time phrases still add "for FY …" to the chip | c06 / c09 | `test_a_relative_period_is_never_asked_again` |
+| F-10 | Fixed (the answer's year goes into every chip that names no time) | app/followups.py | `test_next_step_chips_keep_the_year_and_never_repeat_the_question` |
+| F-12 | Fixed (a chip that adds no word of its own is dropped) | app/followups.py | same test |

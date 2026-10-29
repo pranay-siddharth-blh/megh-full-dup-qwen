@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnalytics, chartPreference, humanCol, withoutChartPhrase } from '../analytics.js';
 import { answerKey, fullStamp } from '../format.js';
+import { rowsAsTsv } from '../exporters.js';
 import { CompareCard, DynTable, GroupedChart, PivotTable, RecordCard, StackedChart, SwitchableChart, TwoDimChart } from './Charts.jsx';
 import { Markdown, plainText } from './Markdown.jsx';
 import { useReveal } from '../reveal.js';
@@ -112,11 +113,22 @@ function Analytics({ question, response, view, onAsk }) {
       <div className="analytics">
         <CompareCard title={a.title} measure={a.measure} a={{ ...a.a, detail: said(a.a) }} b={{ ...a.b, detail: said(a.b) }}
                      verdict={a.verdict} unit={a.unit} />
+        {(a.more || []).map((c) => (
+          <CompareCard key={c.vKey} title={a.title} measure={c.measure} unit={c.unit} verdict={c.verdict}
+                       a={{ ...c.a, detail: (response.measure_notes && response.measure_notes[c.a.label] && response.measure_notes[c.a.label][c.vKey]) || c.a.detail }}
+                       b={{ ...c.b, detail: (response.measure_notes && response.measure_notes[c.b.label] && response.measure_notes[c.b.label][c.vKey]) || c.b.detail }} />
+        ))}
         {withTables && a.extra && <DynTable data={a.data} />}
       </div>
     );
   }
-  if (a.kind === 'table') return <div className="analytics">{note}<DynTable data={a.data} /></div>;
+  if (a.kind === 'table') {
+    return (
+      <div className="analytics">{note}
+        {a.pivot ? <PivotTable data={a.data} xKey={a.pivot.xKey} sKey={a.pivot.sKey} vKey={a.pivot.vKey} /> : <DynTable data={a.data} />}
+      </div>
+    );
+  }
   // A chart type was asked for: answers whose card has no type switch (grouped,
   // stacked) are drawn by the cards that have one, so the asked type is used.
   if (prefer && a.kind === 'stacked') {
@@ -174,6 +186,11 @@ function Analytics({ question, response, view, onAsk }) {
           <TwoDimChart title={a.title} labels={a.labels} datasets={a.datasets} xKey={a.xKey} sKey={a.sKey}
                        periods={a.periods} initial={only2d || a.defType} types={only2d ? [only2d] : a.types} theme={theme}
                        axisInfo={a.axes} />
+          {(a.more || []).map((m) => (
+            <TwoDimChart key={m.vKey} title={m.title} labels={m.labels} datasets={m.datasets} xKey={a.xKey} sKey={a.sKey}
+                         periods={a.periods} initial={only2d || a.defType} types={only2d ? [only2d] : a.types} theme={theme}
+                         axisInfo={m.axes} />
+          ))}
         </div>
         {withTables && (a.extra ? <DynTable data={a.data} />
           : <PivotTable data={a.data} xKey={a.xKey} sKey={a.sKey} vKey={a.vKey} totals={response.column_totals} />)}
@@ -197,7 +214,11 @@ function Analytics({ question, response, view, onAsk }) {
                            axes={c.axes} />
         ))}
       </div>
-      {withTables && <DynTable data={a.data} change={!!a.change} />}
+      {withTables && <DynTable data={a.data} change={!!a.change} rank={!!a.ranked} />}
+      {!withTables && !a.noTable && (
+        // X-15: an asked-for chart keeps its figures one tap away (and for screen readers)
+        <details className="chart-figures"><summary>Show the figures as a table</summary><DynTable data={a.data} rank={!!a.ranked} /></details>
+      )}
     </div>
   );
 }
@@ -935,7 +956,8 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
           </div>
           {answer && (
             <div className="msg-actions">
-              <CopyAction text={answer} label="Copy answer" />
+              <CopyAction text={Array.isArray(response.data) && response.data.length ? `${answer}\n\n${rowsAsTsv(response.data)}` : answer}
+                          label="Copy answer" />
               {onSpeak && <SpeakAction id={id} text={answer} speakingId={speakingId} onSpeak={onSpeak} />}
               {onRegenerate && <RegenerateAction onRegenerate={onRegenerate} />}
               {response.intent !== 'EDGE' && response.intent !== 'CLARIFY' && (

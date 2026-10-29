@@ -221,3 +221,14 @@ def test_comparison_pause_chips_ask_for_the_figures():                          
     assert e.options[0] == {"label": "MGNREGA vs PMAY-G", "question": "Compare beneficiaries in MGNREGA and PMAY-G"}
     e = p._scheme_comparison_clarification("what is the difference between the schemes")
     assert e.options[0]["question"] == "difference between MGNREGA and PMAY-G"
+
+
+def test_next_step_chips_keep_the_year_and_never_repeat_the_question():              # F-10, F-12
+    from app import followups
+    opts = followups.build_followups("data", "MGNREGA person days in East Khasi Hills in 2023-24", ["MGNREGA"],
+                                     {"district": "EAST KHASI HILLS", "year_key": 2023})
+    assert any(o["question"].endswith("in East Khasi Hills in FY 2023-24?") for o in opts)
+    assert all("2023-24" in o["question"] or "years" in o["question"] for o in opts)
+    opts = followups.build_followups("data", "Focus Plus amount disbursed in Ri Bhoi", ["Focus Plus"],
+                                     {"district": "RI BHOI"})
+    assert not any(o["question"] == "How much has been disbursed under Focus Plus in Ri Bhoi?" for o in opts)

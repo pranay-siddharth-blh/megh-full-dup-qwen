@@ -160,6 +160,23 @@ export function questionAbort(stopSignal, idleMs = QUERY_IDLE_MS) {
   };
 }
 
+// X-17 (audit 2026-10-29): "Sorry, I encountered an error: Internal Server Error"
+// told the officer nothing. A plain sentence, with the technical text after it.
+export function friendlyError(message) {
+  const m = String(message || '').trim();
+  const low = m.toLowerCase();
+  let say = 'Something went wrong while answering. Try again, or ask it in other words.';
+  if (!m || low.includes('internal server error') || low.includes('api request failed') || low.includes('bad gateway')
+    || low.includes('timeout') || low.includes('timed out')) {
+    say = 'The data service did not respond. Try again in a minute.';
+  } else if (low.includes('another signed-in user')) {
+    return m;
+  } else if (low.includes('at most') || low.includes('too long') || low.includes('2000 characters')) {
+    say = 'The question is too long. Ask it in 2,000 characters or fewer.';
+  }
+  return m ? `${say} (Details: ${m})` : say;
+}
+
 // K-10 (audit 2026-10-29): a validation error's detail is a list of objects and
 // showed as "[object Object]"; its message is said instead.
 export function detailText(detail) {

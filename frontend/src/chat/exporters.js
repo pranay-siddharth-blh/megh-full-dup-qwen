@@ -244,6 +244,14 @@ export function chartPNG(chart, title, subtitle) {
   out.toBlob((b) => b && downloadBlob(b, fileName(title, 'png')), 'image/png');
 }
 
+/** K-21 (audit 2026-10-29): rows as tab-separated text under a header line. */
+export function rowsAsTsv(rows) {
+  if (!Array.isArray(rows) || !rows.length) return '';
+  const cols = tableColumns(rows);
+  const cell = (v) => (v === null || v === undefined ? '' : String(v).replaceAll('\t', ' ').replaceAll('\n', ' '));
+  return [cols.map(colTitle).join('\t'), ...rows.map((r) => cols.map((c) => cell(r[c])).join('\t'))].join('\n');
+}
+
 // ── The chat export's sheets (ChatExport.jsx) ────────────────────────────────
 // H-12 (audit 2026-10-29): a table written in the answer text reached the
 // Answer cell as "| Village | … |" and "|---|---|"; each row becomes one line.
