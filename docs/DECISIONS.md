@@ -962,6 +962,21 @@ not recorded.*
   concurrent 4B requests in parallel; re-measure with the scratch A/B (`answer_question` on vs off) first.
 - **Status:** Active (code present, off). E2's latency goal is NOT met by parallelism on today's gateway.
 
+### D-085 — One measure-kind rule for every total, share and stack (2026-10-29)
+- **Context:** the chat UI audit (section G) found the UI adding overlapping figures in four places (donut centre,
+  "% of the total", pivot Total row / column, stacked-bar top) and the backend sending `stacked` for any 2-label,
+  1-measure result: "Total 11,000" villages for a state of about 7,000; households + houses added; job cards and
+  percentages stacked across years. The frontend and backend kept separate non-additive word lists that disagreed.
+- **Decision:** every measure column has a kind read from its name — `rate` (%, average, per, min / max, growth …),
+  `stock` (job cards, cumulative), `flow` (money, days, payments) or `distinct` (villages, households, beneficiaries,
+  members) — from ONE list, `app/measure_kinds.json`, with a checked copy in `frontend/src/chat/measureKinds.js`
+  (`tests/test_chat_ui_audit_totals_2026_10_29.py` fails when they differ). A measure is added only along a dimension
+  its kind allows: flow across places and years; distinct and stock across places only; rate never; nothing across
+  schemes. The UI (`columns.canAdd` / `dimOf`) and the backend (`measure_kinds.can_add` in `_chart_hint`) apply it.
+  A chart type the rule forbids is refused with a one-line note and drawn as bars.
+- **Consequences:** no donut / share / Total across schemes or across years for counts; a stack only where it adds
+  honestly. A real union of villages across schemes is computed by `cross_figures` (overlap mode) instead.
+
 ### D-084 — Frontend lint and tests: ESLint (with the no-regex rule) + `node --test` (2026-10-29)
 - **Date:** 2026-10-29 (E11 UI fixes, KI-570). Files: `frontend/package.json` (`lint`, `test`; dev deps `eslint`
   9.17.0, `@eslint/js` 9.17.0, `eslint-plugin-react` 7.37.2, `eslint-plugin-react-hooks` 5.1.0, `globals` 15.14.0,

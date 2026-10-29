@@ -925,6 +925,10 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
       <div>
         <div className="bubble">
           <RouteBadge response={response} />
+          {response.translated_from && response.rewritten_question && (
+            // K-17 (audit 2026-10-29): a Khasi / Garo question is answered in English; say how it was read
+            <div className="understood-as">Understood as: “{response.rewritten_question}”</div>
+          )}
           <ScopeBanner response={response} />
           {response.answer && (
             <div className="answer-text md">

@@ -1078,6 +1078,31 @@ Three parts, all in `compose_response` and the c12 files:
    templates on, `_shaped_fallback` returns the templated answer under code's opening line. Log line:
    `compose_response: templated <kind> answer`.
 
+### 2.9e Chat UI audit changes (2026-10-29, D-085, KI-571; offline-verified)
+- **Cross-scheme reading (`app/cross_figures.py`):** `rank_ask` reads a place level (singular, plural or one letter
+  off) beside any rank word (top / bottom / highest / lowest / best / worst / least / poorest / weakest, Hinglish
+  "sabse jyada / kam"), "which district", "rank districts by", "districts ranked by". A district level + a rank word is
+  `op="rank_districts"`, never a scheme leader; village / block / constituency rankings go to the per-scheme model path.
+  One ranked list per scheme unless "combined / together / in total"; villages and money per head are never combined.
+  Both ends, second place, "excluding <place>", condition + top N (by the gap), per-head ranking. Rows: the ranked
+  districts only, with `rank`. New modes: `by_year` (a stated span or list of years: one fixed query per scheme
+  grouped by year_key) and `overlap` (union / both / only-one of village codes; "which villages have both" lists them,
+  checked as village-level data by RBAC). B-7: person days / job cards / applications go to the model path.
+- **Per-year follow-ups (`conversation_layer.per_year_parts` / `answer_many`):** a question with a place, a level, N
+  or a rank keeps its own words per scheme; otherwise the canonical sub-question, with the asked years. Each scheme is
+  asked only the measures it holds (a note says which it does not record); no measure -> a "which figure?" pause.
+  The merge gives one row shape: `financial_year` "2023-24", place columns by level, the column that matches the
+  measure (codes skipped), money in ₹ crore (`money_crore`), `value` + `measure` when schemes measure different things.
+- **Years (c06 `_relative_years`, c09):** "last N years", "this / last / current year", "latest year" read against the
+  years the schemes hold (the label says which, and "FY 2026-27 has no data yet"). "2022-23 - 2024-25" is a span. Two
+  or more named years on the cross-scheme path are always `year_key_list`. Focus's money / member words count as a
+  measure for the year gate, so every scheme asks alike.
+- **Rows to the UI:** `_attach_chart_hint` first runs `_c13_unify_scheme_rows` on multi-scheme rows (one
+  financial_year, one place column per level, one value column). `_chart_hint` never stacks across schemes, across
+  years for distinct counts / stocks, a rate, or a ranking; `year_key` + `financial_year` are one period;
+  `measure_kinds.is_label_col` decides label columns. Every descending ORDER BY gets NULLS LAST (`sql_ast.nulls_last_on_desc`,
+  last step of `_scheme_sql_rewrites`).
+
 ## 3. Other flows
 
 ### 3.1 Flow D — no data

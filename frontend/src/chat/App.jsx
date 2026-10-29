@@ -136,8 +136,11 @@ export default function App() {
 
   // ── History ─────────────────────────────────────────────────────────────
   // Silent on failure: the chat stays usable when the history table is down.
+  const histSeq = useRef(0);
   const loadHistory = useCallback(async () => {
     if (!getToken()) { historyRef.current = []; setHistory([]); return; }
+    // K-30 (audit 2026-10-29): an older search answering late replaced a newer one
+    const seq = ++histSeq.current;
     let list = [];
     try {
       list = await listHistory(filterRef.current);
@@ -145,6 +148,7 @@ export default function App() {
       if (String(e.message) === 'unauthorized') return;
       list = [];
     }
+    if (seq !== histSeq.current) return;
     historyRef.current = list;
     setHistory(list);
   }, []);
@@ -261,6 +265,10 @@ export default function App() {
       // A refresh keeps the tab's session id: if it has recorded turns, replay it.
       const existing = historyRef.current.find((c) => c.session_id === sessionRef.current);
       if (existing) await openConversation(sessionRef.current);
+      // K-29 (audit 2026-10-29): a chat not in the latest list showed an empty screen
+      // while the old session went on, so the next question inherited its scheme,
+      // place and year unseen. It starts a new conversation instead.
+      else setSessionId(resetSessionId());
     }
     setAuth('unlocked');
   }, [loadHistory, openConversation]);
@@ -412,7 +420,9 @@ export default function App() {
         setMessagesHere((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: friendlyError(err.message) }]);
         console.error('Query error:', err);
       } else {
-        setMessagesHere(dropTyping);
+        // K-27: signed out mid-answer; after signing back in the question can be asked again
+        setMessagesHere((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q,
+          text: 'You were signed out before this answer arrived. Sign in again, then use Try again.' }]);
       }
     } finally {
       if (stopRef.current === stop) stopRef.current = null;
@@ -600,6 +610,9 @@ export default function App() {
   // edited text is asked in its place (in the same conversation).
   const editQuestion = useCallback((id, q) => {
     if (runningRef.current) return;
+    // K-31 (audit 2026-10-29): editing a question into /glossary, /lang or /chart cut
+    // the chat after it and asked nothing; a command runs without cutting anything
+    if (String(q || '').trim().startsWith('/')) { setInput(q); sendQuery(); return; }
     stopSpeaking();
     setMessages((m) => {
       const i = m.findIndex((x) => x.id === id);
@@ -1019,7 +1032,9 @@ export default function App() {
                   )}
                   <button className={'mic-btn' + (voice.isRecording ? ' recording' : '')} type="button"
                           onClick={onMic} disabled={voice.phase === 'finishing'}
-                          title={(voice.isRecording ? 'Stop recording' : 'Speak your question') + ` (${keyLabel('mic')})`}
+                          title={(voice.isRecording ? 'Stop recording' : 'Speak your question')
+                            // K-40 (audit 2026-10-29): speech is recognised as English whatever the question language
+                            + (lang && lang !== 'en' ? ' — voice input is English only' : '') + ` (${keyLabel('mic')})`}
                           aria-label={voice.isRecording ? 'Stop recording' : 'Speak your question'}>
                     {voice.isRecording
                       ? <svg className="orb-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
