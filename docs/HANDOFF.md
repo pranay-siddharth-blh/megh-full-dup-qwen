@@ -43,7 +43,7 @@ Six other sessions were editing this checkout at the same time (E2 guardrail etc
 Needs people: set `ENV=dev` on the dev boxes, then `BOOT_GUARD_ENFORCE=true` in production with the CA file in place;
 the Qdrant key + firewall (infra); the git-history purge / token rotation (repo owner). Not run: browser check of the cards.
 
-**2026-10-29 (code, E9 answer formatting, D-082): uncommitted, :8401 NOT restarted.** Files (E9 only): c12
+**2026-10-29 (code, E9 answer formatting, D-082): uncommitted; :8401 restarted from `.venv` 13:28 (plain HTTP), checked over `/api/query`; golden set 42/74 (FP-05: SQL rounded crore to 2 decimals, KI-438; not E9).** Files (E9 only): c12
 `c12_answer_numbers.py` (`_c12_money`, `_c12_indian`, `_c12_money_unit`, `_c12_fmt_value`, `_c12_label_misbinds`;
 fallbacks use the formatter), `c12_answer_shapes.py` (`_c12s_e9_body`, `_c12s_e9_framing`, `_c12s_e9_frame_default`,
 `_c12s_e9_frame_ok`; `_shaped_fallback` templated when on), c13 `compose_response` (template branch, label check),
@@ -51,9 +51,8 @@ fallbacks use the formatter), `c12_answer_shapes.py` (`_c12s_e9_body`, `_c12s_e9
 `tests/conftest.py` (templates off for the older suites), NEW `tests/test_answer_format_e9_2026_10_29.py`, pinned
 strings updated in `test_answer_framing_2026_10_18.py`, `test_mgnrega_sheet_fixes.py`, `test_cm_elevate_legacy.py`
 (₹ through the one formatter). Other modified files in the tree belong to the parallel E2 / E7 / E12 sessions.
-Next: (1) restart :8401 from `.venv` once the parallel sessions are done (it runs system Python since 12:21, pre-E9)
-and ask a ranking / trend / split in the UI; (2) the held-out golden set (`tests/nl2sql_eval`) at a separate time, as
-the user asked — it scores rows, so also read the answer text of the multi-row items; (3) KI-449 (scheme writers onto
+Next: (1) a browser look at a ranking / trend / split in `/megh-chat` (API checked); (2) FP-05: a guard or prompt rule so
+generated SQL never `ROUND`s money after ÷1e7 (the scorer is right; it already maps crore to rupees); (3) KI-449 (scheme writers onto
 `_c12_money`) needs the scheme owners' OK; (4) lane B2 CMP-01/02/04/05/08 overlap these functions — merge on top of
 E9 (`_c12_label_misbinds` covers CMP-01's unit / "more than" rules; CMP-02's asked-measure reader is still needed).
 

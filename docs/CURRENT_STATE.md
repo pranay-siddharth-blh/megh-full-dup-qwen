@@ -56,7 +56,7 @@
 - Tests: NEW `tests/test_guardrail_outage_2026_10_29.py` (22). Full pytest 4,048 passed, 9 failed — all 9 in files that
   parallel sessions edited during the 27-minute run; those 8 files alone 410/0; guardrail files on the final tree 199/0;
   scripts 14/14.
-## Latest: E9 answer formatting (2026-10-29, D-082, KI-447/448 fixed, KI-449 open). Code changed, uncommitted. LIVE-VERIFIED in-process; :8401 NOT restarted.
+## Latest: E9 answer formatting (2026-10-29, D-082, KI-447/448 fixed, KI-449 open). Code changed, uncommitted. LIVE-VERIFIED in-process and over HTTP; :8401 restarted from `.venv` 13:28 (plain HTTP).
 - **One money formatter** `_c12_money` (c12): ₹, Indian grouping, a lakh / crore column kept in its unit, rupees by
   size, a non-zero amount never ₹0.00 crore. Used by every answer c12 writes (fallbacks, templates). Scheme writers
   keep their own formats (KI-449, open). Count grouping (Indian vs Western) is still the user's open decision.
@@ -71,7 +71,7 @@
   ratio / rate columns.
 - Live (VPN up, real models + megh_db, in-process, 12 questions): ranking, trend, two compares, two splits templated
   and correct against their rows; "24.09%" now; PMAY-G / Focus Legacy answered by their own writers (unchanged).
-  Held-out golden set NOT run (user: at a different time).
+  Held-out golden set 2026-10-29 13:36: 56.8% (42/74), 31 clarifications, 1 wrong (FP-05: the SQL rounded crore to 2 decimals, ₹7,45,000 -> ₹7.00 lakh; qdrant examples, KI-438; not E9).
 - Tests: see TESTING.md 2026-10-29 E9 row. Parallel sessions (E2, E7, E12) were editing the same tree; their files are
   not part of E9.
 
