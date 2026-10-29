@@ -3112,7 +3112,7 @@ def _chart_hint(question: str, raw_question: str, rows: list) -> "str | None":
     if not rows or not isinstance(rows[0], dict):
         return None
     cols = list(rows[0])
-    num_cols = [c for c in cols if not _CHART_LABEL_COL.search(str(c))
+    num_cols = [c for c in cols if not measure_kinds.is_label_col(c)
                 and any(r.get(c) is not None for r in rows)
                 and all(r.get(c) is None or _chart_is_number(r.get(c)) for r in rows)]
     label_cols = [c for c in cols if c not in num_cols]

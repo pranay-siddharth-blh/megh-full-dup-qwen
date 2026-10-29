@@ -5,7 +5,7 @@ import { pivotStacked, tableColumns } from '../analytics.js';
 import { canAdd, changeColumn, colTitle, dimOf, formatCell, isAdditive, isMeasureCol, withoutTwins } from '../columns.js';
 import { isPeriodLabel, isPlainNumber } from '../text.js';
 import {
-  INK, PLUGINS, alpha, categorySchemeColors, chartAnimation, fmt, fmtCompact, insightFor, insightForSeries,
+  INK, PLUGINS, alpha, categorySchemeColors, chartAnimation, fmt, fmtCompact, fmtUnit, insightFor, insightForSeries, verdictText,
   ordinalSteps, seriesColors, shade, themeFor, wrapLabel,
 } from '../chartTheme.js';
 
@@ -610,12 +610,16 @@ function CardHead({ title, theme, insight, children }) {
 const cardStyle = (theme) => ({ '--chart-accent': theme.main, '--chart-accent-2': theme.deep });
 
 // A chart card with Bar / Pie / Donut (/ Line) toggles, like the original swDyn().
+const WARN = { main: '#C2410C', deep: '#9A3412', hover: '#FDBA74' };
+
 export function SwitchableChart({ title, labels, fullLabels, values, types, initial, theme = DEFAULT_THEME, axes = null }) {
   const [type, setType] = useState(types.includes(initial) ? initial : types[0]);
   const [open, setOpen] = useState(false);
   const full = fullLabels || labels;
   const flat = type === 'bar' && full.length > HORIZONTAL_FROM;
-  const insight = useMemo(() => insightFor(type, full, values), [type, full, values]);
+  const insight = useMemo(() => insightFor(type, full, values, axes || {}), [type, full, values, axes]);
+  // D-12: the largest of a lower-is-better measure (pending works) is a warning, not a win
+  if (axes && axes.lowerBetter) theme = { ...theme, main: WARN.main, deep: WARN.deep, hover: WARN.hover };
   return (
     <div className="dyn-chart-card" style={cardStyle(theme)}>
       <CardHead title={title} theme={theme} insight={insight}>
@@ -683,8 +687,9 @@ function twoDimConfig(type, labels, datasets, theme, expanded = false) {
 export function TwoDimChart({ title, labels, datasets, xKey, sKey, periods, initial, types = TWO_DIM_TYPES, theme = DEFAULT_THEME, axisInfo = null }) {
   const [type, setType] = useState(types.includes(initial) ? initial : (types.length === 1 ? types[0] : (periods ? 'line' : 'bar')));
   const [open, setOpen] = useState(false);
-  const insight = useMemo(() => insightForSeries(labels, datasets, periods), [labels, datasets, periods]);
-  const axes = `${colLabel(String(sKey))} by ${colLabel(String(xKey)).toLowerCase()}`;
+  const insight = useMemo(() => insightForSeries(labels, datasets, periods, axisInfo || {}), [labels, datasets, periods, axisInfo]);
+  // C-16: say what the axis and the colours are ("Financial year by district" read backwards)
+  const axes = `${type === 'line' ? 'Lines' : 'X-axis'}: ${colLabel(String(xKey)).toLowerCase()} · Colours: ${colLabel(String(sKey)).toLowerCase()}`;
   return (
     <div className="dyn-chart-card" style={cardStyle(theme)}>
       <CardHead title={title} theme={theme} insight={insight}>
@@ -954,17 +959,15 @@ export { pivotStacked };
 // font's proportional figures (a stat tile is not a column).
 const compactValue = (v) => (Number.isFinite(v) ? v.toLocaleString('en-IN', { maximumFractionDigits: 2 }) : '—');
 
-function CompareVerdict({ v }) {
+function CompareVerdict({ v, unit }) {
   if (!v) return null;
   // Two schemes count and spend different things: show both, rank neither (E11).
-  if (v.unlike) return <p className="cmp-verdict">Each scheme measures this differently, so the two are not ranked.</p>;
-  if (v.equal) return <p className="cmp-verdict">Both record <strong>{compactValue(v.value)}</strong> {v.measure}.</p>;
-  const by = v.pct === null ? <strong>{compactValue(v.diff)} more</strong>
-    : <><strong>{v.pct}% ahead</strong> ({compactValue(v.diff)} more)</>;
-  return <p className="cmp-verdict">{v.lead} is {by} on {v.measure}.</p>;
+  return <p className="cmp-verdict">{verdictText(v, unit)}</p>;
 }
 
-export function CompareCard({ title, measure, a, b, verdict }) {
+export function CompareCard({ title, measure, a, b, verdict, unit = null }) {
+  // D-10 / D-11: the value in its unit ("80.5%", "₹9,000 lakh"); a side with no figure says so
+  const tileValue = (v) => (Number.isFinite(v) ? (unit ? fmtUnit(v, unit) : compactValue(v)) : 'no figure');
   return (
     <div className="dyn-chart-card compare-card">
       <div className="chd">
@@ -974,17 +977,17 @@ export function CompareCard({ title, measure, a, b, verdict }) {
       <div className="cmp-tiles">
         <div className="cmp-tile">
           <div className="cmp-label">{a.label}</div>
-          <div className="cmp-value">{compactValue(a.value)}</div>
+          <div className="cmp-value">{tileValue(a.value)}</div>
           {a.detail && <div className="cmp-sub">{a.detail}</div>}
         </div>
         <div className="cmp-vs" aria-hidden="true">vs</div>
         <div className="cmp-tile">
           <div className="cmp-label">{b.label}</div>
-          <div className="cmp-value">{compactValue(b.value)}</div>
+          <div className="cmp-value">{tileValue(b.value)}</div>
           {b.detail && <div className="cmp-sub">{b.detail}</div>}
         </div>
       </div>
-      <CompareVerdict v={verdict} />
+      <CompareVerdict v={verdict} unit={unit} />
     </div>
   );
 }

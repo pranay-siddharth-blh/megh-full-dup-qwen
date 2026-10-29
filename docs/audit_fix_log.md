@@ -99,3 +99,31 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | J-6 | Fixed (backend no stacked hint for a ranking; UI ranked bars, block in the title or as a detail) | c13 `_chart_hint`, analytics.js | `test_stacked_only_…`; UI `J-6 …` |
 | G-9 | Fixed (the answer carries what each scheme's figure is — "household-years: households given work, counted once per year worked" — shown under each tile and in bar tooltips; rows keep their shape, as locked by test_cross_figures) | app/cross_figures.py (`measure_notes`), c13, Messages.jsx, Charts.jsx (`cmp-sub`), chat.css | `test_each_scheme_says_what_its_figure_is`; UI `G-9 …` |
 | B-11 | Fixed (tile and tooltip say money spent / released / disbursed) | as G-9 | `test_each_scheme_says_what_its_figure_is` |
+| X-1 | Fixed (headlines in the column's unit: "₹1,200 crore", never "1.2L") | frontend/src/chat/chartTheme.js (`fmtUnit`, `insightFor` / `insightForSeries` opts), Charts.jsx | UI `X-1 …` |
+| C-1 | Fixed (two periods: "Fell 13% from 2023-24 to 2024-25 (−140)", from the earlier year) | analytics.js (`compareVerdict` opts.periods), chartTheme.js (`verdictText`) | UI `C-1 …` |
+| C-4 | Fixed (month names are periods) | chartTheme.js (`isMonthLabel`), analytics.js | UI `C-4 / C-10 …` |
+| C-8 | Fixed (month / quarter / week numbers are labels; backend and UI) | columns.js (`isLabelCol`), app/measure_kinds.py (`is_label_col`), c13 `_chart_hint` | UI `C-8 …` |
+| C-9 | Fixed (quarters are time, in order, no donut) | analytics.js | UI `C-9 …` |
+| C-10 | Fixed (months in financial-year order Apr → Mar) | chartTheme.js (`fyMonthIndex`), analytics.js | UI `C-4 / C-10 …` |
+| C-11 | Fixed (period series sorted before colouring) | analytics.js (`pivotStacked`) | UI `C-11 …` |
+| C-13 | Fixed (every financial year in the span; a missing one is a gap "(no data)") | analytics.js (`withYearGaps`, `fillYearGaps`) | UI `C-13 …` |
+| C-14 | Fixed by phase 3 (rates are never stacked; an asked stack is refused with a note) | analytics.js | UI `D-1 / X-5 / D-8 …` |
+| C-15 | Fixed (daily / long series: total and peak, not first-vs-last %) | chartTheme.js (`insightFor`) | UI `C-15 …` |
+| C-16 | Fixed (titles "Person days by financial year and district"; caption "X-axis: … · Colours: …") | analytics.js (`titleCol`), Charts.jsx | UI `C-16 …` |
+| D-2 | Fixed (units read on spaces and "(%)", "(Rs)") | columns.js (`unitOf`, `nameParts`) | UI `D-2 / D-6 …` |
+| D-3 | Already fixed (missing values stay null; frontend/tests/charts.test.js) | | existing |
+| D-4 | Fixed (gap in points for percentages) | analytics.js, chartTheme.js | UI `D-4 …` |
+| D-5 | Fixed (lower-is-better list flips the "ahead" side) | columns.js (`lowerIsBetter`), analytics.js, chartTheme.js | UI `D-5 / D-12 …` |
+| D-6 | Fixed (rate / share / ratio are %; 0–1 fractions read ×100; a wage rate stays money) | columns.js (`unitOf`, `fractionPct`), analytics.js | UI `D-2 / D-6 …` |
+| D-9 | Fixed (a % trend headline in points) | chartTheme.js | UI `D-9 …` |
+| D-10 | Fixed (tile values carry the unit) | Charts.jsx (`CompareCard` unit), analytics.js | UI `D-10 / D-11 …` |
+| D-11 | Already fixed (a missing side shows "no figure" now, and no verdict — that was already so) | Charts.jsx | UI `D-10 / D-11 …` |
+| D-12 | Fixed (largest lower-is-better figure headlined "Most pending works (lower is better)" in a warning colour) | chartTheme.js, Charts.jsx | UI `D-5 / D-12 …` |
+| B-15 | Fixed ("difference" leads with the absolute gap) | analytics.js, chartTheme.js | UI `B-15 …` |
+| I-10 | Partly fixed — UI headline "Lowest" for a low-end question; the backend's "312 villages have none, then the lowest non-zero 5" is not done (model-written SQL; see J-7) | analytics.js (`asksLow`), chartTheme.js | UI `I-10 / J-7 …` |
+| J-7 | Partly fixed — as I-10 | as I-10 | as I-10 |
+| X-6 | Fixed ("N/A", "-" are blanks) | columns.js (`isBlank`), analytics.js | UI `X-6 / X-7 / X-12 …` |
+| X-7 | Fixed (Indian grouping read as a number) | columns.js (`isIndianGrouped`) | UI `X-6 / X-7 / X-12 …` |
+| X-12 | Fixed (label words only as the whole name or its end; backend mirror) | columns.js (`isLabelCol`), app/measure_kinds.py, c13 | UI `X-6 / X-7 / X-12 …`; `test_label_words_mark_a_label_only_at_the_end`, `test_a_per_year_measure_is_charted` |
+| X-13 | Fixed (below 0.01 of the unit, the smaller unit) | columns.js (`formatCell`), chartTheme.js (`fmtUnit`) | UI `X-13 / X-14 …` |
+| X-14 | Partly fixed — rupee columns (rs / rupees / ₹) show ₹ in lakh / crore; a money column named with no unit still depends on its name (the backend does not send a unit per column) | columns.js, chartTheme.js | UI `X-13 / X-14 …` |

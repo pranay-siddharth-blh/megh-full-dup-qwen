@@ -2,7 +2,7 @@
 // that question through the real buildAnalytics / chartTheme. Run: npm test.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { buildAnalytics } from '../src/chat/analytics.js';
+import { buildAnalytics, pivotStacked } from '../src/chat/analytics.js';
 import { insightForSeries } from '../src/chat/chartTheme.js';
 import { fyLabel, unifyPeriods } from '../src/chat/columns.js';
 
@@ -264,4 +264,142 @@ test('G-9: two scheme tiles carry what each figure is (from the answer\'s measur
   const a = buildAnalytics('Compare beneficiaries in MGNREGA and PMAY-G', rows, null);
   assert.equal(a.kind, 'compare');
   assert.equal(a.vKey, 'beneficiaries');   // Messages.jsx looks up response.measure_notes[scheme][vKey]
+});
+
+// ── Phase 6: the measure kind decides chart and wording ──────────────────────
+import { compareVerdict, askedMeasureCol } from '../src/chat/analytics.js';
+import { fmtUnit, insightFor, verdictText } from '../src/chat/chartTheme.js';
+import { formatCell, isLabelCol, isNumeric, unitOf } from '../src/chat/columns.js';
+
+test('X-1: a ₹ lakh headline is in lakh / crore, not "1.2L"', () => {
+  assert.equal(insightFor('bar', ['East Khasi Hills', 'Ri Bhoi'], [120000, 90000], { unit: 'lakh' }),
+    'Highest: East Khasi Hills · ₹1,200 crore');
+  const rows = ['A', 'B', 'C', 'D', 'E', 'F', 'G'].map((d, i) => ({ district: d, total_exp_lakh: [120000, 9000, 50, 70, 1, 2, 3][i] }));
+  assert.equal(buildAnalytics('MGNREGA expenditure by district', rows, null).charts[0].axes.unit, 'lakh');
+});
+
+test('X-13 / X-14: small amounts are never 0; rupees get ₹ and lakh / crore', () => {
+  assert.equal(formatCell(0.004, 'amount_crore'), '₹40,000');
+  assert.equal(fmtUnit(0.004, 'crore'), '₹40,000');
+  assert.equal(unitOf('amount sanctioned (Rs)'), 'rupees');
+  assert.equal(fmtUnit(2222753000, 'rupees'), '₹222.28 crore');
+});
+
+test('D-2 / D-6: "(%)" with spaces, rates, shares and ratios are %; fractions read ×100', () => {
+  assert.equal(unitOf('completion rate (%)'), 'pct');
+  assert.equal(unitOf('women_share'), 'pct');
+  assert.equal(unitOf('completion_ratio'), 'pct');
+  assert.equal(unitOf('wage_rate'), null);                 // a wage rate is money
+  const a = buildAnalytics('completion ratio by district', [{ district: 'A', completion_ratio: 0.753 },
+    { district: 'B', completion_ratio: 0.5 }, { district: 'C', completion_ratio: 0.6 }], null);
+  assert.deepEqual(a.charts[0].values, [75.3, 50, 60]);
+});
+
+test('D-9: a % trend headline is in points, matching the table', () => {
+  assert.equal(insightFor('line', ['2022-23', '2023-24', '2024-25'], [50, 55, 60], { unit: 'pct' }),
+    'Latest 60% in 2024-25 · up 10 points since 2022-23');
+});
+
+test('C-1: two years compared are a change from the earlier year', () => {
+  const rows = [{ financial_year: '2024-25', expenditure: 930 }, { financial_year: '2023-24', expenditure: 1070 }];
+  const a = buildAnalytics('Compare MGNREGA expenditure 2023-24 vs 2024-25', rows, null);
+  assert.equal(a.kind, 'compare');
+  assert.equal(verdictText(a.verdict), 'Fell 13% from 2023-24 to 2024-25 (−140) on expenditure.');
+});
+
+test('D-4: two percentages differ by points', () => {
+  const v = compareVerdict('Ri Bhoi', 80, 'West Garo Hills', 60, 'completion %', false, { unit: 'pct' });
+  assert.equal(verdictText(v), 'Ri Bhoi is 20 points ahead on completion %.');
+});
+
+test('D-5 / D-12: for pending works the lower side leads and the highest is a warning', () => {
+  const v = compareVerdict('A', 900, 'B', 300, 'pending works', false, { lowerBetter: true });
+  assert.equal(verdictText(v), 'B has 600 fewer pending works (lower is better).');
+  const rows = [{ district: 'A', pending_works: 900 }, { district: 'B', pending_works: 300 }, { district: 'C', pending_works: 500 }];
+  const a = buildAnalytics('Pending works by district', rows, null);
+  assert.equal(a.charts[0].axes.lowerBetter, true);
+  assert.equal(insightFor('bar', ['A', 'B', 'C'], [900, 300, 500], a.charts[0].axes),
+    'Most pending works (lower is better): A · 900');
+});
+
+test('B-15: "difference" leads with the gap', () => {
+  const rows = [{ district: 'East Khasi Hills', houses: 1494437 }, { district: 'Ri Bhoi', houses: 171107 }];
+  const a = buildAnalytics('Difference between East Khasi Hills and Ri Bhoi houses', rows, null);
+  assert.match(verdictText(a.verdict), /^The difference is 13,23,330 houses: East Khasi Hills has more/);
+});
+
+test('D-10 / D-11: tiles carry the unit; a missing side gives no verdict', () => {
+  const rows = [{ district: 'Ri Bhoi', completion_pct: 80.5 }, { district: 'Tura', completion_pct: 60.25 }];
+  assert.equal(buildAnalytics('Compare Ri Bhoi and Tura completion percentage', rows, null).unit, 'pct');
+  const miss = [{ district: 'A', avg_days: 45 }, { district: 'B', avg_days: null }];
+  assert.equal(buildAnalytics('Compare A and B average days', miss, null).verdict, null);
+});
+
+test('C-4 / C-10: month names are periods in financial-year order (Apr → Mar)', () => {
+  const rows = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun'].map((m, i) => ({ month_name: m, expenditure: 10 + i }));
+  const a = buildAnalytics('Monthly expenditure in 2024-25', rows, null);
+  assert.deepEqual(a.charts[0].labels, ['Apr', 'May', 'Jun', 'Jan', 'Feb', 'Mar']);
+  assert.equal(a.defType, 'line');
+});
+
+test('C-8: a month number is a label, not a measure', () => {
+  const rows = [4, 5, 6].map((m, i) => ({ month: m, month_name: ['Apr', 'May', 'Jun'][i], person_days: 100 + i }));
+  const a = buildAnalytics('MGNREGA person days by month in 2024-25', rows, null);
+  assert.equal(a.charts.length, 1);
+  assert.match(a.charts[0].title, /^Person days by/);
+});
+
+test('C-9: quarters are time in order, never a donut', () => {
+  const rows = ['Q3', 'Q1', 'Q4', 'Q2'].map((q, i) => ({ quarter: q, expenditure: 10 + i }));
+  const a = buildAnalytics('MGNREGA expenditure by quarter in 2024-25', rows, null);
+  assert.deepEqual(a.charts[0].labels, ['Q1', 'Q2', 'Q3', 'Q4']);
+  assert.notEqual(a.defType, 'doughnut');
+});
+
+test('C-11: year series are drawn oldest first', () => {
+  const rows = ['2024-25', '2022-23', '2023-24'].flatMap((fy) => ['A', 'B'].map((b) => ({ block: b, financial_year: fy, person_days: 5 })));
+  const { datasets } = pivotStacked(rows, 'block', 'financial_year', 'person_days');
+  assert.deepEqual(datasets.map((d) => d.label), ['2022-23', '2023-24', '2024-25']);
+});
+
+test('C-13: a year the scheme does not hold is a gap labelled "no data"', () => {
+  const rows = [{ financial_year: '2021-22', amount: 10 }, { financial_year: '2022-23', amount: 12 }, { financial_year: '2024-25', amount: 40 }];
+  const a = buildAnalytics('Focus Legacy amount disbursed each year', rows, null);
+  assert.deepEqual(a.charts[0].labels, ['2021-22', '2022-23', '2023-24', '2024-25']);
+  assert.deepEqual(a.charts[0].values, [10, 12, null, 40]);
+  assert.equal(a.charts[0].fullLabels[2], '2023-24 (no data)');
+});
+
+test('C-15: a daily series headlines the total and the peak, not first-vs-last', () => {
+  const labels = Array.from({ length: 30 }, (_, i) => '2023-04-' + String(i + 1).padStart(2, '0'));
+  const values = labels.map((_, i) => (i === 9 ? 50 : 1));
+  assert.equal(insightFor('line', labels, values), 'Total 79 · peak 50 on 2023-04-10');
+});
+
+test('C-16: titles read as words', () => {
+  const rows = ['A', 'B'].flatMap((d) => ['2023-24', '2024-25'].map((fy) => ({ district_name: d, financial_year: fy, person_days: 5 })));
+  const a = buildAnalytics('person days by district and year', rows, null);
+  assert.equal(a.title, 'Person days by financial year and district');
+});
+
+test('I-10 / J-7: a "lowest" question is headlined "Lowest"', () => {
+  const rows = [{ village: 'A', person_days: 5 }, { village: 'B', person_days: 2 }, { village: 'C', person_days: 9 }];
+  const a = buildAnalytics('lowest 3 villages by person days', rows, null);
+  assert.equal(insightFor('bar', a.charts[0].labels, a.charts[0].values, a.charts[0].axes), 'Lowest: B · 2');
+});
+
+test('X-6 / X-7 / X-12: N/A blanks, Indian grouping, label words only at the end', () => {
+  const a = buildAnalytics('houses by district', [{ district: 'A', houses: 5 }, { district: 'B', houses: 'N/A' }, { district: 'C', houses: 7 }], null);
+  assert.deepEqual(a.charts[0].values, [5, null, 7]);
+  assert.ok(isNumeric('2,72,64,054'));
+  assert.equal(isLabelCol('houses_per_year'), false);
+  assert.equal(isLabelCol('person_days_this_year'), false);
+  assert.equal(isLabelCol('beneficiary_key_count'), false);
+  assert.equal(isLabelCol('year_key'), true);
+  assert.equal(isLabelCol('district_code'), true);
+});
+
+test('B-10: "money per beneficiary" picks the per-head column', () => {
+  assert.equal(askedMeasureCol('Money per beneficiary in MGNREGA vs PMAY-G',
+    ['beneficiaries', 'amount_crore', 'rupees_per_beneficiary']), 'rupees_per_beneficiary');
 });

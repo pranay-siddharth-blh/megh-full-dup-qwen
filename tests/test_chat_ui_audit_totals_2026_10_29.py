@@ -178,3 +178,20 @@ def test_each_scheme_says_what_its_figure_is(state_db):                         
     assert notes["MGNREGA"]["beneficiaries"].startswith("household-years")
     assert notes["PMAY-G"]["amount_crore"] == "money released"
     assert set(out["rows"][0]) == {"scheme", "beneficiaries", "amount_crore"}          # the rows keep their shape
+
+
+@pytest.mark.parametrize("col, label", [("year_key", True), ("district_code", True), ("financial_year_short", True),
+                                        ("month_num", True), ("houses_per_year", False),
+                                        ("person_days_this_year", False), ("beneficiary_key_count", False),
+                                        ("pin_count", False), ("rank_score", False)])
+def test_label_words_mark_a_label_only_at_the_end(col, label):                          # X-12 (backend half)
+    assert mk.is_label_col(col) is label
+
+
+def test_a_per_year_measure_is_charted():
+    rows = [{"district": d, "houses_per_year": n} for d, n in (("A", 5), ("B", 7))]
+    assert p._chart_hint("houses per year by district as a bar chart", "", rows) == "bar"
+    rows = [{"district": "A", "financial_year": "2023-24", "houses_per_year": 5},
+            {"district": "B", "financial_year": "2023-24", "houses_per_year": 7}]
+    # "per" is a rate: two labels, one rate measure -> never stacked
+    assert p._chart_hint("houses per year by district and year", "", rows) is None

@@ -4,9 +4,10 @@
    web/ai_query.html; the React components render the descriptor this returns. */
 
 import { hasSegment, isAsciiLetter, isDigit, isPeriodLabel, isSpace, splitSpaces } from './text.js';
+import { fyMonthIndex, isMonthLabel, isQuarterLabel } from './chartTheme.js';
 import {
-  PERIOD_WORDS, asksChange, canAdd, colTitle, dimOf, humanCol, isAdditive, isLabelCol, isNumeric, tableColumns,
-  unifyPeriods, unitOf, withoutTwins,
+  PERIOD_WORDS, asksChange, canAdd, colTitle, dimOf, fractionPct, humanCol, isAdditive, isBlank, isLabelCol, isNumeric,
+  lowerIsBetter, tableColumns, unifyPeriods, unitOf, withoutTwins,
 } from './columns.js';
 
 // The column rules live in columns.js (2026-10-28); re-exported for the callers
@@ -30,24 +31,93 @@ const mentionsAny = (s, words) => { const low = String(s).toLowerCase(); return 
 // The chart types the backend can ask for (pipeline._chart_hint, D-042).
 const SINGLE_TYPES = ['bar', 'pie', 'doughnut', 'line'];
 
+// C-16: a title in words: "Person days by district and financial year", not
+// "person days by district name and financial year".
+const titleCol = (c) => {
+  const w = humanCol(c).split(' ').filter((x) => x && !['name', 'short', 'raw'].includes(x.toLowerCase()));
+  const s = w.join(' ') || String(c);
+  return s.charAt(0).toUpperCase() + s.slice(1);
+};
+
+// ── C-13: financial years with no row are gaps on the axis ───────────────────
+const fyStart = (l) => {
+  const s = String(l ?? '').trim();
+  return s.length === 7 && s[4] === '-' && isPeriodLabel(s) ? Number(s.slice(0, 4)) : null;
+};
+const fyText = (y) => `${y}-${String((y + 1) % 100).padStart(2, '0')}`;
+
+/** The rows of a financial-year chart with a null in place of every year inside
+    the span that has no row; `gapLabels[i]` names the missing year. */
+function withYearGaps(data, col) {
+  const ys = data.map((r) => fyStart(r[col]));
+  const out = data.slice();
+  out.gapLabels = data.map(() => null);
+  if (data.length < 2 || ys.some((y) => y === null)) return out;
+  const lo = Math.min(...ys);
+  const hi = Math.max(...ys);
+  if (hi - lo + 1 === data.length || hi - lo > 30) return out;
+  const at = new Map(ys.map((y, i) => [y, data[i]]));
+  const full = [];
+  full.gapLabels = [];
+  for (let y = lo; y <= hi; y++) {
+    full.push(at.get(y) || null);
+    full.gapLabels.push(at.has(y) ? null : fyText(y));
+  }
+  return full;
+}
+
+function fillYearGaps(labels, datasets) {
+  const ys = labels.map(fyStart);
+  if (labels.length < 2 || ys.some((y) => y === null)) return { labels, datasets };
+  const lo = Math.min(...ys);
+  const hi = Math.max(...ys);
+  if (hi - lo + 1 === labels.length || hi - lo > 30) return { labels, datasets };
+  const all = [];
+  for (let y = lo; y <= hi; y++) all.push(fyText(y));
+  return {
+    labels: all,
+    datasets: datasets.map((d) => ({ ...d, data: all.map((l) => { const i = labels.indexOf(l); return i < 0 ? null : d.data[i]; }) })),
+  };
+}
+
+// I-10 / J-7: the question asks for the low end ("lowest 5", "least", "bottom")
+const LOW_WORDS = ['lowest', 'least', 'bottom', 'fewest', 'minimum', 'min', 'worst', 'poorest', 'weakest', 'smallest'];
+export const asksLow = (question) => words(question).some((w) => LOW_WORDS.includes(w));
+
 /** The one-line verdict under a two-way comparison: who leads, by how much.
     { lead, trail, pct, diff, measure } or { equal: true, value, measure };
     { unlike: true, measure } when the two sides measure different things
     (`unlike`); null when a side has no value. pct is null when the trailing
     value is 0 (nothing to divide by). */
-export function compareVerdict(l1, v1, l2, v2, measure, unlike = false) {
+export function compareVerdict(l1, v1, l2, v2, measure, unlike = false, opts = {}) {
   if (unlike) return { unlike: true, measure };
   if (!Number.isFinite(v1) || !Number.isFinite(v2)) return null;
   if (v1 === v2) return { equal: true, value: v1, measure };
-  const [lead, lv, trail, tv] = v1 > v2 ? [l1, v1, l2, v2] : [l2, v2, l1, v1];
-  const diff = lv - tv;
-  const pct = tv > 0 ? Math.round((diff / tv) * 100) : null;
-  return { lead, trail, pct, diff, measure };
+  const points = opts.unit === 'pct';
+  if (opts.periods) {
+    // C-1 (audit 2026-10-29): two periods are a change over time, measured from the
+    // earlier one ("2023-24 is 15% ahead" was a 13% fall from 2023-24 to 2024-25)
+    const [from, fv, to, tv] = String(l1).localeCompare(String(l2)) <= 0 ? [l1, v1, l2, v2] : [l2, v2, l1, v1];
+    const diff = tv - fv;
+    const pct = !points && fv ? Math.round((Math.abs(diff) / Math.abs(fv)) * 100) : null;
+    return { change: diff > 0 ? 'rose' : 'fell', from, to, diff, pct, points, measure };
+  }
+  // D-5: for a lower-is-better measure (pending, delays, unpaid) the lower side leads
+  const lowFirst = !!opts.lowerBetter;
+  const [lead, lv, trail, tv] = (v1 > v2) !== lowFirst ? [l1, v1, l2, v2] : [l2, v2, l1, v1];
+  const diff = Math.abs(lv - tv);
+  // D-4: two percentages differ by points, not by a relative %
+  const pct = points ? null : (tv > 0 && !lowFirst ? Math.round((diff / tv) * 100) : null);
+  return { lead, trail, pct, diff, measure, ...(points ? { points: true } : {}),
+    ...(lowFirst ? { lowerBetter: true } : {}), ...(opts.diffFirst ? { diffFirst: true } : {}) };
 }
 
 export function pivotStacked(data, xKey, sKey, vKey) {
   const xLabels = [...new Set(data.map((r) => r[xKey]))];
   const sLabels = [...new Set(data.map((r) => r[sKey]))];
+  // C-11: series that are periods are drawn (and shaded) oldest to newest
+  if (sLabels.every((l) => isPeriodLabel(l))) sLabels.sort((a, b) => String(a).localeCompare(String(b)));
+  else if (sLabels.every((l) => isMonthLabel(l))) sLabels.sort((a, b) => fyMonthIndex(a) - fyMonthIndex(b));
   const datasets = sLabels.map((sl) => ({
     label: sl,
     data: xLabels.map((xl) => {
@@ -193,6 +263,11 @@ const colParts = (c) => String(c).toLowerCase().split('_').filter(Boolean);
     both, or no column matches — the caller keeps its first column then. */
 export function askedMeasureCol(question, numCols) {
   const w = words(question);
+  // B-10: "money per beneficiary" asks the per-head figure, not either total
+  if (w.includes('per')) {
+    const per = numCols.find((c) => colParts(c).includes('per'));
+    if (per) return per;
+  }
   const money = hasStem(w, MONEY_STEMS);
   const count = hasStem(w, COUNT_STEMS);
   if (money === count) return null;
@@ -336,7 +411,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     let seen = false;
     for (const r of data) {
       const v = r[c];
-      if (v === null || v === '' || v === undefined) continue;
+      if (isBlank(v)) continue;            // X-6: "N/A", "-" are blanks
       if (!isNumeric(v)) return false;
       seen = true;
     }
@@ -402,7 +477,12 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
         measure: humanCol(vc),
         a: { label: l1, value: toNumber(r1[vc]), detail: sub(r1) },
         b: { label: l2, value: toNumber(r2[vc]), detail: sub(r2) },
-        verdict: compareVerdict(l1, toNumber(r1[vc]), l2, toNumber(r2[vc]), humanCol(vc), isSchemeCol(lc)),
+        unit: unitOf(vc),
+        verdict: compareVerdict(l1, toNumber(r1[vc]), l2, toNumber(r2[vc]), humanCol(vc), isSchemeCol(lc), {
+          periods: [l1, l2].every((l) => isPeriodLabel(l) || isMonthLabel(l) || isQuarterLabel(l)),
+          unit: unitOf(vc), lowerBetter: lowerIsBetter(vc),
+          diffFirst: words(question).some((w) => ['difference', 'gap', 'differ', 'diff'].includes(w)),
+        }),
         data,
         extra: numCols.length > 1,
       };
@@ -437,8 +517,9 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     const vKey = numCols[0];
     if (distinct(sKey) <= MAX_SERIES && distinct(xKey) > 1) {
       if (data.every((r) => isPeriodLabel(r[xKey]))) data.sort((a, b) => String(a[xKey]).localeCompare(String(b[xKey])));
-      const { labels, datasets } = pivotStacked(data, xKey, sKey, vKey);
-      const periods = labels.every((l) => isPeriodLabel(l));
+      const piv = pivotStacked(data, xKey, sKey, vKey);
+      const { labels, datasets } = fillYearGaps(piv.labels, piv.datasets);
+      const periods = labels.every((l) => isPeriodLabel(l) || isMonthLabel(l));
       // G-3 / G-4 / B-3: a stack adds the series, a donut adds every cell — only
       // when the measure adds along that dimension (never across schemes)
       const whyS = noAddReason(vKey, sKey, data);
@@ -448,7 +529,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
       const hinted = hintType === 'stacked' ? 'stacked' : hintType;
       return {
         kind: 'twoDim',
-        title: `${humanCol(vKey)} by ${humanCol(xKey)} and ${humanCol(sKey)}${where}`,
+        title: `${titleCol(vKey)} by ${titleCol(xKey).toLowerCase()} and ${titleCol(sKey).toLowerCase()}${where}`,
         xKey, sKey, vKey, labels: labels.map(String), datasets, periods, types, noAddWhy: whyS || whyX,
         defType: types.includes(hinted) ? hinted : (periods ? 'line' : 'bar'),
         data, extra: numCols.length > 1,
@@ -467,7 +548,13 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   // Time only when the label column IS a period. "across all financial years ... by
   // district" names a year but its rows are districts: it was drawn as a line over
   // district names (user report 2026-10-19 16:01).
-  const isTime = mentionsAny(lc, ['month', 'period', 'year', 'date', 'trend'])
+  // C-4 / C-9 / C-10: month names and quarters are periods too, in financial-year
+  // order (Apr -> Mar; Q1 -> Q4), not the order the SQL happened to return
+  const months = data.every((r) => isMonthLabel(r[lc]));
+  const quarters = data.every((r) => isQuarterLabel(r[lc]));
+  if (months) data.sort((a, b) => fyMonthIndex(a[lc]) - fyMonthIndex(b[lc]));
+  if (quarters) data.sort((a, b) => String(a[lc]).localeCompare(String(b[lc])));
+  const isTime = mentionsAny(lc, ['month', 'period', 'year', 'date', 'trend', 'quarter']) || months || quarters
     || data.every((r) => isPeriodLabel(r[lc]) || isYearOrIsoDate(String(r[lc] ?? '').trim()));
   // A trend reads left-to-right: sort ISO dates / plain years / financial years
   // ("2023-24", "FY 2023-24" — these sort as text too); the table follows.
@@ -508,13 +595,21 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     };
   }
 
-  const charts = numCols.slice(0, 3).map((vc) => ({
-    title: `${humanCol(vc)} by ${humanCol(lc)}${where}`,
-    labels: data.map((r) => label18(repeats ? full(r, lc) : r[lc])),
-    fullLabels: data.map((r) => full(r, lc)),
-    values: data.map((r) => toNumber(r[vc])),
-    axes: { x: colTitle(lc), y: colTitle(vc), unit: unitOf(vc) },
-  }));
+  // C-13: a financial year a scheme does not hold is a gap, not two years drawn adjacent
+  const rowsAt = withYearGaps(data, lc);
+  const low = asksLow(question);
+  const charts = numCols.slice(0, 3).map((vc) => {
+    const raw = rowsAt.map((r) => (r ? toNumber(r[vc]) : null));
+    const scale = fractionPct(vc, raw) ? 100 : 1;          // D-6: 0.753 -> 75.3%
+    return {
+      title: `${titleCol(vc)} by ${titleCol(lc).toLowerCase()}${where}`,
+      labels: rowsAt.map((r, i) => (r ? label18(repeats ? full(r, lc) : r[lc]) : rowsAt.gapLabels[i])),
+      fullLabels: rowsAt.map((r, i) => (r ? full(r, lc) : `${rowsAt.gapLabels[i]} (no data)`)),
+      values: raw.map((v) => (v === null ? null : v * scale)),
+      axes: { x: colTitle(lc), y: colTitle(vc), unit: unitOf(vc), lowerBetter: lowerIsBetter(vc),
+        measure: humanCol(vc), low },
+    };
+  });
   // "How have … changed": the table adds the change from the previous period
   // (only when the question asks how a figure moved — never by default).
   return {

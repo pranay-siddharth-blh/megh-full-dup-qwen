@@ -73,10 +73,52 @@ export function themeFor(schemes) {
 
 const isFiniteValue = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
 
+// Month and quarter labels are periods too (C-4 / C-9): "Apr", "April", "Q1".
+const MONTHS = ['jan', 'feb', 'mar', 'apr', 'may', 'jun', 'jul', 'aug', 'sep', 'oct', 'nov', 'dec'];
+const MONTH_NAMES = ['january', 'february', 'march', 'april', 'may', 'june', 'july', 'august', 'september', 'october',
+  'november', 'december', 'sept'];
+/** "Apr", "April", "Apr 2024", "April-2024" — never a place that starts like one ("Marngar"). */
+export const isMonthLabel = (l) => {
+  const parts = String(l ?? '').trim().toLowerCase().split('').map((c) => (c === '-' ? ' ' : c)).join('').split(' ')
+    .filter(Boolean);
+  if (!parts.length || parts.length > 2) return false;
+  if (!MONTHS.includes(parts[0]) && !MONTH_NAMES.includes(parts[0])) return false;
+  return parts.length === 1 || (parts[1].length === 4 && Array.from(parts[1]).every((c) => c >= '0' && c <= '9'));
+};
+/** Financial-year order of a month label: Apr = 0 … Mar = 11; -1 when not a month. */
+export const fyMonthIndex = (l) => {
+  if (!isMonthLabel(l)) return -1;
+  return (MONTHS.indexOf(String(l).trim().toLowerCase().slice(0, 3)) + 9) % 12;
+};
+export const isQuarterLabel = (l) => {
+  const s = String(l ?? '').trim().toLowerCase();
+  return s.length === 2 && s[0] === 'q' && '1234'.includes(s[1]);
+};
+const isTimeLabel = (l) => isPeriodLabel(l) || isMonthLabel(l) || isQuarterLabel(l);
+const isDay = (l) => String(l ?? '').trim().length === 10 && isPeriodLabel(l);
+
+/** A figure in its column's unit (X-1: "1.2L" under a ₹ lakh chart read as 1.2 lakh
+    rupees, 10,000× too small): ₹ lakh / crore figures in ₹ lakh or crore (never
+    0: below 0.01 of the unit the smaller one, X-13), a % with its sign. */
+export function fmtUnit(v, unit) {
+  const n = Number(v);
+  if (!Number.isFinite(n)) return '—';
+  if (unit === 'pct') return `${fmt(n)}%`;
+  const rupees = unit === 'crore' ? n * 1e7 : unit === 'lakh' ? n * 1e5 : unit === 'rupees' ? n : null;
+  if (rupees === null) return fmtCompact(n);
+  const a = Math.abs(rupees);
+  if (a >= 1e7) return `₹${fmt(Math.round((rupees / 1e7) * 100) / 100)} crore`;
+  if (a >= 1e5) return `₹${fmt(Math.round((rupees / 1e5) * 100) / 100)} lakh`;
+  return `₹${fmt(Math.round(rupees))}`;
+}
+
 /** One line under a chart's title saying what to look at: the top category
     (and its share, for a pie / donut), or for a trend the latest value and the
-    change since the first period. Empty when there is nothing to say. */
-export function insightFor(type, labels, values) {
+    change since the first period. Empty when there is nothing to say.
+    opts: { unit, lowerBetter, measure } — the figures in their unit; a % trend in
+    points (D-9); the largest of a lower-is-better measure named as such (D-12). */
+export function insightFor(type, labels, values, opts = {}) {
+  const show = (v) => (opts.unit ? fmtUnit(v, opts.unit) : fmtCompact(v));
   // Only the points that have a value: a gap (null) is not a 0 (E11).
   const keep = (values || []).map((v, i) => i).filter((i) => isFiniteValue(values[i]));
   const nums = keep.map((i) => Number(values[i]));
@@ -84,27 +126,45 @@ export function insightFor(type, labels, values) {
   if (nums.length < 2) return '';
   // "up 1530484561% since MGNREGA" (2026-10-19): a change over time only makes
   // sense when the x-axis IS time; over categories the line reads like a bar.
-  const overTime = isPeriodLabel(labels[0]) && isPeriodLabel(labels[labels.length - 1]);
+  const overTime = isTimeLabel(labels[0]) && isTimeLabel(labels[labels.length - 1]);
+  if (overTime && (isDay(labels[0]) || nums.length > 12) && opts.unit !== 'pct') {
+    // C-15: a noisy daily series — first-vs-last is not a trend; the total and the peak
+    let pk = 0;
+    nums.forEach((v, i) => { if (v > nums[pk]) pk = i; });
+    return `Total ${show(nums.reduce((s, v) => s + v, 0))} · peak ${show(nums[pk])} on ${labels[pk]}`;
+  }
   if (type === 'line' && overTime) {
     const first = nums[0];
     const last = nums[nums.length - 1];
-    const lead = `Latest ${fmtCompact(last)} in ${labels[labels.length - 1]}`;
+    const lead = `Latest ${show(last)} in ${labels[labels.length - 1]}`;
+    if (opts.unit === 'pct') {
+      const pts = Math.round((last - first) * 10) / 10;
+      return `${lead} · ${pts === 0 ? 'flat' : `${pts > 0 ? 'up' : 'down'} ${fmt(Math.abs(pts))} points`} since ${labels[0]}`;
+    }
     if (!first) return lead;
     const pct = Math.round(((last - first) / Math.abs(first)) * 100);
     return `${lead} · ${pct === 0 ? 'flat' : `${pct > 0 ? 'up' : 'down'} ${Math.abs(pct)}%`} since ${labels[0]}`;
   }
   let hi = 0;
   nums.forEach((v, i) => { if (v > nums[hi]) hi = i; });
+  if (opts.low) {
+    // I-10 / J-7: the question asks for the low end
+    let lo = 0;
+    nums.forEach((v, i) => { if (v < nums[lo]) lo = i; });
+    return `Lowest: ${labels[lo]} · ${show(nums[lo])}`;
+  }
   const total = nums.reduce((s, v) => s + v, 0);
   const share = total > 0 && (type === 'pie' || type === 'doughnut') ? ` · ${Math.round((nums[hi] / total) * 1000) / 10}% of the total` : '';
-  return `Highest: ${labels[hi]} · ${fmtCompact(nums[hi])}${share}`;
+  if (opts.lowerBetter) return `Most ${opts.measure || 'of it'} (lower is better): ${labels[hi]} · ${show(nums[hi])}${share}`;
+  return `Highest: ${labels[hi]} · ${show(nums[hi])}${share}`;
 }
 
 /** The headline for a multi-series chart (scheme × year, district × year):
     over periods, each series' latest value at the last period; otherwise the
     single highest cell and which series / category it belongs to. */
-export function insightForSeries(labels, datasets, periods) {
+export function insightForSeries(labels, datasets, periods, opts = {}) {
   if (!labels || !labels.length || !datasets || !datasets.length) return '';
+  const fmtCompact = (v) => (opts.unit ? fmtUnit(v, opts.unit) : fmtCompactRaw(v));
   if (periods) {
     const last = labels.length - 1;
     // A-13 (audit 2026-10-29): each scheme holds its own years. "Latest (2025-26):
@@ -122,6 +182,30 @@ export function insightForSeries(labels, datasets, periods) {
   let best = { v: -Infinity, s: '', l: '' };
   datasets.forEach((d) => d.data.forEach((v, j) => { if (isFiniteValue(v) && Number(v) > best.v) best = { v: Number(v), s: d.label, l: labels[j] }; }));
   return best.v > -Infinity ? `Highest: ${best.s} in ${best.l} · ${fmtCompact(best.v)}` : '';
+}
+
+// The one-line verdict under a two-way comparison (CompareCard).
+/** The verdict as plain words (also what the tests read). */
+export function verdictText(v, unit = null) {
+  if (!v) return '';
+  const val = (x) => (unit ? fmtUnit(x, unit) : fmt(x));
+  if (v.unlike) return 'Each scheme measures this differently, so the two are not ranked.';
+  if (v.equal) return `Both record ${val(v.value)} ${v.measure}.`;
+  if (v.change) {
+    // C-1: a change over time, from the earlier period
+    const gap = v.points ? `${fmt(Math.abs(v.diff))} points` : `${v.pct === null ? '' : `${v.pct}% `}`;
+    const sign = v.diff > 0 ? '+' : '−';
+    return v.points
+      ? `${v.change === 'rose' ? 'Rose' : 'Fell'} ${gap} from ${v.from} to ${v.to} on ${v.measure}.`
+      : `${v.change === 'rose' ? 'Rose' : 'Fell'} ${gap}from ${v.from} to ${v.to} (${sign}${val(Math.abs(v.diff))}) on ${v.measure}.`;
+  }
+  if (v.points) return `${v.lead} is ${fmt(v.diff)} points ahead on ${v.measure}.`;      // D-4
+  if (v.lowerBetter) return `${v.lead} has ${val(v.diff)} fewer ${v.measure} (lower is better).`;  // D-5
+  if (v.diffFirst) {                                                                         // B-15
+    return `The difference is ${val(v.diff)} ${v.measure}: ${v.lead} has more${v.pct === null ? '' : ` (${v.pct}% ahead)`}.`;
+  }
+  return v.pct === null ? `${v.lead} is ${val(v.diff)} more on ${v.measure}.`
+    : `${v.lead} is ${v.pct}% ahead (${val(v.diff)} more) on ${v.measure}.`;
 }
 
 /** Entry animation: bars and points grow in one after another (a short
@@ -254,6 +338,7 @@ export const fmt = (v) => FULL.format(Number(v) || 0);
 const UNIT = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 1 });
 const UNIT_BIG = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 });
 const inUnit = (x) => (Math.abs(x) < 100 ? UNIT : UNIT_BIG).format(x);
+const fmtCompactRaw = (v) => fmtCompact(v);
 export const fmtCompact = (v) => {
   const n = Number(v) || 0;
   const a = Math.abs(n);

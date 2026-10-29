@@ -55,3 +55,27 @@ def can_add(col, dim: str) -> bool:
     if dim == "period":
         return kind == "flow"
     return True
+
+
+# X-12 (audit 2026-10-29), kept in step with frontend/src/chat/columns.js isLabelCol:
+# a label word marks a label column only as the whole name or its end ("year_key",
+# "district_code", "financial_year", "month_num"), never after "per" or in a name
+# that starts or ends like a measure ("houses_per_year", "beneficiary_key_count").
+LABEL_WORDS = frozenset({"year", "yr", "fy", "code", "id", "lgd", "pin", "pincode", "key", "rank", "sl", "serial",
+                         "month", "quarter", "week"})
+_LABEL_ENDS = frozenset({"key", "code", "id", "short", "num", "no", "name", "label", "lgd"})
+_LABEL_LEADS = frozenset({"financial", "fiscal", "calendar", "lgd", "village", "block", "district", "gp", "scheme",
+                          "fy", "month", "year", "state", "ac", "constituency"})
+_MEASURE_LEADS = frozenset({"avg", "average", "total", "count", "sum", "mean", "num", "number", "no", "max", "min"})
+_MEASURE_ENDS = frozenset({"count", "score", "total", "sum", "days", "amount", "value"})
+
+
+def is_label_col(col) -> bool:
+    parts = [p for p in str(col).lower().split("_") if p]
+    if not parts or "per" in parts:
+        return False
+    if len(parts) > 1 and (parts[0] in _MEASURE_LEADS or parts[-1] in _MEASURE_ENDS):
+        return False
+    if parts[-1] in LABEL_WORDS:
+        return len(parts) <= 2 or parts[-2] in _LABEL_LEADS
+    return any(p in LABEL_WORDS for p in parts) and parts[-1] in _LABEL_ENDS

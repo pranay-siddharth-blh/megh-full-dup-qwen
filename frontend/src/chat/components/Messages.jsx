@@ -111,7 +111,7 @@ function Analytics({ question, response, view, onAsk }) {
     return (
       <div className="analytics">
         <CompareCard title={a.title} measure={a.measure} a={{ ...a.a, detail: said(a.a) }} b={{ ...a.b, detail: said(a.b) }}
-                     verdict={a.verdict} />
+                     verdict={a.verdict} unit={a.unit} />
         {withTables && a.extra && <DynTable data={a.data} />}
       </div>
     );
