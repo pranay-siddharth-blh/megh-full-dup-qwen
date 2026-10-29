@@ -46,8 +46,9 @@ separate `pause_gate` pauses. Tests assert:
 
 - `pause_gate` contains no `await`;
 - no other node calls `interrupt()`;
-- a pause and its resume spend **exactly** as many model and DB calls on the graph as on the
-  sequential path.
+- a pause and its resume spend **exactly** as many model and DB calls as the stages themselves
+  make: the graph adds none (the sequential path these were first compared with was retired,
+  D-036).
 
 ## 4. Two stores, no second decision layer
 
@@ -63,7 +64,7 @@ existing logic decides. That is deliberate:
 |---|---|
 | Thread present, Session pending | graph resumes; `context` merges or abandons (the normal case) |
 | Thread missing (swept by TTL, flag flipped since the pause, or a worker that fell back to memory because Postgres was unreachable; normally both VMs see the same thread) | a fresh run; `context` finds `Session.pending_*` and resumes it — **same result** (tested: `test_reply_resumes_even_when_the_checkpoint_is_gone`) |
-| Thread present, Session has no pending (a pause the router does not remember, e.g. `reference-ambiguous` with no options) | graph resumes; `context` sees no pending; the reply is a new question — same as the sequential path |
+| Thread present, Session has no pending (a pause the router does not remember, e.g. `reference-ambiguous` with no options) | graph resumes; `context` sees no pending; the reply is a new question |
 | A cached answer was served in between | the stale interrupt is resumed by the next graph request and treated as above |
 
 A router-level "does this reply continue the pause?" check (the guide's `_graph_pause_continues`)
@@ -82,7 +83,12 @@ was **not** written: it would duplicate `_resume_scheme_pause`, `_resume_option_
 ## 6. Lifetime
 
 - A thread exists only while a pause waits.
-- A finished run deletes it. An error deletes it too.
+- A finished run deletes it. An error (an `Exception`) deletes it too. A cancel (the Stop button,
+  or the router's timeout) does not: `answer_question_via_graph` catches `Exception`, not
+  `CancelledError`, so the thread stays until the sweep below removes it. Harmless: the next
+  message reads the Session's own pending pause (CTX-14 note, 2026-10-29).
+- Deleting the chat (DELETE /api/history/{id}) deletes it at once, with the chat's conversation
+  memory and this worker's Session (`pipeline_graph.delete_thread`, CTX-04, 2026-10-29).
 - `sweep_loop` deletes threads idle longer than `PIPELINE_GRAPH_PAUSE_TTL_SECONDS` (1,800 s). On
   Postgres only one worker across both VMs sweeps at a time (advisory lock); the others skip that round.
 - The Session's own pending pause lives as long as the conversation row; it is consumed by the
@@ -93,4 +99,6 @@ was **not** written: it would duplicate `_resume_scheme_pause`, `_resume_option_
 Runs on one thread are serialised **per worker** by an asyncio lock. Across workers (the shared
 Postgres checkpointer makes the same thread visible to all four), two
 simultaneous requests on one session can both read the interrupt. The Session's stale-revision
-guard (`sync_out`) still keeps the newer state, as on the sequential path.
+guard (`sync_out`) still keeps the newer state. On one worker, the router also runs one turn per
+conversation at a time (`routers/query._TURN_LOCKS`, CTX-01, 2026-10-29), around the whole turn,
+not only the graph run.

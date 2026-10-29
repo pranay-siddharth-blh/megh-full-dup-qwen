@@ -15,6 +15,44 @@ function chunk(list, n) {
 
 const STATS_REFRESH_MS = 10 * 60 * 1000;
 const STATS_MIN_GAP_MS = 60 * 1000;   // focus + visibilitychange fire together; one read
+const STATS_OFFLINE_RETRY_MS = 30 * 1000;   // with the built-in figures on screen, look again soon
+
+// Read the card figures now, every STATS_REFRESH_MS, when the tab comes back into view,
+// and every STATS_OFFLINE_RETRY_MS until a read succeeds. `onResult(data | null)`;
+// returns the stop function. The min gap only merges focus + visibilitychange.
+export function pollSchemeStats(fetchStats, onResult) {
+  let alive = true;
+  let last = 0;
+  let isLive = false;
+  const load = () => {
+    last = Date.now();
+    fetchStats().then((data) => {
+      if (!alive) return;
+      if (data) isLive = true;
+      onResult(data || null);
+    });
+  };
+  load();
+  const hasDom = typeof document !== 'undefined' && typeof window !== 'undefined';
+  const onVisible = () => {
+    if (document.visibilityState === 'visible' && Date.now() - last >= STATS_MIN_GAP_MS) load();
+  };
+  if (hasDom) {
+    document.addEventListener('visibilitychange', onVisible);
+    window.addEventListener('focus', onVisible);
+  }
+  const timer = setInterval(load, STATS_REFRESH_MS);
+  const retry = setInterval(() => { if (!isLive) load(); }, STATS_OFFLINE_RETRY_MS);
+  return () => {
+    alive = false;
+    if (hasDom) {
+      document.removeEventListener('visibilitychange', onVisible);
+      window.removeEventListener('focus', onVisible);
+    }
+    clearInterval(timer);
+    clearInterval(retry);
+  };
+}
 
 // "Rural housing · one row per sanctioned house · sanctions FY 2017-18 to 2023-24"
 export function cardMetaLine(card, period) {
@@ -44,7 +82,7 @@ export function promptsForKeys(keys) {
   return { title: 'Try a question', items };
 }
 
-export function WelcomeCard({ strings, prompts, setPrompts, onAsk }) {
+export function WelcomeCard({ strings, prompts, setPrompts, onAsk, signedIn = true }) {
   const trackRef = useRef(null);
   const [perPage, setPerPage] = useState(4);
   const [arrows, setArrows] = useState({ show: true, prevDisabled: true, nextDisabled: false });
@@ -52,31 +90,22 @@ export function WelcomeCard({ strings, prompts, setPrompts, onAsk }) {
   // only until (or unless) /api/scheme-stats answers. Re-read when the tab comes back into
   // view and every STATS_REFRESH_MS, so a data load shows without a page reload (the server
   // caches for 10 min, so this adds no load to the shared database). 2026-10-22.
+  // Read only once signed in, and afresh on every sign-in (2026-10-29: the card sits behind
+  // the sign-in gate, asked before sign-in, got a 401 — which also raised a false "session
+  // expired" on the gate — and stayed on the built-in figures for 10 min after signing in).
+  // While offline, retry every STATS_OFFLINE_RETRY_MS, not every 10 min.
   const [live, setLive] = useState(null);
   const [statsState, setStatsState] = useState('loading');   // loading | live | offline
   useEffect(() => {
-    let alive = true;
-    let last = 0;
-    const load = () => {
-      if (Date.now() - last < STATS_MIN_GAP_MS) return;
-      last = Date.now();
-      fetchSchemeStats().then((data) => {
-        if (!alive) return;
-        if (data) { setLive(data); setStatsState('live'); } else { setStatsState((s) => (s === 'live' ? s : 'offline')); }
-      });
-    };
-    load();
-    const onVisible = () => { if (document.visibilityState === 'visible') load(); };
-    document.addEventListener('visibilitychange', onVisible);
-    window.addEventListener('focus', onVisible);
-    const timer = setInterval(load, STATS_REFRESH_MS);
-    return () => {
-      alive = false;
-      document.removeEventListener('visibilitychange', onVisible);
-      window.removeEventListener('focus', onVisible);
-      clearInterval(timer);
-    };
-  }, []);
+    if (!signedIn) {
+      // The next officer may hold other schemes (KI-420): never show this one's cards.
+      setLive(null); setStatsState('loading');
+      return undefined;
+    }
+    return pollSchemeStats(fetchSchemeStats, (data) => {
+      if (data) { setLive(data); setStatsState('live'); } else { setStatsState((s) => (s === 'live' ? s : 'offline')); }
+    });
+  }, [signedIn]);
   // The server sends only the cards of the schemes this account may query (KI-420);
   // once it has answered, a card it left out is not shown with its built-in figures.
   const shown = live && live.cards ? SCHEME_CARDS.filter((c) => c.key in live.cards) : SCHEME_CARDS;

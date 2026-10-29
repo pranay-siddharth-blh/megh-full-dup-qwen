@@ -124,9 +124,9 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
   `compose_response` enforce this. Don't weaken them.
 - **Few-shot examples are per scheme, ranked by IDF** (`annotations.few_shot_examples`). The
   CM Elevate Legacy bank is `cmelevatelegacy_prompt_few_shots.yaml` (v2), not the v1 file.
-  Since 2026-10-27 `SQL_EXAMPLES_SOURCE=qdrant` (the default) takes them from `megh_sql_metadata` instead, plus its
-  view / join notes (D-074; `yaml` = rollback, and what tests use via `tests/conftest.py`;
-  compare with `tests/nl2sql_eval/compare_examples_source.py` before switching, KI-438).
+  **`SQL_EXAMPLES_SOURCE=yaml` is the default again since 2026-10-29 (D-086, user decision after the B5 measurement:
+  qdrant needed 8 repairs vs 1).** `qdrant` takes them from `megh_sql_metadata` (unvalidated, KI-438) plus its view /
+  join notes (D-074); `yaml_meaning` ranks the YAML banks by meaning (B5). Measure with the held-out set before switching.
 - **Follow-up context is structured, not sliced** (D-022). The rewrite gets the previous turn's
   filters, and gets its result rows only when the follow-up points into them. Its output is
   provenance-checked field by field (D-024). Do not put raw previous-answer text back into a
@@ -251,7 +251,7 @@ above instead.
   The DB connection sometimes times out briefly, so retry.
 - Qdrant is `http://10.48.242.4:6333` (data box, needs the VPN) since 2026-10-27 (D-074). The project uses
   **only two collections, both READ-ONLY to the app**: `megh_knowledge` (RAG, `QDRANT_COLLECTION`,
-  `QDRANT_KB_READ_ONLY=true`) and `megh_sql_metadata` (SQL examples + view / join notes, `SQL_EXAMPLES_SOURCE=qdrant`,
-  the default; `yaml` = rollback). Conversation memory is off (it needs its own collection). Never create, write or delete
+  `QDRANT_KB_READ_ONLY=true`) and `megh_sql_metadata` (SQL examples + view / join notes, used only with
+  `SQL_EXAMPLES_SOURCE=qdrant`; the default is `yaml` since 2026-10-29, D-086). Conversation memory is off (it needs its own collection). Never create, write or delete
   any collection there (`Metadata_*`, `sql_examples`, `megh_scheme_kb`, ... are not ours).
 - `.env` is gitignored and holds real secrets. Never print or commit it.

@@ -37,6 +37,17 @@ def test_no_question_is_in_the_fix_loop():
         f"{x['id']} ~ {x['matches']!r} [{x['source']}]" for x in leaked)
 
 
+def test_every_expected_pause_names_a_real_pause_rule():
+    # CTX-09: the rule an item expects must be one the app can raise (the
+    # router's own pause registries), so a typo can never pass as "expected".
+    from app.routers.query import SCHEME_PAUSE_RULES, SCOPE_MERGE_RULES
+    rules = set(SCOPE_MERGE_RULES) | set(SCHEME_PAUSE_RULES)
+    flagged = [i for i in ITEMS if i.get("expect_pause")]
+    assert flagged
+    assert all(i["expect_pause"] in rules for i in flagged), \
+        [(i["id"], i["expect_pause"]) for i in flagged if i["expect_pause"] not in rules]
+
+
 def test_the_guard_catches_a_copied_question():
     # A few-shot question is, by definition, in the fix loop.
     assert holdout.leak("Which district received the highest total disbursement?")

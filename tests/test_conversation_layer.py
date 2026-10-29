@@ -605,7 +605,7 @@ def test_router_refuses_a_session_held_by_another_user(turn):
     with pytest.raises(HTTPException) as e:
         asyncio.run(router._answer(router.QueryRequest(question="and in 2024-25?", session_id="conv-k2"),
                                    _request(), other))
-    assert e.value.status_code == 409
+    assert e.value.status_code == 403
     assert turn.asked == ["How many MGNREGA job cards are there in Ri Bhoi?"]
 
 

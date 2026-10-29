@@ -937,6 +937,35 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-087 — The SQL prompt's data figures are read live from megh_db (`app/data_facts.py`) (2026-10-29)
+- **Date:** 2026-10-29. User rule: "the complete project is dynamic" — after the scheme cards (KI-571) and the
+  prompt both showed stale figures (CM Elevate "8,867 records", megh_db 8,948; Focus Legacy "11,906" and "~11,904"
+  groups, "14,569" and "~14,566" payments in the same block).
+- **Decision:** every figure in `schema_context` that states what the data holds today (row / NULL / distinct counts,
+  shares, the years held, the Ri Bhoi "men" example) is a `[[name]]` token; `data_facts.FACTS` (89 figures) fills it from
+  11 fixed, parameter-free SELECTs over the curated views and dims (never a privacy table), on the read-only pool in a
+  READ ONLY transaction. `refresh_loop()` runs from the lifespan now and every 10 min; `build_schema_context` and
+  `available_metrics_text` only read the result (no DB wait in a turn). A failed query keeps the last good figures;
+  before the first success each token shows the figure typed before (the prompt reads exactly as before). Changes are
+  logged (`data_facts: N figure(s) changed`); `/metrics` shows `data_facts` (as_of, errors).
+- **Typed on purpose:** dated incident history ("confirmed live 2026-09-13 … dropped 4,670"), figures from outside
+  megh_db (requirement workbook 2,847 / 13, client-API drift 89, raw-file "8,436 source rows"), thresholds ("fewer than
+  15"), the Focus Legacy name-spelling measurements (5a), and the structural year rules (Focus Legacy rule 7 "FY 2023-24
+  is absent", CM Elevate Legacy "only two years") — a new year there needs a person to rewrite the rule.
+- **Rollback:** none needed; to freeze, stop the lifespan task (tokens then show the typed defaults).
+- **Claims (same day, the follow-up):** the structural rules a number cannot carry are `data_facts.CLAIMS` (17): Focus Plus (two amount values, amount NOT NULL, 12.5K one row per person), PMAY-G (six stage names), CM Elevate (onhold / is_withdraw FALSE on every row; file-status, data_verified and sector value lists), Focus Legacy (the four years with FY 2023-24 absent, the 5,000 identity, bank_details_current never FALSE, products 100% in FY 2021-22/22-23), CM Elevate Legacy (only FY 2024-25 / 2025-26; loan_entity, desanctioned_reason_raw value lists; refused_flag_raw never FALSE). Each is a read-only SELECT + a check, run by `check_claims()` after every refresh. A broken claim is logged at WARNING ("RULE NO LONGER TRUE … Rewrite it in app/schema_context.py"), POSTed once to `ALERT_WEBHOOK_URL` (the guardrail's sender, D-080; counts only) and listed in `/metrics` `data_facts.broken_claims` until it holds again; a failed query leaves the claim as it was. The rule text is NOT rewritten automatically: a person decides the new wording (a wrong automatic rewrite is worse than a loud warning). Live 2026-10-29: 17/17 hold; deliberately wrong expectations were caught (7,392 'Valid' rows, a "new" year, 292,385 ₹2,500 rows).
+
+### D-086 — SQL examples from the reviewed YAML banks again (default `yaml`); `yaml_meaning` added (2026-10-29)
+- **Date:** 2026-10-29. RAG plan B5 (Task 13); user decision after the measurement ("yaml").
+- **Evidence:** held-out NL->SQL set, 74 q, same code, 0 network errors (results `2026-10-29_1323/1333/1339_b5-*.json`):
+  yaml **42/74**, SQL first try 42/43, **1 repair**; yaml_meaning 41/74, 41/42, 4 repairs; qdrant 41/74, 37/42,
+  **8 repairs**, 3 verifier rejections; median 11.3 / 10.5 / 8.5 s. Accuracy within noise; meaning ranking changed the
+  examples on 30/37 turns with no measurable gain; qdrant's examples are unvalidated (KI-438).
+- **Decision:** `SQL_EXAMPLES_SOURCE=yaml` (config default and dev `.env`; deploy `.env` must match). `yaml_meaning`
+  (`sql_examples._rank_yaml`) stays available. megh_sql_metadata is then not read for SQL (its view / join notes leave
+  the prompt) — reverses the 2026-10-27 evening instruction for the SQL examples only.
+- **Rollback:** `SQL_EXAMPLES_SOURCE=qdrant`.
+
 ### D-085 — Query plan stage 2a: built during the turn beside the guardrail call; built, measured, OFF by default (2026-10-29)
 - **Date:** 2026-10-29. RAG plan E1 stage 2 (the user's go-ahead "do the next step") and E2's "run the guardrail in
   parallel with the plan". Files: `app/query_plan.py` (`start_for_turn`, `cancel_for_turn`, `take_for_turn`,
@@ -960,10 +989,31 @@ not recorded.*
 - **So `QUERY_PLAN_IN_TURN=false` by default** (= stage 1 exactly; pinned by a test). Turn it on only together with
   a stage that reads the plan and drops a classifier call of its own (stage 2b), or after the gateway serves
   concurrent 4B requests in parallel; re-measure with the scratch A/B (`answer_question` on vs off) first.
+- **Stage 2b, first field = intent (same day, user: "do the next step"):** c13 `_c13_intent_by_rules(question,
+  session)` — after every cue rule, where the last-resort classifier call was, it returns this turn's plan intent
+  when the plan was read from the same words and says DATA / KNOWLEDGE (`pipeline_decision stage=intent
+  source=query_plan`); OTHER, no plan or other words -> the classifier call as before. The B3 safety net and every
+  c14 post-rule still run. c14 passes the session only when a plan exists (so with the flag off the call is byte-for-byte
+  the old one). Offline, on the 383 shadow-log questions: only **39 (10%)** reach that call; there the plan matched the
+  pipeline 36/36 when it said DATA / KNOWLEDGE (the 3 others were OTHER -> fallback).
+- **Held-out NL->SQL set, same code, back to back (`2026-10-29_1355_e1-2b-plan-off`, `_1401_e1-2b-plan-on`):** 42/74
+  both, 0 regressions, 0 fixed, identical outcomes; per question median 8.05 s off vs 8.40 s on (mean 8.64 vs 8.99;
+  45/74 slower on). Live A/B (8 own questions, half falling past the rules): no clear latency difference (order
+  effects dominate); one routing gain — "What about Focus Legacy groups in East Khasi Hills?" got the figures on, the
+  "published information does not contain" knowledge reply off.
+- **Verdict:** the reader is correct and safe but saves a call on ~10% of turns while the in-turn plan costs ~0.35 s
+  on every new turn today, so **`QUERY_PLAN_IN_TURN` stays false**. What would pay: one call reading the guardrail
+  verdict AND the plan together (E2 + E1 merged; a safety-behaviour change, needs its own go-ahead and the guardrail
+  test suites), or a plan reader that replaces a call made on most turns.
+- **Merged guardrail + plan call: measured, NOT built (same day).** Live, sequential, 8 questions x 2: the guardrail
+  call median **0.16 s** (mean 0.40 s), the plan call median **0.80 s** (mean 2.31 s). One call returning both must
+  write the 9-field plan before the verdict is complete, so the safety check on the critical path would grow from
+  ~0.16 s to ~0.8 s on every new question, to save the intent call on ~10% of turns, and it would ask the 4B model
+  for two jobs in the safety call. Revisit only if a plan reader replaces calls on most turns.
 - **Status:** Active (code present, off). E2's latency goal is NOT met by parallelism on today's gateway.
 
-### D-087 — Chat UI audit product decisions (2026-10-29, user: "use your recommendations")
-- **Context:** 12 audit findings needed a product decision (KI-571). The user chose the recommended option for each.
+### D-089 — Chat UI audit product decisions (2026-10-29, user: "use your recommendations")
+- **Context:** 12 audit findings needed a product decision (KI-574). The user chose the recommended option for each.
 - **Decision:**
   1. **J-4 / J-5 (narrows D-056 part 1):** a NEW chat whose question names its own scheme is answered for all of
      Meghalaya (said in the banner, "by district" chip) instead of the district pause. The year is still asked when
@@ -984,7 +1034,7 @@ not recorded.*
   9. **X-16:** the app is light-only (`color-scheme: light`); no dark theme.
 - **Where:** `docs/audit_fix_log.md` (each ID), `tests/test_chat_ui_audit_more_2026_10_29.py`.
 
-### D-086 — One measure-kind rule for every total, share and stack (2026-10-29)
+### D-088 — One measure-kind rule for every total, share and stack (2026-10-29)
 - **Context:** the chat UI audit (section G) found the UI adding overlapping figures in four places (donut centre,
   "% of the total", pivot Total row / column, stacked-bar top) and the backend sending `stacked` for any 2-label,
   1-measure result: "Total 11,000" villages for a state of about 7,000; households + houses added; job cards and
@@ -2063,7 +2113,63 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
-- Progress: not started
+- Progress: five entries below (2026-10-29); the integrator numbers them from D-074 on.
+
+#### D-A2-CTX-09 — Conversation rulebook v1 (PROPOSED: awaiting the user's sign-off)
+- **What:** one page for the rules already decided one at a time. No rule is new; the examples are the tests'.
+  1. **A new chat asks what it cannot know** (D-056 §1): scheme → district → year. "What was the total Focus Legacy
+     amount in FY 2024-25?" in a new chat asks the area (`scope-not-specified`, chips + "All of Meghalaya").
+  2. **A self-sufficient question inherits nothing** (D-061): "Which district has the highest beneficiaries in
+     MGNREGA?" after an East Khasi Hills answer is statewide.
+  3. **…and is asked the year when it names none** (D-065): the year chips, never a silent latest year.
+  4. **…unless it repeats the chat's measure on the chat's scheme** (D-075): it keeps the chat's year, never its
+     place ("What is the total beneficiaries manraya?" after "… beneficiaries" in FY 2023-24).
+  5. **A follow-up inherits only what it leaves out** (D-022/D-024): "What about FY 2023-24?" keeps scheme and place.
+  6. **A bare "CM Elevate"**: money words → CM Elevate Legacy; applications-only words → applications; otherwise
+     ask (D-064). "How many CM Elevate applicants are there?" asks (`cm-elevate-dataset`).
+  7. **A bare "Focus"** always asks which Focus (CLAUDE.md §4).
+- **For sign-off — wordings where the eval expected an answer and the rules ask:** "currently" (FP-03), "statewide"
+  (FP-06), "across Meghalaya" (FP-10), "Meghalaya Rural Bank accounts" (FL-03). Should these words count as "all of
+  Meghalaya" / "latest year" instead of asking? Until decided, the eval scores those pauses as `expected_pause`.
+- **Eval:** `questions.yaml` `expect_pause: <rule>` on the 31 items the rules pause; `compare.pause_verdict`; an
+  expected pause is reported on its own and left out of the accuracy denominator; any other pause is a miss.
+
+#### D-A2-CTX-01 — A conversation belongs to its owner; one turn at a time per conversation
+- **Decision:** a request for another user's session id gets 403 (this worker's copy by login, the durable row by
+  app.users id; SQL backstop `user_id IS NOT DISTINCT FROM EXCLUDED.user_id` in both upserts). Unknown owners are
+  not checked (dev, old rows). The router runs one turn per conversation at a time on a worker (`_TURN_LOCKS`, a
+  wrapper keeping the name `_answer`); the graph's own lock is not reused (not re-entrant). A failed or stopped turn
+  restores the session as the turn found it (a JSON copy taken after sync_in, before the conversation layer).
+- **Rejected (the audit's own "don't"):** user-namespaced graph thread ids (orphans paused runs at deploy); 409 +
+  client retry; a request-id dedup table.
+
+#### D-A2-CTX-04 — Retention is opt-in; the audit has its own period
+- **Decision:** `CONVERSATION_RETENTION_DAYS` and `QUERY_AUDIT_RETENTION_DAYS`, both 0 (= keep) until the user picks
+  the periods; purged daily by the existing `conversation_memory.purge_loop`. The query audit is the compliance
+  trail (delete_conversation never touches it), so it is NOT tied to the conversation period, unlike the lane plan's
+  single setting. Deleting a chat also deletes its Qdrant memory (filter always names session AND owner), its paused
+  run and this worker's Session.
+
+#### D-A2-CTX-08 — The decision log keeps its no-text promise at the source
+- **Decision:** `context_budget.log_decision` logs any text value under `question` / `prompt` / `answer` /
+  `result` as `{"sha256": 12 hex, "chars": n}`. Instead of editing the seven call sites (the lane plan's version):
+  covers future call sites too and leaves lane B2's conversation_layer / c14 lines untouched.
+
+#### D-A2-CTX-07 — Two follow-up shapes are rewritten deterministically
+- **Decision:** a breakdown-only message after a STATEWIDE answer → the previous question by that dimension; "compare
+  … with <place>" (one new place, the previous place's own level, nothing else changed) → the previous question for
+  both places. **Why it does not conflict with D-056:** D-056 leaves a place SWAP ("what about Ri Bhoi?") to the
+  model; these need an explicit breakdown or compare cue and change nothing but the dimension / the added place.
+  KI-416 is not touched: the rewrite guard already refuses the measure switch (SQL generation, lane B1).
+#### D-A2-REPORT — Two continuations the test team expected (2026-10-29; for the user's review)
+- **After a knowledge aside, a measure-only question keeps the chat's data scope** when the chat is on that scheme
+  (it used to get the scheme alone and run as a new question). A chat that opened with the knowledge question, or an
+  aside about another scheme, is unchanged.
+- **A block of the chat's own district keeps the chat's year** (D-061 treats it as a new question; D-075 kept the year
+  only for the same measure). The place is the question's own, as in D-075. A block elsewhere, or another scheme, is
+  still a new question.
+- Both extend D-061 / D-075 narrowly; neither changes what counts as standalone. Tests:
+  `tests/test_test_team_report_2026_10_29.py`.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

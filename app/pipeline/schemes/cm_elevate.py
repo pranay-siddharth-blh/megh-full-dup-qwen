@@ -112,6 +112,9 @@ _CME_ON_HOLD = Matcher(_cme_join("on", "hold"))
 # those still asks "which scheme?".
 _CMELEVATE_ONLY_TERMS = Matcher(Alt(
     NotBefore(_CME_CM_ELEVATE, _CME_LEGACY_TAIL),
+    # B2 (2026-10-29): "applications pending verification at level 2" asked which scheme;
+    # the workflow level (current_level) is on v_cm_elevate only.
+    Seq("level", Pred(lambda w: w.isdecimal()), sep="space"),
     W("piggery", "poultry"), "goat farming", "warehouse scheme",
     W("sericulture", "motorcaravan"), "agro tourism villa",
     "prime small enterprise", "prime tourism vehicle",
@@ -178,6 +181,9 @@ _CMELEVATELEGACY_ONLY_TERMS = Matcher(Alt(
     # each scheme?", CM Elevate Legacy TC-19, test run 2026-10-06).
     Seq("sanctioned", _cme_sg("application")),
     _CmeNear(_cme_sg("application"), "sanctioned", 30),
+    # B2 (2026-10-29): "beneficiaries sanctioned a loan in Tura" asked which scheme; the loan
+    # columns (total_loan_disbursement, loan_entity …) are on v_cm_elevate_disbursement only.
+    _cme_sg("loan"),
 ))
 # Vocabulary only the sanction-and-disbursement dataset can answer. Consulted
 # ONLY once a question is already a CM Elevate question (named, or via a
@@ -353,6 +359,20 @@ def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None
         return "applications"
     if _CME_BOTH_DATASETS_VOCAB.search(q) or _CME_DATA_REQUEST.search(q):
         return "ask"
+    return None
+
+
+def _cme_open_topic_pin(question: str, topics: "list[str]") -> "list[str] | None":
+    """The open topics a vague question fits, when CM Elevate is one of them and
+    the question asks for something only its applications data holds ("how many
+    are on hold?", "pending verification"): CM Elevate alone. None otherwise.
+    Used by the which-topic step (c14 _vague_topic_clarification) only: on a
+    question with no open CM Elevate topic these words stay generic and still ask
+    which scheme (_CMELEVATE_ONLY_TERMS leaves them out on purpose). Test team
+    report 2026-10-29, Bug 5: after a CM Elevate answer, with MGNREGA and PMAY-G
+    topics also open, "how many are on hold?" asked which topic."""
+    if "CM Elevate" in (topics or []) and _CMELEVATE_APPLICATIONS_ONLY.search(question or ""):
+        return ["CM Elevate"]
     return None
 
 

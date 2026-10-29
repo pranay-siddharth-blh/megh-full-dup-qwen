@@ -43,8 +43,15 @@ export async function apiFetch(path, opts) {
 
 // ── Session id (sessionStorage, per tab) ─────────────────────────────────────
 const SESSION_KEY = 'focusSessionId';
+// The id names the conversation on the server, so it must not be guessable
+// (CTX-01): 128 random bits from the browser's CSPRNG, not Math.random.
+function randomHex(bytes) {
+  const buf = new Uint8Array(bytes);
+  crypto.getRandomValues(buf);
+  return Array.from(buf, (b) => b.toString(16).padStart(2, '0')).join('');
+}
 export function generateSessionId() {
-  const id = `session_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  const id = `session_${Date.now()}_${randomHex(16)}`;
   try { sessionStorage.setItem(SESSION_KEY, id); } catch (e) { /* ignore */ }
   return id;
 }
@@ -169,7 +176,7 @@ export function friendlyError(message) {
   if (!m || low.includes('internal server error') || low.includes('api request failed') || low.includes('bad gateway')
     || low.includes('timeout') || low.includes('timed out')) {
     say = 'The data service did not respond. Try again in a minute.';
-  } else if (low.includes('another signed-in user')) {
+  } else if (low.includes('another signed-in user') || low.includes('belongs to another account')) {
     return m;
   } else if (low.includes('at most') || low.includes('too long') || low.includes('2000 characters')) {
     say = 'The question is too long. Ask it in 2,000 characters or fewer.';

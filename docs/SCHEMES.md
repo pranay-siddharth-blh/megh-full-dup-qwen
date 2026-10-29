@@ -106,9 +106,13 @@ Notes on the table:
 - **Tests:** the cross-scheme and edge suites, plus `tests/test_pmay_usecase_fixes.py` (2026-09-28).
 - **Deterministic facts path (D-029):** the fixed use-case shapes (counts, money, remaining,
   stages, release status, rates, summaries, A-vs-B comparisons; one FY or one date) are
-  answered by `_pmay_facts_query` / `_pmay_facts_answer` in `app/pipeline.py`, not the SQL
-  model. PMAY-G is a village-grained scheme for resolution (`_village_scheme`,
-  `_pmay_village_names`). `amount_released` is NULL on 336 houses (nothing released) — COALESCE it.
+  answered by `_pmay_facts_query` / `_pmay_facts_answer` in `app/pipeline/schemes/pmay_g.py`, not
+  the SQL model. PMAY-G is a village-grained scheme for resolution (`_village_scheme`,
+  `_pmay_village_names`). `amount_released` is NULL on 336 sanctioned houses (462 with the 126
+  zero-sanction registrations) — COALESCE it. The "nothing released" count (`no_release`,
+  `COALESCE(amount_released, 0) = 0`) includes the registrations: 462 statewide (2026-10-29). Its
+  wordings are `_PMAY_M["none"]` ("not received any amount", "received no release" — KI-573).
+  The 336 in the SQL prompt is live (D-087).
 - **Rules added 2026-09-28:** `_PMAY_RULES` 7–9 (one row per named area, ratio of totals, no
   LIMIT 1 on a comparison); stage phrases with "sanctioned" match only as a phrase.
 - **Use-case QA (2026-09-28):** round 1 17 / 28 → after fixes see TESTING.md

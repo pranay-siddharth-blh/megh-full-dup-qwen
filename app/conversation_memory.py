@@ -133,7 +133,7 @@ def _retention_floor() -> float:
     return time.time() - days * 86400 if days and days > 0 else 0.0
 
 
-async def _purge_collection(client, name: str, old: models.Filter) -> int | None:
+async def _purge_collection(client, name: str, old: models.Filter, why: str = "") -> int | None:
     try:
         if not await client.collection_exists(name):
             return None
@@ -141,8 +141,8 @@ async def _purge_collection(client, name: str, old: models.Filter) -> int | None
         if n:
             await client.delete(collection_name=name,
                                 points_selector=models.FilterSelector(filter=old), wait=True)
-            logger.info("conversation_memory: deleted %d turns older than %d days from %s",
-                        n, settings.CONTEXT_MEMORY_RETENTION_DAYS, name)
+            logger.info("conversation_memory: deleted %d turns %s from %s", n,
+                        why or f"older than {settings.CONTEXT_MEMORY_RETENTION_DAYS} days", name)
         return n
     except Exception as e:  # noqa: BLE001 — housekeeping must never break startup
         logger.warning("conversation_memory: purge of %s failed (non-fatal): %s", name, e)
@@ -169,10 +169,64 @@ async def purge_old_turns() -> int | None:
     return n
 
 
+def _memory_collections() -> list[str]:
+    """Every collection that holds officers' chat turns: the live one and the
+    CONTEXT_MEMORY_PURGE_ALSO list (the rollback copy, D-067)."""
+    names = [settings.CONTEXT_MEMORY_COLLECTION]
+    for name in (s.strip() for s in settings.CONTEXT_MEMORY_PURGE_ALSO.split(",")):
+        if name and name not in names:
+            names.append(name)
+    return names
+
+
+async def delete_session(*, tenant_id: int | None, user_id: int | None, session_id: str | None) -> int | None:
+    """Delete one conversation's turns from conversation memory (the officer
+    deleted the chat, CTX-04, 2026-10-29). Returns how many went from the live
+    collection, or None when nothing was done (never raises).
+
+    The filter always names the session AND its owner, plus the tenant when it
+    is known: with either missing nothing is deleted, so a bad call can never
+    reach another officer's turns."""
+    if not session_id or user_id is None:
+        return None
+    must = [models.FieldCondition(key="session_id", match=models.MatchValue(value=session_id)),
+            models.FieldCondition(key="user_id", match=models.MatchValue(value=user_id))]
+    if tenant_id is not None:
+        must.append(models.FieldCondition(key="tenant_id", match=models.MatchValue(value=tenant_id)))
+    try:
+        client = vectorstore.get_client()
+    except Exception as e:  # noqa: BLE001
+        logger.warning("conversation_memory: delete_session skipped, no Qdrant client: %s", e)
+        return None
+    deleted = None
+    for name in _memory_collections():
+        n = await _purge_collection(client, name, models.Filter(must=must), why="of a deleted conversation")
+        if name == settings.CONTEXT_MEMORY_COLLECTION:
+            deleted = n
+    return deleted
+
+
+async def _purge_old_conversations() -> None:
+    """The database side of retention (CTX-04): conversations, their turns and
+    the query audit older than CONVERSATION_RETENTION_DAYS /
+    QUERY_AUDIT_RETENTION_DAYS. Both default to 0 (keep everything) until the
+    periods are chosen. Never raises."""
+    if not (settings.CONVERSATION_RETENTION_DAYS > 0 or settings.QUERY_AUDIT_RETENTION_DAYS > 0):
+        return
+    try:
+        from app import appdb
+        await appdb.purge_old_conversations(conversation_days=settings.CONVERSATION_RETENTION_DAYS,
+                                            audit_days=settings.QUERY_AUDIT_RETENTION_DAYS)
+    except Exception as e:  # noqa: BLE001 — housekeeping must never break the worker
+        logger.warning("conversation_memory: conversation retention purge failed (non-fatal): %s", e)
+
+
 async def purge_loop(every_seconds: int = 86400) -> None:
-    """Purge now, then once a day, for the life of the worker."""
+    """Purge now, then once a day, for the life of the worker: conversation
+    memory in Qdrant, then the conversation tables (CTX-04)."""
     while True:
         await purge_old_turns()
+        await _purge_old_conversations()
         await asyncio.sleep(every_seconds)
 
 
@@ -183,12 +237,15 @@ def index_turn(*, tenant_id: int | None, user_id: int | None, session_id: str,
     Never raises into the caller — see module docstring."""
     if not settings.CONTEXT_SEMANTIC_MEMORY_ENABLED:
         return
+    # The turn's time is now, when it was answered, not when its embedding
+    # comes back: a slow gateway stamped turn N-1 after a quick "start a new
+    # topic", and it came back past memory_since (CTX-14, 2026-10-29).
     _spawn(_index_turn(tenant_id, user_id, session_id, question,
-                       standalone_question, answer, schemes or []))
+                       standalone_question, answer, schemes or [], time.time()))
 
 
 async def _index_turn(tenant_id, user_id, session_id, question, standalone_question,
-                      answer, schemes) -> None:
+                      answer, schemes, ts: float) -> None:
     try:
         text = standalone_question or question
         if not text or not text.strip():
@@ -210,7 +267,7 @@ async def _index_turn(tenant_id, user_id, session_id, question, standalone_quest
                 "standalone_question": (standalone_question or "")[:2000],
                 "answer": (answer or "")[:1000],
                 "schemes": schemes,
-                "ts": time.time(),
+                "ts": ts,
             },
         )
         await vectorstore.get_client().upsert(

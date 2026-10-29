@@ -408,6 +408,19 @@ class Settings(BaseSettings):
     SESSION_TTL_SECONDS: int = 28800         # 8 h sliding window (user, 2026-10-19; was 4 h, D-051)
     SESSION_MAX: int = 5000                   # sessions kept before oldest-first eviction
     SESSION_MAX_TURNS: int = 50               # turns retained per session (and questions in the snapshot)
+    # ── Lane A2: conversation integrity (2026-10-29) ──
+    # Total deadline of one plain POST /api/query (REL-02b). It has no keep-alive
+    # pings, and nginx closes it at 120 s; REQUEST_TIMEOUT_SECONDS per part, one
+    # part per scheme, could pass that. The streamed route is not capped.
+    QUERY_NONSTREAM_MAX_SECONDS: float = 110.0
+    # Retention of the conversation tables (CTX-04): app.conversations and their
+    # turns idle longer than this many days are deleted once a day
+    # (conversation_memory.purge_loop). 0 = keep everything: the period is the
+    # user's decision, so nothing is deleted until one is set. The query audit
+    # is the compliance trail (conversation_store.delete_conversation never
+    # touches it), so it has its own period, also 0 until it is decided.
+    CONVERSATION_RETENTION_DAYS: int = 0
+    QUERY_AUDIT_RETENTION_DAYS: int = 0
     # Conversation layer (app/conversation_layer.py), run by the router before
     # the caches and the pipeline: idle expiry, "start a new topic" / "forget
     # the previous question", and "what was the PMAY-G information again?".
@@ -729,7 +742,7 @@ class Settings(BaseSettings):
     # tests/nl2sql_eval/compare_examples_source.py; "yaml" is the rollback.
     # "yaml_meaning" (B5, 2026-10-29): the reviewed YAML banks ranked by meaning
     # (sql_examples._rank_yaml), no megh_sql_metadata. Not the default until measured.
-    SQL_EXAMPLES_SOURCE: str = "qdrant"
+    SQL_EXAMPLES_SOURCE: str = "yaml"   # user decision 2026-10-29 (B5, D-086)
     SQL_EXAMPLES_COLLECTION: str = "megh_sql_metadata"
     SQL_EXAMPLES_TIMEOUT_SECONDS: float = 4.0
     PROMPT_BUDGET_SQL_TOKENS: int = 15360

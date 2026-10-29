@@ -191,7 +191,9 @@ def test_defaults_name_only_the_two_collections():
     fields = Settings.model_fields
     assert fields["QDRANT_COLLECTION"].default == "megh_knowledge"
     assert fields["SQL_EXAMPLES_COLLECTION"].default == "megh_sql_metadata"
-    assert fields["SQL_EXAMPLES_SOURCE"].default == "qdrant"
+    # D-086 (user decision 2026-10-29, B5 measurement): the reviewed YAML banks are the default again;
+    # "qdrant" (2026-10-27 evening -> 2026-10-29) needed 8 SQL repairs vs 1 at the same accuracy.
+    assert fields["SQL_EXAMPLES_SOURCE"].default == "yaml"
     assert fields["QDRANT_KB_READ_ONLY"].default is True
     assert fields["CONTEXT_SEMANTIC_MEMORY_ENABLED"].default is False
 

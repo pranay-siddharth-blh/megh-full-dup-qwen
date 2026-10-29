@@ -75,9 +75,18 @@ _MGNREGA_ONLY_TERMS = Matcher(Alt(
     _mg_sp(W("receiv", prefix=True), "employment"), _mg_sp("employment", ("persons", "households")),
     _mg_sp("employment", "generated"), _mg_sp("generated", "employment"),
     _mg_sp(("administrative", "admin"),
-           ("expenditure", "expenditures", "expense", "expenses", "cost", "costs")),
+           ("expenditure", "expenditures", "expense", "expenses", "cost", "costs",
+            # KI-435 (MGNREGA Excel run 2026-10-27, 17/18): "administrative SPEND in X block"
+            # matched no scheme here, so the route gate answered "no usable figure in any
+            # scheme", while "administrative expenditure" got MGNREGA's 0.00-with-note answer.
+            "spend", "spending", "spent")),
     _mg_sp("labour", "budget"), _mg_sp(("work", "works"), "demanded"), _mg_sp("wage", "employment"),
     _mg_sp("employment", "guarantee"),
+    # B2 (RAG plan, 2026-10-29, tests/scheme_vocab/labels.json): "mandays" / "man-days" (the
+    # catalogue's own MGNREGA synonym) and "unskilled labour / workers" (only MGNREGA holds
+    # unskilled_wage_exp) asked "which scheme?".
+    Joined("man", _MG_DAYS),
+    _mg_sp("unskilled", ("labour", "labor", "labourer", "labourers", "work", "worker", "workers")),
 ))
 
 
@@ -985,6 +994,32 @@ def _mgnrega_village_list_issue(question: str, schemes: list[str], sql: str) -> 
                 "HAVING SUM(persons_employed) > 0 after the GROUP BY. Keep every other clause "
                 "exactly as it was.")
     return None
+
+
+# KI-436 (MGNREGA Excel run 2026-10-27, 10/19): "how many villages in AMPATHI AC had
+# MGNREGA employment" counted every village row, zero-employment ones included (120;
+# correct 114). The list guard above covers only "which villages"; a COUNT of villages
+# with employment must keep the positive rows too.
+_VILLAGE_COUNT_ASK_MATCH = Matcher(Alt(
+    _mg_sp("how", "many", ("village", "villages")),
+    _mg_sp(("number", "count", "no"), "of", ("village", "villages"))))
+_HAD_EMPLOYMENT_MATCH = Matcher(Alt(
+    _mg_sp(("had", "with", "having", "got", "received", "receiving"), Opt("mgnrega"), ("employment", "work")),
+    _mg_sp("were", "employed")))
+
+
+def _mgnrega_village_count_issue(question: str, schemes: list[str], sql: str) -> "str | None":
+    """Repair instruction for a MGNREGA count of villages WITH employment that keeps
+    zero-employment villages; else None."""
+    q = question or ""
+    if schemes != ["MGNREGA"] or not _VILLAGE_COUNT_ASK_MATCH.search(q) \
+            or not (_HAD_EMPLOYMENT_MATCH.search(q) or _RECEIVED_EMPLOYMENT_MATCH.search(q)):
+        return None
+    if not sql or _mg_keeps_positive_only(sql):
+        return None
+    return ("this question counts the villages that HAD employment, but the query also counts "
+            "villages whose employment is zero (they have rows with 0 persons). Add "
+            "persons_employed > 0 to the WHERE clause. Keep every other clause exactly as it was.")
 
 
 def _mgnrega_comparison_without_figures(question: str, schemes: list[str],

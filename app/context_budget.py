@@ -33,6 +33,7 @@ TEXT, only section names and sizes, so questions and result data never reach
 the log through this path.
 """
 import contextvars
+import hashlib
 import json
 import logging
 from dataclasses import dataclass
@@ -105,13 +106,27 @@ def log_prompt_context(kind: str, sections: "list[tuple[str, str]]", *,
     return record
 
 
+# The fact names that carry free text. log_decision keeps its promise for them
+# itself: their text never reaches the log, only a short hash (to match the
+# same question across records) and its length. Seven call sites passed
+# question=... and the officers' questions were in the log (CTX-08, 2026-10-29).
+_TEXT_FACTS = frozenset(("question", "prompt", "answer", "result"))
+
+
+def _text_fingerprint(text: str) -> dict:
+    return {"sha256": hashlib.sha256(text.encode("utf-8")).hexdigest()[:12], "chars": len(text)}
+
+
 def log_decision(stage: str, **facts) -> dict:
     """Log one `pipeline_decision` record: WHY a stage chose what it chose —
     the continuation signals and follow-up kind, the intent, the schemes, a
     clarification rule, an SQL guard's verdict. Companion to prompt_context
     (sizes) and llm_call (tokens, latency); joined to both by request_id.
     `facts` are labels, rule names, scheme names and small structured values
-    only, never question, prompt or result text."""
+    only, never question, prompt or result text: a text value under one of
+    _TEXT_FACTS is logged as its fingerprint (hash + length)."""
+    facts = {k: _text_fingerprint(v) if k in _TEXT_FACTS and isinstance(v, str) else v
+             for k, v in facts.items()}
     record = {"event": "pipeline_decision", "request_id": request_id_var.get(),
               "stage": stage, **facts}
     logger.info("pipeline_decision %s", json.dumps(record, default=str, sort_keys=True))

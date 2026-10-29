@@ -15,7 +15,12 @@ unresolved as of 2026-08-28) and do not appear here.
 
 Re-derive this whenever a scheme is added or SCHEMA_FOR_DEVELOPERS.md changes;
 do not let it drift.
+
+A figure that describes what the data holds today (a row count, a NULL count, a share)
+is a [[name]] token filled from app/data_facts.py, read live from megh_db (2026-10-29:
+the typed figures went stale on every data load). Dated incident history stays typed.
 """
+from app import data_facts
 
 SCHEME_CATALOG = {
     "MGNREGA": "Rural employment guarantee — village-year grain, two facts "
@@ -73,7 +78,7 @@ SCHEME_METRICS = {
         "disbursements / payments made (COUNT(*), one row per payment)",
         "amount disbursed (SUM, in rupees; only two values exist, 5,000 and 2,500)",
         "members with an id (COUNT(DISTINCT member_key) — 12.5K registration cohort only, "
-        "~3.2% of rows; NOT the scheme total)",
+        "~[[fp_125k_pct]]% of rows; NOT the scheme total)",
         "batch split — 93K legacy paid cohort vs 12.5K newer registration cohort",
         "tranche breakdown (Tranch 1..4; categorical, never a time series)",
         "gender / occupation / application status — 12.5K cohort only",
@@ -81,7 +86,7 @@ SCHEME_METRICS = {
     ],
     "CM Elevate": [
         "applications received (COUNT(DISTINCT request_id) — a request, not an award)",
-        "applications by scheme (15 sub-schemes under cm_scheme_key / scheme_name)",
+        "applications by scheme ([[cme_schemes]] sub-schemes under cm_scheme_key / scheme_name)",
         "applications by verification outcome (data_verified: Valid / On Hold / Wrong / Invalid)",
         "applications by applicant type (applicant_category: individual / registered / unregistered)",
         "applications by application mode (online / cmconnectcenter)",
@@ -93,17 +98,17 @@ SCHEME_METRICS = {
     ],
     "Focus Legacy": [
         "payments / disbursements made (COUNT(*), one row per payment to a producer group)",
-        "producer groups paid (COUNT(DISTINCT pg_id) — never by name; 11,906 groups carry "
-        "only 10,678 distinct names)",
+        "producer groups paid (COUNT(DISTINCT pg_id) — never by name; [[fl_groups]] groups carry "
+        "only [[fl_names]] distinct names)",
         "memberships paid for (SUM(no_of_pg_members) — memberships, NOT distinct people; "
         "there is no person record anywhere in this partition)",
         "amount disbursed (SUM, in rupees; it is exactly memberships x Rs 5,000 on "
         "every row, so it is a membership figure)",
         "producer group type (PG-FOCUS / PG-LAMP / PG-EXISTING, via pg_entity_type)",
         "programme variant ('FOCUS' vs 'Focus (Addnl)', the latter a single top-up day)",
-        "product / commodity the group works on (FY2021-22 and FY2022-23 ONLY — 21% of rows)",
+        "product / commodity the group works on (FY2021-22 and FY2022-23 ONLY — [[fl_product_pct]]% of rows)",
         "bank and IFSC the payment went to (bank-wise analysis IS legitimate here)",
-        "remittance date — but only 30 distinct dates exist; these are treasury BATCHES",
+        "remittance date — but only [[fl_dates]] distinct dates exist; these are treasury BATCHES",
         "distinct villages / blocks / districts reached",
         "NO individual beneficiary, name, EPIC, member id, gender, caste or household exists",
         "NO application, approval, rejection, status, outcome, target or budget exists",
@@ -136,7 +141,7 @@ def available_metrics_text(schemes: list[str]) -> str:
     for s in schemes or list(SCHEME_METRICS):
         for m in SCHEME_METRICS.get(s, []):
             lines.append(f"  - {s}: {m}")
-    return "\n".join(lines)
+    return data_facts.render("\n".join(lines))
 
 _PREAMBLE = """
 Query only these curated/semantic objects (schema-qualified, e.g. curated.v_pmay).
@@ -220,8 +225,8 @@ _SHARED_RULES = """
       - A question with no year ("how many beneficiaries", "in total", "all years",
         "overall", "till date") about PEOPLE: if the scheme has a person identifier, count
         it ONCE over all rows — COUNT(DISTINCT <person id>) with no year GROUP BY. Never
-        GROUP BY year and then sum the rows (Focus Plus: 93,286 + 105,813 = 199,099 is
-        WRONG; the true all-years figure is 105,813).
+        GROUP BY year and then sum the rows (Focus Plus: [[fp_benef_2223]] + [[fp_benef_2526]] = [[fp_benef_yearsum]] is
+        WRONG; the true all-years figure is [[fp_benef]]).
       - A per-year breakdown ("by year", "year-wise", "each year") returns one row per
         year AND, when an all-years total is also wanted, the cross-year distinct count
         in its own column — never a sum of the yearly rows.
@@ -320,7 +325,7 @@ MGNREGA RULES (breaking these produces a wrong number, not just an ugly query):
               SUM(persons_employed) - SUM(women_employment_provided) AS men_employed
        FROM curated.v_employment WHERE <filters>;
      NEVER alias SUM(persons_employed) on its own as men (Ri Bhoi FY 2023-24: persons
-     53,700 is NOT men; men = 53,700 - 29,942 = 23,758). Subtract the SUMs, never per row,
+     [[mg_rb_persons]] is NOT men; men = [[mg_rb_persons]] - [[mg_rb_women]] = [[mg_rb_men]]). Subtract the SUMs, never per row,
      and never wrap it in GREATEST(..., 0): a few villages and two block-years record more
      women than persons at source, and a negative result must be reported as a source
      inconsistency, not hidden. "Gender breakdown" / "men vs women" returns women_employed
@@ -378,7 +383,7 @@ PMAY-G TABLES
   curated.dim_pmay_house_status(status_key, status_name, is_completed, is_in_progress)
       status_name is exactly one of (stage order low->high): 'Proposed Site',
       'Existing site(Old House)', 'House Sanctioned', 'Plinth', 'Roof Cast', 'Completed'
-      (12 rows are NULL). For "completed" / "in progress" use the booleans (rule 2);
+      ([[pm_status_null]] rows are NULL). For "completed" / "in progress" use the booleans (rule 2);
       for the other four stages filter status_name on the exact string above.
   curated.fact_pmay_house(scheme_key, year_key, geography_key, village_code, status_key,
       sanction_date, sanctioned_amount, amount_released, amount_pending, is_placeholder,
@@ -401,18 +406,18 @@ PMAY-G TABLES
 
 _PMAY_RULES = """
 PMAY-G RULES (breaking these produces a wrong number, not just an ugly query):
-  1. curated.v_pmay: the 126 is_placeholder rows (sanctioned_amount = 0, no year, no sanction
+  1. curated.v_pmay: the [[pm_placeholder]] is_placeholder rows (sanctioned_amount = 0, no year, no sanction
      number) ARE beneficiaries — count them in every beneficiary / house / registration count
-     (do NOT add `NOT is_placeholder`; 171,107 beneficiaries statewide). Only a full / partial
+     (do NOT add `NOT is_placeholder`; [[pm_rows]] beneficiaries statewide). Only a full / partial
      release count (amount_released vs sanctioned_amount) needs `sanctioned_amount > 0`.
   2. "Completed" / "in progress" questions use status_key's booleans is_completed /
      is_in_progress, never `status_name = 'Completed'` as a string match.
-  3. Exclude `sanctioned_amount = 0` rows (126 known rows) from any utilisation-rate or
+  3. Exclude `sanctioned_amount = 0` rows ([[pm_zero_sanction]] known rows) from any utilisation-rate or
      per-house-average calculation — they are a documented data gap, not real zeros.
   4. Money unit: PMAY amounts are RUPEES; v_pmay_monthly_sanctions is already CRORE. State
      the unit. Never mix with MGNREGA's lakhs.
   5. Financial-year filter: use `year_key` (smallint — 2023 means FY 2023-24; data spans
-     year_key 2017 through 2023, plus 126 rows with year_key NULL). Do NOT filter on
+     year_key [[pm_year_min]] through [[pm_year_max]], plus [[pm_year_null]] rows with year_key NULL). Do NOT filter on
      `financial_year` (a fixed-width CHAR stored as '2023-2024', NOT '2023-24') or on
      `financial_year_short` ('2023-24') unless you use that column's exact string form —
      `financial_year = '2023-24'` matches zero rows and returns a false 0.
@@ -429,7 +434,7 @@ PMAY-G RULES (breaking these produces a wrong number, not just an ugly query):
      rounded yearly crore as the total and dropped the released and remaining amounts).
   8. Utilisation / "% of the sanctioned amount released" is ONE ratio of totals:
      100.0 * SUM(COALESCE(amount_released, 0)) / NULLIF(SUM(sanctioned_amount), 0). Never AVG()
-     of amount_released or of per-house ratios. amount_released is NULL on 336 houses that
+     of amount_released or of per-house ratios. amount_released is NULL on [[pm_released_null]] houses that
      have received nothing — COALESCE it to 0 in every count or sum of releases.
   9. Comparing named areas ("which has more: A or B", "compare A and B") returns a row for
      EACH area — never LIMIT 1 — and the answer names both figures and the difference.
@@ -459,21 +464,21 @@ FOCUS PLUS TABLES
         beneficiary_key
       BLOCK COLUMN — for Focus Plus, blocks are mapped on block_name_raw. USE IT.
         block_name_raw  = THE block column for this scheme. Populated on all
-                          385,671 rows. Filter and GROUP BY this for every
+                          [[fp_rows]] rows. Filter and GROUP BY this for every
                           block-level figure (disbursement totals, beneficiary
                           counts, per-block breakdowns, "which block ...").
                           Stored Title Case ("Songsak", "Mylliem") — NOT
                           uppercase, so compare case-insensitively:
                           UPPER(block_name_raw) = 'SONGSAK'.
         lgd_block       = the LGD-registry-mapped name, and it is INCOMPLETE:
-                          NULL on 57,649 rows (15%), hiding ₹18.01 crore of
-                          disbursement. Mylliem loses 57% of its money this way,
-                          Rongram 50%, Lawsohtun 66%. A block figure taken from
+                          NULL on [[fp_lgdblock_null]] rows ([[fp_lgdblock_null_pct]]%), hiding ₹[[fp_lgdblock_null_cr]] crore of
+                          disbursement. Mylliem loses [[fp_myl_lost_pct]]% of its money this way,
+                          Rongram [[fp_ron_lost_pct]]%, Lawsohtun [[fp_law_lost_pct]]%. A block figure taken from
                           lgd_block silently under-reports and looks perfectly
                           plausible. Do NOT use it for a block filter or a block
                           GROUP BY, and do NOT AND it with block_name_raw — that
-                          re-introduces the same 15% loss.
-      lgd_district and lgd_village_name do NOT have this problem (4 and 0 nulls
+                          re-introduces the same [[fp_lgdblock_null_pct]]% loss.
+      lgd_district and lgd_village_name do NOT have this problem ([[fp_district_null]] and [[fp_villagename_null]] nulls
       respectively) — this is specific to the block column.
       beneficiary_key is a GENERATED column (batch_label || ':' || source_sl_no) added
       2026-09-13 specifically to count beneficiaries correctly across both cohorts in one
@@ -505,7 +510,7 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
                  person-level column (gender, occupation, focus_status,
                  verification_status, member_key, pincode) is BLANK on all of them.
        '12.5K' — newer REGISTRATION cohort. 1 row per person, Tranch 4 only, person
-                 columns populated. ~3.2% of all rows.
+                 columns populated. ~[[fp_125k_pct]]% of all rows.
      ANY breakdown by gender / occupation / focus_status / verification_status /
      member_key / pincode describes the 12.5K cohort ONLY — add
      `WHERE batch_label = '12.5K'` and state the cohort and its coverage in the answer.
@@ -515,11 +520,11 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      group or filter by one of those person-level columns — those are read over the
      WHOLE table, both cohorts together (see "How many Focus Plus beneficiaries are
      there in each district?" in the few-shot set). Confirmed live 2026-09-12: adding
-     this filter to a bare per-district beneficiary count silently dropped the 373,144
+     this filter to a bare per-district beneficiary count silently dropped the [[fp_rows_93k]]
      legacy-cohort rows and got the query rejected outright.
   5. member_key and pincode are PII. NEVER SELECT, GROUP BY or ORDER BY them as a bare
      column. `COUNT(DISTINCT member_key)` is the ONLY permitted use of member_key — and it
-     counts the 12.5K cohort only (~12,527), NOT the scheme total. Do not label it
+     counts the 12.5K cohort only (~[[fp_members]]), NOT the scheme total. Do not label it
      "total Focus Plus beneficiaries" — use beneficiary_key (rule 6) for that.
   6. "Beneficiaries" (a PERSON count) = `COUNT(DISTINCT beneficiary_key)`.
      beneficiary_key is a generated column (batch_label || ':' || source_sl_no —
@@ -548,17 +553,17 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      to mean anything on its own (rule 7 covers the one place that scoped reading
      is still needed: a per-tranche/per-batch breakdown).
   6a. ACROSS YEARS: a beneficiary is paid in more than one financial year (FY 2022-23 holds
-     93,286 beneficiaries, FY 2025-26 holds 105,813, and all 93,286 recur in 2025-26), so
+     [[fp_benef_2223]] beneficiaries, FY 2025-26 holds [[fp_benef_2526]], and [[fp_recur]] recur in 2025-26), so
      per-year beneficiary counts must NEVER be added. "How many beneficiaries" with no
      year, "in total" or "across all years" = ONE `COUNT(DISTINCT beneficiary_key)` over
-     all rows, with no year GROUP BY (105,813 — not 93,286 + 105,813 = 199,099). A
+     all rows, with no year GROUP BY ([[fp_benef]] — not [[fp_benef_2223]] + [[fp_benef_2526]] = [[fp_benef_yearsum]]). A
      "by financial year" breakdown returns the per-year counts plus the all-years distinct
      count in its own column (see the example), so a total is never made by summing rows.
-  6b. GENDER: `gender` is filled only for the 12.5K registration cohort (12,527
-     beneficiaries: Female 10,263, Male 2,264); it is NULL for all 93,286 legacy
+  6b. GENDER: `gender` is filled only for the 12.5K registration cohort ([[fp_benef_125k]]
+     beneficiaries: Female [[fp_female]], Male [[fp_male]]); it is NULL for all [[fp_benef_93k]] legacy
      beneficiaries. A gender count is COUNT(DISTINCT beneficiary_key) GROUP BY gender and
      must say it covers the 12.5K cohort only — never present Female/Male as the split of
-     all 105,813 beneficiaries, and never treat NULL as either gender.
+     all [[fp_benef]] beneficiaries, and never treat NULL as either gender.
   7. amount_disbursed is in RUPEES (semantic.column_catalog UNIT, 2026-10-16). Convert
      to lakh / crore only for display, stating the unit, and NEVER add a
      Focus Plus amount to a MGNREGA (lakh) or PMAY (rupee) figure. Only two values exist
@@ -579,12 +584,12 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      COUNT(DISTINCT source_sl_no) mixed the two cohorts' file-serial numbering into a
      meaningless denominator — 11,316 statewide, confirmed live 2026-09-12. That number
      was an artifact of the missing identity column, not a real answer; beneficiary_key
-     now gives 11,316 as the correct, whole-scheme average, and ~11,167 for West Garo
+     now gives [[fp_avg]] as the correct, whole-scheme average, and ~[[fp_avg_wgh]] for West Garo
      Hills — both computed the same way with no per-cohort scoping needed.)
      amount_disbursed is NOT NULL (the only money column in megh_db that is) — no
      COALESCE needed.
   8. TIME: financial_year / financial_year_short is the FINEST time grain — THERE IS NO
-     DATE COLUMN. Only FY 2022-23 and FY 2025-26 hold data (a three-year gap between).
+     DATE COLUMN. Only [[fp_years]] hold data[[fp_year_gaps]].
      No monthly, quarterly, weekly, calendar-year or exact-date analysis is possible —
      say so, do not approximate. tranche_label embeds month words ("August",
      "Feb-March") but is a LABEL: NEVER `ORDER BY tranche_label` as a time series. A
@@ -599,9 +604,9 @@ FOCUS PLUS RULES (breaking these produces a wrong number, not just an ugly query
      BLOCKS ARE MAPPED ON block_name_raw FOR THIS SCHEME — use it for every
      block filter and every block GROUP BY, with UPPER(block_name_raw) = '<BLOCK>'
      (it is stored Title Case, so a bare equality against an uppercase literal
-     matches zero rows). lgd_block is NULL on 57,649 of 385,671 rows (15%) and
-     drops ₹18.01 crore of disbursement — Mylliem loses 57% of its money,
-     Rongram 50% — so a block figure read from lgd_block silently under-reports.
+     matches zero rows). lgd_block is NULL on [[fp_lgdblock_null]] of [[fp_rows]] rows ([[fp_lgdblock_null_pct]]%) and
+     drops ₹[[fp_lgdblock_null_cr]] crore of disbursement — Mylliem loses [[fp_myl_lost_pct]]% of its money,
+     Rongram [[fp_ron_lost_pct]]% — so a block figure read from lgd_block silently under-reports.
      Do not AND the two columns together either; that re-creates the same loss.
      District and village are unaffected — lgd_district / lgd_village_name are
      effectively complete and stay the right columns for those levels.
@@ -664,7 +669,7 @@ FOCUS PLUS BUSINESS VOCABULARY (source: FOCUS+ NLP Use Cases workbook + focusplu
 _CMELEVATE_TABLES = """
 CM ELEVATE TABLES
   curated.v_cm_elevate  -- THE query surface. One row = one application RECORD under
-      one of 15 CM Elevate schemes; 27 applications have two identical records, so
+      one of [[cme_schemes]] CM Elevate schemes; [[cme_dup_apps]] applications have two identical records, so
       always count COUNT(DISTINCT request_id) (rule 8). Columns you may read:
         cm_elevate_fact_id, request_id, cm_scheme_key, scheme_name, endpoint,
         geography_key, village_code, lgd_village_name, lgd_block, lgd_district,
@@ -681,7 +686,7 @@ CM ELEVATE TABLES
       NO constituency column: for an assembly constituency JOIN curated.dim_geography g
       ON g.geography_key = v.geography_key and filter UPPER(g.ac_name) = UPPER('<name>')
       (qualify the view's place columns with v.); it is NOT the block of the same name.
-  curated.dim_cm_elevate_scheme  -- 15 rows, one per individual scheme. Read this
+  curated.dim_cm_elevate_scheme  -- [[cme_schemes]] rows, one per individual scheme. Read this
       directly (never a DISTINCT over the fact) for "how many schemes" / "list the
       schemes" — a scheme with zero applications is invisible in the fact.
   curated.dim_scheme  -- read ON ITS OWN (never joined per row); constant within this
@@ -707,9 +712,9 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
   3. ON HOLD ROUTING — the single most dangerous trap in this partition: "on hold"
      ALWAYS means `data_verified = 'On Hold'`. The `onhold` boolean column is FALSE on
      every row and returns a confident-looking zero if used instead.
-  4. CM Elevate is 15 schemes under ONE scheme_code, separated by cm_scheme_key /
-     scheme_name. A programme-level total with no scheme breakdown mixes 15 unrelated
-     schemes — offer the breakdown. Six schemes have fewer than 15 applications each;
+  4. CM Elevate is [[cme_schemes]] schemes under ONE scheme_code, separated by cm_scheme_key /
+     scheme_name. A programme-level total with no scheme breakdown mixes [[cme_schemes]] unrelated
+     schemes — offer the breakdown. [[cme_small_schemes]] schemes have fewer than 15 applications each;
      always show the count alongside any percentage from them. THIS STILL APPLIES
      when the question itself names two, three or more specific sub-schemes ("how
      many applicants under Piggery, Poultry and Dairy") — GROUP BY scheme_name and
@@ -730,9 +735,9 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
      rejected. API DRIFT: since the 2026-10-13 re-pull, 89 applications read 'forward'
      although the client API calls them sent back — never read 'forward' as "not sent back".
   8. COUNT APPLICATIONS AND APPLICANTS WITH COUNT(DISTINCT request_id), NEVER COUNT(*)
-     (decided 2026-10-16, semantic.metric_definitions cm_elevate_applications). 27
-     applications (22 Piggery, 5 Poultry) appear on two records identical on every
-     visible field, so COUNT(*) gives 8,867 records against 8,840 applications. Never
+     (decided 2026-10-16, semantic.metric_definitions cm_elevate_applications). [[cme_dup_apps]]
+     applications ([[cme_dup_split]]) appear on two records identical on every
+     visible field, so COUNT(*) gives [[cme_records]] records against [[cme_apps]] applications. Never
      assume LIMIT 1 is safe on a request_id lookup. e.g.
        SELECT COUNT(DISTINCT request_id) AS applications
        FROM curated.v_cm_elevate
@@ -742,7 +747,7 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
      write scheme_specific, ->>, ? or @> against it — the query is refused. Gender and
      the Approved / Rejected decision are therefore NOT AVAILABLE for CM Elevate.
   9a. SECTOR is the plain column sector_id (Poultry, Dairy and Goat schemes only;
-     mostly NULL — 38 of 8,867 records). Stored values are Title Case ('Poultry',
+     mostly NULL — [[cme_sector]] of [[cme_records]] records). Stored values are Title Case ('Poultry',
      'Piggery', 'Dairy', 'Goatery'): compare with ILIKE, never an exact lowercase guess.
   9b. When the question names a sector ALONGSIDE a scheme ("poultry sector"), answer
      with the sector, not the bare scheme total, and return THREE numbers in one query
@@ -782,9 +787,9 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
      village_code and joining that aggregate onto v_cross_scheme_village_coverage.
  12. The requirement workbook this scheme was scoped against describes a DIFFERENT
      dataset (2,847 applications, 13 schemes, four rupee measures, Bank/LIFCOM
-     channels, Month/Year columns). Never adopt one of its figures — there are 15
+     channels, Month/Year columns). Never adopt one of its figures — there are [[cme_schemes]]
      schemes here, not 13, and PRIME Small Enterprise Empowerment (the LARGEST scheme
-     at ~43% of applications) is entirely absent from that workbook's list.
+     at ~[[cme_prime_pct]]% of applications) is entirely absent from that workbook's list.
  13. UNQUALIFIED "status" / "status distribution" / "status-wise" / "current status" /
      "application status" / "status breakdown" ALWAYS means current_file_status
      (product decision 2026-09-28 — NOT data_verified). Its stored values: 'forward',
@@ -863,12 +868,12 @@ FOCUS LEGACY TABLES
       BLOCK/DISTRICT COLUMNS — lgd_district and lgd_block are stored UPPERCASE
       ('WEST GARO HILLS', 'MAIRANG'). A Title Case literal returns ZERO ROWS
       SILENTLY. lgd_village_name is NOT uppercased — do not fold all three alike.
-  curated.dim_producer_group  -- 11,904 rows, one per producer group. Reach for it
+  curated.dim_producer_group  -- [[fl_dim_groups]] rows, one per producer group. Reach for it
       ONLY for first_payment_year_key / last_payment_year_key, which the view does
       NOT expose ("groups new this year", "groups paid in more than one year").
       Query it ALONE — joining it back to the view repeats those columns once per
       payment and double-counts every group paid more than once.
-  curated.dim_pg_entity_type  -- 3 rows (type_code, type_name, source_id_prefix).
+  curated.dim_pg_entity_type  -- [[fl_dim_types]] rows (type_code, type_name, source_id_prefix).
       Read it to ENUMERATE the three group types; the stored type_code strings are
       NOT documented, so never filter on a guessed 'FOCUS' / 'LAMP' / 'EXISTING'.
   curated.dim_scheme  -- not needed for Focus Legacy: amount_disbursed is in rupees
@@ -890,7 +895,7 @@ FOCUS LEGACY RULES (breaking these produces a wrong number, not just an ugly que
      ERRORS, it does not merely mislead.
   3. THE ENTITLEMENT IDENTITY — the single most important fact about this scheme:
          amount_disbursed = no_of_pg_members * 5000
-     on every one of the 14,569 source rows, zero exceptions, confirmed twice. So:
+     on every one of the [[fl_rows]] rows, [[fl_identity_breaks]] exceptions (checked live). So:
        - SUM(amount_disbursed) is exactly 5000 * SUM(no_of_pg_members).
        - AVG(amount_disbursed) is NOT an average entitlement — it is 5000 x average
          GROUP SIZE, and it moves when group sizes move, never when policy does.
@@ -902,15 +907,15 @@ FOCUS LEGACY RULES (breaking these produces a wrong number, not just an ugly que
      Therefore EVERY money SELECT must carry SUM(no_of_pg_members) beside it, so the
      relationship is visible in the result rather than buried in prose.
   4. THREE DIFFERENT COUNTING SUBJECTS, never interchangeable:
-       COUNT(*)                  = PAYMENTS (~14,566). One row is one payment.
-       COUNT(DISTINCT pg_id)     = PRODUCER GROUPS (~11,904).
-       SUM(no_of_pg_members)     = MEMBERSHIPS (~102,021) — NOT people. A group paid
+       COUNT(*)                  = PAYMENTS (~[[fl_rows]]). One row is one payment.
+       COUNT(DISTINCT pg_id)     = PRODUCER GROUPS (~[[fl_groups]]).
+       SUM(no_of_pg_members)     = MEMBERSHIPS (~[[fl_members]]) — NOT people. A group paid
                                    in two years contributes twice, and its recorded
                                    size can differ between the two payments.
-     2,655 groups were paid more than once, so COUNT(*) exceeds COUNT(DISTINCT pg_id)
-     by about 2,663. Alias every count so the answer says which one it is. There is NO
+     [[fl_groups_repaid]] groups were paid more than once, so COUNT(*) exceeds COUNT(DISTINCT pg_id)
+     by about [[fl_extra_payments]]. Alias every count so the answer says which one it is. There is NO
      person-level count and none can be constructed — no name, EPIC or member id exists.
-  5. GROUPS ARE COUNTED ON pg_id, NEVER ON pg_name. 11,906 groups carry only 10,678
+  5. GROUPS ARE COUNTED ON pg_id, NEVER ON pg_name. [[fl_groups]] groups carry only [[fl_names]]
      distinct names and 1,634 groups appear under more than one spelling, so a name
      both SPLITS one group and MERGES several. NEVER COUNT(DISTINCT pg_name) and
      NEVER GROUP BY pg_name. To show a name for a group, GROUP BY pg_id and take
@@ -951,8 +956,8 @@ FOCUS LEGACY RULES (breaking these produces a wrong number, not just an ugly que
      it needs both clauses — the WHERE for the year and the GROUP BY for the
      district. Order the result by the measure descending unless asked otherwise.
   6. NEVER PARSE THE pg_id. It looks like PG-FOCUS-WGH-7089 and the three-letter token
-     is the district AT ENROLMENT — stale on 1,075 of 14,569 rows because of district
-     bifurcation (990 'WKH' rows are now EASTERN WEST KHASI HILLS, 85 'WGH' rows are
+     is the district AT ENROLMENT — stale on [[fl_stale]] of [[fl_rows]] rows because of district
+     bifurcation ([[fl_stale_wkh]] 'WKH' rows are now EASTERN WEST KHASI HILLS, [[fl_stale_wgh]] 'WGH' rows are
      now SOUTH WEST GARO HILLS). Geography comes from lgd_district, ALWAYS. Also: the
      trailing number is unique only within a prefix, so PG-FOCUS-WKH-5956 and
      PG-LAMP-WGH-5956 are different groups — never match on the number alone.
@@ -961,35 +966,35 @@ FOCUS LEGACY RULES (breaking these produces a wrong number, not just an ugly que
      simply returns NO ROW for it. Never emit a zero column for it in a year grid,
      never draw a line through the gap, and when asked for "the previous year" before
      FY2024-25 use FY2022-23 — the preceding year that HOLDS payments.
-  8. DATES ARE TREASURY BATCHES, NOT A FLOW. date_of_remittance spans 2021-08-31 to
-     2026-03-31 and takes only 30 DISTINCT VALUES; three dates carry 9,193 of 14,569
+  8. DATES ARE TREASURY BATCHES, NOT A FLOW. date_of_remittance spans [[fl_date_min]] to
+     [[fl_date_max]] and takes only [[fl_dates]] DISTINCT VALUES; three dates carry [[fl_top3_dates_rows]] of [[fl_rows]]
      rows. A monthly or daily GROUP BY is valid SQL and misleading prose — label it a
-     batch view. 171 rows have a NULL date (170 of them FY2025-26) and vanish from any
+     batch view. [[fl_date_null]] rows have a NULL date ([[fl_date_null_2526]] of them FY2025-26) and vanish from any
      date-grouped answer while surviving an FY grouping, so the two return different
      totals; prefer financial_year_short when completeness matters.
-  9. product_raw IS RAW AND UNNORMALISED — 62 spellings collapse to 45 products
+  9. product_raw IS RAW AND UNNORMALISED — [[fl_product_spellings]] spellings collapse to [[fl_products]] products
      (Piggery / PIGGERY / piggery). ALWAYS `GROUP BY UPPER(TRIM(product_raw))`; a bare
      GROUP BY product_raw splits one product into three rows. AND it is populated on
-     only 3,112 of 14,569 rows (21%): 100% in FY2021-22 and FY2022-23, then 0 of 2,653
-     in FY2024-25 and 8 of 8,812 in FY2025-26. EVERY product answer covers FY2021-22
+     only [[fl_product_rows]] of [[fl_rows]] rows ([[fl_product_pct]]%): 100% in FY2021-22 and FY2022-23, then [[fl_product_2425]] of [[fl_rows_2425]]
+     in FY2024-25 and [[fl_product_2526]] of [[fl_rows_2526]] in FY2025-26. EVERY product answer covers FY2021-22
      and FY2022-23 only and must say so. A product question about FY2024-25/FY2025-26
      is unanswerable because the field stopped being CAPTURED — not because the groups
      had no products.
  10. `entity_type <> 'Unresolved'` ON VILLAGE COUNTS AND VILLAGE LISTS ONLY. About
-     1,101 rows (7.6%) carry a synthetic Unresolved placeholder instead of a real
+     [[fl_unresolved]] rows ([[fl_unresolved_pct]]%) carry a synthetic Unresolved placeholder instead of a real
      village. Those are REAL payments deliberately placed under their district so the
      totals reconcile — applying the exclusion to a money, district, block or
      programme total UNDERSTATES it. Count villages with COUNT(DISTINCT village_code),
-     never by name (3,384 codes vs 3,270 names).
+     never by name ([[fl_village_codes]] codes vs [[fl_village_names]] names).
  11. NEVER row-join v_focus_legacy to a PMAY, MGNREGA, Focus Plus or CM Elevate
      fact/view — every fact pair in megh_db is prohibited. Focus Legacy x Focus Plus is
      the most tempting and the most wrong: the two schemes share a NAME and nothing
      else. Focus Plus holds no producer-group column at all, so there is no key, and a
      name match between a person and a group is not a match.
  12. BANKING. bank_name is clean and institution-level — bank-wise analysis IS
-     legitimate here (unlike Focus Plus). 13 banks; two carry 92% of payments. 276 rows
+     legitimate here (unlike Focus Plus). [[fl_banks]] banks; two carry [[fl_top2_banks_pct]]% of payments. [[fl_bank_null_ifsc]] rows
      have a NULL bank_name but DO have an ifsc_code — render them 'Not recorded' with
-     COALESCE, never merge them into another bank. One IFSC (SBIN0RRMEGB) covers 8,328
+     COALESCE, never merge them into another bank. One IFSC (SBIN0RRMEGB) covers [[fl_sponsor_ifsc]]
      rows because it is a SPONSOR-BANK code, not a branch — never present IFSC counts
      as branch counts. bank_details_current is TRUE or NULL and NEVER FALSE (the view's
      LEFT JOIN carries the is_current predicate), so "paid to an old account" is
@@ -1002,7 +1007,7 @@ FOCUS LEGACY RULES (breaking these produces a wrong number, not just an ugly que
      pending, approved, rejected or in-progress population, and none can be derived
      from a NULL date or a missing product.
  15. MONEY IS RUPEES (semantic.column_catalog UNIT, confirmed by the ingestion team
-     2026-10-16; Rs 5,000/member, 950,000 max).
+     2026-10-16; Rs 5,000/member, [[fl_max_amount]] max).
   Worked shapes:
     -- the three counts together (the default shape for a bare "how many")
     SELECT COUNT(*) AS payments, COUNT(DISTINCT pg_id) AS producer_groups,
@@ -1063,7 +1068,7 @@ _CMELEVATELEGACY_TABLES = """
 CM ELEVATE LEGACY TABLES (source: data/cm_elevate_legacy/*.yaml)
   curated.v_cm_elevate_disbursement  -- THE query surface, and ZERO JOINS for any ordinary
       question. One row = one applicant's sanction-and-disbursement record under one of
-      13 schemes (2,823 rows - the full source; row 2392 was un-quarantined 2026-09-25). 38 columns:
+      [[cl_schemes]] schemes ([[cl_rows]] rows - the full source; row 2392 was un-quarantined 2026-09-25). 38 columns:
         cm_elevate_disb_fact_id, source_row_id, application_number, scheme_name,
         year_key, financial_year, financial_year_short, year_note, geography_key,
         village_code, lgd_village_name, lgd_block, lgd_district, entity_type, on_roster,
@@ -1079,8 +1084,8 @@ CM ELEVATE LEGACY TABLES (source: data/cm_elevate_legacy/*.yaml)
       lgd_district / lgd_block / lgd_village_name / entity_type, financial_year /
       financial_year_short are on the row). Joining dim_year yourself with an INNER JOIN
       deletes both Sericulture schemes (they carry no year) — never do it.
-  curated.dim_cm_elevate_disb_scheme  -- 13 rows. Already on the view as scheme_name.
-      DISTINCT from curated.dim_cm_elevate_scheme (15 rows, the OTHER CM Elevate dataset).
+  curated.dim_cm_elevate_disb_scheme  -- [[cl_schemes]] rows. Already on the view as scheme_name.
+      DISTINCT from curated.dim_cm_elevate_scheme ([[cme_schemes]] rows, the OTHER CM Elevate dataset).
   curated.dim_scheme  -- read ON ITS OWN (never joined per row) only to look up money_unit.
   NEVER QUERY, NEVER JOIN: curated.fact_cm_elevate_disbursement (it carries applicant
       first/middle/last names; the view drops them) and curated.v_cm_elevate /
@@ -1090,7 +1095,7 @@ CM ELEVATE LEGACY TABLES (source: data/cm_elevate_legacy/*.yaml)
 
 _CMELEVATELEGACY_RULES = """
 CM ELEVATE LEGACY RULES (breaking these produces a wrong number, not just an ugly query):
-  1. NOT THE CM ELEVATE APPLICATIONS DATASET. This is a separate scheme: 13 schemes (not 15),
+  1. NOT THE CM ELEVATE APPLICATIONS DATASET. This is a separate scheme: [[cl_schemes]] schemes (not [[cme_schemes]]),
      sanction and disbursement money in RUPEES, and a financial year. It has NO data_verified,
      onhold, is_withdraw, applicant_category, request_id, gender or application status —
      those live in curated.v_cm_elevate. Never reference them here.
@@ -1123,7 +1128,7 @@ CM ELEVATE LEGACY RULES (breaking these produces a wrong number, not just an ugl
      "Pending" / "yet to be disbursed" = SUM(sanctioned_amount) - SUM(total_disbursement),
      a DERIVED figure — label it pending_cr and keep negatives as calculated.
   7. FINANCIAL YEAR is the STORED label: financial_year_short = '2024-25' / '2025-26' (only
-     two years exist; a resolved year_key also works). 395 records (both Sericulture schemes,
+     two years exist; a resolved year_key also works). [[cl_year_null]] records (both Sericulture schemes,
      every row) have NO year: grouping by year MUST use
      COALESCE(financial_year_short, '(no financial year)') AS financial_year with
      GROUP BY financial_year_short ORDER BY financial_year_short NULLS LAST. NEVER derive a
@@ -1139,14 +1144,14 @@ CM ELEVATE LEGACY RULES (breaking these produces a wrong number, not just an ugl
      and RI BHOI; Jaintia = EAST and WEST JAINTIA HILLS. Group by region; "Ri Bhoi" alone is the district. "WKH" is WEST KHASI HILLS, not Eastern
      West Khasi Hills.
   9. VILLAGES. Count with COUNT(DISTINCT village_code) and add entity_type <> 'Unresolved'
-     to every village count and village list (404 records have no village). Group a village
-     list by lgd_village_name AND village_code (17 names are shared by different villages).
+     to every village count and village list ([[cl_village_null]] records have no village). Group a village
+     list by lgd_village_name AND village_code ([[cl_shared_names]] names are shared by different villages).
      District, block and scheme totals KEEP the Unresolved rows — their district is known.
  10. SCHEME NAMES are exact stored literals — use the RESOLVED ENTITIES value when given.
      The two Sericulture schemes differ by ONE SPACE: 'Meghalaya Sericulture & Weaving
      Scheme (spinning)' (space) and 'Meghalaya Sericulture & Weaving Scheme(weaving)' (no
      space). NEVER derive a scheme from the application_number prefix (MPDSI etc.).
-     13 schemes / 12 districts: show all rows, no LIMIT, for "each scheme / each district".
+     [[cl_schemes]] schemes / [[cl_districts]] districts: show all rows, no LIMIT, for "each scheme / each district".
  11. LENDER. loan_entity holds only 'Bank', 'LIFCOM' or NULL: group with
      COALESCE(loan_entity, '(not recorded)'). 'Bank' is a category, not a bank's name — no
      bank or branch name exists. "Took a loan" / "received a loan" = total_loan_disbursement
@@ -1199,8 +1204,8 @@ CM ELEVATE LEGACY BUSINESS VOCABULARY (source: cmelevatelegacy_schema_partitions
   "Piggery" / "Poultry" / "Dairy" / "Goat" / "Warehouse" / "PTV" / "PARV" / "spinning" / "weaving"
                                                     -> the resolved scheme_name literal
   "this year" / "current year" -> FY 2025-26 (say so);  "last year" -> FY 2024-25
-  Financial years held: 2024-25 (2,291 records), 2025-26 (137 records; only Prime Tourism
-  Vehicle, Agriculture Warehouse and Prime Agriculture Response Vehicle), none (395, Sericulture).
+  Financial years held: 2024-25 ([[cl_rows_2425]] records), 2025-26 ([[cl_rows_2526]] records; only Prime Tourism
+  Vehicle, Agriculture Warehouse and Prime Agriculture Response Vehicle), none ([[cl_year_null]], Sericulture).
 """.strip()
 
 _CROSS_SCHEME = """
@@ -1397,7 +1402,7 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
       Its unique reading is ONE financial year's SUM(households_employed) (latest if none
       named).
     * curated.v_pmay is already one row per beneficiary, so COUNT(*) over every row
-      (the 126 zero-sanction registrations included, PMAY-G rule 1) IS the beneficiary count.
+      (the [[pm_zero_sanction]] zero-sanction registrations included, PMAY-G rule 1) IS the beneficiary count.
     * curated.v_focus_plus COUNT(*) is PAYMENTS (the legacy 93K cohort has four rows per
       person). COUNT(DISTINCT beneficiary_key) (rule 6) is the correct unique-person count
       across both cohorts, no per-batch scoping needed. COUNT(DISTINCT member_key) counts
@@ -1643,7 +1648,8 @@ def build_schema_context(schemes: list[str]) -> str:
 
     parts.append(f"SHARED RULES:\n{_SHARED_RULES}")
     parts.append(_CLOSING)
-    return "\n\n".join(parts)
+    # Fill the data-figure tokens, live from megh_db (data_facts); the typed defaults until the first read.
+    return data_facts.render("\n\n".join(parts))
 
 
 # Kept for any caller that still wants the full, unscoped context (e.g. a

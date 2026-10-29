@@ -553,7 +553,8 @@ The prompt is concatenated in this order:
 ```
 build_schema_context(schemes)       # schema_context.py: _PREAMBLE, _SHARED_TABLES, per-scheme
                                     #   (_X_TABLES, _X_RULES, _X_VOCAB), _CROSS_SCHEME if >1 scheme,
-                                    #   _SHARED_RULES, _CLOSING
+                                    #   _SHARED_RULES, _CLOSING; [[name]] data figures filled live
+                                    #   by data_facts.render (D-087, refreshed every 10 min)
 _live_schema_block(schemes)         # schema_introspect: real columns + real FKs from megh_db
 schema_introspect.catalog_block()   # semantic.table_catalog / glossary / metric_definitions (metric_key,
                                     #   sql_expression) / column notes + UNIT + VALUES lists (D-049);
@@ -571,8 +572,9 @@ _entities_block(entity_result, …)   # "RESOLVED ENTITIES — MANDATORY" + "NOT
   (`_fewshot_ranking_text`).
 - **Pool files:** `data/<scheme>/*few_shot*.yaml`. CM Elevate Legacy uses
   `cmelevatelegacy_prompt_few_shots.yaml`.
-- **Example source switch (D-074, 2026-10-27):** `SQL_EXAMPLES_SOURCE=qdrant` is the default since
-  2026-10-27 evening (user: use everything in both collections). `yaml` (the rollback) uses the pool files above.
+- **Example source switch (D-074 -> D-086):** `SQL_EXAMPLES_SOURCE=yaml` (the pool files above) is the default since
+  2026-10-29 (D-086). `qdrant` was the default 2026-10-27 evening -> 2026-10-29 (user: use everything in both
+  collections); the B5 measurement showed it needing 8 repairs vs 1 for yaml at the same accuracy.
   - **`yaml_meaning` (B5, 2026-10-29; not the default until measured):** the reviewed YAML banks ranked by meaning —
     one embedding of the ranking text per data question, cosine against each example's question and `variants`
     (`sql_examples._rank_yaml`, via `annotations.few_shot_examples(rank=…)`, refusal factor and cap unchanged). Each
@@ -748,7 +750,7 @@ instruction:
 | Guard | Catches |
 |---|---|
 | `_focusplus_stated_amount_missing` (Focus Plus, KI-132, 2026-09-29) | a stated payment amount ("a loan of five thousand", "₹2,500 payments") with no `amount_disbursed = N` filter |
-| `_resolved_scope_missing` (all schemes, KI-034, 2026-09-29) | a resolved district / block / comparison list / year_key absent from the SQL. Not required: geography beside a resolved village_code, a hill-range expansion, a year for CM Elevate or an all-years question; LIKE on the distinctive word counts. **KI-427 (2026-10-27):** a stated span is resolved as `year_key_list` (every year, c09 `_c09_stated_year_span`, prompt line `year_key BETWEEN A AND B`); every year must be in the SQL as a literal or inside a BETWEEN with the span's ends |
+| `_resolved_scope_missing` (all schemes, KI-034, 2026-09-29) | a resolved district / block / comparison list / year_key absent from the SQL. Not required: geography beside a resolved village_code, a hill-range expansion, a year for CM Elevate or an all-years question; LIKE on the distinctive word counts. **KI-432 (2026-10-29):** a resolved assembly constituency must be in the SQL too; the MGNREGA prompt line names `assembly_constituency_name` (v_employment) and `ac_name` (v_expenditure). **KI-427 (2026-10-27):** a stated span is resolved as `year_key_list` (every year, c09 `_c09_stated_year_span`, prompt line `year_key BETWEEN A AND B`); every year must be in the SQL as a literal or inside a BETWEEN with the span's ends |
 | `_mgnrega_village_filter_missing` (MGNREGA, KI-054) | a village was resolved but the SQL filters no village (it would return a block or statewide total) |
 | `_village_filter_missing` (every single-scheme question, KI-188, 2026-10-02) | the same for the other five schemes. Its deterministic half, `_pin_missing_village_code` (in `_scheme_sql_rewrites`), first rewrites a simple one-SELECT query: adds `village_code = <code>`, or replaces a lone `lgd_village_name` text condition with the code (`_village_name_cond_to_code`, KI-197), and drops a block / district literal beside it in any UPPER / TRIM form (`_drop_geo_beside_pinned_village`, KI-196). D-034 |
 | `_mgnrega_village_list_issue` (MGNREGA, KI-045) | "which villages …" SQL with no `lgd_village_name`, or "received employment" without `HAVING SUM(persons_employed) > 0` |
@@ -1030,7 +1032,9 @@ The log line `compose_response: answer shape <kind>` records the shape of every 
 **Query plan shadow (E1 stage 1, D-078, 2026-10-27):** after a data / knowledge turn, `_update_context` schedules `query_plan.shadow` (background): a typed plan of the question (4B guided JSON + deterministic years / top-N / measure / area level) logged with the turn's actual decisions to `logs/query_plan_shadow.jsonl`. Nothing reads it yet.
 **Trend direction (KI-441, 2026-10-27):** `_c12s_fix_trend_direction` (last step of `compose_response`) sets the answer's first rose / fell verb from the sign of the trend's first-to-last change; the 9B had copied the example's "rose" over a fall.
 
-**Query plan in the turn (E1 stage 2a, D-085, 2026-10-29) — OFF by default (`QUERY_PLAN_IN_TURN`):** when on, a new question's plan starts in c14 `_guardrail_check` right before the guardrail model call (`query_plan.start_for_turn`, kept in `session.turn_context`); not awaited; a refusal cancels it; `_update_context` hands it to the shadow (`take_for_turn`, `plan_from: "turn"`) instead of a second call. Off because, measured live, the two 4B calls queue on the gateway: turn median 11.8 s -> 14.1 s. `query_plan.turn_plan(session)` is the reader for stage 2b (nothing calls it yet).
+**Query plan in the turn (E1 stage 2a, D-085, 2026-10-29) — OFF by default (`QUERY_PLAN_IN_TURN`):** when on, a new question's plan starts in c14 `_guardrail_check` right before the guardrail model call (`query_plan.start_for_turn`, kept in `session.turn_context`); not awaited; a refusal cancels it; `_update_context` hands it to the shadow (`take_for_turn`, `plan_from: "turn"`) instead of a second call. Off because, measured live, the two 4B calls queue on the gateway: turn median 11.8 s -> 14.1 s. Stage 2b: `_c13_intent_by_rules(question, session)` reads the plan's intent in place of its last-resort classifier
+call (after every cue rule; OTHER / no plan / other words -> the call), via `query_plan.turn_plan(session, question)`.
+Held-out set on vs off: 42/74 both, identical outcomes, +0.35 s median per question on -> left off.
 
 **ROLLUP total rows (2026-10-22, KI-384):** `_c12s_rollup_split(sql, rows)` separates the rows a `GROUP BY ROLLUP` /
 `CUBE` / `GROUPING SETS` adds (the group column NULL or its `COALESCE(col, '<label>')` fallback, e.g. "ALL DISTRICTS")
@@ -1078,7 +1082,7 @@ Three parts, all in `compose_response` and the c12 files:
    templates on, `_shaped_fallback` returns the templated answer under code's opening line. Log line:
    `compose_response: templated <kind> answer`.
 
-### 2.9e Chat UI audit changes (2026-10-29, D-086 / D-087, KI-571; offline-verified)
+### 2.9e Chat UI audit changes (2026-10-29, D-088 / D-089, KI-574; offline-verified)
 - **Cross-scheme reading (`app/cross_figures.py`):** `rank_ask` reads a place level (singular, plural or one letter
   off) beside any rank word (top / bottom / highest / lowest / best / worst / least / poorest / weakest, Hinglish
   "sabse jyada / kam"), "which district", "rank districts by", "districts ranked by". A district level + a rank word is
@@ -1162,7 +1166,9 @@ through the same function.
 
 1. **Scope selection in `_run_pipeline`** picks `_kb_scheme`:
    1. exactly one scheme named;
-   2. else exactly one scheme inferred from vocabulary (`_infer_scheme_from_terms`);
+   2. else exactly one scheme inferred from vocabulary (`_infer_scheme_from_terms`; B2 2026-10-29 added "mandays",
+      "unskilled labour/workers" -> MGNREGA, "LAMP(S)" -> Focus Legacy, "level <n>" -> CM Elevate, "loan(s)" -> CM Elevate
+      Legacy — each checked in information_schema to be held by that scheme alone; KI-481);
    3. else the previous turn's single scheme (not for a bare "Focus").
 2. **Refusals and asks:**
    - a named unknown scheme → `_knowledge_not_covered_answer`;
