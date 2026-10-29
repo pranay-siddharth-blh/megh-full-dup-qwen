@@ -422,7 +422,26 @@ cases. Per file:
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
-- Progress: not started
+- Progress: context-memory tasks done (2026-10-29, branch `lane/a2`).
+- **Results on the final tree (offline, VPN down):** full pytest command (§2) **4,247 passed, 0 failed, 3 skipped**
+  (6 min); 14/14 script suites; `test_pipeline_namespace_2026_10_26.py` green; all 141 harness scenarios validate.
+  Every new regression test was also run against the old code and fails there.
+- **New tests (214):** `test_topic_rev_2026_10_28.py` (9, real router + real sync_in/sync_out over a fake
+  app.conversations), `test_ownership_turns_2026_10_29.py` (13), `test_summary_reset_2026_10_29.py` (6),
+  `test_stop_offer_cache_2026_10_29.py` (5, real router + real graph), `test_cacheable_shapes_2026_10_28.py` (142:
+  the real `is_cacheable` over every harness turn, dependency derived, not labelled), `test_delete_retention_2026_10_29.py`
+  (10), `test_decision_log_text_2026_10_29.py` (2), `test_ctx07_followups_2026_10_29.py` (23),
+  `test_harness_qa03_2026_10_29.py` (4). Added: `test_nl2sql_eval_set.py` (expect_pause names a real rule),
+  `test_nl2sql_eval_compare.py` (2, pause_verdict).
+- **Changed deliberately:** `test_context_hardening.py` source pin follows the turn body to `_answer_turn` (CTX-01)
+  and its FakeBackend copies the new summary upsert (CTX-11); `test_session_sync_retry.py` drives the real
+  PostgresBackend over a failing `db.fetchrow` (CTX-12: the old fake raised where the real code returned {}).
+- **Harness (QA-03):** the in-process driver round-trips the durable snapshot every turn; `--fresh-worker`;
+  `as_account` + `expect.status`; `drivers:`; scenarios P1 (ownership, http) and P2 (topics + cache + go back).
+  `live_context_validation.py` writes `logs/live_context_validation_<date>_<time>.json` (was one fixed file).
+- **Eval (CTX-09):** `expected_pause` outcome; the 2026-10-27 run re-scored is 41/43 = 95.3% (was 41/74), 31/31
+  pauses as the rules require.
+- **Not run (VPN):** live context suite, harness live runs, nl2sql eval, CTX-07 live chats — see HANDOFF lane A2.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

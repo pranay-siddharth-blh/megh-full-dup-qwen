@@ -1376,7 +1376,45 @@ the DATA path stubbed (the VPN was down: `10.48.242.4` answered neither 5432 nor
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
-- Progress: not started
+- Progress: context-memory tasks done on branch `lane/a2` (2026-10-29, local commits, not pushed): CTX-02, CTX-01 +
+  CTX-10 + REL-02b, CTX-11 + CTX-12, CTX-13 + CTX-14, CTX-06, CTX-04a, CTX-08, CTX-09 (eval part), CTX-07 (offline
+  part), QA-03 (offline part), DOC-01b. Not done: REL-01, UI-01, UI-02 (not context memory; a teammate works on UI).
+- **Status changes for the integrator** (the summary table is not edited here):
+  - **KI-400** (topic memory wiped) — FIXED (CTX-02): no reset on a revision jump; a cache hit files the previous
+    turn; "go back to <place>". `tests/test_topic_rev_2026_10_28.py`. Live check pending (P2 scenario).
+  - **KI-399 / KI-028** (ownership, concurrent turns) — FIXED (CTX-01): 403 for a non-owner (memory and durable
+    owner, SQL backstop), one turn at a time per conversation per worker, restore on Stop.
+    `tests/test_ownership_turns_2026_10_29.py`. Live check pending (P1 scenario, http driver).
+  - **KI-430** (retention, delete) — FIXED in code (CTX-04a): delete cascade; retention settings ship at 0
+    (nothing purged) until the user picks the periods. The JSONL audit rotation is lane A1's (CTX-04b).
+  - **KI-337** (cache gate) — VERIFIED, no fix needed (CTX-06): 274 harness turns, 0 leaks.
+  - **KI-363** (breakdown after statewide) — FIXED (CTX-07), reproduced offline; live check pending.
+  - **KI-364** (compare with a place) — FIXED (CTX-07), reproduced offline (`followup=False`); live check pending.
+  - **KI-416** (bare year switches the measure) — NOT in the rewrite (offline: the guard rejects every money rewrite
+    of a houses question); request to lane B1 (SQL generation) in HANDOFF; live check pending.
+  - **KI-406 / KI-407** — the rules were decided (D-075, D-064); the eval now scores those pauses as
+    `expected_pause` (CTX-09). Rulebook D-A2-CTX-09 awaits the user's sign-off.
+- **KI-480** — A cached answer skipped the context stage's `topic_memory.checkpoint`, so the turn BEFORE a cache hit
+  was never filed under its topic (MGNREGA -> PMAY-G -> cached MGNREGA lost PMAY-G). Hidden by KI-400's reset.
+  **FIXED 2026-10-29** (CTX-02): the router checkpoints before recording a cache hit. Low · routers/query.py.
+- **KI-481** — "Compare … with <place>" is a follow-up to `context_policy.turn_kind` (`cue:compare-one-side`) but
+  to none of the follow-up gate's detectors (`looks_like_followup`, …), so the two disagreed and the earlier place
+  was dropped (KI-364's cause). **FIXED 2026-10-29** for the compare-with-place shape by a deterministic rewrite
+  (CTX-07); the general disagreement between `turn_kind` and the gate is left as is (aligning them would change
+  many follow-ups). Low · c14 follow-up gate.
+- **KI-482** — Semantic conversation memory (Qdrant) is consulted only while the session holds fewer than
+  `CONTEXT_MEMORY_MIN_SESSION_TURNS` (2) turns (`context_manager.build_followup_context`); since the snapshot restores
+  up to 50 questions as turns (2026-10-08) it is effectively never searched in a long chat, while every turn still
+  pays an embedding call and a Qdrant write. Its block also puts answer text into the rewrite prompt (D-022 says no
+  raw previous-answer text). **OPEN — user decision** (keep, questions only, or switch off). VERIFIED with the real
+  function, search stubbed. Medium · context_manager / conversation_memory.
+- **KI-483** — The rolling summary is rebuilt from the last `CONTEXT_RECENT_TURNS` (4) questions only, without the
+  previous summary, so topics older than four questions drop out of it. **OPEN — user decision** (fold the old
+  summary in, or build it from the topic records without a model call). VERIFIED by reading
+  `context_manager.maybe_update_summary`. Low · context_manager.
+- **KI-484** — Another worker's in-memory copy of a deleted chat lives until its TTL: `sync_in` cannot tell "deleted"
+  from "never saved" (both load nothing) and keeps the local copy. Only reachable by re-sending the deleted id.
+  **OPEN** (INFERRED; low). routers/history.py, session_sync.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

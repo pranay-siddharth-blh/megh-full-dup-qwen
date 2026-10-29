@@ -481,7 +481,7 @@ def describe(session) -> dict:
 # "n" is the question's number in the conversation (mem["seq"]); it is what
 # "the first question" and the chips ("Go back to question 3") refer to.
 
-_LEDGER_ANSWER_CHARS = 300   # the snapshot carries up to 8 x 6 entries
+_LEDGER_ANSWER_CHARS = 300   # the snapshot carries up to MAX_TOPICS x CONTEXT_LEDGER_PER_TOPIC entries
 
 
 def _ledger_on() -> bool:

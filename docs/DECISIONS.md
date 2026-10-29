@@ -2026,7 +2026,54 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
-- Progress: not started
+- Progress: five entries below (2026-10-29); the integrator numbers them from D-074 on.
+
+#### D-A2-CTX-09 — Conversation rulebook v1 (PROPOSED: awaiting the user's sign-off)
+- **What:** one page for the rules already decided one at a time. No rule is new; the examples are the tests'.
+  1. **A new chat asks what it cannot know** (D-056 §1): scheme → district → year. "What was the total Focus Legacy
+     amount in FY 2024-25?" in a new chat asks the area (`scope-not-specified`, chips + "All of Meghalaya").
+  2. **A self-sufficient question inherits nothing** (D-061): "Which district has the highest beneficiaries in
+     MGNREGA?" after an East Khasi Hills answer is statewide.
+  3. **…and is asked the year when it names none** (D-065): the year chips, never a silent latest year.
+  4. **…unless it repeats the chat's measure on the chat's scheme** (D-075): it keeps the chat's year, never its
+     place ("What is the total beneficiaries manraya?" after "… beneficiaries" in FY 2023-24).
+  5. **A follow-up inherits only what it leaves out** (D-022/D-024): "What about FY 2023-24?" keeps scheme and place.
+  6. **A bare "CM Elevate"**: money words → CM Elevate Legacy; applications-only words → applications; otherwise
+     ask (D-064). "How many CM Elevate applicants are there?" asks (`cm-elevate-dataset`).
+  7. **A bare "Focus"** always asks which Focus (CLAUDE.md §4).
+- **For sign-off — wordings where the eval expected an answer and the rules ask:** "currently" (FP-03), "statewide"
+  (FP-06), "across Meghalaya" (FP-10), "Meghalaya Rural Bank accounts" (FL-03). Should these words count as "all of
+  Meghalaya" / "latest year" instead of asking? Until decided, the eval scores those pauses as `expected_pause`.
+- **Eval:** `questions.yaml` `expect_pause: <rule>` on the 31 items the rules pause; `compare.pause_verdict`; an
+  expected pause is reported on its own and left out of the accuracy denominator; any other pause is a miss.
+
+#### D-A2-CTX-01 — A conversation belongs to its owner; one turn at a time per conversation
+- **Decision:** a request for another user's session id gets 403 (this worker's copy by login, the durable row by
+  app.users id; SQL backstop `user_id IS NOT DISTINCT FROM EXCLUDED.user_id` in both upserts). Unknown owners are
+  not checked (dev, old rows). The router runs one turn per conversation at a time on a worker (`_TURN_LOCKS`, a
+  wrapper keeping the name `_answer`); the graph's own lock is not reused (not re-entrant). A failed or stopped turn
+  restores the session as the turn found it (a JSON copy taken after sync_in, before the conversation layer).
+- **Rejected (the audit's own "don't"):** user-namespaced graph thread ids (orphans paused runs at deploy); 409 +
+  client retry; a request-id dedup table.
+
+#### D-A2-CTX-04 — Retention is opt-in; the audit has its own period
+- **Decision:** `CONVERSATION_RETENTION_DAYS` and `QUERY_AUDIT_RETENTION_DAYS`, both 0 (= keep) until the user picks
+  the periods; purged daily by the existing `conversation_memory.purge_loop`. The query audit is the compliance
+  trail (delete_conversation never touches it), so it is NOT tied to the conversation period, unlike the lane plan's
+  single setting. Deleting a chat also deletes its Qdrant memory (filter always names session AND owner), its paused
+  run and this worker's Session.
+
+#### D-A2-CTX-08 — The decision log keeps its no-text promise at the source
+- **Decision:** `context_budget.log_decision` logs any text value under `question` / `prompt` / `answer` /
+  `result` as `{"sha256": 12 hex, "chars": n}`. Instead of editing the seven call sites (the lane plan's version):
+  covers future call sites too and leaves lane B2's conversation_layer / c14 lines untouched.
+
+#### D-A2-CTX-07 — Two follow-up shapes are rewritten deterministically
+- **Decision:** a breakdown-only message after a STATEWIDE answer → the previous question by that dimension; "compare
+  … with <place>" (one new place, the previous place's own level, nothing else changed) → the previous question for
+  both places. **Why it does not conflict with D-056:** D-056 leaves a place SWAP ("what about Ri Bhoi?") to the
+  model; these need an explicit breakdown or compare cue and change nothing but the dimension / the added place.
+  KI-416 is not touched: the rewrite guard already refuses the measure switch (SQL generation, lane B1).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

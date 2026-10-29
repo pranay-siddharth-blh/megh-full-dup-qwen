@@ -1277,7 +1277,38 @@ conversation state back into process memory (D-023).
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
-- Progress: not started
+- Progress: context-memory tasks done on branch `lane/a2` (2026-10-29), one local commit per task, NOT pushed and no
+  PR yet (push / PR when the user says): CTX-02 → CTX-01 + CTX-10 + REL-02b → CTX-11 + CTX-12 → CTX-13 + CTX-14 →
+  CTX-06 → CTX-04a → CTX-08 → CTX-09 (eval) → CTX-07 (offline) → QA-03 (offline) → DOC-01b. Remaining lane tasks:
+  REL-01, UI-01, UI-02 (left for the UI work).
+- **Taken from other lanes, so they skip them:** CTX-08 (lane B2) was done at the source in `context_budget.log_decision`;
+  NO call site was edited, so B2's conversation_layer / c14 lines are untouched. CTX-09 (lane B1): rulebook entry +
+  eval `expect_pause`; B1 need only do QA-01 on top.
+- **Frontend:** `frontend/src/chat/api.js` (stream silence timer + 10 min ceiling, crypto session ids); `web/app`
+  rebuilt and committed in the CTX-01 commit, as the lane plan requires. A teammate editing the UI: on a `web/app`
+  conflict, keep either side and run `npm run build` again.
+- **Blocked on the VPN (do first when it is up):**
+  1. `tests/live_context_validation.py` (caches on and off) — expect 43/43; it now writes a dated file.
+  2. Harness: `--driver http --only P1_ownership_refused,P2_topics_survive_a_cache_hit` with caches ON, and
+     `--driver inprocess --fresh-worker` on the context scenarios.
+  3. CTX-07 live: the KI-363 / KI-364 chats in the UI; check the SQL for "Compare … East Khasi Hills and Ri Bhoi"
+     returns one row per district.
+  4. QA-03 live: pause on VM1, resume on VM2; re-run J2 / J3 for KI-037.
+  5. `tests/nl2sql_eval/run_eval.py` — accuracy now excludes `expected_pause` items.
+- **Blocked on the user:** sign-off of D-A2-CTX-09 (and the four wordings it lists); retention periods
+  (`CONVERSATION_RETENTION_DAYS`, `QUERY_AUDIT_RETENTION_DAYS`, both 0 = keep); KI-482 (semantic memory: keep /
+  questions only / off) and KI-483 (summary).
+- **Requests for other lanes:**
+  - Lane B1: KI-416 ("FY20?" after a houses answer gives the amount). Offline the rewrite guard refuses every money
+    rewrite of a houses question (`tests/test_ctx07_followups_2026_10_29.py`, last test), so the measure is lost in
+    SQL generation (c10): "houses sanctioned in FY 2019-20" read as the sanctioned amount. Reproduce live.
+  - Lane A1: `config.py:390-393` comment ("Per-worker … Lost on restart; not shared across workers") is stale since
+    D-023 (the session is durable). Lane A2 added one block after `SESSION_MAX_TURNS` (QUERY_NONSTREAM_MAX_SECONDS,
+    CONVERSATION_RETENTION_DAYS, QUERY_AUDIT_RETENTION_DAYS).
+  - Lane B2 / RAG: `routers/query.py` error branches now restore the session (CTX-10); RAG-05's error mapping must
+    keep `_restore_turn_start(request, session)` in each branch.
+- **Failing tests seen:** none on the final tree (one transient failure in a run that overlapped the harness edits;
+  re-run green).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

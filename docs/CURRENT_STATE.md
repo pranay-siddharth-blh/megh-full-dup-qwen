@@ -1621,7 +1621,25 @@ DDL.
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
-- Progress: not started
+- Progress: context-memory tasks done on `lane/a2` (2026-10-29; local commits, not pushed). REL-01, UI-01, UI-02 open.
+- **What works now (VERIFIED offline, real functions; live checks pending — VPN down):**
+  - Topics survive cache hits, small talk, "stop" and "Continue with …"; "go back to <place>" restores that
+    question's scope (CTX-02, KI-400, KI-480).
+  - A conversation answers only its owner (403 otherwise); one turn at a time per conversation per worker; a
+    failed (503/504/5xx) or stopped turn leaves the session as it found it; the plain /api/query is capped at 110 s;
+    the UI's 75 s limit is a silence limit (CTX-01, CTX-10, REL-02b).
+  - "Start a new topic" / idle expiry clear the summary on every worker; the KI-314 load retry really retries
+    (CTX-11, CTX-12).
+  - A typed "stop" keeps the topic; a paused first reply after expiry keeps the Continue chip; cached answers carry
+    no `translated_from` (CTX-13, CTX-14).
+  - The cache gate is proven on every harness turn (CTX-06). Deleting a chat removes its memory, paused run and
+    Session; retention is opt-in (CTX-04a). The decision log holds no question text (CTX-08).
+  - "Break it down by district" after a statewide answer and "Compare … with <place>" are rewritten
+    deterministically (CTX-07, KI-363, KI-364). KI-416 is SQL generation's (request to lane B1).
+  - Eval: deliberate pauses are `expected_pause`, not misses (CTX-09).
+- **Tests:** 4,247 passed, 0 failed, 3 skipped; 14/14 scripts (TESTING lane A2).
+- **Open, user decisions:** D-A2-CTX-09 sign-off; retention periods; KI-482 (semantic memory almost never used) and
+  KI-483 (summary covers 4 questions).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
