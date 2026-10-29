@@ -795,6 +795,27 @@ async def _cme_urban_block_spellings(question: str, schemes: list[str], sql: str
         if want != list(vals):
             node.replace(exp.In(this=node.this.copy(), expressions=[exp.Literal.string(s) for s in want]))
             changed = True
+    # grouped by block: one row per board, not one per stored spelling — "Rongram vs Tura Municipal
+    # Board" compared 609 with Tura's 28 instead of 105 (77 + 28) (UAT 2026-10-30, C09)
+    if isinstance(tree, exp.Select) and tree.args.get("group") is not None:
+        groups = {}
+        for v in siblings.values():
+            groups[tuple(v)] = sorted(v, key=len)[0]
+
+        def merged(col: exp.Expression) -> exp.Expression:
+            case = exp.Case()
+            for sibs, canon in groups.items():
+                case = case.when(exp.In(this=col.copy(), expressions=[exp.Literal.string(x) for x in sibs]),
+                                 exp.Literal.string(canon))
+            return case.else_(col.copy())
+        for i, g in enumerate(list(tree.args["group"].expressions)):
+            if isinstance(g, exp.Column) and g.name.lower() == "lgd_block":
+                tree.args["group"].expressions[i] = merged(g)
+                changed = True
+        for i, e in enumerate(list(tree.expressions)):
+            if isinstance(e, exp.Column) and e.name.lower() == "lgd_block":
+                tree.expressions[i] = exp.alias_(merged(e), "lgd_block")
+                changed = True
     if not changed:
         return sql
     logger.info("CM Elevate: an urban body's other stored spellings added to the lgd_block filter")
@@ -863,7 +884,7 @@ _CME_SECTOR_VALUE_MATCH = Matcher(Cap(W("piggery", "poultry", "dairy", "goatery"
 _CME_SECTOR_EACH_MATCH = Matcher(Alt(Seq(W("each", "every", "all", "by", "per"), Opt("the"), _cme_sg("sector"), sep="space"),
                                   _cme_join(("sector", "sectors"), "wise")))
 _CME_PENDING_MATCH = Matcher(Alt("pending", _cme_join("on", "hold")))
-_CME_SECTOR_FACT_KINDS = ("count", "pending", "programmes", "workflow")
+_CME_SECTOR_FACT_KINDS = ("count", "pending", "programmes", "workflow", "notime")
 # A WORKFLOW status the data does not hold (ingestion team, 2026-10-26): "pending",
 # "approved", "rejected" and "sent back" live in an internal API field the chatbot
 # cannot read; data_verified ('On Hold' …) is the data-verification check, a different
@@ -1014,10 +1035,45 @@ def _cme_workflow_group(question: str) -> "str | None":
     return None
 
 
+# "Show the monthly totals of CM Elevate applications" -> "couldn't build a working query" (UAT
+# 2026-10-30, C04-MONTHLY): v_cm_elevate has no date column at all. A month / quarter / trend /
+# date-range ask on the applications data is answered with that fact and the recorded total
+# (cmelevate_classification_rules.yaml monthly_breakdown_requested / trend_or_growth_requested).
+_CME_TIME_ASK = Matcher(Alt(
+    W("monthly", "month", "months", "quarterly", "quarter", "quarters", "weekly", "daily", "trend", "trends"),
+    _cme_join("month", "wise"), _cme_join("month", "on", "month"), Seq("over", "time"),
+    W("january", "february", "march", "april", "june", "july", "august", "september", "october", "november",
+      "december"), Seq("last", Pred(lambda w: w.isdecimal()), W("months", "days", "weeks", "years")),
+    Seq("last", W("six", "three", "twelve"), W("months", "weeks"))))
+
+
+def _cme_notime_query(question: str, resolved: dict) -> "tuple[str, list, str] | None":
+    if not _CME_TIME_ASK.search(question or ""):
+        return None
+    where, params = [], []
+    for single, col in (("village_code", "village_code"), ("block", "lgd_block"), ("district", "lgd_district")):
+        v = resolved.get(single)
+        if v not in (None, "") and not isinstance(v, (list, dict, tuple, set)):
+            params.append(str(v) if col == "village_code" else str(v).upper())
+            where.append(f"{col}{'::text' if col == 'village_code' else ''} = ${len(params)}")
+    ac = resolved.get("assembly_constituency")
+    if isinstance(ac, str) and ac.strip():
+        params.append(ac.strip().upper())
+        where.append(f"UPPER(ac_name) = ${len(params)}")
+    wh = (" WHERE " + " AND ".join(where)) if where else ""
+    # the workflow mark (c13 routes it to _cme_sector_answer); the row's cme_kind tells them apart
+    sql = ("/* cme-sector-workflow */ SELECT 'notime' AS cme_kind, COUNT(DISTINCT request_id) AS applications "
+           f"FROM curated.v_cm_elevate{wh}")
+    return sql, params, sql
+
+
 def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tuple[str, list, str] | None":
     if schemes != ["CM Elevate"]:
         return None
     q = question or ""
+    _nt = _cme_notime_query(q, resolved or {})
+    if _nt is not None:
+        return _nt
     _wf = _cme_workflow_query(q, resolved or {}) if not (_CME_SECTOR_EACH_MATCH.search(q)) else None
     if _wf is not None:
         return _wf
@@ -1079,6 +1135,8 @@ def _cme_place_words(display: dict) -> str:
 def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict) -> "str | None":
     where = _cme_place_words(display or {})
     kind = _cme_sector_fact_kind(sql)
+    if kind == "workflow" and rows and rows[0].get("cme_kind") == "notime":
+        kind = "notime"
     if kind == "programmes":
         m = _CME_SECTOR_VALUE_MATCH.search(question or "")
         sector = m.group(1).title() if m else "that"
@@ -1088,6 +1146,12 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
         total = sum(int(_as_number(r.get("sector_applicants")) or 0) for r in rows)
         return (f"CM Elevate applicants associated with the {sector} sector{where}, by programme:\n"
                 + "\n".join(lines) + f"\n\nCombined: {total:,}.")
+    if kind == "notime" and rows:
+        n = int(_as_number(rows[0].get("applications")) or 0)
+        return ("A CM Elevate application carries no date — no month, quarter or financial year is recorded "
+                "against it — so applications cannot be split or filtered by time. In all, "
+                f"{n:,} application{'s are' if n != 1 else ' is'} recorded{where}. (Sanctions and disbursements by "
+                "financial year are in CM Elevate Legacy.)")
     if kind == "count":
         m = _CME_SECTOR_VALUE_MATCH.search(question or "")
         sector = m.group(1).title() if m else "that"
@@ -1993,13 +2057,21 @@ _CME_WHOLE_LIST_Q = Matcher(Alt(
     Seq("all", Opt("the"), _cme_sg("programme", "program", "scheme", "district", "block", "village", "sector"))))
 
 
+_CME_TOPN_Q = Matcher(Seq(W("top", "bottom", "highest", "lowest", "first", "last"), Pred(lambda w: w.isdecimal())))
+
+
 def _cme_complete_list(question: str, answer: str, rows: list[dict]) -> str:
     """KI-068 (text half): "applicants under each CM ELEVATE program" named 5 of
     the 15 programmes ("the remaining schemes range from 4 … up to 3,617").
     When the question asks for EVERY value (each / distribution / breakdown)
     and some row's figure is not beside its label, rebuild the list from the
     rows. A "which is highest" question naming its top few is left alone."""
-    if not _CME_WHOLE_LIST_Q.search(question or "") or not 2 <= len(rows) <= 200:
+    # Also rebuilt (UAT 2026-10-30): same-name villages answered together (J-10 twins, rows per
+    # village_code + lgd_block) — "Chandigre … highest 16 in Rongram, lowest 4 in Chokpot" left out
+    # Demdema's 7 (C03); and "top 5 / bottom 5" lists — "the top 5 villages in East Khasi Hills"
+    # gave figures for the first and last only (C10).
+    twins = bool(rows) and "village_code" in rows[0] and "lgd_block" in rows[0] and 2 <= len(rows) <= 3         and len({str(r.get("lgd_village_name") or "").upper() for r in rows}) == 1
+    if not (_CME_WHOLE_LIST_Q.search(question or "") or twins or _CME_TOPN_Q.search(question or ""))             or not 2 <= len(rows) <= 200:
         return answer
     nums = _fp_numeric_cols(rows)
     labels = [k for k in rows[0] if k not in nums]
@@ -2009,7 +2081,9 @@ def _cme_complete_list(question: str, answer: str, rows: list[dict]) -> str:
     # that is the same on every row do not tell the rows apart.
     if len(labels) > 1:
         labels = [k for k in labels if not _NONSTAT_COL.search(k)
-                  and len({str(r.get(k)) for r in rows}) > 1] or labels
+                  and len({str(r.get(k)).upper() for r in rows}) > 1] or labels
+        if len(labels) > 1 and "lgd_village_name" in labels:      # villages across blocks: the village names them
+            labels = ["lgd_village_name"]
     if len(nums) != 1 or len(labels) != 1:
         return answer
     lab, met = labels[0], nums[0]
