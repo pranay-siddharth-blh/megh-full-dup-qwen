@@ -78,7 +78,10 @@ function oneToOne(data, a, b) {
 export function twinColumns(data) {
   const out = {};
   if (!Array.isArray(data) || data.length < 2) return out;
+  // A rank / serial number pairs one-to-one with the names too, but it is the
+  // ranking itself: never hidden as a twin (audit 2026-10-29, E-2).
   const cols = tableColumns(data).filter((c) => !isMeasureCol(data, c)
+    && !hasSegment(c, ['rank', 'sl', 'serial'])
     && data.every((r) => r && !isBlank(r[c]))
     && new Set(allValues(data, c).map(String)).size >= 2);
   for (let i = 0; i < cols.length; i++) {

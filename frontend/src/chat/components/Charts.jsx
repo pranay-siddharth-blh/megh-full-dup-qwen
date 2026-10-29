@@ -975,11 +975,13 @@ export function CompareCard({ title, measure, a, b, verdict }) {
         <div className="cmp-tile">
           <div className="cmp-label">{a.label}</div>
           <div className="cmp-value">{compactValue(a.value)}</div>
+          {a.detail && <div className="cmp-sub">{a.detail}</div>}
         </div>
         <div className="cmp-vs" aria-hidden="true">vs</div>
         <div className="cmp-tile">
           <div className="cmp-label">{b.label}</div>
           <div className="cmp-value">{compactValue(b.value)}</div>
+          {b.detail && <div className="cmp-sub">{b.detail}</div>}
         </div>
       </div>
       <CompareVerdict v={verdict} />

@@ -170,3 +170,11 @@ def test_least_says_fewer(state_db):                                            
 def test_money_per_beneficiary_is_its_own_column(state_db):                            # B-10
     out = asyncio.run(cf.answer(_plan("Money per beneficiary in MGNREGA vs PMAY-G")))
     assert [r["rupees_per_beneficiary"] for r in out["rows"]] == [7026, 7013]
+
+
+def test_each_scheme_says_what_its_figure_is(state_db):                               # G-9, B-11
+    out = asyncio.run(cf.answer(_plan("Compare beneficiaries and money in MGNREGA and PMAY-G")))
+    notes = out["measure_notes"]
+    assert notes["MGNREGA"]["beneficiaries"].startswith("household-years")
+    assert notes["PMAY-G"]["amount_crore"] == "money released"
+    assert set(out["rows"][0]) == {"scheme", "beneficiaries", "amount_crore"}          # the rows keep their shape

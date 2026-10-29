@@ -804,7 +804,24 @@ async def answer(p: Plan) -> dict:
     logger.info("cross figures (D-066): %s %s op=%s measures=%s by_district=%s", p.schemes, p.place_label,
                 p.op, p.measures, p.by_district)
     return {"answer": "\n".join(ln for ln in lines if ln is not None), "rows": rows, "sql": "\n;\n".join(shown),
-            "totals": col_totals}
+            "totals": col_totals, "measure_notes": measure_notes(have)}
+
+
+# G-9 / B-11 (audit 2026-10-29): every scheme's count sits in one `beneficiaries`
+# column and its money in one `amount_crore` column, so the tiles, axes and table
+# said "beneficiaries" for MGNREGA household-years and "amount" for money spent,
+# released and disbursed alike. What each column means for each scheme goes with
+# the answer (the rows keep their shape, user report 2026-10-27).
+_COUNT_NOTE = {"MGNREGA": "household-years: households given work, counted once per year worked",
+               "PMAY-G": "houses sanctioned", "Focus Plus": "distinct beneficiaries",
+               "Focus Legacy": "producer-group members"}
+_MONEY_NOTE = {"MGNREGA": "money spent", "PMAY-G": "money released", "Focus Plus": "money disbursed",
+               "Focus Legacy": "money disbursed"}
+
+
+def measure_notes(schemes: list) -> dict:
+    """{scheme: {column: what it holds for that scheme}}."""
+    return {s: {"beneficiaries": _COUNT_NOTE[s], "amount_crore": _MONEY_NOTE[s]} for s in schemes if s in _COUNT_NOTE}
 
 
 def _total_cells(p: Plan, f: dict) -> dict:

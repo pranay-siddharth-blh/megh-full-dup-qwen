@@ -200,6 +200,51 @@ export function askedMeasureCol(question, numCols) {
   return numCols.find((c) => hasStem(colParts(c), stems)) || null;
 }
 
+// ── Label columns: dimensions, fixed values and details (audit 2026-10-29) ──
+// C-2: a column with one value in every row ("EKH") was drawn as a one-item legend
+// and a one-column pivot; it belongs in the title. E-1 / J-6 / G-9 / B-11: a column
+// fully set by another (a block's district, a village's block, what each scheme
+// counts or spends) was drawn as a second dimension — mostly-empty grouped bars, a
+// stack coloured by block, a table full of "—". It is a detail: in the table and
+// the tooltip, never a series. A rank / serial number is a detail too (E-2).
+const RANK_WORDS_COL = ['rank', 'sl', 'serial'];
+function functional(data, a, b) {
+  const m = new Map();
+  for (const r of data) {
+    const x = String(r[a] ?? '');
+    const y = String(r[b] ?? '');
+    if (m.has(x) && m.get(x) !== y) return false;
+    m.set(x, y);
+  }
+  return true;
+}
+
+/** { dims, fixed, details } of these rows' label columns. `ranking`: the rows are a
+    ranked list of one kind of place, so the coarser of two place columns is its
+    detail even when names repeat (E-7: two villages called "Mawlai"). */
+export function splitLabels(data, lbl, ranking = false) {
+  const distinct = (k) => new Set(data.map((r) => String(r[k] ?? ''))).size;
+  const isPeriod = (c) => dimOf(c, data) === 'period';
+  const details = lbl.filter((c) => hasSegment(c, RANK_WORDS_COL));
+  let rest = lbl.filter((c) => !details.includes(c));
+  const fixed = data.length > 1 ? rest.filter((c) => distinct(c) === 1) : [];
+  if (fixed.length < rest.length) rest = rest.filter((c) => !fixed.includes(c));
+  else fixed.length = 0;   // every label is constant: keep them as they are
+  for (const b of [...rest]) {
+    if (rest.length < 2 || isPeriod(b) || dimOf(b, data) === 'scheme') continue;
+    const pairsUnique = (a) => new Set(data.map((r) => `${r[a]}||${r[b]}`)).size === data.length;
+    const by = rest.find((a) => a !== b && (functional(data, a, b) || (ranking && rest.length === 2
+      && dimOf(a, data) === 'place' && pairsUnique(a)))
+      && (distinct(a) > distinct(b) || (distinct(a) === distinct(b) && (dimOf(a, data) === 'scheme'
+        || rest.indexOf(a) < rest.indexOf(b)))));
+    if (by) {
+      details.push(b);
+      rest = rest.filter((c) => c !== b);
+    }
+  }
+  return { dims: rest, fixed, details };
+}
+
 /** `prefer` is chartPreference(question) (or 'chart' for /chart): a chart the
     officer asked for. It picks the first chart type, draws a one-row answer
     with several figures as a chart, and skips the two-tile card. */
@@ -297,11 +342,48 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     }
     return seen;
   });
-  const lblCols = cols.filter((c) => !numCols.includes(c));
+  const allLbl = cols.filter((c) => !numCols.includes(c));
 
   if (!numCols.length) return { kind: 'table', data };
 
+  const { dims: lblCols, fixed, details } = splitLabels(data, allLbl, asksRanking(question));
+  const where = fixed.length ? ` in ${fixed.map((c) => String(data[0][c])).join(', ')}` : '';
+  const say = details.filter((c) => !hasSegment(c, RANK_WORDS_COL));
   const lc = lblCols[0] || cols[0];
+  // the label with its details: "Umling (Ri Bhoi)"; on the axis only when names repeat (E-7)
+  const full = (r, c) => (say.length ? `${r[c]} (${say.map((d) => r[d]).join(', ')})` : String(r[c]));
+  const repeats = new Set(data.map((r) => String(r[lc]))).size < data.length;
+
+  // I-8: each scheme's own top / bottom list, merged: one ranked chart per scheme
+  // (small multiples) and a table Rank · MGNREGA district · value · PMAY-G … — not
+  // one chart over the union of names, most bars holding one scheme.
+  const sCol = lblCols.find((c) => dimOf(c, data) === 'scheme');
+  const oCol = lblCols.find((c) => c !== sCol && dimOf(c, data) !== 'period');
+  if (sCol && oCol && lblCols.length === 2 && (allLbl.some((c) => hasSegment(c, RANK_WORDS_COL)) || asksRanking(question))) {
+    const schemes = [...new Set(data.map((r) => String(r[sCol])))];
+    const sets = schemes.map((s) => new Set(data.filter((r) => String(r[sCol]) === s).map((r) => String(r[oCol]))));
+    const same = sets.every((st) => st.size === sets[0].size && [...st].every((x) => sets[0].has(x)));
+    if (schemes.length >= 2 && !same) {
+      const vc = askedMeasureCol(question, numCols) || numCols[0];
+      const per = schemes.map((s) => data.filter((r) => String(r[sCol]) === s));
+      const charts = per.map((rs, i) => ({
+        title: `${schemes[i]}: ${humanCol(vc)} by ${humanCol(oCol)}${where}`,
+        labels: rs.map((r) => label18(r[oCol])), fullLabels: rs.map((r) => full(r, oCol)),
+        values: rs.map((r) => toNumber(r[vc])),
+        axes: { x: colTitle(oCol), y: colTitle(vc), unit: unitOf(vc) },
+      }));
+      const n = Math.max(...per.map((rs) => rs.length));
+      const wide = Array.from({ length: n }, (_, i) => {
+        const o = { rank: i + 1 };
+        per.forEach((rs, k) => {
+          o[`${schemes[k]} ${colTitle(oCol).toLowerCase()}`] = rs[i] ? rs[i][oCol] : null;
+          o[`${schemes[k]} ${humanCol(vc)}`] = rs[i] ? rs[i][vc] : null;
+        });
+        return o;
+      });
+      return { kind: 'multi', charts, defType: 'bar', types: ['bar'], data: wide, perScheme: true };
+    }
+  }
 
   // Two things side by side (#397): "East Khasi Hills vs West Garo Hills". Two
   // rows, one label column, a measure -> two stat tiles and a one-line verdict
@@ -312,12 +394,14 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     const l2 = String(r2[lc] ?? '').trim();
     if (l1 && l2 && l1 !== l2) {
       const vc = askedMeasureCol(question, numCols) || numCols[0];
+      const sub = (r) => (say.length ? say.map((d) => r[d]).filter((x) => x !== null && x !== '').join(' · ') : null);
       return {
         kind: 'compare',
-        title: `${l1} vs ${l2}`,
+        vKey: vc,
+        title: `${l1} vs ${l2}${where}`,
         measure: humanCol(vc),
-        a: { label: l1, value: toNumber(r1[vc]) },
-        b: { label: l2, value: toNumber(r2[vc]) },
+        a: { label: l1, value: toNumber(r1[vc]), detail: sub(r1) },
+        b: { label: l2, value: toNumber(r2[vc]), detail: sub(r2) },
         verdict: compareVerdict(l1, toNumber(r1[vc]), l2, toNumber(r2[vc]), humanCol(vc), isSchemeCol(lc)),
         data,
         extra: numCols.length > 1,
@@ -340,6 +424,12 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     const isPeriodCol = (c) => hasSegment(c, PERIOD_WORDS)
       || data.every((r) => isPeriodLabel(r[c]));
     const two = lblCols.slice(0, 2);
+    // C-3: two periods (month and year): the finer one on the x-axis, the coarser
+    // one as the series ("Month-wise for 2023-24 and 2024-25" put 2 years on the axis
+    // and 12 months in the legend)
+    const grain = (c) => ['date', 'day', 'week', 'month', 'quarter', 'year', 'yr', 'fy']
+      .findIndex((w) => hasSegment(c, [w]) || (w === 'year' && hasSegment(c, ['financial'])));
+    if (two.every(isPeriodCol)) two.sort((p, q) => (grain(p) < 0 ? 99 : grain(p)) - (grain(q) < 0 ? 99 : grain(q)));
     let xKey = two.find(isPeriodCol) || null;
     let sKey = xKey ? two.find((c) => c !== xKey) : null;
     if (!xKey) [xKey, sKey] = distinct(two[0]) >= distinct(two[1]) ? two : [two[1], two[0]];
@@ -358,7 +448,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
       const hinted = hintType === 'stacked' ? 'stacked' : hintType;
       return {
         kind: 'twoDim',
-        title: `${humanCol(vKey)} by ${humanCol(xKey)} and ${humanCol(sKey)}`,
+        title: `${humanCol(vKey)} by ${humanCol(xKey)} and ${humanCol(sKey)}${where}`,
         xKey, sKey, vKey, labels: labels.map(String), datasets, periods, types, noAddWhy: whyS || whyX,
         defType: types.includes(hinted) ? hinted : (periods ? 'line' : 'bar'),
         data, extra: numCols.length > 1,
@@ -419,9 +509,9 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   }
 
   const charts = numCols.slice(0, 3).map((vc) => ({
-    title: `${humanCol(vc)} by ${humanCol(lc)}`,
-    labels: data.map((r) => label18(r[lc])),
-    fullLabels: data.map((r) => String(r[lc])),
+    title: `${humanCol(vc)} by ${humanCol(lc)}${where}`,
+    labels: data.map((r) => label18(repeats ? full(r, lc) : r[lc])),
+    fullLabels: data.map((r) => full(r, lc)),
     values: data.map((r) => toNumber(r[vc])),
     axes: { x: colTitle(lc), y: colTitle(vc), unit: unitOf(vc) },
   }));

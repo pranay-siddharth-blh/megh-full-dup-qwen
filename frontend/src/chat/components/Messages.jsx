@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { buildAnalytics, chartPreference, withoutChartPhrase } from '../analytics.js';
+import { buildAnalytics, chartPreference, humanCol, withoutChartPhrase } from '../analytics.js';
 import { fullStamp } from '../format.js';
 import { CompareCard, DynTable, GroupedChart, PivotTable, RecordCard, StackedChart, SwitchableChart, TwoDimChart } from './Charts.jsx';
 import { Markdown, plainText } from './Markdown.jsx';
@@ -105,9 +105,13 @@ function Analytics({ question, response, view, onAsk }) {
   }
   if (a.kind === 'record') return <div className="analytics"><RecordCard row={a.row} /></div>;
   if (a.kind === 'compare') {
+    // G-9 / B-11: what the figure is for each scheme ("household-years", "money released")
+    const said = (side) => (response.measure_notes && response.measure_notes[side.label]
+      && response.measure_notes[side.label][a.vKey]) || side.detail;
     return (
       <div className="analytics">
-        <CompareCard title={a.title} measure={a.measure} a={a.a} b={a.b} verdict={a.verdict} />
+        <CompareCard title={a.title} measure={a.measure} a={{ ...a.a, detail: said(a.a) }} b={{ ...a.b, detail: said(a.b) }}
+                     verdict={a.verdict} />
         {withTables && a.extra && <DynTable data={a.data} />}
       </div>
     );
@@ -177,12 +181,18 @@ function Analytics({ question, response, view, onAsk }) {
     );
   }
   const single = a.charts.length === 1;
+  // G-9 / B-11: a scheme's bar tooltip says what its figure is
+  const notes = response.measure_notes || {};
+  const tip = (c, i) => {
+    const vk = Object.keys((notes[c.fullLabels[i]] || {})).find((k) => c.title.toLowerCase().startsWith(humanCol(k).toLowerCase()));
+    return vk ? `${c.fullLabels[i]} — ${notes[c.fullLabels[i]][vk]}` : c.fullLabels[i];
+  };
   return (
     <div className="analytics">
       {note}
       <div className={'dyn-grid' + (single ? ' single' : '')}>
         {a.charts.map((c, i) => (
-          <SwitchableChart key={i} title={c.title} labels={c.labels} fullLabels={c.fullLabels} values={c.values}
+          <SwitchableChart key={i} title={c.title} labels={c.labels} fullLabels={c.fullLabels.map((_, j) => tip(c, j))} values={c.values}
                            types={typesOr(a.types || ['bar', 'pie', 'doughnut', 'line'])} initial={only || a.defType} theme={theme}
                            axes={c.axes} />
         ))}

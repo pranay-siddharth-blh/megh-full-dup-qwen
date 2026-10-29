@@ -175,3 +175,93 @@ test('D-1 / X-5 / D-8: rates and negative values are never slices', () => {
   const neg = [{ district: 'A', net_amount: -5 }, { district: 'B', net_amount: 10 }, { district: 'C', net_amount: 3 }];
   assert.equal(buildAnalytics('Net amount by district', neg, null).defType, 'bar');
 });
+
+// ── Phase 5: never drop a label; dependent labels are details ────────────────
+import { splitLabels } from '../src/chat/analytics.js';
+import { withoutTwins } from '../src/chat/columns.js';
+
+test('C-2: a label with one value goes in the title, not a one-item legend', () => {
+  const rows = ['2022-23', '2023-24', '2024-25'].map((fy, i) => ({ district: 'East Khasi Hills', financial_year: fy, person_days: 50 + i }));
+  const a = buildAnalytics('Person days in East Khasi Hills, 2022-23 to 2024-25', rows, 'stacked');
+  assert.equal(a.kind, 'multi');
+  assert.match(a.charts[0].title, /in East Khasi Hills$/);
+  assert.deepEqual(a.charts[0].labels, ['2022-23', '2023-24', '2024-25']);
+});
+
+test('E-1: a block\'s district is a detail, not a series of mostly-empty bars', () => {
+  // model SQL for "Top 5 blocks by expenditure" returns the district beside the block
+  const rows = [
+    { block_name: 'MYLLIEM', district_name: 'EAST KHASI HILLS', total_exp_lakh: 900 },
+    { block_name: 'UMLING', district_name: 'RI BHOI', total_exp_lakh: 800 },
+    { block_name: 'MAWRYNGKNENG', district_name: 'EAST KHASI HILLS', total_exp_lakh: 700 },
+    { block_name: 'TIKRIKILLA', district_name: 'WEST GARO HILLS', total_exp_lakh: 650 },
+    { block_name: 'JIRANG', district_name: 'RI BHOI', total_exp_lakh: 600 },
+  ];
+  const a = buildAnalytics('Top 5 blocks by expenditure', rows, null);
+  assert.equal(a.kind, 'multi');
+  assert.deepEqual(a.charts[0].labels.slice(0, 2), ['MYLLIEM', 'UMLING']);
+  assert.equal(a.charts[0].fullLabels[1], 'UMLING (RI BHOI)');
+  assert.equal(a.defType, 'bar');
+  assert.deepEqual(splitLabels(rows, ['block_name', 'district_name']).details, ['district_name']);
+});
+
+test('J-6: top villages in one block are a ranked list, the block in the title', () => {
+  // real SQL MG-07: village_name, block_name, person_days
+  const rows = [{ village_name: 'A', block_name: 'UMLING', person_days: 900 }, { village_name: 'B', block_name: 'UMLING', person_days: 800 },
+    { village_name: 'C', block_name: 'UMLING', person_days: 700 }];
+  const a = buildAnalytics('Top 3 villages in Umling block by person days', rows, null);
+  assert.equal(a.kind, 'multi');
+  assert.equal(a.defType, 'bar');
+  assert.match(a.charts[0].title, /in UMLING$/);
+});
+
+test('E-7: villages with the same name are told apart by their block', () => {
+  const rows = [{ village_name: 'Mawlai', block_name: 'MYLLIEM', person_days: 900 },
+    { village_name: 'Mawlai', block_name: 'MAWPHLANG', person_days: 850 }, { village_name: 'Laitumkhrah', block_name: 'MYLLIEM', person_days: 800 }];
+  const a = buildAnalytics('Top 3 villages by person days in East Khasi Hills', rows, null);
+  assert.deepEqual(a.charts[0].labels.slice(0, 2), ['Mawlai (MYLLIEM)', 'Mawlai (MAWPHLANG)']);
+});
+
+test('I-8: each scheme\'s own top list is one ranked chart per scheme, not a union', () => {
+  // merged per-scheme rows (c13), after the backend unified the place column
+  const rows = [
+    { district: 'West Garo Hills', scheme: 'MGNREGA', beneficiaries: 261221 }, { district: 'East Khasi Hills', scheme: 'MGNREGA', beneficiaries: 190000 },
+    { district: 'East Khasi Hills', scheme: 'PMAY-G', beneficiaries: 40000 }, { district: 'Ri Bhoi', scheme: 'PMAY-G', beneficiaries: 33147 },
+  ];
+  const a = buildAnalytics('Top 2 districts in MGNREGA and PMAY-G', rows, 'stacked');
+  assert.equal(a.kind, 'multi');
+  assert.equal(a.perScheme, true);
+  assert.deepEqual(a.charts.map((c) => c.labels), [['West Garo Hills', 'East Khasi Hills'], ['East Khasi Hills', 'Ri Bhoi']]);
+  assert.deepEqual(a.data[0], { rank: 1, 'MGNREGA district': 'West Garo Hills', 'MGNREGA beneficiaries': 261221,
+    'PMAY-G district': 'East Khasi Hills', 'PMAY-G beneficiaries': 40000 });
+});
+
+test('I-8: cross_figures per-scheme ranking rows (rank column) likewise', () => {
+  const rows = [
+    { rank: 1, district: 'South Garo Hills', scheme: 'MGNREGA', beneficiaries: 50000 }, { rank: 2, district: 'Ri Bhoi', scheme: 'MGNREGA', beneficiaries: 112602 },
+    { rank: 1, district: 'South Garo Hills', scheme: 'PMAY-G', beneficiaries: 9000 }, { rank: 2, district: 'East Jaintia Hills', scheme: 'PMAY-G', beneficiaries: 12000 },
+  ];
+  const a = buildAnalytics('bottom 2 districts by beneficiaries in MGNREGA and PMAY-G', rows, null);
+  assert.equal(a.perScheme, true);
+  assert.equal(a.charts.length, 2);
+});
+
+test('E-2: a rank column is never hidden as a twin of the names', () => {
+  const rows = [{ rank: 1, district: 'A', v: 9 }, { rank: 2, district: 'B', v: 8 }];
+  assert.deepEqual(Object.keys(withoutTwins(rows)[0]), ['rank', 'district', 'v']);
+});
+
+test('C-3: month and year — months on the x-axis, years as the series', () => {
+  const rows = ['2023-24', '2024-25'].flatMap((fy) => ['Apr', 'May', 'Jun'].map((m, i) => ({ financial_year: fy, month_name: m, expenditure: 10 + i })));
+  const a = buildAnalytics('Month-wise expenditure for 2023-24 and 2024-25', rows, null);
+  assert.equal(a.kind, 'twoDim');
+  assert.equal(a.xKey, 'month_name');
+  assert.equal(a.sKey, 'financial_year');
+});
+
+test('G-9: two scheme tiles carry what each figure is (from the answer\'s measure notes)', () => {
+  const rows = [{ scheme: 'MGNREGA', beneficiaries: 1494437 }, { scheme: 'PMAY-G', beneficiaries: 171107 }];
+  const a = buildAnalytics('Compare beneficiaries in MGNREGA and PMAY-G', rows, null);
+  assert.equal(a.kind, 'compare');
+  assert.equal(a.vKey, 'beneficiaries');   // Messages.jsx looks up response.measure_notes[scheme][vKey]
+});

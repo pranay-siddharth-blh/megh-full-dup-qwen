@@ -89,3 +89,13 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | J-6 | Partly fixed — the backend no longer sends `stacked` for a ranking (UI ranked list with block as detail: phase 5) | c13 `_chart_hint` | `test_stacked_only_…` (top 5 villages) |
 | J-11 | Fixed (year_key + financial_year read as one period in `_chart_hint`) | c13 `_chart_hint` | `test_year_key_and_financial_year_are_one_period` |
 | X-5 | Fixed | analytics.js | UI `D-1 / X-5 / D-8 …` |
+| C-2 | Fixed (a label with one value goes in the title) | frontend/src/chat/analytics.js (`splitLabels`, `where`) | UI `C-2 …` |
+| C-3 | Fixed (two periods: the finer on the x-axis, the coarser as the series) | analytics.js (`grain`) | UI `C-3 …` |
+| E-1 | Fixed (a column determined by another is a detail: table and tooltip, never a series) | analytics.js (`splitLabels`, `full`) | UI `E-1 …` |
+| E-2 | Fixed (rank / serial never hidden as a twin) | frontend/src/chat/columns.js (`twinColumns`) | UI `E-2 …` |
+| E-7 | Fixed (repeated names get their block on the axis: "Mawlai (MYLLIEM)") — asking the SQL for the block in every village ranking is not done | analytics.js | UI `E-7 …` |
+| I-7 | Fixed (backend: only the N ranked districts, rank order; UI: ranked bars per scheme) | app/cross_figures.py, analytics.js | `test_top_n_rows_…`; UI `I-8 … (rank column)` |
+| I-8 | Fixed (each scheme's own top / bottom list: one ranked chart per scheme and a table Rank · MGNREGA place · value · PMAY-G place · value) | analytics.js (`perScheme`) | UI `I-8 …` (two tests) |
+| J-6 | Fixed (backend no stacked hint for a ranking; UI ranked bars, block in the title or as a detail) | c13 `_chart_hint`, analytics.js | `test_stacked_only_…`; UI `J-6 …` |
+| G-9 | Fixed (the answer carries what each scheme's figure is — "household-years: households given work, counted once per year worked" — shown under each tile and in bar tooltips; rows keep their shape, as locked by test_cross_figures) | app/cross_figures.py (`measure_notes`), c13, Messages.jsx, Charts.jsx (`cmp-sub`), chat.css | `test_each_scheme_says_what_its_figure_is`; UI `G-9 …` |
+| B-11 | Fixed (tile and tooltip say money spent / released / disbursed) | as G-9 | `test_each_scheme_says_what_its_figure_is` |
