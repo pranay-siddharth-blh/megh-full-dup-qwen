@@ -31,9 +31,10 @@ calls resolve_turn. No graph node was added or changed.
 
 Where it lives: `session.topics`, part of the durable snapshot
 (Session.to_snapshot, D-023) since 2026-10-08, so a return works on whichever
-worker serves it. If a worker still sees a revision jump (the durable write
-failed, so another worker's turns never reached the snapshot), checkpoint()
-starts the topic record afresh instead of restoring an out-of-date topic.
+worker serves it: session_sync.sync_in loads the topics with the rest of the
+turn's state. (A revision jump no longer resets them: cache hits, small talk
+and "stop" save a revision without passing through checkpoint(), and the reset
+wiped every topic after each of them, CTX-02 / KI-400.)
 The LangGraph checkpoint is not involved: it holds a paused run only.
 
 Caching: the acknowledgement of a bare switch is marked confidence "low",
@@ -394,15 +395,12 @@ def checkpoint(session) -> None:
     """File the turn that just finished under its topic, and the current
     state under the state's own topic. Runs at the start of the next turn."""
     mem = _memory(session)
-    # Each request on this worker moves the durable revision on by one
-    # (session_sync.sync_out). A bigger jump means turns were served by another
-    # worker, whose topic records this copy never saw: drop them rather than
-    # ever restore an out-of-date topic. The conversation itself is unaffected.
-    rev, seen = int(getattr(session, "rev", 0) or 0), mem.get("rev")
-    if seen is not None and rev > int(seen) + 1 and mem["items"]:
-        context_budget.log_decision("topic", action="reset-stale", topics=len(mem["items"]))
-        mem.update(active=None, order=[], items={}, ack=None)
-    mem["rev"] = rev
+    # No reset on a revision jump (CTX-02, KI-400, 2026-10-29). Every saved
+    # request moves the revision on, but only graph turns pass through here, so
+    # a cache hit, layer small talk, a typed "stop" or a "Continue with …" tap
+    # made a jump of two and wiped every topic. The worry it guarded against
+    # (another worker's turns missing from this copy) is gone: the topics travel
+    # in the durable snapshot that sync_in applies before this runs.
     last = session.last_turn
     ack, mem["ack"] = mem.get("ack"), None
     if ack and last is not None and last.route == "edge" and last.raw_question == ack:
@@ -637,6 +635,26 @@ def _again_cue(text: str) -> bool:
                               or any(w in _REF_NOUNS for w in ws))
 
 
+# Words a bare place target may carry besides the place ("go back to the
+# Mawphlang please"): the same back-reference filler the ledger match already
+# ignores (_BACK_FILLER), folded as entity_resolver.place_only compares them. No
+# list of its own; the place itself comes from the place catalogue and index.
+_PLACE_TARGET_FILLER = frozenset(w.upper() for w in _BACK_FILLER)
+
+
+def _place_target(target: str) -> bool:
+    """True when a "go back to" target names exactly one district, block,
+    constituency or village and nothing else ("go back to Mawphlang"). Such a
+    target refers to the earlier question asked there (CTX-02, 2026-10-29: it
+    needed "the Mawphlang one" and the bare name was never looked up). No
+    place index: False, the old reading."""
+    try:
+        from app.entity_resolver import place_only
+        return place_only(target, ignore=_PLACE_TARGET_FILLER) is not None
+    except Exception:  # noqa: BLE001
+        return False
+
+
 def parse_backward(question: str) -> "BackRef | None":
     """The reference to an earlier question in `question`, or None. Read only
     when parse_switch found no topic return (resolve_turn)."""
@@ -664,7 +682,7 @@ def parse_backward(question: str) -> "BackRef | None":
             bare = [w for w in words(target) if w not in ("the", "that", "my", "our", "very")]
             if bare and bare[0] in _ORDINALS and bare[1:] in ([], ["one"]):
                 ordinal = _ORDINALS[bare[0]]
-        if ordinal is None and not (_REF_NOUNS & set(words(target))):
+        if ordinal is None and not (_REF_NOUNS & set(words(target))) and not _place_target(target):
             return None
         return BackRef(ordinal, target, remainder.strip(), True)
     # A cue anywhere. The clause holding it is the reference; a clause after
@@ -940,6 +958,14 @@ async def resolve_reference(session, question: str) -> "TopicTurn | None":
             return None
         # the rules found nothing to restore (else resolve_turn would have)
         if _match_entries(mem, ref, question)[0]:
+            return None
+        # "go back to Mawphlang" with no Mawphlang question in the ledger: the
+        # place says exactly what is meant and nothing here was asked about it,
+        # so there is nothing for the model to pick; the message runs as a
+        # question of its own, as before (CTX-02).
+        if ref.lead and ref.ordinal is None and not (_REF_NOUNS & set(words(ref.target))) \
+                and _place_target(ref.target):
+            context_budget.log_decision("topic", action="no-such-place-question")
             return None
         entries = entries[-8:]
         by_id = {f"q{e.get('n')}": (k, e) for k, e in entries}

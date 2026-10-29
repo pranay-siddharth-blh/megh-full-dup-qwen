@@ -370,6 +370,16 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     # follow-up rewrite still has this question as its antecedent.
     # The question the pipeline ran (the conversation layer's), so a reset's
     # "Forget that." or a recall's wording never becomes the antecedent.
+    if served_from is not None and layer.response is None:
+        # A cached answer skips the graph, and with it the context stage, which
+        # first files the previous turn under its topic (topic_memory.checkpoint).
+        # Without this the turn before a cache hit was never filed: after
+        # MGNREGA -> PMAY-G -> a cached MGNREGA answer the PMAY-G topic was gone
+        # (CTX-02, 2026-10-29). Filing twice is harmless (a fingerprint skips it).
+        try:
+            topic_memory.checkpoint(session)
+        except Exception:  # noqa: BLE001 — bookkeeping must never fail the answer
+            logger.warning("topic memory: checkpoint before a cache hit failed (non-fatal)", exc_info=True)
     session_store.add_turn(session_id, build_turn(question, result))
     if served_from is not None and layer.response is None:
         # KI-319 (2026-10-18): a cached answer skips the graph, so its
