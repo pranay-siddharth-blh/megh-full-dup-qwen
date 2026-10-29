@@ -232,12 +232,13 @@ def take_for_turn(session) -> "dict | None":
     return (getattr(session, "turn_context", None) or {}).pop(_TURN_KEY, None)
 
 
-async def turn_plan(session) -> "dict | None":
+async def turn_plan(session, question: "str | None" = None) -> "dict | None":
     """This turn's plan, waiting for it if still running; None when none was
-    started (a follow-up, a pause reply, a greeting, the flag off). For the
-    stage-2b readers; nothing in the pipeline calls it yet."""
+    started (a follow-up, a pause reply, a greeting, the flag off) or, given
+    `question`, when the plan was read from other words. The stage-2b reader
+    (first field: intent, c13 _c13_intent_by_rules)."""
     box = (getattr(session, "turn_context", None) or {}).get(_TURN_KEY)
-    if not box:
+    if not box or (question is not None and box["question"].strip() != (question or "").strip()):
         return None
     try:
         return await asyncio.shield(box["task"])

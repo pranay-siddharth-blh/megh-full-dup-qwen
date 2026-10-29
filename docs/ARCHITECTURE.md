@@ -128,7 +128,7 @@ and output, and how it fails.
 | `GET /api/scheme-stats` | user | welcome-card figures from megh_db, cached 10 min: `{cards: {key: [[value, label] ×3]}, periods: {key: "FY …"}, as_of}`; a NULL figure is "—"; 503 with no cached copy (the UI then shows its typed fallback and says so) (KI-378) |
 | `GET/POST /admin/tenants`, `/admin/roles`, `/admin/users[/{id}]` (CRUD), `/admin/logins`, `/admin/conversations[/{id}]`, `/admin/audit`, `/admin/stats`, `/admin/schema` | admin JWT (tenant-scoped) | admin console API |
 | `GET /health` | anonymous gets `{status}` only; admin JWT or `X-Metrics-Token` gets components | DB + Qdrant (+ Redis) status |
-| `GET /metrics` | admin JWT or `X-Metrics-Token` | route counts, latency percentiles, cache stats, guardrail-model failures (D-080) |
+| `GET /metrics` | admin JWT or `X-Metrics-Token` | route counts, latency percentiles, cache stats, guardrail-model failures (D-080), `data_facts` (live prompt figures as_of / errors, broken data-rule claims; D-087) |
 
 **There is no WebSocket, SSE or streaming endpoint** (VERIFIED: nothing in `app/` or `web/`
 matches `websocket` or `StreamingResponse`).
@@ -281,7 +281,7 @@ starts the paused-thread sweep and closes the checkpointer only when the graph i
 - **`vectorstore.py`** reads both payload shapes (`piece()`): the app's own `{doc, heading, scheme: str}`
   and megh_knowledge's `{source_file, section, scheme: [..]}`; the scheme filter is `MatchAny`, and
   "CM Elevate" also matches megh_knowledge's "CM Elevate Legacy" tag.
-- **`sql_examples.py`** (D-074): with `SQL_EXAMPLES_SOURCE=qdrant`, `_data_sql_stage` fetches the SQL
+- **`sql_examples.py`** (D-074; default `yaml` since 2026-10-29, D-086; `yaml_meaning` mode B5): with `SQL_EXAMPLES_SOURCE=qdrant`, `_data_sql_stage` fetches the SQL
   prompt's worked examples from `megh_sql_metadata` (kind=example); any failure keeps the YAML banks.
 - **`rag.py`:**
   - `retrieve` searches Qdrant with an **exact-match** `scheme` payload filter;

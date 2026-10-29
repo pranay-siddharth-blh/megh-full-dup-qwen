@@ -49,7 +49,7 @@ export const VOICE_LANG = { en: 'en', kha: 'en', gar: 'en' };
 // (computed from megh_db), so the cards follow every data refresh (2026-10-22: the period
 // text was typed here and would go stale). Keep these close to the data anyway — last
 // synced STATS_SYNCED. A card's description line is `meta · periodLead period · metaTail`.
-export const STATS_SYNCED = '22 Oct 2026';
+export const STATS_SYNCED = '29 Oct 2026';
 // ORDER MATTERS — oldest scheme first, newest last: the
 // carousel pages this list in order, so a new scheme goes at the END.
 export const SCHEME_CARDS = [
@@ -72,7 +72,7 @@ export const SCHEME_CARDS = [
   {
     key: 'cm_elevate', cls: 'cmelevate-card', ico: '🚀', name: 'CM Elevate',
     meta: 'Entrepreneurship & livelihood programme · one row per application', metaTail: 'no date/amount data',
-    stats: [['8,867', 'Applications'], ['15', 'Schemes'], ['12', 'Districts covered']],
+    stats: [['8,948', 'Applications'], ['15', 'Schemes'], ['12', 'Districts covered']],
   },
   {
     key: 'focus_legacy', cls: 'focus-card', ico: '🤝', name: 'Focus Legacy',
