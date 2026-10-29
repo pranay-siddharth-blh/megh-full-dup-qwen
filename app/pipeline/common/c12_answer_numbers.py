@@ -321,23 +321,27 @@ def _c12_money_unit(col: str) -> "str | None":
 
 
 def _c12_money(v: "int | float", unit: str = "rupees") -> str:
-    """One money figure as the officer reads it: '₹2,185.26 crore', '₹8,996.36 lakh',
-    '₹35,000'. A lakh / crore value stays in its unit at 2 decimals from 0.10 of it;
-    below that 2 decimals hide the amount (₹1,25,000 is "0.01 crore"), so it drops to
-    the next unit down. Rupees: crore from one crore, lakh from one lakh, exact (paise
-    only when present) below. A true zero is '₹0'."""
+    """One money figure as the officer reads it (data-accuracy brief 2026-10-29, RC6;
+    settles KI-449): ₹, Indian grouping, the exact amount, then its crore / lakh size
+    in brackets — "₹37,49,31,500 (≈ ₹37.49 crore)", "₹52,56,58,223.25 (≈ ₹52.57
+    crore)", "₹9,40,000 (≈ ₹9.40 lakh)", "₹35,000". No ".00" on a whole amount; paise
+    only when present. A lakh column stays in lakh with its crore size: "₹25,701.49
+    lakh (≈ ₹257.01 crore)". A crore column (the SQL already divided) has no exact
+    rupees to show: "₹3,628.67 crore". A true zero is '₹0'."""
     rupees = float(v) * _C12_MONEY_SCALE[unit]
     sign, a = ("-" if rupees < 0 else ""), abs(rupees)
     if unit == "crore" and a >= 1e6:
         return f"{sign}₹{_c12_indian(a / 1e7, 2)} crore"
     if unit == "lakh" and a >= 1e4:
-        return f"{sign}₹{_c12_indian(a / 1e5, 2)} lakh"
-    if a >= 1e7 and unit == "rupees":
-        return f"{sign}₹{_c12_indian(a / 1e7, 2)} crore"
-    if a >= 1e5:
-        return f"{sign}₹{_c12_indian(a / 1e5, 2)} lakh"
+        lakh = f"{sign}₹{_c12_indian(a / 1e5, 2)} lakh"
+        return lakh + (f" (≈ {sign}₹{_c12_indian(a / 1e7, 2)} crore)" if a >= 1e7 else "")
     exact = round(a, 2)
-    return f"{sign}₹{_c12_indian(exact, 0 if float(exact).is_integer() else 2)}"
+    out = f"{sign}₹{_c12_indian(exact, 0 if float(exact).is_integer() else 2)}"
+    if a >= 1e7:
+        return f"{out} (≈ {sign}₹{_c12_indian(a / 1e7, 2)} crore)"
+    if a >= 1e5:
+        return f"{out} (≈ {sign}₹{_c12_indian(a / 1e5, 2)} lakh)"
+    return out
 
 
 def _c12_is_pct_col(col: str) -> bool:
@@ -645,20 +649,140 @@ def _is_fallback_answer(answer: str, rows: list[dict], schemes: "list[str] | Non
 from app.text_match import number_spans as _c12_number_spans  # noqa: E402 — the framing pass below
 
 
-def _group_result_digits(answer: str, rows: list[dict]) -> str:
+def _group_result_digits(answer: str, rows: list[dict], schemes: "list[str] | None" = None) -> str:
     """Thousands separators for every result integer of five or more digits that
     the answer writes bare ("27264054" -> "27,264,054"). Years and small counts
     are left alone; only tokens that ARE a result value are touched."""
     values = {int(v) for r in rows for _k, v in _row_metrics(r) if isinstance(v, int) or float(v).is_integer()}
     if not values or not answer:
-        return answer
+        return _c12_normalise_figures(answer, rows, schemes)
     out, last = [], 0
     for start, end, tok in _c12_number_spans(answer, decimals=True, commas=True):
         # four digits too (6847 -> 6,847), except a year-like value (2017..2100)
         if tok.isdecimal() and len(tok) >= 4 and int(tok) in values and not (1900 <= int(tok) <= 2100):
-            out.append(answer[last:start]); out.append(f"{int(tok):,}"); last = end
+            out.append(answer[last:start]); out.append(_c12_indian(int(tok))); last = end
     out.append(answer[last:])
-    return "".join(out)
+    return _c12_normalise_figures("".join(out), rows, schemes)
+
+
+# RAG fix report 2026-10-29, Issue 13: one chat wrote "₹1,197,392,500.00" (Focus Plus),
+# another "₹21,85,25,98,…" (PMAY-G), a third "119.74" with no unit at all (a _cr column),
+# while the dashboard cards write "₹119.74 Cr" and "3,85,671". The composer's own digits
+# are put through the one money formatter (_c12_money) and the cards' Indian grouping:
+#   - a ₹ / Rs / INR amount of one lakh or more -> "₹119.74 crore" / "₹8.50 lakh";
+#   - a value of a _cr / _lakh / rupees result column written without its unit -> the
+#     same, in the column's unit;
+#   - a comma-grouped number of six or more digits -> Indian grouping ("3,85,671").
+# A number already followed by crore / lakh, or by %, keeps its words.
+_C12_UNIT_WORDS = frozenset({"crore", "crores", "cr", "lakh", "lakhs", "lac", "lacs"})
+
+
+def _c12_rupee_prefix_start(answer: str, start: int) -> "int | None":
+    """Where a ₹ / Rs / Rs. / INR written just before the number at `start` begins, else None."""
+    head = answer[:start]
+    trimmed = head.rstrip()
+    if trimmed.endswith("₹"):
+        return len(trimmed) - 1
+    for p in ("Rs.", "Rs", "INR", "rs.", "rs"):
+        if trimmed.endswith(p) and (len(trimmed) == len(p) or not trimmed[-len(p) - 1].isalnum()):
+            return len(trimmed) - len(p)
+    return None
+
+
+def _c12_bracket_end(answer: str, at: int) -> int:
+    """End of a size bracket right after `at` — " (₹37.49 crore)", " (≈ ₹25.70 lakh)" —
+    that a rewritten figure now carries itself, else `at` (data-accuracy brief RC6)."""
+    j = at
+    while j < len(answer) and answer[j] == " ":
+        j += 1
+    if j >= len(answer) or answer[j] != "(":
+        return at
+    k = answer.find(")", j)
+    inner = answer[j + 1:k].strip() if 0 < k - j <= 40 else ""
+    if inner.startswith(("≈", "₹", "~", "Rs")) and any(w in inner.lower() for w in ("crore", "lakh", "cr")):
+        return k + 1
+    return at
+
+
+def _c12_normalise_figures(answer: str, rows: list[dict], schemes: "list[str] | None" = None) -> str:
+    """Money and big counts in the answer written the way the dashboard cards write them.
+    Money is every result cell _c17_money_cols knows (by suffix, else by name with the
+    dataset's own unit — data-accuracy brief 2026-10-29: "amount_disbursed" was not
+    money, so D9 read "51,01,05,000.00"). A figure the answer wrote in crore / lakh
+    ("₹46.64 crore", "25,701.49 lakh") is put back to the exact cell it rounds from."""
+    if not answer:
+        return answer
+    money = _c17_money_cols(rows, schemes)
+    scale = {"crore": 1e7, "crores": 1e7, "cr": 1e7, "lakh": 1e5, "lakhs": 1e5, "lac": 1e5, "lacs": 1e5}
+    out, last = [], 0
+    for start, end, tok in _c12_number_spans(answer, decimals=True, commas=True):
+        if start < last:
+            continue                 # inside a bracket a rewritten figure already took
+        try:
+            val = float(tok.replace(",", ""))
+        except ValueError:
+            continue
+        after = answer[end:].lstrip()
+        if after.startswith("%"):
+            continue
+        nxt = _c12_tokens(after[:12])
+        col = next((m for m in money if abs(m[0] - val) < 0.005 and val != 0), None)
+        rupee_at = _c12_rupee_prefix_start(answer, start)
+        new = None
+        stop = end
+        if nxt and nxt[0].start == 0 and nxt[0].low in _C12_UNIT_WORDS:
+            word_end = end + (len(answer[end:]) - len(after)) + nxt[0].end
+            f = scale.get(nxt[0].low, 1e7)
+            if col is not None and col[1] == "rupees":
+                # "480.91 lakh" for a _rupees column (avg_wage_per_person_day_rupees, the
+                # composer read MGNREGA's "money is lakh" rule): the unit word is wrong, not the
+                # number — written as rupees.
+                new = _c12_money(*col)
+            else:
+                # "₹46.64 crore" of a rupees cell 466430000 -> the exact amount and its size;
+                # "25,701.49 lakh" of a lakh cell -> "₹25,701.49 lakh (≈ ₹257.01 crore)".
+                exact = min((m for m in money if m[1] == "rupees" and val
+                             and abs(m[0] / f - val) < 0.006), key=lambda m: abs(m[0] / f - val), default=None)
+                same = next((m for m in money if m[1] == ("lakh" if f == 1e5 else "crore")
+                             and abs(m[0] - val) < 0.005 and val), None)
+                if exact is not None:
+                    new = _c12_money(exact[0], "rupees")
+                elif same is not None:
+                    new = _c12_money(*same)
+                else:
+                    continue         # not a result's money (person-days in crore …): its words stand
+            stop = _c12_bracket_end(answer, word_end)
+            begin = rupee_at if rupee_at is not None and rupee_at >= last else start
+            out.append(answer[last:begin]); out.append(new); last = stop
+            continue
+        if col is not None:
+            new = _c12_money(*col)
+            # "480.91 rupees" -> "₹480.91": the word goes with the ₹
+            if nxt and nxt[0].start == 0 and nxt[0].low in ("rupee", "rupees", "rs", "inr"):
+                stop = end + (len(answer[end:]) - len(after)) + nxt[0].end
+        elif rupee_at is not None and val >= 1e5:
+            new = _c12_money(val, "rupees")
+        if new is not None:
+            stop = _c12_bracket_end(answer, stop)
+            begin = rupee_at if rupee_at is not None and rupee_at >= last else start
+            out.append(answer[last:begin]); out.append(new); last = stop
+        elif "," in tok and val >= 1e5:
+            whole, _, frac = tok.partition(".")
+            out.append(answer[last:start]); out.append(_c12_indian(float(whole.replace(",", ""))) +
+                                                        ("." + frac if frac else "")); last = end
+    out.append(answer[last:])
+    text = "".join(out)
+    # "₹1,356.45 crore (₹13,56,45,00,000)" was the same amount twice; once both are
+    # written alike, the bracketed copy goes.
+    for m in {s for s in out if s.startswith(("₹", "-₹"))}:
+        text = text.replace(f"{m} ({m})", m)
+        # with the exact-plus-size form "₹13,56,45,32,500 (≈ ₹1,356.45 crore)", the composer's
+        # own "₹1,356.45 crore (<exact>)" became "₹1,356.45 crore (₹13,56,45,32,500 (≈ ₹1,356.45
+        # crore))": the size it already said goes, the formatted figure stays once
+        if " (≈ " in m and m.endswith(")"):
+            size = m[m.index(" (≈ ") + 4:-1]
+            text = text.replace(f"{size} ({m})", m).replace(f"{m} ({size})", m)
+    return text
 
 
 # "Total person-days for FY 2023-24 across all financial years is 27,264,054":
@@ -700,6 +824,11 @@ def _drop_all_years_phrase(text: str) -> str:
     return text
 
 
+def _c12_period_phrase(period: str) -> str:
+    """"for FY 2023-24", but "across all financial years" as it is."""
+    return period if period.startswith(("across", "over", "in ", "during")) else "for " + period
+
+
 def _finish_answer(answer: str, rows: list[dict], schemes: "list[str] | None", entities: "dict | None") -> str:
     """The universal last pass over a data answer: result figures carry thousands
     separators, and a single-figure answer that does not name the scheme or the
@@ -707,7 +836,7 @@ def _finish_answer(answer: str, rows: list[dict], schemes: "list[str] | None", e
     figure is for. Idempotent: a framed answer is left as it is."""
     if not answer:
         return answer
-    text = _group_result_digits(answer, rows)
+    text = _group_result_digits(answer, rows, schemes)
     scheme, place, period = _scope_words(schemes, entities)
     if period.startswith("FY"):
         text = _drop_all_years_phrase(text)
@@ -737,7 +866,8 @@ def _finish_answer(answer: str, rows: list[dict], schemes: "list[str] | None", e
     if not names_scheme and not names_place:
         tail = f"This figure is for {scheme}, {place_text}{' (statewide)' if statewide else ''}{when}."
     elif not names_scheme:
-        tail = f"This is the {scheme} figure{(' for ' + period) if when else ''}."
+        # "This is the PMAY-G figure for across all financial years." (D5 / D7 run 2026-10-29)
+        tail = f"This is the {scheme} figure{(' ' + _c12_period_phrase(period)) if when else ''}."
     else:
         tail = f"This is the {'statewide ' if statewide else ''}figure for {place_text}{when}."
     return f"{text.rstrip()} {tail}"
@@ -791,10 +921,15 @@ def _finish_data_result(result: dict) -> None:
             # statewide. "967 job cards … in Barato village as of FY 2023-24. This is the
             # statewide figure for all of Meghalaya." (job-card year fix, live 2026-10-21;
             # MGNREGA sheet DATA-022/023/028 village answers, 2026-10-21.)
-            result["answer"] = _group_result_digits(result.get("answer") or "", rows)
+            result["answer"] = _group_result_digits(result.get("answer") or "", rows, result.get("schemes"))
+            _c17_attach_caveats(result)
             return
         result["answer"] = _finish_answer(result.get("answer") or "", rows, result.get("schemes") or [],
                                           display)
+        if (result.get("schemes") or []) == ["Focus Plus"]:          # RAG fix report Issue 12
+            result["answer"] = _focusplus_per_beneficiary_caveat(result["answer"], result.get("sql"))
+        _c17_attach_caveats(result)      # provisional money, absent years (data-accuracy brief RC5)
+        _c17_mark_winner(result)         # the row a "which … most" answered, for follow-ups
     except Exception:  # noqa: BLE001 — presentation only; the answer stands as written
         logger.warning("_finish_data_result failed (non-fatal)", exc_info=True)
 

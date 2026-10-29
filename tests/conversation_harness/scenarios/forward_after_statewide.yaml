@@ -32,9 +32,9 @@
     - say: "How many households got MGNREGA work in all of Meghalaya in FY 2023-24?"
       expect: {route: data, scheme: MGNREGA, place: all, year: FY 2023-24}
     - say: "How many households got MGNREGA work in Ri Bhoi?"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "2024-25"
-      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2024-25, new_question: true}
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2024-25}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "show me for south garo hills district"
       expect: {route: data, scheme: MGNREGA, place: South Garo Hills, same_scope_as: 3, except: [place]}
 
@@ -46,9 +46,9 @@
     - say: "how many households"
       expect: {route: pause, pause_rule: scheme-not-specified}
     - say: "MGNREGA"
-      expect: {route: pause, pause_rule: scope-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "All of Meghalaya"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "FY 2023-24"
       expect: {route: data, scheme: MGNREGA, place: all, year: FY 2023-24, numbers_any: [410200]}
     - say: "now for West Khasi Hills"

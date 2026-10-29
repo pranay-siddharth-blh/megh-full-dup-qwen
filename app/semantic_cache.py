@@ -168,6 +168,11 @@ class SemanticCache:
             return
         if value.get("route") == "edge":
             return
+        # An answer opened "Showing results for Ri Bhoi (you typed 'ribhoy')"
+        # (app/spelling.py) is about those typed words: the exact cache keeps it;
+        # served to a similar but correctly spelt question, the note would be wrong.
+        if value.get("spelling"):
+            return
         if vec is None:
             vec = await self._embed(question)
         if vec is None:

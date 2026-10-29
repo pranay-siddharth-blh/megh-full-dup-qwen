@@ -22,6 +22,21 @@ def _generated_sql_off_the_chatbot_login(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _no_request_trace_from_an_earlier_test():
+    # turn_trace keeps the request's start time in a context variable; a sync test
+    # that started a trace and never finished it left it set for every later test,
+    # so the KI-013 repair budget (elapsed since that start) read "120 s used" and
+    # five repair tests failed only in the full run (2026-10-29, KI-622). Each test starts clean.
+    from app import turn_trace
+    token = turn_trace._trace_var.set(None)
+    yield
+    try:
+        turn_trace._trace_var.reset(token)
+    except ValueError:            # set in another context by the test itself
+        turn_trace._trace_var.set(None)
+
+
+@pytest.fixture(autouse=True)
 def _guardrail_model_off(monkeypatch):
     # The model layer of app/guardrails.py is one extra classifier call per
     # question; tests that fake the classifier with a fixed reply sequence must

@@ -883,6 +883,104 @@ def _mgnrega_avg_of_ratio(schemes: list[str], sql: str) -> str:
     return out
 
 
+# RAG fix report 2026-10-29, Issue 3: "Average wage paid per person-day under MGNREGA
+# statewide in 2024-25" ran ROUND(AVG(cost_per_person_day_rupees), 2) AS
+# avg_wage_per_person_day_rupees on v_district_year_summary and answered Rs 677.12. Two
+# errors: AVG over the 12 district rows is an unweighted average of averages (the
+# statewide ratio is SUM / SUM), and cost_per_person_day_rupees is TOTAL expenditure
+# (material + admin too), not a wage. The view's precomputed ratio columns are therefore
+# recomputed from their numerator and denominator, and a question about the WAGE reads
+# the unskilled wage bill (the wage paid for a person-day; semi-skilled wages are a
+# separate, skilled bill). Money on the view is LAKH: x 100000 for rupees.
+_MG_SUMMARY_RATIOS = {
+    "cost_per_person_day_rupees": ("total_exp", "person_days", 100000),
+    "unskilled_wage_share_pct": ("unskilled_wage_exp", "total_exp", 100),
+}
+_MG_WAGE_WORD = Matcher(W("wage", "wages"))
+
+
+def _mg_ratio_tree(num: str, den: str, scale: int, *, summed: bool) -> exp.Expression:
+    """SUM(num)::numeric * scale / NULLIF(SUM(den), 0) (or the per-row form)."""
+    a, b = (f"SUM({num})", f"SUM({den})") if summed else (num, den)
+    # parsed, not built node by node: a hand-built Div over a Mul is rendered with a
+    # CAST(... AS DOUBLE PRECISION), and Postgres has no ROUND(double precision, int)
+    return exp.Paren(this=sql_ast.parse_one(f"SELECT {a}::numeric * {scale} / NULLIF({b}, 0)").expressions[0])
+
+
+def _mgnrega_summary_ratio_columns(question: str, schemes: list[str], sql: str) -> str:
+    """AVG(<precomputed ratio>) on v_district_year_summary -> SUM / SUM of its parts;
+    a WAGE question's cost_per_person_day_rupees -> unskilled wages / person-days."""
+    if "MGNREGA" not in (schemes or []) or not sql or "v_district_year_summary" not in sql_ast.tables(sql):
+        return sql
+    wage = bool(_MG_WAGE_WORD.search(question or ""))
+
+    def parts(col: str) -> "tuple[str, str, int]":
+        num, den, scale = _MG_SUMMARY_RATIOS[col]
+        if wage and col == "cost_per_person_day_rupees":
+            num = "unskilled_wage_exp"
+        return num, den, scale
+
+    def fn(tree):
+        for node in list(tree.find_all(exp.Avg)):
+            col = _mg_unwrap(node.this)
+            if isinstance(col, exp.Column) and col.name.lower() in _MG_SUMMARY_RATIOS:
+                node.replace(_mg_ratio_tree(*parts(col.name.lower()), summed=True))
+        if wage:
+            for col in list(tree.find_all(exp.Column)):
+                if col.name.lower() == "cost_per_person_day_rupees" and col.find_ancestor(exp.Avg) is None:
+                    col.replace(_mg_ratio_tree(*parts("cost_per_person_day_rupees"), summed=False))
+        return None
+    out = sql_ast.transform(sql, fn)
+    if out != sql:
+        logger.info("MGNREGA: precomputed summary ratio recomputed from its parts: %s", out.replace("\n", " "))
+    return out
+
+
+# RAG fix report 2026-10-29, Issue 1: the dashboard card "Villages with activity" counts
+# the villages with an employment OR an expenditure record (6,491; app/routers/stats.py),
+# but "How many villages had MGNREGA activity statewide" counted v_employment only (6,419),
+# and on another run the 30B read a view with no village_code at all. A plain village count
+# (not one about employment, work or spending in particular) is a fixed query over both
+# views with the same filters, so the chat and the card agree. Fixed, not a rewrite of the
+# model's SQL: the SQL verifier reads an employment UNION expenditure as the prohibited
+# employment -> expenditure join and sends it back for repair.
+_MG_VILLAGE_MEASURE_WORDS = Matcher(Alt(
+    W("employment", "employed", "work", "worked", "workers", "job", "jobs", "household", "households",
+      "persons", "people", "women", "expenditure", "spent", "spend", "spending", "wage", "wages", "material",
+      "zero", "without", "which", "list", "name", "names", "each", "wise", "per", "by", "top", "highest",
+      "lowest", "most", "least", "compare", "trend"),
+    Joined("person", _MG_DAYS),
+))
+
+
+def _mgnrega_villages_active_query(question: str, schemes: list[str], resolved: dict
+                                   ) -> "tuple[str, list, str] | None":
+    """(parameterised SQL, params, display SQL) for "how many villages" under MGNREGA:
+    villages with an employment or an expenditure record, in the place / years asked."""
+    q = question or ""
+    if schemes != ["MGNREGA"] or not _VILLAGE_COUNT_ASK_MATCH.search(q) or _MG_VILLAGE_MEASURE_WORDS.search(q):
+        return None
+    if resolved.get("village_code") or resolved.get("village"):
+        return None
+    f = _mgnrega_filters({k: v for k, v in resolved.items() if k not in ("year_key", "year_key_list")})
+    if f is None:
+        return None
+    where, params, shown = f
+    years = _mg_resolved_years(resolved)
+    if years:
+        params = params + [years]
+        where = where + [f"year_key = ANY(${len(params)}::int[])"]
+        shown = shown + [f"year_key = {years[0]}" if len(years) == 1
+                         else f"year_key IN ({', '.join(map(str, years))})"]
+
+    def build(w: list[str]) -> str:
+        wh = (" WHERE " + " AND ".join(w)) if w else ""
+        return ("/* mg-villages-active */ SELECT COUNT(DISTINCT village_code) AS villages_with_activity\n"
+                f"FROM (SELECT village_code FROM curated.v_employment{wh}\n"
+                f"      UNION SELECT village_code FROM curated.v_expenditure{wh}) AS v")
+    return build(where), params, build(shown)
+
+
 # MGNREGA money is natively LAKH. "ROUND(SUM(unskilled_wage_exp + semi_skilled_
 # wage_exp) / 100.0, 2) AS wages_lakh" divided a lakh figure by 100 and still
 # called it lakh: JAKREM's 219.48 lakh of wages was reported as "2.19 lakh"
@@ -1798,6 +1896,10 @@ def _mgnrega_money_units(answer: str, sql: str, rows: list[dict]) -> str:
             # (composer audit MG-10; live E9 check 2026-10-29 reproduced it after a correct "24.09%")
             if _c12_is_pct_col(str(k)) or any(p in ("share", "ratio", "rate") for p in str(k).lower().split("_")):
                 continue
+            # rupees per person-day is rupees, not lakh: "avg_wage_per_person_day_rupees" 480.91
+            # became "480.91 lakh" (RAG fix report Issue 3 re-run, 2026-10-29)
+            if str(k).lower().endswith("_rupees") or "per" in str(k).lower().split("_"):
+                continue
             f = float(n)
             forms |= {f"{f:,.2f}", f"{f:.2f}"}
     for form in sorted(forms, key=len, reverse=True):
@@ -1858,6 +1960,19 @@ async def _mgnrega_admin_expenditure_answer(rows: list[dict], display: dict, sta
                 "FROM curated.v_expenditure", []))[0]
             state = (f" Statewide, the column is non-zero on only {st['nonzero']} of {st['n']:,} "
                      f"records (₹{float(st['total'] or 0):,.2f} lakh in total).")
+            # KI-355 (metric x level matrix 2026-10-21, 3/3): "Which district had the highest
+            # administrative expenditure?" got the statewide figure and no district. With no
+            # place asked, name where the non-zero records are (read live: today one record,
+            # DEMDEMA block, West Garo Hills, FY 2023-24).
+            if place == "Meghalaya" and st.get("nonzero"):
+                where = await fetch_rows(
+                    "SELECT lgd_district, lgd_block, MAX(financial_year_short) AS fy, "
+                    "ROUND(SUM(admin_total_exp)::numeric, 2) AS lakh FROM curated.v_expenditure "
+                    "WHERE admin_total_exp <> 0 GROUP BY lgd_district, lgd_block ORDER BY lakh DESC LIMIT 3", [])
+                if where:
+                    bits = "; ".join(f"{str(w['lgd_district']).title()} ({str(w['lgd_block']).title()} block, "
+                                     f"FY {w['fy']}): ₹{float(w['lakh'] or 0):,.2f} lakh" for w in where)
+                    state += f" The non-zero record{'s are' if len(where) > 1 else ' is'} in {bits}."
         except Exception:  # noqa: BLE001 — the caveat stands without the statewide figure
             pass
     return (f"Recorded MGNREGA administrative expenditure for {place}{year}: "

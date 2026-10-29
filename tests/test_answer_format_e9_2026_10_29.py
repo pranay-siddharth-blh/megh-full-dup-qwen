@@ -65,18 +65,18 @@ def _composer(monkeypatch, *replies):
 
 # ── 1. one money formatter ───────────────────────────────────────────────────
 @pytest.mark.parametrize("value,unit,want", [
-    (149443700, "rupees", "₹14.94 crore"),
-    (118447500.0, "rupees", "₹11.84 crore"),        # FP-05 was "₹118,447,500.00"
-    (1234567.5, "rupees", "₹12.35 lakh"),
+    (149443700, "rupees", "₹14,94,43,700 (≈ ₹14.94 crore)"),
+    (118447500.0, "rupees", "₹11,84,47,500 (≈ ₹11.84 crore)"),        # FP-05 was "₹118,447,500.00"
+    (1234567.5, "rupees", "₹12,34,567.50 (≈ ₹12.35 lakh)"),  # D-092 (2026-10-29): exact amount + (≈ size)
     (62500, "rupees", "₹62,500"),                    # KI-171: never "₹0.01 crore"
     (1234.5, "rupees", "₹1,234.50"),
     (0, "rupees", "₹0"),
-    (8996.36, "lakh", "₹8,996.36 lakh"),             # MGNREGA keeps its lakh
-    (123456.78, "lakh", "₹1,23,456.78 lakh"),        # Indian grouping
+    (8996.36, "lakh", "₹8,996.36 lakh (≈ ₹89.96 crore)"),             # MGNREGA keeps its lakh
+    (123456.78, "lakh", "₹1,23,456.78 lakh (≈ ₹1,234.57 crore)"),        # Indian grouping
     (0.05, "lakh", "₹5,000"),
     (0.58, "crore", "₹0.58 crore"),
     (2185.256, "crore", "₹2,185.26 crore"),
-    (0.0125, "crore", "₹1.25 lakh"),                 # ₹1,25,000 is not "0.01 crore"
+    (0.0125, "crore", "₹1,25,000 (≈ ₹1.25 lakh)"),                 # ₹1,25,000 is not "0.01 crore"
     (0.0035, "crore", "₹35,000"),                    # CMP-05: never ₹0.00 crore
     (-2185.256, "crore", "-₹2,185.26 crore"),
 ])
@@ -86,7 +86,7 @@ def test_one_money_formatter(value, unit, want):
 
 def test_value_formatter_reads_the_column_suffix():
     assert p._c12_fmt_value("total_disbursed_cr", 119.73925) == "₹119.74 crore"
-    assert p._c12_fmt_value("amount_rupees", 940000) == "₹9.40 lakh"
+    assert p._c12_fmt_value("amount_rupees", 940000) == "₹9,40,000 (≈ ₹9.40 lakh)"
     assert p._c12_fmt_value("completion_100_day_pct", 3.39) == "3.39%"
     assert p._c12_fmt_value("person_days", 27264054) == "27,264,054"     # counts: grouping is an open decision
 
@@ -95,7 +95,7 @@ def test_fallbacks_write_money_through_the_formatter():
     out = p._framed_fallback([{"total_expenditure_lakh": 8996.36}], ["MGNREGA"],
                              {"district": "EAST KHASI HILLS", "year": "FY 2023-24"})
     assert out == ("Under MGNREGA, in FY 2023-24 in East Khasi Hills district, the recorded total is "
-                   "₹8,996.36 lakh total expenditure.")
+                   "₹8,996.36 lakh (≈ ₹89.96 crore) total expenditure.")
     assert p._deterministic_answer([{"total_disbursed_cr": 0.0035}]) == "total disbursed ₹35,000."
     rows = [{"lgd_district": f"D{i}", "total_disbursed_cr": 1.5} for i in range(3)]
     assert "- D0 — total disbursed: ₹1.50 crore" in p._deterministic_answer(rows)
@@ -182,7 +182,7 @@ def test_ranking_figures_come_from_code_and_the_composer_writes_the_opening(monk
     assert len(seen) == 1 and "contain NO figures" in seen[0] and '"top 5 blocks by person days"' in seen[0]
     assert out.split("\n")[0] == ("Here are the five East Khasi Hills blocks with the most MGNREGA person-days "
                                   "in FY 2023-24:")
-    assert "1. **Mylliem** — 412,300" in out and "5. **Laitkroh** — 120,500" in out
+    assert "1. **Mylliem** — 4,12,300" in out and "5. **Laitkroh** — 1,20,500" in out
     assert "ahead" not in out and "higher than" not in out                 # no gap line nobody asked for
 
 
@@ -213,7 +213,7 @@ def test_a_failed_opening_call_still_answers(monkeypatch, templates_on):
     monkeypatch.setattr(p.llm, "call_response_composer", _boom)
     out = run(p.compose_response("top 5 blocks by person days", TOP5_SQL, TOP5_ROWS, schemes=["MGNREGA"],
                                  entities=EKH))
-    assert out.startswith("Top 5 blocks by person-days") and "1. **Mylliem** — 412,300" in out
+    assert out.startswith("Top 5 blocks by person-days") and "1. **Mylliem** — 4,12,300" in out
 
 
 def test_comparison_verdict_is_written_by_code(monkeypatch, templates_on):
@@ -233,15 +233,16 @@ def test_percentage_comparison_states_points(monkeypatch, templates_on):
 def test_trend_sentence_money_and_direction(monkeypatch, templates_on):
     _composer(monkeypatch, "MGNREGA expenditure in Meghalaya, year by year:")
     out = run(p.compose_response("how has expenditure changed", TREND_SQL, TREND_ROWS, schemes=["MGNREGA"]))
-    assert ("Total expenditure rose from ₹6,120.50 lakh in FY 2020-21 to ₹7,904.10 lakh in FY 2023-24, up "
-            "₹1,783.60 lakh (29.1%).") in out
-    assert "- FY 2022-23: ₹8,215.00 lakh" in out and "highest" not in out   # no peak line nobody asked for
+    assert ("Total expenditure rose from ₹6,120.50 lakh (≈ ₹61.20 crore) in FY 2020-21 to ₹7,904.10 lakh "
+            "(≈ ₹79.04 crore) in FY 2023-24, up ₹1,783.60 lakh (≈ ₹17.84 crore) (29.1%).") in out
+    assert "- FY 2022-23: ₹8,215.00 lakh (≈ ₹82.15 crore)" in out and "highest" not in out   # no peak line nobody asked for
     falling = list(reversed([dict(r, financial_year=r["financial_year"]) for r in TREND_ROWS]))
     for r, fy in zip(falling, ("2020-21", "2021-22", "2022-23", "2023-24")):
         r["financial_year"] = fy
     out = run(p.compose_response("what was the peak year for expenditure", TREND_SQL, falling, schemes=["MGNREGA"]))
-    assert "fell from ₹7,904.10 lakh in FY 2020-21 to ₹6,120.50 lakh in FY 2023-24, down" in out
-    assert "The highest was ₹8,215.00 lakh in FY 2021-22" in out
+    assert ("fell from ₹7,904.10 lakh (≈ ₹79.04 crore) in FY 2020-21 to ₹6,120.50 lakh (≈ ₹61.20 crore) "
+            "in FY 2023-24, down") in out
+    assert "The highest was ₹8,215.00 lakh (≈ ₹82.15 crore) in FY 2021-22" in out
 
 
 def test_year_key_periods_read_as_financial_years(templates_on):
@@ -280,7 +281,7 @@ def test_wording_notes_go_to_the_opening_line_not_the_composer_path(monkeypatch,
     out = run(p.compose_response("top 5 blocks by person days", TOP5_SQL, TOP5_ROWS, schemes=["MGNREGA"],
                                  entities=EKH, notes=[note]))
     assert len(seen) == 1 and "contain NO figures" in seen[0] and note in seen[0]
-    assert "1. **Mylliem** — 412,300" in out
+    assert "1. **Mylliem** — 4,12,300" in out
 
 
 def test_style_shots_do_not_keep_the_composer_writing_figures(monkeypatch, templates_on):
@@ -301,15 +302,16 @@ def test_one_amount_in_two_units_is_said_once_and_shorthand_in_full(templates_on
             {"financial_year": "2024-25", "total_exp_lakh": 5034.09, "total_exp_cr": 50.34}]
     shape = p._answer_shape("expenditure by year", "SELECT 1", rows)
     body = p._c12s_e9_body(shape, rows, "expenditure by year")
-    assert body.startswith("Total expenditure rose from ₹4,575.40 lakh in FY 2022-23")
-    assert "crore" not in body and "- FY 2023-24: ₹4,295.67 lakh\n" in body
+    assert body.startswith("Total expenditure rose from ₹4,575.40 lakh (≈ ₹45.75 crore) in FY 2022-23")
+    # the crore column is not said again beside the lakh one (the size bracket is D-092's format)
+    assert "; total exp" not in body.lower() and "- FY 2023-24: ₹4,295.67 lakh (≈ ₹42.96 crore)\n" in body
 
 
 def test_shaped_fallback_is_the_templated_answer(templates_on):
     shape = p._answer_shape("how has expenditure changed", TREND_SQL, TREND_ROWS)
     out = p._shaped_fallback(shape, TREND_ROWS, ["MGNREGA"], {"district": "RI BHOI"})
     assert out.startswith("Total expenditure over time (MGNREGA, Ri Bhoi district, across all financial years):\n"
-                          "Total expenditure rose from ₹6,120.50 lakh in FY 2020-21")
+                          "Total expenditure rose from ₹6,120.50 lakh (≈ ₹61.20 crore) in FY 2020-21")
 
 
 def test_yes_no_question_keeps_the_composer(monkeypatch, templates_on):

@@ -5,6 +5,7 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import FastAPI, Header, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import FileResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -48,6 +49,17 @@ async def _ingest_kb_bg():
         logger.warning("scheme KB ingest failed (RAG path degraded): %s", e)
 
 
+async def _warm_up() -> None:
+    """RAG fix report 2026-10-29, Issue 14: the UI's first /api/query/stream after a start
+    came back 503 — the read-only pool, the embedding model and the graph's checkpointer
+    were all opened by that first question. Opened here, in the background, instead; each
+    step is best-effort (the first question still opens what failed)."""
+    from app import db, llm, pipeline_graph
+    await _try("warm_readonly_pool", db.fetch_rows_readonly("SELECT 1 AS ok"))
+    await _try("warm_embedding", llm.call_embedding(["warm up"]))
+    await _try("warm_checkpointer", pipeline_graph._runtime())
+
+
 async def _try(label: str, coro):
     """Run one startup step; log and continue if the remote box (10.48.242.4)
     is unreachable, so the server always comes up (degraded, see /health)."""
@@ -80,12 +92,15 @@ async def lifespan(app: FastAPI):
     load_entity_resolver()                # local YAML, no network
     from app.entity_resolver import load_village_names
     await _try("village_names", load_village_names())  # bare village names -> a place (2026-10-21)
+    from app import spelling
+    spelling.warm()                       # misspelt names: build the gazetteer now, not on a user's turn
     await _try("app_schema", appdb.ensure_schema())     # app.* tables + seed users
     await _try("schema_catalog", schema_introspect.load())  # semantic.* -> SQL prompt
     from app import metric_catalog
     await _try("metric_catalog", metric_catalog.load())  # semantic.metric_definitions (D-071)
     await _try("scheme_years", pipeline.refresh_scheme_years())  # per-scheme FY coverage from megh_db
     asyncio.create_task(_ingest_kb_bg())
+    _warm = asyncio.create_task(_warm_up())
     # LangGraph orchestrator (D-032, D-036), the only one. The checkpointer
     # opens lazily on the first request; this sweeps paused threads nobody
     # answered (the Session's own pending pause expires anyway).
@@ -99,8 +114,22 @@ async def lifespan(app: FastAPI):
     # now and every 10 min; the typed defaults until the first read (2026-10-29).
     from app import data_facts
     _facts = asyncio.create_task(data_facts.refresh_loop())
+
+    # KI-027: scheme years and the live schema / metric catalogues were read only at
+    # startup, so a data load during the day (a new financial year, a new column, a
+    # new measure) stayed invisible until a restart. Re-read every 30 min with the
+    # same loaders; a failed read keeps the last good copy (each loader is best-effort).
+    async def _catalog_refresh_loop() -> None:
+        while True:
+            await asyncio.sleep(1800)
+            await _try("scheme_years", pipeline.refresh_scheme_years())
+            await _try("schema_catalog", schema_introspect.load())
+            await _try("metric_catalog", metric_catalog.load())
+    _catalogs = asyncio.create_task(_catalog_refresh_loop())
     logger.info("nlp-service startup complete (see /health for component status)")
     yield
+    _warm.cancel()
+    _catalogs.cancel()
     _facts.cancel()
     _purge.cancel()
     _sweep.cancel()
@@ -132,6 +161,21 @@ if settings.CORS_ALLOW_ORIGINS.strip():
         max_age=600,
     )
 app.add_middleware(SecurityHeadersMiddleware)
+
+
+@app.exception_handler(RequestValidationError)
+async def _invalid_request(request: Request, exc: RequestValidationError):
+    """RAG fix report 2026-10-29, Issue 15: a 5,000-character question came back as a 422
+    whose detail[].input held the whole question. The body never echoes the input (nor
+    pydantic's ctx / url); an over-long question gets one plain sentence."""
+    errors = exc.errors()
+    if any(e.get("type") == "string_too_long" and tuple(e.get("loc") or ())[-1:] == ("question",) for e in errors):
+        detail = f"Question is too long (max {settings.MAX_QUESTION_CHARS} characters)."
+    else:
+        detail = [{"loc": list(e.get("loc") or ()), "msg": e.get("msg"), "type": e.get("type")} for e in errors]
+    resp = JSONResponse(status_code=422, content={"detail": detail})
+    apply_security_headers(resp.headers, request.url.path)
+    return resp
 
 
 @app.exception_handler(Exception)

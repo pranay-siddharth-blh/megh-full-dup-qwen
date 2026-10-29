@@ -8,10 +8,10 @@
   account: superadmin
   turns:
     - say: "total beneficiaries for MGNREGA"
-      expect: {route: pause, pause_rule: scope-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
       note: "D-056 (2026-10-21): a new chat asks the district before the year"
     - say: "All of Meghalaya"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "FY 2023-24"
       expect: {route: data, scheme: MGNREGA, year: FY 2023-24, numbers_any: [410200]}
     - say: "break that down by district"
@@ -23,7 +23,7 @@
   account: superadmin
   turns:
     - say: "Total MGNREGA person-days in East Khasi Hills"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "all of them combined"
       expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, numbers_any: [11054100]}
 
@@ -46,7 +46,7 @@
     - say: "How many CM Elevate Legacy records are there in Meghalaya across all financial years?"
       expect: {route: data, scheme: CM Elevate Legacy, numbers_any: [2823]}
     - say: "now give me for cm elevate"
-      expect: {route: data, scheme: CM Elevate, numbers_any: [8840]}
+      expect: {route: data, scheme: CM Elevate, numbers_any: [8921]}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "now give me for cm elevate legacy"
       expect: {route: data, scheme: CM Elevate Legacy, numbers_any: [2823]}
 
@@ -58,7 +58,7 @@
     - say: "How many CM Elevate Legacy records are there in Meghalaya across all financial years?"
       expect: {route: data, scheme: CM Elevate Legacy, numbers_any: [2823]}
     - say: "give me cm elevate disbursement by district"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "all of them combined"
       expect: {route: data, scheme: CM Elevate Legacy}
 

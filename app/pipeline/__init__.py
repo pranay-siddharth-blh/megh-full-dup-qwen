@@ -56,6 +56,9 @@ _PIPELINE_FILES = (
     "common/c15_conversation_meta",
     # the data team's metric catalogue as the last fixed query (D-071); called by c13 at run time
     "common/c16_metric_catalog",
+    # data-answer rules every scheme shares (data-accuracy brief 2026-10-29): sub-asks,
+    # SQL hygiene, runners-up, money units, dataset caveats; called at run time
+    "common/c17_data_answer_rules",
 )
 
 for _pipeline_name in _PIPELINE_FILES:

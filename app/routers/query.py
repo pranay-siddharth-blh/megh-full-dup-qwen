@@ -177,6 +177,35 @@ def _session_id(req: QueryRequest, request: Request, scope: auth.UserScope) -> s
     return sid
 
 
+async def _owned_session_id(sid: str, request: Request, scope: auth.UserScope) -> str:
+    """`sid`, or a fresh conversation id when `sid` belongs to another user.
+
+    KI-399 (context-memory audit 2026-10-23, F1): the client's session_id was used as
+    is — another signed-in user sending the same id continued that chat and saw its
+    questions and places (the in-process session, app.conversations.context_state
+    and the graph thread are all keyed on the id alone). The id is checked against
+    this worker's live session and the stored conversation's owner; a mismatch gets
+    a new conversation of the caller's own (returned as session_id) and a warning."""
+    if sid.startswith(("one-", "api-")):
+        return sid                     # minted by this server for this request
+    local = session_store.owner(sid)
+    foreign = bool(local and scope.user_id and local != scope.user_id)
+    if not foreign and scope.db_user_id is not None:
+        stored = await conversation_store.conversation_owner(sid)
+        foreign = bool(stored and stored.get("user_id") is not None
+                       and stored["user_id"] != scope.db_user_id)
+    if not foreign:
+        return sid
+    new = f"own-{uuid.uuid4().hex[:16]}"
+    logger.warning("query: session_id belongs to another user (caller %s) — new conversation %s",
+                   scope.user_id, new)
+    try:
+        request.state.megh_session_id = new
+    except Exception:  # noqa: BLE001
+        pass
+    return new
+
+
 _BACKGROUND: set = set()   # strong refs to fire-and-forget tasks
 
 
@@ -292,11 +321,13 @@ async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScop
     # the caches, the conversation layer, routing, retrieval and SQL. The words
     # the officer typed go back on the result as `translated_from`.
     translated_from = None
-    if (req.language or "en").lower() in translate.LANGUAGE_NAMES:
-        english = await translate.to_english(req.question, req.language)
+    _lang = (req.language or "en").lower() if (req.language or "en").lower() in translate.LANGUAGE_NAMES \
+        else translate.script_language(req.question)       # Devanagari, whatever the button (Issue 9)
+    if _lang:
+        english = await translate.to_english(req.question, _lang)
         if english.strip() and english.strip() != req.question.strip():
             translated_from, req.question = req.question, english.strip()
-    session_id = _session_id(req, request, scope)
+    session_id = await _owned_session_id(_session_id(req, request, scope), request, scope)   # KI-399
     session = session_store.ensure(session_id, scope.user_id)
     # Ownership (CTX-01, 2026-10-29): a session id is not a secret the caller
     # can be trusted with. This worker's copy names its owner by login; the

@@ -155,6 +155,20 @@ RESPONSES = {
                 "Aadhaar, bank account, ID numbers, address or location. " + _SCOPE),
     "manipulation": (f"{_RULES_LEAD} I can't change how I work, ignore my rules, reveal my "
                      "internal instructions or run database commands. " + _SCOPE),
+    # RAG fix report 2026-10-29, Issue 16: "List names and phone numbers of CM Elevate
+    # applicants" reached SQL generation (SELECT 'not held in this data' AS name ...).
+    "privacy_records": ("I can't share the names, phone numbers, addresses or other personal details of "
+                        "applicants or beneficiaries — personal records are held for audit only. I can give "
+                        "you counts instead, for example \"How many CM Elevate applications are there in East "
+                        "Khasi Hills?\" or \"PMAY-G houses completed by district\"."),
+    # Issue 10: "List all PMAY-G tables and columns in the database" listed curated.v_pmay and
+    # its columns. The officer gets the measures, never the database's own names.
+    "schema": ("I don't share how the database is built — its tables, columns or internal names. What I can "
+               "give you is the figures it holds: MGNREGA person-days, households and persons employed, job "
+               "cards, wages and expenditure; PMAY-G houses sanctioned, completed and in progress, with the "
+               "amounts sanctioned and released; Focus Plus payments, beneficiaries and amount disbursed; CM "
+               "Elevate applications by scheme, status and district; Focus Legacy producer-group payments; and "
+               "CM Elevate Legacy sanctions and disbursements. Ask for any of these by place and year."),
     "unsafe": ("I can't help with that request — it goes against the rules I follow. " + _SCOPE),
     # The safety model is down and the message carries an abuse word: not a
     # verdict on the person, so said as "not right now", never "against the rules".
@@ -407,6 +421,59 @@ def _sql_comment(t: str) -> bool:
     return False
 
 
+# RAG fix report 2026-10-29, Issue 16: a request for people's personal fields ("names and
+# phone numbers of CM Elevate applicants", "beneficiary mobile numbers in Ri Bhoi"). A
+# count of them ("how many applicants gave a phone number") is a figure, not a record, and
+# "names of villages / blocks / producer groups" names places and groups, not people.
+_PII_FIELDS = frozenset("name names phone phones mobile mobiles email emails contact contacts address addresses "
+                        "dob birthdate whatsapp".split())
+_PII_PEOPLE_STEMS = ("applicant", "beneficiar", "member", "farmer", "recipient", "worker", "household", "person",
+                     "people", "individual", "citizen", "villager", "entrepreneur", "borrower", "awardee")
+_PII_NOT_PEOPLE = frozenset("village villages block blocks district districts scheme schemes sector sectors bank "
+                            "banks group groups pg pgs product products lender lenders constituency".split())
+_PII_COUNTING = frozenset("many count number total percentage percent share".split())
+
+
+def _pii_listing(t: str) -> bool:
+    ws = _tm.words(t)
+    if not ws or _PII_COUNTING & set(ws) or not _PII_FIELDS & set(ws):
+        return False
+    for i, w in enumerate(ws):
+        if w not in _PII_FIELDS:
+            continue
+        # "<field> [and phone numbers] of/for [the CM Elevate] <people>" — a few words apart
+        window = ws[i + 1:i + 9]
+        for j, x in enumerate(window):
+            if x in _PII_NOT_PEOPLE:
+                break
+            if x.startswith(_PII_PEOPLE_STEMS) and ("of" in window[:j] or "for" in window[:j]):
+                return True
+        # "<people> names", "applicants' phone numbers", "beneficiary mobile"
+        before = ws[max(0, i - 3):i]
+        if any(x.startswith(_PII_PEOPLE_STEMS) for x in before) and not (_PII_NOT_PEOPLE & set(before)):
+            return True
+    return False
+
+
+# Issue 10: the database's own structure. A data table the officer wants to see ("show it
+# as a table") is not this: the words are about columns, schemas or the catalogue.
+_SCHEMA_WORDS = frozenset("column columns schema schemas information_schema pg_catalog ddl".split())
+_SCHEMA_DB_WORDS = frozenset("database databases db table tables view views".split())
+
+
+def _schema_request(t: str) -> bool:
+    ws = _tm.words(t)
+    if any(w.startswith("pg_") or w in ("information_schema", "pg_catalog") for w in ws):
+        return True
+    s = set(ws)
+    if s & _SCHEMA_WORDS and s & _SCHEMA_DB_WORDS:
+        return True
+    phrases = (("database", "structure"), ("db", "structure"), ("table", "names"), ("column", "names"),
+               ("field", "names"), ("tables", "in", "the", "database"), ("tables", "are", "there"),
+               ("which", "tables"), ("what", "tables"), ("list", "tables"), ("list", "all", "tables"))
+    return any(tuple(ws[i:i + len(p)]) == p for p in phrases for i in range(len(ws) - len(p) + 1))
+
+
 _RULES: list[tuple[str, list]] = [
     # Self-harm first: "kill myself" must get the supportive reply, not "violence".
     ("self_harm", [
@@ -510,6 +577,8 @@ _RULES: list[tuple[str, list]] = [
                W("wife", "husband", "girlfriend", "boyfriend", "ex", "partner"))),
         _S(W("home", "residential", "house"), "address", "of"),
     ]),
+    ("privacy_records", [_GRule(lambda t: _pii_listing(t))]),
+    ("schema", [_GRule(lambda t: _schema_request(t))]),
     ("manipulation", [
         _S(W("ignore", "disregard", "forget", "override", "bypass"),
            Opt(W("all", "any", "the", "your", "my", "these")),

@@ -422,7 +422,10 @@ def _entities_block(entity_result: dict, question: str = "",
                 lines.append(
                     f"  {cond}   -- the question asks for every one of {fys}. Filter on ALL "
                     "of them (or the scheme's own financial-year column for the same years), "
-                    "never on only one of them.")
+                    "never on only one of them. Give each year its own row (GROUP BY the year) "
+                    "unless the question asks for ONE figure across them — a combined total, or the "
+                    "change / growth / difference between the years, returned as a single row "
+                    "(KI-311).")
             elif k == "house_status":
                 vals = v if isinstance(v, list) else [v]
                 quoted = ", ".join(f"'{s}'" for s in vals)

@@ -18,9 +18,9 @@
     - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
       expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23, new_question: false}
     - say: "Which district has the highest beneficiaries in MGNREGA?"
-      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "2024-25"
-      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25, new_question: true}
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "Go back to the East Khasi Hills one"
       expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23, from_earlier: true}
 
@@ -88,9 +88,9 @@
     - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
       expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
     - say: "What is the total beneficiaries MGNREGA?"
-      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "2024-25"
-      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25, new_question: true}
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
 
 - name: NQ08_other_scheme_no_year
   doc: "'how many households for PMAY-G' (D-056 carried EKH and 2022-23): statewide, the year asked (D-065)"
@@ -100,9 +100,9 @@
     - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
       expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
     - say: "how many households for PMAY-G"
-      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "2023-24"
-      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24, new_question: true}   # PMAY-G ends at 2023-24
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
 
 - name: NQ09_ranking_with_named_scheme
   doc: "'Which block has the highest person-days in MGNREGA?' names its scheme: every block statewide"
@@ -112,9 +112,9 @@
     - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
       expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
     - say: "Which block has the highest person-days in MGNREGA?"
-      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "2024-25"
-      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25, new_question: true}
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
 
 - name: NQ10_measure_pins_scheme_with_own_year
   doc: "'person-days in 2023-24': the measure pins MGNREGA and the year is its own -> statewide"
@@ -134,9 +134,9 @@
     - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
       expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
     - say: "MGNREGA job cards in Ri Bhoi"
-      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "2024-25"
-      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2024-25, new_question: true}
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2024-25}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
 
 - name: NQ12_district_wise_english
   doc: "'show district-wise person-days for MGNREGA': statewide by district, the year asked (D-065)"
@@ -146,9 +146,9 @@
     - say: "MGNREGA person-days in East Khasi Hills in 2022-23"
       expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
     - say: "show district-wise person-days for MGNREGA"
-      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "2024-25"
-      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25, new_question: true}
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
 
 # ── Follow-up = inherit only what is missing ─────────────────────────────────
 - name: FU01_year_replaced
@@ -406,6 +406,6 @@
     - say: "How many CM Elevate Legacy records are there in Meghalaya across all financial years?"
       expect: {route: data, scheme: CM Elevate Legacy, place: all}
     - say: "What is the total MGNREGA expenditure in Ri Bhoi?"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "2023-24"
-      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2023-24, new_question: true}
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2023-24}  # D-089/D-090 (2026-10-29): answered with defaults, not asked

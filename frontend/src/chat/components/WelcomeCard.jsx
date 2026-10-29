@@ -60,13 +60,10 @@ export function cardMetaLine(card, period) {
   return [card.meta, when, card.metaTail].filter(Boolean).join(' · ');
 }
 
-function statsStatusText(state, live) {
-  if (state === 'live') {
-    const at = live && live.as_of ? new Date(live.as_of) : null;
-    const time = at && !Number.isNaN(at.getTime())
-      ? at.toLocaleString('en-IN', { day: 'numeric', month: 'short', hour: 'numeric', minute: '2-digit' }) : '';
-    return 'Figures from the live database' + (time ? ' · updated ' + time : '');
-  }
+// Live figures need no note (user 2026-10-29: the "Figures from the live database ·
+// updated …" line was removed); only loading and the offline fallback say anything.
+function statsStatusText(state) {
+  if (state === 'live') return '';
   if (state === 'offline') return `Live figures unavailable — showing figures last synced ${STATS_SYNCED}`;
   return 'Loading live figures…';
 }
@@ -230,7 +227,9 @@ export function WelcomeCard({ strings, prompts, setPrompts, onAsk, signedIn = tr
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.25" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M9 18l6-6-6-6" /></svg>
         </button>
       </div>
-      <div className={'stats-status ' + statsState} role="status">{statsStatusText(statsState, live)}</div>
+      {statsState !== 'live' && (
+        <div className={'stats-status ' + statsState} role="status">{statsStatusText(statsState)}</div>
+      )}
 
       <div className="prompts-section">
         <div className="prompts-title">{prompts.title}</div>

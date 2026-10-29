@@ -255,6 +255,9 @@ _CME_APPLICATIONS_VOCAB = Matcher(Alt(
 # never a dataset choice — rule 4 asks.
 _CME_BOTH_DATASETS_VOCAB = Matcher(W("applicant", "applicants", "application", "applications",
                                      "program", "programs", "programme", "programmes"))
+# ... except that since 2026-10-29 (user, RAG fix report Issue 8) these words settle a
+# bare CM Elevate as the applications dataset when no money word or thread says Legacy.
+_CME_APPLICATION_WORDS = Matcher(W("applicant", "applicants", "application", "applications", "applied"))
 # "across all financial years", "for all the years", "all financial years combined"
 _CME_ALL_YEARS_SCOPE = Matcher(Seq(Opt(W("across", "for", "in", "over", "during")), "all", Opt("the"),
                                    Opt("financial"), W("year", "years"), Opt("combined")))
@@ -310,6 +313,30 @@ def _cm_switch_to_applications(question: str, thread_scheme: "str | None") -> bo
     return bool(_SCHEME_SWAP_FOLLOWUP.match(frag) or _scheme_substitution(q)[1])
 
 
+# D-090 (2026-10-29) answers "How many CM Elevate applications in East Garo Hills?" from the
+# applications dataset without the dataset chips, so the officer who meant Legacy types
+# "legacy" next — which went to the off-topic reply (harness AC04b). Right after an
+# applications answer, a fragment that says only "legacy" asks the same question of CM
+# Elevate Legacy.
+_CME_LEGACY_ONLY_FILLER = frozenset("legacy cm elevate the one dataset data please pls now then ok okay for in "
+                                    "give me show from under instead i meant mean no".split())
+
+
+def _cm_switch_to_legacy(question: str, prev, thread_scheme: "str | None") -> "str | None":
+    """The previous CM Elevate (applications) question asked of CM Elevate Legacy, for a
+    fragment that only says "legacy"; else None."""
+    ws = [t.low for t in tokens(question or "")]
+    if thread_scheme != "CM Elevate" or "legacy" not in ws or len(ws) > 6 \
+            or any(w not in _CME_LEGACY_ONLY_FILLER for w in ws):
+        return None
+    if prev is None or getattr(prev, "route", None) != "data" or list(getattr(prev, "schemes", []) or []) != ["CM Elevate"]:
+        return None
+    last = str(getattr(prev, "question", "") or "").replace(_CME_APPS_MARKER, "CM Elevate")
+    if not last or not _SCHEME_NAME_MATCHER["CM Elevate"].search(last):
+        return None
+    return _cme_name_dataset(last, "CM Elevate Legacy")
+
+
 def _names_cm_elevate(question: str) -> bool:
     """A bare "CM Elevate", or a CM Elevate sub-scheme with no scheme named
     ("How many applications are recorded under Meghalaya Piggery Development
@@ -356,6 +383,12 @@ def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None
     if thread_scheme == "CM Elevate Legacy":
         return "legacy"
     if thread_scheme == "CM Elevate":
+        return "applications"
+    # User decision 2026-10-29 (RAG fix report Issue 8, replaces rule 4 for these words):
+    # "How many CM Elevate applications are there?" / "(applications dataset)" asked
+    # "applications or Legacy?" every time; applications / applicants / applied now mean
+    # the applications dataset. The thread (above) and the financial words still win.
+    if _CME_APPLICATION_WORDS.search(q):
         return "applications"
     if _CME_BOTH_DATASETS_VOCAB.search(q) or _CME_DATA_REQUEST.search(q):
         return "ask"
@@ -723,6 +756,25 @@ _CME_RECORDED_STATUS_WORD = Matcher(Alt(
     _CME_ON_HOLD_ANYWHERE, Pred(lambda w: "verif" in w.lower()),
     W("forward", "forwarded", "resubmit", "resubmitted", "valid", "invalid", "wrong", "vdv", "citizen"),
     W("level", "levels", "stage", "stages"), _cme_level_digit(one_digit=False)))
+
+
+_CME_LEVEL_ASKED = Matcher(Alt(W("level", "levels", "stage", "stages"), _cme_level_digit(one_digit=False)))
+
+
+def _cme_level_pending_wording(question: str, schemes: "list[str]", answer: str) -> str:
+    """KI-422 (team answer 3, 2026-10-26): "How many CM Elevate applications are pending
+    at level 2?" was answered "298 pending … at level 2". The level is recorded
+    (current_level), so the figure is right, but "pending" is a workflow status the
+    data does not hold. The answer keeps the figure, drops the word, and says so."""
+    if schemes != ["CM Elevate"] or not answer or not _CME_PENDING_MATCH.search(question or "") \
+            or not _CME_LEVEL_ASKED.search(question or ""):
+        return answer
+    kept = [w for w in answer.split(" ") if w.strip(".,;:!?*").lower() != "pending"]
+    out = " ".join(kept)
+    if out == answer:
+        return answer
+    return (out.rstrip() + " The data records the workflow level each application is at "
+            "(current_level), not whether it is pending.")
 
 
 def _cme_sector_fact_kind(sql: "str | None") -> "str | None":

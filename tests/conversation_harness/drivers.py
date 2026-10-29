@@ -119,9 +119,13 @@ class _InProcessConversation:
             if styled is not None:
                 result = styled
             self.session.turns.append(router.build_turn(say, result))
+            self.last_options = [o for o in ((result.get("clarification") or {}).get("options") or [])
+                                 if isinstance(o, dict)]
             return _from_result(say, result, round((time.perf_counter() - t0) * 1000))
         except pipeline.ClarificationNeeded as e:
             router.remember_pause(self.session, router.pause_question(self.session, say), e)
+            # the chips as the UI gets them (label + the question a tap sends)
+            self.last_options = [o for o in (e.options or []) if isinstance(o, dict)]
             return TurnRecord(say=say, route="pause", answer=e.question, pause_rule=e.rule,
                               chips=[o.get("label") if isinstance(o, dict) else str(o) for o in (e.options or [])],
                               ms=round((time.perf_counter() - t0) * 1000))
@@ -157,7 +161,10 @@ class HttpDriver:
 
     async def __aenter__(self):
         import httpx
-        self._client = httpx.AsyncClient(timeout=self.timeout)
+        # :8401 runs HTTPS with the self-signed dev cert (certs/dev-cert.pem) since 2026-10-29:
+        # a local https base URL is not verified; any other host is
+        local_tls = self.base_url.startswith(("https://127.0.0.1", "https://localhost"))
+        self._client = httpx.AsyncClient(timeout=self.timeout, verify=not local_tls)
         return self
 
     async def __aexit__(self, *exc):

@@ -126,18 +126,14 @@ def test_applications_chip_wording_keeps_the_applications_dataset():
     # a sub-scheme in both datasets, no scheme named (Legacy sheet TC-12)
     "How many applications are recorded under Meghalaya Piggery Development Scheme?",
 ])
-def test_applications_word_alone_asks_which_dataset(question):
-    # 2026-10-22: both datasets hold applications -> ask (Legacy sheet TC-11/26 were
-    # answered 8,840 from the applications data for a Legacy 2,823).
+def test_applications_word_alone_is_the_applications_dataset(question):
+    # 2026-10-22 these asked (both datasets hold applications); user decision 2026-10-29
+    # (D-090, RAG fix report Issue 8): the word "applications" / "applicants" settles it
+    # as the applications dataset; money words still mean Legacy, the thread still wins.
     assert p._pin_cm_elevate_dataset(question) == question
-    assert p._cm_elevate_dataset_choice(question) == "ask"
-    pause = p._cm_elevate_dataset_pause(question)
-    assert pause is not None and pause.rule == "cm-elevate-dataset"
-    assert [o["label"].split(" (")[0] for o in pause.options] == ["CM Elevate", LEGACY]
-    # each chip settles it: the next turn never asks again
-    apps_q, legacy_q = (o["question"] for o in pause.options)
-    assert p._cm_elevate_dataset_choice(apps_q) == "applications" and p._shortcut_scheme(apps_q) == ["CM Elevate"]
-    assert p._cm_elevate_dataset_choice(legacy_q) is None and p._shortcut_scheme(legacy_q) == [LEGACY]
+    assert p._cm_elevate_dataset_choice(question) == "applications"
+    assert p._cm_elevate_dataset_pause(question) is None
+    assert p._cm_elevate_dataset_choice(question, "CM Elevate Legacy") == "legacy"
 
 
 def test_a_knowledge_turn_does_not_settle_the_dataset():
@@ -190,10 +186,13 @@ def test_the_thread_settles_a_bare_cm_elevate():
     q = "give me the applications under CM Elevate in Ri Bhoi"
     assert LEGACY in p._pin_cm_elevate_dataset(q, "CM Elevate Legacy")
     assert p._cm_elevate_dataset_choice(q, "CM Elevate Legacy") == "legacy"
-    apps = p._pin_cm_elevate_dataset(q, "CM Elevate")
-    assert "CM Elevate (applications)" in apps and p._cm_elevate_dataset_choice(apps) == "applications"
-    assert p._pin_cm_elevate_dataset(q, "Focus Plus") == q       # another thread: ask
-    assert p._cm_elevate_dataset_choice(q, "Focus Plus") == "ask"
+    apps = p._pin_cm_elevate_dataset(q, "CM Elevate")   # the words already settle it (D-090): no rewrite
+    assert p._cm_elevate_dataset_choice(apps) == "applications"
+    recs = p._pin_cm_elevate_dataset("give me the records under CM Elevate in Ri Bhoi", "CM Elevate")
+    assert "CM Elevate (applications)" in recs and p._cm_elevate_dataset_choice(recs) == "applications"
+    assert p._pin_cm_elevate_dataset(q, "Focus Plus") == q       # another thread: the words decide (D-090)
+    assert p._cm_elevate_dataset_choice(q, "Focus Plus") == "applications"
+    assert p._cm_elevate_dataset_choice("give me the records under CM Elevate in Ri Bhoi", "Focus Plus") == "ask"
     # a financial word overrides the thread (the 2026-10-22 chat answered
     # "8,840 applications have been sanctioned" on the applications thread)
     money = "give me the amount disbursed under CM Elevate in Ri Bhoi"
@@ -201,7 +200,7 @@ def test_the_thread_settles_a_bare_cm_elevate():
 
 
 def test_dataset_pause_chips_and_typed_replies_resolve():
-    pause = p._cm_elevate_dataset_pause("How many applications are there under CM Elevate in Dambo Rongjeng block?")
+    pause = p._cm_elevate_dataset_pause("How many records are there under CM Elevate in Dambo Rongjeng block?")
     apps_q, legacy_q = (o["question"] for o in pause.options)
     assert p._cm_elevate_dataset_choice(apps_q) == "applications"
     assert p._cm_elevate_dataset_choice(legacy_q) is None and LEGACY in legacy_q

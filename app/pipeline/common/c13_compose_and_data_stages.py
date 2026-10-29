@@ -44,6 +44,11 @@ async def compose_response(question: str, sql: str, rows: list[dict],
     # prompt exactly as it was.
     if not rows:
         return _no_data_answer(schemes, entities)
+    # "Which district had the most …": the winner and the next two, written by code
+    # from the rows (data-accuracy brief D3, 2026-10-29; the SQL reads LIMIT 3).
+    _runners_up = _c17_runners_up_answer(question, sql, rows, schemes, entities)
+    if _runners_up:
+        return _runners_up
     preview = rows[:40]
     truncated = len(rows) > len(preview)
     # "No usable value" — every numeric cell is 0 or null (rows is non-empty
@@ -332,6 +337,8 @@ Answer:"""
                        len(rows))
         answer = _shaped_fallback(shape, _shape_rows, schemes, entities) or _framed_fallback(rows, schemes, entities)
     answer = _c12s_fix_trend_direction(answer, shape, _shape_rows)   # KI-441
+    answer = _cme_level_pending_wording(question, schemes, answer)  # KI-422
+    answer = _fp_cohort_zero_answer(question, schemes, rows, answer)  # KI-365
     # Every data answer reads as a briefing line: result figures grouped, and the
     # scheme / area named at least once (user report 2026-10-18: "1,494,437
     # household years." was the whole answer).
@@ -496,6 +503,11 @@ def _c13_b3_eligible(question: str) -> bool:
     if context_policy.extract_year_keys(q) or _RANKING_CUE.search(q) or _HAS_BREAKDOWN.search(q) \
             or _BREAKDOWN_CUE.search(q):
         return False
+    # "statewide" / "all financial years" is a figure's scope too: "Average FOCUS+ amount per
+    # beneficiary statewide, all financial years" was overturned to the documents (live,
+    # RAG fix report Issue 12 re-check, 2026-10-29)
+    if _EXPLICIT_STATEWIDE.search(q) or _ALL_YEARS_CUE.search(q):
+        return False
     try:
         from app.entity_resolver import place_mentions as _c13_pm
         return not _c13_pm(q)
@@ -568,6 +580,10 @@ async def _c13_intent_by_rules(question: str, session: "Session | None" = None) 
     # typed a phone number into the query (General TC-015, 2026-10-06).
     if _CONTACT_INFO_CUE.search(question):
         return "KNOWLEDGE"
+    # RAG fix report Issue 2: the notified wage rate is in the reference docs, not
+    # megh_db; on the DATA path "wage rate" became the unskilled wage SHARE (71.06%).
+    if _wage_rate_question(question):
+        return "KNOWLEDGE"
     if _PROGRAMME_DESIGN_CUE.search(question):
         return "KNOWLEDGE"
     # KI-404: a "how does <X> work" / "process for" question — unless it counts
@@ -606,7 +622,21 @@ async def _c13_intent_by_rules(question: str, session: "Session | None" = None) 
               high X also have high Y", "is A related to B by district", "which
               districts lead on both schemes") — answered by querying the figures
               and comparing them, NOT from the reference docs.
-  KNOWLEDGE - asks how a scheme works: eligibility, documents, components, rules, history
+  KNOWLEDGE - asks how a scheme works: eligibility, documents, components, rules, history,
+              launch, who runs it, a fixed amount or rate it pays everyone, what is
+              recorded at registration, how to apply / check status / complain.
+
+Decide by the FORM of the question, not by single words: "pay", "registered",
+"beneficiary", "launched" or "how much" alone do not make it DATA. With no place,
+no year and no total / count / ranking / trend / breakdown, it is KNOWLEDGE.
+Examples:
+  "How much does Focus Plus pay?" -> KNOWLEDGE (the per-household amount)
+  "How much has Focus Plus paid in 2022-23?" -> DATA
+  "What details are recorded when a PMAY-G beneficiary registers?" -> KNOWLEDGE
+  "How many PMAY-G beneficiaries are registered in Ri Bhoi?" -> DATA
+  "When was CM Elevate launched?" -> KNOWLEDGE
+  "Who is eligible for FOCUS?" -> KNOWLEDGE
+  "How many producer groups got FOCUS money?" -> DATA
 
 Return ONLY JSON: {{"intent": "DATA"|"KNOWLEDGE"}}
 
@@ -1062,7 +1092,15 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     # (which would otherwise ask the user to supply the very thing they asked
     # for). A cross-scheme question over every scheme that records money (CM
     # Elevate records none), answered like any other (D-062).
-    if _wants_cross_scheme_money_ranking(question):
+    # ONE named dataset that has its own sub-schemes (CM Elevate, CM Elevate Legacy):
+    # "which scheme has the most records / subsidy" is its scheme_name column, never
+    # the six schemes. "CM Elevate Legacy: number of records, subsidy disbursed, scheme
+    # with most records?" was fanned out to five schemes, answered MGNREGA / PMAY-G /
+    # Focus figures nobody asked for and never named the top Legacy scheme
+    # (data-accuracy brief D10, 2026-10-29). An explicit scheme name locks the routing.
+    _own_subschemes = len(_named) == 1 and bool(
+        (scheme_registry.DATASETS.get(_named[0]) or None) and scheme_registry.DATASETS[_named[0]].sub_scheme_column)
+    if _wants_cross_scheme_money_ranking(question) and not _own_subschemes:
         _money = [s for s in cross_scheme.ORDER if s != "CM Elevate" and s not in _excluded]
         logger.info("cross-scheme money ranking %r -> %s", _cross_text, _money)
         d["schemes"], d["cross"] = _money, {"schemes": _money, "text": _cross_text}
@@ -1159,6 +1197,12 @@ async def _data_entity_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     """Pre-resolution gates and resolve_entities (graph: entities)."""
     question, schemes = d["question"], d["schemes"]
     prior_resolved, village_hint = d["prior_resolved"], d["village_hint"]
+    # C1: "last year" / "this year" / "last 3 years" -> the FY(s) they mean in this
+    # scheme's data, before any year reader (else: all years, or a failed query).
+    # The rewritten question is the one every later stage reads (d.update below).
+    _rel_note = None
+    if not d.get("cross"):
+        question, _rel_note = _c06_relative_year_rewrite(question, schemes)
     # A district acronym typed with its letters in another order — "Compare …
     # in WHK and EKH" (reported 2026-09-29). WHK is in no SME catalogue, so it
     # was not_found and silently left out: the comparison ran for EKH alone.
@@ -1207,6 +1251,8 @@ async def _data_entity_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
         raise
     if _fp_amount is not None:
         entity_result.setdefault("notes", []).append(_focusplus_amount_note(_fp_amount))
+    if _rel_note:
+        entity_result.setdefault("notes", []).append(_rel_note)
     # A year-gap rewrite (see resolve_entities) replaces the question for
     # everything downstream — SQL generation above all.
     if entity_result.get("question"):
@@ -1277,6 +1323,26 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
             return _denied(_denial, schemes, entity_result["resolved"])
         return await _focusplus_overall_summary_answer(schemes, entity_result)
 
+    # RAG fix report 2026-10-29 (§6, unknown district): "PMAY-G houses completed in
+    # Shillong Hills district" — no such district; the resolver dropped the name and the
+    # answer-defaults step then said "Meghalaya (statewide) … 1,29,941", and with a year
+    # named the SQL model filtered another district. A named district / block that
+    # resolved to nothing is said plainly, with the real districts to pick from.
+    _unk = _c13_unresolved_named_place(question, entity_result["resolved"])
+    # Spelling-fix brief 2026-10-29: a place typed without "district" / "block" that
+    # matches nothing ("in ribhoy" before app/spelling.py read it) was answered for
+    # the whole state ("In Ribhoy … the statewide figure") or for the chat's previous
+    # place. Said plainly too, with the closest real names first.
+    from app import spelling as _c13_spl
+    _unres = None
+    if not _unk and not skip_scope_clarify and not any(entity_result["resolved"].get(k) for k in _C13_PLACE_KEYS):
+        _unres = _c13_spl.unresolved_place(question)
+        if _unres is not None:
+            _unk = (_unres["typed"], _unres["level"] or "place")
+    if _unk and not skip_scope_clarify:
+        raise _c13_unknown_place_pause(question, _unk[0], _unk[1], schemes,
+                                       (_unres or {}).get("suggestions"))
+
     # Ask which district / block / village / year when an aggregate question
     # pins none of them — unless we're already resuming that very clarification
     # (a reply that still names no scope must not loop us back here).
@@ -1292,6 +1358,8 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # asked only the year. A chat that has answered a data question carries its
     # place instead (c14 _same_scheme_context_year), and statewide there stays
     # statewide. A district-restricted officer is scoped by auth, not asked.
+    # User decision 2026-10-29 (RAG fix report Issue 6): off by default — no place named
+    # is answered for all of Meghalaya below, and said so (NEW_CHAT_ASKS_SCOPE).
     # J-4 / J-5 (chat UI audit 2026-10-29, decided by the user): a new-chat question
     # that names its scheme is answered for all of Meghalaya (said in the banner and
     # the question, with the "by district" chip to change it) instead of a district
@@ -1300,7 +1368,7 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # disbursed in 2024-25" answered statewide. A question naming no scheme still
     # asks scheme -> district -> year (D-056).
     _place_res = {k: v for k, v in entity_result["resolved"].items() if k != "year_key"}
-    if _defaults and not skip_scope_clarify and not d.get("chat_has_scope") \
+    if _defaults and settings.NEW_CHAT_ASKS_SCOPE and not skip_scope_clarify and not d.get("chat_has_scope") \
             and not (scope is not None and scope.geo_restricted) \
             and not any((prior_resolved or {}).get(k) for k in ("district", "block", "village_code")) \
             and not _named_schemes(d.get("raw_question") or question) \
@@ -1341,6 +1409,18 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # resumed turn has a year and cannot be asked again.
     _context_year = bool(prior_resolved) and any(
         prior_resolved.get(k) for k in ("year_key", "year_key_list", "year_all"))
+    # RAG fix report Issue 6 (user decision 2026-10-29): "this year" / "the current
+    # financial year" is the latest financial year the scheme holds, said in the answer;
+    # it fell to the all-years default ("houses completed this year" -> 1,29,941).
+    _held = [y for s in (schemes or []) for y in (_SCHEME_DATA_YEARS.get(s) or [])]
+    if _defaults and _no_year and len(schemes or []) == 1 and _held and _C13_THIS_YEAR_CUE.search(question):
+        _latest = max(_held)
+        question = f"{question.strip().rstrip(' ?.')} in FY {_latest} (the latest year held)"
+        entity_result["resolved"]["year_key"] = int(_latest[:4])
+        entity_result.setdefault("display", {})["year"] = f"FY {_latest}"
+        entity_result["answer_defaults"] = True
+        _no_year = False
+        logger.info("answer default: 'this year' -> latest FY %s", _latest)
     # D-061 (user addendum 2026-10-22): a self-sufficient NEW question inside a
     # chat inherits nothing, the chat's year included (_same_scheme_context_year
     # gives it no prior_resolved). D-065 (user, 2026-10-22): with no year of its
@@ -1349,7 +1429,9 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # all-years answer came back "FY 2025-26 (new question)" ("why are you
     # blindly giving 2025-26? … take the previous context or ask which year").
     # A follow-up keeps the chat's year (prior_resolved), so it never asks here.
-    _ask_year =_defaults and _no_year and not _context_year \
+    # User decision 2026-10-29 (RAG fix report Issue 6): no year named -> all financial
+    # years combined, stated in the answer, unless NEW_CHAT_ASKS_SCOPE brings D-065 back.
+    _ask_year = _defaults and settings.NEW_CHAT_ASKS_SCOPE and _no_year and not _context_year \
         and _needs_year_clarification(question, schemes, _res)
     if _defaults and _no_year and not _ask_year:
         question = f"{question.strip().rstrip(' ?.')} across all financial years"
@@ -1405,6 +1487,73 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
 # session 2026-10-13). Every village of that name is listed, so nothing is asked.
 _C13_VILLAGE_WORD = Matcher(W("village"))
 _C13_JOB_CARD = Matcher(Joined("job", ("card", "cards")))
+_C13_PLACE_PREPS = frozenset(("in", "of", "for", "at", "under", "from"))
+_C13_NOT_A_NAME = frozenset("the each every which any a an my our this that whole entire same other all its their "
+                            "your his her one per by".split())
+_C13_PLACE_KEYS = ("district", "district_list", "block", "block_list", "village", "village_code",
+                   "village_code_list", "assembly_constituency")
+
+
+def _c13_unknown_place_pause(question: str, name: str, level: str, schemes: "list | None",
+                             suggestions: "list | None" = None) -> ClarificationNeeded:
+    """"I couldn't find a district called “zorbatown” in Meghalaya. Did you mean …?"
+    with the closest real places first, then every district, then All of Meghalaya.
+    Never an answer for another place (spelling-fix brief 2026-10-29, §3.2)."""
+    from app import spelling as _c13_sp
+    stem = collapse_ws(question.replace(f"{name} {level}", " ").replace(name, " ")).rstrip(" ?.")
+    for prep in (" in", " of", " for", " at", " under", " from"):
+        if stem.endswith(prep):
+            stem = stem[: -len(prep)]
+    dists = list(dict.fromkeys(d for s in (schemes or []) for d in all_districts(s)))
+    sug = suggestions or _c13_sp.suggestions(name, level if level in ("district", "block", "village") else None)
+    close = [s for s in sug if s["score"] >= 60]
+    first = [{"label": s["name"] + (f" ({s['level']}, {s['parent']})" if s["parent"] else f" ({s['level']})"),
+              "question": f"{stem} in {s['name']}" + (f" {s['level']}" if s["level"] != "district" else "")}
+             for s in close]
+    shown = {s["name"].upper() for s in close if s["level"] == "district"}
+    logger.info("named %s %r resolved to nothing -> saying so (closest: %s)", level, name, [s["name"] for s in sug])
+    return ClarificationNeeded(
+        f"I couldn't find a {level} called “{name}” in Meghalaya. "
+        + (f"Did you mean {' or '.join(s['name'] for s in close)}? " if close else "")
+        + ("Please pick one of Meghalaya's districts below, or check the spelling."
+           if level in ("district", "place") else
+           "Please check the spelling, or name the district it is in (pick one below)."),
+        options=first + [{"label": d, "question": f"{stem} in {d}"} for d in dists if d.upper() not in shown]
+        + [{"label": "All of Meghalaya", "question": f"{stem} for all of Meghalaya"}],
+        rule="unknown-place")
+
+
+def _c13_unresolved_named_place(question: str, resolved: dict) -> "tuple[str, str] | None":
+    """(name, "district" | "block") for "in <name> district/block" when nothing in the
+    question resolved to a place and no catalogue knows the name; else None."""
+    if any((resolved or {}).get(k) for k in _C13_PLACE_KEYS):
+        return None
+    toks = tokens(question or "")
+    for i, t in enumerate(toks):
+        if t.low not in ("district", "block"):
+            continue
+        j, name = i - 1, []
+        while j >= 0 and i - j <= 5 and toks[j].low not in _C13_PLACE_PREPS:
+            name.insert(0, toks[j])
+            j -= 1
+        if j < 0 or not name or toks[j].low not in _C13_PLACE_PREPS:
+            continue
+        if any(n.low in _C13_NOT_A_NAME or n.raw.isdigit() for n in name):
+            continue
+        text = (question or "")[name[0].start:name[-1].end]
+        # a catalogue name for the WHOLE phrase: "Shillong Hills" holds the block
+        # "Shillong", which is not the place named
+        want = {n.low for n in name}
+        if any({tk.low for tk in tokens(c)} == want for c in named_places(text)):
+            continue
+        return text, t.low
+    return None
+
+
+_C13_THIS_YEAR_CUE = Matcher(Alt(
+    Seq(W("this", "current", "present"), Opt(W("financial", "fiscal")), W("year", "fy")),
+    Seq(W("this", "current"), "fy"), Seq("so", "far", "this", "year"),
+    Seq(Opt("the"), W("latest", "newest"), Opt(W("financial", "fiscal")), W("year", "fy"))))
 
 
 def _c13_geo_end(rest: str) -> bool:
@@ -1914,6 +2063,7 @@ async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = No
     _mg_det = _mg_admin or (
         (_mg_women["sql"], _mg_women["params"], _mg_women["shown"]) if _mg_women else None
     ) or _mgnrega_job_cards_query(question, schemes, entity_result["resolved"]) \
+        or _mgnrega_villages_active_query(question, schemes, entity_result["resolved"]) \
         or _mgnrega_combined_facts_query(question, schemes, entity_result["resolved"]) \
         or _mgnrega_breakdown_query(question, schemes, entity_result["resolved"]) \
         or _mgnrega_wage_material_query(question, schemes, entity_result["resolved"]) \

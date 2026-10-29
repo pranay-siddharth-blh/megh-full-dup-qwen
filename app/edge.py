@@ -287,9 +287,14 @@ _SILLY = [
                            _S("are", "wrong", _P("always"))))),
     # general knowledge that isn't ours
     _M(_S(_A(_sfx("capital", "president", "currency", "population", "area", "gdp",
-                   "primeminister", "chiefminister"),
-              _S(_sfx("prime"), "minister"), _S(_sfx("chief"), "minister")),
+                   "primeminister"),
+              _S(_sfx("prime"), "minister")),
           "of", ANY)),
+    # RAG fix report 2026-10-29, Issue 17: "Who is the Chief Minister of Meghalaya?" was
+    # refused although the reference documents name him (the FOCUS+ launch). Meghalaya's
+    # own CM goes on to the documents; any other state's stays off-topic.
+    _M(_S(_A(_sfx("chiefminister"), _S(_sfx("chief"), "minister")), "of",
+          Pred(lambda w: w.lower() != "meghalaya"))),
     _M(_S(_sfx("who"), W("is", "was"), Opt("the"),
           _A(W("president", "primeminister", "king", "queen", "ceo", "founder", "inventor", "actor",
                 "actress", "elon", "musk", "modi", "trump"), _S("prime", "minister")))),

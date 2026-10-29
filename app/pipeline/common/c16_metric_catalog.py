@@ -144,7 +144,9 @@ def _c16_shape(question: str, filters: dict) -> "dict | None":
         if n is None:
             if any(w in _C16_PLURAL_DIMS for w in low):
                 return None                                   # "top districts": how many is not said
-            n = 1
+            # "which district had the most": the winner plus the next two as context
+            # (data-accuracy brief D3, 2026-10-29); _c17_runners_up_answer words it
+            n = _C17_RUNNERS_UP
         return {"qtype": "ranking", "group": group, "order": "desc" if up else "asc", "limit": n}
     if lists:
         if len(lists) != 1 or lists[0] == "village_code" or dims - {lists[0]} or len(years) > 1:

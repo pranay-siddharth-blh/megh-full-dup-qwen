@@ -32,7 +32,8 @@ deterministic pre-routing and edge → follow-up rewrite → intent (DATA/KNOWLE
 The orchestration lives in the **[app/pipeline/](app/pipeline/) package** (one 18,700-line `pipeline.py`
 until 2026-10-15):
 - [app/pipeline/common/](app/pipeline/common/) — the shared steps every scheme goes through,
-  `c01_followups.py` … `c16_metric_catalog.py` (the data team's metric catalogue as a fixed query, D-071);
+  `c01_followups.py` … `c16_metric_catalog.py` (the data team's metric catalogue as a fixed query, D-071),
+  `c17_data_answer_rules.py` (sub-asks, SQL hygiene, runners-up, money units, dataset caveats; D-092);
 - [app/pipeline/schemes/](app/pipeline/schemes/) — **one file per scheme** (`mgnrega.py`, `pmay_g.py`,
   `focus_plus.py`, `cm_elevate.py`, `focus_legacy.py`, `cm_elevate_legacy.py`): that scheme's village
   rules, fixed queries, SQL rewrites and answer checks. A scheme-only fix goes in its scheme file.

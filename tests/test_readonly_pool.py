@@ -55,7 +55,7 @@ class _Pool:
     def __init__(self, dsn, role, **kw):
         self.dsn, self.kw, self.conn, self.closed = dsn, kw, _Conn(role), False
 
-    def acquire(self):
+    def acquire(self, timeout=None):   # KI-026: the real pool takes a timeout
         return _Acquire(self.conn)
 
     async def close(self):

@@ -206,7 +206,12 @@ def _c12s_label(row: dict, shape: _AnswerShape) -> str:
     if _fy:
         cols = [_fy if c == "year_key" else c for c in cols]
         cols = list(dict.fromkeys(cols))
-    parts = [str(row[c]) for c in cols if row.get(c) is not None]
+    # a bare year_key row reads as its financial year: "2022 is higher than 2023" said
+    # FY 2022-23 vs FY 2023-24 (data-accuracy brief §3.1 probe, 2026-10-29)
+    parts = [(f"FY {int(row[c])}-{(int(row[c]) + 1) % 100:02d}"
+              if str(c).lower() in ("year_key", "year", "fy_start") and str(row[c]).isdecimal()
+              and 1990 <= int(row[c]) <= 2100 else str(row[c]))
+             for c in cols if row.get(c) is not None]
     return " / ".join(parts) if parts else "(row)"
 
 

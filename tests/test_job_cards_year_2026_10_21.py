@@ -11,6 +11,15 @@ import pytest
 
 from app import pipeline as p
 
+
+# The new-chat district / year asks these tests cover are the rollback path since the user's
+# 2026-10-29 decision (D-089, NEW_CHAT_ASKS_SCOPE=false answers statewide / all years instead;
+# tests/test_rag_fix_report_2026_10_29.py). They still guard that path with the switch on.
+@pytest.fixture(autouse=True)
+def _new_chat_asks_scope(monkeypatch):
+    from app.config import settings as _s
+    monkeypatch.setattr(_s, "NEW_CHAT_ASKS_SCOPE", True)
+
 BARATO = {"village_code": 279198}
 
 
@@ -180,4 +189,4 @@ def test_a_truly_statewide_answer_still_says_so():
     result = {"route": "data", "schemes": ["MGNREGA"], "resolved_entities": {"year_key": 2023},
               "rows": [{"person_days": 27264054}], "answer": "27264054 person-days were generated in FY 2023-24."}
     p._finish_data_result(result)
-    assert "Meghalaya" in result["answer"] and "27,264,054" in result["answer"]
+    assert "Meghalaya" in result["answer"] and "2,72,64,054" in result["answer"]   # Indian grouping (KI-586)

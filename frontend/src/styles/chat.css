@@ -2176,3 +2176,7 @@ canvas.zoomable { touch-action: pan-y; cursor: crosshair; }
 /* The topbar's scheme track is empty now (no chips): keep it as a spacer only,
    never an empty grey bar across the topbar on phones and tablets. */
 .scheme-switch:empty { flex: 1 1 auto; background: transparent; padding: 0; }
+
+/* Characters left before the question cap (MAX_QUESTION_CHARS), shown only near it. */
+.composer-count { font-size: 11px; color: var(--ink-3); padding-left: 6px; white-space: nowrap; flex-shrink: 0; }
+.composer-count.full { color: #B42318; font-weight: 600; }

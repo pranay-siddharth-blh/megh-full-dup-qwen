@@ -4,7 +4,7 @@ import {
   getToken, listHistory, login, logoutRemote, pinConversationApi, renameConversationApi, resetSessionId,
   setToken, setUnauthorizedHandler, StoppedError, storedSessionId, streamNLPResponse,
 } from './api.js';
-import { GLOSSARY, UI_STRINGS, UNIFIED_SAMPLES } from './constants.js';
+import { GLOSSARY, MAX_QUESTION_CHARS, UI_STRINGS, UNIFIED_SAMPLES } from './constants.js';
 import { nowTime, stampTime, todayLabel } from './format.js';
 import { useVoice } from './useVoice.js';
 import { isContinueText, isStopText } from './stopContinue.js';
@@ -28,8 +28,8 @@ import { IS_MAC, SHORTCUTS, enterSends, isComposing, isTyping, keyLabel, matches
 import { WelcomeCard } from './components/WelcomeCard.jsx';
 
 // K-10 (audit 2026-10-29): the server refuses a question over 2,000 characters
-// (settings.MAX_QUESTION_CHARS); the box stops there and counts near the end.
-const MAX_QUESTION_CHARS = 2000;
+// (settings.MAX_QUESTION_CHARS, imported from constants.js); the box stops there
+// and counts near the end (the count is in the composer bar).
 
 /* The chat console (was web/ai_query.html). Every behaviour of the original is
    kept: sign-in gate with a session check, server-backed chat history (pin,
@@ -1057,14 +1057,16 @@ export default function App() {
                           aria-activedescendant={slashItems.length ? 'slash-opt-' + slashActive : undefined}
                           maxLength={MAX_QUESTION_CHARS}
                           value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onComposerKey} />
-                {input.length > MAX_QUESTION_CHARS - 200 && (
-                  <span className="composer-count" role="status">{input.length.toLocaleString('en-IN')} / {MAX_QUESTION_CHARS.toLocaleString('en-IN')}</span>
-                )}
                 {voice.isRecording && (
                   <RecordingStrip startedAt={voice.startedAt} live={voice.phase === 'listening'}
                                   status={voice.status} levelRef={voice.levelRef} />
                 )}
                 <div className="composer-bar">
+                  {/* the server's cap (MAX_QUESTION_CHARS) shown before it is reached */}
+                  {!voice.isRecording && input.length > MAX_QUESTION_CHARS - 200 && (
+                    <span className={'composer-count' + (input.length >= MAX_QUESTION_CHARS ? ' full' : '')}
+                          aria-live="polite">{input.length}/{MAX_QUESTION_CHARS}</span>
+                  )}
                   {!voice.isRecording && (voice.busy || voice.status) && (
                     <div className={'voice-status' + (voice.status && voice.status.error ? ' error' : '')}
                          role="status" aria-live="polite">

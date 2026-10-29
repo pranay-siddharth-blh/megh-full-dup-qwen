@@ -104,3 +104,23 @@ read live.
 `admin_total_exp` sums to 0.90 lakh statewide across all 4 years, from a single row. Raw has the
 same. The bot deliberately refuses this measure (schema_context MGNREGA rule 10). Use case
 DATA-013 expects a figure, so this needs a product decision (KNOWN_ISSUES KI-046).
+
+---
+
+## Issue 4 (2026-10-29): FY 2024-25 person-days look incomplete (KI-591)
+
+Found while fixing the RAG fix report's "average wage per person-day" question (KI-576). Statewide, read-only:
+
+| FY | person_days (`v_employment`) | unskilled_wage_exp (lakh, `v_expenditure`) | wage per person-day |
+|---|---|---|---|
+| 2022-23 | 25,596,237 | 50,169.06 | ₹196 |
+| 2023-24 | 27,264,054 | 45,300.41 | ₹166 |
+| 2024-25 | **14,667,872** | **70,538.60** | **₹481** |
+| 2025-26 | 23,387,018 | 65,093.90 | ₹278 |
+
+FY 2024-25 has the highest wage bill but about half the person-days of any other year, so every per-person-day
+ratio for that year is about twice what it should be (cost per person-day: district average ₹677). The notified
+Meghalaya wage for that year is in the low ₹200s, so the employment side looks short.
+
+**Ask:** compare FY 2024-25 `person_days` with the raw employment file / NREGASoft MIS. The bot reports the data as
+held and does not adjust it.

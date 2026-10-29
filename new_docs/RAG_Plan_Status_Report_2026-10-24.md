@@ -58,7 +58,7 @@ Most of the day went into **groundwork the plan depends on**: moving the whole p
 
 | # | Item | Status | Detail |
 |---|---|---|---|
-| C1 | Years (FY24, last year) | **Partly** | D-068 + KI-414 (2026-10-26): every FY form (FY24, FY 24, FY'24, FY 23-24, 23-24) read the same by all year readers; follow-ups keep the typed year (live 81/81). "last year" and other relative forms not re-checked |
+| C1 | Years (FY24, last year) | **Done 2026-10-29** | Every FY form read the same (D-068, KI-414); relative years ("last year", "this year", "last 3 years", "previous financial year") rewritten to the FY from the scheme's own years in megh_db (KI-592, live 8/8); a FY no longer read as an assumed figure (KI-593) |
 | C2 | Number words ("five highest") | **Solved** | 2026-10-26, KI-412: count words become digits; the SQL LIMIT is the stated count. Five wordings of one ranking give the same 5 blocks |
 | C3 | Places | Not started | KI-368 open |
 | C4 | Follow-ups carry filters | **Partly** | KI-405 fixed 2026-10-27 (a scheme switch typed during a pause is the paused question for that scheme; live suite 105/107). KI-406 waits on the U5 decision |
@@ -72,12 +72,12 @@ Most of the day went into **groundwork the plan depends on**: moving the whole p
 |---|---|---|---|
 | E1 | Query plan node | Not started | |
 | E2 | Guardrail | Not started | |
-| E3 | Follow-ups and context | **Partly** | Session-less API calls now get their own conversation (D-070, KI-423, live-verified). Follow-ups editing a plan instead of text, and the U5 year-carry decision, not started |
+| E3 | Follow-ups and context | **Done 2026-10-29** (one item skipped) | Session-less calls get their own conversation (D-070); U5 = keep the year when the measure repeats (D-075, KI-406); KI-318, 363, 364 fixed. Follow-ups editing the query plan: NOT built by user decision 2026-10-29 (needs QUERY_PLAN_IN_TURN, +0.35 s, same accuracy) |
 | E4 | Intent classifier | Not started | |
 | E5 | Scheme routing | Not started | |
-| E6 | Places and years | **Partly** | Years: every FY form read the same everywhere (D-068, KI-414; live 81/81). Regions: Ri Bhoi in Khasi per the LGD region column (D-069). Places (KI-368) and splitting resolve_entities not started |
+| E6 | Places and years | **Done 2026-10-29** (one item skipped) | Deterministic year parser incl. relative years (C1); spans (KI-313/427); a stated level wins (KI-368); Ri Bhoi region (D-069). Splitting resolve_entities: NOT done by user decision 2026-10-29 (no measured failure). Metadata-RAG place candidates wait on A1 |
 | E7 | SQL generation | Not started | |
-| E8 | Verifier / repair | Not started | |
+| E8 | Verifier / repair | **Done 2026-10-29** | Repair time budget + unchanged-repair re-ask (D-088, KI-003/013). KI-002 measured: full held-out run 41 complaints discarded, 1 kept (still correct), 0 wrong answers from the verifier |
 | E9 | Composer | **Done 2026-10-29** (D-082) | Money rounding (KI-417); CM Elevate workflow statuses answered in fixed wording (D-069). 2026-10-29: one money formatter (`_c12_money`), figure-to-label check (`_c12_label_misbinds`), ranking / compare / trend / split figures written by code from templates (the 9B writes the opening line only); KI-447/448 fixed. Open: scheme writers' own money formats (KI-449); like-for-like compare by catalogue kind waits on E7; golden set not yet re-run |
 | E10 | Cache, memory, orchestration | **Partly** | Semantic-cache scope fix (KI-401); memory search exact (KI-408). Redis and plan-keyed cache not done |
 | E11 | UI | Not started | |

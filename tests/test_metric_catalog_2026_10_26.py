@@ -188,7 +188,8 @@ def test_breakdown_ranking_and_compare_shapes(catalogue):
     assert plan["qtype"] == "breakdown" and "GROUP BY lgd_district" in plan["query"][0]
     plan = p._metric_catalog_plan("Which district had the highest expenditure in 2023-24?", ["MGNREGA"],
                                   _er(year_key=2023))
-    assert plan["qtype"] == "ranking" and "DESC NULLS LAST LIMIT 1" in plan["query"][0]
+    # "which district … highest" reads the winner and the next two (D-092, 2026-10-29)
+    assert plan["qtype"] == "ranking" and "DESC NULLS LAST LIMIT 3" in plan["query"][0]
     plan = p._metric_catalog_plan("top 3 districts by expenditure in 2023-24", ["MGNREGA"], _er(year_key=2023))
     assert plan["qtype"] == "ranking" and "DESC NULLS LAST LIMIT 3" in plan["query"][0]
     plan = p._metric_catalog_plan("Top districts for expenditure in 2023-24", ["MGNREGA"], _er(year_key=2023))
