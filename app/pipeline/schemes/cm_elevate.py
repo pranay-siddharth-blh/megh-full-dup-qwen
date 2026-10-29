@@ -2591,6 +2591,33 @@ def _cme_village_not_in_named_block(question: str, rows: list[dict]) -> "str | N
                         for r in rows) + ".")
 
 
+async def _cme_village_code_not_in_named_block(question: str, sql: str) -> "str | None":
+    """The single-row form of _cme_village_not_in_named_block: "MEGONGGRE village of Tikrikilla block"
+    (no CM Elevate application) was answered with village_code 273068, the MEGONGGRE of Selsella block
+    (UAT 2026-10-30, C14). The blocks of the village codes the SQL filters are read; none of them being
+    the named block means 0 for the village asked."""
+    low = (question or "").lower()
+    i = low.find(" village of ")
+    j = low.find(" block", i + 12) if i >= 0 else -1
+    if i < 0 or j < 0 or not sql:
+        return None
+    tree = sql_ast.parse_one(sql)
+    codes = []
+    for n in (tree.find_all(exp.EQ, exp.In) if tree is not None else []):
+        if _cme_col(n.this, "village_code") is None:
+            continue
+        lits = [n.expression] if isinstance(n, exp.EQ) else list(n.expressions)
+        codes += [int(x.this) for x in lits if isinstance(x, exp.Literal) and str(x.this).isdigit()]
+    if not codes:
+        return None
+    try:
+        rows = await fetch_rows("SELECT DISTINCT lgd_block AS lgd_block, COUNT(DISTINCT request_id) AS applicants "
+                                "FROM curated.v_cm_elevate WHERE village_code = ANY($1::int[]) GROUP BY 1", [codes])
+    except Exception:  # noqa: BLE001
+        return None
+    return _cme_village_not_in_named_block(question, [dict(r) for r in rows]) if rows else None
+
+
 _CME_YEAR_PHRASE = Matcher(Seq(W("for", "in", "during"), Opt("the"), Opt(W("year", "fy", "financial")), Opt("year"),
                                Pred(lambda w: len(w) == 4 and w[:2] == "20" and is_int(w)),
                                Opt(Pred(lambda w: len(w) == 2 and is_int(w))), sep="any"))
@@ -2621,7 +2648,7 @@ async def _cm_elevate_answer_guarantees(question: str, sql: str, rows: list[dict
     if unknown:
         return (f"I couldn't find an assembly constituency called “{unknown}” in the CM Elevate data. Please check "
                 "the name, or ask for a district or block instead.")
-    other = _cme_village_not_in_named_block(question, rows)
+    other = _cme_village_not_in_named_block(question, rows) or await _cme_village_code_not_in_named_block(question, sql)
     if other:
         return other
     if not rows:
