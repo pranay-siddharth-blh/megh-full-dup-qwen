@@ -198,3 +198,84 @@ def test_in_turn_planning_is_off_by_default():
     # Turn it on only with a stage that reads the plan and drops its own call.
     from app.config import Settings
     assert Settings.model_fields["QUERY_PLAN_IN_TURN"].default is False
+
+
+# ── Stage 2b: the first field read — intent (c13 _c13_intent_by_rules) ──────
+
+def _session_with_plan(question, intent):
+    s = _session()
+
+    async def done():
+        return {**PLAN, "intent": intent}
+
+    async def make():
+        task = asyncio.ensure_future(done())
+        await task
+        s.turn_context["query_plan"] = {"question": question, "task": task, "t0": 0.0}
+    return s, make
+
+
+def _count_classifier(monkeypatch):
+    calls = []
+
+    async def fake(prompt, **kw):
+        calls.append(prompt)
+        return '{"intent": "DATA"}'
+    monkeypatch.setattr(llm, "call_classifier", fake)
+    return calls
+
+
+FALLS_THROUGH = "Anything new on CM Elevate?"          # no rule decides it
+
+
+def test_the_plan_intent_stands_in_for_the_last_resort_call(monkeypatch):
+    calls = _count_classifier(monkeypatch)
+    s, make = _session_with_plan(FALLS_THROUGH, "KNOWLEDGE")
+
+    async def run():
+        await make()
+        return await pipeline._c13_intent_by_rules(FALLS_THROUGH, s)
+    assert asyncio.run(run()) == "KNOWLEDGE" and calls == []
+
+
+@pytest.mark.parametrize("plan_q,intent", [
+    (FALLS_THROUGH, "OTHER"),                # the plan has no DATA / KNOWLEDGE reading
+    ("Anything new on PMAY-G?", "KNOWLEDGE"),  # the plan read other words
+])
+def test_otherwise_the_classifier_is_called_as_before(monkeypatch, plan_q, intent):
+    calls = _count_classifier(monkeypatch)
+    s, make = _session_with_plan(plan_q, intent)
+
+    async def run():
+        await make()
+        return await pipeline._c13_intent_by_rules(FALLS_THROUGH, s)
+    assert asyncio.run(run()) == "DATA" and len(calls) == 1
+
+
+def test_the_rules_still_decide_before_the_plan(monkeypatch):
+    calls = _count_classifier(monkeypatch)
+    q = "How many PMAY-G houses in Ri Bhoi in 2023-24?"
+    s, make = _session_with_plan(q, "KNOWLEDGE")
+
+    async def run():
+        await make()
+        return await pipeline._c13_intent_by_rules(q, s)
+    assert asyncio.run(run()) == "DATA" and calls == []
+
+
+def test_no_session_or_no_plan_keeps_the_classifier_call(monkeypatch):
+    calls = _count_classifier(monkeypatch)
+    assert asyncio.run(pipeline._c13_intent_by_rules(FALLS_THROUGH)) == "DATA"
+    assert asyncio.run(pipeline._c13_intent_by_rules(FALLS_THROUGH, _session())) == "DATA"
+    assert len(calls) == 2
+
+
+def test_classify_intent_passes_the_session_through(monkeypatch):
+    monkeypatch.setattr(settings, "INTENT_SCORE_TIEBREAK", False)
+    calls = _count_classifier(monkeypatch)
+    s, make = _session_with_plan(FALLS_THROUGH, "KNOWLEDGE")
+
+    async def run():
+        await make()
+        return await pipeline.classify_intent(FALLS_THROUGH, session=s)
+    assert asyncio.run(run()) == "KNOWLEDGE" and calls == []

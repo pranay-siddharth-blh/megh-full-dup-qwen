@@ -871,7 +871,8 @@ export default function App() {
 
           <div className="chat-area" ref={chatAreaRef} onScroll={onChatScroll}>
             <div className={'chat-inner' + (messages.length ? '' : ' is-welcome')} ref={chatInnerRef}>
-              <WelcomeCard strings={strings} prompts={prompts} setPrompts={setPrompts} onAsk={ask} />
+              <WelcomeCard strings={strings} prompts={prompts} setPrompts={setPrompts} onAsk={ask}
+                signedIn={auth === 'unlocked'} />
               <div>
                 {messages.map((m, i) => {
                   // Regenerate / Try again sit on the latest answer only: an

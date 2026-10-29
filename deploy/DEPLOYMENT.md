@@ -44,8 +44,7 @@ Embeddings come from the gateway's `qwen3-embedding` (`EMBEDDING_PROVIDER=gatewa
 `EMBEDDING_BASE_URL=https://10.48.242.4/openai/v1` (not `…/completions`) and `RAG_MEDIUM_CONFIDENCE=0.35`.
 **Since 2026-10-27 (D-074)** Qdrant is `QDRANT_URL=http://10.48.242.4:6333` and the app uses only two
 collections, both read-only: `QDRANT_COLLECTION=megh_knowledge` with `QDRANT_KB_READ_ONLY=true` (the app
-never builds or rebuilds it) and `SQL_EXAMPLES_COLLECTION=megh_sql_metadata` (`SQL_EXAMPLES_SOURCE=qdrant`, the default; `yaml` = rollback
-until the comparison in docs/TESTING.md says otherwise). Also set `RAG_HYBRID_ENABLED=false` (no BM25
+never builds or rebuilds it) and `SQL_EXAMPLES_COLLECTION=megh_sql_metadata` (used only with `SQL_EXAMPLES_SOURCE=qdrant`; **the default is `yaml` since 2026-10-29, D-086** — set it in the deploy `.env`). Also set `RAG_HYBRID_ENABLED=false` (no BM25
 vector there) and `CONTEXT_SEMANTIC_MEMORY_ENABLED=false` (see `.env.example`). The memory migration below
 applies only to the pre-D-074 setup (D-067) and is not run any more:
 `./.venv/bin/python deploy/migrate_conversation_memory.py --dry-run`, then without `--dry-run`.

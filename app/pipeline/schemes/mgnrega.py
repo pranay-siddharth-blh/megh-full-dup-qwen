@@ -78,6 +78,11 @@ _MGNREGA_ONLY_TERMS = Matcher(Alt(
            ("expenditure", "expenditures", "expense", "expenses", "cost", "costs")),
     _mg_sp("labour", "budget"), _mg_sp(("work", "works"), "demanded"), _mg_sp("wage", "employment"),
     _mg_sp("employment", "guarantee"),
+    # B2 (RAG plan, 2026-10-29, tests/scheme_vocab/labels.json): "mandays" / "man-days" (the
+    # catalogue's own MGNREGA synonym) and "unskilled labour / workers" (only MGNREGA holds
+    # unskilled_wage_exp) asked "which scheme?".
+    Joined("man", _MG_DAYS),
+    _mg_sp("unskilled", ("labour", "labor", "labourer", "labourers", "work", "worker", "workers")),
 ))
 
 

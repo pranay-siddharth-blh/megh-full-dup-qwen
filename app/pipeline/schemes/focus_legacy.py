@@ -175,6 +175,9 @@ _FOCUSLEGACY_ONLY_TERMS = Matcher(Alt(
     # only Focus Legacy records remittances (date_of_remittance): "Show me all
     # remittances made between April and June 2025" asked which scheme (2026-10-14)
     W("remittance", "remittances", "remitted"), _fl_sp(("date", "dates"), "of", "remittance"),
+    # B2 (2026-10-29): "LAMPS share of payments" asked which scheme; LAMP is a Focus Legacy
+    # producer-group type (pg_entity_type), held by no other scheme.
+    W("lamp", "lamps"),
 ))
 
 

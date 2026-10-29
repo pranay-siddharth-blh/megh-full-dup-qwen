@@ -729,7 +729,7 @@ class Settings(BaseSettings):
     # tests/nl2sql_eval/compare_examples_source.py; "yaml" is the rollback.
     # "yaml_meaning" (B5, 2026-10-29): the reviewed YAML banks ranked by meaning
     # (sql_examples._rank_yaml), no megh_sql_metadata. Not the default until measured.
-    SQL_EXAMPLES_SOURCE: str = "qdrant"
+    SQL_EXAMPLES_SOURCE: str = "yaml"   # user decision 2026-10-29 (B5, D-086)
     SQL_EXAMPLES_COLLECTION: str = "megh_sql_metadata"
     SQL_EXAMPLES_TIMEOUT_SECONDS: float = 4.0
     PROMPT_BUDGET_SQL_TOKENS: int = 15360

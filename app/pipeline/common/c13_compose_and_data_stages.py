@@ -467,11 +467,12 @@ _MEASURE_IN_PLACE = Matcher(Seq(
 _C13_COUNT_ASKED = Matcher(Seq("how", W("many", "much"), sep="space"))
 
 
-async def classify_intent(question: str) -> str:
+async def classify_intent(question: str, session: "Session | None" = None) -> str:
     """DATA (a number from megh_db) vs KNOWLEDGE (how the scheme works, from the
-    reference docs). Keyword fast-path first; one classifier call otherwise;
-    then the B3 retrieval-score safety net (_c13_knowledge_is_closer)."""
-    intent = await _c13_intent_by_rules(question)
+    reference docs). Keyword fast-path first; one classifier call otherwise (or
+    this turn's query plan, D-085); then the B3 retrieval-score safety net
+    (_c13_knowledge_is_closer)."""
+    intent = await _c13_intent_by_rules(question, session)
     if intent == "DATA" and settings.INTENT_SCORE_TIEBREAK and _c13_b3_eligible(question) \
             and await _c13_knowledge_is_closer(question):
         return "KNOWLEDGE"
@@ -525,8 +526,9 @@ async def _c13_knowledge_is_closer(question: str) -> bool:
     return closer
 
 
-async def _c13_intent_by_rules(question: str) -> str:
-    """The cue rules, then one classifier call (the pre-B3 classify_intent)."""
+async def _c13_intent_by_rules(question: str, session: "Session | None" = None) -> str:
+    """The cue rules, then this turn's query plan or one classifier call (the
+    pre-B3 classify_intent)."""
     # "what are common districts in both schemes?" opens with "what are", which
     # otherwise reads as KNOWLEDGE — but it is a list computed from the coverage
     # data, never something in the reference docs. Force DATA before the keyword
@@ -564,6 +566,17 @@ async def _c13_intent_by_rules(question: str) -> str:
         return "KNOWLEDGE"
     if _APPLICANT_PLACE_CUE.search(question) and not _KNOWLEDGE_HINTS.search(question):
         return "DATA"
+    # E1 stage 2b (D-085): the rules found no cue; the plan built during this turn
+    # (only with QUERY_PLAN_IN_TURN, only from these same words) already read the
+    # intent, so its call stands in for this one. Measured on the 383 shadow-log
+    # questions: 39 reach this point, and where the plan says DATA / KNOWLEDGE it
+    # matched the pipeline 36/36; OTHER, no plan or other words -> the call below.
+    if session is not None:
+        from app import query_plan as _c13_qp2
+        _c13_plan = await _c13_qp2.turn_plan(session, question)
+        if _c13_plan and _c13_plan.get("intent") in ("DATA", "KNOWLEDGE"):
+            context_budget.log_decision("intent", intent=_c13_plan["intent"], source="query_plan")
+            return _c13_plan["intent"]
     prompt = f"""Classify the question into exactly one label:
   DATA      - needs a number/count/list computed from the scheme database. This
               INCLUDES comparison and correlation questions ("do districts with

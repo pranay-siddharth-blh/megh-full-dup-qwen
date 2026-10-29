@@ -937,6 +937,34 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-087 — The SQL prompt's data figures are read live from megh_db (`app/data_facts.py`) (2026-10-29)
+- **Date:** 2026-10-29. User rule: "the complete project is dynamic" — after the scheme cards (KI-571) and the
+  prompt both showed stale figures (CM Elevate "8,867 records", megh_db 8,948; Focus Legacy "11,906" and "~11,904"
+  groups, "14,569" and "~14,566" payments in the same block).
+- **Decision:** every figure in `schema_context` that states what the data holds today (row / NULL / distinct counts,
+  shares, the years held, the Ri Bhoi "men" example) is a `[[name]]` token; `data_facts.FACTS` (89 figures) fills it from
+  11 fixed, parameter-free SELECTs over the curated views and dims (never a privacy table), on the read-only pool in a
+  READ ONLY transaction. `refresh_loop()` runs from the lifespan now and every 10 min; `build_schema_context` and
+  `available_metrics_text` only read the result (no DB wait in a turn). A failed query keeps the last good figures;
+  before the first success each token shows the figure typed before (the prompt reads exactly as before). Changes are
+  logged (`data_facts: N figure(s) changed`); `/metrics` shows `data_facts` (as_of, errors).
+- **Typed on purpose:** dated incident history ("confirmed live 2026-09-13 … dropped 4,670"), figures from outside
+  megh_db (requirement workbook 2,847 / 13, client-API drift 89, raw-file "8,436 source rows"), thresholds ("fewer than
+  15"), the Focus Legacy name-spelling measurements (5a), and the structural year rules (Focus Legacy rule 7 "FY 2023-24
+  is absent", CM Elevate Legacy "only two years") — a new year there needs a person to rewrite the rule.
+- **Rollback:** none needed; to freeze, stop the lifespan task (tokens then show the typed defaults).
+
+### D-086 — SQL examples from the reviewed YAML banks again (default `yaml`); `yaml_meaning` added (2026-10-29)
+- **Date:** 2026-10-29. RAG plan B5 (Task 13); user decision after the measurement ("yaml").
+- **Evidence:** held-out NL->SQL set, 74 q, same code, 0 network errors (results `2026-10-29_1323/1333/1339_b5-*.json`):
+  yaml **42/74**, SQL first try 42/43, **1 repair**; yaml_meaning 41/74, 41/42, 4 repairs; qdrant 41/74, 37/42,
+  **8 repairs**, 3 verifier rejections; median 11.3 / 10.5 / 8.5 s. Accuracy within noise; meaning ranking changed the
+  examples on 30/37 turns with no measurable gain; qdrant's examples are unvalidated (KI-438).
+- **Decision:** `SQL_EXAMPLES_SOURCE=yaml` (config default and dev `.env`; deploy `.env` must match). `yaml_meaning`
+  (`sql_examples._rank_yaml`) stays available. megh_sql_metadata is then not read for SQL (its view / join notes leave
+  the prompt) — reverses the 2026-10-27 evening instruction for the SQL examples only.
+- **Rollback:** `SQL_EXAMPLES_SOURCE=qdrant`.
+
 ### D-085 — Query plan stage 2a: built during the turn beside the guardrail call; built, measured, OFF by default (2026-10-29)
 - **Date:** 2026-10-29. RAG plan E1 stage 2 (the user's go-ahead "do the next step") and E2's "run the guardrail in
   parallel with the plan". Files: `app/query_plan.py` (`start_for_turn`, `cancel_for_turn`, `take_for_turn`,
@@ -960,6 +988,22 @@ not recorded.*
 - **So `QUERY_PLAN_IN_TURN=false` by default** (= stage 1 exactly; pinned by a test). Turn it on only together with
   a stage that reads the plan and drops a classifier call of its own (stage 2b), or after the gateway serves
   concurrent 4B requests in parallel; re-measure with the scratch A/B (`answer_question` on vs off) first.
+- **Stage 2b, first field = intent (same day, user: "do the next step"):** c13 `_c13_intent_by_rules(question,
+  session)` — after every cue rule, where the last-resort classifier call was, it returns this turn's plan intent
+  when the plan was read from the same words and says DATA / KNOWLEDGE (`pipeline_decision stage=intent
+  source=query_plan`); OTHER, no plan or other words -> the classifier call as before. The B3 safety net and every
+  c14 post-rule still run. c14 passes the session only when a plan exists (so with the flag off the call is byte-for-byte
+  the old one). Offline, on the 383 shadow-log questions: only **39 (10%)** reach that call; there the plan matched the
+  pipeline 36/36 when it said DATA / KNOWLEDGE (the 3 others were OTHER -> fallback).
+- **Held-out NL->SQL set, same code, back to back (`2026-10-29_1355_e1-2b-plan-off`, `_1401_e1-2b-plan-on`):** 42/74
+  both, 0 regressions, 0 fixed, identical outcomes; per question median 8.05 s off vs 8.40 s on (mean 8.64 vs 8.99;
+  45/74 slower on). Live A/B (8 own questions, half falling past the rules): no clear latency difference (order
+  effects dominate); one routing gain — "What about Focus Legacy groups in East Khasi Hills?" got the figures on, the
+  "published information does not contain" knowledge reply off.
+- **Verdict:** the reader is correct and safe but saves a call on ~10% of turns while the in-turn plan costs ~0.35 s
+  on every new turn today, so **`QUERY_PLAN_IN_TURN` stays false**. What would pay: one call reading the guardrail
+  verdict AND the plan together (E2 + E1 merged; a safety-behaviour change, needs its own go-ahead and the guardrail
+  test suites), or a plan reader that replaces a call made on most turns.
 - **Status:** Active (code present, off). E2's latency goal is NOT met by parallelism on today's gateway.
 
 ### D-084 — Frontend lint and tests: ESLint (with the no-regex rule) + `node --test` (2026-10-29)

@@ -417,8 +417,10 @@ _PMAY_M = {
             Seq(Pred(lambda w: w.lower().endswith("not")), _pmay_p("finished"))), 80)),
     "none": Matcher(Alt(
         Seq("not", Opt("yet"), "received", _pmay_p("any")),
+        # "releas": "received no release at all" fell through to the statewide summary
+        # (houses, sanctioned, released) instead of this count (KI-573, 2026-10-29).
         Seq(Alt(W("received", "got"), Seq("been", W("paid", "released"))),
-            Alt(_pmay_p("nothing"), Seq("no", _pmay_p("amount", "money", "fund", "payment", "instal")))),
+            Alt(_pmay_p("nothing"), Seq("no", _pmay_p("amount", "money", "fund", "payment", "instal", "releas")))),
         Seq("no", W("amount", "amounts", "money", "moneys", "fund", "funds", "fundss", "payment", "payments",
                     "release", "releases"),
             Opt(W("has", "have")), Opt("yet"), Opt("been"), _pmay_p("received", "released", "paid")),
