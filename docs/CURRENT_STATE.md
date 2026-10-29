@@ -1637,7 +1637,7 @@ DDL.
   - "Break it down by district" after a statewide answer and "Compare … with <place>" are rewritten
     deterministically (CTX-07, KI-363, KI-364). KI-416 is SQL generation's (request to lane B1).
   - Eval: deliberate pauses are `expected_pause`, not misses (CTX-09).
-- **Tests:** 4,247 passed, 0 failed, 3 skipped; 14/14 scripts (TESTING lane A2).
+- **Tests (rebased on Main 1360c3b):** 4,401 passed, 0 failed, 3 skipped; 14/14 scripts; frontend lint + 13/13.
 - **Open, user decisions:** D-A2-CTX-09 sign-off; retention periods; KI-482 (semantic memory almost never used) and
   KI-483 (summary covers 4 questions).
 <!-- end lane A2 -->

@@ -423,8 +423,8 @@ cases. Per file:
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
 - Progress: context-memory tasks done (2026-10-29, branch `lane/a2`).
-- **Results on the final tree (offline, VPN down):** full pytest command (§2) **4,247 passed, 0 failed, 3 skipped**
-  (6 min); 14/14 script suites; `test_pipeline_namespace_2026_10_26.py` green; all 141 harness scenarios validate.
+- **Results on the final tree (offline, VPN down), rebased on Main 1360c3b (PR #17):** full pytest command (§2)
+  **4,401 passed, 0 failed, 3 skipped** (3.5 min; 4,247 before the rebase); frontend `npm run lint` clean, `npm test` 13/13; 14/14 script suites; `test_pipeline_namespace_2026_10_26.py` green; all 141 harness scenarios validate.
   Every new regression test was also run against the old code and fails there.
 - **New tests (214):** `test_topic_rev_2026_10_28.py` (9, real router + real sync_in/sync_out over a fake
   app.conversations), `test_ownership_turns_2026_10_29.py` (13), `test_summary_reset_2026_10_29.py` (6),
