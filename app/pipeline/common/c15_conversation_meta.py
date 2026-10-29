@@ -221,7 +221,27 @@ def _meta_kind(raw_question: str, prev) -> "str | None":
     if (getattr(prev, "route", None) == "data" and _c15_has(ws, _C15_REASON) and len(ws) <= 14
             and not ({"you", "u", "your"} & set(ws)) and not _c15_new_content(text)):
         return "reason"
+    # (one that names a scheme or a place of its own — "why is MGNREGA expenditure low in
+    # Dalu" — is still a question, as before)
+    if getattr(prev, "route", None) == "data" and _c15_why_comparative(ws) \
+            and not _mentions_scheme(text) and not named_places(text):
+        return "reason"
     return None
+
+
+# RAG fix report 2026-10-29, Issue 5: after "Compare both districts", "Why is completion
+# lower there?" ran as a data question and repeated the same figure. A "why" that asks
+# about a difference (lower / fewer / dropped …) is a reason question even when it names
+# the measure or the place: the records hold the figures, never the causes.
+_C15_WHY_DIFFERENCE = frozenset("lower higher less more fewer low high behind ahead better worse down up drop dropped "
+                                "fell fall increase increased decrease decreased declined decline rise rose slow slower "
+                                "faster poor poorly weak small smaller big bigger different difference gap so".split())
+
+
+def _c15_why_comparative(ws: list) -> bool:
+    content = [w for w in ws if w not in _C15_FILLERS]
+    return bool(content) and content[0] == "why" and len(ws) <= 16 and not ({"you", "u", "your"} & set(ws)) \
+        and bool(_C15_WHY_DIFFERENCE & set(content))
 
 
 def _meta_question(raw_question: str, prev) -> "tuple[str, str, bool] | None":
@@ -462,9 +482,15 @@ def _c15_reason_answer(prev) -> str:
     scope = _c15_scope_line(prev)
     held = f"{scheme}'s records" if scheme else "the scheme records"
     where = f" for {scope}" if scope else ""
-    return (f"I can't say why — {held} hold the figures{where}, not the reasons behind them. "
+    text = (f"I can't say why — {held} hold the figures{where}, not the reasons behind them. "
             "What I can do is put the figure in context: compare it with the other places at the same level, "
             "with other financial years, or with the state total. Pick one below, or tell me what to compare it with.")
+    # RAG fix report Issue 5: say which figures the "why" is about, so the reply never reads
+    # as the same answer again and the officer sees what the records do show.
+    last = str(getattr(prev, "answer", None) or "").strip()
+    if last:
+        text += "\n\nWhat the records show (my last answer):\n" + (last if len(last) <= 700 else last[:700] + "…")
+    return text
 
 
 def _c15_suggest_answer(prev) -> str:
@@ -521,25 +547,49 @@ _C15_OVERVIEW_TEMPLATES = {
 }
 
 
+_C15_BARE_FILLER = frozenset("in for of at during the village fy data figures details".split())
+
+
+def _c15_bare_village_ask(question: str) -> bool:
+    """"MGNREGA in Mawryngkneng village 2023-24": one scheme, one place the user called
+    a village, maybe a year, nothing else — an overview of that village. Live T9 (spelling
+    brief 2026-10-29): with no measure the SQL model joined employment to expenditure,
+    every repair failed and the turn fell back to the documents; the correctly spelt
+    question failed the same way. Districts and blocks keep their own path."""
+    words = [w.lower() for w in _c15_words(question)]
+    if "village" not in words:
+        return False
+    places = named_places(question)
+    schemes = _exact_schemes(question)
+    if len(places) != 1 or len(schemes) != 1:
+        return False
+    allowed = _C15_BARE_FILLER | {w.lower() for w in _c15_words(next(iter(places)))} \
+        | {w.lower() for w in _c15_words(next(iter(schemes)))}
+    return all(w in allowed or w.isdigit() for w in words)
+
+
 def _overview_question(question: str) -> "tuple[str, str] | None":
     """(the headline-figures question for the place, the line that opens the answer)
     when `question` asks for an overview of ONE district or block under ONE scheme
     and names no measure of its own; else None."""
     ws = _c15_words(question)
-    if not _c15_has(ws, _C15_OVERVIEW):
+    bare_village = _c15_bare_village_ask(question)
+    if not _c15_has(ws, _C15_OVERVIEW) and not bare_village:
         return None
     if _measure_labels(question) or context_policy.metric_families(question):
         return None
     places = named_places(question)
     if len(places) != 1:
         return None
+    if bare_village:
+        places = {next(iter(places)): "village"}     # the level the user wrote
     schemes = _named_or_inferred_schemes(question)
     if len(schemes) != 1 or schemes[0] not in _C15_OVERVIEW_TEMPLATES:
         return None
     if schemes[0] == "PMAY-G" and _pmay_named_summary(question):
         return None                        # its own figures (pmay_g.py), not house status
     (canon, dim), = places.items()
-    place = f"{canon.title()} {dim}" if dim in ("block", "district") else canon.title()
+    place = f"{canon.title()} {dim}" if (dim in ("block", "district") or bare_village) else canon.title()
     years = context_policy.extract_year_keys(question)
     year = ""
     if len(years) == 1:
@@ -918,10 +968,23 @@ def _attach_preface(result: dict, session) -> None:
     if (ctx or {}).get("chart_wide") and isinstance(result, dict) and result.get("route") == "data":
         result["chart_wide"] = True              # "give me a wide frame": the UI draws it larger
     preface = (ctx or {}).get("answer_preface")
-    if not preface or not isinstance(result, dict) or result.get("answer_failed"):
-        return      # "Sorry — here it is block-wise." must never introduce a failure text
-    if result.get("route") in ("data", "knowledge") and result.get("answer"):
+    if preface and isinstance(result, dict) and not result.get("answer_failed") \
+            and result.get("route") in ("data", "knowledge") and result.get("answer"):
+        # "Sorry — here it is block-wise." must never introduce a failure text
         result["answer"] = f"{preface}\n\n{result['answer']}"
+        # A hybrid question's rules half (RAG fix report Issue 4, _hybrid_split): the
+        # preface is the knowledge answer, so its citations travel with it.
+        if (ctx or {}).get("answer_preface_sources") and not result.get("sources"):
+            result["sources"] = ctx["answer_preface_sources"]
+    # "Showing results for **Ri Bhoi** (you typed 'ribhoy')." (app/spelling.py,
+    # spelling-fix brief 2026-10-29): what was understood, said first, as a search
+    # engine does. Names only, no figures. Also above a failure text: it says what
+    # was looked up.
+    _spell = (ctx or {}).get("spelling_note")
+    if _spell and isinstance(result, dict) and result.get("route") in ("data", "knowledge") \
+            and result.get("answer") and not str(result["answer"]).startswith(_spell):
+        result["answer"] = f"{_spell}\n\n{result['answer']}"
+        result["spelling"] = (ctx or {}).get("spelling") or []
 
 
 # ── Coverage, greeting back, and referring back (Conversational Memory approach, 2026-10-19) ──

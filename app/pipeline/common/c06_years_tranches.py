@@ -131,9 +131,16 @@ _YEARS_LIST_SUMMARY = Matcher(Alt(
 _C06_YEAR_1920 = Matcher(Pred(lambda w: _c05_is_year(w, ("19", "20"))))
 
 
+# "What year did PMAY-G start?" asks when the scheme was LAUNCHED (the reference docs:
+# 2016), not which years its data holds — it was answered "PMAY-G data covers 7
+# financial years" (knowledge fix 2026-10-29, K5).
+_YEARS_LIST_LAUNCH = Matcher(W("launch", "launched", "start", "started", "introduce", "introduced", "begin",
+                               "began", "enact", "enacted", "commence", "commenced", "inception", "shuru"))
+
+
 def _is_years_list_question(question: str) -> bool:
     q = _YEARS_SCOPE_PHRASE.sub(" ", question or "")
-    if _YEARS_LIST_SUMMARY.search(q):
+    if _YEARS_LIST_SUMMARY.search(q) or _YEARS_LIST_LAUNCH.search(q):
         return False
     return (bool(_YEARS_LIST_QUESTION.search(q)) and not _YEARS_LIST_FIGURE.search(q)
             and not _GAP_YEAR.search(q) and not _C06_YEAR_1920.search(q))
@@ -1116,6 +1123,72 @@ def _available_years_for(schemes: list[str]) -> "tuple[list[str], list[str]]":
                 years.append(y)
     years.sort(key=_fy_start)
     return years, live
+
+
+# C1 (RAG plan, live check 2026-10-29): a relative year in a fresh question had no
+# reader of its own, only a prompt line ("this year" -> FY 2025-26, typed, CM Elevate
+# Legacy only). "MGNREGA person-days last year" and "Focus Legacy producer groups last
+# year" were answered for ALL years (no year token -> the all-years default); "PMAY-G
+# houses completed in the last 3 years" the same; "MGNREGA person-days in Ri Bhoi in
+# the previous financial year" failed outright. The phrase is now replaced with the FY
+# it means BEFORE any year reader runs, anchored on the latest FY the scheme holds in
+# megh_db (_SCHEME_DATA_YEARS, refreshed from the views): "this / current year" = that
+# FY, "last / previous year" = the one before it, "last N years" = the N ending there.
+# A question that also names a year is left alone (which year "last" is relative to is
+# then the user's), and so is "next year" (no data).
+_C06_PREP = W("in", "during", "for", "over", "of")
+_C06_COUNT_WORDS = {"two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+                    "eight": 8, "nine": 9, "ten": 10}
+
+
+def _c06_count(w: str) -> bool:
+    return (w.isdecimal() and 1 <= int(w) <= 20) or w.lower() in _C06_COUNT_WORDS
+
+
+_C06_REL_SPAN_MATCH = Matcher(Seq(Opt(_C06_PREP), Opt("the"), W("last", "past", "previous", "recent", "latest"),
+                                  Cap(Pred(_c06_count)), Opt(W("financial", "fiscal")), W("years", "fys")))
+_C06_REL_THIS_MATCH = Matcher(Seq(Opt(_C06_PREP), Opt("the"), W("this", "current", "present", "latest"),
+                                  Opt(W("financial", "fiscal")), W("year", "fy")))
+_C06_REL_LAST_MATCH = Matcher(Seq(Opt(_C06_PREP), Opt("the"), W("last", "previous", "prior"),
+                                  Opt(W("financial", "fiscal")), W("year", "fy")))
+
+
+def _c06_relative_year_rewrite(question: str, schemes: "list[str]") -> "tuple[str, str | None]":
+    """(question with a relative year replaced by its FY, composer note) — or the
+    question unchanged and None when it has no relative year, already names a year,
+    or no scheme's years are known."""
+    q = question or ""
+    live = [s for s in (schemes or []) if _SCHEME_DATA_YEARS.get(s)]
+    if not live or _c06_all_year_tokens(q):
+        return question, None
+    latest = max(_fy_start(y) for s in live for y in _SCHEME_DATA_YEARS[s])
+    who = " and ".join(live)
+    hit = _C06_REL_SPAN_MATCH.search(q)
+    if hit:
+        w = hit.group(1)
+        n = int(w) if w.isdecimal() else _C06_COUNT_WORDS[w.lower()]
+        first = latest - n + 1
+        text = (f"in FY {_fy_short(latest)}" if n == 1
+                else f"from FY {_fy_short(first)} to FY {_fy_short(latest)}")
+        meant = f"the last {n} financial year{'s' if n > 1 else ''} in the {who} data ({text[3:] if n == 1 else text[5:]})"
+    else:
+        hit = _C06_REL_THIS_MATCH.search(q)
+        if hit:
+            text = f"in FY {_fy_short(latest)}"
+            meant = f"FY {_fy_short(latest)}, the latest financial year in the {who} data"
+        else:
+            hit = _C06_REL_LAST_MATCH.search(q)
+            if not hit:
+                return question, None
+            text = f"in FY {_fy_short(latest - 1)}"
+            meant = (f"FY {_fy_short(latest - 1)}, the year before the latest financial year in the "
+                     f"{who} data (FY {_fy_short(latest)})")
+    typed = q[hit.start():hit.end()]
+    out = q[:hit.start()] + text + q[hit.end():]
+    note = (f"The question said \"{typed.strip()}\"; it was read as {meant}. "
+            "Say which financial year(s) the figure is for in one short clause.")
+    logger.info("relative year %r -> %r", typed, text)
+    return out, note
 
 
 def _c06_cut_year(text: str, tok: str) -> str:

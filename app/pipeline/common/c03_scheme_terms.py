@@ -196,6 +196,15 @@ def _scheme_clarification(question: str, by_measure: bool = False) -> "Clarifica
             rule="scheme-not-specified")
     options = [{"label": label, "question": _scheme_option_question(stem, s)}
                for s, label in _SCHEME_PICK_LABELS]
+    # Best guess first (spelling-fix brief 2026-10-29): "fokis plas" is still all
+    # six schemes, with Focus Plus at the top. A clear lead only (>= 60 and 10
+    # ahead); otherwise the registry's order.
+    from app import spelling as _c03_sp
+    _scores = _c03_sp.scheme_scores(question)
+    _ranked = sorted(_scores.values(), reverse=True)
+    if _ranked and _ranked[0] >= 60 and (len(_ranked) < 2 or _ranked[0] - _ranked[1] >= 10):
+        _top = max(_scores, key=_scores.get)
+        options.sort(key=lambda o: 0 if o["label"].split(" (")[0] == _top else 1)
     return ClarificationNeeded(
         # Short and conversational: the UI lists the schemes as cards right
         # under this line, so the names are not repeated here (user, 2026-10-18).

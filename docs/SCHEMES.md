@@ -42,6 +42,11 @@ Notes on the table:
   on both the DATA and the KNOWLEDGE paths.
 - "Producer group" / "PG" vocabulary belongs to Focus Legacy only.
 - Do not re-add a bare "focus" fuzzy alias.
+- One exception (D-094, 2026-10-29): "what does FOCUS stand for / full form / acronym" answers from Focus
+  Legacy's documents — only the original FOCUS scheme spells the acronym out. A scheme word ("loan") never
+  settles a bare Focus on the KNOWLEDGE path.
+- What each namesake is NOT, told to the composer: `scheme_registry.KNOWLEDGE_DISTINCTIONS` (FOCUS+ = ₹5,000
+  per household by DBT; FOCUS = ₹5,000 per PG member, a grant; CM Elevate Legacy = the programme's records).
 
 **CM Elevate vs CM Elevate Legacy.**
 - A bare "CM Elevate" (or only a CM Elevate sub-scheme such as piggery / dairy) — **D-064, user decision
@@ -63,6 +68,8 @@ Notes on the table:
 ---
 
 ## MGNREGA
+
+- **2026-10-29 (KI-574/575/576/591):** "how many villages" = villages with an employment OR expenditure record (6,491, same as the card); "wage rate" is a knowledge question; per-person-day ratios are SUM/SUM; FY 2024-25 person-days look incomplete (ingestion, `MGNREGA_DB_Issues.md` issue 4).
 - **Purpose:** rural employment guarantee (work days, households, wages, expenditure).
 - **Tables:**
   - `fact_mgnrega_employment` and `fact_mgnrega_expenditure`, via `v_employment` /
@@ -90,6 +97,8 @@ Notes on the table:
   `test_admin_level_collision.py`, `test_block_*`.
 
 ## PMAY-G
+
+- **2026-10-29 (KI-584):** the year is the SANCTION year — fixed answers say "of the houses sanctioned in FY …".
 - **Purpose:** rural housing (houses sanctioned, completed, released).
 - **Tables:**
   - `fact_pmay_house` → `v_pmay` (house grain; `lgd_*` on the row);
@@ -118,7 +127,13 @@ Notes on the table:
 - **Use-case QA (2026-09-28):** round 1 17 / 28 → after fixes see TESTING.md
   (`docs/PMAY_G_UseCase_Test_Report_2026-09-28*.xlsx`). `v_pmay` equals the raw source row for row.
 
+- **Total and completed (2026-10-29, D-092, KI-594):** "how many houses in total, and how many completed" answers
+  the total, completed, in progress (House Sanctioned + Plinth + Roof Cast) and not started / no status (Proposed
+  Site + Existing site(Old House) + NULL). Live: 1,71,107 = 1,29,941 + 41,041 + 125.
+
 ## Focus Plus
+
+- **2026-10-29 (KI-585):** ₹11,316 per beneficiary is right (93,286 × four tranches = ₹12,500; 12,527 × ₹2,500); every per-beneficiary average carries a tranche note.
 - **Purpose:** Meghalaya state farmer cash benefit (DBT) paid in tranches. Per the reference
   FAQ, it requires producer-group membership; it is not for every farmer.
 - **Surface:** `v_focus_plus`, 25 columns. This is the **privacy boundary** for person-level
@@ -167,6 +182,8 @@ Notes on the table:
   village 3,513/3,513; FOCUS-019 / FOCUS-004 fixed (section 8 of the report). Open: KI-359, KI-362..365.
 
 ## CM Elevate
+
+- **2026-10-29 (D-090, KI-574/581):** applications = `COUNT(DISTINCT request_id)` = 8,921 in chat AND card (27 duplicate rows, `CM_Elevate_DB_Issues.md`); "applications / applicants / applied" with a bare CM Elevate = this dataset (money words -> Legacy; the thread wins; "records" alone asks).
 - **Purpose:** **applications** to 15 livelihood/enterprise schemes under one programme.
 - **Surface:**
   - `v_cm_elevate` (24 columns; `scheme_specific` is **locked** from `megh_readonly` since
@@ -312,6 +329,10 @@ Notes on the table:
 
 ---
 
+- **"Which scheme" inside CM Elevate / CM Elevate Legacy (2026-10-29, D-092, KI-595):** with exactly one of these
+  named, "which scheme has the most records / subsidy" is its `scheme_name` column, never a cross-scheme ranking.
+  Live: CM Elevate Legacy 2,823 records, ₹52.57 crore subsidy, top Meghalaya Piggery Development Scheme (1,353).
+
 ## Cross-scheme behaviour (VERIFIED)
 - **Any comparison of 2+ schemes** (or "which / each / all schemes" with a figure, ranking or
   compare word; `app/cross_scheme.detect`) is answered by the model, **one query per scheme**
@@ -409,6 +430,15 @@ files; the registries that must change (VERIFIED to exist on 2026-10-27):
 11. `app/config.py`: `ASR_PROMPT`.
 12. `frontend/src`: `chat/components/Messages.jsx` `SCHEME_NAMES`, `chat/chartTheme.js` (one hue family per
     scheme), `chat/constants.js` (cards, i18n), then `npm run build`.
+13. `data/spelling_aliases.yaml` (D-093): the scheme's `schemes:` entry (its name, short forms, common misspellings;
+    other names such as "awas yojana" also under `rename:`). No code change. Districts / blocks need nothing here:
+    `app/spelling.py` reads them from the resolver catalogue. Run `tests/test_spelling_resolution_2026_10_29.py`.
+
+**Adding a spelling alias** (any scheme, district or word): add the line to `data/spelling_aliases.yaml` and restart
+(or call `spelling.reload()`). A pick from the "I couldn't find … Did you mean" list is logged as
+`spelling: candidate alias '<paused question>' -> '<chosen question>'` for a person to review; nothing is added
+automatically. Every correction is logged as `spelling: '<typed>' -> '<canonical>' [...]` (grep the app log for
+unresolved / low-confidence inputs).
 
 After adding a scheme: restart the service, run the registry guard and a routing test.
 

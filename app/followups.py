@@ -539,8 +539,8 @@ def _cross_scheme_data(question: str, ents: dict, grain: str | None = None,
 
 # ── KNOWLEDGE route ─────────────────────────────────────────────────────────
 # Ordered ladder per scheme. Each entry: (distinctive words that mean "already
-# asked, skip it", the question text). A general answer only ever offers more
-# general questions — nothing from the data side is mixed in.
+# asked, skip it", the question text). The ladder holds only general questions; one
+# data chip is added after them (_KNOWLEDGE_DATA_NEXT, KR9 2026-10-29).
 _KNOWLEDGE_LADDER = {
     "Focus Plus": [
         (("what is", "about focus", "overview"), "What is FOCUS+ (Focus Plus)?"),
@@ -598,18 +598,40 @@ _KNOWLEDGE_LADDER = {
         (("apply", "registration", "how do i"), "How does someone apply for CM-ELEVATE?"),
     ],
 }
+# Knowledge fix 2026-10-29 (KR9): after a "how does it work" answer, the last chip is
+# one of the scheme's figures, so the officer can go from the rule to the numbers.
+# Each is a statewide, all-years question the data path answers without a pause
+# (tests/live_chat_knowledge.py "NS-" cases ask every one of them).
+_KNOWLEDGE_DATA_NEXT = {
+    "MGNREGA": "How many person-days were generated under MGNREGA?",
+    "PMAY-G": "How many PMAY-G houses have been completed?",
+    "Focus Plus": "How many Focus Plus beneficiaries have been paid?",
+    "CM Elevate": "How many CM Elevate applications are there?",
+    "Focus Legacy": "How many producer groups were paid under Focus Legacy?",
+    "CM Elevate Legacy": "How much has been sanctioned under CM Elevate Legacy?",
+}
+# "What does FOCUS stand for?" was followed by the chip "What is the FOCUS scheme?" —
+# the same answer again. A what-is chip is skipped after any definition question.
+_DEFINITION_ASKED = ("stand for", "full form", "acronym", "abbreviation", "what is", "what's", "meaning")
+
+
 def _knowledge(question: str, schemes: list[str]) -> list[dict]:
     out: list[str] = []
     for scheme in schemes:
         for needles, q in _KNOWLEDGE_LADDER.get(scheme, []):
-            if len(out) >= _MAX:
+            if len(out) >= _MAX - 1:
                 break
             if _asked(question, *needles):
                 continue
+            if q.lower().startswith("what is") and _asked(question, *_DEFINITION_ASKED):
+                continue
             if q not in out:
                 out.append(q)
-        if len(out) >= _MAX:
+        if len(out) >= _MAX - 1:
             break
+    data_next = _KNOWLEDGE_DATA_NEXT.get(schemes[0]) if len(schemes) == 1 else None
+    if data_next:
+        out.append(data_next)
     return [{"label": q, "question": q} for q in out[:_MAX]]
 
 

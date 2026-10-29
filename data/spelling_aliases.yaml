@@ -1,0 +1,163 @@
+# Hand-kept spelling aliases (spelling-fix brief, 2026-10-29; read by app/spelling.py).
+#
+# Add an alias here, no code change: restart the app (or call spelling.reload()).
+# Every alias is matched as whole words, case-insensitively; "+" counts as the word
+# "plus". A multi-word alias also matches when each of its words of 4+ letters is
+# misspelt a little (rapidfuzz ratio >= 80, same first letter): "fokus legasy" is
+# "focus legacy". Words of 1-3 letters ("cm", "g") must be typed exactly.
+#
+# District names and their usual aliases (EKH, "West Garo", "Ribhoi", "Tura district")
+# come from the entity-resolver catalogue (data/<scheme>/*_entity_resolver.yaml) and
+# are not repeated here. Put a district alias here only when the catalogue lacks it.
+#
+# A typed -> chosen pair from a "Did you mean" pick is logged as a candidate alias
+# ("spelling: candidate alias"); a person reviews it and adds it here.
+
+schemes:
+  MGNREGA:
+    - mgnrega
+    - mnrega
+    - mgnregs
+    - mgnrega scheme
+    - nrega
+    - narega
+    - nrga
+    - manrega
+    - mgnerga
+    - mgrega
+  PMAY-G:
+    - pmay-g
+    - pmay g
+    - pmayg
+    - pmay
+    - pmay gramin
+    - pmay grameen
+    - awas yojana
+    - awaas yojana
+    - pradhan mantri awas yojana gramin
+    - awas
+    - awaas
+  Focus Plus:
+    - focus plus
+    - focus+
+    - focusplus
+    - fokus plus
+    - fokus+
+    - fokusplus
+    - focas plus
+    - focus pls
+    - focus plas
+  Focus Legacy:
+    - focus legacy
+    - old focus
+    - original focus
+    - focuslegacy
+  CM Elevate:
+    - cm elevate
+    - cmelevate
+    - cm-elevate
+    - c m elevate
+  CM Elevate Legacy:
+    - cm elevate legacy
+    - cmelevate legacy
+    - elevate legacy
+    - cm elevate disbursement
+    - cmelevatelegacy
+
+# Other NAMES of a scheme, always written as the scheme's name even though the pipeline's
+# own matcher reads them: the 4B guardrail model does not, and refused "who is eligible
+# for awas yojana" as out of scope (live 2026-10-29, G8). Each must also be listed above.
+rename:
+  - awas yojana
+  - awaas yojana
+  - pradhan mantri awas yojana gramin
+  - awas
+  - awaas
+  - old focus
+  - original focus
+  - c m elevate
+
+# A bare misspelt "focus" ("fokus", "focas") becomes "Focus": the existing
+# which-Focus rule then decides (Focus Plus vs Focus Legacy; CLAUDE.md §4: a bare
+# "Focus" is never guessed).
+bare_focus:
+  - fokus
+  - focas
+  - facus
+  - focuss
+  - foccus
+
+# Ordinary domain words a typo is corrected TO (closed list, brief §3.1 step 3). A
+# typed word is corrected only when it is not itself a known word, a place or a
+# village name, starts with the same letter and is 1 edit away (2 for 6-10 letters,
+# 3 above) from exactly one word here: "mony" -> money, "houshold" -> household,
+# "crd" -> card. The 9B rephraser fixes the rest; this list exists because its
+# rewrite is checked against the original, and "mony" (too short for that check's
+# own typo reader) made the check reject "money" (T10, 2026-10-29).
+words:
+  - money
+  - amount
+  - household
+  - households
+  - beneficiary
+  - beneficiaries
+  - expenditure
+  - employment
+  - employed
+  - sanctioned
+  - completed
+  - women
+  - womens
+  - persondays
+  - disbursed
+  - disbursement
+  - subsidy
+  - wage
+  - wages
+  - payment
+  - payments
+  - house
+  - houses
+  - statewide
+  - guarantee
+  - launch
+  - launched
+  - apply
+  - eligibility
+  - eligible
+  - loan
+  - grant
+  - card
+  - cards
+  - producer
+  - members
+  - applications
+  - applicants
+  - tranche
+  - released
+  - pending
+  - average
+  - scheme
+  - group
+  - groups
+  - allowance
+  - assistance
+  - instalment
+  - instalments
+  - benefit
+  - interest
+
+# Extra district aliases the catalogue lacks: typed form -> canonical district.
+districts:
+  ribhoy: Ri Bhoi
+  ri bhoy: Ri Bhoi
+  ri boi: Ri Bhoi
+  rbhoi: Ri Bhoi
+  westgaro hills: West Garo Hills
+  eastgaro hills: East Garo Hills
+  sw khasi: South West Khasi Hills
+  sw garo: South West Garo Hills
+  south-west khasi: South West Khasi Hills
+  south-west garo: South West Garo Hills
+  e khasi hills: East Khasi Hills
+  w garo hills: West Garo Hills

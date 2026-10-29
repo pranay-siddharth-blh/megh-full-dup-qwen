@@ -69,6 +69,7 @@ node. The order matters: many steps exist to run
 
 | # | Step | Function(s) | Model? | Returns early with |
 |---|---|---|---|---|
+| a0 | **Spelling normaliser** (D-093, 2026-10-29): misspelt scheme / district / block names and closed-list domain words written canonically ("ribhoy" -> Ri Bhoi, "fokus+" -> Focus Plus, "mony" -> money); `raw_question` becomes the normalised text; the corrections go to `turn_context["spelling"]` / `["spelling_note"]` (§2.9g) | `spelling.normalise` | – | – |
 | a | Spelling fix of scheme names | `_correct_scheme_spelling` | – | – |
 | b | Pin bare "CM Elevate" (or a lone CM Elevate sub-scheme) to a dataset — D-064: financial words → "CM Elevate Legacy" (thread included); the thread's dataset; otherwise left for the data stage's "CM Elevate (applications) or CM Elevate Legacy?" pause, which reads `pre_rephrase_question` (c13) | `_pin_cm_elevate_dataset`, `_cm_elevate_dataset_choice` | – | – |
 | c | **Resume a paused clarification**: merge `"<paused q>, <reply>"` unless the reply is a chip (full question), conversational, or a new question (`_reply_abandons_scope_pause`) | reads `session.pending_scope_q` | – | – |
@@ -242,6 +243,12 @@ In order:
   - `"display"`, `"notes"`;
   - optionally `"question"`, a year-gap rewrite that replaces the question downstream.
 - **Steps:**
+  0. **Relative years (C1, KI-592, 2026-10-29):** before `resolve_entities`, `_data_entity_stage` runs
+     `_c06_relative_year_rewrite`: "this / current / latest year" -> the latest FY the scheme holds
+     (`_SCHEME_DATA_YEARS`, from megh_db), "last / previous / prior (financial) year" -> the one before,
+     "last / past N years" -> "from FY a to FY b" (the span reader then lists every year). A composer
+     note says which FY. Not for cross-scheme questions, a question that also names a year, or "next year".
+     The premise check blanks FY tokens like dates (KI-593).
   1. **Year guards:** `_out_of_range_year_in`, `_years_in_question` and `_apply_year_gap`.
      - If only unavailable years are named → a `year-out-of-range` pause.
      - A comparison that names one absent year → the absent year is **substituted** with the
@@ -1030,6 +1037,7 @@ both forms (CM Elevate Legacy guarantees). Failed data turns (`answer_failed`) a
 share the composer quotes passes `_answer_numbers_faithful`. Cross-scheme rows (several `scheme` values) have no shape.
 The log line `compose_response: answer shape <kind>` records the shape of every composed answer.
 **Query plan shadow (E1 stage 1, D-078, 2026-10-27):** after a data / knowledge turn, `_update_context` schedules `query_plan.shadow` (background): a typed plan of the question (4B guided JSON + deterministic years / top-N / measure / area level) logged with the turn's actual decisions to `logs/query_plan_shadow.jsonl`. Nothing reads it yet.
+**Open-bug sweep (2026-10-29):** follow-ups — `_compare_with_place_followup_question` (KI-364, also for a whole-sentence "compare … with <place>"), `_c14_keep_block_level` (KI-037), `topic_memory._bare_place` for "go back to <place>" (KI-318); resolver — two or more named years -> `year_key_list` (KI-311), HQ-town names ask (KI-036, `_c09_hq_alias_readings`); SQL — Focus Plus district columns -> lgd_district (KI-359 / KI-426), MGNREGA constituency guard and v_expenditure.ac_name (KI-432), village-with-employment count guard (KI-436); repair — convergence and a 40 s budget (D-088); composer — CM Elevate level wording (KI-422), Focus Plus cohort zeros (KI-365); knowledge — bare FOCUS beside Focus+ (KI-290).
 **Trend direction (KI-441, 2026-10-27):** `_c12s_fix_trend_direction` (last step of `compose_response`) sets the answer's first rose / fell verb from the sign of the trend's first-to-last change; the 9B had copied the example's "rose" over a fall.
 
 **Query plan in the turn (E1 stage 2a, D-085, 2026-10-29) — OFF by default (`QUERY_PLAN_IN_TURN`):** when on, a new question's plan starts in c14 `_guardrail_check` right before the guardrail model call (`query_plan.start_for_turn`, kept in `session.turn_context`); not awaited; a refusal cancels it; `_update_context` hands it to the shadow (`take_for_turn`, `plan_from: "turn"`) instead of a second call. Off because, measured live, the two 4B calls queue on the gateway: turn median 11.8 s -> 14.1 s. Stage 2b: `_c13_intent_by_rules(question, session)` reads the plan's intent in place of its last-resort classifier
@@ -1081,6 +1089,107 @@ Three parts, all in `compose_response` and the c12 files:
    ROLLUP total rows, no usable value. Other notes and the style shots go to / do not block the opening line. With the
    templates on, `_shaped_fallback` returns the templated answer under code's opening line. Log line:
    `compose_response: templated <kind> answer`.
+
+### 2.9e RAG fix report fixes (2026-10-29, D-089..D-091, KI-574..KI-590; LIVE-VERIFIED in-process)
+The tester's report (`megh_rag_fix_report.md`, 17 issues) and where each fix lives — all in stage functions or the
+scheme files, no graph node changed:
+- **Route stage (c14):** `_hybrid_split` — "<rules> and <scoped figure>" answers the rules half from the KB as the
+  answer's preface (sources kept, `_attach_preface`) and runs the figures half as DATA. `_guardrail_check`: a 4B
+  `scope_general` on a question naming Meghalaya is overruled when megh_knowledge scores ≥ 0.45
+  (`_c14_kb_covers_meghalaya`); the knowledge stage then picks `rag.best_kb_scheme` instead of asking.
+  `_ENTITLEMENT_QUESTION` also reads "how much assistance per house" / "unit assistance".
+- **Intent (c13 / c01):** `_wage_rate_question` -> KNOWLEDGE (the notified rate is not in megh_db).
+- **Clarification gate (c13):** `NEW_CHAT_ASKS_SCOPE` (false) — no place = statewide, no year = all years, stated;
+  "this year / current FY / the latest year" = the scheme's latest held FY; `_c13_unresolved_named_place` — a named
+  district / block that resolves to nothing -> "I couldn't find a district called …" + district chips (`unknown-place`).
+- **Fixed queries (c13 chain):** `_mgnrega_villages_active_query` — "how many villages" = employment ∪ expenditure
+  (the card's rule). **SQL rewrites (c11 chain):** `_mgnrega_summary_ratio_columns` — no AVG over
+  `cost_per_person_day_rupees` / `unskilled_wage_share_pct`; a wage question reads unskilled wages.
+- **Answer text (c12):** `_c12_normalise_figures` inside `_group_result_digits` (so every data answer): money through
+  `_c12_money`, a `_rupees` column never "lakh", counts ≥ 1 lakh in Indian grouping, duplicate bracketed amounts
+  collapsed. `_finish_data_result` adds the Focus Plus tranche note to a per-beneficiary average.
+- **PMAY-G:** `_pmay_period` — "of the houses sanctioned in FY …". **CM Elevate:** D-090.
+- **Follow-ups:** `ConversationState.recent_districts` + `substitute_references` ("compare both districts");
+  c15 `_c15_why_comparative` -> the reason reply, which quotes the last answer.
+- **Edge / guardrails:** categories `privacy_records` (names / phones / addresses of people) and `schema` (tables,
+  columns, pg_*, information_schema), both before any SQL. **Router:** Devanagari -> English (D-091); 422 never
+  echoes input (`main._invalid_request`); lifespan `_warm_up`.
+
+### 2.9f Data-answer rules shared by every scheme (2026-10-29, D-092, KI-594..KI-603; LIVE-VERIFIED in-process)
+The user's data-accuracy brief (`megh_chatbot_fix_prompt.md`: ten questions D1-D10 with known answers, root causes
+RC1-RC8). One new pipeline file, `app/pipeline/common/c17_data_answer_rules.py` (loaded last; called at run time by
+the stages that own each step), plus targeted edits. No graph node changed.
+- **RC1 multi-part questions.** `_c17_sub_asks` cuts a question at its ask joiners. PMAY-G: `_pmay_metrics` keeps
+  "houses" beside "completed" when one ask counts the houses and another the completed ones
+  (`_pmay_total_and_status_asked`) and adds `progress`: in progress = House Sanctioned + Plinth + Roof Cast, not
+  started / no status = the rest (Proposed Site, Existing site, NULL) — they add up to the total (D5:
+  1,29,941 + 41,041 + 125 = 1,71,107). A total + a "which … most" in one question (`_c17_ask_plan`) becomes two
+  questions run one after another by the conversation layer (`conversation_layer.AskPlan` / `answer_asks`, through
+  `answer_many`, so the router's existing multi path and timeout apply): the second is completed with the first
+  answer's scheme / place / year (`_c17_ranking_question`); the Note lines are said once; a failed ask is said, never
+  dropped.
+- **RC2 routing.** `_data_scheme_stage`: ONE named dataset with its own sub-schemes (`DatasetFacts.sub_scheme_column`:
+  CM Elevate, CM Elevate Legacy) never takes the cross-scheme money ranking — "which scheme" is its `scheme_name`
+  (D10 had fanned out to five schemes).
+- **RC3 SQL validation.** `_execute_one_attempt` raises `_c17_sql_issue` for repair: a string constant aliased as a
+  finding (`'PMAY' AS scheme_with_most_records`; a label like `'Meghalaya' AS name` is fine), a table owned by a
+  scheme the question is not about (`DatasetFacts.owned_tables`), a "which <dim> … most" with no ORDER BY / MAX.
+  The c11 rewrite chain runs `_c17_sql_hygiene`: a LIMIT on a one-row aggregate is dropped (D9's `LIMIT 1000000`).
+- **RC4 superlatives.** A singular "which <dim> … most / least" with no stated length reads LIMIT 3 whatever LIMIT the
+  model or the catalogue wrote (`_c17_widen_top1`; c16 `_c16_shape` builds 3); `compose_response` then answers in code
+  (`_c17_runners_up_answer`): "Highest <measure> (<scope>): A, v1. Next: B (v2), then C (v3).", a tie said. The 4B
+  verifier is shown the query with LIMIT 1 (`_c17_as_asked`): with LIMIT 3 it rejected every repair.
+- **RC5 caveats.** `_finish_data_result` -> `_c17_attach_caveats`: a Note line when the answer states ₹ from a
+  provisional / unverified dataset, and when an unfiltered (all-years) answer spans a year the dataset does not hold
+  (years from `_SCHEME_DATA_YEARS`, live). The facts come from `scheme_registry.DATASETS` (D-092), which the cards'
+  "*" now reads too (`routers/stats._cards`).
+- **RC6 money.** `_c12_money` writes the exact amount and its size: "₹37,49,31,500 (≈ ₹37.49 crore)", paise only
+  when present, a lakh column "₹25,701.49 lakh (≈ ₹257.01 crore)" (closes KI-449). `_c12_normalise_figures` (every
+  data answer, via `_group_result_digits`) knows a money column by suffix or, unsuffixed, by name with the dataset's
+  unit (`_c17_money_cols`; MGNREGA lakh, the rest rupees, CM Elevate none); puts "₹46.64 crore" back to the exact
+  cell it rounds from; gives a lakh figure its ₹ and crore size; absorbs an old size bracket; is idempotent.
+  "This is the X figure for across all financial years" -> "… figure across all financial years".
+- **RC7** was already in place (answer-with-defaults, NEW_CHAT_ASKS_SCOPE false): D7 answers all years unasked.
+- **§3 hardening:** every scheme's districts take "E / W / N / S / SW / EW <name>" forms (`entity_resolver.
+  _add_direction_aliases`) and `detect_region` no longer reads them as the hill range; a compare / ranking label that
+  is a `year_key` reads "FY 2022-23" (`_c12s_label`).
+- **Not changed:** the MGNREGA SME catalogue asks which FY a bare "2023" means (KI-600, needs a decision); RC8's
+  parallel sub-asks (run in order, KI-603).
+
+### 2.9g Misspelt and variant names (2026-10-29, D-093, KI-604..KI-610; LIVE-VERIFIED in-process)
+Brief: `megh_chatbot_spelling_fix_prompt.md` (T1-T10). VERIFIED in code:
+- **`app/spelling.py`** runs first in c14 `_turn_context_stage` (step a0 above). `normalise(q)` returns the text plus
+  `Correction`s (typed, canonical, kind scheme / district / block / word, how alias / sound / fuzzy, score).
+  - Schemes: phrases from `data/spelling_aliases.yaml` `schemes:`; each word of 4+ letters may be a near miss (ratio
+    >= 80, same first letter); "+" counts as "plus". Rewritten only when `_SCHEME_NAME_MATCHER` does not already read it.
+    A bare misspelt "focus" becomes "Focus" (the which-Focus rule still asks).
+  - Districts / blocks: forms (canonical + aliases) from every scheme's resolver catalogue + the YAML `districts:`.
+    Exact -> same `sound_key` -> Damerau-Levenshtein on the key (1 / 2 / 3 edits by length), same first letter, one
+    clear winner; a direction written last ("khasi hills east") is read; spans never include a function word or a
+    level word. A one-word near miss needs a cue ("in", "district"). A block is never written over a village name or
+    a village the index spells closer. What the resolver already reads as written is left alone (`_resolver_reads`).
+  - Villages: written with their real name only after the word "village" and when one village sounds clearly
+    closest (`_village_at`; live T9: the SQL model filtered a view without village_code when the text kept the
+    typo). Otherwise `entity_resolver._sound_village_rows` (sound key + edits, in memory) runs before the trigram
+    search: one clear name -> that village, a close race -> the pick-list, best first.
+  - Words: `words:` (closed list), 1 edit up to 5 letters, never a known word, place or village, never another form
+    of the same word ("loans", "employ").
+- **`unresolved_place(q)`**: up to three unknown words after in / at / from (not vocabulary, not `_NOT_A_PLACE`
+  such as "detail", "hindi", months), not a place in any catalogue / the village index, not out of area. Used by
+  c14 `_same_scheme_context_year` (no place carried for it) and c13 (the `unknown-place` pause, closest names first
+  via `suggestions()`); c09 raises the same pause for a made-up district / block mention (`_c09_out_of_area_name`
+  keeps OutOfScope for Guwahati etc.).
+- **Picker expiry**: topic_memory `_pick_reply` takes a chip or a reply of 5 words or fewer; a longer one is a new
+  question. Scheme / option pauses already did (`_resume_scheme_pause` 6 words, `_resume_option_pause` 12).
+- **"Showing results for **X** (you typed 'y')."** opens a corrected data / knowledge answer (c15 `_attach_preface`;
+  scheme / district / block corrections only); the result carries `spelling`; the semantic cache skips such answers.
+- **Scheme picker order**: `spelling.scheme_scores` puts a clear best guess first (>= 60 and 10 ahead), all six kept.
+- **Speed**: the gazetteer and the suggestion pool are built at startup (`spelling.warm()`, app/main.py); a warm call
+  of normalise + unresolved_place is 1-5 ms (p95 < 150 ms test). `entity_resolver.resolve_dimension` (~130 ms a call)
+  is not used here.
+- **Adding an alias / a scheme**: an alias goes in `data/spelling_aliases.yaml` (restart, or `spelling.reload()`); a
+  district / block alias in the scheme's `*_entity_resolver.yaml` is picked up automatically. A new scheme needs its
+  `schemes:` entry here plus the registries in docs/SCHEMES.md §Adding a scheme.
 
 ## 3. Other flows
 
@@ -1187,6 +1296,33 @@ through the same function.
      BM25 vector, or has another vector size than the embedding model (KI-402).
    - **The collection is shared.** After editing the KB, call admin `POST /api/rag/reingest` or
      restart.
+
+7. **Knowledge fix 2026-10-29 (D-094, KI-611..618; LIVE-VERIFIED: golden 114/114 twice, RAG eval 98.4%).**
+   - **Routing by form** (c14 `_knowledge_form_question`, `_KF_FORMS`): after `classify_intent`, a DATA verdict
+     becomes KNOWLEDGE for a rate / registration-details / process / distance / guaranteed-days / funding-pattern
+     / design-count / launch-admin / loan-or-grant question with no place, year, grouping, ranking, comparison or
+     figure word (`_KF_FIGURE_VETO`); logged `intent override=knowledge_form form=…`. Also: the classifier prompt has
+     form few-shots; `_hybrid_split` accepts a knowledge-form left half ("What does Focus Plus pay and how many got
+     it in FY 2022-23?" = rules from the KB + figures); c06 `_is_years_list_question` skips launch words;
+     `_overrules_scope_verdict` passes a knowledge-form question that names a scheme. Checked against 1,265 bank
+     questions (1 flip, an "unanswerable by data" one) and the 74 held-out questions (0 flips).
+   - **Bare "Focus":** vocabulary no longer settles it; "what does FOCUS stand for" reads Focus Legacy
+     (`_FOCUS_ACRONYM_ASK`); anything else asks.
+   - **`retrieve`** also searches: each part of a multi-part question (`_sub_asks`), facet queries (`_RAG_FACETS`:
+     launch, amount, subsidy/sub-schemes, documents, eligibility, apply; MGNREGA apply adds the job card), and
+     the English wording of romanised Hindi (`_looks_hinglish` -> `translate.to_english(q, "hi")`, also shown to
+     the composer). Searches run in parallel, at most 6 at once per worker (`_bounded_search`), each with two Qdrant retries. Top-n +4 for a multi-part question. An FAQ piece whose heading asks
+     the same question (`_faq_match`: ≥75% of the question's content stems, ≥40% of the heading's, or one short
+     acronym) goes first, labelled OFFICIAL FAQ ANSWER in the prompt.
+   - **Composer rules** (`_completeness_rule`): answer every part, opening with what the passages say; per-facet
+     related facts; national vs Meghalaya rules apart; `scheme_registry.KNOWLEDGE_DISTINCTIONS` in
+     `_naming_note` and in the multi-scheme sections.
+   - **Deterministic backstops:** `ground_answer` (word/number support rescue; a number in neither the passages
+     nor the question — digits or spelt out — is dropped; never empties the answer; no sentence split after an
+     initial); after composing `_with_faq_facts`, `_with_related_ministry`, `_with_subscheme_count`.
+   - **Citations:** `_supporting_chunks` (pieces the sentences lean on). **Next steps:** the last chip after a
+     knowledge answer is `followups._KNOWLEDGE_DATA_NEXT[scheme]` (each routes DATA, tested live).
+   - Tests: `tests/test_knowledge_routing_2026_10_29.py` (offline), `tests/live_chat_knowledge.py` (live, VPN).
 
 ---
 

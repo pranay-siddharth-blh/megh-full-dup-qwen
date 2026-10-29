@@ -27,6 +27,12 @@ safe default, so local dev is unaffected.
 | `/health` returns `{"status"}` only to anonymous callers — the per-component breakdown and the `insecure_config` flag need an admin JWT / metrics token | `app/main.py::health` |
 | `/admin` + `/admin-ui` IP-allowlisted to office networks | `deploy/nginx/nginx-nlpservice.conf` |
 
+- **2026-10-29 (KI-007, KI-399):** `auth.authorize` reads every place column — `district_name_raw` / `block_name_raw`
+  count as district / block filters; a district account's blocks must lie in its districts (`block_parent_district`;
+  an unknown block only beside the account's district); a constituency (`assembly_constituency_name` / `ac_name` or a
+  resolved one) needs the account's district beside it. `routers.query._owned_session_id`: a session_id stored or live
+  for another user gets a new conversation of the caller's own (`own-…`) and a warning.
+
 ## A02 — Cryptographic Failures
 
 | Control | Where |

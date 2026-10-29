@@ -7,7 +7,7 @@ export const UNIFIED_SAMPLES = [
   { ico: '📅', text: 'Total MGNREGA person-days in 2023-24' },
   { ico: '💳', text: 'Job cards issued in 2025-26' },
   { ico: '🏠', text: 'PMAY-G houses completed by district' },
-  { ico: '💰', text: 'Total PMAY-G amount released in 2024-25' },
+  { ico: '💰', text: 'Total PMAY-G amount released in the latest year' },
   { ico: '🌾', text: 'How many FOCUS+ payments were made in each batch' },
   { ico: '📍', text: 'FOCUS+ payments by district' },
   { ico: '🚀', text: 'How many CM Elevate applications are on hold?' },
@@ -72,7 +72,7 @@ export const SCHEME_CARDS = [
   {
     key: 'cm_elevate', cls: 'cmelevate-card', ico: '🚀', name: 'CM Elevate',
     meta: 'Entrepreneurship & livelihood programme · one row per application', metaTail: 'no date/amount data',
-    stats: [['8,948', 'Applications'], ['15', 'Schemes'], ['12', 'Districts covered']],
+    stats: [['8,921', 'Applications'], ['15', 'Schemes'], ['12', 'Districts covered']],
   },
   {
     key: 'focus_legacy', cls: 'focus-card', ico: '🤝', name: 'Focus Legacy',
@@ -105,7 +105,7 @@ export const CARD_QUESTIONS = {
     title: 'Try a PMAY-G question',
     items: [
       { ico: '🏠', text: 'PMAY-G houses completed by district' },
-      { ico: '💰', text: 'Total PMAY-G amount released in 2024-25' },
+      { ico: '💰', text: 'Total PMAY-G amount released in the latest year' },
       { ico: '🧱', text: 'How many PMAY-G houses were sanctioned?' },
       { ico: '📊', text: 'Top 5 districts by PMAY-G completion' },
       { ico: '⏳', text: 'How many PMAY-G houses are still incomplete?' },
@@ -190,7 +190,7 @@ export const USE_CASES = {
   'PMAY-G': [
     'PMAY-G houses completed by district',
     'PMAY-G houses sanctioned vs completed in East Garo Hills',
-    'Total PMAY-G amount released in 2024-25',
+    'Total PMAY-G amount released in the latest year',
     'Who is eligible for PMAY-G?',
   ],
   'FOCUS+': [
@@ -207,3 +207,7 @@ export const USE_CASES = {
 
 // Mirrors app/deps.py require_admin: the roles the /admin/* API accepts.
 export const ADMIN_ROLES = ['admin', 'tenant_admin', 'super_admin'];
+
+// The server's cap on a question (app/config.py MAX_QUESTION_CHARS): the chat box stops
+// there and shows a counter in the last 200 characters (RAG fix report Issue 15).
+export const MAX_QUESTION_CHARS = 2000;

@@ -376,6 +376,19 @@ async def save_session_state(*, tenant_id, user_id, session_id: str, title: str,
     return row is not None
 
 
+async def conversation_owner(session_id: str) -> "dict | None":
+    """{tenant_id, user_id} of the stored conversation with this session_id, or
+    None (no such conversation, or the DB is unreachable). KI-399: the query
+    route checks it before using a client-sent session_id."""
+    try:
+        row = await db.fetchrow(
+            "SELECT tenant_id, user_id FROM app.conversations WHERE session_id = $1", [session_id])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("conversation_store: conversation_owner failed (non-fatal): %s", e)
+        return None
+    return {"tenant_id": row.get("tenant_id"), "user_id": row.get("user_id")} if row else None
+
+
 async def load_context_state(session_id: str) -> dict:
     """The durable (L2) structured state + summary for a session — used to
     rehydrate app.session_store.Session.state when a conversation resumes on a

@@ -148,7 +148,7 @@ async def _check_readonly_login(pool: asyncpg.Pool, label: str = "read-only",
                                 min_size: int | None = None, max_size: int | None = None) -> None:
     """Refuse a superuser login on the read-only pool (unless explicitly allowed
     for dev); warn when the role has write grants on the scheme data."""
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=settings.DB_POOL_TIMEOUT) as conn:
         role = await conn.fetchrow(
             "SELECT current_user AS who, rolsuper, rolbypassrls FROM pg_roles WHERE rolname = current_user")
         writable = await conn.fetchval(_WRITABLE_SQL, list(READONLY_SCHEMAS))
@@ -287,21 +287,21 @@ async def fetch_rows(sql: str, params: list | None = None) -> list[dict]:
     SQL text, untrusted values only, safe via asyncpg's parameter binding. Not
     for LLM-generated SQL — use run_readonly() for that."""
     pool = await ensure_pool()
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=settings.DB_POOL_TIMEOUT) as conn:
         rows = await conn.fetch(sql, *(params or []))
     return [dict(r) for r in rows]
 
 
 async def fetchrow(sql: str, params: list | None = None) -> dict | None:
     pool = await ensure_pool()
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=settings.DB_POOL_TIMEOUT) as conn:
         row = await conn.fetchrow(sql, *(params or []))
     return dict(row) if row else None
 
 
 async def fetchval(sql: str, params: list | None = None):
     pool = await ensure_pool()
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=settings.DB_POOL_TIMEOUT) as conn:
         return await conn.fetchval(sql, *(params or []))
 
 
@@ -309,14 +309,14 @@ async def execute(sql: str, params: list | None = None) -> str:
     """Run one trusted, parametrised write/DDL statement (our own `app.*` SQL —
     NEVER model-generated text). Values are still bound, never interpolated."""
     pool = await ensure_pool()
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=settings.DB_POOL_TIMEOUT) as conn:
         return await conn.execute(sql, *(params or []))
 
 
 async def execute_script(sql: str) -> None:
     """Run a multi-statement DDL script (schema bootstrap only, no parameters)."""
     pool = await ensure_pool()
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=settings.DB_POOL_TIMEOUT) as conn:
         await conn.execute(sql)
 
 
@@ -327,7 +327,7 @@ async def fetch_rows_readonly(sql: str, params: list | None = None) -> list[dict
     select (member_id, account_no, scheme_specific). Ingestion team, 2026-10-26.
     Not for model text (use run_readonly)."""
     pool = await ensure_readonly_pool()
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=settings.DB_POOL_TIMEOUT) as conn:
         async with conn.transaction(readonly=True):
             rows = await conn.fetch(sql, *(params or []))
     return [dict(r) for r in rows]
@@ -345,7 +345,7 @@ async def precheck_readonly(sql: str) -> str | None:
         return None  # run_query (chatbot login) makes the same check itself
     try:
         limited = prepare_readonly(sql, settings.SQL_MAX_RESULT_ROWS)
-        async with _ro_pool.acquire() as conn:
+        async with _ro_pool.acquire(timeout=settings.DB_POOL_TIMEOUT) as conn:
             async with conn.transaction(readonly=True):
                 rows = await conn.fetch(
                     "SELECT check_name, detail FROM semantic.check_query($1)", limited, timeout=5)
@@ -368,7 +368,7 @@ async def run_readonly(sql: str) -> list[dict]:
     pool = await ensure_readonly_pool()
 
     try:
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=settings.DB_POOL_TIMEOUT) as conn:
             async with conn.transaction(readonly=True):
                 rows = await conn.fetch(limited)
     except asyncpg.exceptions.PostgresError as e:
@@ -447,7 +447,7 @@ async def _describe_types(limited: str) -> list[str] | None:
     it can't be described — the values are then left as JSON gave them."""
     try:
         pool = await ensure_readonly_pool()
-        async with pool.acquire() as conn:
+        async with pool.acquire(timeout=settings.DB_POOL_TIMEOUT) as conn:
             async with conn.transaction(readonly=True):
                 stmt = await conn.prepare(limited)
                 return [a.type.name for a in stmt.get_attributes()]
@@ -465,7 +465,7 @@ def _is_retryable_sqlstate(state: str | None) -> bool:
 
 async def _call_run_query(limited: str) -> dict:
     pool = await ensure_chatbot_pool()
-    async with pool.acquire() as conn:
+    async with pool.acquire(timeout=settings.DB_POOL_TIMEOUT) as conn:
         async with conn.transaction(readonly=True):
             raw = await conn.fetchval("SELECT semantic.run_query($1, $2, $3)::text", limited,
                                       settings.SQL_MAX_RESULT_ROWS, settings.SQL_MAX_COST)

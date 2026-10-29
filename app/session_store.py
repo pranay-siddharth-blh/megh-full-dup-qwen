@@ -71,6 +71,9 @@ class ConversationState:
     last_dimension: str | None = None
     comparison_entities: list[str] = field(default_factory=list)  # for "the former/latter/other one"
     comparison_kind: str | None = None            # "district" | "block" | "scheme" | "year"
+    # The districts the chat's data turns named, oldest first, at most four: "compare both
+    # districts" after EKH then WGH asked one at a time (RAG fix report Issue 5).
+    recent_districts: list[str] = field(default_factory=list)
     last_intent: str | None = None                # "DATA" | "KNOWLEDGE" | "EDGE" | "CLARIFY"
     last_route: str | None = None
     last_question: str | None = None              # raw text as typed
@@ -92,7 +95,8 @@ class ConversationState:
             "year_all": self.year_all,
             "last_dimension": self.last_dimension,
             "comparison_entities": list(self.comparison_entities),
-            "comparison_kind": self.comparison_kind, "last_intent": self.last_intent,
+            "comparison_kind": self.comparison_kind, "recent_districts": list(self.recent_districts),
+            "last_intent": self.last_intent,
             "last_route": self.last_route, "last_question": self.last_question,
             "last_standalone_question": self.last_standalone_question,
             "turn_count": self.turn_count,
@@ -110,7 +114,9 @@ class ConversationState:
             year_all=bool(d.get("year_all")),
             last_dimension=d.get("last_dimension"),
             comparison_entities=list(d.get("comparison_entities") or []),
-            comparison_kind=d.get("comparison_kind"), last_intent=d.get("last_intent"),
+            comparison_kind=d.get("comparison_kind"),
+            recent_districts=list(d.get("recent_districts") or []),
+            last_intent=d.get("last_intent"),
             last_route=d.get("last_route"), last_question=d.get("last_question"),
             last_standalone_question=d.get("last_standalone_question"),
             turn_count=int(d.get("turn_count") or 0),
@@ -302,6 +308,12 @@ class SessionStore:
             s.last_seen = now
             self._store.move_to_end(session_id)
             return s
+
+    def owner(self, session_id: str) -> "str | None":
+        """The user_id of the live in-process session with this id, or None (KI-399)."""
+        with self._lock:
+            s = self._store.get(session_id)
+            return s.user_id if s is not None else None
 
     def ensure(self, session_id: str | None, user_id: str | None) -> Session:
         """Return the live session for this id, creating it if needed. A blank id

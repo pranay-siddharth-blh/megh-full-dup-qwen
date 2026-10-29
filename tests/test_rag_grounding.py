@@ -76,7 +76,7 @@ def test_answer_from_kb_returns_no_answer_when_nothing_is_supported(monkeypatch)
     async def fake_compose(prompt):
         return "You need a free car and a pilot licence."
 
-    async def all_bad(answer, passages):
+    async def all_bad(answer, passages, question=""):   # question: the typed numbers (2026-10-29)
         return ""
 
     monkeypatch.setattr(rag, "retrieve", fake_retrieve)

@@ -86,6 +86,7 @@ _OTHER_ONE_MATCH = Matcher(Seq(Opt("the"), "other", "one"))
 # the conversation (e.g. "compare both schemes" after "compare West Garo
 # Hills and East Garo Hills" would otherwise garble into "... schemes").
 _BOTH_MATCH = Matcher(NotBefore(W("both"), W("scheme", "schemes")))
+_BOTH_DISTRICTS_MATCH = Matcher(Seq("both", Opt("the"), W("district", "districts", "places", "areas")))
 
 
 def _fy_text(year_key: int) -> str:
@@ -157,6 +158,11 @@ def substitute_references(question: str, state: "ConversationState | None") -> s
 
     if _BOTH_MATCH.search(q) and len(state.comparison_entities or []) == 2:
         q = _BOTH_MATCH.sub(" and ".join(state.comparison_entities), q)
+    elif _BOTH_MATCH.search(q) and _BOTH_DISTRICTS_MATCH.search(q) and len(state.recent_districts or []) >= 2:
+        # RAG fix report Issue 5: EKH, then "What about West Garo Hills?", then "Compare
+        # both districts" — no comparison was ever recorded, so "both" kept only WGH.
+        # The last two districts the chat named are the two.
+        q = _BOTH_MATCH.sub(" and ".join(state.recent_districts[-2:]), q)
 
     if q != question:
         logger.info("context_manager.substitute_references: %r -> %r", question, q)
@@ -507,6 +513,15 @@ def update_state(session: "Session | None", raw_question: str, standalone_questi
             state.village = None
         if resolved.get("district"):
             state.district = str(resolved["district"])
+        # RAG fix report Issue 5: the districts named one turn at a time, for a later
+        # "compare both districts" (substitute_references). A new scheme starts afresh.
+        if _scheme_changed:
+            state.recent_districts = []
+        _ds = [str(resolved["district"])] if resolved.get("district") else \
+            [str(x) for x in (resolved.get("district_list") or []) if x]
+        for _d in _ds:
+            _rd = [x for x in (state.recent_districts or []) if x.upper() != _d.upper()]
+            state.recent_districts = (_rd + [_d.title() if _d.isupper() else _d])[-4:]
         if resolved.get("block"):
             state.block = str(resolved["block"])
         if resolved.get("village_code") or resolved.get("village"):
@@ -551,6 +566,11 @@ def update_state(session: "Session | None", raw_question: str, standalone_questi
         metric = detect_metric(standalone_question or raw_question)
         if metric:
             state.metric = metric
+        elif _scheme_changed:
+            # The old scheme's measure is not this scheme's: "MGNREGA person-days in EKH",
+            # then "how many households for PMAY-G" (answered, D-089), then "2023-24" was
+            # rewritten "How many person-days for PMAY-G in 2023-24?" (harness NQ08, 2026-10-29).
+            state.metric = None
 
         _record_provenance(session, raw_question, resolved)
 
@@ -706,6 +726,12 @@ def summarize_result(result: "dict | None", max_tokens: "int | None" = None) -> 
         limit = max(0, budget * 4)
         total = int(result.get("row_count") or 0) or len(rows)
         first = rows[0]
+        # "Which district had the most …" reads the top three for context (D-092): the
+        # answer is the first row, and a follow-up ("how much was it?") must point at it,
+        # not at "the district with the highest" (live context D T3, 2026-10-29).
+        if result.get("winner_row") and isinstance(result["winner_row"], dict):
+            items = [f"{k}={_cell(v)}" for k, v in result["winner_row"].items()]
+            return _join_within("1 row (the one asked for): ", items, limit, len(items))
         if total == 1:
             items = [f"{k}={_cell(v)}" for k, v in first.items()]
             return _join_within("1 row: ", items, limit, len(items))

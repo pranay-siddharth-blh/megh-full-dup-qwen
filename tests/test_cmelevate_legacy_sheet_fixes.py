@@ -9,16 +9,22 @@ from app import pipeline as p
 # "CM-ELEVATE" with a financial word is CM Elevate Legacy, directly; with only
 # "applications" (held by both datasets) it asks which dataset — the sheet's TC-11/26
 # were answered 8,840 from the applications data for a Legacy 2,823. ──
+@pytest.mark.parametrize("q", ["How many CM-ELEVATE records are there in each district?",
+                               "Give me a district-wise summary for CM-ELEVATE"])
+def test_cm_elevate_questions_without_dataset_words_ask_which_dataset(q):
+    assert p._pin_cm_elevate_dataset(q) == q
+    assert p._cm_elevate_dataset_choice(q) == "ask"
+
+
+# User decision 2026-10-29 (D-090): "applications" settles the applications dataset.
 @pytest.mark.parametrize("q", ["How many total applications are recorded under CM-ELEVATE?",
                                "How many CM-ELEVATE applications are recorded in each district?",
                                "Which districts have the highest number of CM-ELEVATE applications?",
                                "How many CM-ELEVATE applications are mapped to Amlarem constituency?",
-                               "Show me the number of CM-ELEVATE applications in each block of West Garo Hills.",
-                               "How many CM-ELEVATE records are there in each district?",
-                               "Give me a district-wise summary for CM-ELEVATE"])
-def test_cm_elevate_applications_questions_ask_which_dataset(q):
+                               "Show me the number of CM-ELEVATE applications in each block of West Garo Hills."])
+def test_cm_elevate_applications_questions_are_the_applications_dataset(q):
     assert p._pin_cm_elevate_dataset(q) == q
-    assert p._cm_elevate_dataset_choice(q) == "ask"
+    assert p._cm_elevate_dataset_choice(q) == "applications"
 
 
 @pytest.mark.parametrize("q", ["What is the total amount disbursed under CM Elevate?",

@@ -19,7 +19,7 @@ import logging
 
 from app import context_budget, llm, local_rank, vectorstore
 from app.config import settings
-from app.text_match import ANY, Alt, Hit, Matcher, Opt, Seq, W
+from app.text_match import ANY, Alt, Hit, Matcher, Opt, Seq, W, numbers, split_sentences, tokens, words
 
 logger = logging.getLogger(__name__)
 
@@ -285,6 +285,10 @@ def _naming_note(scheme: str | None) -> str:
         f'is not mentioned, or that the documents describe a different scheme, '
         f'merely because the passages use the other spelling.'
     )
+    # KR6 (knowledge fix 2026-10-29): what it is beside its namesakes
+    from app.scheme_registry import KNOWLEDGE_DISTINCTIONS
+    if scheme in KNOWLEDGE_DISTINCTIONS:
+        note += " " + KNOWLEDGE_DISTINCTIONS[scheme]
     return note + "\n\n"
 
 
@@ -479,7 +483,15 @@ async def _search_one(vec: list[float], text: str, k: int, scheme: str | None) -
         # response" and the user got HTTP 502 (two knowledge turns in the test
         # run of 2026-10-06). One retry opens a fresh connection; a real outage
         # still raises.
-        logger.warning("rag.retrieve: vector search failed (%s) — retrying once", e)
+        logger.warning("rag.retrieve: vector search failed (%s) — retrying", e)
+    # Two retries, a short pause before the second: with a question's searches run in
+    # parallel (2026-10-29) several pooled connections can be stale at once, and the
+    # first retry met another one (golden run final4, CK-CL1).
+    try:
+        return await vectorstore.search(vec, top_k=k, scheme=kb_scheme(scheme), sparse=sparse)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("rag.retrieve: vector search failed again (%s) — last retry", e)
+        await asyncio.sleep(0.3)
         return await vectorstore.search(vec, top_k=k, scheme=kb_scheme(scheme), sparse=sparse)
 
 
@@ -499,11 +511,205 @@ def _fuse(lists: list[list[dict]]) -> list[dict]:
     return [v["piece"] for v in sorted(acc.values(), key=lambda v: -v["rrf"])]
 
 
-async def retrieve(question: str, scheme: str | None = None, expand: bool = True) -> list[dict]:
+# ── Multi-part questions, related facts, Hinglish, FAQ match (knowledge fix 2026-10-29) ──
+# KR3: "When and where was Focus Plus launched, and how much does it pay?" and "When was
+# PMAY-G launched, and what did it replace?" lost a part: one search for the whole
+# question finds the piece that answers its first part. Each part is searched on its own
+# too (_sub_asks), and a launch / amount / sub-scheme question also searches the piece
+# that holds the related key facts (_RAG_FACETS), so the composer has them.
+# The searches of one question run in parallel (KR13), but never more than this many at
+# once across the whole worker: unbounded, two eval runs side by side got "Server
+# disconnected" / read timeouts from the shared Qdrant (2026-10-29).
+_RAG_SEARCH_SLOTS = 6
+_rag_search_sems: "dict[int, asyncio.Semaphore]" = {}   # one per event loop
+
+
+async def _bounded_search(vec: list[float], text: str, k: int, scheme: str | None) -> list[dict]:
+    loop_id = id(asyncio.get_running_loop())
+    sem = _rag_search_sems.get(loop_id)
+    if sem is None:
+        _rag_search_sems.clear()          # a new loop (tests, a restart): drop the old one
+        sem = _rag_search_sems[loop_id] = asyncio.Semaphore(_RAG_SEARCH_SLOTS)
+    async with sem:
+        return await _search_one(vec, text, k, scheme)
+
+
+_RAG_ASK_OPENERS = frozenset("when where who whom what which how is are does do can why whose".split())
+
+
+def _sub_asks(question: str) -> list[str]:
+    """The parts of a question that asks two or more things ("when and where was X
+    launched, and how much does it pay?"), each with a question word; [] for one ask."""
+    q = (question or "").strip()
+    parts: list[str] = []
+    for chunk in q.replace("?", "?\n").replace(";", "\n").split("\n"):
+        for piece in chunk.split(","):
+            for sub in _rag_split_on_and(piece):
+                sub = sub.strip(" ,.?")
+                first = (sub.split() or [""])[0].lower()
+                if first in ("and", "also", "or", "plus"):   # "…launched, and how much…"
+                    sub = sub[len(first):].strip()
+                if len(sub.split()) >= 2 and words(sub)[:1] and words(sub)[0] in _RAG_ASK_OPENERS:
+                    parts.append(sub + "?")
+    return parts if len(parts) >= 2 else []
+
+
+def _rag_split_on_and(text: str) -> list[str]:
+    """`text` split at each " and " that starts a new ask ("…launched, and how much…");
+    "when and where" stays one ask."""
+    toks = tokens(text)
+    cuts = [t for i, t in enumerate(toks)
+            if t.low == "and" and i + 1 < len(toks) and toks[i + 1].low in _RAG_ASK_OPENERS
+            and i >= 2]
+    out, start = [], 0
+    for t in cuts:
+        out.append(text[start:t.start])
+        start = t.end
+    out.append(text[start:])
+    return out
+
+
+# (what the question asks about, the search for the piece holding it, the related key
+# facts the composer adds in one line when the passages state them)
+_RAG_FACETS = (
+    (Matcher(W("launch", "launched", "start", "started", "introduced", "began", "enacted", "shuru")),
+     "launched on date at place by whom, ministry or department, scheme it replaced",
+     "a launch question also gets the place, who launched it, the ministry or department and the "
+     "scheme it replaced"),
+    (Matcher(Alt(Seq("how", "much"), W("pay", "pays", "amount", "assistance", "money", "paisa", "kitna"))),
+     "amount per household or per member, paid by DBT or instalments, grant or loan",
+     "a benefit-amount question also gets how it is paid (e.g. DBT), whether it is per household or "
+     "per member, and whether it is a grant or a loan"),
+    (Matcher(Alt(W("subsidy", "subscheme", "subschemes", "sectors"), Seq("sub", "schemes"))),
+     "capital subsidy percentage and number of sub-schemes covered",
+     "a subsidy or sub-scheme question also gets how many sub-schemes the programme has"),
+    (Matcher(W("document", "documents", "docs", "papers", "paper", "proof", "proofs", "certificate",
+               "certificates", "kagaz")),
+     "required documents for application and registration", ""),
+    (Matcher(Alt(W("eligible", "eligibility", "beneficiaries", "beneficiary", "benficiaries", "intended",
+                   "qualify", "census", "secc", "missed", "excluded"), Seq("who", "can"), Seq("left", "out"))),
+     "who is eligible, beneficiary identification and selection", ""),
+    (Matcher(Alt(W("apply", "applying", "register", "registration", "enrol", "enroll"), Seq("sign", "up"))),
+     "how to apply, registration steps and application",
+     "a how-to-apply question starts from the very first step (registering, or getting the card "
+     "the passages say is needed first) and gives the rest in order"),
+)
+# MGNREGA: applying means getting a job card first ("How do I apply?" was answered with
+# the demand-for-work steps only; RAG eval Q032, gold "How do I apply for a job card?").
+_RAG_FACET_EXTRA = {("MGNREGA", "how to apply, registration steps and application"):
+                    " job card registration with photograph at the Gram Panchayat"}
+
+
+# A scheme's own first step, said in its FAQ ("How do I apply for a job card?"), for a
+# bare how-to-apply question.
+_RAG_APPLY_FIRST = {"MGNREGA": "for MGNREGA the first step is the household's job card: an adult member "
+                               "applies to the Gram Panchayat (a simple form with a photograph) and the card "
+                               "is issued within 15 days, free; only a registered household then applies "
+                               "for work"}
+
+
+def _facets(question: str) -> list[tuple[str, str]]:
+    return [(query, line) for m, query, line in _RAG_FACETS if m.search(question or "")]
+
+
+def _facet_queries(question: str, scheme: str | None) -> list[str]:
+    if not scheme:
+        return []
+    name = _SCHEME_DOC_NAMES.get(scheme, (scheme, scheme))[0]
+    return [f"{name} {query}{_RAG_FACET_EXTRA.get((scheme, query), '')}" for query, _ in _facets(question)]
+
+
+# KR11: "awas yojana gramin kab shuru hui?" found no launch piece (best 0.42, wrong
+# pieces) and was answered "the launch date is not published". Romanised Hindi is not
+# caught by translate.script_language (a script check); one of these common words is
+# enough to add an English wording of the question to the search.
+_RAG_HINGLISH = Matcher(W(
+    "kab", "kya", "kitna", "kitne", "kitni", "kaise", "kaun", "kaunsa", "kahan", "kyun", "kyon", "hai", "hain",
+    "hui", "hua", "milta", "milte", "milega", "milegi", "shuru", "paisa", "paise", "din", "kaam", "ke", "ki",
+    "ka", "mein", "me", "nahi", "deta", "deti", "dete", "yojana", "chahiye", "karna", "karein", "wala"))
+
+
+def _looks_hinglish(question: str) -> bool:
+    return len(_RAG_HINGLISH.findall(question or "")) >= 2
+
+
+async def _english_wording(question: str) -> str | None:
+    try:
+        from app import translate as _rag_tr
+        out = await _rag_tr.to_english(question, "hi")   # Hindi, here in Latin letters
+    except Exception as e:  # noqa: BLE001 — search with the question alone
+        logger.info("rag: English wording unavailable (%s)", type(e).__name__)
+        return None
+    out = (out or "").strip()
+    return out if out and out.lower() != (question or "").strip().lower() else None
+
+
+# KR12: an FAQ piece whose own question IS the officer's question ("Is Common Facility
+# Centre part of CM Elevate?" -> 'Is "Common Facility Centre (CFC)" a CM-ELEVATE
+# scheme?') goes first, and the composer is told it is that entry: the CFC answer
+# followed a reference table instead and said "one of its 15 sub-schemes", which the
+# FAQ entry says it is not (in the data). Matched on content words (5-letter stems),
+# scheme names left out.
+_FAQ_MATCH_SHARE = 0.75
+
+
+def _rag_stems(text: str) -> set[str]:
+    out = set()
+    for w in words(text):
+        if len(w) > 2 and w not in _STOP and w not in _FAQ_NAME_WORDS:
+            out.add(_FAQ_SAME_STEM.get(w[:5], w[:5]))
+    return out
+
+
+# scheme names (the pieces are already filtered by scheme) and filler words
+_FAQ_NAME_WORDS = frozenset("""mgnrega nrega mgnregs pmay pmayg gramin awaas focus plus legacy elevate cm
+meghalaya under part exactly actually really specific intended context""".split())
+# "who are the intended beneficiaries" asks "who is eligible" (RAG eval Q184)
+_FAQ_SAME_STEM = {"benef": "eligi", "benfi": "eligi", "quali": "eligi"}
+
+
+def _faq_match(question: str, chunks: list[dict]) -> int | None:
+    """Index of the FAQ piece whose heading asks the same thing as `question`."""
+    q = _rag_stems(question)
+    if not q:
+        return None
+    best, best_share = None, 0.0
+    for i, c in enumerate(chunks):
+        heading = (c.get("heading") or "").split(">")[-1].strip()
+        if not heading.endswith("?"):
+            continue
+        h = _rag_stems(heading)
+        share = len(q & h) / len(q)
+        # ...and the heading is not mostly about something else: "How do I apply?" is not
+        # "What documents are needed to apply for MGNREGA?" (one word of three)
+        # (or the question is one short acronym the heading spells out: "Is CFC a CM
+        # Elevate scheme?")
+        if share >= _FAQ_MATCH_SHARE and share > best_share and h and (
+                len(q & h) / len(h) >= 0.4 or (q <= h and min(len(x) for x in q) <= 4)):
+            best, best_share = i, share
+    return best
+
+
+async def retrieve(question: str, scheme: str | None = None, expand: bool = True,
+                   english: str | None = None) -> list[dict]:
     """Return the reranked, score-filtered candidate chunks, best first.
     `scheme`, when given, restricts retrieval to that scheme's chunks.
-    `expand` searches with other wordings of the question too (Phase 4)."""
+    `expand` searches with other wordings of the question too (Phase 4), each
+    part of a multi-part question, the related-facts piece (KR3) and an English
+    wording of a Hinglish question (KR11)."""
     queries = [question] + (await _alt_queries(question, scheme) if expand else [])
+    asks = _sub_asks(question)
+    rank_q = question
+    if expand:
+        queries += [a if scheme is None or _rag_has_term(a.lower(), scheme.lower()) else f"{a} ({scheme})"
+                    for a in asks]
+        queries += _facet_queries(question, scheme)
+        if english or _looks_hinglish(question):
+            eng = english or await _english_wording(question)
+            if eng:
+                queries += [eng] + _facet_queries(eng, scheme)
+                rank_q = eng
+    queries = list(dict.fromkeys(queries))
     try:
         vecs = await llm.call_embedding(queries)
     except Exception as e:  # noqa: BLE001
@@ -512,19 +718,26 @@ async def retrieve(question: str, scheme: str | None = None, expand: bool = True
     # Phase 3 (2026-10-14): keyword search beside meaning search.
     hybrid = settings.RAG_HYBRID_ENABLED and bool(settings.RAG_SPARSE_MODEL)
     k = settings.RAG_CANDIDATES if hybrid else settings.RAG_TOP_K
-    lists = [await _search_one(v, q, k, scheme) for v, q in zip(vecs, queries)]
-    candidates = lists[0] if len(lists) == 1 else _fuse(lists)[:max(k, settings.RAG_RERANK_TOP_N)]
+    lists = list(await asyncio.gather(*(_bounded_search(v, q, k, scheme) for v, q in zip(vecs, queries))))
+    # a multi-part question needs room for each part's piece (KR3)
+    top_n = settings.RAG_RERANK_TOP_N + (4 if asks else 0)
+    candidates = lists[0] if len(lists) == 1 else _fuse(lists)[:max(k, top_n)]
     if not candidates:
         return []
 
-    candidates = await _rerank(question, candidates)
+    candidates = await _rerank(rank_q, candidates)
 
     # RAG_MIN_SCORE is a real floor (2026-10-16): a piece below it never reaches
     # the composer. It used to fall back to the unfiltered top pieces when none
     # passed, so a question the KB does not cover was answered from unrelated text
     # (audit 2026-10-15: made-up rate 16%). Nothing kept -> "not covered".
-    return [c for c in candidates[: settings.RAG_RERANK_TOP_N]
-            if c.get("score", 0.0) >= settings.RAG_MIN_SCORE]
+    kept = [c for c in candidates[:top_n] if c.get("score", 0.0) >= settings.RAG_MIN_SCORE]
+    faq = _faq_match(rank_q, kept)
+    if faq is not None:
+        kept = [dict(kept[faq], faq_match=True)] + kept[:faq] + kept[faq + 1:]
+    context_budget.log_decision("rag_retrieve", queries=len(queries), sub_asks=len(asks),
+                                faq_match=faq is not None, kept=len(kept))
+    return kept
 
 
 async def _rerank(question: str, candidates: list[dict]) -> list[dict]:
@@ -624,6 +837,33 @@ def _section_title(heading: str) -> str:
     return text if len(text) <= 80 else text[:77].rstrip() + "…"
 
 
+def _supporting_chunks(answer: str, chunks: list[dict]) -> list[dict]:
+    """The pieces the answer's sentences come from, in order of first use (KR4,
+    knowledge fix 2026-10-29): K2's sources listed "What happens if authorities delay
+    wage payment?" under an unemployment-allowance answer, because sources were the
+    top pieces retrieved, not the pieces used. Each sentence is credited to the piece
+    holding most of its content words (and all its numbers); a piece no sentence
+    leans on is not cited. The best-ranked piece when nothing matches."""
+    if not chunks:
+        return []
+    facts = [(_rag_unit_numbers(c.get("text", "")), _rag_stems(c.get("text", ""))) for c in chunks]
+    used: list[int] = []
+    for _, unit in split_units(answer):
+        own, own_n = _rag_stems(unit), _rag_unit_numbers(unit)
+        if len(own) < 3:
+            continue
+        best, best_share = None, 0.5
+        for i, (nums, stems) in enumerate(facts):
+            if own_n - nums:
+                continue
+            share = len(own & stems) / len(own)
+            if share > best_share:
+                best, best_share = i, share
+        if best is not None and best not in used:
+            used.append(best)
+    return [chunks[i] for i in used] or chunks[:1]
+
+
 def citations(chunks: list[dict], n: int = 2) -> list[dict]:
     """Up to `n` distinct {title, section} for the best-ranked pieces."""
     out: list[dict] = []
@@ -662,7 +902,10 @@ def _rag_split_sentences(text: str) -> list[str]:
             j = i + 1
             while j < n and text[j].isspace():
                 j += 1
-            if j > i + 1 and j < n and text[j] in _RAG_SENTENCE_OPENERS:
+            # not after an initial: "Conrad K. Sangma" is one sentence (the check had kept
+            # only "Sangma." — 2026-10-29)
+            initial = i >= 1 and text[i - 1].isupper() and (i == 1 or not text[i - 2].isalnum())
+            if j > i + 1 and j < n and text[j] in _RAG_SENTENCE_OPENERS and not initial:
                 out.append(text[start:i + 1])
                 start = i = j
                 continue
@@ -723,7 +966,38 @@ def _drop_units(text: str, units: list[tuple[int, str]], drop: set[int]) -> str:
     return "\n".join(out).strip()
 
 
-async def ground_answer(answer: str, passages: list[str]) -> str:
+def _rag_unit_numbers(text: str) -> set[str]:
+    """The numbers in `text`, commas dropped (1,20,000 -> 120000; 35% -> 35)."""
+    return {n.replace(",", "") for n in numbers(text or "")}
+
+
+_RAG_SPELT = {w: str(i) for i, w in enumerate(
+    "zero one two three four five six seven eight nine ten eleven twelve thirteen fourteen fifteen "
+    "sixteen seventeen eighteen nineteen twenty".split())}
+_RAG_SPELT.update({"thirty": "30", "forty": "40", "fifty": "50", "sixty": "60", "seventy": "70",
+                   "eighty": "80", "ninety": "90", "hundred": "100"})
+
+
+def _question_numbers(question: str) -> set[str]:
+    """The numbers the officer typed, in digits or words ("fifty lakh" -> 50; RAG eval Q072
+    lost "you are asking for ₹50 lakh" to the number rule)."""
+    spelt = {_RAG_SPELT[w] for w in words(question) if w in _RAG_SPELT}
+    return _rag_unit_numbers(question) | spelt
+
+
+def _passage_facts(passages: list[str]) -> tuple[set[str], set[str]]:
+    joined = "\n".join(passages)
+    return _rag_unit_numbers(joined), _rag_stems(joined)
+
+
+def _rag_unit_supported(unit: str, nums: set[str], stems: set[str]) -> bool:
+    if _rag_unit_numbers(unit) - nums:
+        return False
+    own = _rag_stems(unit)
+    return bool(own) and len(own & stems) / len(own) >= 0.8
+
+
+async def ground_answer(answer: str, passages: list[str], question: str = "") -> str:
     """The answer without the sentences the passages do not support; "" when
     nothing of substance is left. Any failure keeps the answer as it is."""
     units = split_units(answer)
@@ -755,10 +1029,34 @@ Reply as JSON: {{"unsupported": [numbers]}}"""
         drop = {int(i) for i in idx if isinstance(i, (int, float)) and 0 <= int(i) < len(units)}
     except Exception as e:  # noqa: BLE001 — never lose an answer to the check itself
         logger.warning("rag: sentence check unavailable (%s) — answer kept", type(e).__name__)
-        return answer
+        drop = set()
+    # KR5 (knowledge fix 2026-10-29), checked on the words, not by the model: a unit
+    # whose every number is in the passages and whose content words mostly are is
+    # supported — the check had dropped "FOCUS was launched in 2021, with sources citing
+    # March or September 2021", leaving only "please confirm the exact date"; and a
+    # unit with a number or date no passage holds is dropped, whatever the check said.
+    nums, stems = _passage_facts(passages)
+    # a number the officer typed may be repeated ("whether it rises from ₹2.5 lakh to ₹5 lakh
+    # for 2025-26 is not published" — RAG eval Q118 lost that honest sentence)
+    nums |= _question_numbers(question)
+    # The check flagging EVERY sentence is it misreading the passages (see below): keep them
+    # all, as before; only the number rule still applies then.
+    if len(drop) == len(units):
+        drop = set()
+    rescued = {i for i in drop if _rag_unit_supported(units[i][1], nums, stems)}
+    invented = {i for i, (_, u) in enumerate(units) if _rag_unit_numbers(u) - nums}
+    model_drop = drop - rescued
+    drop = model_drop | invented
+    if rescued or invented:
+        context_budget.log_decision("rag_grounding_words", rescued=len(rescued), invented=len(invented))
     if not drop:
         return answer
     kept = _drop_units(answer, units, drop)
+    # the number rule must not empty the answer (passages that spell the figures out in
+    # words): then only the model's own verdicts are applied
+    if (not kept or _is_whole_refusal(kept)) and invented and model_drop:
+        drop = model_drop
+        kept = _drop_units(answer, units, drop)
     # Flagging EVERY sentence is the check misreading the passages, not the
     # composer inventing a whole answer: eval 2026-10-15 lost correct answers
     # that way ("56 C&RD Blocks statewide", Q132) and turned them into "not
@@ -792,12 +1090,142 @@ document is NOT needed (e.g. "no income certificate is required"), add one closi
 line saying so. Never move a document into "Required" that the passages qualify."""
 
 
+# Knowledge fix 2026-10-29. KR3: K5 "When was PMAY-G launched, and what did it replace?"
+# left out the ministry and K9 left out the 15 sub-schemes, both in the passages; a
+# multi-part question dropped parts. KR12: the FAQ entry for the very question goes
+# first and wins (CFC). KR5: one scheme's facts never answer another; national rules
+# and Meghalaya's own details are kept apart. Deterministic backstops: _sub_asks in
+# retrieve, the number check in ground_answer, tests/live_chat_knowledge.py.
+_RELATED_FACTS_RULE = """
+Answer every part of the question, opening with what the passages DO say. Only for a
+part they do not answer at all, add one short closing sentence that this detail is not
+published in the scheme documents; never open with what is missing, and never drop a
+part silently.
+Keep national rules (the Act, central guidelines) apart from Meghalaya's own details,
+and never state one scheme's facts as another scheme's."""
+_FAQ_FIRST_RULE = """
+The passages open with the OFFICIAL FAQ ANSWER to this very question. Open your answer
+by restating its facts — every date, number, name and qualification in it ("but",
+"not", "only"); background passages may add detail but never overrule it."""
+
+
+# KR3 backstop, on the words: the related-facts rule is prose and fails under sampling
+# (K5 "When was PMAY-G launched, and what did it replace?" lost the ministry in 1 of 2
+# live runs, 2026-10-29). For a launch question whose passages name exactly ONE
+# "Ministry of ..." and an answer that names none, that ministry is added in one line,
+# word for word from the passages.
+def _passage_ministries(chunks: list[dict]) -> set[str]:
+    found: set[str] = set()
+    for c in chunks:
+        text = c.get("text") or ""
+        toks = tokens(text)
+        for i, t in enumerate(toks[:-2]):
+            if t.raw == "Ministry" and toks[i + 1].low == "of":
+                name, j = ["Ministry", "of"], i + 2
+                # (stops at punctuation: "...Rural Development. The Union Cabinet")
+                while j < len(toks) and (toks[j].raw[:1].isupper() or toks[j].low == "and") \
+                        and not any(ch in ".,;:()" for ch in text[toks[j - 1].end:toks[j].start]):
+                    name.append(toks[j].raw)
+                    j += 1
+                while name and name[-1] == "and":
+                    name.pop()
+                if len(name) > 2:
+                    found.add(" ".join(name))
+    return found
+
+
+# Same backstop for the other two facts the composer dropped in some live runs only
+# (2026-10-29): the matched FAQ entry's own dates and numbers (CFC "notified 11 March
+# 2024"), and a programme's sub-scheme count for a subsidy / sub-scheme question (K9).
+_RAG_COUNT_NOUNS = frozenset({"sub", "subscheme", "subschemes", "schemes", "sectors"})
+_RAG_NUMBER_WORDS = {"fifteen": "15", "twelve": "12", "ten": "10", "twenty": "20"}
+
+
+def _with_faq_facts(answer: str, chunks: list[dict]) -> str:
+    if not chunks or not chunks[0].get("faq_match"):
+        return answer
+    have = _rag_unit_numbers(answer)
+    adds = []
+    for sentence in split_sentences(_strip_heading(chunks[0].get("text") or "")):
+        nums = _rag_unit_numbers(sentence)
+        if nums and not nums <= have and len(adds) < 2:
+            adds.append(sentence.strip())
+            have |= nums
+    if not adds:
+        return answer
+    text = " ".join(adds)
+    context_budget.log_decision("rag_related_fact", added="faq_numbers")
+    return f"{answer.rstrip()}\n\nFrom the scheme FAQ: {text[:1].lower()}{text[1:]}"
+
+
+def _passage_subscheme_counts(chunks: list[dict]) -> set[str]:
+    counts: set[str] = set()
+    for c in chunks:
+        toks = tokens(c.get("text") or "")
+        for i, t in enumerate(toks):
+            n = _RAG_NUMBER_WORDS.get(t.low) or (t.raw if t.raw.isdigit() and len(t.raw) <= 3 else None)
+            if n is None:
+                continue
+            # "8,823 applicant records across 13 sub-schemes" counts the DATA, not the
+            # programme's design (the FAQ: "Fifteen") — not a programme count
+            if {x.low for x in toks[max(0, i - 4):i]} & {"records", "record", "applicant", "applications"}:
+                continue
+            after = [x.low for x in toks[i + 1:i + 3]]
+            # "15 sub-schemes", "15 covered sectors"; the FAQ's "Fifteen. Publicly announced ..."
+            if any(w in _RAG_COUNT_NOUNS for w in after) or (t.low in _RAG_NUMBER_WORDS and after[:1] == ["publicly"]):
+                counts.add(n)
+    return counts
+
+
+def _with_subscheme_count(question: str, answer: str, chunks: list[dict]) -> str:
+    if not _RAG_FACETS[2][0].search(question or ""):
+        return answer
+    counts = _passage_subscheme_counts(chunks)
+    if len(counts) != 1:
+        return answer
+    n = next(iter(counts))
+    words_in = set(words(answer))
+    if n in _rag_unit_numbers(answer) or any(w in words_in for w, d in _RAG_NUMBER_WORDS.items() if d == n):
+        return answer
+    context_budget.log_decision("rag_related_fact", added="subscheme_count")
+    return f"{answer.rstrip()}\n\nThe programme covers {n} sub-schemes."
+
+
+def _with_related_ministry(question: str, answer: str, chunks: list[dict]) -> str:
+    if not _RAG_FACETS[0][0].search(question or "") or "ministry" in (answer or "").lower():
+        return answer
+    ministries = _passage_ministries(chunks)
+    if len(ministries) != 1:
+        return answer
+    context_budget.log_decision("rag_related_fact", added="ministry")
+    return f"{answer.rstrip()}\n\nIt is implemented by the {next(iter(ministries))}."
+
+
+def _completeness_rule(question: str, chunks: list[dict], scheme: str | None = None) -> str:
+    rule = _RELATED_FACTS_RULE
+    lines = [line for _, line in _facets(question) if line]
+    if scheme in _RAG_APPLY_FIRST and any(q.startswith("how to apply") for q, _ in _facets(question)):
+        lines.append(_RAG_APPLY_FIRST[scheme])
+    if lines:
+        rule += ("\nAdd closely related key facts in one short line, only when the passages state "
+                 "them: " + "; ".join(lines) + ".")
+    asks = _sub_asks(question)
+    if asks:
+        rule += "\nThe parts to answer: " + " | ".join(asks)
+    if chunks and chunks[0].get("faq_match"):
+        rule += _FAQ_FIRST_RULE
+    return rule
+
+
 async def answer_from_kb(question: str, scheme: str | None = None,
                          retrieval_query: str | None = None) -> dict | None:
     """Answer a scheme-knowledge question, or None if the KB doesn't cover it.
     `retrieval_query`, when given, is embedded for retrieval in place of the
     question (the answer is still written to `question`)."""
-    chunks = await retrieve(retrieval_query or question, scheme=scheme)
+    # KR11: a romanised-Hindi question is searched AND answered with its English wording
+    # beside it ("narega me kitne din kaam milta hai?" was answered "within 15 days")
+    english = await _english_wording(question) if not retrieval_query and _looks_hinglish(question) else None
+    chunks = await retrieve(retrieval_query or question, scheme=scheme, **({"english": english} if english else {}))
     if not chunks:
         return None
 
@@ -824,7 +1252,15 @@ async def answer_from_kb(question: str, scheme: str | None = None,
 
     if best_score >= settings.RAG_MEDIUM_CONFIDENCE:
         context = "\n\n---\n\n".join(_strip_heading(c["text"]) for c in chunks)
+        if chunks[0].get("faq_match"):
+            # KR12: the FAQ entry for this very question, set apart so it is read as the
+            # answer and the rest as background (CFC, knowledge fix 2026-10-29)
+            context = (f"OFFICIAL FAQ ANSWER — {(chunks[0].get('heading') or '').split('>')[-1].strip()}\n"
+                       f"{_strip_heading(chunks[0]['text'])}\n\n=== Background passages ===\n\n"
+                       + "\n\n---\n\n".join(_strip_heading(c["text"]) for c in chunks[1:]))
         docs_rule = _DOCS_RULE if _DOCS_QUESTION.search(question or "") else ""
+        extra_rules = _completeness_rule(question, chunks, scheme)
+        docs_rule += extra_rules
         prompt = f"""{_naming_note(scheme)}Answer the question using ONLY the reference passages below. If they do
 not contain the answer, say "That isn't covered in the scheme reference material."
 Do not invent numbers, dates, or amounts. No Markdown headings ("#", "##", "###").
@@ -845,7 +1281,7 @@ Formatting — this is read in a chat bubble, so structure it for a quick scan:
 - Keep each bullet to one line. Put a blank line between an intro sentence and
   the bullets, and between the bullets and any closing sentence.
 
-Question: "{question}"
+Question: "{question}"{f' (in English: "{english}")' if english else ""}
 
 Reference passages:
 {context}
@@ -874,21 +1310,29 @@ Answer:"""
             # refused twice in one run, then answered correctly on the next
             # sample with no code change. One retry on the same (already-good)
             # context is cheap; a second outright refusal is trusted as real.
-            answer = await llm.call_response_composer(prompt)
+            # ...without the knowledge-fix rules (D-094): they must never cause a refusal the
+            # plain prompt would not ("…launched together at the same gatherings?", RAG eval Q108)
+            answer = await llm.call_response_composer(prompt.replace(extra_rules, "", 1))
             cleaned = _rag_strip_refusal(answer).strip()
             if cleaned and _is_whole_refusal(cleaned):
                 cleaned = ""
             if not cleaned:
                 return None
         if settings.RAG_GROUNDING_CHECK:
-            cleaned = await ground_answer(cleaned, [c["text"] for c in chunks])
+            cleaned = await ground_answer(cleaned, [c["text"] for c in chunks], question)
             if not cleaned or _is_whole_refusal(cleaned):
                 return None
+        shown = _clean_for_display(cleaned)
+        # deterministic backstops for the related facts the composer may drop (KR3, KR12)
+        shown = _with_faq_facts(shown, chunks)
+        shown = _with_subscheme_count(question, _with_related_ministry(question, shown, chunks), chunks)
+        used = _supporting_chunks(shown, chunks)
         return {
-            "answer": _clean_for_display(cleaned),
+            "answer": shown,
             "confidence": "high" if top_score >= settings.RAG_HIGH_CONFIDENCE else "medium",
-            "sources": sources,
-            "citations": citations(chunks),
+            "sources": [{"doc": c["doc"], "heading": c["heading"], "source_type": c.get("source_type", "sme")}
+                        for c in used],
+            "citations": citations(used),
         }
 
     logger.info("rag.answer_from_kb: best score %.3f below medium floor — no answer", best_score)
@@ -927,7 +1371,10 @@ async def answer_from_kb_multi(question: str, schemes: list[str]) -> dict | None
     cites = [c for chunks in per_scheme.values() for c in citations(chunks, n=1)]
     for s, chunks in per_scheme.items():
         body = "\n\n".join(_strip_heading(c["text"]) for c in chunks)
-        sections.append(f"=== {s} ===\n{body}")
+        # KR6: which namesake is which ("Is Focus Plus the same as Focus Legacy?")
+        from app.scheme_registry import KNOWLEDGE_DISTINCTIONS
+        note = " ".join(KNOWLEDGE_DISTINCTIONS[m] for m in s.split(" / ") if m in KNOWLEDGE_DISTINCTIONS)
+        sections.append(f"=== {s} ===\n" + (f"(In short: {note})\n" if note else "") + body)
         sources.extend({"doc": c["doc"], "heading": c["heading"],
                          "source_type": c.get("source_type", "sme")} for c in chunks)
     context = "\n\n---\n\n".join(sections)

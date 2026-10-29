@@ -27,8 +27,12 @@ STATS_TTL_SECONDS = 600
 # chatbot's (schema_context): PMAY-G counts every row (the 126 zero-sanction registrations
 # are houses sanctioned too, D-060 as widened by the user 2026-10-23: the card said 1,70,981
 # while the rule and the chatbot say 1,71,107; they add 0 completed and Rs 0), Focus Legacy counts
-# groups on pg_id, CM Elevate applications are rows, MGNREGA villages are those with
-# an employment or an expenditure record.
+# groups on pg_id, CM Elevate applications are distinct request_ids, MGNREGA villages are
+# those with an employment or an expenditure record (the chat reads villages the same way:
+# _mgnrega_villages_active_query).
+# CM Elevate (RAG fix report 2026-10-29, Issue 1): the card said 8,948 (rows) while the chat
+# said 8,921 — 27 request_ids have two identical rows (an ingestion duplicate, schema rule 8),
+# so the card now counts COUNT(DISTINCT request_id), the chat's and the prompt's rule.
 _SQL = {
     "mgnrega": """SELECT (SELECT SUM(person_days) FROM curated.v_employment) AS person_days,
                          (SELECT SUM(total_exp) FROM curated.v_expenditure) AS exp_lakh,
@@ -40,7 +44,7 @@ _SQL = {
                  FROM curated.v_pmay""",
     "focus_plus": """SELECT COUNT(*) AS payments, SUM(amount_disbursed) AS amount,
                             COUNT(DISTINCT lgd_district) AS districts FROM curated.v_focus_plus""",
-    "cm_elevate": """SELECT COUNT(*) AS applications, COUNT(DISTINCT scheme_name) AS schemes,
+    "cm_elevate": """SELECT COUNT(DISTINCT request_id) AS applications, COUNT(DISTINCT scheme_name) AS schemes,
                             COUNT(DISTINCT lgd_district) AS districts FROM curated.v_cm_elevate""",
     "focus_legacy": """SELECT COUNT(DISTINCT pg_id) AS groups, SUM(no_of_pg_members) AS memberships,
                               SUM(amount_disbursed) AS amount FROM curated.v_focus_legacy""",
@@ -122,6 +126,11 @@ def _cards(r: dict, years: "dict | None" = None) -> dict:
     def cr(v, star=False):
         return _crore(v, star) if _has(v) else _NO_FIGURE
 
+    # the "*" (figures provisional) comes from the one dataset registry the chat
+    # answers read too (scheme_registry.DATASETS, data-accuracy brief 2026-10-29)
+    def prov(name):
+        return scheme_registry.DATASETS[name].provisional
+
     return {
         "mgnrega": [[f"{float(m['person_days']) / 1e7:.2f} Cr" if _has(m["person_days"]) else _NO_FIGURE,
                      f"Person-days{span}"],
@@ -131,14 +140,14 @@ def _cards(r: dict, years: "dict | None" = None) -> dict:
                     [ind(m["villages"]), "Villages with activity"]],
         "pmay_g": [[ind(p["sanctioned"]), "Houses sanctioned"], [ind(p["completed"]), "Houses completed"],
                    [cr(p["released"]), "Funds released"]],
-        "focus_plus": [[ind(f["payments"]), "Disbursements"], [cr(f["amount"], True), "Amount disbursed*"],
+        "focus_plus": [[ind(f["payments"]), "Disbursements"], [cr(f["amount"], prov("Focus Plus")), "Amount disbursed*"],
                        [ind(f["districts"]), "Districts covered"]],
         "cm_elevate": [[ind(c["applications"]), "Applications"], [ind(c["schemes"]), "Schemes"],
                        [ind(c["districts"]), "Districts covered"]],
         "focus_legacy": [[ind(fl["groups"]), "Producer Groups"], [ind(fl["memberships"]), "Memberships paid"],
-                         [cr(fl["amount"], True), "Amount remitted*"]],
+                         [cr(fl["amount"], prov("Focus Legacy")), "Amount remitted*"]],
         "cm_elevate_legacy": [[ind(cl["records"]), "Sanction records"], [ind(cl["schemes"]), "Schemes"],
-                              [cr(cl["disbursed"], True), "Disbursed (subsidy + loan)*"]],
+                              [cr(cl["disbursed"], prov("CM Elevate Legacy")), "Disbursed (subsidy + loan)*"]],
     }
 
 

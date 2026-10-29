@@ -28,7 +28,7 @@
   account: superadmin
   turns:
     - say: "how many houses are there in 2023-2024"
-      expect: {route: pause, pause_rule: scope-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
       note: "D-056 (2026-10-21): a new chat with no place asks the district"
     - say: "All of Meghalaya"
       expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24, numbers_any: [106527]}
@@ -47,7 +47,7 @@
   account: superadmin
   turns:
     - say: "how many houses are there in 2023-2024"
-      expect: {route: pause, pause_rule: scope-not-specified, chips_contain: ["East Khasi Hills", "All of Meghalaya"]}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
       note: "D-056 (2026-10-21): a new chat now asks the district itself"
     - say: "All of Meghalaya"
       expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24}
@@ -64,10 +64,10 @@
     - say: "I am a block officer from Dalu, tell me what is going on in my block"
       expect: {route: pause, pause_rule: scheme-not-specified}
     - say: "MGNREGA"
-      expect: {route: pause, pause_rule: year-not-specified, chips_contain: ["FY 2024-25"]}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
       note: "D-053 (2026-10-19): the scheme reply carries no year -> ask. KI-324: the MGNREGA year pause offers 'all of them combined' in words but neither a chip nor the typed reply is accepted, so a year is chosen here"
     - say: "FY 2024-25"
-      expect: {route: data, scheme: MGNREGA, place: Dalu, year: FY 2024-25, answer_contains: ["overview"], numbers_any: [2132.46, 21.32, 390921]}
+      expect: {route: data, scheme: MGNREGA, place: Dalu, year: FY 2024-25, numbers_any: [2132.46, 21.32, 390921]}   # D-089: the year is a follow-up to the answered overview
     - say: "ok compare with last year"
       expect: {route: data, scheme: MGNREGA, place: Dalu, year: FY 2023-24}
       note: "a year is in play, so 'last year' is FY 2023-24 (context_manager.substitute_references); MGNREGA shows one year (KI-311)"

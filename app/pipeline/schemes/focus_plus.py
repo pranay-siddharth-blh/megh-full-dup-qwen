@@ -600,6 +600,30 @@ def _fp_place_literal(cond: "str | exp.Expression", scheme: str = "Focus Plus") 
 _PIN_VILLAGE_WHERE_SCHEMES = (["Focus Plus"], ["CM Elevate"])
 
 
+# KI-359 / KI-426 (sheet FOCUS-002 2026-10-22; catalogue E7 2026-10-29): "Focus+ beneficiaries
+# in each district" / "payments by district" grouped on district_name_raw (West Garo Hills
+# 30,400 / 35,059) while every other Focus Plus district figure — a single district, the
+# metric catalogue, the scheme cards — reads lgd_district (30,369 / 35,039; the ingestion
+# team re-mapped 175 rows). One column for every district figure; a question that asks
+# for the RAW / source district spelling keeps it.
+_FP_RAW_ASKED = Matcher(W("raw", "source", "original", "spreadsheet", "sheet"))
+
+
+def _focusplus_lgd_district_column(question: str, schemes: list[str], sql: str) -> str:
+    if schemes != ["Focus Plus"] or not sql or _FP_RAW_ASKED.search(question or ""):
+        return sql
+
+    def fn(tree):
+        for col in list(tree.find_all(exp.Column)):
+            if col.name.lower() == "district_name_raw":
+                col.replace(exp.column("lgd_district", table=col.table or None))
+        return None
+    out = sql_ast.transform(sql, fn)
+    if out != sql:
+        logger.info("Focus Plus district_name_raw -> lgd_district (KI-359)")
+    return out
+
+
 def _focusplus_district_group_not_null(schemes: list[str], sql: str) -> str:
     """A ranked (ORDER BY / HAVING) Focus Plus district breakdown leaves out the one
     record with no district. "Are there districts where Focus+ coverage is very
@@ -690,6 +714,33 @@ _FP_MONEY_COL = Matcher(Alt(Pred(lambda w: any(s in w.lower() for s in ("amount"
                             Before(Pred(lambda w: w.lower().endswith(("_rs", "_inr"))), END)))
 _FP_COHORT_TAIL = ("these fields are recorded only for the 12.5K registration cohort; "
                    "the 93K legacy cohort has none of them")
+
+
+# KI-365 (sheet FOCUS-020..022, re-checked live 2026-10-29): "women / farmers / approved
+# during FY 2022-23" -> 0 was right, but the answer said "the data doesn't cover … the only
+# available figure is 0" instead of why: these fields exist only for the 12.5K cohort.
+_FP_COHORT_FIELD_WORDS = (
+    (Matcher(W("women", "woman", "female", "females", "gender", "men", "male")), "gender"),
+    (Matcher(W("farmer", "farmers", "occupation", "occupations")), "occupation"),
+    (Matcher(W("approved", "approval", "pending", "status", "verified", "verification")), "status"),
+)
+
+
+def _fp_cohort_zero_answer(question: str, schemes: "list[str]", rows: list, answer: str) -> str:
+    """A zero for a 12.5K-only field, explained (KI-365); else `answer` unchanged."""
+    if schemes != ["Focus Plus"] or not rows or len(rows) != 1:
+        return answer
+    vals = [_as_number(v) for v in rows[0].values()]
+    nums = [v for v in vals if v is not None]
+    if not nums or any(v != 0 for v in nums):
+        return answer
+    field = next((f for m, f in _FP_COHORT_FIELD_WORDS if m.search(question or "")), None)
+    if field is None:
+        return answer
+    return (f"0 — but read it with care: Focus Plus records {field} only for the 12.5K registration "
+            f"cohort (FY 2025-26); the 93K legacy cohort, which holds the FY 2022-23 payments, has no "
+            f"{field} field at all. So this 0 means \"not recorded\", not \"none\". Ask for FY 2025-26 "
+            f"to see the {field} figures.")
 
 
 def _fp_rupees(v: "int | float") -> str:
@@ -1283,3 +1334,32 @@ def _focusplus_stated_amount_missing(question: str, schemes: list[str], sql: str
             f"Add amount_disbursed = {n} to the WHERE clause (Focus Plus pays only 5000 or 2500 "
             "per row) and keep every other filter, the aggregation and the grouping exactly as "
             "they were.")
+
+
+# RAG fix report 2026-10-29, Issue 12: "Average FOCUS+ amount per beneficiary" answered
+# ₹11,316 while the scheme rules say ₹5,000 per household, with nothing to say why. The
+# data is right: Focus Plus pays in tranches (a ₹5,000 first tranche, then ₹2,500 ones), and
+# most beneficiaries have four payments, so the amount per beneficiary is the sum of their
+# tranches. Said in one line after any per-beneficiary average; no figure is typed here.
+_FP_PER_BENEFICIARY_NOTE = ("Note: Focus Plus pays in tranches (a ₹5,000 first payment, then ₹2,500 payments), "
+                            "and most beneficiaries received several, so the amount per beneficiary is the total "
+                            "of all their tranches — higher than a single payment.")
+
+
+def _fp_amount_per_beneficiary_sql(sql: "str | None") -> bool:
+    """The query divides a SUM of amount_disbursed by a count of beneficiaries."""
+    for tree in sql_ast.parse(sql or ""):
+        for div in tree.find_all(exp.Div):
+            num = {c.name.lower() for c in div.this.find_all(exp.Column)}
+            den = div.expression
+            if "amount_disbursed" in num and any(
+                    "beneficiary_key" in {c.name.lower() for c in cnt.find_all(exp.Column)}
+                    for cnt in den.find_all(exp.Count)):
+                return True
+    return False
+
+
+def _focusplus_per_beneficiary_caveat(answer: str, sql: "str | None") -> str:
+    if not answer or "tranches" in answer or not _fp_amount_per_beneficiary_sql(sql):
+        return answer
+    return f"{answer.rstrip()}\n\n{_FP_PER_BENEFICIARY_NOTE}"

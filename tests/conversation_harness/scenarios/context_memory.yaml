@@ -80,10 +80,10 @@
       expect: {route: pause, pause_rule: scheme-not-specified}
       note: "user rule 2026-10-19: a NEW chat with no scheme asks (was a cross-scheme table under D-045)"
     - say: "Focus Plus"
-      expect: {route: pause, pause_rule: scope-not-specified, chips_contain: ["All of Meghalaya"]}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
       note: "D-056 (2026-10-21): a new chat asks scheme -> district -> year"
     - say: "All of Meghalaya"
-      expect: {route: pause, pause_rule: year-not-specified, chips_contain: ["All financial years combined"]}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
       note: "D-053 (2026-10-19): no year in the question or the context -> ask; the chip answers it"
     - say: "All financial years combined"
       expect: {route: data, scheme: Focus Plus, place: all, numbers_any: [105813]}

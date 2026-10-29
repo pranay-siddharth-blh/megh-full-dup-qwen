@@ -659,6 +659,14 @@ def _pmay_metrics(question: str, list_scope: bool) -> "list[str] | None":
             out.append("incomplete")
         elif M["completed"] and not release_counts:
             out.append("completed")
+    # "How many PMAY-G houses in total, and how many completed?" is two asks: the
+    # total AND the completed count. "houses" was dropped because "completed" was
+    # present, so only 1,29,941 was answered (data-accuracy brief D5, 2026-10-29).
+    # The completed figure then comes with the rest of the total (in progress, not
+    # started / no status), so the parts add up to the total.
+    if M["houses"] and _pmay_total_and_status_asked(q):
+        return list(dict.fromkeys(["houses", "completed", "progress"]
+                                  + [m for m in out if m not in ("completed", "incomplete")]))
     if M["houses"] and not any(m in out for m in ("completed", "incomplete", "status", "full_not_done",
                                                   "none", "part", "full", "sanction_numbers")):
         out.insert(0, "houses")
@@ -678,6 +686,35 @@ def _pmay_metrics(question: str, list_scope: bool) -> "list[str] | None":
 _PMAY_NAMED_SUMMARY_MATCH = Matcher(Alt(W("performance", "performing"),
                                         Seq("overall", _pmay_p("status", "progress", "picture", "position",
                                                                 "summary", "figures"))))
+
+
+# Construction stages after the sanction and before completion: a house "in
+# progress". Proposed Site / Existing site(Old House) / no status are not started
+# (or not recorded). With Completed they add up to every house (D5, 2026-10-29:
+# 1,29,941 + 41,041 + 125 = 1,71,107).
+_PMAY_IN_PROGRESS = ("House Sanctioned", "Plinth", "Roof Cast")
+_PMAY_HOUSE_WORDS = Matcher(Alt(W("house", "houses", "home", "homes", "dwelling", "dwellings"),
+                                _pmay_p("beneficiar")))
+
+
+def _pmay_total_and_status_asked(question: str) -> bool:
+    """True when one ask counts the houses on their own and another asks how many
+    were completed / are incomplete: "how many houses in total, and how many completed"."""
+    parts = _c17_sub_asks(question)
+    if len(parts) < 2:
+        return False
+
+    def status(t: str) -> bool:
+        tm = _pmay_metric_text(t)
+        return bool(_PMAY_M["completed"].search(tm) or _PMAY_M["incomplete"].search(tm))
+    total = any(_PMAY_HOUSE_WORDS.search(t) and not status(t) for t in parts)
+    return total and any(status(t) for t in parts)
+
+
+def _pmay_progress(row: dict) -> "tuple[int, int]":
+    """(in progress, not started or no status) for one row; with completed they sum to houses."""
+    moving = sum(int(row.get(_PMAY_STAGE_COL[st]) or 0) for st in _PMAY_IN_PROGRESS)
+    return moving, int(row["houses"]) - int(row["completed"] or 0) - moving
 
 
 def _pmay_named_summary(question: str) -> bool:
@@ -938,7 +975,16 @@ def _pmay_money_short(v) -> str:
     return _pmay_money(v)
 
 
-def _pmay_period(spec: dict) -> str:
+def _pmay_period(spec: dict, sanctioned_words: bool = True) -> str:
+    # RAG fix report 2026-10-29, Issue 11: the year on v_pmay is the SANCTION year
+    # (year_key = the sanction FY), so "Completed houses in West Garo Hills, in FY
+    # 2022-23: 454" read as "completed during 2022-23". It is said as the cohort it is:
+    # "of the houses sanctioned in FY 2022-23". The no-houses sentence already says
+    # "were sanctioned", so it keeps the plain "in FY …" (sanctioned_words=False).
+    if spec.get("year_key") is not None and spec.get("date") is None and spec.get("calendar_year") is None \
+            and sanctioned_words:
+        y = spec["year_key"]
+        return f"of the houses sanctioned in FY {y}-{(y + 1) % 100:02d}"
     if spec.get("date") is not None:
         d = spec["date"]
         return f"on {d.day} {d.strftime('%B %Y')}"
@@ -1007,6 +1053,10 @@ def _pmay_lines(spec: dict, row: dict) -> list[str]:
                      f"{_pmay_money(float(row['sanctioned']) - float(row['released']))}")
         elif m == "completed":
             L.append(f"Completed houses: {int(row['completed']):,}")
+        elif m == "progress":
+            moving, rest = _pmay_progress(row)
+            L.append(f"In progress (House Sanctioned, Plinth or Roof Cast): {moving:,}")
+            L.append(f"Not started or no status recorded (Proposed Site, Existing site or no status): {rest:,}")
         elif m == "incomplete":
             split = _pmay_stage_split({k: v for k, v in row.items() if k != "st_completed"})
             ns = int(row["no_status"])
@@ -1064,6 +1114,8 @@ _PMAY_ROW_COLS = {  # metric -> [(column shown in the result table, value from t
     "released": [("amount released (Rs)", lambda r: round(float(r["released"])))],
     "remaining": [("still to be released (Rs)", lambda r: round(float(r["sanctioned"]) - float(r["released"])))],
     "completed": [("completed houses", lambda r: int(r["completed"]))],
+    "progress": [("in progress", lambda r: _pmay_progress(r)[0]),
+                 ("not started or no status", lambda r: _pmay_progress(r)[1])],
     "incomplete": [("houses not yet completed", lambda r: int(r["incomplete"]))],
     "full": [("fully paid beneficiaries", lambda r: int(r["full_release"]))],
     "part": [("partly paid beneficiaries", lambda r: int(r["part_release"]))],
@@ -1136,7 +1188,8 @@ def _pmay_facts_answer(spec: dict, rows: list[dict]) -> "str | None":
         r = ordered[0]
         where = "Meghalaya (statewide)" if spec["dim"] == "state" else _pmay_entity_name(spec, r)
         if not int(r["houses"]):
-            return (f"No PMAY-G houses were sanctioned in {where} {period}{stage_note}: 0 houses — there are no "
+            return (f"No PMAY-G houses were sanctioned in {where} {_pmay_period(spec, False)}{stage_note}: 0 houses "
+                    "— there are no "
                     "PMAY-G records for that period, so every figure is zero.")
         lines = _pmay_lines(spec, r)
         if len(lines) == 1:

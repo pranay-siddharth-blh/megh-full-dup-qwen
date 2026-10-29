@@ -29,7 +29,7 @@ import decimal
 import logging
 from dataclasses import dataclass, field
 
-from app.text_match import Hit, Matcher, W
+from app.text_match import Hit, Matcher, W, fy_spans
 
 logger = logging.getLogger(__name__)
 
@@ -678,6 +678,12 @@ def extract_premises(question: str) -> list[Premise]:
     # houses, not the 11 or 28 figures assumed" (2026-09-27 screenshot). Blank
     # dates out, length-preserving so spans still index into `question`.
     q = _ps_blank_dates(q)
+    # A financial year is a filter too: in "completed from FY 2021-22 to FY 2023-24"
+    # the "22" (and in "from 2021-22 to 2023-24" the "24") was read as an assumed
+    # figure, and the answer said the 80,595 houses "contradict the assumed value of
+    # approximately 22" (C1 relative-year check 2026-10-29). Blanked like a date.
+    for _s, _e, _y, _t in fy_spans(q):
+        q = q[:_s] + " " * (_e - _s) + q[_e:]
     # A stated payment size ("payments of ₹5,000") is a filter too.
     q = _ps_blank_spans(q, _ps_stated_amounts(q))
     out: list[Premise] = []

@@ -1,0 +1,45 @@
+# The tester's RAG fix report (megh_rag_fix_report.md, 2026-10-29). Figures read live from
+# megh_db on 2026-10-29. D-089: no place / year -> statewide / all years, said; D-090:
+# "applications" = CM Elevate (applications).
+
+- name: R5_compare_both_districts_then_why
+  doc: "Issue 5: 'compare both districts' keeps both districts and the year; 'why … lower' is a reason reply, not the figure again"
+  tags: [user_reported, context, compare]
+  account: superadmin
+  turns:
+    - say: "How many PMAY-G houses were completed in East Khasi Hills in FY 2022-23?"
+      expect: {route: data, scheme: PMAY-G, year: FY 2022-23, numbers_any: [1354]}
+    - say: "What about West Garo Hills?"
+      expect: {route: data, scheme: PMAY-G, year: FY 2022-23, numbers_any: [454]}
+    - say: "And in FY 2023-24?"
+      expect: {route: data, scheme: PMAY-G, year: FY 2023-24, numbers_any: [13964]}
+    - say: "Compare both districts"
+      expect: {route: data, scheme: PMAY-G, answer_contains: ["East Khasi Hills", "West Garo Hills", "12,038", "13,964"]}
+    - say: "Why is completion lower there?"
+      expect: {answer_contains: ["can't say why"]}
+
+- name: R6_starters_answer_with_defaults
+  doc: "Issue 6 (D-089): a starter question with no place is answered statewide, not paused"
+  tags: [user_reported, defaults]
+  account: superadmin
+  turns:
+    - say: "Total MGNREGA person-days in 2023-24"
+      expect: {route: data, scheme: MGNREGA, numbers_any: [27264054]}
+    - say: "What about East Khasi Hills?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24}
+
+- name: R8_cm_elevate_applications_word
+  doc: "Issue 8 (D-090): 'applications' settles a bare CM Elevate; the card's 8,921"
+  tags: [user_reported, scheme]
+  account: superadmin
+  turns:
+    - say: "How many CM Elevate applications are there?"
+      expect: {route: data, scheme: CM Elevate, numbers_any: [8921]}
+
+- name: R4_hybrid_rules_and_figures
+  doc: "Issue 4: rules + figures in one question answers both"
+  tags: [user_reported, hybrid]
+  account: superadmin
+  turns:
+    - say: "What is the eligibility for FOCUS+ and how many beneficiaries are in Ri Bhoi in FY 2025-26?"
+      expect: {route: data, scheme: Focus Plus, numbers_any: [419], answer_contains: ["eligib"]}

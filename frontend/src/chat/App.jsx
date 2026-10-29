@@ -4,7 +4,7 @@ import {
   getToken, listHistory, login, logoutRemote, pinConversationApi, renameConversationApi, resetSessionId,
   setToken, setUnauthorizedHandler, StoppedError, storedSessionId, streamNLPResponse,
 } from './api.js';
-import { GLOSSARY, UI_STRINGS, UNIFIED_SAMPLES } from './constants.js';
+import { GLOSSARY, MAX_QUESTION_CHARS, UI_STRINGS, UNIFIED_SAMPLES } from './constants.js';
 import { nowTime, stampTime, todayLabel } from './format.js';
 import { useVoice } from './useVoice.js';
 import { isContinueText, isStopText } from './stopContinue.js';
@@ -926,12 +926,18 @@ export default function App() {
                           readOnly={voice.busy} aria-hidden={voice.isRecording || undefined}
                           aria-autocomplete="list" aria-controls={slashItems.length ? 'slash-menu' : undefined}
                           aria-activedescendant={slashItems.length ? 'slash-opt-' + slashActive : undefined}
+                          maxLength={MAX_QUESTION_CHARS}
                           value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onComposerKey} />
                 {voice.isRecording && (
                   <RecordingStrip startedAt={voice.startedAt} live={voice.phase === 'listening'}
                                   status={voice.status} levelRef={voice.levelRef} />
                 )}
                 <div className="composer-bar">
+                  {/* the server's cap (MAX_QUESTION_CHARS) shown before it is reached */}
+                  {!voice.isRecording && input.length > MAX_QUESTION_CHARS - 200 && (
+                    <span className={'composer-count' + (input.length >= MAX_QUESTION_CHARS ? ' full' : '')}
+                          aria-live="polite">{input.length}/{MAX_QUESTION_CHARS}</span>
+                  )}
                   {!voice.isRecording && (voice.busy || voice.status) && (
                     <div className={'voice-status' + (voice.status && voice.status.error ? ' error' : '')}
                          role="status" aria-live="polite">

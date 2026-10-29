@@ -99,7 +99,7 @@ class _Pool:
     def __init__(self, fetch):
         self.conn = _Conn(fetch)
 
-    def acquire(self):
+    def acquire(self, timeout=None):   # KI-026: the real pool takes a timeout
         return _Acquire(self.conn)
 
 

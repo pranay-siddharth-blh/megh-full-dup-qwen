@@ -637,6 +637,25 @@ def _again_cue(text: str) -> bool:
                               or any(w in _REF_NOUNS for w in ws))
 
 
+def _bare_place(target: str) -> bool:
+    """`target` is nothing but a place name ("Mawphlang", "the Ri Bhoi"). KI-318 (live
+    2026-10-18, re-checked 2026-10-29): "go back to Mawphlang" after the topic moved
+    on was read as a new place question in the current year, not as the earlier
+    Mawphlang question — a "go back to" lead took only an ordinal or a reference
+    noun. Any other word ("continue with MGNREGA beneficiaries in East Khasi Hills")
+    still makes it a new question."""
+    ws = [w for w in words(target) if w not in ("the", "that", "my", "our", "very")]
+    if not ws:
+        return False
+    try:
+        from app.entity_resolver import place_mentions
+        names = place_mentions(target)
+    except Exception:  # noqa: BLE001 — no place index: as before
+        return False
+    place_words = {w for n in names for w in words(n)}
+    return bool(names) and all(w in place_words for w in ws)
+
+
 def parse_backward(question: str) -> "BackRef | None":
     """The reference to an earlier question in `question`, or None. Read only
     when parse_switch found no topic return (resolve_turn)."""
@@ -664,7 +683,14 @@ def parse_backward(question: str) -> "BackRef | None":
             bare = [w for w in words(target) if w not in ("the", "that", "my", "our", "very")]
             if bare and bare[0] in _ORDINALS and bare[1:] in ([], ["one"]):
                 ordinal = _ORDINALS[bare[0]]
-        if ordinal is None and not (_REF_NOUNS & set(words(target))):
+        # a bare place is a reference only after a GO-BACK lead ("go back to Mawphlang",
+        # KI-318); after "now for" / "switch to" it is the next place: "now for West Khasi
+        # Hills" after a statewide answer restored the statewide question (harness F4, live
+        # 2026-10-29, RAG fix report session)
+        _go_back = bool({"back", "return", "returning", "revisit", "revisiting", "resume", "resuming"}
+                        & set(words(q[:m.end()])))
+        if ordinal is None and not (_REF_NOUNS & set(words(target))) \
+                and not (_go_back and _bare_place(target)):
             return None
         return BackRef(ordinal, target, remainder.strip(), True)
     # A cue anywhere. The clause holding it is the reference; a clause after
@@ -1121,6 +1147,9 @@ def _switch(session, mem: dict, key: str, remainder: str, raw: str) -> TopicTurn
     return TopicTurn(question=remainder, action="switch", topic=key)
 
 
+_PICK_REPLY_MAX_WORDS = 5
+
+
 def _pick_reply(reply: str, options: "list | None", mem: dict) -> "str | None":
     """The topic a reply to our own pause picks: a chip, or a typed name."""
     from app import pipeline
@@ -1129,6 +1158,13 @@ def _pick_reply(reply: str, options: "list | None", mem: dict) -> "str | None":
     for o in options or []:
         if text.lower() == str(o.get("question") or "").strip().lower() and o.get("label") in keys:
             return o["label"]
+    # A question of its own is not a pick (spelling-fix brief 2026-10-29, T6):
+    # "housholds completed 100 days in east garo hils 2022-23", sent while this
+    # picker was open, named MGNREGA by its words and only got "Back to MGNREGA.
+    # We were on: …". Only a short reply ("MGNREGA", "the housing one") picks;
+    # anything longer goes on as a new message and the picker is dropped.
+    if len(text.split()) > _PICK_REPLY_MAX_WORDS:
+        return None
     named = topic_key(pipeline._named_schemes(text))
     if named in keys:
         return named
