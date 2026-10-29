@@ -690,6 +690,25 @@ def _cme_data_block(canon: str, question: str, data_blocks: "list[str]") -> "str
     return sorted(urban)[0] if urban else None
 
 
+def _cme_dedupe_group_by(sql: str) -> str:
+    """`GROUP BY scheme_name, scheme_name` (the model repeats a key) hid the asked programmes from
+    _cme_asked_programmes, so two programmes with no applications were answered "couldn't find any matching
+    records" instead of 0 each (UAT 2026-10-30, C01-009-05). A repeated GROUP BY key is dropped."""
+    tree = sql_ast.parse_one(sql)
+    if not isinstance(tree, exp.Select) or tree.args.get("group") is None:
+        return sql
+    seen, keep = set(), []
+    for g in tree.args["group"].expressions:
+        key = g.sql()
+        if key not in seen:
+            seen.add(key)
+            keep.append(g)
+    if len(keep) == len(tree.args["group"].expressions):
+        return sql
+    tree.set("group", exp.Group(expressions=keep))
+    return sql_ast.to_sql(tree)
+
+
 _CME_COMBINED_Q = Matcher(Alt(W("total", "combined", "together", "altogether", "sum"), Seq("in", "all")))
 
 
@@ -774,6 +793,7 @@ async def _cm_elevate_urban_body_spellings(question: str, schemes: list[str], sq
     dropped, ac_name compared case-blind, then the urban-body spellings (_cme_urban_block_spellings)."""
     if schemes != ["CM Elevate"] or not sql:
         return sql
+    sql = _cme_dedupe_group_by(sql)
     sql = _cme_villages_per_village(question, sql)
     sql = _cme_block_inside_constituency(question, sql)
     sql = _cme_ac_name_case(sql)
