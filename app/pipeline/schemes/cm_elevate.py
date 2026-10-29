@@ -2139,7 +2139,11 @@ def _cme_resolved_places_in_sql(resolved: "dict | None", sql: str) -> bool:
 # (KI-070). Same project pattern as the Focus Plus guarantees: check the text
 # against the rows, and rebuild or append only what is missing.
 _CME_LABEL_STOP = {"meghalaya", "prime", "scheme", "development", "farming", "and", "the", "of",
-                   "chief", "minister", "minister's", "centre", "hills", "not", "block"}
+                   "chief", "minister", "minister's", "centre", "hills", "not", "block",
+                   # place words every ward / town row shares: "ward" beside a "1" in another ward's sentence
+                   # counted "Dabitbibra - Ward No.10 (1)" as stated, so a list missing it was never rebuilt
+                   # (final run 2026-10-30, C01-026-35)
+                   "ward", "village", "villages", "municipal", "board", "town", "committee"}
 _CME_GARBLED = Matcher(Alt("respectively", Seq("corresponding", _cme_sg("row")), "for each row", "each row"))
 
 
