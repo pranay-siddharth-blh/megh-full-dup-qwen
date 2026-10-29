@@ -7,6 +7,7 @@
    its title above, so it pastes cleanly into a report. */
 
 import { capitalizeWords, isDigit, isLowerAlnum, isPlainNumber, isSpace, replaceRuns } from './text.js';
+import { colTitle, isLabelCol, tableColumns } from './columns.js';
 
 // ── File names ──────────────────────────────────────────────────────────────
 
@@ -83,13 +84,23 @@ function colName(i) {
   return s;
 }
 
-function sheetXml(header, rows) {
+// K-5 (audit 2026-10-29): every number-like cell became a number with #,##0, so
+// year 2023 read "2,023", LGD code 263456 "263,456" and a 19-digit sanction number
+// lost its last digits. Label columns (years, codes, ids) and 13+ digit values are
+// text; quantities use Indian grouping (1,20,000) as on screen.
+const longDigits = (v) => { const s = String(v ?? '').trim(); return s.replace('-', '').split('.')[0].length >= 13; };
+
+/** `textCols`: column indexes written as text. `title`: a first row above the
+    header (the answer's scope, H-10). */
+export function sheetXml(header, rows, textCols = [], title = '') {
+  const lead = title ? [[title]] : [];
   const all = [header, ...rows];
   const widths = header.map((_, c) => Math.min(60, Math.max(8, ...all.map((r) => cellText(r[c]).length + 2))));
   const cols = widths.map((w, i) => `<col min="${i + 1}" max="${i + 1}" width="${w}" customWidth="1"/>`).join('');
-  const row = (r, ri, isHead) => `<row r="${ri + 1}">${r.map((v, ci) => {
-    const ref = `${colName(ci)}${ri + 1}`;
-    const n = isHead ? null : asNumber(v);
+  const off = lead.length;
+  const row = (r, ri, isHead) => `<row r="${ri + 1 + off}">${r.map((v, ci) => {
+    const ref = `${colName(ci)}${ri + 1 + off}`;
+    const n = isHead || textCols.includes(ci) || longDigits(v) ? null : asNumber(v);
     if (n !== null) return `<c r="${ref}"${Number.isInteger(n) ? ' s="2"' : ' s="3"'}><v>${n}</v></c>`;
     // Long text (an answer) wraps in its cell; Excel holds at most 32,767 chars per cell.
     const text = cellText(v).slice(0, 32000);
@@ -98,23 +109,28 @@ function sheetXml(header, rows) {
   }).join('')}</row>`;
   return '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
     + '<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-    + '<sheetViews><sheetView workbookViewId="0"><pane ySplit="1" topLeftCell="A2" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>'
-    + `<cols>${cols}</cols><sheetData>${all.map((r, i) => row(r, i, i === 0)).join('')}</sheetData></worksheet>`;
+    + `<sheetViews><sheetView workbookViewId="0"><pane ySplit="${1 + off}" topLeftCell="A${2 + off}" activePane="bottomLeft" state="frozen"/></sheetView></sheetViews>`
+    + `<cols>${cols}</cols><sheetData>`
+    + (off ? `<row r="1"><c r="A1" t="inlineStr" s="5"><is><t xml:space="preserve">${xmlEsc(title)}</t></is></c></row>` : '')
+    + `${all.map((r, i) => row(r, i, i === 0)).join('')}</sheetData></worksheet>`;
 }
 
 const STYLES = '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>'
   + '<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main">'
-  + '<numFmts count="1"><numFmt numFmtId="164" formatCode="#,##0.00"/></numFmts>'
-  + '<fonts count="2"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font></fonts>'
+  + '<numFmts count="2"><numFmt numFmtId="164" formatCode="[&gt;=10000000]##\\,##\\,##\\,##0.00;[&gt;=100000]##\\,##\\,##0.00;##,##0.00"/>'
+  + '<numFmt numFmtId="165" formatCode="[&gt;=10000000]##\\,##\\,##\\,##0;[&gt;=100000]##\\,##\\,##0;##,##0"/></numFmts>'
+  + '<fonts count="3"><font><sz val="11"/><name val="Calibri"/></font><font><b/><sz val="11"/><color rgb="FFFFFFFF"/><name val="Calibri"/></font>'
+  + '<font><i/><sz val="11"/><color rgb="FF534B68"/><name val="Calibri"/></font></fonts>'
   + '<fills count="3"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>'
   + '<fill><patternFill patternType="solid"><fgColor rgb="FF5C2D91"/><bgColor indexed="64"/></patternFill></fill></fills>'
   + '<borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders>'
   + '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs>'
-  + '<cellXfs count="5"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
+  + '<cellXfs count="6"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/>'
   + '<xf numFmtId="0" fontId="1" fillId="2" borderId="0" xfId="0" applyFont="1" applyFill="1"/>'
-  + '<xf numFmtId="3" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
+  + '<xf numFmtId="165" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
   + '<xf numFmtId="164" fontId="0" fillId="0" borderId="0" xfId="0" applyNumberFormat="1"/>'
-  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf></cellXfs>'
+  + '<xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0" applyAlignment="1"><alignment wrapText="1" vertical="top"/></xf>'
+  + '<xf numFmtId="0" fontId="2" fillId="0" borderId="0" xfId="0" applyFont="1"/></cellXfs>'
   + '<cellStyles count="1"><cellStyle name="Normal" xfId="0" builtinId="0"/></cellStyles></styleSheet>';
 
 export function toXLSX(sheetName, header, rows) {
@@ -157,7 +173,8 @@ export function toXLSXBook(sheets) {
       + `<Relationship Id="rId${N + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/>`
       + '</Relationships>'],
     ['xl/styles.xml', STYLES],
-    ...idx.map((i) => [`xl/worksheets/sheet${i + 1}.xml`, sheetXml(sheets[i].header, sheets[i].rows)]),
+    ...idx.map((i) => [`xl/worksheets/sheet${i + 1}.xml`,
+      sheetXml(sheets[i].header, sheets[i].rows, sheets[i].textCols || [], sheets[i].title || '')]),
   ];
   return new Blob([zipStore(files)], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
 }
@@ -225,4 +242,27 @@ export function chartPNG(chart, title, subtitle) {
   }
   g.drawImage(src, pad, pad + head);
   out.toBlob((b) => b && downloadBlob(b, fileName(title, 'png')), 'image/png');
+}
+
+// ── The chat export's sheets (ChatExport.jsx) ────────────────────────────────
+// H-12 (audit 2026-10-29): a table written in the answer text reached the
+// Answer cell as "| Village | … |" and "|---|---|"; each row becomes one line.
+export function tablesAsLines(text) {
+  return String(text || '').split('\n').filter((ln) => {
+    const t = ln.trim();
+    return !(t.startsWith('|') && Array.from(t).every((c) => '|-: '.includes(c)));
+  }).map((ln) => {
+    const t = ln.trim();
+    if (!t.startsWith('|')) return ln;
+    return t.split('|').map((c) => c.trim()).filter(Boolean).join(' · ');
+  }).join('\n');
+}
+
+/** One table sheet: the columns as on screen (one year column, twins folded,
+    screen headings, H-4 / H-9), years / codes as text (K-5), the scope on top (H-10). */
+export function tableSheet(name, rows, scope) {
+  const cols = tableColumns(rows);
+  return { name, title: scope ? `Answered for: ${scope}` : '', header: cols.map(colTitle),
+    rows: rows.map((r) => cols.map((c) => r[c])),
+    textCols: cols.map((c, i) => (isLabelCol(c) ? i : -1)).filter((i) => i >= 0) };
 }

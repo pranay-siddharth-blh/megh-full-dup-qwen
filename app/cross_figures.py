@@ -804,7 +804,7 @@ async def answer(p: Plan) -> dict:
     logger.info("cross figures (D-066): %s %s op=%s measures=%s by_district=%s", p.schemes, p.place_label,
                 p.op, p.measures, p.by_district)
     return {"answer": "\n".join(ln for ln in lines if ln is not None), "rows": rows, "sql": "\n;\n".join(shown),
-            "totals": col_totals, "measure_notes": measure_notes(have)}
+            "totals": col_totals, "measure_notes": measure_notes(have), "schemes_with_data": have}
 
 
 # G-9 / B-11 (audit 2026-10-29): every scheme's count sits in one `beneficiaries`

@@ -1,8 +1,9 @@
 import { useEffect, useRef, useState } from 'react';
 import { plainText } from './Markdown.jsx';
-import { downloadBlob, fileName, headerLabel, toXLSXBook } from '../exporters.js';
+import { downloadBlob, fileName, tableSheet, tablesAsLines, toXLSXBook } from '../exporters.js';
 import { keyLabel } from '../shortcuts.js';
 import { tableColumns } from '../analytics.js';
+import { unifyPeriods, withoutTwins } from '../columns.js';
 
 /* "Download chat": the whole conversation in one file, from the top bar.
 
@@ -16,7 +17,7 @@ import { tableColumns } from '../analytics.js';
            ("Q2 table", ...), its rows exactly as returned. */
 
 const textOf = (m) => {
-  if (m.kind === 'rich') return plainText((m.response && (m.response.answer || m.response.question)) || '');
+  if (m.kind === 'rich') return tablesAsLines(plainText((m.response && (m.response.answer || m.response.question)) || ''));
   return String(m.text || '');
 };
 
@@ -34,16 +35,22 @@ function workbook(messages) {
     const asked = pendingQ || { n: ++q, time: '', text: m.question || '' };
     pendingQ = null;
     const data = m.kind === 'rich' && Array.isArray(m.response && m.response.data) ? m.response.data : [];
-    const sheet = data.length ? `Q${asked.n} table` : '';
-    convo.push([asked.n, asked.time, asked.text, textOf(m), data.length || '', sheet]);
-    if (data.length) {
-      const cols = tableColumns(data);
-      tables.push({ name: sheet, header: cols.map(headerLabel), rows: data.map((r) => cols.map((c) => r[c])) });
+    const scope = (m.kind === 'rich' && m.response && m.response.scope_banner) || '';
+    // H-11: a "pie chart" / "as a table" redraw repeats an earlier answer's rows
+    const redraw = !!(m.kind === 'rich' && m.view && m.redrawOf);
+    const sheet = data.length ? (redraw ? m.redrawOf : `Q${asked.n} table`) : '';
+    convo.push([asked.n, asked.time, asked.text, textOf(m), scope, data.length || '', sheet]);
+    if (data.length && !redraw) {
+      const screen = withoutTwins(unifyPeriods(data));
+      tables.push(tableSheet(sheet, screen, scope));
+      if (tableColumns(screen).length !== tableColumns(data).length) {
+        tables.push(tableSheet(`Q${asked.n} data`, data, scope));      // the rows exactly as returned
+      }
     }
   }
-  if (pendingQ) convo.push([pendingQ.n, pendingQ.time, pendingQ.text, '(no answer)', '', '']);
-  return [{ name: 'Conversation', header: ['#', 'Time', 'Question', 'Answer', 'Rows', 'Table sheet'], rows: convo },
-    ...tables];
+  if (pendingQ) convo.push([pendingQ.n, pendingQ.time, pendingQ.text, '(no answer)', '', '', '']);
+  return [{ name: 'Conversation', header: ['#', 'Time', 'Question', 'Answer', 'Answered for', 'Rows', 'Table sheet'],
+    rows: convo }, ...tables];
 }
 
 export function ChatExport({ messages, title, openSignal = 0 }) {

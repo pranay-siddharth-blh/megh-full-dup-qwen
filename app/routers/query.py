@@ -220,6 +220,12 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
             translated_from, req.question = req.question, english.strip()
     session_id = _session_id(req, request, scope)
     session = session_store.ensure(session_id, scope.user_id)
+    # K-2 (audit 2026-10-29): after a sign-out on a shared computer, the next
+    # officer's questions reused the previous officer's session id and were filed
+    # under (and answered with the context of) that officer's conversation. A
+    # session already held by another signed-in user is refused, never continued.
+    if session.user_id and scope.user_id and str(session.user_id) != str(scope.user_id):
+        raise HTTPException(409, "This conversation belongs to another signed-in user. Start a new chat.")
     session.scope = scope
     # Shared conversation state (app/session_sync.py, KI-028): bring this
     # worker's copy up to the durable revision before answering. The previous

@@ -196,3 +196,18 @@ def test_two_named_years_are_both_read():                                       
     pl = cf.plan("Compare MGNREGA and PMAY-G beneficiaries 2023-24 vs 2024-25", ["MGNREGA", "PMAY-G"],
                  {"year_key_list": [2023, 2024]}, {}, M)
     assert pl.op == "by_year" and pl.years == [2023, 2024]
+
+
+def test_feedback_upsert_keeps_the_votes_own_question_and_answer(monkeypatch):     # K-4
+    from types import SimpleNamespace
+
+    from app.routers import feedback
+    seen = []
+
+    async def execute(sql, params):
+        seen.append(sql)
+    monkeypatch.setattr(feedback.db, "execute", execute)
+    body = feedback.FeedbackBody(message_key="s:a1", rating=1, question="Q3", answer="A3")
+    scope = SimpleNamespace(tenant_id=1, db_user_id=7, username="u")
+    asyncio.run(feedback.give_feedback(body, scope))
+    assert "question = EXCLUDED.question, answer = EXCLUDED.answer" in seen[0]

@@ -461,6 +461,20 @@ def set_limit(sql: str, n: int | None) -> str:
     return transform(sql, fn)
 
 
+def nulls_last_on_desc(sql: str) -> str:
+    """Every descending ORDER BY key sorted NULLS LAST. PostgreSQL sorts NULL first
+    on DESC, so a "top N" opened with the places that have no figure (chat UI
+    audit 2026-10-29, E-5)."""
+
+    def fn(tree):
+        for o in tree.find_all(exp.Ordered):
+            if o.args.get("desc") and o.args.get("nulls_first") is not False:
+                o.set("nulls_first", False)
+        return None
+
+    return transform(sql, fn)
+
+
 # ── text around a query ─────────────────────────────────────────────────────
 
 def statement_text(sql: str) -> str:

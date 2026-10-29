@@ -96,7 +96,17 @@ def _attach_scope_banner(result: dict, session) -> None:
     if result.get("route") != "data" or not result.get("schemes") or not (result.get("sql") or result.get("sql_query")):
         return
     resolved = result.get("resolved_entities") or {}
-    parts = [" + ".join(result["schemes"]), _scope_banner_place(resolved)]
+    # H-7 (chat UI audit 2026-10-29): "MGNREGA + Focus Plus · FY 2023-24" over an
+    # answer where only MGNREGA had figures read as if both were answered. The
+    # schemes that returned figures are named; the others say "no data".
+    named = list(result["schemes"])
+    held = result.get("schemes_with_data")
+    if isinstance(held, list) and held and set(held) != set(named):
+        lead = " + ".join(s for s in named if s in held)
+        lead += "".join(f" ({s}: no data)" for s in named if s not in held)
+    else:
+        lead = " + ".join(named)
+    parts = [lead, _scope_banner_place(resolved)]
     year = _scope_banner_year(resolved)
     if year:
         parts.append(year)

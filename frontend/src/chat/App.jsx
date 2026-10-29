@@ -26,6 +26,10 @@ import { copyText } from './components/Messages.jsx';
 import { IS_MAC, SHORTCUTS, enterSends, isComposing, isTyping, keyLabel, matches } from './shortcuts.js';
 import { WelcomeCard } from './components/WelcomeCard.jsx';
 
+// K-10 (audit 2026-10-29): the server refuses a question over 2,000 characters
+// (settings.MAX_QUESTION_CHARS); the box stops there and counts near the end.
+const MAX_QUESTION_CHARS = 2000;
+
 /* The chat console (was web/ai_query.html). Every behaviour of the original is
    kept: sign-in gate with a session check, server-backed chat history (pin,
    archive with undo, rename, delete, search), replay of a saved thread with its
@@ -174,6 +178,10 @@ export default function App() {
     if (fn) await fn();
   };
 
+  // Filled in below (leaveChat is defined with the sending code); sign-out and
+  // opening a chat call it through this ref.
+  const leaveChatRef = useRef(() => {});
+
   // ── Auth flow ───────────────────────────────────────────────────────────
   const lockApp = useCallback(() => {
     setAuth('locked');
@@ -181,6 +189,12 @@ export default function App() {
   }, []);
 
   const handleLogout = useCallback((message) => {
+    // K-2 (audit 2026-10-29): the next officer on this computer must not see this
+    // officer's open chat or continue their conversation: stop the answer, clear
+    // the screen and start a new session id.
+    leaveChatRef.current();
+    setMessages([]);
+    setSessionId(resetSessionId());
     logoutRemote();
     try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
     speakingRef.current = null; setSpeakingId(null);
@@ -225,6 +239,7 @@ export default function App() {
       }
       try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
       speakingRef.current = null; setSpeakingId(null);
+      leaveChatRef.current();
       followRef.current = true;
       setMessages(replay);
       setSessionId(sid);
@@ -258,8 +273,9 @@ export default function App() {
         const me = await fetchMe();
         unlockApp(me);
       } catch (e) {
-        // A network blip must not discard a token that may still be valid.
-        if (!(e && e.name === 'AbortError')) setToken('');
+        // A network blip must not discard a token that may still be valid: only a
+        // token the server refused (401 / 403) is dropped (K-12, audit 2026-10-29).
+        if (e && (e.status === 401 || e.status === 403)) setToken('');
         lockApp();
       }
     })();
@@ -296,7 +312,11 @@ export default function App() {
   // written (/api/query/stream, D-039). Stop aborts the request, which also
   // cancels the turn on the server. `skipCache` (Regenerate) answers afresh.
   const stopRef = useRef(null);
-  const stopQuery = useCallback(() => { if (stopRef.current) stopRef.current.abort(); }, []);
+  // K-9 (audit 2026-10-29): one chip tap waits for the running answer, not one
+  // timer per tap; Stop and leaving the chat forget it.
+  const pendingAskRef = useRef(null);
+  const dropPendingAsk = () => { if (pendingAskRef.current) { clearInterval(pendingAskRef.current); pendingAskRef.current = null; } };
+  const stopQuery = useCallback(() => { dropPendingAsk(); if (stopRef.current) stopRef.current.abort(); }, []);
   // The question the officer last stopped, until another one runs.
   const stoppedRef = useRef(null);
   // ── Connection ──────────────────────────────────────────────────────────
@@ -313,6 +333,33 @@ export default function App() {
     setConn((c) => (c === 'online' ? c : 'back'));
     clearTimeout(backTimer.current);
     backTimer.current = setTimeout(() => setConn((c) => (c === 'back' ? 'online' : c)), 4000);
+  }, []);
+
+  // K-1 / K-2 / K-8 / K-26 (audit 2026-10-29): leaving a chat — another chat, a new
+  // one, a delete, a sign-out — stops its running answer and forgets its stopped
+  // question, its waiting question and any chip tap. An answer that lands after the
+  // switch belongs to the chat it was asked in: it is dropped here (the server has
+  // saved it there) instead of appearing under the other chat.
+  const chatGenRef = useRef(0);
+  const leaveChat = useCallback(() => {
+    chatGenRef.current += 1;
+    dropPendingAsk();
+    if (stopRef.current) stopRef.current.abort();
+    stoppedRef.current = null;
+    waitingRef.current = null;
+  }, []);
+
+  leaveChatRef.current = leaveChat;
+
+  // K-14: the box takes focus back only when focus was already in the chat, and
+  // never on a touch screen (the keyboard would cover the answer)
+  const refocusComposer = useCallback(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    try { if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) return; } catch (e) { /* ignore */ }
+    const a = document.activeElement;
+    if (a && a !== document.body && a !== el && !(chatAreaRef.current && chatAreaRef.current.contains(a))) return;
+    el.focus();
   }, []);
 
   const runQuestion = useCallback(async (q, { skipCache = false, addUser = true } = {}) => {
@@ -339,9 +386,12 @@ export default function App() {
     const stop = new AbortController();
     stopRef.current = stop;
     const dropTyping = (m) => m.filter((x) => x.id !== typingId);
+    const gen = chatGenRef.current;
+    const here = () => gen === chatGenRef.current;     // still the chat it was asked in (K-1)
+    const setMessagesHere = (fn) => { if (here()) setMessages(fn); };
     try {
       const response = await streamNLPResponse(asked, lang, sessionRef.current, { skipCache, signal: stop.signal, onEvent });
-      setMessages((m) => [...dropTyping(m), response.answer
+      setMessagesHere((m) => [...dropTyping(m), response.answer
         ? { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'rich', question: q, response, animate: true, streamKey: typingId, view }
         : { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Error: ${response.detail || 'Unable to process your query'}` }]);
       connBack();                             // an answer arrived: the connection is fine
@@ -350,28 +400,28 @@ export default function App() {
         // Not an error with the question: the banner explains, and the
         // question is asked again by itself when the connection is back.
         const msgId = nextId();
-        waitingRef.current = { msgId, q };
+        if (here()) waitingRef.current = { msgId, q };
         setConn('down');
-        setMessages((m) => [...dropTyping(m), { id: msgId, time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, waiting: true,
+        setMessagesHere((m) => [...dropTyping(m), { id: msgId, time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, waiting: true,
           text: 'Waiting for the connection. This question will be asked again as soon as it is back.' }]);
       } else if (err instanceof StoppedError) {
-        stoppedRef.current = q;
-        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q,
+        if (here()) stoppedRef.current = q;
+        setMessagesHere((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q,
           text: 'Stopped. Type "continue" when you want this answer.' }]);
       } else if (String(err.message) !== 'unauthorized') {
-        setMessages((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Sorry, I encountered an error: ${err.message}` }]);
+        setMessagesHere((m) => [...dropTyping(m), { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: `Sorry, I encountered an error: ${err.message}` }]);
         console.error('Query error:', err);
       } else {
-        setMessages(dropTyping);
+        setMessagesHere(dropTyping);
       }
     } finally {
       if (stopRef.current === stop) stopRef.current = null;
       runningRef.current = false; setRunning(false);
-      if (textareaRef.current) textareaRef.current.focus();
+      refocusComposer();
       // The turn is persisted server-side; re-read the history shortly after.
       setTimeout(loadHistory, 600);
     }
-  }, [lang, loadHistory, connBack]);
+  }, [lang, loadHistory, connBack, refocusComposer]);
 
   // "stop" typed while an answer runs stops it, like the Stop button; a
   // "continue" typed right after a stop asks the stopped question again
@@ -410,7 +460,9 @@ export default function App() {
             text: `There is no data in this chat to show as ${VIEW_NAMES[viewOnly]} yet. Ask a data question, for example "MGNREGA person-days by district", and I'll draw it.` }];
         }
         const r = last.response;
+        const userCount = (upTo) => m.slice(0, m.indexOf(upTo) + 1).filter((x) => x.kind === 'user').length;
         return [...m, userMsg, { id: nextId(), ...now, kind: 'rich', question: last.question, view: viewOnly,
+          redrawOf: `Q${userCount(last)} table`, local: true,
           response: { ...r, answer: `Here is the same data as ${VIEW_NAMES[viewOnly]}.`, rewritten_question: undefined,
                       follow_up: '', follow_up_options: [], follow_ups: [], suggestions: [] } }];
       });
@@ -454,7 +506,7 @@ export default function App() {
       clearTimeout(timer);
       const h = navigator.onLine === false ? 'down' : await checkHealth();
       if (stopped) return;
-      if (h === 'ok') {
+      if (h === 'ok' || h === 'degraded') {     // K-13: degraded is reachable
         connBack();
         const w = waitingRef.current;
         const msgs = messagesRef.current;
@@ -484,17 +536,21 @@ export default function App() {
   const ask = useCallback((text) => {
     const q = String(text == null ? '' : text).trim();
     if (!q) return;
-    setInput(q);
-    if (textareaRef.current) textareaRef.current.focus();
     if (runningRef.current) {
-      const retry = setInterval(() => {
-        if (!runningRef.current) { clearInterval(retry); setInput(q); sendQuery(); }
+      // the typed draft is left alone; the latest tap replaces an earlier one (K-9)
+      dropPendingAsk();
+      const gen = chatGenRef.current;
+      const started = Date.now();
+      pendingAskRef.current = setInterval(() => {
+        if (gen !== chatGenRef.current || Date.now() - started > 90000) { dropPendingAsk(); return; }
+        if (!runningRef.current) { dropPendingAsk(); setInput(q); sendQueryRef.current(); }
       }, 250);
-      setTimeout(() => clearInterval(retry), 90000);
       return;
     }
+    setInput(q);
+    refocusComposer();
     sendQuery();
-  }, [sendQuery]);
+  }, [sendQuery, refocusComposer]);
 
   // ── Chat pane ───────────────────────────────────────────────────────────
   // ── Read aloud (browser speech, no server call) ─────────────────────────
@@ -521,10 +577,11 @@ export default function App() {
   useEffect(() => () => { try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ } }, []);
 
   const newChat = useCallback(() => {
+    leaveChat();
     stopSpeaking();
     setSessionId(resetSessionId());          // fresh session -> no context bleed
     setMessages([]);
-  }, [stopSpeaking]);
+  }, [stopSpeaking, leaveChat]);
 
   // Edit a sent question: it and everything after it leave the screen, and the
   // edited text is asked in its place (in the same conversation).
@@ -882,7 +939,7 @@ export default function App() {
                     return <BotMessage key={m.id} id={m.id} question={m.question} response={m.response} time={m.time}
                                        animate={m.animate} streamKey={m.streamKey} at={m.at} view={m.view}
                                        onAsk={ask} speakingId={speakingId} onSpeak={onSpeak}
-                                       onRegenerate={isLast && m.question ? () => rerun(m.id, m.question) : null}
+                                       onRegenerate={isLast && m.question && !m.local ? () => rerun(m.id, m.question) : null}
                                        sessionId={sessionId} />;
                   }
                   if (m.kind === 'user') {
@@ -925,7 +982,11 @@ export default function App() {
                           readOnly={voice.busy} aria-hidden={voice.isRecording || undefined}
                           aria-autocomplete="list" aria-controls={slashItems.length ? 'slash-menu' : undefined}
                           aria-activedescendant={slashItems.length ? 'slash-opt-' + slashActive : undefined}
+                          maxLength={MAX_QUESTION_CHARS}
                           value={input} onChange={(e) => setInput(e.target.value)} onKeyDown={onComposerKey} />
+                {input.length > MAX_QUESTION_CHARS - 200 && (
+                  <span className="composer-count" role="status">{input.length.toLocaleString('en-IN')} / {MAX_QUESTION_CHARS.toLocaleString('en-IN')}</span>
+                )}
                 {voice.isRecording && (
                   <RecordingStrip startedAt={voice.startedAt} live={voice.phase === 'listening'}
                                   status={voice.status} levelRef={voice.levelRef} />

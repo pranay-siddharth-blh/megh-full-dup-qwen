@@ -595,6 +595,20 @@ def _post(turn, question, sid):
                                       _request(), turn.scope))
 
 
+def test_router_refuses_a_session_held_by_another_user(turn):
+    # K-2 (chat UI audit 2026-10-29): after a sign-out on a shared computer the next
+    # officer reused the previous officer's session id and continued their chat
+    from fastapi import HTTPException
+    _post(turn, "How many MGNREGA job cards are there in Ri Bhoi?", "conv-k2")
+    other = SimpleNamespace(user_id="someone-else", db_user_id=None, tenant_id=None, username="",
+                            cache_fingerprint=lambda: "fp")
+    with pytest.raises(HTTPException) as e:
+        asyncio.run(router._answer(router.QueryRequest(question="and in 2024-25?", session_id="conv-k2"),
+                                   _request(), other))
+    assert e.value.status_code == 409
+    assert turn.asked == ["How many MGNREGA job cards are there in Ri Bhoi?"]
+
+
 def test_router_answers_a_bare_reset_without_the_pipeline_or_caches(turn):
     out = _post(turn, "Let's start again", "conv-r1")
     assert out["edge_type"] == cl.RESET_EDGE and out["session_id"] == "conv-r1"

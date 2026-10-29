@@ -920,10 +920,20 @@ _ALL_SCHEMES_NAMED = Matcher(Alt(
 ))
 
 
-def _scheme_comparison_clarification() -> "ClarificationNeeded":
+def _scheme_comparison_clarification(question: str = "") -> "ClarificationNeeded":
     names = list(SCHEME_CATALOG)
+    # F-2 (chat UI audit 2026-10-29): a pause over a question that asks figures
+    # ("compare beneficiaries of the schemes") asked "difference between A and B"
+    # on the chip, which is answered from the documents with no figures. The chip
+    # asks for the figures the officer named; a question with none keeps the
+    # "how do they differ" wording.
+    from app import cross_scheme
+    q = question or ""
+    measure = ("money spent" if cross_scheme._MONEY.search(q) else
+               "beneficiaries" if cross_scheme._COUNT.search(q) else None)
+    ask = (lambda a, b: f"Compare {measure} in {a} and {b}") if measure else         (lambda a, b: f"difference between {a} and {b}")
     options = [
-        {"label": f"{a} vs {b}", "question": f"difference between {a} and {b}"}
+        {"label": f"{a} vs {b}", "question": ask(a, b)}
         for a, b in itertools.combinations(names, 2)
     ]
     _all = ", ".join(names[:-1]) + " and " + names[-1]
@@ -1045,7 +1055,7 @@ def _scheme_comparison_answer(question: str, prev_schemes: "list[str] | None" = 
     if len(named) < 2 and _ALL_SCHEMES_NAMED.search(question or ""):
         named = list(SCHEME_CATALOG)
     if len(named) < 2:
-        raise _scheme_comparison_clarification()
+        raise _scheme_comparison_clarification(question)
     targets = named
     folded = {d: p for p, ds in _PROGRAMME_DATASETS.items() for d in ds}
     lines = []

@@ -78,7 +78,7 @@ export async function fetchMe(timeoutMs = 8000) {
   const timer = setTimeout(() => ctrl.abort(), timeoutMs);
   try {
     const res = await fetch(`${API_BASE}/api/auth/me`, { headers: authHeaders(), signal: ctrl.signal });
-    if (!res.ok) throw new Error('stale token');
+    if (!res.ok) { const e = new Error('stale token'); e.status = res.status; throw e; }
     return await res.json();
   } finally {
     clearTimeout(timer);
@@ -160,6 +160,16 @@ export function questionAbort(stopSignal, idleMs = QUERY_IDLE_MS) {
   };
 }
 
+// K-10 (audit 2026-10-29): a validation error's detail is a list of objects and
+// showed as "[object Object]"; its message is said instead.
+export function detailText(detail) {
+  if (Array.isArray(detail)) {
+    const msgs = detail.map((d) => (d && typeof d === 'object' ? d.msg : String(d))).filter(Boolean);
+    return msgs.join('; ');
+  }
+  return detail && typeof detail === 'object' ? String(detail.msg || '') : String(detail || '');
+}
+
 // The error for a non-2xx response: a ConnectionError when it means the
 // network or the data service, else the app's own message.
 async function httpFailure(response) {
@@ -167,7 +177,7 @@ async function httpFailure(response) {
   let fromApp = false;
   try { detail = (await response.json()).detail || ''; fromApp = !!detail; } catch (e) { /* not the app's JSON */ }
   if (isConnectionStatus(response.status, detail, fromApp)) return new ConnectionError();
-  return new Error(detail || 'API request failed');
+  return new Error(detailText(detail) || 'API request failed');
 }
 
 // opts: { skipCache, signal } — skipCache answers afresh (Regenerate); signal is Stop.
@@ -238,7 +248,7 @@ export async function streamNLPResponse(question, language, sessionId, opts = {}
         if (ev.type === 'done') return ev.result;
         if (ev.type === 'error') {
           if (ev.status === 401) { onUnauthorized('Your session has expired — please sign in again.'); throw new Error('unauthorized'); }
-          const e = isConnectionStatus(ev.status, ev.detail, true) ? new ConnectionError() : new Error(ev.detail || 'API request failed');
+          const e = isConnectionStatus(ev.status, ev.detail, true) ? new ConnectionError() : new Error(detailText(ev.detail) || 'API request failed');
           throw Object.assign(e, { fromServer: true });
         }
         onEvent(ev);

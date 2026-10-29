@@ -1807,6 +1807,8 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _focus_legacy_beneficiary_four_measures(question, schemes, sql)
     sql = _pin_missing_village_code(schemes, entity_result, sql)
     sql = _village_rows_by_code(sql)
+    # E-5 (chat UI audit 2026-10-29): places with no figure never head a "top N"
+    sql = sql_ast.nulls_last_on_desc(sql)
     return sql
 
 

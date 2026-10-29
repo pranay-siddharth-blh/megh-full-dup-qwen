@@ -6,7 +6,7 @@
 import { hasSegment, isAsciiLetter, isDigit, isPeriodLabel, isSpace, splitSpaces } from './text.js';
 import { fyMonthIndex, isMonthLabel, isQuarterLabel } from './chartTheme.js';
 import {
-  PERIOD_WORDS, asksChange, canAdd, colTitle, dimOf, fractionPct, humanCol, isAdditive, isBlank, isLabelCol, isNumeric,
+  PERIOD_WORDS, asksChange, canAdd, colTitle, dimOf, fractionPct, measureKind as measureKindOf, humanCol, isAdditive, isBlank, isLabelCol, isNumeric,
   lowerIsBetter, tableColumns, unifyPeriods, unitOf, withoutTwins,
 } from './columns.js';
 
@@ -382,6 +382,11 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     // card below still shows every column.
     let keys = Object.keys(row).filter((k) => isNumeric(row[k]) && !isLabelCol(k));
     if (keys.length < 2) return { kind: 'record', row };
+    // X-3 (audit 2026-10-29): person days, ₹ lakh and households on one axis compare
+    // nothing — figures in different units stay a record card
+    if (new Set(keys.map((k) => unitOf(k) || measureKindOf(k))).size > 1 && !(prefer && prefer !== 'table')) {
+      return { kind: 'record', row };
+    }
     const isTotalKey = (k) => hasSegment(k, ['total', 'overall', 'sum']);
     const totalKeys = keys.filter(isTotalKey);
     if (keys.length >= 3 && totalKeys.length === 1) {
@@ -419,7 +424,13 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   });
   const allLbl = cols.filter((c) => !numCols.includes(c));
 
-  if (!numCols.length) return { kind: 'table', data };
+  if (!numCols.length) {
+    // E-5: a column with no figure in any row (not recorded that year) is said, not a bare list of names
+    const empty = cols.filter((c) => !isLabelCol(c) && data.every((r) => isBlank(r[c])));
+    return empty.length
+      ? { kind: 'table', data, note: `None of these ${data.length} rows has a figure for ${humanCol(empty[0])}, so there is nothing to ${asksRanking(question) ? 'rank' : 'chart'}.` }
+      : { kind: 'table', data };
+  }
 
   const { dims: lblCols, fixed, details } = splitLabels(data, allLbl, asksRanking(question));
   const where = fixed.length ? ` in ${fixed.map((c) => String(data[0][c])).join(', ')}` : '';
@@ -595,10 +606,32 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     };
   }
 
-  // C-13: a financial year a scheme does not hold is a gap, not two years drawn adjacent
-  const rowsAt = withYearGaps(data, lc);
+  // E-5 (audit 2026-10-29): in a ranking, places with no figure are left out of the
+  // chart (they opened it as empty bars) and the answer says how many had none
+  let ranked = data;
+  let unranked = 0;
+  if (asksRanking(question) && !isTime) {
+    ranked = data.filter((r) => toNumber(r[numCols[0]]) !== null);
+    unranked = data.length - ranked.length;
+    if (!ranked.length) {
+      return { kind: 'table', data, note: `None of these ${data.length} rows has a figure for ${humanCol(numCols[0])}, so there is nothing to rank.` };
+    }
+  }
   const low = asksLow(question);
-  const charts = numCols.slice(0, 3).map((vc) => {
+  // X-2: 300 bars in one card are unreadable — the top (or bottom) 15 are drawn and
+  // the note says the full list is in the table
+  let many = 0;
+  if (!isTime && ranked.length > 25) {
+    many = ranked.length;
+    const m0 = askedMeasureCol(question, numCols) || numCols[0];
+    ranked = ranked.slice().sort((p, q) => ((toNumber(q[m0]) ?? -Infinity) - (toNumber(p[m0]) ?? -Infinity)) * (low ? -1 : 1))
+      .slice(0, 15);
+  }
+  // C-13: a financial year a scheme does not hold is a gap, not two years drawn adjacent
+  const rowsAt = withYearGaps(ranked, lc);
+  // E-6: a ranking charts its ranking measure only; the others stay in the table
+  const chartCols = asksRanking(question) && !isTime ? [askedMeasureCol(question, numCols) || numCols[0]] : numCols.slice(0, 3);
+  const charts = chartCols.map((vc) => {
     const raw = rowsAt.map((r) => (r ? toNumber(r[vc]) : null));
     const scale = fractionPct(vc, raw) ? 100 : 1;          // D-6: 0.753 -> 75.3%
     return {
@@ -614,6 +647,8 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   // (only when the question asks how a figure moved — never by default).
   return {
     kind: 'multi', charts, defType, data, change: isTime && asksChange(question),
+    ...(many ? { note: `${low ? 'Bottom' : 'Top'} 15 of ${many} shown; the full list is in the table.` } : {}),
+    ...(unranked ? { note: `${unranked} of ${data.length} ${unranked === 1 ? 'has' : 'have'} no figure for ${humanCol(numCols[0])} and ${unranked === 1 ? 'is' : 'are'} left out of the ranking (they are in the table).` } : {}),
     ...(partOfWhole ? {} : { types: whyNot === 'scheme' ? ['bar'] : ['bar', 'line'], noAddWhy: whyNot }),
   };
 }

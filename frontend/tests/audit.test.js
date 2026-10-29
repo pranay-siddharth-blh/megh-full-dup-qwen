@@ -403,3 +403,68 @@ test('B-10: "money per beneficiary" picks the per-head column', () => {
   assert.equal(askedMeasureCol('Money per beneficiary in MGNREGA vs PMAY-G',
     ['beneficiaries', 'amount_crore', 'rupees_per_beneficiary']), 'rupees_per_beneficiary');
 });
+
+// ── Phase 7: export, feedback ────────────────────────────────────────────────
+import { sheetXml, tableSheet, tablesAsLines } from '../src/chat/exporters.js';
+import { answerKey } from '../src/chat/format.js';
+
+test('K-5: years and codes are text in Excel; quantities use Indian grouping', () => {
+  const sh = tableSheet('Q1 table', [{ year_key: 2023, lgd_code: 263456, sanction_no: '1234567890123456789', person_days: 120000 }], '');
+  assert.deepEqual(sh.textCols, [0, 1]);
+  const xml = sheetXml(sh.header, sh.rows, sh.textCols, sh.title);
+  assert.match(xml, /<t xml:space="preserve">2023<\/t>/);                  // text, never "2,023"
+  assert.match(xml, /<t xml:space="preserve">263456<\/t>/);
+  assert.match(xml, /<t xml:space="preserve">1234567890123456789<\/t>/);   // all 19 digits kept
+  assert.match(xml, /<c r="D2" s="2"><v>120000<\/v><\/c>/);                // a number, Indian-grouped style
+});
+
+test('H-4 / H-10: screen headings and the scope on top of each table sheet', () => {
+  const sh = tableSheet('Q2 table', [{ lgd_village_name: 'A', total_exp_lakh: 5 }], 'MGNREGA · East Khasi Hills · FY 2023-24');
+  assert.deepEqual(sh.header, ['Village name', 'Total expenditure (₹ lakh)']);
+  assert.equal(sh.title, 'Answered for: MGNREGA · East Khasi Hills · FY 2023-24');
+  assert.match(sheetXml(sh.header, sh.rows, sh.textCols, sh.title), /<row r="1"><c r="A1" t="inlineStr" s="5">/);
+});
+
+test('H-12: a table in the answer text becomes lines in the Answer cell', () => {
+  const text = 'Mawkynrew village:\n| Village | Block |\n|---|---|\n| Mawkynrew | Mawkynrew |';
+  assert.equal(tablesAsLines(text), 'Mawkynrew village:\nVillage · Block\nMawkynrew · Mawkynrew');
+});
+
+test('K-4: a vote is keyed on the answer itself, the same live or reopened', () => {
+  assert.equal(answerKey('Q2', 'answer two'), answerKey('Q2', 'answer two'));
+  assert.notEqual(answerKey('Q2', 'answer two'), answerKey('Q3', 'answer three'));
+});
+
+test('E-5: places with no figure are left out of a ranking, and the note says how many', () => {
+  const rows = [{ village: 'A', women_person_days: null }, { village: 'B', women_person_days: null },
+    { village: 'C', women_person_days: 900 }, { village: 'D', women_person_days: 800 }];
+  const a = buildAnalytics('Top 4 villages by women person days in 2025-26', rows, null);
+  assert.deepEqual(a.charts[0].labels, ['C', 'D']);
+  assert.match(a.note, /^2 of 4 have no figure/);
+  const none = buildAnalytics('Top 2 villages by women person days', rows.slice(0, 2), null);
+  assert.equal(none.kind, 'table');
+  assert.match(none.note, /nothing to rank/);
+});
+
+test('E-6: a ranking charts its ranking measure only', () => {
+  const rows = ['A', 'B', 'C'].map((b, i) => ({ block: b, person_days: 900 - i * 100, households: 50 + i * 30, expenditure_lakh: 5 + i }));
+  const a = buildAnalytics('Top 3 blocks by MGNREGA person days, with households and expenditure', rows, null);
+  assert.equal(a.charts.length, 1);
+  assert.match(a.charts[0].title, /^Person days by block/);
+});
+
+test('X-2: 300 villages draw the top 15 with a note', () => {
+  const rows = Array.from({ length: 300 }, (_, i) => ({ village: `V${i}`, person_days: i }));
+  const a = buildAnalytics('Person days by village', rows, null);
+  assert.equal(a.charts[0].labels.length, 15);
+  assert.equal(a.charts[0].labels[0], 'V299');
+  assert.equal(a.note, 'Top 15 of 300 shown; the full list is in the table.');
+  assert.equal(a.data.length, 300);                    // the table keeps every row
+});
+
+test('X-3: one row with figures in different units is a record card, not one axis', () => {
+  const row = [{ person_days: 120000, total_exp_lakh: 900, households_employed: 4000 }];
+  assert.equal(buildAnalytics('MGNREGA summary for Ri Bhoi', row, 'kpi_bar').kind, 'record');
+  const same = [{ wage_exp_lakh: 600, material_exp_lakh: 300 }];
+  assert.equal(buildAnalytics('wages vs material', same, 'kpi_bar').kind, 'kpi');
+});

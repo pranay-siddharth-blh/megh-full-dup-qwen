@@ -1695,6 +1695,7 @@ async def _cross_scheme_scope(d: dict, scope: "auth.UserScope | None" = None) ->
             "answer": _res["answer"],
             **({"column_totals": _res["totals"]} if _res.get("totals") else {}),
             **({"measure_notes": _res["measure_notes"]} if _res.get("measure_notes") else {}),
+            **({"schemes_with_data": _res["schemes_with_data"]} if "schemes_with_data" in _res else {}),
         }
     logger.info("cross-scheme question %r -> %s per-scheme queries%s", question, schemes,
                 f" (not held: {sorted(gaps)})" if gaps else "")

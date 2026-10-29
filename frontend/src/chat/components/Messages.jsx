@@ -1,6 +1,6 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnalytics, chartPreference, humanCol, withoutChartPhrase } from '../analytics.js';
-import { fullStamp } from '../format.js';
+import { answerKey, fullStamp } from '../format.js';
 import { CompareCard, DynTable, GroupedChart, PivotTable, RecordCard, StackedChart, SwitchableChart, TwoDimChart } from './Charts.jsx';
 import { Markdown, plainText } from './Markdown.jsx';
 import { useReveal } from '../reveal.js';
@@ -116,7 +116,7 @@ function Analytics({ question, response, view, onAsk }) {
       </div>
     );
   }
-  if (a.kind === 'table') return <div className="analytics"><DynTable data={a.data} /></div>;
+  if (a.kind === 'table') return <div className="analytics">{note}<DynTable data={a.data} /></div>;
   // A chart type was asked for: answers whose card has no type switch (grouped,
   // stacked) are drawn by the cards that have one, so the asked type is used.
   if (prefer && a.kind === 'stacked') {
@@ -326,10 +326,51 @@ function SqlDisclosure({ response }) {
 
 // ── Follow-up area ──────────────────────────────────────────────────────────
 // Every chip runs its question exactly like anything the user types.
+// X-9 / F-5 (audit 2026-10-29): "Next steps", "Try asking" and "Earlier" chips were
+// mouse-only; every chip is reachable with Tab and taps with Enter or Space.
 const askProps = (onAsk, q) => ({
   style: { cursor: 'pointer' },
+  role: 'button',
+  tabIndex: 0,
   onClick: (e) => { e.preventDefault(); e.stopPropagation(); onAsk(q); },
+  onKeyDown: (e) => {
+    if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); e.stopPropagation(); onAsk(q); }
+  },
 });
+
+// F-3 / F-4 (audit 2026-10-29): a data answer that failed looked like any other
+// ("0 results", no retry), and one with no rows offered nothing to try next.
+function AnswerState({ response, question, onAsk }) {
+  if (response.route !== 'data' || response.intent === 'CLARIFY' || response.denied) return null;
+  const rows = Array.isArray(response.data) ? response.data.length : 0;
+  const q = String(question || '').trim();
+  if (response.answer_failed || (response.confidence === 'low' && !rows)) {
+    return (
+      <div className="chart-note answer-failed" role="status">
+        <p>Could not get the figures for this question. Try again, or ask it in other words.</p>
+        {onAsk && q && <div className="clarify-opts"><button type="button" className="clarify-opt" {...askProps(onAsk, q)}>Try again</button></div>}
+      </div>
+    );
+  }
+  if (rows || !q) return null;
+  const low = q.toLowerCase();
+  return (
+    <div className="chart-note" role="status">
+      <p>No records for this question.</p>
+      {onAsk && (
+        <div className="clarify-opts">
+          {!low.includes('all financial years') && (
+            <button type="button" className="clarify-opt" {...askProps(onAsk, `${stripEnd(q)} across all financial years`)}>For all financial years</button>
+          )}
+          {!low.includes('all of meghalaya') && (
+            <button type="button" className="clarify-opt" {...askProps(onAsk, `${stripEnd(q)} for all of Meghalaya`)}>For all of Meghalaya</button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+const stripEnd = (q) => { let t = String(q).trim(); while (t && '?.!'.includes(t[t.length - 1])) t = t.slice(0, -1); return t; };
 
 function SchemePicker({ response, onAsk }) {
   const opts = ((response && response.scheme_options) || [])
@@ -359,7 +400,8 @@ function SchemePicker({ response, onAsk }) {
 const SCHEME_NAMES = ['MGNREGA', 'PMAY-G', 'Focus Plus', 'CM Elevate', 'Focus Legacy', 'CM Elevate Legacy']
   // Longest name first, so "CM Elevate Legacy (…)" is not read as "CM Elevate".
   .sort((a, b) => b.length - a.length);
-const schemeOf = (label) => SCHEME_NAMES.find((n) => label === n || (label.startsWith(n) && !isAsciiLetterOrDigit(label[n.length]))) || null;
+// F-1 (audit 2026-10-29): "MGNREGA vs PMAY-G" is a pair, not MGNREGA — shown in full
+const schemeOf = (label) => (String(label).includes(' vs ') ? null : SCHEME_NAMES.find((n) => label === n || (label.startsWith(n) && !isAsciiLetterOrDigit(label[n.length]))) || null);
 const isAsciiLetterOrDigit = (c) => typeof c === 'string' && c.length === 1
   && ((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9'));
 
@@ -532,7 +574,8 @@ const fbKey = (sessionId, id) => `megh_fb:${sessionId || ''}:${id}`;
 function readVote(key) { try { return Number(sessionStorage.getItem(key)) || 0; } catch (e) { return 0; } }
 function saveVote(key, v) { try { if (v) sessionStorage.setItem(key, String(v)); else sessionStorage.removeItem(key); } catch (e) { /* ignore */ } }
 
-function FeedbackActions({ id, sessionId, question, response, answer }) {
+function FeedbackActions({ sessionId, question, response, answer }) {
+  const id = answerKey(question, answer);
   const key = fbKey(sessionId, id);
   const [vote, setVote] = useState(() => readVote(key));
   const [asking, setAsking] = useState(false);
@@ -554,7 +597,8 @@ function FeedbackActions({ id, sessionId, question, response, answer }) {
     send(next).catch(() => { setVote(prev); saveVote(key, prev); setAsking(false); setState('error'); });
   };
   const submitNote = () => {
-    const comment = [reason, note.trim()].filter(Boolean).join(' — ');
+    // K-37: the reason and the note together stay inside the server's 1,000 characters
+    const comment = [reason, note.trim()].filter(Boolean).join(' — ').slice(0, 1000);
     setAsking(false);
     if (!comment) return;
     send(-1, comment).then(() => setState('sent')).catch(() => setState('error'));
@@ -875,6 +919,7 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
                   <Analytics question={question} response={response} view={view} onAsk={onAsk} />
                 </div>
               )}
+              <AnswerState response={response} question={question} onAsk={onAsk} />
               <SqlDisclosure response={response} />
               <FollowUp response={response} onAsk={onAsk} />
               <ContinueOffer response={response} onAsk={onAsk} />
@@ -883,8 +928,9 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
         </div>
         <div className="msg-foot">
           <div className="mtime">
-            {showMeta
-              ? `${time} · ${response.row_count || 0} result${response.row_count === 1 ? '' : 's'} · ${response.execution_time_ms || 0}ms`
+            {/* K-33: the result count only under a data answer */}
+            {showMeta && response.route === 'data'
+              ? `${time} · ${response.row_count || 0} result${response.row_count === 1 ? '' : 's'}${response.execution_time_ms ? ` · ${response.execution_time_ms}ms` : ''}`
               : time}
           </div>
           {answer && (

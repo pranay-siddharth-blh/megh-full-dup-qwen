@@ -127,3 +127,39 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | X-12 | Fixed (label words only as the whole name or its end; backend mirror) | columns.js (`isLabelCol`), app/measure_kinds.py, c13 | UI `X-6 / X-7 / X-12 …`; `test_label_words_mark_a_label_only_at_the_end`, `test_a_per_year_measure_is_charted` |
 | X-13 | Fixed (below 0.01 of the unit, the smaller unit) | columns.js (`formatCell`), chartTheme.js (`fmtUnit`) | UI `X-13 / X-14 …` |
 | X-14 | Partly fixed — rupee columns (rs / rupees / ₹) show ₹ in lakh / crore; a money column named with no unit still depends on its name (the backend does not send a unit per column) | columns.js, chartTheme.js | UI `X-13 / X-14 …` |
+| K-1 | Fixed (leaving a chat stops its answer; a result that lands after a switch is dropped, not shown in the other chat) | frontend/src/chat/App.jsx (`leaveChat`, `chatGenRef`, `setMessagesHere`) | Needs browser check (React state; no Node harness for App.jsx) |
+| K-2 | Fixed (client: sign-out stops the answer, clears the screen, new session id; server: a session held by another signed-in user is refused with 409) — the server check is per worker; a cross-worker owner check needs the durable owner lookup | App.jsx (`handleLogout`), app/routers/query.py | `test_router_refuses_a_session_held_by_another_user` (tests/test_conversation_layer.py, added); browser check |
+| K-4 | Fixed (vote keyed on the answer's own content; the server upsert stores the vote's own question and answer) | frontend/src/chat/format.js (`answerKey`), Messages.jsx, app/routers/feedback.py | UI `K-4 …`; `test_feedback_upsert_keeps_the_votes_own_question_and_answer` |
+| K-5 | Fixed (year / code / id columns and 13+ digit values written as text; Indian grouping number format) | frontend/src/chat/exporters.js (`sheetXml` textCols, numFmt 164/165), ChatExport.jsx | UI `K-5 …` |
+| K-8 | Fixed (delete of the open chat goes through newChat → leaveChat, which stops the run) | App.jsx | browser check |
+| K-9 | Fixed (one pending chip slot; the typed draft is not overwritten; cleared by Stop and chat switch) | App.jsx (`pendingAskRef`) | browser check |
+| K-10 | Fixed (box limited to 2,000 characters with a count near the end; a validation error's message is shown, not "[object Object]") | App.jsx, api.js (`detailText`), chat.css | browser check |
+| K-12 | Fixed (only a 401 / 403 from /api/auth/me drops the token) | api.js (`fetchMe` status), App.jsx | browser check |
+| K-13 | Fixed ("degraded" health counts as back) | App.jsx | browser check |
+| K-14 | Fixed (refocus only when focus is already in the chat; never on a touch screen) | App.jsx (`refocusComposer`) | browser check |
+| K-25 | Fixed (no Regenerate on a local redraw) | App.jsx (`local`) | browser check |
+| K-26 | Fixed (a chat switch forgets the stopped question) | App.jsx (`leaveChat`) | browser check |
+| K-33 | Fixed (result count only under data answers; no "0ms") | Messages.jsx | browser check |
+| K-37 | Fixed (reason + note cut to the server's 1,000 characters) | Messages.jsx | browser check |
+| K-38 | Fixed (an earlier year's date names its year) | frontend/src/chat/format.js | browser check |
+| E-5 | Fixed (every descending ORDER BY gets NULLS LAST in the SQL rewrite step, on the SQLGlot tree; UI leaves places with no figure out of a ranking and says how many; all missing: says why there is no chart) | app/sql_ast.py (`nulls_last_on_desc`), c11 `_scheme_sql_rewrites`, analytics.js | `test_descending_sorts_put_missing_figures_last`; UI `E-5 …` |
+| E-6 | Fixed (a ranking charts its ranking measure only) | analytics.js | UI `E-6 …` |
+| X-2 | Fixed (over 25 categories: top / bottom 15 drawn, "Top 15 of 300 shown; the full list is in the table") | analytics.js | UI `X-2 …` |
+| X-3 | Fixed (one row with figures in different units stays a record card unless a chart is asked) | analytics.js | UI `X-3 …` |
+| X-9 | Fixed (chips and sidebar items reachable with Tab, pressed with Enter / Space; role="button") | Messages.jsx (`askProps`), Sidebar.jsx (`pressable`) | browser check |
+| F-5 | Fixed (as X-9) | Messages.jsx | browser check |
+| F-1 | Fixed (a "MGNREGA vs PMAY-G" chip shows its full label) | Messages.jsx (`schemeOf`) | browser check |
+| F-2 | Fixed (the pair chip asks for the figures the officer named; a question with no figure keeps "difference between") | app/pipeline/common/c04_scheme_listing.py | `test_comparison_pause_chips_ask_for_the_figures` |
+| F-3 | Fixed (a failed data answer says "Could not get the figures" with a Try again chip) | Messages.jsx (`AnswerState`) | browser check |
+| F-4 | Fixed (no rows: "No records for this question" with "For all financial years" / "For all of Meghalaya" chips) | Messages.jsx (`AnswerState`) | browser check |
+| F-9 | Not reproducible offline — runs through the LLM mention extractor and the DB-backed resolver; the out-of-scope guard already refuses unknown places in the branches readable here. Needs a live check: "MGNREGA person days in East Khasi Hils" | | |
+| F-11 | Fixed by G-8 (the "villages with both" chip is now answered by the overlap query) — Needs live check | app/cross_figures.py | `test_villages_where_both_are_present_are_listed` |
+| H-4 | Fixed (Excel headings = screen headings) | exporters.js (`tableSheet`) | UI `H-4 / H-10 …` |
+| H-5 | Needs my decision — the banner's exact text is pinned by existing tests ("PMAY-G · All of Meghalaya", test_topic_ledger.py) | | |
+| H-6 | Needs my decision — as H-5 ("MGNREGA · Mawphlang", test_topic_ledger.py; "MGNREGA · East Khasi Hills · FY 2022-23", test_cache_hit_context.py) | | |
+| H-7 | Fixed for the cross-scheme figures path ("MGNREGA (Focus Plus: no data) · …"); the per-scheme model path does not send which schemes returned rows yet | cross_figures (`schemes_with_data`), c13, c14 `_attach_scope_banner` | `test_banner_names_only_the_schemes_with_figures` |
+| H-8 | Needs my decision — as H-5 ("FY 2022-23, FY 2023-24" pinned in test_topic_ledger.py) | | |
+| H-9 | Partly fixed — the main sheet has the screen's columns (one year column, twins folded, screen headings) and the raw rows are kept on a "Qn data" sheet; pivots, compare cards and the change column are not rebuilt in Excel | ChatExport.jsx, exporters.js | browser check |
+| H-10 | Fixed ("Answered for: …" above each table sheet; an "Answered for" column on the Conversation sheet) | ChatExport.jsx, exporters.js | UI `H-4 / H-10 …` |
+| H-11 | Fixed (a redraw writes no new sheet; its row points to the original sheet) | App.jsx (`redrawOf`), ChatExport.jsx | browser check |
+| H-12 | Fixed (text tables become lines in the Answer cell) | exporters.js (`tablesAsLines`) | UI `H-12 …` |

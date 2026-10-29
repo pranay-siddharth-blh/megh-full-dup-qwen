@@ -195,3 +195,29 @@ def test_a_per_year_measure_is_charted():
             {"district": "B", "financial_year": "2023-24", "houses_per_year": 7}]
     # "per" is a rate: two labels, one rate measure -> never stacked
     assert p._chart_hint("houses per year by district and year", "", rows) is None
+
+
+def test_banner_names_only_the_schemes_with_figures():                                 # H-7
+    r = {"route": "data", "schemes": ["MGNREGA", "Focus Plus"], "sql": "SELECT 1",
+         "resolved_entities": {"year_key": 2023}, "schemes_with_data": ["MGNREGA"]}
+    p._attach_scope_banner(r, None)
+    assert r["scope_banner"] == "MGNREGA (Focus Plus: no data) · All of Meghalaya · FY 2023-24"
+
+
+def test_descending_sorts_put_missing_figures_last():                                  # E-5
+    from app import sql_ast
+    sql = ("SELECT village_name, SUM(women_persondays) AS w FROM curated.v_employment "
+           "WHERE year_key = 2025 GROUP BY 1 ORDER BY w DESC LIMIT 7")
+    assert "ORDER BY w DESC NULLS LAST LIMIT 7" in sql_ast.nulls_last_on_desc(sql)
+    asc = "SELECT a FROM t ORDER BY a"
+    assert sql_ast.nulls_last_on_desc(asc) == asc                                        # untouched, byte for byte
+    out = asyncio.run(p._scheme_sql_rewrites("top 7 villages by women person days", ["MGNREGA"],
+                                             {"resolved": {}}, sql))
+    assert "DESC NULLS LAST" in out
+
+
+def test_comparison_pause_chips_ask_for_the_figures():                                 # F-2
+    e = p._scheme_comparison_clarification("compare beneficiaries of the schemes")
+    assert e.options[0] == {"label": "MGNREGA vs PMAY-G", "question": "Compare beneficiaries in MGNREGA and PMAY-G"}
+    e = p._scheme_comparison_clarification("what is the difference between the schemes")
+    assert e.options[0]["question"] == "difference between MGNREGA and PMAY-G"
