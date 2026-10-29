@@ -1466,6 +1466,21 @@ the DATA path stubbed (the VPN was down: `10.48.242.4` answered neither 5432 nor
   1,481,572 person-days). KI-487..492 VERIFIED live. The report's "What works" rows TTW1-TTW5 5/5. Context harness over
   HTTP 89/94: the 5 failures are KI-485's (identical on Main); the two permission scenarios pass over HTTP. Live context
   suite 107/107.
+- **Self-review of the report fixes (2026-10-29 night) — 3 bugs found in them and FIXED, offline:**
+  - **KI-493** — Bug 2's fix also let full rules questions that name a measure keyword ("who approves the sanction?",
+    "is there a sanction limit?") count as measure fragments, so after a data answer they could run as data. Now the
+    measure vocabulary counts only for a fragment (`_REPHRASE_START`: the message does not open like a question).
+  - **KI-494** — Bug 3's list carry dropped a region's flag ("Garo Hills" = one total): a follow-up came back per
+    district. `district_list_region` now travels with its list.
+  - **KI-495** — comparing two blocks in different districts kept the chat's district ("Mawphlang and Tikrikilla
+    blocks" after East Khasi Hills would filter Tikrikilla away). The inherited district is now skipped when the
+    question's blocks lie elsewhere, as it already was for one block.
+  - **KI-496** (OPEN, Low, INFERRED) — comparison -> knowledge aside -> measure-only question: the Bug 1 scope phrase
+    reads the single place, not `comparison_entities`, so that chain likely answers statewide. Not verified live.
+  - Older weakness, not from this work: "how is expenditure audited?" / "when are job cards renewed?" already counted
+    as measure-only before (measure family words); unchanged.
+  Tests: 3 added to `tests/test_test_team_report_2026_10_29.py` (14). Full pytest 4,508 passed, 0 failed (after the
+  Main merge 2bc799f); 14/14 scripts. Live re-check pending (VPN down).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
