@@ -11,6 +11,13 @@
 # asks for, plus the grouping keys a correct answer must show — extra columns
 # in the pipeline's answer are fine (compare.py).
 #
+# `expect_pause: <rule>` (CTX-09, 2026-10-29): the signed conversation rules
+# answer this wording with a question in a new chat — no place or no year
+# (D-056 §1, D-065), a bare "CM Elevate applicants" (D-064). Pausing with that
+# rule is scored `expected_pause`, outside the accuracy denominator; any other
+# pause is still a miss. Set from the 2026-10-27 run's pause rules; the open
+# wordings are listed in DECISIONS.md (D-A2-CTX-09) for the user's sign-off.
+#
 # Drafted 2026-10-15 against the documented rules in app/schema_context.py and
 # data/<scheme>/*.yaml, every gold run on the live DB. Changing a gold answer
 # is a decision, not a fix: note why in `note`.
@@ -383,6 +390,7 @@
   scheme: Focus Plus
   difficulty: easy
   ordered: false
+  expect_pause: year-not-specified
   question: What is the total Focus Plus amount disbursed in South Garo Hills district?
   gold_sql: |
     SELECT SUM(amount_disbursed) AS amount_disbursed
@@ -394,6 +402,7 @@
   scheme: Focus Plus
   difficulty: easy
   ordered: false
+  expect_pause: year-not-specified
   question: How many distinct Focus Plus beneficiaries (individual people, not payments) are recorded in Ri Bhoi
     district?
   gold_sql: |
@@ -406,6 +415,7 @@
   scheme: Focus Plus
   difficulty: easy
   ordered: false
+  expect_pause: year-not-specified
   question: In the Focus Plus 12.5K registration batch, how many registrants currently have a focus status of Approved?
   gold_sql: |
     SELECT COUNT(DISTINCT beneficiary_key) AS registrants
@@ -418,6 +428,7 @@
   scheme: Focus Plus
   difficulty: easy
   ordered: false
+  expect_pause: year-not-specified
   question: How much Focus Plus money was paid out in Haripur village of Selsella block, West Garo Hills?
   gold_sql: |
     SELECT SUM(amount_disbursed) AS amount_disbursed
@@ -444,6 +455,7 @@
   scheme: Focus Plus
   difficulty: medium
   ordered: true
+  expect_pause: year-not-specified
   question: Which five blocks have the highest number of distinct Focus Plus beneficiaries statewide? Rank them.
   gold_sql: |
     SELECT block_name_raw AS block, COUNT(DISTINCT beneficiary_key) AS beneficiaries
@@ -457,6 +469,7 @@
   scheme: Focus Plus
   difficulty: medium
   ordered: true
+  expect_pause: year-not-specified
   question: List the top 5 villages in West Khasi Hills by number of Focus Plus payments made, highest first.
   gold_sql: |
     SELECT lgd_village_name, COUNT(*) AS payments
@@ -473,6 +486,7 @@
   scheme: Focus Plus
   difficulty: medium
   ordered: false
+  expect_pause: year-not-specified
   question: For the Focus Plus 12.5K registration cohort in East Garo Hills, how many registrants are female and
     how many are male?
   gold_sql: |
@@ -487,6 +501,7 @@
   scheme: Focus Plus
   difficulty: medium
   ordered: false
+  expect_pause: year-not-specified
   question: For Mylliem block, show the number of Focus Plus payments and the amount disbursed in each tranche,
     split by batch.
   gold_sql: |
@@ -501,6 +516,7 @@
   scheme: Focus Plus
   difficulty: hard
   ordered: false
+  expect_pause: year-not-specified
   question: What percentage of the total Focus Plus amount disbursed across Meghalaya went to West Garo Hills district?
   gold_sql: |
     SELECT ROUND(100.0 * SUM(amount_disbursed) FILTER (WHERE lgd_district = 'WEST GARO HILLS')
@@ -512,6 +528,7 @@
   scheme: Focus Plus
   difficulty: hard
   ordered: false
+  expect_pause: year-not-specified
   question: 'Compare Tikrikilla and Selsella blocks on Focus Plus: number of distinct beneficiaries, total amount
     disbursed, and amount disbursed per beneficiary.'
   gold_sql: |
@@ -528,6 +545,7 @@
   scheme: Focus Plus
   difficulty: hard
   ordered: false
+  expect_pause: year-not-specified
   question: In which districts do 12.5K registration batch payments make up more than 4% of that district's Focus
     Plus payment records? Show each district's percentage.
   gold_sql: |
@@ -545,6 +563,7 @@
   scheme: Focus Legacy
   difficulty: easy
   ordered: false
+  expect_pause: year-not-specified
   question: How many distinct producer groups received Focus Legacy payments in Ri Bhoi district?
   gold_sql: |
     SELECT COUNT(DISTINCT pg_id) AS producer_groups
@@ -556,6 +575,7 @@
   scheme: Focus Legacy
   difficulty: easy
   ordered: false
+  expect_pause: scope-not-specified
   question: What was the total Focus Legacy amount remitted to producer groups in FY 2024-25?
   gold_sql: |
     SELECT SUM(amount_disbursed) AS amount_disbursed
@@ -567,6 +587,7 @@
   scheme: Focus Legacy
   difficulty: easy
   ordered: false
+  expect_pause: scope-not-specified
   question: How many Focus Legacy payments were made into Meghalaya Rural Bank accounts?
   gold_sql: |
     SELECT COUNT(*) AS payments
@@ -590,6 +611,7 @@
   scheme: Focus Legacy
   difficulty: medium
   ordered: false
+  expect_pause: year-not-specified
   question: Block-wise for North Garo Hills, what Focus Legacy amount was disbursed and how many PG memberships
     did it cover?
   gold_sql: |
@@ -604,6 +626,7 @@
   scheme: Focus Legacy
   difficulty: medium
   ordered: true
+  expect_pause: scope-not-specified
   question: What were the top 5 products by number of Focus Legacy payments in FY 2022-23, ranked highest first?
   gold_sql: |
     SELECT UPPER(TRIM(product_raw)) AS product, COUNT(*) AS payments
@@ -619,6 +642,7 @@
   scheme: Focus Legacy
   difficulty: medium
   ordered: false
+  expect_pause: scope-not-specified
   question: For FY 2025-26, how many distinct producer groups of each group type received Focus Legacy money?
   gold_sql: |
     SELECT COUNT(DISTINCT pg_id) AS producer_groups
@@ -645,6 +669,7 @@
   scheme: Focus Legacy
   difficulty: medium
   ordered: true
+  expect_pause: year-not-specified
   question: Which three producer groups in West Jaintia Hills received the largest total Focus Legacy amount? Rank
     them.
   gold_sql: |
@@ -674,6 +699,7 @@
   scheme: Focus Legacy
   difficulty: hard
   ordered: false
+  expect_pause: year-not-specified
   question: 'Compare Umsning and Umling blocks of Ri Bhoi on Focus Legacy: number of producer groups paid, total
     PG memberships, and amount disbursed.'
   gold_sql: |
@@ -719,6 +745,7 @@
   scheme: CM Elevate
   difficulty: easy
   ordered: false
+  expect_pause: scope-not-specified
   question: Under the CM Elevate Goat Farming scheme, how many applications were filed at a CM Connect Centre instead
     of online?
   gold_sql: |
@@ -732,6 +759,7 @@
   scheme: CM Elevate
   difficulty: easy
   ordered: false
+  expect_pause: scope-not-specified
   question: How many CM Elevate applications currently sit at level 2 of the processing workflow?
   gold_sql: |
     SELECT COUNT(*) AS applications_at_level2
@@ -743,6 +771,7 @@
   scheme: CM Elevate
   difficulty: easy
   ordered: false
+  expect_pause: scope-not-specified
   question: How many applications under the CM Elevate Warehouse scheme came from registered bodies?
   gold_sql: |
     SELECT COUNT(*) AS registered_applications
@@ -768,6 +797,7 @@
   scheme: CM Elevate
   difficulty: medium
   ordered: true
+  expect_pause: cm-elevate-dataset
   question: Which 3 blocks of Ri Bhoi have the most applicants under the CM Elevate Piggery Development scheme?
   gold_sql: |
     SELECT lgd_block, COUNT(DISTINCT request_id) AS applicants
@@ -797,6 +827,7 @@
   scheme: CM Elevate
   difficulty: medium
   ordered: false
+  expect_pause: cm-elevate-dataset
   question: In how many different villages of Ri Bhoi has at least one applicant applied under the CM Elevate Poultry
     Farming scheme?
   gold_sql: |
@@ -855,6 +886,7 @@
   scheme: CM Elevate
   difficulty: hard
   ordered: false
+  expect_pause: cm-elevate-dataset
   question: Which CM Elevate schemes have more applicants in West Garo Hills than in Ri Bhoi?
   gold_sql: |
     SELECT scheme_name
@@ -869,6 +901,7 @@
   scheme: CM Elevate Legacy
   difficulty: easy
   ordered: false
+  expect_pause: year-not-specified
   question: What is the total sanctioned amount under CM Elevate Legacy in West Jaintia Hills district, in crore?
   gold_sql: |
     SELECT ROUND(SUM(sanctioned_amount) / 1e7, 2) AS sanctioned_cr
@@ -880,6 +913,7 @@
   scheme: CM Elevate Legacy
   difficulty: easy
   ordered: false
+  expect_pause: scope-not-specified
   question: How many CM Elevate Legacy records does the Goat Farming scheme have in financial year 2024-25?
   gold_sql: |
     SELECT COUNT(*) AS records
@@ -904,6 +938,7 @@
   scheme: CM Elevate Legacy
   difficulty: easy
   ordered: false
+  expect_pause: scope-not-specified
   question: How many CM Elevate Legacy records were desanctioned with Duplicate as the reason?
   gold_sql: |
     SELECT COUNT(*) AS records
@@ -931,6 +966,7 @@
   scheme: CM Elevate Legacy
   difficulty: medium
   ordered: true
+  expect_pause: year-not-specified
   question: Name the top 3 districts by total disbursement (subsidy plus loan) under the CM Elevate Legacy Piggery
     Development scheme.
   gold_sql: |
@@ -985,6 +1021,7 @@
   scheme: CM Elevate Legacy
   difficulty: hard
   ordered: false
+  expect_pause: year-not-specified
   question: For each Garo Hills district, what percentage of the total amount disbursed under CM Elevate Legacy
     was paid out as loan?
   gold_sql: |
@@ -1016,6 +1053,7 @@
   scheme: CM Elevate Legacy
   difficulty: hard
   ordered: false
+  expect_pause: scope-not-specified
   question: In FY 2024-25, which CM Elevate Legacy schemes have disbursed less than half of the amount they sanctioned?
   gold_sql: |
     SELECT scheme_name

@@ -201,3 +201,21 @@ def long_as_wide(gold_rows: list[dict], pred_rows: "list[dict] | None") -> bool:
             return False
         used.add(hits[0])
     return True
+
+
+# ── Deliberate pauses (CTX-09, 2026-10-29) ──────────────────────────────────
+# Some items ask what the signed conversation rules answer with a question:
+# a new chat with no place or no year (D-056 §1, D-065), a bare "CM Elevate
+# applicants" (D-064). Such an item records the pause it should get
+# (`expect_pause: <rule>`). Pausing with exactly that rule is the right
+# behaviour, not an NL->SQL miss: it is reported on its own and left out of the
+# accuracy denominator. A pause for any other reason still counts against it.
+NOT_SCORED = ("gold_error", "expected_pause")
+
+
+def pause_verdict(item: dict, detail: str) -> str:
+    """'expected_pause' when the pipeline paused with the rule the item
+    expects, else 'clarification'. `detail` is run_eval's "<rule>: <question>"."""
+    rule = str(detail or "").split(":", 1)[0].strip()
+    want = item.get("expect_pause")
+    return "expected_pause" if want and rule == want else "clarification"

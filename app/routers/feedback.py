@@ -57,6 +57,8 @@ async def give_feedback(body: FeedbackBody, scope: auth.UserScope = Depends(requ
            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10::jsonb,$11,$12)
            ON CONFLICT (user_id, message_key) DO UPDATE SET
              rating = EXCLUDED.rating,
+             -- K-4 (audit 2026-10-29): the vote's own question and answer, never an earlier one's
+             question = EXCLUDED.question, answer = EXCLUDED.answer, session_id = EXCLUDED.session_id,
              comment = COALESCE(EXCLUDED.comment, app.answer_feedback.comment),
              updated_at = NOW()""",
         [scope.tenant_id, scope.db_user_id, scope.username, body.session_id, body.message_key,

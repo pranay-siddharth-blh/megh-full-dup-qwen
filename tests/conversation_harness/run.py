@@ -78,7 +78,7 @@ async def run_scenario(driver, sc: dict, account_override: str | None, truth_ok:
     result = {"name": sc["name"], "file": sc["_file"], "account": account_override or sc.get("account"),
               "doc": sc.get("doc"), "turns": [], "passed": True}
     for i, turn in enumerate(sc["turns"], 1):
-        rec = await conv.ask(turn["say"])
+        rec = await conv.ask(turn["say"], account=turn.get("as_account"))
         expect = turn.get("expect") or {}
         truth = None
         if "truth" in expect and truth_ok:
@@ -133,7 +133,7 @@ async def main_async(args) -> int:
         driver = HttpDriver(base_url=args.base_url, stream=args.stream, default_account=args.account or "superadmin",
                             skip_cache=args.skip_cache)
     else:
-        driver = InProcessDriver()
+        driver = InProcessDriver(fresh_worker=args.fresh_worker)
     results = []
     started = time.time()
     try:
@@ -156,6 +156,9 @@ async def main_async(args) -> int:
             for sc in scenarios:
                 if sc.get("skip"):
                     print(f"\n[SKIP] {sc['name']}: {sc['skip']}")
+                    continue
+                if sc.get("drivers") and args.driver not in sc["drivers"]:
+                    print(f"\n[SKIP] {sc['name']}: runs on the {', '.join(sc['drivers'])} driver only")
                     continue
                 for rep in range(max(1, args.repeat)):
                     r = await run_scenario(driver, sc, args.account, truth_ok)
@@ -191,6 +194,9 @@ def main() -> int:
     ap.add_argument("--stream", action="store_true", help="use POST /api/query/stream (http driver)")
     ap.add_argument("--account", default="", help="seeded username for every scenario (default: the scenario's, else superadmin)")
     ap.add_argument("--skip-cache", action="store_true", help="bypass the answer caches (http driver)")
+    ap.add_argument("--fresh-worker", action="store_true",
+                    help="inprocess: every turn starts from a fresh Session rehydrated from the durable snapshot, "
+                         "as a turn landing on another worker does (QA-03)")
     ap.add_argument("--only", default="", help="comma-separated scenario names")
     ap.add_argument("--tags", default="", help="comma-separated tags (any match)")
     ap.add_argument("--repeat", type=int, default=1, help="run each scenario N times (flakiness)")

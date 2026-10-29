@@ -185,6 +185,22 @@ scope incl. leak, many asides, refusal, denied follow-up; forward; general; back
 conversation-meta flows (recap / explain / breakdown / correction / pick-a-district / overview / reason), comparisons
 with another scheme, and the farmers question. Format and rules: `tests/conversation_harness/README.md`.
 
+## 2c. Chat UI audit tests (2026-10-29)
+- `tests/test_chat_ui_audit_reading_2026_10_29.py` — sections I / J: the cross-scheme wordings through the real
+  `cross_figures.plan` (path, by_district, low, top_n), ranked answers on the real query row shape, `per_year_plan`
+  (place, N, years), relative periods, spans, the one-year rule.
+- `tests/test_chat_ui_audit_rows_2026_10_29.py` — section A / H / K: `answer_many` row shape, `_c13_unify_scheme_rows`,
+  the by-year mode, feedback upsert, the saved turn payload, 0-turn chats, village lookup.
+- `tests/test_chat_ui_audit_totals_2026_10_29.py` — section G / B / E / F: measure kinds (and the frontend copy check),
+  `_chart_hint` stacks, the village overlap, statewide totals, scheme comparisons, label words, NULLS LAST, chips.
+- `frontend/tests/audit.test.js` — the UI half: real `buildAnalytics` / `chartTheme` / `columns` / `exporters` on the
+  row shapes the backend sends (72 node tests in all with the existing files).
+- Plus `test_router_refuses_a_session_held_by_another_user` added to `tests/test_conversation_layer.py`.
+- `tests/test_chat_ui_audit_more_2026_10_29.py` — the second pass: K-6 truncate / restore, K-24, F-7, F-8, B-6,
+  E-3, E-9, I-10, I-13, X-14, J-10, G-10, and (through esbuild + node) K-36 table parsing and the E-3 table text.
+  `test_table_view_2026_10_28.py`, `test_cross_compare_card_2026_10_22.py` and this file run only when `node` is on
+  PATH (`PATH="/c/Program Files/nodejs:$PATH"` in Git Bash); otherwise they skip.
+
 ## 3. Latest results
 
 | Date | Suite | Result | Notes |
@@ -195,6 +211,8 @@ with another scheme, and the farmers question. Format and rules: `tests/conversa
 | 2026-10-29 evening (data-accuracy brief, D-092, KI-594..KI-603) | NEW `tests/test_data_accuracy_brief_2026_10_29.py` (36); NEW live `tests/live_chat_golden.py` (45); pinned money strings moved to D-092 in `test_answer_format_e9_2026_10_29`, `test_answer_framing_2026_10_18`, `test_answer_shapes_2026_10_22`, `test_metric_catalog_2026_10_26` (LIMIT 3); `test_pipeline_graph` stub writes Legacy SQL on its own view; pytest (documented command); scripts; `live_context_validation.py`; `nl2sql_eval/run_eval.py --label data-accuracy-brief-2026-10-29` | Golden **45/45** (D1-D10 were **3/10** before). New file 36/36. Full pytest 4,381 passed / 67 failed, run over 49 min while three sessions edited the tree; the 19 failing files re-run on the settled tree: all pass after the pin updates (3 RAG-grounding failures were meghoneai-63's, fixed by it). Scripts **14/14**. Live context 105/107 (T5 = known applications rule; D T3 fixed by the winner row, D re-run 5/5). Held-out **68/74, 0 regressions** | VPN up; :8401 (meghoneai-f0's) not restarted by this session |
 | 2026-10-29 night (C1 relative years KI-592, premise FY KI-593, E8 measured) | NEW `tests/test_relative_years_c1_2026_10_29.py` (17); live in-process 8 fresh chats (scratchpad `c1_chats.json` via the live suite's Conversation) before / after; full pytest (documented command) | New file **17/17**. Live **3/8 -> 8/8**. Full pytest **4,381 passed, 73 failed** (40 min, while the parallel session edited the answer formatter, RAG and CM Elevate files); re-run on the settled tree, every file this change touches or that failed near it (`test_pipeline_graph`, `test_short_fy_sql_prompt`, `test_scheme_years`, `test_context_semantic_state`, `test_conversation_meta`, `test_metric_catalog`, `test_mgnrega_usecase_fixes`, `test_single_year_phrase`) **346/1**, the 1 passes alone (95/95). The rest are the parallel session's in-progress tests (E9 money formatter, applications rule, D-089 no-ask defaults, RAG) | VPN up; :8401 not restarted |
 | 2026-10-29 (open-bug sweep, batch 1 + 2: KI-003..KI-436, D-088) | NEW test_open_bugs_batch_2026_10_29.py, test_open_bugs_batch2_2026_10_29.py, test_auth_geo_columns_ki007_2026_10_29.py, test_session_ownership_topics_ki399_ki400_2026_10_29.py; fake repair in test_pipeline_graph.py now returns a CHANGED query and counts the KI-003 re-ask as repair_reask; pytest (documented command); scripts; live_context_validation.py; run_eval.py --label open-bugs-final-2026-10-29 | This session's files **233/233**. Full pytest **4,254 passed, 45 failed** — 2 were this change (the graph repair counts; fixed, file now 48/3) and 43 are the parallel session's in-progress RAG-fix-report work saved during the run (Issue 6 no-year/no-place asks removed, NEW_CHAT_ASKS_SCOPE=False; Issue 13 Indian digit grouping; applications -> CM Elevate applications): those tests still expect the old behaviour and are that session's to update. Scripts **14/14**. Live suite **106/107** (T5 expects the bare-CM-Elevate dataset ask; the user's 2026-10-29 applications rule now answers it). Golden **71/74 (95.9%)**; wrong PM-04 (5 rows vs 1; re-run correct), FP-11, FL-12 | VPN up; :8401 not restarted |
+| 2026-10-29 late (chat UI audit second pass, D-089, KI-574) | pytest on every test file with a `def test_`, node on PATH (so the esbuild / node UI tests run too); the 14 script-style files; `node --test`; ESLint; `vite build` | pytest **4,367 passed, 2 skipped, 0 failed**. Scripts **14/14**. Node **78/78**. ESLint clean (now installed). Build clean. No live run (VPN off) | VPN off |
+| 2026-10-29 evening (chat UI audit, D-088, KI-574) | pytest on every test file with a `def test_` (offline, VPN off); the 14 script-style test files; `frontend` node tests; `vite build` | pytest **4,312 passed, 28 skipped, 0 failed**. Scripts **14/14 OK**. Node **72/72**. Build clean. ESLint not run (`@eslint/js` missing). No live run (no VPN) | VPN off |
 | 2026-10-29 (E9 answer formatting, D-082, KI-447/448) | NEW `tests/test_answer_format_e9_2026_10_29.py` (templates switched on per test; conftest keeps them off for the older suites); pytest (documented command); scripts; live in-process | pytest **4,151 passed, 1 failed** (`test_rag_general_scoping.py::test_naming_note_is_used_by_the_single_scheme_composer`: `app/rag.py` was being edited by the parallel re-ranker session during the run; re-run alone, the file is 38/38). Before E9 the same tree gave 4,052 passed / 5 failed (scheme-stage / graph tests from the parallel E12 edits, which pass now). Scripts **14/14**. Pinned fallback strings updated for ₹ (`test_answer_framing_2026_10_18`, `test_mgnrega_sheet_fixes`, `test_cm_elevate_legacy`). Live: 12 questions (real models + megh_db): ranking, trend, 2 compares and 2 splits templated and checked against their rows; the MG-10 share now reads "24.09%". After the :8401 restart (`.venv`, 13:28): 4 questions over HTTP `/api/query` (fresh JWT, state officer) — trend, split, share templated and correct; the block ranking was refused by the role's district-level cap (E12, not E9). Held-out golden set (`run_eval.py --label e9-answer-formatting`): **56.8% (42/74)**, 31 clarifications (unchanged), 1 wrong = FP-05: with the qdrant examples the SQL was `ROUND(SUM(amount)/1e7, 2)`, so a small block's ₹7,45,000 became 0.07 crore ("₹7.00 lakh", 6% off); the scorer rightly rejects it (it already maps crore to rupees). Correct with `yaml` in the run before (KI-438); SQL-side, not E9 | VPN up |
 | 2026-10-29 (D-087 claims: structural data rules checked live) | `tests/test_data_facts_2026_10_29.py` +6 (now 13: claim queries parse / no privacy table, a broken rule alerts once and clears, an outage changes nothing, the alert goes through the guardrail webhook sender, value-list problems name the new values); live `check_claims()`; the same queries with deliberately wrong expectations; pytest (documented command) | File **13/13**. Live: **17/17 claims hold**, 0 query errors; wrong expectations caught (7,392 'Valid' rows, a "new" FY, 292,385 ₹2,500 rows). Full pytest **4,270 passed, 0 failed** | :8401 (another session's, 16:20:49) predates the change; stopping it was refused — next restart picks it up |
 | 2026-10-29 (KI-573: PMAY-G "received no release") | NEW `tests/test_pmay_no_release_ki573_2026_10_29.py` (10: 4 wordings x with/without the all-years chip -> `none`, 5 neighbouring wordings unchanged, the statewide `_pmay_facts_query` builds `no_release`); PMAY-G files + namespace guard; pytest (documented command); live in-process x3 (scratchpad `live_facts_check.py`, with the lifespan's resolver loaders) | New file **10/10** (5 failed before the fix, reproducing the bug). PMAY-G files + namespace **131/0**. Full pytest **4,265 passed, 0 failed**. Live: statewide 462, Ri Bhoi 68, released ₹2,185.26 cr — each = megh_db | A first live run without `entity_resolver.load_all()` refused Ri Bhoi as "not in Meghalaya": harness error, not the app (HANDOFF) |
@@ -451,7 +469,34 @@ cases. Per file:
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
-- Progress: not started
+- Progress: context-memory tasks done (2026-10-29, branch `lane/a2`).
+- **Results on the final tree (offline, VPN down), rebased on Main 1360c3b (PR #17):** full pytest command (§2)
+  **4,402 passed, 0 failed, 3 skipped** (after the live KI-364 fix; 4,247 before the rebase); frontend `npm run lint` clean, `npm test` 13/13; 14/14 script suites; `test_pipeline_namespace_2026_10_26.py` green; all 141 harness scenarios validate.
+  Every new regression test was also run against the old code and fails there.
+- **New tests (214):** `test_topic_rev_2026_10_28.py` (9, real router + real sync_in/sync_out over a fake
+  app.conversations), `test_ownership_turns_2026_10_29.py` (13), `test_summary_reset_2026_10_29.py` (6),
+  `test_stop_offer_cache_2026_10_29.py` (5, real router + real graph), `test_cacheable_shapes_2026_10_28.py` (142:
+  the real `is_cacheable` over every harness turn, dependency derived, not labelled), `test_delete_retention_2026_10_29.py`
+  (10), `test_decision_log_text_2026_10_29.py` (2), `test_ctx07_followups_2026_10_29.py` (23),
+  `test_harness_qa03_2026_10_29.py` (4). Added: `test_nl2sql_eval_set.py` (expect_pause names a real rule),
+  `test_nl2sql_eval_compare.py` (2, pause_verdict).
+- **Changed deliberately:** `test_context_hardening.py` source pin follows the turn body to `_answer_turn` (CTX-01)
+  and its FakeBackend copies the new summary upsert (CTX-11); `test_session_sync_retry.py` drives the real
+  PostgresBackend over a failing `db.fetchrow` (CTX-12: the old fake raised where the real code returned {}).
+- **Harness (QA-03):** the in-process driver round-trips the durable snapshot every turn; `--fresh-worker`;
+  `as_account` + `expect.status`; `drivers:`; scenarios P1 (ownership, http) and P2 (topics + cache + go back).
+  `live_context_validation.py` writes `logs/live_context_validation_<date>_<time>.json` (was one fixed file).
+- **Eval (CTX-09):** `expected_pause` outcome; the 2026-10-27 run re-scored is 41/43 = 95.3% (was 41/74), 31/31
+  pauses as the rules require.
+- **Live (VPN, 2026-10-29):** live context suite 107/107 (follow-ups 74/74, SQL 68/68); harness P1 + P2 over HTTP
+  plain and stream pass (P2 also with the response cache on: a real cache hit); harness in-process `--fresh-worker
+  --tags context` 75/82 — the 7 failures are identical on Main (KI-485); nl2sql eval 97.7% (42/43) + 31
+  `expected_pause` (FL-12 flips between runs, model variance). Not run: VM1 → VM2 pause / resume, J2 / J3 (KI-037).
+- **Test team report fixes (2026-10-29):** NEW `tests/test_test_team_report_2026_10_29.py` (11; 9 fail on the old
+  code); NEW harness scenarios `test_team_report_2026_10_29.yaml` (TT1-TT6, all valid; the cache-gate table test now
+  covers them). Full pytest **4,413 passed, 0 failed, 3 skipped**; 14/14 scripts. Offline only (VPN down).
+- **Live retest (2026-10-29 evening):** TT1-TT6 6/6 and TTW1-TTW5 5/5 over HTTP; `--tags context` over HTTP 89/94
+  (5 = KI-485, pre-existing); live context suite 107/107 (`logs/live_context_validation_2026-10-29_1736.json`).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

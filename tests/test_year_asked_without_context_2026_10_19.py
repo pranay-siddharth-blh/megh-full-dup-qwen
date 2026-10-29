@@ -45,7 +45,13 @@ def _defaults_on(monkeypatch):
 def test_fresh_question_with_no_year_asks_which_year():
     # D-056: a new chat asks the district first; its chip resumes the question
     # (skip_scope_clarify) and THEN the year is asked.
+    # J-4 / J-5 (chat UI audit 2026-10-29, user decision): a question naming its
+    # scheme is statewide and goes straight to the year; without one, district first
     d = _turn("total beneficiaries for MGNREGA", ["MGNREGA"], chat_has_scope=False)
+    with pytest.raises(p.ClarificationNeeded) as exc:
+        _run(d)
+    assert exc.value.rule == "year-not-specified"
+    d = _turn("total beneficiaries", ["MGNREGA"], chat_has_scope=False)
     with pytest.raises(p.ClarificationNeeded) as exc:
         _run(d)
     assert exc.value.rule == "scope-not-specified"

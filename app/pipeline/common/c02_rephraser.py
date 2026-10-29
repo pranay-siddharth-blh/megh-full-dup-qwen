@@ -108,17 +108,35 @@ def _load_place_words() -> frozenset:
     return frozenset(words)
 
 
+@functools.lru_cache(maxsize=1)
+def _c02_typo_vocab() -> frozenset:
+    """_REPHRASE_VOCAB plus the measure words of the few-shot synonym table
+    (annotations._FEWSHOT_SYNONYMS: "persondays", "mandays", "jobcards", …), so a
+    measure typo is corrected like any other domain word. Test team report
+    2026-10-29: "toatal persendays" with an MGNREGA chat open was read as a
+    general question; "persondays" was in no typo vocabulary."""
+    words = set(_REPHRASE_VOCAB)
+    try:
+        from app import annotations as _c02_ann
+        for k, v in _c02_ann._FEWSHOT_SYNONYMS.items():
+            words |= {x for x in (k, v) if x and x.isalpha() and len(x) >= 5}
+    except Exception:  # noqa: BLE001 — no table: the fixed vocabulary alone
+        pass
+    return frozenset(words)
+
+
 def _vocab_typo(word: str) -> "str | None":
     """The vocabulary word a typo stands for ("aplications" -> "applications")."""
     w = word.lower()
     if len(w) < 5:
         return None
-    best = max(_REPHRASE_VOCAB, key=lambda v: fuzz.ratio(w, v))
+    vocab = _c02_typo_vocab()
+    best = max(vocab, key=lambda v: fuzz.ratio(w, v))
     if fuzz.ratio(w, best) >= 85:
         return best
     # swapped letters ("leagcy" -> "legacy") score low on ratio: same letters, same length
     letters = sorted(w)
-    return next((v for v in _REPHRASE_VOCAB if len(v) == len(w) and sorted(v) == letters), None)
+    return next((v for v in vocab if len(v) == len(w) and sorted(v) == letters), None)
 
 
 def _rephrase_gloss(question: str) -> str:

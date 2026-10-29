@@ -1149,6 +1149,47 @@ not recorded.*
   for two jobs in the safety call. Revisit only if a plan reader replaces calls on most turns.
 - **Status:** Active (code present, off). E2's latency goal is NOT met by parallelism on today's gateway.
 
+### D-089 — Chat UI audit product decisions (2026-10-29, user: "use your recommendations")
+
+**DOCUMENTATION CONFLICT — NEEDS VERIFICATION: the merge of PRs #20/#21 (2026-10-29) brought a second D-089 from the chat UI audit branch; both sessions used the same number. Renumber one of them.**
+- **Context:** 12 audit findings needed a product decision (KI-574). The user chose the recommended option for each.
+- **Decision:**
+  1. **J-4 / J-5 (narrows D-056 part 1):** a NEW chat whose question names its own scheme is answered for all of
+     Meghalaya (said in the banner, "by district" chip) instead of the district pause. The year is still asked when
+     none is given (D-053 / D-065 stand: no silent year), so it costs at most one tap. A question that names no
+     scheme still asks scheme -> district -> year. Revert: drop the `_named_schemes` clause in c13
+     `_data_clarification_stage`.
+  2. **J-10 (KI-126):** a name shared by 2–3 villages in different blocks is answered for each (one row per village,
+     with its block; banner names them). More twins still ask.
+  3. **G-10:** Focus Legacy members keep the D-066 figure (SUM over payments); the answer says a group paid twice
+     counts twice. Counting each group once waits for the data team and a live check.
+  4. **H-5 / H-6 / H-8:** the scope banner names the place type ("Umling block"), says "All years (FY … to …)" when
+     no year was used, and prints 3+ consecutive years as a span. Topic labels are unchanged.
+  5. **B-5:** the dead `isCrossSummary` UI path is deleted.
+  6. **K-6:** Edit / Regenerate delete the replaced turns on the server (`keep_turns`; app.query_audit untouched)
+     and restore the context saved with the first replaced turn.
+  7. **K-16:** the language menu is the "Question language — answers are in English".
+  8. **X-4:** Line is offered only when the x-axis is a period.
+  9. **X-16:** the app is light-only (`color-scheme: light`); no dark theme.
+- **Where:** `docs/audit_fix_log.md` (each ID), `tests/test_chat_ui_audit_more_2026_10_29.py`.
+
+### D-088 — One measure-kind rule for every total, share and stack (2026-10-29)
+
+**DOCUMENTATION CONFLICT — NEEDS VERIFICATION: the merge of PRs #20/#21 (2026-10-29) brought a second D-088 from the chat UI audit branch; both sessions used the same number. Renumber one of them.**
+- **Context:** the chat UI audit (section G) found the UI adding overlapping figures in four places (donut centre,
+  "% of the total", pivot Total row / column, stacked-bar top) and the backend sending `stacked` for any 2-label,
+  1-measure result: "Total 11,000" villages for a state of about 7,000; households + houses added; job cards and
+  percentages stacked across years. The frontend and backend kept separate non-additive word lists that disagreed.
+- **Decision:** every measure column has a kind read from its name — `rate` (%, average, per, min / max, growth …),
+  `stock` (job cards, cumulative), `flow` (money, days, payments) or `distinct` (villages, households, beneficiaries,
+  members) — from ONE list, `app/measure_kinds.json`, with a checked copy in `frontend/src/chat/measureKinds.js`
+  (`tests/test_chat_ui_audit_totals_2026_10_29.py` fails when they differ). A measure is added only along a dimension
+  its kind allows: flow across places and years; distinct and stock across places only; rate never; nothing across
+  schemes. The UI (`columns.canAdd` / `dimOf`) and the backend (`measure_kinds.can_add` in `_chart_hint`) apply it.
+  A chart type the rule forbids is refused with a one-line note and drawn as bars.
+- **Consequences:** no donut / share / Total across schemes or across years for counts; a stack only where it adds
+  honestly. A real union of villages across schemes is computed by `cross_figures` (overlap mode) instead.
+
 ### D-084 — Frontend lint and tests: ESLint (with the no-regex rule) + `node --test` (2026-10-29)
 - **Date:** 2026-10-29 (E11 UI fixes, KI-570). Files: `frontend/package.json` (`lint`, `test`; dev deps `eslint`
   9.17.0, `@eslint/js` 9.17.0, `eslint-plugin-react` 7.37.2, `eslint-plugin-react-hooks` 5.1.0, `globals` 15.14.0,
@@ -2213,7 +2254,63 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
-- Progress: not started
+- Progress: five entries below (2026-10-29); the integrator numbers them from D-074 on.
+
+#### D-A2-CTX-09 — Conversation rulebook v1 (PROPOSED: awaiting the user's sign-off)
+- **What:** one page for the rules already decided one at a time. No rule is new; the examples are the tests'.
+  1. **A new chat asks what it cannot know** (D-056 §1): scheme → district → year. "What was the total Focus Legacy
+     amount in FY 2024-25?" in a new chat asks the area (`scope-not-specified`, chips + "All of Meghalaya").
+  2. **A self-sufficient question inherits nothing** (D-061): "Which district has the highest beneficiaries in
+     MGNREGA?" after an East Khasi Hills answer is statewide.
+  3. **…and is asked the year when it names none** (D-065): the year chips, never a silent latest year.
+  4. **…unless it repeats the chat's measure on the chat's scheme** (D-075): it keeps the chat's year, never its
+     place ("What is the total beneficiaries manraya?" after "… beneficiaries" in FY 2023-24).
+  5. **A follow-up inherits only what it leaves out** (D-022/D-024): "What about FY 2023-24?" keeps scheme and place.
+  6. **A bare "CM Elevate"**: money words → CM Elevate Legacy; applications-only words → applications; otherwise
+     ask (D-064). "How many CM Elevate applicants are there?" asks (`cm-elevate-dataset`).
+  7. **A bare "Focus"** always asks which Focus (CLAUDE.md §4).
+- **For sign-off — wordings where the eval expected an answer and the rules ask:** "currently" (FP-03), "statewide"
+  (FP-06), "across Meghalaya" (FP-10), "Meghalaya Rural Bank accounts" (FL-03). Should these words count as "all of
+  Meghalaya" / "latest year" instead of asking? Until decided, the eval scores those pauses as `expected_pause`.
+- **Eval:** `questions.yaml` `expect_pause: <rule>` on the 31 items the rules pause; `compare.pause_verdict`; an
+  expected pause is reported on its own and left out of the accuracy denominator; any other pause is a miss.
+
+#### D-A2-CTX-01 — A conversation belongs to its owner; one turn at a time per conversation
+- **Decision:** a request for another user's session id gets 403 (this worker's copy by login, the durable row by
+  app.users id; SQL backstop `user_id IS NOT DISTINCT FROM EXCLUDED.user_id` in both upserts). Unknown owners are
+  not checked (dev, old rows). The router runs one turn per conversation at a time on a worker (`_TURN_LOCKS`, a
+  wrapper keeping the name `_answer`); the graph's own lock is not reused (not re-entrant). A failed or stopped turn
+  restores the session as the turn found it (a JSON copy taken after sync_in, before the conversation layer).
+- **Rejected (the audit's own "don't"):** user-namespaced graph thread ids (orphans paused runs at deploy); 409 +
+  client retry; a request-id dedup table.
+
+#### D-A2-CTX-04 — Retention is opt-in; the audit has its own period
+- **Decision:** `CONVERSATION_RETENTION_DAYS` and `QUERY_AUDIT_RETENTION_DAYS`, both 0 (= keep) until the user picks
+  the periods; purged daily by the existing `conversation_memory.purge_loop`. The query audit is the compliance
+  trail (delete_conversation never touches it), so it is NOT tied to the conversation period, unlike the lane plan's
+  single setting. Deleting a chat also deletes its Qdrant memory (filter always names session AND owner), its paused
+  run and this worker's Session.
+
+#### D-A2-CTX-08 — The decision log keeps its no-text promise at the source
+- **Decision:** `context_budget.log_decision` logs any text value under `question` / `prompt` / `answer` /
+  `result` as `{"sha256": 12 hex, "chars": n}`. Instead of editing the seven call sites (the lane plan's version):
+  covers future call sites too and leaves lane B2's conversation_layer / c14 lines untouched.
+
+#### D-A2-CTX-07 — Two follow-up shapes are rewritten deterministically
+- **Decision:** a breakdown-only message after a STATEWIDE answer → the previous question by that dimension; "compare
+  … with <place>" (one new place, the previous place's own level, nothing else changed) → the previous question for
+  both places. **Why it does not conflict with D-056:** D-056 leaves a place SWAP ("what about Ri Bhoi?") to the
+  model; these need an explicit breakdown or compare cue and change nothing but the dimension / the added place.
+  KI-416 is not touched: the rewrite guard already refuses the measure switch (SQL generation, lane B1).
+#### D-A2-REPORT — Two continuations the test team expected (2026-10-29; for the user's review)
+- **After a knowledge aside, a measure-only question keeps the chat's data scope** when the chat is on that scheme
+  (it used to get the scheme alone and run as a new question). A chat that opened with the knowledge question, or an
+  aside about another scheme, is unchanged.
+- **A block of the chat's own district keeps the chat's year** (D-061 treats it as a new question; D-075 kept the year
+  only for the same measure). The place is the question's own, as in D-075. A block elsewhere, or another scheme, is
+  still a new question.
+- Both extend D-061 / D-075 narrowly; neither changes what counts as standalone. Tests:
+  `tests/test_test_team_report_2026_10_29.py`.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

@@ -5,7 +5,7 @@
 # SQL text is read here only through SQLGlot (app/sql_ast.py: tree / token
 # stream), never by text matching; the word matchers below read questions
 # and answers (English), not SQL.
-from app import sql_ast
+from app import measure_kinds, sql_ast
 from sqlglot import exp
 
 
@@ -538,6 +538,27 @@ async def _c13_knowledge_is_closer(question: str) -> bool:
     return closer
 
 
+# B-8 (chat UI audit live run 2026-10-29): "Which is better, MGNREGA or PMAY-G?" went to
+# the documents (text, no figures). The bare question — two or more schemes and nothing
+# but these words — is answered by cross_figures' "better" mode: the figures side by
+# side, no winner, measures offered. "better for a landless family" stays KNOWLEDGE.
+_C13_BETTER_ONLY = frozenset(("which", "is", "are", "better", "best", "the", "scheme", "schemes", "or",
+                              "and", "between", "of", "vs", "versus", "a"))
+
+
+def _c13_bare_which_is_better(question: str) -> bool:
+    q = _correct_scheme_spelling(question or "")
+    if len(_named_schemes(q)) < 2:
+        return False
+    rest = q
+    for s, pat in _SCHEME_NAME_MATCHER.items():
+        for h in reversed(list(pat.finditer(rest))):
+            rest = rest[:h.start()] + " " + rest[h.end():]
+    words = [w.strip("?.,!:;()").lower() for w in rest.split()]
+    words = [w for w in words if w]
+    return "better" in words and all(w in _C13_BETTER_ONLY for w in words)
+
+
 async def _c13_intent_by_rules(question: str, session: "Session | None" = None) -> str:
     """The cue rules, then this turn's query plan or one classifier call (the
     pre-B3 classify_intent)."""
@@ -546,6 +567,8 @@ async def _c13_intent_by_rules(question: str, session: "Session | None" = None) 
     # data, never something in the reference docs. Force DATA before the keyword
     # fast-path so the "what are" knowledge cue can't win.
     if _CROSS_SCHEME_SET_QUESTION.search(question):
+        return "DATA"
+    if _c13_bare_which_is_better(question):
         return "DATA"
     # "How many members are there in Bak-15 Wachal Pg?" is a lookup in the data;
     # with no counting noun the classifier sometimes sent it to the reference
@@ -1337,10 +1360,18 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # statewide. A district-restricted officer is scoped by auth, not asked.
     # User decision 2026-10-29 (RAG fix report Issue 6): off by default — no place named
     # is answered for all of Meghalaya below, and said so (NEW_CHAT_ASKS_SCOPE).
+    # J-4 / J-5 (chat UI audit 2026-10-29, decided by the user): a new-chat question
+    # that names its scheme is answered for all of Meghalaya (said in the banner and
+    # the question, with the "by district" chip to change it) instead of a district
+    # pause, so it costs at most one tap (the year, D-053, when it names none).
+    # "MGNREGA person days in 2024-25" asked "which area?" while "Focus Plus amount
+    # disbursed in 2024-25" answered statewide. A question naming no scheme still
+    # asks scheme -> district -> year (D-056).
     _place_res = {k: v for k, v in entity_result["resolved"].items() if k != "year_key"}
     if _defaults and settings.NEW_CHAT_ASKS_SCOPE and not skip_scope_clarify and not d.get("chat_has_scope") \
             and not (scope is not None and scope.geo_restricted) \
             and not any((prior_resolved or {}).get(k) for k in ("district", "block", "village_code")) \
+            and not _named_schemes(d.get("raw_question") or question) \
             and _needs_scope_clarification(question, _place_res):
         logger.info("new chat, no place named -> asking which district")
         raise _scope_clarification(question, schemes, area_only=True)
@@ -1656,14 +1687,18 @@ async def _geo_lookup_answer(question: str) -> "dict | None":
             [[int(c) for c in codes]])
     if not rows:
         return None
-    lines = [f"**{name.title()}** — {len(rows)} village{'s' if len(rows) > 1 else ''} in the Meghalaya geography "
-             "registry:\n", "| Village | LGD village code | Block | District | Assembly constituency |",
-             "|---|---|---|---|---|"]
-    for r in rows:
-        lines.append(f"| {r['lgd_village_name']} | {r['village_code']} | {str(r['lgd_block'] or '—').title()} | "
-                     f"{str(r['lgd_district'] or '—').title()} | {r['ac_name'] or '—'} |")
-    if len(rows) > 1:
-        lines.append("\nThey are different villages that share a name, told apart by their LGD code.")
+    # H-1 (chat UI audit 2026-10-29): the same table was written into the answer
+    # and sent again as the result rows, so it showed twice (Title Case in one,
+    # CAPITALS in the other). One sentence here; the rows are the table.
+    if len(rows) == 1:
+        r = rows[0]
+        lines = [f"**{name.title()}** is in {str(r['lgd_block'] or '—').title()} block, "
+                 f"{str(r['lgd_district'] or '—').title()} district"
+                 + (f" ({str(r['ac_name']).title()} constituency)" if r["ac_name"] else "")
+                 + f", LGD village code {r['village_code']}."]
+    else:
+        lines = [f"**{name.title()}** is {len(rows)} different villages in the Meghalaya geography registry that "
+                 "share a name, told apart by their LGD code; they are listed in the table below."]
     sql = "SELECT village_code, lgd_village_name, lgd_block, lgd_district, ac_name FROM curated.dim_geography"
     return {"route": "data", "intent": "DATA", "confidence": "high", "schemes": [],
             "resolved_entities": {}, "sql": sql, "sql_query": sql, "row_count": len(rows),
@@ -1796,6 +1831,15 @@ async def _cross_scheme_scope(d: dict, scope: "auth.UserScope | None" = None) ->
     await cross_scheme.refine_constituency(text, resolved)
     if resolved.get("assembly_constituency"):
         display["assembly_constituency"] = resolved["assembly_constituency"]
+    # A-14 (audit 2026-10-29): "2023-24 vs 2024-25", "in FY24 and FY25" — the
+    # extractor hands back one year (KI-427), and the text was read only when the
+    # resolver found none, so the comparison lost a year. Two or more named years
+    # are always every one of them.
+    _named_ys = cross_scheme.years_in_text(text)
+    if len(_named_ys) >= 2 and not resolved.get("year_key_list"):
+        resolved.pop("year_key", None)
+        resolved["year_key_list"] = _named_ys
+        display["year"] = "FY " + ", ".join(f"{y}-{(y + 1) % 100:02d}" for y in _named_ys)
     if not resolved.get("year_key") and not resolved.get("year_key_list"):
         ys = cross_scheme.years_in_text(text)
         if len(ys) == 1:
@@ -1846,6 +1890,10 @@ async def _cross_scheme_scope(d: dict, scope: "auth.UserScope | None" = None) ->
             "resolved_entities": resolved, "sql": _res["sql"], "sql_query": _res["sql"],
             "row_count": len(_res["rows"]), "rows": _res["rows"][:20], "data": _res["rows"],
             "answer": _res["answer"],
+            **({"column_totals": _res["totals"]} if _res.get("totals") else {}),
+            **({"measure_notes": _res["measure_notes"]} if _res.get("measure_notes") else {}),
+            **({"schemes_with_data": _res["schemes_with_data"]} if "schemes_with_data" in _res else {}),
+            **({"schemes_apart": _res["schemes_apart"]} if _res.get("schemes_apart") else {}),
         }
     logger.info("cross-scheme question %r -> %s per-scheme queries%s", question, schemes,
                 f" (not held: {sorted(gaps)})" if gaps else "")
@@ -1867,6 +1915,9 @@ def _c13_e12_cross_figures_denial(scope: "auth.UserScope | None", schemes: list[
     if plan.block:
         places = [{**pl, "block": plan.block} for pl in places]
     shape = "SELECT lgd_district FROM curated.v_employment GROUP BY lgd_district" if plan.by_district else None
+    if plan.op == "overlap" and plan.list_villages:
+        # a list of villages (G-8) is village-level data
+        shape = "SELECT lgd_village_name FROM curated.v_employment GROUP BY lgd_village_name"
     for pl in places:
         decision = _repaired_sql_denial(scope, schemes, {"resolved": pl}, shape)
         if decision:
@@ -3005,6 +3056,12 @@ async def _data_guarantees_stage(d: dict, scope: "auth.UserScope | None" = None)
         _absent = _c13_fy_label(_gap_note)
         if _absent and _absent not in answer:
             answer = f"{_gap_note}\n\n{answer}"
+    # I-10 / J-7: how many places have none, before the lowest ones that have some
+    if entity_result.get("zero_note") and entity_result["zero_note"] not in answer:
+        answer = f"{entity_result['zero_note']}\n\n{answer}"
+    # E-9: places tied with the last one shown
+    if entity_result.get("tie_note") and entity_result["tie_note"] not in answer:
+        answer = f"{answer}\n\n{entity_result['tie_note']}"
     d["answer"] = answer
 
 
@@ -3021,6 +3078,8 @@ def _data_assemble(d: dict) -> dict:
         "sql": sql,
         "sql_query": sql,
         "row_count": len(rows),
+        # E-3: the rows there are beyond the row cap (None when not capped)
+        "total_row_count": entity_result.get("true_row_count"),
         "rows": rows[:20],
         # The full result the query returned, for the table/chart renderer.
         # Was capped at 200, which silently truncated a legitimate answer — a
@@ -3261,14 +3320,23 @@ def _chart_hint(question: str, raw_question: str, rows: list) -> "str | None":
     if not rows or not isinstance(rows[0], dict):
         return None
     cols = list(rows[0])
-    num_cols = [c for c in cols if not _CHART_LABEL_COL.search(str(c))
+    num_cols = [c for c in cols if not measure_kinds.is_label_col(c)
                 and any(r.get(c) is not None for r in rows)
                 and all(r.get(c) is None or _chart_is_number(r.get(c)) for r in rows)]
     label_cols = [c for c in cols if c not in num_cols]
     if len(rows) == 1:
         # One row of several figures ("wages vs material"): a bar per figure.
         return "kpi_bar" if len(num_cols) >= 2 else None
-    if len(label_cols) >= 2 and len(num_cols) == 1 and not _CHART_NON_ADDITIVE.search(str(num_cols[0])):
+    # J-11 (audit 2026-10-29): year_key and financial_year are one period, not two labels
+    years = [c for c in label_cols if measure_kinds.dim_of(c) == "period"]
+    if len(years) >= 2:
+        label_cols = [c for c in label_cols if c not in years[1:]]
+    # A stack adds its series. Only when the measure adds along the series' dimension
+    # (G-4: villages / households of two years counted twice; C-6 / D-7 / D-13: job
+    # cards, participation %, maxima), never across schemes (A-4 / B-3: households +
+    # houses), and never for a ranking, which is a ranked list (J-6: "top 5 villages"
+    # drawn stacked by block). The UI applies the same rule (columns.js canAdd).
+    if len(label_cols) >= 2 and len(num_cols) == 1 and not _CHART_NON_ADDITIVE.search(str(num_cols[0]))             and measure_kinds.can_add(num_cols[0], measure_kinds.dim_of(label_cols[1]))             and measure_kinds.dim_of(label_cols[0]) != "scheme"             and not _C12S_RANK_WORDS.search(raw_question or question or ""):
         # district x year -> one bar per district, stacked by year, when the
         # second label has few values (otherwise the legend is unreadable).
         if len({str(r.get(label_cols[1])) for r in rows}) <= 8:
@@ -3276,10 +3344,132 @@ def _chart_hint(question: str, raw_question: str, rows: list) -> "str | None":
     return None
 
 
+# ── one shape for rows merged from several schemes (audit 2026-10-29, A-1 / I-9) ──
+# Each scheme's model-written query names its columns its own way: MGNREGA's year is
+# year_key 2023, PMAY-G's financial_year_short "2023-24"; one says village_name, the
+# other lgd_village_name; one counts beneficiaries, the other houses_sanctioned. The
+# UI charts only the columns every row has, so the year disappeared ("MGNREGA,
+# MGNREGA, MGNREGA, PMAY-G …" donut) and two half-empty columns were all that was
+# left. The rows the UI gets carry one financial_year ("2023-24"), one place column
+# per level, and — when each scheme has its own single measure — one `value` column
+# with what it counts in `measure`. The composer has already read the original rows.
+_C13U_ID_PARTS = frozenset({"code", "id", "lgd", "key", "rank", "sl", "serial", "pin", "pincode"})
+_C13U_PLACES = (("district", "district"), ("block", "block"), ("village", "village"),
+                ("constituency", "constituency"))
+
+
+def _c13u_parts(col) -> list:
+    return [x for x in str(col).lower().replace(" ", "_").split("_") if x]
+
+
+def _c13u_is_year_col(col) -> bool:
+    low = str(col).lower()
+    return "financial" in low or any(x in ("year", "fy", "yr") for x in _c13u_parts(col))
+
+
+def _c13u_fy(v) -> "str | None":
+    """'2023-24' from 2023, '2023', '2023-2024', 'FY 2023-24'; None otherwise."""
+    s = str(v if v is not None else "").strip()
+    if s.lower().startswith("fy"):
+        s = s[2:].strip()
+    head, rest = s[:4], s[4:]
+    if len(head) == 4 and head.isdigit() and head[:2] in ("19", "20") and (
+            rest == "" or (rest[:1] == "-" and rest[1:].isdigit() and len(rest[1:]) in (2, 4))):
+        return f"{int(head)}-{(int(head) + 1) % 100:02d}"
+    return None
+
+
+def _c13u_measure_cols(row: dict) -> list:
+    return [k for k, v in row.items() if k != "scheme" and not _c13u_is_year_col(k) and _chart_is_number(v)
+            and not any(x in _C13U_ID_PARTS for x in _c13u_parts(k))]
+
+
+def _c13_unify_scheme_rows(rows: list) -> list:
+    """Rows from two or more schemes in one shape (see above); other rows as they are."""
+    if not rows or not all(isinstance(r, dict) and r.get("scheme") for r in rows) \
+            or len({r["scheme"] for r in rows}) < 2:
+        return rows
+    per_scheme = {}
+    for r in rows:
+        per_scheme.setdefault(r["scheme"], set()).update(_c13u_measure_cols(r))
+    one_each = all(len(c) == 1 for c in per_scheme.values())
+    differ = len({next(iter(c)) for c in per_scheme.values() if c}) > 1
+    out = []
+    for r in rows:
+        years = [k for k in r if _c13u_is_year_col(k)]
+        fy = next((_c13u_fy(r[k]) for k in sorted(years, key=lambda k: str(k).endswith("_key"))
+                   if _c13u_fy(r[k])), None)
+        n: dict = {}
+        for k, v in r.items():
+            if k in years:
+                if "financial_year" not in n:
+                    n["financial_year"] = fy if fy is not None else v
+                continue
+            parts = _c13u_parts(k)
+            name = k
+            if isinstance(v, str) and not any(x in _C13U_ID_PARTS for x in parts if x != "lgd"):
+                name = next((canon for word, canon in _C13U_PLACES if any(word in x for x in parts)), k)
+            if one_each and differ and k in per_scheme.get(r["scheme"], ()):
+                n["measure"] = str(k).replace("_", " ")
+                n["value"] = v
+                continue
+            if name not in n:
+                n[name] = v
+        out.append(n)
+    return out
+
+
+# X-14 (chat UI audit 2026-10-29): PMAY-G money came as "22,22,75,30,000" under
+# "Amount released" — no ₹, no unit — beside MGNREGA in ₹ lakh. A money column with
+# no unit in its name gets one from the database's catalog unit of its source column
+# and any division in the SELECT, as a name suffix the UI reads ("amount_released"
+# -> "amount_released_rs"). Names that already carry a unit are left alone.
+_C13_UNIT_WORDS = frozenset(("rs", "rupees", "inr", "lakh", "lakhs", "cr", "crore", "crores", "pct",
+                             "percent", "percentage", "per", "avg", "average", "share", "ratio", "rate"))
+
+
+def _c13_money_units(result: dict) -> None:
+    # The unit comes from semantic.column_catalog (the database's own UNIT for each
+    # source column), never from the column's name: the name-based first version
+    # showed "houses_sanctioned" as "₹388" in the live run. No recorded unit, a
+    # ratio of two columns, or columns of mixed units: nothing is renamed.
+    rows = result.get("data") or []
+    if len(result.get("schemes") or []) != 1 or not rows or not isinstance(rows[0], dict):
+        return
+    from app import schema_introspect
+    srcs = sql_ast.output_sources(result.get("sql") or "")
+    rupees_per = {"rupees": 1.0, "lakh rupees": 1e5, "crore rupees": 1e7}
+    rename = {}
+    for col, v in rows[0].items():
+        parts = set(str(col).lower().split("_"))
+        src = srcs.get(col)
+        if not src or src["ratio"] or not src["cols"] or parts & _C13_UNIT_WORDS:
+            continue
+        if not isinstance(v, (int, float, Decimal)) or isinstance(v, bool):
+            continue
+        units = {schema_introspect.column_unit(t, c) for c in src["cols"] for t in src["tables"]} - {None}
+        if len(units) != 1 or next(iter(units)) not in rupees_per:
+            continue
+        rupees = rupees_per[next(iter(units))] * (src["div"] or 1.0)
+        unit = ("crore" if abs(rupees - 1e7) < 1 else "lakh" if abs(rupees - 1e5) < 1
+                else "rupees" if abs(rupees - 1) < 1e-9 else None)
+        if unit:
+            rename[col] = f"{col}_{'rs' if unit == 'rupees' else unit}"
+    if rename:
+        result["data"] = [{rename.get(k, k): v for k, v in r.items()} for r in rows]
+        result["rows"] = result["data"][:20]
+
+
 def _attach_chart_hint(result: dict, question: str, raw_question: str) -> None:
     """Set `chart_type` on a DATA result that has rows. Best-effort."""
     try:
         if result.get("route") == "data" and result.get("data"):
+            unified = _c13_unify_scheme_rows(result["data"])
+            if unified is not result["data"]:
+                result["data"] = unified
+                result["rows"] = unified[:20]
+                result["row_count"] = len(unified)
+            _c13_money_units(result)
             hint = _chart_hint(question, raw_question, result["data"])
             if hint:
                 result["chart_type"] = hint

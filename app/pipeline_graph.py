@@ -395,6 +395,8 @@ async def _data(stage, state: dict, ctx: GraphContext) -> dict:
     # 2026-10-19). The decision that uses it lives in the stage.
     d["chat_scheme"] = pipeline._chat_active_scheme(ctx.session)
     d["chat_has_scope"] = pipeline._chat_has_data_scope(ctx.session)
+    # J-4: what the officer typed (did it name its scheme?); read-only
+    d["raw_question"] = state.get("raw_question")
     # D-061: standalone / follow-up / vague, as the follow-up stage decided it.
     d["turn_kind"] = (getattr(ctx.session, "turn_context", None) or {}).get("turn_kind") \
         if ctx.session is not None else None
@@ -765,6 +767,19 @@ async def _drop_thread(rt: _Runtime, thread_id: str) -> None:
     try:
         await rt.saver.adelete_thread(thread_id)
     except Exception:  # noqa: BLE001 — the sweep removes it later
+        logger.warning("pipeline_graph: could not delete thread %s", _thread_tag(thread_id), exc_info=True)
+
+
+async def delete_thread(thread_id: str) -> None:
+    """Delete this conversation's checkpoint now, whatever KEEP_THREADS says:
+    the officer deleted the chat (CTX-04, 2026-10-29). Under the thread's lock,
+    so a run in flight finishes first. Never raises; a failure is left to the
+    pause sweep."""
+    try:
+        rt = await _runtime()
+        async with rt.lock(thread_id):
+            await rt.saver.adelete_thread(thread_id)
+    except Exception:  # noqa: BLE001
         logger.warning("pipeline_graph: could not delete thread %s", _thread_tag(thread_id), exc_info=True)
 
 

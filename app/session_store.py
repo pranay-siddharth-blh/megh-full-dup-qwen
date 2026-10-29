@@ -7,8 +7,11 @@ semantic_cache.py. It holds only what a follow-up rewrite needs: the last few
 turns (question + how it was answered) and the user's scope for the session, so
 the authorization check doesn't have to rebuild it every turn.
 
-Nothing here is authoritative and none of it survives a restart. A caller that
-sends no session id just gets no follow-up context — the pipeline still works.
+This copy is a per-worker cache. The durable copy is Session.to_snapshot() in
+app.conversations.context_state, which app/session_sync.py loads before and
+saves after every request (D-023), so a conversation survives a restart and
+moves between workers. A caller that sends no session id just gets no
+follow-up context — the pipeline still works.
 """
 import time
 import uuid
@@ -134,7 +137,8 @@ class Session:
     scope: object | None = None      # backend.auth.UserScope, cached for the session
     # Set when the pipeline paused to ask "which area / year?" (scope-not-specified).
     # Holds the original question so the next turn's free-text reply can be merged
-    # back into it. Cleared as soon as it's consumed. Not persisted, per-worker.
+    # back into it. Cleared as soon as it's consumed. Part of the durable snapshot
+    # ("pending"), so the reply resumes it on whichever worker receives it (KI-001).
     pending_scope_q: str | None = None
     # Set alongside pending_scope_q when the pause was a village-name ambiguity
     # ("entity-ambiguous"). Holds the exact text the user typed for the village
@@ -334,6 +338,14 @@ class SessionStore:
             while len(self._store) > self.max_sessions:
                 self._store.popitem(last=False)
             return s
+
+    def drop(self, session_id: str | None) -> None:
+        """Forget this worker's copy of a session (a deleted chat, or the empty
+        copy `ensure` made for a caller who turned out not to own the chat)."""
+        if not session_id:
+            return
+        with self._lock:
+            self._store.pop(session_id, None)
 
     def add_turn(self, session_id: str, turn: Turn) -> None:
         with self._lock:

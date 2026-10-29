@@ -19,6 +19,8 @@ from app import db
 logger = logging.getLogger(__name__)
 
 _bg: set[asyncio.Task] = set()
+# The key a turn's saved context-before sits under in its response payload (K-6).
+_CONTEXT_BEFORE = "_context_before"
 
 
 def _spawn(coro) -> None:
@@ -29,16 +31,18 @@ def _spawn(coro) -> None:
 
 def persist_turn(*, tenant_id, user_id, session_id, result: dict, question: str,
                  latency_ms: float, username: str | None, ip: str | None,
-                 audit: "dict | None" = None) -> None:
+                 audit: "dict | None" = None, context_before: "dict | None" = None) -> None:
     """Fire-and-forget: upsert the conversation, append the turn + audit row.
     `audit` (app/turn_trace.audit_fields): the SQL, the error, few-shot ids,
-    repairs, verifier rejections, outcome and request id for app.query_audit."""
+    repairs, verifier rejections, outcome and request id for app.query_audit.
+    `context_before`: the conversation context as it was before this turn, so an
+    Edit / Regenerate that replaces it can put the context back (K-6)."""
     _spawn(_persist_turn(tenant_id, user_id, session_id, result, question,
-                         latency_ms, username, ip, audit))
+                         latency_ms, username, ip, audit, context_before))
 
 
 async def _persist_turn(tenant_id, user_id, session_id, result, question,
-                        latency_ms, username, ip, audit=None):
+                        latency_ms, username, ip, audit=None, context_before=None):
     a = audit or {}
     try:
         route = result.get("route", "data")
@@ -84,27 +88,54 @@ async def _persist_turn(tenant_id, user_id, session_id, result, question,
             # question and its option chips exactly as first shown.
             "clarification": result.get("clarification"),
             "needs_clarification": result.get("needs_clarification", False),
+            # K-3 / C-7 (chat UI audit 2026-10-29): a reopened chat lost "Source:",
+            # "Try asking", the "Earlier" chip, the timings and the chart the answer
+            # was drawn as. Saved with the turn so it is redrawn the same way.
+            "citations": result.get("citations") or [],
+            "suggestions": result.get("suggestions") or [],
+            "continue_offer": result.get("continue_offer"),
+            "execution_time_ms": result.get("execution_time_ms"),
+            "total_row_count": result.get("total_row_count"),   # E-3
+            "translated_from": result.get("translated_from"),
+            "translated_question": result.get("translated_question"),
+            "chart_type": result.get("chart_type"),
+            "chart_wide": result.get("chart_wide"),
+            "column_totals": result.get("column_totals"),
+            "measure_notes": result.get("measure_notes"),
+            "schemes_with_data": result.get("schemes_with_data"),
+            "answer_failed": result.get("answer_failed"),
+            # K-6: read back only by truncate_turns; never sent to the client
+            _CONTEXT_BEFORE: context_before,
         }, default=str)
 
+        # The owner backstop (CTX-01, 2026-10-29): another user's turn never
+        # updates this conversation, even if it got past the router's 403. The
+        # update is skipped, no conv_id comes back, and the turn is not added to
+        # someone else's history; the audit row below is still written.
         conv_id = await db.fetchval(
             """INSERT INTO app.conversations (tenant_id, user_id, session_id, title, turn_count)
                VALUES ($1,$2,$3,$4,1)
                ON CONFLICT (session_id) DO UPDATE
                    SET last_at = NOW(), turn_count = app.conversations.turn_count + 1
+                   WHERE app.conversations.user_id IS NOT DISTINCT FROM EXCLUDED.user_id
                RETURNING conv_id""",
             [tenant_id, user_id, session_id, question[:120]],
         )
-        await db.execute(
-            """INSERT INTO app.conversation_turns
-               (conv_id, tenant_id, user_id, session_id, question, rewritten_question,
-                answer, route, intent, schemes, resolved_entities, sql, row_count,
-                allowed, denied_by, latency_ms, response)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)""",
-            [conv_id, tenant_id, user_id, session_id, question[:2000], rewritten,
-             answer, route, result.get("intent"), list(schemes),
-             json.dumps(entities, default=str), sql, rows, allowed, denied_by, latency_ms,
-             response_payload],
-        )
+        if conv_id is None:
+            logger.warning("conversation_store: turn for session %s not stored: the conversation "
+                           "belongs to another user", session_id)
+        else:
+            await db.execute(
+                """INSERT INTO app.conversation_turns
+                   (conv_id, tenant_id, user_id, session_id, question, rewritten_question,
+                    answer, route, intent, schemes, resolved_entities, sql, row_count,
+                    allowed, denied_by, latency_ms, response)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)""",
+                [conv_id, tenant_id, user_id, session_id, question[:2000], rewritten,
+                 answer, route, result.get("intent"), list(schemes),
+                 json.dumps(entities, default=str), sql, rows, allowed, denied_by, latency_ms,
+                 response_payload],
+            )
         from app.auth import infer_granularity
         await db.execute(
             """INSERT INTO app.query_audit
@@ -136,7 +167,9 @@ async def list_my_conversations(user_id: int, limit: int = 30,
     """
     # "api-" threads (a session-less API call, routers/query._session_id) are kept
     # for audit but are not the user's chats: one per call would flood this list.
-    where = "user_id = $1 AND left(session_id, 4) <> 'api-'"
+    # K-7 (chat UI audit 2026-10-29): a chat stopped on its first question has 0 turns;
+    # listed, it opened as "Could not open that conversation" — it is not a chat yet.
+    where = "user_id = $1 AND left(session_id, 4) <> 'api-' AND turn_count > 0"
     params: list = [user_id]
     if archived is not None:
         params.append(archived)
@@ -189,7 +222,46 @@ async def get_conversation_turns(*, session_id: str | None = None, conv_id: int 
                 t["response"] = json.loads(raw)
             except (ValueError, TypeError):
                 t["response"] = None
+        if isinstance(t.get("response"), dict):
+            t["response"].pop(_CONTEXT_BEFORE, None)
     return turns
+
+
+async def truncate_turns(*, session_id: str, user_id: int, keep: int) -> "dict | None":
+    """K-6 (chat UI audit 2026-10-29): Regenerate and Edit replace a question and
+    everything after it, but only on screen — the replaced turns came back when the
+    chat was reopened. Keep the first `keep` turns of the caller's own conversation
+    and delete the rest (app.query_audit, the compliance trail, is not touched).
+    Idempotent: a repeated call with the same `keep` deletes nothing more. Returns
+    the context saved before the first deleted turn ({"snapshot", "summary"}),
+    or None when nothing was deleted or no context was saved with it."""
+    conv_id = await db.fetchval(
+        "SELECT conv_id FROM app.conversations WHERE session_id = $1 AND user_id = $2",
+        [session_id, user_id],
+    )
+    if conv_id is None:
+        return None
+    gone = await db.fetch_rows(
+        """SELECT id, response FROM app.conversation_turns WHERE conv_id = $1
+           ORDER BY created_at ASC, id ASC OFFSET $2""",
+        [conv_id, max(0, int(keep))],
+    )
+    if not gone:
+        return None
+    await db.execute("DELETE FROM app.conversation_turns WHERE id = ANY($1::bigint[])",
+                     [[int(r["id"]) for r in gone]])
+    await db.execute(
+        "UPDATE app.conversations SET turn_count = GREATEST(0, turn_count - $1) WHERE conv_id = $2",
+        [len(gone), conv_id],
+    )
+    first = gone[0].get("response")
+    if isinstance(first, str):
+        try:
+            first = json.loads(first)
+        except (ValueError, TypeError):
+            first = None
+    ctx = first.get(_CONTEXT_BEFORE) if isinstance(first, dict) else None
+    return ctx if isinstance(ctx, dict) else None
 
 
 async def admin_list_conversations(*, tenant_id: int | None, user_id: int | None = None,
@@ -282,7 +354,7 @@ async def search_my_conversations(*, user_id: int, q: str, limit: int = 30,
                                   archived: bool | None = None) -> list[dict]:
     """Title or turn-text search across the caller's own conversations.
     archived=None searches both shelves, so a search can find an archived chat."""
-    where = "c.user_id = $1 AND left(c.session_id, 4) <> 'api-'"   # see list_my_conversations
+    where = "c.user_id = $1 AND left(c.session_id, 4) <> 'api-' AND c.turn_count > 0"   # see list_my_conversations
     params: list = [user_id, q.strip()[:200]]
     if archived is not None:
         params.append(archived)
@@ -359,7 +431,14 @@ async def save_session_state(*, tenant_id, user_id, session_id: str, title: str,
     state used to be dropped when the UPDATE ran before that insert did. The
     `rev` guard rejects a stale write: two concurrent requests on the same
     session both start from rev N, the first to commit N+1 wins, and the other
-    is refused rather than overwriting it. Last writer does NOT win."""
+    is refused rather than overwriting it. Last writer does NOT win. Nor does
+    another user: a row owned by someone else is never overwritten (CTX-01).
+
+    The summary is written as the session holds it, None included: "start a
+    new topic" and the idle expiry clear it, and COALESCE kept the old one, so
+    the other workers brought the cleared chat's scheme, place and year back
+    into the follow-up rewrite (CTX-11, 2026-10-29). A worker whose copy is
+    stale cannot clear a newer summary: its revision is refused above."""
     snap = {**snapshot, "rev": int(rev)}
     row = await db.fetchrow(
         """INSERT INTO app.conversations
@@ -367,8 +446,11 @@ async def save_session_state(*, tenant_id, user_id, session_id: str, title: str,
            VALUES ($1, $2, $3, $4, 0, $5::jsonb, $6)
            ON CONFLICT (session_id) DO UPDATE
                SET context_state = EXCLUDED.context_state,
-                   summary = COALESCE(EXCLUDED.summary, app.conversations.summary)
+                   summary = EXCLUDED.summary,
+                   summary_updated_at = CASE WHEN EXCLUDED.summary IS DISTINCT FROM app.conversations.summary
+                                             THEN NOW() ELSE app.conversations.summary_updated_at END
                WHERE COALESCE((app.conversations.context_state->>'rev')::int, 0) < $7
+                 AND app.conversations.user_id IS NOT DISTINCT FROM EXCLUDED.user_id
            RETURNING conv_id""",
         [tenant_id, user_id, session_id, (title or "")[:120],
          json.dumps(snap, default=str), summary, int(rev)],
@@ -394,15 +476,16 @@ async def load_context_state(session_id: str) -> dict:
     rehydrate app.session_store.Session.state when a conversation resumes on a
     worker that has never seen this session_id in-process (new worker, or the
     in-process session TTL'd out but the conversation itself hasn't). Returns
-    {} (never raises) if the conversation/columns aren't there yet."""
-    try:
-        row = await db.fetchrow(
-            "SELECT context_state, summary FROM app.conversations WHERE session_id = $1",
-            [session_id],
-        )
-    except Exception as e:  # noqa: BLE001
-        logger.warning("conversation_store: load_context_state failed (non-fatal): %s", e)
-        return {}
+    {} if the conversation isn't there yet.
+
+    A database error RAISES (CTX-12, 2026-10-29). It used to be swallowed into
+    {}, so session_sync's retry (KI-314) never saw a failure to retry: a brief
+    DB drop ran the turn with no context. The only caller,
+    session_sync.PostgresBackend.load, is retried and caught by sync_in."""
+    row = await db.fetchrow(
+        "SELECT context_state, summary, user_id FROM app.conversations WHERE session_id = $1",
+        [session_id],
+    )
     if not row:
         return {}
     state = row.get("context_state")
@@ -411,7 +494,9 @@ async def load_context_state(session_id: str) -> dict:
             state = json.loads(state)
         except (ValueError, TypeError):
             state = None
-    return {"context_state": state or {}, "summary": row.get("summary")}
+    # user_id: the owner, so session_sync.sync_in can refuse another user's
+    # conversation (CTX-01).
+    return {"context_state": state or {}, "summary": row.get("summary"), "user_id": row.get("user_id")}
 
 
 async def set_archived(*, session_id: str, user_id: int, archived: bool) -> bool:

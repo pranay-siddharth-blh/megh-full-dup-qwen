@@ -129,8 +129,8 @@ export const CARD_QUESTIONS = {
       { ico: '👥', text: 'How many FOCUS+ beneficiaries are there?' },
       { ico: '📊', text: 'Top 5 districts by FOCUS+ beneficiaries' },
       { ico: '🏦', text: 'Which bank serves the most FOCUS+ beneficiaries?' },
-      { ico: '📍', text: 'How many beneficiaries in West Garo Hills?' },
-      { ico: '💰', text: 'What is the total amount paid out?' },
+      { ico: '📍', text: 'How many FOCUS+ beneficiaries in West Garo Hills?' },
+      { ico: '💰', text: 'What is the total FOCUS+ amount paid out?' },
     ],
   },
   cm_elevate: {

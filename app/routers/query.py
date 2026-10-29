@@ -53,6 +53,10 @@ class QueryRequest(BaseModel):
     # ignored until the RAG upgrade Phase 4: a Khasi or Garo question is now
     # translated to English first (app/translate.py).
     language: str = Field(default="en", max_length=8)
+    # K-6 (chat UI audit 2026-10-29): Regenerate / Edit replace a question and what
+    # followed it. The number of this conversation's saved turns to keep; the rest
+    # are deleted and the context goes back to what it was before them.
+    keep_turns: int | None = Field(default=None, ge=0, le=500)
 
     @field_validator("question")
     @classmethod
@@ -78,6 +82,9 @@ async def _identity(scope: auth.UserScope = Depends(current_scope)) -> auth.User
 @router.post("/api/query")
 async def query(req: QueryRequest, request: Request,
                 scope: auth.UserScope = Depends(_identity)):
+    # The plain request has no pings, so nginx cuts it at 120 s: its total
+    # deadline is capped below that (REL-02b). The stream keeps its own.
+    request.state.megh_nonstream = True
     return await _answer(req, request, scope)
 
 
@@ -208,10 +215,16 @@ def _remember_stopped(req: QueryRequest, request: Request, scope: auth.UserScope
     once on this worker; the durable save runs in the background, because the
     caller is a stream being torn down by the disconnect."""
     try:
+        if getattr(request.state, "megh_foreign", False):
+            return    # another user's conversation: refused, nothing to keep (CTX-01)
         session_id = _session_id(req, request, scope)
         if session_id.startswith("one-"):
             return    # no thread to continue in
         session = session_store.ensure(session_id, scope.user_id)
+        # The turn may have been stopped half way (its state changed, its
+        # answer never delivered): put the session back as the turn found it,
+        # then record the stopped question on top (CTX-01, 2026-10-29).
+        _restore_turn_start(request, session)
         conversation_layer.remember_stopped(session, req.question)
 
         async def save() -> None:
@@ -227,12 +240,77 @@ def _remember_stopped(req: QueryRequest, request: Request, scope: auth.UserScope
         logger.warning("query stream: could not remember the stopped question", exc_info=True)
 
 
+# One turn at a time per conversation on this worker (CTX-01, 2026-10-29). Two
+# requests on one session (a double click, two tabs) used to interleave their
+# reads and writes of the same Session; only the graph run itself was locked
+# (pipeline_graph), and that lock is not re-entrant, so it is not reused here.
+# Entries are counted and removed when the last waiter leaves, so the dict holds
+# only conversations with a turn in flight. Across workers the durable revision
+# guard (conversation_store.save_session_state) already refuses the second write.
+_TURN_LOCKS: dict = {}
+
+
 async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) -> dict:
+    """One turn, for both endpoints, run after any other turn of the same
+    conversation on this worker has finished (see _TURN_LOCKS)."""
+    if not req.question or not req.question.strip():
+        raise HTTPException(400, "question must not be empty")
+    sid = _session_id(req, request, scope)
+    entry = _TURN_LOCKS.get(sid)
+    if entry is None:
+        entry = _TURN_LOCKS[sid] = [asyncio.Lock(), 0]
+    entry[1] += 1
+    try:
+        async with entry[0]:
+            return await _answer_turn(req, request, scope)
+    finally:
+        entry[1] -= 1
+        if entry[1] <= 0 and _TURN_LOCKS.get(sid) is entry:
+            del _TURN_LOCKS[sid]
+
+
+def _refuse_foreign(request: Request, session_id: str, scope: auth.UserScope, where: str) -> None:
+    """403 for a conversation another user owns (CTX-01). Its context is never
+    loaded, used or overwritten, and a Stop of this request records nothing."""
+    try:
+        request.state.megh_foreign = True
+    except Exception:  # noqa: BLE001
+        pass
+    logger.warning("query: session %s refused for user %s: the %s owner differs",
+                   session_id, scope.username or scope.user_id, where)
+    raise HTTPException(403, "This conversation belongs to another account. Please start a new chat.")
+
+
+def _turn_start_copy(session) -> tuple:
+    """The session as this turn found it: the durable snapshot (deep, through
+    JSON as the database stores it, so later in-place edits of topics or state
+    cannot reach it) plus the summary, which travels beside the snapshot."""
+    return (json.loads(json.dumps(session.to_snapshot(), default=str)),
+            session.summary, session.summary_turn_count)
+
+
+def _restore_turn_start(request: Request, session) -> None:
+    """Put the session back as the turn found it: the turn failed (503 / 504 /
+    5xx) or was stopped before its answer was delivered. Without this the
+    worker kept a half-changed copy (the pending clarification already cleared,
+    say), and the next reply behaved differently on this worker than on the
+    others (CTX-10, 2026-10-29). The revision is left alone: nothing was saved."""
+    start = getattr(request.state, "megh_turn_start", None)
+    if not start or session is None:
+        return
+    snap, summary, summary_turn_count = start
+    try:
+        session.apply_snapshot(snap)
+        session.summary, session.summary_turn_count = summary, summary_turn_count
+        session.turn_context = {}
+    except Exception:  # noqa: BLE001 — a failed restore must not hide the turn's own error
+        logger.warning("query: could not restore the session after a failed turn", exc_info=True)
+
+
+async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScope) -> dict:
     """One turn, for both endpoints: caches, the pipeline, the pause, and the
     bookkeeping (L1/L2 context, memory, audit, cache write-back). Raises the
     HTTPException the endpoint returns."""
-    if not req.question or not req.question.strip():
-        raise HTTPException(400, "question must not be empty")
 
     started = time.monotonic()
     ip = _client_ip(request)
@@ -251,6 +329,13 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
             translated_from, req.question = req.question, english.strip()
     session_id = await _owned_session_id(_session_id(req, request, scope), request, scope)   # KI-399
     session = session_store.ensure(session_id, scope.user_id)
+    # Ownership (CTX-01, 2026-10-29): a session id is not a secret the caller
+    # can be trusted with. This worker's copy names its owner by login; the
+    # durable row (sync_in below) by app.users id. Either unknown: no check.
+    # K-2: covers the next officer on a shared computer reusing the previous
+    # officer's session id after a sign-out.
+    if session.user_id and scope.user_id and str(session.user_id) != str(scope.user_id):
+        _refuse_foreign(request, session_id, scope, "in-memory")
     session.scope = scope
     # Shared conversation state (app/session_sync.py, KI-028): bring this
     # worker's copy up to the durable revision before answering. The previous
@@ -261,13 +346,34 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     # no durable thread to read.
     durable_session = not session_id.startswith("one-")
     if durable_session:
-        await session_sync.sync_in(session, session_id)
+        if await session_sync.sync_in(session, session_id, user_id=scope.db_user_id) == "foreign":
+            if not session.turns:
+                # the empty copy ensure() just made for this caller: left in
+                # place, it would refuse the real owner on this worker
+                session_store.drop(session_id)
+            _refuse_foreign(request, session_id, scope, "durable")
+    if req.keep_turns is not None and durable_session and scope.db_user_id is not None:
+        await _replace_turns(session, session_id, scope, req.keep_turns)
+    # K-6: the context as it is before this turn, saved with it so a later Edit /
+    # Regenerate of this question can put it back
+    context_before = {"snapshot": session.to_snapshot(), "summary": session.summary}
+    # The session as this turn found it, restored if the turn fails or is
+    # stopped (CTX-10). Taken here, after sync_in (and K-6's replace, which is
+    # already saved) and before the conversation layer: the layer's idle expiry
+    # must not be undone by a restore.
+    request.state.megh_turn_start = _turn_start_copy(session)
     # Conversation layer (app/conversation_layer.py): an idle conversation
     # starts afresh, "start a new topic" clears the context, and "what was the
     # PMAY-G information again?" becomes a return to that topic. Before the
     # caches: such a turn only means something in its own conversation.
     layer = await conversation_layer.prepare_turn(session, req.question)
     question = layer.question
+    if layer.action == "continue-expired":
+        # The "Continue with …" tap brings back the set-aside topic. A pause
+        # asked since the expiry ("which scheme?") belongs to the fresh start
+        # the officer just left: the next question must not merge into it
+        # (CTX-13, 2026-10-29).
+        topic_memory._clear_pending(session)
 
     # Response + semantic caches are keyed on (question + authorization
     # fingerprint): safe to share across users who resolve to the same scope,
@@ -300,14 +406,20 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
                 served_from = f"{sem_hit.get('route', 'data')}:semcache"
 
     if result is None:
+        deadline: float = settings.REQUEST_TIMEOUT_SECONDS * (len(layer.multi) if layer.multi else 1)
+        if getattr(request.state, "megh_nonstream", False):
+            # REL-02b: one part per scheme could run past the proxy's own cut-off,
+            # which the officer would see as a bare gateway error.
+            deadline = min(deadline, settings.QUERY_NONSTREAM_MAX_SECONDS)
         try:
             # "Each year, for all schemes": one question per scheme, answered
             # one after another and merged (conversation_layer.answer_many).
             result = await asyncio.wait_for(
                 conversation_layer.answer_many(
-                    layer.multi, lambda q: answer_question(q, session=session, scope=scope))
+                    layer.multi, lambda q: answer_question(q, session=session, scope=scope),
+                    notes=layer.multi_notes)
                 if layer.multi else answer_question(question, session=session, scope=scope),
-                timeout=settings.REQUEST_TIMEOUT_SECONDS * (len(layer.multi) if layer.multi else 1),
+                timeout=deadline,
             )
         except ClarificationNeeded as e:
             # A scope pause ("which area / year?"), a year pause ("which FY?"), or
@@ -330,6 +442,10 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
                 "session_id": session_id,
                 **_empty_data_fields(),
             }
+            # After an idle expiry the first reply carries the "Continue with …"
+            # chip, a pause included: it returned before the offer was attached,
+            # and the next message dropped the set-aside context (CTX-13).
+            out = conversation_layer.attach_continue_offer(session, out)
             # A clarification pause is still a turn the user should see when they
             # reopen the thread — persist it durably (L2) exactly like an answered
             # turn, so the conversation appears in the sidebar and replays the
@@ -338,7 +454,8 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
             clarify_latency_ms = (time.monotonic() - started) * 1000
             conversation_store.persist_turn(
                 tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,
-                result=out, question=req.question, latency_ms=clarify_latency_ms,
+                result=out, question=translated_from or req.question, latency_ms=clarify_latency_ms,
+                context_before=context_before,
                 username=scope.username or None, ip=ip,
                 audit=turn_trace.audit_fields(trace, out),
             )
@@ -348,10 +465,13 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
             # reply (KI-001): it is part of the durable snapshot.
             if durable_session:
                 await session_sync.sync_out(session, session_id, tenant_id=scope.tenant_id,
-                                            user_id=scope.db_user_id, title=req.question)
+                                            user_id=scope.db_user_id, title=translated_from or req.question)
             return out
+        # Every failure below leaves the session as the turn found it (CTX-10),
+        # so the retry behaves the same on whichever worker gets it.
         except ModelBusyError as e:
             metrics.busy_rejections += 1
+            _restore_turn_start(request, session)
             raise HTTPException(503, "The service is busy right now. Please retry in a few seconds.",
                                 headers={"Retry-After": "5"}) from e
         except DatabaseUnavailableError as e:
@@ -359,20 +479,24 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
             # the officer retries — never a "not in the data" answer (KI-025).
             metrics.errors += 1
             logger.warning("database unreachable: %s", e)
+            _restore_turn_start(request, session)
             raise HTTPException(503, "Couldn't reach the Megh One data service just now (network or "
                                      "VPN interruption). Please retry in a few seconds.",
                                 headers={"Retry-After": "5"}) from e
         except asyncio.TimeoutError as e:
             metrics.errors += 1
+            _restore_turn_start(request, session)
             raise HTTPException(504, "The request took too long. Please try a narrower question.") from e
         except UnsafeSQLError as e:
             metrics.errors += 1
             logger.error("Blocked unsafe SQL: %s", e)
+            _restore_turn_start(request, session)
             raise HTTPException(500, "the generated query failed a safety check") from e
         except Exception as e:
             metrics.errors += 1
             metrics.model_errors += 1
             logger.exception("query failed")
+            _restore_turn_start(request, session)
             raise HTTPException(502, "upstream error while answering the question") from e
 
     # A refusal said conversationally (app/conversation_replies.py): its kind,
@@ -389,7 +513,7 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
         result = offered
         cacheable = False
     if translated_from:
-        result = {**result, "translated_from": translated_from}
+        result = {**result, "translated_from": translated_from, "translated_question": req.question}
 
     latency_ms = (time.monotonic() - started) * 1000
     result["session_id"] = session_id
@@ -401,7 +525,23 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     # follow-up rewrite still has this question as its antecedent.
     # The question the pipeline ran (the conversation layer's), so a reset's
     # "Forget that." or a recall's wording never becomes the antecedent.
-    session_store.add_turn(session_id, build_turn(question, result))
+    if served_from is not None and layer.response is None:
+        # A cached answer skips the graph, and with it the context stage, which
+        # first files the previous turn under its topic (topic_memory.checkpoint).
+        # Without this the turn before a cache hit was never filed: after
+        # MGNREGA -> PMAY-G -> a cached MGNREGA answer the PMAY-G topic was gone
+        # (CTX-02, 2026-10-29). Filing twice is harmless (a fingerprint skips it).
+        try:
+            topic_memory.checkpoint(session)
+        except Exception:  # noqa: BLE001 — bookkeeping must never fail the answer
+            logger.warning("topic memory: checkpoint before a cache hit failed (non-fatal)", exc_info=True)
+    if layer.action != "stop":
+        session_store.add_turn(session_id, build_turn(question, result))
+    # else: a typed "stop" with nothing running is not a turn of the topic. Recorded
+    # as the last turn, it became the follow-up antecedent and its topic filing
+    # skipped the answer before it: "What about FY 2023-24?" then reached the data
+    # path with no scheme (CTX-13, 2026-10-29). persist_turn still keeps it in the
+    # chat's history.
     if served_from is not None and layer.response is None:
         # KI-319 (2026-10-18): a cached answer skips the graph, so its
         # context_update node never ran — the structured state (scheme, place,
@@ -418,7 +558,8 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     # L2 durable — conversation + turn + audit (fire-and-forget)
     conversation_store.persist_turn(
         tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,
-        result=result, question=req.question, latency_ms=latency_ms,
+        result=result, question=translated_from or req.question, latency_ms=latency_ms,
+        context_before=context_before,
         username=scope.username or None, ip=ip,
         audit=turn_trace.audit_fields(trace, result),
     )
@@ -440,7 +581,7 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     # itself, so it no longer races persist_turn's insert).
     if durable_session:
         await session_sync.sync_out(session, session_id, tenant_id=scope.tenant_id,
-                                    user_id=scope.db_user_id, title=req.question)
+                                    user_id=scope.db_user_id, title=translated_from or req.question)
     _mirror_audit(scope, session_id, req.question, result, started, ip, trace)
 
     # Only write back a freshly computed answer, and only under this caller's scope —
@@ -448,8 +589,11 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     # node_finalize's context_dependent): cached under the raw words, another user
     # typing them would get an answer scoped by someone else's conversation.
     if cacheable and served_from is None and not result.get("context_dependent"):
-        await response_cache.put(req.question, result, scope_key)
-        await semantic_cache.put(req.question, result, vec=sem_vec, scope_key=scope_key)
+        # Never the officer's own Khasi / Garo words: a later asker in the same
+        # scope would receive them in the JSON (CTX-14, 2026-10-29).
+        shared = {k: v for k, v in result.items() if k != "translated_from"}
+        await response_cache.put(req.question, shared, scope_key)
+        await semantic_cache.put(req.question, shared, vec=sem_vec, scope_key=scope_key)
 
     metrics.record(served_from or result.get("route", "data"), latency_ms)
     return result
@@ -458,6 +602,21 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
 # ── Per-request conversation bookkeeping ────────────────────────────────────
 # Module-level so the live validation harness (tests/live_context_validation.py)
 # runs exactly this logic rather than a copy of it.
+
+async def _replace_turns(session, session_id: str, scope: auth.UserScope, keep: int) -> None:
+    """K-6: delete the saved turns after the first `keep` and restore the context
+    saved before the first of them. Never fails the question: if the store is
+    unreachable the turns stay (as before) and the question is answered."""
+    try:
+        ctx = await conversation_store.truncate_turns(session_id=session_id, user_id=scope.db_user_id, keep=keep)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("keep_turns: could not remove replaced turns (%s)", e)
+        return
+    if not ctx or not isinstance(ctx.get("snapshot"), dict):
+        return
+    session.apply_snapshot(ctx["snapshot"], ctx.get("summary"))
+    await session_sync.sync_out(session, session_id, tenant_id=scope.tenant_id, user_id=scope.db_user_id)
+
 
 def is_cacheable(question: str, session) -> bool:
     """Whether this request may be served from, and written to, the shared

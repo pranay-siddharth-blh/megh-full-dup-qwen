@@ -13,8 +13,10 @@ Each item's outcome:
   correct        the pipeline's rows hold the gold answer (compare.py) — or, for a
                  single-number gold, the answer text states that number
   wrong          it answered with data, but not the gold answer
-  clarification  it stopped to ask a question (the items are written to be
-                 unambiguous, so this counts against accuracy)
+  clarification  it stopped to ask a question it should not have (counts against accuracy)
+  expected_pause it stopped with exactly the pause the item's `expect_pause` names: what the
+                 signed conversation rules do for that wording (CTX-09). Reported on its own,
+                 left out of the accuracy denominator
   no_sql         it answered without running SQL (knowledge / edge route, refusal)
   error          an exception (gateway, DB, timeout)
   gold_error     the gold SQL itself failed — a broken item, left out of the score
@@ -24,7 +26,7 @@ Each item's outcome:
     python tests/nl2sql_eval/run_eval.py --scheme MGNREGA --ids MG-03,MG-07
     python tests/nl2sql_eval/run_eval.py --check-gold     # gold SQL + hold-out only, no models
 
-Accuracy = correct / (items - gold_error). Every run is saved to results/ with
+Accuracy = correct / (items - gold_error - expected_pause). Every run is saved to results/ with
 its git commit and model assignment, and compared with the previous run:
 items that were correct and no longer are ("regressions") are listed first.
 """
@@ -80,7 +82,8 @@ sys.path.insert(0, str(ROOT))
 from app import db, llm  # noqa: E402
 from app.config import settings  # noqa: E402
 from tests.nl2sql_eval import holdout  # noqa: E402
-from tests.nl2sql_eval.compare import compare, long_as_wide, stated_in_answer  # noqa: E402
+from tests.nl2sql_eval.compare import (NOT_SCORED, compare, long_as_wide, pause_verdict,  # noqa: E402
+                                       stated_in_answer)
 
 
 def git_info() -> dict:
@@ -212,6 +215,8 @@ async def evaluate(item: dict, sem: asyncio.Semaphore) -> dict:
         got = await run_pipeline(item)
         rec.update({k: v for k, v in got.items() if k not in ("rows", "answer")})
         rec["answer"] = (got.get("answer") or "")[:400]
+        if got["outcome"] == "clarification":
+            rec["outcome"] = pause_verdict(item, got.get("detail"))
         if got["outcome"] == "answered":
             if not got.get("sql") or got.get("rows") is None:
                 rec["outcome"] = "no_sql"
@@ -235,7 +240,7 @@ async def evaluate(item: dict, sem: asyncio.Semaphore) -> dict:
 
 
 def summarise(records: list[dict]) -> dict:
-    scored = [r for r in records if r["outcome"] != "gold_error"]
+    scored = [r for r in records if r["outcome"] not in NOT_SCORED]
     by = defaultdict(Counter)
     for r in scored:
         by[r["scheme"]][r["outcome"]] += 1
@@ -243,6 +248,7 @@ def summarise(records: list[dict]) -> dict:
     acc = lambda c: round(100 * c["correct"] / sum(c.values()), 1) if sum(c.values()) else None  # noqa: E731
     total = Counter(r["outcome"] for r in records)
     return {"items": len(records), "scored": len(scored), "outcomes": dict(total),
+            "expected_pauses": total.get("expected_pause", 0),
             "accuracy": acc(Counter(r["outcome"] for r in scored)),
             "by": {k: {"accuracy": acc(c), **dict(c)} for k, c in sorted(by.items())}}
 
@@ -307,6 +313,8 @@ async def main() -> int:
 
     print(f"\nACCURACY {summary['accuracy']}%  ({summary['outcomes'].get('correct', 0)}/{summary['scored']})"
           f"  outcomes: {summary['outcomes']}")
+    if summary["expected_pauses"]:
+        print(f"  paused as the conversation rules require: {summary['expected_pauses']} (not scored)")
     for k, v in summary["by"].items():
         print(f"  {k:26} {v['accuracy']}%  " + ", ".join(f"{o}={n}" for o, n in v.items() if o != "accuracy"))
     if delta is not None:

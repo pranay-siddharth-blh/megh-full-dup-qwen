@@ -1,83 +1,119 @@
 # Conversation context and LangGraph
 
-How the existing context window (D-022, D-023, D-024, D-030) works when the LangGraph orchestrator
-is on. **Short version: the context logic is unchanged and still the source of truth. The graph
-runs it as nodes and records what it decided.**
+How a conversation's context is kept, used and protected, and how it runs inside the LangGraph
+orchestrator (the only one, D-036). **Short version: the context logic lives in ordinary
+functions (context_manager, context_policy, topic_memory, conversation_layer); the graph runs them
+as nodes and records what they decided. Postgres holds the conversation; the checkpoint holds only
+a paused run.** Rewritten 2026-10-29 (lane A2, DOC-01b); it used to stop at D-030.
 
-## 1. Three layers, kept separate
+## 1. The layers, kept separate
 
 | Layer | What | Where it lives | Lifetime |
 |---|---|---|---|
-| Long-term semantic context | `ConversationState` (scheme, district, block, village, year, metric, tranche, comparison, provenance), the last turn (+ row summary), the pending pause, recent questions, the rolling summary | `Session` (L1, per worker) ↔ `app.conversations.context_state` (Postgres, versioned, D-023) | the conversation |
-| Short-term execution state | this turn's question, merge plan, inherited filters, schemes, entities, SQL, rows, answer | LangGraph state (`MeghalayaGraphState`) | one run; reset by `fresh_turn_state` |
-| Checkpoint | the execution state of a **paused** run | Postgres `app.checkpoint*` (shared by both VMs), `thread_id = session_id` | while a pause waits |
+| Conversation state | `ConversationState` (scheme, place, year, metric, tranche, comparison, provenance), the last turn (+ row summary), the pending pause, recent questions, the rolling summary, **the topics and their question ledger**, the idle clock, a set-aside (expired) or stopped context | `Session` (per-worker copy) ↔ `app.conversations.context_state` + `summary` (Postgres, versioned, D-023), with the owner (`user_id`) | the conversation (retention: `CONVERSATION_RETENTION_DAYS`, 0 = keep) |
+| Semantic memory | past turns (question, standalone question, answer excerpt) for "relevant earlier turns" | Qdrant `CONTEXT_MEMORY_COLLECTION`, filtered by tenant, user, session and `memory_since` | `CONTEXT_MEMORY_RETENTION_DAYS` (30), or until the chat is deleted |
+| Execution state | this turn's question, merge plan, inherited filters, schemes, entities, SQL, rows, answer | LangGraph state (`MeghalayaGraphState`) | one run (`fresh_turn_state`) |
+| Checkpoint | a **paused** run | Postgres `app.checkpoint*`, `thread_id = session_id` | while a pause waits (`PIPELINE_GRAPH_PAUSE_TTL_SECONDS`), or until the chat is deleted |
 
-Raw chat history is **not** copied into graph state. The state holds the previous turn as one
-structured `Turn` (question, schemes, resolved entities, a 2,000-character answer cap, the row
-summary), exactly what the sequential path holds. The existing optimisations are unchanged and
-still apply:
-
-- tiered rewrite evidence (filters, then the result summary, then an answer excerpt);
-- token budgets (`context_budget`);
-- semantic recall of older turns (`conversation_memory`);
-- the rolling summary.
+Raw chat history is never copied into graph state or back into a prompt (D-022): the rewrite gets
+the previous turn's filters, and its rows or answer excerpt only when the follow-up points into
+them; every rewritten field is provenance-checked (D-024, `context_policy.rewrite_violation`).
 
 ## 2. Lifecycle of one turn
 
 ```
-router: session_store.ensure → session_sync.sync_in   (load the durable state; unchanged)
+router _answer (one turn at a time per conversation on this worker: _TURN_LOCKS, CTX-01)
+  session_store.ensure; the in-memory owner must be the caller          -> else 403
+  session_sync.sync_in(user_id=...); the durable owner must be the caller -> else 403
+  copy of the session as the turn found it (restored on 503/504/5xx and on Stop, CTX-10)
+  conversation_layer.prepare_turn: stop / continue, idle expiry ("Continue with ..." chip),
+      "start a new topic", plain-words recall, small talk, scheme listing
+  caches (only is_cacheable turns; a cache hit first files the previous turn under its topic)
 graph:
-  context        reads session.state (recorded as conversation_context), consumes a pending
-                 pause (merge / pick / paused-thread / abandon → pause_outcome), and computes
-                 the continuation signals
+  context        topic_memory.resolve_turn (checkpoint = file the last turn under its topic;
+                 "go back to <scheme | place | question N>"; "what did we discuss?"); reads
+                 session.state; consumes a pending pause; continuation signals
   edge           a message with no continuation signal is a new question (no inheritance)
-  followup       reference substitution ("the previous year"), the field-level merge plan
-                 (KEEP / REPLACE / CLEAR / REQUIRE_CLARIFICATION), the provenance-checked
-                 rewrite, and the scheme / year hints
-  route          DATA or KNOWLEDGE (the user's own words win for a rewritten follow-up)
-  data_context   prior_resolved = turn entities + session state (merged_prior_resolved),
-                 minus every field the plan REPLACEs / CLEARs (apply_merge_plan),
-                 minus model_inference values (provenance)
-  … DATA nodes use prior_resolved through resolve_entities …
-  context_update update_state (commit or drop each field, scheme-change reset, provenance)
-                 + rolling summary; the result is recorded as context_after
-router: add_turn → persist_turn → index_turn → session_sync.sync_out  (persist; unchanged)
+  followup       turn kind (D-061: FOLLOWUP / STANDALONE / VAGUE; D-065, D-075); deterministic
+                 rewrites first (chart view, correction, compare with a scheme, breakdown of a
+                 statewide answer, compare with a place, roll-up); else the merge plan
+                 (KEEP / REPLACE / CLEAR / REQUIRE_CLARIFICATION) and the provenance-checked
+                 model rewrite
+  route          DATA or KNOWLEDGE
+  data_context   prior_resolved = turn entities + state, minus what the plan REPLACEs / CLEARs,
+                 minus model_inference values
+  … DATA nodes …
+  context_update update_state (+ rolling summary)
+router: add_turn (not for a typed "stop") -> persist_turn -> index_turn -> sync_out (rev + 1)
 ```
 
-## 3. Inheritance rules (unchanged, now visible per node)
+## 3. Inheritance rules (each implemented once; the graph calls the same functions)
 
-| Rule | Implemented by | Where it runs in the graph |
+| Rule | Implemented by | Where |
 |---|---|---|
 | Explicit value in the question replaces the old one | `context_policy.plan_state_merge` → REPLACE | `followup` |
 | Elliptical follow-up keeps scheme / place / year / metric | plan KEEP + `merged_prior_resolved` | `followup`, `data_context` |
+| A self-sufficient question inherits nothing; with no year of its own it is asked the year | `context_policy.turn_kind` (D-061), D-065 | `followup` → `pause_gate` |
+| …unless it repeats the chat's measure on the chat's scheme: it keeps the year, never the place | `_same_scheme_context_year` (D-075) | `followup` |
 | "by district" or a new district clears the old block / village | plan CLEAR + `apply_merge_plan` | `data_context` |
-| Scheme switch drops the old scheme's filters | `update_state` `_scheme_changed`; swap detection `_SCHEME_SWAP_FOLLOWUP`; `_swap_measure_gap` | `followup`, `context_update` |
-| A KNOWLEDGE or edge digression neither inherits nor overwrites | `update_state` (non-data turn), `_drop_inherited_time` / `_drop_inherited_place`, `_data_thread_antecedent` | `knowledge`, `followup`, `context_update` |
-| No continuation signal → no inheritance | `context_policy.continuation_signals` | `context` |
+| "Break it down by district" after a statewide answer = that question by district | `_c01_ctx07_breakdown_question` (CTX-07) | `followup` |
+| "Compare … with <place>" = the previous question for both places | `_c01_ctx07_compare_place_question` (CTX-07); a plain place swap stays the model's (D-056) | `followup` |
+| Scheme switch drops the old scheme's filters, but the old topic is kept | `update_state`; `topic_memory` | `followup`, `context_update` |
+| A KNOWLEDGE / edge digression neither inherits nor overwrites | `update_state`, `resume_after_small_talk` | `context`, `context_update` |
 | A value no user ever supplied is not inherited | provenance (`model_inference`) | `data_context` |
-| A failed DATA turn does not commit | `update_state` guard | `context_update` |
-| "Which one?" with nothing to pick → ask | plan REQUIRE_CLARIFICATION | `followup` → `pause_gate` |
-| A pause reply continues the PAUSED thread, not the last answer | `_paused_thread_antecedent` | `context` |
+| "Which one?" with nothing to pick → ask | REQUIRE_CLARIFICATION, topic / ledger pauses | `followup`, `context` → `pause_gate` |
+| A pause reply continues the PAUSED thread | `_paused_thread_antecedent`; D-065 keeps the paused question's kind | `context` |
 
-There is no second merge policy: the graph calls these same functions.
+## 4. Topics, expiry, stop and reset
 
-## 4. Examples (all in `tests/test_pipeline_graph.py`; identical on both paths)
+- **Topics** (`topic_memory`): one record per scheme set, with its state, last turn and a ledger of
+  its questions (`CONTEXT_LEDGER_PER_TOPIC`), all in the durable snapshot. "Go back to MGNREGA",
+  "go back to the first question", "go back to the East Khasi Hills one" and "go back to
+  Mawphlang" restore the scope that question ran in. Since CTX-02 (2026-10-29) a revision jump no
+  longer resets them: cache hits, small talk and "stop" save a revision without passing through
+  the graph.
+- **Idle expiry** (`CONTEXT_IDLE_EXPIRY_SECONDS`): the context is set aside and the first reply,
+  a pause included, offers "Continue with …"; the tap restores it and abandons any pause asked
+  since. Any other message drops it.
+- **"Start a new topic"** clears state, turns, summary, pending pause and topics, everywhere: the
+  durable summary is written as the session holds it, None included (CTX-11).
+- **Stop**: a typed "stop" with nothing running is answered and is not a turn (the topic carries
+  on, CTX-13); the Stop button cancels the turn, restores the session as the turn found it and
+  records the question for "continue".
 
-| Conversation | Result |
-|---|---|
-| "How many applications under CM Elevate in East Khasi Hills?" → "What about West Khasi Hills?" | scheme CM Elevate kept, district replaced: the SQL filters WEST KHASI HILLS |
-| … → "What about MGNREGA?" → "2023-24" | the scheme switches; MGNREGA's year pause names MGNREGA only; the answer and state are MGNREGA |
-| "How many applications under CM Elevate?" → pause → "East Khasi Hills" | the reply merges into the paused question |
-| … → pause → "thanks" | the pause is abandoned (an edge reply); the pending pause is consumed |
-| … → pause → "What is CM Elevate?" | the pause is abandoned; the reply is answered as KNOWLEDGE |
-| data → "What is CM Elevate?" → "What about West Khasi Hills?" | the digression keeps the data context; the follow-up continues it |
+## 5. Caches and privacy
 
-## 5. Debugging a context decision
+- The answer caches are shared by everyone in the same scope, so only turns that do not depend on
+  their chat are read from or written to them (`routers/query.is_cacheable`). A table test runs the
+  real gate over every harness turn (`tests/test_cacheable_shapes_2026_10_28.py`, CTX-06).
+- Cached results never carry the asker's own words (`translated_from`, CTX-14).
+- A conversation belongs to the user who started it: anyone else sending its id gets **403**,
+  checked on this worker's copy and on the durable row, with an SQL backstop in the upserts
+  (CTX-01). Unknown owners (dev, old rows) are not checked.
+- Deleting a chat deletes its turns, its Qdrant memory, its paused run and this worker's Session
+  (CTX-04). The decision log never holds question text: `log_decision` logs a hash and a length
+  (CTX-08).
+
+## 6. Examples (tests that drive these through the real graph or router)
+
+| Conversation | Result | Test |
+|---|---|---|
+| CM Elevate EKH → "What about West Khasi Hills?" | scheme kept, district replaced | `test_pipeline_graph.py` |
+| … → pause → "thanks" / "What is CM Elevate?" | the pause is abandoned | `test_pipeline_graph.py` |
+| MGNREGA → PMAY-G → cached MGNREGA → "go back to MGNREGA" | both topics kept, MGNREGA's scope restored | `test_topic_rev_2026_10_28.py` |
+| MGNREGA → "stop" → "What about FY 2023-24?" | "… under MGNREGA" | `test_stop_offer_cache_2026_10_29.py` |
+| statewide Focus Plus → "Break it down by district" | the question by district | `test_ctx07_followups_2026_10_29.py` |
+| another user on the same id | 403, owner untouched | `test_ownership_turns_2026_10_29.py` |
+
+## 7. Debugging a context decision
 
 1. Find the request's `pipeline_graph_run` line: `path` shows which nodes ran, and
-   `pause_outcome` shows how a pending pause was read.
-2. Read the `pipeline_decision` lines with the same `request_id`: stages `continuation`,
-   `followup` (kind, actions, antecedent), `pause_reply`, and `intent`.
+   `pause_outcome` how a pending pause was read.
+2. Read the `pipeline_decision` lines with the same `request_id`: stages `conversation`,
+   `topic`, `turn_kind`, `continuation`, `followup` (kind, actions, rewrite), `pause_reply`,
+   `intent`, `data_context`. Question text appears only as `{"sha256", "chars"}`.
 3. With `PIPELINE_GRAPH_KEEP_THREADS=true` locally, `graph.aget_state({"configurable":
    {"thread_id": sid}})` shows `conversation_context`, `plan`, `prior_resolved` and
    `context_after` for the last run.
+4. Live: `tests/conversation_harness` (in-process with `--fresh-worker`, or HTTP with the caches
+   on) and `tests/live_context_validation.py` (a dated result file per run).

@@ -154,7 +154,7 @@ security exposure. Medium = bad UX or operability. Low = hygiene.*
 | KI-123 | Testers (22 Sep sheet, OFF-015..021, 030) expect "status" / "pending" from `current_file_status`; the bot uses `data_verified` (status) and On Hold (pending) — the product owner chose On Hold on 2026-09-28. current_file_status holds only forward 8,497 / sendback 91 / resubmit 39 (no "pending" value) | **Decided + fixed 2026-09-28**: status = `current_file_status` (Forward / Sent back / Resubmit, send-back spellings merged); pending, verification, on hold, approved/rejected unchanged | Medium | schema_context rule 13 + vocabulary, 2 few-shots in cmelevate_few_shot.yaml, `_cm_elevate_status_is_file_status` |
 | KI-124 | Testers: "numbers are coming less than the shared one" (OFF-001/002/004/005/006/009/010). The bot counts APPLICANTS = distinct request_id (rule 8); the raw sheet's rows are APPLICATIONS. They differ only where a request_id repeats (27, all Piggery): Ri Bhoi 2,596 vs 2,606. Before 2026-09-27 programme totals also dropped 51 Unresolved rows (KI-068, fixed) | **Needs a definition decision** | Low | schema_context rule 8 |
 | KI-125 | PMAY-G: a bare year was dropped — "How many PMAY houses were sanctioned in 2023?" left year_key unresolved and the facts path answered for ALL years (170,981) | **Fixed 2026-09-28** (PMAY-G 21 Sep sheet recheck): a plain year is the CALENDAR year (answer, result table and SQL: 110,890 for 2023) with the FY reading as a one-line note (106,527) — changed 2026-09-29 after a user report: the FY figures had led while the calendar ones sat in the note, so the table disagreed with the question | High | `_pmay_facts_query` (`_PMAY_BARE_YEAR_RE`, `calendar_year`) |
-| KI-126 | PMAY-G UX (21 Sep remark on PMAY-OFF-001): a village name shared by several villages (Apalgre x3) asks "which village?" and then "which financial year?" — two taps; the tester wants one | Open — product decision (options: default to all years after a village chip, or put the year choice into the village chips) | Low | village pause + year gate |
+| KI-126 | PMAY-G UX (21 Sep remark on PMAY-OFF-001): a village name shared by several villages (Apalgre x3) asks "which village?" and then "which financial year?" — two taps; the tester wants one | **Fixed 2026-10-29 (J-10, D-089):** a name shared by 2–3 villages is answered for each, named with its block; more twins still ask | Low | village pause + year gate |
 | KI-127 | PMAY-G counting rule (21 Sep remarks PMAY-OFF-011 / 015): the tester's LASKEIN block figure 5,251 counts all rows; the bot's 5,232 excludes 19 records with sanctioned amount ₹0 — as the tester's own 14 Sep remark asked ("where sanctioned amount is 0 are not considered as beneficiaries"). District gaps: Ri Bhoi 40, East Khasi Hills 31, West Jaintia Hills 21, South Garo Hills 11, North Garo Hills 10, South West Garo Hills 9, West Garo Hills 4 | **DECIDED 2026-10-22 (D-060): the 126 are counted as beneficiaries** (statewide 171,107) | Medium | facts path `NOT is_placeholder` |
 | KI-128 | PMAY-G answers carried extra information (user report 2026-09-28): 'financial summary' added the house count and release %, 'performance' added remaining / completion % / release %, single figures added side details ('20 of 52', stage splits, '— ₹… sanctioned, ₹… released', '(covering N houses)', '(houses sanctioned)'), and follow-ups repeated the previous figure because the rewrite carries it ('and how many received only part of it?' → both 'none' and 'part') | **Fixed 2026-09-28** (PMAY-G only; the shared rewrite is unchanged) | Low | `_pmay_metrics`, `_pmay_lines`, `_PMAY_TYPED_TURN` |
 | KI-129 | PMAY-G result table showed the facts path's whole working row (30 columns: fnd_st_plinth, sanctioned_positive, …), and the Sources line read "TRUE, PMAY-G" because the UI takes the word after every FROM and the SQL had "IS DISTINCT FROM TRUE" (user report 2026-09-29) | **Fixed 2026-09-29**: `_pmay_display_rows` returns only the place + asked figures; the SQL uses NOT COALESCE(is_completed, FALSE); the UI skips TRUE/FALSE/NULL | Low | pipeline facts path, web/ai_query.html |
@@ -465,6 +465,7 @@ security exposure. Medium = bad UX or operability. Low = hygiene.*
 | KI-592 | C1 (RAG plan): a relative year in a fresh question had no reader — only a prompt line typed for CM Elevate Legacy. Live 2026-10-29: "MGNREGA person-days last year", "Focus Legacy producer groups last year", "PMAY-G houses completed in the last 3 years" answered for ALL years; "MGNREGA person-days in Ri Bhoi in the previous financial year" failed; CM Elevate Legacy "last year" filtered 2024-25 but said "across all financial years" | **FIXED 2026-10-29**: `_c06_relative_year_rewrite` (c06), called at the top of `_data_entity_stage` (not cross-scheme), replaces "this / current / latest year", "last / previous / prior (financial) year" and "last / past N years" with the FY(s) they mean, anchored on the latest FY the scheme holds (`_SCHEME_DATA_YEARS`, read from megh_db), plus a composer note saying which FY; a question that also names a year, "next year" and schemes with no year list are left alone. Live 8/8 (was 3/8). Note: MGNREGA "last year" = FY 2024-25, whose person-days look incomplete (KI-591). Tests: `tests/test_relative_years_c1_2026_10_29.py` | Medium | c06, c13 entity stage |
 | KI-593 | The premise check read a financial year as an assumed figure: "completed from FY 2021-22 to FY 2023-24" gave premise 22 (and "from 2021-22 to 2023-24" 22 and 24); the answer said 80,595 houses "contradict the assumed value of approximately 22" (found by the C1 live check) | **FIXED 2026-10-29**: `premise_check.extract_premises` blanks every `fy_spans` FY like a calendar date; a stated figure ("900 houses ... in FY 2021-22") is still a premise. Tests: `tests/test_relative_years_c1_2026_10_29.py` | Medium | premise_check |
 | KI-449 | Money still reads in several formats across answers: the scheme writers keep their own (`_fp_rupees` "₹126,197,500.00", `_pmay_money` "₹7,43,60,000 (₹7.44 crore)", `_cml_inr`, Focus Legacy's breakdown "2.89 total disbursed cr", cross_figures `rupees_crore`) | **FIXED 2026-10-29** (D-092, KI-598): the user's data-accuracy brief chose the format — exact ₹ + "(≈ ₹X crore)"; every data answer passes `_c12_normalise_figures`, so the scheme writers' forms are rewritten to it | Low | per-scheme writers |
+| KI-574 | **DOCUMENTATION CONFLICT — NEEDS VERIFICATION: the merge of PRs #20/#21 (2026-10-29) brought a second KI-574 from the chat UI audit branch; both sessions used the same number. Renumber one of them.** Chat UI audit 2026-10-29 (197 findings: charts, totals, cross-scheme readings, years, export, chat flow) | **Fixed 2026-10-29** on branch `fix/chat-ui-audit` (see `docs/audit_fix_log.md`): 189 fixed, 7 already fixed, 1 not reproducible offline (F-9). The 12 product decisions applied as recommended (D-089). **Needs a live check (VPN off):** A-14, G-8 / I-5 / F-11 (village overlap), F-9, I-10 / J-7 / E-9 (zero and tie counts), E-3 (true row count), I-13 (CM Elevate list), J-10 (twin villages) | Medium | cross_figures / conversation_layer / c06 / c11 / c13 / frontend |
 | KI-450 | The deployed `qwen3-reranker` scores nearly every passage 0.99-1.0 (probe 2026-10-29, `megh_knowledge`), so its score cannot be a cut-off and its order alone is weaker than vector order (right piece first 55.6% vs 60.2%). Likely served without the Qwen3 re-ranker head (`no` / `yes` token classifier) — INFERRED, not checked on the gateway | **Open — worked around** (D-083): the order is fused with the vector order (62.4% first, 88.0% top 3) and the cut-offs stay on the cosine score. Asked AIOps to check the deployment (`docs/INFERENCE_REQUIREMENTS.md`). Never "fix" this by switching the re-ranker off (user rule) | Medium | gateway / `rag._rerank` |
 | KI-481 | Questions using a word only one scheme's data holds, with no scheme named, asked "which scheme?": "mandays", "unskilled labour" (MGNREGA), "LAMPS" (Focus Legacy pg_entity_type), "applications pending at level 2" (CM Elevate current_level), "sanctioned a loan" (CM Elevate Legacy loan columns). RAG plan B2 measurement 2026-10-29: `tests/scheme_vocab/labels.json` 27/32 | **FIXED 2026-10-29** — terms added in each scheme's own file (`app/pipeline/schemes/*.py`); 32/32; 1,471 YAML questions scanned: no other scheme's question pulled across (only CM Elevate loan refusal examples now go to Legacy when no scheme is named — D-064's money rule); live 5/5 routed. Tests `tests/test_scheme_vocabulary_b2_2026_10_29.py` | Low (extra question) | scheme files / c03 |
 | KI-446 | When the guardrail model could not judge a message (gateway error, timeout, unreadable reply) the message went on unchecked, with only a WARNING log and no count or alert: harm worded past the layer-1 rules ("where is ganja sold cheapest", "best pistol shop near tura") was answered during an outage. Audit 2026-10-23 (reliability), RAG plan E2 | **FIXED 2026-10-29** (D-080): fails closed for abuse only. A message with an abuse word (`guardrails._ABUSE_SUSPECT`, broad, used only when the model could not judge) gets the `unverified` reply ("I can't check that request safely right now … try again in a few minutes"), never cached; a plain scheme question and an out-of-scope request still go on. `outage_monitor` counts let-through vs refused per worker, shows them on `/metrics` `guardrail` and `/health` `guardrail_model`, and logs one ERROR `ALERT guardrail model failing` line when `GUARDRAIL_ALERT_THRESHOLD` (3) failures fall in `GUARDRAIL_ALERT_WINDOW_SECONDS` (300). Tests `tests/test_guardrail_outage_2026_10_29.py` (22). NOT LIVE-VERIFIED (needs a gateway outage). Since the same day the alert is also POSTed to `ALERT_WEBHOOK_URL` when set (blank by default; tests 25). LIVE-VERIFIED in-process (real gateway + dead-port outage) and on :8401 (`/health`, `/metrics`, `/api/query`). Open: someone must set `ALERT_WEBHOOK_URL` on the VMs; counts are per worker (2 workers in deploy, like every `/metrics` counter) | Medium (security, fail-open) | guardrails.check_model, c14 edge stage, main /metrics /health |
@@ -1432,7 +1433,90 @@ the DATA path stubbed (the VPN was down: `10.48.242.4` answered neither 5432 nor
 <!-- end lane A1 -->
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
-- Progress: not started
+- Progress: context-memory tasks done on branch `lane/a2` (2026-10-29, local commits, not pushed): CTX-02, CTX-01 +
+  CTX-10 + REL-02b, CTX-11 + CTX-12, CTX-13 + CTX-14, CTX-06, CTX-04a, CTX-08, CTX-09 (eval part), CTX-07 (offline
+  part), QA-03 (offline part), DOC-01b. Not done: REL-01, UI-01, UI-02 (not context memory; a teammate works on UI).
+- **Status changes for the integrator** (the summary table is not edited here):
+  - **KI-400** (topic memory wiped) — FIXED (CTX-02): no reset on a revision jump; a cache hit files the previous
+    turn; "go back to <place>". `tests/test_topic_rev_2026_10_28.py`. Live check pending (P2 scenario).
+  - **KI-399 / KI-028** (ownership, concurrent turns) — FIXED (CTX-01): 403 for a non-owner (memory and durable
+    owner, SQL backstop), one turn at a time per conversation per worker, restore on Stop.
+    `tests/test_ownership_turns_2026_10_29.py`. Live check pending (P1 scenario, http driver).
+  - **KI-430** (retention, delete) — FIXED in code (CTX-04a): delete cascade; retention settings ship at 0
+    (nothing purged) until the user picks the periods. The JSONL audit rotation is lane A1's (CTX-04b).
+  - **KI-337** (cache gate) — VERIFIED, no fix needed (CTX-06): 274 harness turns, 0 leaks.
+  - **KI-363** (breakdown after statewide) — FIXED (CTX-07), reproduced offline; live check pending.
+  - **KI-364** (compare with a place) — FIXED (CTX-07), reproduced offline (`followup=False`); live check pending.
+  - **KI-416** (bare year switches the measure) — NOT in the rewrite (offline: the guard rejects every money rewrite
+    of a houses question); request to lane B1 (SQL generation) in HANDOFF; live check pending.
+  - **KI-406 / KI-407** — the rules were decided (D-075, D-064); the eval now scores those pauses as
+    `expected_pause` (CTX-09). Rulebook D-A2-CTX-09 awaits the user's sign-off.
+- **KI-480** — A cached answer skipped the context stage's `topic_memory.checkpoint`, so the turn BEFORE a cache hit
+  was never filed under its topic (MGNREGA -> PMAY-G -> cached MGNREGA lost PMAY-G). Hidden by KI-400's reset.
+  **FIXED 2026-10-29** (CTX-02): the router checkpoints before recording a cache hit. Low · routers/query.py.
+- **KI-481** — "Compare … with <place>" is a follow-up to `context_policy.turn_kind` (`cue:compare-one-side`) but
+  to none of the follow-up gate's detectors (`looks_like_followup`, …), so the two disagreed and the earlier place
+  was dropped (KI-364's cause). **FIXED 2026-10-29** for the compare-with-place shape by a deterministic rewrite
+  (CTX-07); the general disagreement between `turn_kind` and the gate is left as is (aligning them would change
+  many follow-ups). Low · c14 follow-up gate.
+- **KI-482** — Semantic conversation memory (Qdrant) is consulted only while the session holds fewer than
+  `CONTEXT_MEMORY_MIN_SESSION_TURNS` (2) turns (`context_manager.build_followup_context`); since the snapshot restores
+  up to 50 questions as turns (2026-10-08) it is effectively never searched in a long chat, while every turn still
+  pays an embedding call and a Qdrant write. Its block also puts answer text into the rewrite prompt (D-022 says no
+  raw previous-answer text). **OPEN — user decision** (keep, questions only, or switch off). VERIFIED with the real
+  function, search stubbed. Medium · context_manager / conversation_memory.
+- **KI-483** — The rolling summary is rebuilt from the last `CONTEXT_RECENT_TURNS` (4) questions only, without the
+  previous summary, so topics older than four questions drop out of it. **OPEN — user decision** (fold the old
+  summary in, or build it from the topic records without a model call). VERIFIED by reading
+  `context_manager.maybe_update_summary`. Low · context_manager.
+- **Live results (2026-10-29, VPN up):** KI-400 and KI-399 VERIFIED live (harness P1 / P2 over HTTP, plain and
+  stream; P2 also with the response cache on: a real cache hit, topics kept). KI-363 VERIFIED live. KI-364: the live
+  run found a second cause (below) — now VERIFIED live. KI-416 NOT REPRODUCED live (houses answered first).
+  Live context suite 107/107.
+- **KI-364 (second cause, found live)** — the compare rewrite was right and resolve_entities found both districts,
+  but the previous turn's single `district` was inherited beside `district_list` and the PMAY-G fixed query (which
+  prefers the single district) answered East Khasi Hills alone. **FIXED 2026-10-29**: the rewrite hands the
+  data-context stage a plan that CLEARs the compared level and below (`_c01_ctx07_compare_place_plan`).
+- **KI-485** — 7 conversation-harness scenarios fail in-process on Main 1360c3b and on `lane/a2` alike: two need an
+  account's permissions (http only), U4's count drifted with the data (8,840 → 8,921), NQ09 / NQ12 still expect the
+  year pause D-075 replaced, CMP_compare_with_scheme / META_recap_explain_breakdown expect text the E9 formatting
+  removed. **OPEN** (stale expectations; integrator with the owning lanes). VERIFIED by running both trees.
+- **KI-486** — Composer (seen live 2026-10-29): a NULL-district row is labelled "(row)" in a by-district answer, and
+  district amounts are printed in raw rupees, not crore. **OPEN** (lane B2). Low.
+- **KI-484** — Another worker's in-memory copy of a deleted chat lives until its TTL: `sync_in` cannot tell "deleted"
+  from "never saved" (both load nothing) and keeps the local copy. Only reachable by re-sending the deleted id.
+  **OPEN** (INFERRED; low). routers/history.py, session_sync.
+- **Test team report 2026-10-29 (context memory 7/10)** — causes found in the code and fixed on `lane/a2`
+  (`tests/test_test_team_report_2026_10_29.py`, 11; 9 fail on the old code). Live retest pending (VPN):
+  `--tags test_team_2026_10_29` (TT1-TT6).
+  - **KI-487** (Bug 1, High) — a knowledge aside "wiped" the data context: `_measure_after_knowledge` appended only the
+    scheme ("how many person-days under MGNREGA?"), which then read as a NEW question (D-061): year asked, statewide,
+    "(new question)". **FIXED**: `_c01_kmeasure_question` keeps the chat's data scope of that scheme; a question that keeps
+    the chat's own scheme / place / year is not labelled new (`_c14_keeps_chat_scope`).
+  - **KI-488** (Bug 2, Medium) — "and sanctioned?" after a knowledge aside was rewritten against the aside: "sanctioned"
+    is a chat measure (`detect_metric`) but no measure family, so `_is_measure_only` refused it. **FIXED** (it reads
+    `detect_metric` too). The whole-chat effect needs the live run (offline the model rewrite does not happen).
+  - **KI-489** (Bug 3, High) — a follow-up to a comparison went statewide: `resolve_entities` carried a single district /
+    block from the previous turn but not `district_list` / `block_list`. **FIXED**.
+  - **KI-490** (Bug 4, Medium) — "person-days in Tikrikilla block?" after West Garo Hills by block is a new question
+    (D-061) and kept the year only on an exact measure match (D-075). **FIXED**: a block of the chat's own district keeps
+    the year (D-A2-REPORT). Live, the year was asked although offline D-075 applied: the live cause of the measure
+    mismatch is UNKNOWN — NEEDS VERIFICATION; the new rule covers it either way.
+  - **KI-491** (Bug 5, Medium) — "how many are on hold?" with CM Elevate, MGNREGA and PMAY-G topics open asked which topic.
+    **FIXED** (`cm_elevate._cme_open_topic_pin`). OPEN: the variant (typed while the CM Elevate dataset pause is pending:
+    CM Elevate missing from the chips) — not reproduced offline; needs the live run.
+  - **KI-492** (typo, Low) — "toatal persendays" carried no continuation signal read raw. **FIXED**: the continuation check
+    also reads the rephraser's typo gloss, accepted only when it yields a measure; measure typos are corrected against
+    the few-shot synonym table. "he is my collik remember" still does not continue.
+  - Not changed (not context memory, or a user decision): "applications" asking CM Elevate vs Legacy is D-064 (user
+    decision) — the report asks to reverse it; "CM Elevate (applications) applications", "across all financial years" for
+    CM Elevate, lakh vs crore (see KI-486) — composer, lane B2; 8,921 vs 8,948 applications — data / dashboard.
+- **Test team report — live retest (2026-10-29 evening, VPN up, :8401 on `lane/a2`):** TT1-TT6 **6/6 pass over HTTP**
+  (Bug 1 EKH FY 2024-25 1,632,188 person-days, no year pause; Bug 2 houses sanctioned 17,281; Bug 3 expenditure for both
+  districts; Bug 4 Tikrikilla FY 2023-24 then 2024-25; Bug 5 on hold 67 in West Garo Hills, no which-topic pause; typo
+  1,481,572 person-days). KI-487..492 VERIFIED live. The report's "What works" rows TTW1-TTW5 5/5. Context harness over
+  HTTP 89/94: the 5 failures are KI-485's (identical on Main); the two permission scenarios pass over HTTP. Live context
+  suite 107/107.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

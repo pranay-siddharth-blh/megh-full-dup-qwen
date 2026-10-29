@@ -353,6 +353,38 @@ async def purge_user(user_id: int) -> bool:
     return res.endswith("1")
 
 
+async def purge_old_conversations(*, conversation_days: int, audit_days: int) -> dict:
+    """Retention (CTX-04, 2026-10-29): delete conversations idle for more than
+    `conversation_days` (their turns first: conversation_turns references
+    conversations), and query_audit rows older than `audit_days`. A period of 0
+    or less deletes nothing of that kind. Returns the row counts."""
+    out = {"conversations": 0, "audit": 0}
+
+    def _count(res) -> int:
+        try:
+            return int(str(res).rsplit(" ", 1)[-1])
+        except ValueError:
+            return 0
+    if conversation_days and conversation_days > 0:
+        # One statement: the turns and their conversations go together, so a
+        # turn written in between cannot leave a conversation half deleted.
+        out["conversations"] = _count(await db.execute(
+            """WITH old AS (
+                   SELECT conv_id FROM app.conversations
+                   WHERE last_at < NOW() - make_interval(days => $1)),
+               gone_turns AS (
+                   DELETE FROM app.conversation_turns WHERE conv_id IN (SELECT conv_id FROM old))
+               DELETE FROM app.conversations WHERE conv_id IN (SELECT conv_id FROM old)""",
+            [int(conversation_days)]))
+    if audit_days and audit_days > 0:
+        out["audit"] = _count(await db.execute(
+            "DELETE FROM app.query_audit WHERE created_at < NOW() - make_interval(days => $1)",
+            [int(audit_days)]))
+    if any(out.values()):
+        logger.info("appdb: retention purge removed %s", out)
+    return out
+
+
 async def touch_login(user_id: int) -> None:
     await db.execute("UPDATE app.users SET last_login_at = NOW() WHERE user_id = $1", [user_id])
 

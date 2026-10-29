@@ -226,6 +226,8 @@ def _entities_block(entity_result: dict, question: str = "",
                 continue  # rendered alongside district_list
             if k == "block_list_districts":
                 continue  # rendered alongside block_list
+            if k == "village_twins":
+                continue  # rendered alongside village_code_list (J-10)
             if k == "village_code":
                 lines.append(f"  village_code = {v!r}   -- do NOT filter on lgd_village_name instead")
             elif k == "district":
@@ -295,6 +297,12 @@ def _entities_block(entity_result: dict, question: str = "",
                     "village_code (and lgd_village_name, which is on the same row) so each "
                     "village gets its own row in the result — do NOT sum them into one figure, "
                     "and do NOT filter on lgd_village_name instead.")
+                # J-10: villages that share one name are told apart by their block
+                if resolved.get("village_twins"):
+                    lines.append(
+                        "      these villages share one name: SELECT the block name too "
+                        "(lgd_block, or the block column of this table) so each row says "
+                        "which village it is.")
             elif k == "assembly_constituency":
                 if list(schemes or []) == ["CM Elevate Legacy"]:
                     # Same shape as Focus Legacy: v_cm_elevate_disbursement has
@@ -545,8 +553,30 @@ def build_sql_prompt(question: str, schemes: list[str], entity_result: dict) -> 
         S("common_mistakes", _common_mistakes_block(schemes)),
         S("resolved_entities", _entities_block(entity_result, question, schemes)),
         S("scheme_scope", f"\nThe user's question is about: {', '.join(schemes)}.\n"),
+        S("per_period_rank", _per_period_rank_note(question)),
         S("question", f'\nQuestion: "{question}"\nSQL:'),
     ], schemes=schemes)
+
+
+# I-2 (chat UI audit live run 2026-10-29): "top 5 districts in MGNREGA year wise" came
+# back as one year's top 5 (ORDER BY ... LIMIT 5 over every year). A top / bottom N
+# asked per period is ranked inside each period.
+_RANK_WORDS = frozenset(("top", "bottom", "highest", "lowest", "best", "worst", "least", "most"))
+_PERIOD_WORDS = frozenset(("year", "years", "month", "months", "quarter", "quarters"))
+
+
+def _per_period_rank_note(question: str) -> str:
+    w = [t.strip("?.,!:;()") for t in str(question or "").lower().replace("-", " ").split()]
+    ranked = any(t in _RANK_WORDS for t in w)
+    per = any(t in ("yearwise", "yearly", "annually", "monthwise", "monthly", "quarterly") for t in w) or any(
+        (a in ("each", "every", "per", "by") and b in _PERIOD_WORDS) or (a in _PERIOD_WORDS and b == "wise")
+        or (a in ("each", "every", "per") and b == "financial") for a, b in zip(w, w[1:]))
+    if not (ranked and per):
+        return ""
+    return ("\nThe question ranks WITHIN EACH period (year / month): return the top or bottom N "
+            "of every period, not of all periods together. Rank with ROW_NUMBER() OVER "
+            "(PARTITION BY the period column ORDER BY the measure DESC / ASC) in a subquery and keep "
+            "rank <= N; never a single ORDER BY ... LIMIT N over every period. Return the period column.\n")
 
 
 def build_repair_prompt(question: str, schemes: list[str], entity_result: dict,

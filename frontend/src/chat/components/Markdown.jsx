@@ -102,16 +102,36 @@ const listItem = (line) => {
   return null;
 };
 
+// K-36 (audit 2026-10-29): a row with no closing pipe showed as raw text, and an
+// escaped pipe ("\|") inside a cell split it and shifted the columns. The header
+// still needs a leading pipe; a body row needs only an unescaped pipe somewhere.
 const isTableRow = (line) => {
   const t = line.trim();
-  return t.length >= 2 && t.startsWith('|') && t.endsWith('|') && !hasLineEnd(t.slice(1, -1));
+  return t.length >= 2 && t.startsWith('|') && !hasLineEnd(t.slice(1));
 };
+const isBodyRow = (line) => isTableRow(line) || (line.trim().length > 0 && splitCells(line.trim()).length > 1);
+function splitCells(t) {
+  const out = [];
+  let cur = '';
+  for (let k = 0; k < t.length; k++) {
+    if (t[k] === '\\' && t[k + 1] === '|') { cur += '|'; k++; continue; }
+    if (t[k] === '|') { out.push(cur); cur = ''; continue; }
+    cur += t[k];
+  }
+  out.push(cur);
+  return out;
+}
 const cells = (line) => {
   let t = line.trim();
   if (t.startsWith('|')) t = t.slice(1);
-  if (t.endsWith('|')) t = t.slice(0, -1);
-  return t.split('|').map((c) => c.trim());
+  if (t.endsWith('|') && !t.endsWith('\\|')) t = t.slice(0, -1);
+  return splitCells(t).map((c) => c.trim());
 };
+// Every body row has the header's number of cells: short rows are padded, extra
+// cells are kept in the last one
+const fitRow = (row, n) => (row.length >= n
+  ? [...row.slice(0, n - 1), row.slice(n - 1).join(' | ')]
+  : [...row, ...Array(n - row.length).fill('')]);
 const normalizeNewlines = (s) => s.replaceAll('\r\n', '\n').replaceAll('\r', '\n');
 
 function nextNonBlank(lines, i) {
@@ -144,7 +164,7 @@ export function parseBlocks(text) {
       const head = cells(line);
       const rows = [];
       i += 2;
-      while (i < lines.length && isTableRow(lines[i])) rows.push(cells(lines[i++]));
+      while (i < lines.length && isBodyRow(lines[i])) rows.push(fitRow(cells(lines[i++]), head.length));
       i--;
       blocks.push({ type: 'table', head, rows });
       continue;

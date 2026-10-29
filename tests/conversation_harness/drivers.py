@@ -4,10 +4,10 @@ Drivers: how a scenario's turns reach the chatbot.
   InProcessDriver  the router path in this process (conversation layer -> the
                    LangGraph pipeline -> refusal restyle -> build_turn / pause
                    bookkeeping), one in-process SessionStore. Fast, shows the
-                   pipeline's own decision log, but it does NOT rehydrate the
-                   session from the durable snapshot the way the server does on
-                   every request (live 2026-10-18: a session there holds only its
-                   last turn), and it has no answer caches.
+                   pipeline's own decision log. Every turn round-trips the durable
+                   snapshot (sync_in / sync_out) as the server does; --fresh-worker
+                   rehydrates a new Session per turn, as on another worker (QA-03,
+                   2026-10-29). No answer caches and no logins.
   HttpDriver       POST /api/query or /api/query/stream on a running server, with a
                    JWT minted in-process for a seeded user (the seed passwords in
                    users.yaml are not the live ones). This is the path the browser
@@ -52,11 +52,18 @@ def _from_result(say: str, result: dict, ms: int, status: int | None = None) -> 
 
 
 class InProcessDriver:
+    """The router path in this process. Every turn loads the durable snapshot
+    first (session_sync.sync_in) and saves it after (sync_out), as the server
+    does on every request; with `fresh_worker` each turn also starts from a new
+    in-process Session, as a turn landing on another worker does (QA-03,
+    2026-10-29: without either, KI-400's topic wipe after a non-graph turn could
+    not show up here)."""
     name = "inprocess"
 
-    def __init__(self):
+    def __init__(self, fresh_worker: bool = False):
         from app.session_store import SessionStore
         self.store = SessionStore(ttl=3600, max_sessions=500, max_turns=50)
+        self.fresh_worker = fresh_worker
         self._lifespan = None
 
     async def __aenter__(self):
@@ -70,19 +77,34 @@ class InProcessDriver:
             await self._lifespan.__aexit__(*exc)
 
     def new_conversation(self, account: str | None = None):
-        return _InProcessConversation(self.store)
+        return _InProcessConversation(self.store, self.fresh_worker)
 
 
 class _InProcessConversation:
-    def __init__(self, store):
+    def __init__(self, store, fresh_worker: bool = False):
+        self.store = store
+        self.fresh_worker = fresh_worker
         self.sid = "harness-" + uuid.uuid4().hex[:10]
         self.session = store.ensure(self.sid, "harness")
         self.decisions: list = []
 
-    async def ask(self, say: str) -> TurnRecord:
+    async def ask(self, say: str, account: str | None = None) -> TurnRecord:
+        # `account`: no logins in process, so a turn asked as another user runs
+        # as this one (ownership scenarios run on the http driver, `drivers:`).
+        from app import session_sync
+        t0 = time.perf_counter()
+        if self.fresh_worker:
+            self.store.drop(self.sid)
+            self.session = self.store.ensure(self.sid, "harness")
+        await session_sync.sync_in(self.session, self.sid)
+        try:
+            return await self._ask(say, t0)
+        finally:
+            await session_sync.sync_out(self.session, self.sid, tenant_id=None, user_id=None, title=say)
+
+    async def _ask(self, say: str, t0: float) -> TurnRecord:
         from app import conversation_layer, conversation_replies, pipeline
         from app.routers import query as router
-        t0 = time.perf_counter()
         self.session.turn_context = {}
         try:
             layer = await conversation_layer.prepare_turn(self.session, say)
@@ -167,9 +189,11 @@ class _HttpConversation:
         self.account = account
         self.sid = "harness-" + uuid.uuid4().hex[:10]
 
-    async def ask(self, say: str) -> TurnRecord:
+    async def ask(self, say: str, account: str | None = None) -> TurnRecord:
+        # `account`: this turn asked by another user on the SAME chat id (an
+        # ownership scenario, QA-03); the conversation stays this one's.
         d = self.driver
-        token = await d.ensure_token(self.account)
+        token = await d.ensure_token(account or self.account)
         headers = {"Authorization": f"Bearer {token}"}
         body = {"question": say, "session_id": self.sid, "skip_cache": d.skip_cache}
         t0 = time.perf_counter()

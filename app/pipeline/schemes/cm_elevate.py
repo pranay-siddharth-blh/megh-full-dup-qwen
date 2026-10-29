@@ -395,6 +395,20 @@ def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None
     return None
 
 
+def _cme_open_topic_pin(question: str, topics: "list[str]") -> "list[str] | None":
+    """The open topics a vague question fits, when CM Elevate is one of them and
+    the question asks for something only its applications data holds ("how many
+    are on hold?", "pending verification"): CM Elevate alone. None otherwise.
+    Used by the which-topic step (c14 _vague_topic_clarification) only: on a
+    question with no open CM Elevate topic these words stay generic and still ask
+    which scheme (_CMELEVATE_ONLY_TERMS leaves them out on purpose). Test team
+    report 2026-10-29, Bug 5: after a CM Elevate answer, with MGNREGA and PMAY-G
+    topics also open, "how many are on hold?" asked which topic."""
+    if "CM Elevate" in (topics or []) and _CMELEVATE_APPLICATIONS_ONLY.search(question or ""):
+        return ["CM Elevate"]
+    return None
+
+
 def _pin_cm_elevate_dataset(question: str, thread_scheme: "str | None" = None) -> str:
     """Settle a bare "CM Elevate" ONCE, on the question text, before routing —
     the same way a misspelled scheme name is corrected — so every later word

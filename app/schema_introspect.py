@@ -238,6 +238,17 @@ def readonly_denied() -> "set[tuple[str, str, str]]":
     return _cache["denied"]
 
 
+def column_unit(table: str, column: str) -> "str | None":
+    """The UNIT semantic.column_catalog records for table.column ("rupees", "lakh
+    rupees", "crore rupees", "persons" …), or None (not recorded / catalog unread)."""
+    t, c = str(table or "").lower(), str(column or "").lower()
+    for row in _cache.get("columns") or []:
+        if str(row.get("table_name") or "").lower() == t and str(row.get("column_name") or "").lower() == c:
+            u = str(row.get("unit") or "").strip().lower()
+            return u or None
+    return None
+
+
 def coverage_years() -> dict:
     """{'Focus Plus': ['2022-23', '2025-26'], 'CM Elevate': [], ...} or {} when unread."""
     return _cache["coverage"]

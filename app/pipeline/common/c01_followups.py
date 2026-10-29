@@ -836,7 +836,13 @@ def _is_measure_only(question: str, allow_year: bool = False) -> bool:
         return False
     if named_places(q) or (context_policy.extract_year_keys(q) and not allow_year):
         return False
-    return bool(context_policy.metric_families(q) or "total" in _c01_tm_words(q))
+    # A measure the chat's own vocabulary knows counts too (context_manager.detect_metric,
+    # the keyword kept in state.metric): "and sanctioned?" names PMAY-G's houses-sanctioned
+    # but no measure FAMILY, "sanctioned" being houses or money (test team report
+    # 2026-10-29, Bug 2: after "what is PMAY-G and who is eligible?" it was rewritten
+    # against the aside and answered with the sanction process).
+    return bool(context_policy.metric_families(q) or "total" in _c01_tm_words(q)
+                or context_manager.detect_metric(q))
 
 
 def _measure_after_knowledge(question: str, prev: "object", allow_year: bool = True) -> bool:
@@ -860,6 +866,31 @@ def _measure_after_knowledge(question: str, prev: "object", allow_year: bool = T
     # house count).
     own = set(_infer_scheme_from_terms(question) or [])
     return not own or prev.schemes[0] in own
+
+
+def _c01_kmeasure_question(question: str, prev: "object", state: "object" = None) -> str:
+    """The data question a _measure_after_knowledge request runs as: the knowledge
+    turn's scheme, plus the chat's DATA scope when the chat is still on that scheme.
+    A knowledge aside does not change the data state (update_state), so after
+    "How many job cards in East Khasi Hills in 2024-25?" -> "what is a job card in
+    MGNREGA?" the state still holds East Khasi Hills, FY 2024-25. Appending the
+    scheme alone made "how many person-days?" a question that names its scheme
+    (a NEW question, D-061): asked the year, answered for all of Meghalaya,
+    "(new question)" (test team report 2026-10-29, Bug 1; Bug 2's "how many houses
+    were sanctioned?"). The scope comes from the same phrase the measure-change
+    rewrite uses (_swap_scope_phrase); a place or year the question names itself
+    is kept and not doubled. A chat with no scope of that scheme (it opened with
+    the knowledge question, or the aside was about another scheme, which resets
+    the state) gets the scheme alone, as before."""
+    scheme = prev.schemes[0]
+    q = (question or "").strip().rstrip(" ?.")
+    scope = ""
+    if state is not None and topic_memory.same_scheme_family(getattr(state, "scheme", None), scheme):
+        if context_policy.extract_year_keys(q):
+            state = dataclasses.replace(state, year=None, year_all=False)
+        from app.entity_resolver import place_mentions
+        scope = _swap_scope_phrase(state, scheme, None, with_place=not place_mentions(q))
+    return f"{q} under {scheme}{scope}?"
 
 
 def _typed_intent(question: str) -> "str | None":
@@ -1409,6 +1440,101 @@ def _comparison_swap(prev_question: str, followup: str, target: "str | None", la
     if low.endswith("both "):
         head = head[:-len("both ")]
     return _c01_tidy_space(f"{head}{label}{tail}", ",", collapse=False).strip()
+
+
+# ── CTX-07: two follow-ups the model rewrite got wrong, done deterministically ──
+# KI-363 (live): "Break it down by district" after a statewide answer was rewritten
+# "... for all districts in Meghalaya ..." and answered with the statewide total
+# again. The chip the app itself offers after a statewide figure ("Break that down
+# by district", c15 _c15_chips) went the same way. A message that asks ONLY for a
+# breakdown of a statewide answer is that question by the dimension: the same stem
+# the complaint path already builds ("why are you not giving it district-wise?",
+# c15 _meta_question). A breakdown inside a place keeps the place, so it is left to
+# the rewrite and its merge plan.
+# KI-364 (live; reproduced offline 2026-10-29): "Compare the number of beneficiaries
+# with Ri Bhoi" after an East Khasi Hills answer was not read as a follow-up (none of
+# the follow-up detectors knows "compare ... with <place>", though turn_kind does) and
+# was answered for Ri Bhoi alone. A comparison keeps the place the officer was on
+# and adds the named one, in the previous question's own measure, scheme and year:
+# "Compare how many PMAY-G beneficiaries are there in East Khasi Hills and Ri Bhoi in
+# FY 2023-24?". Not a place SWAP, which D-056 leaves to the model ("what about Ri
+# Bhoi?" replaces the place): only an explicit compare cue, exactly one new place at
+# the previous place's own level, and nothing else changed (no scheme, year or other
+# measure), so the D-056 swap path never sees one of these.
+
+def _c01_ctx07_breakdown_question(raw_question: str, prev) -> "str | None":
+    """"Break it down by district" / "district wise" right after a STATEWIDE data
+    answer -> the previous question by that dimension, else None."""
+    if getattr(prev, "route", None) != "data" or not getattr(prev, "question", None):
+        return None
+    resolved = getattr(prev, "resolved_entities", None) or {}
+    if any(resolved.get(k) for k in ("district", "block", "village", "assembly_constituency")):
+        return None
+    dim = _c15_breakdown_dimension(raw_question or "")
+    if not dim:
+        return None
+    stem = _c05_statewide_stem(prev.question)
+    return f"{stem} by {dim}" if stem else None
+
+
+def _c01_ctx07_compare_place_question(raw_question: str, prev) -> "str | None":
+    """"Compare ... with Ri Bhoi" right after a data answer for another place at the
+    same level -> the previous question for both places, else None."""
+    from app.entity_resolver import place_mentions
+    if getattr(prev, "route", None) != "data" or not getattr(prev, "question", None):
+        return None
+    q = raw_question or ""
+    if not (_C15_COMPARE_CUES & set(_c15_words(q))):
+        return None
+    if context_policy.extract_year_keys(q):
+        return None                                   # a new year too: left to the rewrite
+    prev_schemes = set(getattr(prev, "schemes", None) or [])
+    if set(_named_schemes(q)) - prev_schemes:
+        return None                                   # another scheme: a scheme comparison
+    places = place_mentions(q)
+    if len(places) != 1:
+        return None
+    new, dim = next(iter(places.items()))
+    resolved = getattr(prev, "resolved_entities", None) or {}
+    old = resolved.get(dim) if dim in ("district", "block") else None
+    if not old or str(old).upper() == new:
+        return None
+    # The measure, when named, must be the previous one.
+    named_metric = context_manager.detect_metric(q)
+    if named_metric and named_metric != context_manager.detect_metric(prev.question):
+        return None
+    own = context_policy.metric_families(q)
+    if own and not own <= context_policy.metric_families(prev.question):
+        return None
+    pair = f"{str(old).title()} and {new.title()}" + (" blocks" if dim == "block" else "")
+    # Through a placeholder: _c15_swap_place tries every form of the old name in
+    # turn, and the pair still contains it ("Mawphlang block" -> "Mawphlang and
+    # Mylliem blocks", then "Mawphlang" again).
+    marker = "\x00"
+    both = _c15_swap_place(prev.question, str(old), marker)
+    if not both or marker not in both:
+        return None
+    both = both.replace(marker, pair)
+    first = both.split(" ", 1)[0]
+    if first[:1].isupper() and first[1:].islower():
+        both = both[:1].lower() + both[1:]
+    return f"Compare {both}"
+
+
+def _c01_ctx07_compare_place_plan(raw_question: str) -> "context_policy.MergePlan | None":
+    """The merge plan that goes with a compare-with-place rewrite: the compared
+    level and those below it are CLEARed, so the previous turn's single place
+    is not inherited beside the two the rewrite names. Live 2026-10-29: the
+    question named East Khasi Hills and Ri Bhoi, resolve_entities found both
+    (district_list), but the inherited district=EAST KHASI HILLS stayed too and
+    the PMAY-G fixed query answered East Khasi Hills alone. Same mechanism as a
+    roll-up's plan (c15 _c15_rollup_plan)."""
+    from app.entity_resolver import place_mentions
+    dims = list(place_mentions(raw_question or "").values())
+    order = ("district", "block", "village")             # coarsest first, as asked_levels
+    if len(dims) != 1 or dims[0] not in order:
+        return None
+    return _c15_rollup_plan(*order[order.index(dims[0]):])
 
 
 # ── A scheme swap that carries a measure the new scheme does not hold ───────
