@@ -797,6 +797,9 @@ def _pin_missing_village_code(schemes: list[str], entity_result: dict, sql: str)
     alone sent NOAGRE to "couldn't build a working query" — the 30B repeated the
     same village-less SQL on every repair. Anything more complex (a join, a
     CTE, a subquery) is left to the guard and the repair."""
+    twins = _pin_missing_twin_codes(schemes, entity_result, sql)
+    if twins != sql:
+        return twins
     code = _village_filter_missing(schemes, entity_result, sql)
     if code is None:
         return _village_name_cond_to_code(schemes, entity_result, sql)
@@ -818,6 +821,53 @@ def _pin_missing_village_code(schemes: list[str], entity_result: dict, sql: str)
     out = sql_ast.transform(sql, fn)
     logger.info("%s: the SQL filtered no village — pinned the resolved village_code %s", schemes[0], code)
     return _drop_geo_beside_pinned_village(out)
+
+
+def _c10_group_by_cols(sql: str, cols: list) -> str:
+    """A one-row aggregate (`SELECT COUNT(…) FROM t WHERE …`, no GROUP BY, no join) becomes
+    one row per `cols`: they lead the SELECT and form the GROUP BY. Anything else: unchanged."""
+    def fn(tree):
+        if not isinstance(tree, exp.Select) or tree.args.get("group") is not None                 or tree.args.get("joins") or tree.args.get("with") is not None:
+            return None
+        if not any(e.find(exp.AggFunc) for e in tree.expressions):
+            return None
+        tree.set("expressions", [exp.column(c) for c in cols] + list(tree.expressions))
+        tree.set("group", exp.Group(expressions=[exp.column(c) for c in cols]))
+        return None
+    return sql_ast.transform(sql, fn)
+
+
+def _pin_missing_twin_codes(schemes: list[str], entity_result: dict, sql: str) -> str:
+    """J-10 twins (villages sharing one name, each answered): a simple one-SELECT query
+    that filters none of their codes gets `village_code IN (<all>)`, loses the
+    district / block / village-name literal it used instead, and is grouped per village
+    with its block. "How many CM ELEVATE applicants are there in NONGSDER?" (Pynursla and
+    Bhoirymbong) was written `WHERE lgd_district = 'NONGSDER'` on every repair, and the
+    twin guard in _execute_one_attempt sent it to "couldn't build a working query"
+    (CM Elevate UAT 2026-10-30; NONGSDER, AMPANGGRE)."""
+    res = entity_result.get("resolved") or {}
+    codes = [int(c) for c in res.get("village_code_list") or [] if str(c).isdigit()]
+    if not sql or not res.get("village_twins") or len(codes) < 2 or any(str(c) in sql for c in codes) \
+            or not _sql_is_simple_select(sql):
+        return sql
+
+    def fn(tree):
+        cond = exp.In(this=exp.column("village_code"), expressions=[exp.Literal.number(c) for c in codes])
+        where = tree.args.get("where")
+        if where is not None:
+            conjuncts = list(where.this.flatten()) if isinstance(where.this, exp.And) else [where.this]
+            where.set("this", exp.and_(cond, *conjuncts, copy=False))
+        else:
+            tree.where(cond, copy=False)
+        return None
+
+    out = sql_ast.transform(sql, fn)
+    out = _drop_where_conditions(out, lambda n: _is_geo_literal_eq(n) or (isinstance(n, exp.EQ) and bool(
+        _sql_string_comparisons(n, ("lgd_village_name",), (exp.EQ,)))))
+    out = _c10_group_by_cols(out, ["village_code", "lgd_block"])
+    logger.info("%s: the SQL filtered none of the %d same-name villages — pinned village_code IN %s, per village",
+                schemes[0] if schemes else "?", len(codes), codes)
+    return out
 
 
 # UPPER( / TRIM( / an alias too: "WHERE UPPER(TRIM(lgd_district)) = 'KASHARIPARA'"

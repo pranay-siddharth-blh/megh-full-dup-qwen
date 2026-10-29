@@ -908,6 +908,10 @@ _SCHEME_STRONG = [
           "eligib", "component", "getag", "jobcard"),
        Joined("focus", "plus"), _S("producer", _P("group")), Joined("cm", "elevate"),
        "prime small enterprise", "prime tourism vehicle", "warehouse scheme",
+       # CM Elevate programme names as typed: "What is the status distribution for Agro
+       # Tourism Villa?" hit _OFF_TOPIC's "tourism" and was declined (UAT 2026-10-30, OFF-016)
+       "agro tourism", "tourism vehicle", "agriculture response vehicle", "response vehicle",
+       "cinema theatre", "green taxi", "goat farming", "any business venture", "sports and wellness",
        "indira awaas", _S("rural", _P("hous")), Joined("person", ("day", "days")),
        _S("job", _P("card")), Joined("semi", "skilled"), _S("material", _P("cost", "exp")),
        _A(W("100day", "100days"), _S("100", W("day", "days"))), _S("hundred", W("day", "days")),

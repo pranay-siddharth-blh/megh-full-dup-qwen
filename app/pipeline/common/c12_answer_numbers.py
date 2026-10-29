@@ -605,6 +605,9 @@ def _framed_fallback(rows: list[dict], schemes: "list[str] | None", entities: "d
     lead = f"Under {scheme}, " if scheme else ""
     where = f"in {place}"
     when = period if period.startswith("across") else f"in {period}"
+    if schemes and all(_SCHEME_DATA_YEARS.get(s) == [] for s in schemes):
+        when = ""                         # no time dimension (CM Elevate): no period words
+    scope = f"{when} {where}".strip()
     if len(rows) == 1:
         row = rows[0]
         nums = _row_metrics(row)
@@ -630,10 +633,10 @@ def _framed_fallback(rows: list[dict], schemes: "list[str] | None", entities: "d
             body = f"the recorded total is {parts[0]}"
         else:
             body = "the records show " + ", ".join(parts[:-1]) + f" and {parts[-1]}"
-        sentence = f"{lead}{for_labels}{when} {where}, {body}."
+        sentence = f"{lead}{for_labels}{scope}, {body}."
         sentence = sentence[0].upper() + sentence[1:]
         return " ".join([sentence] + caveats)
-    head = f"{lead}{when} {where}, here are the {len(rows)} results:"
+    head = f"{lead}{scope}, here are the {len(rows)} results:"
     head = head[0].upper() + head[1:]
     body = _deterministic_answer(rows)
     first_nl = body.find("\n")
@@ -838,7 +841,11 @@ def _finish_answer(answer: str, rows: list[dict], schemes: "list[str] | None", e
         return answer
     text = _group_result_digits(answer, rows, schemes)
     scheme, place, period = _scope_words(schemes, entities)
-    if period.startswith("FY"):
+    # CM Elevate has no time dimension at all (_SCHEME_DATA_YEARS = []): "2,624 applicants
+    # in Ri Bhoi across all financial years" implied years the data does not hold (UAT
+    # 2026-10-30). The phrase comes from the question rewrite; drop it and add no period.
+    timeless = bool(schemes) and all(_SCHEME_DATA_YEARS.get(s) == [] for s in schemes)
+    if period.startswith("FY") or timeless:
         text = _drop_all_years_phrase(text)
     if not scheme or len(rows) != 1:
         return text
@@ -862,7 +869,7 @@ def _finish_answer(answer: str, rows: list[dict], schemes: "list[str] | None", e
     # This is the MGNREGA figure for East Khasi Hills district, FY 2022-23." said
     # the place and the year twice (Conversational Memory approach, 2026-10-19).
     fy = period[3:] if period.startswith("FY ") else ""
-    when = "" if (fy and fy in text) else f", {period}"
+    when = "" if (fy and fy in text) or timeless else f", {period}"
     if not names_scheme and not names_place:
         tail = f"This figure is for {scheme}, {place_text}{' (statewide)' if statewide else ''}{when}."
     elif not names_scheme:

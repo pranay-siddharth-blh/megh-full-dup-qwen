@@ -1504,6 +1504,9 @@ def scan_districts(question: str, scheme: str) -> list[str]:
 # every district rather than pausing to ask which one.
 _REGION_ALL_CUE = Matcher(Alt(
     W("all", "whole", "entire", "combined", "each", "every", "across", "full", "total", "overall"),
+    # "in the Garo Hills region" names the region itself as the unit (CM Elevate UAT
+    # 2026-10-30: it was answered for East Garo Hills alone)
+    W("region", "regions"),
     Seq(W("put"), _GapIs(lambda g: g == " "), W("together")),
 ))
 

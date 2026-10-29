@@ -69,7 +69,11 @@ LEVEL_WORDS = {"district": "district", "districts": "district", "block": "block"
 # Never part of a place name: "in jayantia hills east" is "in" + the district.
 _SPAN_STOP = PLACE_PREPS | frozenset(("of", "for", "the", "and", "to", "on", "by", "with", "under", "per", "a",
                                       "an", "or", "vs", "versus", "compare", "district", "districts", "block",
-                                      "village"))
+                                      "village",
+                                      # "Dairy across South West Khasi Hills" read "across South West" as
+                                      # South West Garo Hills (fuzzy 81) and the question became
+                                      # "Dairy South West Garo Hills Khasi Hills" (CM Elevate UAT 2026-10-30)
+                                      "across", "between", "among", "amongst", "over", "than"))
 _DIRECTIONS = frozenset(("east", "west", "north", "south", "south west", "eastern west"))
 _VOWELS = frozenset("aeiou")
 _SOUND_MAP = str.maketrans({"y": "i", "c": "k", "q": "k", "w": "u"})
@@ -579,6 +583,17 @@ def _village_at(toks: list[Tok], i: int) -> "tuple[int, str, int] | None":
     return None
 
 
+def _exact_village_end(question: str, toks: list[Tok], i: int, place_end: int) -> "int | None":
+    """The end token of an exact village name or alias that starts at token i and runs past
+    `place_end` (the district / block reading's end), else None."""
+    from app import entity_resolver as er
+    best = None
+    for j in range(place_end + 1, min(i + 9, len(toks)) + 1):
+        if er.is_village_name(question[toks[i].start:toks[j - 1].end]):
+            best = j
+    return best
+
+
 def _normalise(question: str) -> Normalised:
     toks = tokens(question)
     out: list[str] = []
@@ -602,6 +617,13 @@ def _normalise(question: str) -> Normalised:
             continue
         if t.raw.isalpha():
             phit = _place_hit(toks, i, prev)
+            vend = _exact_village_end(question, toks, i, phit[1][0]) if phit is not None else None
+            if vend is not None:
+                # "William Nagar (MB) - Ward No.8" is a village written exactly; the block alias
+                # "William Nagar (MB" was rewritten to "Williamnagar) - Ward No.8" and the ward was
+                # lost (CM Elevate UAT 2026-10-30, OFF-003 wards). Left whole.
+                i = vend
+                continue
             if phit is not None:
                 level, (end, canon, how, score) = phit
                 typed = _span_text(question, toks, i, end)
@@ -788,6 +810,7 @@ addition case progress kind cash time favour favor respect line rural urban hill
 aggregate full list points bullet bullets simple plain format writing paragraph sentence sentences
 total totals sum overall depth short brief points tranche tranches installment instalment batch
 batches phase phases stage stages round rounds part parts cycle cycles quarter quarters
+level levels hold
 january february march april may june july august september october november december
 jan feb mar apr jun jul aug sep sept oct nov dec
 """.split())

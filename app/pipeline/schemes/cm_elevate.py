@@ -123,6 +123,13 @@ _CMELEVATE_ONLY_TERMS = Matcher(Alt(
     # written that way it was read as MGNREGA (OFF-017 full run 2026-10-02)
     "cinema theatre scheme", Seq("sports", Opt("and"), "wellness"),
     "any business venture", W("request_id", "requestid"),
+    # The programme names as officers type them, without "PRIME" / "scheme": "applicants
+    # under Agriculture Response Vehicle in Ri Bhoi", "status distribution for Warehouse",
+    # "… for Cinema Theatre" asked "which scheme?" (CM Elevate UAT 2026-10-30, OFF-006 /
+    # 016 / 021 / 023). Which CM Elevate dataset is still settled by the dataset choice.
+    "agriculture response vehicle", Seq("response", W("vehicle", "vehicles")), "cinema theatre",
+    Seq("agro", "tourism"), Seq(W("warehouse", "warehouses", "warehousing"),
+                                Opt(W("scheme", "programme", "program"))),
     # Missing sub-scheme/commodity words and the scheme-FAMILY phrases
     # (vehicle/tourism/PRIME/livestock/enterprise scheme(s)) — without these,
     # a question naming only this vocabulary (no literal "CM Elevate") fell
@@ -669,14 +676,64 @@ def _cme_data_block(canon: str, question: str, data_blocks: "list[str]") -> "str
     asked_urban = _cme_runs_then_urban(q_low, _cme_ascii_letter_runs(base.lower()) or [base.lower()]) \
         or bool(_cme_find_runs(q_low, _cme_ascii_letter_runs(want.lower()) or [want.lower()])
                 and _URBAN_WORD_MATCH.search(question or ""))
-    if asked_urban and len(urban) == 1:
-        return urban[0]
+    # The data spells one board twice ("TURA MUNICIPAL BOARD" 28 and "TURA MUNICIPAL
+    # BOARD-MUNICIPAL BOARD" 77): any one spelling is pinned here and
+    # _cm_elevate_urban_body_spellings widens the SQL to all of them (UAT 2026-10-30:
+    # "Tura Municipal Board" kept lgd_block = 'TURA' and answered 0).
+    if asked_urban and urban:
+        return sorted(urban)[0]
     if want in data_blocks:
         return None
     same = [b for b in data_blocks if not _URBAN_BODY_MATCH.search(b) and _cme_block_base(b) == base]
     if len(same) == 1:
         return same[0]
-    return urban[0] if len(urban) == 1 else None
+    return sorted(urban)[0] if urban else None
+
+
+async def _cm_elevate_urban_body_spellings(question: str, schemes: list[str], sql: str) -> str:
+    """`lgd_block = '<an urban body>'` (or an IN-list holding one) also takes every other
+    stored spelling of the same board: v_cm_elevate holds Tura's applications under
+    "TURA MUNICIPAL BOARD" and "TURA MUNICIPAL BOARD-MUNICIPAL BOARD" (see _cme_data_block).
+    A literal the data does not store becomes the stored block the question names: "Nongpoh
+    Town Committee block … in the Nongpoh constituency" was written lgd_block = 'NONGPOH'
+    once the constituency had cleared the block slot, and answered 0 (UAT 2026-10-30, H-BxAC)."""
+    if schemes != ["CM Elevate"] or not sql or "lgd_block" not in sql.lower():
+        return sql
+    try:
+        data_blocks = await _cm_elevate_block_names("CM Elevate")
+    except Exception:  # noqa: BLE001 — without the live list, leave the SQL as it is
+        return sql
+    urban: "dict[str, list[str]]" = {}
+    for b in data_blocks:
+        if _URBAN_BODY_MATCH.search(b):
+            urban.setdefault(_cme_block_base(b), []).append(b)
+    siblings = {b: sorted(v) for v in urban.values() if len(v) > 1 for b in v}
+    stored = set(data_blocks)
+    tree = sql_ast.parse_one(sql)
+    if tree is None:
+        return sql
+    changed = False
+    for node in list(tree.find_all(exp.EQ, exp.In)):
+        col = _cme_col(node.this, "lgd_block")
+        if col is None:
+            continue
+        vals = [_cme_str(node.expression)] if isinstance(node, exp.EQ) else _cme_in_values(node)
+        if not vals or any(v is None for v in vals):
+            continue
+        want = []
+        mapped = [v if str(v).upper() in stored else (_cme_data_block(str(v), question, data_blocks) or v)
+                  for v in vals]
+        for v in mapped:
+            for s in siblings.get(str(v).upper(), [str(v)]):
+                if s not in want:
+                    want.append(s)
+        if want != list(vals):
+            node.replace(exp.In(this=node.this.copy(), expressions=[exp.Literal.string(s) for s in want]))
+            changed = True
+    if not changed:
+        return sql
+    logger.info("CM Elevate: an urban body's other stored spellings added to the lgd_block filter")
+    return sql_ast.to_sql(tree)
 
 
 async def _cm_elevate_block_from_mention(mention: str, schemes: "list[str] | None") -> "str | None":
@@ -851,13 +908,45 @@ def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str]
         params.append([progs] if isinstance(progs, str) else list(progs))
         where.append(f"scheme_name = ANY(${len(params)}::text[])")
     wh = (" WHERE " + " AND ".join(where)) if where else ""
-    sql = ("/* cme-sector-workflow */ SELECT "
+    grp = _cme_workflow_group(q)
+    sel = f"{grp} AS grp, " if grp else ""
+    tail = " GROUP BY 1 ORDER BY 2 DESC, 1" if grp else ""
+    sql = (f"/* cme-sector-workflow */ SELECT {sel}"
            "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS on_hold, "
            "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'forward') AS forward, "
            "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'resubmit') AS resubmit, "
            "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'sendback to vdv/citizen') AS sendback, "
-           f"COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate{wh}")
+           f"COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate{wh}{tail}")
     return sql, params, sql
+
+
+# "Which CM ELEVATE programs have the highest number of pending applications?" got the
+# statewide recorded figures only (906 on hold) — the ranking asked for was lost (UAT
+# 2026-10-30, OFF-019 / OFF-020). The recorded figures are grouped the way the question asks.
+_CME_WF_RANK = Matcher(Alt(W("which", "each", "every", "highest", "most", "top", "rank", "ranked", "ranking",
+                             "wise", "by", "per", "lowest", "least"), Seq(_cme_sg("district", "block", "programme",
+                                                                                 "program", "scheme"), "wise")))
+_CME_WF_GROUPS = (("scheme_name", Matcher(W("programs", "programmes", "schemes", "program", "programme", "scheme"))),
+                  ("lgd_district", Matcher(W("districts", "district"))),
+                  ("lgd_block", Matcher(W("blocks", "block"))))
+
+
+def _cme_workflow_group(question: str) -> "str | None":
+    """The column a 'pending' question ranks or breaks down by, else None. A singular noun
+    counts only next to "each" / "which" / "-wise" ("which district has the most…")."""
+    q = question or ""
+    if not _CME_WF_RANK.search(q):
+        return None
+    low = q.lower()
+    for col, noun in _CME_WF_GROUPS:
+        h = noun.search(q)
+        if h is None:
+            continue
+        word = low[h.start():h.end()]
+        if word.endswith("s") or any(f"{w} {word}" in low for w in ("each", "which", "every", "per", "by")) \
+                or f"{word}-wise" in low or f"{word} wise" in low:
+            return col
+    return None
 
 
 def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tuple[str, list, str] | None":
@@ -965,6 +1054,16 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
                 "rejections": "rejected", "send back": "sent back", "sendback": "sent back"}.get(word, word)
         prog = (display or {}).get("cm_scheme")
         scope = f"{where}" + (f" under {prog}" if prog else "")
+        if "grp" in r:
+            # grouped (OFF-019 / OFF-020): the on-hold figure per programme / district / block, highest first
+            gname = {"scheme_name": "programme", "lgd_district": "district", "lgd_block": "block"}.get(
+                _cme_workflow_group(question) or "", "group")
+            items = [f"{_cme_short(x['grp']) if x.get('grp') is not None else '(not recorded)'} "
+                     f"{int(_as_number(x.get('on_hold')) or 0):,}" for x in rows]
+            total = sum(int(_as_number(x.get("on_hold")) or 0) for x in rows)
+            return (f"The CM Elevate data doesn't record a \"{word}\" status. What it does record{scope} is the "
+                    f"data-verification hold. Applications on hold, by {gname} (highest first): "
+                    + "; ".join(items) + f". Total on hold {total:,}.")
         out = (f"The CM Elevate data doesn't record a \"{word}\" status. What it does record{scope}: "
                f"{n['on_hold']:,} application{'s' if n['on_hold'] != 1 else ''} "
                f"{'are' if n['on_hold'] != 1 else 'is'} on hold at data verification, and by file status "
@@ -1624,6 +1723,91 @@ def _cm_elevate_unasked_level_filter(question: str, schemes: list[str], sql: str
     return sql_ast.to_sql(tree)
 
 
+# entity_type on v_cm_elevate is the ROW's area type — 'Village', 'Ward' or 'Unresolved' —
+# never the level of the area asked about. The block chip resumes "…Umling, the block,
+# not another area type": the verifier then asked for a block-level restriction and the
+# repair added entity_type = 'Block', so UMLING / SAMANDA / MAWKYRWAT applicants came back
+# wrong (CM Elevate UAT, 2026-10-30; MGNREGA had the same, _mgnrega_drop_area_level_entity_type).
+# The block / district / constituency filter does the scoping; an area-level filter is dropped.
+_CME_ROW_TYPES = frozenset({"village", "ward", "unresolved"})
+
+
+def _cme_area_level_eq(node: exp.Expression) -> bool:
+    """[LOWER|UPPER(][t.]entity_type[)] = '<a value that is not a row type>'."""
+    if not isinstance(node, exp.EQ) or _cme_col(node.this, "entity_type") is None:
+        return False
+    lit = node.expression
+    while isinstance(lit, _CME_CASE_WRAPPERS) and lit.this is not None:   # UPPER('block')
+        lit = lit.this
+    val = _cme_str(lit)
+    return val is not None and val.strip().lower() not in _CME_ROW_TYPES
+
+
+def _cme_sector_not_null(node: exp.Expression) -> bool:
+    """[t.]sector_id IS NOT NULL (sqlglot: Is(negate=True), or NOT (… IS NULL))."""
+    if isinstance(node, exp.Not) and isinstance(node.this, exp.Is):
+        node = node.this
+    elif not (isinstance(node, exp.Is) and node.args.get("negate")):
+        return False
+    return _cme_col(node.this, "sector_id") is not None and isinstance(node.expression, exp.Null)
+
+
+def _cm_elevate_sector_keep_unrecorded(question: str, schemes: list[str], sql: str) -> str:
+    """"applicants associated with each sector" grouped by sector_id with `sector_id IS NOT
+    NULL` listed Poultry 22, Dairy 7, Piggery 7, Goatery 1 and dropped the 8,884 applications
+    with no sector recorded, reading as if sector were known for all (UAT 2026-10-30, OFF-011).
+    A sector breakdown keeps that group; the answer names it "(not recorded)"."""
+    if schemes != ["CM Elevate"] or not sql or not _CME_SECTOR_EACH_MATCH.search(question or ""):
+        return sql
+    tree = sql_ast.parse_one(sql)
+    if not isinstance(tree, exp.Select) or tree.args.get("group") is None:
+        return sql
+    keys = []
+    for g in tree.args["group"].expressions:        # GROUP BY 1 -> the first select item
+        if isinstance(g, exp.Literal) and g.is_int and 0 < int(g.this) <= len(tree.expressions):
+            g = tree.expressions[int(g.this) - 1]
+        keys.append(g)
+    if not any(_cme_col(g, "sector_id") is not None or _cme_reads_sector_id(g) for g in keys):
+        return sql
+    if not _cme_drop_conjuncts(tree, _cme_sector_not_null):
+        return sql
+    logger.info("CM Elevate: sector breakdown keeps the applications with no sector recorded")
+    return sql_ast.to_sql(tree)
+
+
+def _cme_ac_verifier_complaint_is_false(issue: str, schemes: list[str], entity_result: dict, sql: str) -> bool:
+    """A verifier complaint about the join or the resolved constituency raised against the
+    documented constituency query, v_cm_elevate -> dim_geography ON geography_key with
+    ac_name = the resolved constituency. "applicants in Mairang block that fall in the Mairang
+    assembly constituency" wrote exactly that (plus the block) and the verifier called the join
+    prohibited on every repair: "couldn't build a working query" (UAT 2026-10-30, H-BxAC;
+    the Legacy twin is KI-381). A complaint about the measure or the grain still stands."""
+    ac = ((entity_result or {}).get("resolved") or {}).get("assembly_constituency")
+    if schemes != ["CM Elevate"] or not isinstance(ac, str) or not ac.strip() or not sql_ast.is_parseable(sql or "") \
+            or not _FL_VERIFIER_JOIN_OR_ENTITY.search(issue or "") or _FL_VERIFIER_MEASURE.search(issue or ""):
+        return False
+    if sql_ast.tables(sql, qualified=True) != {"curated.v_cm_elevate", "curated.dim_geography"}:
+        return False
+    js = sql_ast.joins(sql)
+    if not js or not all(j.args.get("on") is not None
+                         and {c.name.lower() for c in j.args["on"].find_all(exp.Column)} == {"geography_key"}
+                         for j in js):
+        return False
+    return ac.strip().upper() in _fl_ac_values(sql)
+
+
+def _cm_elevate_drop_area_level_entity_type(schemes: list[str], sql: str) -> str:
+    if schemes != ["CM Elevate"] or not sql:
+        return sql
+    tree = sql_ast.parse_one(sql)
+    if tree is None or not any(_cme_area_level_eq(n) for n in tree.find_all(exp.EQ)):
+        return sql
+    if not _cme_drop_conjuncts(tree, _cme_area_level_eq):
+        return sql
+    logger.info("CM Elevate: dropped an entity_type area-level filter (the row type is never the asked level)")
+    return sql_ast.to_sql(tree)
+
+
 _CME_DECISION_STATES = ("approved", "rejected", "pending")
 
 
@@ -1750,10 +1934,17 @@ def _cme_complete_list(question: str, answer: str, rows: list[dict]) -> str:
     When the question asks for EVERY value (each / distribution / breakdown)
     and some row's figure is not beside its label, rebuild the list from the
     rows. A "which is highest" question naming its top few is left alone."""
-    if not _CME_WHOLE_LIST_Q.search(question or "") or not 2 <= len(rows) <= 40:
+    if not _CME_WHOLE_LIST_Q.search(question or "") or not 2 <= len(rows) <= 200:
         return answer
     nums = _fp_numeric_cols(rows)
     labels = [k for k in rows[0] if k not in nums]
+    # "each village of Umling" rows carry lgd_village_name + the same lgd_block on every row
+    # + village_code: the composer summed up 93 villages as "highest 69 in UMSHAKEN, lowest 1"
+    # and the list was never rebuilt (UAT 2026-10-30, OFF-026). A code column and a label
+    # that is the same on every row do not tell the rows apart.
+    if len(labels) > 1:
+        labels = [k for k in labels if not _NONSTAT_COL.search(k)
+                  and len({str(r.get(k)) for r in rows}) > 1] or labels
     if len(nums) != 1 or len(labels) != 1:
         return answer
     lab, met = labels[0], nums[0]
@@ -1767,8 +1958,10 @@ def _cme_complete_list(question: str, answer: str, rows: list[dict]) -> str:
             for r in rows):
         return answer
     name = _FP_LABEL_NAME.get(lab, lab.replace("_", " "))
+    ranked = sorted((r for r in rows if _as_number(r.get(met)) is not None),
+                    key=lambda r: -(_as_number(r.get(met)) or 0))
     items = [f"{_cme_short(r[lab]) if r.get(lab) is not None else '(not recorded)'} "
-             f"{_fmt_num(_as_number(r.get(met)))}" for r in rows if _as_number(r.get(met)) is not None]
+             f"{_fmt_num(_as_number(r.get(met)))}" for r in ranked]
     total = sum(_as_number(r.get(met)) or 0 for r in rows)
     logger.info("CM Elevate: rebuilt a %s list — the answer left out some %s", name, name)
     return (f"{_metric_label(met).capitalize()} by {name} ({len(items)}): " + "; ".join(items)
