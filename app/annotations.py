@@ -370,7 +370,8 @@ def _fewshot_score(q_tokens: set[str], example_question: str,
     return weight / (len(q_tokens | e) ** 0.5)
 
 
-def few_shot_examples(schemes: list[str], question: str = "", top_k: int = 5) -> list[dict]:
+def few_shot_examples(schemes: list[str], question: str = "", top_k: int = 5,
+                      rank: "Callable[[dict], float] | None" = None) -> list[dict]:
     """Up to top_k examples per scheme, question+sql only (tables not needed in-prompt).
 
     Ranked by token overlap with `question` so the examples the generator sees are
@@ -388,7 +389,14 @@ def few_shot_examples(schemes: list[str], question: str = "", top_k: int = 5) ->
     q_tokens = _fewshot_tokens(question)
     for scheme in schemes:
         pool = _few_shot_cache.get(scheme, [])
-        if q_tokens:
+        if rank is not None:
+            # B5 (2026-10-29, SQL_EXAMPLES_SOURCE=yaml_meaning): the same reviewed bank,
+            # ordered by meaning (sql_examples) instead of shared words; the refusal
+            # factor and cap below still apply.
+            factor, _ = _refusal_policy.get(scheme, (1.0, None))
+            pool = sorted(pool, key=lambda ex: rank(ex) * (factor if ex.get("status") == "UNANSWERABLE" else 1.0),
+                          reverse=True)
+        elif q_tokens:
             idf = _fewshot_idf.get(scheme) or {}
             stop = _fewshot_scheme_stop.get(scheme) or set()
             # An example may list other phrasings under `variants` (CM Elevate

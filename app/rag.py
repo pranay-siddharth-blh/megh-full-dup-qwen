@@ -5,7 +5,8 @@ narrative docs (see kb_ingest.py), never from the database.
 Flow (the NeuralAiGovernanceProject standard, adapted to Qdrant + qwen3):
   1. embed the question           -> qwen3-embedding
   2. vector search the KB         -> Qdrant, RAG_TOP_K candidates
-  3. rerank the candidates        -> qwen3-reranker, keep RAG_RERANK_TOP_N
+  3. rerank the candidates        -> qwen3-reranker, ALWAYS (D-083), fused
+                                     with the vector order; keep RAG_RERANK_TOP_N
   4. confidence tiers:
        >= RAG_HIGH_CONFIDENCE   -> return the top chunk verbatim (no compose call)
        >= RAG_MEDIUM_CONFIDENCE -> compose an answer from the kept chunks
@@ -508,45 +509,50 @@ async def retrieve(question: str, scheme: str | None = None, expand: bool = True
     except Exception as e:  # noqa: BLE001
         logger.warning("rag.retrieve: embedding failed — %s", e)
         return []
-    # Phase 3 (2026-10-14): keyword search beside meaning search, and a wider
-    # candidate pool when a re-ranker will pick the best of it.
+    # Phase 3 (2026-10-14): keyword search beside meaning search.
     hybrid = settings.RAG_HYBRID_ENABLED and bool(settings.RAG_SPARSE_MODEL)
-    k = settings.RAG_CANDIDATES if (hybrid or settings.RAG_LOCAL_RERANKER) else settings.RAG_TOP_K
+    k = settings.RAG_CANDIDATES if hybrid else settings.RAG_TOP_K
     lists = [await _search_one(v, q, k, scheme) for v, q in zip(vecs, queries)]
     candidates = lists[0] if len(lists) == 1 else _fuse(lists)[:max(k, settings.RAG_RERANK_TOP_N)]
     if not candidates:
         return []
 
-    # The local cross-encoder reads the question with each candidate and puts
-    # the piece that answers it first. It only reorders: `score` stays the
-    # meaning similarity the confidence tiers are tuned on.
-    if settings.RAG_LOCAL_RERANKER and len(candidates) > 1:
-        cut = settings.RAG_RERANK_CHARS or None
-        scores = await local_rank.rerank(question, [c["text"][:cut] for c in candidates])
-        if scores and len(scores) == len(candidates):
-            ranked = sorted(zip(scores, range(len(candidates))), key=lambda x: -x[0])
-            candidates = [dict(candidates[i], rerank_score=sc) for sc, i in ranked]
+    candidates = await _rerank(question, candidates)
 
-    # Reranker is opt-in — the deployed qwen3-reranker inverts relevance on this
-    # KB, so by default we trust the embedding model's vector order directly.
     # RAG_MIN_SCORE is a real floor (2026-10-16): a piece below it never reaches
     # the composer. It used to fall back to the unfiltered top pieces when none
     # passed, so a question the KB does not cover was answered from unrelated text
     # (audit 2026-10-15: made-up rate 16%). Nothing kept -> "not covered".
-    if not settings.RERANKER_ENABLED:
-        return [c for c in candidates[: settings.RAG_RERANK_TOP_N]
-                if c.get("score", 0.0) >= settings.RAG_MIN_SCORE]
+    return [c for c in candidates[: settings.RAG_RERANK_TOP_N]
+            if c.get("score", 0.0) >= settings.RAG_MIN_SCORE]
 
-    order = await llm.call_reranker(question, [c["text"] for c in candidates])
-    reranked: list[dict] = []
-    for idx, score in order[: settings.RAG_RERANK_TOP_N]:
-        if 0 <= idx < len(candidates) and score >= settings.RAG_MIN_SCORE:
-            c = dict(candidates[idx])
-            c["score"] = score
-            reranked.append(c)
-    # Below the floor everywhere -> nothing (same rule as above; no fallback to
-    # the raw vector order).
-    return reranked
+
+async def _rerank(question: str, candidates: list[dict]) -> list[dict]:
+    """Every knowledge question is re-ranked by qwen3-reranker (D-083,
+    2026-10-29; user rule: the re-ranker is never switched off — there is no
+    setting for it). Its order is fused with the vector order by rank (RRF,
+    k=60), not used on its own: on megh_knowledge (137 eval questions, top 12)
+    right piece first was vector 60.2%, reranker alone 55.6%, fused 62.4%; in
+    the top 3 82.7% / 83.5% / 88.0%. `score` stays the meaning (cosine)
+    similarity the floor and confidence tiers are tuned on — the deployed
+    reranker scores nearly every piece 0.99+, so its score is no cut-off;
+    it is kept as `rerank_score`. A gateway failure keeps the vector order for
+    this one question and logs a warning; the answer is still given."""
+    if len(candidates) < 2:
+        return candidates
+    try:
+        order = await llm.call_reranker(question, [c["text"] for c in candidates])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("rag.rerank: qwen3-reranker failed (%s: %s) — vector order kept for this question",
+                       type(e).__name__, e)
+        return candidates
+    rerank_score = {idx: sc for idx, sc in order if 0 <= idx < len(candidates)}
+    fused = {i: 1.0 / (60 + i + 1) for i in range(len(candidates))}
+    for pos, (idx, _sc) in enumerate(order, 1):
+        if idx in fused:
+            fused[idx] += 1.0 / (60 + pos)
+    ranked = sorted(fused, key=lambda i: -fused[i])
+    return [dict(candidates[i], rerank_score=rerank_score.get(i, 0.0)) for i in ranked]
 
 
 # ── Citations (RAG upgrade Phase 6, 2026-10-15) ──────────────────────────────

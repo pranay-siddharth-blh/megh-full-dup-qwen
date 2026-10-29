@@ -17,10 +17,13 @@ in one list would only move the gap, so the check is two layers:
      "how are fake job cards detected", "how to kill pests in paddy") passes.
   2. check_model(text)  — one call to the classifier model that judges the
      MEANING of the message, so wording, spelling, other languages (Khasi,
-     Garo, Hindi) and phrasings no rule lists are still caught. Fails open:
-     a gateway error or timeout lets the question through to the rest of the
-     pipeline (layer 1 has already run) and logs the failure, unless
-     GUARDRAIL_MODEL_FAIL_CLOSED is set.
+     Garo, Hindi) and phrasings no rule lists are still caught. When the
+     model cannot answer (a gateway error, a timeout, an unreadable reply) it
+     fails closed for abuse only (E2, 2026-10-29): a message carrying an abuse
+     word is refused with "I can't check that right now"; anything else goes
+     on (layer 1 has already run). Every such event is counted and a burst of
+     them logs an ALERT (outage_monitor; /metrics "guardrail").
+     GUARDRAIL_MODEL_FAIL_CLOSED refuses every message during an outage.
 
 The illegal-request bank (fraud, bribery, forgery, robbery) stays in
 app/edge.py as the "harmful" edge type; edge.detect_harmful runs layer 1 first.
@@ -36,10 +39,16 @@ advice, a loan request); a harm verdict never does.
 
 Logs carry the category and layer only, never the question text.
 """
+import asyncio
 import functools
 import json
 import logging
+import socket
+import time
+from collections import deque
 from dataclasses import dataclass
+
+import httpx
 
 from app import context_budget, llm
 from app.config import settings
@@ -147,6 +156,10 @@ RESPONSES = {
     "manipulation": (f"{_RULES_LEAD} I can't change how I work, ignore my rules, reveal my "
                      "internal instructions or run database commands. " + _SCOPE),
     "unsafe": ("I can't help with that request — it goes against the rules I follow. " + _SCOPE),
+    # The safety model is down and the message carries an abuse word: not a
+    # verdict on the person, so said as "not right now", never "against the rules".
+    "unverified": ("I can't check that request safely right now, so I won't answer it. Please "
+                   "try again in a few minutes. " + _SCOPE),
     # ── Out of scope: not harmful, just not this assistant's job. Said plainly
     #    even when the request names a scheme ("an Instagram post on MGNREGA").
     "scope_content": (
@@ -925,10 +938,134 @@ class _GuardSchemeTerm:
 _SCHEME_TERM_QUESTION = _GuardSchemeTerm()
 
 
+# ── Layer 2 outage: fail closed for abuse only ─────────────────────────────
+# Audit 2026-10-23 (RAG plan E2): "if the guardrail model times out, the answer
+# goes out unchecked, with no alert". Refusing EVERY message while the
+# classifier is down would take the whole assistant down with it, and letting
+# every message through answers harm worded past layer 1 unchecked. So during
+# an outage a message that carries any abuse word, without the intent / target
+# framing layer 1 needs, is refused ("can't check right now"); a plain data or
+# how-to question goes on. Out-of-scope requests are not harmful and fail open.
+# Broad on purpose and used ONLY when the model could not judge: "people killed
+# in floods" is refused during an outage and answered once the model is back.
+_ABUSE_SUSPECT = Matcher(_A(
+    _not_benign(_STRONG),
+    _P("suicid", "selfharm", "terroris", "terroriz", "porn", "explosiv", "firearm", "narcotic",
+       "phish", "jailbreak", "brib", "launder", "extort", "blackmail"),
+    W("die", "dying", "bomb", "bombs", "grenade", "grenades", "gun", "guns", "pistol", "pistols",
+      "rifle", "rifles", "weapon", "weapons", "ammunition", "dynamite", "acid", "drug", "drugs",
+      "cocaine", "heroin", "meth", "ganja", "marijuana", "cannabis", "opium", "mdma", "lsd",
+      "yaba", "fentanyl", "hack", "hacking", "hacker", "malware", "password", "passwords", "otp",
+      "sex", "sexual", "nude", "nudes", "naked", "rob", "robbery", "steal", "stealing",
+      "forgery", "ignore", "truncate", "union"),
+    _S("self", _P("harm")), _S("bank", "account", W("number", "numbers", "no")),
+))
+
+
+_ALERT_TASKS: set = set()   # strong refs, so a pending POST is not garbage-collected
+
+
+async def _send_alert(payload: dict) -> None:
+    try:
+        async with httpx.AsyncClient(timeout=5.0) as client:
+            r = await client.post(settings.ALERT_WEBHOOK_URL, json=payload)
+            r.raise_for_status()
+    except Exception as e:  # noqa: BLE001 — an alert must never break a turn
+        logger.warning("alert webhook failed (%s)", type(e).__name__)
+
+
+def _post_alert(payload: dict) -> None:
+    """POST `payload` to ALERT_WEBHOOK_URL in the background (counts only, never
+    question text); nothing when the URL is blank or no event loop is running."""
+    if not settings.ALERT_WEBHOOK_URL:
+        return
+    try:
+        task = asyncio.get_running_loop().create_task(_send_alert(payload))
+    except RuntimeError:
+        return
+    _ALERT_TASKS.add(task)
+    task.add_done_callback(_ALERT_TASKS.discard)
+
+
+class _OutageMonitor:
+    """Counts the guardrail model's failures on this worker and logs one
+    ERROR-level ALERT when GUARDRAIL_ALERT_THRESHOLD of them fall inside
+    GUARDRAIL_ALERT_WINDOW_SECONDS (at most one alert per window)."""
+
+    def __init__(self):
+        self.fail_open = 0      # the message went on unchecked by the model
+        self.fail_closed = 0    # the message was refused because the model was down
+        self.by_error: dict[str, int] = {}
+        self.alerts = 0
+        self.last_failure_at: "float | None" = None   # epoch seconds
+        self._recent: deque = deque()
+        self._last_alert: "float | None" = None
+
+    def record(self, error: str, closed: bool) -> None:
+        now = time.monotonic()
+        if closed:
+            self.fail_closed += 1
+        else:
+            self.fail_open += 1
+        self.by_error[error] = self.by_error.get(error, 0) + 1
+        self.last_failure_at = time.time()
+        window = settings.GUARDRAIL_ALERT_WINDOW_SECONDS
+        while self._recent and now - self._recent[0] > window:
+            self._recent.popleft()
+        self._recent.append(now)
+        if (len(self._recent) >= settings.GUARDRAIL_ALERT_THRESHOLD
+                and (self._last_alert is None or now - self._last_alert >= window)):
+            self._last_alert = now
+            self.alerts += 1
+            logger.error("ALERT guardrail model failing: %d failures in the last %ds "
+                         "(since start: %d let through, %d refused)", len(self._recent),
+                         int(window), self.fail_open, self.fail_closed)
+            context_budget.log_decision("guardrail", layer="model", outcome="alert",
+                                        recent_failures=len(self._recent))
+            _post_alert({"source": "megh-one-ai", "alert": "guardrail_model_failing",
+                         "host": socket.gethostname(), "recent_failures": len(self._recent),
+                         "window_seconds": int(window), "fail_open_total": self.fail_open,
+                         "fail_closed_total": self.fail_closed,
+                         "failures_by_error": dict(self.by_error),
+                         "text": f"Megh One AI ({socket.gethostname()}): guardrail model failing, "
+                                 f"{len(self._recent)} failures in {int(window)}s"})
+
+    def recent(self) -> int:
+        now = time.monotonic()
+        return sum(1 for t in self._recent if now - t <= settings.GUARDRAIL_ALERT_WINDOW_SECONDS)
+
+    def snapshot(self) -> dict:
+        return {"model_fail_open_total": self.fail_open,
+                "model_fail_closed_total": self.fail_closed,
+                "model_failures_by_error": dict(self.by_error),
+                "model_failures_recent": self.recent(),
+                "alerts_total": self.alerts,
+                "last_failure_at": self.last_failure_at}
+
+
+outage_monitor = _OutageMonitor()
+
+
+def _outage_verdict(message: str, outcome: str, error: str) -> "Verdict | None":
+    """The verdict when the model could not judge `message`: every message is
+    refused under GUARDRAIL_MODEL_FAIL_CLOSED, else only one with an abuse word."""
+    if settings.GUARDRAIL_MODEL_FAIL_CLOSED:
+        verdict = Verdict("unsafe", "model")
+    elif _ABUSE_SUSPECT.search(_normalise(message)):
+        verdict = Verdict("unverified", "model")
+    else:
+        verdict = None
+    context_budget.log_decision("guardrail", layer="model", outcome=outcome, error=error,
+                                failed="closed" if verdict else "open")
+    outage_monitor.record(error, verdict is not None)
+    return verdict
+
+
 async def check_model(text: str) -> "Verdict | None":
-    """Layer 2: the classifier model's verdict, or None for SAFE / disabled /
-    unusable. A gateway failure fails open (logged) unless
-    GUARDRAIL_MODEL_FAIL_CLOSED is set."""
+    """Layer 2: the classifier model's verdict, or None for SAFE / disabled.
+    When the model cannot judge (gateway error, timeout, unreadable reply) a
+    message with an abuse word is refused and the rest go on; each such event
+    is counted and alerted on (_outage_verdict, outage_monitor)."""
     if not settings.GUARDRAIL_MODEL_ENABLED or not (text or "").strip():
         return None
     message = (text or "").strip()[: settings.GUARDRAIL_MODEL_MAX_CHARS].replace("</message>", "")
@@ -944,16 +1081,13 @@ async def check_model(text: str) -> "Verdict | None":
             role="guardrail",
             guided={"guided_json": _MODEL_JSON_SCHEMA} if settings.GUIDED_DECODING_ENABLED else None,
         )
-    except Exception as e:  # noqa: BLE001 — layer 1 already ran; fail open unless configured
-        context_budget.log_decision("guardrail", layer="model", outcome="error", error=type(e).__name__,
-                                    fail_closed=settings.GUARDRAIL_MODEL_FAIL_CLOSED)
+    except Exception as e:  # noqa: BLE001 — layer 1 already ran; fail closed for abuse only
         logger.warning("guardrail model check failed (%s)", type(e).__name__)
-        return Verdict("unsafe", "model") if settings.GUARDRAIL_MODEL_FAIL_CLOSED else None
+        return _outage_verdict(message, "error", type(e).__name__)
     payload = _parse(raw)
     verdict = (payload or {}).get("verdict")
     if verdict not in ("SAFE", "UNSAFE", "OUT_OF_SCOPE"):
-        context_budget.log_decision("guardrail", layer="model", outcome="unusable")
-        return None
+        return _outage_verdict(message, "unusable", "unusable_reply")
     if verdict == "SAFE":
         return None
     category = payload.get("category")

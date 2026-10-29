@@ -114,8 +114,10 @@ whose line numbers are stale), `docs/*_DB_Issues.md`, `docs/*Fix_Verification*.m
   - `qwen35-9b` = composer;
   - embeddings = gateway `qwen3-embedding`, 1024-dim (D-067, `.env`; rollback `EMBEDDING_PROVIDER=local` +
     `megh_scheme_kb_v3`). A different embedding model needs NEW Qdrant collections and re-tuned cut-offs;
-  - the local jina-turbo reranker (`RAG_LOCAL_RERANKER`) is **off** (config default `""`, user decision
-    2026-10-15; `.env` does not set it, checked 2026-10-26); the remote qwen3-reranker (`RERANKER_ENABLED`) is **off**.
+  - **re-ranker = gateway `qwen3-reranker`, ALWAYS ON, on every knowledge question** (D-083, user rule
+    2026-10-29). There is no on/off setting and none may be added back; the local jina re-ranker was removed.
+    If it misbehaves, fix it (call format, deployment, fusion) — never disable it.
+    `tests/test_reranker_always_on_2026_10_29.py` guards this.
 
   Do not move roles without a DECISIONS entry.
 - The composer must never state a number that isn't in the result. The faithfulness checks in

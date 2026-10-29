@@ -78,7 +78,7 @@ Most of the day went into **groundwork the plan depends on**: moving the whole p
 | E6 | Places and years | **Partly** | Years: every FY form read the same everywhere (D-068, KI-414; live 81/81). Regions: Ri Bhoi in Khasi per the LGD region column (D-069). Places (KI-368) and splitting resolve_entities not started |
 | E7 | SQL generation | Not started | |
 | E8 | Verifier / repair | Not started | |
-| E9 | Composer | **Partly** | Money rounding (KI-417); CM Elevate workflow statuses answered in fixed wording (D-069). Number-to-label check and templates per shape not started |
+| E9 | Composer | **Done 2026-10-29** (D-082) | Money rounding (KI-417); CM Elevate workflow statuses answered in fixed wording (D-069). 2026-10-29: one money formatter (`_c12_money`), figure-to-label check (`_c12_label_misbinds`), ranking / compare / trend / split figures written by code from templates (the 9B writes the opening line only); KI-447/448 fixed. Open: scheme writers' own money formats (KI-449); like-for-like compare by catalogue kind waits on E7; golden set not yet re-run |
 | E10 | Cache, memory, orchestration | **Partly** | Semantic-cache scope fix (KI-401); memory search exact (KI-408). Redis and plan-keyed cache not done |
 | E11 | UI | Not started | |
 | E12 | Security and data | **Partly** | Done: PII files gitignored; generated SQL AND catalog reads run as `megh_readonly` (dev box), pools within the team's caps, `SELECT *` on hidden columns handled (D-069). Open: deploy VMs, `megh_app` (password pending), KI-022 CSV in git history, Qdrant key + firewall, gateway CA file, token in the remote URL |

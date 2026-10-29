@@ -25,7 +25,8 @@ def test_multi_metric_fallback_lists_each_figure_in_words():
 
 def test_money_and_category_rows_keep_their_unit_and_label():
     out = p._framed_fallback([{"total_expenditure_lakh": 8996.36}], ["MGNREGA"], {"district": "EAST KHASI HILLS", "year": "FY 2023-24"})
-    assert out == "Under MGNREGA, in FY 2023-24 in East Khasi Hills district, the recorded total is 8,996.36 lakh total expenditure."
+    # E9 (2026-10-29): money goes through the one formatter (₹, Indian grouping, the column's own lakh)
+    assert out == "Under MGNREGA, in FY 2023-24 in East Khasi Hills district, the recorded total is ₹8,996.36 lakh total expenditure."
     out = p._framed_fallback([{"house_status": "Completed", "houses": 6847}], ["PMAY-G"], {"district": "RI BHOI", "year": "FY 2023-24"})
     assert out == "Under PMAY-G, for Completed, in FY 2023-24 in Ri Bhoi district, the recorded total is 6,847 houses."
 

@@ -22,6 +22,13 @@ which is why the search runs in the stage, before it, and not inside it.
 Any failure — Qdrant or the embedding gateway down, a timeout, a scheme with no
 example — leaves that scheme on the YAML bank (annotations.few_shot_examples),
 so the switch can never cost an answer its examples.
+
+SQL_EXAMPLES_SOURCE=yaml_meaning (B5, 2026-10-29): the REVIEWED YAML banks, ranked by
+meaning instead of shared words. One embedding of the ranking text per data question;
+each bank's example questions (and `variants`) are embedded once per process in the
+background — until that finishes, the turn keeps the word ranking. No views / joins
+(those are megh_sql_metadata's). Measured against yaml and qdrant with
+tests/nl2sql_eval/compare_examples_source.py.
 """
 import asyncio
 import contextvars
@@ -30,7 +37,7 @@ import time
 
 from qdrant_client import models
 
-from app import llm, vectorstore
+from app import annotations, llm, vectorstore
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -51,8 +58,63 @@ _META_TTL_SECONDS = 600
 _meta_cache: dict = {"at": 0.0, "points": []}
 
 
+def _source() -> str:
+    return (settings.SQL_EXAMPLES_SOURCE or "").strip().lower()
+
+
 def enabled() -> bool:
-    return (settings.SQL_EXAMPLES_SOURCE or "").strip().lower() == "qdrant"
+    """megh_sql_metadata in use (examples + views / joins)."""
+    return _source() == "qdrant"
+
+
+def meaning_ranked_yaml() -> bool:
+    return _source() == "yaml_meaning"
+
+
+# scheme -> [[vector per text of the example], ...] in bank order (B5).
+_yaml_vectors: dict = {}
+_yaml_pending: set = set()
+
+
+async def _embed_bank(scheme: str) -> None:
+    try:
+        pool = annotations._few_shot_cache.get(scheme, [])
+        texts = [[ex["question"], *(ex.get("variants") or [])] for ex in pool]
+        flat = [x for ts in texts for x in ts]
+        vecs: list = []
+        for i in range(0, len(flat), 64):
+            vecs += await llm.call_embedding(flat[i:i + 64])
+        out, k = [], 0
+        for ts in texts:
+            out.append(vecs[k:k + len(ts)])
+            k += len(ts)
+        _yaml_vectors[scheme] = out
+        logger.info("sql_examples: %d %s YAML examples embedded for meaning ranking", len(out), scheme)
+    except Exception as e:  # noqa: BLE001 — stays on the word ranking
+        logger.warning("sql_examples: embedding the %s YAML bank failed (%s)", scheme, type(e).__name__)
+    finally:
+        _yaml_pending.discard(scheme)
+
+
+def _cos(a: list, b: list) -> float:
+    num = sum(x * y for x, y in zip(a, b))
+    den = (sum(x * x for x in a) ** 0.5) * (sum(y * y for y in b) ** 0.5)
+    return num / den if den else 0.0
+
+
+def _rank_yaml(vector: list, scheme: str, top_k: int) -> "list[dict] | None":
+    """The scheme's YAML examples by meaning, or None (bank not embedded yet: the
+    embedding starts in the background and this turn keeps the word ranking)."""
+    pool = annotations._few_shot_cache.get(scheme, [])
+    vecs = _yaml_vectors.get(scheme)
+    if vecs is None or len(vecs) != len(pool):
+        if scheme not in _yaml_pending:
+            _yaml_pending.add(scheme)
+            asyncio.get_running_loop().create_task(_embed_bank(scheme))
+        return None
+    score = {id(ex): max((_cos(vector, v) for v in vs), default=0.0) for ex, vs in zip(pool, vecs)}
+    got = annotations.few_shot_examples([scheme], "", top_k, rank=lambda ex: score.get(id(ex), 0.0))
+    return [{**ex, "tags": [scheme]} for ex in got]
 
 
 def _example(payload: dict) -> "dict | None":
@@ -122,6 +184,18 @@ async def prefetch(rank_text: str, schemes: list[str], top_k: int = 5) -> None:
     SQL_EXAMPLES_SOURCE is not "qdrant"; on any failure nothing is set and the
     prompt uses the YAML banks."""
     _examples_var.set(None)
+    if meaning_ranked_yaml() and schemes and (rank_text or "").strip():
+        try:
+            vector = (await asyncio.wait_for(llm.call_embedding([rank_text]),
+                                             timeout=settings.SQL_EXAMPLES_TIMEOUT_SECONDS))[0]
+            got = {s: ex for s in schemes if (ex := _rank_yaml(vector, s, top_k))}
+        except Exception as e:  # noqa: BLE001 — the word-ranked YAML banks answer instead
+            logger.warning("sql_examples: meaning ranking unavailable (%s) — word ranking this turn",
+                           type(e).__name__)
+            return
+        if got:
+            _examples_var.set(got)
+        return
     if not enabled() or not schemes or not (rank_text or "").strip():
         return
     try:

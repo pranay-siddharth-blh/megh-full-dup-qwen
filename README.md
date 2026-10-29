@@ -547,7 +547,7 @@ Legend: **Model** = an LLM call through `app/llm.py`. **DB** = a Postgres query 
 | 3 | `followup` → `_turn_followup_stage` | Turns a fragment into a full question: "What about West Garo Hills?" → "Houses sanctioned under PMAY-G in West Garo Hills in 2023-24". Builds a merge plan (keep / replace / drop filters) | classifier | – | ✓ | ✓ |
 | 4 | `rephrase` → `_turn_rephrase_stage` | **Query rephraser.** A messy new question (typos, Hinglish, voice text, no question shape) becomes one clean English question for every later step. Skipped for follow-ups, pause replies and clean questions. Rejected if it changes meaning ([§6.4](#64-the-query-rephraser)) | classifier (only when messy) | – | – | – |
 | 5 | `route` → `_turn_route_stage` | Fixed checks first (bank, admin expenditure, unsupported scheme, village search), then `classify_intent` → DATA or KNOWLEDGE | classifier | village search | ✓ | ✓ |
-| 6 | `knowledge` → `_turn_knowledge_stage` | RAG: embed (local `bge-small-en-v1.5`), search Qdrant (top 12), re-sort them with the local jina-turbo reranker (`RAG_LOCAL_RERANKER`, **on**), keep the best 8 (≥ 0.30). The remote qwen3-reranker is **off** (`RERANKER_ENABLED=False`). Score ≥ 0.84 → top chunk verbatim; ≥ 0.55 → composed answer | embed, composer | Qdrant | ✓ | ✓ |
+| 6 | `knowledge` → `_turn_knowledge_stage` | RAG: embed (gateway `qwen3-embedding`), search Qdrant `megh_knowledge` (top 12), re-rank with `qwen3-reranker` on the gateway (**always on, no switch**, D-083; order fused with the vector order), keep the best 8 (≥ 0.30). Score ≥ 0.84 → top chunk verbatim; ≥ `RAG_MEDIUM_CONFIDENCE` (`.env` 0.35) → composed answer | embed, composer | Qdrant | ✓ | ✓ |
 
 ### 6.2 Part B: answering from the database (DATA path)
 

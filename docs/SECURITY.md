@@ -132,9 +132,10 @@ if tokens ever need to be killed mid-session.
 | Client IP is **proxy-trust aware** — `X-Forwarded-For` only honoured from `TRUSTED_PROXIES`, so the audit trail can't be poisoned by a spoofed header | `app/net.py` |
 | `X-Request-ID` ties a client-visible 500 to the server log line | `app/middleware/security_headers.py` |
 | WAF audit log for attack traffic | `/var/log/nginx/modsec_audit.log` |
+| Guardrail model outage: abuse-word messages refused, the rest let through; every failure counted on `/metrics` `guardrail`, and a burst logs an ERROR `ALERT guardrail model failing` line, also POSTed to `ALERT_WEBHOOK_URL` when set (D-080, KI-446) | `app/guardrails.py::outage_monitor`, `_outage_verdict` |
 
-**Follow-up:** ship these logs to a SIEM / alert on `login_fail` spikes and
-`route=denied` bursts.
+**Follow-up:** ship these logs to a SIEM / alert on `login_fail` spikes,
+`route=denied` bursts and `ALERT guardrail` lines.
 
 ## A10 — Server-Side Request Forgery
 

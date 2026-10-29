@@ -1,7 +1,9 @@
 """RAG upgrade Phase 3 (2026-10-14): keyword (BM25) search fused with meaning
-search, and a local cross-encoder that re-orders the candidates. The order may
-change, but `score` stays the meaning similarity the confidence tiers use."""
+search. Since 2026-10-29 (D-083) every question is re-ranked by qwen3-reranker
+(the local cross-encoder is gone); its order is fused with the vector order, and
+`score` stays the meaning similarity the confidence tiers use."""
 import asyncio
+import logging
 
 import pytest
 
@@ -30,14 +32,17 @@ def stubs(monkeypatch):
 
     monkeypatch.setattr(llm, "call_embedding", fake_embedding)
     monkeypatch.setattr(vectorstore, "search", fake_search)
+    async def keep_order(q, texts):
+        calls["reranked"] = calls.get("reranked", 0) + 1
+        return [(i, 0.5) for i in range(len(texts))]
+
     monkeypatch.setattr(local_rank, "sparse_query", fake_sparse)
-    monkeypatch.setattr(settings, "RERANKER_ENABLED", False)
+    monkeypatch.setattr(llm, "call_reranker", keep_order)
     return calls
 
 
 def test_hybrid_sends_the_keyword_vector_and_a_wider_pool(monkeypatch, stubs):
     monkeypatch.setattr(settings, "RAG_HYBRID_ENABLED", True)
-    monkeypatch.setattr(settings, "RAG_LOCAL_RERANKER", "")
     asyncio.run(rag.retrieve("What is SECC?", scheme="PMAY-G"))
     assert stubs["sparse"] == ([1, 2], [0.5, 0.5])
     assert stubs["top_k"] == settings.RAG_CANDIDATES
@@ -45,34 +50,36 @@ def test_hybrid_sends_the_keyword_vector_and_a_wider_pool(monkeypatch, stubs):
 
 def test_hybrid_off_is_meaning_only(monkeypatch, stubs):
     monkeypatch.setattr(settings, "RAG_HYBRID_ENABLED", False)
-    monkeypatch.setattr(settings, "RAG_LOCAL_RERANKER", "")
     asyncio.run(rag.retrieve("What is SECC?", scheme="PMAY-G"))
     assert stubs["sparse"] is None and stubs["top_k"] == settings.RAG_TOP_K
+    assert stubs["reranked"] == 1          # re-ranked with hybrid off too
 
 
 def test_the_reranker_reorders_but_keeps_the_meaning_score(monkeypatch, stubs):
-    monkeypatch.setattr(settings, "RAG_HYBRID_ENABLED", True)
-    monkeypatch.setattr(settings, "RAG_LOCAL_RERANKER", "some/model")
+    async def search4(vector, top_k, scheme=None, sparse=None):
+        return _pieces(0.80, 0.70, 0.60, 0.50)
 
     async def fake_rerank(q, texts):
-        return [0.1, 0.2, 9.0]          # the third piece answers the question best
+        return [(2, 0.99), (0, 0.98), (1, 0.40), (3, 0.10)]   # piece 2 answers best
 
-    monkeypatch.setattr(local_rank, "rerank", fake_rerank)
+    monkeypatch.setattr(vectorstore, "search", search4)
+    monkeypatch.setattr(llm, "call_reranker", fake_rerank)
     out = asyncio.run(rag.retrieve("documents for PMAY-G?", scheme="PMAY-G"))
-    assert [c["heading"] for c in out] == ["h2", "h1", "h0"]
-    assert [c["score"] for c in out] == [0.60, 0.70, 0.80]
-    assert out[0]["rerank_score"] == 9.0
+    # fused by rank (RRF k=60): h0 1/61+1/62, h2 1/63+1/61, h1 1/62+1/63, h3 2/64
+    assert [c["heading"] for c in out] == ["h0", "h2", "h1", "h3"]
+    assert [c["score"] for c in out] == [0.80, 0.60, 0.70, 0.50]
+    assert out[1]["rerank_score"] == 0.99
 
 
-def test_a_reranker_that_fails_keeps_the_search_order(monkeypatch, stubs):
-    monkeypatch.setattr(settings, "RAG_LOCAL_RERANKER", "some/model")
-
+def test_a_reranker_that_fails_keeps_the_search_order(monkeypatch, stubs, caplog):
     async def broken(q, texts):
-        return None
+        raise RuntimeError("gateway down")
 
-    monkeypatch.setattr(local_rank, "rerank", broken)
-    out = asyncio.run(rag.retrieve("documents?", scheme="PMAY-G"))
+    monkeypatch.setattr(llm, "call_reranker", broken)
+    with caplog.at_level(logging.WARNING, logger="app.rag"):
+        out = asyncio.run(rag.retrieve("documents?", scheme="PMAY-G"))
     assert [c["heading"] for c in out] == ["h0", "h1", "h2"]
+    assert "qwen3-reranker failed" in caplog.text
 
 
 def test_enough_to_answer_is_judged_on_the_strongest_piece(monkeypatch):
@@ -111,7 +118,5 @@ def test_cosine():
 
 def test_switched_off_steps_return_none(monkeypatch):
     monkeypatch.setattr(settings, "RAG_SPARSE_MODEL", "")
-    monkeypatch.setattr(settings, "RAG_LOCAL_RERANKER", "")
     assert asyncio.run(local_rank.sparse_query("what is secc")) is None
     assert asyncio.run(local_rank.sparse_docs(["a"])) is None
-    assert asyncio.run(local_rank.rerank("q", ["a", "b"])) is None

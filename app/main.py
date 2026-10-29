@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from app import appdb, pipeline, schema_introspect
 from app.annotations import load_all as load_annotations
-from app.config import insecure_secrets, settings
+from app.config import insecure_secrets, reranker_problem, settings
 from app.db import close_pool, init_pool
 from app.deps import current_scope
 from app.entity_resolver import load_all as load_entity_resolver
@@ -67,6 +67,11 @@ async def lifespan(app: FastAPI):
                + "; ".join(bad) + " (see docs/SECURITY.md)")
         # Loud, but never blocks boot — the deploy checklist owns enforcement.
         (logger.critical if settings.ENV != "dev" else logger.warning)(msg)
+    # The re-ranker is always on (D-083); a missing key would quietly turn every
+    # knowledge question back into vector order only, so say it loudly.
+    if problem := reranker_problem():
+        logger.error("qwen3-reranker not usable: %s — knowledge answers fall back to vector order "
+                     "(set it in .env; see docs/AI_PIPELINE.md)", problem)
 
     await init_pool()                     # best-effort; rebuilds lazily on first query
     await init_client()
@@ -197,6 +202,13 @@ async def health(authorization: str | None = Header(default=None),
     from app import pipeline_graph
     components["pipeline_graph"] = pipeline_graph.status()["checkpointer"]
 
+    # Visibility only, like Redis: the guardrail model's recent failures (E2).
+    from app import guardrails
+    _recent = guardrails.outage_monitor.recent()
+    components["guardrail_model"] = (f"failing ({_recent} in the last "
+                                     f"{int(settings.GUARDRAIL_ALERT_WINDOW_SECONDS)}s)"
+                                     if _recent else "ok")
+
     if not privileged:
         return {"status": status}
 
@@ -221,7 +233,7 @@ async def metrics_endpoint(authorization: str | None = Header(default=None),
     from app.semantic_cache import semantic_cache
     from app.session_store import session_store
 
-    from app import turn_trace
+    from app import guardrails, turn_trace
 
     return {
         **metrics.snapshot(),
@@ -231,6 +243,9 @@ async def metrics_endpoint(authorization: str | None = Header(default=None),
         # live SQL outcomes and repairs on this worker, and the latest held-out
         # NL->SQL accuracy run (tests/nl2sql_eval)
         "accuracy": turn_trace.metrics(),
+        # guardrail model failures on this worker: let through vs refused,
+        # and the ALERT count (E2, 2026-10-29)
+        "guardrail": guardrails.outage_monitor.snapshot(),
     }
 
 

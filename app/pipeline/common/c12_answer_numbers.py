@@ -286,6 +286,78 @@ def _fmt_num(v: "int | float") -> str:
     return f"{v:,}" if isinstance(v, int) else f"{v:,.2f}"
 
 
+# ── One money formatter (E9, 2026-10-29) ────────────────────────────────────
+# Composer audit 2026-10-27: one answer wrote "₹39,41,96,000" beside a gap of
+# "15,124,000" (PM-10), another "₹118,447,500.00" (FP-05), and the fallbacks wrote
+# "8,996.36 lakh" with no ₹. Every money figure the code writes goes through
+# _c12_money: ₹, Indian grouping, and the unit the column is in (MGNREGA's lakh
+# stays lakh, so it reads like the composer's own copy of the digits). A rupee
+# column picks crore / lakh / exact rupees by size, and a non-zero amount never
+# prints as ₹0.00 crore (KI-171: ₹62,500 read "₹0.01 crore"). Digit grouping of
+# counts is an open product decision and stays as it was (_fmt_num).
+_C12_MONEY_SCALE = {"rupees": 1.0, "lakh": 1e5, "crore": 1e7}
+
+
+def _c12_indian(n: float, decimals: int = 0) -> str:
+    """Indian digit grouping: 1873378 -> '18,73,378'; (2185.256, 2) -> '2,185.26'."""
+    s = f"{abs(float(n)):.{decimals}f}"
+    whole, _, frac = s.partition(".")
+    if len(whole) > 3:
+        head, parts = whole[:-3], [whole[-3:]]
+        while len(head) > 2:
+            parts.insert(0, head[-2:])
+            head = head[:-2]
+        whole = ",".join(([head] if head else []) + parts)
+    sign = "-" if float(n) < 0 and s.strip("0.") else ""
+    return sign + whole + ("." + frac if frac else "")
+
+
+def _c12_money_unit(col: str) -> "str | None":
+    """'rupees' / 'lakh' / 'crore' for a money column by its SQL-prompt suffix, else None."""
+    unit = _unit_suffix(str(col).lower())
+    if unit is None or unit[1] == "%":
+        return None
+    return {"lakh": "lakh", "crore": "crore", "": "rupees"}.get(unit[1])
+
+
+def _c12_money(v: "int | float", unit: str = "rupees") -> str:
+    """One money figure as the officer reads it: '₹2,185.26 crore', '₹8,996.36 lakh',
+    '₹35,000'. A lakh / crore value stays in its unit at 2 decimals from 0.10 of it;
+    below that 2 decimals hide the amount (₹1,25,000 is "0.01 crore"), so it drops to
+    the next unit down. Rupees: crore from one crore, lakh from one lakh, exact (paise
+    only when present) below. A true zero is '₹0'."""
+    rupees = float(v) * _C12_MONEY_SCALE[unit]
+    sign, a = ("-" if rupees < 0 else ""), abs(rupees)
+    if unit == "crore" and a >= 1e6:
+        return f"{sign}₹{_c12_indian(a / 1e7, 2)} crore"
+    if unit == "lakh" and a >= 1e4:
+        return f"{sign}₹{_c12_indian(a / 1e5, 2)} lakh"
+    if a >= 1e7 and unit == "rupees":
+        return f"{sign}₹{_c12_indian(a / 1e7, 2)} crore"
+    if a >= 1e5:
+        return f"{sign}₹{_c12_indian(a / 1e5, 2)} lakh"
+    exact = round(a, 2)
+    return f"{sign}₹{_c12_indian(exact, 0 if float(exact).is_integer() else 2)}"
+
+
+def _c12_is_pct_col(col: str) -> bool:
+    """A percentage column: the _pct suffix, or a pct / percent / percentage name part."""
+    return any(p in ("pct", "percent", "percentage") for p in str(col).lower().split("_"))
+
+
+def _c12_fmt_value(col: str, v: "int | float") -> str:
+    """One result value as code writes it: money through _c12_money, a percentage with
+    '%', anything else with thousands separators (2 decimals for a fraction)."""
+    unit = _c12_money_unit(col)
+    if unit:
+        return _c12_money(v, unit)
+    f = float(v)
+    n = int(f) if f.is_integer() else round(f, 2)
+    if _c12_is_pct_col(col):
+        return f"{_fmt_num(n)}%"
+    return _fmt_num(n)
+
+
 def _answer_covers_metrics(answer: str, row: dict) -> bool:
     """Every numeric metric in a single aggregate row must appear in the answer —
     catches a cross-scheme result where the composer names only one side."""
@@ -424,6 +496,8 @@ def _deterministic_answer(rows: list[dict]) -> str:
             # "<value> <column name>" gave "2023-24: 8.71 lakh total expenditure
             # lakh." once the MGNREGA unit pass added its own "lakh" (KI-235).
             unit = _unit_suffix(k)
+            if unit and _c12_money_unit(k):                 # one money formatter (E9)
+                return f"{prefix}{unit[0]} {_c12_money(v, _c12_money_unit(k))}."
             if unit:
                 name, word, rupee = unit
                 sep = "" if word in ("", "%") else " "
@@ -439,7 +513,8 @@ def _deterministic_answer(rows: list[dict]) -> str:
     lines = []
     for r in shown:
         labels = [str(v) for v in r.values() if v is not None and _as_number(v) is None]
-        metrics = ", ".join(f"{_metric_label(k)}: {_fmt_num(v)}" for k, v in _row_metrics(r))
+        metrics = ", ".join(f"{_unit_suffix(k)[0]}: {_c12_money(v, _c12_money_unit(k))}" if _c12_money_unit(k)
+                            else f"{_metric_label(k)}: {_fmt_num(v)}" for k, v in _row_metrics(r))
         head = " / ".join(labels) or "(no label)"
         lines.append(f"- {head} — {metrics}" if metrics else f"- {head}")
     more = len(rows) - len(shown)
@@ -535,7 +610,9 @@ def _framed_fallback(rows: list[dict], schemes: "list[str] | None", entities: "d
         caveats = []
         for k, v in nums:
             unit = _unit_suffix(str(k))
-            if unit:
+            if unit and _c12_money_unit(str(k)):            # one money formatter (E9)
+                parts.append(f"{_c12_money(v, _c12_money_unit(str(k)))} {unit[0]}")
+            elif unit:
                 name, word, rupee = unit
                 sep = "" if word in ("", "%") else " "
                 parts.append(f"{rupee}{_fmt_num(v)}{sep}{word} {name}".strip())
@@ -885,3 +962,226 @@ _NUMBER_WORD_MATCH = Matcher(Before(
     Seq(_C1xRun(_c12_letters_or_dash_word, 0, 3, gap_ok=_c1x_ws_or_dash, first_gap_ok=_c1x_ws),
         _C1xGapIs(_C12_COUNT_NOUN, _c1x_ws)),
 ))
+
+
+# ── Each figure next to its own label (E9, 2026-10-29) ──────────────────────
+# _answer_numbers_faithful asks only whether a figure EXISTS somewhere in the result.
+# Composer audit 2026-10-27: "Bank disbursed 11.10 crore more loans than LIFCOM" (CL-05:
+# 11.10 is Bank's own figure, the gap is 1.31), "1. MAWHATI — 82.91 lakh" for a
+# percentage (MG-10), and a figure written beside another row's name all passed it.
+# _c12_label_misbinds reads which row name, which measure and which unit each figure
+# sits next to, and names the figures that belong somewhere else. It is deliberately
+# narrow: a figure it cannot tie to one row or one measure is left to the number check.
+from app.text_match import fy_spans as _c12_fy_spans, tokens as _c12_tokens  # noqa: E402
+
+_C12_LB_COMPARATIVE = frozenset({"more", "less", "fewer", "higher", "lower", "ahead", "behind", "greater",
+                                 "bigger", "smaller"})
+# "6,120.50 in FY 2020-21", "412,300 for Mylliem": the place / period named right after
+_C12_LB_POST_BIND = frozenset({"for", "in", "at", "of", "during", "from"})
+_C12_LB_UNIT_WORDS = frozenset({"lakh", "lakhs", "lac", "crore", "crores", "cr", "rs", "inr", "rupees",
+                                "percentage", "percent", "points", "point"})
+_C12_LB_STOP = frozenset({"total", "of", "the", "and", "in", "to", "for", "a", "an", "by", "no", "count", "number",
+                          "sum", "all", "name", "value", "lakh", "crore", "cr", "rupees", "pct", "percent",
+                          "percentage", "rs", "inr"})
+# a breath between a row's name and its figure: "Mylliem — 412,300", "Bank 11.10", "FY 2022-23: 8,215"
+_C12_LB_TIGHT_GAP = frozenset(" \t—–-:(*₹")
+
+
+def _c12_lb_canon(raw: str) -> str:
+    """A written number as one comparable string: '412,300' -> '412300', '14.90' -> '14.9'."""
+    s = raw.replace(",", "")
+    if "." in s:
+        s = s.rstrip("0").rstrip(".")
+    return s or "0"
+
+
+def _c12_lb_forms(f: float, money_unit: "str | None") -> set:
+    """The strings a correct answer may write for one result value: as stored, at 2 and 1
+    decimals, whole (from 100 up), and for money the same amount in crore / lakh / rupees."""
+    out = {_c12_lb_canon(f"{f:.2f}"), _c12_lb_canon(f"{f:.1f}")}
+    if f.is_integer():
+        out.add(str(int(f)))
+    if abs(f) >= 100:
+        out.add(str(round(f)))
+    if money_unit:
+        rupees = f * _C12_MONEY_SCALE[money_unit]
+        out |= {_c12_lb_canon(f"{rupees / 1e7:.2f}"), _c12_lb_canon(f"{rupees / 1e5:.2f}"), str(round(rupees))}
+    return out
+
+
+def _c12_lb_stem(w: str) -> str:
+    w = w.lower()
+    return w[:-1] if len(w) > 3 and w.endswith("s") else w
+
+
+def _c12_lb_measure_words(col: str) -> set:
+    """Content words of a measure: its column name parts and its plain-words name."""
+    ws = set(str(col).lower().split("_")) | {t.low for t in _c12_tokens(_human_metric(str(col)))}
+    return {_c12_lb_stem(w) for w in ws if w and w not in _C12_LB_STOP and not w.isdecimal()}
+
+
+def _c12_lb_clause(text: str, s: int, e: int) -> "tuple[int, int]":
+    """The clause around text[s:e]: bounded by a line break, ';', or a sentence end
+    ('.', '!' or '?' followed by a space)."""
+    a = s
+    while a > 0 and text[a - 1] not in "\n;" and not (text[a - 1] == " " and a >= 2 and text[a - 2] in ".!?"):
+        a -= 1
+    b = e
+    while b < len(text) and text[b] not in "\n;" and not (
+            text[b] in ".!?" and (b + 1 == len(text) or text[b + 1] == " ")):
+        b += 1
+    return a, b
+
+
+def _c12_lb_words_after(text: str, toks: list, e: int, stop: int, limit: int = 4) -> list:
+    """Up to `limit` word tokens right after position e, while only spaces or hyphens
+    separate them (a comma, bracket or full stop ends the run); stops at a number."""
+    out, prev = [], e
+    for t in toks:
+        if t.start < e:
+            continue
+        if t.start >= stop or len(out) >= limit or any(ch not in " \t-" for ch in text[prev:t.start]) \
+                or t.raw[:1].isdecimal():
+            break
+        out.append(t.low)
+        prev = t.end
+    return out
+
+
+def _c12_label_misbinds(answer: str, rows: list, derived: "set | None" = None) -> list:
+    """Figures the answer writes next to the wrong row name, measure or unit, as short
+    descriptions for the retry prompt ([] when every figure it can place is in its place).
+
+    - comparative: "11.10 crore MORE than" — a figure followed by more / less / higher /
+      ahead … must be a difference between two result values, not a row's own figure;
+    - unit: a percentage value written as ₹ / lakh / crore, or a money value written as %;
+    - row: a figure tied to one row's name ("Mylliem — 398,150", "8,215 in FY 2022-23",
+      or the only row name in its clause) must be one of that row's values;
+    - measure: a figure followed (or preceded, "Person-days: …") by the words of another
+      measure in the result and none of its own ("41,210 person-days" for households).
+    `derived`: figures computed by code (totals, gaps, shares) — never a row's own."""
+    if not answer or not rows or not isinstance(rows[0], dict):
+        return []
+    rows = rows[:200]
+    cells: dict = {}                     # written form -> [(row index, column)]
+    col_vals: dict = {}
+    for i, r in enumerate(rows):
+        for k, v in r.items():
+            n = _as_number(v)
+            if n is None or _NONSTAT_COL.search(str(k)):
+                continue
+            col_vals.setdefault(k, []).append(float(n))
+            for form in _c12_lb_forms(float(n), _c12_money_unit(str(k))):
+                cells.setdefault(form, []).append((i, k))
+    if not cells:
+        return []
+    derived_only = {_c12_lb_canon(str(d)) for d in (derived or ())} - set(cells)
+    diffs: set = set()
+    for k, vals in col_vals.items():
+        mu = _c12_money_unit(str(k))
+        vals = vals[:60]
+        for x in range(len(vals)):
+            for y in range(x + 1, len(vals)):
+                diffs |= _c12_lb_forms(abs(vals[x] - vals[y]), mu)
+    # row names that belong to exactly one row
+    owners: dict = {}
+    for i, r in enumerate(rows):
+        for k, v in r.items():
+            if v is None or (_as_number(v) is not None and not _NONSTAT_COL.search(str(k))):
+                continue
+            lab = str(v).strip()
+            if (len(lab) >= 2 and not lab.isdecimal()) or (lab.isdecimal() and len(lab) == 4):
+                owners.setdefault(lab.lower(), set()).add(i)
+    low = answer.lower()
+    taken: list = []                     # (start, end, row index) of each row name in the answer
+    for lab in sorted((x for x, o in owners.items() if len(o) == 1), key=len, reverse=True):
+        pos = low.find(lab)
+        while pos >= 0:
+            end = pos + len(lab)
+            edge_ok = (pos == 0 or not low[pos - 1].isalnum()) and (end == len(low) or not low[end].isalnum())
+            if edge_ok and not any(a < end and pos < b for a, b, _ in taken):
+                taken.append((pos, end, next(iter(owners[lab]))))
+            pos = low.find(lab, pos + 1)
+    taken.sort()
+    skip_spans = [(a, b) for a, b, _y0, _y1 in _c12_fy_spans(answer)] + [(a, b) for a, b, _ in taken]
+    toks = _c12_tokens(answer)
+    metric_cols = list(col_vals)
+    words_of = {c: _c12_lb_measure_words(c) for c in metric_cols} if len(metric_cols) >= 2 else {}
+    out: list = []
+
+    def _label_of(i: int) -> str:
+        own = [str(v) for k, v in rows[i].items() if v is not None and str(v).strip().lower() in owners]
+        return next((answer[a:b] for a, b, ri in taken if ri == i), " / ".join(own) or f"row {i + 1}")
+
+    for s, e, tok in _c12_number_spans(answer, decimals=True, commas=True):
+        if any(a < e and s < b for a, b in skip_spans):
+            continue
+        canon = _c12_lb_canon(tok)
+        if "," not in tok and "." not in tok and len(tok) == 4 and 1900 <= int(tok) <= 2199:
+            continue                                      # a year
+        line_head = answer[answer.rfind("\n", 0, s) + 1:s]
+        if (s > 0 and answer[s - 1] == "#") or (not line_head.strip() and answer[e:e + 1] in (".", ")")):
+            continue                                      # "#1", a numbered list's "1."
+        hits = cells.get(canon)
+        if not hits or canon in derived_only:
+            continue
+        ca, cb = _c12_lb_clause(answer, s, e)
+        after = _c12_lb_words_after(answer, toks, e, cb)
+        first_word = next((w for w in after if w not in _C12_LB_UNIT_WORDS), "")
+        # 1. comparative: the figure states a difference
+        if first_word in _C12_LB_COMPARATIVE:
+            if canon not in diffs:
+                out.append(f"{tok} is written as a difference ('{first_word}'), but it is a figure of "
+                           f"{_label_of(hits[0][0])} itself, not the gap between two values")
+            continue
+        # 2. unit
+        rest = answer[e:].lstrip(" ")
+        head = answer[max(0, s - 4):s].rstrip(" ").lower()
+        stated = ("pct" if rest.startswith("%") else
+                  "money" if (after[:1] and after[0] in ("lakh", "lakhs", "lac", "crore", "crores", "cr"))
+                  or head.endswith(("₹", "rs", "rs.", "inr")) else "")
+        kinds = {"pct" if _c12_is_pct_col(str(k)) else "money" if _c12_money_unit(str(k)) else "count"
+                 for _i, k in hits}
+        if stated and kinds == {"pct" if stated == "money" else "money"}:
+            out.append(f"{tok} is written as {'money' if stated == 'money' else 'a percentage'}, but it is "
+                       f"{'a percentage' if stated == 'money' else 'a money amount'} in the result")
+            continue
+        # 3. row: the row name it is tied to
+        hit_rows = {i for i, _k in hits}
+        if len(rows) >= 2 and taken:
+            in_clause = [(a, b, ri) for a, b, ri in taken if ca <= a and b <= cb]
+            bound = None
+            nxt = next(((a, b, ri) for a, b, ri in in_clause if a >= e), None)
+            if nxt and after[:1] and after[0] in _C12_LB_POST_BIND:
+                between = answer[e:nxt[0]].lower().split()
+                if between and between[0] in _C12_LB_POST_BIND and all(w in ("fy", "the") for w in between[1:]):
+                    bound = nxt[2]
+            if bound is None:
+                prv = next(((a, b, ri) for a, b, ri in reversed(in_clause) if b <= s), None)
+                if prv and all(ch in _C12_LB_TIGHT_GAP for ch in answer[prv[1]:s]):
+                    bound = prv[2]
+            # the only row named in its clause; not for a small whole number ("top 5")
+            if bound is None and len({ri for *_x, ri in in_clause}) == 1 and ("." in tok or abs(float(canon)) >= 100):
+                bound = in_clause[0][2]
+            if bound is not None and bound not in hit_rows:
+                out.append(f"{tok} is written next to {_label_of(bound)}, but it is the figure for "
+                           f"{_label_of(min(hit_rows))}")
+                continue
+        # 4. measure: the words it is labelled with
+        hit_cols = {k for _i, k in hits}
+        if words_of and len(hit_cols) == 1:
+            own = next(iter(hit_cols))
+            near = {_c12_lb_stem(w) for w in after if w not in _C12_LB_UNIT_WORDS}
+            before = answer[ca:s].rstrip(" *₹").rstrip()
+            if before.endswith((":", "—", "–")):
+                lead = before.rstrip(":—– ").replace("*", " ")
+                near |= {_c12_lb_stem(t.low) for t in _c12_tokens(lead)[-5:]}
+            for other in metric_cols:
+                if other == own:
+                    continue
+                theirs = words_of[other] - words_of[own]
+                if near & theirs and not near & words_of[own]:
+                    out.append(f"{tok} is labelled as {_human_metric(str(other))}, but it is the "
+                               f"{_human_metric(str(own))} figure")
+                    break
+    return list(dict.fromkeys(out))[:6]

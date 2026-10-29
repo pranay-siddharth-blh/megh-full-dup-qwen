@@ -640,9 +640,11 @@ async def _harm_only_from_place_name(question: str, hit: dict) -> bool:
 
 
 async def _guardrail_check(raw_question: str, question: str, scope_resumed: bool,
-                           has_context: bool = False) -> "tuple[dict, str] | None":
+                           has_context: bool = False,
+                           session: "Session | None" = None) -> "tuple[dict, str] | None":
     """The guardrail refusal for this turn and the layer that made it, or None
     (app/guardrails.py, D-040 / D-041)."""
+    _plan_question = question   # unmasked, for the query plan below
     # A village NAME is not intent: "Give me the expenditure breakdown for CHOTTA
     # KILLING during 2023-24" was refused as violence (MGNREGA all-villages run,
     # 2026-10-09). An exact village name is masked for the checks; any harmful
@@ -661,6 +663,13 @@ async def _guardrail_check(raw_question: str, question: str, scope_resumed: bool
         return edge.guardrail_reply(scope.category), "rules"
     if scope_resumed or edge_type in _CONVERSATIONAL_EDGE:
         return None
+    # RAG plan E2 + E1 stage 2a (D-085): a new question's query plan starts here, so
+    # its classifier call overlaps the guardrail's instead of following the answer.
+    # Not for a follow-up: its words are rewritten later, the plan would read the
+    # fragment. Not awaited; a refusal below cancels it (_turn_edge_stage).
+    if not has_context:
+        from app import query_plan as _c14_qp
+        _c14_qp.start_for_turn(session, _plan_question)
     verdict = await guardrails.check_model(raw_question)
     if verdict and verdict.is_scope and (_names_place
                                          or _overrules_scope_verdict(raw_question, has_context)):
@@ -1053,13 +1062,20 @@ async def _turn_edge_stage(t: dict, session: "Session | None" = None,
     # scope model judged the bare word "plus" off-topic (audit 2026-10-19). The
     # harm rules still run on it.
     _pause_reply = bool(session is not None and (getattr(session, "turn_context", None) or {}).get("clarification_reply"))
-    _guard = await _guardrail_check(raw_question, question, scope_resumed or _pause_reply, has_context)
+    _guard = await _guardrail_check(raw_question, question, scope_resumed or _pause_reply, has_context,
+                                    session=session)
     if _guard:
+        from app import query_plan as _c14_qp
+        _c14_qp.cancel_for_turn(session)
         _harm, _layer = _guard
         context_budget.log_decision("guardrail", layer=_layer, category=_harm["type"], blocked=True)
+        # "unverified" = refused only because the guardrail model was down (E2,
+        # 2026-10-29): never written to the shared answer caches, or the same
+        # question would still be refused after the model is back.
         return {"route": "edge", "intent": "EDGE", "confidence": "high",
                 "answer": _harm["response"], "edge_type": _harm["type"],
-                "suggestions": [], **_empty_data_fields()}
+                "suggestions": [], **_empty_data_fields(),
+                **({"context_dependent": True} if _harm["type"] == "unverified" else {})}
 
     # 0-. "What is EKH?" / "MYLLIEM full form" — spell out a district or block
     #     straight from the resolver catalogue. Must run BEFORE the edge layer

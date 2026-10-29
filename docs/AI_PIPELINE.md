@@ -19,7 +19,7 @@ Source of truth: [app/pipeline.py](../app/pipeline.py), [app/prompt_builder.py](
 | SQL semantic verifier | `SQL_VERIFY_MODEL` | `qwen4-deploy` | 15 s | 200 | `guided_json` |
 | Answer composer (DATA + RAG) | `RESPONSE_MODEL` | `qwen35-9b` | 20 s | 800 | none |
 | Embeddings | `EMBEDDING_PROVIDER=gateway` (`.env`, D-067, 2026-10-24; `config.py` default and rollback: `local` = fastembed `BAAI/bge-small-en-v1.5`, 384-dim, CPU) | `qwen3-embedding` (1024-dim) at `EMBEDDING_BASE_URL=…/openai/v1` + `/embeddings` | 30 s | – | – |
-| Reranker | `RERANKER_ENABLED=False` | `qwen3-reranker` (deployed, **disabled**: it inverted relevance, 2026-08-29) | 30 s | – | – |
+| Reranker (every knowledge question, **always on, no switch**, D-083) | `RERANKER_MODEL` via `llm.call_reranker` (`/rerank`) | `qwen3-reranker`, Qwen3 yes/no format; order fused with the vector order | 30 s | – | – |
 | ASR | `ASR_MODEL` | `qwen3-asr` | 60 s | – | `prompt` = `ASR_PROMPT` vocabulary hint |
 | Backward reference pick (topic ledger, D-050, 2026-10-18; role tag `reference`) | `REWRITE_MODEL` via `llm.call_rewriter` | `qwen35-9b` | `LLM_REFERENCE_TIMEOUT_SECONDS` 8 s | 8 | none — the output must be a listed ledger id / NONE / ASK, anything else is ASK |
 
@@ -74,7 +74,7 @@ node. The order matters: many steps exist to run
 | c | **Resume a paused clarification**: merge `"<paused q>, <reply>"` unless the reply is a chip (full question), conversational, or a new question (`_reply_abandons_scope_pause`) | reads `session.pending_scope_q` | – | – |
 | c' | **Resume a scheme pause** (`SCHEME_PAUSE_RULES`): a typed scheme name becomes that chip's question; anything else passes through unchanged (§5.2) | `_resume_scheme_pause`, reads `pending_scope_rule/options` | – | – |
 | c'' | **Continuation gate** (2026-09-29, KI-130): does the message share anything with the previous turn? `has_context` = antecedent AND a signal (or a pause resume). Without one: edge whitelist applies, no rewrite, no KNOWLEDGE scheme fallback (§5.7) | `context_policy.continuation_signals` | – | – |
-| d | Harmful-request refusal | `edge.detect_harmful` | – | `edge` |
+| d | Harmful-request refusal; guardrail rules, scope rules, then the guardrail model (D-040 / D-041). Model down (error, timeout, unreadable reply): a message with an abuse word gets the `unverified` reply (not cached), the rest go on; counted and alerted (`outage_monitor`, D-080, 2026-10-29) | `edge.detect_harmful`, c14 `_guardrail_check`, `guardrails.check_model` | **4B** (guardrail) | `edge` |
 | e | "What is EKH?" district/block definition | `_geo_definition_answer` | – | `knowledge` |
 | f | Why-choice, scheme fit, recommendation, pick, listing, comparison | `_why_choice_answer`, `_scheme_fit_check_answer`, `_scheme_recommendation_answer`, `_scheme_pick_answer`, `_scheme_listing_answer`, `_scheme_comparison_answer` | – | `knowledge`/`edge` |
 | g | **Edge layer** (skipped on a resume). Includes `personal_request` ("give me five thousand loan", KI-131) | `edge.detect_edge_case(q, has_context)` | – | `edge` |
@@ -523,6 +523,9 @@ startup by `app/metric_catalog.py` (`METRIC_CATALOG_MODE`: off / shadow / **on**
   -> no match.
 - **Asks nothing else (`_c16_extra_words`):** every other word must be the scheme name, a resolved place, a year or
   question grammar (`_C16_GRAMMAR`, plus the shape's own words). "wage expenditure" -> "wage" is extra -> model path.
+  **E7 (2026-10-29):** plus the MATCHED measure's own vocabulary (`_c16_measure_vocabulary`: its catalogue phrases and
+  display name, stemmed): "person days generated" builds ("generated" is the measure's "employment generated");
+  "job cards issued" (not the stock's word) and another measure's words still go to the model path.
 - **Filters (`_c16_filters`):** only district / block / village / year (and their lists). Any other resolved filter
   (constituency, region, status, gender …) -> model path.
 - **Shapes (`_c16_shape`):** `total`; `breakdown` by district / block / year (`_c02_breakdowns`); `ranking`
@@ -570,6 +573,10 @@ _entities_block(entity_result, …)   # "RESOLVED ENTITIES — MANDATORY" + "NOT
   `cmelevatelegacy_prompt_few_shots.yaml`.
 - **Example source switch (D-074, 2026-10-27):** `SQL_EXAMPLES_SOURCE=qdrant` is the default since
   2026-10-27 evening (user: use everything in both collections). `yaml` (the rollback) uses the pool files above.
+  - **`yaml_meaning` (B5, 2026-10-29; not the default until measured):** the reviewed YAML banks ranked by meaning —
+    one embedding of the ranking text per data question, cosine against each example's question and `variants`
+    (`sql_examples._rank_yaml`, via `annotations.few_shot_examples(rank=…)`, refusal factor and cap unchanged). Each
+    bank is embedded once per process in the background; until then the turn keeps the word ranking. No views / joins.
   - **Views and joins:** `qdrant` also reads megh_sql_metadata's 12 `kind=view` and 16 `kind=join` points (whole, cached
     10 min). `prompt_builder._sql_metadata_block` adds their `prompt_text` as the optional `sql_metadata` section
     (priority 5, the first to shrink). Views come first, then joins. A one-scheme prompt gets only that scheme's
@@ -1023,11 +1030,53 @@ The log line `compose_response: answer shape <kind>` records the shape of every 
 **Query plan shadow (E1 stage 1, D-078, 2026-10-27):** after a data / knowledge turn, `_update_context` schedules `query_plan.shadow` (background): a typed plan of the question (4B guided JSON + deterministic years / top-N / measure / area level) logged with the turn's actual decisions to `logs/query_plan_shadow.jsonl`. Nothing reads it yet.
 **Trend direction (KI-441, 2026-10-27):** `_c12s_fix_trend_direction` (last step of `compose_response`) sets the answer's first rose / fell verb from the sign of the trend's first-to-last change; the 9B had copied the example's "rose" over a fall.
 
+**Query plan in the turn (E1 stage 2a, D-085, 2026-10-29) — OFF by default (`QUERY_PLAN_IN_TURN`):** when on, a new question's plan starts in c14 `_guardrail_check` right before the guardrail model call (`query_plan.start_for_turn`, kept in `session.turn_context`); not awaited; a refusal cancels it; `_update_context` hands it to the shadow (`take_for_turn`, `plan_from: "turn"`) instead of a second call. Off because, measured live, the two 4B calls queue on the gateway: turn median 11.8 s -> 14.1 s. `query_plan.turn_plan(session)` is the reader for stage 2b (nothing calls it yet).
+
 **ROLLUP total rows (2026-10-22, KI-384):** `_c12s_rollup_split(sql, rows)` separates the rows a `GROUP BY ROLLUP` /
 `CUBE` / `GROUPING SETS` adds (the group column NULL or its `COALESCE(col, '<label>')` fallback, e.g. "ALL DISTRICTS")
 from the category rows. The shape, the derived figures, the fallbacks and the list-size check use the category rows;
 the total row is given to the composer as "the query's own TOTAL row (not a category)". CM Elevate Legacy's few-shots
 ask for that row on purpose (exact totals); before this the summary read it as a 13th district (5,646 for 2,823).
+
+### 2.9d Answer formatting — E9 (2026-10-29, D-082, KI-447..449)
+
+Three parts, all in `compose_response` and the c12 files:
+
+1. **One money formatter** `_c12_money(value, unit)` (`unit` from the column suffix: `_c12_money_unit`): ₹, Indian
+   grouping; a `_lakh` / `_cr` value stays in its unit at 2 decimals from 0.10 of it, else drops a unit (₹1,25,000 is
+   never "0.01 crore"); a `_rupees` value is crore from ₹1 crore, lakh from ₹1 lakh, exact below; zero is "₹0".
+   `_c12_fmt_value(col, v)` adds "%" for a pct column and leaves counts as `_fmt_num` (count grouping is an open
+   decision). Used by `_deterministic_answer`, `_framed_fallback` and the templates. Scheme writers keep their own
+   formats (KI-449).
+2. **Figure-to-label check** `_c12_label_misbinds(answer, rows, derived)`, run after `_answer_numbers_faithful` and on
+   the strict retry. For each figure that IS a result value (and not a code-derived total / gap / share): followed by
+   more / less / higher / ahead … → must be a difference of two values; written ₹ / lakh / crore but only a pct value
+   (or % but only money) → wrong unit; tied to a row name (name then figure with only spaces / dash / colon / bracket
+   between, "<figure> in|for|at <name>", or the only name in its clause for figures ≥ 100 or with decimals) → must be
+   that row's; followed (or preceded by "Label:") by another measure's words and none of its own → wrong measure. Hits
+   are listed in the retry prompt ("put a figure next to the wrong label (…)"). Years, FY spans, "#1", list ordinals
+   and small whole numbers not tied to a name are skipped.
+3. **Templates per shape** (`ANSWER_TEMPLATES_ENABLED`, default true; conftest sets it false for the older suites):
+   for `ranking` / `compare` / `trend` / `breakdown`, `_c12s_e9_body(shape, rows, question)` writes every line with a
+   figure and `_c12s_e9_framing` asks the composer for ONE opening line with no figure (allowed numbers: years / FY
+   spans, the SQL's own literals, the list size, digits in the entity names) and no verdict word for the shape
+   (`_C12S_E9_FRAME_BANNED`); otherwise `_c12s_e9_frame_default` ("Top 5 blocks by person-days of employment
+   (MGNREGA, East Khasi Hills district, FY 2023-24):"). A failed call also gives code's line. Answer = opening line +
+   body, then `_finish_answer`. Body per shape:
+
+| Shape | Always | Only when the question asks |
+|---|---|---|
+| ranking | numbered list in the query's order (≤ 15, then "…and N more in the table.") | "A is <gap> higher / lower than B." (gap / ahead / how far / compare …) |
+| compare | "A is higher than B on <what>: a against b, a difference of d (p% more)"; equal sides said so; other measures one line each | — (% omitted for a non-additive measure; points for a %) |
+| trend | "<What> rose / fell from a in P1 to b in Pn, up / down d (p%)." + per-period list (≤ 15) | "The highest was … in …; the lowest was … in …" (peak / highest / lowest …) |
+| breakdown | "A is the largest with a; Z is the smallest with z." + list largest first (≤ 15) with other measures | total (total / overall …); shares (share / percent / % …) |
+
+   Periods read "FY 2022-23" (also for a `year_key`). A measure repeated in a second money unit (`total_exp_lakh` +
+   `total_exp_cr`) is said once; alias shorthands are said in full ("exp" → expenditure). The composer keeps the whole
+   answer for: other shapes, yes / no questions, a premise correction note (`The question treats "…`), `extra_numbers`,
+   ROLLUP total rows, no usable value. Other notes and the style shots go to / do not block the opening line. With the
+   templates on, `_shaped_fallback` returns the templated answer under code's opening line. Log line:
+   `compose_response: templated <kind> answer`.
 
 ## 3. Other flows
 
@@ -1102,7 +1151,13 @@ through the same function.
       `.env` sets `RAG_HYBRID_ENABLED=false` (meaning-only search). Conversation memory is off (D-074);
    2. `vectorstore.search` with a payload filter on `scheme` (`MatchAny`: megh_knowledge stores a list;
       "CM Elevate" also matches its "CM Elevate Legacy" pieces), taking `RAG_TOP_K=12`;
-   3. with the reranker off, keep the top 8 candidates scoring ≥ `RAG_MIN_SCORE=0.30`. The floor
+   3. **re-rank** (`rag._rerank`, D-083, 2026-10-29; always, there is no off switch): `qwen3-reranker` on the
+      gateway scores the 12 in the Qwen3 yes/no format; its order is fused with the vector order by rank (RRF,
+      k=60). `score` stays the cosine similarity (the deployed re-ranker scores ~0.99 for nearly everything,
+      KI-450); its score is kept as `rerank_score`. A gateway failure keeps the vector order for that question and
+      logs `rag.rerank: qwen3-reranker failed`; there is no fallback scorer. Measured on 137 eval questions:
+      right piece first 60.2% -> 62.4%, in the top 3 82.7% -> 88.0%;
+   4. keep the top 8 (`RAG_RERANK_TOP_N`) scoring ≥ `RAG_MIN_SCORE=0.30`. The floor
       is real (2026-10-16): if **none** clear it, nothing is returned and the answer is "not covered".
 4. **`rag.answer_from_kb`** answers by the top score:
    - ≥ `RAG_HIGH_CONFIDENCE=0.84` → the top chunk verbatim;

@@ -61,7 +61,8 @@ not recorded.*
 - **Decision:** `RERANKER_ENABLED=False`.
 - **Reason:** the deployed `qwen3-reranker` inverted relevance on this KB. For example, it ranked
   "where to find info" above "application process" for a "what documents" query.
-- **Status:** Active until the reranker deployment is fixed.
+- **Status:** **Superseded by D-083 (2026-10-29).** The inversion came from sending the bare question; with the
+  Qwen3 format the re-ranker runs on every knowledge question and has no off switch.
 
 ### D-006 — LLM semantic verifier after the regex guards, failure-open
 - **Date:** 2026-09-10/11 (commit `7ad882f`; `config.py`).
@@ -715,7 +716,8 @@ not recorded.*
     rule lists are still caught. The message is fenced as data inside the prompt. Skipped for a
     pause reply and for a canned conversational turn ("hi", "thanks").
 - **Fallbacks:** the model check fails OPEN on a gateway error, timeout or unusable reply (the
-  rules already ran; logged as `pipeline_decision stage=guardrail outcome=error`).
+  rules already ran; logged as `pipeline_decision stage=guardrail outcome=error`). **Superseded
+  2026-10-29 by D-080:** it now fails closed for abuse only, and counts and alerts on every failure.
   `GUARDRAIL_MODEL_FAIL_CLOSED=true` refuses instead. `GUARDRAIL_MODEL_ENABLED=false` keeps the
   rules only.
 - **Reason:** a single word list only moves the gap; the reported question was missed because one
@@ -935,6 +937,31 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-085 — Query plan stage 2a: built during the turn beside the guardrail call; built, measured, OFF by default (2026-10-29)
+- **Date:** 2026-10-29. RAG plan E1 stage 2 (the user's go-ahead "do the next step") and E2's "run the guardrail in
+  parallel with the plan". Files: `app/query_plan.py` (`start_for_turn`, `cancel_for_turn`, `take_for_turn`,
+  `turn_plan`, `shadow(pending=)`), c14 `_guardrail_check(session=)` / `_turn_edge_stage`, c13 `_update_context`,
+  `app/config.py` `QUERY_PLAN_IN_TURN`; NEW `tests/test_query_plan_in_turn_2026_10_29.py` (19).
+- **Evidence first (D-078's "collect live agreement"):** `logs/query_plan_shadow.jsonl`, 730 turns / 378 distinct
+  questions (2026-10-27 19:52 .. 2026-10-29 13:19): intent 718/730 (98.4%), schemes 680/713 (95.4%), place level
+  388/394, years 650/657, measure 37/37, top N 10/10; plan p50 766 ms, p90 1,250 ms. Most disagreements are turns
+  whose `actual` is empty (fixed-answer paths), not plan errors; real plan misreads: sub-scheme names in `schemes`
+  ("CM Elevate Dairy Development"), a comma string instead of a list. Intent splits are debatable ("coverage under
+  CM Elevate in Ri Bhoi": plan DATA, pipeline KNOWLEDGE). No model field is read yet: that changes answers and needs
+  the held-out NL->SQL set first.
+- **Decision:** for a NEW question (not a follow-up, pause reply or canned greeting; only where the guardrail model
+  call runs) the plan task starts right before the guardrail model call, kept in `session.turn_context` (in-process,
+  never persisted). Nothing awaits it; a guardrail refusal cancels it; the end-of-turn shadow reuses it
+  (`plan_from: "turn"`, `plan_question`) instead of a second call, or cancels it when the turn was neither data nor
+  knowledge. `turn_plan(session)` is the reader API for stage 2b.
+- **Measured live (2026-10-29, VPN, in-process, real gateway + DB; 6 own questions x on/off, alternated):** answers
+  identical; plan reused 6/6; but EVERY on-turn was slower: median **11.8 s -> 14.1 s**, and the plan itself
+  0.8 s -> 1.5-3.0 s. The two qwen4-deploy calls queue on the gateway rather than overlap (INFERRED).
+- **So `QUERY_PLAN_IN_TURN=false` by default** (= stage 1 exactly; pinned by a test). Turn it on only together with
+  a stage that reads the plan and drops a classifier call of its own (stage 2b), or after the gateway serves
+  concurrent 4B requests in parallel; re-measure with the scratch A/B (`answer_question` on vs off) first.
+- **Status:** Active (code present, off). E2's latency goal is NOT met by parallelism on today's gateway.
+
 ### D-084 — Frontend lint and tests: ESLint (with the no-regex rule) + `node --test` (2026-10-29)
 - **Date:** 2026-10-29 (E11 UI fixes, KI-570). Files: `frontend/package.json` (`lint`, `test`; dev deps `eslint`
   9.17.0, `@eslint/js` 9.17.0, `eslint-plugin-react` 7.37.2, `eslint-plugin-react-hooks` 5.1.0, `globals` 15.14.0,
@@ -954,6 +981,85 @@ not recorded.*
   and fake timers built in).
 - **Status:** Active. `npm run lint` 0 problems and `npm test` 13/13 on 2026-10-29.
 
+### D-083 — qwen3-reranker always on; no switch; local jina re-ranker removed (2026-10-29)
+- **Date:** 2026-10-29. User rule (stated repeatedly; recorded here so no session or teammate switches it off again).
+  Files: `app/llm.py` (`call_reranker`, `_RERANK_*`), `app/rag.py` (`retrieve`, `_rerank`), `app/config.py`
+  (`reranker_problem`; `RERANKER_ENABLED`, `RAG_LOCAL_RERANKER`, `RAG_RERANK_CHARS` removed), `app/local_rank.py`
+  (keyword vectors only), `app/main.py` (startup ERROR), NEW `tests/test_reranker_always_on_2026_10_29.py`.
+- **Context:** `qwen3-reranker` was off from 2026-08-29 (D-005, "inverts relevance"); the local jina cross-encoder
+  was on, then off, on 2026-10-15. Every new session read "off" in config and docs and kept it. Probe 2026-10-29
+  (VERIFIED, `megh_knowledge`, the 137 `doc` questions of `tests/rag_eval/testset.json`, top 12 from Qdrant; the right
+  piece was in the 12 for 133):
+
+  | Order of the 12 | Right piece 1st | In top 3 | In the 8 sent to the composer |
+  |---|---|---|---|
+  | vector only (before) | 60.2% | 82.7% | 98.5% |
+  | reranker, bare question (the D-005 call) | 25.6% | 59.4% | 87.2% |
+  | reranker, Qwen3 yes/no format | 55.6% | 83.5% | 95.5% |
+  | **reranker (Qwen3 format) fused with vector order, RRF k=60 (chosen)** | **62.4%** | **88.0%** | 97.7% |
+
+  Gateway latency: median 0.1 s, max 0.6 s for 12 pieces; 0 errors in 137 calls. D-005's "inversion" was the bare
+  call, not the model.
+- **Decision:**
+  - every knowledge question is re-ranked by `qwen3-reranker` on the gateway (`rag._rerank`, called from
+    `rag.retrieve`, so `answer_from_kb` and `answer_from_kb_multi` both get it). There is **no setting** to turn it
+    off: the switches were deleted, and a `.env` that still sets one fails at startup (pydantic "extra inputs").
+  - `call_reranker` sends the Qwen3 format (system judge prompt, `<Instruct>` / `<Query>`, `<Document>`).
+  - the re-ranker's order is fused with the vector order by rank; it is not used alone (row 3 above loses pieces).
+  - `score` stays the meaning (cosine) similarity: `RAG_MIN_SCORE` and the confidence tiers are tuned on it, and the
+    deployed re-ranker scores nearly every piece 0.99+ (KI-450). Its score is kept as `rerank_score`.
+  - the 4B prompt-scoring fallback inside `call_reranker` is removed. A gateway failure keeps the vector order for that
+    question and logs a WARNING; the answer is still given. An empty / `CHANGE_ME` `RERANKER_API_KEY` logs an ERROR at
+    startup (`config.reranker_problem`).
+  - the local jina re-ranker (`local_rank.rerank`, `RAG_LOCAL_RERANKER`) is removed (user decision).
+- **Rejected:** a switch defaulting to on (it is how it got switched off before); the re-ranker's order alone (worse
+  than vector order on this KB); using its score as a cut-off (saturated, KI-450); re-ranking the SQL examples from
+  `megh_sql_metadata` (not asked; one change at a time).
+- **Rule for future sessions:** if the re-ranker misbehaves, **fix it** (call format, deployment, fusion) — do not
+  disable it. `tests/test_reranker_always_on_2026_10_29.py` fails if a switch, the local re-ranker, the fallback scorer
+  or the bare call comes back.
+- **Answer eval (VERIFIED, `tests/rag_eval/run_eval.py`, 188 questions, `megh_knowledge`, 2026-10-29; `results/2026-10-29_d083_*.json`):** vector only -> with the re-ranker: correct 91.5% -> **95.1%**, wrong 3.7% -> **0.6%**, "not covered" handled honestly 91.7% -> **100%**, correct-or-honest 91.5% -> **95.7%**, right piece in top 3 77.4% -> 83.5%, answers with a made-up sentence 14.0% -> 11.8%, 4.2 s -> 3.7 s per question. The judge moves about +/-2 points between runs.
+- **Status:** Active. OFFLINE-VERIFIED (tests), LIVE-VERIFIED in-process and over HTTP on :8401 (both knowledge questions called `/rerank`, 200 OK). Supersedes D-005.
+
+### D-082 — Answer formatting: one money formatter, a figure-to-label check, code-written figures per shape (2026-10-29)
+- **Date:** 2026-10-29. RAG plan E9 (composer); evidence `new_docs/Composer_Audit_Report_2026-10-27.md`.
+  Files: c12 `_c12_money` / `_c12_fmt_value` / `_c12_label_misbinds` (`c12_answer_numbers.py`), c12s `_c12s_e9_body` /
+  `_c12s_e9_framing` / `_c12s_e9_frame_default` (`c12_answer_shapes.py`), `compose_response` (c13),
+  `app/config.py` `ANSWER_TEMPLATES_ENABLED`, `schemes/mgnrega.py` `_mgnrega_money_units` (KI-448).
+- **Context:** of 43 eval answers 15 were clean, all single figures; the multi-row shapes carried the errors the
+  number check cannot see (it asks only whether a figure EXISTS in the result): a row's own figure stated as a gap
+  (CL-05), a % written as lakh (MG-10), a garbled change (MG-12), names left out (PM-06), lines nobody asked for, and
+  three money formats in one answer (PM-10, FP-05).
+- **Decision:**
+  - **One money formatter** for every figure code writes: ₹, Indian grouping, a `_lakh` / `_cr` column kept in its own
+    unit (MGNREGA reads lakh, as the composer copies it), a rupee column as crore / lakh / exact rupees by size, and a
+    non-zero amount never "₹0.00 crore" (it drops a unit). Counts keep their grouping: Indian vs Western for counts is
+    an open product decision.
+  - **Figure-to-label check** beside the number check in `compose_response`: a figure tied to a row name ("Mylliem —
+    398,150", "8,215 in FY 2022-23", the only name in its clause) must be that row's; a figure followed by more / less /
+    higher / ahead must be a difference; a % never written as ₹ / lakh / crore and money never as %; a figure labelled
+    with another measure's words ("41,210 person-days" for households) is wrong. Any hit → the strict retry, then the
+    fallback. Narrow on purpose: a figure it cannot tie to one row or measure is left to the number check. Stricter only.
+  - **Templates per shape** (`ANSWER_TEMPLATES_ENABLED`, default true): ranking / compare / trend / breakdown answers
+    take every figure-bearing line from code. The 9B writes one opening line that may hold no figure (years, the
+    query's own literals and the list size excepted) and no verdict word for the shape ("highest" on a lowest-first
+    list, "rose" on a trend); otherwise code's own opening line is used. Extras only when asked: a ranking's gap line
+    (gap / ahead / how far / compare …), a trend's highest / lowest (peak / highest / lowest …), a split's total
+    (total / overall …) and shares (share / % …). Percentages differ in "percentage points". The shaped fallback is the
+    same templated answer. The composer still writes the whole answer for single figures, profiles, two-way tables,
+    lists, yes / no questions, premise corrections (premise_check's "The question treats …" note), a caller's own
+    figures (`extra_numbers`), ROLLUP totals and no-usable-value results. Wording notes ("write lakh", "name places in
+    plain words") go to the opening line; a scheme's style shots do not keep the composer.
+- **Alternatives:** keep the composer writing figures and add guards only (the audit shows the guards cannot see wrong
+  claims); give the composer the template sentences to copy (it re-words them); move the composer to a larger model
+  (bigger change; re-measure after this one, audit §5 item 8).
+- **Rollback:** `ANSWER_TEMPLATES_ENABLED=false` (the composer writes the whole answer from `_SHAPE_GUIDE`, and the
+  shaped fallback is the pre-E9 one). The money formatter and the label check have no flag (stricter only).
+- **Not done (KI-449):** the scheme writers (`_fp_rupees`, `_pmay_money`, `_cml_inr`, Focus Legacy's breakdown writer,
+  cross_figures) keep their own formats; the shape still measures `metrics[0]` / the ORDER BY key, not the asked measure
+  (lane B2 CMP-02).
+- **Status:** Active. OFFLINE-VERIFIED (tests/test_answer_format_e9_2026_10_29.py); LIVE-VERIFIED on 12 questions
+  in-process (VPN up); the held-out golden set was NOT run (user: at a different time).
 
 ### D-081 — Fixed answers authorised where they return; cross_figures from its plan; BOOT_GUARD_ENFORCE (2026-10-29)
 - **Date:** 2026-10-29. RAG plan E12 (KI-418..421, gateway CA). Files: c13, `schemes/focus_legacy.py`,
@@ -975,6 +1081,33 @@ not recorded.*
     (default false). A plain prod check would stop the dev box, which runs with `ENV=prod` and no CA file.
 - **Rejected:** authorising the cross_figures SQL text (false denials above); a hard prod-only CA refusal (bricks dev).
 - **Rollback:** revert the files above; `BOOT_GUARD_ENFORCE=false` already gives the old CA fallback (now logged CRITICAL).
+
+### D-080 — Guardrail model outage: fail closed for abuse only; count and alert (2026-10-29)
+- **Date:** 2026-10-29. RAG plan E2, the "fail closed + alert" half (the "run in parallel with the plan" half: built
+  in D-085, measured slower on today's gateway, left off; the word lists are unchanged). Files: `app/guardrails.py` (`_ABUSE_SUSPECT`, `_OutageMonitor` /
+  `outage_monitor`, `_outage_verdict`, the `unverified` reply), `app/config.py` (`GUARDRAIL_ALERT_THRESHOLD`,
+  `GUARDRAIL_ALERT_WINDOW_SECONDS`), c14 `_turn_edge_stage`, `app/main.py` (`/metrics`, `/health`).
+- **Context:** D-040 failed open: during a classifier outage every message went on with only a WARNING log
+  (audit 2026-10-23: "the answer goes out unchecked, with no alert"; KI-446).
+- **Decision:** when the model cannot judge (exception, timeout or unreadable reply):
+  - a message with an abuse word (`_ABUSE_SUSPECT`: violent verbs not aimed at pests / videos, weapons, drugs,
+    hacking, sexual words, self-harm, bribery / robbery, "bank account number", jailbreak / SQL words) is refused
+    with the `unverified` edge reply ("can't check … right now, try again"). Broad on purpose: "people killed in
+    floods" is refused during an outage and answered once the model is back;
+  - everything else goes on (layer 1 already ran). Out-of-scope requests are not harmful and fail open;
+  - `GUARDRAIL_MODEL_FAIL_CLOSED=true` still refuses every message;
+  - the `unverified` reply is `context_dependent`, so it is never written to the shared answer caches.
+- **Alert:** `outage_monitor` counts let-through and refused events and errors by kind (per worker), on `/metrics`
+  `guardrail` and `/health` `guardrail_model` (visibility only; status unchanged). `GUARDRAIL_ALERT_THRESHOLD`
+  failures (3) inside `GUARDRAIL_ALERT_WINDOW_SECONDS` (300) log one ERROR `ALERT guardrail model failing …` line
+  per window and a `pipeline_decision stage=guardrail outcome=alert` record. When `ALERT_WEBHOOK_URL` is set
+  (blank by default) the same alert is POSTed there as JSON in the background (source, host, counts, a `text` line
+  for Slack / Teams; never question text; 5 s timeout; a webhook failure is logged and never reaches the turn).
+- **Alternatives:** refuse everything during an outage (the classifier also routes, but a dead guardrail would then
+  stop answers even where routing has fallbacks); keep failing open (the audit finding).
+- **Rollback:** none needed per flag; to fail open again, revert `_outage_verdict` to return None when the flag is off.
+- **Status:** Active. OFFLINE-VERIFIED (gateway stubbed); NOT LIVE-VERIFIED (needs a real outage).
+
 ### D-079 — One scheme registry; the other registries are guarded against drift (2026-10-27)
 - **Date:** 2026-10-27. RAG plan E5; user decision "Registry + drift guard" (not a full migration).
 - **Context:** scheme names appear in ~124 places across 31 files (mapped by a scan for lines naming four or more
@@ -1002,6 +1135,8 @@ not recorded.*
 - **Evidence:** `tests/query_plan/run_eval.py` (25 questions, 23 answered): the model alone mis-read the measure 3/10
   and the area 7/16 (it took "by district" / "top 5 blocks" for the area); with the deterministic fields **79/79**
   field comparisons agree.
+- **Stage 2a done 2026-10-29 (D-085):** agreement measured over 730 live turns; the in-turn plan is built and
+  tested but OFF (it slowed turns). Stage 2b (a stage reads one field) not started.
 - **Next stages (each needs the user's go-ahead):** collect live agreement over real turns; then let one stage read
   one plan field at a time (e.g. top-N, years), keeping the old path as fallback.
 - **Rollback:** `QUERY_PLAN_SHADOW=false`.
@@ -1154,6 +1289,11 @@ not recorded.*
   13/14 in-process (the 14th is the D-064 ask); pytest 3,829 / 0.
 - **Tests:** `tests/test_metric_catalog_2026_10_26.py`; live: `tests/metric_catalog_eval.py`.
 - **Status:** Active.
+- **Update 2026-10-29 (RAG plan E7, Task 10):** the matched measure's own catalogue words no longer count as
+  "asks more" (`_c16_measure_vocabulary`); re-measured all 39 measures (312 questions, shadow, 0 network errors):
+  210 built, 191 agree, every one of the 19 differences explained (KI-424 wording, model failures, unit-only
+  crore vs lakh, KI-426 column, model counting all beneficiaries as paid); 5 pairs added (verified 104 -> 109).
+  Focus Plus women beneficiaries stay off (0 = 0, no gender data in FY 2022-23).
 
 ### D-070 — A call without a session id gets its own conversation (2026-10-26)
 - **Date:** 2026-10-26. RAG plan E3; user: "solve option one … a better solution … don't disturb any other thing".

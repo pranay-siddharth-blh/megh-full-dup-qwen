@@ -250,6 +250,11 @@ class Settings(BaseSettings):
     RESPONSE_TEMPERATURE: float = 0.0
     RESPONSE_MAX_TOKENS: int = 800
     RESPONSE_TIMEOUT_SECONDS: int = 20
+    # E9 (2026-10-29): a ranking / comparison / trend / split answer has its figures
+    # written by code from per-shape templates (c12_answer_shapes._c12s_e9_body); the
+    # composer writes only the opening line, with no figure. false = the composer writes
+    # the whole answer from the shape guide, as before (the rollback).
+    ANSWER_TEMPLATES_ENABLED: bool = True
 
     # ── SQL semantic verifier — qwen3-coder-30b (qwen-model), not the 4B ──
     # Execution checks first, then this (2026-10-15): it runs after the free code
@@ -291,12 +296,12 @@ class Settings(BaseSettings):
     EMBEDDING_TIMEOUT_SECONDS: int = 30
     EMBED_BATCH_SIZE: int = 32
 
-    # qwen3-reranker — reorders the Qdrant candidate set before answer composition.
-    # OFF by default: the deployed qwen3-reranker inverts relevance on this KB
-    # (verified 2026-08-29 — it ranks "where to find info" above "application
-    # process" for a "what documents" query). The embedding model's vector order
-    # is better on its own. Re-enable once the reranker deployment is fixed/replaced.
-    RERANKER_ENABLED: bool = False
+    # qwen3-reranker — re-ranks the Qdrant candidates of EVERY knowledge question
+    # (D-083, 2026-10-29, user rule). There is deliberately NO on/off setting:
+    # RERANKER_ENABLED was removed, and a .env that still sets it now fails at
+    # startup instead of silently switching the re-ranker off. It was off from
+    # 2026-08-29 (D-005, "inverts relevance") — that came from sending the bare
+    # question; app/llm.py now sends the Qwen3 yes/no format. Broken? Fix it.
     RERANKER_MODEL: str = "qwen3-reranker"
     RERANKER_BASE_URL: str = "https://10.48.242.4/openai/v1"
     RERANKER_API_KEY: str = ""
@@ -355,24 +360,15 @@ class Settings(BaseSettings):
     # this KB. qwen3-embedding scores ~0.1-0.15 lower, so .env sets MEDIUM 0.35
     # with megh_scheme_kb_v4 (D-067).
     # RAG upgrade Phase 3 (2026-10-14, app/local_rank.py): keyword (BM25) search
-    # fused with meaning search, then a local cross-encoder re-ranks the
-    # candidates. Hybrid needs a collection built with the "bm25" sparse vector
-    # (kb_ingest does this whenever RAG_SPARSE_MODEL is set); on an older
-    # collection search falls back to meaning only. "" switches a step off.
+    # fused with meaning search. Hybrid needs a collection built with the
+    # "bm25" sparse vector (kb_ingest does this whenever RAG_SPARSE_MODEL is
+    # set); on an older collection search falls back to meaning only. ""
+    # switches it off.
     RAG_SPARSE_MODEL: str = "Qdrant/bm25"
     RAG_HYBRID_ENABLED: bool = True
-    # OFF (user's decision, 2026-10-15, after the Phase 5 measurements).
-    # jina-turbo ("jinaai/jina-reranker-v1-turbo-en", ~150 MB, 12 candidates x
-    # 800 chars) put the right piece first 55.5% of the time (47.6% hybrid
-    # only), but answers did not improve (correct 90.9% with it vs 93.3%
-    # without, 188 questions) and it cost ~3 s per answer. Set the model name
-    # to switch it back on. The qwen3-reranker below (RERANKER_ENABLED) stays off.
-    RAG_LOCAL_RERANKER: str = ""
-    RAG_CANDIDATES: int = 12       # candidates searched for before re-ranking
-    # The re-ranker reads only the start of each piece (its heading and opening
-    # say what it is about): measured 2026-10-15 on one CPU, jina-turbo over 12
-    # pieces took 2.3 s at full length and 0.85 s at 800 characters.
-    RAG_RERANK_CHARS: int = 800
+    # The local jina cross-encoder (RAG_LOCAL_RERANKER) was removed 2026-10-29
+    # (user decision, D-083): re-ranking is qwen3-reranker on the gateway only.
+    RAG_CANDIDATES: int = 12       # candidates searched for with hybrid search on
     # Phase 4 (2026-10-15): search with the question AND this many other
     # wordings of it written by the fast model ("documents?" -> "documents
     # required for PMAY-G registration"), merged by rank. 0 = off. One short
@@ -683,18 +679,33 @@ class Settings(BaseSettings):
     # pipeline's own decisions to QUERY_PLAN_FILE (app/query_plan.py). Shadow only:
     # nothing reads the plan. Agreement report: tests/query_plan/compare.py.
     QUERY_PLAN_SHADOW: bool = True
+    # E1 stage 2a (D-085, with RAG plan E2): true = for a new question the plan
+    # starts beside the guardrail model call instead of after the answer; nothing
+    # waits for it and the shadow log reuses it. OFF: measured live 2026-10-29 the
+    # two 4B calls do not overlap for free (turn median 11.8 s -> 14.1 s, 6/6 pairs
+    # slower; the plan itself 0.8 s -> 1.5-3.0 s). Turn on only once a stage reads
+    # the plan and drops a call of its own (stage 2b), or the gateway has headroom.
+    QUERY_PLAN_IN_TURN: bool = False
     QUERY_PLAN_FILE: str = "logs/query_plan_shadow.jsonl"
     METRIC_MEANING_FILE: str = "logs/metric_meaning_shadow.jsonl"
 
     # ── Input guardrails (app/guardrails.py) ──
     # Layer 1 (rules) always runs. Layer 2 is one classifier-model call per new
     # question that judges its meaning, so a harmful request phrased in words
-    # no rule lists is still refused. A gateway failure fails open (the
-    # question goes on; layer 1 already ran) unless FAIL_CLOSED is set.
+    # no rule lists is still refused. A model failure fails closed for abuse
+    # only: a message with an abuse word is refused, the rest go on (layer 1
+    # already ran); FAIL_CLOSED refuses every message instead. ALERT_THRESHOLD
+    # failures inside ALERT_WINDOW_SECONDS log one ERROR "ALERT guardrail"
+    # line per window (E2, 2026-10-29; counts on /metrics "guardrail").
     GUARDRAIL_MODEL_ENABLED: bool = True
     GUARDRAIL_MODEL_TIMEOUT_SECONDS: float = 6.0
     GUARDRAIL_MODEL_FAIL_CLOSED: bool = False
     GUARDRAIL_MODEL_MAX_CHARS: int = 1000
+    GUARDRAIL_ALERT_THRESHOLD: int = 3
+    GUARDRAIL_ALERT_WINDOW_SECONDS: float = 300.0
+    # Where an ALERT is also POSTed as JSON (counts only, never question text),
+    # e.g. a Slack / Teams / Alertmanager incoming webhook. Blank = log only.
+    ALERT_WEBHOOK_URL: str = ""
 
     # ── Prompt budgets (approximate input tokens; app/context_budget.py) ──
     # Each is the served --max-model-len minus that call's max_tokens
@@ -716,6 +727,8 @@ class Settings(BaseSettings):
     # "qdrant" since 2026-10-27 evening (user: use everything in both
     # collections across the app). Compare the two with
     # tests/nl2sql_eval/compare_examples_source.py; "yaml" is the rollback.
+    # "yaml_meaning" (B5, 2026-10-29): the reviewed YAML banks ranked by meaning
+    # (sql_examples._rank_yaml), no megh_sql_metadata. Not the default until measured.
     SQL_EXAMPLES_SOURCE: str = "qdrant"
     SQL_EXAMPLES_COLLECTION: str = "megh_sql_metadata"
     SQL_EXAMPLES_TIMEOUT_SECONDS: float = 4.0
@@ -756,3 +769,15 @@ def insecure_secrets() -> list[str]:
     if settings.AI_MODEL_CA_BUNDLE_PATH and not Path(settings.AI_MODEL_CA_BUNDLE_PATH).expanduser().is_file():
         problems.append("AI_MODEL_CA_BUNDLE_PATH (configured but the file is missing — gateway TLS is not verified)")
     return problems
+
+
+def reranker_problem() -> str:
+    """Why qwen3-reranker cannot work with this configuration, or "" when it
+    can. The re-ranker has no off switch (D-083); without a key or URL every
+    knowledge question silently falls back to vector order, so main.py logs
+    this at ERROR on startup."""
+    if not settings.RERANKER_BASE_URL or not settings.RERANKER_MODEL:
+        return "RERANKER_BASE_URL / RERANKER_MODEL empty"
+    if settings.RERANKER_API_KEY in ("", "CHANGE_ME"):
+        return "RERANKER_API_KEY empty or 'CHANGE_ME'"
+    return ""

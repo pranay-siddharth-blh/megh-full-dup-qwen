@@ -1759,6 +1759,10 @@ def _mgnrega_money_units(answer: str, sql: str, rows: list[dict]) -> str:
             n = _as_number(v)
             if n is None or not _MONEY_COL_NAME_MATCH.search(str(k)) or isinstance(n, int) and n == 0:
                 continue
+            # a share of the money is not money: "expenditure_share_pct" 24.09 became "24.09 lakh"
+            # (composer audit MG-10; live E9 check 2026-10-29 reproduced it after a correct "24.09%")
+            if _c12_is_pct_col(str(k)) or any(p in ("share", "ratio", "rate") for p in str(k).lower().split("_")):
+                continue
             f = float(n)
             forms |= {f"{f:,.2f}", f"{f:.2f}"}
     for form in sorted(forms, key=len, reverse=True):

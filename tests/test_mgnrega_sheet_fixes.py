@@ -132,7 +132,8 @@ def test_rephrase_must_not_widen_to_all_schemes():
 
 # ── KI-235: the single-figure fallback names the measure and states the unit once
 @pytest.mark.parametrize("row,want", [
-    ({"financial_year_short": "2023-24", "total_expenditure_lakh": 8.71}, "2023-24: total expenditure 8.71 lakh."),
+    # E9 (2026-10-29): money through the one formatter — ₹ added, the unit still once
+    ({"financial_year_short": "2023-24", "total_expenditure_lakh": 8.71}, "2023-24: total expenditure ₹8.71 lakh."),
     ({"women_pct": 41.2}, "women 41.20%."),
     ({"households_employed": 59114}, "59,114 households employed."),
 ])

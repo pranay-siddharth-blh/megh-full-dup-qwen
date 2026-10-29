@@ -59,9 +59,12 @@ def test_fuse_puts_pieces_several_wordings_find_first_and_keeps_the_best_score()
 
 def test_retrieve_searches_every_wording(monkeypatch):
     monkeypatch.setattr(settings, "RAG_MULTI_QUERY", 2)
-    monkeypatch.setattr(settings, "RAG_LOCAL_RERANKER", "")
-    monkeypatch.setattr(settings, "RERANKER_ENABLED", False)
     seen = []
+
+    async def keep_order(q, texts):
+        return [(i, 0.5) for i in range(len(texts))]
+
+    monkeypatch.setattr(llm, "call_reranker", keep_order)
 
     async def alts(q, scheme):
         return ["alt one", "alt two"]

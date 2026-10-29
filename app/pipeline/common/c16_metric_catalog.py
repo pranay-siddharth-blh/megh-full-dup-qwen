@@ -71,6 +71,20 @@ def _c16_filters(resolved: dict) -> "dict | None":
     return out
 
 
+def _c16_measure_vocabulary(m) -> frozenset:
+    """The matched measure's own words: its catalogue phrases and display name,
+    plain and stemmed. E7 (2026-10-29, metric_catalog_eval): the rephraser writes
+    "person days" as "person days GENERATED" and "payout" as "DISBURSEMENT payout";
+    the catalogue then declined ("asks more than the measure: generated") although
+    the word is that measure's own ("employment generated"). Only the MATCHED
+    measure's words are allowed, so a word that changes the measure ("job cards
+    ISSUED" vs the job-card stock, "MONEY" for a count) is still refused."""
+    out = {w for p in m.phrases for w in p}
+    for w in _c01_tm_words(m.display_name or ""):
+        out |= {w, metric_catalog._stem(w)}
+    return frozenset(out)
+
+
 def _c16_extra_words(question: str, schemes: "list[str]", entity_result: dict, taken: "frozenset[int]",
                      allowed: frozenset) -> "list[str]":
     """The question's words that are not the measure, a scheme name, a resolved
@@ -94,7 +108,7 @@ def _c16_extra_words(question: str, schemes: "list[str]", entity_result: dict, t
         w = t.low
         if k in taken or any(a <= t.start < b for a, b in named) or w in place_words:
             continue
-        if w in _C16_GRAMMAR or w in allowed or w.isdecimal():
+        if w in _C16_GRAMMAR or w in allowed or metric_catalog._stem(w) in allowed or w.isdecimal():
             continue
         if w.startswith("fy") and w[2:].isdecimal():
             continue
@@ -186,7 +200,7 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
         out["reason"] = "a shape the catalogue does not cover"
         return out
     out["qtype"] = shape["qtype"]
-    allowed = _C16_SHAPE_WORDS.get(shape["qtype"], frozenset())
+    allowed = _C16_SHAPE_WORDS.get(shape["qtype"], frozenset()) | _c16_measure_vocabulary(m)
     extra = _c16_extra_words(question, schemes, entity_result, found.spans, allowed)
     if extra:
         out["reason"] = "asks more than the measure: " + " ".join(extra[:6])
