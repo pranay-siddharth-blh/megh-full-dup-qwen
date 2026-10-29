@@ -1904,6 +1904,31 @@ def _cm_elevate_sector_keep_unrecorded(question: str, schemes: list[str], sql: s
     return sql_ast.to_sql(tree)
 
 
+def _cme_twin_verifier_complaint_is_false(issue: str, schemes: list[str], entity_result: dict, sql: str) -> bool:
+    """Same-name villages (J-10 twins): `WHERE village_code IN (<every twin>)`, counted per village or in
+    all, is the documented query, but the verifier complained about it on every repair ("uses
+    COUNT(DISTINCT request_id) …", "groups by lgd_village_name instead of the resolved value") and
+    "How many CM ELEVATE applicants are there in NONGSHILLIANG?" ended "couldn't build a working query"
+    (UAT 2026-10-30, C03). An entity / grouping complaint against exactly that query is discarded; a
+    complaint about the measure still stands."""
+    res = (entity_result or {}).get("resolved") or {}
+    codes = {str(c) for c in res.get("village_code_list") or []}
+    if schemes != ["CM Elevate"] or not res.get("village_twins") or len(codes) < 2 \
+            or not sql_ast.is_parseable(sql or "") or _FL_VERIFIER_MEASURE.search(issue or ""):
+        return False
+    if sql_ast.tables(sql, qualified=True) != {"curated.v_cm_elevate"} or sql_ast.joins(sql):
+        return False
+    tree = sql_ast.parse_one(sql)
+    node = next((n for n in tree.find_all(exp.In) if _cme_col(n.this, "village_code") is not None
+                 and not isinstance(n.parent, exp.Not) and n.expressions
+                 and all(isinstance(e, exp.Literal) for e in n.expressions)), None) if tree is not None else None
+    vals = {str(e.this) for e in node.expressions} if node is not None else set()
+    counts = [c for c in tree.find_all(exp.Count)] if tree is not None else []
+    return vals == codes and bool(counts) and all(
+        isinstance(c.this, exp.Distinct) and _cme_col(c.this.expressions[0] if c.this.expressions else None, "request_id")
+        is not None for c in counts)
+
+
 def _cme_ac_verifier_complaint_is_false(issue: str, schemes: list[str], entity_result: dict, sql: str) -> bool:
     """A verifier complaint about the join or the resolved constituency raised against the
     documented constituency query, v_cm_elevate -> dim_geography ON geography_key with
@@ -1911,6 +1936,8 @@ def _cme_ac_verifier_complaint_is_false(issue: str, schemes: list[str], entity_r
     assembly constituency" wrote exactly that (plus the block) and the verifier called the join
     prohibited on every repair: "couldn't build a working query" (UAT 2026-10-30, H-BxAC;
     the Legacy twin is KI-381). A complaint about the measure or the grain still stands."""
+    if _cme_twin_verifier_complaint_is_false(issue, schemes, entity_result, sql):
+        return True
     ac = ((entity_result or {}).get("resolved") or {}).get("assembly_constituency")
     if schemes != ["CM Elevate"] or not isinstance(ac, str) or not ac.strip() or not sql_ast.is_parseable(sql or "") \
             or not _FL_VERIFIER_JOIN_OR_ENTITY.search(issue or "") or _FL_VERIFIER_MEASURE.search(issue or ""):
