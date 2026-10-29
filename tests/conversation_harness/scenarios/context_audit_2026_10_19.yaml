@@ -128,7 +128,7 @@
   account: superadmin
   turns:
     - say: "MGNREGA expenditure in Ri Bhoi"
-      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi}  # D-089 (2026-10-29): answered for all years, not asked
     - say: "what is the wage part of that?"
       expect: {route: data, scheme: MGNREGA, place: Ri Bhoi}
 
