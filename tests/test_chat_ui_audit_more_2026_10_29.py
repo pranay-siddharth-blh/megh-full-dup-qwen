@@ -394,3 +394,9 @@ def test_j10_a_filter_on_one_twin_is_widened_to_all():
     assert "village_code IN (273033, 272766, 273416)" in out and "LIMIT" not in out
     er = {"resolved": {"village_code_list": [273033, 272766, 273416], "village_twins": {"273033": "x"}}}
     assert "IN (273033, 272766, 273416)" in asyncio.run(p._scheme_sql_rewrites("q", ["MGNREGA"], er, sql))
+
+
+def test_b8_the_bare_which_is_better_goes_to_the_figures():
+    assert p._c13_bare_which_is_better("Which is better, MGNREGA or PMAY-G?")
+    assert not p._c13_bare_which_is_better("Which is better for a landless family, MGNREGA or PMAY-G?")
+    assert not p._c13_bare_which_is_better("Is MGNREGA better?")

@@ -525,6 +525,27 @@ async def _c13_knowledge_is_closer(question: str) -> bool:
     return closer
 
 
+# B-8 (chat UI audit live run 2026-10-29): "Which is better, MGNREGA or PMAY-G?" went to
+# the documents (text, no figures). The bare question — two or more schemes and nothing
+# but these words — is answered by cross_figures' "better" mode: the figures side by
+# side, no winner, measures offered. "better for a landless family" stays KNOWLEDGE.
+_C13_BETTER_ONLY = frozenset(("which", "is", "are", "better", "best", "the", "scheme", "schemes", "or",
+                              "and", "between", "of", "vs", "versus", "a"))
+
+
+def _c13_bare_which_is_better(question: str) -> bool:
+    q = _correct_scheme_spelling(question or "")
+    if len(_named_schemes(q)) < 2:
+        return False
+    rest = q
+    for s, pat in _SCHEME_NAME_MATCHER.items():
+        for h in reversed(list(pat.finditer(rest))):
+            rest = rest[:h.start()] + " " + rest[h.end():]
+    words = [w.strip("?.,!:;()").lower() for w in rest.split()]
+    words = [w for w in words if w]
+    return "better" in words and all(w in _C13_BETTER_ONLY for w in words)
+
+
 async def _c13_intent_by_rules(question: str) -> str:
     """The cue rules, then one classifier call (the pre-B3 classify_intent)."""
     # "what are common districts in both schemes?" opens with "what are", which
@@ -532,6 +553,8 @@ async def _c13_intent_by_rules(question: str) -> str:
     # data, never something in the reference docs. Force DATA before the keyword
     # fast-path so the "what are" knowledge cue can't win.
     if _CROSS_SCHEME_SET_QUESTION.search(question):
+        return "DATA"
+    if _c13_bare_which_is_better(question):
         return "DATA"
     # "How many members are there in Bak-15 Wachal Pg?" is a lookup in the data;
     # with no counting noun the classifier sometimes sent it to the reference
