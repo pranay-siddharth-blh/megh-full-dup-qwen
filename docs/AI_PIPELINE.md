@@ -553,7 +553,8 @@ The prompt is concatenated in this order:
 ```
 build_schema_context(schemes)       # schema_context.py: _PREAMBLE, _SHARED_TABLES, per-scheme
                                     #   (_X_TABLES, _X_RULES, _X_VOCAB), _CROSS_SCHEME if >1 scheme,
-                                    #   _SHARED_RULES, _CLOSING
+                                    #   _SHARED_RULES, _CLOSING; [[name]] data figures filled live
+                                    #   by data_facts.render (D-087, refreshed every 10 min)
 _live_schema_block(schemes)         # schema_introspect: real columns + real FKs from megh_db
 schema_introspect.catalog_block()   # semantic.table_catalog / glossary / metric_definitions (metric_key,
                                     #   sql_expression) / column notes + UNIT + VALUES lists (D-049);
@@ -571,8 +572,9 @@ _entities_block(entity_result, …)   # "RESOLVED ENTITIES — MANDATORY" + "NOT
   (`_fewshot_ranking_text`).
 - **Pool files:** `data/<scheme>/*few_shot*.yaml`. CM Elevate Legacy uses
   `cmelevatelegacy_prompt_few_shots.yaml`.
-- **Example source switch (D-074, 2026-10-27):** `SQL_EXAMPLES_SOURCE=qdrant` is the default since
-  2026-10-27 evening (user: use everything in both collections). `yaml` (the rollback) uses the pool files above.
+- **Example source switch (D-074 -> D-086):** `SQL_EXAMPLES_SOURCE=yaml` (the pool files above) is the default since
+  2026-10-29 (D-086). `qdrant` was the default 2026-10-27 evening -> 2026-10-29 (user: use everything in both
+  collections); the B5 measurement showed it needing 8 repairs vs 1 for yaml at the same accuracy.
   - **`yaml_meaning` (B5, 2026-10-29; not the default until measured):** the reviewed YAML banks ranked by meaning —
     one embedding of the ranking text per data question, cosine against each example's question and `variants`
     (`sql_examples._rank_yaml`, via `annotations.few_shot_examples(rank=…)`, refusal factor and cap unchanged). Each
@@ -1030,7 +1032,9 @@ The log line `compose_response: answer shape <kind>` records the shape of every 
 **Query plan shadow (E1 stage 1, D-078, 2026-10-27):** after a data / knowledge turn, `_update_context` schedules `query_plan.shadow` (background): a typed plan of the question (4B guided JSON + deterministic years / top-N / measure / area level) logged with the turn's actual decisions to `logs/query_plan_shadow.jsonl`. Nothing reads it yet.
 **Trend direction (KI-441, 2026-10-27):** `_c12s_fix_trend_direction` (last step of `compose_response`) sets the answer's first rose / fell verb from the sign of the trend's first-to-last change; the 9B had copied the example's "rose" over a fall.
 
-**Query plan in the turn (E1 stage 2a, D-085, 2026-10-29) — OFF by default (`QUERY_PLAN_IN_TURN`):** when on, a new question's plan starts in c14 `_guardrail_check` right before the guardrail model call (`query_plan.start_for_turn`, kept in `session.turn_context`); not awaited; a refusal cancels it; `_update_context` hands it to the shadow (`take_for_turn`, `plan_from: "turn"`) instead of a second call. Off because, measured live, the two 4B calls queue on the gateway: turn median 11.8 s -> 14.1 s. `query_plan.turn_plan(session)` is the reader for stage 2b (nothing calls it yet).
+**Query plan in the turn (E1 stage 2a, D-085, 2026-10-29) — OFF by default (`QUERY_PLAN_IN_TURN`):** when on, a new question's plan starts in c14 `_guardrail_check` right before the guardrail model call (`query_plan.start_for_turn`, kept in `session.turn_context`); not awaited; a refusal cancels it; `_update_context` hands it to the shadow (`take_for_turn`, `plan_from: "turn"`) instead of a second call. Off because, measured live, the two 4B calls queue on the gateway: turn median 11.8 s -> 14.1 s. Stage 2b: `_c13_intent_by_rules(question, session)` reads the plan's intent in place of its last-resort classifier
+call (after every cue rule; OTHER / no plan / other words -> the call), via `query_plan.turn_plan(session, question)`.
+Held-out set on vs off: 42/74 both, identical outcomes, +0.35 s median per question on -> left off.
 
 **ROLLUP total rows (2026-10-22, KI-384):** `_c12s_rollup_split(sql, rows)` separates the rows a `GROUP BY ROLLUP` /
 `CUBE` / `GROUPING SETS` adds (the group column NULL or its `COALESCE(col, '<label>')` fallback, e.g. "ALL DISTRICTS")
@@ -1137,7 +1141,9 @@ through the same function.
 
 1. **Scope selection in `_run_pipeline`** picks `_kb_scheme`:
    1. exactly one scheme named;
-   2. else exactly one scheme inferred from vocabulary (`_infer_scheme_from_terms`);
+   2. else exactly one scheme inferred from vocabulary (`_infer_scheme_from_terms`; B2 2026-10-29 added "mandays",
+      "unskilled labour/workers" -> MGNREGA, "LAMP(S)" -> Focus Legacy, "level <n>" -> CM Elevate, "loan(s)" -> CM Elevate
+      Legacy — each checked in information_schema to be held by that scheme alone; KI-481);
    3. else the previous turn's single scheme (not for a bare "Focus").
 2. **Refusals and asks:**
    - a named unknown scheme → `_knowledge_not_covered_answer`;

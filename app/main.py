@@ -95,8 +95,13 @@ async def lifespan(app: FastAPI):
     # and then once a day (RAG upgrade Phase 7).
     from app import conversation_memory
     _purge = asyncio.create_task(conversation_memory.purge_loop())
+    # The SQL prompt's data figures (row counts, NULL counts, shares), live from megh_db
+    # now and every 10 min; the typed defaults until the first read (2026-10-29).
+    from app import data_facts
+    _facts = asyncio.create_task(data_facts.refresh_loop())
     logger.info("nlp-service startup complete (see /health for component status)")
     yield
+    _facts.cancel()
     _purge.cancel()
     _sweep.cancel()
     await pipeline_graph.close()
@@ -233,13 +238,15 @@ async def metrics_endpoint(authorization: str | None = Header(default=None),
     from app.semantic_cache import semantic_cache
     from app.session_store import session_store
 
-    from app import guardrails, turn_trace
+    from app import data_facts, guardrails, turn_trace
 
     return {
         **metrics.snapshot(),
         "response_cache": response_cache.stats(),
         "semantic_cache": semantic_cache.stats(),
         "sessions": session_store.stats(),
+        # when the SQL prompt's data figures were last read from megh_db (app/data_facts.py)
+        "data_facts": data_facts.status(),
         # live SQL outcomes and repairs on this worker, and the latest held-out
         # NL->SQL accuracy run (tests/nl2sql_eval)
         "accuracy": turn_trace.metrics(),

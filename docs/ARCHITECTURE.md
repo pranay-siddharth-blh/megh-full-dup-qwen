@@ -281,7 +281,7 @@ starts the paused-thread sweep and closes the checkpointer only when the graph i
 - **`vectorstore.py`** reads both payload shapes (`piece()`): the app's own `{doc, heading, scheme: str}`
   and megh_knowledge's `{source_file, section, scheme: [..]}`; the scheme filter is `MatchAny`, and
   "CM Elevate" also matches megh_knowledge's "CM Elevate Legacy" tag.
-- **`sql_examples.py`** (D-074): with `SQL_EXAMPLES_SOURCE=qdrant`, `_data_sql_stage` fetches the SQL
+- **`sql_examples.py`** (D-074; default `yaml` since 2026-10-29, D-086; `yaml_meaning` mode B5): with `SQL_EXAMPLES_SOURCE=qdrant`, `_data_sql_stage` fetches the SQL
   prompt's worked examples from `megh_sql_metadata` (kind=example); any failure keeps the YAML banks.
 - **`rag.py`:**
   - `retrieve` searches Qdrant with an **exact-match** `scheme` payload filter;

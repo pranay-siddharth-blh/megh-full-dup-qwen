@@ -1757,6 +1757,10 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
     # it: the rephraser turned "Compare expenditure and person-days in Songsak
     # block during 2022-23" into "What is the comparison between…", whose "what
     # is" read as a reference-docs question (MGNREGA sheet DATA-029, 2026-10-09).
+    # E1 stage 2b (D-085): with a query plan built this turn, the classifier's last-resort
+    # call reads the plan's intent instead (only then is the session passed on).
+    _c14_plan_kw = {"session": session} if (session is not None and "query_plan" in
+                                            (getattr(session, "turn_context", None) or {})) else {}
     intent = (_typed_intent(raw_question) if (is_followup_rewrite or question != raw_question) else None)
     if intent is None and not is_followup_rewrite and question != raw_question \
             and _KNOWLEDGE_HINTS.search(question) and not _KNOWLEDGE_HINTS.search(raw_question):
@@ -1764,8 +1768,8 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
         # performance of East Khasi Hills" -> "What is the overall PMAY-G
         # performance…" went to the reference docs (PMAY-G sheet run 2026-10-10).
         # The user's own words are classified instead.
-        intent = await classify_intent(raw_question)
-    intent = intent or await classify_intent(question)
+        intent = await classify_intent(raw_question, **_c14_plan_kw)
+    intent = intent or await classify_intent(question, **_c14_plan_kw)
     if intent == "DATA" and _is_entitlement_question(raw_question):
         intent = "KNOWLEDGE"
     # "Who are the intended beneficiaries of CM-ELEVATE?" asks who the scheme is FOR, not

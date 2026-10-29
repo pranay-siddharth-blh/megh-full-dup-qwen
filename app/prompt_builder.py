@@ -344,11 +344,18 @@ def _entities_block(entity_result: dict, question: str = "",
                         "from the geography registry, so the total will not reconcile to "
                         "the scheme total.")
                 else:
+                    # KI-432 (MGNREGA Excel run 2026-10-27, 0/10): this line said the
+                    # constituency "exists ONLY in mgnrega_employment … say that level isn't
+                    # available" for expenditure, so every constituency expenditure question
+                    # failed or (after a repair) was answered with the STATEWIDE total. Since
+                    # the ingestion team's 2026-10 change v_expenditure carries ac_name too
+                    # (title case 'Amlarem'; Amlarem FY 2023-24 = 1,090.03 lakh).
                     lines.append(
-                        f"  UPPER(assembly_constituency_name) = UPPER({v!r})   -- this column "
-                        "exists ONLY in mgnrega_employment. If the question also needs "
-                        "expenditure, say that level isn't available there instead of silently "
-                        "switching to a block/district filter.")
+                        f"  UPPER(assembly_constituency_name) = UPPER({v!r})   -- on "
+                        "curated.v_employment (employment, person-days, households). For "
+                        "EXPENDITURE (curated.v_expenditure) the column is ac_name: "
+                        f"UPPER(ac_name) = UPPER({v!r}). Never answer a constituency question "
+                        "with a block, district or statewide figure.")
                 # An assembly constituency is an electoral boundary that CUTS
                 # ACROSS the administrative hierarchy — it is not a parent of
                 # the block, and neither filter implies the other. When both
