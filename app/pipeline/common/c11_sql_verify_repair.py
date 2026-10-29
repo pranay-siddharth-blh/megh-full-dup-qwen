@@ -1088,7 +1088,10 @@ def _resolved_scope_missing(question: str, schemes: list[str], entity_result: di
         # and the STATEWIDE expenditure (106,669.85 lakh) was answered as Amlarem's
         # (correct 1,090.03 for FY 2023-24). A resolved constituency must be in the SQL.
         ac = resolved.get("assembly_constituency")
-        if isinstance(ac, str) and ac.strip() and not _geo_value_in_sql(ac, text):
+        # MGNREGA only: the other schemes reach the constituency through dim_geography
+        # and have their own drift guard with that join in its instruction (Focus Legacy
+        # sheet run 2026-10-22, test_constituency_drift_guard_raises_in_the_attempt).
+        if schemes == ["MGNREGA"] and isinstance(ac, str) and ac.strip() and not _geo_value_in_sql(ac, text):
             return "assembly_constituency", (
                 f"the question is about the {ac} assembly constituency (a RESOLVED, MANDATORY filter), "
                 "but this query does not filter on it, so it returns a figure for a different or wider "
