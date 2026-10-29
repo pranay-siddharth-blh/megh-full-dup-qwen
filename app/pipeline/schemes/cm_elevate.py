@@ -2302,6 +2302,23 @@ def _cme_sector_answer_names_wrong_programme(answer: str, sql: str, rows: list[d
     return "; ".join(parts) + "."
 
 
+def _cme_compare_missing_zero(sql: str, rows: list[dict], answer: str) -> str:
+    """"Compare … Agriculture Response Vehicle and Dairy across East Jaintia Hills and East Khasi
+    Hills" listed the 3 combinations that have rows and said nothing of Dairy in East Jaintia Hills
+    (0): GROUP BY returns no row for a pair with no applications (UAT 2026-10-30, C01-027-03). Every
+    asked programme x district pair without a row is stated as 0."""
+    progs, dists = _cme_scheme_in_values(sql), _cme_district_in_values(sql)
+    if not progs or len(dists) < 2 or not rows or "scheme_name" not in rows[0] or "lgd_district" not in rows[0]:
+        return answer
+    have = {(str(r["scheme_name"]).upper(), str(r["lgd_district"]).upper()) for r in rows}
+    miss = [(pr, d) for pr in progs for d in dists if (pr.upper(), d.upper()) not in have]
+    if not miss:
+        return answer
+    logger.info("CM Elevate: comparison stated %d programme x district pair(s) with no applications as 0", len(miss))
+    return (answer.rstrip() + "\nNo applications (0): "
+            + "; ".join(f"{_cme_short(pr)} in {_place_title(d)}" for pr, d in miss) + ".")
+
+
 async def _cm_elevate_answer_guarantees(question: str, sql: str, rows: list[dict], answer: str,
                                         display: dict) -> str:
     """Every CM Elevate DATA answer passes through here after the composer."""
@@ -2313,6 +2330,7 @@ async def _cm_elevate_answer_guarantees(question: str, sql: str, rows: list[dict
     answer = _cme_grouped_rows(answer, rows)
     answer = _cme_complete_list(question, answer, rows)
     answer = _cme_multi_scheme_total(question, sql, rows, answer)
+    answer = _cme_compare_missing_zero(sql, rows, answer)
     # KI-074 decided 2026-09-28 (product owner): "pending" = verification On Hold
     # only. The interim second line with the file_status Pending count is gone.
     return _cme_comparison(question, rows, answer)
