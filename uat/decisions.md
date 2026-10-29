@@ -64,3 +64,13 @@ All are in tests/live_cme_uat.py (the pre-worktree harness; uat/run_matrix.py in
   Legacy, the only CM Elevate dataset with years; the answer names Legacy.
 - R8 **Region questions tap only a "region" chip** (never a district chip), so a pause that offers districts fails.
 No other rule was loosened; numbers are always compared exactly (Indian or plain grouping).
+17. **C03 "alone" tests tap "village"** (generator fix, 02:59): a shared village name that is also a block /
+    constituency (MAWHATI) pauses "block, constituency or village?" by design; decision 7 already says a pause is
+    answered with the chip the test means (here the village). The generator had left `pick` empty for this group.
+    Only the `pick` column changed; IDs and expected values are identical.
+18. **C12 follow-up turn 3 is disputed (D2)**, not fixed: see disputed.md.
+19. **Village tests tap the village chip first** (runner/generator fix, 03:31): `pick` entries may name several parts
+    ("village&batabari" = a chip whose label holds both). C02 / C03-with-block / C14 picks are now
+    ["village&<block>", "village", "<block>", "<district>"]; before, "<block>" came first and, for a village named like
+    its block (BATABARI, RERAPARA), tapped the BLOCK chip — the opposite of what the test means (decision 7). Only the
+    `pick` column changed (2,401 rows); IDs and expected values are identical.

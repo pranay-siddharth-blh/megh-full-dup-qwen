@@ -1,0 +1,46 @@
+{
+ "C01-027-03": {
+  "root": "B18: a 0 pair not stated",
+  "commit": "3ee1dae"
+ },
+ "C01-017AC": {
+  "root": "B19: ac_name case / stray block",
+  "commit": "77d05ef"
+ },
+ "C03-ALONE": {
+  "root": "B20: twins answered with highest/lowest only; catalogue block spelling",
+  "commit": "3a092ce"
+ },
+ "C10-VIL-TOP": {
+  "root": "B20: top-N list without every figure",
+  "commit": "3a092ce"
+ },
+ "C09-BB": {
+  "root": "B21: Tura MB as two rows",
+  "commit": "3a092ce"
+ },
+ "C15-APP-B2D-west_garo_hills": {
+  "root": "B21: Tura MB as two rows",
+  "commit": "3a092ce"
+ },
+ "C04-MONTHLY": {
+  "root": "B22: no answer for a month ask",
+  "commit": "3a092ce"
+ },
+ "C08-": {
+  "root": "B22 (time ask without FY) / D1 (FY -> Legacy year pause)",
+  "commit": "3a092ce"
+ },
+ "C12-": {
+  "root": "D2 (disputed): turn 3 keeps the on-hold filter",
+  "commit": ""
+ },
+ "C06-": {
+  "root": "D1 (disputed): FY pins CM Elevate Legacy; Legacy holds 2024-25 / 2025-26 only",
+  "commit": ""
+ },
+ "C04-FY": {
+  "root": "D1 (disputed) / R7",
+  "commit": ""
+ }
+}

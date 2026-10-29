@@ -258,7 +258,7 @@ def vq(nm, b):
 
 
 for code, nm, b, d, n in vil:
-    pick = [U.block_core(b), U.norm(d), "village"]
+    pick = [f"village&{U.block_core(b)}", "village", U.block_core(b), U.norm(d)]
     add("C02_village", f"C02-CNT-{code}", f"How many CM ELEVATE applicants are there in {vq(nm, b)}?", [[None, n]],
         tc="CM-ELEVATE-OFF-003", level="Village", pick=pick, truth=f"village_code={code} ({b} / {d})")
     s, ns = vprog[code][0]
@@ -279,19 +279,19 @@ for nm, codes in sorted(vname.items()):
     key = U.norm(nm).replace(" ", "_")
     if len(tw) <= 3 and len({t[1] for t in tw}) == len(tw):
         add("C03_shared", f"C03-ALONE-{key}", f"How many CM ELEVATE applicants are there in {tw[0][0]}?",
-            [[[U.block_core(t[1])], t[3]] for t in tw], level="Village (shared name, alone)",
+            [[[U.block_core(t[1])], t[3]] for t in tw], level="Village (shared name, alone)", pick=["village"],
             desc="J-10: up to three same-name villages in different blocks are each answered with their block",
             truth="per village_code " + ", ".join(f"{c}={vinfo[c][3]}" for c in codes))
     else:
         add("C03_shared", f"C03-ALONE-{key}", f"How many CM ELEVATE applicants are there in {tw[0][0]}?", [],
-            kind="pause_or_each", level="Village (shared name, alone)",
+            kind="pause_or_each", level="Village (shared name, alone)", pick=["village"],
             desc="more than three twins or two in one block: the bot asks which village (a valid outcome) or lists each",
             truth="per village_code " + ", ".join(f"{c}={vinfo[c][3]}" for c in codes),
             extra={"each": [[U.block_core(vinfo[c][1]), vinfo[c][3]] for c in codes]})
     for c in codes:
         t = vinfo[c]
         add("C03_shared", f"C03-BLK-{c}", f"How many CM ELEVATE applicants are there in {t[0]} village of {U.block_say(t[1])} block?",
-            [[None, t[3]]], level="Village (shared name, with block)", pick=[U.block_core(t[1]), "village"],
+            [[None, t[3]]], level="Village (shared name, with block)", pick=[f"village&{U.block_core(t[1])}", "village", U.block_core(t[1])],
             truth=f"village_code={c}")
 nshared = sum(1 for v in vname.values() if len(v) > 1)
 counts["C03_shared"] = (len(rows_out) - n0, f"{nshared} shared names (alone) + {sum(len(v) for v in vname.values() if len(v) > 1)} "
@@ -511,7 +511,7 @@ zero = grp(f"""SELECT g.village_code, g.lgd_village_name, g.lgd_block, g.lgd_dis
 for code, nm, b, d in zero:
     bq = f" village of {U.block_say(b)} block" if b else " village"
     add("C14_zero_invalid", f"C14-ZERO-{code}", f"How many CM Elevate applicants are there in {nm}{bq}?", [], kind="zero",
-        level="Village with no CM Elevate data", pick=[U.block_core(b or ""), U.norm(d or ""), "village"],
+        level="Village with no CM Elevate data", pick=[f"village&{U.block_core(b or '')}", "village", U.block_core(b or ""), U.norm(d or "")],
         truth=f"village_code={code} ({b} / {d}): 0 rows in v_cm_elevate")
 INVALID = ["Gotham district", "Xyzabad block", "Narnia village", "Springfield constituency", "Atlantis", "Hogwarts block",
            "Wakanda district", "Zorbatown", "Mordor village", "Lilliput constituency", "Shangri-La district", "Neverland block",

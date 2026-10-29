@@ -21,3 +21,28 @@ Offline suites over these areas passed (1,462 tests) in the main folder before t
 
 ## B. Proposed shared-code changes found during the exhaustive run (NOT applied)
 (appended below as found)
+
+### N1 — Ward names broken by the spelling pre-pass (app/spelling.py) — NOT applied (shared code)
+Symptoms (C02): "Ladthalaboh East - Ward No.1" -> "Showing results for East Garo Hills (you typed 'East - Ward')"
+and 622 (true 6); "Kenches Trace - Ward No.23" -> "I couldn't find a place called Kenches" -> a wrong village.
+Root cause: `_normalise` reads a district / block inside a ward name that STARTS EARLIER ("East" + "Ward"), and
+`unresolved_place` takes the first words of an exact ward name as an unknown place. The v1 guard
+(`_exact_village_end`) only covers a village name that starts where the place reading starts.
+Proposed diff:
+```diff
+@@ def _normalise(question: str) -> Normalised:
+-            vend = _exact_village_end(question, toks, i, phit[1][0]) if phit is not None else None
++            vend = None
++            if phit is not None:
++                # an exact village name that starts here OR up to 6 tokens earlier and covers this span
++                for j0 in range(max(0, i - 6), i + 1):
++                    e = _exact_village_end(question, toks, j0, phit[1][0])
++                    if e is not None:
++                        vend = e
++                        break
+@@ def _unresolved_place(question: str) -> "dict | None":
+         name = _span_text(question, toks, i + 1, j)
++        if any(_exact_village_end(question, toks, i + 1, k) for k in range(i + 1, j + 1)):
++            continue                      # the start of an exact village / ward name ("Kenches Trace - Ward No.23")
+```
+Reach: every scheme's spelling pre-pass. Affected CM Elevate tests: the ward villages of C02 (listed in results.csv).

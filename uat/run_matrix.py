@@ -201,7 +201,8 @@ class Driver:
 
 def choose(opts, pick):
     for p in pick:
-        c = next((o for o in opts if p and p in norm(o.get("label", ""))), None)
+        parts = [x for x in p.split("&") if x]          # "village&batabari": every part in the label
+        c = next((o for o in opts if parts and all(x in norm(o.get("label", "")) for x in parts)), None)
         if c:
             return c
     for want in ("cm elevate applications", "cm elevate", "complete list", "all of them"):
