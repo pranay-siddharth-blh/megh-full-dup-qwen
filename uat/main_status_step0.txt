@@ -1,0 +1,34 @@
+# main folder at Step 0 (2026-10-30 02:01 IST)
+fix/cme-uat-2026-10-30
+fc14f7886f7b8479607a27c8cd7bd583e04df753
+ M app/edge.py
+ M app/entity_resolver.py
+ M app/pipeline/common/c03_scheme_terms.py
+ M app/pipeline/common/c09_resolve_entities.py
+ M app/pipeline/common/c10_sql_generation_and_rewrites.py
+ M app/pipeline/common/c11_sql_verify_repair.py
+ M app/pipeline/common/c12_answer_numbers.py
+ M app/pipeline/common/c13_compose_and_data_stages.py
+ M app/pipeline/schemes/cm_elevate.py
+ M app/pipeline/schemes/focus_legacy.py
+ M app/spelling.py
+ M app/sql_ast.py
+ M docs/CURRENT_STATE.md
+ M docs/DECISIONS.md
+ M docs/HANDOFF.md
+ M docs/KNOWN_ISSUES.md
+ M docs/SCHEMES.md
+ M docs/TESTING.md
+ M tests/sheet_runs/fl_run.py
+ M tests/sheet_runs/harness.py
+ M tests/sheet_runs/mg_run.py
+ M tests/test_focus_legacy_routing.py
+?? "reference_documents/Focus Legacy UAT Results - 2026-10-30.xlsx"
+?? reference_documents/uat-cm-elevate/
+?? reference_documents/uat-focus-legacy/
+?? tests/live_cme_uat.py
+?? tests/sheet_runs/fl_hier.py
+?? tests/sheet_runs/fl_uat_report.py
+?? tests/test_focus_legacy_uat_2026_10_30.py
+## diff sha1
+7f9229240851d9fe3e5a2fcbe03abcfd3573e0c6 *-
