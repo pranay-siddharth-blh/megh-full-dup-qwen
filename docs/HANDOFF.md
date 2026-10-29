@@ -3,11 +3,12 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
-**2026-10-29 evening (code, chat UI audit, D-085, KI-571): branch `fix/chat-ui-audit`, committed per phase, not merged.**
-Read `docs/audit_fix_log.md` first: every audit ID with its status, files and test. Next: (1) the user's decisions on
-the 12 "Needs my decision" items (KI-571); (2) a live run with the VPN of the 20 browser questions in the session
-report, and the "Needs live check" items (A-14, G-8 / I-5 / F-11 village overlap, F-9 misspelt place); (3) the 12
-"Not done" items. New shared rule: `app/measure_kinds.json` and `frontend/src/chat/measureKinds.js` must stay equal
+**2026-10-29 evening (code, chat UI audit, D-086 / D-087, KI-571): branch `fix/chat-ui-audit`, committed per phase, not merged.**
+Read `docs/audit_fix_log.md` first: every audit ID with its status, files and test. All 197 are handled; the 12
+product decisions were applied as recommended (D-087 — J-4 / J-5 narrows D-056; easy to revert, see D-087).
+Next: a live run with the VPN of the 20 browser questions in the session report and the "Needs live check" items
+(KI-571). New: `keep_turns` on /api/query (K-6), `total_row_count` on results (E-3), money columns get a unit
+suffix (X-14), fonts bundled (X-11, `@fontsource/*` 5.3.0). New shared rule: `app/measure_kinds.json` and `frontend/src/chat/measureKinds.js` must stay equal
 (a test fails otherwise). `web/app/` rebuilt in the last commit.
 
 **2026-10-29 (code, E11 UI fixes, KI-570, D-084): frontend only, uncommitted; `web/app/` rebuilt.** Files:

@@ -1075,8 +1075,16 @@ def _scheme_comparison_answer(question: str, prev_schemes: "list[str] | None" = 
         "\n\nAsk about a specific one — eligibility, benefits, or the application "
         "process — for more detail."
     )
-    return {"route": "knowledge", "intent": "RAG", "confidence": "high", "sources": [],
-            "answer": answer, **_empty_data_fields()}
+    out = {"route": "knowledge", "intent": "RAG", "confidence": "high", "sources": [],
+           "answer": answer, **_empty_data_fields()}
+    # B-6 (chat UI audit 2026-10-29): "Compare MGNREGA and PMAY-G" (no figure named)
+    # gave text only; the chips ask the two figures every scheme pair can compare
+    pair = " and ".join(targets) if len(targets) == 2 else ", ".join(targets[:-1]) + " and " + targets[-1]
+    chips = [{"label": f"Compare beneficiaries in {pair}", "question": f"Compare beneficiaries in {pair}"},
+             {"label": f"Compare money spent in {pair}", "question": f"Compare money spent in {pair}"}]
+    out.update(follow_up_options=chips, follow_ups=[c["question"] for c in chips],
+               follow_up=chips[0]["question"], keep_follow_ups=True)
+    return out
 
 
 # ── Named a scheme we simply don't hold ─────────────────────────────────────

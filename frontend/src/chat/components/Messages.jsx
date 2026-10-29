@@ -1,13 +1,13 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react';
 import { buildAnalytics, chartPreference, humanCol, withoutChartPhrase } from '../analytics.js';
 import { answerKey, fullStamp } from '../format.js';
 import { rowsAsTsv } from '../exporters.js';
-import { CompareCard, DynTable, GroupedChart, PivotTable, RecordCard, StackedChart, SwitchableChart, TwoDimChart } from './Charts.jsx';
+import { CompareCard, DynTable, GroupedChart, PivotTable, RecordCard, RowTotal, StackedChart, SwitchableChart, TwoDimChart } from './Charts.jsx';
 import { Markdown, plainText } from './Markdown.jsx';
 import { useReveal } from '../reveal.js';
-import { themeFor } from '../chartTheme.js';
+import { isMonthLabel, isQuarterLabel, themeFor } from '../chartTheme.js';
 import { sendFeedbackApi } from '../api.js';
-import { inlineSpans } from '../text.js';
+import { inlineSpans, isPeriodLabel } from '../text.js';
 import { enterSends } from '../shortcuts.js';
 
 /* One chat message. A bot answer (`response` from /api/query) renders the same
@@ -147,7 +147,7 @@ function Analytics({ question, response, view, onAsk }) {
         <div className={'dyn-grid' + (a.datasets.length === 1 ? ' single' : '')}>
           {a.datasets.map((d) => (
             <SwitchableChart key={d.label} title={d.label} labels={a.labels} fullLabels={a.fullLabels} values={d.values}
-                             types={typesOr(['bar', 'pie', 'doughnut', 'line'])} initial={only || 'bar'} theme={theme} />
+                             types={typesOr(['bar', 'pie', 'doughnut', ...(periodAxis(a.labels) ? ['line'] : [])])} initial={only || 'bar'} theme={theme} />
           ))}
         </div>
       </div>
@@ -210,7 +210,7 @@ function Analytics({ question, response, view, onAsk }) {
       <div className={'dyn-grid' + (single ? ' single' : '')}>
         {a.charts.map((c, i) => (
           <SwitchableChart key={i} title={c.title} labels={c.labels} fullLabels={c.fullLabels.map((_, j) => tip(c, j))} values={c.values}
-                           types={typesOr(a.types || ['bar', 'pie', 'doughnut', 'line'])} initial={only || a.defType} theme={theme}
+                           types={typesOr(a.types || ['bar', 'pie', 'doughnut', ...(periodAxis(c.labels) ? ['line'] : [])])} initial={only || a.defType} theme={theme}
                            axes={c.axes} />
         ))}
       </div>
@@ -318,6 +318,10 @@ function fallbackCopy(text, done) {
 }
 
 // Copy `text` to the clipboard; `done` runs once it is there.
+// X-4 (audit 2026-10-29): Line is offered only when the x-axis is a period
+const periodAxis = (labels) => Array.isArray(labels) && labels.length > 0
+  && labels.every((l) => isPeriodLabel(l) || isMonthLabel(l) || isQuarterLabel(l));
+
 export function copyText(text, done) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
@@ -774,8 +778,11 @@ function UserMessage({ text, time, onEdit, busy, editRequest = 0 }) {
   );
 }
 
-export function TextMessage({ id, role, text, time, at, onEdit, busy, speakingId, onSpeak, onRetry, editRequest }) {
-  if (role === 'user') return <UserMessage text={text} time={time} onEdit={onEdit} busy={busy} editRequest={editRequest} />;
+// X-10 (audit 2026-10-29): every streamed word re-rendered every message and its
+// charts; a message now re-renders only when its own props change. onEdit takes
+// (id, text), so the parent can pass one stable function to every message.
+export const TextMessage = memo(function TextMessage({ id, role, text, time, at, onEdit, busy, speakingId, onSpeak, onRetry, editRequest }) {
+  if (role === 'user') return <UserMessage text={text} time={time} onEdit={onEdit && ((q) => onEdit(id, q))} busy={busy} editRequest={editRequest} />;
   return (
     <div className="msg bot">
       <div className="av">M</div>
@@ -793,7 +800,7 @@ export function TextMessage({ id, role, text, time, at, onEdit, busy, speakingId
       </div>
     </div>
   );
-}
+});
 
 // ── An answer in flight ─────────────────────────────────────────────────────
 // What the officer sees while waiting: the steps the pipeline has reached (from
@@ -907,13 +914,10 @@ function RegenerateAction({ onRegenerate, label = 'Regenerate answer' }) {
   );
 }
 
-export function BotMessage({ id, question, response, time, at, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey, sessionId, view }) {
+export const BotMessage = memo(function BotMessage({ id, question, response, time, at, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey, sessionId, view }) {
   // A fresh answer is revealed word by word (reveal.js); the charts, SQL and
   // chips follow once the text is all there. A replayed one shows at once.
   const [shown, revealed] = useReveal(response.answer, streamKey, !!animate);
-  // A cross-scheme comparison (app/cross_scheme.py) writes its per-scheme table
-  // into the answer text; its rows are charted one measure per chart
-  // (analytics.js crossSummaryCharts), never pivoted into a second table.
   const wantsAnalytics = response.intent !== 'EDGE'
     && Array.isArray(response.data) && response.data.length >= 1;
   // A CLARIFY pause fetched nothing, so a "0 results" meta line would mislead.
@@ -941,7 +945,9 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
               {wantsAnalytics && (
                 // "give me a wide frame": the backend sets chart_wide, the charts are drawn taller
                 <div className={response.chart_wide ? 'chart-wide' : undefined}>
-                  <Analytics question={question} response={response} view={view} onAsk={onAsk} />
+                  <RowTotal.Provider value={response.total_row_count ?? null}>
+                    <Analytics question={question} response={response} view={view} onAsk={onAsk} />
+                  </RowTotal.Provider>
                 </div>
               )}
               <AnswerState response={response} question={question} onAsk={onAsk} />
@@ -974,4 +980,4 @@ export function BotMessage({ id, question, response, time, at, onAsk, speakingId
       </div>
     </div>
   );
-}
+});

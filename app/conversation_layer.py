@@ -533,6 +533,20 @@ def _cl_year_phrase(q: str, scheme: str) -> str:
     return " in " + ", ".join(fy(y) for y in ys[:-1]) + f" and {fy(ys[-1])}"
 
 
+def _cl_cross_by_year(q: str, schemes: list) -> bool:
+    """A-16: the four coded schemes' beneficiaries / money / villages each year are
+    one fixed query per scheme (cross_figures op by_year), not a merge of model
+    answers."""
+    from app import cross_figures, pipeline
+    try:
+        p = cross_figures.plan(q, schemes, {}, {}, pipeline._SCHEME_NAME_MATCHER)
+    except Exception:  # noqa: BLE001 — the per-year split still answers it
+        return False
+    named_measure = (cross_figures._MONEY.search(q) or cross_figures._COUNT.search(q)
+                     or cross_figures._VILLAGES.search(q))
+    return p is not None and p.op == "by_year" and bool(named_measure)
+
+
 def per_year_parts(session, question: str) -> "dict | None":
     """{"questions": the per-scheme, per-year questions a follow-up asks for,
     "notes": what the answer must say (a scheme that holds none of the measures),
@@ -579,6 +593,8 @@ def per_year_parts(session, question: str) -> "dict | None":
         # I-2: the officer's own question, one scheme at a time, keeps its place,
         # its top / bottom N, its level and its years
         return {"questions": [_cl_one_scheme_question(q, s, spans) for s in schemes], "notes": [], "ask": None}
+    if measures and len(named) >= 2 and set(schemes) <= set(named)             and not any(_cl_year_phrase(q, s) for s in schemes) and _cl_cross_by_year(q, schemes):
+        return None   # A-16: the pipeline's cross-scheme figures answer it, one query per scheme
     if not measures:
         # A-9: no measure named here or in the last answer — ask which one,
         # never default to beneficiaries

@@ -1078,7 +1078,7 @@ Three parts, all in `compose_response` and the c12 files:
    templates on, `_shaped_fallback` returns the templated answer under code's opening line. Log line:
    `compose_response: templated <kind> answer`.
 
-### 2.9e Chat UI audit changes (2026-10-29, D-085, KI-571; offline-verified)
+### 2.9e Chat UI audit changes (2026-10-29, D-086 / D-087, KI-571; offline-verified)
 - **Cross-scheme reading (`app/cross_figures.py`):** `rank_ask` reads a place level (singular, plural or one letter
   off) beside any rank word (top / bottom / highest / lowest / best / worst / least / poorest / weakest, Hinglish
   "sabse jyada / kam"), "which district", "rank districts by", "districts ranked by". A district level + a rank word is

@@ -1,4 +1,6 @@
+  /* X-16 (audit 2026-10-29, decided): the app is light-only; browsers in dark mode keep these colours */
   :root {
+    color-scheme: light;
     --p-50:#FBF7FF; --p-100:#F4EBFC; --p-200:#E5D2F6; --p-300:#CFA8EE;
     --p-400:#B27FE0; --p-500:#9558CF; --p-600:#7C3FBF; --p-700:#5C2D91;
     --p-800:#3E1F66; --p-900:#241038;

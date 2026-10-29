@@ -479,8 +479,12 @@ def plan(text: str, schemes: list, resolved: dict, display: "dict | None",
                  list_villages=bool(_LIST_VILLAGES.search(text)))
         _labels(p, display)
         return p
-    timed = bool(r.get("year_key_list"))
-    if _YEARLY.search(text) or (drank and timed):
+    # A-16 (chat UI audit 2026-10-29): "each year / year wise / annually" over the
+    # coded measures is one fixed query per scheme grouped by year (every year held),
+    # like a stated span; a place level or ranking per year stays a list per scheme
+    yearly = bool(_YEARLY.search(text)) and not _MONTHLY.search(text)
+    timed = bool(r.get("year_key_list")) or yearly
+    if drank and timed:
         return None                      # a district ranking per year: a list per scheme and year
     if not drank and _OTHER_PLACES.search(text):
         return None
@@ -743,6 +747,31 @@ def fmt(s: str, f: dict, measure: str) -> str:
 
 # ── computing and writing the answer ──────────────────────────────────────────
 
+_CME_DISTRICTS = ("SELECT lgd_district AS district, COUNT(DISTINCT request_id) AS applications "
+                  "FROM curated.v_cm_elevate WHERE lgd_district IS NOT NULL GROUP BY lgd_district")
+
+
+async def _cm_elevate_ranking(p: Plan) -> "tuple[str | None, str]":
+    """CM Elevate's own district ranking by applications (I-13), as one line."""
+    try:
+        rows = await db.fetch_rows(_CME_DISTRICTS, [])
+    except Exception as e:  # noqa: BLE001 — the coded schemes' answer still stands
+        logger.info("CM Elevate district list failed (non-fatal): %s", e)
+        return None, _CME_DISTRICTS
+    gone = {d.upper() for d in (p.exclude or [])}
+    rows = [r for r in rows if "applications" in r and r.get("district")
+            and str(r["district"]).upper() not in gone]
+    if not rows:
+        return None, _CME_DISTRICTS
+    rows.sort(key=lambda r: int(r.get("applications") or 0), reverse=not (p.low and not p.both))
+    n = min(p.top_n or 5, len(rows))
+    listed = "; ".join(f"{i + 1}. {str(r['district']).title()} {int(r['applications']):,}"
+                       for i, r in enumerate(rows[:n]))
+    word = "lowest" if p.low and not p.both else "highest"
+    return (f"CM Elevate, its own list ({word} {n} districts by applications; it records applications, "
+            f"not beneficiaries or money): {listed}."), _CME_DISTRICTS
+
+
 async def answer(p: Plan) -> dict:
     """{'answer', 'rows', 'sql'} for a plan."""
     if p.op == "overlap":
@@ -789,8 +818,17 @@ async def answer(p: Plan) -> dict:
         lines += _state_lines(p, {s: figs[s].get(STATE, {}) for s in have}, have)
     if gaps:
         lines.append(" ".join(f"{g}." for g in gaps.values()))
-    if p.left_out:
-        lines.append(f"{' and '.join(p.left_out)} {'is' if len(p.left_out) == 1 else 'are'} not in this ranking: "
+    left_out = list(p.left_out)
+    if "CM Elevate" in left_out and p.op == "rank_districts":
+        # I-13 (chat UI audit 2026-10-29): CM Elevate counts applications, so it is
+        # never ranked with the others; its own district list is given beside them
+        cme, cme_sql = await _cm_elevate_ranking(p)
+        if cme:
+            lines.append(cme)
+            shown = shown + [cme_sql]
+            left_out.remove("CM Elevate")
+    if left_out:
+        lines.append(f"{' and '.join(left_out)} {'is' if len(left_out) == 1 else 'are'} not in this ranking: "
                      "they record applications and sanctions, not these figures; ask for their district "
                      "list on its own.")
     lines += [f"{n}." for n in p.notes]
@@ -814,7 +852,9 @@ async def answer(p: Plan) -> dict:
 # the answer (the rows keep their shape, user report 2026-10-27).
 _COUNT_NOTE = {"MGNREGA": "household-years: households given work, counted once per year worked",
                "PMAY-G": "houses sanctioned", "Focus Plus": "distinct beneficiaries",
-               "Focus Legacy": "producer-group members"}
+               # G-10 (chat UI audit 2026-10-29, user decision: keep the D-066 figure,
+               # say what it is): a group paid more than once counts once per payment
+               "Focus Legacy": "producer-group members, counted once per payment (a group paid twice counts twice)"}
 _MONEY_NOTE = {"MGNREGA": "money spent", "PMAY-G": "money released", "Focus Plus": "money disbursed",
                "Focus Legacy": "money disbursed"}
 

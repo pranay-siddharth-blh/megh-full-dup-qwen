@@ -86,7 +86,7 @@ test('G-1 / G-2 / B-2: villages by scheme are bars, never a donut with "Total 13
   const d = buildAnalytics('Compare MGNREGA and PMAY-G villages in a donut chart', VILLAGES_BY_SCHEME, null, 'doughnut');
   assert.equal(d.defType, 'bar');
   assert.equal(d.refused, 'doughnut');
-  assert.match(d.note, /schemes count and spend different things/);
+  assert.ok(String(d.note).includes("schemes count and spend different things"), d.note);
 });
 
 test('B-12: money across schemes is bars, never "% of the total"', () => {
@@ -101,7 +101,7 @@ test('G-13 / G-5: villages by year are never a donut (the same villages repeat e
   const rows = [{ financial_year: '2023-24', villages: 4000 }, { financial_year: '2024-25', villages: 4100 }];
   const a = buildAnalytics('Villages with MGNREGA work each year as a donut', [...rows, { financial_year: '2025-26', villages: 3900 }], null, 'doughnut');
   assert.equal(a.refused, 'doughnut');
-  assert.match(a.note, /counted again in each year or scheme/);
+  assert.ok(String(a.note).includes("counted again in each year or scheme"), a.note);
 });
 
 test('a flow by district may still be a donut (each rupee is spent in one district)', () => {
@@ -184,7 +184,7 @@ test('C-2: a label with one value goes in the title, not a one-item legend', () 
   const rows = ['2022-23', '2023-24', '2024-25'].map((fy, i) => ({ district: 'East Khasi Hills', financial_year: fy, person_days: 50 + i }));
   const a = buildAnalytics('Person days in East Khasi Hills, 2022-23 to 2024-25', rows, 'stacked');
   assert.equal(a.kind, 'multi');
-  assert.match(a.charts[0].title, /in East Khasi Hills$/);
+  assert.ok(String(a.charts[0].title).endsWith("in East Khasi Hills"), a.charts[0].title);
   assert.deepEqual(a.charts[0].labels, ['2022-23', '2023-24', '2024-25']);
 });
 
@@ -212,7 +212,7 @@ test('J-6: top villages in one block are a ranked list, the block in the title',
   const a = buildAnalytics('Top 3 villages in Umling block by person days', rows, null);
   assert.equal(a.kind, 'multi');
   assert.equal(a.defType, 'bar');
-  assert.match(a.charts[0].title, /in UMLING$/);
+  assert.ok(String(a.charts[0].title).endsWith("in UMLING"), a.charts[0].title);
 });
 
 test('E-7: villages with the same name are told apart by their block', () => {
@@ -325,7 +325,7 @@ test('D-5 / D-12: for pending works the lower side leads and the highest is a wa
 test('B-15: "difference" leads with the gap', () => {
   const rows = [{ district: 'East Khasi Hills', houses: 1494437 }, { district: 'Ri Bhoi', houses: 171107 }];
   const a = buildAnalytics('Difference between East Khasi Hills and Ri Bhoi houses', rows, null);
-  assert.match(verdictText(a.verdict), /^The difference is 13,23,330 houses: East Khasi Hills has more/);
+  assert.ok(String(verdictText(a.verdict)).startsWith("The difference is 13,23,330 houses: East Khasi Hills has more"), verdictText(a.verdict));
 });
 
 test('D-10 / D-11: tiles carry the unit; a missing side gives no verdict', () => {
@@ -346,7 +346,7 @@ test('C-8: a month number is a label, not a measure', () => {
   const rows = [4, 5, 6].map((m, i) => ({ month: m, month_name: ['Apr', 'May', 'Jun'][i], person_days: 100 + i }));
   const a = buildAnalytics('MGNREGA person days by month in 2024-25', rows, null);
   assert.equal(a.charts.length, 1);
-  assert.match(a.charts[0].title, /^Person days by/);
+  assert.ok(String(a.charts[0].title).startsWith("Person days by"), a.charts[0].title);
 });
 
 test('C-9: quarters are time in order, never a donut', () => {
@@ -412,17 +412,17 @@ test('K-5: years and codes are text in Excel; quantities use Indian grouping', (
   const sh = tableSheet('Q1 table', [{ year_key: 2023, lgd_code: 263456, sanction_no: '1234567890123456789', person_days: 120000 }], '');
   assert.deepEqual(sh.textCols, [0, 1]);
   const xml = sheetXml(sh.header, sh.rows, sh.textCols, sh.title);
-  assert.match(xml, /<t xml:space="preserve">2023<\/t>/);                  // text, never "2,023"
-  assert.match(xml, /<t xml:space="preserve">263456<\/t>/);
-  assert.match(xml, /<t xml:space="preserve">1234567890123456789<\/t>/);   // all 19 digits kept
-  assert.match(xml, /<c r="D2" s="2"><v>120000<\/v><\/c>/);                // a number, Indian-grouped style
+  assert.ok(String(xml).includes("<t xml:space=\"preserve\">2023</t>"), xml);                  // text, never "2,023"
+  assert.ok(String(xml).includes("<t xml:space=\"preserve\">263456</t>"), xml);
+  assert.ok(String(xml).includes("<t xml:space=\"preserve\">1234567890123456789</t>"), xml);   // all 19 digits kept
+  assert.ok(String(xml).includes("<c r=\"D2\" s=\"2\"><v>120000</v></c>"), xml);                // a number, Indian-grouped style
 });
 
 test('H-4 / H-10: screen headings and the scope on top of each table sheet', () => {
   const sh = tableSheet('Q2 table', [{ lgd_village_name: 'A', total_exp_lakh: 5 }], 'MGNREGA · East Khasi Hills · FY 2023-24');
   assert.deepEqual(sh.header, ['Village name', 'Total expenditure (₹ lakh)']);
   assert.equal(sh.title, 'Answered for: MGNREGA · East Khasi Hills · FY 2023-24');
-  assert.match(sheetXml(sh.header, sh.rows, sh.textCols, sh.title), /<row r="1"><c r="A1" t="inlineStr" s="5">/);
+  assert.ok(String(sheetXml(sh.header, sh.rows, sh.textCols, sh.title)).includes("<row r=\"1\"><c r=\"A1\" t=\"inlineStr\" s=\"5\">"), sheetXml(sh.header, sh.rows, sh.textCols, sh.title));
 });
 
 test('H-12: a table in the answer text becomes lines in the Answer cell', () => {
@@ -440,17 +440,17 @@ test('E-5: places with no figure are left out of a ranking, and the note says ho
     { village: 'C', women_person_days: 900 }, { village: 'D', women_person_days: 800 }];
   const a = buildAnalytics('Top 4 villages by women person days in 2025-26', rows, null);
   assert.deepEqual(a.charts[0].labels, ['C', 'D']);
-  assert.match(a.note, /^2 of 4 have no figure/);
+  assert.ok(String(a.note).startsWith("2 of 4 have no figure"), a.note);
   const none = buildAnalytics('Top 2 villages by women person days', rows.slice(0, 2), null);
   assert.equal(none.kind, 'table');
-  assert.match(none.note, /nothing to rank/);
+  assert.ok(String(none.note).includes("nothing to rank"), none.note);
 });
 
 test('E-6: a ranking charts its ranking measure only', () => {
   const rows = ['A', 'B', 'C'].map((b, i) => ({ block: b, person_days: 900 - i * 100, households: 50 + i * 30, expenditure_lakh: 5 + i }));
   const a = buildAnalytics('Top 3 blocks by MGNREGA person days, with households and expenditure', rows, null);
   assert.equal(a.charts.length, 1);
-  assert.match(a.charts[0].title, /^Person days by block/);
+  assert.ok(String(a.charts[0].title).startsWith("Person days by block"), a.charts[0].title);
 });
 
 test('X-2: 300 villages draw the top 15 with a note', () => {
@@ -529,4 +529,62 @@ test('K-23: more ways to say stop', () => {
 
 test('K-21: the copied answer carries its table, tab-separated', () => {
   assert.equal(rowsAsTsv([{ lgd_district: 'Ri Bhoi', person_days: 5 }]), 'District\tPerson days\nRi Bhoi\t5');
+});
+
+// ── Remaining items (user decisions and "not done" list, 2026-10-29 evening) ─
+import { figureSpans, speechChunks, speechText } from '../src/chat/text.js';
+import { screenRows } from '../src/chat/exportShape.js';
+
+test('X-4: Line is offered only when the x-axis is a period', () => {
+  const byDistrict = [{ district: 'A', person_days: 5 }, { district: 'B', person_days: 3 }, { district: 'C', person_days: 4 }];
+  const a = buildAnalytics('person days by district', byDistrict, null);
+  assert.ok(!a.types.includes('line'));
+  assert.notEqual(buildAnalytics('person days by district', byDistrict, 'line').defType, 'line');
+  const byYear = [{ financial_year: '2022-23', person_days: 5 }, { financial_year: '2023-24', person_days: 3 },
+    { financial_year: '2024-25', person_days: 4 }];
+  assert.ok(buildAnalytics('person days by year', byYear, null).types.includes('line'));
+});
+
+test('K-35: a figure before a full stop or a comma is bolded too', () => {
+  const t = 'Total was 1,234. Then 5,678, and 90 more';
+  const got = figureSpans(t).map((f) => t.slice(f.start, f.end));
+  assert.deepEqual(got, ['1,234', '5,678', '90']);
+  assert.deepEqual(figureSpans('code 12.5a or 3.4.5').map((f) => f.start), []);   // glued to more text
+});
+
+test('K-34: read aloud skips table pipes and rules, and speaks in pieces', () => {
+  const text = 'Top districts:\n| District | Houses |\n|---|---|\n| Ri Bhoi | 120 |';
+  assert.equal(speechText(text), 'Top districts:\nDistrict, Houses.\nRi Bhoi, 120.');
+  const long = Array.from({ length: 30 }, (_, i) => `Sentence number ${i} is here.`).join(' ');
+  const parts = speechChunks(long, 120);
+  assert.ok(parts.length > 1 && parts.every((x) => x.length <= 120 && x.endsWith('.')));
+  assert.equal(parts.join(' '), long);
+});
+
+test('A-13: years a scheme does not hold are named as gaps', () => {
+  const rows = [
+    { scheme: 'MGNREGA', financial_year: '2022-23', beneficiaries: 10 }, { scheme: 'MGNREGA', financial_year: '2023-24', beneficiaries: 11 },
+    { scheme: 'MGNREGA', financial_year: '2024-25', beneficiaries: 12 },
+    { scheme: 'PMAY-G', financial_year: '2022-23', beneficiaries: 5 }, { scheme: 'PMAY-G', financial_year: '2023-24', beneficiaries: 6 }];
+  const a = buildAnalytics('Compare MGNREGA and PMAY-G beneficiaries each year', rows, null);
+  assert.equal(a.kind, 'twoDim');
+  assert.ok(String(a.note).includes("PMAY-G (2024-25)"), a.note);
+});
+
+test('H-9: the Excel table sheet has the shape on screen', () => {
+  const rows = ['2022-23', '2023-24'].flatMap((fy) => ['MGNREGA', 'PMAY-G'].map((s, i) => ({ scheme: s, financial_year: fy, money_crore: 100 + i })));
+  const grid = screenRows('MGNREGA and PMAY-G money each year', rows, null);
+  assert.deepEqual(grid, [{ financial_year: '2022-23', MGNREGA: 100, 'PMAY-G': 101 }, { financial_year: '2023-24', MGNREGA: 100, 'PMAY-G': 101 }]);
+  const two = [{ district: 'East Khasi Hills', houses: 120 }, { district: 'Ri Bhoi', houses: 100 }];
+  assert.deepEqual(screenRows('Compare East Khasi Hills and Ri Bhoi houses', two, null).map((r) => r.houses), [120, 100, 20]);
+  const trend = [{ financial_year: '2022-23', person_days: 100 }, { financial_year: '2023-24', person_days: 110 },
+    { financial_year: '2024-25', person_days: 120 }];
+  assert.ok('Change from previous' in screenRows('How have person days changed', trend, null)[1]);
+});
+
+test('B-5: two schemes in the old summary shape are a side-by-side card, never ranked', () => {
+  const rows = [{ scheme: 'MGNREGA', count: 10, count_measure: 'households' }, { scheme: 'PMAY-G', count: 20, count_measure: 'houses' }];
+  const a = buildAnalytics('q', rows, null);
+  assert.equal(a.kind, 'compare');
+  assert.equal(a.verdict.unlike, true);
 });

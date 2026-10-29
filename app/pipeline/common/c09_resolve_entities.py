@@ -6,6 +6,12 @@
 # file and the shared ones imported in c07_mentions.
 
 
+# J-10 (chat UI audit 2026-10-29): a village name shared by up to this many villages
+# (in different blocks) is answered for each of them instead of asking which.
+_TWINS_ANSWERED = True
+_TWINS_MAX = 3
+
+
 # Nouns that name an organisation or a record, never a place: a "district"
 # mention holding one is the subject of the question, not where it happened.
 _C09_NON_PLACE_NOUNS = frozenset((
@@ -1414,6 +1420,18 @@ async def resolve_entities(question: str, schemes: list[str],
             if len(_vhits) == 1:
                 resolved["village_code"] = _vhits[0]["village_code"]
                 display["village"] = _place_title(_vhits[0]["name"])
+            elif _TWINS_ANSWERED and 2 <= len(_vhits) <= _TWINS_MAX \
+                    and len({str(c.get("block") or "").upper() for c in _vhits}) == len(_vhits):
+                # J-10 (chat UI audit 2026-10-29, KI-126, user decision): a name shared
+                # by a few villages cost two taps ("which village?", then "which
+                # year?"). Each village is answered on its own row, named with its
+                # block (prompt_builder: GROUP BY village_code, SELECT the block);
+                # the officer can then ask about one of them.
+                resolved["village_code_list"] = [c["village_code"] for c in _vhits]
+                resolved["village_twins"] = {
+                    str(c["village_code"]): f"{_place_title(c['name'])} ({str(c['block']).title()} block)"
+                    for c in _vhits}
+                display["village"] = ", ".join(resolved["village_twins"].values())
             else:
                 # Several real villages share this name — ask, never guess.
                 listed = ", ".join(

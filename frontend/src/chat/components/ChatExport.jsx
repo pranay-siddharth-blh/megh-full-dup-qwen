@@ -3,7 +3,7 @@ import { plainText } from './Markdown.jsx';
 import { downloadBlob, fileName, tableSheet, tablesAsLines, toXLSXBook } from '../exporters.js';
 import { keyLabel } from '../shortcuts.js';
 import { tableColumns } from '../analytics.js';
-import { unifyPeriods, withoutTwins } from '../columns.js';
+import { screenRows } from '../exportShape.js';
 
 /* "Download chat": the whole conversation in one file, from the top bar.
 
@@ -14,7 +14,8 @@ import { unifyPeriods, withoutTwins } from '../columns.js';
            device without a PDF library.
    Excel — one workbook: a "Conversation" sheet (each question with its
            answer as plain text) and one sheet per answer that has a table
-           ("Q2 table", ...), its rows exactly as returned. */
+           ("Q2 table", ...) in the shape shown on screen, plus "Q2 data" with
+           the rows exactly as returned when that shape differs (H-9). */
 
 const textOf = (m) => {
   if (m.kind === 'rich') return tablesAsLines(plainText((m.response && (m.response.answer || m.response.question)) || ''));
@@ -41,9 +42,12 @@ function workbook(messages) {
     const sheet = data.length ? (redraw ? m.redrawOf : `Q${asked.n} table`) : '';
     convo.push([asked.n, asked.time, asked.text, textOf(m), scope, data.length || '', sheet]);
     if (data.length && !redraw) {
-      const screen = withoutTwins(unifyPeriods(data));
+      // H-9: the table as on screen (a grid, a two-way card, the change column)
+      const screen = screenRows(m.question || asked.text, data, m.response && m.response.chart_type);
       tables.push(tableSheet(sheet, screen, scope));
-      if (tableColumns(screen).length !== tableColumns(data).length) {
+      const cols = tableColumns(screen);
+      const raw = tableColumns(data);
+      if (screen.length !== data.length || cols.length !== raw.length || cols.some((c, i) => c !== raw[i])) {
         tables.push(tableSheet(`Q${asked.n} data`, data, scope));      // the rows exactly as returned
       }
     }

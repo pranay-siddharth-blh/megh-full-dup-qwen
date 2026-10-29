@@ -478,13 +478,20 @@ def _data_result(resolved, schemes=("MGNREGA",)):
     return {"route": "data", "schemes": list(schemes), "sql": "SELECT 1", "resolved_entities": resolved}
 
 
+# H-5 / H-6 / H-8 (chat UI audit 2026-10-29, decided by the user): the place's type,
+# "All years (FY … to …)" when no year was used, and a run of 3+ years as a span
 @pytest.mark.parametrize("resolved, schemes, banner", [
-    ({"district": EKH, "year_key": 2022}, ["MGNREGA"], "MGNREGA · East Khasi Hills · FY 2022-23"),
-    ({}, ["PMAY-G"], "PMAY-G · All of Meghalaya"),
-    ({"district": EKH, "block": "MAWPHLANG", "year_key": 2023}, ["MGNREGA"], "MGNREGA · Mawphlang · FY 2023-24"),
-    ({"assembly_constituency": "MAWLAI"}, ["Focus Plus"], "Focus Plus · Mawlai constituency"),
+    ({"district": EKH, "year_key": 2022}, ["MGNREGA"], "MGNREGA · East Khasi Hills district · FY 2022-23"),
+    ({}, ["PMAY-G"], "PMAY-G · All of Meghalaya · All years (FY 2017-18 to 2023-24)"),
+    ({"district": EKH, "block": "MAWPHLANG", "year_key": 2023}, ["MGNREGA"], "MGNREGA · Mawphlang block · FY 2023-24"),
+    ({"assembly_constituency": "MAWLAI"}, ["Focus Plus"], "Focus Plus · Mawlai constituency · All years (FY 2022-23 to 2025-26)"),
     ({"district_list": [EKH, RIB], "year_key_list": [2022, 2023]}, ["MGNREGA", "PMAY-G"],
-     "MGNREGA + PMAY-G · East Khasi Hills, Ri Bhoi · FY 2022-23, FY 2023-24"),
+     "MGNREGA + PMAY-G · East Khasi Hills, Ri Bhoi districts · FY 2022-23, FY 2023-24"),
+    ({"year_key_list": [2017, 2018, 2019, 2020, 2021, 2022, 2023]}, ["PMAY-G"],
+     "PMAY-G · All of Meghalaya · FY 2017-18 to 2023-24"),
+    ({"village": "UMLING"}, ["MGNREGA"], "MGNREGA · Umling village · All years (FY 2022-23 to 2025-26)"),
+    ({}, ["MGNREGA", "PMAY-G"], "MGNREGA + PMAY-G · All of Meghalaya · All years"),
+    ({}, ["CM Elevate"], "CM Elevate · All of Meghalaya"),
 ])
 def test_the_banner_names_the_scope_the_sql_ran_with(resolved, schemes, banner):
     r = _data_result(resolved, schemes)

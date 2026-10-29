@@ -475,6 +475,70 @@ def nulls_last_on_desc(sql: str) -> str:
     return transform(sql, fn)
 
 
+def low_end_queries(sql: str, measure: str) -> "tuple[str, str] | None":
+    """I-10 / J-7 (chat UI audit 2026-10-29): "lowest 5 villages" over hundreds of
+    villages tied at 0 picked 5 of them at random. For a ranking query ending in
+    LIMIT n: (how many rows have no `measure`, the n lowest rows that have one),
+    both over the query without its ORDER BY / LIMIT. None when it has no LIMIT."""
+    tree = parse_one(sql)
+    if not isinstance(tree, exp.Select) or tree.args.get("limit") is None:
+        return None
+    lim = tree.args["limit"].args.get("expression")
+    if not isinstance(lim, exp.Literal) or not lim.is_int:
+        return None
+    n = int(lim.this)
+    inner = tree.copy()
+    inner.set("limit", None)
+    inner.set("order", None)
+    body = inner.sql(dialect=DIALECT)
+    col = exp.to_identifier(measure, quoted=True).sql(dialect=DIALECT)
+    zero = f"SELECT COUNT(*) AS zero_places FROM ({body}) AS ranked_q WHERE COALESCE({col}, 0) = 0"
+    lowest = f"SELECT * FROM ({body}) AS ranked_q WHERE {col} > 0 ORDER BY {col} ASC LIMIT {n}"
+    return zero, lowest
+
+
+def select_divisors(sql: str) -> dict:
+    """X-14 (chat UI audit 2026-10-29): {output column: the number it is divided by}
+    for the outer SELECT's columns written as `<expr> / <number>` (1e5 for lakh, 1e7
+    for crore). Rounding around the division is looked through."""
+    tree = parse_one(sql)
+    out: dict = {}
+    if not isinstance(tree, exp.Select):
+        return out
+    for e in tree.expressions:
+        name = e.alias_or_name
+        for div in e.find_all(exp.Div):
+            right = div.expression
+            if isinstance(right, exp.Paren):
+                right = right.this
+            if isinstance(right, exp.Literal) and not right.is_string:
+                try:
+                    out[name] = float(right.this)
+                except ValueError:
+                    pass
+                break
+    return out
+
+
+def tie_count_query(sql: str, measure: str, value) -> "tuple[int, str] | None":
+    """E-9 (chat UI audit 2026-10-29): a "top N" cut at LIMIT N dropped one of the
+    places tied for the Nth place at random. (N, how many rows of the query without
+    its ORDER BY / LIMIT have `measure` = `value`). None when there is no LIMIT N."""
+    tree = parse_one(sql)
+    if not isinstance(tree, exp.Select) or tree.args.get("limit") is None:
+        return None
+    lim = tree.args["limit"].args.get("expression")
+    if not isinstance(lim, exp.Literal) or not lim.is_int:
+        return None
+    inner = tree.copy()
+    inner.set("limit", None)
+    inner.set("order", None)
+    col = exp.to_identifier(measure, quoted=True).sql(dialect=DIALECT)
+    lit = exp.Literal.number(value).sql(dialect=DIALECT)
+    return int(lim.this), (f"SELECT COUNT(*) AS tied FROM ({inner.sql(dialect=DIALECT)}) AS ranked_q "
+                           f"WHERE {col} = {lit}")
+
+
 # ── text around a query ─────────────────────────────────────────────────────
 
 def statement_text(sql: str) -> str:

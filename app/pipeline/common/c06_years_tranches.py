@@ -432,8 +432,20 @@ def _needs_year_clarification(question: str, schemes: list[str], resolved: dict)
 def _year_clarification(question: str, schemes: list[str]) -> "ClarificationNeeded":
     stem = question.strip().rstrip(" ?.")
     years, live = _available_years_for(schemes)
+    # F-7 (chat UI audit 2026-10-29): two schemes' chips listed every year either
+    # holds, so most led to a one-scheme answer with a gap note. The years every
+    # scheme holds come first; the others say which scheme holds them.
+    held = {s: set(_SCHEME_DATA_YEARS.get(s) or []) for s in live}
+    timed = [s for s in live if held[s]]
+    shared = [y for y in years if all(y in held[s] for s in timed)]
+    if len(timed) >= 2:
+        years = shared + [y for y in years if y not in shared]
+    def _label(y):
+        if len(timed) < 2 or y in shared:
+            return f"FY {y}"
+        return f"FY {y} ({', '.join(s for s in timed if y in held[s])} only)"
     options = [
-        {"label": f"FY {y}", "question": f"{stem} for FY {y}"}
+        {"label": _label(y), "question": f"{stem} for FY {y}"}
         for y in years
     ]
     options.append({
@@ -446,9 +458,14 @@ def _year_clarification(question: str, schemes: list[str]) -> "ClarificationNeed
         scope_word = " and ".join(live)
     else:
         scope_word = ", ".join(live[:-1]) + " and " + live[-1]
-    year_list = ", ".join(f"FY {y}" for y in years[:-1]) + f" and FY {years[-1]}"
+    in_order = sorted(years, key=_fy_start)
+    year_list = ", ".join(f"FY {y}" for y in in_order[:-1]) + f" and FY {in_order[-1]}"
+    both = ""
+    if len(timed) >= 2:
+        both = (f" {'Both' if len(timed) == 2 else 'All of them'} hold {', '.join(f'FY {y}' for y in shared)}." if shared
+                else " No year is held by all of them.")
     return ClarificationNeeded(
-        f"{scope_word} data is available for {year_list}. "
+        f"{scope_word} data is available for {year_list}.{both} "
         "Which of these is required — a single financial year, or all of them "
         "combined?",
         options=options,
@@ -1257,6 +1274,27 @@ def _year_out_of_range_clarification(question: str, raw_year: str,
         coverage = ("Data is available only for the following financial years: "
                     f"{per_scheme}.")
 
+    # F-8 (chat UI audit 2026-10-29): with a valid year beside the bad one ("compare
+    # … 2027-28 and 2024-25"), cutting the bad year left "… person days and 2024-25
+    # … for FY 2022-23". The chips put each held year IN PLACE of the bad one, so
+    # the comparison stays whole, latest year first; a future year says "not yet".
+    others, _bad = _years_in_question(question, schemes)
+    bad_key = _parse_year_key(raw_year)
+    future = bad_key is not None and bad_key > max(_fy_start(y) for y in years)
+    gone = f"FY {_fy_short(bad_key)} has no data yet." if future \
+        else f"No data is held for “{raw_year.strip()}”."
+    if others:
+        whole = question.strip().rstrip(" ?.")
+        options = [
+            {"label": f"FY {y} (latest) with FY {others[0]}" if y == years[-1] else f"FY {y} with FY {others[0]}",
+             "question": _substitute_year_token(whole, raw_year, y)}
+            for y in reversed(years) if y not in others
+        ]
+        return ClarificationNeeded(
+            f"{coverage} {gone} Which year should be compared with FY {others[0]}?",
+            options=options,
+            rule="year-out-of-range",
+        )
     options = [
         {"label": f"FY {y}", "question": f"{stem} for FY {y}"}
         for y in years
@@ -1266,7 +1304,7 @@ def _year_out_of_range_clarification(question: str, raw_year: str,
         "question": f"{stem} across all financial years",
     })
     return ClarificationNeeded(
-        f"{coverage} No data is held for “{raw_year.strip()}”. "
+        f"{coverage} {gone} "
         "Please select one of the financial years listed above, or all of them "
         "combined.",
         options=options,

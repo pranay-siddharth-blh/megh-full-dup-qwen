@@ -25,15 +25,17 @@ def _parts(q):
 
 # ── per_year_parts: the measure each scheme is asked ─────────────────────────
 def test_money_words_ask_each_schemes_own_money():                                     # A-9
-    assert _parts("Compare MGNREGA and PMAY-G amount released each year")["questions"] == [
-        "What was the total MGNREGA expenditure in each financial year?",
-        "What was the total PMAY-G amount released in each financial year?"]
-    assert _parts("Focus Plus and Focus Legacy amount disbursed each year")["questions"] == [
-        "What was the total Focus Plus amount disbursed in each financial year?",
-        "What was the total Focus Legacy amount disbursed in each financial year?"]
-    assert _parts("MGNREGA and PMAY-G villages covered each year")["questions"] == [
-        "How many villages did MGNREGA cover in each financial year?",
-        "How many villages did PMAY-G cover in each financial year?"]
+    # A-16 (later the same day): the four coded schemes' money / villages each year
+    # are answered by cross_figures' per-year mode, one fixed query per scheme, with
+    # what each scheme's money is (measure_notes); the per-year split steps aside
+    for q in ("Compare MGNREGA and PMAY-G amount released each year",
+              "Focus Plus and Focus Legacy amount disbursed each year",
+              "MGNREGA and PMAY-G villages covered each year"):
+        assert _parts(q) is None
+        named = [s for s in ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy") if s in q]
+        assert cf.plan(q, named, {}, {}, M).op == "by_year"
+    # a scheme outside the coded four keeps the split, with its own money words
+    assert _parts("Compare MGNREGA and CM Elevate Legacy amount each year")["questions"][0] ==         "What was the total MGNREGA expenditure in each financial year?"
 
 
 def test_no_measure_asks_which_figure():                                               # A-9
@@ -56,9 +58,10 @@ def test_each_measure_goes_to_the_scheme_that_holds_it():                       
 
 
 def test_annually_and_yearly_are_per_year_words():                                    # A-15
+    # read as per-year on both paths; for the coded four it is cross_figures' per-year mode (A-16)
     for q in ("MGNREGA and PMAY-G beneficiaries annually", "MGNREGA and PMAY-G beneficiaries yearly trend"):
-        assert _parts(q)["questions"] == ["How many MGNREGA beneficiaries were there in each financial year?",
-                                          "How many PMAY-G beneficiaries were there in each financial year?"]
+        assert _parts(q) is None
+        assert cf.plan(q, ["MGNREGA", "PMAY-G"], {}, {}, M).op == "by_year"
 
 
 # ── answer_many: one row shape ───────────────────────────────────────────────
@@ -267,3 +270,20 @@ def test_chats_with_no_turns_are_not_listed(monkeypatch):                       
     asyncio.run(conversation_store.list_my_conversations(1))
     asyncio.run(conversation_store.search_my_conversations(user_id=1, q="mgnrega"))
     assert all("turn_count > 0" in s for s in seen)
+
+
+def test_year_wise_with_no_years_is_every_year_each_scheme_holds(monkeypatch):      # A-16
+    async def fetch_rows(sql, params):
+        s = "PMAY-G" if "v_pmay" in sql else "MGNREGA"
+        if "DISTINCT year_key AS y" in sql:
+            return [{"y": y} for y in _HELD[s]]
+        assert "year_key AS k" in sql and "GROUP BY 1" in sql
+        base = {"villages": 7, "districts": 1, "blocks": 1, "completed": 1, "sanctioned": 1.0, "money": 10.5}
+        return [{"k": y, "ben": 1000 + y, **base} for y in _HELD[s]]
+    monkeypatch.setattr(cf.db, "fetch_rows", fetch_rows)
+    pl = cf.plan("Compare MGNREGA and PMAY-G beneficiaries year wise", ["MGNREGA", "PMAY-G"], {}, {}, M)
+    assert pl.op == "by_year" and pl.years == []
+    out = asyncio.run(cf.answer(pl))
+    years = {(r["scheme"], r["financial_year"]) for r in out["rows"]}
+    assert ("MGNREGA", "2025-26") in years and ("PMAY-G", "2017-18") in years
+    assert ("PMAY-G", "2025-26") not in years                     # a year not held is a gap

@@ -245,10 +245,10 @@ def test_per_year_questions_keep_the_asked_years():
                     "How many PMAY-G beneficiaries were there in each financial year from FY 2021-22 to FY 2023-24?"]
     plan = cl.per_year_plan(_session(), "MGNREGA and PMAY-G beneficiaries year wise from 2022-23 to 2024-25")
     assert all(x.endswith("from FY 2022-23 to FY 2024-25?") for x in plan)
-    # with no years named, every year held (as before)
-    assert cl.per_year_plan(_session(), "Beneficiaries of MGNREGA and PMAY-G year wise") == [
-        "How many MGNREGA beneficiaries were there in each financial year?",
-        "How many PMAY-G beneficiaries were there in each financial year?"]
+    # with no years named: every year held, now one fixed query per scheme (A-16)
+    assert cl.per_year_plan(_session(), "Beneficiaries of MGNREGA and PMAY-G year wise") is None
+    assert cf.plan("Beneficiaries of MGNREGA and PMAY-G year wise", ["MGNREGA", "PMAY-G"], {}, {},
+                   p._SCHEME_NAME_MATCHER).years == []
 
 
 # ── J-1 / J-2 / J-3: relative years, spans, one year rule ────────────────────

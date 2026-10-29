@@ -2101,6 +2101,16 @@ def _breakdown_missing_issue(question: str, sql: str) -> "str | None":
             "Keep every filter exactly as it was.")
 
 
+async def _c11_true_row_count(sql: str) -> "int | None":
+    """How many rows `sql` returns without the row cap (E-3). None when it can't tell."""
+    try:
+        got = await run_readonly(f"SELECT COUNT(*) AS total_rows FROM ({sql.strip().rstrip(';')}) AS capped_result")
+        return int(got[0]["total_rows"]) if got else None
+    except Exception as e:  # noqa: BLE001 — a count must never fail the answer
+        logger.info("true row count failed (non-fatal): %s", e)
+        return None
+
+
 async def _execute_one_attempt(question: str, schemes: list[str], entity_result: dict,
                                sql: str) -> list[dict]:
     """The SQL shape guards, the semantic verifier, execution and the post-execution
@@ -2398,6 +2408,10 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
             "(district / block / year) in its own CTE first, then join the aggregates. "
             "Keep every filter exactly as it was.")
     rows = await run_readonly(sql)
+    # E-3 (chat UI audit 2026-10-29): a result stopped at the row cap said "1,000
+    # results" with no hint that more exist; the true total is counted once
+    entity_result["true_row_count"] = (await _c11_true_row_count(sql)
+                                       if len(rows) >= settings.SQL_MAX_RESULT_ROWS else None)
     if _mgnrega_comparison_without_figures(question, schemes, rows):
         raise ValueError(
             "this question compares amounts, but the query returns only a label and "
@@ -2427,7 +2441,68 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
             "address that specific problem and keep every other clause (filters, "
             "year_key, geography, aggregation) that is not implicated."
         )
-    return rows
+    return await _c11_zero_ties(question, sql, rows, entity_result)
+
+
+async def _c11_tie_note(sql: str, rows: list, measure: str, places: str, entity_result: dict) -> None:
+    """E-9: when more places share the last place's figure than the list shows,
+    say so (entity_result["tie_note"]). A zero is left to the zero-tie note."""
+    last = rows[-1].get(measure)
+    if last is None or last == 0:
+        return
+    q = sql_ast.tie_count_query(sql, measure, last)
+    if q is None or len(rows) != q[0]:
+        return
+    try:
+        got = await run_readonly(q[1])
+        tied = int(got[0]["tied"]) if got else 0
+    except Exception as e:  # noqa: BLE001
+        logger.info("tie count failed (non-fatal): %s", e)
+        return
+    shown = sum(1 for r in rows if r.get(measure) == last)
+    if tied > shown:
+        entity_result["tie_note"] = (f"{tied} {places} tie for place {len(rows) - shown + 1} with "
+                                     f"{last:,} {measure.replace('_', ' ')}; {shown} of them "
+                                     f"{'is' if shown == 1 else 'are'} shown.")
+
+
+async def _c11_zero_ties(question: str, sql: str, rows: list, entity_result: dict) -> list:
+    """I-10 / J-7: a low-end ranking whose rows reach 0 lists the lowest places
+    that HAVE a figure, and says how many have none (entity_result["zero_note"]).
+    Rows unchanged when it does not apply or anything fails."""
+    entity_result["zero_note"] = None
+    entity_result["tie_note"] = None
+    import numbers
+    from app import cross_figures, measure_kinds
+    ra = cross_figures.rank_ask(question)
+    if ra is None or not rows:
+        return rows
+    nums = [k for k, v in rows[0].items()
+            if isinstance(v, numbers.Number) and not isinstance(v, bool) and not measure_kinds.is_label_col(k)]
+    if not nums:
+        return rows
+    measure = nums[-1]
+    places = f"{ra.level}s" if ra.level else "places"
+    await _c11_tie_note(sql, rows, measure, places, entity_result)
+    if not ra.low or ra.high or not any((r.get(measure) or 0) == 0 for r in rows):
+        return rows
+    q = sql_ast.low_end_queries(sql, measure)
+    if q is None:
+        return rows
+    try:
+        zero = await run_readonly(q[0])
+        lowest = await run_readonly(q[1])
+        n_zero = int(zero[0]["zero_places"]) if zero else 0
+    except Exception as e:  # noqa: BLE001
+        logger.info("low-end zero-tie check failed (non-fatal): %s", e)
+        return rows
+    what = measure.replace("_", " ")
+    if not lowest:
+        entity_result["zero_note"] = f"All {n_zero:,} {places} have no {what}."
+        return rows
+    entity_result["zero_note"] = (f"{n_zero:,} {places} have no {what} (0), so they are not ranked; "
+                                  f"the lowest {len(lowest)} with a figure are listed.")
+    return lowest
 
 
 async def _repair_sql(question: str, schemes: list[str], entity_result: dict,

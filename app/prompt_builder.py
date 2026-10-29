@@ -226,6 +226,8 @@ def _entities_block(entity_result: dict, question: str = "",
                 continue  # rendered alongside district_list
             if k == "block_list_districts":
                 continue  # rendered alongside block_list
+            if k == "village_twins":
+                continue  # rendered alongside village_code_list (J-10)
             if k == "village_code":
                 lines.append(f"  village_code = {v!r}   -- do NOT filter on lgd_village_name instead")
             elif k == "district":
@@ -295,6 +297,12 @@ def _entities_block(entity_result: dict, question: str = "",
                     "village_code (and lgd_village_name, which is on the same row) so each "
                     "village gets its own row in the result — do NOT sum them into one figure, "
                     "and do NOT filter on lgd_village_name instead.")
+                # J-10: villages that share one name are told apart by their block
+                if resolved.get("village_twins"):
+                    lines.append(
+                        "      these villages share one name: SELECT the block name too "
+                        "(lgd_block, or the block column of this table) so each row says "
+                        "which village it is.")
             elif k == "assembly_constituency":
                 if list(schemes or []) == ["CM Elevate Legacy"]:
                     # Same shape as Focus Legacy: v_cm_elevate_disbursement has

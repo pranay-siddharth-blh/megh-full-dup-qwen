@@ -1256,10 +1256,18 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # asked only the year. A chat that has answered a data question carries its
     # place instead (c14 _same_scheme_context_year), and statewide there stays
     # statewide. A district-restricted officer is scoped by auth, not asked.
+    # J-4 / J-5 (chat UI audit 2026-10-29, decided by the user): a new-chat question
+    # that names its scheme is answered for all of Meghalaya (said in the banner and
+    # the question, with the "by district" chip to change it) instead of a district
+    # pause, so it costs at most one tap (the year, D-053, when it names none).
+    # "MGNREGA person days in 2024-25" asked "which area?" while "Focus Plus amount
+    # disbursed in 2024-25" answered statewide. A question naming no scheme still
+    # asks scheme -> district -> year (D-056).
     _place_res = {k: v for k, v in entity_result["resolved"].items() if k != "year_key"}
     if _defaults and not skip_scope_clarify and not d.get("chat_has_scope") \
             and not (scope is not None and scope.geo_restricted) \
             and not any((prior_resolved or {}).get(k) for k in ("district", "block", "village_code")) \
+            and not _named_schemes(d.get("raw_question") or question) \
             and _needs_scope_clarification(question, _place_res):
         logger.info("new chat, no place named -> asking which district")
         raise _scope_clarification(question, schemes, area_only=True)
@@ -2861,6 +2869,12 @@ async def _data_guarantees_stage(d: dict, scope: "auth.UserScope | None" = None)
         _absent = _c13_fy_label(_gap_note)
         if _absent and _absent not in answer:
             answer = f"{_gap_note}\n\n{answer}"
+    # I-10 / J-7: how many places have none, before the lowest ones that have some
+    if entity_result.get("zero_note") and entity_result["zero_note"] not in answer:
+        answer = f"{entity_result['zero_note']}\n\n{answer}"
+    # E-9: places tied with the last one shown
+    if entity_result.get("tie_note") and entity_result["tie_note"] not in answer:
+        answer = f"{answer}\n\n{entity_result['tie_note']}"
     d["answer"] = answer
 
 
@@ -2877,6 +2891,8 @@ def _data_assemble(d: dict) -> dict:
         "sql": sql,
         "sql_query": sql,
         "row_count": len(rows),
+        # E-3: the rows there are beyond the row cap (None when not capped)
+        "total_row_count": entity_result.get("true_row_count"),
         "rows": rows[:20],
         # The full result the query returned, for the table/chart renderer.
         # Was capped at 200, which silently truncated a legitimate answer — a
@@ -3216,6 +3232,44 @@ def _c13_unify_scheme_rows(rows: list) -> list:
     return out
 
 
+# X-14 (chat UI audit 2026-10-29): PMAY-G money came as "22,22,75,30,000" under
+# "Amount released" — no ₹, no unit — beside MGNREGA in ₹ lakh. A money column with
+# no unit in its name gets one from what the scheme stores (MGNREGA lakh rupees,
+# every other scheme rupees: schema_context) and any division in the SELECT, as a
+# name suffix the UI reads ("amount_released" -> "amount_released_rs").
+_C13_MONEY_WORDS = frozenset(("amount", "released", "sanctioned", "expenditure", "exp", "disbursed",
+                              "disbursement", "money", "spent", "paid", "pending", "subsidy", "loan",
+                              "cost", "wage", "wages", "fund", "funds"))
+_C13_UNIT_WORDS = frozenset(("rs", "rupees", "inr", "lakh", "lakhs", "cr", "crore", "crores", "pct",
+                             "percent", "percentage", "per", "avg", "average", "share", "ratio", "rate"))
+
+
+def _c13_money_units(result: dict) -> None:
+    schemes = result.get("schemes") or []
+    rows = result.get("data") or []
+    if len(schemes) != 1 or not rows or not isinstance(rows[0], dict):
+        return
+    base = "lakh" if schemes[0] == "MGNREGA" else "rupees"
+    divs = sql_ast.select_divisors(result.get("sql") or "")
+    rename = {}
+    for col, v in rows[0].items():
+        parts = set(str(col).lower().split("_"))
+        if not parts & _C13_MONEY_WORDS or parts & _C13_UNIT_WORDS or measure_kinds.is_label_col(col):
+            continue
+        if not isinstance(v, (int, float, Decimal)) or isinstance(v, bool):
+            continue
+        d = divs.get(col)
+        unit = base
+        if d:
+            rupees = d * (100000 if base == "lakh" else 1)
+            unit = "crore" if abs(rupees - 1e7) < 1 else "lakh" if abs(rupees - 1e5) < 1 else None
+        if unit:
+            rename[col] = f"{col}_{'rs' if unit == 'rupees' else unit}"
+    if rename:
+        result["data"] = [{rename.get(k, k): v for k, v in r.items()} for r in rows]
+        result["rows"] = result["data"][:20]
+
+
 def _attach_chart_hint(result: dict, question: str, raw_question: str) -> None:
     """Set `chart_type` on a DATA result that has rows. Best-effort."""
     try:
@@ -3225,6 +3279,7 @@ def _attach_chart_hint(result: dict, question: str, raw_question: str) -> None:
                 result["data"] = unified
                 result["rows"] = unified[:20]
                 result["row_count"] = len(unified)
+            _c13_money_units(result)
             hint = _chart_hint(question, raw_question, result["data"])
             if hint:
                 result["chart_type"] = hint

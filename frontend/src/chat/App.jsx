@@ -8,6 +8,7 @@ import { GLOSSARY, UI_STRINGS, UNIFIED_SAMPLES } from './constants.js';
 import { nowTime, stampTime, todayLabel } from './format.js';
 import { useVoice } from './useVoice.js';
 import { isContinueText, isStopText } from './stopContinue.js';
+import { speechChunks } from './text.js';
 import { useSidebarResize } from './useSidebarResize.js';
 import { useComposerHeight } from './useComposerHeight.js';
 import { BotMessage, TextMessage, TypingMessage } from './components/Messages.jsx';
@@ -65,6 +66,10 @@ function glossaryModal(filter) {
     )) : <div className="glossary-empty">No glossary term matches “{filter.trim()}”.</div>,
   };
 }
+
+// K-6: the turns the server saved for these messages — answers and pauses it
+// sent, not local redraws, hints or errors
+const savedTurns = (msgs) => msgs.filter((x) => (x.kind === 'rich' && x.response && !x.local) || x.saved).length;
 
 export default function App() {
   // ── Auth ────────────────────────────────────────────────────────────────
@@ -176,6 +181,8 @@ export default function App() {
     clearTimeout(toastTimer.current);
     toastTimer.current = setTimeout(hideUndo, 7000);
   };
+  const showUndoRef = useRef(showUndo);
+  showUndoRef.current = showUndo;
   const runUndo = async () => {
     const fn = toast && toast.fn;
     hideUndo();
@@ -238,7 +245,7 @@ export default function App() {
         if (t.response && typeof t.response === 'object') {
           replay.push({ id: nextId(), time: answerTime, at: answeredAt && answeredAt.toISOString(), kind: 'rich', question: t.question, response: t.response });
         } else {
-          replay.push({ id: nextId(), time: answerTime, at: answeredAt && answeredAt.toISOString(), kind: 'bot', text: t.answer || '(no answer recorded)' });
+          replay.push({ id: nextId(), time: answerTime, at: answeredAt && answeredAt.toISOString(), kind: 'bot', saved: true, text: t.answer || '(no answer recorded)' });
         }
       }
       try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ }
@@ -370,7 +377,12 @@ export default function App() {
     el.focus();
   }, []);
 
-  const runQuestion = useCallback(async (q, { skipCache = false, addUser = true } = {}) => {
+  const keepTurnsRef = useRef(null);       // K-6: set by Edit for the run it starts
+  const englishRef = useRef(false);         // K-18: set by a chip tap for the run it starts
+  const runQuestion = useCallback(async (q, { skipCache = false, addUser = true, keepTurns = keepTurnsRef.current,
+    english = englishRef.current } = {}) => {
+    keepTurnsRef.current = null;
+    englishRef.current = false;
     if (runningRef.current) return;           // one question at a time
     // "/chart …" or "/table …" (#319): the question goes without its command;
     // the answer remembers the view. The bubble shows what was typed.
@@ -386,10 +398,18 @@ export default function App() {
       { id: typingId, kind: 'typing', steps: [], draft: '' },
     ]);
     const patchTyping = (fn) => setMessages((m) => m.map((x) => (x.id === typingId ? { ...x, ...fn(x) } : x)));
+    // X-10 (audit 2026-10-29): tokens are added once per animation frame, not one
+    // state update (and re-render) per word
+    let pending = '';
+    let frame = 0;
+    const flush = () => { frame = 0; const t = pending; pending = ''; if (t) patchTyping((x) => ({ draft: x.draft + t })); };
     const onEvent = (ev) => {
       if (ev.type === 'step') patchTyping((x) => ({ steps: [...x.steps, ev.node] }));
-      else if (ev.type === 'draft_reset') patchTyping(() => ({ draft: '' }));
-      else if (ev.type === 'token') patchTyping((x) => ({ draft: x.draft + ev.text }));
+      else if (ev.type === 'draft_reset') { pending = ''; patchTyping(() => ({ draft: '' })); }
+      else if (ev.type === 'token') {
+        pending += ev.text;
+        if (!frame) frame = typeof requestAnimationFrame === 'function' ? requestAnimationFrame(flush) : setTimeout(flush, 16);
+      }
     };
     const stop = new AbortController();
     stopRef.current = stop;
@@ -398,7 +418,9 @@ export default function App() {
     const here = () => gen === chatGenRef.current;     // still the chat it was asked in (K-1)
     const setMessagesHere = (fn) => { if (here()) setMessages(fn); };
     try {
-      const response = await streamNLPResponse(asked, lang, sessionRef.current, { skipCache, signal: stop.signal, onEvent });
+      // K-18 (audit 2026-10-29): a chip's text is already the app's English; translating
+      // it again was slower, sometimes reworded it, and broke the "Continue" match
+      const response = await streamNLPResponse(asked, english ? 'en' : lang, sessionRef.current, { skipCache, signal: stop.signal, onEvent, keepTurns });
       setMessagesHere((m) => [...dropTyping(m), response.answer
         ? { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'rich', question: q, response, animate: true, streamKey: typingId, view }
         : { id: nextId(), time: nowTime(), at: new Date().toISOString(), kind: 'bot', retryQ: q, text: friendlyError(response.detail || '') }]);
@@ -464,7 +486,10 @@ export default function App() {
       }
     }
     if (runningRef.current) {
-      if (isStopText(q)) { setInput(''); stopQuery(); }
+      if (isStopText(q)) { setInput(''); stopQuery(); return; }
+      // K-23 (audit 2026-10-29): a question typed while an answer runs was ignored
+      // with no word; it stays in the box and the officer is told why
+      showUndoRef.current('An answer is still being written. Your question stays in the box: press Enter when it is done, or type "stop".');
       return;
     }
     setInput('');
@@ -508,8 +533,11 @@ export default function App() {
   const rerun = useCallback((msgId, q) => {
     if (runningRef.current || !q) return;
     stopSpeaking();
+    const msgs = messagesRef.current;
+    const at = msgs.findIndex((x) => x.id === msgId);
     setMessages((m) => m.filter((x) => x.id !== msgId));
-    runQuestion(q, { skipCache: true, addUser: false });
+    // K-6: the replaced answer is removed on the server too
+    runQuestion(q, { skipCache: true, addUser: false, keepTurns: at < 0 ? null : savedTurns(msgs.slice(0, at)) });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [runQuestion]);
   const rerunRef = useRef(rerun);
@@ -566,13 +594,15 @@ export default function App() {
       const started = Date.now();
       pendingAskRef.current = setInterval(() => {
         if (gen !== chatGenRef.current || Date.now() - started > 90000) { dropPendingAsk(); return; }
-        if (!runningRef.current) { dropPendingAsk(); setInput(q); sendQueryRef.current(); }
+        if (!runningRef.current) { dropPendingAsk(); setInput(q); englishRef.current = true; sendQueryRef.current(); englishRef.current = false; }
       }, 250);
       return;
     }
     setInput(q);
     refocusComposer();
+    englishRef.current = true;
     sendQuery();
+    englishRef.current = false;
   }, [sendQuery, refocusComposer]);
 
   // ── Chat pane ───────────────────────────────────────────────────────────
@@ -588,14 +618,21 @@ export default function App() {
     if (speakingRef.current === id) { stopSpeaking(); return; }     // second tap stops it
     speakingRef.current = id;                                       // before cancel: the old
     synth.cancel();                                                 // utterance's onend sees it
-    const u = new SpeechSynthesisUtterance(text);
     const voices = synth.getVoices();
     const voice = voices.find((v) => v.lang === 'en-IN') || voices.find((v) => (v.lang || '').startsWith('en'));
-    if (voice) u.voice = voice;
-    u.lang = voice ? voice.lang : 'en-IN';
-    u.onend = u.onerror = () => { if (speakingRef.current === id) { speakingRef.current = null; setSpeakingId(null); } };
+    // K-34: tables read as their cells, and the answer spoken in pieces
+    const parts = speechChunks(text);
+    if (!parts.length) { speakingRef.current = null; return; }
+    const done = () => { if (speakingRef.current === id) { speakingRef.current = null; setSpeakingId(null); } };
     setSpeakingId(id);
-    synth.speak(u);
+    parts.forEach((part, i) => {
+      const u = new SpeechSynthesisUtterance(part);
+      if (voice) u.voice = voice;
+      u.lang = voice ? voice.lang : 'en-IN';
+      u.onerror = done;
+      if (i === parts.length - 1) u.onend = done;
+      synth.speak(u);
+    });
   }, [stopSpeaking]);
   useEffect(() => () => { try { window.speechSynthesis && window.speechSynthesis.cancel(); } catch (e) { /* ignore */ } }, []);
 
@@ -614,12 +651,18 @@ export default function App() {
     // the chat after it and asked nothing; a command runs without cutting anything
     if (String(q || '').trim().startsWith('/')) { setInput(q); sendQuery(); return; }
     stopSpeaking();
+    const msgs = messagesRef.current;
+    const at = msgs.findIndex((x) => x.id === id);
     setMessages((m) => {
       const i = m.findIndex((x) => x.id === id);
       return i < 0 ? m : m.slice(0, i);
     });
     setInput(q);
+    // K-6 (audit 2026-10-29): the replaced turns came back when the chat was reopened
+    // and still steered follow-ups; the server now keeps only the turns before this one
+    keepTurnsRef.current = at < 0 ? null : savedTurns(msgs.slice(0, at));
     sendQuery();
+    keepTurnsRef.current = null;
   }, [sendQuery, stopSpeaking]);
 
   const scrollToEnd = useCallback((smooth) => {
@@ -765,6 +808,9 @@ export default function App() {
   const onMic = () => {
     sendAfterVoice.current = false;   // the mic button only stops: the text stays to check
     if (!voice.busy) dictBase.current = inputRef.current;
+    // K-40 (audit 2026-10-29): with Khasi / Garo chosen, speech was recognised as
+    // English with no warning; starting the mic now says so on every device
+    if (!voice.busy && lang && lang !== 'en') showUndo('Voice input is English only. Speak in English, or type your question in Khasi / Garo.');
     voice.toggleMic();
   };
 
@@ -970,7 +1016,7 @@ export default function App() {
                   }
                   if (m.kind === 'user') {
                     return <TextMessage key={m.id} id={m.id} role="user" text={m.text} time={m.time}
-                                        busy={running} onEdit={(q) => editQuestion(m.id, q)}
+                                        busy={running} onEdit={editQuestion}
                                         editRequest={editRequest && editRequest.id === m.id ? editRequest.n : 0} />;
                   }
                   return <TextMessage key={m.id} id={m.id} role="bot" text={m.text} time={m.time} at={m.at}

@@ -149,10 +149,16 @@ def test_plan_measures():
     ("top 5 blocks in MGNREGA and PMAY-G by beneficiaries", ["MGNREGA", "PMAY-G"], {}),
     ("Compare MGNREGA, PMAY-G and CM-ELEVATE", ["MGNREGA", "PMAY-G", "CM Elevate"], {}),
     ("Compare MGNREGA and PMAY-G in Pamila village", ["MGNREGA", "PMAY-G"], {"village_code": 274001}),
-    ("Compare MGNREGA and PMAY-G year by year", ["MGNREGA", "PMAY-G"], {}),
 ])
 def test_other_shapes_stay_on_the_model_path(q, schemes, resolved):
     assert cf.plan(q, schemes, resolved, {}, M) is None
+
+
+def test_year_by_year_is_one_fixed_query_per_scheme():
+    # A-16 (chat UI audit 2026-10-29): "year by year" over the coded measures is the
+    # per-year mode (every year held), no longer the model path
+    pl = cf.plan("Compare MGNREGA and PMAY-G year by year", ["MGNREGA", "PMAY-G"], {}, {}, M)
+    assert pl.op == "by_year" and pl.years == []
 
 
 # ── the figures and the answer ────────────────────────────────────────────────

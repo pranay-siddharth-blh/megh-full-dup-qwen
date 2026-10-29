@@ -213,37 +213,6 @@ export const asksRanking = (question) => words(question).some((w) => RANK_WORDS.
 // 66% ahead on amount" put money spent against money released; E11).
 const isSchemeCol = (c) => hasSegment(c, ['scheme', 'schemes']);
 
-// A cross-scheme summary (app/cross_scheme.py): one row per scheme with a count,
-// what it counts, an amount in rupees and what kind of money. Each measure is its
-// own chart — never one axis, since persons employed and houses sanctioned (or
-// expenditure and releases) are different things.
-const isCrossSummary = (data) => data.length >= 2 && data.every((r) => r && r.scheme !== undefined)
-  && ['amount_rupees', 'count_measure', 'money_measure'].some((k) => k in data[0]);
-
-function crossSummaryCharts(data) {
-  const charts = [];
-  const schemes = data.map((r) => String(r.scheme));
-  const withAmount = data.filter((r) => isNumeric(r.amount_rupees));
-  if (withAmount.length >= 2) {
-    charts.push({
-      title: 'Amount (₹ crore) by scheme',
-      labels: withAmount.map((r) => label18(r.scheme)),
-      fullLabels: withAmount.map((r) => (r.money_measure ? `${r.scheme} — ${r.money_measure}` : String(r.scheme))),
-      values: withAmount.map((r) => Math.round(toNumber(r.amount_rupees) / 1e5) / 100),
-    });
-  }
-  const withCount = data.filter((r) => isNumeric(r.count));
-  if (withCount.length >= 2) {
-    charts.push({
-      title: 'Count by scheme',
-      labels: withCount.map((r) => label18(r.scheme)),
-      fullLabels: withCount.map((r) => (r.count_measure ? `${r.scheme} — ${r.count_measure}` : String(r.scheme))),
-      values: withCount.map((r) => toNumber(r.count)),
-    });
-  }
-  return charts.length ? { kind: 'multi', charts, defType: 'bar', data, schemes, noTable: true } : null;
-}
-
 // The measure a question asks to compare, so the two-way card shows THAT figure
 // and not whichever column came first (user report 2026-10-27: "Compare
 // beneficiaries in mgnrega and PMAY-G" drew a card of the amount in ₹ crore).
@@ -374,10 +343,8 @@ function noAddReason(vc, col, data) {
 
 function buildAnalyticsCore(question, rawData, hintType, prefer) {
   if (!Array.isArray(rawData) || rawData.length === 0) return null;
-  if (isCrossSummary(rawData)) {
-    const cs = crossSummaryCharts(rawData.slice());
-    if (cs) return cs;
-  }
+  // B-5 (audit 2026-10-29, decided): the old cross_scheme.py summary shape is no longer
+  // sent (cross_figures rows go through the normal path), so its special case is gone
   // One thing written two ways (year_key 2023 and financial_year "2023-2024") is
   // ONE dimension: read as two, it drew a diagonal grid of dashes (user report
   // 2026-10-28). The readable twin stays; the download keeps every column. Year
@@ -559,8 +526,15 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
       const types = ['bar', ...(periods ? ['line'] : []), ...(whyS ? [] : ['stacked']),
         ...(whyS || whyX ? [] : ['doughnut'])];
       const hinted = hintType === 'stacked' ? 'stacked' : hintType;
+      // A-13 (audit 2026-10-29): a year a scheme does not hold is a gap, never 0; the
+      // gaps are named so they do not read as a fall to nothing
+      const gaps = periods ? datasets.map((d) => {
+        const missing = labels.filter((_, i) => d.data[i] === null || d.data[i] === undefined);
+        return missing.length && missing.length < labels.length ? `${d.label} (${missing.join(', ')})` : null;
+      }).filter(Boolean) : [];
       return {
         kind: 'twoDim',
+        ...(gaps.length ? { note: `Gaps are years with no data: ${gaps.join('; ')}.` } : {}),
         title: `${titleCol(vKey)} by ${titleCol(xKey).toLowerCase()} and ${titleCol(sKey).toLowerCase()}${where}`,
         xKey, sKey, vKey, labels: labels.map(String), datasets, periods, types, noAddWhy: whyS || whyX,
         defType: types.includes(hinted) ? hinted : (periods ? 'line' : 'bar'),
@@ -614,8 +588,10 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   const whyNot = noAddReason(numCols[0], lc, data);
   const partOfWhole = !whyNot;
   const noSlices = !partOfWhole || asksRanking(question);
+  // X-4 (audit 2026-10-29): a line across districts or schemes means nothing; Line
+  // is offered only when the x-axis is a period
   const hinted = SINGLE_TYPES.includes(hintType) && !(noSlices && (hintType === 'pie' || hintType === 'doughnut'))
-    ? hintType : null;
+    && !(hintType === 'line' && !isTime) ? hintType : null;
   const defType = hinted || (isTime ? 'line' : isFew && !noSlices ? 'doughnut' : 'bar');
 
   if (hintType === 'grouped_bar' && numCols.length >= 2) {
@@ -685,6 +661,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     ranked: asksRanking(question) && !isTime && !allLbl.some((c) => hasSegment(c, RANK_WORDS_COL)),
     ...(many ? { note: `${low ? 'Bottom' : 'Top'} 15 of ${many} shown; the full list is in the table.` } : {}),
     ...(unranked ? { note: `${unranked} of ${data.length} ${unranked === 1 ? 'has' : 'have'} no figure for ${humanCol(numCols[0])} and ${unranked === 1 ? 'is' : 'are'} left out of the ranking (they are in the table).` } : {}),
-    ...(partOfWhole ? {} : { types: whyNot === 'scheme' ? ['bar'] : ['bar', 'line'], noAddWhy: whyNot }),
+    ...(partOfWhole ? { types: ['bar', 'pie', 'doughnut', ...(isTime ? ['line'] : [])] }
+      : { types: whyNot === 'scheme' || !isTime ? ['bar'] : ['bar', 'line'], noAddWhy: whyNot }),
   };
 }

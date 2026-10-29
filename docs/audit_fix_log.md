@@ -3,6 +3,9 @@
 Source: *Megh One AI — Chat UI Audit (question scenarios)*, 29 Oct 2026 (195 findings, sections A–K and X).
 Branch: `fix/chat-ui-audit`, from `origin/Main` at `1360c3b` (already includes `851143f`).
 
+Second pass (2026-10-29 evening): the user's 12 decisions applied as recommended, and every
+"Not done" / "Partly fixed" item finished (`tests/test_chat_ui_audit_more_2026_10_29.py`).
+
 Statuses: **Fixed** · **Partly fixed** (what is left is said) · **Already fixed** (current code already does
 what the audit asks) · **Not reproducible** · **Needs my decision** (a product decision; options in the final
 report) · **Needs live check** (fixed in code, but only a live DB / browser run can confirm).
@@ -20,7 +23,7 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | I-6 | Fixed | app/cross_figures.py (`_district_lines`, `_ranks_combined`: one list per scheme unless "combined / together / in total") | `test_a_district_ranking_is_one_list_per_scheme_unless_combined_is_said`, `test_bottom_districts_are_ranked_per_scheme_lowest_first` |
 | I-11 | Fixed | app/cross_figures.py (`_YEARLY` instead of `_OTHER_GRAIN` for a district ranking) | wordings table (D7), `test_rank_details_…` |
 | I-12 | Fixed | app/cross_figures.py (`Plan.both`, `_rank_parts`) | `test_both_ends_second_place_and_exclusion` |
-| I-13 | Partly fixed — the four coded schemes are ranked and the answer says CM Elevate is not in it; CM Elevate's own list beside them still needs its own question | app/cross_figures.py (`Plan.left_out`) | `test_all_schemes_ranks_the_coded_four_and_says_cm_elevate_is_out` |
+| I-13 | Fixed — the coded four are ranked together and CM Elevate's own district list (applications, fixed query on v_cm_elevate) is given beside them; CM Elevate Legacy still noted | app/cross_figures.py (`_cm_elevate_ranking`) | tests/test_chat_ui_audit_more_2026_10_29.py: `test_i13_…` — Needs live check |
 | I-14 | Fixed | app/cross_figures.py (`rank_ask`, `Plan.nth`) | wordings table (N1, N4, N6, N10, N11, N18), `test_both_ends_second_place_and_exclusion` |
 | I-15 | Fixed | app/cross_figures.py (`rank_ask`: "least performing blocks" → per-scheme path) | wordings table (N5) |
 | I-16 | Fixed | app/cross_figures.py (`_level`: singular and one-letter-off "district") | wordings table (N7, N9, N12) |
@@ -35,10 +38,10 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | J-1 | Fixed | app/pipeline/common/c06_years_tranches.py (`_relative_years`), c09_resolve_entities.py | `test_relative_periods_are_read_against_the_years_held`, `test_this_year_says_when_the_year_has_no_data`, `test_a_relative_period_is_never_asked_again` |
 | J-2 | Fixed (the dash case left after KI-427) | app/pipeline/common/c09_resolve_entities.py (`_c09_stated_year_span`) | `test_a_dash_between_two_years_is_a_span` |
 | J-3 | Fixed (one rule: Focus's money / member words now count as a measure, so every scheme asks alike) | app/pipeline/common/c06_years_tranches.py (`_METRIC_OR_BREAKDOWN_CUE`) | `test_one_year_rule_for_every_scheme` |
-| J-4 | Needs my decision (contradicts D-053 / D-056: a new chat asks the area first) | | |
-| J-5 | Needs my decision (product decision listed by the audit) | | |
+| J-4 | Fixed (user decision 2026-10-29) — a new-chat question that names its scheme is answered for all of Meghalaya (banner and "by district" chip), no district pause; D-087 | c13 `_data_clarification_stage`, pipeline_graph.py (`raw_question` read-only) | test_new_chat_and_scheme_switch (updated), test_year_asked_without_context (updated) |
+| J-5 | Fixed (user decision) — one tap: the year (D-053 still asks it; never a silent year), the area defaults statewide when the scheme is named; a question naming no scheme still asks scheme -> district -> year; D-087 | as J-4 | as J-4 |
 | J-8 | Already fixed (a ranking is never a donut: `asksRanking`, frontend/tests/charts.test.js) | | existing |
-| J-10 | Needs my decision (KI-126, product decision) | | |
+| J-10 | Fixed (user decision) — a name shared by 2–3 villages in different blocks is answered for each, one row per village with its block (SQL told to GROUP BY village and SELECT the block); banner names them with their blocks. More twins still ask; D-087 | c09 (`_TWINS_ANSWERED`, `_TWINS_MAX`), prompt_builder.py, c14 `_banner_place` | tests/test_chat_ui_audit_more_2026_10_29.py: `test_j10_…` — Needs live check (village index) |
 | A-1 | Fixed | app/pipeline/common/c13_compose_and_data_stages.py (`_c13_unify_scheme_rows`, run in `_attach_chart_hint`), app/conversation_layer.py (`_year_row`), frontend/src/chat/columns.js (`unifyPeriods`), analytics.js | rows: `test_merged_per_scheme_rows_get_one_shape`, `test_the_chart_hint_step_unifies_the_rows`; UI: `A-1: scheme × year rows with differently named year columns keep the year` |
 | A-2 | Fixed (years in one "2023-24" form; missing cells were already null in the UI) | app/conversation_layer.py (`_cl_fy`, `_year_row`) | `test_money_rows_are_one_unit_and_one_year_form`; UI `A-2 …` |
 | A-8 | Fixed | frontend/src/chat/columns.js (`fyLabel`, `unifyPeriods`) | UI `A-8: a lone year_key reads as a financial year` |
@@ -46,10 +49,10 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | A-10 | Fixed (every money figure converted to ₹ crore from its column's unit, column `money_crore`) | app/conversation_layer.py (`_cl_money_crore`) | `test_money_rows_are_one_unit_and_one_year_form` |
 | A-11 | Fixed (each measure asked only of the scheme that holds it; "PMAY-G records no person-days" said) | app/conversation_layer.py, app/routers/query.py (`multi_notes`) | `test_each_measure_goes_to_the_scheme_that_holds_it`, `test_different_measures_share_one_value_column`, `test_scheme_notes_reach_the_answer` |
 | A-12 | Fixed (the column matching the asked measure; code / id / lgd / key columns skipped) | app/conversation_layer.py (`_year_row`) | `test_money_rows_are_one_unit_and_one_year_form` |
-| A-13 | Partly fixed — no-data years are gaps (already) and each scheme is headlined at its own latest year; shading the years a scheme does not hold is not done | frontend/src/chat/chartTheme.js (`insightForSeries`) | UI `A-13 …` |
+| A-13 | Fixed — gaps (never 0), each scheme headlined at its own latest year, and a note names the years each scheme does not hold | analytics.js, chartTheme.js | frontend/tests/audit.test.js: `A-13 …` |
 | A-14 | Fixed — Needs live check (two or more named years always become `year_key_list` on the cross-scheme path) | app/pipeline/common/c13_compose_and_data_stages.py (`_cross_scheme_scope`) | `test_two_named_years_are_both_read` |
 | A-15 | Fixed (annually / yearly / trend / over the years / year on year are per-year words on both paths) | app/conversation_layer.py (`_PER_YEAR_CUE`) | `test_annually_and_yearly_are_per_year_words` |
-| A-16 | Partly fixed — a stated span or list of years over beneficiaries / money / villages of the four coded schemes is now one fixed query per scheme grouped by year (`op="by_year"`). "Each year / year wise" wordings stay on `per_year_plan` → `answer_many` (now one row shape): an existing test (`test_other_shapes_stay_on_the_model_path`, "year by year") locks them off this module | app/cross_figures.py (`scheme_figures(by_year=…)`, `_year_lines`, `_rows`) | `test_a_stated_span_is_one_fixed_query_per_scheme_by_year` |
+| A-16 | Fixed — "each year / year wise / annually" over the coded four's beneficiaries / money / villages is cross_figures' per-year mode (every year held); a place, N, rank, relative years or other measures keep the per-scheme split; the lock test updated | cross_figures.py (`plan`), conversation_layer.py (`_cl_cross_by_year`) | test_cross_figures_2026_10_22 (updated), test_chat_ui_audit_rows / reading (updated) |
 | A-17 | Fixed (the answer says why CM Elevate Legacy is used) | app/conversation_layer.py (`_CL_LEGACY_NOTE`) | `test_rows_with_no_year_leave_the_chart_and_failure_is_marked` |
 | A-18 | Fixed (the years used are in the first line: by-year header "FY 2022-23 to FY 2025-26 (4 years)", relative periods' label) | app/cross_figures.py, c06 `_relative_years` | `test_a_stated_span_is_one_fixed_query_per_scheme_by_year` |
 | I-9 | Fixed (place columns renamed to one name per level; one `value` + `measure` when each scheme has its own measure) | c13 `_c13_unify_scheme_rows`, conversation_layer `answer_many` | `test_merged_per_scheme_rows_get_one_shape`, `test_different_measures_share_one_value_column` |
@@ -62,7 +65,7 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | G-7 | Fixed by the rule — charts never add across schemes, so no plain "Total" can appear under the "Combined" text | analytics.js, Charts.jsx | UI `A-4 …` |
 | G-8 | Fixed — Needs live check (union and overlap of village codes per scheme; "which villages have both" lists them, village-level RBAC shape) | app/cross_figures.py (`_OVERLAP`, `village_sets`, `_overlap_answer`), c13 `_c13_e12_cross_figures_denial` | `test_villages_in_either_scheme_are_counted_once`, `test_villages_where_both_are_present_are_listed` |
 | I-5 | Fixed — Needs live check (via G-8) | app/cross_figures.py | `test_villages_where_both_are_present_are_listed` |
-| G-10 | Needs my decision — counting each producer group's members once changes every Focus Legacy member figure validated in UAT (D-066 definition "SUM(no_of_pg_members)") and needs the live DB to verify | | |
+| G-10 | Fixed (user decision: keep the D-066 figure) — the answer says Focus Legacy members are counted once per payment; per-group counting left for the data team | app/cross_figures.py (`_COUNT_NOTE`) | tests/test_chat_ui_audit_more_2026_10_29.py: `test_g10_…` |
 | G-12 | Fixed (the backend sends each scheme's statewide total; the pivot's Total row uses it, "Total (all records)", tooltip "Includes records with no district") | app/cross_figures.py (`_total_cells`), c13 (`column_totals`), Charts.jsx, Messages.jsx | `test_district_table_carries_the_statewide_totals` |
 | G-13 | Fixed (no donut / share of villages across years; stacked headline only where a stack is allowed) | analytics.js | UI `G-13 / G-5 …` |
 | A-4 | Fixed (never stacked or totalled across a scheme column, backend hint and UI) | c13 `_chart_hint`, analytics.js, Charts.jsx | `test_stacked_only_…` (scheme rows); UI `A-4 …` |
@@ -116,13 +119,13 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | D-11 | Already fixed (a missing side shows "no figure" now, and no verdict — that was already so) | Charts.jsx | UI `D-10 / D-11 …` |
 | D-12 | Fixed (largest lower-is-better figure headlined "Most pending works (lower is better)" in a warning colour) | chartTheme.js, Charts.jsx | UI `D-5 / D-12 …` |
 | B-15 | Fixed ("difference" leads with the absolute gap) | analytics.js, chartTheme.js | UI `B-15 …` |
-| I-10 | Partly fixed — UI headline "Lowest" for a low-end question; the backend's "312 villages have none, then the lowest non-zero 5" is not done (model-written SQL; see J-7) | analytics.js (`asksLow`), chartTheme.js | UI `I-10 / J-7 …` |
-| J-7 | Partly fixed — as I-10 | as I-10 | as I-10 |
+| I-10 | Fixed — backend: a low-end ranking that reaches 0 says "312 villages have no beneficiaries (0)" and lists the lowest that have a figure (SQLGlot rewrite of the same query); UI headline "Lowest" | sql_ast.py (`low_end_queries`), c11 (`_c11_zero_ties`), c13 | tests/test_chat_ui_audit_more_2026_10_29.py: `test_i10_…` — Needs live check |
+| J-7 | Fixed — as I-10 | as I-10 | as I-10 |
 | X-6 | Fixed ("N/A", "-" are blanks) | columns.js (`isBlank`), analytics.js | UI `X-6 / X-7 / X-12 …` |
 | X-7 | Fixed (Indian grouping read as a number) | columns.js (`isIndianGrouped`) | UI `X-6 / X-7 / X-12 …` |
 | X-12 | Fixed (label words only as the whole name or its end; backend mirror) | columns.js (`isLabelCol`), app/measure_kinds.py, c13 | UI `X-6 / X-7 / X-12 …`; `test_label_words_mark_a_label_only_at_the_end`, `test_a_per_year_measure_is_charted` |
 | X-13 | Fixed (below 0.01 of the unit, the smaller unit) | columns.js (`formatCell`), chartTheme.js (`fmtUnit`) | UI `X-13 / X-14 …` |
-| X-14 | Partly fixed — rupee columns (rs / rupees / ₹) show ₹ in lakh / crore; a money column named with no unit still depends on its name (the backend does not send a unit per column) | columns.js, chartTheme.js | UI `X-13 / X-14 …` |
+| X-14 | Fixed — a single-scheme money column with no unit gets one from the scheme's stored unit and the SQL's division ("amount_released" -> "amount_released_rs"); the UI shows ₹ lakh / crore | c13 `_c13_money_units`, sql_ast.py (`select_divisors`) | tests/test_chat_ui_audit_more_2026_10_29.py: `test_x14_…` |
 | K-1 | Fixed (leaving a chat stops its answer; a result that lands after a switch is dropped, not shown in the other chat) | frontend/src/chat/App.jsx (`leaveChat`, `chatGenRef`, `setMessagesHere`) | Needs browser check (React state; no Node harness for App.jsx) |
 | K-2 | Fixed (client: sign-out stops the answer, clears the screen, new session id; server: a session held by another signed-in user is refused with 409) — the server check is per worker; a cross-worker owner check needs the durable owner lookup | App.jsx (`handleLogout`), app/routers/query.py | `test_router_refuses_a_session_held_by_another_user` (tests/test_conversation_layer.py, added); browser check |
 | K-4 | Fixed (vote keyed on the answer's own content; the server upsert stores the vote's own question and answer) | frontend/src/chat/format.js (`answerKey`), Messages.jsx, app/routers/feedback.py | UI `K-4 …`; `test_feedback_upsert_keeps_the_votes_own_question_and_answer` |
@@ -151,11 +154,11 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | F-9 | Not reproducible offline — runs through the LLM mention extractor and the DB-backed resolver; the out-of-scope guard already refuses unknown places in the branches readable here. Needs a live check: "MGNREGA person days in East Khasi Hils" | | |
 | F-11 | Fixed by G-8 (the "villages with both" chip is now answered by the overlap query) — Needs live check | app/cross_figures.py | `test_villages_where_both_are_present_are_listed` |
 | H-4 | Fixed (Excel headings = screen headings) | exporters.js (`tableSheet`) | UI `H-4 / H-10 …` |
-| H-5 | Needs my decision — the banner's exact text is pinned by existing tests ("PMAY-G · All of Meghalaya", test_topic_ledger.py) | | |
-| H-6 | Needs my decision — as H-5 ("MGNREGA · Mawphlang", test_topic_ledger.py; "MGNREGA · East Khasi Hills · FY 2022-23", test_cache_hit_context.py) | | |
+| H-5 | Fixed (user decision) — "All years (FY 2022-23 to 2025-26)" when no year was used ("All years" for schemes with different spans, nothing for CM Elevate) | c14 `_banner_year` | test_topic_ledger (updated + new cases) |
+| H-6 | Fixed (user decision) — the place's type in the banner: "Umling block", "East Khasi Hills district", "… districts" | c14 `_banner_place` | test_topic_ledger, test_cache_hit_context (updated) |
 | H-7 | Fixed for the cross-scheme figures path ("MGNREGA (Focus Plus: no data) · …"); the per-scheme model path does not send which schemes returned rows yet | cross_figures (`schemes_with_data`), c13, c14 `_attach_scope_banner` | `test_banner_names_only_the_schemes_with_figures` |
-| H-8 | Needs my decision — as H-5 ("FY 2022-23, FY 2023-24" pinned in test_topic_ledger.py) | | |
-| H-9 | Partly fixed — the main sheet has the screen's columns (one year column, twins folded, screen headings) and the raw rows are kept on a "Qn data" sheet; pivots, compare cards and the change column are not rebuilt in Excel | ChatExport.jsx, exporters.js | browser check |
+| H-8 | Fixed (user decision) — 3+ consecutive years print as "FY 2017-18 to 2023-24" | c14 `_banner_year` | test_topic_ledger (new case) |
+| H-9 | Fixed — the table sheet has the screen's shape (grid, two-way card with the difference, change column); the raw rows on "Qn data" | exportShape.js (new), ChatExport.jsx | frontend/tests/audit.test.js: `H-9 …` |
 | H-10 | Fixed ("Answered for: …" above each table sheet; an "Answered for" column on the Conversation sheet) | ChatExport.jsx, exporters.js | UI `H-4 / H-10 …` |
 | H-11 | Fixed (a redraw writes no new sheet; its row points to the original sheet) | App.jsx (`redrawOf`), ChatExport.jsx | browser check |
 | H-12 | Fixed (text tables become lines in the Answer cell) | exporters.js (`tablesAsLines`) | UI `H-12 …` |
@@ -163,7 +166,7 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | B-4 | Fixed (a row of tiles per asked measure) | analytics.js, Messages.jsx | UI `B-4 …` |
 | J-9 | Fixed in the UI (a compare card whatever the number of figures, on the asked measure; names with spaces / "(Rs)" read) — the backend still returns the extra PMAY-G figures, which stay in the table | analytics.js (`colParts` = `nameParts`) | UI `J-9 …` |
 | C-12 | Fixed (both dimensions above 8 values: a table, one dimension down and one across, with a note) | analytics.js, Messages.jsx | UI `C-12 …` |
-| E-3 | Partly fixed — at the 1,000-row cap the table says "The first 1,000 rows are shown; there may be more"; the true total needs a COUNT the backend does not run | Charts.jsx (`DynTable`) | browser check |
+| E-3 | Fixed — at the cap the server counts the true total; "The first 1,000 of 1,532 rows are shown" | c11 (`_c11_true_row_count`), c13, conversation_store.py, Charts.jsx (`RowTotal`), Messages.jsx | tests/test_chat_ui_audit_more_2026_10_29.py: `test_e3_…` — Needs live check |
 | E-4 | Fixed by X-3 | analytics.js | UI `X-3 …` |
 | E-8 | Fixed (a "#" column on ranking tables) | analytics.js (`ranked`), Charts.jsx (`DynTable rank`) | UI `E-8 …` |
 | C-5 | Fixed (place names in CAPITALS shown in Title Case; rows unchanged) | columns.js (`placeTitle`, `formatCell`) | UI `C-5 …` |
@@ -182,7 +185,7 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | K-20 | Fixed (Focus+ card questions name FOCUS+) | constants.js | browser check |
 | K-21 | Fixed (Copy answer adds the table, tab-separated) | exporters.js (`rowsAsTsv`), Messages.jsx | UI `K-21 …` |
 | K-22 | Fixed (answer-text tables wrap in print) | chat.css | browser / PDF check |
-| K-23 | Partly fixed — "stop the query", "cancel the question", "stop answering", "रुको" stop the answer; a typed question while one runs still waits in the box with no hint | stopContinue.js | UI `K-23 …` |
+| K-23 | Fixed — more stop words, and a question typed while an answer runs says it stays in the box | stopContinue.js, App.jsx | frontend/tests/audit.test.js: `K-23 …` |
 | K-39 | Fixed ("/chart" alone, an unknown language, an unknown command each get a hint) | App.jsx | browser check |
 | F-6 | Fixed by J-1 for "last 3 years / this year / last year / current financial year" (read, so no pause and no garbled chip); other unread time phrases still add "for FY …" to the chip | c06 / c09 | `test_a_relative_period_is_never_asked_again` |
 | F-10 | Fixed (the answer's year goes into every chip that names no time) | app/followups.py | `test_next_step_chips_keep_the_year_and_never_repeat_the_question` |
@@ -192,21 +195,21 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | K-29 | Fixed (a chat that cannot be replayed starts a new session) | App.jsx | browser check |
 | K-30 | Fixed (an older history search answering late is ignored) | App.jsx (`histSeq`) | browser check |
 | K-31 | Fixed (editing a question into a command runs it without cutting the chat) | App.jsx | browser check |
-| K-40 | Partly fixed — the mic's tooltip says voice input is English only when another language is chosen; the mic is not turned off | App.jsx | browser check |
-| B-5 | Needs my decision — the dead `isCrossSummary` path: delete it (deleting existing code) or point it at the cross_figures shape | | |
-| B-6 | Not done — chips "Compare beneficiaries / money spent" under the knowledge answer to "Compare MGNREGA and PMAY-G" (c04 knowledge route) | | |
-| E-9 | Not done — `FETCH FIRST N ROWS WITH TIES` changes the row count of every model-written top-N query and the composer's text; needs a live run before it is switched on | | |
-| F-7 | Not done — year chips for two schemes still list the union of their years; the shared years first and "(PMAY-G only)" marks are not added | | |
-| F-8 | Not done — a future year beside a valid one still garbles the chip text (c06 `_year_out_of_range_clarification`) | | |
-| K-6 | Needs my decision — Regenerate / Edit "replaces" only on screen: add a server-side truncate of the replaced turns, or change the wording | | |
-| K-16 | Needs my decision — wording for officers: "Question language" instead of "Answer language", or translate answers too | | |
-| K-18 | Not done — chip taps are still translated again with the question language | | |
-| K-24 | Not done — the history title / question stays the English translation, not the officer's own words | | |
-| K-28 | Not done — over 60 active chats, the Archived section is still cut (needs a separate archived fetch) | | |
-| K-34 | Not done — Read aloud still reads table pipes; long answers in one utterance | | |
-| K-35 | Not done — key-figure bolding before ". " / ", " (text.js) | | |
-| K-36 | Not done — lenient parsing of malformed answer-text tables (Markdown.jsx) | | |
-| X-4 | Needs my decision — "Line only for periods" conflicts with the existing test `a percentage is never a pie or donut` (frontend/tests/charts.test.js expects Bar + Line for a % by district) | | |
-| X-10 | Not done — per-token re-render of every message (batch per animation frame, memo) | | |
-| X-11 | Not done — bundling the fonts locally needs the font files (no internet download here) | | |
-| X-16 | Needs my decision — product decision named by the audit: add a dark theme, or state light-only | | |
+| K-40 | Fixed — starting the mic with Khasi / Garo says "Voice input is English only" on every device (and the tooltip) | App.jsx | browser check |
+| B-5 | Fixed (user decision) — the dead `isCrossSummary` / `crossSummaryCharts` path deleted; that shape is a side-by-side card | analytics.js, Messages.jsx | test_table_view_2026_10_28 (updated), frontend/tests/audit.test.js: `B-5 …` |
+| B-6 | Fixed — the knowledge comparison ("difference between A and B", "compare A and B schemes") offers "Compare beneficiaries / money spent in A and B"; a bare "Compare A and B" is already answered with figures | c04 `_scheme_comparison_answer` | tests/test_chat_ui_audit_more_2026_10_29.py: `test_b6_…` |
+| E-9 | Fixed — no change to the model's LIMIT: when places share the last place's figure the answer says "3 villages tie for place 3 with 12 houses; 1 of them is shown" (one COUNT on the same query) | sql_ast.py (`tie_count_query`), c11 (`_c11_tie_note`), c13 | tests/test_chat_ui_audit_more_2026_10_29.py: `test_e9_…` — Needs live check |
+| F-7 | Fixed — shared years first; the others "FY 2017-18 (PMAY-G only)"; the card says which years both hold | c06 `_year_clarification` | tests/test_chat_ui_audit_more_2026_10_29.py: `test_f7_…` |
+| F-8 | Fixed — "FY 2027-28 has no data yet"; the chips put each held year in place of the bad one ("FY 2025-26 (latest) with FY 2024-25") | c06 `_year_out_of_range_clarification` | tests/test_chat_ui_audit_more_2026_10_29.py: `test_f8_…` |
+| K-6 | Fixed (user decision) — Edit / Regenerate send `keep_turns`; the server deletes the replaced turns (audit trail kept) and restores the context saved before them; idempotent | routers/query.py (`keep_turns`, `_replace_turns`), conversation_store.py (`truncate_turns`, `_context_before`), App.jsx, api.js | tests/test_chat_ui_audit_more_2026_10_29.py: `test_truncate_…`, `test_keep_turns_…` |
+| K-16 | Fixed (user decision) — "Question language — answers are in English" | LanguageSwitcher.jsx, slashCommands.js | browser check |
+| K-18 | Fixed — chip taps are sent as English (already the app's text) | App.jsx (`englishRef`) | browser check |
+| K-24 | Fixed — the officer's own words are saved and titled; the translation stays in `rewritten_question` ("Understood as") | routers/query.py | tests/test_chat_ui_audit_more_2026_10_29.py: `test_k24_…` |
+| K-28 | Fixed — active and archived chats fetched separately | api.js `listHistory` | browser check |
+| K-34 | Fixed — tables read as their cells, rule lines dropped, long answers spoken in pieces of ~220 characters | text.js (`speechText`, `speechChunks`), App.jsx | frontend/tests/audit.test.js: `K-34 …` |
+| K-35 | Fixed — a figure before ". " / ", " (or at the end) is bolded | text.js `figureSpans` | frontend/tests/audit.test.js: `K-35 …` |
+| K-36 | Fixed — rows without a closing pipe, rows with no leading pipe inside a table, escaped pipes; rows padded / extra cells kept | Markdown.jsx | tests/test_chat_ui_audit_more_2026_10_29.py: `test_k36_…` |
+| X-4 | Fixed (user decision) — Line offered only when the x-axis is a period; an existing test updated with approval | analytics.js, Messages.jsx (`periodAxis`) | frontend/tests/charts.test.js (updated), frontend/tests/audit.test.js: `X-4 …` |
+| X-10 | Fixed — tokens added once per animation frame; BotMessage / TextMessage memoised (one stable onEdit) | App.jsx, Messages.jsx | browser check |
+| X-11 | Fixed — Inter and JetBrains Mono bundled (@fontsource 5.3.0, latin subset); Google Fonts links removed | package.json, main.jsx (chat, admin), index.html, admin.html | vite build; browser check offline |
+| X-16 | Fixed (user decision: light-only) — `color-scheme: light` on both apps and `<meta name="color-scheme">` | chat.css, admin.css, index.html, admin.html | browser check |

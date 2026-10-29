@@ -4,7 +4,7 @@ import { isSpace, runEnd } from './text.js';
 /* Slash commands in the composer (#319). A question that starts with "/chart"
    or "/table" is asked as usual, and its answer shows the charts without their
    table, or the table alone. "/glossary [term]" opens the glossary (filtered
-   to the term). "/lang <en|kha|gar>" switches the answer language. The text is
+   to the term). "/lang <en|kha|gar>" switches the question language. The text is
    read with string methods only (project rule D-047). */
 export const SLASH_COMMANDS = [
   { cmd: 'chart', desc: 'Answer as a chart', hint: 'your question' },

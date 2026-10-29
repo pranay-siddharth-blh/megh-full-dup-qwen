@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { createContext, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Chart from 'chart.js/auto';
 import { pivotStacked, tableColumns } from '../analytics.js';
@@ -825,8 +825,12 @@ function BigTable({ data, cols, title = 'Result table' }) {
 
 // `change`: the question asked how a figure moved over time; a one-period,
 // one-measure table then adds "Change from previous" (columns.changeColumn).
+// E-3: the rows the query would return without the 1,000-row cap (server count)
+export const RowTotal = createContext(null);
+
 export function DynTable({ data: raw, title = 'Result table', change = false, rank = false }) {
   const [open, setOpen] = useState(false);
+  const total = useContext(RowTotal);
   if (!raw || !raw.length) return null;
   // A twin column (year_key beside financial_year) is the same thing twice: shown
   // once. The Excel download keeps every column (ChatExport reads the raw rows).
@@ -839,7 +843,9 @@ export function DynTable({ data: raw, title = 'Result table', change = false, ra
       <TableBar count={data.length} label="table" onExpand={() => setOpen(true)} />
       {data.length >= 1000 && (
         // E-3 (audit 2026-10-29): the result stops at 1,000 rows (the query cap)
-        <p className="rt-capped">The first 1,000 rows are shown; there may be more. Narrow the question (a district or a year) to see the rest.</p>
+        <p className="rt-capped">{total > data.length
+          ? `The first ${data.length.toLocaleString('en-IN')} of ${Number(total).toLocaleString('en-IN')} rows are shown.`
+          : 'The first 1,000 rows are shown; there may be more.'} Narrow the question (a district or a year) to see the rest.</p>
       )}
       <div className="rtwrap">
         <table className="rtbl">

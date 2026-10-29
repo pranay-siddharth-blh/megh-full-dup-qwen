@@ -53,6 +53,10 @@ class QueryRequest(BaseModel):
     # ignored until the RAG upgrade Phase 4: a Khasi or Garo question is now
     # translated to English first (app/translate.py).
     language: str = Field(default="en", max_length=8)
+    # K-6 (chat UI audit 2026-10-29): Regenerate / Edit replace a question and what
+    # followed it. The number of this conversation's saved turns to keep; the rest
+    # are deleted and the context goes back to what it was before them.
+    keep_turns: int | None = Field(default=None, ge=0, le=500)
 
     @field_validator("question")
     @classmethod
@@ -237,6 +241,11 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     durable_session = not session_id.startswith("one-")
     if durable_session:
         await session_sync.sync_in(session, session_id)
+    if req.keep_turns is not None and durable_session and scope.db_user_id is not None:
+        await _replace_turns(session, session_id, scope, req.keep_turns)
+    # K-6: the context as it is before this turn, saved with it so a later Edit /
+    # Regenerate of this question can put it back
+    context_before = {"snapshot": session.to_snapshot(), "summary": session.summary}
     # Conversation layer (app/conversation_layer.py): an idle conversation
     # starts afresh, "start a new topic" clears the context, and "what was the
     # PMAY-G information again?" becomes a return to that topic. Before the
@@ -314,7 +323,8 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
             clarify_latency_ms = (time.monotonic() - started) * 1000
             conversation_store.persist_turn(
                 tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,
-                result=out, question=req.question, latency_ms=clarify_latency_ms,
+                result=out, question=translated_from or req.question, latency_ms=clarify_latency_ms,
+                context_before=context_before,
                 username=scope.username or None, ip=ip,
                 audit=turn_trace.audit_fields(trace, out),
             )
@@ -324,7 +334,7 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
             # reply (KI-001): it is part of the durable snapshot.
             if durable_session:
                 await session_sync.sync_out(session, session_id, tenant_id=scope.tenant_id,
-                                            user_id=scope.db_user_id, title=req.question)
+                                            user_id=scope.db_user_id, title=translated_from or req.question)
             return out
         except ModelBusyError as e:
             metrics.busy_rejections += 1
@@ -394,7 +404,8 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     # L2 durable — conversation + turn + audit (fire-and-forget)
     conversation_store.persist_turn(
         tenant_id=scope.tenant_id, user_id=scope.db_user_id, session_id=session_id,
-        result=result, question=req.question, latency_ms=latency_ms,
+        result=result, question=translated_from or req.question, latency_ms=latency_ms,
+        context_before=context_before,
         username=scope.username or None, ip=ip,
         audit=turn_trace.audit_fields(trace, result),
     )
@@ -416,7 +427,7 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
     # itself, so it no longer races persist_turn's insert).
     if durable_session:
         await session_sync.sync_out(session, session_id, tenant_id=scope.tenant_id,
-                                    user_id=scope.db_user_id, title=req.question)
+                                    user_id=scope.db_user_id, title=translated_from or req.question)
     _mirror_audit(scope, session_id, req.question, result, started, ip, trace)
 
     # Only write back a freshly computed answer, and only under this caller's scope —
@@ -434,6 +445,21 @@ async def _answer(req: QueryRequest, request: Request, scope: auth.UserScope) ->
 # ── Per-request conversation bookkeeping ────────────────────────────────────
 # Module-level so the live validation harness (tests/live_context_validation.py)
 # runs exactly this logic rather than a copy of it.
+
+async def _replace_turns(session, session_id: str, scope: auth.UserScope, keep: int) -> None:
+    """K-6: delete the saved turns after the first `keep` and restore the context
+    saved before the first of them. Never fails the question: if the store is
+    unreachable the turns stay (as before) and the question is answered."""
+    try:
+        ctx = await conversation_store.truncate_turns(session_id=session_id, user_id=scope.db_user_id, keep=keep)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("keep_turns: could not remove replaced turns (%s)", e)
+        return
+    if not ctx or not isinstance(ctx.get("snapshot"), dict):
+        return
+    session.apply_snapshot(ctx["snapshot"], ctx.get("summary"))
+    await session_sync.sync_out(session, session_id, tenant_id=scope.tenant_id, user_id=scope.db_user_id)
+
 
 def is_cacheable(question: str, session) -> bool:
     """Whether this request may be served from, and written to, the shared

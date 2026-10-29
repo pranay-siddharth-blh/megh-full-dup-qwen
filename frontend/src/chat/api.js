@@ -197,9 +197,11 @@ async function httpFailure(response) {
   return new Error(detailText(detail) || 'API request failed');
 }
 
-// opts: { skipCache, signal } — skipCache answers afresh (Regenerate); signal is Stop.
+// opts: { skipCache, signal, keepTurns } — skipCache answers afresh (Regenerate); signal is Stop;
+// keepTurns (K-6): the saved turns to keep — the rest were replaced by Edit / Regenerate.
 export async function fetchNLPResponse(question, language, sessionId, opts = {}) {
   const body = { question, language, session_id: sessionId, include_sql: true, skip_cache: !!opts.skipCache };
+  if (Number.isInteger(opts.keepTurns)) body.keep_turns = opts.keepTurns;   // K-6
   const ab = questionAbort(opts.signal);
   let response;
   try {
@@ -229,6 +231,7 @@ export async function fetchNLPResponse(question, language, sessionId, opts = {})
 export async function streamNLPResponse(question, language, sessionId, opts = {}) {
   const onEvent = opts.onEvent || (() => {});
   const body = { question, language, session_id: sessionId, include_sql: true, skip_cache: !!opts.skipCache };
+  if (Number.isInteger(opts.keepTurns)) body.keep_turns = opts.keepTurns;   // K-6
   const ab = questionAbort(opts.signal);
   let gotEvent = false;
   let response;
@@ -326,11 +329,17 @@ export async function checkHealth(timeoutMs = 6000) {
 
 // ── Conversation history (server-backed, per officer) ───────────────────────
 export async function listHistory(filter) {
-  const qs = filter ? '&q=' + encodeURIComponent(filter) : '';
-  const res = await apiFetch('/api/history?limit=60' + qs);
-  if (!res.ok) throw new Error('history ' + res.status);
-  const data = await res.json();
-  return data.conversations || [];
+  const one = async (qs) => {
+    const res = await apiFetch('/api/history?limit=60' + qs);
+    if (!res.ok) throw new Error('history ' + res.status);
+    const data = await res.json();
+    return data.conversations || [];
+  };
+  if (filter) return one('&q=' + encodeURIComponent(filter));
+  // K-28 (audit 2026-10-29): one list of 60 with archived chats last cut the Archived
+  // section off for an officer with 60+ active chats; each shelf is fetched on its own
+  const [active, archived] = await Promise.all([one('&archived=false'), one('&archived=true')]);
+  return [...active, ...archived];
 }
 
 export async function getConversation(sid) {
