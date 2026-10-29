@@ -1540,4 +1540,11 @@ the DATA path stubbed (the VPN was down: `10.48.242.4` answered neither 5432 nor
 
 ### Lane B2 · Answers & knowledge base (KI-540 to KI-569)
 - Progress: not started
+- **2026-10-30 live re-check (VPN up), on committed code 2fdf3bd in a clean worktree (another session had
+  uncommitted edits in the main tree):** TT1-TT6 + TTW1-TTW5 **11/11, 33/33 turns** (in-process, `--fresh-worker`); live
+  context suite 106/107 then scenario F 6/6 after the D-090 check update = effectively 107/107. The first TT run showed
+  1/11 only because the harness compared places exactly and the banner now says "East Khasi Hills district" (chat UI
+  audit H-5): `checks._place_matches` / `_year_matches` fixed, answers were right. KI-482 is moot for now: conversation
+  memory is off since the Qdrant move (CLAUDE.md). Live runs hit "too many connections for role megh_chatbot" once
+  (the :8401 server and other sessions share the role); a retry passed.
 <!-- end lane B2 -->

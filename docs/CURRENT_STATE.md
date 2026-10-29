@@ -1768,6 +1768,8 @@ DDL.
   composer wording / units (lane B2), the 8,921 vs 8,948 total (data).
 - **Report fixes VERIFIED live (2026-10-29 evening):** all six repros pass over HTTP; the report's "What works" rows
   pass; no new failure in the 94 context scenarios or the live context suite.
+- **2026-10-30:** report fixes re-verified live on the merged code (11/11 scenarios); the rulebook D-A2-CTX-09 is
+  partly superseded by D-089 / D-090.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

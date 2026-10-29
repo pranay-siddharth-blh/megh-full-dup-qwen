@@ -1429,6 +1429,11 @@ conversation state back into process memory (D-023).
 - **Live retest done (2026-10-29 evening):** TT1-TT6 6/6, TTW1-TTW5 5/5, context harness 89/94 (KI-485 only), live
   suite 107/107. :8401 runs `lane/a2` (started by this session; restart it if the session ended). Open: Bug 5's variant,
   the D-064 request, composer items (lane B2), the 8,921 vs 8,948 total (data).
+- **2026-10-30:** live re-check done (TT 11/11, live suite effectively 107/107; KNOWN_ISSUES lane A2). Harness
+  follows the new banner (H-5/H-6) and D-090. NOT pushed: this branch has the self-review fix (KI-493..495) and the
+  harness fix that Bitbucket does not. Another session is working uncommitted in the same folder (c01, c02, c11, c12,
+  focus_plus, spelling, sheet runs) — its edits only add lines; this lane's fixes are intact. Open: KI-496, Bug 5 variant,
+  the duplicate D-088 / D-089 numbers.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

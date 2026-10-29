@@ -497,6 +497,8 @@ cases. Per file:
   covers them). Full pytest **4,413 passed, 0 failed, 3 skipped**; 14/14 scripts. Offline only (VPN down).
 - **Live retest (2026-10-29 evening):** TT1-TT6 6/6 and TTW1-TTW5 5/5 over HTTP; `--tags context` over HTTP 89/94
   (5 = KI-485, pre-existing); live context suite 107/107 (`logs/live_context_validation_2026-10-29_1736.json`).
+- **2026-10-30:** harness place / year matchers follow the banner (type word, "All years (…)"); TT/TTW 11/11 live;
+  live suite F 6/6 (T5 now checks D-090).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
