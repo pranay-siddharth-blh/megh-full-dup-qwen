@@ -1,0 +1,40 @@
+# QA-03 (2026-10-29): live checks for the conversation-integrity fixes.
+#   P1  CTX-01: another logged-in user holding this chat's id is refused (403)
+#       and the owner's chat is untouched. Logins exist only over HTTP, so this
+#       runs on the http driver (`drivers:`).
+#   P2  CTX-02: topic memory survives a cached answer (run with the caches ON),
+#       and both "go back to <scheme>" and "go back to <place>" restore the
+#       earlier scope.
+
+- name: P1_ownership_refused
+  doc: "a second account on the same chat id gets 403; the owner continues in scope"
+  tags: [ownership, context, live]
+  account: superadmin
+  drivers: [http]
+  turns:
+    - say: "How many person-days were generated under MGNREGA in East Khasi Hills in FY 2022-23?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "What did we discuss?"
+      as_account: state-rd
+      expect: {route: error, status: 403}
+    - say: "What about FY 2023-24?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2023-24}
+
+- name: P2_topics_survive_a_cache_hit
+  doc: "MGNREGA -> PMAY-G -> the MGNREGA question again (cached) -> go back to PMAY-G -> go back to East Khasi Hills"
+  tags: [topic_memory, context, cache, live]
+  account: superadmin
+  turns:
+    - say: "How many person-days were generated under MGNREGA in East Khasi Hills in FY 2022-23?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "How many PMAY-G houses were completed in West Garo Hills in FY 2023-24?"
+      expect: {route: data, scheme: PMAY-G, place: West Garo Hills, year: FY 2023-24}
+    - say: "How many person-days were generated under MGNREGA in East Khasi Hills in FY 2022-23?"
+      note: "the same words as turn 1: served from the answer cache when the caches are on"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}
+    - say: "go back to PMAY-G"
+      expect: {route: edge, edge_type: topic_switch}
+    - say: "What about FY 2022-23?"
+      expect: {route: data, scheme: PMAY-G, place: West Garo Hills, year: FY 2022-23}
+    - say: "go back to East Khasi Hills"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2022-23}

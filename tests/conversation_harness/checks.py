@@ -136,6 +136,8 @@ def check_turn(expect: dict | None, rec: TurnRecord, earlier: list[TurnRecord],
     route = rec.route if rec.route != "clarification" else "pause"
     if "route" in expect and expect["route"] != route:
         fails.append(f"route {route!r}, expected {expect['route']!r}")
+    if "status" in expect and rec.status != expect["status"]:
+        fails.append(f"status {rec.status!r}, expected {expect['status']!r}")
     if "edge_type" in expect and (rec.edge_type or "") != expect["edge_type"]:
         fails.append(f"edge_type {rec.edge_type!r}, expected {expect['edge_type']!r}")
     if "pause_rule" in expect and (rec.pause_rule or "") != expect["pause_rule"]:
@@ -212,12 +214,12 @@ def check_turn(expect: dict | None, rec: TurnRecord, earlier: list[TurnRecord],
     return fails
 
 
-SCENARIO_KEYS = {"name", "doc", "account", "tags", "turns", "skip", "_file"}   # _file: set by the loader
-TURN_KEYS = {"say", "expect", "note"}
+SCENARIO_KEYS = {"name", "doc", "account", "tags", "turns", "skip", "drivers", "_file"}   # _file: set by the loader
+TURN_KEYS = {"say", "expect", "note", "as_account"}
 EXPECT_KEYS = {"route", "edge_type", "pause_rule", "scheme", "place", "year", "banner", "from_earlier", "new_question",
                "place_not", "year_not", "numbers_any",
                "numbers_all", "answer_contains", "answer_not_contains", "chips_contain", "chips_min", "same_scope_as",
-               "except", "same_numbers_as", "truth"}
+               "except", "same_numbers_as", "truth", "status"}
 
 
 def validate_scenario(sc: dict) -> list[str]:
