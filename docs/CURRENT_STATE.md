@@ -57,9 +57,9 @@
 - Stage 2b done (same day): the intent stage reads the plan's intent instead of its last-resort classifier call (only
   with the flag on). Only 10% of real questions reach that call (39/383); there the plan matched 36/36. Held-out set
   on vs off: **42/74 both, identical outcomes**, +0.35 s median per question on -> flag stays OFF.
-- Next lever (needs a go-ahead; safety change): one classifier call that reads the guardrail verdict and the plan
-  together, which would remove a call on every new turn.
-- Tests: NEW `tests/test_query_plan_in_turn_2026_10_29.py` (19). Full pytest **4,189 passed, 0 failed**; scripts 14/14.
+- Merged guardrail + plan call: measured and NOT built (guardrail call median 0.16 s vs plan call 0.80 s: the merge
+  would make the safety check ~0.6 s slower on every new question to save a call on ~10%; D-085).
+- Tests: NEW `tests/test_query_plan_in_turn_2026_10_29.py` (25 incl. stage 2b). Full pytest after stage 2b **4,243 passed, 0 failed**; scripts 14/14 (VPN up).
 
 ## Latest: E2 guardrail — model outage fails closed for abuse only, counted and alerted (2026-10-29, D-080, KI-446 fixed). Code changed, uncommitted. LIVE-VERIFIED in-process; :8401 not running at the time (not started).
 - When the guardrail model cannot judge (error, timeout, unreadable reply), `guardrails._outage_verdict`: a message with

@@ -1004,6 +1004,11 @@ not recorded.*
   on every new turn today, so **`QUERY_PLAN_IN_TURN` stays false**. What would pay: one call reading the guardrail
   verdict AND the plan together (E2 + E1 merged; a safety-behaviour change, needs its own go-ahead and the guardrail
   test suites), or a plan reader that replaces a call made on most turns.
+- **Merged guardrail + plan call: measured, NOT built (same day).** Live, sequential, 8 questions x 2: the guardrail
+  call median **0.16 s** (mean 0.40 s), the plan call median **0.80 s** (mean 2.31 s). One call returning both must
+  write the 9-field plan before the verdict is complete, so the safety check on the critical path would grow from
+  ~0.16 s to ~0.8 s on every new question, to save the intent call on ~10% of turns, and it would ask the 4B model
+  for two jobs in the safety call. Revisit only if a plan reader replaces calls on most turns.
 - **Status:** Active (code present, off). E2's latency goal is NOT met by parallelism on today's gateway.
 
 ### D-084 — Frontend lint and tests: ESLint (with the no-regex rule) + `node --test` (2026-10-29)
