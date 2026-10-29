@@ -2074,6 +2074,15 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
   both places. **Why it does not conflict with D-056:** D-056 leaves a place SWAP ("what about Ri Bhoi?") to the
   model; these need an explicit breakdown or compare cue and change nothing but the dimension / the added place.
   KI-416 is not touched: the rewrite guard already refuses the measure switch (SQL generation, lane B1).
+#### D-A2-REPORT — Two continuations the test team expected (2026-10-29; for the user's review)
+- **After a knowledge aside, a measure-only question keeps the chat's data scope** when the chat is on that scheme
+  (it used to get the scheme alone and run as a new question). A chat that opened with the knowledge question, or an
+  aside about another scheme, is unchanged.
+- **A block of the chat's own district keeps the chat's year** (D-061 treats it as a new question; D-075 kept the year
+  only for the same measure). The place is the question's own, as in D-075. A block elsewhere, or another scheme, is
+  still a new question.
+- Both extend D-061 / D-075 narrowly; neither changes what counts as standalone. Tests:
+  `tests/test_test_team_report_2026_10_29.py`.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

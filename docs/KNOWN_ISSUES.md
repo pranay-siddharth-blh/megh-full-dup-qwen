@@ -1429,6 +1429,31 @@ the DATA path stubbed (the VPN was down: `10.48.242.4` answered neither 5432 nor
 - **KI-484** — Another worker's in-memory copy of a deleted chat lives until its TTL: `sync_in` cannot tell "deleted"
   from "never saved" (both load nothing) and keeps the local copy. Only reachable by re-sending the deleted id.
   **OPEN** (INFERRED; low). routers/history.py, session_sync.
+- **Test team report 2026-10-29 (context memory 7/10)** — causes found in the code and fixed on `lane/a2`
+  (`tests/test_test_team_report_2026_10_29.py`, 11; 9 fail on the old code). Live retest pending (VPN):
+  `--tags test_team_2026_10_29` (TT1-TT6).
+  - **KI-487** (Bug 1, High) — a knowledge aside "wiped" the data context: `_measure_after_knowledge` appended only the
+    scheme ("how many person-days under MGNREGA?"), which then read as a NEW question (D-061): year asked, statewide,
+    "(new question)". **FIXED**: `_c01_kmeasure_question` keeps the chat's data scope of that scheme; a question that keeps
+    the chat's own scheme / place / year is not labelled new (`_c14_keeps_chat_scope`).
+  - **KI-488** (Bug 2, Medium) — "and sanctioned?" after a knowledge aside was rewritten against the aside: "sanctioned"
+    is a chat measure (`detect_metric`) but no measure family, so `_is_measure_only` refused it. **FIXED** (it reads
+    `detect_metric` too). The whole-chat effect needs the live run (offline the model rewrite does not happen).
+  - **KI-489** (Bug 3, High) — a follow-up to a comparison went statewide: `resolve_entities` carried a single district /
+    block from the previous turn but not `district_list` / `block_list`. **FIXED**.
+  - **KI-490** (Bug 4, Medium) — "person-days in Tikrikilla block?" after West Garo Hills by block is a new question
+    (D-061) and kept the year only on an exact measure match (D-075). **FIXED**: a block of the chat's own district keeps
+    the year (D-A2-REPORT). Live, the year was asked although offline D-075 applied: the live cause of the measure
+    mismatch is UNKNOWN — NEEDS VERIFICATION; the new rule covers it either way.
+  - **KI-491** (Bug 5, Medium) — "how many are on hold?" with CM Elevate, MGNREGA and PMAY-G topics open asked which topic.
+    **FIXED** (`cm_elevate._cme_open_topic_pin`). OPEN: the variant (typed while the CM Elevate dataset pause is pending:
+    CM Elevate missing from the chips) — not reproduced offline; needs the live run.
+  - **KI-492** (typo, Low) — "toatal persendays" carried no continuation signal read raw. **FIXED**: the continuation check
+    also reads the rephraser's typo gloss, accepted only when it yields a measure; measure typos are corrected against
+    the few-shot synonym table. "he is my collik remember" still does not continue.
+  - Not changed (not context memory, or a user decision): "applications" asking CM Elevate vs Legacy is D-064 (user
+    decision) — the report asks to reverse it; "CM Elevate (applications) applications", "across all financial years" for
+    CM Elevate, lakh vs crore (see KI-486) — composer, lane B2; 8,921 vs 8,948 applications — data / dashboard.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

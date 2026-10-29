@@ -445,6 +445,9 @@ cases. Per file:
   plain and stream pass (P2 also with the response cache on: a real cache hit); harness in-process `--fresh-worker
   --tags context` 75/82 — the 7 failures are identical on Main (KI-485); nl2sql eval 97.7% (42/43) + 31
   `expected_pause` (FL-12 flips between runs, model variance). Not run: VM1 → VM2 pause / resume, J2 / J3 (KI-037).
+- **Test team report fixes (2026-10-29):** NEW `tests/test_test_team_report_2026_10_29.py` (11; 9 fail on the old
+  code); NEW harness scenarios `test_team_report_2026_10_29.yaml` (TT1-TT6, all valid; the cache-gate table test now
+  covers them). Full pytest **4,413 passed, 0 failed, 3 skipped**; 14/14 scripts. Offline only (VPN down).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

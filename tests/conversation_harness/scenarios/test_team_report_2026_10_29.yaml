@@ -1,0 +1,79 @@
+# The test team's context-memory report (2026-10-29): each bug's exact repro, as
+# the retest checklist. Run live over HTTP (caches as deployed):
+#   .venv/Scripts/python.exe -m tests.conversation_harness.run --driver http --tags test_team_2026_10_29
+
+- name: TT1_knowledge_aside_keeps_the_data_context
+  doc: "Bug 1: job cards EKH 2024-25 -> what is a job card -> how many person-days? (no year pause, EKH, 2024-25)"
+  tags: [test_team_2026_10_29, context, knowledge]
+  account: superadmin
+  turns:
+    - say: "How many job cards in East Khasi Hills in 2024-25?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2024-25}
+    - say: "what is a job card in MGNREGA?"
+      expect: {route: knowledge}
+    - say: "how many person-days?"
+      expect: {route: data, scheme: MGNREGA, place: East Khasi Hills, year: FY 2024-25, new_question: false}
+
+- name: TT2_measure_after_knowledge_is_data
+  doc: "Bug 2: PMAY-G completed EKH 2023-24 -> what is PMAY-G and who is eligible? -> and sanctioned?"
+  tags: [test_team_2026_10_29, context, knowledge]
+  account: superadmin
+  turns:
+    - say: "How many PMAY-G houses were completed in East Khasi Hills in 2023-24?"
+      expect: {route: data, scheme: PMAY-G, place: East Khasi Hills, year: FY 2023-24}
+    - say: "what is PMAY-G and who is eligible?"
+      expect: {route: knowledge}
+    - say: "and sanctioned?"
+      expect: {route: data, scheme: PMAY-G, place: East Khasi Hills, year: FY 2023-24}
+
+- name: TT3_comparison_carried_to_the_next_follow_up
+  doc: "Bug 3: WGH person-days 2023-24 -> compare it with Ri Bhoi -> what about expenditure? (both districts)"
+  tags: [test_team_2026_10_29, context, comparison]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in West Garo Hills for FY 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2023-24}
+    - say: "compare it with Ri Bhoi"
+      expect: {route: data, scheme: MGNREGA, year: FY 2023-24, answer_contains: ["Ri Bhoi", "West Garo Hills"]}
+    - say: "what about expenditure?"
+      expect: {route: data, scheme: MGNREGA, year: FY 2023-24, answer_contains: ["Ri Bhoi", "West Garo Hills"]}
+
+- name: TT4_block_drill_down_keeps_the_year
+  doc: "Bug 4: WGH 2023-24 -> by block -> person-days in Tikrikilla block? (FY 2023-24, no pause) -> and in 2024-25?"
+  tags: [test_team_2026_10_29, context, drill_down]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in West Garo Hills in 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2023-24}
+    - say: "break that down by block"
+      expect: {route: data, scheme: MGNREGA, year: FY 2023-24}
+    - say: "person-days in Tikrikilla block?"
+      expect: {route: data, scheme: MGNREGA, place: Tikrikilla, year: FY 2023-24}
+    - say: "and in 2024-25?"
+      expect: {route: data, scheme: MGNREGA, place: Tikrikilla, year: FY 2024-25, new_question: false}
+
+- name: TT5_active_scheme_settles_on_hold
+  doc: "Bug 5: MGNREGA and PMAY-G topics, then CM Elevate applications in WGH -> how many are on hold? (no which-topic pause)"
+  tags: [test_team_2026_10_29, context, cm_elevate]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in West Garo Hills in 2023-24"
+      expect: {route: data, scheme: MGNREGA}
+    - say: "How many PMAY-G houses were completed in West Garo Hills in 2023-24?"
+      expect: {route: data, scheme: PMAY-G}
+    - say: "how many CM Elevate applications in West Garo Hills?"
+      expect: {route: pause, pause_rule: cm-elevate-dataset}     # D-064: "applications" alone asks
+    - say: "CM Elevate (applications)"
+      expect: {route: data, scheme: CM Elevate, place: West Garo Hills}
+    - say: "how many are on hold?"
+      expect: {route: data, scheme: CM Elevate, place: West Garo Hills}
+
+- name: TT6_measure_typo_continues
+  doc: "Typo: MGNREGA Ri Bhoi 2023-24 -> toatal persendays (person-days, same scope)"
+  tags: [test_team_2026_10_29, context, typo]
+  account: superadmin
+  turns:
+    - say: "MGNREGA person-days in Ri Bhoi in 2023-24"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2023-24}
+    - say: "toatal persendays"
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi, year: FY 2023-24}

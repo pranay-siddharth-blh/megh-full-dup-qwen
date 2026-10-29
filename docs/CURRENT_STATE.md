@@ -1643,6 +1643,9 @@ DDL.
 - **Tests (rebased on Main 1360c3b):** 4,402 passed, 0 failed, 3 skipped; 14/14 scripts; frontend lint + 13/13.
 - **Open, user decisions:** D-A2-CTX-09 sign-off; retention periods; KI-482 (semantic memory almost never used) and
   KI-483 (summary covers 4 questions).
+- **Test team report (2026-10-29, 7/10):** Bugs 1-5 and the typo case traced to their causes and fixed (KI-487..492);
+  offline-verified, live retest pending (TT1-TT6). Not changed: the D-064 "applications" request (user decision),
+  composer wording / units (lane B2), the 8,921 vs 8,948 total (data).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

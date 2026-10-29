@@ -1329,6 +1329,12 @@ conversation state back into process memory (D-023).
     keep `_restore_turn_start(request, session)` in each branch.
 - **Failing tests seen:** none on the final tree (one transient failure in a run that overlapped the harness edits;
   re-run green).
+- **Test team report (2026-10-29), fixed offline on `lane/a2` (commit "Test team context report"):** Bugs 1-5 + typo,
+  causes in KNOWN_ISSUES KI-487..492. **First thing when the VPN is up:** restart :8401 on `lane/a2` and run
+  `.venv/Scripts/python.exe -m tests.conversation_harness.run --driver http --tags test_team_2026_10_29`, plus the
+  report's "What works" rows (live context suite, `--tags context`). For the user: the report asks that a bare
+  "applications" pick CM Elevate directly, which reverses D-064 — not changed. Bug 5's variant (pending dataset
+  pause) is still open.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
