@@ -81,6 +81,16 @@ def test_compare_with_a_place_keeps_the_previous_place(ask):
         "Compare how many PMAY-G beneficiaries are there in East Khasi Hills and Ri Bhoi in FY 2023-24?"
 
 
+def test_the_compare_plan_clears_the_compared_level_and_below():
+    # live 2026-10-29: without it the inherited district=EAST KHASI HILLS stayed
+    # beside district_list and the PMAY-G fixed query answered one district
+    plan = p._c01_ctx07_compare_place_plan("Compare the number of beneficiaries with Ri Bhoi")
+    assert {k for k, v in plan.actions.items() if v == cp.CLEAR} == {"district", "block", "village"}
+    plan = p._c01_ctx07_compare_place_plan("compare with Mylliem")
+    assert {k for k, v in plan.actions.items() if v == cp.CLEAR} == {"block", "village"}
+    assert p._c01_ctx07_compare_place_plan("compare with PMAY-G") is None
+
+
 def test_compare_with_a_block_keeps_the_block_level():
     out = p._c01_ctx07_compare_place_question("compare with Mylliem", BLOCK_PREV)
     assert out == "Compare how many MGNREGA person-days were generated in Mawphlang and Mylliem blocks in FY 2022-23?"
@@ -107,10 +117,12 @@ def chat(monkeypatch):
     for flag in ("CONTEXT_LAYER_ENABLED", "CONTEXT_STATE_ENABLED"):
         monkeypatch.setattr(settings, flag, True)
     seen = []
+    inherited = []
     resolved = {}
 
     async def data(question, scope=None, **kw):
         seen.append(question)
+        inherited.append(dict(kw.get("prior_resolved") or {}))
         return {"route": "data", "intent": "DATA", "schemes": [resolved["scheme"]], "sql": "SELECT 1",
                 "resolved_entities": dict(resolved["entities"]), "rows": [{"n": 1}], "data": [{"n": 1}],
                 "row_count": 1, "answer": "answer."}
@@ -127,6 +139,7 @@ def chat(monkeypatch):
         out = asyncio.run(graph_turn(q, session=s))
         s.turns.append(build_turn(q, out))             # what the router does after the graph
         return seen[-1] if len(seen) > n else None
+    ask.inherited = inherited
     return ask
 
 
@@ -141,6 +154,8 @@ def test_ki364_through_the_graph(chat):
     got = chat("Compare the number of beneficiaries with Ri Bhoi", "PMAY-G",
                {"district": "RI BHOI", "year_key": 2023})
     assert got == "Compare how many PMAY-G beneficiaries are there in East Khasi Hills and Ri Bhoi in FY 2023-24?"
+    # the previous district is not inherited beside the two the question names
+    assert not chat.inherited[-1].get("district")
 
 
 def test_ki416_the_rewrite_guard_already_refuses_a_money_rewrite_of_a_houses_question():

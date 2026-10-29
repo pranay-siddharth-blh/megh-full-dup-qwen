@@ -1470,6 +1470,22 @@ def _c01_ctx07_compare_place_question(raw_question: str, prev) -> "str | None":
     return f"Compare {both}"
 
 
+def _c01_ctx07_compare_place_plan(raw_question: str) -> "context_policy.MergePlan | None":
+    """The merge plan that goes with a compare-with-place rewrite: the compared
+    level and those below it are CLEARed, so the previous turn's single place
+    is not inherited beside the two the rewrite names. Live 2026-10-29: the
+    question named East Khasi Hills and Ri Bhoi, resolve_entities found both
+    (district_list), but the inherited district=EAST KHASI HILLS stayed too and
+    the PMAY-G fixed query answered East Khasi Hills alone. Same mechanism as a
+    roll-up's plan (c15 _c15_rollup_plan)."""
+    from app.entity_resolver import place_mentions
+    dims = list(place_mentions(raw_question or "").values())
+    order = ("district", "block", "village")             # coarsest first, as asked_levels
+    if len(dims) != 1 or dims[0] not in order:
+        return None
+    return _c15_rollup_plan(*order[order.index(dims[0]):])
+
+
 # ── A scheme swap that carries a measure the new scheme does not hold ───────
 # Reported 2026-09-29: "give me for pmay" after "Total MGNREGA person-days in
 # 2023-24" rewrote, correctly, to "Total PMAY-G person-days in 2023-24". But

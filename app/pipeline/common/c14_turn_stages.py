@@ -1264,6 +1264,11 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                 question = _c14_ctx07_q
                 _meta_rewrite = True
                 context_budget.log_decision("followup", rewrite=_c14_ctx07_kind, question=question)
+                if _c14_ctx07_kind == "compare-with-place":
+                    # the previous single place must not be inherited beside the two
+                    _rollup_plan = _c01_ctx07_compare_place_plan(raw_question)
+                    if _rollup_plan is not None and session is not None:
+                        session.turn_context["plan"] = _rollup_plan.to_dict()
                 break
     # 0h'. Roll-up (E3, D-052): "back to the district level" / "and statewide?"
     #      names no place, so the previous question is rolled up from its own
