@@ -690,7 +690,72 @@ def _cme_data_block(canon: str, question: str, data_blocks: "list[str]") -> "str
     return sorted(urban)[0] if urban else None
 
 
+def _cme_ac_name_case(sql: str) -> str:
+    """v_cm_elevate stores ac_name in Title Case ("West Shillong"): `ac_name = 'WEST SHILLONG'` matched
+    nothing and the answer was "couldn't find any matching records" (UAT 2026-10-30, C01-017AC-59). An
+    ac_name compared to a literal is compared case-blind (Focus Legacy / Legacy have the same rewrite)."""
+    tree = sql_ast.parse_one(sql)
+    if tree is None:
+        return sql
+    changed = False
+    for node in list(tree.find_all(exp.EQ, exp.In)):
+        col = node.this
+        if not (isinstance(col, exp.Column) and col.name.lower() == "ac_name"):
+            continue
+        if isinstance(node, exp.EQ):
+            lit = _cme_str(node.expression)
+            if lit is None:
+                continue
+            node.replace(exp.EQ(this=exp.Upper(this=col.copy()), expression=exp.Literal.string(lit.upper())))
+        else:
+            vals = _cme_in_values(node)
+            if not vals or any(v is None for v in vals):
+                continue
+            node.replace(exp.In(this=exp.Upper(this=col.copy()),
+                                expressions=[exp.Literal.string(str(v).upper()) for v in vals]))
+        changed = True
+    return sql_ast.to_sql(tree) if changed else sql
+
+
+def _cme_block_inside_constituency(question: str, sql: str) -> str:
+    """"status distribution in West Shillong constituency" also got lgd_block = 'SHILLONG-MUNICIPAL
+    BOARD' (the town's name sits inside the constituency's) and 0 rows (C01-017AC-59). A block filter
+    whose name appears in the question only inside the filtered constituency's name is dropped."""
+    acs = {str(a).upper() for a in _fl_ac_values(sql)}
+    if not acs:
+        return sql
+    rest = (question or "").upper()
+    for a in sorted(acs, key=len, reverse=True):          # only "<AC> [assembly] constituency" goes
+        for tail in (" ASSEMBLY CONSTITUENCY", " CONSTITUENCY", " AC"):
+            rest = rest.replace(a + tail, " ")
+    rest_l = rest.lower()
+    tree = sql_ast.parse_one(sql)
+    if tree is None:
+        return sql
+
+    def stray(node: exp.Expression) -> bool:
+        if not isinstance(node, (exp.EQ, exp.In)) or _cme_col(node.this, "lgd_block") is None:
+            return False
+        vals = [_cme_str(node.expression)] if isinstance(node, exp.EQ) else _cme_in_values(node)
+        return bool(vals) and all(v is not None and _cme_block_base(str(v)).lower() not in
+                                  "".join(ch for ch in rest_l if ch.isalnum()) for v in vals)
+    if not _cme_drop_conjuncts(tree, stray):
+        return sql
+    logger.info("CM Elevate: dropped a block filter named only inside the constituency's name")
+    return sql_ast.to_sql(tree)
+
+
 async def _cm_elevate_urban_body_spellings(question: str, schemes: list[str], sql: str) -> str:
+    """The CM Elevate place-literal pass: a block named only inside the constituency's name is
+    dropped, ac_name compared case-blind, then the urban-body spellings (_cme_urban_block_spellings)."""
+    if schemes != ["CM Elevate"] or not sql:
+        return sql
+    sql = _cme_block_inside_constituency(question, sql)
+    sql = _cme_ac_name_case(sql)
+    return await _cme_urban_block_spellings(question, schemes, sql)
+
+
+async def _cme_urban_block_spellings(question: str, schemes: list[str], sql: str) -> str:
     """`lgd_block = '<an urban body>'` (or an IN-list holding one) also takes every other
     stored spelling of the same board: v_cm_elevate holds Tura's applications under
     "TURA MUNICIPAL BOARD" and "TURA MUNICIPAL BOARD-MUNICIPAL BOARD" (see _cme_data_block).
