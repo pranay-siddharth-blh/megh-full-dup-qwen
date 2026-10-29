@@ -739,6 +739,14 @@ async def _embedding_dim() -> int | None:
 
 async def ingest_kb(force: bool = False) -> dict:
     """Build (or rebuild) the Qdrant KB collection. Returns a small status dict."""
+    # D-074 (2026-10-27): megh_knowledge is loaded by another pipeline. The
+    # checks below would have rebuilt it on the first start (it has no BM25
+    # vector), deleting what that pipeline put there.
+    if settings.QDRANT_KB_READ_ONLY:
+        logger.info("kb_ingest: %s is read-only (QDRANT_KB_READ_ONLY) — not building it",
+                    settings.QDRANT_COLLECTION)
+        return {"ingested": 0, "skipped": True, "reason": "read-only collection",
+                "points": await vectorstore.collection_count()}
     chunks = _collect_chunks()
     if not chunks:
         logger.warning("kb_ingest: no source chunks found under %s", _DATA_PART)

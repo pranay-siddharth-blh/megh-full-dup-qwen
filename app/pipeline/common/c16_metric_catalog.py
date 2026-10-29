@@ -166,6 +166,13 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
     out["status"] = found.status
     if found.metric is None:
         out["reason"] = f"measure: {found.status}"
+        if found.status == "none":
+            # B1 meaning shadow: the words left once the scheme, place, year, grammar
+            # and shape words are set aside are the officer's name for the measure.
+            _all_shape = frozenset().union(*_C16_SHAPE_WORDS.values())
+            words = _c16_extra_words(question, schemes, entity_result, frozenset(), _all_shape)
+            if 0 < len(words) <= 6:
+                out["unmatched_words"] = " ".join(words)
         return out
     m = found.metric
     out["metric"] = m.key
@@ -218,6 +225,13 @@ def _metric_catalog_query(question: str, schemes: "list[str]", entity_result: di
         return None
     if plan["status"] == "off":
         return None
+    if plan.get("unmatched_words"):
+        # B1: logged in the background — the answer never waits for it, never uses it
+        try:
+            asyncio.get_running_loop().create_task(
+                metric_catalog.meaning_shadow(plan["unmatched_words"], schemes[0]))
+        except RuntimeError:  # no running loop (a script calling this directly)
+            pass
     use = plan["query"] is not None and plan["verified"] and metric_catalog.mode() == "on"
     logger.info("metric catalogue (%s): %s | metric=%s type=%s %s",
                 "answers" if use else "shadow", plan["status"], plan["metric"], plan["qtype"],

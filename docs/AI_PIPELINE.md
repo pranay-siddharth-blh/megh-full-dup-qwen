@@ -83,7 +83,7 @@ node. The order matters: many steps exist to run
 | j | Edge re-check on the rewrite; inject the session's scheme hint | `edge.detect_edge_case`, `context_manager.inject_scheme_hint` | – | `edge` |
 | k | Pre-route refusals: bank details, admin expenditure, unsupported named scheme | `_bank_clarification`, `_admin_expenditure_clarification`, `_unsupported_scheme_clarification` | – | clarification |
 | k' | **Village name search** ("how many villages are named X?", "which villages contain X in their name?"), before routing and before any entity is resolved (KI-135) | `_village_name_search_answer` (scheme catalogue or `dim_geography`, parameter-bound) | – | `data` |
-| l | **Intent** | `classify_intent` (regex fast path; since 2026-09-28 also `_APPLICANT_PLACE_CUE`: an applicant / application noun scoped to a place → DATA unless a knowledge word is present, KI-076) | regex fast path, else **4B** | – |
+| l | **Intent** | `classify_intent` (regex fast path; since 2026-09-28 also `_APPLICANT_PLACE_CUE`: an applicant / application noun scoped to a place → DATA unless a knowledge word is present, KI-076; since 2026-10-27 `_PROCESS_QUESTION_CUE`: "how does / is <X> work / get issued / released …", "process / procedure / steps for" → KNOWLEDGE unless it says "how many / how much" or names a year, KI-404; since 2026-10-27 the **B3 safety net** (D-077): a DATA verdict for a question with no place, year, ranking or breakdown becomes KNOWLEDGE when the top megh_knowledge passage beats the top megh_sql_metadata worked example by >= 0.10, `INTENT_SCORE_TIEBREAK`) | regex fast path, else **4B** | – |
 | m | KNOWLEDGE → RAG (§4) | `rag.answer_from_kb` / `answer_from_kb_multi` | embed + **9B** | `knowledge` |
 | n | DATA → `_answer_data` (§2) | | several | `data` / `denied` / clarification |
 | o | Exceptions from DATA | see §3.4 | | |
@@ -241,6 +241,8 @@ In order:
      - If only unavailable years are named → a `year-out-of-range` pause.
      - A comparison that names one absent year → the absent year is **substituted** with the
        nearest year that has data.
+     - An end of a stated span ("from 2021-22 to 2024-25") the scheme lacks → moved to the nearest held
+       year **inside** the span (KI-427, 2026-10-27); stripping it left "from to 2024-25".
      - Otherwise the absent year is stripped, and a note says so.
   2. **Span extraction:** `extract_entity_mentions` (**4B**, `guided_json`). It returns verbatim
      `district/block/village/year/assembly_constituency/blocks/districts` spans. Spans not found
@@ -527,6 +529,11 @@ startup by `app/metric_catalog.py` (`METRIC_CATALOG_MODE`: off / shadow / **on**
   (evidence from `tests/metric_catalog_eval.py`), and not when the question named it only by an `except_words` wording.
   Focus Plus has no block-level catalogue query (`no_block_level`: its blocks are on `block_name_raw`). Everything else
   is logged (`metric catalogue (shadow): …`) and answered by the model path.
+- **B1 meaning shadow (2026-10-27, D-076):** a single-scheme question whose words name NO catalogue measure records its
+  measure wording (the words left after scheme / place / year / grammar / shape words, ≤ 6) and the nearest measure by
+  embedding to `logs/metric_meaning_shadow.jsonl` (`metric_catalog.meaning_shadow`, a background task: no added wait,
+  never used to answer; `METRIC_MEANING_SHADOW`). `tests/metric_meaning/review.py` lists them; a person approves a
+  wording into `data/metric_catalog_synonyms.yaml`, loaded at startup as an exact phrase like the data team's synonyms.
 - **Query:** `/* metric:<key> <shape> */ SELECT <expression> AS <alias> FROM <base view> WHERE … [GROUP BY …]`, values
   bound as parameters, run on the READ-ONLY pool (`_data_deterministic_rows` -> `db.fetch_rows_readonly`). Units follow
   the SQL prompt: lakh -> `_lakh`, rupees -> crore `_cr`, percent -> `_pct`. Place groupings leave out NULL places.
@@ -556,6 +563,24 @@ _entities_block(entity_result, …)   # "RESOLVED ENTITIES — MANDATORY" + "NOT
   (`_fewshot_ranking_text`).
 - **Pool files:** `data/<scheme>/*few_shot*.yaml`. CM Elevate Legacy uses
   `cmelevatelegacy_prompt_few_shots.yaml`.
+- **Example source switch (D-074, 2026-10-27):** `SQL_EXAMPLES_SOURCE=qdrant` is the default since
+  2026-10-27 evening (user: use everything in both collections). `yaml` (the rollback) uses the pool files above.
+  - **Views and joins:** `qdrant` also reads megh_sql_metadata's 12 `kind=view` and 16 `kind=join` points (whole, cached
+    10 min). `prompt_builder._sql_metadata_block` adds their `prompt_text` as the optional `sql_metadata` section
+    (priority 5, the first to shrink). Views come first, then joins. A one-scheme prompt gets only that scheme's
+    views; a join or cross view needs every scheme it names in the prompt. Under budget pressure it keeps the joins,
+    then drops the section. Measured live: MGNREGA prompt 8.6K tokens with 3 views; MGNREGA + PMAY-G 13.5K (views
+    dropped, joins kept).
+  - **Notes:** an example's `notes` go into the prompt as a `Note:` line. With `qdrant`, `_data_sql_stage` calls `sql_examples.prefetch(_fewshot_ranking_text(..), schemes)`
+  before generation. That is one `qwen3-embedding` call plus one search per scheme in `megh_sql_metadata`
+  (`kind=example`), within `SQL_EXAMPLES_TIMEOUT_SECONDS=4`. `prompt_builder._fewshot_examples` then takes
+  those per scheme, top 5 by meaning:
+  - a two-scheme example is used only when both schemes are in the prompt (never in one half of a per-scheme
+    cross question), and only once;
+  - a failure, timeout or empty result keeps that scheme on YAML.
+
+  Not on any graph node: the search runs inside the stage, and `build_sql_prompt` stays synchronous.
+  The repair prompt carries no examples either way. All Qdrant examples are `validated: false` (KI-438).
 - **Size:** measured offline 2026-09-24 without the live block (TECHNICAL_BRIEF §2.2): about
   3–7K tokens for one scheme and about 32K tokens for all six.
 - **If the live schema load failed at startup**, `_live_schema_block` is empty and the prompt
@@ -616,7 +641,7 @@ the SQL.
   answer's period is the query's; the prompt says "across all financial years" only when no year is pinned.
   `_finish_data_result` never calls a place known only by its code (`village_code`, lists) statewide;
 - `_execute_one_attempt` sends back: an all-years question split by financial year alone
-  (`_UNASKED_YEAR_SPLIT_SQL`, unless `_YEAR_SPLIT_ASKED`); an MGNREGA expenditure component named but its
+  (`_vr_grouped_by_year_only`: every GROUP BY expression a year column, so `year_key, financial_year_short` counts — KI-411, 2026-10-27; unless `_YEAR_SPLIT_ASKED`); an MGNREGA expenditure component named but its
   column not read (`_MGNREGA_EXP_COMPONENTS`); a village ranking without the "Unresolved" filter;
 - `classify_intent`: a measure followed by "in <place> block/village/district/constituency" is DATA;
 - `guardrails._DATA_QUESTION` overrules an OUT_OF_SCOPE model verdict for a plain or terse data question;
@@ -702,7 +727,7 @@ instruction:
 | Guard | Catches |
 |---|---|
 | `_focusplus_stated_amount_missing` (Focus Plus, KI-132, 2026-09-29) | a stated payment amount ("a loan of five thousand", "₹2,500 payments") with no `amount_disbursed = N` filter |
-| `_resolved_scope_missing` (all schemes, KI-034, 2026-09-29) | a resolved district / block / comparison list / year_key absent from the SQL. Not required: geography beside a resolved village_code, a hill-range expansion, a year for CM Elevate or an all-years question; LIKE on the distinctive word counts |
+| `_resolved_scope_missing` (all schemes, KI-034, 2026-09-29) | a resolved district / block / comparison list / year_key absent from the SQL. Not required: geography beside a resolved village_code, a hill-range expansion, a year for CM Elevate or an all-years question; LIKE on the distinctive word counts. **KI-427 (2026-10-27):** a stated span is resolved as `year_key_list` (every year, c09 `_c09_stated_year_span`, prompt line `year_key BETWEEN A AND B`); every year must be in the SQL as a literal or inside a BETWEEN with the span's ends |
 | `_mgnrega_village_filter_missing` (MGNREGA, KI-054) | a village was resolved but the SQL filters no village (it would return a block or statewide total) |
 | `_village_filter_missing` (every single-scheme question, KI-188, 2026-10-02) | the same for the other five schemes. Its deterministic half, `_pin_missing_village_code` (in `_scheme_sql_rewrites`), first rewrites a simple one-SELECT query: adds `village_code = <code>`, or replaces a lone `lgd_village_name` text condition with the code (`_village_name_cond_to_code`, KI-197), and drops a block / district literal beside it in any UPPER / TRIM form (`_drop_geo_beside_pinned_village`, KI-196). D-034 |
 | `_mgnrega_village_list_issue` (MGNREGA, KI-045) | "which villages …" SQL with no `lgd_village_name`, or "received employment" without `HAVING SUM(persons_employed) > 0` |
@@ -981,6 +1006,8 @@ both forms (CM Elevate Legacy guarantees). Failed data turns (`answer_failed`) a
 (`_shape_facts`) go into the prompt as "Derived figures — computed by code" and into `data_nums`, so a gap, % change or
 share the composer quotes passes `_answer_numbers_faithful`. Cross-scheme rows (several `scheme` values) have no shape.
 The log line `compose_response: answer shape <kind>` records the shape of every composed answer.
+**Query plan shadow (E1 stage 1, D-078, 2026-10-27):** after a data / knowledge turn, `_update_context` schedules `query_plan.shadow` (background): a typed plan of the question (4B guided JSON + deterministic years / top-N / measure / area level) logged with the turn's actual decisions to `logs/query_plan_shadow.jsonl`. Nothing reads it yet.
+**Trend direction (KI-441, 2026-10-27):** `_c12s_fix_trend_direction` (last step of `compose_response`) sets the answer's first rose / fell verb from the sign of the trend's first-to-last change; the 9B had copied the example's "rose" over a fall.
 
 **ROLLUP total rows (2026-10-22, KI-384):** `_c12s_rollup_split(sql, rows)` separates the rows a `GROUP BY ROLLUP` /
 `CUBE` / `GROUPING SETS` adds (the group column NULL or its `COALESCE(col, '<label>')` fallback, e.g. "ALL DISTRICTS")
@@ -1055,10 +1082,12 @@ through the same function.
    - no scope at all → the which-scheme ask;
    - two or more schemes named → `rag.answer_from_kb_multi` (per-scheme retrieval).
 3. **`rag.retrieve(question, scheme)`:**
-   1. embed with `qwen3-embedding` via the gateway (1024-dim; collection `megh_scheme_kb_v4`, D-067).
-      At startup `kb_ingest` rebuilds the KB if its vector size differs from the model's (KI-402), and
-      conversation memory refuses a collection of another size;
-   2. `vectorstore.search` with an **exact** payload filter on `scheme`, taking `RAG_TOP_K=12`;
+   1. embed with `qwen3-embedding` via the gateway (1024-dim; collection `megh_knowledge` on
+      `10.48.242.4:6333`, read-only, D-074 — it was `megh_scheme_kb_v4`, D-067). With
+      `QDRANT_KB_READ_ONLY=true` startup never rebuilds it; megh_knowledge has no BM25 vector, so
+      `.env` sets `RAG_HYBRID_ENABLED=false` (meaning-only search). Conversation memory is off (D-074);
+   2. `vectorstore.search` with a payload filter on `scheme` (`MatchAny`: megh_knowledge stores a list;
+      "CM Elevate" also matches its "CM Elevate Legacy" pieces), taking `RAG_TOP_K=12`;
    3. with the reranker off, keep the top 8 candidates scoring ≥ `RAG_MIN_SCORE=0.30`. The floor
       is real (2026-10-16): if **none** clear it, nothing is returned and the answer is "not covered".
 4. **`rag.answer_from_kb`** answers by the top score:
@@ -1106,7 +1135,7 @@ Every in-scope message that reaches the follow-up stage with a previous answer i
 | Kind | Test | What it may take from memory |
 |---|---|---|
 | FOLLOWUP | reference cue (it/its/there/same/this/that as pointers/instead/above/previous, "compare this", "what about", leading "and"/"also", Hinglish dobara/wahi/uska/pehle) or a fragment with no measure | only what it leaves out (merge plan, rewrite, `prior_resolved`) |
-| STANDALONE | own measure AND own scheme (named; or pinned by the measure when it also names its own year or place), no cue | nothing: statewide unless it names a place; its year, else the year chips (c13; D-065 — was the scheme's latest FY); banner "(new question)"; never rewritten |
+| STANDALONE | own measure AND own scheme (named; or pinned by the measure when it also names its own year or place), no cue | nothing: statewide unless it names a place; its year, else the year chips (c13; D-065 — was the scheme's latest FY); banner "(new question)"; never rewritten. **Exception (D-075, KI-406):** when it only repeats the chat's measure (`detect_metric` = `state.metric`) on the chat's scheme, it keeps the chat's year (never the place) |
 | VAGUE | a measure with no scheme named | one open topic: that topic's scope; 2+ single-scheme topics: chips (`_vague_topic_clarification`, rule `topic-ambiguous`) |
 
 Slot-conflict guard: `context_policy.asked_levels` ("which X", "top N X", "by/each/per X", "X-wise") — that level
@@ -1252,18 +1281,24 @@ sections are never shortened:
 - common mistakes (business rules);
 - resolved entities, scheme scope, question.
 
-Only when over budget, the **optional** sections are compressed:
-1. first the few-shot examples, from 5 to 3 to 1;
-2. then catalogue lines the schema already states verbatim (`_dedupe_catalog`).
+Only when over budget, the **optional** sections are compressed, in this order (B4, 2026-10-27):
+1. the catalogue: first its lines the schema already states verbatim (`_dedupe_catalog`), then the
+   SHARED tables' column notes (dim_*, v_cross_scheme_*, v_district_year_summary, v_place_names …) the
+   question's words do not touch (`schema_introspect.catalog_block(focus=…)`). Every scheme-specific
+   column note, table note, business term and metric definition stays;
+2. the megh_sql_metadata view / join notes (views first, then joins);
+3. last, the few-shot examples, from 5 to 3 to 1.
 
 Nothing is removed to satisfy a count. If the required part alone is over, the prompt goes out
 over budget and is logged as such. Under budget, the output is byte-identical to before.
 
 Other prompts warn only.
 
-**Measured offline, with the few-shot banks loaded:** the SQL prompt is 3.0k–6.9k tokens per
-scheme, from MGNREGA 3,256 to CM Elevate Legacy 6,867. This excludes the LIVE SCHEMA and catalogue
-blocks, which need the DB. No compression happens today.
+**Measured LIVE 2026-10-27 (KI-442):** with the catalogue (~8.2k–9.4k per scheme, ~6k of it column
+notes) the SQL prompt was 15.9k–17.1k tokens, over the 15,360 budget on every question, and the old
+order cut the examples to ONE and dropped the view / join notes. After B4: 12.7k–14.2k, the 5 examples
+kept (PMAY-G keeps the view / join notes too). The 2026-09-26 offline figure (3.0k–6.9k) excluded the
+LIVE SCHEMA and catalogue blocks.
 
 The earlier "2.5k–5.6k" figure was measured without the few-shot banks loaded, and was wrong.
 

@@ -935,6 +935,123 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-079 — One scheme registry; the other registries are guarded against drift (2026-10-27)
+- **Date:** 2026-10-27. RAG plan E5; user decision "Registry + drift guard" (not a full migration).
+- **Context:** scheme names appear in ~124 places across 31 files (mapped by a scan for lines naming four or more
+  schemes); the SCHEMES.md "Adding a scheme" list (2026-09-26) had stale paths (`app/pipeline.py`,
+  `web/ai_query.html`) and missed the newer registries.
+- **Decision:** `app/scheme_registry.py` (data only) holds name, subject area, KB folder / tag, main view, document
+  label and constituency capability per scheme. Pure name lists read it (auth roles, c01 `_ALL_SCHEMES`,
+  `query_plan.SCHEMES`, `metric_catalog.SUBJECT_TO_SCHEME`; identical values). Matchers, fuzzy aliases, the Focus /
+  CM Elevate collision rules and prose stay where they are (each guards a reported failure) and are checked against
+  the registry by `tests/test_scheme_registry_e5_2026_10_27.py` (16 registries).
+- **Found:** c13 `_CROSS_AC_RECORDED` omits CM Elevate while c08 `_AC_CAPABLE_SCHEMES` includes it, and every view now
+  carries `ac_name` (KI-445) — pinned in the guard, not changed.
+- **Rollback:** the four lists back to literals (the guard still passes).
+
+### D-078 — The query plan (E1), stage 1: built and logged in shadow, read by nothing (2026-10-27)
+- **Date:** 2026-10-27. RAG plan E1; user: start Task 8 in shadow mode first.
+- **Decision:** `app/query_plan.py`. After each data / knowledge turn, `_update_context` (c13, a stage function — no
+  graph node changed) schedules a background task: one guided-JSON call to the classifier model (qwen4-deploy;
+  enums from the six schemes and the metric catalogue keys) reads the standalone question into {intent, schemes,
+  measure, place_level, place_name, group_by, all_years, shape, order}; `normalise` then fills, deterministically,
+  the years (FY forms + stated spans), the top-N (KI-412 reader), the measure (catalogue literal match when it names
+  one) and the area level (the resolver's place index). One JSON line per turn to `logs/query_plan_shadow.jsonl`
+  with the pipeline's own decision (`actual`) and per-field agreement (`compare`). Runs after the answer, so it adds
+  no wait. `QUERY_PLAN_SHADOW` (default on; off in unit tests).
+- **Evidence:** `tests/query_plan/run_eval.py` (25 questions, 23 answered): the model alone mis-read the measure 3/10
+  and the area 7/16 (it took "by district" / "top 5 blocks" for the area); with the deterministic fields **79/79**
+  field comparisons agree.
+- **Next stages (each needs the user's go-ahead):** collect live agreement over real turns; then let one stage read
+  one plan field at a time (e.g. top-N, years), keeping the old path as fallback.
+- **Rollback:** `QUERY_PLAN_SHADOW=false`.
+
+### D-077 — Retrieval scores only overturn a clear DATA misroute (2026-10-27)
+- **Date:** 2026-10-27. RAG plan B3 / E4 tie-break; Task 7 of the handover work.
+- **Evidence:** `tests/intent_scores/run_eval.py` + `labels.json` (70 own questions, 35 DATA / 35 KNOWLEDGE, incl. the
+  KI-367 / KI-396 / KI-290 / KI-404 wordings), live. Today's rules + 4B: **67/70**. Scores alone (example − KB score
+  >= t → DATA, best t): **57/70** — worse, so they cannot replace the rules. The 3 misroutes were DATA verdicts from
+  the "how many" / "job card" / "wage" cues; two have the knowledge passage clearly closer (−0.175, −0.221); every real
+  data question has the example ahead (≥ +0.021).
+- **Decision:** after the rules, a DATA verdict for a question naming no place, year, ranking or breakdown (a figure
+  question never pays the extra embedding call) becomes KNOWLEDGE when KB − example ≥ 0.10. Any failure keeps DATA.
+  Result **69/70**, no DATA question changed. `INTENT_SCORE_TIEBREAK` (default on; off in unit tests).
+- **Not done:** the plan's "ask on a tie" chips (figures or how it works?) — the remaining miss ("What is the wage rate
+  under MGNREGA in Meghalaya?", +0.006) is such a tie; it changes the chat flow, so it is the user's call.
+- **Rollback:** `INTENT_SCORE_TIEBREAK=false`.
+
+### D-076 — Metric matching by meaning only logs; people approve exact synonyms (2026-10-27)
+- **Date:** 2026-10-27. RAG plan B1; user decision after the measurement below ("Shadow log + synonym review").
+- **Context:** `tests/metric_meaning/run_eval.py` (labels: 34 own paraphrases + 17 wordings for measures the catalogue
+  does NOT hold; qwen3-embedding 1024). Wordings that must not match score as high as true paraphrases: "administrative
+  expenditure" -> total expenditure 0.873 / margin 0.119, "wage rate" -> wage share 0.902 / 0.154, while "funds utilised"
+  -> total expenditure is 0.745 / 0.018. No cosine threshold separates them, so a meaning match would state a wrong
+  figure (the KI-435 failure).
+- **Decision:** a meaning match never answers. An unmatched measure wording is logged with its nearest measure
+  (`metric_catalog.meaning_shadow`, background task, `logs/metric_meaning_shadow.jsonl`); a person reviews
+  (`tests/metric_meaning/review.py`) and adds approved wordings to `data/metric_catalog_synonyms.yaml` (exact phrases,
+  merged at startup; also sent to the ingestion team for semantic.metric_definitions). Answering still needs the
+  (measure, shape) pair in `metric_catalog_verified.yaml`.
+- **Rejected:** answering from a meaning match (wrong figures above); a confirm chip "Did you mean …?" (extra tap,
+  and the nearest candidate is often wrong); answering only when every word is covered (residual risk).
+- **Rollback:** `METRIC_MEANING_SHADOW=false`; empty the synonyms file.
+
+### D-075 — A new question that repeats the chat's measure keeps the chat's year (2026-10-27)
+- **Date:** 2026-10-27. User decisions on the RAG-plan handover: U5 "when a follow-up names no year, keep the
+  previous year"; then, shown the clash with D-061/D-065, "keep the year if same measure".
+- **Context:** KI-406, live scenario U1 (the user's UI chat of 2026-10-18): "Total MGNREGA person-days in 2023-24" ->
+  "What is the total beneficiaries?" (kept FY 2023-24) -> "What is the total beneficiaries manraya?". "manraya" is the
+  spoken MGNREGA, so the turn names its scheme and measure, reads STANDALONE (D-061), inherits nothing and is asked
+  the year (D-065).
+- **Decision:** `_same_scheme_context_year` (c14): a STANDALONE question whose only scheme is the chat's own and whose
+  measure (`context_manager.detect_metric`) equals the chat's last measure (`state.metric`) keeps the chat's **year**
+  (or all-years) and **never its place**. Logged `inherited="same-measure-year"`. Any other standalone question is
+  unchanged: D-061's founding case (person-days, then "Which district has the highest beneficiaries in MGNREGA?")
+  still inherits nothing and is asked the year.
+- **Rejected:** keeping the year for every same-scheme standalone question (reverses the user's D-061 complaint);
+  leaving it to the year ask (against U5 and "one chat never re-asks").
+- **Evidence:** `tests/test_same_measure_year_ki406_2026_10_27.py` (7, incl. one through the graph); D-061/D-065 tests
+  unchanged and green; live `--only F,U1` 11/11 (was 9/11).
+- **Rollback:** remove the `year_only` branch in `_same_scheme_context_year`.
+
+### D-074 — Qdrant on the data box; only megh_knowledge and megh_sql_metadata, read-only (2026-10-27)
+- **Date:** 2026-10-27. Source: user — "use the Qdrant at http://10.48.242.4:6333 … only meghoneai [= megh_knowledge,
+  confirmed] and megh_sql_metadata, these two collections in the entire project"; then four answers: megh_knowledge;
+  read-only; conversation memory off; SQL examples behind `SQL_EXAMPLES_SOURCE=yaml|qdrant`, default yaml, with an
+  evaluation script, logic in the stage function, no graph node changed.
+- **Context:** both collections were loaded on 2026-10-27 by another pipeline (1024-dim, qwen3-embedding scale; payload
+  indexes on `kind`, `scheme`, ids). megh_knowledge: 207 `knowledge_chunk` points, `scheme` a LIST, `source_file` /
+  `section` instead of `doc` / `heading`, no BM25 vector, CM Elevate Legacy under its own tag. megh_sql_metadata: 133
+  `example` + 12 `view` + 16 `join` points, every example `validated: false`. Pointing the old code at megh_knowledge
+  would have DELETED it on the first start (kb_ingest rebuilds a collection without the BM25 vector).
+- **Decision:**
+  - `QDRANT_URL=http://10.48.242.4:6333`, `QDRANT_COLLECTION=megh_knowledge`, new `QDRANT_KB_READ_ONLY` (default true):
+    `kb_ingest.ingest_kb` returns "read-only collection" before any check; `vectorstore.recreate_collection` / `upsert`
+    raise `ReadOnlyCollectionError`.
+  - `vectorstore.piece()` reads both payload shapes; the scheme filter is `MatchAny`; "CM Elevate" also matches
+    "CM Elevate Legacy" (the KB alias `rag.kb_scheme` is unchanged). `rag._kb_texts_by_scheme` reads list tags.
+  - `RAG_HYBRID_ENABLED=false` in `.env` (no BM25 vector; search was already falling back to meaning-only).
+  - `CONTEXT_SEMANTIC_MEMORY_ENABLED` default false, `CONTEXT_MEMORY_PURGE_ALSO` empty: memory needs its own
+    collection. Conversation context still comes from Postgres (D-023).
+  - **Extended 2026-10-27 evening (user: "use the entire things … in both collections for the entire application"):**
+    default and `.env` -> `qdrant`. Its `kind=view` / `kind=join` points go into the SQL prompt (optional
+    `sql_metadata` section, scoped to the schemes in play), example `notes` become `Note:` lines, and megh_knowledge's
+    `doc_title` is the citation title. `tests/conftest.py` pins `yaml` for the unit suite.
+  - `SQL_EXAMPLES_SOURCE` (default `yaml` until that extension), `SQL_EXAMPLES_COLLECTION=megh_sql_metadata`: with `qdrant`,
+    `_data_sql_stage` calls `sql_examples.prefetch` (one embedding of the few-shot ranking text, one filtered search per
+    scheme, 4 s budget) and `prompt_builder._fewshot_examples` uses the result per scheme. A two-scheme example is shown
+    only in a prompt holding both schemes (never in one half of a per-scheme cross question, D-062), and once.
+    Any failure or empty result keeps that scheme on its YAML bank. `build_sql_prompt` stays synchronous.
+- **Alternatives rejected:** copying megh_knowledge into an app-owned collection (a third collection, against the
+  instruction); letting the app rebuild megh_knowledge from `data/incoming/` (deletes the other pipeline's data);
+  switching SQL examples straight to Qdrant (no accuracy evidence yet; the examples are unvalidated).
+- **Evidence:** live 2026-10-27: knowledge retrieval for all six schemes (top cosine 0.72-0.79, 8 pieces, citations
+  right), "What is SECC?" -> PMAY-G, ingest skipped, writes refused; Qdrant examples fetched in ~0.2 s, cross examples
+  scoped. `tests/test_qdrant_two_collections_2026_10_27.py` (12 tests). Accuracy of `qdrant` vs `yaml`:
+  `tests/nl2sql_eval/compare_examples_source.py` (not yet run — see TESTING.md).
+- **Status:** Active. Rollback: `.env` back to the D-067 server/collections, `QDRANT_KB_READ_ONLY=false`,
+  `CONTEXT_SEMANTIC_MEMORY_ENABLED=true`.
+
 ### D-073 — Generated SQL runs through `semantic.run_query` on the `megh_chatbot` login (2026-10-27)
 - **Date:** 2026-10-27. DB team's reply (megh_chatbot password, run_query `columns`, exact decimals); user: "check with the
   changes we need to do. And make it".

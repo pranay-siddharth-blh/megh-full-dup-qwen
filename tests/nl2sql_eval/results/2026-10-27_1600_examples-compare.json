@@ -1,0 +1,82 @@
+{
+ "when": "2026-10-27T16:00:39",
+ "runs": {
+  "yaml": "2026-10-27_1556_examples-yaml.json",
+  "qdrant": "2026-10-27_1600_examples-qdrant.json"
+ },
+ "items": 74,
+ "accuracy": {
+  "yaml": 56.8,
+  "qdrant": 54.1
+ },
+ "outcomes": {
+  "yaml": {
+   "correct": 42,
+   "clarification": 31,
+   "wrong": 1
+  },
+  "qdrant": {
+   "correct": 40,
+   "clarification": 31,
+   "wrong": 3
+  }
+ },
+ "sql": {
+  "yaml": {
+   "ran_sql": 43,
+   "first_try": 43,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "seconds_mean": 6.6,
+   "seconds_median": 5.0,
+   "seconds_p90": 10.3
+  },
+  "qdrant": {
+   "ran_sql": 43,
+   "first_try": 39,
+   "repairs": 4,
+   "verifier_rejections": 2,
+   "seconds_mean": 6.9,
+   "seconds_median": 6.0,
+   "seconds_p90": 11.2
+  }
+ },
+ "per_scheme": {
+  "CM Elevate": {
+   "yaml": 50.0,
+   "qdrant": 50.0
+  },
+  "CM Elevate Legacy": {
+   "yaml": 50.0,
+   "qdrant": 50.0
+  },
+  "Focus Legacy": {
+   "yaml": 33.3,
+   "qdrant": 33.3
+  },
+  "Focus Plus": {
+   "yaml": 8.3,
+   "qdrant": 0.0
+  },
+  "MGNREGA": {
+   "yaml": 100.0,
+   "qdrant": 92.3
+  },
+  "PMAY-G": {
+   "yaml": 92.3,
+   "qdrant": 92.3
+  }
+ },
+ "only_yaml_correct": [
+  "FP-05",
+  "MG-08"
+ ],
+ "only_qdrant_correct": [],
+ "more_repairs_with_qdrant": [
+  "MG-04",
+  "MG-08",
+  "PM-09",
+  "PM-10"
+ ],
+ "fewer_repairs_with_qdrant": []
+}

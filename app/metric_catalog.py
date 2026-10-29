@@ -24,7 +24,10 @@ METRIC_CATALOG_MODE: "off" (not loaded), "shadow" (match and log only) or
 """
 from __future__ import annotations
 
+import json
 import logging
+import threading
+import time
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -32,7 +35,7 @@ import sqlglot
 import yaml
 from sqlglot import exp
 
-from app import db, schema_introspect
+from app import db, scheme_registry, schema_introspect
 from app.config import settings
 from app.text_match import tokens
 
@@ -40,14 +43,7 @@ logger = logging.getLogger(__name__)
 
 # subject_area in the catalogue -> the scheme name the pipeline uses. cmss,
 # homestay_legacy and nrlm are not schemes this service answers: not loaded.
-SUBJECT_TO_SCHEME = {
-    "mgnrega": "MGNREGA",
-    "pmay": "PMAY-G",
-    "focus_plus": "Focus Plus",
-    "focus_legacy": "Focus Legacy",
-    "cm_elevate": "CM Elevate",
-    "cm_elevate_disbursement": "CM Elevate Legacy",
-}
+SUBJECT_TO_SCHEME = scheme_registry.SUBJECT_TO_SCHEME   # E5, D-079
 
 # The place and year columns a filter or a grouping may use. A view without one
 # of them simply cannot take that filter (the query is then not built).
@@ -64,6 +60,11 @@ _NAME_NOISE = frozenset(
 _NAME_TAIL_NOISE = frozenset({"total"})
 
 VERIFIED_FILE = Path(__file__).resolve().parent.parent / "data" / "metric_catalog_verified.yaml"
+# B1 (RAG plan, user decision 2026-10-27): officers' wordings a person approved from
+# the meaning-shadow log (tests/metric_meaning/review.py), {metric_key: [wording]}.
+# Read as exact catalogue phrases, the same as the data team's synonyms, until the
+# team adds them to semantic.metric_definitions.
+SYNONYMS_FILE = Path(__file__).resolve().parent.parent / "data" / "metric_catalog_synonyms.yaml"
 QUERY_TYPES = ("total", "breakdown", "ranking", "compare")
 
 
@@ -198,6 +199,7 @@ async def load() -> None:
         "WHERE is_active AND subject_area = ANY($1::text[]) ORDER BY metric_key",
         [list(SUBJECT_TO_SCHEME)])
     live = schema_introspect.live_columns()
+    approved = _load_approved_synonyms()
     prefixes = {}
     for area in SUBJECT_TO_SCHEME:
         prefixes[area] = _common_key_prefix([r["metric_key"] for r in rows if r["subject_area"] == area])
@@ -210,7 +212,8 @@ async def load() -> None:
         if not cols or used is None or not used <= cols:
             skipped.append(r["metric_key"])
             continue
-        phrases = {p for p in (_phrase(t) for t in [r["display_name"] or "", *(r["synonyms"] or [])]) if p}
+        phrases = {p for p in (_phrase(t) for t in [r["display_name"] or "", *(r["synonyms"] or []),
+                                                     *approved.get(r["metric_key"], [])]) if p}
         metrics[r["metric_key"]] = Metric(
             key=r["metric_key"], scheme=SUBJECT_TO_SCHEME[r["subject_area"]],
             display_name=r["display_name"] or r["metric_key"], expression=str(r["sql_expression"]),
@@ -227,6 +230,78 @@ async def load() -> None:
                 settings.METRIC_CATALOG_MODE, len(metrics), len(by_scheme), len(skipped),
                 ", ".join(skipped) or "-",
                 ", ".join(f"{t}={len(v)}" for t, v in _state["verified"].items()))
+
+
+def _load_approved_synonyms() -> "dict[str, list[str]]":
+    """{metric_key: [wording]} from SYNONYMS_FILE; {} when absent or unreadable."""
+    try:
+        data = yaml.safe_load(SYNONYMS_FILE.read_text(encoding="utf-8")) or {}
+    except FileNotFoundError:
+        return {}
+    except Exception as e:  # noqa: BLE001 — a bad file must not stop the catalogue
+        logger.warning("metric catalogue: %s unreadable (%s) — no approved synonyms", SYNONYMS_FILE.name, e)
+        return {}
+    return {str(k): [str(w) for w in (v or []) if str(w).strip()] for k, v in data.items()
+            if isinstance(v, list)}
+
+
+# ── B1 meaning shadow (user decision 2026-10-27) ─────────────────────────────
+# Measured live (tests/metric_meaning/run_eval.py): embeddings rank "administrative
+# expenditure" next to total expenditure (0.873, margin 0.119) and "wage rate" next to
+# the wage share (0.902) — as high as true paraphrases — so a meaning match NEVER
+# answers. It only records the officer's unmatched wording and its nearest measure,
+# for a person to approve as an exact synonym (SYNONYMS_FILE).
+_meaning_vectors: dict = {}
+_meaning_lock = threading.Lock()
+
+
+async def _phrase_vectors(scheme: str) -> "list[tuple[str, str, list[float]]]":
+    """(metric_key, phrase, vector) for the scheme's catalogue phrases, cached."""
+    if scheme not in _meaning_vectors:
+        from app import llm
+        items = [(m.key, " ".join(p)) for m in _state["by_scheme"].get(scheme, []) for p in m.phrases]
+        vecs = await llm.call_embedding([p for _k, p in items]) if items else []
+        _meaning_vectors[scheme] = [(k, p, v) for (k, p), v in zip(items, vecs)]
+    return _meaning_vectors[scheme]
+
+
+def _cosine(a: "list[float]", b: "list[float]") -> float:
+    num = sum(x * y for x, y in zip(a, b))
+    den = (sum(x * x for x in a) ** 0.5) * (sum(y * y for y in b) ** 0.5)
+    return num / den if den else 0.0
+
+
+async def meaning_shadow(wording: str, scheme: str) -> "dict | None":
+    """Log the nearest catalogue measure for an unmatched wording (never used to
+    answer). Best-effort: any failure is a debug line, nothing else."""
+    if not settings.METRIC_MEANING_SHADOW or not wording.strip() or not _state["loaded"]:
+        return None
+    try:
+        from app import llm
+        rows = await _phrase_vectors(scheme)
+        if not rows:
+            return None
+        q = (await llm.call_embedding([wording]))[0]
+        best: dict[str, tuple[float, str]] = {}
+        for key, phrase, vec in rows:
+            c = _cosine(q, vec)
+            if c > best.get(key, (-1.0, ""))[0]:
+                best[key] = (c, phrase)
+        ranked = sorted(best.items(), key=lambda kv: -kv[1][0])
+        (k1, (c1, p1)) = ranked[0]
+        c2 = ranked[1][1][0] if len(ranked) > 1 else 0.0
+        record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "scheme": scheme, "wording": wording,
+                  "nearest": k1, "nearest_phrase": p1, "score": round(c1, 3), "margin": round(c1 - c2, 3)}
+        path = Path(settings.METRIC_MEANING_FILE)
+        path = path if path.is_absolute() else Path(__file__).resolve().parent.parent / path
+        with _meaning_lock:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            with path.open("a", encoding="utf-8") as f:
+                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+        return record
+    except Exception:  # noqa: BLE001 — shadow only: never affects a turn
+        logger.debug("metric catalogue: meaning shadow failed", exc_info=True)
+        return None
 
 
 def mode() -> str:

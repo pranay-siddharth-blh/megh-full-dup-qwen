@@ -306,6 +306,7 @@ Answer:"""
         logger.warning("compose_response: answer states a list size other than %d — deterministic answer",
                        len(rows))
         answer = _shaped_fallback(shape, _shape_rows, schemes, entities) or _framed_fallback(rows, schemes, entities)
+    answer = _c12s_fix_trend_direction(answer, shape, _shape_rows)   # KI-441
     # Every data answer reads as a briefing line: result figures grouped, and the
     # scheme / area named at least once (user report 2026-10-18: "1,494,437
     # household years." was the whole answer).
@@ -438,9 +439,69 @@ _MEASURE_IN_PLACE = Matcher(Seq(
 ))
 
 
+_C13_COUNT_ASKED = Matcher(Seq("how", W("many", "much"), sep="space"))
+
+
 async def classify_intent(question: str) -> str:
     """DATA (a number from megh_db) vs KNOWLEDGE (how the scheme works, from the
-    reference docs). Keyword fast-path first; one classifier call otherwise."""
+    reference docs). Keyword fast-path first; one classifier call otherwise;
+    then the B3 retrieval-score safety net (_c13_knowledge_is_closer)."""
+    intent = await _c13_intent_by_rules(question)
+    if intent == "DATA" and settings.INTENT_SCORE_TIEBREAK and _c13_b3_eligible(question) \
+            and await _c13_knowledge_is_closer(question):
+        return "KNOWLEDGE"
+    return intent
+
+
+# B3 (RAG plan; measured 2026-10-27, tests/intent_scores/run_eval.py, 70 labelled
+# questions): "How many days of work does MGNREGA guarantee?" and "Can a woman apply
+# for a job card?" were routed DATA by the "how many" / "job card" cues. Their nearest
+# megh_knowledge passage beats their nearest worked data example (megh_sql_metadata)
+# by 0.175 and 0.221; every real data question in the set has the example ahead by
+# +0.021 or more. Scores ALONE route worse than the rules (57/70 vs 67/70), so they
+# only overturn a DATA verdict, only for a question with no place, year, ranking or
+# breakdown of its own (those are figures; they also skip the extra embedding call),
+# and only by a clear margin.
+_C13_B3_MARGIN = 0.10
+
+
+def _c13_b3_eligible(question: str) -> bool:
+    q = question or ""
+    if context_policy.extract_year_keys(q) or _RANKING_CUE.search(q) or _HAS_BREAKDOWN.search(q) \
+            or _BREAKDOWN_CUE.search(q):
+        return False
+    try:
+        from app.entity_resolver import place_mentions as _c13_pm
+        return not _c13_pm(q)
+    except Exception:  # noqa: BLE001 — no place index: no override
+        return False
+
+
+async def _c13_knowledge_is_closer(question: str) -> bool:
+    """The best megh_knowledge passage is ahead of the best worked data example by
+    _C13_B3_MARGIN or more. Any failure: False (the rules' DATA stands)."""
+    try:
+        from qdrant_client import models as _c13_qm
+        from app import vectorstore as _c13_vs
+        vec = (await llm.call_embedding([question]))[0]
+        kb = await _c13_vs.search(vec, 1)
+        flt = _c13_qm.Filter(must=[_c13_qm.FieldCondition(key="kind", match=_c13_qm.MatchValue(value="example"))])
+        ex = await _c13_vs.get_client().query_points(
+            collection_name=settings.SQL_EXAMPLES_COLLECTION, query=vec, query_filter=flt, limit=1,
+            with_payload=False)
+        kb_s = kb[0]["score"] if kb else 0.0
+        ex_s = ex.points[0].score if ex.points else 1.0
+    except Exception:  # noqa: BLE001
+        logger.debug("classify_intent: B3 score check failed — rules' DATA stands", exc_info=True)
+        return False
+    closer = kb_s - ex_s >= _C13_B3_MARGIN
+    context_budget.log_decision("intent", b3_kb=round(kb_s, 3), b3_example=round(ex_s, 3),
+                                b3_override=closer)
+    return closer
+
+
+async def _c13_intent_by_rules(question: str) -> str:
+    """The cue rules, then one classifier call (the pre-B3 classify_intent)."""
     # "what are common districts in both schemes?" opens with "what are", which
     # otherwise reads as KNOWLEDGE — but it is a list computed from the coverage
     # data, never something in the reference docs. Force DATA before the keyword
@@ -458,6 +519,11 @@ async def classify_intent(question: str) -> str:
     if _CONTACT_INFO_CUE.search(question):
         return "KNOWLEDGE"
     if _PROGRAMME_DESIGN_CUE.search(question):
+        return "KNOWLEDGE"
+    # KI-404: a "how does <X> work" / "process for" question — unless it counts
+    # ("how many / how much") or names a year, which only a figure answers.
+    if _PROCESS_QUESTION_CUE.search(question) and not _C13_COUNT_ASKED.search(question) \
+            and not context_policy.extract_year_keys(question):
         return "KNOWLEDGE"
     if _BREAKDOWN_CUE.search(question):
         return "DATA"
@@ -1776,6 +1842,12 @@ async def _data_sql_stage(d: dict, scope: "auth.UserScope | None" = None) -> Non
     """The SQL to run: the deterministic query's, or generate_sql (graph: sql_generate)."""
     question, schemes, entity_result, _mg_det = d["question"], d["schemes"], d["entity_result"], d["mg_det"]
     d["per_scheme"] = None
+    # SQL_EXAMPLES_SOURCE=qdrant (D-074, 2026-10-27): the prompt's worked
+    # examples come from megh_sql_metadata. Searched here, once, because
+    # build_sql_prompt is synchronous; a failure keeps the YAML banks. With
+    # "yaml" (the default) this does nothing.
+    if not _mg_det:
+        await sql_examples.prefetch(prompt_builder._fewshot_ranking_text(question, entity_result), schemes)
     # A cross-scheme question always runs per scheme (D-062): each scheme's own
     # prompt, few-shots and guards, never one query over several schemas (KI-280).
     if not _mg_det and (d.get("cross") or _per_scheme_needed(question, schemes, entity_result)):
@@ -2870,6 +2942,15 @@ async def _update_context(session: "Session | None", raw_question: str, result: 
             await context_manager.maybe_update_summary(session)
         except Exception:  # noqa: BLE001 — the context layer must never break an answer
             logger.warning("context layer post-processing failed (non-fatal)", exc_info=True)
+    # E1 stage 1 (D-078): the query plan, built in the background AFTER the answer and
+    # logged beside this turn's decisions. Nothing reads it yet.
+    if settings.QUERY_PLAN_SHADOW and result.get("route") in ("data", "knowledge"):
+        try:
+            from app import query_plan as _c13_qp
+            asyncio.get_running_loop().create_task(_c13_qp.shadow(
+                result.get("rewritten_question") or raw_question, raw_question, result))
+        except Exception:  # noqa: BLE001
+            logger.debug("query plan shadow not scheduled", exc_info=True)
 
 
 # ── Chart hint (D-042) ──────────────────────────────────────────────────────

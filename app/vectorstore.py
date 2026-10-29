@@ -5,9 +5,16 @@ One module-level AsyncQdrantClient, opened at startup and closed at shutdown —
 same reasoning as the shared httpx client and the asyncpg pool: a fresh client
 per request wastes connections at the 20-40 concurrent target.
 
-Qdrant runs on its own server (115.124.102.167:6335, since 2026-10-03; no VPN needed). It
-is only used for scheme-knowledge retrieval; all numeric
-answers come from megh_db, never from here.
+Qdrant runs on the data box (10.48.242.4:6333, since 2026-10-27; needs the VPN —
+before that 115.124.102.167:6335). It is only used for scheme-knowledge retrieval
+(and, with SQL_EXAMPLES_SOURCE=qdrant, the SQL examples: app/sql_examples.py);
+all numeric answers come from megh_db, never from here.
+
+Two payload shapes are read (D-074, 2026-10-27). The app's own ingest
+(kb_ingest) writes {text, doc, heading, scheme: "<one tag>"}; megh_knowledge,
+loaded by another pipeline, carries {text, source_file, section, doc_title,
+scheme: ["<tag>", ...]}. `piece()` maps either to the same dict, and the scheme
+filter matches a tag inside a list as well as a plain string.
 """
 import logging
 
@@ -76,6 +83,56 @@ async def collection_dim(name: str | None = None) -> int | None:
     return vector_size(info)
 
 
+def scheme_tags(payload: dict | None) -> list[str]:
+    """The scheme tags of one point: a plain string (the app's ingest) or a
+    list of them (megh_knowledge, megh_sql_metadata)."""
+    tag = (payload or {}).get("scheme")
+    if isinstance(tag, (list, tuple)):
+        return [str(t) for t in tag if t]
+    return [str(tag)] if tag else []
+
+
+def piece(payload: dict | None, score: float) -> dict:
+    """One search hit as rag.py reads it, whichever payload shape it has."""
+    pl = payload or {}
+    tags = scheme_tags(pl)
+    return {
+        "score": score,
+        "text": pl.get("text", ""),
+        "doc": pl.get("doc") or pl.get("source_file") or "",
+        "heading": pl.get("heading") or pl.get("section") or "",
+        "scheme": tags[0] if tags else "",
+        "source_type": pl.get("source_type", "sme"),
+        # megh_knowledge only: the document's own title and type (faq / overview)
+        "title": pl.get("doc_title") or "",
+        "doc_type": pl.get("doc_type") or "",
+    }
+
+
+# CM Elevate and CM Elevate Legacy share one knowledge base (rag.kb_scheme
+# asks for "CM Elevate"). The app's ingest folded Legacy docs into that tag;
+# megh_knowledge keeps them under their own "CM Elevate Legacy" tag, so the
+# filter asks for both — on a collection without that tag it changes nothing.
+_FILTER_TAGS = {"CM Elevate": ["CM Elevate", "CM Elevate Legacy"]}
+
+
+def scheme_filter(scheme: str | None) -> "models.Filter | None":
+    if not scheme:
+        return None
+    return models.Filter(must=[models.FieldCondition(
+        key="scheme", match=models.MatchAny(any=_FILTER_TAGS.get(scheme, [scheme])))])
+
+
+class ReadOnlyCollectionError(RuntimeError):
+    """A write to the KB collection while QDRANT_KB_READ_ONLY is set."""
+
+
+def _refuse_if_read_only(action: str) -> None:
+    if settings.QDRANT_KB_READ_ONLY:
+        raise ReadOnlyCollectionError(
+            f"{action} refused: {settings.QDRANT_COLLECTION} is read-only (QDRANT_KB_READ_ONLY)")
+
+
 async def distinct_schemes() -> set[str]:
     """Every distinct `scheme` payload tag currently in the collection.
 
@@ -98,9 +155,7 @@ async def distinct_schemes() -> set[str]:
                 with_vectors=False,
             )
             for p in points:
-                tag = (p.payload or {}).get("scheme")
-                if tag:
-                    schemes.add(tag)
+                schemes.update(scheme_tags(p.payload))
             if offset is None:
                 break
     except Exception as e:  # noqa: BLE001 — missing/unreachable collection
@@ -119,6 +174,7 @@ _has_sparse: dict[str, bool] = {}
 async def recreate_collection(dim: int, sparse: bool = False) -> None:
     """(Re)create the KB collection: the unnamed meaning vector, plus — with
     `sparse` — the BM25 keyword vector (IDF weighting done by Qdrant)."""
+    _refuse_if_read_only("recreate_collection")
     client = get_client()
     name = settings.QDRANT_COLLECTION
     if await client.collection_exists(name):
@@ -145,6 +201,7 @@ async def has_sparse() -> bool:
 
 
 async def upsert(points: list[models.PointStruct]) -> None:
+    _refuse_if_read_only("upsert")
     client = get_client()
     await client.upsert(collection_name=settings.QDRANT_COLLECTION, points=points, wait=True)
 
@@ -175,11 +232,7 @@ async def search(vector: list[float], top_k: int, scheme: str | None = None,
     (kb_ingest.py), but without this filter search runs unscoped across the
     whole collection and can blend another scheme's content into the answer."""
     client = get_client()
-    query_filter = None
-    if scheme:
-        query_filter = models.Filter(
-            must=[models.FieldCondition(key="scheme", match=models.MatchValue(value=scheme))]
-        )
+    query_filter = scheme_filter(scheme)
     if sparse and sparse[0] and await has_sparse():
         response = await client.query_points(
             collection_name=settings.QDRANT_COLLECTION,
@@ -196,15 +249,7 @@ async def search(vector: list[float], top_k: int, scheme: str | None = None,
         out = []
         for rank, h in enumerate(response.points, 1):
             vec = h.vector.get("") if isinstance(h.vector, dict) else h.vector
-            out.append({
-                "score": _cosine(vector, vec),
-                "fused_rank": rank,
-                "text": h.payload.get("text", ""),
-                "doc": h.payload.get("doc", ""),
-                "heading": h.payload.get("heading", ""),
-                "scheme": h.payload.get("scheme", ""),
-                "source_type": h.payload.get("source_type", "sme"),
-            })
+            out.append(dict(piece(h.payload, _cosine(vector, vec)), fused_rank=rank))
         return out
 
     # qdrant-client >= 1.10 replaced .search() with .query_points().
@@ -215,15 +260,4 @@ async def search(vector: list[float], top_k: int, scheme: str | None = None,
         limit=top_k,
         with_payload=True,
     )
-    hits = response.points
-    return [
-        {
-            "score": float(h.score),
-            "text": h.payload.get("text", ""),
-            "doc": h.payload.get("doc", ""),
-            "heading": h.payload.get("heading", ""),
-            "scheme": h.payload.get("scheme", ""),
-            "source_type": h.payload.get("source_type", "sme"),
-        }
-        for h in hits
-    ]
+    return [piece(h.payload, float(h.score)) for h in response.points]

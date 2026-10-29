@@ -2129,13 +2129,23 @@ def _same_scheme_context_year(question: str, raw_question: str, state,
 
     `kind` is the turn's own kind when the follow-up stage decided it — for a
     resumed pause, the kind of the question the user typed (D-065), not of the
-    chip text, which names the scheme and reads as standalone."""
+    chip text, which names the scheme and reads as standalone.
+
+    KI-406 (user decision 2026-10-27, U5): a standalone question that only repeats
+    the chat's measure on the chat's scheme ("Total MGNREGA person-days in 2023-24"
+    -> "What is the total beneficiaries?" -> "What is the total beneficiaries
+    manraya?", the spoken MGNREGA) keeps the chat's YEAR, not its place. A new
+    measure ("Which district has the highest beneficiaries in MGNREGA?" after
+    person-days, D-061's own case) still inherits nothing and is asked the year."""
     if state is None or not getattr(state, "scheme", None):
         return None
+    year_only = False
     if (kind or context_policy.turn_kind(raw_question or question).kind) == context_policy.TURN_STANDALONE:
-        return None
+        if not _c14_repeats_chat_measure(raw_question or question, state):
+            return None
+        year_only = True
     target = _c14_context_target_scheme(question, state)
-    if not target:
+    if not target or (year_only and target != state.scheme):
         return None
     _prov = getattr(state, "provenance", None) or {}
     out: dict = {}
@@ -2154,7 +2164,7 @@ def _same_scheme_context_year(question: str, raw_question: str, state,
         _names_district = bool(scan_districts(raw_question or question or "", target))
     except Exception:  # noqa: BLE001 — catalogue unavailable: the resolver decides
         _names_district = False
-    for fld in () if _names_district else _c14_kept_place_fields(raw_question or question or ""):
+    for fld in () if (_names_district or year_only) else _c14_kept_place_fields(raw_question or question or ""):
         v = getattr(state, fld, None)
         if not v or (_prov.get(fld) or {}).get("source") == "model_inference":
             continue
@@ -2165,11 +2175,21 @@ def _same_scheme_context_year(question: str, raw_question: str, state,
         out["village_code" if fld == "village" else fld] = v
     if not out:
         return None
-    context_budget.log_decision("data_context", inherited="context-scope", scheme=target,
+    context_budget.log_decision("data_context",
+                                inherited="same-measure-year" if year_only else "context-scope", scheme=target,
                                 from_scheme=state.scheme,
                                 year=out.get("year_key") or ("all" if out.get("year_all") else None),
                                 place=out.get("village_code") or out.get("block") or out.get("district"))
     return out
+
+
+def _c14_repeats_chat_measure(question: str, state) -> bool:
+    """KI-406: the question names no scheme but the chat's own and asks the chat's
+    last measure (context_manager.detect_metric, the keyword kept in state.metric)."""
+    chat_metric = getattr(state, "metric", None)
+    if not chat_metric or not set(context_policy._schemes_named(question or "")) <= {state.scheme}:
+        return False
+    return context_manager.detect_metric(question or "") == chat_metric
 
 
 def _c14_context_target_scheme(question: str, state) -> "str | None":

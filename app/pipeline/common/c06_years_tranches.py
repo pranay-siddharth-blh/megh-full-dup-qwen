@@ -978,6 +978,20 @@ def _apply_year_gap(question: str, schemes: "list[str] | None"
         return question, None, False
 
     swapped: list[tuple[str, str]] = []
+    clamped: list[tuple[str, str]] = []
+    # KI-427: an end of a stated span ("from 2021-22 to 2024-25") the scheme does not
+    # hold moves to the nearest year it holds INSIDE the span. Dropping it left
+    # "from to 2024-25", which no longer reads as a span, and one year was answered.
+    span = _c09_stated_year_span(question)
+    if span is not None:
+        for bad in list(bad_years):
+            near = _nearest_available_year(bad, schemes)
+            nk = _parse_year_key(near) if near else None
+            if nk is not None and span[0] <= nk <= span[1] and near not in ok_years:
+                question = _substitute_year_token(question, bad, near)
+                ok_years.append(near)
+                bad_years.remove(bad)
+                clamped.append((bad, near))
     if _COMPARES_YEARS.search(question) and len(ok_years) + len(bad_years) >= 2:
         for bad in list(bad_years):
             near = _nearest_available_year(bad, schemes)
@@ -990,6 +1004,12 @@ def _apply_year_gap(question: str, schemes: "list[str] | None"
         question = _strip_year_tokens(question, bad_years)
 
     parts: list[str] = []
+    if clamped:
+        parts.append(
+            "; ".join(f"FY {b} holds no data for this scheme, so the range uses FY {n} instead"
+                      for b, n in clamped)
+            + ". That is a gap in the records, not a zero."
+        )
     if swapped:
         parts.append(
             "; ".join(
@@ -1005,7 +1025,7 @@ def _apply_year_gap(question: str, schemes: "list[str] | None"
             + " holds no data for this scheme, so it is left out — "
             "that is a gap in the records, not a zero."
         )
-    logger.info("year gap: swapped=%s dropped=%s, answering for %s",
+    logger.info("year gap: clamped=%s swapped=%s dropped=%s, answering for %s", clamped,
                 swapped, bad_years, ok_years)
     return question, (" ".join(parts) or None), True
 

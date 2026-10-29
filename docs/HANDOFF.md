@@ -3,6 +3,17 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-10-27 evening (run only, no code change): app running over HTTPS on :8401.** The repo had no root `.venv`
+(only the old gitignored `meghalaya/.venv`); a new `.venv` was built from `requirements.txt` (Python 3.12) plus
+`cryptography`. A self-signed dev cert (SAN localhost, DESKTOP-L9GCSDL, 127.0.0.1, 192.168.1.25, 10.212.134.3; 825 days)
+is in `certs/dev-cert.pem` + `dev-key.pem` (gitignored). Start:
+`.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8401 --ssl-certfile certs/dev-cert.pem --ssl-keyfile certs/dev-key.pem`.
+Plain `http://` on :8401 no longer answers. Verified live: `/health` ok, HSTS + CSP headers, `/api/query` answered over HTTPS.
+The `app/users.yaml` seed passwords do NOT match the DB users (login 401/422). This is a dev setup; production TLS stays at nginx (`deploy/nginx/`).
+This run includes the uncommitted D-072/D-073/KI-431 changes listed below.
+
+**2026-10-27 night (code): RAG-plan handover, Tasks 1-9 — uncommitted, :8401 NOT restarted.** The user gave the colleague's handover (`RAG_Plan_Progress_and_Handover_2026-10-27.docx`, Downloads) and asked for the remaining items one at a time, in its §8 order. User decisions today: no year/place named -> keep asking; U5 -> keep the previous year **only when the measure repeats** (D-075); KI-407 -> keep asking (D-064). Done: KI-406 (c14), KI-407 (test), KI-427 (c06 / c09 / c11 / prompt_builder), KI-411 (c11), KI-441 (c12 / c13). Live context 107/107. Task 3 done too: **KI-368** (c08 `_explicit_level_in`). Held-out set ran on a flaky VPN (18 network errors): 56 clean items 30 -> 31, 0 regressions; re-run on a stable VPN. :8401 was started by another process 16:48 (system Python + SSL) — ask the user before restarting. Task 4 done: **KI-404** (deterministic process cue; B3 score tie-break still PLANNED). Task 5 done: **B4 / KI-442** (catalogue shrinks first; examples 1 -> 5; held-out 41/74 vs 40/74). Task 6 done: **B1 / D-076** (meaning shadow log + approved synonyms; never answers). Task 7 done: **B3 / D-077** (score safety net, 69/70). Task 8 done: **E1 stage 1 / D-078** (query plan in shadow, 79/79). Task 9 done: **E5 / D-079** (registry + drift guard; KI-445 found). **Next (Task 10): E7** SQL built from the catalogue. The user wants a report after EVERY task (done list, next, remaining count) and waits to say go. Python: the repo root has no `.venv`; `meghalaya/.venv/Scripts/python.exe` works.
+
 **2026-10-27 afternoon (code, D-073): generated SQL through `semantic.run_query` on megh_chatbot, uncommitted, :8401 NOT restarted.** Files: `app/db.py` (chatbot pool, `_run_via_run_query`, type restore, `application_name`), `app/config.py` (`CHATBOT_DATABASE_URL`, `CHATBOT_DB_POOL_*`, `SQL_MAX_COST`, `DB_APPLICATION_NAME`), `app/pipeline_graph.py` (checkpointer application_name), `tests/conftest.py` (tests keep the read-only path), `tests/test_readonly_pool.py` (pinned server_settings now include application_name), NEW `tests/test_run_query_path_2026_10_27.py`, `.env.example`, `.env` (key rename only). Rollback: blank `CHATBOT_DATABASE_URL`. Next: user's go-ahead for `020_megh_app_role.sql` (cap 35) -> set `DATABASE_URL` to megh_app; the admin stops the old 172.18.0.2 container; restart :8401.
 
 **2026-10-27 (code): KI-431 fixed** — the SQL model wrote "FY23" as `year_key = 2023` -> "couldn't build a working query".
@@ -33,6 +44,18 @@ ask, or default to Legacy? — user decision). New KI-427 (MG-08 year range). :8
 the file with the evidence. Report: `new_docs/Metric_Catalogue_Report_2026-10-26.md`. :8401 was restarted from the venv on
 2026-10-27 11:04 with the catalogue loaded (the old PID 32108 was the venv launcher's child, not a foreign process). Open: KI-424 (ask the owners what "sanctions" /
 "coverage" / "remittances" mean), KI-425, KI-426.
+
+**2026-10-27 evening (code + .env): every kind in megh_knowledge and megh_sql_metadata is now used (user's instruction).**
+`SQL_EXAMPLES_SOURCE=qdrant` by default: examples + view / join notes from megh_sql_metadata. Measured slightly worse than
+YAML (54.1% vs 56.8%, 4 repairs vs 0; KI-438), kept on by the user's instruction. Next: show the user that result, then either
+more / validated examples in megh_sql_metadata (loading team) or `SQL_EXAMPLES_SOURCE=yaml`. Start :8401 and check over HTTP.
+
+**2026-10-27 (code + .env): D-074 — Qdrant is `10.48.242.4:6333`; the project uses ONLY `megh_knowledge` (RAG) and
+`megh_sql_metadata` (SQL examples), both read-only to the app.** The user's new `.env` is in place, with the Qdrant
+block rewritten and `DATABASE_URL_CHATBOT` commented out (KI-437). Memory is off (KI-439). `SQL_EXAMPLES_SOURCE=yaml` stays
+until `python tests/nl2sql_eval/compare_examples_source.py` has been run and shows no regressions (KI-438, VPN, ~2 x 74
+questions). Next: run that comparison; run `tests/rag_eval/run_eval.py` against megh_knowledge (KI-440); the live context
+suite (memory off). KB doc changes now go to the team that loads megh_knowledge. Deploy `.env` must match `.env.example`.
 
 **2026-10-26 (review only): role-based access.** Report `new_docs/Role_Based_Access_Report_2026-10-26.md`; no code
 changed. Opened KI-418 (HIGH, `PATCH /admin/users` escalation to super_admin), KI-419 (cross_figures, Focus Plus summary,

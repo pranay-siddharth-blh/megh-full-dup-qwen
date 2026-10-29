@@ -28,3 +28,22 @@ def _guardrail_model_off(monkeypatch):
     # not have it consumed by the guard. tests/test_guardrails.py turns it on
     # with its own fake.
     monkeypatch.setattr(settings, "GUARDRAIL_MODEL_ENABLED", False)
+
+
+@pytest.fixture(autouse=True)
+def _sql_examples_from_yaml(monkeypatch):
+    # SQL_EXAMPLES_SOURCE=qdrant (D-074) is one embedding call + Qdrant searches
+    # per data turn, against the live gateway and collection. Tests fake the
+    # models and pin prompts built from the YAML banks; the Qdrant path is
+    # tested with its own fakes in tests/test_qdrant_two_collections_2026_10_27.py.
+    monkeypatch.setattr(settings, "SQL_EXAMPLES_SOURCE", "yaml")
+    # B1 meaning shadow (2026-10-27): a background embedding call that appends to
+    # logs/metric_meaning_shadow.jsonl. Off in tests; its own tests switch it on
+    # with a temporary file (tests/test_metric_meaning_shadow_b1_2026_10_27.py).
+    monkeypatch.setattr(settings, "METRIC_MEANING_SHADOW", False)
+    # B3 score tie-break (2026-10-27): one embedding + two Qdrant searches on some DATA
+    # verdicts. Off in tests; tests/test_intent_scores_b3_2026_10_27.py fakes them.
+    monkeypatch.setattr(settings, "INTENT_SCORE_TIEBREAK", False)
+    # E1 query-plan shadow (2026-10-27): a background classifier call after each turn.
+    # Off in tests; tests/test_query_plan_shadow_e1_2026_10_27.py drives it with fakes.
+    monkeypatch.setattr(settings, "QUERY_PLAN_SHADOW", False)

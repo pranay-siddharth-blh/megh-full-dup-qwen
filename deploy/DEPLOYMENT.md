@@ -5,7 +5,7 @@ the systemd unit. Capacity budget 20–40 concurrent, 100–200 DAU — see
 [../docs/ARCHITECTURE.md](../docs/ARCHITECTURE.md).
 
 The service is a single FastAPI app (`app.main:app`). It talks to Postgres
-(`megh_db`) and the self-hosted Qwen gateway on `10.48.242.4`, and Qdrant on `115.124.102.167:6335`.
+(`megh_db`) and the self-hosted Qwen gateway on `10.48.242.4`, and Qdrant on `10.48.242.4:6333` (since 2026-10-27, D-074).
 
 ---
 
@@ -14,7 +14,7 @@ The service is a single FastAPI app (`app.main:app`). It talks to Postgres
 | | |
 | --- | --- |
 | Python | **3.11+** (verified on 3.11.9) |
-| Reachable | `10.48.242.4:5432` (Postgres), `:443` (model gateway); `115.124.102.167:6335` (Qdrant, since 2026-10-03) |
+| Reachable | `10.48.242.4:5432` (Postgres), `:443` (model gateway); `10.48.242.4:6333` (Qdrant, since 2026-10-27) |
 | User | `ubuntu` (matches `User=` in the unit) |
 
 ## 2. Lay the code down
@@ -41,11 +41,13 @@ python3.11 -m venv .venv
 ```
 
 Embeddings come from the gateway's `qwen3-embedding` (`EMBEDDING_PROVIDER=gateway`, D-067). Set
-`EMBEDDING_BASE_URL=https://10.48.242.4/openai/v1` (not `…/completions`), `QDRANT_COLLECTION=megh_scheme_kb_v4`,
-`CONTEXT_MEMORY_COLLECTION=megh_conversation_memory_1024`, `RAG_MEDIUM_CONFIDENCE=0.35` and
-`CONTEXT_MEMORY_MIN_SCORE=0.45` (see `.env.example`). The first start builds the KB collection by itself
-(and rebuilds it if its vector size does not match the model, KI-402). After that restart, carry chat recall over
-once — it re-embeds the last 30 days of `megh_conversation_memory` and only reads the old collection:
+`EMBEDDING_BASE_URL=https://10.48.242.4/openai/v1` (not `…/completions`) and `RAG_MEDIUM_CONFIDENCE=0.35`.
+**Since 2026-10-27 (D-074)** Qdrant is `QDRANT_URL=http://10.48.242.4:6333` and the app uses only two
+collections, both read-only: `QDRANT_COLLECTION=megh_knowledge` with `QDRANT_KB_READ_ONLY=true` (the app
+never builds or rebuilds it) and `SQL_EXAMPLES_COLLECTION=megh_sql_metadata` (`SQL_EXAMPLES_SOURCE=qdrant`, the default; `yaml` = rollback
+until the comparison in docs/TESTING.md says otherwise). Also set `RAG_HYBRID_ENABLED=false` (no BM25
+vector there) and `CONTEXT_SEMANTIC_MEMORY_ENABLED=false` (see `.env.example`). The memory migration below
+applies only to the pre-D-074 setup (D-067) and is not run any more:
 `./.venv/bin/python deploy/migrate_conversation_memory.py --dry-run`, then without `--dry-run`.
 `fastembed` is still installed: it serves the BM25 keyword vectors, the local re-ranker and the
 `EMBEDDING_PROVIDER=local` rollback, and downloads its models on first use — allow outbound HTTPS once, or

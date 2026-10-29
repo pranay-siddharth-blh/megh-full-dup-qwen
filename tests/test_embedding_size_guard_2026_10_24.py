@@ -31,6 +31,9 @@ def test_vector_size_reads_plain_and_hybrid_collections():
 @pytest.fixture
 def kb(monkeypatch):
     """A KB that passes every old skip check: enough points, all schemes, BM25."""
+    # The size guard is for an app-owned KB; megh_knowledge is read-only and
+    # never rebuilt (D-074, tests/test_qdrant_two_collections_2026_10_27.py).
+    monkeypatch.setattr(settings, "QDRANT_KB_READ_ONLY", False)
     chunks = [{"scheme": "MGNREGA", "text": f"piece {i}"} for i in range(10)]
     built = []
 
@@ -154,6 +157,8 @@ def test_purge_also_cleans_the_rollback_memory_collection(monkeypatch):
     assert c.deleted == ["mem_1024", "mem_384"]
 
 
-def test_the_default_purge_list_names_both_memory_collections():
-    names = {s.strip() for s in type(settings)().CONTEXT_MEMORY_PURGE_ALSO.split(",")}
-    assert {"megh_conversation_memory", "megh_conversation_memory_1024"} <= names
+def test_the_default_purge_list_names_no_other_collection():
+    # D-074 (2026-10-27): both memory collections stayed on the old server; on
+    # the data box's Qdrant the app may touch only megh_knowledge and
+    # megh_sql_metadata, so nothing else is on the purge list by default.
+    assert type(settings).model_fields["CONTEXT_MEMORY_PURGE_ALSO"].default == ""
