@@ -1622,7 +1622,9 @@ DDL.
 
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
 - Progress: context-memory tasks done on `lane/a2` (2026-10-29; local commits, not pushed). REL-01, UI-01, UI-02 open.
-- **What works now (VERIFIED offline, real functions; live checks pending — VPN down):**
+- **What works now (VERIFIED offline with the real functions, and live on 2026-10-29 with the VPN up: live context
+  suite 107/107, harness P1 / P2 over HTTP incl. a real cache hit, CTX-07 chats, nl2sql eval 97.7% + 31 expected
+  pauses):**
   - Topics survive cache hits, small talk, "stop" and "Continue with …"; "go back to <place>" restores that
     question's scope (CTX-02, KI-400, KI-480).
   - A conversation answers only its owner (403 otherwise); one turn at a time per conversation per worker; a
@@ -1635,9 +1637,10 @@ DDL.
   - The cache gate is proven on every harness turn (CTX-06). Deleting a chat removes its memory, paused run and
     Session; retention is opt-in (CTX-04a). The decision log holds no question text (CTX-08).
   - "Break it down by district" after a statewide answer and "Compare … with <place>" are rewritten
-    deterministically (CTX-07, KI-363, KI-364). KI-416 is SQL generation's (request to lane B1).
+    deterministically (CTX-07, KI-363, KI-364; the live check found and fixed KI-364's inherited district). KI-416
+    was not reproduced live.
   - Eval: deliberate pauses are `expected_pause`, not misses (CTX-09).
-- **Tests (rebased on Main 1360c3b):** 4,401 passed, 0 failed, 3 skipped; 14/14 scripts; frontend lint + 13/13.
+- **Tests (rebased on Main 1360c3b):** 4,402 passed, 0 failed, 3 skipped; 14/14 scripts; frontend lint + 13/13.
 - **Open, user decisions:** D-A2-CTX-09 sign-off; retention periods; KI-482 (semantic memory almost never used) and
   KI-483 (summary covers 4 questions).
 <!-- end lane A2 -->

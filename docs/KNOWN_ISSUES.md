@@ -1412,6 +1412,20 @@ the DATA path stubbed (the VPN was down: `10.48.242.4` answered neither 5432 nor
   previous summary, so topics older than four questions drop out of it. **OPEN — user decision** (fold the old
   summary in, or build it from the topic records without a model call). VERIFIED by reading
   `context_manager.maybe_update_summary`. Low · context_manager.
+- **Live results (2026-10-29, VPN up):** KI-400 and KI-399 VERIFIED live (harness P1 / P2 over HTTP, plain and
+  stream; P2 also with the response cache on: a real cache hit, topics kept). KI-363 VERIFIED live. KI-364: the live
+  run found a second cause (below) — now VERIFIED live. KI-416 NOT REPRODUCED live (houses answered first).
+  Live context suite 107/107.
+- **KI-364 (second cause, found live)** — the compare rewrite was right and resolve_entities found both districts,
+  but the previous turn's single `district` was inherited beside `district_list` and the PMAY-G fixed query (which
+  prefers the single district) answered East Khasi Hills alone. **FIXED 2026-10-29**: the rewrite hands the
+  data-context stage a plan that CLEARs the compared level and below (`_c01_ctx07_compare_place_plan`).
+- **KI-485** — 7 conversation-harness scenarios fail in-process on Main 1360c3b and on `lane/a2` alike: two need an
+  account's permissions (http only), U4's count drifted with the data (8,840 → 8,921), NQ09 / NQ12 still expect the
+  year pause D-075 replaced, CMP_compare_with_scheme / META_recap_explain_breakdown expect text the E9 formatting
+  removed. **OPEN** (stale expectations; integrator with the owning lanes). VERIFIED by running both trees.
+- **KI-486** — Composer (seen live 2026-10-29): a NULL-district row is labelled "(row)" in a by-district answer, and
+  district amounts are printed in raw rupees, not crore. **OPEN** (lane B2). Low.
 - **KI-484** — Another worker's in-memory copy of a deleted chat lives until its TTL: `sync_in` cannot tell "deleted"
   from "never saved" (both load nothing) and keeps the local copy. Only reachable by re-sending the deleted id.
   **OPEN** (INFERRED; low). routers/history.py, session_sync.

@@ -424,7 +424,7 @@ cases. Per file:
 ### Lane A2 · Conversation & frontend (KI-480 to KI-509)
 - Progress: context-memory tasks done (2026-10-29, branch `lane/a2`).
 - **Results on the final tree (offline, VPN down), rebased on Main 1360c3b (PR #17):** full pytest command (§2)
-  **4,401 passed, 0 failed, 3 skipped** (3.5 min; 4,247 before the rebase); frontend `npm run lint` clean, `npm test` 13/13; 14/14 script suites; `test_pipeline_namespace_2026_10_26.py` green; all 141 harness scenarios validate.
+  **4,402 passed, 0 failed, 3 skipped** (after the live KI-364 fix; 4,247 before the rebase); frontend `npm run lint` clean, `npm test` 13/13; 14/14 script suites; `test_pipeline_namespace_2026_10_26.py` green; all 141 harness scenarios validate.
   Every new regression test was also run against the old code and fails there.
 - **New tests (214):** `test_topic_rev_2026_10_28.py` (9, real router + real sync_in/sync_out over a fake
   app.conversations), `test_ownership_turns_2026_10_29.py` (13), `test_summary_reset_2026_10_29.py` (6),
@@ -441,7 +441,10 @@ cases. Per file:
   `live_context_validation.py` writes `logs/live_context_validation_<date>_<time>.json` (was one fixed file).
 - **Eval (CTX-09):** `expected_pause` outcome; the 2026-10-27 run re-scored is 41/43 = 95.3% (was 41/74), 31/31
   pauses as the rules require.
-- **Not run (VPN):** live context suite, harness live runs, nl2sql eval, CTX-07 live chats — see HANDOFF lane A2.
+- **Live (VPN, 2026-10-29):** live context suite 107/107 (follow-ups 74/74, SQL 68/68); harness P1 + P2 over HTTP
+  plain and stream pass (P2 also with the response cache on: a real cache hit); harness in-process `--fresh-worker
+  --tags context` 75/82 — the 7 failures are identical on Main (KI-485); nl2sql eval 97.7% (42/43) + 31
+  `expected_pause` (FL-12 flips between runs, model variance). Not run: VM1 → VM2 pause / resume, J2 / J3 (KI-037).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

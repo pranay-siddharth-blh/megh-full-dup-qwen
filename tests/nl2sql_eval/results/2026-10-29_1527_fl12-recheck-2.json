@@ -1,0 +1,121 @@
+{
+ "label": "fl12-recheck-2",
+ "when": "2026-10-29T15:27:21",
+ "git": {
+  "commit": "6486441",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b",
+  "sql_examples": "qdrant"
+ },
+ "readonly_login": "megh_readonly",
+ "superuser_allowed": false,
+ "holdout_checked": true,
+ "selection": {
+  "scheme": null,
+  "ids": "FL-12"
+ },
+ "minutes": 0.3,
+ "summary": {
+  "items": 1,
+  "scored": 1,
+  "outcomes": {
+   "wrong": 1
+  },
+  "expected_pauses": 0,
+  "accuracy": 0.0,
+  "by": {
+   "Focus Legacy": {
+    "accuracy": 0.0,
+    "wrong": 1
+   },
+   "difficulty:hard": {
+    "accuracy": 0.0,
+    "wrong": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "FL-12",
+   "scheme": "Focus Legacy",
+   "difficulty": "hard",
+   "question": "In FY 2025-26, in which districts were LAMPS cooperatives paid in more than 25% of that district's Focus Legacy payment records? Give each district's share.",
+   "gold_rows": 4,
+   "outcome": "wrong",
+   "route": "data",
+   "schemes": [
+    "Focus Legacy"
+   ],
+   "rewritten": "In FY 2025-26, in which districts were LAMPS cooperatives paid in more than 25% of that district's Focus Legacy payment records? Provide each district's share.",
+   "resolved": {
+    "year_key": 2025
+   },
+   "sql": "SELECT \n    lgd_district,\n    COUNT(*) AS district_payments,\n    SUM(COUNT(*)) OVER (ORDER BY COUNT(*) DESC) AS cumulative_payments,\n    ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 2) AS pct_of_district_payments\nFROM curated.v_focus_legacy\nWHERE financial_year_short = '2025-26'\n  AND pg_entity_type = 'LAMP'\nGROUP BY lgd_district\nHAVING COUNT(*) > 0\nORDER BY pct_of_district_payments DESC\nLIMIT 100",
+   "seconds": 19.6,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Focus Legacy#25",
+    "Focus Legacy#47",
+    "Focus Legacy#5",
+    "Focus Legacy#46",
+    "Focus Legacy#27"
+   ],
+   "answer": "Focus Legacy district payments by district, FY 2025-26 \u2014 11 districts:\n\n- West Garo Hills: 461 district payments, 461 cumulative payments, 25.70 pct of district payments\n- West Jaintia Hills: 273 district payments, 734 cumulative payments, 15.22 pct of district payments\n- East Garo Hills: 259 district payments, 993 cumulative payments, 14.44 pct of district payments\n- East Jaintia Hills: 174 distr",
+   "detail": "row count: gold 4, got 11",
+   "mapping": {},
+   "pred_rows": 11,
+   "gold_sample": [
+    {
+     "lgd_district": "EAST GARO HILLS",
+     "pct_payments_lamp": "35.09"
+    },
+    {
+     "lgd_district": "EAST JAINTIA HILLS",
+     "pct_payments_lamp": "29.05"
+    },
+    {
+     "lgd_district": "SOUTH GARO HILLS",
+     "pct_payments_lamp": "29.82"
+    }
+   ],
+   "pred_sample": [
+    {
+     "lgd_district": "WEST GARO HILLS",
+     "district_payments": 461,
+     "cumulative_payments": "461",
+     "pct_of_district_payments": "25.70"
+    },
+    {
+     "lgd_district": "WEST JAINTIA HILLS",
+     "district_payments": 273,
+     "cumulative_payments": "734",
+     "pct_of_district_payments": "15.22"
+    },
+    {
+     "lgd_district": "EAST GARO HILLS",
+     "district_payments": 259,
+     "cumulative_payments": "993",
+     "pct_of_district_payments": "14.44"
+    }
+   ]
+  }
+ ],
+ "compared_with": "2026-10-29_1525_fl12-recheck-1.json",
+ "delta": {
+  "regressions": [
+   [
+    "FL-12",
+    "wrong"
+   ]
+  ],
+  "fixed": []
+ }
+}

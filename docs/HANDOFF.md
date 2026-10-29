@@ -1289,14 +1289,28 @@ conversation state back into process memory (D-023).
   was kept and this lane's duplicate (with a 10 min ceiling) dropped. `web/app` rebuilt after the rebase; `npm run
   lint` clean, `npm test` 13/13. A teammate editing the UI: on a `web/app` conflict, keep either side and run
   `npm run build` again.
-- **Blocked on the VPN (do first when it is up):**
-  1. `tests/live_context_validation.py` (caches on and off) — expect 43/43; it now writes a dated file.
-  2. Harness: `--driver http --only P1_ownership_refused,P2_topics_survive_a_cache_hit` with caches ON, and
-     `--driver inprocess --fresh-worker` on the context scenarios.
-  3. CTX-07 live: the KI-363 / KI-364 chats in the UI; check the SQL for "Compare … East Khasi Hills and Ri Bhoi"
-     returns one row per district.
-  4. QA-03 live: pause on VM1, resume on VM2; re-run J2 / J3 for KI-037.
-  5. `tests/nl2sql_eval/run_eval.py` — accuracy now excludes `expected_pause` items.
+- **Live checks, 2026-10-29 afternoon (VPN up), all on `lane/a2`:**
+  1. `tests/live_context_validation.py`: **107/107 checks**, follow-up resolution 74/74, SQL 68/68
+     (`logs/live_context_validation_2026-10-29_1458.json`).
+  2. HTTP harness on :8401 (restarted on `lane/a2` with the user's OK), plain and stream: P1 ownership **pass**
+     (403 for `state-rd` on superadmin's chat, owner continues); P2 **pass**. This box's `.env` has both answer
+     caches OFF, so P2 was re-run on a server started with `RESPONSE_CACHE_ENABLED=true` (env override, `.env`
+     untouched): turn 3 answered from the cache (294 ms) and both "go back to …" still restored their scope. The
+     server was then restarted with the normal configuration and is running `lane/a2`.
+  3. Harness in-process `--fresh-worker --tags context`: **75/82** scenarios, 251/262 turns. The 7 failures fail
+     identically on Main 1360c3b (worktree run, 15/26 turns ok on both): E_denied_block_keeps_topic and
+     AU01_refused_scope_not_stored need an account's permissions (http only); U4 expects 8,840, the data now has
+     8,921; NQ09 / NQ12 expect a year pause that D-075 replaced (same measure keeps the year);
+     CMP_compare_with_scheme and META_recap_explain_breakdown expect text the answer no longer has (E9
+     formatting). KI-485. Not caused by this lane.
+  4. CTX-07 live: KI-363 **fixed** (13 district rows). KI-364 rewrite was right but the PMAY-G fixed query still
+     answered one district (the inherited district stayed beside `district_list`): **fixed** with a clearing merge
+     plan, live after: East Khasi Hills 17,281 vs Ri Bhoi 11,334. KI-416 **not reproduced** ("FY20?" answers 542
+     houses sanctioned first, the amounts beside them).
+  5. `run_eval.py --label lane-a2-context`: **97.7% (42/43)**, 31 `expected_pause`; vs Main's 13:36 run FL-12
+     correct → wrong and FP-05 wrong → correct. FL-12 re-run three times on this branch: correct, wrong, wrong —
+     model variance on a hard ratio question whose path this lane does not touch (INFERRED); for lane B1.
+  6. Still to do (needs the VMs, not reachable from here): pause on VM1 / resume on VM2; re-run J2 / J3 for KI-037.
 - **Blocked on the user:** sign-off of D-A2-CTX-09 (and the four wordings it lists); retention periods
   (`CONVERSATION_RETENTION_DAYS`, `QUERY_AUDIT_RETENTION_DAYS`, both 0 = keep); KI-482 (semantic memory: keep /
   questions only / off) and KI-483 (summary).
@@ -1307,6 +1321,10 @@ conversation state back into process memory (D-023).
   - Lane A1: `config.py:390-393` comment ("Per-worker … Lost on restart; not shared across workers") is stale since
     D-023 (the session is durable). Lane A2 added one block after `SESSION_MAX_TURNS` (QUERY_NONSTREAM_MAX_SECONDS,
     CONVERSATION_RETENTION_DAYS, QUERY_AUDIT_RETENTION_DAYS).
+  - Lane B2 (composer), seen live 2026-10-29 in the KI-363 answer: a row with no district is named "(row)" ("(row)
+    is the smallest with ₹7,500.00"), and district amounts are shown as raw rupees (₹239,442,500.00) rather than
+    crore. KI-486.
+  - Integrator: update the 7 stale harness expectations (KI-485) after confirming each with its owner lane.
   - Lane B2 / RAG: `routers/query.py` error branches now restore the session (CTX-10); RAG-05's error mapping must
     keep `_restore_turn_start(request, session)` in each branch.
 - **Failing tests seen:** none on the final tree (one transient failure in a run that overlapped the harness edits;
