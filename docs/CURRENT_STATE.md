@@ -1627,7 +1627,7 @@ DDL.
     question's scope (CTX-02, KI-400, KI-480).
   - A conversation answers only its owner (403 otherwise); one turn at a time per conversation per worker; a
     failed (503/504/5xx) or stopped turn leaves the session as it found it; the plain /api/query is capped at 110 s;
-    the UI's 75 s limit is a silence limit (CTX-01, CTX-10, REL-02b).
+    the UI mints unguessable session ids (CTX-01, CTX-10, REL-02b). (The UI's silence timer is E11's, on Main.)
   - "Start a new topic" / idle expiry clear the summary on every worker; the KI-314 load retry really retries
     (CTX-11, CTX-12).
   - A typed "stop" keeps the topic; a paused first reply after expiry keeps the Continue chip; cached answers carry

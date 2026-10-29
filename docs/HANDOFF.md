@@ -1284,9 +1284,11 @@ conversation state back into process memory (D-023).
 - **Taken from other lanes, so they skip them:** CTX-08 (lane B2) was done at the source in `context_budget.log_decision`;
   NO call site was edited, so B2's conversation_layer / c14 lines are untouched. CTX-09 (lane B1): rulebook entry +
   eval `expect_pause`; B1 need only do QA-01 on top.
-- **Frontend:** `frontend/src/chat/api.js` (stream silence timer + 10 min ceiling, crypto session ids); `web/app`
-  rebuilt and committed in the CTX-01 commit, as the lane plan requires. A teammate editing the UI: on a `web/app`
-  conflict, keep either side and run `npm run build` again.
+- **Frontend:** only the session ids changed (`frontend/src/chat/api.js`, `crypto.getRandomValues`, 128 bits). The
+  stream's silence timer was already done on Main by E11 / UI-03 (PR #16); on the rebase (2026-10-29) Main's version
+  was kept and this lane's duplicate (with a 10 min ceiling) dropped. `web/app` rebuilt after the rebase; `npm run
+  lint` clean, `npm test` 13/13. A teammate editing the UI: on a `web/app` conflict, keep either side and run
+  `npm run build` again.
 - **Blocked on the VPN (do first when it is up):**
   1. `tests/live_context_validation.py` (caches on and off) — expect 43/43; it now writes a dated file.
   2. Harness: `--driver http --only P1_ownership_refused,P2_topics_survive_a_cache_hit` with caches ON, and
