@@ -3,6 +3,17 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-10-29 (code, E11 UI fixes, KI-570, D-084): frontend only, uncommitted; `web/app/` rebuilt.** Files:
+`frontend/src/chat/api.js` (inactivity timer `questionAbort().alive()`, chat sign-out clears `megh_admin_jwt`),
+`analytics.js` (null stays null, `asksRanking`, unlike-measure verdict, `types` for non-additive), `chartTheme.js`
+(headlines skip gaps), `components/Charts.jsx` + `Messages.jsx`, `styles/chat.css` (phone cards), `admin/AdminApp.jsx` +
+`styles/admin.css` (roles least-privilege first, masked password + inline reset, Sign out), `App.jsx` / `useVoice.js`
+(lint cleanup only), `package.json` (+ESLint dev deps, `lint`, `test`), NEW `eslint.config.js`, NEW `frontend/tests/`.
+`frontend/node_modules` was missing; `npm install` done. Next: with a signed-in browser, look at the welcome cards at
+320 / 390 px and the admin Sign out / Reset pw at 390 px (not done: hand-minting a token was refused). Lane A2's UI-01
+still owns the pct-points verdict, lower-is-better and cross-scheme pivot totals. :8401 is another session's HTTPS
+server (system Python, started 12:21); left running.
+
 **2026-10-28 evening (review only): audit v3 findings verified and merged into the 4-lane plan.** Run the lane plan, not
 the v3 packages: `new_docs/Lane_Plan_2026-10-28.html` + `new_docs/audit_by_lane_2026-10-28/lane-*.html`. Setup commit done;
 RAG left out this round. Machine 1 runs lanes A1 and A2, machine 2 runs B1 and B2; each lane's prompt is in its report.

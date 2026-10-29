@@ -86,6 +86,11 @@
   .adm-user-name{font-weight:600;font-size:13px;line-height:1.2}
   .adm-user-role{font-size:11.5px;color:var(--ink-3)}
   .adm-content{min-width:0}
+  /* Sign out sits outside .adm-user, which phones hide: it is on every screen (E11). */
+  .adm-top-right{display:flex;align-items:center;gap:10px;flex-shrink:0}
+  .pw-inline{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:8px}
+  .pw-inline input{width:auto;min-width:0;flex:1 1 160px}
+  .pw-inline .err{min-height:0;flex-basis:100%}
 
   .mini-av{width:28px;height:28px;border-radius:50%;flex-shrink:0;display:inline-flex;align-items:center;justify-content:center;
     background:linear-gradient(135deg,var(--p-400),var(--p-600));color:#fff;font-size:11px;font-weight:700}

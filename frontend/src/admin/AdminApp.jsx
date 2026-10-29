@@ -145,6 +145,14 @@ function Overview() {
 // Roles not offered when creating a user: tenant_admin/admin are unused
 // (super_admin covers admin duties); analyst/public are system fallbacks.
 const HIDDEN_ROLES = new Set(['tenant_admin', 'admin', 'analyst', 'public']);
+// Least privilege first: the form starts on the narrowest role, and an admin
+// role is only ever picked on purpose (audit 2026-10-23: "Create officer"
+// defaulted to super_admin; E11). Roles not listed here follow, in API order.
+const LEAST_FIRST = ['block_officer', 'district_officer', 'state_officer', 'super_admin'];
+export const roleOptions = (roles) => {
+  const offered = Object.keys(roles || {}).filter((r) => !HIDDEN_ROLES.has(r));
+  return [...LEAST_FIRST.filter((r) => offered.includes(r)), ...offered.filter((r) => !LEAST_FIRST.includes(r))];
+};
 const EMPTY_FORM = { username: '', name: '', password: '', role: '', districts: '', blocks: '', schemes: '', tenant: '' };
 const csv = (v) => { const s = String(v || '').trim(); return s ? s.split(',').map((x) => x.trim()).filter(Boolean) : null; };
 
@@ -153,6 +161,8 @@ function Users({ me }) {
   const [users, setUsers] = useState(null);
   const [form, setForm] = useState(EMPTY_FORM);
   const [err, setErr] = useState('');
+  const [pw, setPw] = useState({ id: null, value: '', err: '' });   // the inline password reset
+  const [notice, setNotice] = useState('');
 
   const load = useCallback(async () => {
     try {
@@ -160,13 +170,13 @@ function Users({ me }) {
       if (!roles) setRoles(r);
       const { users: list } = await api('/admin/users');
       setUsers(list);
-      setForm((f) => ({ ...f, role: f.role || Object.keys(r).filter((x) => !HIDDEN_ROLES.has(x))[0] || '' }));
+      setForm((f) => ({ ...f, role: f.role || roleOptions(r)[0] || '' }));
     } catch (e) { /* 401 handled by api() */ }
   }, [roles]);
   useEffect(() => { load(); }, [load]);
 
   if (!users || !roles) return <Loading />;
-  const roleOpts = Object.keys(roles).filter((r) => !HIDDEN_ROLES.has(r));
+  const roleOpts = roleOptions(roles);
   const set = (k) => (e) => setForm({ ...form, [k]: e.target.value });
 
   const createUser = async () => {
@@ -202,11 +212,15 @@ function Users({ me }) {
     if (window.prompt('Type the username to confirm deletion:') !== uname) { window.alert('Username did not match — nothing deleted.'); return; }
     await api('/admin/users/' + id + '?hard=true', { method: 'DELETE' }); load();
   };
-  const resetPw = async (id) => {
-    const p = window.prompt('New password (min 8 chars):');
-    if (!p) return;
-    await api('/admin/users/' + id, { method: 'PATCH', body: JSON.stringify({ password: p }) });
-    window.alert('Password updated');
+  // A masked field in the row, not window.prompt() (which shows the password
+  // in clear text and cannot be styled or validated; audit 2026-10-23, E11).
+  const savePw = async () => {
+    if (pw.value.length < 8) { setPw({ ...pw, err: 'At least 8 characters' }); return; }
+    try {
+      await api('/admin/users/' + pw.id, { method: 'PATCH', body: JSON.stringify({ password: pw.value }) });
+      setPw({ id: null, value: '', err: '' });
+      setNotice('Password updated');
+    } catch (e) { setPw({ ...pw, err: e.message }); }
   };
   const req = <span style={{ color: 'var(--red)' }}>*</span>;
 
@@ -218,7 +232,7 @@ function Users({ me }) {
         <div className="row" style={{ marginTop: 8 }}>
           <div><label>Username {req}</label><input value={form.username} onChange={set('username')} /></div>
           <div><label>Name {req}</label><input value={form.name} onChange={set('name')} /></div>
-          <div><label>Password {req}</label><input type="text" placeholder="min 8 characters" value={form.password} onChange={set('password')} /></div>
+          <div><label>Password {req}</label><input type="password" autoComplete="new-password" placeholder="min 8 characters" value={form.password} onChange={set('password')} /></div>
           <div><label>Role {req}</label>
             <select value={form.role} onChange={set('role')}>{roleOpts.map((r) => <option key={r}>{r}</option>)}</select>
           </div>
@@ -235,7 +249,7 @@ function Users({ me }) {
         </div>
       </div>
       <div className="card">
-        <CardHead title="Users" count={users.length} />
+        <CardHead title="Users" count={users.length}>{notice && <span className="muted" role="status">{notice}</span>}</CardHead>
         <div className="scroll">
           <table>
             <thead><tr><th>id</th><th>username</th><th>name</th><th>role</th><th>districts</th><th>schemes</th><th>active</th><th>last login</th><th /></tr></thead>
@@ -250,8 +264,18 @@ function Users({ me }) {
                   <td className="muted">{fmtTs(u.last_login_at)}</td>
                   <td className="actions-cell">
                     <button className="danger sm" type="button" onClick={() => deactivate(u.user_id)}>Deactivate</button>{' '}
-                    <button className="sm" type="button" onClick={() => resetPw(u.user_id)}>Reset pw</button>{' '}
+                    <button className="sm" type="button" onClick={() => { setNotice(''); setPw({ id: u.user_id, value: '', err: '' }); }}>Reset pw</button>{' '}
                     {me.is_super && <button className="danger sm" type="button" onClick={() => deleteUser(u.user_id, u.username)}>Delete</button>}
+                    {pw.id === u.user_id && (
+                      <form className="pw-inline" onSubmit={(e) => { e.preventDefault(); savePw(); }}>
+                        <input type="password" autoComplete="new-password" aria-label={'New password for ' + u.username}
+                               placeholder="new password, min 8" value={pw.value} autoFocus
+                               onChange={(e) => setPw({ ...pw, value: e.target.value, err: '' })} />
+                        <button className="primary sm" type="submit">Save</button>
+                        <button className="sm" type="button" onClick={() => setPw({ id: null, value: '', err: '' })}>Cancel</button>
+                        {pw.err && <span className="err">{pw.err}</span>}
+                      </form>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -431,6 +455,16 @@ export default function AdminApp() {
   const booted = useRef(false);
 
   const showLogin = useCallback(() => setView('login'), []);
+  // Sign out of this console. The chat's copy goes too when it is the same
+  // token (the console adopted it): on a shared terminal nothing stays signed in.
+  const signOut = useCallback(() => {
+    if (session.token) api('/api/auth/logout', { method: 'POST' }).catch(() => {});
+    if (session.token && ls.get(CHAT_KEY) === session.token) ls.del(CHAT_KEY);
+    ls.del(ADMIN_KEY);
+    session.token = ''; session.signedIn = false;
+    setMe(null); setU(''); setP('');
+    setView('login');
+  }, []);
   useEffect(() => { session.onExpired = showLogin; }, [showLogin]);
 
   useEffect(() => {
@@ -442,8 +476,8 @@ export default function AdminApp() {
   const boot = useCallback(async () => {
     const m = await api('/api/auth/me');
     m.is_super = m.role === 'super_admin';
-    // Adopted from the chat console: keep this console's own copy, so signing
-    // out of one page does not sign the other out.
+    // Adopted from the chat console: keep this console's own copy. Signing out
+    // of the chat removes it too (api.js logoutRemote), and so does Sign out here.
     if (session.token && !ls.get(ADMIN_KEY)) ls.set(ADMIN_KEY, session.token);
     if (!ADMIN_ROLES.includes(m.role)) {
       // A valid session, but not an admin one: every panel would 403.
@@ -546,9 +580,12 @@ export default function AdminApp() {
       <div className="adm-main">
         <header className="adm-top">
           <div className="adm-title"><h1>{title}</h1><p>{subtitle}</p></div>
-          <div className="adm-user">
-            <span className="mini-av">{initials(me.name || me.username)}</span>
-            <div><div className="adm-user-name">{me.username}</div><div className="adm-user-role">{me.role}</div></div>
+          <div className="adm-top-right">
+            <div className="adm-user">
+              <span className="mini-av">{initials(me.name || me.username)}</span>
+              <div><div className="adm-user-name">{me.username}</div><div className="adm-user-role">{me.role}</div></div>
+            </div>
+            <button className="sm" type="button" onClick={signOut}>Sign out</button>
           </div>
         </header>
         <main className="adm-content"><Panel key={tab} me={me} /></main>

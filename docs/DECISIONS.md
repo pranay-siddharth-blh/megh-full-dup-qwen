@@ -935,6 +935,25 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-084 — Frontend lint and tests: ESLint (with the no-regex rule) + `node --test` (2026-10-29)
+- **Date:** 2026-10-29 (E11 UI fixes, KI-570). Files: `frontend/package.json` (`lint`, `test`; dev deps `eslint`
+  9.17.0, `@eslint/js` 9.17.0, `eslint-plugin-react` 7.37.2, `eslint-plugin-react-hooks` 5.1.0, `globals` 15.14.0,
+  exact pins), NEW `frontend/eslint.config.js`, NEW `frontend/tests/*.test.js`.
+- **Context:** the frontend had no linter and no JS test runner (audit 2026-10-23, "Housekeeping"); JS behaviour
+  was tested only from Python (`tests/test_table_view_2026_10_28.py`, `test_cross_compare_card_2026_10_22.py`
+  bundle the real modules with esbuild and run them in node).
+- **Decision:**
+  - `npm run lint` = ESLint flat config: `@eslint/js` recommended + React + hooks rules, and `no-restricted-syntax`
+    for a regex literal, `new RegExp` and `RegExp()` — the D-046 / D-047 "no regex anywhere" rule is now enforced
+    in `src/` and `frontend/tests/`, not only written down.
+  - `npm run test` = Node's built-in runner (`node --test "tests/**/*.test.js"`), no extra dependency. Plain
+    modules are imported directly; a `.jsx` module is bundled with the esbuild Vite already ships
+    (`tests/admin.test.js`).
+  - The Python-side frontend tests stay; they remain the pytest gate.
+- **Alternatives:** Vitest / Jest (an extra framework and dependency tree for 3 files; Node's runner has mocks
+  and fake timers built in).
+- **Status:** Active. `npm run lint` 0 problems and `npm test` 13/13 on 2026-10-29.
+
 ### D-079 — One scheme registry; the other registries are guarded against drift (2026-10-27)
 - **Date:** 2026-10-27. RAG plan E5; user decision "Registry + drift guard" (not a full migration).
 - **Context:** scheme names appear in ~124 places across 31 files (mapped by a scan for lines naming four or more

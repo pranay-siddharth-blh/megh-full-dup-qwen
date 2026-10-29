@@ -5,7 +5,7 @@
 
 import { hasSegment, isAsciiLetter, isDigit, isPeriodLabel, isSpace, splitSpaces } from './text.js';
 import {
-  PERIOD_WORDS, asksChange, colTitle, humanCol, isLabelCol, isNumeric, tableColumns, unitOf, withoutTwins,
+  PERIOD_WORDS, asksChange, colTitle, humanCol, isAdditive, isLabelCol, isNumeric, tableColumns, unitOf, withoutTwins,
 } from './columns.js';
 
 // The column rules live in columns.js (2026-10-28); re-exported for the callers
@@ -18,7 +18,10 @@ const MAX_SERIES = 8;
 
 const label18 = (v) => (String(v).length > 18 ? String(v).slice(0, 16) + '…' : String(v));
 
-const toNumber = (v) => (isNumeric(v) ? Number(String(v).trim().replaceAll(',', '')) : 0);
+// A missing value (SQL NULL, '') stays null: Chart.js leaves a gap there and a
+// tile shows "—". Read as 0 it drew "X vs 0" tiles and lines that dropped to
+// zero in years with no data (audit 2026-10-23, E11).
+export const toNumber = (v) => (isNumeric(v) ? Number(String(v).trim().replaceAll(',', '')) : null);
 // "2024", "2024-03" or "2024-03-15"
 const isYearOrIsoDate = (s) => (s.length === 4 || s.length === 7 || s.length === 10)
   && Array.from(s).every((c, i) => ((i === 4 || i === 7) ? c === '-' : isDigit(c)));
@@ -27,9 +30,13 @@ const mentionsAny = (s, words) => { const low = String(s).toLowerCase(); return 
 const SINGLE_TYPES = ['bar', 'pie', 'doughnut', 'line'];
 
 /** The one-line verdict under a two-way comparison: who leads, by how much.
-    { lead, trail, pct, diff, measure } or { equal: true, value, measure }.
-    pct is null when the trailing value is 0 (nothing to divide by). */
-export function compareVerdict(l1, v1, l2, v2, measure) {
+    { lead, trail, pct, diff, measure } or { equal: true, value, measure };
+    { unlike: true, measure } when the two sides measure different things
+    (`unlike`); null when a side has no value. pct is null when the trailing
+    value is 0 (nothing to divide by). */
+export function compareVerdict(l1, v1, l2, v2, measure, unlike = false) {
+  if (unlike) return { unlike: true, measure };
+  if (!Number.isFinite(v1) || !Number.isFinite(v2)) return null;
   if (v1 === v2) return { equal: true, value: v1, measure };
   const [lead, lv, trail, tv] = v1 > v2 ? [l1, v1, l2, v2] : [l2, v2, l1, v1];
   const diff = lv - tv;
@@ -44,7 +51,7 @@ export function pivotStacked(data, xKey, sKey, vKey) {
     label: sl,
     data: xLabels.map((xl) => {
       const row = data.find((r) => r[xKey] === xl && r[sKey] === sl);
-      return row ? toNumber(row[vKey]) : 0;
+      return row ? toNumber(row[vKey]) : null;   // no row: a gap, not a 0
     }),
   }));
   return { labels: xLabels, datasets };
@@ -121,6 +128,19 @@ export function withoutChartPhrase(question) {
   while (out && (isSpace(out[out.length - 1]) || ',.;:!?'.includes(out[out.length - 1]))) out = out.slice(0, -1);
   return out;
 }
+
+// A ranking ("top 5 districts", "which block has the most …"): a bar chart, not
+// a donut. A donut of the top 5 shows each as a share of those 5 only, which
+// reads as a share of the whole (audit 2026-10-23, E11).
+const RANK_WORDS = ['top', 'bottom', 'highest', 'lowest', 'best', 'worst', 'most', 'least', 'rank', 'ranks', 'ranked',
+  'ranking', 'rankings', 'leading', 'lagging', 'maximum', 'minimum', 'max', 'min', 'largest', 'smallest', 'biggest'];
+export const asksRanking = (question) => words(question).some((w) => RANK_WORDS.includes(w));
+
+// The two sides of a comparison are different schemes: each counts its own
+// thing (MGNREGA households, PMAY-G houses) and spends its own kind of money
+// (expenditure, releases), so neither is "ahead" (audit 2026-10-23: "MGNREGA is
+// 66% ahead on amount" put money spent against money released; E11).
+const isSchemeCol = (c) => hasSegment(c, ['scheme', 'schemes']);
 
 // A cross-scheme summary (app/cross_scheme.py): one row per scheme with a count,
 // what it counts, an amount in rupees and what kind of money. Each measure is its
@@ -266,7 +286,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
         measure: humanCol(vc),
         a: { label: l1, value: toNumber(r1[vc]) },
         b: { label: l2, value: toNumber(r2[vc]) },
-        verdict: compareVerdict(l1, toNumber(r1[vc]), l2, toNumber(r2[vc]), humanCol(vc)),
+        verdict: compareVerdict(l1, toNumber(r1[vc]), l2, toNumber(r2[vc]), humanCol(vc), isSchemeCol(lc)),
         data,
         extra: numCols.length > 1,
       };
@@ -321,8 +341,12 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     data.sort((a, b) => String(a[lc]).localeCompare(String(b[lc])));
   }
   const isFew = data.length <= 6;
-  const defType = SINGLE_TYPES.includes(hintType)
-    ? hintType : (isTime ? 'line' : isFew ? 'doughnut' : 'bar');
+  // A share, rate or average is not part of a whole: no pie / donut at all.
+  const partOfWhole = isAdditive(numCols[0]);
+  const noSlices = !partOfWhole || asksRanking(question);
+  const hinted = SINGLE_TYPES.includes(hintType) && !(noSlices && (hintType === 'pie' || hintType === 'doughnut'))
+    ? hintType : null;
+  const defType = hinted || (isTime ? 'line' : isFew && !noSlices ? 'doughnut' : 'bar');
 
   if (hintType === 'grouped_bar' && numCols.length >= 2) {
     return {
@@ -356,5 +380,8 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   }));
   // "How have … changed": the table adds the change from the previous period
   // (only when the question asks how a figure moved — never by default).
-  return { kind: 'multi', charts, defType, data, change: isTime && asksChange(question) };
+  return {
+    kind: 'multi', charts, defType, data, change: isTime && asksChange(question),
+    ...(partOfWhole ? {} : { types: ['bar', 'line'] }),
+  };
 }

@@ -322,6 +322,8 @@ starts the paused-thread sweep and closes the checkpointer only when the graph i
       readable headers, units for axis titles / ticks, which measures may be totalled, the trend change column.
       Presentation only: the rows and the Excel download are unchanged.
   - `frontend/admin.html` → `src/admin/AdminApp.jsx` — the admin console, served at `/admin-ui`.
+    It has a Sign out (removes its token, and the chat's when the console adopted it); signing out of the chat
+    removes the console's copy too (KI-570). `npm run lint` / `npm test` in `frontend/` (D-084).
 - `npm run build` writes `web/app/index.html`, `web/app/admin.html` and hashed bundles under
   `web/app/assets/` (loaded from `/static/app/assets/`). The build output is kept in the repo so
   the app (and the Docker image) serves the UI without Node.

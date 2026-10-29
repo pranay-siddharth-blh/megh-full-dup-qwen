@@ -497,11 +497,13 @@
     padding-top: 14px; border-top: 1px solid rgba(62,31,102,0.08);
   }
   .scheme-card .stats > * { min-width: 0; }
+  /* A figure is never cut to "₹3,6…" (audit 2026-10-23, E11): a long one wraps
+     at its space ("₹3,612 / Cr"), and only a figure wider than its whole
+     column breaks inside. */
   .scheme-card .stat-val {
     font-size: 17px; font-weight: 700; color: var(--ink);
-    white-space: nowrap; line-height: 1.2;
-    /* A long figure shrinks to fit its column rather than widening it. */
-    overflow: hidden; text-overflow: ellipsis;
+    line-height: 1.2; overflow-wrap: break-word;
+    font-variant-numeric: tabular-nums;
   }
   .scheme-card .stat-lbl {
     font-size: 9.5px; color: var(--ink-3); text-transform: uppercase;
@@ -534,6 +536,13 @@
   @media (min-width: 621px) and (max-width: 880px) {
     .scheme-carousel { --arrow-col: 34px; gap: 8px; }
     .carousel-arrow { width: 34px; height: 34px; }
+  }
+  /* Phones get the one-card page above. The tablet block below used to set
+     2x2 for every width <= 880px, later in the file, so phones drew two cards
+     a row and cut every figure (audit 2026-10-23, E11); its 2x2 is kept here,
+     for 621-880px only. */
+  @media (min-width: 621px) and (max-width: 880px) {
+    .scheme-cards { --page-cols: 2; --page-rows: 2; }
   }
   .focus-card .stat-val   { color: var(--p-700); }
   .unified-card .stat-val { color: var(--teal); }
@@ -1303,7 +1312,6 @@
     .hero h1 { font-size: 23px; }
     .hero p  { font-size: 13.5px; }
     .scheme-carousel { margin: 12px 0 0; }
-    .scheme-cards { --page-cols: 2; --page-rows: 2; }
 
     .composer-wrap {
       left: 0; padding: 12px 14px;
