@@ -1252,6 +1252,19 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
             question = _cmp
             _meta_rewrite = True
             context_budget.log_decision("followup", rewrite="compare-with-scheme", question=question)
+    # 0h'''. CTX-07 (KI-363, KI-364): "Break it down by district" after a statewide
+    #       answer, and "Compare ... with <place>" after another place's answer, run
+    #       as the previous question by that dimension / for both places
+    #       (c01 _c01_ctx07_*); the model rewrite lost the breakdown and the place.
+    if not _meta_rewrite and not scope_resumed and prev is not None and getattr(prev, "route", None) == "data":
+        for _c14_ctx07_kind, _c14_ctx07_fn in (("breakdown-statewide", _c01_ctx07_breakdown_question),
+                                               ("compare-with-place", _c01_ctx07_compare_place_question)):
+            _c14_ctx07_q = _c14_ctx07_fn(raw_question, prev)
+            if _c14_ctx07_q is not None:
+                question = _c14_ctx07_q
+                _meta_rewrite = True
+                context_budget.log_decision("followup", rewrite=_c14_ctx07_kind, question=question)
+                break
     # 0h'. Roll-up (E3, D-052): "back to the district level" / "and statewide?"
     #      names no place, so the previous question is rolled up from its own
     #      entities (block -> parent district, village -> block, -> state);
