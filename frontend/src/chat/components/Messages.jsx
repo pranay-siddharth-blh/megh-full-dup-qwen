@@ -210,7 +210,8 @@ function Analytics({ question, response, view, onAsk }) {
       <div className={'dyn-grid' + (single ? ' single' : '')}>
         {a.charts.map((c, i) => (
           <SwitchableChart key={i} title={c.title} labels={c.labels} fullLabels={c.fullLabels.map((_, j) => tip(c, j))} values={c.values}
-                           types={typesOr(a.types || ['bar', 'pie', 'doughnut', ...(periodAxis(c.labels) ? ['line'] : [])])} initial={only || a.defType} theme={theme}
+                           types={typesOr(a.types || ['bar', 'pie', 'doughnut', ...(periodAxis(c.labels) ? ['line'] : [])])} initial={only || a.defType}
+                           theme={c.scheme ? themeFor([c.scheme]) : theme}
                            axes={c.axes} />
         ))}
       </div>

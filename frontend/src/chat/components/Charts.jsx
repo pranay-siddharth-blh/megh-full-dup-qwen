@@ -690,7 +690,8 @@ export function TwoDimChart({ title, labels, datasets, xKey, sKey, periods, init
   const [open, setOpen] = useState(false);
   const insight = useMemo(() => insightForSeries(labels, datasets, periods, axisInfo || {}), [labels, datasets, periods, axisInfo]);
   // C-16: say what the axis and the colours are ("Financial year by district" read backwards)
-  const axes = `${type === 'line' ? 'Lines' : 'X-axis'}: ${colLabel(String(xKey)).toLowerCase()} · Colours: ${colLabel(String(sKey)).toLowerCase()}`;
+  // (browser run 2026-10-29: "Lines: financial year" named the axis as the lines; each line is a series)
+  const axes = `X-axis: ${colLabel(String(xKey)).toLowerCase()} · ${type === 'line' ? 'Lines' : 'Colours'}: ${colLabel(String(sKey)).toLowerCase()}`;
   return (
     <div className="dyn-chart-card" style={cardStyle(theme)}>
       <CardHead title={title} theme={theme} insight={insight}>
@@ -939,6 +940,9 @@ export function PivotTable({ data, xKey, sKey, vKey, totals = null }) {
   return (
     <div className="rt-block">
       <TableBar count={rows} label="table" onExpand={() => setOpen(true)} />
+      {/* browser run 2026-10-29: the grid's columns are the series ("MGNREGA",
+          "PMAY-G"), so the figures' measure and unit are said above it */}
+      <div className="pivot-measure">Figures: {colLabel(vKey)}</div>
       <PivotGrid data={data} xKey={xKey} sKey={sKey} vKey={vKey} totals={totals} />
       {open && (
         <ExpandModal title={`${colLabel(vKey)} by ${colLabel(xKey)} & ${colLabel(sKey)}`} onClose={() => setOpen(false)}>

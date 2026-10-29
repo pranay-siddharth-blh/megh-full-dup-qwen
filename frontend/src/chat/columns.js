@@ -209,6 +209,13 @@ const COL_WORDS = { lgd: '', exp: 'expenditure', amt: 'amount', cnt: 'count', qt
 export const humanCol = (c) => String(c).split('_').map((w) => (w.toLowerCase() in COL_WORDS ? COL_WORDS[w.toLowerCase()] : w))
   .filter(Boolean).join(' ') || String(c);
 
+// Browser run 2026-10-29: a compare card showed "₹1,066.7 crore" under the label
+// "total expenditure (₹ lakh)" — the card converts the unit, so its label names the
+// measure only and the value carries the unit.
+const MONEY_UNIT_PARTS = ['lakh', 'lakhs', 'crore', 'crores', 'cr', 'rs', 'rupees', 'inr'];
+export const measureName = (c) => humanCol(String(c).split('_')
+  .filter((w) => !MONEY_UNIT_PARTS.includes(w.toLowerCase())).join('_') || String(c));
+
 /** A heading for a table or an axis: humanCol, without "raw", first letter capitalised. */
 export function colTitle(c) {
   const words = humanCol(c).split(' ').filter((w) => w && w.toLowerCase() !== 'raw');

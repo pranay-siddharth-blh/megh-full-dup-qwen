@@ -7,7 +7,7 @@ import { hasSegment, isAsciiLetter, isDigit, isPeriodLabel, isSpace, splitSpaces
 import { fyMonthIndex, isMonthLabel, isQuarterLabel } from './chartTheme.js';
 import {
   PERIOD_WORDS, asksChange, canAdd, colTitle, dimOf, fractionPct, measureKind as measureKindOf, humanCol, isAdditive, isBlank, isLabelCol, isNumeric,
-  lowerIsBetter, nameParts, placeTitle, tableColumns, unifyPeriods, unitOf, withoutTwins,
+  lowerIsBetter, measureName, nameParts, placeTitle, tableColumns, unifyPeriods, unitOf, withoutTwins,
 } from './columns.js';
 
 // The column rules live in columns.js (2026-10-28); re-exported for the callers
@@ -433,6 +433,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
       const vc = askedMeasureCol(question, numCols) || numCols[0];
       const per = schemes.map((s) => data.filter((r) => String(r[sCol]) === s));
       const charts = per.map((rs, i) => ({
+        scheme: schemes[i],     // browser run: each card wears its own scheme, not "6 schemes"
         title: `${schemes[i]}: ${humanCol(vc)} by ${humanCol(oCol)}${where}`,
         labels: rs.map((r) => label18(r[oCol])), fullLabels: rs.map((r) => full(r, oCol)),
         values: rs.map((r) => toNumber(r[vc])),
@@ -466,11 +467,11 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
         kind: 'compare',
         vKey: vc,
         title: `${l1} vs ${l2}${where}`,
-        measure: humanCol(vc),
+        measure: measureName(vc),
         a: { label: l1, value: toNumber(r1[vc]), detail: sub(r1) },
         b: { label: l2, value: toNumber(r2[vc]), detail: sub(r2) },
         unit: unitOf(vc),
-        verdict: compareVerdict(l1, toNumber(r1[vc]), l2, toNumber(r2[vc]), humanCol(vc), isSchemeCol(lc), {
+        verdict: compareVerdict(l1, toNumber(r1[vc]), l2, toNumber(r2[vc]), measureName(vc), isSchemeCol(lc), {
           periods: [l1, l2].every((l) => isPeriodLabel(l) || isMonthLabel(l) || isQuarterLabel(l)),
           unit: unitOf(vc), lowerBetter: lowerIsBetter(vc),
           diffFirst: words(question).some((w) => ['difference', 'gap', 'differ', 'diff'].includes(w)),
@@ -479,9 +480,9 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
         extra: numCols.length > 1,
         // B-4: a second asked measure is a second row of tiles, never only in the table
         more: asked.filter((c) => c !== vc).map((c) => ({
-          vKey: c, measure: humanCol(c), unit: unitOf(c),
+          vKey: c, measure: measureName(c), unit: unitOf(c),
           a: { label: l1, value: toNumber(r1[c]), detail: sub(r1) }, b: { label: l2, value: toNumber(r2[c]), detail: sub(r2) },
-          verdict: compareVerdict(l1, toNumber(r1[c]), l2, toNumber(r2[c]), humanCol(c), isSchemeCol(lc), {
+          verdict: compareVerdict(l1, toNumber(r1[c]), l2, toNumber(r2[c]), measureName(c), isSchemeCol(lc), {
             periods: [l1, l2].every((l) => isPeriodLabel(l) || isMonthLabel(l) || isQuarterLabel(l)),
             unit: unitOf(c), lowerBetter: lowerIsBetter(c) }),
         })),

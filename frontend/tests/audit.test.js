@@ -588,3 +588,19 @@ test('B-5: two schemes in the old summary shape are a side-by-side card, never r
   assert.equal(a.kind, 'compare');
   assert.equal(a.verdict.unlike, true);
 });
+
+// ── Found in the browser run (2026-10-29 evening) ───────────────────────────
+test('browser: a compare card names the measure without a unit the card converts', () => {
+  const rows = [{ financial_year: '2023-24', total_expenditure_lakh: 75961.36 }, { financial_year: '2024-25', total_expenditure_lakh: 106669.85 }];
+  const a = buildAnalytics('Compare MGNREGA expenditure 2023-24 vs 2024-25', rows, null);
+  assert.equal(a.kind, 'compare');
+  assert.equal(a.measure, 'total expenditure');
+  assert.equal(a.unit, 'lakh');                       // the value still knows its unit
+});
+
+test('browser: each per-scheme chart carries its own scheme', () => {
+  const rows = [{ rank: 1, district: 'A', scheme: 'MGNREGA', beneficiaries: 9 }, { rank: 2, district: 'B', scheme: 'MGNREGA', beneficiaries: 8 },
+    { rank: 1, district: 'C', scheme: 'PMAY-G', beneficiaries: 5 }, { rank: 2, district: 'D', scheme: 'PMAY-G', beneficiaries: 4 }];
+  const a = buildAnalytics('top 2 districts by beneficiaries in MGNREGA and PMAY-G', rows, null);
+  assert.deepEqual(a.charts.map((c) => c.scheme), ['MGNREGA', 'PMAY-G']);
+});
