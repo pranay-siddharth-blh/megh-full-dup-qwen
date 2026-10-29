@@ -274,8 +274,112 @@ FACTS = {
     "cl_districts": ("12", lambda v: _n(v["cl_districts"])),
 }
 
+
+# ── Claims: the rules that state the data's SHAPE in words ──────────────────────────
+# "FY 2023-24 IS ABSENT", "onhold is FALSE on every row", "loan_entity holds only 'Bank',
+# 'LIFCOM' or NULL" cannot be a [[token]]: when a load breaks one, the rule must be
+# rewritten by a person (a wrong automatic rewrite is worse than a loud warning). Each
+# claim is checked on every refresh; a broken one is logged at WARNING, sent to
+# ALERT_WEBHOOK_URL once, and listed in /metrics (data_facts.broken_claims) until it holds
+# again (2026-10-29). name -> (where the rule is, read-only SELECT, check(row) -> problem | None)
+
+def _none_bad(row) -> "str | None":
+    """The query's `bad` count is 0, else '<bad> rows (e.g. <seen>)'."""
+    bad = int(row.get("bad") or 0)
+    if not bad:
+        return None
+    seen = row.get("seen")
+    return f"{bad:,} rows" + (f" (e.g. {', '.join(str(s) for s in list(seen)[:5])})" if seen else "")
+
+
+def _years_exactly(*want: str):
+    def check(row) -> "str | None":
+        held = sorted(str(y) for y in (row.get("years") or []))
+        if held == sorted(want):
+            return None
+        extra, missing = sorted(set(held) - set(want)), sorted(set(want) - set(held))
+        return ("years held " + ", ".join(held)
+                + (f"; new: {', '.join(extra)}" if extra else "") + (f"; gone: {', '.join(missing)}" if missing else ""))
+    return check
+
+
+def _outside(col: str, allowed: "tuple[str, ...]", view: str, expr: "str | None" = None) -> str:
+    """bad / seen for values of `col` (or `expr`) outside `allowed` (NULL allowed)."""
+    e = expr or col
+    lits = ", ".join("'" + a.replace("'", "''") + "'" for a in allowed)
+    return (f"SELECT COUNT(*) FILTER (WHERE {col} IS NOT NULL AND {e} NOT IN ({lits})) AS bad, "
+            f"ARRAY_AGG(DISTINCT {col}::text) FILTER (WHERE {col} IS NOT NULL AND {e} NOT IN ({lits})) AS seen "
+            f"FROM {view}")
+
+
+CLAIMS = {
+    "fp_two_amount_values": (
+        "Focus Plus rule 7 / catalogue: only two amounts exist, 5,000 and 2,500",
+        "SELECT COUNT(*) FILTER (WHERE amount_disbursed NOT IN (5000, 2500)) AS bad, "
+        "ARRAY_AGG(DISTINCT amount_disbursed::text) FILTER (WHERE amount_disbursed NOT IN (5000, 2500)) AS seen "
+        "FROM curated.v_focus_plus", _none_bad),
+    "fp_amount_not_null": (
+        "Focus Plus rule 7: amount_disbursed is NOT NULL (no COALESCE needed)",
+        "SELECT COUNT(*) FILTER (WHERE amount_disbursed IS NULL) AS bad FROM curated.v_focus_plus", _none_bad),
+    "fp_125k_one_row_per_person": (
+        "Focus Plus rule 4: the 12.5K cohort is 1 row per person",
+        "SELECT COUNT(*) FILTER (WHERE batch_label = '12.5K') "
+        "- COUNT(DISTINCT beneficiary_key) FILTER (WHERE batch_label = '12.5K') AS bad FROM curated.v_focus_plus",
+        _none_bad),
+    "pm_status_values": (
+        "PMAY-G tables: status_name is exactly one of the six stages (or NULL)",
+        _outside("status_name", ("Proposed Site", "Existing site(Old House)", "House Sanctioned", "Plinth",
+                                 "Roof Cast", "Completed"), "curated.v_pmay"), _none_bad),
+    "cme_onhold_false": (
+        "CM Elevate rule 3: the onhold column is FALSE on every row (on hold = data_verified)",
+        "SELECT COUNT(*) FILTER (WHERE onhold) AS bad FROM curated.v_cm_elevate", _none_bad),
+    "cme_withdraw_false": (
+        "CM Elevate rule 15 / vocabulary: is_withdraw is FALSE on every row (zero withdrawals)",
+        "SELECT COUNT(*) FILTER (WHERE is_withdraw) AS bad FROM curated.v_cm_elevate", _none_bad),
+    "cme_file_status_values": (
+        "CM Elevate rules 7 / 13: current_file_status holds exactly forward / resubmit / sendback to vdv/citizen",
+        _outside("current_file_status", ("forward", "resubmit", "sendback to vdv/citizen"), "curated.v_cm_elevate",
+                 "LOWER(current_file_status)"), _none_bad),
+    "cme_data_verified_values": (
+        "CM Elevate rule 13: data_verified is Valid / On Hold / Invalid / Wrong or NULL",
+        _outside("data_verified", ("Valid", "On Hold", "Invalid", "Wrong"), "curated.v_cm_elevate"), _none_bad),
+    "cme_sector_values": (
+        "CM Elevate rule 9a: sector_id is Title Case Poultry / Piggery / Dairy / Goatery",
+        _outside("sector_id", ("Poultry", "Piggery", "Dairy", "Goatery"), "curated.v_cm_elevate"), _none_bad),
+    "fl_years": (
+        "Focus Legacy rule 7: years are 2021-22, 2022-23, 2024-25, 2025-26; FY 2023-24 is absent",
+        "SELECT ARRAY_AGG(DISTINCT financial_year_short) FILTER (WHERE financial_year_short IS NOT NULL) AS years "
+        "FROM curated.v_focus_legacy", _years_exactly("2021-22", "2022-23", "2024-25", "2025-26")),
+    "fl_entitlement_identity": (
+        "Focus Legacy rule 3: amount_disbursed = no_of_pg_members * 5000 on every row",
+        "SELECT COUNT(*) FILTER (WHERE amount_disbursed <> no_of_pg_members * 5000) AS bad "
+        "FROM curated.v_focus_legacy", _none_bad),
+    "fl_bank_current_never_false": (
+        "Focus Legacy rule 12: bank_details_current is TRUE or NULL, never FALSE",
+        "SELECT COUNT(*) FILTER (WHERE bank_details_current IS FALSE) AS bad FROM curated.v_focus_legacy", _none_bad),
+    "fl_products_early_years_full": (
+        "Focus Legacy rule 9: product_raw is filled on 100% of FY2021-22 and FY2022-23 rows",
+        "SELECT COUNT(*) FILTER (WHERE financial_year_short IN ('2021-22', '2022-23') "
+        "AND NULLIF(TRIM(product_raw), '') IS NULL) AS bad FROM curated.v_focus_legacy", _none_bad),
+    "cl_years": (
+        "CM Elevate Legacy rule 7 / vocabulary: only FY 2024-25 and 2025-26 exist",
+        "SELECT ARRAY_AGG(DISTINCT financial_year_short) FILTER (WHERE financial_year_short IS NOT NULL) AS years "
+        "FROM curated.v_cm_elevate_disbursement", _years_exactly("2024-25", "2025-26")),
+    "cl_loan_entity_values": (
+        "CM Elevate Legacy rule 11: loan_entity holds only Bank, LIFCOM or NULL",
+        _outside("loan_entity", ("Bank", "LIFCOM"), "curated.v_cm_elevate_disbursement"), _none_bad),
+    "cl_desanction_values": (
+        "CM Elevate Legacy rule 12: desanctioned_reason_raw is Refused / Duplicate / NULL",
+        _outside("desanctioned_reason_raw", ("Refused", "Duplicate"), "curated.v_cm_elevate_disbursement"),
+        _none_bad),
+    "cl_refused_never_false": (
+        "CM Elevate Legacy rule 12: refused_flag_raw is TRUE or NULL, never FALSE",
+        "SELECT COUNT(*) FILTER (WHERE refused_flag_raw IS FALSE) AS bad FROM curated.v_cm_elevate_disbursement",
+        _none_bad),
+}
+
 _current: dict[str, str] = {}
-_state: dict = {"as_of": None, "errors": []}
+_state: dict = {"as_of": None, "errors": [], "broken": {}}
 
 
 def value(name: str) -> str:
@@ -304,7 +408,48 @@ def render(text: str) -> str:
 
 
 def status() -> dict:
-    return {"as_of": _state["as_of"], "facts": len(_current), "errors": list(_state["errors"])}
+    return {"as_of": _state["as_of"], "facts": len(_current), "errors": list(_state["errors"]),
+            "claims": len(CLAIMS),
+            "broken_claims": [{"claim": n, "rule": CLAIMS[n][0], "problem": p}
+                              for n, p in sorted(_state["broken"].items())]}
+
+
+async def check_claims() -> dict:
+    """Run every claim; return {name: problem} for the broken ones. A newly broken claim is
+    logged at WARNING and alerted once; one that holds again is logged at INFO. A claim
+    whose query fails is left as it was (an outage is not a data change)."""
+    broken = dict(_state["broken"])
+    for name, (rule, sql, check) in CLAIMS.items():
+        try:
+            rows = await fetch_rows_readonly(sql)
+            problem = check(rows[0] if rows else {})
+        except Exception as e:  # noqa: BLE001
+            _state["errors"].append(f"claim {name}: {type(e).__name__}")
+            logger.warning("data_facts: claim %s could not be checked", name, exc_info=True)
+            continue
+        if problem and name not in broken:
+            logger.warning("data_facts: RULE NO LONGER TRUE — %s: %s. Rewrite it in app/schema_context.py.",
+                           rule, problem)
+            _alert(name, rule, problem)
+        elif not problem and name in broken:
+            logger.info("data_facts: rule holds again — %s", rule)
+        if problem:
+            broken[name] = problem
+        else:
+            broken.pop(name, None)
+    _state["broken"] = broken
+    return broken
+
+
+def _alert(name: str, rule: str, problem: str) -> None:
+    """Counts only (no row data), through the guardrail's ALERT_WEBHOOK_URL sender."""
+    import socket
+
+    from app import guardrails
+    guardrails._post_alert({"source": "megh-one-ai", "alert": "data_rule_broken", "claim": name,
+                            "host": socket.gethostname(), "rule": rule, "problem": problem,
+                            "text": f"Megh One AI ({socket.gethostname()}): a data rule in the SQL prompt is no "
+                                    f"longer true — {rule}: {problem}"})
 
 
 async def refresh() -> dict:
@@ -336,10 +481,12 @@ async def refresh() -> dict:
 
 
 async def refresh_loop() -> None:
-    """Started from the app's lifespan: refresh now, then every REFRESH_SECONDS."""
+    """Started from the app's lifespan: refresh the figures and check the claims now,
+    then every REFRESH_SECONDS."""
     while True:
         try:
             await refresh()
+            await check_claims()
         except Exception:  # noqa: BLE001
             logger.warning("data_facts: refresh failed", exc_info=True)
         await asyncio.sleep(REFRESH_SECONDS)

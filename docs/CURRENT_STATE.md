@@ -4,6 +4,14 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: structural data rules are checked live and alert when broken (2026-10-29, D-087 claims). Code changed, uncommitted.
+- `data_facts.CLAIMS` (17) run after every 10-min refresh: WARNING log, one `ALERT_WEBHOOK_URL` POST, `/metrics` `data_facts.broken_claims`. Live: 17/17 hold.
+- NOT yet running in the :8401 server: it is another session's (PID 10296, started 16:20:49, before the change at 16:24:56); stopping it was refused as interfering with that session. Its next restart picks it up.
+
+## Latest: PMAY-G "received no release" answers the count (2026-10-29, KI-573). Code changed, uncommitted.
+- `_PMAY_M["none"]` gained "releas": the question had fallen through to the statewide summary. Live: 462 statewide, 68 Ri Bhoi (= megh_db).
+- :8401 is now another session's server (PID 52, started 15:53 with `certs/dev-*.pem`, after both of today's code changes); left running.
+
 ## Latest: the SQL prompt's data figures are live from megh_db (2026-10-29, D-087, KI-572). Code changed, uncommitted; :8401 restarted.
 - NEW `app/data_facts.py`: 87 figures (row / NULL / distinct counts, shares, years held) read by 11 read-only SELECTs at startup and every 10 min; `schema_context` carries `[[name]]` tokens, filled by `build_schema_context` / `available_metrics_text`. `/metrics` shows `data_facts`.
 - Live: 87/87 read; 11 figures were stale (CM Elevate 8,948 records / 8,921 applications, Focus Legacy 14,569 payments / 11,906 groups, …).
@@ -187,6 +195,7 @@
 - **E7 (Task 10, D-071 update, 2026-10-29):** the matched measure's own words no longer block the catalogue (`_c16_measure_vocabulary`); verified pairs 104 -> 109 (CM Elevate Legacy beneficiaries total, total disbursed breakdown/ranking/compare, MGNREGA person-days breakdown); KI-425 resolved. On-mode 24/24; held-out 41/74, 0 regressions. **A parallel session is editing this same folder (E9 answer templates, app/rag.py)** — see HANDOFF.
 - **B5 (Task 13):** `SQL_EXAMPLES_SOURCE=yaml_meaning` built (reviewed YAML banks ranked by meaning). held-out set 2026-10-29, same code, 0 network errors: yaml **42/74**, first-try SQL 42/43, 1 repair; yaml_meaning 41/74, 41/42, 4 repairs; qdrant (default) 41/74, 37/42, **8 repairs**, 3 verifier rejections; median 11.3 / 10.5 / 8.5 s. Accuracy within noise (only CL-11 differs yaml vs yaml_meaning); meaning ranking changed the examples on 30/37 turns but gave no measurable gain. Results `tests/nl2sql_eval/results/2026-10-29_13{23,33,39}_b5-*.json`. **User chose `yaml` as the default (D-086)**: config + dev `.env` switched; the deploy `.env` must match.
 - **B2 (Task 12, KI-481):** five scheme-only words added to the scheme term lists; vocabulary label set 27/32 -> 32/32; live 5/5; pytest 4,236/0; live context 107/107.
+- **MGNREGA Excel bugs (2026-10-29):** KI-432 (constituency expenditure) and KI-436 (villages-with-employment count) FIXED, KI-435 (administrative spend) FIXED, KI-433 no longer reproduces (10/10). pytest 4,265/0.
 - **E10 (Task 15): BLOCKED** — no Redis server, caches deliberately off, plan-first needs E1 stage 2; see HANDOFF.
 
 ## Earlier: everything in both Qdrant collections in use (2026-10-27 evening, D-074 extended). Code + .env changed, uncommitted.

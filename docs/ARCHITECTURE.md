@@ -128,7 +128,7 @@ and output, and how it fails.
 | `GET /api/scheme-stats` | user | welcome-card figures from megh_db, cached 10 min: `{cards: {key: [[value, label] ×3]}, periods: {key: "FY …"}, as_of}`; a NULL figure is "—"; 503 with no cached copy (the UI then shows its typed fallback and says so) (KI-378) |
 | `GET/POST /admin/tenants`, `/admin/roles`, `/admin/users[/{id}]` (CRUD), `/admin/logins`, `/admin/conversations[/{id}]`, `/admin/audit`, `/admin/stats`, `/admin/schema` | admin JWT (tenant-scoped) | admin console API |
 | `GET /health` | anonymous gets `{status}` only; admin JWT or `X-Metrics-Token` gets components | DB + Qdrant (+ Redis) status |
-| `GET /metrics` | admin JWT or `X-Metrics-Token` | route counts, latency percentiles, cache stats, guardrail-model failures (D-080) |
+| `GET /metrics` | admin JWT or `X-Metrics-Token` | route counts, latency percentiles, cache stats, guardrail-model failures (D-080), `data_facts` (live prompt figures as_of / errors, broken data-rule claims; D-087) |
 
 **There is no WebSocket, SSE or streaming endpoint** (VERIFIED: nothing in `app/` or `web/`
 matches `websocket` or `StreamingResponse`).
