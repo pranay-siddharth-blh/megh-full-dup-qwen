@@ -56,3 +56,36 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | A-18 | Fixed (the years used are in the first line: by-year header "FY 2022-23 to FY 2025-26 (4 years)", relative periods' label) | app/cross_figures.py, c06 `_relative_years` | `test_a_stated_span_is_one_fixed_query_per_scheme_by_year` |
 | I-9 | Fixed (place columns renamed to one name per level; one `value` + `measure` when each scheme has its own measure) | c13 `_c13_unify_scheme_rows`, conversation_layer `answer_many` | `test_merged_per_scheme_rows_get_one_shape`, `test_different_measures_share_one_value_column` |
 | H-2 | Fixed (backend: `answer_failed` + low confidence when nothing came back; rows with no year left out of the chart and said) — UI Retry is F-3 | app/conversation_layer.py | `test_rows_with_no_year_leave_the_chart_and_failure_is_marked` |
+| G-1 | Fixed (distinct counts across schemes: bars only, no donut / centre total / %; an asked donut is refused with a note) | frontend/src/chat/columns.js (`measureKind`, `dimOf`, `canAdd`), analytics.js (`noAddReason`, `refused`), measureKinds.js; Messages.jsx (note) | UI `G-1 / G-2 / B-2 …` |
+| G-2 | Fixed (bars by default for any scheme label) | analytics.js | UI `G-1 / G-2 / B-2 …` |
+| G-3 | Fixed (pivot Total down the districts only; no Total across schemes) | Charts.jsx (`PivotGrid` uses `canAdd` / `dimOf`) | UI `G-3 / G-4 …`, `A-4 …` |
+| G-4 | Fixed (backend: no `stacked` hint across years for distinct counts and stocks; UI: no stack / Total across years) | c13 `_chart_hint` (app/measure_kinds.py), analytics.js, Charts.jsx | `test_stacked_only_when_the_measure_adds_along_the_series`; UI `G-3 / G-4 …` |
+| G-5 | Fixed (no slices, so no shares, for distinct counts across schemes or years) | analytics.js | UI `G-13 / G-5 …` |
+| G-7 | Fixed by the rule — charts never add across schemes, so no plain "Total" can appear under the "Combined" text | analytics.js, Charts.jsx | UI `A-4 …` |
+| G-8 | Fixed — Needs live check (union and overlap of village codes per scheme; "which villages have both" lists them, village-level RBAC shape) | app/cross_figures.py (`_OVERLAP`, `village_sets`, `_overlap_answer`), c13 `_c13_e12_cross_figures_denial` | `test_villages_in_either_scheme_are_counted_once`, `test_villages_where_both_are_present_are_listed` |
+| I-5 | Fixed — Needs live check (via G-8) | app/cross_figures.py | `test_villages_where_both_are_present_are_listed` |
+| G-9 | see phase 5 (what each scheme counts, as a detail column) | | |
+| G-10 | Needs my decision — counting each producer group's members once changes every Focus Legacy member figure validated in UAT (D-066 definition "SUM(no_of_pg_members)") and needs the live DB to verify | | |
+| G-12 | Fixed (the backend sends each scheme's statewide total; the pivot's Total row uses it, "Total (all records)", tooltip "Includes records with no district") | app/cross_figures.py (`_total_cells`), c13 (`column_totals`), Charts.jsx, Messages.jsx | `test_district_table_carries_the_statewide_totals` |
+| G-13 | Fixed (no donut / share of villages across years; stacked headline only where a stack is allowed) | analytics.js | UI `G-13 / G-5 …` |
+| A-4 | Fixed (never stacked or totalled across a scheme column, backend hint and UI) | c13 `_chart_hint`, analytics.js, Charts.jsx | `test_stacked_only_…` (scheme rows); UI `A-4 …` |
+| A-5 | Fixed (two label columns always use the two-dimension chart, whatever the hint) | analytics.js | UI `A-5 …` |
+| A-7 | Fixed (a pie of schemes is refused with a one-line note; grouped bars) | analytics.js, Messages.jsx | UI `A-7 …` |
+| B-1 | Already fixed (two schemes get "each scheme measures this differently", no "ahead"; frontend/tests/charts.test.js) | | existing |
+| B-2 | Fixed | analytics.js | UI `G-1 / G-2 / B-2 …` |
+| B-3 | Fixed (districts on the x-axis, no Total / stack / donut across schemes) | analytics.js, Charts.jsx, c13 `_chart_hint` | UI `B-3 …`; `test_stacked_only_…` |
+| B-7 | Fixed (person days / job cards / applications go to the per-scheme path, which answers each scheme's own measure) | app/cross_figures.py (`_OTHER_MEASURE`) | `test_person_days_go_to_the_per_scheme_path` |
+| B-8 | Fixed (no winner named from raw size; the answer says the schemes measure different things and names measures to compare on) | app/cross_figures.py (`_BETTER`, `Plan.better`) | `test_better_names_no_winner_on_size` |
+| B-9 | Fixed (text says "fewer / less than"; the card no longer ranks schemes, B-1) | app/cross_figures.py (`_leader_sentence`) | `test_least_says_fewer` |
+| B-10 | Fixed (money per beneficiary sent as `rupees_per_beneficiary`; the card's measure finder picks it — see phase 6) | app/cross_figures.py (`_rows`) | `test_money_per_beneficiary_is_its_own_column` |
+| B-12 | Fixed (bars only for money across schemes) | analytics.js | UI `B-12 …` |
+| B-13 | Fixed by I-9 (one `value` column plus `measure` when each scheme has its own measure) | c13 `_c13_unify_scheme_rows` | `test_merged_per_scheme_rows_get_one_shape` |
+| B-14 | Fixed (vs / versus / difference read like compare) | app/cross_figures.py (`_SUMMARY`) | `test_vs_reads_like_compare` |
+| C-6 | Fixed (one shared non-additive list: job cards never stacked across years, backend and UI) | app/measure_kinds.json + .py, frontend/src/chat/measureKinds.js, c13, c12 | `test_stacked_only_…`, `test_frontend_copy_of_the_measure_kinds_matches` |
+| D-1 | Fixed (bar by default, no pie / donut for rates) | analytics.js | UI `D-1 / X-5 / D-8 …` |
+| D-7 | Fixed (participation / growth / utilisation / efficiency are rates in the shared list) | measure_kinds.json, c12 `_c12s_additive` | `test_measure_kinds`, `test_stacked_only_…` |
+| D-8 | Fixed (no pie / donut when any value is negative) | analytics.js | UI `D-1 / X-5 / D-8 …` |
+| D-13 | Fixed (max / min in the shared list; never stacked) | measure_kinds.json, c13 | `test_stacked_only_…` |
+| J-6 | Partly fixed — the backend no longer sends `stacked` for a ranking (UI ranked list with block as detail: phase 5) | c13 `_chart_hint` | `test_stacked_only_…` (top 5 villages) |
+| J-11 | Fixed (year_key + financial_year read as one period in `_chart_hint`) | c13 `_chart_hint` | `test_year_key_and_financial_year_are_one_period` |
+| X-5 | Fixed | analytics.js | UI `D-1 / X-5 / D-8 …` |

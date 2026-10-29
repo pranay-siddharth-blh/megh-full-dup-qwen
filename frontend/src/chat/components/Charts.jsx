@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import Chart from 'chart.js/auto';
 import { pivotStacked, tableColumns } from '../analytics.js';
-import { changeColumn, colTitle, formatCell, isAdditive, isMeasureCol, withoutTwins } from '../columns.js';
+import { canAdd, changeColumn, colTitle, dimOf, formatCell, isAdditive, isMeasureCol, withoutTwins } from '../columns.js';
 import { isPeriodLabel, isPlainNumber } from '../text.js';
 import {
   INK, PLUGINS, alpha, categorySchemeColors, chartAnimation, fmt, fmtCompact, insightFor, insightForSeries,
@@ -857,7 +857,7 @@ export function DynTable({ data: raw, title = 'Result table', change = false }) 
   );
 }
 
-function PivotGrid({ data, xKey, sKey, vKey, expanded }) {
+function PivotGrid({ data, xKey, sKey, vKey, expanded, totals = null }) {
   const xVals = [...new Set(data.map((r) => r[xKey]))];
   const sVals = [...new Set(data.map((r) => r[sKey]))];
   const lookup = {};
@@ -866,12 +866,19 @@ function PivotGrid({ data, xKey, sKey, vKey, expanded }) {
   xVals.forEach((x) => { rowTotals[x] = sVals.reduce((s, sv) => s + (parseFloat(lookup[`${x}||${sv}`]) || 0), 0); });
   const colTotals = {};
   sVals.forEach((sv) => { colTotals[sv] = xVals.reduce((s, x) => s + (parseFloat(lookup[`${x}||${sv}`]) || 0), 0); });
+  // G-12 (audit 2026-10-29): the backend's own total per series (a scheme's
+  // statewide figure, which counts records with no district) when it sends one:
+  // the screen and the answer text then give the same Total.
+  const given = totals && sVals.every((sv) => totals[sv] && totals[sv][vKey] !== undefined);
+  if (given) sVals.forEach((sv) => { colTotals[sv] = Number(totals[sv][vKey]); });
   const grand = xVals.reduce((s, x) => s + rowTotals[x], 0);
   // Totals only where they mean something: a measure that adds up (never a %,
-  // a rate, an average or a running stock such as job cards), across 2+ values.
+  // a rate or an average), across 2+ values, and only along a dimension it adds
+  // along (audit 2026-10-29, G-3 / G-4 / B-3): villages and beneficiaries add down
+  // the districts but not across schemes or years; nothing adds across schemes.
   const additive = isAdditive(vKey);
-  const rowTot = additive && sVals.length >= 2;
-  const colTot = additive && xVals.length >= 2;
+  const rowTot = additive && sVals.length >= 2 && canAdd(vKey, dimOf(sKey, data));
+  const colTot = additive && xVals.length >= 2 && canAdd(vKey, dimOf(xKey, data));
   const total = (n) => formatCell(n, vKey);
   return (
     <div className={'rtwrap' + (expanded ? ' xv-table' : '')} style={{ overflowX: 'auto' }}>
@@ -893,7 +900,9 @@ function PivotGrid({ data, xKey, sKey, vKey, expanded }) {
           ))}
           {colTot && (
             <tr style={{ background: 'var(--p-50)', fontWeight: 600 }}>
-              <td><strong>Total</strong></td>
+              <td title={given ? 'Includes records with no district' : undefined}>
+                <strong>{given ? 'Total (all records)' : 'Total'}</strong>
+              </td>
               {sVals.map((sv) => <td key={sv} className="num">{total(colTotals[sv])}</td>)}
               {rowTot && <td className="num"><strong>{total(grand)}</strong></td>}
             </tr>
@@ -904,17 +913,17 @@ function PivotGrid({ data, xKey, sKey, vKey, expanded }) {
   );
 }
 
-export function PivotTable({ data, xKey, sKey, vKey }) {
+export function PivotTable({ data, xKey, sKey, vKey, totals = null }) {
   const [open, setOpen] = useState(false);
   if (!data || !data.length) return null;
   const rows = new Set(data.map((r) => r[xKey])).size;
   return (
     <div className="rt-block">
       <TableBar count={rows} label="table" onExpand={() => setOpen(true)} />
-      <PivotGrid data={data} xKey={xKey} sKey={sKey} vKey={vKey} />
+      <PivotGrid data={data} xKey={xKey} sKey={sKey} vKey={vKey} totals={totals} />
       {open && (
         <ExpandModal title={`${colLabel(vKey)} by ${colLabel(xKey)} & ${colLabel(sKey)}`} onClose={() => setOpen(false)}>
-          <PivotGrid data={data} xKey={xKey} sKey={sKey} vKey={vKey} expanded />
+          <PivotGrid data={data} xKey={xKey} sKey={sKey} vKey={vKey} totals={totals} expanded />
         </ExpandModal>
       )}
     </div>

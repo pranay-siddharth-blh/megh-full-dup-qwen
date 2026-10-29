@@ -64,8 +64,12 @@ function Analytics({ question, response, view, onAsk }) {
   // A named type ("pie chart", "bar graph", "line chart") is that chart ONLY —
   // no Bar / Pie / Donut / Line switcher. A plain "chart" / "graph", or nothing
   // asked, keeps every type on offer (user, 2026-10-19).
-  const only = prefer && prefer !== 'chart' ? (prefer === 'stacked' ? 'bar' : prefer) : null;
-  const only2d = prefer && prefer !== 'chart' ? prefer : null;
+  // A type the rows cannot honestly be drawn as (a donut of overlapping counts,
+  // a stack of schemes) was refused by buildAnalytics: bars, with its note.
+  const named = prefer && prefer !== 'chart' && !a.refused;
+  const only = named ? (prefer === 'stacked' ? 'bar' : prefer) : null;
+  const only2d = named ? prefer : null;
+  const note = a.note ? <div className="chart-note"><p>{a.note}</p></div> : null;
   const typesOr = (all) => (only ? [only] : all);
   // A chart was asked for but the answer is one figure: say so, and offer the
   // breakdowns that can be drawn, instead of silently showing the number again.
@@ -161,18 +165,21 @@ function Analytics({ question, response, view, onAsk }) {
   if (a.kind === 'twoDim') {
     return (
       <div className="analytics">
+        {note}
         <div className="dyn-grid single">
           <TwoDimChart title={a.title} labels={a.labels} datasets={a.datasets} xKey={a.xKey} sKey={a.sKey}
-                       periods={a.periods} initial={only2d || a.defType} types={only2d ? [only2d] : undefined} theme={theme}
+                       periods={a.periods} initial={only2d || a.defType} types={only2d ? [only2d] : a.types} theme={theme}
                        axisInfo={a.axes} />
         </div>
-        {withTables && (a.extra ? <DynTable data={a.data} /> : <PivotTable data={a.data} xKey={a.xKey} sKey={a.sKey} vKey={a.vKey} />)}
+        {withTables && (a.extra ? <DynTable data={a.data} />
+          : <PivotTable data={a.data} xKey={a.xKey} sKey={a.sKey} vKey={a.vKey} totals={response.column_totals} />)}
       </div>
     );
   }
   const single = a.charts.length === 1;
   return (
     <div className="analytics">
+      {note}
       <div className={'dyn-grid' + (single ? ' single' : '')}>
         {a.charts.map((c, i) => (
           <SwitchableChart key={i} title={c.title} labels={c.labels} fullLabels={c.fullLabels} values={c.values}

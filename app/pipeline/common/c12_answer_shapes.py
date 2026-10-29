@@ -65,7 +65,9 @@ def _c12s_is_time_col(col: str) -> bool:
 
 
 def _c12s_additive(col: str) -> bool:
-    return not any(p in _C12S_NON_ADDITIVE_PARTS for p in _c12s_parts(col))
+    # the one non-additive list the charts read too (app/measure_kinds.json, audit 2026-10-29)
+    from app import measure_kinds
+    return not any(p in _C12S_NON_ADDITIVE_PARTS for p in _c12s_parts(col))         and measure_kinds.measure_kind(col) != "rate"
 
 
 def _c12s_yes_no(question: str) -> bool:

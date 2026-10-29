@@ -68,3 +68,110 @@ test('A-13: each scheme is headlined at its own latest year, never "PMAY-G 0"', 
   ];
   assert.equal(insightForSeries(labels, datasets, true), 'Latest: MGNREGA 5L (2025-26) · PMAY-G 17,240 (2023-24)');
 });
+
+// ── Phase 3 / 4: overlap-aware totals and the scheme guard ───────────────────
+import { canAdd, dimOf, measureKind } from '../src/chat/columns.js';
+
+// cross_figures._rows for "Compare MGNREGA and PMAY-G villages" (one row per scheme)
+const VILLAGES_BY_SCHEME = [
+  { scheme: 'MGNREGA', villages: 5000 }, { scheme: 'PMAY-G', villages: 6000 }, { scheme: 'Focus Plus', villages: 2500 },
+];
+
+test('G-1 / G-2 / B-2: villages by scheme are bars, never a donut with "Total 13,500"', () => {
+  const a = buildAnalytics('Villages covered by each scheme', VILLAGES_BY_SCHEME, null);
+  assert.equal(a.kind, 'multi');
+  assert.equal(a.defType, 'bar');
+  assert.deepEqual(a.types, ['bar']);
+  // asked as a donut afterwards: refused, with a note
+  const d = buildAnalytics('Compare MGNREGA and PMAY-G villages in a donut chart', VILLAGES_BY_SCHEME, null, 'doughnut');
+  assert.equal(d.defType, 'bar');
+  assert.equal(d.refused, 'doughnut');
+  assert.match(d.note, /schemes count and spend different things/);
+});
+
+test('B-12: money across schemes is bars, never "% of the total"', () => {
+  const rows = [{ scheme: 'MGNREGA', amount_crore: 1050 }, { scheme: 'PMAY-G', amount_crore: 120 },
+    { scheme: 'Focus Plus', amount_crore: 40 }];
+  const a = buildAnalytics('Compare MGNREGA, PMAY-G and Focus Plus spending', rows, null);
+  assert.equal(a.defType, 'bar');
+  assert.deepEqual(a.types, ['bar']);
+});
+
+test('G-13 / G-5: villages by year are never a donut (the same villages repeat each year)', () => {
+  const rows = [{ financial_year: '2023-24', villages: 4000 }, { financial_year: '2024-25', villages: 4100 }];
+  const a = buildAnalytics('Villages with MGNREGA work each year as a donut', [...rows, { financial_year: '2025-26', villages: 3900 }], null, 'doughnut');
+  assert.equal(a.refused, 'doughnut');
+  assert.match(a.note, /counted again in each year or scheme/);
+});
+
+test('a flow by district may still be a donut (each rupee is spent in one district)', () => {
+  const rows = [{ district: 'A', amount_crore: 10 }, { district: 'B', amount_crore: 20 }, { district: 'C', amount_crore: 5 }];
+  assert.equal(buildAnalytics('Expenditure by district', rows, null).defType, 'doughnut');
+});
+
+// c13 _chart_hint said "stacked" for any 2-label / 1-measure result
+const SCHEME_YEAR = [
+  { financial_year: '2022-23', scheme: 'MGNREGA', beneficiaries: 563127 },
+  { financial_year: '2022-23', scheme: 'PMAY-G', beneficiaries: 23109 },
+  { financial_year: '2023-24', scheme: 'MGNREGA', beneficiaries: 530969 },
+  { financial_year: '2023-24', scheme: 'PMAY-G', beneficiaries: 17240 },
+];
+
+test('A-4: schemes are never stacked or totalled — grouped bars, year on the x-axis', () => {
+  const a = buildAnalytics('Compare MGNREGA and PMAY-G beneficiaries for last 3 years', SCHEME_YEAR, 'stacked');
+  assert.equal(a.kind, 'twoDim');
+  assert.equal(a.xKey, 'financial_year');
+  assert.equal(a.sKey, 'scheme');
+  assert.ok(!a.types.includes('stacked') && !a.types.includes('doughnut'));
+  assert.notEqual(a.defType, 'stacked');
+  assert.equal(canAdd('beneficiaries', dimOf('scheme', SCHEME_YEAR)), false);   // the pivot has no Total column
+});
+
+test('A-5: "side by side" (grouped_bar, one measure) keeps both labels', () => {
+  const a = buildAnalytics('Compare MGNREGA and PMAY-G side by side for last 3 years', SCHEME_YEAR, 'grouped_bar');
+  assert.equal(a.kind, 'twoDim');
+  assert.deepEqual(a.labels, ['2022-23', '2023-24']);
+  assert.deepEqual(a.datasets.map((d) => d.label), ['MGNREGA', 'PMAY-G']);
+});
+
+test('A-7: a pie of schemes × years is refused and drawn as bars', () => {
+  const a = buildAnalytics('MGNREGA and PMAY-G beneficiaries each year as a pie chart', SCHEME_YEAR, null, 'pie');
+  assert.equal(a.kind, 'twoDim');
+  assert.equal(a.defType, 'bar');
+  assert.equal(a.refused, 'pie');
+});
+
+test('B-3: scheme × district puts districts on the x-axis and offers no stack or donut', () => {
+  const rows = ['A', 'B', 'C'].flatMap((d, i) => [
+    { district: d, scheme: 'MGNREGA', beneficiaries: 100 + i }, { district: d, scheme: 'PMAY-G', beneficiaries: 10 + i }]);
+  const a = buildAnalytics('Beneficiaries district wise in all schemes', rows, 'stacked');
+  assert.equal(a.xKey, 'district');
+  assert.equal(a.sKey, 'scheme');
+  assert.deepEqual(a.types, ['bar']);
+});
+
+test('G-3 / G-4: totals down districts only, never across years for villages', () => {
+  const rows = [{ district: 'A', year_key: 2023, villages: 10 }];
+  assert.equal(canAdd('villages', dimOf('district', rows)), true);       // the Total row down the districts
+  assert.equal(canAdd('villages', dimOf('financial_year', rows)), false); // no Total across years
+  assert.equal(canAdd('person_days', dimOf('financial_year', rows)), true);
+  const g4 = [2023, 2024].flatMap((y) => ['A', 'B'].map((d, i) => ({ district: d, financial_year: `${y}-${(y + 1) % 100}`, households: 5 + i })));
+  // backend rows put district first: the old 'stacked' card added the years on top
+  // of each district's bar. Now the year is the x-axis; a stack, if chosen, adds
+  // districts within one year, which is right.
+  const a = buildAnalytics('Households with work by district and year', g4, 'stacked');
+  assert.equal(a.kind, 'twoDim');
+  assert.equal(a.xKey, 'financial_year');
+  assert.equal(a.sKey, 'district');
+});
+
+test('D-1 / X-5 / D-8: rates and negative values are never slices', () => {
+  const pct = [{ district: 'Ri Bhoi', 'completion rate (%)': 81.25 }, { district: 'Tura', 'completion rate (%)': 60 },
+    { district: 'Jowai', 'completion rate (%)': 74 }];
+  assert.equal(measureKind('completion rate (%)'), 'rate');
+  assert.equal(buildAnalytics('PMAY-G completion rate by district', pct, null).defType, 'bar');
+  const growth = [{ district: 'A', growth: -5 }, { district: 'B', growth: 10 }, { district: 'C', growth: 3 }];
+  assert.equal(buildAnalytics('Growth in person days by district', growth, null).defType, 'bar');
+  const neg = [{ district: 'A', net_amount: -5 }, { district: 'B', net_amount: 10 }, { district: 'C', net_amount: 3 }];
+  assert.equal(buildAnalytics('Net amount by district', neg, null).defType, 'bar');
+});

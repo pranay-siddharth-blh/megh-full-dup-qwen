@@ -5,7 +5,7 @@
 # SQL text is read here only through SQLGlot (app/sql_ast.py: tree / token
 # stream), never by text matching; the word matchers below read questions
 # and answers (English), not SQL.
-from app import sql_ast
+from app import measure_kinds, sql_ast
 from sqlglot import exp
 
 
@@ -1693,6 +1693,7 @@ async def _cross_scheme_scope(d: dict, scope: "auth.UserScope | None" = None) ->
             "resolved_entities": resolved, "sql": _res["sql"], "sql_query": _res["sql"],
             "row_count": len(_res["rows"]), "rows": _res["rows"][:20], "data": _res["rows"],
             "answer": _res["answer"],
+            **({"column_totals": _res["totals"]} if _res.get("totals") else {}),
         }
     logger.info("cross-scheme question %r -> %s per-scheme queries%s", question, schemes,
                 f" (not held: {sorted(gaps)})" if gaps else "")
@@ -1714,6 +1715,9 @@ def _c13_e12_cross_figures_denial(scope: "auth.UserScope | None", schemes: list[
     if plan.block:
         places = [{**pl, "block": plan.block} for pl in places]
     shape = "SELECT lgd_district FROM curated.v_employment GROUP BY lgd_district" if plan.by_district else None
+    if plan.op == "overlap" and plan.list_villages:
+        # a list of villages (G-8) is village-level data
+        shape = "SELECT lgd_village_name FROM curated.v_employment GROUP BY lgd_village_name"
     for pl in places:
         decision = _repaired_sql_denial(scope, schemes, {"resolved": pl}, shape)
         if decision:
@@ -3114,7 +3118,16 @@ def _chart_hint(question: str, raw_question: str, rows: list) -> "str | None":
     if len(rows) == 1:
         # One row of several figures ("wages vs material"): a bar per figure.
         return "kpi_bar" if len(num_cols) >= 2 else None
-    if len(label_cols) >= 2 and len(num_cols) == 1 and not _CHART_NON_ADDITIVE.search(str(num_cols[0])):
+    # J-11 (audit 2026-10-29): year_key and financial_year are one period, not two labels
+    years = [c for c in label_cols if measure_kinds.dim_of(c) == "period"]
+    if len(years) >= 2:
+        label_cols = [c for c in label_cols if c not in years[1:]]
+    # A stack adds its series. Only when the measure adds along the series' dimension
+    # (G-4: villages / households of two years counted twice; C-6 / D-7 / D-13: job
+    # cards, participation %, maxima), never across schemes (A-4 / B-3: households +
+    # houses), and never for a ranking, which is a ranked list (J-6: "top 5 villages"
+    # drawn stacked by block). The UI applies the same rule (columns.js canAdd).
+    if len(label_cols) >= 2 and len(num_cols) == 1 and not _CHART_NON_ADDITIVE.search(str(num_cols[0]))             and measure_kinds.can_add(num_cols[0], measure_kinds.dim_of(label_cols[1]))             and measure_kinds.dim_of(label_cols[0]) != "scheme"             and not _C12S_RANK_WORDS.search(raw_question or question or ""):
         # district x year -> one bar per district, stacked by year, when the
         # second label has few values (otherwise the legend is unreadable).
         if len({str(r.get(label_cols[1])) for r in rows}) <= 8:

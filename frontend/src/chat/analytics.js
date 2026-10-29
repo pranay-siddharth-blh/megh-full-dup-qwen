@@ -5,8 +5,8 @@
 
 import { hasSegment, isAsciiLetter, isDigit, isPeriodLabel, isSpace, splitSpaces } from './text.js';
 import {
-  PERIOD_WORDS, asksChange, colTitle, humanCol, isAdditive, isLabelCol, isNumeric, tableColumns, unifyPeriods, unitOf,
-  withoutTwins,
+  PERIOD_WORDS, asksChange, canAdd, colTitle, dimOf, humanCol, isAdditive, isLabelCol, isNumeric, tableColumns,
+  unifyPeriods, unitOf, withoutTwins,
 } from './columns.js';
 
 // The column rules live in columns.js (2026-10-28); re-exported for the callers
@@ -206,9 +206,39 @@ export function askedMeasureCol(question, numCols) {
 export function buildAnalytics(question, rawData, hintType, prefer = null) {
   const a = buildAnalyticsCore(question, rawData, hintType, prefer);
   if (!a || !prefer || prefer === 'chart' || prefer === 'table') return a;
-  if (a.kind === 'twoDim') return { ...a, defType: prefer === 'pie' ? 'doughnut' : prefer };
-  if (a.kind === 'multi' || a.kind === 'kpi') return { ...a, defType: prefer === 'stacked' ? 'bar' : prefer };
+  const asked = a.kind === 'twoDim' ? (prefer === 'pie' ? 'doughnut' : prefer) : (prefer === 'stacked' ? 'bar' : prefer);
+  // A-7 / G-1 (audit 2026-10-29): a pie, donut or stack of figures that must not be
+  // added up (overlapping villages, different schemes, rates) would show a total
+  // and shares that do not exist. Bars instead, with a one-line note.
+  if ((a.kind === 'twoDim' || a.kind === 'multi') && a.types && !a.types.includes(asked)) {
+    return { ...a, defType: 'bar', refused: prefer, note: refusalNote(prefer, a.noAddWhy) };
+  }
+  if (a.kind === 'twoDim') return { ...a, defType: asked };
+  if (a.kind === 'multi' || a.kind === 'kpi') return { ...a, defType: asked };
   return a;
+}
+
+const VIEW_WORD = { pie: 'A pie chart', doughnut: 'A donut chart', stacked: 'A stacked chart', line: 'A line chart' };
+const NO_ADD_WHY = {
+  scheme: 'the schemes count and spend different things',
+  overlap: 'the same villages, households or beneficiaries are counted again in each year or scheme',
+  rate: 'a rate or an average does not add up',
+  negative: 'some values are below zero',
+  category: 'a line only joins periods in time',
+};
+function refusalNote(prefer, why) {
+  return `${VIEW_WORD[prefer] || 'That chart'} would add these figures up, but ${NO_ADD_WHY[why] || NO_ADD_WHY.overlap}, `
+    + 'so they are shown as bars.';
+}
+
+/** Why measure `vc` may not be added along label `col` of these rows, or null. */
+function noAddReason(vc, col, data) {
+  const dim = dimOf(col, data);
+  if (dim === 'scheme') return 'scheme';
+  if (!isAdditive(vc)) return 'rate';
+  if (!canAdd(vc, dim)) return 'overlap';
+  if (data.some((r) => toNumber(r[vc]) !== null && toNumber(r[vc]) < 0)) return 'negative';
+  return null;
 }
 
 function buildAnalyticsCore(question, rawData, hintType, prefer) {
@@ -300,7 +330,12 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   // seen). The period column goes on the x-axis and the other label becomes one
   // coloured series per value, so both dimensions are always visible; with no
   // period column the label with more values is the axis and the other the series.
-  if (lblCols.length >= 2 && hintType !== 'grouped_bar' && hintType !== 'stacked') {
+  // A-5: with two label columns the two-dimension chart is used whatever the hint
+  // ("side by side" -> grouped_bar with one measure fell to the one-label chart,
+  // which dropped the second label). Only a grouped hint over 2+ measures, or a
+  // stacked hint the measure allows, keeps its own card.
+  const stackOk = lblCols.length >= 2 && !noAddReason(numCols[0], lblCols[1], data);
+  if (lblCols.length >= 2 && !(hintType === 'grouped_bar' && numCols.length >= 2) && !(hintType === 'stacked' && stackOk)) {
     const distinct = (k) => new Set(data.map((r) => String(r[k] ?? ''))).size;
     const isPeriodCol = (c) => hasSegment(c, PERIOD_WORDS)
       || data.every((r) => isPeriodLabel(r[c]));
@@ -314,11 +349,18 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
       if (data.every((r) => isPeriodLabel(r[xKey]))) data.sort((a, b) => String(a[xKey]).localeCompare(String(b[xKey])));
       const { labels, datasets } = pivotStacked(data, xKey, sKey, vKey);
       const periods = labels.every((l) => isPeriodLabel(l));
+      // G-3 / G-4 / B-3: a stack adds the series, a donut adds every cell — only
+      // when the measure adds along that dimension (never across schemes)
+      const whyS = noAddReason(vKey, sKey, data);
+      const whyX = noAddReason(vKey, xKey, data);
+      const types = ['bar', ...(periods ? ['line'] : []), ...(whyS ? [] : ['stacked']),
+        ...(whyS || whyX ? [] : ['doughnut'])];
+      const hinted = hintType === 'stacked' ? 'stacked' : hintType;
       return {
         kind: 'twoDim',
         title: `${humanCol(vKey)} by ${humanCol(xKey)} and ${humanCol(sKey)}`,
-        xKey, sKey, vKey, labels: labels.map(String), datasets, periods,
-        defType: SINGLE_TYPES.includes(hintType) && hintType !== 'pie' ? hintType : (periods ? 'line' : 'bar'),
+        xKey, sKey, vKey, labels: labels.map(String), datasets, periods, types, noAddWhy: whyS || whyX,
+        defType: types.includes(hinted) ? hinted : (periods ? 'line' : 'bar'),
         data, extra: numCols.length > 1,
         axes: { x: colTitle(xKey), y: colTitle(vKey), unit: unitOf(vKey) },
       };
@@ -343,8 +385,11 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     data.sort((a, b) => String(a[lc]).localeCompare(String(b[lc])));
   }
   const isFew = data.length <= 6;
-  // A share, rate or average is not part of a whole: no pie / donut at all.
-  const partOfWhole = isAdditive(numCols[0]);
+  // A share, rate or average is not part of a whole: no pie / donut at all; nor
+  // are schemes (they count different things) or overlapping counts by year
+  // (G-1 / G-2 / G-5 / B-2 / D-8: a donut's "Total" and "% of the total").
+  const whyNot = noAddReason(numCols[0], lc, data);
+  const partOfWhole = !whyNot;
   const noSlices = !partOfWhole || asksRanking(question);
   const hinted = SINGLE_TYPES.includes(hintType) && !(noSlices && (hintType === 'pie' || hintType === 'doughnut'))
     ? hintType : null;
@@ -384,6 +429,6 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
   // (only when the question asks how a figure moved — never by default).
   return {
     kind: 'multi', charts, defType, data, change: isTime && asksChange(question),
-    ...(partOfWhole ? {} : { types: ['bar', 'line'] }),
+    ...(partOfWhole ? {} : { types: whyNot === 'scheme' ? ['bar'] : ['bar', 'line'], noAddWhy: whyNot }),
   };
 }

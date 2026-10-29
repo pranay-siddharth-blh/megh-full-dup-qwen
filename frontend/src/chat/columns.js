@@ -6,6 +6,7 @@
    never changed. Read on words and characters, no regex (D-047). */
 
 import { hasSegment, isPeriodLabel, isPlainNumber, splitSpaces, isAsciiLetter, isDigit } from './text.js';
+import { MEASURE_KINDS } from './measureKinds.js';
 
 // A column is a MEASURE only if every value is a plain number. parseFloat() is
 // too lenient: parseFloat("2017-08-01") === 2017 would chart a date column.
@@ -193,7 +194,51 @@ export function unitOf(c) {
 // running stock (MGNREGA job cards are cumulative; adding years is wrong).
 const NON_ADDITIVE = ['pct', 'percent', 'percentage', 'perc', 'share', 'rate', 'ratio', 'avg', 'average', 'mean',
   'median', 'per', 'cumulative', 'card', 'cards', 'min', 'max', 'minimum', 'maximum'];
-export const isAdditive = (c) => !hasSegment(c, NON_ADDITIVE);
+export const isAdditive = (c) => !hasSegment(c, NON_ADDITIVE) && measureKind(c) !== 'rate';
+
+// ── What may be added up, and along which dimension (audit 2026-10-29, G) ──────
+// The UI added any number column it could: the donut's centre "Total", the
+// "% of the total", the pivot's Total row and column and the top of a stacked
+// bar. Villages, households and beneficiaries overlap — the same village is in
+// MGNREGA and in PMAY-G, and in 2023-24 and again in 2024-25 — so "Total 11,000"
+// villages showed for a state of about 7,000. The kind of a measure decides:
+//   flow (money, person days)   adds across places and years
+//   distinct (villages, people) adds across places only
+//   stock (job cards)           adds across places only
+//   rate (%, average)           never adds
+// and nothing adds across schemes (they count and spend different things).
+
+/** The '_' / space separated parts of a column name, lower case, "(%)" -> "%". */
+export function nameParts(c) {
+  return String(c).toLowerCase().split('').map((ch) => ('_ ()[]/-'.includes(ch) ? ' ' : ch)).join('')
+    .split(' ').filter(Boolean).flatMap((p) => (p.length > 1 && p.endsWith('%') ? [p.slice(0, -1), '%'] : [p]));
+}
+
+/** 'rate' | 'stock' | 'flow' | 'distinct' (measureKinds.js; anything else is a flow). */
+export function measureKind(c) {
+  const parts = nameParts(c);
+  for (const kind of ['rate', 'stock', 'flow', 'distinct']) {
+    if (parts.some((p) => MEASURE_KINDS[kind].includes(p))) return kind;
+  }
+  return 'flow';
+}
+
+const SCHEME_WORDS = ['scheme', 'schemes'];
+/** 'scheme' | 'period' | 'place' — what a label column of these rows is. */
+export function dimOf(c, data) {
+  if (hasSegment(c, SCHEME_WORDS)) return 'scheme';
+  if (hasSegment(c, PERIOD_WORDS) || (Array.isArray(data) && data.length
+    && data.every((r) => r && (isBlank(r[c]) || isPeriodLabel(r[c]))))) return 'period';
+  return 'place';
+}
+
+/** May measure `c` be added up across the values of a `dim` dimension? */
+export function canAdd(c, dim) {
+  const kind = measureKind(c);
+  if (kind === 'rate' || dim === 'scheme') return false;
+  if (dim === 'period') return kind === 'flow';
+  return true;
+}
 
 // ── Cell formatting ─────────────────────────────────────────────────────────
 const NUM = new Intl.NumberFormat('en-IN', { maximumFractionDigits: 2 });
