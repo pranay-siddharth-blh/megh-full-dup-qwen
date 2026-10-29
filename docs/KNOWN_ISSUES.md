@@ -1454,6 +1454,12 @@ the DATA path stubbed (the VPN was down: `10.48.242.4` answered neither 5432 nor
   - Not changed (not context memory, or a user decision): "applications" asking CM Elevate vs Legacy is D-064 (user
     decision) — the report asks to reverse it; "CM Elevate (applications) applications", "across all financial years" for
     CM Elevate, lakh vs crore (see KI-486) — composer, lane B2; 8,921 vs 8,948 applications — data / dashboard.
+- **Test team report — live retest (2026-10-29 evening, VPN up, :8401 on `lane/a2`):** TT1-TT6 **6/6 pass over HTTP**
+  (Bug 1 EKH FY 2024-25 1,632,188 person-days, no year pause; Bug 2 houses sanctioned 17,281; Bug 3 expenditure for both
+  districts; Bug 4 Tikrikilla FY 2023-24 then 2024-25; Bug 5 on hold 67 in West Garo Hills, no which-topic pause; typo
+  1,481,572 person-days). KI-487..492 VERIFIED live. The report's "What works" rows TTW1-TTW5 5/5. Context harness over
+  HTTP 89/94: the 5 failures are KI-485's (identical on Main); the two permission scenarios pass over HTTP. Live context
+  suite 107/107.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

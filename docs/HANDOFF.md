@@ -1335,6 +1335,9 @@ conversation state back into process memory (D-023).
   report's "What works" rows (live context suite, `--tags context`). For the user: the report asks that a bare
   "applications" pick CM Elevate directly, which reverses D-064 — not changed. Bug 5's variant (pending dataset
   pause) is still open.
+- **Live retest done (2026-10-29 evening):** TT1-TT6 6/6, TTW1-TTW5 5/5, context harness 89/94 (KI-485 only), live
+  suite 107/107. :8401 runs `lane/a2` (started by this session; restart it if the session ended). Open: Bug 5's variant,
+  the D-064 request, composer items (lane B2), the 8,921 vs 8,948 total (data).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

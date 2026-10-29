@@ -448,6 +448,8 @@ cases. Per file:
 - **Test team report fixes (2026-10-29):** NEW `tests/test_test_team_report_2026_10_29.py` (11; 9 fail on the old
   code); NEW harness scenarios `test_team_report_2026_10_29.yaml` (TT1-TT6, all valid; the cache-gate table test now
   covers them). Full pytest **4,413 passed, 0 failed, 3 skipped**; 14/14 scripts. Offline only (VPN down).
+- **Live retest (2026-10-29 evening):** TT1-TT6 6/6 and TTW1-TTW5 5/5 over HTTP; `--tags context` over HTTP 89/94
+  (5 = KI-485, pre-existing); live context suite 107/107 (`logs/live_context_validation_2026-10-29_1736.json`).
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

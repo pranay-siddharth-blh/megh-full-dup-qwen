@@ -1646,6 +1646,8 @@ DDL.
 - **Test team report (2026-10-29, 7/10):** Bugs 1-5 and the typo case traced to their causes and fixed (KI-487..492);
   offline-verified, live retest pending (TT1-TT6). Not changed: the D-064 "applications" request (user decision),
   composer wording / units (lane B2), the 8,921 vs 8,948 total (data).
+- **Report fixes VERIFIED live (2026-10-29 evening):** all six repros pass over HTTP; the report's "What works" rows
+  pass; no new failure in the 94 context scenarios or the live context suite.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
