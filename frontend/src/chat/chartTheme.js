@@ -71,11 +71,16 @@ export function themeFor(schemes) {
   };
 }
 
+const isFiniteValue = (v) => v !== null && v !== undefined && v !== '' && Number.isFinite(Number(v));
+
 /** One line under a chart's title saying what to look at: the top category
     (and its share, for a pie / donut), or for a trend the latest value and the
     change since the first period. Empty when there is nothing to say. */
 export function insightFor(type, labels, values) {
-  const nums = (values || []).map((v) => Number(v) || 0);
+  // Only the points that have a value: a gap (null) is not a 0 (E11).
+  const keep = (values || []).map((v, i) => i).filter((i) => isFiniteValue(values[i]));
+  const nums = keep.map((i) => Number(values[i]));
+  labels = keep.map((i) => labels[i]);
   if (nums.length < 2) return '';
   // "up 1530484561% since MGNREGA" (2026-10-19): a change over time only makes
   // sense when the x-axis IS time; over categories the line reads like a bar.
@@ -102,11 +107,11 @@ export function insightForSeries(labels, datasets, periods) {
   if (!labels || !labels.length || !datasets || !datasets.length) return '';
   if (periods) {
     const last = labels.length - 1;
-    const parts = datasets.map((d) => `${d.label} ${fmtCompact(Number(d.data[last]) || 0)}`);
+    const parts = datasets.map((d) => `${d.label} ${isFiniteValue(d.data[last]) ? fmtCompact(d.data[last]) : '—'}`);
     return `Latest (${labels[last]}): ${parts.join(' · ')}`;
   }
   let best = { v: -Infinity, s: '', l: '' };
-  datasets.forEach((d) => d.data.forEach((v, j) => { const n = Number(v) || 0; if (n > best.v) best = { v: n, s: d.label, l: labels[j] }; }));
+  datasets.forEach((d) => d.data.forEach((v, j) => { if (isFiniteValue(v) && Number(v) > best.v) best = { v: Number(v), s: d.label, l: labels[j] }; }));
   return best.v > -Infinity ? `Highest: ${best.s} in ${best.l} · ${fmtCompact(best.v)}` : '';
 }
 

@@ -228,7 +228,6 @@ export function useVoice({ lang, onPartial, onTranscript, onUnauthorized }) {
       fail(e.name === 'AbortError' ? 'Timed out — please try a shorter recording'
         : `Could not reach the server (${e.message}). Is the backend running on this port?`);
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [say, clearStatus, onTranscript, onUnauthorized]);
 
   const stopMic = useCallback(() => {

@@ -935,6 +935,46 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-084 — Frontend lint and tests: ESLint (with the no-regex rule) + `node --test` (2026-10-29)
+- **Date:** 2026-10-29 (E11 UI fixes, KI-570). Files: `frontend/package.json` (`lint`, `test`; dev deps `eslint`
+  9.17.0, `@eslint/js` 9.17.0, `eslint-plugin-react` 7.37.2, `eslint-plugin-react-hooks` 5.1.0, `globals` 15.14.0,
+  exact pins), NEW `frontend/eslint.config.js`, NEW `frontend/tests/*.test.js`.
+- **Context:** the frontend had no linter and no JS test runner (audit 2026-10-23, "Housekeeping"); JS behaviour
+  was tested only from Python (`tests/test_table_view_2026_10_28.py`, `test_cross_compare_card_2026_10_22.py`
+  bundle the real modules with esbuild and run them in node).
+- **Decision:**
+  - `npm run lint` = ESLint flat config: `@eslint/js` recommended + React + hooks rules, and `no-restricted-syntax`
+    for a regex literal, `new RegExp` and `RegExp()` — the D-046 / D-047 "no regex anywhere" rule is now enforced
+    in `src/` and `frontend/tests/`, not only written down.
+  - `npm run test` = Node's built-in runner (`node --test "tests/**/*.test.js"`), no extra dependency. Plain
+    modules are imported directly; a `.jsx` module is bundled with the esbuild Vite already ships
+    (`tests/admin.test.js`).
+  - The Python-side frontend tests stay; they remain the pytest gate.
+- **Alternatives:** Vitest / Jest (an extra framework and dependency tree for 3 files; Node's runner has mocks
+  and fake timers built in).
+- **Status:** Active. `npm run lint` 0 problems and `npm test` 13/13 on 2026-10-29.
+
+
+### D-081 — Fixed answers authorised where they return; cross_figures from its plan; BOOT_GUARD_ENFORCE (2026-10-29)
+- **Date:** 2026-10-29. RAG plan E12 (KI-418..421, gateway CA). Files: c13, `schemes/focus_legacy.py`,
+  `schemes/mgnrega.py`, `app/auth.py`, `app/routers/admin.py`, `app/routers/stats.py`, `app/llm.py`, `app/config.py`.
+- **Context:** four fixed answers returned before the graph's `authorize` node (KI-419). The lane plan (A1 SEC-03)
+  said to authorise `_res["sql"]` for cross_figures. Measured offline with the real functions: that bundle's places
+  are bind parameters (`filter_values` sees none) and every statement counts `DISTINCT village_code`, which
+  `infer_granularity` reads as village level, so a state officer was refused every statewide comparison and a
+  district officer their own district.
+- **Decision:**
+  - each fixed answer is authorised where it returns, with the existing `_repaired_sql_denial` / `_denied`; behaviour
+    stays in the stages (never in a graph node);
+  - cross_figures is authorised from its plan, before any query: each place (`plan.districts`, `plan.block`) as a
+    resolved entity, and a per-district answer as a `GROUP BY lgd_district` shape (`_c13_e12_cross_figures_denial`);
+  - the Focus Legacy group-name SQL names a group, not a place, so it is not authorised; the scheme is checked and
+    groups outside the caller's area are dropped;
+  - scope fails closed (`scope_from_user`); the admin API refuses unknown values instead of storing them;
+  - a missing configured CA file refuses the model client only with `ENV=prod` **and** `BOOT_GUARD_ENFORCE=true`
+    (default false). A plain prod check would stop the dev box, which runs with `ENV=prod` and no CA file.
+- **Rejected:** authorising the cross_figures SQL text (false denials above); a hard prod-only CA refusal (bricks dev).
+- **Rollback:** revert the files above; `BOOT_GUARD_ENFORCE=false` already gives the old CA fallback (now logged CRITICAL).
 ### D-079 — One scheme registry; the other registries are guarded against drift (2026-10-27)
 - **Date:** 2026-10-27. RAG plan E5; user decision "Registry + drift guard" (not a full migration).
 - **Context:** scheme names appear in ~124 places across 31 files (mapped by a scan for lines naming four or more

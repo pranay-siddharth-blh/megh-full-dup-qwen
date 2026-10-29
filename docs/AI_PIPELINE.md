@@ -668,6 +668,15 @@ the SQL.
   query filters on, including `UPPER(col)`, every `IN` value and `OR` branches. Unparseable SQL is refused for a
   geo-restricted user (D-046, KI-303).
 - A deny returns `route:"denied"` and **no SQL runs**.
+- **Fixed answers that finish before the `authorize` node are authorised where they return** (KI-419, E12
+  2026-10-29), through `_repaired_sql_denial` / `_denied`: the Focus Legacy group-name answer (scheme check in
+  `_data_scheme_stage`; the answer keeps only groups inside the caller's area), the Focus Plus overall summary (its
+  fixed SQL), cross_figures (`_c13_e12_cross_figures_denial`, from the plan's districts / block / per-district shape
+  and before any query: the bundle's places are bind parameters and its village count would read as village level)
+  and MGNREGA women-not-recorded (`_mg_women["shown"]`). The PMAY-G fixed path was already authorised. An area-pinned
+  account gets the admin-expenditure caveat without its statewide figure.
+- The scope itself fails closed (`auth.scope_from_user`, KI-421): no real scheme in the user's list gives no scheme,
+  an unknown role is `public`, and the per-user cap can only narrow the role's cap.
 
 ### 2.8 Validate → execute → repair — `execute_with_repair(..., max_repairs=MAX_SQL_REPAIRS)` (Flow C)
 The budget is 4 attempts in total (the initial one plus `MAX_SQL_REPAIRS = 3` repairs). Each attempt

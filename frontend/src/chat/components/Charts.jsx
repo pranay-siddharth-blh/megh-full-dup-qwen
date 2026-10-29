@@ -34,7 +34,6 @@ const TOOLTIP = {
     },
   },
 };
-const ANIM = { duration: 650, easing: 'easeOutQuart' };
 const AXIS = {
   grid: { color: INK.grid, drawTicks: false },
   ticks: { font: { family: 'Inter', size: 11, weight: '500' }, color: INK.muted, padding: 8 },
@@ -948,6 +947,8 @@ const compactValue = (v) => (Number.isFinite(v) ? v.toLocaleString('en-IN', { ma
 
 function CompareVerdict({ v }) {
   if (!v) return null;
+  // Two schemes count and spend different things: show both, rank neither (E11).
+  if (v.unlike) return <p className="cmp-verdict">Each scheme measures this differently, so the two are not ranked.</p>;
   if (v.equal) return <p className="cmp-verdict">Both record <strong>{compactValue(v.value)}</strong> {v.measure}.</p>;
   const by = v.pct === null ? <strong>{compactValue(v.diff)} more</strong>
     : <><strong>{v.pct}% ahead</strong> ({compactValue(v.diff)} more)</>;

@@ -84,6 +84,10 @@ Fill in, at minimum:
 Certificates: if the gateway's self-signed CA must be verified, place the bundle
 at `certs/enlight-aiops-internal-ca.pem` and point `AI_MODEL_CA_BUNDLE_PATH` at
 it. `certs/` is gitignored — the bundle is environment-specific.
+A path set with no file behind it is logged `CRITICAL` and listed in `/health`
+`insecure_config`; set `BOOT_GUARD_ENFORCE=true` in production so the app refuses to
+call the gateway unverified instead (E12, 2026-10-29). Leave it off on a dev box that
+runs with `ENV=prod`.
 
 ## 5. Service
 

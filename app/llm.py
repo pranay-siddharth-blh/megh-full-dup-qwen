@@ -46,9 +46,11 @@ def _get_ssl_verify() -> str | bool:
     If AI_MODEL_CA_BUNDLE_PATH is configured and the file exists,
     use that CA bundle.
 
-    If the CA bundle is configured but missing, fall back to
-    SSL verification disabled so self-signed internal gateways
-    can still be reached.
+    If the CA bundle is configured but missing, that is a broken deploy, not a
+    choice (E12 / SEC-07, 2026-10-29: the dev box had the path set and no file,
+    so gateway TLS was silently never verified). It is logged CRITICAL; with
+    ENV=prod and BOOT_GUARD_ENFORCE on, the client refuses to start. Otherwise
+    it falls back to verify=False so the self-signed gateway is still reached.
     """
 
     ca_bundle = settings.AI_MODEL_CA_BUNDLE_PATH
@@ -63,10 +65,17 @@ def _get_ssl_verify() -> str | bool:
             )
             return ca_bundle
 
-        logger.warning(
+        if settings.ENV == "prod" and settings.BOOT_GUARD_ENFORCE:
+            raise RuntimeError(
+                f"AI_MODEL_CA_BUNDLE_PATH is configured but the file does not exist: "
+                f"{ca_bundle}. Refusing to call the model gateway without TLS "
+                f"verification (ENV=prod, BOOT_GUARD_ENFORCE=true)."
+            )
+
+        logger.critical(
             "AI_MODEL_CA_BUNDLE_PATH is configured but the file does "
             "not exist: %s. Falling back to verify=False for the "
-            "internal/self-signed AI model gateway.",
+            "internal/self-signed AI model gateway — gateway TLS is NOT verified.",
             ca_bundle,
         )
 

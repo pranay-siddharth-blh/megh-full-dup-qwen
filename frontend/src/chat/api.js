@@ -85,15 +85,25 @@ export async function fetchMe(timeoutMs = 8000) {
   }
 }
 
+// The admin console's own copy of a token (AdminApp.jsx ADMIN_KEY).
+const MEGH_ADMIN_JWT_KEY = 'megh_admin_jwt';
+
+// Signing out of the chat signs the admin console out too: a JWT is stateless
+// (the server's logout only logs it), so a copy left in localStorage stays
+// usable on a shared terminal (audit 2026-10-23, E11).
 export function logoutRemote() {
+  try { localStorage.removeItem(MEGH_ADMIN_JWT_KEY); } catch (e) { /* storage blocked */ }
   if (!token) return;
   fetch(`${API_BASE}/api/auth/logout`, { method: 'POST', headers: authHeaders() }).catch(() => {});
 }
 
 // ── Query ───────────────────────────────────────────────────────────────────
-// Hard client-side ceiling on a single question, so a stalled backend can never
-// leave the typing dots up forever.
-const QUERY_TIMEOUT_MS = 75000;
+// How long a question may go with NOTHING arriving, so a stalled backend can
+// never leave the typing dots up forever. On the stream every chunk (a token, a
+// step, the server's ": ping" keep-alive) restarts it: a long but healthy answer
+// is never cut (E11 / UI-03, 2026-10-29; it was a 75 s ceiling on the whole
+// answer). The plain request has no chunks, so there it is the whole wait.
+export const QUERY_IDLE_MS = 75000;
 const TIMED_OUT = 'The request took too long and timed out. The service may be busy — please try again in a moment.';
 const UNREACHABLE = 'Could not reach the server. Please check your connection and try again.';
 
@@ -126,12 +136,13 @@ const isConnectionStatus = (status, detail, fromApp) =>
   // 502/503/504 without the app's own JSON detail come from nginx: the app is down or unreachable.
   || ([502, 503, 504].includes(status) && !fromApp);
 
-// One AbortController for a question: the 75 s ceiling, or the caller's Stop
-// (`stopSignal`). `stopped()` tells the two apart after an abort.
-function questionAbort(stopSignal) {
+// One AbortController for a question: QUERY_IDLE_MS of silence, or the caller's
+// Stop (`stopSignal`). `alive()` restarts the silence timer; `stopped()` tells
+// the two aborts apart afterwards.
+export function questionAbort(stopSignal, idleMs = QUERY_IDLE_MS) {
   const ctrl = new AbortController();
   let byUser = false;
-  const timer = setTimeout(() => ctrl.abort(), QUERY_TIMEOUT_MS);
+  let timer = setTimeout(() => ctrl.abort(), idleMs);
   const onStop = () => { byUser = true; ctrl.abort(); };
   if (stopSignal) {
     if (stopSignal.aborted) onStop();
@@ -140,6 +151,11 @@ function questionAbort(stopSignal) {
   return {
     signal: ctrl.signal,
     stopped: () => byUser,
+    alive: () => {
+      if (ctrl.signal.aborted) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => ctrl.abort(), idleMs);
+    },
     done: () => { clearTimeout(timer); if (stopSignal) stopSignal.removeEventListener('abort', onStop); },
   };
 }
@@ -208,6 +224,7 @@ export async function streamNLPResponse(question, language, sessionId, opts = {}
     for (;;) {
       const { value, done } = await reader.read();
       if (done) break;
+      ab.alive();                            // any chunk, pings included
       buf += decoder.decode(value, { stream: true });
       let cut;
       while ((cut = buf.indexOf('\n\n')) >= 0) {

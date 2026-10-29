@@ -18,6 +18,10 @@ safe default, so local dev is unaffected.
 | JWT-gated `/api/query`, `/api/history/*`, `/admin/*`; role gates `require_user` / `require_admin` / `require_super` | `app/deps.py`, routers |
 | Role + geography + granularity + scheme checks on the **generated SQL** before it runs | `app/auth.py` |
 | Tenant isolation — `tenant_admin` pinned to their own tenant on every admin read | `app/routers/admin.py::_tenant_filter` |
+| Only a cross-tenant `super_admin` may grant `super_admin`, or change / reset / deactivate a super_admin account; nobody changes their own role (KI-418, 2026-10-29). The admin API refuses an unknown role, scheme or granularity cap (422, KI-421) | `app/routers/admin.py::_guard_super_admin`, `NewUser` / `UpdateUser` validators |
+| Per-user scope fails closed: a scheme list with no real scheme gives no scheme, an unknown role gets `public`, the user cap only narrows the role cap (KI-421) | `app/auth.py::scope_from_user` |
+| Fixed answers that return before the graph's `authorize` node are authorised too: Focus Legacy group names (scheme check + in-area groups only), the Focus Plus summary, cross-scheme figures (from the plan, before they run), MGNREGA women-not-recorded (KI-419, 2026-10-29) | c13 `_data_scheme_stage`, `_data_clarification_stage`, `_c13_e12_cross_figures_denial`, `_data_deterministic_stage` |
+| Welcome-card figures only for the caller's schemes (KI-420) | `app/routers/stats.py::_for_scope` |
 | `/api/rag/reingest` (expensive KB rebuild) now **admin-only**; `/api/rag/status` requires a user | `app/routers/rag.py` |
 | `/metrics` requires `X-Metrics-Token` (or an admin JWT); IP-allowlisted at the edge | `app/main.py`, `deploy/nginx/…` |
 | `/health` returns `{"status"}` only to anonymous callers — the per-component breakdown and the `insecure_config` flag need an admin JWT / metrics token | `app/main.py::health` |
@@ -31,7 +35,8 @@ safe default, so local dev is unaffected.
 | HS256 JWT, issuer + expiry checked, constant-time signature compare | `app/security.py` |
 | **TLS 1.2/1.3 only**, modern ciphers, OCSP stapling, HTTP→HTTPS redirect | `deploy/nginx/nginx-nlpservice.conf` |
 | HSTS (`max-age=1y; includeSubDomains`) at both app and edge | `app/middleware/security_headers.py`, nginx |
-| Startup **secret guard** — `CRITICAL` log + `/health` `insecure_config` when `JWT_SECRET` / `ADMIN_TOKEN` are still defaults or too short. Does **not** block boot; the deploy checklist owns enforcement | `app/config.py::insecure_secrets`, `app/main.py` |
+| Startup **secret guard** — `CRITICAL` log + `/health` `insecure_config` when `JWT_SECRET` / `ADMIN_TOKEN` are still defaults or too short, `QDRANT_API_KEY` is empty, or `AI_MODEL_CA_BUNDLE_PATH` is set but the file is missing (2026-10-29). Does **not** block boot; the deploy checklist owns enforcement | `app/config.py::insecure_secrets`, `app/main.py` |
+| Gateway TLS: a configured CA file that is missing logs `CRITICAL`; with `ENV=prod` **and** `BOOT_GUARD_ENFORCE=true` the model client refuses to start instead of falling back to `verify=False` (E12, 2026-10-29). The switch is off by default because the dev box runs with `ENV=prod` and no CA file | `app/llm.py::_get_ssl_verify`, `app/config.py` |
 | `.env` is `chmod 600`, gitignored | `deploy/DEPLOYMENT.md` |
 
 ## A03 — Injection
@@ -150,7 +155,7 @@ The controls above describe what exists. These verified gaps are tracked in
 | KI-023 | Plaintext admin seed passwords in `app/users.yaml` (committed) |
 | KI-004 | No table allowlist. Generated SQL runs with access to `app.*` and the privacy tables. There is a prompt-injection path to `app.users`, and the local `.env` uses the `postgres` superuser |
 | KI-007 | `authorize()` ignores `block_name_raw` and the AC columns |
-| KI-015 | Gateway TLS falls back to `verify=False` |
+| KI-015 | Gateway TLS falls back to `verify=False` (since 2026-10-29: `CRITICAL` when a configured CA file is missing; refused only with `ENV=prod` + `BOOT_GUARD_ENFORCE=true`) |
 | KI-024 | `ASR_DEBUG_DIR` stores voice recordings (set on the dev box) |
 | KI-016 | No JWT revocation (accepted) |
 
@@ -165,6 +170,8 @@ See `deploy/DEPLOYMENT.md` for the full list. The essentials:
 - [ ] `DATABASE_URL` uses the SELECT-only role, not a superuser
 - [ ] TLS terminates at nginx; `:80` redirects to `:443`
 - [ ] `ENV=prod` (so `/docs` is closed)
+- [ ] The gateway CA file exists at `AI_MODEL_CA_BUNDLE_PATH`, and `BOOT_GUARD_ENFORCE=true` (the model client then refuses to start without it)
+- [ ] `QDRANT_API_KEY` set to the key Qdrant enforces (infra), and the Qdrant port firewalled to the app VMs
 - [ ] `METRICS_TOKEN` set; `/admin` + `/metrics` `allow`/`deny` CIDRs filled in
 - [ ] `TRUSTED_PROXIES` matches the actual vFirewall/LB subnet
 - [ ] `set_real_ip_from` in nginx matches the same

@@ -200,8 +200,6 @@ export default function App() {
 
   useEffect(() => { setUnauthorizedHandler((msg) => handleLogout(msg)); }, [handleLogout]);
 
-  const addMessages = (items) => setMessages((m) => [...m, ...items.map((x) => ({ id: nextId(), time: nowTime(), at: new Date().toISOString(), ...x }))]);
-
   // Replay a stored thread and continue it (the session id is adopted).
   const openConversation = useCallback(async (sid) => {
     try {

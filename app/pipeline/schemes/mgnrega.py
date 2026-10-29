@@ -1540,8 +1540,12 @@ async def _mgnrega_women_query(question: str, schemes: list[str], resolved: dict
     where, params, shown = f
     if yk is not None:
         if any(int(yk) == y["year_key"] for y in missing):
+            # "shown": what the answer reads (the place, latest women year), for authorize (KI-419)
             return {"kind": "unrecorded", "year": next(y for y in missing if y["year_key"] == int(yk)),
-                    "have": have, "where": where, "params": params}
+                    "have": have, "where": where, "params": params,
+                    "shown": ("SELECT SUM(women_employment_provided) AS w, SUM(persons_employed) AS p "
+                              "FROM curated.v_employment WHERE "
+                              + " AND ".join(shown + [f"year_key = {have[-1]['year_key']}"]))}
         sel = [y for y in years if y["year_key"] == int(yk)]
     else:
         sel = have
@@ -1795,25 +1799,28 @@ def _mgnrega_complete_list(answer: str, rows: list[dict]) -> str:
     return f"{answer.rstrip()}\n\n{_metric_label(met).capitalize()} by {name}: " + "; ".join(items) + "."
 
 
-async def _mgnrega_admin_expenditure_answer(rows: list[dict], display: dict) -> str:
+async def _mgnrega_admin_expenditure_answer(rows: list[dict], display: dict, statewide: bool = True) -> str:
     """The recorded figure, stated with the reason it cannot be read as a real
     zero. The caveat is the whole point of the earlier refusal (2026-09-17: a
     bare 0.00 reads as a measured finding), so it is always attached; the
-    statewide figure is read live so the caveat can never go stale."""
+    statewide figure is read live so the caveat can never go stale. An account
+    pinned to an area gets the caveat without the statewide figure (KI-419)."""
     val = _as_number((rows or [{}])[0].get("admin_expenditure_lakh")) or 0
     place = " ".join(p for p in (display.get("village") and f"{display['village']} village",
                                  display.get("block") and f"{display['block']} block",
                                  display.get("district")) if p) or "Meghalaya"
     year = f" in {display['year']}" if display.get("year") else ""
-    try:
-        st = (await fetch_rows(
-            "SELECT ROUND(SUM(admin_total_exp)::numeric, 2) AS total, "
-            "COUNT(*) FILTER (WHERE admin_total_exp <> 0) AS nonzero, COUNT(*) AS n "
-            "FROM curated.v_expenditure", []))[0]
-        state = (f" Statewide, the column is non-zero on only {st['nonzero']} of {st['n']:,} "
-                 f"records (₹{float(st['total'] or 0):,.2f} lakh in total).")
-    except Exception:  # noqa: BLE001 — the caveat stands without the statewide figure
-        state = ""
+    state = ""
+    if statewide:
+        try:
+            st = (await fetch_rows(
+                "SELECT ROUND(SUM(admin_total_exp)::numeric, 2) AS total, "
+                "COUNT(*) FILTER (WHERE admin_total_exp <> 0) AS nonzero, COUNT(*) AS n "
+                "FROM curated.v_expenditure", []))[0]
+            state = (f" Statewide, the column is non-zero on only {st['nonzero']} of {st['n']:,} "
+                     f"records (₹{float(st['total'] or 0):,.2f} lakh in total).")
+        except Exception:  # noqa: BLE001 — the caveat stands without the statewide figure
+            pass
     return (f"Recorded MGNREGA administrative expenditure for {place}{year}: "
             f"₹{float(val):,.2f} lakh.\n\n"
             "Please read this with care: the administrative-expenditure column was never "
