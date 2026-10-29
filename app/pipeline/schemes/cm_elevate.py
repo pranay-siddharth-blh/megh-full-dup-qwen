@@ -2601,6 +2601,10 @@ def _cme_village_not_in_named_block(question: str, rows: list[dict]) -> "str | N
     blk = q[i + 12:j].strip()
     k = low.rfind(" in ", 0, i)
     vil = q[k + 4:i].strip() if k >= 0 else ""
+    # only "in <name> village of <block> block": not "each village of Ranikor, the block, not another
+    # area type" (a resumed chip) nor any list question (final run 2026-10-30, C01-026)
+    if not vil or vil.lower().split()[0] in ("each", "every", "all", "the") or "," in blk or "," in vil             or not all(ch.isalnum() or ch in " -.()'" for ch in blk + vil):
+        return None
     want = "".join(ch for ch in _cme_block_base(blk).lower() if ch.isalnum())
     have = {"".join(ch for ch in _cme_block_base(str(r.get("lgd_block") or "")).lower() if ch.isalnum()) for r in rows}
     if not want or want in have or not vil:
