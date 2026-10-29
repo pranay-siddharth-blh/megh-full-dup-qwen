@@ -456,6 +456,7 @@ Tests: `tests/test_rag_sme_review.py` (3 tests, run on a copy of the test set).
 |---|---|
 | 2026-10-14 | Upgrade plan approved; documents moved here from `data/reference/`; Phase 1 started (`tests/rag_eval/`) |
 | 2026-10-15 | Subject-expert review set up: `RAG_Test_Set_SME_Review.xlsx` (instructions, OK/FIX/DROP dropdown, chatbot's latest answer), `sme_review.py import`, expert-checked score in `run_eval.py` |
+| 2026-10-29 | **Superseded (D-083):** the local jina re-sorter is removed and the gateway `qwen3-reranker` re-ranks every knowledge question, always (no switch), fused with the vector order. On `megh_knowledge` (137 questions): right piece first 60.2% -> 62.4%, top 3 82.7% -> 88.0%, 0.1 s |
 | 2026-10-15 | Re-sorter switched OFF (user's decision after the Phase 5 numbers): it cost ~3 s per answer without improving answers (correct 93.3% without vs 90.9% with). Back on by setting `RAG_LOCAL_RERANKER=jinaai/jina-reranker-v1-turbo-en` |
 | 2026-10-15 | Phase 7 done: 30-day chat-memory retention (search filter + daily delete), KI-224 fixed, test collection `megh_scheme_kb_qa20261006` deleted, CRITICAL startup warning while `QDRANT_API_KEY` is empty; the key itself is waiting on the infra team |
 | 2026-10-15 | Phase 6 done: "Source: …" under knowledge answers; 👍/👎 with an optional "what was wrong?" note, saved in `app.answer_feedback`; admin "Answer feedback" page; 63/63 browser checks, 2,560 tests pass |

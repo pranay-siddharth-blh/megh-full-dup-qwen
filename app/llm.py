@@ -516,19 +516,18 @@ async def call_embedding(
     ]
 
 
-def _llm_first_score(raw: str | None) -> str:
-    """The first '0' or '1' in `raw`, with any '.<digits>' right after it
-    ("Score: 0.85" -> "0.85"); "" when there is none."""
-    raw = raw or ""
-    for i, ch in enumerate(raw):
-        if ch in "01":
-            j = i + 1
-            if j + 1 < len(raw) and raw[j] == "." and raw[j + 1].isdigit():
-                j += 1
-                while j < len(raw) and raw[j].isdigit():
-                    j += 1
-            return raw[i:j]
-    return ""
+# qwen3-reranker is a yes/no judge: it scores a (query, document) pair by how
+# likely it is to answer "yes". Sent bare, the question and pieces miss that
+# frame and the order comes out close to inverted — the reason it was switched
+# off on 2026-08-29 (D-005). Probe 2026-10-29 on megh_knowledge (137 eval
+# questions, top 12): right piece first 25.6% bare vs 55.6% in this format.
+_RERANK_PREFIX = (
+    "<|im_start|>system\nJudge whether the Document meets the requirements based on "
+    "the Query and the Instruct provided. Note that the answer can only be \"yes\" "
+    "or \"no\".<|im_end|>\n<|im_start|>user\n"
+)
+_RERANK_SUFFIX = "<|im_end|>\n<|im_start|>assistant\n<think>\n\n</think>\n\n"
+_RERANK_INSTRUCT = "Given a question about a government scheme, retrieve the passage that answers it"
 
 
 async def call_reranker(
@@ -536,13 +535,12 @@ async def call_reranker(
     docs: list[str],
 ) -> list[tuple[int, float]]:
     """
-    qwen3-reranker — returns (original_index, score) pairs,
-    best score first.
+    qwen3-reranker on the gateway /rerank route — returns (original_index,
+    score) pairs, best score first.
 
-    Tries the gateway rerank route first.
-
-    If that route isn't available, falls back to scoring each
-    document with the classifier model.
+    Raises on any failure. There is no fallback scorer here any more (the 4B
+    prompt-scoring fallback was removed 2026-10-29: slow, unreliable and
+    silent); rag.retrieve keeps the vector order and logs a warning instead.
     """
 
     if _client is None:
@@ -553,94 +551,36 @@ async def call_reranker(
     if not docs:
         return []
 
-    try:
+    async with _slot():
 
-        async with _slot():
-
-            resp = await _client.post(
-                f"{settings.RERANKER_BASE_URL.rstrip('/')}/rerank",
-                headers={
-                    "Authorization": f"Bearer {settings.RERANKER_API_KEY}",
-                },
-                json={
-                    "model": settings.RERANKER_MODEL,
-                    "query": query,
-                    "documents": docs,
-                },
-                timeout=settings.RERANKER_TIMEOUT_SECONDS,
-            )
-
-        resp.raise_for_status()
-
-        results = resp.json()["results"]
-
-        pairs = [
-            (
-                r["index"],
-                float(
-                    r.get(
-                        "relevance_score",
-                        r.get("score", 0.0),
-                    )
-                ),
-            )
-            for r in results
-        ]
-
-        pairs.sort(
-            key=lambda p: -p[1]
+        resp = await _client.post(
+            f"{settings.RERANKER_BASE_URL.rstrip('/')}/rerank",
+            headers={
+                "Authorization": f"Bearer {settings.RERANKER_API_KEY}",
+            },
+            json={
+                "model": settings.RERANKER_MODEL,
+                "query": f"{_RERANK_PREFIX}<Instruct>: {_RERANK_INSTRUCT}\n<Query>: {query}\n",
+                "documents": [f"<Document>: {d}{_RERANK_SUFFIX}" for d in docs],
+            },
+            timeout=settings.RERANKER_TIMEOUT_SECONDS,
         )
 
-        return pairs
+    resp.raise_for_status()
 
-    except Exception as e:
-
-        logger.warning(
-            "Reranker route unavailable (%s) — "
-            "falling back to prompt scoring",
-            e,
+    pairs = [
+        (
+            int(r["index"]),
+            float(r.get("relevance_score", r.get("score", 0.0))),
         )
+        for r in resp.json()["results"]
+    ]
 
-    scored: list[tuple[int, float]] = []
-
-    for i, doc in enumerate(docs):
-
-        prompt = (
-            "Score from 0.0 to 1.0 how well the passage "
-            "answers the question. "
-            "Reply with ONLY the number.\n\n"
-            f'Question: "{query}"\n\n'
-            f"Passage:\n{doc[:1500]}\n\n"
-            "Score:"
-        )
-
-        try:
-
-            raw = await call_classifier(prompt)
-
-            score_text = _llm_first_score(raw)
-
-            scored.append(
-                (
-                    i,
-                    float(score_text) if score_text else 0.0,
-                )
-            )
-
-        except Exception:
-
-            scored.append(
-                (
-                    i,
-                    0.0,
-                )
-            )
-
-    scored.sort(
+    pairs.sort(
         key=lambda p: -p[1]
     )
 
-    return scored
+    return pairs
 
 
 # Codes this ASR deployment accepts (its own 400 enumerates them). Anything

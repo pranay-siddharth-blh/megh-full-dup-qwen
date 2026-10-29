@@ -78,7 +78,8 @@ Notes on the table:
   - always SUM … GROUP BY;
   - job cards: a running total — the year asked; all years = one figure per year, never summed and never the
     latest year in place of the year asked (D-057);
-  - keep lakh (no ÷100 for small areas);
+  - keep lakh (no ÷100 for small areas); code-written answers say "₹8,996.36 lakh" (the one money formatter,
+    D-082), and the "lakh" backstop `_mgnrega_money_units` never touches a % / share / ratio / rate column (KI-448);
   - dues and pending figures do not exist;
   - wage compliance = unskilled ÷ total.
 - **Guards:** `_mgnrega_facts_joined`, `_rowgrain_no_aggregate`,

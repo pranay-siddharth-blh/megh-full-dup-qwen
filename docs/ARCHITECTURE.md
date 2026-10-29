@@ -128,7 +128,7 @@ and output, and how it fails.
 | `GET /api/scheme-stats` | user | welcome-card figures from megh_db, cached 10 min: `{cards: {key: [[value, label] ×3]}, periods: {key: "FY …"}, as_of}`; a NULL figure is "—"; 503 with no cached copy (the UI then shows its typed fallback and says so) (KI-378) |
 | `GET/POST /admin/tenants`, `/admin/roles`, `/admin/users[/{id}]` (CRUD), `/admin/logins`, `/admin/conversations[/{id}]`, `/admin/audit`, `/admin/stats`, `/admin/schema` | admin JWT (tenant-scoped) | admin console API |
 | `GET /health` | anonymous gets `{status}` only; admin JWT or `X-Metrics-Token` gets components | DB + Qdrant (+ Redis) status |
-| `GET /metrics` | admin JWT or `X-Metrics-Token` | route counts, latency percentiles, cache stats |
+| `GET /metrics` | admin JWT or `X-Metrics-Token` | route counts, latency percentiles, cache stats, guardrail-model failures (D-080) |
 
 **There is no WebSocket, SSE or streaming endpoint** (VERIFIED: nothing in `app/` or `web/`
 matches `websocket` or `StreamingResponse`).
@@ -289,7 +289,9 @@ starts the paused-thread sweep and closes the checkpointer only when the graph i
     by the 9B; below that → "not covered";
   - `answer_from_kb_multi` retrieves per scheme.
 - **CM Elevate Legacy** reads CM Elevate's KB (`_KB_SCHEME_ALIAS`).
-- **The reranker is disabled** (`RERANKER_ENABLED=False`).
+- **The reranker is always on** (D-083, 2026-10-29): `qwen3-reranker` re-ranks every knowledge question
+  (`rag._rerank`), fused with the vector order. There is no off switch; a `.env` that sets `RERANKER_ENABLED` fails
+  at startup. The local jina re-ranker was removed.
 
 ### 3.10 Caches and metrics (VERIFIED)
 - **`cache.py`:**
@@ -402,7 +404,7 @@ abandons (Stop) is cancelled and its question remembered; the next "continue" in
   - Follow-ups: `FOLLOWUP_REWRITE_ENABLED`, `FOLLOWUP_SUGGEST_ENABLED`.
   - Decoding: `GUIDED_DECODING_ENABLED` (classifier JSON). `SQL_GUIDED_DECODING_ENABLED` is no longer read (2026-10-15): SQL generation sends no decoding constraint.
   - Other: `SCHEMA_CATALOG_ENABLED`.
-  - `RERANKER_ENABLED` is **False**.
+  - Re-ranker: no flag (removed 2026-10-29, D-083); `qwen3-reranker` always runs.
 
 ## 7. Logging, error handling and observability (VERIFIED)
 
@@ -423,7 +425,12 @@ abandons (Stop) is cancelled and its question remembered; the next "continue" in
   - **Not recorded: the SQL.**
 - `app.conversation_turns` stores the final SQL and the response JSON.
 - `/metrics`: `requests_by_route` (including `:cache` and `:semcache`), latency p50/p95/p99,
-  `busy_rejections_total`, `errors_total`, and cache and session stats.
+  `busy_rejections_total`, `errors_total`, cache and session stats, and `guardrail` (the guardrail model's
+  failures on this worker: `model_fail_open_total`, `model_fail_closed_total`, by error, recent, `alerts_total`;
+  D-080). `/health` (privileged) shows `guardrail_model` ok / failing (visibility only).
+- Guardrail model failures fail closed for abuse only and log an ERROR `ALERT guardrail model failing` line
+  when 3 fall inside 5 minutes (`GUARDRAIL_ALERT_*`, D-080); with `ALERT_WEBHOOK_URL` set the alert is also
+  POSTed there (counts only).
 - Degradation is silent, logged only as warnings:
   - a verifier failure is treated as "no issue";
   - a schema-catalogue load failure falls back to the hand-written prompt;

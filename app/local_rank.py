@@ -1,19 +1,18 @@
 """
-Local keyword vectors and re-ranking for the RAG path (RAG upgrade Phase 3,
-2026-10-14). Both run on CPU via fastembed (ONNX), like local_embed.py, and for
-the same reason on the calling (event-loop) thread: onnxruntime's Run()
-deadlocks on Windows when driven from a ThreadPoolExecutor worker.
+Local keyword vectors for the RAG path (RAG upgrade Phase 3, 2026-10-14). They
+run on CPU via fastembed (ONNX), like local_embed.py, and for the same reason
+on the calling (event-loop) thread: onnxruntime's Run() deadlocks on Windows
+when driven from a ThreadPoolExecutor worker.
 
   sparse  BM25 keyword vectors (RAG_SPARSE_MODEL, "Qdrant/bm25", ~10 MB). The
           meaning model (bge-small or qwen3-embedding) reads a bare acronym or an exact term
           poorly — "SECC", "Form 6", "job card" — and keyword search finds the
           pieces that literally contain it. kb_ingest stores one per piece;
           vectorstore.search fuses it with the meaning search (RRF).
-  rerank  a cross-encoder (RAG_LOCAL_RERANKER) that reads the question together
-          with each candidate piece and scores how well the piece answers it —
-          more precise than comparing two separate vectors. Used only to ORDER
-          the candidates; the confidence tiers keep using the meaning (cosine)
-          score, whose scale they were tuned on.
+
+The local jina cross-encoder re-ranker that lived here was removed 2026-10-29
+(user decision, D-083): re-ranking is qwen3-reranker on the gateway, always
+(llm.call_reranker, rag._rerank).
 
 The first call downloads the weights to the HuggingFace cache; every later call
 is offline. A model that cannot load is logged once and the step is skipped, so
@@ -27,30 +26,24 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 _sparse = None
-_reranker = None
 _failed: set[str] = set()
 _lock = asyncio.Lock()
 _YIELD_EVERY = 16
 
 
 async def _load(kind: str):
-    global _sparse, _reranker
-    name = settings.RAG_SPARSE_MODEL if kind == "sparse" else settings.RAG_LOCAL_RERANKER
+    global _sparse
+    name = settings.RAG_SPARSE_MODEL
     if not name or name in _failed:
         return None
-    current = _sparse if kind == "sparse" else _reranker
-    if current is not None and current[0] == name:
-        return current[1]
+    if _sparse is not None and _sparse[0] == name:
+        return _sparse[1]
     async with _lock:
         try:
             logger.info("local_rank: loading %s %s (first run downloads it)", kind, name)
-            if kind == "sparse":
-                from fastembed import SparseTextEmbedding
-                _sparse = (name, SparseTextEmbedding(model_name=name))
-                return _sparse[1]
-            from fastembed.rerank.cross_encoder import TextCrossEncoder
-            _reranker = (name, TextCrossEncoder(model_name=name))
-            return _reranker[1]
+            from fastembed import SparseTextEmbedding
+            _sparse = (name, SparseTextEmbedding(model_name=name))
+            return _sparse[1]
         except Exception as e:  # noqa: BLE001 — degrade to meaning search, never fail the turn
             _failed.add(name)
             logger.warning("local_rank: could not load %s (%s) — %s step skipped", name, e, kind)
@@ -81,17 +74,3 @@ async def sparse_query(text: str) -> tuple[list[int], list[float]] | None:
     v = next(iter(model.query_embed(text)))
     pair = _as_pair(v)
     return pair if pair[0] else None
-
-
-async def rerank(question: str, texts: list[str]) -> list[float] | None:
-    """A relevance score per text (higher = better), in input order; None when off."""
-    if not texts:
-        return []
-    model = await _load("rerank")
-    if model is None:
-        return None
-    try:
-        return [float(s) for s in model.rerank(question, texts)]
-    except Exception as e:  # noqa: BLE001
-        logger.warning("local_rank: rerank failed (%s) — keeping search order", e)
-        return None

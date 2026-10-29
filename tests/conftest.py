@@ -47,3 +47,7 @@ def _sql_examples_from_yaml(monkeypatch):
     # E1 query-plan shadow (2026-10-27): a background classifier call after each turn.
     # Off in tests; tests/test_query_plan_shadow_e1_2026_10_27.py drives it with fakes.
     monkeypatch.setattr(settings, "QUERY_PLAN_SHADOW", False)
+    # E9 answer templates (2026-10-29): the suites written before them pin the composer's
+    # own multi-row wording (the rollback path). tests/test_answer_format_e9_2026_10_29.py
+    # switches them on.
+    monkeypatch.setattr(settings, "ANSWER_TEMPLATES_ENABLED", False)

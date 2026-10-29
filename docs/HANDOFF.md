@@ -14,6 +14,25 @@ significant session.*
 still owns the pct-points verdict, lower-is-better and cross-scheme pivot totals. :8401 is another session's HTTPS
 server (system Python, started 12:21); left running.
 
+**2026-10-29 (code, qwen3-reranker always on, D-083): :8401 restarted (PID 3896), live-verified.** User rule: the re-ranker is
+never switched off. Files: `app/llm.py` (`call_reranker` Qwen3 format, 4B fallback removed), `app/rag.py` (`_rerank`,
+RRF with the vector order), `app/config.py` (switches removed, `reranker_problem`), `app/main.py` (startup ERROR),
+`app/local_rank.py` (jina removed), tests `test_rag_hybrid_rerank.py` / `test_rag_score_floor.py` /
+`test_rag_phase4_questions.py` rewritten, NEW `tests/test_reranker_always_on_2026_10_29.py`, `.env.example`, `CLAUDE.md`,
+docs (D-083, D-005 superseded, KI-450, AI_PIPELINE, ARCHITECTURE, INFERENCE_REQUIREMENTS, PROJECT_CONTEXT, README,
+data/incoming/README). Teammates: delete any `RERANKER_ENABLED` / `RAG_LOCAL_RERANKER` line from your `.env` (startup
+refuses it). Open: KI-450 (AIOps to check the re-ranker deployment). Verified: RAG eval 188 q correct-or-honest 91.5% -> 95.7%;
+pytest 4,174 passed / 2 timing failures that pass alone; scripts 14/14; live 2/2 with `/rerank` 200 OK.
+
+**2026-10-29 (code, E2 guardrail, fail-closed + alert half): D-080, KI-446 fixed; uncommitted.** Files: `app/guardrails.py`
+(`_ABUSE_SUSPECT`, `_OutageMonitor` / `outage_monitor`, `_outage_verdict`, `unverified` reply), `app/config.py`
+(`GUARDRAIL_ALERT_THRESHOLD` 3, `GUARDRAIL_ALERT_WINDOW_SECONDS` 300), c14 `_turn_edge_stage` (`unverified` not cached),
+`app/main.py` (`/metrics` `guardrail`, `/health` `guardrail_model`), NEW `tests/test_guardrail_outage_2026_10_29.py` (22).
+Live-verified in-process (real gateway + dead-port outage). :8401 was not running; start it to serve the change.
+Also `ALERT_WEBHOOK_URL` (blank = log only): the alert is POSTed there (counts only) — set it on the VMs.
+Remaining E2: run the guardrail in parallel with the plan — blocked on E1 stage 2, which D-078 gates on the user's
+go-ahead after live plan-agreement data. :8401 (another session's, 12:21) lacks the webhook part until restarted.
+
 **2026-10-29 (code, E12 security / RBAC): KI-418..421 fixed, gateway CA fails closed; uncommitted, :8401 NOT restarted
 (another process owns it; restart to take effect).** Files: `app/auth.py` (scope_from_user, empty-scheme message),
 `app/routers/admin.py` (validators, `_guard_super_admin`), `app/routers/stats.py` (`_for_scope`), c13 (four sites +
@@ -23,6 +42,19 @@ server (system Python, started 12:21); left running.
 Six other sessions were editing this checkout at the same time (E2 guardrail etc.): commit only the files above, by name.
 Needs people: set `ENV=dev` on the dev boxes, then `BOOT_GUARD_ENFORCE=true` in production with the CA file in place;
 the Qdrant key + firewall (infra); the git-history purge / token rotation (repo owner). Not run: browser check of the cards.
+
+**2026-10-29 (code, E9 answer formatting, D-082): uncommitted; :8401 restarted from `.venv` 13:28 (plain HTTP), checked over `/api/query`; golden set 42/74 (FP-05: SQL rounded crore to 2 decimals, KI-438; not E9).** Files (E9 only): c12
+`c12_answer_numbers.py` (`_c12_money`, `_c12_indian`, `_c12_money_unit`, `_c12_fmt_value`, `_c12_label_misbinds`;
+fallbacks use the formatter), `c12_answer_shapes.py` (`_c12s_e9_body`, `_c12s_e9_framing`, `_c12s_e9_frame_default`,
+`_c12s_e9_frame_ok`; `_shaped_fallback` templated when on), c13 `compose_response` (template branch, label check),
+`app/config.py` `ANSWER_TEMPLATES_ENABLED`, `.env.example`, `schemes/mgnrega.py` `_mgnrega_money_units` (KI-448),
+`tests/conftest.py` (templates off for the older suites), NEW `tests/test_answer_format_e9_2026_10_29.py`, pinned
+strings updated in `test_answer_framing_2026_10_18.py`, `test_mgnrega_sheet_fixes.py`, `test_cm_elevate_legacy.py`
+(₹ through the one formatter). Other modified files in the tree belong to the parallel E2 / E7 / E12 sessions.
+Next: (1) a browser look at a ranking / trend / split in `/megh-chat` (API checked); (2) FP-05: a guard or prompt rule so
+generated SQL never `ROUND`s money after ÷1e7 (the scorer is right; it already maps crore to rupees); (3) KI-449 (scheme writers onto
+`_c12_money`) needs the scheme owners' OK; (4) lane B2 CMP-01/02/04/05/08 overlap these functions — merge on top of
+E9 (`_c12_label_misbinds` covers CMP-01's unit / "more than" rules; CMP-02's asked-measure reader is still needed).
 
 **2026-10-28 evening (review only): audit v3 findings verified and merged into the 4-lane plan.** Run the lane plan, not
 the v3 packages: `new_docs/Lane_Plan_2026-10-28.html` + `new_docs/audit_by_lane_2026-10-28/lane-*.html`. Setup commit done;
@@ -76,7 +108,7 @@ Plain `http://` on :8401 no longer answers. Verified live: `/health` ok, HSTS + 
 The `app/users.yaml` seed passwords do NOT match the DB users (login 401/422). This is a dev setup; production TLS stays at nginx (`deploy/nginx/`).
 This run includes the uncommitted D-072/D-073/KI-431 changes listed below.
 
-**2026-10-27 night (code): RAG-plan handover, Tasks 1-9 — uncommitted, :8401 NOT restarted.** The user gave the colleague's handover (`RAG_Plan_Progress_and_Handover_2026-10-27.docx`, Downloads) and asked for the remaining items one at a time, in its §8 order. User decisions today: no year/place named -> keep asking; U5 -> keep the previous year **only when the measure repeats** (D-075); KI-407 -> keep asking (D-064). Done: KI-406 (c14), KI-407 (test), KI-427 (c06 / c09 / c11 / prompt_builder), KI-411 (c11), KI-441 (c12 / c13). Live context 107/107. Task 3 done too: **KI-368** (c08 `_explicit_level_in`). Held-out set ran on a flaky VPN (18 network errors): 56 clean items 30 -> 31, 0 regressions; re-run on a stable VPN. :8401 was started by another process 16:48 (system Python + SSL) — ask the user before restarting. Task 4 done: **KI-404** (deterministic process cue; B3 score tie-break still PLANNED). Task 5 done: **B4 / KI-442** (catalogue shrinks first; examples 1 -> 5; held-out 41/74 vs 40/74). Task 6 done: **B1 / D-076** (meaning shadow log + approved synonyms; never answers). Task 7 done: **B3 / D-077** (score safety net, 69/70). Task 8 done: **E1 stage 1 / D-078** (query plan in shadow, 79/79). Task 9 done: **E5 / D-079** (registry + drift guard; KI-445 found). **Next (Task 10): E7** SQL built from the catalogue. The user wants a report after EVERY task (done list, next, remaining count) and waits to say go. Python: the repo root has no `.venv`; `meghalaya/.venv/Scripts/python.exe` works.
+**2026-10-27 night (code): RAG-plan handover, Tasks 1-10 — uncommitted, :8401 NOT restarted.** The user gave the colleague's handover (`RAG_Plan_Progress_and_Handover_2026-10-27.docx`, Downloads) and asked for the remaining items one at a time, in its §8 order. User decisions today: no year/place named -> keep asking; U5 -> keep the previous year **only when the measure repeats** (D-075); KI-407 -> keep asking (D-064). Done: KI-406 (c14), KI-407 (test), KI-427 (c06 / c09 / c11 / prompt_builder), KI-411 (c11), KI-441 (c12 / c13). Live context 107/107. Task 3 done too: **KI-368** (c08 `_explicit_level_in`). Held-out set ran on a flaky VPN (18 network errors): 56 clean items 30 -> 31, 0 regressions; re-run on a stable VPN. :8401 was started by another process 16:48 (system Python + SSL) — ask the user before restarting. Task 4 done: **KI-404** (deterministic process cue; B3 score tie-break still PLANNED). Task 5 done: **B4 / KI-442** (catalogue shrinks first; examples 1 -> 5; held-out 41/74 vs 40/74). Task 6 done: **B1 / D-076** (meaning shadow log + approved synonyms; never answers). Task 7 done: **B3 / D-077** (score safety net, 69/70). Task 8 done: **E1 stage 1 / D-078** (query plan in shadow, 79/79). Task 9 done: **E5 / D-079** (registry + drift guard; KI-445 found). Task 10 done (2026-10-29): **E7** (catalogue measure vocabulary; verified 104 -> 109; KI-425 resolved). The user split the rest: THIS session continues the dependent chain **B5 -> B2 -> E10**; another session takes E11, E2, E12, E9 (it is working in the same folder — check `git status` before editing). **Next here (Task 13): B5** few-shot examples by meaning (KI-438). The user wants a report after EVERY task (done list, next, remaining count) and waits to say go. Python: the repo root has no `.venv`; `meghalaya/.venv/Scripts/python.exe` works.
 
 **2026-10-27 afternoon (code, D-073): generated SQL through `semantic.run_query` on megh_chatbot, uncommitted, :8401 NOT restarted.** Files: `app/db.py` (chatbot pool, `_run_via_run_query`, type restore, `application_name`), `app/config.py` (`CHATBOT_DATABASE_URL`, `CHATBOT_DB_POOL_*`, `SQL_MAX_COST`, `DB_APPLICATION_NAME`), `app/pipeline_graph.py` (checkpointer application_name), `tests/conftest.py` (tests keep the read-only path), `tests/test_readonly_pool.py` (pinned server_settings now include application_name), NEW `tests/test_run_query_path_2026_10_27.py`, `.env.example`, `.env` (key rename only). Rollback: blank `CHATBOT_DATABASE_URL`. Next: user's go-ahead for `020_megh_app_role.sql` (cap 35) -> set `DATABASE_URL` to megh_app; the admin stops the old 172.18.0.2 container; restart :8401.
 

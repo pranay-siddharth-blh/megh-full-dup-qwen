@@ -4,7 +4,9 @@
 > schemes, not four. App-side model roles are current: see [AI_PIPELINE.md §0](AI_PIPELINE.md).
 > Which of Tasks 1–5 and 7 were applied on the gateway is UNKNOWN — NEEDS VERIFICATION. The
 > embedding model is not used, because the app runs local fastembed (`EMBEDDING_PROVIDER=local`).
-> The reranker is disabled (`RERANKER_ENABLED=False`).
+> **Update 2026-10-29 (D-083):** the app calls `qwen3-reranker` on **every** knowledge question (no off switch),
+> in the Qwen3 yes/no format. Request to AIOps (KI-450): the deployment scores nearly every passage 0.99+; please
+> check it is served as a Qwen3 re-ranker (the `no` / `yes` token classifier), which should separate scores better.
 
 **Goal:** production model serving for **40 concurrent / ~200 DAU / 4 schemes**,
 NL→SQL primary workload, on the 2× H200 NVL node (`meghalaya-3`).

@@ -121,9 +121,12 @@ def _fewshot_examples(schemes: list[str], question: str, top_k: int) -> list[dic
             out += few_shot_examples([scheme], question, top_k=top_k)
             continue
         # a two-scheme example is found under both schemes: show it once
-        fresh = [ex for ex in fetched if ex["id"] not in seen][:top_k]
-        seen.update(ex["id"] for ex in fresh)
-        out += [{k: ex[k] for k in ("question", "sql", "id", "notes") if ex.get(k) is not None}
+        fresh = [ex for ex in fetched if ex["id"] is None or ex["id"] not in seen][:top_k]
+        seen.update(ex["id"] for ex in fresh if ex["id"] is not None)
+        # "sql" stays even when None: a meaning-ranked YAML refusal example (B5,
+        # SQL_EXAMPLES_SOURCE=yaml_meaning) carries sql None + its reason / plan.
+        out += [{k: ex[k] for k in ("question", "sql", "id", "notes", "reason", "plan")
+                 if k == "sql" or ex.get(k) is not None}
                 for ex in fresh]
     return out
 

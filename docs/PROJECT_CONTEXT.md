@@ -80,7 +80,7 @@ Legacy. Details: [SCHEMES.md](SCHEMES.md).
   - `qwen4-deploy` (Qwen3-4B) for classification and SQL verification;
   - `qwen35-9b` for answer composition;
   - `qwen3-asr` for voice input;
-  - `qwen3-reranker`, which is deployed but **disabled**.
+  - `qwen3-reranker`, which re-ranks every knowledge question (always on, D-083, 2026-10-29).
 - **Data:** PostgreSQL 18.4 `megh_db` (schemas raw/staging/curated/semantic/meta/app), and
   Qdrant on the same host.
 - **Deploy target:** 2 Ubuntu VMs, nginx + systemd (`uvicorn --workers 2`). A Dockerfile and

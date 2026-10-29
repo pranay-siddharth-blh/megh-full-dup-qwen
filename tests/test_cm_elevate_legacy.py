@@ -529,7 +529,7 @@ def test_multi_row_fallback_is_readable_and_says_what_it_cut():
     rows = [{"lgd_district": f"D{i}", "records": i, "total_disbursed_cr": 1.5} for i in range(20)]
     out = p._deterministic_answer(rows)
     assert out.startswith("Here are the 20 results:")
-    assert "- D0 — records: 0, total disbursed (₹ crore): 1.50" in out
+    assert "- D0 — records: 0, total disbursed: ₹1.50 crore" in out     # E9: one money formatter
     assert "…and 5 more rows in the table." in out
 
 

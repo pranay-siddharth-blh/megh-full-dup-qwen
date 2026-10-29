@@ -314,6 +314,8 @@ psql -d megh_db -f deploy/sql/02_retention_policy.sql
 - [ ] `ENV=prod` in `.env` (closes `/docs`, `/openapi.json`)
 - [ ] TLS terminates in front of the service; `:80` redirects to `:443`
 - [ ] `METRICS_TOKEN` set; `/admin` + `/metrics` `allow`/`deny` CIDRs filled in
+- [ ] `ALERT_WEBHOOK_URL` set to the team's incoming webhook (Slack / Teams / Alertmanager), so a guardrail-model
+      outage reaches a person, not only the journal (`ALERT guardrail model failing`, D-080); check `/metrics` `guardrail`
 - [ ] `TRUSTED_PROXIES` (`.env`) and `set_real_ip_from` (nginx) both match the vFirewall/LB subnet
 - [ ] `curl -sI https://<host>/` shows the security headers (CSP, HSTS, nosniff, X-Frame-Options)
 - [ ] ModSecurity + CRS installed and baked in `DetectionOnly`, then flipped to `On` (section 7)

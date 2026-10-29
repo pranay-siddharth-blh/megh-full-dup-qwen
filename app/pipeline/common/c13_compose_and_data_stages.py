@@ -161,6 +161,25 @@ async def compose_response(question: str, sql: str, rows: list[dict],
         )
     if shape is not None:
         logger.info("compose_response: answer shape %s (metric %s, %d row(s))", shape.kind, shape.metric, len(rows))
+    # E9 (2026-10-29): a ranking / comparison / trend / split takes every figure-bearing
+    # line from code's templates (_c12s_e9_body) and only its opening line, which holds no
+    # figure, from the composer (composer audit 2026-10-27: the multi-row shapes carried
+    # the wrong gaps and the unasked lines). Left to the composer: a premise correction
+    # (premise_check's "The question treats …" note) and a caller's own figures — they
+    # need reconciling in words — a ROLLUP total row, and a result with no usable value.
+    # Other notes are wording advice ("write lakh", "name places in plain words"): the
+    # opening line gets them, and code's figures already follow them (live E9 check
+    # 2026-10-29: every MGNREGA list carries one, which kept the templates off). A
+    # scheme's style shots do not keep the composer either (CM Elevate Legacy's district
+    # split misquoted twice on the composer path, same check).
+    _premise_notes = [n for n in (notes or []) if str(n).startswith('The question treats "')]
+    if settings.ANSWER_TEMPLATES_ENABLED and not (_premise_notes or extra_numbers or no_usable_value or _total_rows):
+        _body = _c12s_e9_body(shape, _shape_rows, question)
+        if _body:
+            logger.info("compose_response: templated %s answer (metric %s)", shape.kind, shape.metric)
+            _frame = await _c12s_e9_framing(question, shape, _shape_rows, sql, schemes, entities,
+                                            names_block + notes_block)
+            return _finish_answer(f"{_frame}\n{_body}", rows, schemes, entities)
     if shape is None or shape.kind == "single_value":
         opening = """Answer the user's question in one to three plain sentences, using ONLY the
 numbers in the result and the whole-result summary below — do not invent or round
@@ -224,6 +243,9 @@ Answer:"""
         # wrong one leaves the true figure missing and is caught below (2026-09-28)
         answer = _cme_digits_for_number_words(answer, preview)
     misquoted = bool(data_nums) and not _answer_numbers_faithful(answer, data_nums)
+    # E9 (2026-10-29): a figure that exists in the result but sits beside the wrong row
+    # name, measure or unit ("11.10 crore more than LIFCOM", CL-05; a % as "lakh", MG-10).
+    misbound = [] if misquoted else _c12_label_misbinds(answer, rows, data_nums)
     # A single aggregate row with 2+ metrics (e.g. a cross-scheme MGNREGA + PMAY
     # count) — the answer must report every one, not just the first scheme.
     dropped_metric = (len(preview) == 1 and len(_row_metrics(preview[0])) >= 2
@@ -239,8 +261,10 @@ Answer:"""
         if len(_one) == 1 and _one[0][1] not in (0, None) and not _answer_covers_metrics(answer, preview[0]):
             dropped_metric = True
 
-    if misquoted or dropped_metric:
-        why = "MISQUOTED a number" if misquoted else "left out one of the result values"
+    if misquoted or dropped_metric or misbound:
+        why = ("MISQUOTED a number" if misquoted else
+               "put a figure next to the wrong label (" + "; ".join(misbound) + ")" if misbound else
+               "left out one of the result values")
         logger.warning("compose_response: answer %s (%r) — strict retry", why, answer[:160])
         if len(preview) == 1:
             allowed = "; ".join(f"{k} = {v}" for k, v in preview[0].items())
@@ -253,7 +277,8 @@ Answer:"""
             + allowed + "\nRewrite the answer now.\n\nAnswer:"
         )
         answer = _fix_digit_grouping(await llm.call_response_composer(strict_prompt), data_nums)
-        still_bad =(bool(data_nums) and not _answer_numbers_faithful(answer, data_nums)) or (
+        still_bad = (bool(data_nums) and not _answer_numbers_faithful(answer, data_nums)) or bool(
+            _c12_label_misbinds(answer, rows, data_nums)) or (
             len(preview) == 1 and len(_row_metrics(preview[0])) >= 2
             and not _answer_covers_metrics(answer, preview[0])) or (
             # the Focus Plus one-figure rule above, re-applied to the retry
@@ -2978,13 +3003,17 @@ async def _update_context(session: "Session | None", raw_question: str, result: 
             await context_manager.maybe_update_summary(session)
         except Exception:  # noqa: BLE001 — the context layer must never break an answer
             logger.warning("context layer post-processing failed (non-fatal)", exc_info=True)
-    # E1 stage 1 (D-078): the query plan, built in the background AFTER the answer and
-    # logged beside this turn's decisions. Nothing reads it yet.
-    if settings.QUERY_PLAN_SHADOW and result.get("route") in ("data", "knowledge"):
+    # E1 stage 1 (D-078): the query plan, logged beside this turn's decisions. Built in
+    # the background AFTER the answer, unless stage 2a (D-085) already started it
+    # during the turn, beside the guardrail call: then that plan is reused (or
+    # cancelled when the turn ended as neither data nor knowledge). Nothing reads it yet.
+    from app import query_plan as _c13_qp
+    _c13_pending = _c13_qp.take_for_turn(session)
+    if settings.QUERY_PLAN_SHADOW and (result.get("route") in ("data", "knowledge") or _c13_pending):
         try:
-            from app import query_plan as _c13_qp
             asyncio.get_running_loop().create_task(_c13_qp.shadow(
-                result.get("rewritten_question") or raw_question, raw_question, result))
+                result.get("rewritten_question") or raw_question, raw_question, result,
+                **({"pending": _c13_pending} if _c13_pending else {})))
         except Exception:  # noqa: BLE001
             logger.debug("query plan shadow not scheduled", exc_info=True)
 

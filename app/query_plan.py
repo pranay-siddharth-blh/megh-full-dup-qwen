@@ -15,9 +15,19 @@ builds it and logs it beside what the pipeline actually decided; nothing reads i
   after the answer is composed, so it never delays or competes with the officer's
   turn. One JSON line per turn to QUERY_PLAN_FILE; tests/query_plan/compare.py
   reports per-field agreement with the pipeline's decisions.
+
+Stage 2a (2026-10-29, D-085; with RAG plan E2): for a NEW question the plan is built
+DURING the turn, started beside the guardrail model call (c14 _guardrail_check,
+start_for_turn), so the two classifier calls overlap. Nothing waits for it: the turn
+goes on, a guardrail refusal cancels it, and the end-of-turn shadow reuses it instead
+of a second call. turn_plan(session) is how a later stage will read it (stage 2b, one
+field at a time, each with the user's go-ahead). QUERY_PLAN_IN_TURN, OFF by default:
+measured live the two 4B calls queue on the gateway rather than overlap (turn median
+11.8 s -> 14.1 s), so it pays only once a stage reads the plan and drops its own call.
 """
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import threading
@@ -178,20 +188,88 @@ def compare(plan: dict, act: dict) -> dict:
     return out
 
 
-async def shadow(question: str, raw_question: str, result: dict) -> "dict | None":
-    """Build the plan for a finished turn and log it beside the actual decision.
-    Best-effort: never raises."""
+# ── Stage 2a: the plan built during the turn ────────────────────────────────
+
+_TURN_KEY = "query_plan"   # in session.turn_context (in-process, never persisted)
+
+
+async def _extract_quietly(question: str, box: dict) -> "dict | None":
+    try:
+        return await extract(question)
+    except Exception:  # noqa: BLE001 — the plan must never break a turn
+        logger.debug("in-turn query plan failed", exc_info=True)
+        return None
+    finally:
+        box["ms"] = round((time.monotonic() - box["t0"]) * 1000)
+
+
+def start_for_turn(session, question: str) -> None:
+    """Start building this turn's plan in the background (not awaited). Called
+    right before the guardrail model call, so the two classifier calls overlap."""
+    if (session is None or not settings.QUERY_PLAN_SHADOW or not settings.QUERY_PLAN_IN_TURN
+            or not (question or "").strip()):
+        return
+    ctx = getattr(session, "turn_context", None)
+    if not isinstance(ctx, dict) or _TURN_KEY in ctx:
+        return
+    try:
+        box = {"question": question, "t0": time.monotonic()}
+        box["task"] = asyncio.get_running_loop().create_task(_extract_quietly(question, box))
+        ctx[_TURN_KEY] = box
+    except RuntimeError:
+        return
+
+
+def cancel_for_turn(session) -> None:
+    """Drop this turn's plan (a guardrail refusal: nothing will read it)."""
+    box = (getattr(session, "turn_context", None) or {}).pop(_TURN_KEY, None)
+    if box and not box["task"].done():
+        box["task"].cancel()
+
+
+def take_for_turn(session) -> "dict | None":
+    """Hand this turn's plan box to the end-of-turn shadow (and forget it)."""
+    return (getattr(session, "turn_context", None) or {}).pop(_TURN_KEY, None)
+
+
+async def turn_plan(session) -> "dict | None":
+    """This turn's plan, waiting for it if still running; None when none was
+    started (a follow-up, a pause reply, a greeting, the flag off). For the
+    stage-2b readers; nothing in the pipeline calls it yet."""
+    box = (getattr(session, "turn_context", None) or {}).get(_TURN_KEY)
+    if not box:
+        return None
+    try:
+        return await asyncio.shield(box["task"])
+    except (asyncio.CancelledError, Exception):  # noqa: BLE001
+        return None
+
+
+async def shadow(question: str, raw_question: str, result: dict,
+                 pending: "dict | None" = None) -> "dict | None":
+    """Build the plan for a finished turn (or reuse `pending`, the plan built
+    during the turn) and log it beside the actual decision. Best-effort: never
+    raises."""
     if not settings.QUERY_PLAN_SHADOW or result.get("route") not in ("data", "knowledge"):
+        if pending and not pending["task"].done():
+            pending["task"].cancel()
         return None
     try:
         t0 = time.monotonic()
-        plan = await extract(question)
+        if pending is not None:
+            plan = await pending["task"]
+            ms, plan_from = pending.get("ms"), "turn"
+        else:
+            plan = await extract(question)
+            ms, plan_from = round((time.monotonic() - t0) * 1000), "after"
         if plan is None:
             return None
         act = actual(result)
         record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "question": question,
                   "raw_question": raw_question, "plan": plan, "actual": act, "agree": compare(plan, act),
-                  "ms": round((time.monotonic() - t0) * 1000)}
+                  "ms": ms, "plan_from": plan_from}
+        if pending is not None:
+            record["plan_question"] = pending["question"]
         path = Path(settings.QUERY_PLAN_FILE)
         path = path if path.is_absolute() else Path(__file__).resolve().parent.parent / path
         with _lock:

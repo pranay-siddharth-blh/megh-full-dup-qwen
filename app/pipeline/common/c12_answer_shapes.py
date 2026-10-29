@@ -16,6 +16,7 @@
 # the composer never does arithmetic), and falls back to that shape's own deterministic
 # answer (_shaped_fallback) instead of the one row dump. Single-row answers keep their
 # briefing-line framing (user report 2026-10-18) and _framed_fallback.
+import dataclasses as _c12s_dataclasses
 from dataclasses import dataclass as _c12s_dataclass, field as _c12s_field
 
 from app import sql_ast
@@ -473,6 +474,12 @@ def _shaped_fallback(shape: "_AnswerShape | None", rows: list, schemes: "list[st
     pairs = _c12s_vals(rows, shape.metric)
     if len(pairs) < 2:
         return None
+    # E9: with the answer templates on, the fallback is the same templated answer under
+    # code's own opening line — one money format, no unasked lines.
+    if settings.ANSWER_TEMPLATES_ENABLED:
+        body = _c12s_e9_body(shape, rows, "", fallback=True)
+        if body:
+            return _c12s_e9_frame_default(shape, rows, schemes, entities) + "\n" + body
     scheme, place, period = _scope_words(schemes, entities)
     scope = ", ".join(x for x in (scheme, place, period) if x)
     what = _human_metric(str(shape.metric))
@@ -550,3 +557,265 @@ def _shaped_fallback(shape: "_AnswerShape | None", rows: list, schemes: "list[st
     if len(pairs) > _C12S_LIST_MAX:
         lines.append(f"…and {len(pairs) - _C12S_LIST_MAX} more in the table.")
     return head + "\n" + "\n".join(lines)
+
+
+# ── Templated number sentences per shape (E9, 2026-10-29) ───────────────────
+# Composer audit 2026-10-27: of 43 answers, the single figures were clean and the multi-row
+# shapes carried the errors — "Bank disbursed 11.10 crore MORE than LIFCOM" for a 1.31 gap
+# (CL-05), "the recorded total is -48.84 percentage change" (MG-12), the top 5 villages
+# never named (PM-06), and lines nobody asked for (a "#1 is N ahead" line on every ranking,
+# % shares on every split, peak and lowest on every trend). For a ranking, comparison,
+# trend or split, code now writes every sentence that carries a figure, from these
+# templates, with the one money formatter (_c12_money); the 9B writes only the opening
+# line, which may hold no figure (_c12s_e9_framing). The extra lines appear only when the
+# question asks for them. Off with ANSWER_TEMPLATES_ENABLED=false (the composer then
+# writes the whole answer from _SHAPE_GUIDE, as before).
+_C12S_E9_GAP_ASK = Matcher(Alt(
+    W("gap", "gaps", "difference", "differences", "differ", "margin", "ahead", "behind", "lead", "leads", "lag",
+      "compare", "compared", "comparison", "versus", "vs"),
+    Seq("how", "far"), Seq("how", "much", "more"), Seq("more", "than"), Seq("less", "than"),
+))
+_C12S_E9_PEAK_ASK = Matcher(W("peak", "peaked", "highest", "lowest", "best", "worst", "maximum", "minimum", "max", "min",
+                              "most", "least"))
+_C12S_E9_TOTAL_ASK = Matcher(Alt(W("total", "totals", "overall", "altogether", "combined", "sum", "aggregate"),
+                                 Seq("in", "all")))
+_C12S_E9_SHARE_ASK = Matcher(W("share", "shares", "percent", "percentage", "percentages", "proportion",
+                               "proportions", "contribution"))
+
+
+# SQL alias shorthands, said in full ("Total exp fell from …", live E9 check 2026-10-29)
+_C12S_E9_ALIAS_WORDS = {"exp": "expenditure", "amt": "amount", "tot": "total", "hh": "households",
+                        "disb": "disbursement"}
+
+
+def _c12s_e9_what(col: str) -> str:
+    """What a measure counts, without its unit (the figure carries it): 'total expenditure'."""
+    unit = _unit_suffix(str(col).lower())
+    name = unit[0] if unit else _human_metric(str(col))
+    return " ".join(_C12S_E9_ALIAS_WORDS.get(w, w) for w in name.split(" "))
+
+
+def _c12s_e9_same_amount(a: str, b: str, rows: list) -> bool:
+    """Two money columns holding the same amount in two units (total_exp_lakh beside
+    total_exp_cr): one measure, said once."""
+    ua, ub = _c12_money_unit(str(a)), _c12_money_unit(str(b))
+    if not ua or not ub:
+        return False
+    pairs = [(_as_number(r.get(a)), _as_number(r.get(b))) for r in rows]
+    pairs = [(x * _C12_MONEY_SCALE[ua], y * _C12_MONEY_SCALE[ub]) for x, y in pairs if x is not None and y is not None]
+    rounding = 0.01 * max(_C12_MONEY_SCALE[ua], _C12_MONEY_SCALE[ub])      # 2 decimals of the larger unit
+    return bool(pairs) and all(abs(x - y) <= max(0.005 * abs(x), rounding) for x, y in pairs)
+
+
+def _c12s_e9_cap(text: str) -> str:
+    return text[:1].upper() + text[1:]
+
+
+def _c12s_e9_gap(col: str, d: "int | float") -> str:
+    """A difference of `col`: percentage points for a percentage, else the measure's own format."""
+    if _c12_is_pct_col(str(col)):
+        return f"{_fmt_num(_c12s_num(d))} percentage points"
+    return _c12_fmt_value(str(col), _c12s_num(d))
+
+
+def _c12s_e9_period(row: dict, shape: _AnswerShape) -> str:
+    """A trend row's period as the officer says it: 'FY 2022-23' for '2022-23' or year_key 2022."""
+    lab = _c12s_label(row, shape)
+    if lab.isdecimal() and len(lab) == 4 and 1900 <= int(lab) <= 2199:
+        return f"FY {lab}-{(int(lab) + 1) % 100:02d}"
+    if not lab.lower().startswith("fy") and len(lab) in (7, 9) and lab[:4].isdecimal() and lab[4] == "-":
+        return f"FY {lab}"
+    return lab
+
+
+def _c12s_e9_extras(shape: _AnswerShape, row: dict, limit: int = 3) -> str:
+    """The row's other measures, '; households employed 41,210', for a list line."""
+    bits = [f"{_c12s_e9_what(str(c))} {_c12_fmt_value(str(c), _as_number(row.get(c)))}"
+            for c in shape.metrics if c != shape.metric and _as_number(row.get(c)) is not None][:limit]
+    return ("; " + "; ".join(bits)) if bits else ""
+
+
+def _c12s_e9_body(shape: "_AnswerShape | None", rows: list, question: str,
+                  fallback: bool = False) -> "str | None":
+    """The figure-bearing lines of a ranking / comparison / trend / split answer, written by
+    code. None for any other shape, fewer than two values, or a yes / no question (its
+    'Yes' / 'No' is the composer's) — unless `fallback`, where the figures alone answer."""
+    if shape is None or shape.kind not in ("ranking", "compare", "trend", "breakdown") or not shape.metric \
+            or (shape.yes_no and not fallback):
+        return None
+    pairs = _c12s_vals(rows, shape.metric)
+    if len(pairs) < 2:
+        return None
+    # the same amount in a second unit is not a second measure
+    shape = _c12s_dataclasses.replace(shape, metrics=[c for c in shape.metrics if c == shape.metric
+                                                      or not _c12s_e9_same_amount(shape.metric, c, rows)])
+    m, q = str(shape.metric), question or ""
+    what = _c12s_e9_what(m)
+    lines: list = []
+    if shape.kind == "ranking":
+        for i, (r, v) in enumerate(pairs[:_C12S_LIST_MAX], 1):
+            lines.append(f"{i}. **{_c12s_label(r, shape)}** — {_c12_fmt_value(m, v)}")
+        if len(pairs) > _C12S_LIST_MAX:
+            lines.append(f"…and {len(pairs) - _C12S_LIST_MAX} more in the table.")
+        if _C12S_E9_GAP_ASK.search(q):
+            (r1, v1), (r2, v2) = pairs[0], pairs[1]
+            lines.append(f"{_c12s_label(r1, shape)} is {_c12s_e9_gap(m, abs(v1 - v2))} "
+                         f"{'higher' if v1 >= v2 else 'lower'} than {_c12s_label(r2, shape)}.")
+        return "\n".join(lines)
+    if shape.kind == "compare":
+        ordered = sorted(pairs, key=lambda p: p[1], reverse=True)
+        (hi_r, hi_v), (lo_r, lo_v) = ordered[0], ordered[-1]
+        if hi_v == lo_v:
+            lines.append(f"{' and '.join(_c12s_label(r, shape) for r, _v in pairs)} each record "
+                         f"{_c12_fmt_value(m, hi_v)} {what}.")
+        else:
+            pct = _c12s_pct(hi_v - lo_v, lo_v) if lo_v > 0 and _c12s_additive(m) else None
+            lines.append(f"{_c12s_label(hi_r, shape)} is higher than {_c12s_label(lo_r, shape)} on {what}: "
+                         f"{_c12_fmt_value(m, hi_v)} against {_c12_fmt_value(m, lo_v)}, a difference of "
+                         f"{_c12s_e9_gap(m, hi_v - lo_v)}{f' ({pct}% more)' if pct is not None else ''}.")
+            if len(pairs) > 2:
+                lines += [f"- **{_c12s_label(r, shape)}** — {_c12_fmt_value(m, v)}" for r, v in ordered]
+        for col in shape.metrics:
+            cp = _c12s_vals(rows, col) if col != shape.metric else []
+            if cp and len(lines) < 5:
+                lines.append(f"- {_c12s_e9_cap(_c12s_e9_what(str(col)))}: " + "; ".join(
+                    f"{_c12s_label(r, shape)} {_c12_fmt_value(str(col), v)}" for r, v in cp))
+        return "\n".join(lines)
+    if shape.kind == "trend":
+        tcol = next((c for c in shape.labels if _c12s_is_time_col(c)), shape.labels[0] if shape.labels else None)
+        cp = sorted(pairs, key=lambda p: str(p[0].get(tcol))) if tcol else pairs
+        (r0, v0), (r1, v1) = cp[0], cp[-1]
+        p0, p1 = _c12s_e9_period(r0, shape), _c12s_e9_period(r1, shape)
+        if v1 == v0:
+            lines.append(f"{_c12s_e9_cap(what)} was {_c12_fmt_value(m, v0)} in both {p0} and {p1}.")
+        else:
+            up = v1 > v0
+            pct = _c12s_pct(abs(v1 - v0), abs(v0)) if v0 and not _c12_is_pct_col(m) else None
+            lines.append(f"{_c12s_e9_cap(what)} {'rose' if up else 'fell'} from {_c12_fmt_value(m, v0)} in {p0} to "
+                         f"{_c12_fmt_value(m, v1)} in {p1}, {'up' if up else 'down'} {_c12s_e9_gap(m, abs(v1 - v0))}"
+                         f"{f' ({pct}%)' if pct is not None else ''}.")
+        if _C12S_E9_PEAK_ASK.search(q):
+            hi_r, hi_v = max(cp, key=lambda p: p[1])
+            lo_r, lo_v = min(cp, key=lambda p: p[1])
+            lines.append(f"The highest was {_c12_fmt_value(m, hi_v)} in {_c12s_e9_period(hi_r, shape)}; the lowest "
+                         f"was {_c12_fmt_value(m, lo_v)} in {_c12s_e9_period(lo_r, shape)}.")
+        if len(cp) <= _C12S_LIST_MAX:
+            lines += [f"- {_c12s_e9_period(r, shape)}: {_c12_fmt_value(m, v)}{_c12s_e9_extras(shape, r, 2)}"
+                      for r, v in cp]
+        return "\n".join(lines)
+    # breakdown: largest first
+    ordered = sorted(pairs, key=lambda p: p[1], reverse=True)
+    (hi_r, hi_v), (lo_r, lo_v) = ordered[0], ordered[-1]
+    n, nouns = len(pairs), _c12s_dim_noun(shape)
+    additive = _c12s_additive(m) and all(v >= 0 for _r, v in pairs)
+    total = _c12s_num(sum(v for _r, v in pairs)) if additive else None
+    shares = bool(additive and total and (_C12S_E9_SHARE_ASK.search(q) or "%" in q))
+
+    def _share(v: "int | float") -> str:
+        return f" ({_c12s_pct(v, total)}%)" if shares else ""
+    if additive and _C12S_E9_TOTAL_ASK.search(q):
+        lines.append(f"{_c12_fmt_value(m, total)} {what} in total across {n} {nouns}.")
+    lines.append(f"{_c12s_label(hi_r, shape)} is the largest with {_c12_fmt_value(m, hi_v)}{_share(hi_v)}; "
+                 f"{_c12s_label(lo_r, shape)} is the smallest with {_c12_fmt_value(m, lo_v)}{_share(lo_v)}.")
+    lines += [f"- **{_c12s_label(r, shape)}** — {_c12_fmt_value(m, v)}{_share(v)}{_c12s_e9_extras(shape, r)}"
+              for r, v in ordered[:_C12S_LIST_MAX]]
+    if n > _C12S_LIST_MAX:
+        lines.append(f"…and {n - _C12S_LIST_MAX} more in the table.")
+    return "\n".join(lines)
+
+
+def _c12s_e9_frame_default(shape: _AnswerShape, rows: list, schemes: "list[str] | None",
+                           entities: "dict | None") -> str:
+    """The opening line code writes when the composer's is unusable: what the figures
+    show, with the scheme, area and period."""
+    scheme, place, period = _scope_words(schemes, entities)
+    scope = ", ".join(x for x in (scheme, place, period) if x)
+    what = _c12s_e9_what(str(shape.metric))
+    n = len(_c12s_vals(rows, shape.metric))
+    if shape.kind == "ranking":
+        return f"{'Top' if shape.desc else 'Bottom'} {n} {_c12s_dim_noun(shape)} by {what} ({scope}):"
+    if shape.kind == "compare":
+        return f"{_c12s_e9_cap(what)} compared ({scope}):"
+    if shape.kind == "trend":
+        return f"{_c12s_e9_cap(what)} over time ({scope}):"
+    return f"{_c12s_e9_cap(what)} by {_c12s_dim_noun(shape, plural=False)} ({scope}):"
+
+
+# Words an opening line may not use for the shape: the code's figures decide them.
+_C12S_E9_FRAME_BANNED = {
+    "ranking_desc": frozenset({"lowest", "least", "fewest", "smallest", "bottom"}),
+    "ranking_asc": frozenset({"highest", "most", "largest", "biggest", "leads", "leading", "top"}),
+    "compare": frozenset({"higher", "lower", "more", "less", "fewer", "ahead", "behind", "exceeds", "leads", "than"}),
+    "trend": frozenset({"rose", "fell", "increased", "decreased", "grew", "declined", "dropped", "peaked", "peak",
+                        "rising", "falling", "growth", "decline"}),
+    "breakdown": frozenset({"largest", "smallest", "highest", "lowest", "most", "least", "leads"}),
+}
+
+
+def _c12s_e9_frame_ok(text: str, shape: _AnswerShape, allowed: set) -> "str | None":
+    """The composer's opening line, cleaned, or None when it may not be used: empty, long,
+    a hedge, a figure that is not a year / the query's own literal / the list size, or a
+    word that decides what the code's figures decide (highest, rose …)."""
+    line = next((ln.strip() for ln in (text or "").splitlines() if ln.strip()), "")
+    for lead in ("Opening sentence:", "Answer:"):
+        if line.startswith(lead):
+            line = line[len(lead):].strip()
+    line = line.strip(" *\"'")
+    if not line or len(line) > 240 or _HEDGE_MATCH.search(line) or line[:1] in "-#" or line[:1].isdecimal():
+        return None
+    fy = [(a, b) for a, b, _y0, _y1 in _c12_fy_spans(line)]
+    for s, e, tok in _c12_number_spans(line, decimals=True, commas=True):
+        if any(a <= s and e <= b for a, b in fy) or (tok.isdecimal() and len(tok) == 4 and 1900 <= int(tok) <= 2199):
+            continue
+        if _c12_lb_canon(tok) not in allowed:
+            return None
+    key = (f"ranking_{'desc' if shape.desc else 'asc'}" if shape.kind == "ranking" else shape.kind)
+    if set(_c12s_words(line)) & _C12S_E9_FRAME_BANNED.get(key, frozenset()):
+        return None
+    if line.endswith("."):
+        line = line[:-1]
+    return line if line.endswith(":") else line + ":"
+
+
+async def _c12s_e9_framing(question: str, shape: _AnswerShape, rows: list, sql: str,
+                           schemes: "list[str] | None", entities: "dict | None", names_block: str = "") -> str:
+    """The answer's opening line from the 9B composer: what the figures below show, with no
+    figure of its own. Code's own line when the composer's cannot be used (or fails).
+    `names_block`: the entity-names block and any context notes, as compose_response built them."""
+    default = _c12s_e9_frame_default(shape, rows, schemes, entities)
+    scheme, place, period = _scope_words(schemes, entities)
+    n = len(_c12s_vals(rows, shape.metric))
+    what = _c12s_e9_what(str(shape.metric))
+    shows = {
+        "ranking": f"the {'top' if shape.desc else 'bottom'} {n} {_c12s_dim_noun(shape)} ranked by {what}",
+        "compare": f"a comparison of {what} between "
+                   + " and ".join(_c12s_label(r, shape) for r, _v in _c12s_vals(rows, shape.metric)),
+        "trend": f"how {what} changed over {n} periods",
+        "breakdown": f"{what} split across {n} {_c12s_dim_noun(shape)}",
+    }[shape.kind]
+    prompt = f"""Write ONE short opening sentence (at most 25 words) for the answer to the question below.
+Code writes every figure on the lines right after your sentence, so your sentence must:
+- contain NO figures: no counts, amounts, percentages, ranks or totals (naming the year of the period is fine);
+- say plainly what the lines below show — {shows} — for which scheme, area and period;
+- never say which item is highest or lowest, and never say whether anything rose or fell;
+- follow any Context note below that concerns how to describe these figures, in words only.
+Write it like a direct briefing — never "The data shows..." or "This table..." — and end it with a colon.
+Scheme: {scheme or "as the question names it"}; area: {place}; period: {period}.
+{names_block}
+Question: "{question}"
+
+Opening sentence:"""
+    context_budget.log_prompt_context("compose", [("entity_names", names_block), ("question", question)],
+                                      prompt=prompt, rows=len(rows), rows_shown=0)
+    try:
+        text = await llm.call_response_composer(prompt)
+    except Exception:  # noqa: BLE001 — the figures are code's; its own opening line is enough
+        logger.warning("compose_response: opening line call failed — code's own line", exc_info=True)
+        return default
+    allowed = {_c12_lb_canon(x) for x in _sql_literal_numbers(sql)} | {str(n)}
+    allowed |= {_c12_lb_canon(x) for v in (entities or {}).values() for x in _digit_runs(str(v))}
+    line = _c12s_e9_frame_ok(text, shape, allowed)
+    if line is None:
+        logger.warning("compose_response: opening line %r not usable — code's own line", (text or "")[:160])
+        return default
+    return line
