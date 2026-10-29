@@ -14,6 +14,7 @@ updated once per turn by `finish()` and exposed on /metrics.
 from __future__ import annotations
 
 import contextvars
+import time
 import glob
 import json
 import os
@@ -40,13 +41,20 @@ COUNTERS: dict[str, int] = {
 def start(request_id: str = "-") -> dict:
     """A fresh trace for this request (call before the pipeline runs)."""
     t = {"request_id": request_id, "few_shot_ids": [], "sql_errors": [], "repairs": 0,
-         "verifier_rejections": 0, "final_error": None}
+         "verifier_rejections": 0, "final_error": None,
+         "started": time.monotonic()}   # KI-013: the repair loop's time budget reads it
     _trace_var.set(t)
     return t
 
 
 def current() -> "dict | None":
     return _trace_var.get()
+
+
+def elapsed() -> "float | None":
+    """Seconds since this request's trace started, or None outside a request."""
+    t = _trace_var.get()
+    return (time.monotonic() - t["started"]) if t and t.get("started") else None
 
 
 def _cut(text) -> str:

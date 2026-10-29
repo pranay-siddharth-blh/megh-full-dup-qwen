@@ -90,6 +90,11 @@ root, is the raw source for Focus Legacy: 14,569 rows, with **14,491 unmasked al
 `account_no` values and 10,353 `name_on_the_account` values**. It was committed in `7064ab6`,
 and `origin/main` points at that commit (KI-022).
 
+**Dataset facts registry (2026-10-29, D-092):** `app/scheme_registry.DATASETS` holds the fixed facts of each
+dataset in the table above (grain, money unit and whether it is verified, provisional, has dates, sub-scheme column,
+owned tables, what it does not record). The chat's money units and caveats and the cards' "*" read it; the years each
+dataset holds are read live (`_SCHEME_DATA_YEARS`). Change it when `dim_scheme.money_unit` or a grain changes.
+
 ## 4. Join model (VERIFIED)
 
 - Each fact joins `dim_geography`, `dim_year` and `dim_scheme` by surrogate key.

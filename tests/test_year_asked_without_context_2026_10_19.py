@@ -12,6 +12,15 @@ import pytest
 from app import pipeline as p
 
 
+# The new-chat district / year asks these tests cover are the rollback path since the user's
+# 2026-10-29 decision (D-089, NEW_CHAT_ASKS_SCOPE=false answers statewide / all years instead;
+# tests/test_rag_fix_report_2026_10_29.py). They still guard that path with the switch on.
+@pytest.fixture(autouse=True)
+def _new_chat_asks_scope(monkeypatch):
+    from app.config import settings as _s
+    monkeypatch.setattr(_s, "NEW_CHAT_ASKS_SCOPE", True)
+
+
 def _run(d):
     return asyncio.run(p._data_clarification_stage(d))
 

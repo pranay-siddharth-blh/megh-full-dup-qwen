@@ -253,6 +253,16 @@ export async function streamNLPResponse(question, language, sessionId, opts = {}
       ab.done();
       return fetchNLPResponse(question, language, sessionId, opts);
     }
+    // RAG fix report 2026-10-29, Issue 14: the first stream after a server start came back
+    // 503 ("busy" / data service not reachable yet), both said with Retry-After. Wait that
+    // long (at most 5 s) and ask once more before showing an error.
+    if (response.status === 503 && !opts.retried503) {
+      const wait = Math.min(5, Number(response.headers.get('Retry-After')) || 2) * 1000;
+      ab.done();
+      await new Promise((resolve) => setTimeout(resolve, wait));
+      if (opts.signal && opts.signal.aborted) throw new StoppedError();
+      return streamNLPResponse(question, language, sessionId, { ...opts, retried503: true });
+    }
     if (!response.ok) throw Object.assign(await httpFailure(response), { fromServer: true });
 
     const reader = response.body.getReader();

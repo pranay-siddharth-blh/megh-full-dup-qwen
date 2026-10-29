@@ -633,6 +633,26 @@ _PROGRAMME_DESIGN_CUE = Matcher(Alt(
     Seq(W("entrepreneur", "employment", "job", "outreach"), _C01Gap(_c01_wsdash),
         Opt(Seq("reach", _C01Gap(_c01_ws))), W("target", "targets"))))
 
+# RAG fix report 2026-10-29, Issue 2: "What is the MGNREGA wage rate in Meghalaya for
+# 2025-26?" went DATA on the "wage" hint and was answered "71.06% unskilled wage share".
+# The notified wage rate (Rs per day) is not a column in megh_db; only the reference
+# docs speak about it, so the question is KNOWLEDGE. A question about the wage SHARE,
+# a percentage, or the wages actually paid / spent stays DATA (_WAGE_FIGURE_WORDS).
+_WAGE_RATE_CUE = Matcher(Alt(
+    Seq(W("wage", "wages"), W("rate", "rates")),
+    Seq(W("daily", "notified", "minimum"), W("wage", "wages")),
+    Seq(W("wage", "wages"), "per", "day"),
+))
+_WAGE_FIGURE_WORDS = Matcher(W("share", "percent", "percentage", "pct", "average", "avg", "paid", "spent",
+                               "spend", "expenditure", "total", "sum", "district", "districts", "block",
+                               "blocks", "village", "villages"))
+
+
+def _wage_rate_question(question: str) -> bool:
+    """A question about the notified wage RATE (Rs/day), not a wage figure in the data."""
+    q = question or ""
+    return bool(_WAGE_RATE_CUE.search(q)) and not _WAGE_FIGURE_WORDS.search(q) and "%" not in q
+
 # KI-404 (live 2026-10-24): "How does MGNREGA job card registration work?" tripped the
 # "job card" DATA cue, matched no knowledge cue, and went down the data path (year
 # chips, then an area question). "How does / is <X> work / get issued / processed" and

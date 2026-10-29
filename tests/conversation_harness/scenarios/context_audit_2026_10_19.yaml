@@ -104,7 +104,7 @@
   account: superadmin
   turns:
     - say: "How many Focus Legacy producer groups are there in East Khasi Hills?"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "and how many members?"
       expect: {route: data, scheme: Focus Legacy, place: East Khasi Hills}
     - say: "what about Ri Bhoi?"
@@ -115,7 +115,7 @@
   account: superadmin
   turns:
     - say: "How many CM Elevate applications are there in Ri Bhoi?"
-      expect: {route: pause, pause_rule: cm-elevate-dataset}     # 2026-10-22: applications alone asks
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "applications"
       expect: {route: data, scheme: CM Elevate, place: Ri Bhoi}
     - say: "how many are on hold?"
@@ -128,7 +128,7 @@
   account: superadmin
   turns:
     - say: "MGNREGA expenditure in Ri Bhoi"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data, scheme: MGNREGA, place: Ri Bhoi}  # D-089 (2026-10-29): answered for all years, not asked
     - say: "what is the wage part of that?"
       expect: {route: data, scheme: MGNREGA, place: Ri Bhoi}
 
@@ -137,7 +137,7 @@
   account: superadmin
   turns:
     - say: "PMAY-G houses sanctioned in West Garo Hills"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "and how many completed?"
       expect: {route: data, scheme: PMAY-G, place: West Garo Hills}
 
@@ -199,9 +199,7 @@
     - say: "Focus Plus beneficiaries in East Khasi Hills in FY 2025-26"
       expect: {route: data, scheme: Focus Plus, place: East Khasi Hills, year: FY 2025-26}
     - say: "How many CM Elevate applications are there in Ri Bhoi?"
-      expect: {route: pause, pause_rule: cm-elevate-dataset}     # 2026-10-22: applications alone asks
-    - say: "applications"
-      expect: {route: data, scheme: CM Elevate, place: Ri Bhoi}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "what have we discussed so far?"
       expect: {route: edge, answer_contains: ["Focus Plus", "CM Elevate"]}
 
@@ -393,7 +391,7 @@
   account: superadmin
   turns:
     - say: "Focus Plus beneficiaries in East Garo Hills"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "2025-26"
       expect: {route: data, scheme: Focus Plus, place: East Garo Hills, year: FY 2025-26}
     - say: "and West Garo Hills?"
@@ -404,7 +402,7 @@
   account: superadmin
   turns:
     - say: "PMAY-G houses sanctioned in Ri Bhoi"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "all of them combined"
       expect: {route: data, scheme: PMAY-G, place: Ri Bhoi}
 
@@ -424,11 +422,9 @@
   account: superadmin
   turns:
     - say: "How many CM-ELEVATE applications are there in East Garo Hills?"
-      expect: {route: pause, pause_rule: cm-elevate-dataset}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "legacy"
-      expect: {route: pause, pause_rule: year-not-specified}     # Legacy has years; a new chat asks (D-056)
-    - say: "all of them combined"
-      expect: {route: data, scheme: CM Elevate Legacy, place: East Garo Hills}
+      expect: {route: data, scheme: CM Elevate Legacy, place: East Garo Hills}   # D-090: "legacy" after an applications answer switches dataset
 
 - name: AC04c_sanction_word_leaves_the_applications_thread
   doc: "CM Elevate Legacy sheet run 2026-10-22: on an applications thread the bot answered '8,840 applications have been sanctioned' (true 2,820)"
@@ -436,11 +432,11 @@
   account: superadmin
   turns:
     - say: "How many CM Elevate applications are there in Ri Bhoi?"
-      expect: {route: pause, pause_rule: cm-elevate-dataset}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "applications"
       expect: {route: data, scheme: CM Elevate, place: Ri Bhoi}
     - say: "How many applications have been sanctioned under CM-ELEVATE?"
-      expect: {route: pause, pause_rule: year-not-specified}   # D-065: a new question with no year is asked
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "all of them combined"
       expect: {route: data, scheme: CM Elevate Legacy}
 
@@ -451,7 +447,7 @@
     - say: "How many Focus beneficiaries are there in Ri Bhoi?"
       expect: {route: pause, pause_rule: focus-scheme-ambiguous}
     - say: "plus"
-      expect: {route: pause, pause_rule: year-not-specified, answer_contains: ["Focus Plus"]}
+      expect: {route: data, answer_contains: [Focus Plus]}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "2025-26"
       expect: {route: data, scheme: Focus Plus, place: Ri Bhoi, year: FY 2025-26}
 
@@ -460,7 +456,7 @@
   account: superadmin
   turns:
     - say: "MGNREGA person-days in Ri Bhoi"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "How many PMAY-G houses were completed in West Garo Hills in FY 2023-24?"
       expect: {route: data, scheme: PMAY-G, place: West Garo Hills, year: FY 2023-24}
 
@@ -469,7 +465,7 @@
   account: superadmin
   turns:
     - say: "MGNREGA person-days in South Garo Hills"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "West Garo Hills, 2024-25"
       expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2024-25}
 

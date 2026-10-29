@@ -80,7 +80,9 @@ def test_retrieve_searches_every_wording(monkeypatch):
     monkeypatch.setattr(llm, "call_embedding", embed)
     monkeypatch.setattr(rag, "_search_one", search_one)
     out = asyncio.run(rag.retrieve("documents?", scheme="PMAY-G"))
-    assert seen == ["documents?", "alt one", "alt two"] and len(out) == 3
+    # + the documents facet (knowledge fix 2026-10-29, KR3: the piece that answers it)
+    assert seen == ["documents?", "alt one", "alt two",
+                    "PMAY-G required documents for application and registration"] and len(out) == 4
 
 
 def test_the_term_scheme_helper_does_not_expand(monkeypatch):

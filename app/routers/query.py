@@ -292,10 +292,15 @@ async def _answer_turn(req: QueryRequest, request: Request, scope: auth.UserScop
     # the caches, the conversation layer, routing, retrieval and SQL. The words
     # the officer typed go back on the result as `translated_from`.
     translated_from = None
-    if (req.language or "en").lower() in translate.LANGUAGE_NAMES:
-        english = await translate.to_english(req.question, req.language)
+    _lang = (req.language or "en").lower() if (req.language or "en").lower() in translate.LANGUAGE_NAMES \
+        else translate.script_language(req.question)       # Devanagari, whatever the button (Issue 9)
+    if _lang:
+        english = await translate.to_english(req.question, _lang)
         if english.strip() and english.strip() != req.question.strip():
             translated_from, req.question = req.question, english.strip()
+    # KI-399 is closed by CTX-01 below (a 403, "start a new chat"). The open-bug sweep's
+    # silent swap to a new "own-…" id (merged beside it, 2026-10-29) ran first, so the 403
+    # was never reached and the officer's chat changed id unseen: removed (pipeline #87).
     session_id = _session_id(req, request, scope)
     session = session_store.ensure(session_id, scope.user_id)
     # Ownership (CTX-01, 2026-10-29): a session id is not a secret the caller

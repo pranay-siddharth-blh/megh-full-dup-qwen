@@ -26,7 +26,7 @@ def test_multi_metric_fallback_lists_each_figure_in_words():
 def test_money_and_category_rows_keep_their_unit_and_label():
     out = p._framed_fallback([{"total_expenditure_lakh": 8996.36}], ["MGNREGA"], {"district": "EAST KHASI HILLS", "year": "FY 2023-24"})
     # E9 (2026-10-29): money goes through the one formatter (₹, Indian grouping, the column's own lakh)
-    assert out == "Under MGNREGA, in FY 2023-24 in East Khasi Hills district, the recorded total is ₹8,996.36 lakh total expenditure."
+    assert out == "Under MGNREGA, in FY 2023-24 in East Khasi Hills district, the recorded total is ₹8,996.36 lakh (≈ ₹89.96 crore) total expenditure."  # D-092
     out = p._framed_fallback([{"house_status": "Completed", "houses": 6847}], ["PMAY-G"], {"district": "RI BHOI", "year": "FY 2023-24"})
     assert out == "Under PMAY-G, for Completed, in FY 2023-24 in Ri Bhoi district, the recorded total is 6,847 houses."
 
@@ -48,16 +48,19 @@ def test_bare_deterministic_answer_is_unchanged_for_its_other_callers():
 def test_finish_groups_result_digits_and_adds_scope_when_missing():
     rows = [{"person_days": 27264054}]
     out = p._finish_answer("Total person-days in FY 2023-24 is 27264054.", rows, ["MGNREGA"], {"year": "FY 2023-24"})
-    assert "27,264,054" in out and "27264054" not in out
+    assert "2,72,64,054" in out and "27264054" not in out
     assert out.endswith("This figure is for MGNREGA, all of Meghalaya (statewide).")   # the year is in the sentence
     # names the scheme but not the area -> only the area is added; names the area but not the scheme -> the scheme
-    assert p._finish_answer("MGNREGA recorded 27,264,054 person-days in FY 2023-24.", rows, ["MGNREGA"], {"year": "FY 2023-24"})         .endswith("This is the statewide figure for all of Meghalaya.")
+    assert p._finish_answer("MGNREGA recorded 2,72,64,054 person-days in FY 2023-24.", rows, ["MGNREGA"], {"year": "FY 2023-24"})         .endswith("This is the statewide figure for all of Meghalaya.")
     assert p._finish_answer("Completed houses in Ri Bhoi, in FY 2023-24: 6,847.", [{"houses": 6847}], ["PMAY-G"],
                             {"district": "Ri Bhoi", "year": "FY 2023-24"})         == "Completed houses in Ri Bhoi, in FY 2023-24: 6,847. This is the PMAY-G figure."
     # names both (the place without its level word): nothing appended
+    # names both (the place without its level word): nothing appended; the lakh figure gets its
+    # ₹ and crore size (D-092, data-accuracy brief D2)
     both = "A total of 8,996.36 lakh was spent under MGNREGA in East Khasi Hills for FY 2023-24."
     assert p._finish_answer(both, [{"total_expenditure_lakh": 8996.36}], ["MGNREGA"],
-                            {"district": "East Khasi Hills", "year": "FY 2023-24"}) == both
+                            {"district": "East Khasi Hills", "year": "FY 2023-24"}) == (
+        "A total of ₹8,996.36 lakh (≈ ₹89.96 crore) was spent under MGNREGA in East Khasi Hills for FY 2023-24.")
 
 
 def test_finish_data_result_runs_for_any_data_path():
@@ -71,7 +74,7 @@ def test_finish_data_result_runs_for_any_data_path():
     p._finish_data_result(failed)
     assert failed["answer"].startswith("I understood")
     # names the scheme and the area already: nothing appended
-    good = "Under MGNREGA, Meghalaya recorded 27,264,054 person-days in FY 2023-24."
+    good = "Under MGNREGA, Meghalaya recorded 2,72,64,054 person-days in FY 2023-24."
     assert p._finish_answer(good, rows, ["MGNREGA"], {"year": "FY 2023-24"}) == good
     # a year is never regrouped, nor a number that is not a result value
     assert p._finish_answer("In 2023 there were 12345 visits.", rows, ["MGNREGA"], {}).count("12345") == 1

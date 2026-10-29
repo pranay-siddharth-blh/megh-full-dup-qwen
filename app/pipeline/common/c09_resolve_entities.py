@@ -98,6 +98,14 @@ def _c09_stated_year_span(question: str) -> "tuple[int, int] | None":
     return None
 
 
+def _c09_out_of_area_name(name) -> bool:
+    """A district / block mention that is a real place outside Meghalaya ("Guwahati",
+    "Assam"): the scope reply (OutOfScope). Anything else that matches nothing is a
+    misspelt or made-up name, asked about instead (_c13_unknown_place_pause)."""
+    from app import spelling as _c09_sp
+    return _c09_sp._out_of_area(str(name or ""))
+
+
 async def resolve_entities(question: str, schemes: list[str],
                             prior_resolved: "dict | None" = None,
                             village_hint: "str | None" = None) -> dict:
@@ -569,6 +577,10 @@ async def resolve_entities(question: str, schemes: list[str],
                         logger.info("admin-level gate: %r is %s only by alias but IS the %s %r — "
                                     "testing it at that level", _d_typed, _dr.canonical, _dim, _br.canonical)
                         break
+                else:
+                    _ask = _c09_hq_alias_readings(question, _d_typed, str(_dr.canonical), _scheme0)
+                    if _ask is not None:
+                        raise _ask
         # A district named WITH a finer place is that place's context, not the
         # name to test: "Mawlai, East Khasi Hills" stopped at the district (never
         # level-ambiguous) and Mawlai went to the village branch, which answered
@@ -902,7 +914,12 @@ async def resolve_entities(question: str, schemes: list[str],
                     # Genuinely not a district, block, or village of ours — almost
                     # always a place in another state ("districts in Guwahati").
                     # Don't silently drop the filter and count 0; say plainly
-                    # this is out of scope.
+                    # this is out of scope. A made-up or misspelt name that is no
+                    # place outside Meghalaya either ("zorbatown district") is said
+                    # plainly with the closest real places instead (spelling-fix
+                    # brief 2026-10-29): the scope reply read as "I can't do that".
+                    if not _c09_out_of_area_name(_mdist):
+                        raise _c13_unknown_place_pause(question, str(_mdist), "district", schemes)
                     raise OutOfScope(f"district '{_mdist}' is not in Meghalaya")
                 else:
                     notes.append(f"'{_mdist}' is not a known district — say so, do not filter on it.")
@@ -1216,6 +1233,8 @@ async def resolve_entities(question: str, schemes: list[str],
                     resolved["block"] = _cme_blk          # an urban body stored as a block (KI-107)
                     display["block"] = _place_title(_cme_blk)
                 elif settings.OUT_OF_SCOPE_GUARD_ENABLED:
+                    if not _c09_out_of_area_name(mentions["block"]):     # as for a district above
+                        raise _c13_unknown_place_pause(question, str(mentions["block"]), "block", schemes)
                     raise OutOfScope(f"block '{mentions['block']}' is not in Meghalaya")
                 else:
                     notes.append(f"'{mentions['block']}' is not a known block — say so, do not filter on it.")
@@ -1866,8 +1885,13 @@ async def resolve_entities(question: str, schemes: list[str],
     # 2023-24 vs 2024-25" kept one year (or none) from the extractor, so the banner
     # said "All years" and a two-year comparison could come back with one year. Two
     # or more named years are all the years asked (as on the cross-scheme path, A-14).
+    # KI-311 (live 2026-10-18, re-checked 2026-10-29): "person-days in Dalu block for FY
+    # 2023-24 and FY 2024-25" pinned only the year the extractor handed back; every
+    # year token in the question is read too.
     _named_ys = sorted({k for k in (_parse_year_key(y) for y in _years_in_question(question, schemes)[0])
-                        if k is not None})
+                        if k is not None}
+                       | {k for k in (_parse_year_key(tok) for _s, tok in _c06_all_year_tokens(question))
+                          if k is not None})
     if _span is None and len(_named_ys) >= 2 and not resolved.get("year_key_list"):
         resolved.pop("year_key", None)
         resolved["year_key_list"] = _named_ys
@@ -1981,6 +2005,41 @@ def _c09_without_village_suffix(text: str) -> "str | None":
     if len(t) > 7 and t[-7:].lower() == "village" and t[-8].isspace():
         return t[:-7].rstrip()
     return None
+
+
+def _c09_hq_alias_readings(question: str, typed: str, district: str, scheme: str
+                           ) -> "ClarificationNeeded | None":
+    """KI-036: "Tura" reached West Garo Hills only as its HQ town and was answered for the
+    whole district (Focus Plus 35,039), although this scheme also has places NAMED after
+    the town — the block "Tura Municipal Board", the constituencies "North Tura" /
+    "South Tura". Ask which, one chip per reading, each the question with the full name
+    and its level; None when the scheme has no such place (the district stands)."""
+    from app import entity_resolver as _er
+    key = _er.fold(typed)
+    if not key:
+        return None
+    cat = _er._catalog.get(scheme) or {}
+    readings: list[tuple[str, str]] = []
+    for dim, label in (("block", "block"), ("assembly_constituency", "assembly constituency")):
+        for v in cat.get(dim) or []:
+            name = str(v.get("canonical") or "")
+            if name and key in _er.fold(name).split() and _er.fold(name) != key:
+                readings.append((name, label))
+    if not readings:
+        return None
+    low = (question or "").lower()
+    at = low.find(typed.lower())
+    if at < 0:
+        return None
+
+    def asked(name: str, label: str) -> str:
+        return f"{question[:at]}{name.title()} {label}{question[at + len(typed):]}"
+    options = [{"label": f"{district.title()} district (all of it)", "question": asked(district, "district")}]
+    options += [{"label": f"{n.title()} {lbl}", "question": asked(n, lbl)} for n, lbl in readings[:4]]
+    shown = question[at:at + len(typed)]           # the officer's own spelling
+    return ClarificationNeeded(
+        f"“{shown}” can mean the whole {district.title()} district (its headquarters town) or a place "
+        f"named after it — which one?", options=options, rule="entity-ambiguous")
 
 
 def _c09_scheme_levels(name: str, scheme: str) -> "set[str]":

@@ -1,0 +1,89 @@
+{
+ "label": "pm04-recheck-1",
+ "when": "2026-10-29T18:16:22",
+ "git": {
+  "commit": "9696a94",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b",
+  "sql_examples": "yaml"
+ },
+ "readonly_login": "megh_readonly",
+ "superuser_allowed": false,
+ "holdout_checked": true,
+ "selection": {
+  "scheme": null,
+  "ids": "PM-04"
+ },
+ "minutes": 0.5,
+ "summary": {
+  "items": 1,
+  "scored": 1,
+  "outcomes": {
+   "correct": 1
+  },
+  "accuracy": 100.0,
+  "by": {
+   "PMAY-G": {
+    "accuracy": 100.0,
+    "correct": 1
+   },
+   "difficulty:easy": {
+    "accuracy": 100.0,
+    "correct": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "PM-04",
+   "scheme": "PMAY-G",
+   "difficulty": "easy",
+   "question": "Counting every financial year, how many PMAY-G houses in East Jaintia Hills have reached the Roof Cast stage?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "EAST JAINTIA HILLS",
+    "house_status": "Roof Cast"
+   },
+   "sql": "SELECT COUNT(*) AS houses\nFROM curated.v_pmay\nWHERE lgd_district = 'EAST JAINTIA HILLS'\n  AND status_name = 'Roof Cast'\nLIMIT 1",
+   "seconds": 27.9,
+   "repairs": 1,
+   "verifier_rejections": 1,
+   "few_shot_ids": [
+    "PMAY-G#37",
+    "PMAY-G#40",
+    "PMAY-G#41",
+    "PMAY-G#39",
+    "PMAY-G#1"
+   ],
+   "answer": "The Roof Cast stage shows 3,541 PMAY-G houses in East Jaintia Hills across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "roof_cast_houses": [
+     "houses",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  }
+ ],
+ "compared_with": "2026-10-29_1811_open-bugs-final-2026-10-29.json",
+ "delta": {
+  "regressions": [],
+  "fixed": [
+   "PM-04"
+  ]
+ }
+}

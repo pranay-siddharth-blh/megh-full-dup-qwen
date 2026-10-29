@@ -6,6 +6,9 @@ class Settings(BaseSettings):
     PORT: int = 8401
     LOG_LEVEL: str = "INFO"
     REQUEST_TIMEOUT_SECONDS: int = 60  # hard ceiling on one /api/query, enforced in the router
+    # KI-013: no new SQL repair starts after this many seconds of the request, so the
+    # turn ends with the "couldn't build a working query" reply instead of a 504.
+    REPAIR_TIME_BUDGET_SECONDS: int = 40
 
     # POST /api/query/stream (D-039): live progress steps and the composer's
     # text as it is written. STREAM_COMPOSER_ENABLED=false keeps the progress
@@ -239,7 +242,10 @@ class Settings(BaseSettings):
     SQL_GENERATION_API_KEY: str = ""
     SQL_GENERATION_TIMEOUT_SECONDS: int = 30
     SQL_GENERATION_TEMPERATURE: float = 0.0
-    SQL_GENERATION_MAX_RETRIES: int = 1  # one repair attempt on a validation failure
+    # NOT READ ANYWHERE (KI-008): the repair budget is the graph's, 3 repairs (D-072, agreed
+    # with the DB team). Kept only so an .env that still sets it does not stop the app
+    # (Settings refuses unknown keys); changing it changes nothing.
+    SQL_GENERATION_MAX_RETRIES: int = 1
 
     # qwen35-9b — final natural-language answer composition only. Classify/intent/
     # entity-extract moved to qwen4-deploy (see CLASSIFIER_MODEL above) on
@@ -378,6 +384,9 @@ class Settings(BaseSettings):
     # pipeline runs (app/translate.py, Phase 4). OFF: the user wants English
     # only for now (2026-10-15); built and tested, switch on with True.
     TRANSLATE_ENABLED: bool = False
+    # A question written in Devanagari (Hindi) is translated to English whichever button
+    # is selected: its letters say what it is (RAG fix report Issue 9, 2026-10-29).
+    TRANSLATE_SCRIPT_ENABLED: bool = True
     TRANSLATE_TIMEOUT_SECONDS: int = 10
     # OFF until Phase 5. Measured 2026-10-15 (search only, 188 questions): on
     # its own it HURT (right piece first 47.6% -> 39.0%; the extra wordings pull
@@ -504,6 +513,13 @@ class Settings(BaseSettings):
     # ambiguity (a name that is several places, a bare "Focus") still asks.
     # Off => the scope / year / tranche / scheme pauses above, as before.
     ANSWER_DEFAULTS_ENABLED: bool = True
+    # User decision 2026-10-29 (RAG fix report Issue 6; reverses D-056's new-chat district
+    # ask and D-053 / D-065's new-chat year ask): a data question that names no place is
+    # answered for all of Meghalaya and one that names no year for all financial years
+    # combined, the default stated in the answer — all 8 home-screen starter questions
+    # were stopped by a pause. A chat's remembered place / year still wins. True = the
+    # D-056 / D-065 asks come back (rollback).
+    NEW_CHAT_ASKS_SCOPE: bool = False
     # Reply with the standard "I'm Megh One AI — I only cover Meghalaya's MGNREGA
     # / PMAY-G" message when a data question names a district or block that is not
     # in Meghalaya (resolver returns not_found), instead of dropping the filter,

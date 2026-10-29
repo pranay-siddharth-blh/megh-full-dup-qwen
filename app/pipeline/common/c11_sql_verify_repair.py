@@ -1434,6 +1434,13 @@ _C11_YEAR_WORD = Matcher(W("year", prefix=True))
 
 def _verifier_scheme_specific_complaint_is_false(issue: str, schemes: list[str], sql: str,
                                                  resolved: "dict | None" = None) -> bool:
+    # RAG fix report re-check (live 2026-10-29, Issue 12): "Average FOCUS+ amount per
+    # beneficiary statewide" ran SUM(amount_disbursed) / COUNT(DISTINCT beneficiary_key) — the
+    # right figure, ₹11,316 — and the verifier asked three times for "AVG(amount_disbursed) /
+    # COUNT(DISTINCT beneficiary_key)" (an average of payments divided again), so the turn
+    # fell to the documents. A per-beneficiary average built that way is never wrong.
+    if schemes == ["Focus Plus"] and "avg" in (issue or "").lower() and _fp_amount_per_beneficiary_sql(sql):
+        return True
     # 2026-09-28 (CM Elevate all-blocks run): "Check 2: … lists 'lgd_block = LASKEIN', but
     # the SQL uses a JSON path extraction ('scheme_specific ->> file_status') …" rejected a
     # correct "rejected in Laskein block" query that filters lgd_block = 'LASKEIN' — three
@@ -1799,6 +1806,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_elevate_decision_status_column(schemes, sql)
     sql = _cm_legacy_qualify_shared_geo_cols(schemes, sql)
     sql = _mgnrega_avg_of_ratio(schemes, sql)
+    sql = _mgnrega_summary_ratio_columns(question, schemes, sql)   # RAG fix report Issue 3
     sql = _mgnrega_fact_to_view(schemes, sql)
     sql = _mgnrega_drop_area_level_entity_type(schemes, sql)
     sql = _mgnrega_village_rank_placeholders(question, schemes, sql)
@@ -1812,6 +1820,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _mgnrega_pin_village_code(schemes, entity_result, sql)
     sql = _mgnrega_drop_geo_beside_village(schemes, entity_result, sql)
     sql = _focusplus_pin_village_where(schemes, entity_result, sql)
+    sql = _focusplus_lgd_district_column(question, schemes, sql)      # KI-359 / KI-426
     sql = _focusplus_district_group_not_null(schemes, sql)
     sql = _unasked_having_threshold(question, sql)
     sql = await _focusplus_lgd_only_block(schemes, sql)
@@ -1819,6 +1828,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _pmay_count_placeholders(schemes, sql)
     sql = _pmay_comparison_limit(schemes, entity_result, sql)
     sql = _stated_rank_count_limit(question, sql)
+    sql = _c17_sql_hygiene(question, sql)       # runners-up LIMIT 3, no LIMIT on a one-row total (D3, D9)
     sql = _region_alias_not_the_column(sql)
     sql = _star_without_hidden_columns(sql)
     sql = _pmay_crore_to_rupees(schemes, sql)
@@ -2160,6 +2170,12 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
     _pm_issue = _pmay_sql_issue(question, schemes, sql)
     if _pm_issue:
         raise ValueError(_pm_issue)
+    # a constant posing as the answer, another scheme's view, an unordered "which … most"
+    # (data-accuracy brief 2026-10-29, D10's 'PMAY' AS scheme_with_most_records)
+    _invented = _c17_sql_issue(question, schemes, sql)
+    if _invented:
+        context_budget.log_decision("sql_guard", guard="invented_or_off_scope", verdict="reject")
+        raise ValueError(_invented)
     _vlist = _mgnrega_village_list_issue(question, schemes, sql) \
         or _mgnrega_village_count_issue(question, schemes, sql)            # KI-436
     if _vlist:
@@ -2452,7 +2468,10 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
             "SUM(material_exp) AS material_exp_lakh), no CASE label. Keep every "
             "filter exactly as it was."
         )
-    verify_issue = await _verify_sql(question, schemes, entity_result, sql)
+    # The runners-up LIMIT 3 of a "which … most" (_c17_widen_top1) is ours, not the
+    # model's: the 4B verifier read it as "a list, not the one asked for" and rejected
+    # every repair (P3, 2026-10-29). It judges the query as the question asked it.
+    verify_issue = await _verify_sql(question, schemes, entity_result, _c17_as_asked(question, sql))
     # The latest-year pin on job cards (a stock) is deliberate, even for "all
     # financial years": the verifier rejected it on every repair round and the
     # question ended in "couldn't build a working query" (matrix run 2026-10-14).
@@ -2539,6 +2558,14 @@ async def _c11_zero_ties(question: str, sql: str, rows: list, entity_result: dic
 async def _repair_sql(question: str, schemes: list[str], entity_result: dict,
                       failed_sql: str, error: str) -> str:
     """One repair call: the failed SQL and its error back to the SQL model."""
+    # KI-013: the worst case (3 repairs, each with a verifier call) ran past the 60 s
+    # request ceiling and the officer got a 504. Past the repair budget the turn stops
+    # repairing and ends like a spent repair budget ("couldn't build a working query").
+    spent = turn_trace.elapsed()
+    if spent is not None and spent > settings.REPAIR_TIME_BUDGET_SECONDS:
+        logger.warning("repair skipped: %.1f s used of the %d s repair budget (KI-013)",
+                       spent, settings.REPAIR_TIME_BUDGET_SECONDS)
+        raise ValueError(f"repair time budget spent ({spent:.0f} s): {error}")
     turn_trace.note_repair(error)          # the audit row lists every error that was repaired
     sql = failed_sql
     # The repair prompt carries the same schema + resolved-entities context as
@@ -2550,4 +2577,24 @@ async def _repair_sql(question: str, schemes: list[str], entity_result: dict,
         extra_hint=_repair_hint(error))
     raw = await llm.call_sql_generator(repair_prompt)
     sql = _extract_sql(raw)
+    # KI-003: no convergence check — a repair that returns the query that just failed
+    # spends the next attempt on the identical failure. Asked once more, saying so.
+    if _c11_same_sql(sql, failed_sql):
+        logger.info("repair returned the failed query unchanged — asking once more")
+        turn_trace.note_repair("repair returned the same query")
+        raw = await llm.call_sql_generator(
+            repair_prompt + "\n\nYour previous answer returned EXACTLY the failed query above. It fails "
+            "for the reason given; return a CHANGED query that fixes it. SQL:")
+        sql = _extract_sql(raw)
     return sql
+
+
+def _c11_same_sql(a: str, b: str) -> bool:
+    """The two queries are the same once parsed (formatting and case of keywords
+    aside); unparseable text is compared with whitespace collapsed."""
+    if not a or not b:
+        return False
+    ta, tb = sql_ast.parse(a), sql_ast.parse(b)
+    if ta and tb:
+        return [sql_ast.to_sql(t) for t in ta] == [sql_ast.to_sql(t) for t in tb]
+    return " ".join(a.split()) == " ".join(b.split())

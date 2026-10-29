@@ -751,6 +751,59 @@ def _year_and_value(row: dict) -> "tuple[object, object] | None":
     return r["financial_year"], r["value"]
 
 
+class AskPlan(list):
+    """The questions of ONE multi-part question (pipeline._c17_ask_plan): a total and
+    a "which … most", answered in the order asked and merged by answer_asks."""
+
+
+async def answer_asks(questions: list, ask) -> dict:
+    """Each ask of a multi-part question through the pipeline (data-accuracy brief
+    RC1, 2026-10-29): the figures first, then the "which … most" completed with the
+    first answer's scheme / place / year. One answer, every ask in the order asked;
+    an ask that pauses or fails is said plainly, never dropped. The Note lines each
+    part carries are said once, at the end."""
+    from app import pipeline
+    results, parts = [], []
+    for i, q in enumerate(questions):
+        if i and results:
+            q = pipeline._c17_ranking_question(q, results[0])
+        try:
+            r = await ask(q)
+        except pipeline.ClarificationNeeded as e:
+            parts.append(f'I could not answer "{q}" without one more detail: {e.question}')
+            continue
+        except Exception:  # noqa: BLE001 — one ask failing must not lose the others
+            logger.warning("conversation layer: sub-ask failed: %s", q, exc_info=True)
+            parts.append(f'I could not work out "{q}" just now; please ask it on its own.')
+            continue
+        results.append(r)
+        parts.append((r.get("answer") or "").strip())
+    if not results:
+        return {"route": "data", "intent": "DATA", "confidence": "low", **pipeline._empty_data_fields(),
+                "answer": "\n\n".join(parts) or "I couldn't fetch these figures just now."}
+    notes, bodies = [], []
+    for text in parts:
+        keep = []
+        for line in text.split("\n"):
+            if line.startswith("Note:"):
+                if line not in notes:
+                    notes.append(line)
+            else:
+                keep.append(line)
+        bodies.append("\n".join(keep).strip())
+    out = dict(results[0])
+    table = max(results, key=lambda r: len(r.get("data") or []))
+    out.update({"answer": "\n\n".join(b for b in bodies if b) + ("\n\n" + "\n".join(notes) if notes else ""),
+                "data": table.get("data") or [], "rows": table.get("rows") or table.get("data") or [],
+                "row_count": table.get("row_count") or len(table.get("data") or []),
+                "sql_query": ";\n\n".join(r["sql_query"] for r in results if r.get("sql_query")),
+                "schemes": list(dict.fromkeys(s for r in results for s in (r.get("schemes") or [])))})
+    out["sql"] = out["sql_query"]
+    if notes:
+        out["caveats"] = notes
+    return out
+
+
 _CL_LEGACY_NOTE = ("CM Elevate's applications carry no financial year, so its per-year figures are CM Elevate "
                    "Legacy's: the sanction and disbursement records of the same scheme")
 
@@ -761,6 +814,8 @@ async def answer_many(questions: list, ask, notes: "list | None" = None) -> dict
     A question that pauses or fails is reported in the text, never guessed.
     `notes`: lines the answer must carry (a scheme that holds none of the measures)."""
     from app import pipeline
+    if isinstance(questions, AskPlan):
+        return await answer_asks(questions, ask)
     sections, rows, schemes, sqls = [], [], [], []
     notes = [f"{n}." for n in (notes or [])]
     labels: list = []
@@ -1312,6 +1367,14 @@ async def _prepare(session, question: str) -> LayerTurn:
                 return LayerTurn(question=plan[0], action="per-year", changed=True)
             return LayerTurn(question=question, action="per-year", changed=True, multi=plan,
                              multi_notes=parts["notes"])
+
+        # A total and a "which … most" in one question: two queries, one answer
+        # (data-accuracy brief RC1, D10).
+        from app import pipeline as _pl
+        asks = _pl._c17_ask_plan(question)
+        if asks:
+            context_budget.log_decision("conversation", action="asks", questions=len(asks))
+            return LayerTurn(question=question, action="asks", changed=True, multi=AskPlan(asks))
 
         compared = comparison_with_earlier(session, question)
         if compared is not None:

@@ -69,7 +69,9 @@ def env(monkeypatch, tmp_path):
     e = Env()
     e.calls = calls
     e.run_rows = [[{"applications": 42}]]
-    e.repair_sql = SQL_OK
+    # a real repair changes the query; one that returns the failed query unchanged
+    # is asked once more (KI-003), which would double the repair count here
+    e.repair_sql = SQL_OK.replace("SUM(no_of_applications)", "COALESCE(SUM(no_of_applications), 0)")
 
     async def classify_intent(q):
         calls.hit("intent")
@@ -88,6 +90,10 @@ def env(monkeypatch, tmp_path):
             # (_sql_measure_label_issue rejects a mislabelled column)
             sql = sql.replace("SUM(no_of_applications) AS applications", "SUM(person_days) AS person_days") \
                      .replace("v_cm_elevate", "v_employment")
+        if schemes == ["CM Elevate Legacy"]:
+            # Legacy reads its own view: another scheme's view is a repair (D-092, _c17_foreign_view_issue)
+            sql = sql.replace("SUM(no_of_applications) AS applications", "COUNT(*) AS records") \
+                     .replace("v_cm_elevate", "v_cm_elevate_disbursement")
         # the resolved year is a mandatory filter (_resolved_scope_missing)
         return sql + (f" AND year_key = {res['year_key']}" if res.get("year_key") else "")
 
@@ -103,7 +109,7 @@ def env(monkeypatch, tmp_path):
         return []
 
     async def sql_generator(prompt, **_k):
-        calls.hit("repair")
+        calls.hit("repair_reask" if "EXACTLY the failed query" in prompt else "repair")
         return e.repair_sql
 
     async def verify(*_a):
@@ -681,6 +687,7 @@ def test_an_unknown_checkpointer_dsn_is_rejected(monkeypatch):
 
 
 def test_fresh_question_without_a_year_asks_with_answer_defaults_on(env, monkeypatch):
+    monkeypatch.setattr(settings, "NEW_CHAT_ASKS_SCOPE", True)   # D-089: the rollback path
     # D-053 (2026-10-19): with ANSWER_DEFAULTS_ENABLED on, a metric question
     # whose text, entities and context carry no financial year still pauses for
     # the year chips; the free-text reply resumes and answers; the follow-up
@@ -697,6 +704,7 @@ def test_fresh_question_without_a_year_asks_with_answer_defaults_on(env, monkeyp
 
 
 def test_typed_all_of_them_combined_answers_the_year_pause(env, monkeypatch):
+    monkeypatch.setattr(settings, "NEW_CHAT_ASKS_SCOPE", True)   # D-089: the rollback path
     # KI-324 (2026-10-19): the pause says "a single financial year, or all of them
     # combined?"; typing that phrase used to merge onto the stem and re-ask the year.
     monkeypatch.setattr(settings, "ANSWER_DEFAULTS_ENABLED", True)
@@ -725,6 +733,7 @@ def test_cm_elevate_after_a_legacy_answer_switches_dataset(env, monkeypatch):
 
 
 def test_a_new_question_on_the_same_scheme_asks_its_year(env, monkeypatch):
+    monkeypatch.setattr(settings, "NEW_CHAT_ASKS_SCOPE", True)   # D-089: the rollback path
     # KI-331 (2026-10-19): after an all-years CM Elevate Legacy answer, "give me cm
     # elevate legacy disbursement" asked "which financial year?" again. D-061
     # (2026-10-22) answered the scheme's latest FY instead; D-065 (user, 2026-10-22:

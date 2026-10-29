@@ -126,6 +126,14 @@ async def sync_out(session: Session, session_id: str, *, tenant_id, user_id,
         return False
     if ok:
         session.rev = rev
+        # KI-400 (context-memory audit 2026-10-23, F2): topic_memory.checkpoint drops
+        # every topic when the revision jumped by more than one since IT last ran,
+        # taking that as "another worker served turns". But it runs only on graph
+        # turns, while every saved turn (cache hit, edge, reset, stop) moves the
+        # revision — one cached answer between two graph turns wiped the topics.
+        # This copy wrote `rev` itself, so its topics are current at `rev`.
+        if isinstance(getattr(session, "topics", None), dict) and "rev" in session.topics:
+            session.topics["rev"] = rev
     else:
         # A concurrent request on the same session committed this revision
         # first. Its state stands; ours is dropped rather than overwriting it.

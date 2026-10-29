@@ -170,7 +170,7 @@ def test_misquoting_ranking_falls_back_to_a_ranked_list(monkeypatch):
     out = run(p.compose_response("top 5 blocks by person days", TOP5_SQL, TOP5_ROWS, schemes=["MGNREGA"],
                                  entities={"district": "East Khasi Hills", "year": "FY 2023-24"}))
     assert out.startswith("Top 5 blocks by person-days of employment (MGNREGA, East Khasi Hills district, FY 2023-24):")
-    assert "1. **Mylliem** — 412,300" in out and "5. **Laitkroh** — 120,500" in out
+    assert "1. **Mylliem** — 4,12,300" in out and "5. **Laitkroh** — 1,20,500" in out
     assert "here are the" not in out
 
 
@@ -188,8 +188,11 @@ def test_misquoting_trend_falls_back_to_first_to_last(monkeypatch):
         return "Expenditure was 1,111.11 lakh."
     monkeypatch.setattr(p.llm, "call_response_composer", _composer)
     out = run(p.compose_response("how has expenditure changed", TREND_SQL, TREND_ROWS, schemes=["MGNREGA"]))
-    assert "went from 6,120.50 in 2020-21 to 7,904.10 in 2023-24 (+1,783.60, +29.1%" in out
-    assert "It peaked at 8,215 in 2022-23." in out and "- 2021-22: 6,880.25" in out
+    # D-092 (2026-10-29): money in the one format, exact amount + (≈ size)
+    assert ("went from ₹6,120.50 lakh (≈ ₹61.20 crore) in 2020-21 to ₹7,904.10 lakh (≈ ₹79.04 crore) "
+            "in 2023-24") in out and "+29.1%" in out
+    assert "It peaked at ₹8,215.00 lakh (≈ ₹82.15 crore) in 2022-23." in out
+    assert "- 2021-22: ₹6,880.25 lakh (≈ ₹68.80 crore)" in out
 
 
 # ── live findings, 2026-10-22 ────────────────────────────────────────────────

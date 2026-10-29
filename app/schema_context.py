@@ -1300,8 +1300,8 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
         -> Compute EACH scheme's figure with EXACTLY the SQL its own single-scheme question
            would use: same view (curated.v_employment / curated.v_expenditure for MGNREGA,
            curated.v_pmay for PMAY-G, curated.v_focus_plus for Focus Plus), same filters
-           (curated.v_pmay beneficiaries count EVERY row, PMAY-G rule 1 — only "houses
-           sanctioned" adds `WHERE NOT is_placeholder`; a single latest year_key for
+           (curated.v_pmay counts EVERY row, beneficiaries and houses sanctioned alike —
+           PMAY-G rule 1, D-060 amended 2026-10-23; never `WHERE NOT is_placeholder`; a single latest year_key for
            MGNREGA households_employed / persons_employed / job-card counts, since there is
            no household id to dedupe across years), same aggregate (Focus Plus beneficiaries
            = COUNT(DISTINCT beneficiary_key), rule 6 — NOT COUNT(*), which is payments) —
@@ -1333,8 +1333,8 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
       NEVER UNION ALL the two schemes and then SELECT ... FROM (that union): the per-scheme
       columns do not line up and any outer aggregate counts union rows, not real records.
     * Each per-scheme figure MUST equal what that scheme's standalone query returns. If
-      "houses benefited for PMAY-G" alone is `COUNT(*) FROM curated.v_pmay WHERE NOT
-      is_placeholder`, the PMAY side of the cross-scheme answer is that identical expression.
+      "houses benefited for PMAY-G" alone is `COUNT(*) FROM curated.v_pmay` (every row,
+      D-060), the PMAY side of the cross-scheme answer is that identical expression.
     * The two schemes measure DIFFERENT things (MGNREGA person-days / households given work
       vs PMAY-G houses). Do NOT add them into one "combined total" unless both sides are the
       SAME unit (money, both in crore). Otherwise report one figure per scheme and state
@@ -1355,8 +1355,7 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
           FROM curated.v_employment
           WHERE year_key = (SELECT MAX(year_key) FROM curated.v_employment)) m
     CROSS JOIN (SELECT COUNT(*) AS pmay_houses_sanctioned
-                FROM curated.v_pmay
-                WHERE NOT is_placeholder) p
+                FROM curated.v_pmay) p
     LIMIT 1;
   The MGNREGA side is a single financial year (latest if none named), like every
   households_employed / person-days figure; the PMAY side is all sanctioned houses across
@@ -1448,7 +1447,6 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
     ), pmay AS (
       SELECT lgd_district, lgd_block, SUM(amount_released) / 1e7 AS pmay_released_cr
       FROM curated.v_pmay
-      WHERE NOT is_placeholder
       GROUP BY lgd_district, lgd_block
     )
     SELECT COALESCE(m.lgd_district, p.lgd_district)  AS lgd_district,
@@ -1573,7 +1571,6 @@ one closely, follow the procedure, do NOT pattern-match a near-miss example.
              COUNT(*)                             AS pmay_houses_sanctioned,
              COUNT(*) FILTER (WHERE is_completed) AS pmay_houses_completed
       FROM curated.v_pmay
-      WHERE NOT is_placeholder
       GROUP BY lgd_district
     ), districts AS (
       SELECT lgd_district FROM money

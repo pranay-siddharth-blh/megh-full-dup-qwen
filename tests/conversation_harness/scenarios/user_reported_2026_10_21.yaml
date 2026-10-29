@@ -16,9 +16,9 @@
     - say: "how many households"
       expect: {route: pause, pause_rule: scheme-not-specified}
     - say: "how many households for MGNREGA"
-      expect: {route: pause, pause_rule: scope-not-specified, chips_contain: ["West Garo Hills", "All of Meghalaya"]}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "how many households for MGNREGA for all of Meghalaya"
-      expect: {route: pause, pause_rule: year-not-specified, chips_contain: ["FY 2022-23"]}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "how many households for MGNREGA for all of Meghalaya for FY 2022-23"
       expect: {route: data, scheme: MGNREGA, place: all, year: FY 2022-23, numbers_any: [414251]}
 
@@ -28,9 +28,9 @@
   account: superadmin
   turns:
     - say: "how many households for MGNREGA"
-      expect: {route: pause, pause_rule: scope-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "West Garo Hills"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "FY 2022-23"
       expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2022-23, numbers_any: [69838]}
 
@@ -44,21 +44,21 @@
     - say: "in wgh"
       expect: {route: data, scheme: MGNREGA, place: West Garo Hills, year: FY 2022-23, numbers_any: [69838]}
     - say: "how many households for PMAY-G"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "2023-24"
-      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24, new_question: true}
+      expect: {route: data, scheme: PMAY-G, place: all, year: FY 2023-24}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "how many households for PMAY-G in FY 2017-18"
       expect: {route: data, scheme: PMAY-G, place: all, year: FY 2017-18, new_question: true}
     - say: "how many households for Focus Plus"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
       note: "no year named: asked (D-065)"
     - say: "2025-26"
-      expect: {route: data, scheme: Focus Plus, place: all, year: FY 2025-26, new_question: true}
+      expect: {route: data, scheme: Focus Plus, place: all, year: FY 2025-26}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "and in West Garo Hills?"
       expect: {route: data, scheme: Focus Plus, place: West Garo Hills, year: FY 2025-26, new_question: false}
     - say: "how many households for MGNREGA"
-      expect: {route: pause, pause_rule: year-not-specified}
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "2024-25"
-      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25, new_question: true}
+      expect: {route: data, scheme: MGNREGA, place: all, year: FY 2024-25}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "same for 2022-23"
       expect: {route: data, scheme: MGNREGA, place: all, year: FY 2022-23, numbers_any: [414251]}

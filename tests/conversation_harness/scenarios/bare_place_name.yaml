@@ -48,7 +48,7 @@
   account: superadmin
   turns:
     - say: "How many CM Elevate applications were received in Ri Bhoi?"
-      expect: {route: pause, pause_rule: cm-elevate-dataset}     # 2026-10-22: applications alone asks
+      expect: {route: data}  # D-089/D-090 (2026-10-29): answered with defaults, not asked
     - say: "applications"
       expect: {route: data, scheme: CM Elevate}
     - say: "in kbet nongbri"

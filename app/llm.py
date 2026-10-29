@@ -243,7 +243,7 @@ async def call_model(
     async with _slot():
         t_start = time.perf_counter()
 
-        resp = await _client.post(
+        resp = await _post_retry_connect(
             f"{base_url.rstrip('/')}/chat/completions",
             headers={
                 "Authorization": f"Bearer {api_key}",
@@ -280,6 +280,19 @@ async def call_model(
     _record_call(role or model, model, t_wait, t_start, data.get("usage") or {})
 
     return data["choices"][0]["message"]["content"]
+
+
+async def _post_retry_connect(url: str, **kw):
+    """POST once more when the request never reached the model — a refused or dropped
+    connection (KI-012: a brief VPN / gateway blip failed the whole turn). Timeouts and
+    HTTP errors are not retried: the model may still be working, and a retry would
+    double the wait or the load."""
+    try:
+        return await _client.post(url, **kw)
+    except (httpx.ConnectError, httpx.RemoteProtocolError) as e:
+        logger.warning("model gateway connection failed (%s) — retrying once", type(e).__name__)
+        await asyncio.sleep(0.5)
+        return await _client.post(url, **kw)
 
 
 async def call_classifier(

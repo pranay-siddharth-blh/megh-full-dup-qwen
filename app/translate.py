@@ -26,6 +26,19 @@ from app.config import settings
 logger = logging.getLogger(__name__)
 
 LANGUAGE_NAMES = {"kha": "Khasi", "gar": "Garo"}
+# RAG fix report 2026-10-29, Issue 9: "मनरेगा क्या है और कितने दिन का काम मिलता है?" was
+# asked "Which scheme is your question about?" — nothing downstream reads Devanagari.
+# Unlike Khasi / Garo, a Devanagari question is known by its letters, so it is translated
+# whichever button is selected (TRANSLATE_SCRIPT_ENABLED, on; TRANSLATE_ENABLED stays the
+# user's English-only choice for the KHA / GAR buttons).
+SCRIPT_NAMES = {"hi": "Hindi"}
+
+
+def script_language(text: str | None) -> str | None:
+    """'hi' when the text is written in Devanagari (U+0900-U+097F), else None."""
+    letters = [ch for ch in (text or "") if ch.isalpha()]
+    deva = sum(1 for ch in letters if "ऀ" <= ch <= "ॿ")
+    return "hi" if letters and deva * 2 >= len(letters) else None
 
 # Common question words, so a count ("katno" = how many) is not read as a
 # person's name — the fast model translated "Katno ki job card la pynmih ha Ri
@@ -42,9 +55,14 @@ _SCHEMA = {"type": "object", "properties": {"english": {"type": "string"}}, "req
 async def to_english(text: str, language: str | None) -> str:
     """The question in English; unchanged for English, an unknown language or
     any failure."""
-    name = LANGUAGE_NAMES.get((language or "").lower())
-    if not name or not settings.TRANSLATE_ENABLED or not (text or "").strip():
+    lang = (language or "").lower()
+    name = LANGUAGE_NAMES.get(lang) or SCRIPT_NAMES.get(lang)
+    enabled = settings.TRANSLATE_SCRIPT_ENABLED if lang in SCRIPT_NAMES else settings.TRANSLATE_ENABLED
+    if not name or not enabled or not (text or "").strip():
         return text
+    if lang in SCRIPT_NAMES and script_language(text) != lang:
+        return text          # a script language is known by its letters, never by a button
+
     prompt = f"""Translate this message from {name} (a language of Meghalaya, India) into plain English.
 It is a question to a government scheme helpdesk (MGNREGA, PMAY-G, Focus Plus, Focus Legacy,
 CM Elevate), often asking for a count, an amount or how something works.{_HINTS.get(name, "")}

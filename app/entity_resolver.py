@@ -398,6 +398,28 @@ def _hs_tokens(text: str) -> list[str]:
     return "".join(ch if ch in _SQUASH_KEEP else " " for ch in fold(text)).split()
 
 
+# "E Khasi Hills", "W Garo Hills", "SW Khasi Hills": officers shorten the direction.
+# Only the CM Elevate catalogues listed such forms, so under MGNREGA "MGNREGA
+# person-days in E Khasi Hills" lost the "E" and asked which of the five Khasi Hills
+# districts (data-accuracy brief §3.3, 2026-10-29). Every scheme's district now
+# carries them, derived from its canonical name; longest direction first.
+_DIRECTION_SHORT = (("south west ", ("SW ", "S W ", "S.W. ")), ("eastern west ", ("EW ", "E W ")),
+                    ("east ", ("E ", "E. ")), ("west ", ("W ", "W. ")), ("north ", ("N ", "N. ")),
+                    ("south ", ("S ", "S. ")))
+
+
+def _add_direction_aliases(value: dict) -> None:
+    canon = str(value.get("canonical") or "")
+    low = canon.lower()
+    for head, shorts in _DIRECTION_SHORT:
+        if low.startswith(head):
+            rest = canon[len(head):].strip().title()
+            have = {fold(a) for a in value.get("aliases") or []} | {fold(canon)}
+            value["aliases"] = list(value.get("aliases") or []) + [
+                s + rest for s in shorts if fold(s + rest) not in have]
+            return
+
+
 def load_all() -> None:
     for scheme, path in _RESOLVER_FILE.items():
         try:
@@ -418,6 +440,8 @@ def load_all() -> None:
             values = _dimension_values(dims, dim_name)
             if values:
                 _catalog[scheme][dim_name] = values
+        for v in _catalog[scheme].get("district", []):
+            _add_direction_aliases(v)
 
         _load_house_status(scheme, dims.get("house_status", {}) or {})
 
@@ -1500,10 +1524,13 @@ def detect_region(question: str, scheme: str) -> "dict | None":
 
     # A full district name present anywhere ⇒ the district wins; do not treat the
     # embedded range word ("Garo Hills" inside "West Garo Hills") as a region.
+    # Its short forms too ("E Khasi Hills", "W Garo Hills", "EKH"): only the full name
+    # was checked, so "E Khasi Hills" read as the Khasi Hills region and was dropped
+    # (data-accuracy brief §3.3, 2026-10-29).
     for v in _catalog.get(scheme, {}).get("district", []):
-        ff = fold(v["canonical"])
-        if _bounded_find(padded, ff) is not None:
-            return None
+        for form in _scannable_forms(v):
+            if _bounded_find(padded, fold(form)) is not None:
+                return None
 
     best: tuple[str, dict] | None = None
     for r in regs:
@@ -2274,6 +2301,39 @@ async def constituency_contents(ac_name: str, scheme: "str | None" = None) -> di
             "villages": len(villages)}
 
 
+def _sound_village_rows(text: str, district: "str | None", block: "str | None") -> list[dict]:
+    """Rows (village_code, lgd_village_name, lgd_district, lgd_block) for a misspelt
+    village name read by sound (app/spelling.village_matches), in memory, within the
+    district / block asked: the one clear closest name's villages, else up to five
+    close names, best first. [] when none is close (the trigram search then runs).
+
+    Spelling-fix brief 2026-10-29 (§4 C): the trigram search read 77 of 126 generated
+    typos of 50 villages and resolved 2 to ANOTHER village ("darangigttim")."""
+    from app import spelling
+    try:
+        near = spelling.village_matches(text)
+    except Exception:  # noqa: BLE001 — the trigram search still runs
+        return []
+    if not near:
+        return []
+    best = near[0][1]
+    names = [n for n, d in near if d == best]
+    if len(names) > 1 or (len(near) > 1 and near[1][1] == best):
+        names = [n for n, _d in near]           # no clear winner: every close name, best first
+    rows = []
+    for name in names:
+        for code, blk, dist in village_places(name):
+            if district and dist.upper() != str(district).upper():
+                continue
+            if block and blk.upper() != str(block).upper():
+                continue
+            rows.append({"village_code": code, "lgd_village_name": _village_code_names.get(code, name),
+                         "lgd_district": dist, "lgd_block": blk})
+    if rows:
+        logger.info("resolve_village: %r read by sound as %s", text, names)
+    return rows
+
+
 async def resolve_village(text: str, district: str | None = None, block: str | None = None) -> Resolved:
     """Village — live DB query against curated.dim_geography / dim_geography_alias.
     Resolves to village_code, per the YAML's hard rule (name alone is never a key)."""
@@ -2317,6 +2377,8 @@ async def resolve_village(text: str, district: str | None = None, block: str | N
                             text, _real, sorted(r["village_code"] for r in rows))
                 rows = _rr
 
+    if not rows:
+        rows = _sound_village_rows(folded, district, block)
     if not rows:
         # Trigram fuzzy fallback (uses the GIN trigram index already on dim_geography).
         # Both sides are UPPER()'d to match the exact-match stage's normalization

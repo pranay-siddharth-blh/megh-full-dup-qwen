@@ -213,6 +213,14 @@ def scope_from_user(rec: dict) -> UserScope:
 # not a district filter, UPPER(lgd_district) = 'X' is one, and every value of
 # an IN list / ANY(ARRAY[...]) / OR branch is checked, not just the first.
 _VILLAGE_COLS = ("village_code", "lgd_village_name", "geography_key")
+# KI-007: only lgd_district / lgd_block were read. Focus Plus places blocks on
+# block_name_raw (and the model sometimes groups on district_name_raw), and a
+# constituency is filtered on assembly_constituency_name / ac_name — a district
+# officer's "Focus Plus in Dalu block" (another district) read as a statewide
+# query with no place and was allowed.
+_DISTRICT_COLS = ("lgd_district", "district_name_raw")
+_BLOCK_COLS = ("lgd_block", "block_name_raw")
+_AC_COLS = ("assembly_constituency_name", "ac_name")
 
 
 def infer_granularity(resolved_entities: dict, sql: str | None) -> str:
@@ -223,19 +231,23 @@ def infer_granularity(resolved_entities: dict, sql: str | None) -> str:
     if e.get("village_code") or e.get("village") or cols & {"village_code", "lgd_village_name"} \
             or sql_ast.groups_by(sql, *_VILLAGE_COLS):
         return "village"
-    if e.get("block") or "lgd_block" in cols:
-        return "block"
-    if e.get("district") or "lgd_district" in cols:
+    if e.get("block") or e.get("assembly_constituency") or cols & {*_BLOCK_COLS, *_AC_COLS}:
+        return "block"          # a constituency is finer than a district (KI-007)
+    if e.get("district") or cols & set(_DISTRICT_COLS):
         return "district"
     return "state"
 
 
 def _districts_in_sql(sql: str | None) -> list[str]:
-    return _upper_list(sql_ast.filter_values(sql, "lgd_district")) if sql else []
+    return _upper_list([v for c in _DISTRICT_COLS for v in sql_ast.filter_values(sql, c)]) if sql else []
 
 
 def _blocks_in_sql(sql: str | None) -> list[str]:
-    return _upper_list(sql_ast.filter_values(sql, "lgd_block")) if sql else []
+    return _upper_list([v for c in _BLOCK_COLS for v in sql_ast.filter_values(sql, c)]) if sql else []
+
+
+def _constituencies_in_sql(sql: str | None) -> list[str]:
+    return _upper_list([v for c in _AC_COLS for v in sql_ast.filter_values(sql, c)]) if sql else []
 
 
 def authorize(scope: UserScope, *, schemes: list[str], resolved_entities: dict,
@@ -298,6 +310,23 @@ def authorize(scope: UserScope, *, schemes: list[str], resolved_entities: dict,
                 gran, "geography",
             )
 
+        # KI-007: a constituency cuts across district lines (8 of 56 span two), so a
+        # restricted account may read one only inside its own district: the query
+        # must also filter a district the account holds (the prompt keeps both
+        # filters when the question names both).
+        want_ac = set(_constituencies_in_sql(sql))
+        if (resolved_entities or {}).get("assembly_constituency"):
+            want_ac.add(str(resolved_entities["assembly_constituency"]).upper())
+        if want_ac and not (want_d and want_d <= allowed_d):
+            return AuthDecision(
+                False,
+                f"Assembly constituencies can cross district lines, so constituency figures "
+                f"for your account need your district named too "
+                f"({', '.join(sorted(allowed_d)) or 'your assigned district'}). Please add it "
+                f"to the question.",
+                gran, "geography",
+            )
+
         stray_d = {d for d in want_d if d not in allowed_d}
         if stray_d:
             return AuthDecision(
@@ -309,6 +338,25 @@ def authorize(scope: UserScope, *, schemes: list[str], resolved_entities: dict,
                 f"access from your department administrator.",
                 gran, "geography",
             )
+        # KI-007: an account with districts but no block list never had its blocks
+        # checked, so a block in ANOTHER district (by lgd_block or block_name_raw) with
+        # no district filter beside it was allowed. A block must sit in one of the
+        # account's districts; one whose district the catalogue does not know (a raw
+        # ward name) is allowed only beside a district filter the account holds.
+        if allowed_d and not allowed_b and want_b:
+            from app.entity_resolver import block_parent_district
+            parents = {b: block_parent_district(b) for b in want_b}
+            outside = {b for b, d in parents.items() if d and str(d).upper() not in allowed_d}
+            unknown = {b for b, d in parents.items() if not d}
+            if outside or (unknown and not want_d):
+                return AuthDecision(
+                    False,
+                    f"This query relates to {', '.join(sorted(outside or unknown))} block, which is "
+                    f"outside your authorised area "
+                    f"({', '.join(sorted(allowed_d))}). Please restrict the query to your "
+                    f"jurisdiction, or name your district with the block.",
+                    gran, "geography",
+                )
         if allowed_b and want_b:
             stray_b = {b for b in want_b if b not in allowed_b}
             if stray_b:
