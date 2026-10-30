@@ -494,12 +494,18 @@ def scheme_scores(question: str) -> dict:
     return out
 
 
+# Real English words one edit from a vocabulary word, never typos of it: "bank account numbers"
+# became "bank amount numbers" and slipped past the personal-data guardrail; "Kenches Trace"
+# became "Kenches tranche" (CM Elevate UAT 2026-10-30, N1 / N3).
+_NOT_A_TYPO = frozenset("account accounts trace traces".split())
+
+
 def _domain_word(word: str) -> "str | None":
     """The closed-vocabulary word a typo stands for ("mony" -> "money"), or None.
     Never a known word, a place or a village name."""
     w = word.lower()
     vocab = _aliases()["words"]
-    if len(w) < 3 or not word.isalpha() or w in vocab:
+    if len(w) < 3 or not word.isalpha() or w in vocab or w in _NOT_A_TYPO:
         return None
     hits = []
     for v in vocab:
@@ -576,6 +582,10 @@ def _village_at(toks: list[Tok], i: int) -> "tuple[int, str, int] | None":
         name = " ".join(t.raw for t in span)
         if er.is_village_name(name) or (k == 1 and _known_word(name)):
             return None
+        # a stored name that itself ends in "village" ("CENTRE VILLAGE" was corrected to Kentra,
+        # UAT 2026-10-30, N4): written exactly, left alone
+        if er.is_village_name(f"{name} {toks[j].raw}") or er.is_stored_village_name(name):
+            return None
         near = village_matches(name, limit=2)
         if near and (len(near) == 1 or near[1][1] > near[0][1]):
             return j, _title(near[0][0]), near[0][1]
@@ -616,8 +626,21 @@ def _normalise(question: str) -> Normalised:
             i = end
             continue
         if t.raw.isalpha():
+            wend = _exact_village_end(question, toks, i, i + 1)
+            if wend is not None and any(not tk.raw.isalpha() for tk in toks[i:wend]):
+                # an exact ward / village name with a number in it is left whole: "Kenches Trace - Ward
+                # No.23" became "Kenches tranche - Ward No.23" (CM Elevate UAT 2026-10-30, N1)
+                i = wend
+                continue
             phit = _place_hit(toks, i, prev)
-            vend = _exact_village_end(question, toks, i, phit[1][0]) if phit is not None else None
+            vend = None
+            if phit is not None:
+                # an exact village / ward name that starts here OR up to 6 tokens earlier and covers
+                # this span: "Ladthalaboh East - Ward No.1" was read as East Garo Hills (UAT 2026-10-30, N1)
+                for j0 in range(max(0, i - 6), i + 1):
+                    vend = _exact_village_end(question, toks, j0, phit[1][0])
+                    if vend is not None:
+                        break
             if vend is not None:
                 # "William Nagar (MB) - Ward No.8" is a village written exactly; the block alias
                 # "William Nagar (MB" was rewritten to "Williamnagar) - Ward No.8" and the ward was
@@ -846,7 +869,13 @@ def _unresolved_place(question: str) -> "dict | None":
         if j == i + 1:
             continue
         name = _span_text(question, toks, i + 1, j)
+        if _exact_village_end(question, toks, i + 1, i + 1) is not None:
+            continue                      # the start of an exact village / ward name ("Kenches Trace - Ward No.23", N1)
         level = LEVEL_WORDS.get(toks[j].low) if j < len(toks) else None
+        if level == "village":
+            from app import entity_resolver as er
+            if er.is_stored_village_name(name):
+                continue                  # "CENTRE VILLAGE": a stored one-word name the index leaves out (N4)
         if _is_place(name) or _out_of_area(name):
             continue
         if level is None and len(_letters(name)) < 4:

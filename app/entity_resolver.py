@@ -1712,6 +1712,20 @@ def is_village_name(text: str) -> "bool | None":
     return " ".join(fold_words(text)) in _village_names
 
 
+_stored_village_keys: "tuple[int, frozenset] | None" = None
+
+
+def is_stored_village_name(text: str) -> bool:
+    """True when `text` is, folded, exactly a stored village name, INCLUDING the one-word
+    names the index leaves out ("CENTRE", D-059). For "do not correct what was typed
+    exactly" checks only, never for reading a place."""
+    global _stored_village_keys
+    names = _village_code_names or {}
+    if _stored_village_keys is None or _stored_village_keys[0] != id(names):
+        _stored_village_keys = (id(names), frozenset(" ".join(fold_words(v)) for v in names.values()))
+    return " ".join(fold_words(text)) in _stored_village_keys[1]
+
+
 def village_districts(name: str) -> frozenset:
     """The districts (upper) holding a village of exactly this name; empty when
     none or the index is not loaded."""
