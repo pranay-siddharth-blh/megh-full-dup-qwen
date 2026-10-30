@@ -17,6 +17,31 @@ finished only when **every test case passes, at every level of the hierarchy**.
 
 ---
 
+## MGNREGA UAT round (2026-10-30) — the sheet on the answer-with-defaults rules
+
+The MGNREGA sheet was run again on the 2026-10-30 code, because the rules it was first passed on (2026-10-10) had
+changed since: a question with no year is answered over **all financial years** at once (no year pause, D-089);
+job cards with no year give the latest year; FY 2025-26 women employment must be stated "not recorded"; a
+"which scheme?" pause on a MGNREGA-only measure is a defect; villages that share a name (J-10) are answered one
+row each. Coverage (`tests/sheet_runs/mg_uat.py` + `mg_uat_villages.py`): every district (12), block (56) and
+assembly constituency (56) × every shape of its level × every FY (five year formats) **and** no year; the village
+shapes at every district and block; statewide; every ranking per FY and all years; 24 sample villages × 12 shapes ×
+5 year options; 40 same-name villages; then **every one of the 6,491 villages**. Results and the column writer are
+in the scratch run folder's `r_main*.json` / `r_vill*.json`; the sheet gets columns **U..X** ("UAT 30-Oct Result /
+Remarks", "After Fix 30-Oct / Remarks") and a tab "MGNREGA UAT 30-Oct" with every after-fix conversation.
+Scripts: `mg_uat.py`, `mg_uat_villages.py`, `mg_uat_score.py`, `write_mg_uat.py`, `mg_uat_drive.sh` (first /
+after / score / sheet). Backup: `backup/Test Case Results - 30th Sep 26.backup-2026-10-30.xlsx`.
+
+What it found (KI-635..KI-643 in `docs/KNOWN_ISSUES.md`): village codes digit-grouped like counts; a no-year
+district ranking sent to the documents by the verifier; same-name villages summed, or their query rejected, or
+compared on the wrong totals; a rephrase adding "under the available schemes"; twin codes the SQL never filtered;
+village money rounded to crore (1.60 lakh as "0.02 crore"); "RONGARE ADING" rewritten to the Rongara block; a
+`HAVING > 0` dropped as an "unasked threshold" so every no-year constituency list failed; a village list written
+without GROUP BY (124 rows for 116 villages); an invented year filter on an all-years average. Harness rules learnt:
+a twin is judged on its own answer section and its own row; a wages-vs-materials tie is a pass when the answer says
+"the same"; a connection error (VPN drop, Postgres connection cap, gateway timeout) is never a bot failure — it
+re-runs on resume.
+
 ## Final round (2026-10-13)
 
 Every test case of all seven sheets re-run on the final code: **206/206 test cases, 2,946/2,946 conversations**.
@@ -122,13 +147,14 @@ root, with the VPN up.
 | `rerun_failed.py` | re-runs the General failures after fixes |
 | `mg_run.py` | the MGNREGA sheet: every case, blocks, districts, constituencies, rankings |
 | `mg_all.py` | **every MGNREGA village**, one question each (resumable, checkpoints every 200) |
-| `pm_run.py` / `pm_all.py` | the PMAY-G sheet / every PMAY-G village |
+| `pm_run.py` / `pm_all.py` / `pm_drive.sh` / `write_pm.py` | the PMAY-G sheet (every case, every block, district, constituency, district x FY) / every PMAY-G village (resumable, `PM_ONLY_CODES` re-runs chosen villages) / VPN-proof driver (sheet + villages until clean, then pytest + scripts) / its columns U..X |
 | `ce_run.py` / `ce_all.py` | the CM Elevate sheet / every CM Elevate village (`CE_ONLY_CODES` re-runs chosen villages) |
 | `write_ce.py` | writes the CM Elevate sheet columns N..Q |
 | `cl_run.py` / `cl_all.py` / `write_cl.py` | the CM Elevate Legacy sheet / every CM Elevate Legacy village / its columns G..J |
 | `fl_run.py` / `fl_all.py` / `write_fl.py` / `fl_drive.sh` | the Focus Legacy sheet / every Focus Legacy village / its columns G..J / VPN-proof resume loop |
 | `fp_run.py` / `fp_all.py` / `write_fp.py` | the Focus + sheet / every Focus Plus village (`FP_ONLY_CODES`; twin villages picked by LGD code) / its columns N..Q |
 | `mg_score.py` | scores a results file per test case, with a reason for each failure |
+| `mg_uat.py` / `mg_uat_villages.py` / `mg_uat_score.py` / `write_mg_uat.py` / `mg_uat_drive.sh` | the 2026-10-30 MGNREGA UAT round on the answer-with-defaults rules: hierarchy + sample villages / every village (both resumable; `MGU_RERUN_FAILED=1` re-runs the failures) / scorer / sheet columns U..X / driver |
 | `trace.py` | one conversation with node logs (`TRACE_LOG=1`; `REINGEST=1` rebuilds the KB) |
 
 For a new scheme, copy `mg_run.py` / `mg_all.py`, then change the question shapes and the
@@ -150,6 +176,16 @@ truth queries (Step 2).
   pause for an exact village name, the rephraser keeps name suffixes / brackets / block words,
   bracket-tolerant chips, deterministic wages-vs-materials, DISTINCT village lists, village names
   masked for the guardrails.
+- **PMAY-G re-test 2026-10-30 (KI-445 / D-096, KI-630):** every assembly constituency answered (v_pmay.ac_name;
+  before: a false 0 / 'no matching records' for all 56); villages sharing a name answered one row each (before:
+  summed or 'couldn't build a working query'); chips keep the constituency / village. The all-villages run also
+  found five exact village names respelt by the D-093 normaliser (KI-631: RONGARE ADING -> Rongara block, Pyndeng
+  Shallang -> 'pending', Centre Village -> Kentra, Songma Enggok -> Songsak, hawai bhoi -> Ri Bhoi): a span that
+  is an exact village name is never rewritten. Final code: sheet **1,142/1,142** conversations (28 cases; 56 ACs x 3
+  wordings, 12 districts, 56 blocks, 84 district x FY, pairs, dates), **every village 5,121/5,121**. Behaviour
+  change: a bare block name that is also a constituency (Dalu, Chokpot, Mawlai, ...) now asks block or constituency
+  under PMAY-G, as it does under MGNREGA (D-059). Scripts `pm_run.py` (now every
+  AC and every district x every FY), `pm_all.py`, `pm_drive.sh` (VPN-proof driver), `write_pm.py` (columns U..X).
 - **PMAY-G (KI-249..252):** placeholder registrations stated beside the beneficiary count (the testers'
   6,125 vs 6,122); summaries of a place always answered from the data; the year chip's "across all
   financial years" never answered with the list of years; place names masked for every guard

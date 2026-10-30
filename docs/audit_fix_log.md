@@ -70,7 +70,7 @@ rewrite, year readers), `tests/test_chat_ui_audit_rows_2026_10_29.py` (section A
 | G-13 | Fixed (no donut / share of villages across years; stacked headline only where a stack is allowed) | analytics.js | UI `G-13 / G-5 …` |
 | A-4 | Fixed (never stacked or totalled across a scheme column, backend hint and UI) | c13 `_chart_hint`, analytics.js, Charts.jsx | `test_stacked_only_…` (scheme rows); UI `A-4 …` |
 | A-5 | Fixed (two label columns always use the two-dimension chart, whatever the hint) | analytics.js | UI `A-5 …` |
-| A-7 | Fixed (a pie of schemes is refused with a one-line note; grouped bars) | analytics.js, Messages.jsx | UI `A-7 …` |
+| A-7 | Fixed (a pie of schemes is refused with a one-line note; grouped bars) — superseded 2026-10-30 by D-095: a pie the officer names is drawn, with a caveat | analytics.js, Messages.jsx | UI `A-7 …` |
 | B-1 | Already fixed (two schemes get "each scheme measures this differently", no "ahead"; frontend/tests/charts.test.js) | | existing |
 | B-2 | Fixed | analytics.js | UI `G-1 / G-2 / B-2 …` |
 | B-3 | Fixed (districts on the x-axis, no Total / stack / donut across schemes) | analytics.js, Charts.jsx, c13 `_chart_hint` | UI `B-3 …`; `test_stacked_only_…` |

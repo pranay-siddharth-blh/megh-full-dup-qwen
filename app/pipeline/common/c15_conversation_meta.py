@@ -895,10 +895,13 @@ def _chart_view_request(raw_question: str) -> "tuple[str | None, bool, set] | No
            and w not in _C15_WIDE_WORDS and w != "meghalaya" for w in ws):
         return None
     named = [(i, _C15_VIEW_TYPES[w]) for i, w in enumerate(ws) if w in _C15_VIEW_TYPES]
-    # "line" / "bar" / "column" alone mean other things; they need a chart noun beside them
+    # "line" / "bar" / "column" alone mean other things; they need a chart noun beside them —
+    # unless the message is nothing but the type and filler ("I want only bar", "now
+    # line", user 2026-10-30): every word was checked above to be a view word.
+    bare = len(named) == 1 and not any(w in _C15_CHART_NOUNS for w in ws)
     named = [(i, t) for i, t in named
              if t in ("pie", "doughnut", "stacked", "table") or ws[i] not in ("line", "bar", "bars", "column")
-             or any(x in _C15_CHART_NOUNS for x in ws[i + 1:i + 3])]
+             or bare or any(x in _C15_CHART_NOUNS for x in ws[i + 1:i + 3])]
     wide = any(w in _C15_WIDE_WORDS for w in ws)
     noun = any(w in _C15_CHART_NOUNS for w in ws)
     if not named and not noun and not wide:

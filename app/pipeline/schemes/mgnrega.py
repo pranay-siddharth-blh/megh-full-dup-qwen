@@ -1091,7 +1091,111 @@ def _mgnrega_village_list_issue(question: str, schemes: list[str], sql: str) -> 
                 "lists villages whose employment is zero (they have rows with 0 persons). Add "
                 "HAVING SUM(persons_employed) > 0 after the GROUP BY. Keep every other clause "
                 "exactly as it was.")
+    if _mg_lists_raw_rows(sql or ""):
+        # Raksamgre FY 2023-24 (MGNREGA UAT 2026-10-30, KI-642): 124 rows for 116 villages
+        return ("this question asks WHICH villages, but the query lists the view's raw rows, so a "
+                "village with several rows in the year appears several times. GROUP BY "
+                "lgd_village_name, village_code (and lgd_block), SUM the measure, put the > 0 test "
+                "in HAVING on that SUM, and ORDER BY the SUM. Keep every filter exactly as it was.")
     return None
+
+
+def _mgnrega_all_years_no_year_filter(question: str, schemes: list[str], resolved: dict, sql: str) -> str:
+    """An MGNREGA question that named no year is answered over every financial year
+    (answer-with-defaults, D-089). "Average person-days per employment household in
+    Meghalaya" was written WHERE year_key IN (2022, 2023, 2024) in one run of two — the
+    women few-shots' year list — and read 59.82 for 60.84 (MGNREGA UAT 2026-10-30,
+    KI-643). With no year resolved, a year_key condition the model invented goes, unless
+    the query reads the women column (FY 2025-26 is unrecorded: its own year rule) or job
+    cards (a stock: _mgnrega_job_cards_latest_year pins the latest year)."""
+    if schemes != ["MGNREGA"] or not sql:
+        return sql
+    if resolved.get("year_key") is not None or resolved.get("year_key_list"):
+        return sql
+    if context_policy.extract_year_keys(question or ""):
+        return sql
+    low = sql.lower()
+    if "women_employment_provided" in low or "job_cards_issued_total" in low or "financial_year" in low:
+        return sql
+    if not sql_ast.filter_conditions(sql, "year_key"):
+        return sql
+    out = _drop_where_conditions(sql, lambda n: bool(n.find(exp.Column)) and any(
+        c.name.lower() == "year_key" for c in n.find_all(exp.Column)))
+    if out != sql:
+        logger.info("MGNREGA: no year was asked — dropped the model's year_key filter (KI-643)")
+    return out
+
+
+def _mg_lists_raw_rows(sql: str) -> bool:
+    """A one-SELECT village list over a curated view with no aggregate, GROUP BY or
+    DISTINCT: one row per source row, not per village."""
+    tree = sql_ast.parse_one(sql or "")
+    if not isinstance(tree, exp.Select) or tree.find(exp.With) or tree.find(exp.Join) \
+            or any(s is not tree for s in tree.find_all(exp.Select)):
+        return False
+    if tree.find(exp.AggFunc) or tree.args.get("group") is not None or tree.args.get("distinct") is not None:
+        return False
+    return "lgd_village_name" in _mg_names(sql)
+
+
+_MG_LIST_MEASURES = ("persons_employed", "households_employed", "person_days", "women_employment_provided",
+                     "households_completed_100_days", "job_cards_issued_total", "total_exp", "unskilled_wage_exp",
+                     "semi_skilled_wage_exp", "material_exp")
+
+
+def _mgnrega_village_list_one_row_each(question: str, schemes: list[str], sql: str) -> str:
+    """The deterministic half of the raw-rows guard above (CLAUDE.md §5). "Which villages in
+    Raksamgre constituency received employment during FY 2023-24?" was written SELECT
+    lgd_village_name, village_code … WHERE persons_employed > 0 ORDER BY households_employed
+    — no GROUP BY — and listed 124 rows for 116 villages (MGNREGA UAT 2026-10-30, KI-642).
+    The plain columns become the GROUP BY (village_code and lgd_block added), every `measure
+    > 0` in the WHERE becomes HAVING SUM(measure) > 0, the measure is selected as its SUM and
+    the list is ordered by it."""
+    if schemes != ["MGNREGA"] or not sql or not _VILLAGE_LIST_ASK_MATCH.search(question or "") \
+            or not _mg_lists_raw_rows(sql):
+        return sql
+    tree = sql_ast.parse_one(sql)
+    plain = [e for e in tree.expressions if isinstance(e.unalias(), exp.Column)]
+    if not plain or len(plain) != len(tree.expressions):
+        return sql
+    names = [e.unalias().name.lower() for e in plain]
+    for extra in ("village_code", "lgd_block"):
+        if extra not in names:
+            plain.append(exp.column(extra)); names.append(extra)
+    # the positivity tests on a measure move to HAVING
+    measures, having = [], []
+    where = tree.args.get("where")
+    if where is not None:
+        keep = []
+        for cond in (list(where.this.flatten()) if isinstance(where.this, exp.And) else [where.this]):
+            col = cond.this if isinstance(cond, exp.GT) and isinstance(cond.this, exp.Column) else None
+            lit = cond.expression if col is not None else None
+            if col is not None and col.name.lower() in _MG_LIST_MEASURES and isinstance(lit, exp.Literal) \
+                    and not lit.is_string and float(lit.this) == 0:
+                measures.append(col.name.lower())
+                having.append(exp.GT(this=exp.Sum(this=exp.column(col.name.lower())), expression=exp.Literal.number(0)))
+            else:
+                keep.append(cond)
+        tree.set("where", exp.Where(this=exp.and_(*keep, copy=False)) if keep else None)
+    order = tree.args.get("order")
+    order_col = None
+    if order is not None:
+        first = order.expressions[0].this if order.expressions else None
+        if isinstance(first, exp.Column) and first.name.lower() in _MG_LIST_MEASURES:
+            order_col = first.name.lower()
+    if order_col and order_col not in measures:
+        measures.append(order_col)
+    if not measures:
+        measures = ["persons_employed"]
+    shown = measures[0] if not order_col else order_col
+    tree.set("expressions", plain + [exp.alias_(exp.Sum(this=exp.column(m)), m) for m in dict.fromkeys(measures)])
+    tree.set("group", exp.Group(expressions=[exp.column(n) for n in names]))
+    if having:
+        tree.set("having", exp.Having(this=exp.and_(*having, copy=False)))
+    tree.set("order", exp.Order(expressions=[exp.Ordered(this=exp.column(shown), desc=True, nulls_first=False)]))
+    out = sql_ast.to_sql(tree)
+    logger.info("MGNREGA village list: raw rows made one row per village (KI-642)")
+    return out
 
 
 # KI-436 (MGNREGA Excel run 2026-10-27, 10/19): "how many villages in AMPATHI AC had
@@ -1372,6 +1476,101 @@ def _mgnrega_wage_material_query(question: str, schemes: list[str], resolved: di
                 "ROUND(SUM(material_exp)::numeric, 2) AS material_exp_lakh, COUNT(*) AS source_rows "
                 "FROM curated.v_expenditure" + ((" WHERE " + " AND ".join(w)) if w else ""))
     return build(where), params, build(shown)
+
+
+# ── J-10 twins through the fixed queries (MGNREGA UAT 2026-10-30, KI-637..KI-639) ──
+# A name shared by 2-3 villages (D-089 J-10) is answered one row per village. Every
+# single-area fixed query above declines a village LIST (_mgnrega_filters), so a twin
+# question went to the model path, where the verifier fought the per-village query
+# ("'Ambari' should map to one village … should be a single total") or the composer
+# compared the twins' SUMS ("Rangsagre": "more was spent on materials, 22.50 lakh
+# compared to 25.67 lakh for wages"). Here the single-area query is built for the first
+# twin and run once per twin with the village-code slot swapped (_data_deterministic_rows),
+# and each twin's rows are written by the shape's own single-area writer
+# (_mgnrega_twins_answer). 223 MGNREGA names are shared this way (486 villages).
+_MG_TWIN_BUILDERS = ("_mgnrega_job_cards_query", "_mgnrega_combined_facts_query",
+                     "_mgnrega_breakdown_query", "_mgnrega_wage_material_query",
+                     "_mgnrega_admin_expenditure_query")
+
+
+def _mgnrega_twin_det(question: str, schemes: list[str], resolved: dict, entity_result: "dict | None" = None
+                      ) -> "tuple[str, list, str, dict] | None":
+    """(parameterised SQL, params for the first twin, display SQL over every twin,
+    {"twins": {code: label}, "code_slot": i, "kind": builder}) — or None when the
+    question has no twins or no fixed query fits. The metric catalogue (D-071) is
+    tried last, for the first twin's resolved filters: "total expenditure in MEGAPGRE"
+    (three villages) declined the twin list and went to the model path (KI-637)."""
+    twins = resolved.get("village_twins") or {}
+    codes = [int(c) for c in resolved.get("village_code_list") or []]
+    if schemes != ["MGNREGA"] or not twins or not codes:
+        return None
+    one = {k: v for k, v in resolved.items() if k not in ("village_code_list", "village_twins")}
+    one["village_code"] = codes[0]
+    for name in _MG_TWIN_BUILDERS + ("_metric_catalog_query",):
+        if name == "_metric_catalog_query":
+            det = _metric_catalog_query(question, schemes, dict(entity_result or {}, resolved=one))
+        else:
+            det = globals()[name](question, schemes, one)
+        if det is None:
+            continue
+        sql, params, shown = det
+        slots = [i for i, p in enumerate(params) if p == codes[0]]
+        if len(slots) != 1:
+            return None
+        meta = {"twins": {str(c): twins.get(str(c)) or f"village {c}" for c in codes},
+                "code_slot": slots[0], "kind": name}
+        return sql, list(params), sql_ast.widen_village_filter(shown, codes), meta
+    return None
+
+
+async def _mgnrega_twins_answer(sql: str, rows: list[dict], display: dict, meta: dict,
+                                statewide: bool = True) -> "str | None":
+    """One answer per twin, each written by the shape's single-area writer from that
+    twin's own rows (tagged twin_village by _data_deterministic_rows)."""
+    kind, parts = meta.get("kind"), []
+    when = f" in {display['year']}" if display.get("year") else " in any financial year"
+    if kind not in _MG_TWIN_BUILDERS:
+        # the metric catalogue's one measure, one line per twin: a twin whose SUM is NULL has
+        # no record and says so ("Mawpon (Rambrai block) — village code: 276670" showed no
+        # figure at all; all-villages run 2026-10-30)
+        for code, label in meta["twins"].items():
+            mine = [r for r in rows if str(r.get("village_code")) == code]
+            cells = [(k, v) for r in mine for k, v in r.items()
+                     if not _c12_is_code_col(str(k)) and k != "twin_village" and _as_number(v) is not None]
+            if not cells:
+                parts.append(f"**{label}**\nNo MGNREGA record is held for {label}{when}.")
+                continue
+            words = []
+            for k, v in cells:
+                unit = _c12_money_unit(str(k))
+                val = float(_as_number(v))
+                words.append(f"{_c12_money(val, unit)} {_human_metric(str(k))}" if unit
+                             else f"{_fmt_num(int(val) if val.is_integer() else val)} {_human_metric(str(k))}")
+            parts.append(f"**{label}**\n{', '.join(words)}{when.replace(' in any financial year', ' across all financial years')}.")
+        return (f"{len(parts)} villages share this name, so each is answered on its own (MGNREGA):\n\n"
+                + "\n\n".join(parts))
+    for code, label in meta["twins"].items():
+        mine = [r for r in rows if str(r.get("village_code")) == code]
+        disp = dict(display, village=label)
+        if kind == "_mgnrega_admin_expenditure_query":
+            a = await _mgnrega_admin_expenditure_answer(mine, disp, statewide=statewide)
+        elif kind == "_mgnrega_job_cards_query":
+            a = _mgnrega_job_cards_answer(mine, disp)
+        elif not mine:
+            a = f"No MGNREGA expenditure or employment record is held for {label}{when}."
+        elif kind == "_mgnrega_wage_material_query":
+            a = _mgnrega_wage_material_answer(mine[0], disp)
+        elif kind == "_mgnrega_breakdown_query":
+            a = _mgnrega_breakdown_answer(mine[0], disp)
+        elif kind == "_mgnrega_combined_facts_query":
+            a = _mgnrega_combined_facts_answer(mine[0], disp)
+        else:
+            return None
+        if not a:
+            return None
+        parts.append(f"**{label}**\n" + a.replace(f"{label} village", label))
+    return (f"{len(parts)} villages share this name, so each is answered on its own (MGNREGA):\n\n"
+            + "\n\n".join(parts))
 
 
 def _mgnrega_wage_material_answer(row: dict, display: dict) -> str:

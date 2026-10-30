@@ -177,10 +177,20 @@ const VIEW_FILLER = ['i', 'we', 'want', 'wanted', 'need', 'would', 'like', 'plea
     Such a message re-draws the last answer's data (App.jsx), any answer. */
 export function viewOnlyRequest(question) {
   const pref = chartPreference(question);
-  if (!pref) return null;
+  if (!pref) return bareTypeRequest(question);
   const rest = words(question).filter((x) => !CHART_NOUNS.includes(x) && !TABLE_NOUNS.includes(x)
     && !TYPE_WORDS[x] && !JOINED_TYPES[x] && !LEAD_WORDS.includes(x) && !VIEW_FILLER.includes(x));
   return rest.length ? null : pref;
+}
+
+/** "I want only bar", "now line": the message is nothing but ONE type word and filler,
+    so a bare "bar" / "line" (which elsewhere needs "chart" beside it) is the type
+    (user 2026-10-30; the backend reads it the same way, c15 _chart_view_request). */
+function bareTypeRequest(question) {
+  const w = words(question);
+  const typed = w.filter((x) => TYPE_WORDS[x]);
+  if (typed.length !== 1 || w.some((x) => !TYPE_WORDS[x] && !LEAD_WORDS.includes(x) && !VIEW_FILLER.includes(x))) return null;
+  return TYPE_WORDS[typed[0]];
 }
 
 export const VIEW_NAMES = { chart: 'a chart', bar: 'a bar chart', pie: 'a pie chart', doughnut: 'a donut chart',
@@ -203,6 +213,10 @@ export function withoutChartPhrase(question) {
 // A ranking ("top 5 districts", "which block has the most …"): a bar chart, not
 // a donut. A donut of the top 5 shows each as a share of those 5 only, which
 // reads as a share of the whole (audit 2026-10-23, E11).
+// A comparison asked in words ("compare", "vs", "versus", "difference between").
+const COMPARE_WORDS = ['compare', 'compared', 'comparing', 'comparison', 'vs', 'versus', 'against', 'difference', 'differ'];
+export const asksCompare = (question) => words(question).some((w) => COMPARE_WORDS.includes(w));
+
 const RANK_WORDS = ['top', 'bottom', 'highest', 'lowest', 'best', 'worst', 'most', 'least', 'rank', 'ranks', 'ranked',
   'ranking', 'rankings', 'leading', 'lagging', 'maximum', 'minimum', 'max', 'min', 'largest', 'smallest', 'biggest'];
 export const asksRanking = (question) => words(question).some((w) => RANK_WORDS.includes(w));
@@ -306,29 +320,104 @@ export function askedMeasureCols(question, numCols) {
 export function buildAnalytics(question, rawData, hintType, prefer = null) {
   const a = buildAnalyticsCore(question, rawData, hintType, prefer);
   if (!a || !prefer || prefer === 'chart' || prefer === 'table') return a;
-  const asked = a.kind === 'twoDim' ? (prefer === 'pie' ? 'doughnut' : prefer) : (prefer === 'stacked' ? 'bar' : prefer);
-  // A-7 / G-1 (audit 2026-10-29): a pie, donut or stack of figures that must not be
-  // added up (overlapping villages, different schemes, rates) would show a total
-  // and shares that do not exist. Bars instead, with a one-line note.
-  if ((a.kind === 'twoDim' || a.kind === 'multi') && a.types && !a.types.includes(asked)) {
-    return { ...a, defType: 'bar', refused: prefer, note: refusalNote(prefer, a.noAddWhy) };
+  const asked = a.kind === 'twoDim' || a.kind === 'multi' ? prefer : (prefer === 'stacked' ? 'bar' : prefer);
+  // A-7 / G-1 (audit 2026-10-29) drew bars instead of a pie, donut, stack or line the
+  // figures do not suit (overlapping villages, different schemes, rates, districts on
+  // a line). User rule 2026-10-30: the type the officer names is the type drawn —
+  // with a one-line caveat saying what not to read into it.
+  const allowed = a.types && (a.types.includes(asked) || (asked === 'pie' && a.types.includes('doughnut'))
+    || (asked === 'stacked' && a.kind === 'multi'));
+  if ((a.kind === 'twoDim' || a.kind === 'multi') && a.types && !allowed) {
+    return { ...a, defType: asked, caveat: prefer, note: caveatNote(prefer, prefer === 'line' ? 'category' : a.noAddWhy) };
   }
   if (a.kind === 'twoDim') return { ...a, defType: asked };
   if (a.kind === 'multi' || a.kind === 'kpi') return { ...a, defType: asked };
   return a;
 }
 
-const VIEW_WORD = { pie: 'A pie chart', doughnut: 'A donut chart', stacked: 'A stacked chart', line: 'A line chart' };
+// The types a chart card offers when nothing narrows them (Charts.jsx TWO_DIM_TYPES).
+const TWO_DIM_ALL = ['bar', 'stacked', 'line', 'doughnut'];
+const periodAxis = (labels) => Array.isArray(labels) && labels.length > 0
+  && labels.every((l) => isPeriodLabel(l) || isMonthLabel(l) || isQuarterLabel(l));
+
+/** What an answer shows (components/Messages.jsx renders exactly this; the live chart
+    suite grades it, tests/live_chat_charts.py): { asked, prefer, a, mode, note, charts }
+    where each chart is { kind, types, initial } — the type switcher's choices and the
+    type it opens as. null when there are no rows. */
+export function viewPlan(question, response, view = null) {
+  const asked = view || chartPreference(response.rewritten_question) || chartPreference(question);
+  const prefer = asked === 'chart' || (asked && asked !== 'table') ? asked : null;
+  const a = buildAnalytics(question, response.data, response.chart_type, prefer);
+  if (!a) return null;
+  const plan = (mode, charts = []) => ({ asked, prefer, a, mode, note: a.note || null, charts });
+  if (asked === 'table') return plan('table');
+  // A named type ("pie chart", "bar graph", "line chart") is that chart ONLY —
+  // no Bar / Pie / Donut / Line switcher. A plain "chart" / "graph", or nothing
+  // asked, keeps every type on offer (user, 2026-10-19). Whatever the rows, the type
+  // named is the type drawn (user 2026-10-30); buildAnalytics adds a caveat when
+  // the figures do not suit it.
+  const named = prefer && prefer !== 'chart';
+  const only = named ? prefer : null;
+  const typesOr = (all) => (only ? [only] : all);
+  const single = (types, initial) => ({ kind: 'single', types, initial: types.includes(initial) ? initial : types[0] });
+  const twoDim = (types, initial, periods) => ({ kind: 'twoDim', types,
+    initial: types.includes(initial) ? initial : (types.length === 1 ? types[0] : (periods ? 'line' : 'bar')) });
+  // "stacked" over several measures (sanctioned and completed by district): the
+  // measures are the stack's series
+  const stackOf = (title, labels, datasets) => ({ ...twoDim(['stacked'], 'stacked'), title, labels: labels.map(String),
+    datasets, xKey: 'category', sKey: 'measure' });
+  if (a.kind === 'record') {
+    if (!prefer) return plan('record');
+    // A chart asked of one figure: that figure is drawn as asked (user 2026-10-30:
+    // "if the graph is not there for that question, generate it"), and the
+    // breakdowns that make a fuller chart are offered beside it.
+    const keys = Object.keys(a.row || {}).filter((k) => isNumeric(a.row[k]) && !isLabelCol(k));
+    if (!keys.length) return plan('recordAsked');
+    const t = only === 'stacked' ? 'bar' : only;
+    return plan('recordAsked', [{ ...single(t ? [t] : ['bar', 'pie', 'doughnut'], t || 'bar'),
+      title: humanCol(keys[0]).charAt(0).toUpperCase() + humanCol(keys[0]).slice(1),
+      labels: keys.map((k) => humanCol(k)), values: keys.map((k) => toNumber(a.row[k])) }]);
+  }
+  if (a.kind === 'kpi') {
+    if (only === 'stacked') return plan('stacked2d', [stackOf('Summary', ['Total'], a.labels.map((l, i) => ({ label: l, data: [a.values[i]] })))]);
+    return plan('kpi', [single(typesOr(['bar', 'pie', 'doughnut']), only || a.defType)]);
+  }
+  // A comparison: the tiles and a chart of the two (user 2026-10-30: "compare
+  // questions get a graph by default")
+  if (a.kind === 'compare') return plan('compare', (a.charts || []).map((c) => ({ ...c, ...single(typesOr(c.types), only || 'bar') })));
+  if (a.kind === 'table') return plan('table');
+  if (a.kind === 'stacked') {
+    if (!prefer) return plan('stacked', [{ kind: 'stacked', types: ['stacked'], initial: 'stacked' }]);
+    return plan('stacked2d', [twoDim(only ? [only] : TWO_DIM_ALL, only || 'stacked')]);
+  }
+  if (a.kind === 'grouped') {
+    if (only === 'stacked') return plan('stacked2d', [stackOf(a.title, a.labels, a.datasets.map((d) => ({ label: d.label, data: d.values })))]);
+    if (prefer && prefer !== 'chart' && prefer !== 'bar') {
+      return plan('groupedSplit', a.datasets.map(() => single(typesOr(['bar', 'pie', 'doughnut', ...(periodAxis(a.labels) ? ['line'] : [])]), only)));
+    }
+    return plan('grouped', [{ kind: 'grouped', types: ['bar'], initial: 'bar' }]);
+  }
+  if (a.kind === 'twoDim') {
+    const t = only ? [only] : a.types;
+    return plan('twoDim', [a, ...(a.more || [])].map(() => twoDim(t, only || a.defType, a.periods)));
+  }
+  if (only === 'stacked') {
+    const c0 = a.charts[0];
+    return plan('stacked2d', [stackOf(a.charts.length > 1 ? a.charts.map((c) => c.title.split(' by ')[0]).join(' and ') + ' by ' + c0.title.split(' by ').slice(1).join(' by ') : c0.title,
+      c0.labels, a.charts.map((c) => ({ label: c.title.split(' by ')[0], data: c.values })))]);
+  }
+  return plan('multi', a.charts.map((c) => single(typesOr(a.types || ['bar', 'pie', 'doughnut', ...(periodAxis(c.labels) ? ['line'] : [])]), only || a.defType)));
+}
+
 const NO_ADD_WHY = {
-  scheme: 'the schemes count and spend different things',
-  overlap: 'the same villages, households or beneficiaries are counted again in each year or scheme',
-  rate: 'a rate or an average does not add up',
-  negative: 'some values are below zero',
-  category: 'a line only joins periods in time',
+  scheme: 'the schemes count and spend different things, so the total and the shares are not a real whole',
+  overlap: 'the same villages, households or beneficiaries can be counted again in each year or scheme, so the total and the shares overstate the whole',
+  rate: 'a rate or an average does not add up, so the shares are not a real split',
+  negative: 'some values are below zero and cannot be drawn as a share',
+  category: 'the points are not periods in time, so the line between them shows no trend',
 };
-function refusalNote(prefer, why) {
-  return `${VIEW_WORD[prefer] || 'That chart'} would add these figures up, but ${NO_ADD_WHY[why] || NO_ADD_WHY.overlap}, `
-    + 'so they are shown as bars.';
+function caveatNote(prefer, why) {
+  return `Drawn as ${VIEW_NAMES[prefer] || 'a chart'}, as you asked. Read it with care: ${NO_ADD_WHY[why] || NO_ADD_WHY.overlap}.`;
 }
 
 /** Why measure `vc` may not be added along label `col` of these rows, or null. */
@@ -353,7 +442,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
 
   // One row of several figures: a bar (or the pie / donut asked for) per figure.
   const oneRowTypes = ['kpi_bar', 'bar', 'pie', 'doughnut'];
-  if (data.length === 1 && (oneRowTypes.includes(hintType) || (prefer && prefer !== 'table'))) {
+  if (data.length === 1 && (oneRowTypes.includes(hintType) || (prefer && prefer !== 'table') || asksCompare(question))) {
     const row = data[0];
     // Chart the compared parts only: when the row carries a derived total equal
     // to the sum of the parts, its bar would dwarf the comparison. The record
@@ -362,7 +451,10 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     if (keys.length < 2) return { kind: 'record', row };
     // X-3 (audit 2026-10-29): person days, ₹ lakh and households on one axis compare
     // nothing — figures in different units stay a record card
-    if (new Set(keys.map((k) => unitOf(k) || measureKindOf(k))).size > 1 && !(prefer && prefer !== 'table')) {
+    // — unless a comparison is asked of figures in one unit (households against houses,
+    // user 2026-10-30: "compare questions get a graph by default")
+    if (new Set(keys.map((k) => unitOf(k) || measureKindOf(k))).size > 1 && !(prefer && prefer !== 'table')
+        && !(asksCompare(question) && new Set(keys.map((k) => unitOf(k))).size === 1)) {
       return { kind: 'record', row };
     }
     const isTotalKey = (k) => hasSegment(k, ['total', 'overall', 'sum']);
@@ -463,7 +555,19 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
       const asked = askedMeasureCols(question, numCols);
       const vc = askedMeasureCol(question, numCols) || asked[0] || numCols[0];
       const sub = (r) => (say.length ? say.map((d) => r[d]).filter((x) => x !== null && x !== '').join(' · ') : null);
+      // The comparison is drawn too (user 2026-10-30): bars, with a pie / donut only
+      // when the two add up to a real whole, and a line between two periods
+      const periods2 = [l1, l2].every((l) => isPeriodLabel(l) || isMonthLabel(l) || isQuarterLabel(l));
+      const chartOf = (c) => ({
+        // the tiles above already name the two sides; the chart says what it draws
+        title: `${titleCol(c)} by ${titleCol(lc).toLowerCase()}${where}`,
+        labels: [l1, l2].map((l) => placeTitle(l, lc)),
+        values: [toNumber(r1[c]), toNumber(r2[c])],
+        types: ['bar', ...(noAddReason(c, lc, data) ? [] : ['pie', 'doughnut']), ...(periods2 ? ['line'] : [])],
+        axes: { x: colTitle(lc), y: colTitle(c), unit: unitOf(c), lowerBetter: lowerIsBetter(c), measure: humanCol(c) },
+      });
       return {
+        charts: [vc, ...asked.filter((c) => c !== vc)].map(chartOf),
         kind: 'compare',
         vKey: vc,
         title: `${l1} vs ${l2}${where}`,

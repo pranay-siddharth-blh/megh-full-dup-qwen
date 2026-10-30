@@ -43,6 +43,28 @@ _C09_NON_PLACE_NOUNS = frozenset((
     "which what kis kaun kaunsa konsa kon kaha kahan").split())
 
 
+def _c09_full_village_in_text(question: str, named: list) -> "str | None":
+    """The village name the text spells out in full before the word "village", when
+    one of the extractor's mentions is a truncation of it: "Mendipathar" in
+    "… in Mendipathar - Ward No.10 village" -> "Mendipathar - Ward No.10". None
+    when no mention starts such a name (spelling._exact_village knows every
+    stored name, punctuation and digits included)."""
+    from app import spelling
+    low = (question or "").lower()
+    for name in named:
+        n = str(name).strip().lower()
+        k = low.find(n)
+        if k < 0:
+            continue
+        j = low.find(" village", k + len(n))
+        if j < 0:
+            continue
+        span = question[k:j].strip(" ,.")
+        if len(span) > len(n) and spelling._exact_village(span):
+            return span
+    return None
+
+
 def _c09_same_name_village(name: str) -> bool:
     """Is there a village of exactly this name (or alias)? Only then is a block
     name "the block or a village with that name" (user rule 2026-10-21: ask for
@@ -281,7 +303,17 @@ async def resolve_entities(question: str, schemes: list[str],
                   if k in ("district", "block", "village", "assembly_constituency")
                   and isinstance(v, str) and v.strip()]
         _named_levels = {n: _er.place_levels(n) for n in _named}
-        if _named and all(lv and _stated_level not in lv for lv in _named_levels.values()):
+        _full = _c09_full_village_in_text(question, _named) if _named and _stated_level == "village" else None
+        if _full:
+            # The extractor truncates a ward village's name: "Mendipathar - Ward No.10
+            # village" came back as "Mendipathar", which is only a constituency, so the
+            # stated level was dropped, the mention moved to the constituency and the
+            # officer was asked "the whole constituency or part of it?" (cross-scheme
+            # village run 2026-10-30). The text names the village in full: that is it.
+            mentions = {**{k: v for k, v in mentions.items()
+                           if k not in ("district", "block", "village", "assembly_constituency")}, "village": _full}
+            logger.info("stated level 'village': %s is a truncation of %r in the text — kept", _named, _full)
+        elif _named and all(lv and _stated_level not in lv for lv in _named_levels.values()):
             logger.info("stated level %r fits none of %s in the database — the database's level stands",
                         _stated_level, _named_levels)
             _stated_level = None

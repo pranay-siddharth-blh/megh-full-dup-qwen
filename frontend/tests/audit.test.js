@@ -82,10 +82,10 @@ test('G-1 / G-2 / B-2: villages by scheme are bars, never a donut with "Total 13
   assert.equal(a.kind, 'multi');
   assert.equal(a.defType, 'bar');
   assert.deepEqual(a.types, ['bar']);
-  // asked as a donut afterwards: refused, with a note
+  // asked as a donut afterwards: drawn as asked (user rule 2026-10-30), with a caveat
   const d = buildAnalytics('Compare MGNREGA and PMAY-G villages in a donut chart', VILLAGES_BY_SCHEME, null, 'doughnut');
-  assert.equal(d.defType, 'bar');
-  assert.equal(d.refused, 'doughnut');
+  assert.equal(d.defType, 'doughnut');
+  assert.equal(d.caveat, 'doughnut');
   assert.ok(String(d.note).includes("schemes count and spend different things"), d.note);
 });
 
@@ -99,8 +99,11 @@ test('B-12: money across schemes is bars, never "% of the total"', () => {
 
 test('G-13 / G-5: villages by year are never a donut (the same villages repeat each year)', () => {
   const rows = [{ financial_year: '2023-24', villages: 4000 }, { financial_year: '2024-25', villages: 4100 }];
+  // never by default; asked by name it is drawn (user rule 2026-10-30), with a caveat
+  assert.notEqual(buildAnalytics('Villages with MGNREGA work each year', rows, null).defType, 'doughnut');
   const a = buildAnalytics('Villages with MGNREGA work each year as a donut', [...rows, { financial_year: '2025-26', villages: 3900 }], null, 'doughnut');
-  assert.equal(a.refused, 'doughnut');
+  assert.equal(a.defType, 'doughnut');
+  assert.equal(a.caveat, 'doughnut');
   assert.ok(String(a.note).includes("counted again in each year or scheme"), a.note);
 });
 
@@ -134,11 +137,13 @@ test('A-5: "side by side" (grouped_bar, one measure) keeps both labels', () => {
   assert.deepEqual(a.datasets.map((d) => d.label), ['MGNREGA', 'PMAY-G']);
 });
 
-test('A-7: a pie of schemes × years is refused and drawn as bars', () => {
+test('A-7: a pie of schemes × years is drawn as asked, with a caveat (user rule 2026-10-30)', () => {
+  assert.notEqual(buildAnalytics('MGNREGA and PMAY-G beneficiaries each year', SCHEME_YEAR, null).defType, 'pie');
   const a = buildAnalytics('MGNREGA and PMAY-G beneficiaries each year as a pie chart', SCHEME_YEAR, null, 'pie');
   assert.equal(a.kind, 'twoDim');
-  assert.equal(a.defType, 'bar');
-  assert.equal(a.refused, 'pie');
+  assert.equal(a.defType, 'pie');
+  assert.equal(a.caveat, 'pie');
+  assert.ok(String(a.note).startsWith('Drawn as a pie chart, as you asked.'), a.note);
 });
 
 test('B-3: scheme × district puts districts on the x-axis and offers no stack or donut', () => {

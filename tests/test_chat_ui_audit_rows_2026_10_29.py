@@ -34,8 +34,11 @@ def test_money_words_ask_each_schemes_own_money():                              
         assert _parts(q) is None
         named = [s for s in ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy") if s in q]
         assert cf.plan(q, named, {}, {}, M).op == "by_year"
-    # a scheme outside the coded four keeps the split, with its own money words
-    assert _parts("Compare MGNREGA and CM Elevate Legacy amount each year")["questions"][0] ==         "What was the total MGNREGA expenditure in each financial year?"
+    # D-097 (2026-10-30): CM Elevate Legacy is on the coded path too, so its per-year
+    # money is the same fixed-query mode (it was the per-scheme split until then)
+    assert _parts("Compare MGNREGA and CM Elevate Legacy amount each year") is None
+    assert cf.plan("Compare MGNREGA and CM Elevate Legacy amount each year", ["MGNREGA", "CM Elevate Legacy"],
+                   {}, {}, M).op == "by_year"
 
 
 def test_no_measure_asks_which_figure():                                               # A-9

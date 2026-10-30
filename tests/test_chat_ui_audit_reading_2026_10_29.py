@@ -116,7 +116,9 @@ def test_rank_details_both_ends_second_place_exclusion_and_per_head():
     assert pl.exclude == ["EAST KHASI HILLS"] and pl.districts is None                             # I-19
     assert _plan("top 5 districts in MGNREGA and PMAY-G per beneficiary money").first == "avg"     # I-21
     assert _plan("top 5 districts by villages covered in MGNREGA and PMAY-G").first == "villages"  # I-11
-    assert _plan("top 5 districts across all schemes", ALL6).left_out == ["CM Elevate", "CM Elevate Legacy"]
+    # D-097 (2026-10-30): the CM Elevate datasets are on the coded path, each ranked in its own list
+    assert _plan("top 5 districts across all schemes", ALL6).left_out == []
+    assert _plan("top 5 districts across all schemes", ALL6).schemes == list(cf.SUPPORTED)
 
 
 # ── I: the ranked answer and its rows ────────────────────────────────────────
@@ -125,8 +127,11 @@ _DIST = {   # (beneficiaries, money in crore, villages)
                 "EAST KHASI HILLS": (190000, 400.0, 900), "SOUTH GARO HILLS": (50000, 90.0, 300)},
     "PMAY-G": {"WEST GARO HILLS": (33147, 425.01, 650), "RI BHOI": (17565, 222.85, 480),
                "EAST KHASI HILLS": (40000, 300.0, 870), "SOUTH GARO HILLS": (9000, 60.0, 250)},
+    # D-097: CM Elevate is on the coded path (applications; no money)
+    "CM Elevate": {"WEST GARO HILLS": (900, 0.0, 60), "RI BHOI": (400, 0.0, 40),
+                   "EAST KHASI HILLS": (1100, 0.0, 80), "SOUTH GARO HILLS": (200, 0.0, 20)},
 }
-_VIEW = {"v_employment": "MGNREGA", "v_expenditure": "MGNREGA", "v_pmay": "PMAY-G"}
+_VIEW = {"v_employment": "MGNREGA", "v_expenditure": "MGNREGA", "v_pmay": "PMAY-G", "v_cm_elevate ": "CM Elevate"}
 
 
 @pytest.fixture
@@ -212,10 +217,18 @@ def test_per_head_ranking_is_on_money_per_beneficiary(fake_db):
     assert out["rows"][0]["rupees_per_beneficiary"] > 0                                        # I-21
 
 
-def test_all_schemes_ranks_the_coded_four_and_says_cm_elevate_is_out(fake_db):
+def test_all_schemes_ranks_cm_elevate_in_its_own_list(fake_db):
+    # I-13 kept its spirit under D-097 (2026-10-30): CM Elevate is never added to the
+    # others; its district list by applications stands beside theirs
     pl = _plan("top 2 districts across all schemes", ["MGNREGA", "PMAY-G", "CM Elevate"])
     out = asyncio.run(cf.answer(pl))
-    assert "CM Elevate is not in this ranking" in out["answer"]                                # I-13
+    assert "**CM Elevate** — Top 2 districts by applications: 1. " in out["answer"]
+    assert {r["scheme"] for r in out["rows"]} == {"MGNREGA", "PMAY-G", "CM Elevate"}
+    # a combined ranking adds the two beneficiary counts and leaves the applications out
+    pl = _plan("top 2 districts across all schemes combined", ["MGNREGA", "PMAY-G", "CM Elevate"])
+    out = asyncio.run(cf.answer(pl))
+    assert "by combined beneficiaries (MGNREGA + PMAY-G)" in out["answer"]
+    assert "CM Elevate is not in the combined figure: it records applications, not beneficiaries." in out["answer"]
     assert {r["scheme"] for r in out["rows"]} == {"MGNREGA", "PMAY-G"}
 
 

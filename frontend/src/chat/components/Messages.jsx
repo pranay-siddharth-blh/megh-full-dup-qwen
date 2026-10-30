@@ -1,13 +1,13 @@
 import { Fragment, memo, useEffect, useMemo, useRef, useState } from 'react';
-import { buildAnalytics, chartPreference, humanCol, withoutChartPhrase } from '../analytics.js';
+import { VIEW_NAMES, humanCol, viewPlan, withoutChartPhrase } from '../analytics.js';
 import { answerKey, fullStamp } from '../format.js';
 import { rowsAsTsv } from '../exporters.js';
 import { CompareCard, DynTable, GroupedChart, PivotTable, RecordCard, RowTotal, StackedChart, SwitchableChart, TwoDimChart } from './Charts.jsx';
 import { Markdown, plainText } from './Markdown.jsx';
 import { useReveal } from '../reveal.js';
-import { isMonthLabel, isQuarterLabel, themeFor } from '../chartTheme.js';
+import { themeFor } from '../chartTheme.js';
 import { sendFeedbackApi } from '../api.js';
-import { inlineSpans, isPeriodLabel } from '../text.js';
+import { inlineSpans } from '../text.js';
 import { enterSends } from '../shortcuts.js';
 
 /* One chat message. A bot answer (`response` from /api/query) renders the same
@@ -49,80 +49,86 @@ function Analytics({ question, response, view, onAsk }) {
   // The standalone question first: "why are you giving a line chart?" is answered
   // as "... as a pie chart" (rewritten by the backend); its own words name the
   // wrong type.
-  const asked = view || chartPreference(response.rewritten_question) || chartPreference(question);
-  const prefer = asked === 'chart' || (asked && asked !== 'table') ? asked : null;
-  const a = useMemo(
-    () => buildAnalytics(question, response.data, response.chart_type, prefer),
-    [question, response, prefer],
-  );
+  // viewPlan (analytics.js) decides what is drawn and which types each card offers;
+  // this renders it. The live chart suite grades the same plan (2026-10-30).
+  const plan = useMemo(() => viewPlan(question, response, view), [question, response, view]);
   // The answer's scheme picks the charts' hue (chartTheme.js, D-043).
   const theme = useMemo(() => themeFor(response.schemes), [response.schemes]);
-  if (!a) return null;
+  if (!plan) return null;
+  const { a, prefer, charts } = plan;
   // "/table" or "as a table" shows the rows as a table whatever the charts
   // would have been; a chart asked for shows the charts without their table.
-  if (asked === 'table') return <div className="analytics"><DynTable data={response.data} /></div>;
+  if (plan.asked === 'table') return <div className="analytics"><DynTable data={response.data} /></div>;
   const withTables = !prefer && !a.noTable;
-  // A named type ("pie chart", "bar graph", "line chart") is that chart ONLY —
-  // no Bar / Pie / Donut / Line switcher. A plain "chart" / "graph", or nothing
-  // asked, keeps every type on offer (user, 2026-10-19).
-  // A type the rows cannot honestly be drawn as (a donut of overlapping counts,
-  // a stack of schemes) was refused by buildAnalytics: bars, with its note.
-  const named = prefer && prefer !== 'chart' && !a.refused;
-  const only = named ? (prefer === 'stacked' ? 'bar' : prefer) : null;
-  const only2d = named ? prefer : null;
-  const note = a.note ? <div className="chart-note"><p>{a.note}</p></div> : null;
-  const typesOr = (all) => (only ? [only] : all);
-  // A chart was asked for but the answer is one figure: say so, and offer the
-  // breakdowns that can be drawn, instead of silently showing the number again.
-  if (prefer && a.kind === 'record') {
+  const note = plan.note ? <div className="chart-note"><p>{plan.note}</p></div> : null;
+  // A chart was asked for but the answer is one figure: it is drawn as asked, and
+  // the breakdowns that make a fuller chart are offered (user 2026-10-30: "if the
+  // graph is not there for that question, generate it and give it").
+  if (plan.mode === 'recordAsked') {
     const base = withoutChartPhrase(response.rewritten_question || question);
+    const c = charts[0];
     return (
       <div className="analytics">
+        {c ? (
+          <div className="dyn-grid single">
+            <SwitchableChart title={c.title} labels={c.labels} values={c.values} types={c.types} initial={c.initial} theme={theme} />
+          </div>
+        ) : <RecordCard row={a.row} />}
         <div className="chart-note">
-          <p>This is a single figure, so there is nothing to draw as a chart. I can chart it broken down:</p>
+          <p>{c ? 'This answer is a single figure. For a fuller chart, I can break it down:'
+            : 'This answer has no figure to draw. I can chart it broken down:'}</p>
           {onAsk && base && (
             <div className="clarify-opts">
               {['by district', 'for each financial year'].map((tail) => (
-                <button key={tail} type="button" className="clarify-opt" {...askProps(onAsk, `${base} ${tail} as a chart`)}>
+                <button key={tail} type="button" className="clarify-opt" {...askProps(onAsk, `${base} ${tail} as ${VIEW_NAMES[prefer] || 'a chart'}`)}>
                   {tail[0].toUpperCase() + tail.slice(1)}
                 </button>
               ))}
             </div>
           )}
         </div>
-        <RecordCard row={a.row} />
       </div>
     );
   }
-  if (a.kind === 'kpi') {
+  if (plan.mode === 'kpi') {
+    const [c] = charts;
     return (
       <div className="analytics">
+        {note}
         <div className="dyn-grid single">
-          <SwitchableChart title="Summary" labels={a.labels} values={a.values} types={typesOr(['bar', 'pie', 'doughnut'])} initial={only || a.defType} theme={theme} />
+          <SwitchableChart title="Summary" labels={a.labels} values={a.values} types={c.types} initial={c.initial} theme={theme} />
         </div>
         {withTables && <RecordCard row={a.row} />}
       </div>
     );
   }
-  if (a.kind === 'record') return <div className="analytics"><RecordCard row={a.row} /></div>;
-  if (a.kind === 'compare') {
+  if (plan.mode === 'record') return <div className="analytics"><RecordCard row={a.row} /></div>;
+  if (plan.mode === 'compare') {
     // G-9 / B-11: what the figure is for each scheme ("household-years", "money released")
-    const said = (side) => (response.measure_notes && response.measure_notes[side.label]
-      && response.measure_notes[side.label][a.vKey]) || side.detail;
+    const said = (side, vKey) => (response.measure_notes && response.measure_notes[side.label]
+      && response.measure_notes[side.label][vKey]) || side.detail;
     return (
       <div className="analytics">
-        <CompareCard title={a.title} measure={a.measure} a={{ ...a.a, detail: said(a.a) }} b={{ ...a.b, detail: said(a.b) }}
+        <CompareCard title={a.title} measure={a.measure} a={{ ...a.a, detail: said(a.a, a.vKey) }} b={{ ...a.b, detail: said(a.b, a.vKey) }}
                      verdict={a.verdict} unit={a.unit} />
         {(a.more || []).map((c) => (
           <CompareCard key={c.vKey} title={a.title} measure={c.measure} unit={c.unit} verdict={c.verdict}
-                       a={{ ...c.a, detail: (response.measure_notes && response.measure_notes[c.a.label] && response.measure_notes[c.a.label][c.vKey]) || c.a.detail }}
-                       b={{ ...c.b, detail: (response.measure_notes && response.measure_notes[c.b.label] && response.measure_notes[c.b.label][c.vKey]) || c.b.detail }} />
+                       a={{ ...c.a, detail: said(c.a, c.vKey) }} b={{ ...c.b, detail: said(c.b, c.vKey) }} />
         ))}
+        {/* A comparison is drawn too (user 2026-10-30: "compare questions get a graph by default") */}
+        {charts.length > 0 && (
+          <div className={'dyn-grid' + (charts.length === 1 ? ' single' : '')}>
+            {charts.map((c) => (
+              <SwitchableChart key={c.title} title={c.title} labels={c.labels} values={c.values} types={c.types}
+                               initial={c.initial} theme={theme} axes={c.axes} />
+            ))}
+          </div>
+        )}
         {withTables && a.extra && <DynTable data={a.data} />}
       </div>
     );
   }
-  if (a.kind === 'table') {
+  if (plan.mode === 'table') {
     return (
       <div className="analytics">{note}
         {a.pivot ? <PivotTable data={a.data} xKey={a.pivot.xKey} sKey={a.pivot.sKey} vKey={a.pivot.vKey} /> : <DynTable data={a.data} />}
@@ -131,46 +137,44 @@ function Analytics({ question, response, view, onAsk }) {
   }
   // A chart type was asked for: answers whose card has no type switch (grouped,
   // stacked) are drawn by the cards that have one, so the asked type is used.
-  if (prefer && a.kind === 'stacked') {
+  if (plan.mode === 'stacked2d') {
+    const [c] = charts;
     return (
       <div className="analytics">
+        {note}
         <div className="dyn-grid single">
-          <TwoDimChart title={a.title} labels={a.labels.map(String)} datasets={a.datasets} xKey={a.xKey} sKey={a.sKey}
-                       initial={only2d || 'stacked'} types={only2d ? [only2d] : undefined} theme={theme} />
+          <TwoDimChart title={c.title || a.title} labels={(c.labels || a.labels).map(String)} datasets={c.datasets || a.datasets}
+                       xKey={c.xKey || a.xKey} sKey={c.sKey || a.sKey} initial={c.initial} types={c.types} theme={theme} />
         </div>
+        {!withTables && a.data && (
+          <details className="chart-figures"><summary>Show the figures as a table</summary><DynTable data={a.data} /></details>
+        )}
       </div>
     );
   }
-  if (prefer && a.kind === 'grouped' && prefer !== 'chart' && prefer !== 'bar') {
+  if (plan.mode === 'groupedSplit') {
     return (
       <div className="analytics">
+        {note}
         <div className={'dyn-grid' + (a.datasets.length === 1 ? ' single' : '')}>
-          {a.datasets.map((d) => (
+          {a.datasets.map((d, i) => (
             <SwitchableChart key={d.label} title={d.label} labels={a.labels} fullLabels={a.fullLabels} values={d.values}
-                             types={typesOr(['bar', 'pie', 'doughnut', ...(periodAxis(a.labels) ? ['line'] : [])])} initial={only || 'bar'} theme={theme} />
+                             types={charts[i].types} initial={charts[i].initial} theme={theme} />
           ))}
         </div>
       </div>
     );
   }
-  // A chart was asked for but the rows hold no numbers: say so plainly.
-  if (prefer && a.kind === 'table') {
+  if (plan.mode === 'grouped') {
     return (
       <div className="analytics">
-        <div className="chart-note"><p>These results are names and labels with no numbers, so there is nothing to chart. Here they are as a table.</p></div>
-        <DynTable data={a.data} />
-      </div>
-    );
-  }
-  if (a.kind === 'grouped') {
-    return (
-      <div className="analytics">
+        {note}
         <div className="dyn-grid single"><GroupedChart title={a.title} labels={a.labels} fullLabels={a.fullLabels} datasets={a.datasets} theme={theme} /></div>
         {withTables && <DynTable data={a.data} />}
       </div>
     );
   }
-  if (a.kind === 'stacked') {
+  if (plan.mode === 'stacked') {
     return (
       <div className="analytics">
         <div className="dyn-grid single"><StackedChart title={a.title} labels={a.labels} datasets={a.datasets} theme={theme} /></div>
@@ -178,17 +182,15 @@ function Analytics({ question, response, view, onAsk }) {
       </div>
     );
   }
-  if (a.kind === 'twoDim') {
+  if (plan.mode === 'twoDim') {
+    const all = [{ title: a.title, labels: a.labels, datasets: a.datasets, vKey: a.vKey, axes: a.axes }, ...(a.more || [])];
     return (
       <div className="analytics">
         {note}
         <div className="dyn-grid single">
-          <TwoDimChart title={a.title} labels={a.labels} datasets={a.datasets} xKey={a.xKey} sKey={a.sKey}
-                       periods={a.periods} initial={only2d || a.defType} types={only2d ? [only2d] : a.types} theme={theme}
-                       axisInfo={a.axes} />
-          {(a.more || []).map((m) => (
+          {all.map((m, i) => (
             <TwoDimChart key={m.vKey} title={m.title} labels={m.labels} datasets={m.datasets} xKey={a.xKey} sKey={a.sKey}
-                         periods={a.periods} initial={only2d || a.defType} types={only2d ? [only2d] : a.types} theme={theme}
+                         periods={a.periods} initial={charts[i].initial} types={charts[i].types} theme={theme}
                          axisInfo={m.axes} />
           ))}
         </div>
@@ -210,7 +212,7 @@ function Analytics({ question, response, view, onAsk }) {
       <div className={'dyn-grid' + (single ? ' single' : '')}>
         {a.charts.map((c, i) => (
           <SwitchableChart key={i} title={c.title} labels={c.labels} fullLabels={c.fullLabels.map((_, j) => tip(c, j))} values={c.values}
-                           types={typesOr(a.types || ['bar', 'pie', 'doughnut', ...(periodAxis(c.labels) ? ['line'] : [])])} initial={only || a.defType}
+                           types={charts[i].types} initial={charts[i].initial}
                            theme={c.scheme ? themeFor([c.scheme]) : theme}
                            axes={c.axes} />
         ))}
@@ -320,9 +322,6 @@ function fallbackCopy(text, done) {
 
 // Copy `text` to the clipboard; `done` runs once it is there.
 // X-4 (audit 2026-10-29): Line is offered only when the x-axis is a period
-const periodAxis = (labels) => Array.isArray(labels) && labels.length > 0
-  && labels.every((l) => isPeriodLabel(l) || isMonthLabel(l) || isQuarterLabel(l));
-
 export function copyText(text, done) {
   if (navigator.clipboard && navigator.clipboard.writeText) {
     navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));

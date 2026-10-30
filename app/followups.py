@@ -152,7 +152,7 @@ def _answer_grain(sql: str | None) -> str | None:
 
 def _filter_level(ents: dict) -> str:
     """The finest geography the question is *filtered* to (one named area)."""
-    if ents.get("village_code") or ents.get("village"):
+    if ents.get("village_code") or ents.get("village") or ents.get("village_twins"):
         return "village"
     if ents.get("block"):
         return "block"
@@ -221,6 +221,15 @@ def _scope_phrase(ents: dict) -> str:
         return f" in {str(b).title()} block"
     if d:
         return f" in {str(d).title()}"
+    # A constituency answer's chips said "… in Meghalaya" and offered "Break that down by
+    # district." — the state, not the constituency asked (PMAY-G sheet re-test 2026-10-30).
+    # villages sharing one name (D-089 J-10): the name brings the same villages back
+    twins = ents.get("village_twins")
+    if isinstance(twins, dict) and twins:
+        return f" in {str(next(iter(twins.values()))).split(' (')[0]}"
+    ac = ents.get("assembly_constituency")
+    if ac:
+        return f" in {str(ac).title()} constituency"
     return " in Meghalaya"
 
 
@@ -235,6 +244,8 @@ def _drill_down(ents: dict, grain: str | None = None,
     view = _view_level(ents, grain)
     if view == "village":
         return None
+    if view == "state" and ents.get("assembly_constituency"):
+        return None        # a constituency is not the state: no "by district" of Meghalaya
 
     # A named area is in play — drill straight inside it.
     if view == "block" and ents.get("block"):

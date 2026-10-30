@@ -36,23 +36,57 @@ Geography: Focus Plus by the SOURCE district / block name (district_name_raw /
 block_name_raw — what its catalogue notes lead with, and what the source file
 counts: West Garo Hills 35,059, not the LGD 35,039); every other scheme by the LGD
 district / block. One column per scheme, every query (KI-393).
+
+D-097 (2026-10-30, Cross Scheme Test Cases sheet re-run): CM Elevate and CM Elevate
+Legacy are on this path too, and so are a village and an assembly constituency.
+Every combination with either CM Elevate dataset (41 of the 57) and every village /
+constituency question went to the model path, where the same question timed out
+(84-121 s), lost MGNREGA, gave PMAY-G's sanctioned amount, added village counts
+across schemes ("97 villages across all schemes") or said "24 districts".
+  CM Elevate         applications = COUNT(DISTINCT request_id); no money, no financial
+                     year (said, never 0); villages = distinct codes, 'Unresolved' out.
+  CM Elevate Legacy  applicants sanctioned = records with a sanctioned amount (2,820,
+                     the scheme's own rule, KI-166); money = total_disbursement
+                     (subsidy + loan); villages as above.
+  Constituency       MGNREGA assembly_constituency_name; PMAY-G, Focus Legacy and CM
+                     Elevate Legacy ac_name (D-096); Focus Plus and CM Elevate do not
+                     record one (c13 _CROSS_AC_RECORDED says so, Plan.gaps).
+  Village            village_code, with each scheme's own village filter
+                     (cross_scheme.SPECS).
+A combined total or a combined district ranking leaves CM Elevate out (its
+applications are not beneficiaries; chat UI audit I-13) and says so.
 """
 from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
 
-from app import db
+from app import cross_scheme, db
 from app.text_match import ANY, Alt, Gap, Matcher, Opt, Seq, W, tokens
 
 logger = logging.getLogger(__name__)
 
-SUPPORTED = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy")
+# the four main schemes: what an exclusion leaves ("leaving out MGNREGA, which
+# scheme …" compares the other three, D-066)
+MAIN = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy")
+SUPPORTED = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CM Elevate Legacy")
+# records no money / no financial year at all (said plainly, never shown as 0)
+NO_MONEY = frozenset({"CM Elevate"})
+NO_YEAR = frozenset({"CM Elevate"})
+# the schemes a constituency filter can read (the others do not record one); the
+# column is per view: MGNREGA employment carries its own assembly_constituency_name
+# (the column its scheme answers use), every other view the geography's ac_name
+_AC_COL = {"MGNREGA": "UPPER(ac_name)", "PMAY-G": "UPPER(ac_name)",
+           "Focus Legacy": "UPPER(ac_name)", "CM Elevate Legacy": "UPPER(ac_name)"}
+_AC_VIEW_COL = {"curated.v_employment": "UPPER(assembly_constituency_name)"}
+# a combined total / ranking leaves these out (applications are not beneficiaries, I-13)
+_APART_IN_COMBINED = frozenset({"CM Elevate"})
 
 # ── the per-scheme queries ────────────────────────────────────────────────────
 # Each entry: (view, district column, block column, [(metric, SQL expression)]).
 # The expressions are fixed strings; every value the user gave is a bound parameter.
 _FP_VILL = "COUNT(DISTINCT village_code) FILTER (WHERE village_code > 0 AND entity_type <> 'Unresolved')"
+_CME_VILL = "COUNT(DISTINCT village_code) FILTER (WHERE village_code IS NOT NULL AND entity_type <> 'Unresolved')"
 _QUERIES: dict[str, list[tuple[str, str, str, list[tuple[str, str]]]]] = {
     "MGNREGA": [
         ("curated.v_employment", "UPPER(lgd_district)", "UPPER(lgd_block)",
@@ -81,12 +115,41 @@ _QUERIES: dict[str, list[tuple[str, str, str, list[tuple[str, str]]]]] = {
           ("money", "SUM(amount_disbursed) / 1e7"), ("villages", _FP_VILL),
           ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
     ],
+    "CM Elevate": [
+        ("curated.v_cm_elevate", "UPPER(lgd_district)", "UPPER(lgd_block)",
+         [("ben", "COUNT(DISTINCT request_id)"), ("villages", _CME_VILL),
+          ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
+    ],
+    "CM Elevate Legacy": [
+        ("curated.v_cm_elevate_disbursement", "UPPER(lgd_district)", "UPPER(lgd_block)",
+         [("ben", "COUNT(*) FILTER (WHERE sanctioned_amount > 0)"), ("records", "COUNT(*)"),
+          ("money", "SUM(total_disbursement) / 1e7"), ("sanctioned", "SUM(sanctioned_amount) / 1e7"),
+          ("villages", _FP_VILL),
+          ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
+    ],
 }
 # Focus Plus names a block another way than LGD for new / urban blocks: a block its
 # source names never use is looked up by its LGD block instead.
 _FP_LGD_BLOCK = "UPPER(lgd_block)"
 
 STATE = "__state__"
+
+
+def _block_names(block: str) -> list[str]:
+    """The stored spellings of one block. The Tura urban body is stored twice —
+    'TURA MUNICIPAL BOARD' (CM Elevate 28 applications, CM Elevate Legacy) and
+    'TURA MUNICIPAL BOARD-MUNICIPAL BOARD' (CM Elevate 77, Focus Plus) — and both
+    are the one block (KI-275; cross-scheme run 2026-10-13 counted both, 105)."""
+    b = block.upper()
+    base = b[:-len("-MUNICIPAL BOARD")] if b.endswith("-MUNICIPAL BOARD") else b
+    if base == "TURA MUNICIPAL BOARD":
+        return [base, base + "-MUNICIPAL BOARD"]
+    return [b]
+
+
+def has_measure(scheme: str, measure: str) -> bool:
+    """Whether a scheme records the measure at all (CM Elevate: no money)."""
+    return not (measure in ("money", "avg") and scheme in NO_MONEY)
 
 
 def _sql(view: str, group: "str | None", metrics: list, where: list[str]) -> str:
@@ -97,6 +160,8 @@ def _sql(view: str, group: "str | None", metrics: list, where: list[str]) -> str
 
 
 async def _years_held(scheme: str) -> list[int]:
+    if scheme in NO_YEAR:
+        return []
     if scheme not in _YEARS:
         view = _QUERIES[scheme][0][0]
         rows = await db.fetch_rows(f"SELECT DISTINCT year_key AS y FROM {view} WHERE year_key IS NOT NULL", [])
@@ -109,11 +174,17 @@ _YEARS: dict[str, list[int]] = {}
 
 async def scheme_figures(scheme: str, *, by_district: bool, districts: "list[str] | None" = None,
                          block: "str | None" = None, year: "int | None" = None,
-                         by_year: bool = False, years: "list[int] | None" = None) -> tuple[dict, list[str]]:
+                         by_year: bool = False, years: "list[int] | None" = None,
+                         village: "int | None" = None, ac: "str | None" = None,
+                         grain: str = "district") -> tuple[dict, list[str]]:
     """{key: {metric: value}} for one scheme (key = STATE, or an upper-case district
-    name when by_district), and the SQL run (shown to the user as the query)."""
+    name when by_district), and the SQL run (shown to the user as the query).
+    `village` = one LGD village code (each scheme's own village filter applies);
+    `ac` = an assembly constituency name (a scheme that records none gives {})."""
     out: dict[str, dict] = {}
     shown: list[str] = []
+    if ac and scheme not in _AC_COL:
+        return out, shown
     for view, dcol, bcol, metrics in _QUERIES[scheme]:
         for attempt_bcol in ([bcol, _FP_LGD_BLOCK] if scheme == "Focus Plus" and block else [bcol]):
             where, params = [], []
@@ -121,20 +192,30 @@ async def scheme_figures(scheme: str, *, by_district: bool, districts: "list[str
                 params.append([d.upper() for d in districts])
                 where.append(f"{dcol} = ANY(${len(params)}::text[])")
             if block:
-                params.append(block.upper())
-                where.append(f"{attempt_bcol} = ${len(params)}")
+                params.append(_block_names(block))
+                where.append(f"{attempt_bcol} = ANY(${len(params)}::text[])")
+            if village is not None:
+                params.append(int(village))
+                where.append(f"village_code = ${len(params)}")
+                where.append(cross_scheme.SPECS[scheme].village_where)
+            if ac:
+                params.append(str(ac).upper())
+                where.append(f"{_AC_VIEW_COL.get(view, _AC_COL[scheme])} = ${len(params)}")
             if year is not None:
                 params.append(int(year))
                 where.append(f"year_key = ${len(params)}")
             if years:
                 params.append([int(y) for y in years])
                 where.append(f"year_key = ANY(${len(params)}::int[])")
-            sql = _sql(view, "year_key" if by_year else (dcol if by_district else None), metrics, where)
+            gcol = (bcol if grain == "block" else dcol) if by_district else None
+            sql = _sql(view, "year_key" if by_year else gcol, metrics, where)
             rows = [dict(r) for r in await db.fetch_rows(sql, params)]
             got = any(any(v for k, v in r.items() if k != "k") for r in rows)
             if got or attempt_bcol == _FP_LGD_BLOCK or not block or scheme != "Focus Plus":
                 shown.append(sql)
                 for r in rows:
+                    if by_year and r["k"] is None:
+                        continue             # CM Elevate Legacy: 395 records carry no year (c06)
                     key = str(int(r["k"])) if by_year else (STATE if not by_district else str(r["k"]))
                     out.setdefault(key, {}).update({m: float(r[m] or 0.0) for m, _e in metrics})
                 break
@@ -162,6 +243,18 @@ _DISTRICT_GRAIN = Matcher(Alt(
 ))
 _WHICH_DISTRICTS = Matcher(Alt(S(W("which", "what"), "districts"), Seq(W("top"), Gap(0, 1), W("districts")),
                                S("districts", W("have", "has", "where", "with"))))
+# "widest coverage across (the) districts of Meghalaya" asks how many districts each
+# scheme spans — the statewide reach, not a per-district winner (Cross Scheme sheet
+# CROSS-13, re-run 2026-10-30). "each / per district", "district-wise" still group.
+_ACROSS_DISTRICTS = Matcher(S(W("across", "over", "among"), Opt(Alt("the", "all")), "districts"))
+_PER_DISTRICT = Matcher(Alt(S(W("each", "every", "per", "by"), "district"), Seq(W("district"), W("wise", "wide")),
+                            W("districtwise")))
+# "block-wise", "each block", "per block": one row per block (of the named district,
+# or of the state) — the same table as per district (D-097, Cross Scheme sheet BW cases)
+_BLOCK_GRAIN = Matcher(Alt(
+    S(W("each", "every", "per", "by"), "block"), Seq(W("block"), W("wise")), W("blockwise"),
+    S(W("across", "over", "among"), "blocks"), S(W("for", "in"), Opt("each"), "block", W("wise")),
+))
 # a grain this module does not answer: village / block lists, years. "Top ten
 # highest villages in Mgnrega and pmay" is a village list (D-062's own case), not
 # the village count "which scheme reaches the most villages" is.
@@ -218,6 +311,9 @@ _COUNT = Matcher(Alt(
     W("beneficiar", prefix=True),
     W("count", "counts", "people", "households", "household", "houses", "members", "numbers",
       "concentration", "bigger", "larger"),
+    # "beneficiary / application count": CM Elevate's count is its applications
+    # (D-097, 2026-10-30; they were B-7's "other measure" while it was off this path)
+    W("application", "applications", "applicant", "applicants"),
     S("number", "of"), S("how", "many"), S("producer", "groups"),
 ))
 # "coverage" / "widest" / villages — not the verb "cover" ("how many beneficiaries
@@ -234,7 +330,7 @@ _BETTER = Matcher(W("better", "worse", "best", "worst", "good", "bad", "superior
 # B-7: measures this module does not compute (person days, job cards, applications …):
 # the per-scheme path answers them, and each scheme says what it records
 _OTHER_MEASURE = Matcher(Alt(S("person", W("day", "days")), W("persondays", "mandays", "manday"),
-                             S("job", W("card", "cards")), W("jobcard", "jobcards", "application", "applications",
+                             S("job", W("card", "cards")), W("jobcard", "jobcards",
                                                               "wage", "wages", "instalment", "instalments",
                                                               "installment", "installments", "tranche", "tranches")))
 _AVG = Matcher(Alt(S("per", W("beneficiary", "beneficiaries", "head", "house", "member", "household", "person")),
@@ -288,6 +384,16 @@ class Plan:
     years: "list | None" = None          # op by_year: the years asked ([] = every year held)
     list_villages: bool = False          # op overlap: name the villages, not only count them
     better: bool = False                 # "which is better": figures side by side, no winner (B-8)
+    village: "int | None" = None         # one LGD village code (D-097)
+    ac: "str | None" = None              # an assembly constituency, upper case (D-097)
+    # {scheme: why it has no figure here} from c13 _cross_scheme_gaps (a constituency
+    # it does not record, a year it has no data for, money for CM Elevate): said,
+    # never queried (D-097)
+    gaps: dict = field(default_factory=dict)
+    grain: str = "district"              # by_district rows are per district, or per block (D-097)
+    # a name shared by 2-3 villages (c09 village_twins, D-096 / KI-630): {code: label};
+    # one row per village and scheme, never summed (grain "village")
+    villages: dict = field(default_factory=dict)
 
 
 # ── rank words at a place level (audit 2026-10-29, I-1 / I-3 / I-4 / I-14 / I-16 / I-18) ──
@@ -438,28 +544,61 @@ def _first_pos(text: str, scheme: str, scheme_matchers: dict) -> int:
     return hit.start() if hit else 10 ** 6
 
 
+def _without_dataset_words(text: str) -> str:
+    """"CM Elevate applicants" / "cm-elevate applications" / "CM Elevate (applications)"
+    name the applications DATASET; the application word is not a measure of the
+    question ("How much was disbursed under CM Elevate applicants and Legacy CM
+    Elevate" asks money only; "pmay-g vs cm elevate applicants performance" is a
+    broad ask). Cross Scheme sheet re-run 2026-10-30."""
+    out = []
+    words = text.split()
+    for i, w in enumerate(words):
+        core = w.strip("()?.,").lower()
+        prev = [x.strip("()?.,-").lower() for x in words[max(0, i - 3):i]]
+        # "cm elevate applicants", "CM Elevate Legacy applicants" (the pin's rewrite of
+        # a FY question), "Legacy CM Elevate applications"
+        if core in ("applicants", "applicant", "applications", "application") and (
+                prev[-2:] == ["cm", "elevate"] or prev[-3:] == ["cm", "elevate", "legacy"]
+                or prev[-3:] == ["legacy", "cm", "elevate"]):
+            continue
+        if core in ("applicants", "applicant", "applications", "application") and i >= 1 \
+                and words[i - 1].strip("()?.,").lower() in ("cm-elevate", "cmelevate"):
+            continue
+        out.append(w)
+    return " ".join(out)
+
+
 def plan(text: str, schemes: list, resolved: dict, display: "dict | None",
          scheme_matchers: dict) -> "Plan | None":
     """What to compute for a cross-scheme question, or None when its shape is not
     one this module answers (the D-062 model path takes it). `text` is the
     question with any excluded schemes masked out."""
+    text = _without_dataset_words(text)
     ask = rank_ask(text)
     drank = ask is not None and ask.level == "district"
     left_out = [s for s in (schemes or []) if s not in SUPPORTED]
-    if left_out and not (drank and len([s for s in schemes if s in SUPPORTED]) >= 2):
-        return None                      # CM Elevate / CM Elevate Legacy: the model path
-    # I-13: "top 5 districts across all schemes" ranks the four coded schemes and
-    # says CM Elevate is not in it, rather than leaving the coded path for a merge
     schemes = [s for s in SUPPORTED if s in schemes]
     if len(schemes) < 2:
         return None
     r = resolved or {}
-    if any(r.get(k) for k in ("village_code", "village_code_list", "assembly_constituency", "block_list")):
+    twins = {int(k): str(v) for k, v in (r.get("village_twins") or {}).items()} if r.get("village_twins") else {}
+    if r.get("block_list") or (r.get("village_code_list") and not twins):
+        return None                      # several villages / blocks at once: a list per scheme
+    # D-097: one village or one constituency is a place like a block (its figures per
+    # scheme); a list of villages (village_code_list) is not — unless it is the 2-3
+    # same-named villages of KI-630, answered one row each
+    village = r.get("village_code") if not isinstance(r.get("village_code"), (list, tuple)) else None
+    ac = str(r["assembly_constituency"]).upper() if r.get("assembly_constituency") else None
+    if r.get("village_code") and village is None and not twins:
         return None
+    if twins:
+        village = None
     if _OTHER_MEASURE.search(text):
         return None                      # B-7: "person days" was answered with beneficiaries and money
     if ask is not None and ask.level != "district":
         return None                      # top / lowest villages, blocks: a list per scheme (model path)
+    if (village or ac or twins) and drank:
+        return None                      # a district ranking inside one village makes no sense
     # "top 5 districts by villages covered" is a district ranking on the villages
     # measure, not a village list (I-11): with a district ranking only the time
     # words of _OTHER_GRAIN send the question on
@@ -486,7 +625,9 @@ def plan(text: str, schemes: list, resolved: dict, display: "dict | None",
     timed = bool(r.get("year_key_list")) or yearly
     if drank and timed:
         return None                      # a district ranking per year: a list per scheme and year
-    if not drank and _OTHER_PLACES.search(text):
+    block_grain = bool(_BLOCK_GRAIN.search(text)) and not drank and not (village or ac) \
+        and not (ask is not None) and not _top_n(text)
+    if not drank and not block_grain and _OTHER_PLACES.search(text):
         return None
     if timed and (_MONTHLY.search(text) or _DISTRICT_GRAIN.search(text)):
         return None
@@ -496,12 +637,24 @@ def plan(text: str, schemes: list, resolved: dict, display: "dict | None",
     block = r.get("block")
     if block and districts:
         districts = None                 # the block settles the place
+    if village or ac or twins:
+        districts, block = None, None    # the village / constituency settles the place
     exclude = _excluded_places(text, districts or []) if drank else []
     if exclude:
         districts = [d for d in districts if d not in exclude] or None
     money, count, vill = bool(_MONEY.search(text)), bool(_COUNT.search(text)), bool(_VILLAGES.search(text))
+    if village or twins:
+        # "… in Apalgre village": the word names the place; a village has no villages count
+        vill = False
     perf, summary, avg = bool(_PERFORMANCE.search(text)), bool(_SUMMARY.search(text)), bool(_AVG.search(text))
-    by_district = drank or bool(_DISTRICT_GRAIN.search(text)) or bool(districts and len(districts) > 1)
+    grain_cue = bool(_DISTRICT_GRAIN.search(text))
+    if grain_cue and vill and not (money or count) and _ACROSS_DISTRICTS.search(text) \
+            and not _PER_DISTRICT.search(text) and not _WHICH_DISTRICTS.search(text):
+        grain_cue = False                # coverage "across districts": the statewide reach
+    by_district = ((drank or block_grain or grain_cue
+                    or bool(districts and len(districts) > 1)) and not (village or ac)) or bool(twins)
+    if block_grain and block:
+        block = None                     # "block-wise in Mylliem block" reads as the district's blocks
     if timed and by_district:
         return None
     explicit = money or count or vill
@@ -552,7 +705,9 @@ def plan(text: str, schemes: list, resolved: dict, display: "dict | None",
              rank_measures=bool(_RANK_MEASURES.search(text)) and not by_district,
              lead_all=perf or (count and money),
              both=bool(drank and ask.high and ask.low), nth=ask.nth if drank else None,
-             exclude=exclude, left_out=left_out, better=better, years=list(r.get("year_key_list") or []) if timed else None)
+             exclude=exclude, left_out=left_out, better=better, years=list(r.get("year_key_list") or []) if timed else None,
+             village=int(village) if village else None, ac=ac,
+             grain="village" if twins else ("block" if block_grain else "district"), villages=twins)
     if drank and not exclude and any(w in _EXCLUDE_WORDS for w in (t.low for t in tokens(text))):
         p.notes.append("The place after the exclusion word was not recognised, so no district was left out")
     # a broad ask ("performance", "overview" with no measure) reads with the detail
@@ -577,7 +732,16 @@ def plan(text: str, schemes: list, resolved: dict, display: "dict | None",
 
 def _labels(p: Plan, display: "dict | None") -> None:
     disp = display or {}
-    if p.block:
+    if p.villages:
+        name = next(iter(p.villages.values())).split(" (")[0]
+        p.place_label = f"{name} village ({len(p.villages)} villages share the name)"
+    elif p.village:
+        name = str(disp.get("village") or f"LGD {p.village}")
+        p.place_label = f"{name if name.startswith('LGD') else name.title()} village" \
+            + (f" ({str(disp['block']).title()} block)" if disp.get("block") else "")
+    elif p.ac:
+        p.place_label = f"{str(disp.get('assembly_constituency') or p.ac).title()} constituency"
+    elif p.block:
         p.place_label = f"{str(disp.get('block') or p.block).title()} block"
     elif p.districts and len(p.districts) == 1:
         p.place_label = f"{p.districts[0].title()} district"
@@ -589,7 +753,9 @@ def _labels(p: Plan, display: "dict | None") -> None:
 
 # ── villages in both / either / only one scheme (G-8, I-5) ────────────────────
 _VILLAGE_SET_FILTER = {"Focus Plus": "village_code > 0 AND entity_type <> 'Unresolved'",
-                       "Focus Legacy": "village_code > 0 AND entity_type <> 'Unresolved'"}
+                       "Focus Legacy": "village_code > 0 AND entity_type <> 'Unresolved'",
+                       "CM Elevate": "entity_type <> 'Unresolved'",
+                       "CM Elevate Legacy": "village_code > 0 AND entity_type <> 'Unresolved'"}
 
 
 async def village_sets(p: Plan) -> tuple[dict, list[str]]:
@@ -671,10 +837,13 @@ def rupees_crore(c: float) -> str:
     return f"₹{indian(float(whole))}.{frac} crore"
 
 
-SHORT = {"MGNREGA": "MGNREGA", "PMAY-G": "PMAY-G", "Focus Plus": "Focus Plus", "Focus Legacy": "Focus Legacy"}
+SHORT = {"MGNREGA": "MGNREGA", "PMAY-G": "PMAY-G", "Focus Plus": "Focus Plus", "Focus Legacy": "Focus Legacy",
+         "CM Elevate": "CM Elevate", "CM Elevate Legacy": "CM Elevate Legacy"}
 _BEN_NOUN = {"MGNREGA": "households given work", "PMAY-G": "houses sanctioned",
-             "Focus Plus": "beneficiaries", "Focus Legacy": "members"}
-_MONEY_VERB = {"MGNREGA": "spent", "PMAY-G": "released", "Focus Plus": "disbursed", "Focus Legacy": "disbursed"}
+             "Focus Plus": "beneficiaries", "Focus Legacy": "members",
+             "CM Elevate": "applications", "CM Elevate Legacy": "applicants sanctioned"}
+_MONEY_VERB = {"MGNREGA": "spent", "PMAY-G": "released", "Focus Plus": "disbursed", "Focus Legacy": "disbursed",
+               "CM Elevate Legacy": "disbursed (subsidy and loan)"}
 
 
 def count_text(s: str, f: dict, short: bool = False, p: "Plan | None" = None) -> str:
@@ -714,7 +883,7 @@ def avg_value(f: dict) -> "float | None":
 
 
 _PER = {"MGNREGA": "per household-year", "PMAY-G": "per house", "Focus Plus": "per beneficiary",
-        "Focus Legacy": "per member"}
+        "Focus Legacy": "per member", "CM Elevate Legacy": "per applicant sanctioned"}
 
 
 def primary(p: Plan) -> str:
@@ -747,31 +916,6 @@ def fmt(s: str, f: dict, measure: str) -> str:
 
 # ── computing and writing the answer ──────────────────────────────────────────
 
-_CME_DISTRICTS = ("SELECT lgd_district AS district, COUNT(DISTINCT request_id) AS applications "
-                  "FROM curated.v_cm_elevate WHERE lgd_district IS NOT NULL GROUP BY lgd_district")
-
-
-async def _cm_elevate_ranking(p: Plan) -> "tuple[str | None, str]":
-    """CM Elevate's own district ranking by applications (I-13), as one line."""
-    try:
-        rows = await db.fetch_rows(_CME_DISTRICTS, [])
-    except Exception as e:  # noqa: BLE001 — the coded schemes' answer still stands
-        logger.info("CM Elevate district list failed (non-fatal): %s", e)
-        return None, _CME_DISTRICTS
-    gone = {d.upper() for d in (p.exclude or [])}
-    rows = [r for r in rows if "applications" in r and r.get("district")
-            and str(r["district"]).upper() not in gone]
-    if not rows:
-        return None, _CME_DISTRICTS
-    rows.sort(key=lambda r: int(r.get("applications") or 0), reverse=not (p.low and not p.both))
-    n = min(p.top_n or 5, len(rows))
-    listed = "; ".join(f"{i + 1}. {str(r['district']).title()} {int(r['applications']):,}"
-                       for i, r in enumerate(rows[:n]))
-    word = "lowest" if p.low and not p.both else "highest"
-    return (f"CM Elevate, its own list ({word} {n} districts by applications; it records applications, "
-            f"not beneficiaries or money): {listed}."), _CME_DISTRICTS
-
-
 async def answer(p: Plan) -> dict:
     """{'answer', 'rows', 'sql'} for a plan."""
     if p.op == "overlap":
@@ -779,26 +923,47 @@ async def answer(p: Plan) -> dict:
     figs: dict[str, dict] = {}
     totals: dict[str, dict] = {}
     shown: list[str] = []
-    gaps: dict[str, str] = {}
+    gaps: dict[str, str] = dict(p.gaps or {})
     for s in p.schemes:
+        if s in gaps:
+            continue                     # said by c13 (constituency / year / money not held), never queried
         if p.year is not None:
             held = await _years_held(s)
+            if s in NO_YEAR:
+                gaps[s] = f"{s} records no financial year, so it has no figure for {p.period_label}"
+                continue
             if p.year not in held:
                 gaps[s] = (f"{s} has no data for {p.period_label} (its data covers FY "
                            f"{held[0]}-{(held[0] + 1) % 100:02d} to {held[-1]}-{(held[-1] + 1) % 100:02d})"
                            if held else f"{s} records no financial year")
                 continue
-        if p.op == "by_year" and p.years:
+        if p.op == "by_year":
             held = await _years_held(s)
-            missing = [y for y in p.years if y not in held]
-            if len(missing) == len(p.years):
+            if s in NO_YEAR:
+                gaps[s] = f"{s} records no financial year"
+                continue
+            missing = [y for y in (p.years or []) if y not in held]
+            if p.years and len(missing) == len(p.years):
                 gaps[s] = f"{s} has no data for {p.period_label}"
                 continue
             if missing:
                 gaps[s] = f"{s} has no data for " + ", ".join(f"FY {y}-{(y + 1) % 100:02d}" for y in missing)
+        if p.ac and s not in _AC_COL:
+            gaps[s] = f"{s} does not record assembly constituency, so it has no figure for {p.place_label}"
+            continue
+        if p.villages:
+            got = {}
+            for code, label in p.villages.items():
+                one, sql = await scheme_figures(s, by_district=False, village=code, year=p.year)
+                shown += sql
+                if one.get(STATE) and any(v for v in one[STATE].values()):
+                    got[label] = one[STATE]
+            figs[s] = got
+            continue
         got, sql = await scheme_figures(s, by_district=p.by_district, districts=p.districts,
                                         block=p.block, year=p.year,
-                                        by_year=p.op == "by_year", years=p.years or None)
+                                        by_year=p.op == "by_year", years=p.years or None,
+                                        village=p.village, ac=p.ac, grain=p.grain)
         figs[s], shown = got, shown + sql
         if p.by_district and got:
             # the statewide total, not the sum of the districts: a record with no
@@ -816,24 +981,12 @@ async def answer(p: Plan) -> dict:
         lines += _district_lines(p, figs, have, totals)
     else:
         lines += _state_lines(p, {s: figs[s].get(STATE, {}) for s in have}, have)
+    if p.measures == ["money"] and any(s in NO_MONEY for s in have):
+        for s in have:
+            if s in NO_MONEY:
+                gaps.setdefault(s, f"{s} records applications only, no money, so it has no amount to compare")
     if gaps:
         lines.append(" ".join(f"{g}." for g in gaps.values()))
-    left_out = list(p.left_out)
-    apart: dict = {}
-    if "CM Elevate" in left_out and p.op == "rank_districts":
-        # I-13 (chat UI audit 2026-10-29): CM Elevate counts applications, so it is
-        # never ranked with the others; its own district list is given beside them
-        cme, cme_sql = await _cm_elevate_ranking(p)
-        if cme:
-            lines.append(cme)
-            shown = shown + [cme_sql]
-            left_out.remove("CM Elevate")
-            apart["CM Elevate"] = "own list"
-    apart.update({s: "not ranked" for s in left_out})
-    if left_out:
-        lines.append(f"{' and '.join(left_out)} {'is' if len(left_out) == 1 else 'are'} not in this ranking: "
-                     "they record applications and sanctions, not these figures; ask for their district "
-                     "list on its own.")
     lines += [f"{n}." for n in p.notes]
     rows = _rows(p, figs, have)
     # G-12: a per-district table's Total is each scheme's statewide figure (it counts
@@ -846,7 +999,7 @@ async def answer(p: Plan) -> dict:
                 p.op, p.measures, p.by_district)
     return {"answer": "\n".join(ln for ln in lines if ln is not None), "rows": rows, "sql": "\n;\n".join(shown),
             "totals": col_totals, "measure_notes": measure_notes(have), "schemes_with_data": have,
-            "schemes_apart": apart}
+            "schemes_apart": {}}
 
 
 # G-9 / B-11 (audit 2026-10-29): every scheme's count sits in one `beneficiaries`
@@ -858,9 +1011,12 @@ _COUNT_NOTE = {"MGNREGA": "household-years: households given work, counted once 
                "PMAY-G": "houses sanctioned", "Focus Plus": "distinct beneficiaries",
                # G-10 (chat UI audit 2026-10-29, user decision: keep the D-066 figure,
                # say what it is): a group paid more than once counts once per payment
-               "Focus Legacy": "producer-group members, counted once per payment (a group paid twice counts twice)"}
+               "Focus Legacy": "producer-group members, counted once per payment (a group paid twice counts twice)",
+               "CM Elevate": "applications (distinct request ids)",
+               "CM Elevate Legacy": "applicants with a sanctioned amount"}
 _MONEY_NOTE = {"MGNREGA": "money spent", "PMAY-G": "money released", "Focus Plus": "money disbursed",
-               "Focus Legacy": "money disbursed"}
+               "Focus Legacy": "money disbursed", "CM Elevate": "no money recorded",
+               "CM Elevate Legacy": "subsidy and loan disbursed"}
 
 
 def measure_notes(schemes: list) -> dict:
@@ -890,6 +1046,9 @@ def _year_lines(p: Plan, figs: dict, have: list) -> list:
     out = []
     for s in have:
         for m in p.measures:
+            if not has_measure(s, m):
+                out.append(f"- **{SHORT[s]}**: no money recorded")
+                continue
             noun = {"count": _BEN_NOUN[s], "money": f"money {_MONEY_VERB[s]}", "villages": "villages covered"}[m]
             out.append(f"- **{SHORT[s]}** ({noun}): " + "; ".join(
                 f"FY {_fy(k)} {fmt(s, figs[s][k], m)}" for k in sorted(figs[s], key=int)))
@@ -913,10 +1072,10 @@ def _scheme_line(s: str, f: dict, p: Plan, state: bool) -> str:
             n += " (counted once per financial year, FY 2022-23 to 2025-26)"
         parts.append(n)
     if "money" in p.measures:
-        parts.append(money_text(s, f))
+        parts.append(money_text(s, f) if has_measure(s, "money") else "no money recorded")
     if "villages" in p.measures:
-        parts.append(villages_text(f, state and not (p.block or p.districts)))
-    if p.avg and avg_value(f):
+        parts.append(villages_text(f, state and not (p.block or p.districts or p.village or p.ac)))
+    if p.avg and has_measure(s, "avg") and avg_value(f):
         parts.append(f"₹{indian(avg_value(f))} {_PER[s]}")
     return f"- **{SHORT[s]}:** " + ", ".join(parts)
 
@@ -928,14 +1087,17 @@ def _state_lines(p: Plan, f: dict, have: list) -> list:
         return out
     if p.combined:
         if "count" in p.measures:
-            tot = sum(value(f[s], "count") for s in have)
-            parts = " + ".join(f"{indian(value(f[s], 'count'))} {_BEN_NOUN[s]}" for s in have)
+            inc = [s for s in have if s not in _APART_IN_COMBINED]
+            tot = sum(value(f[s], "count") for s in inc)
+            parts = " + ".join(f"{indian(value(f[s], 'count'))} {_BEN_NOUN[s]}" for s in inc)
             out.append(f"**Combined: {indian(tot)}** ({parts}; these count different things, added "
-                       "because the question asks for the total).")
+                       "because the question asks for the total)."
+                       + "".join(f" {s} counts applications, not beneficiaries, so it is not in the combined figure."
+                                 for s in have if s in _APART_IN_COMBINED))
         if "money" in p.measures:
-            out.append(f"**Combined: {rupees_crore(sum(value(f[s], 'money') for s in have))}**.")
+            out.append(f"**Combined: {rupees_crore(sum(value(f[s], 'money') for s in have if has_measure(s, 'money')))}**.")
     if p.avg:
-        avgs = {s: avg_value(f[s]) for s in have if avg_value(f[s])}
+        avgs = {s: avg_value(f[s]) for s in have if has_measure(s, "avg") and avg_value(f[s])}
         if avgs:
             top = max(avgs, key=avgs.get) if not p.low else min(avgs, key=avgs.get)
             out.append(f"Most money per beneficiary: **{top}** (₹{indian(avgs[top])} {_PER[top]}). Order: "
@@ -948,11 +1110,16 @@ def _state_lines(p: Plan, f: dict, have: list) -> list:
     if p.op == "leader" or p.rank_measures:
         ms = p.measures if (p.rank_measures or p.lead_all) else [primary(p)]
         for m in ms:
-            out.append(_leader_sentence(m, f, have, p.low and len(ms) == 1))
+            line = _leader_sentence(m, f, have, p.low and len(ms) == 1)
+            if line:
+                out.append(line)
     return out
 
 
 def _leader_sentence(m: str, f: dict, have: list, low: bool) -> str:
+    have = [s for s in have if has_measure(s, m)]
+    if len(have) < 2:
+        return ""                        # one scheme with the measure: nothing to rank
     order = sorted(have, key=lambda s: value(f[s], m), reverse=not low)
     lead, nxt = order[0], order[1]
     word = "lowest" if low else ("most " + measure_noun(m) if m != "money" else "most money")
@@ -1004,6 +1171,7 @@ def ranked_districts(p: Plan, figs: dict, have: list) -> "dict[str, list] | None
         return None
     keys = _district_keys(p, figs, have)
     m = primary(p)
+    have = ranked_schemes(p, have, m)
     if _ranks_combined(p, m):
         order = _rank_order(p, keys, lambda k: sum(value(figs[s].get(k, {}), m) for s in have))
         return {"": [ik for _l, part in _rank_parts(p, order) for ik in part]}
@@ -1011,9 +1179,19 @@ def ranked_districts(p: Plan, figs: dict, have: list) -> "dict[str, list] | None
                 for ik in part] for s in have}
 
 
+def ranked_schemes(p: Plan, have: list, m: str) -> list:
+    """The schemes a ranking on measure `m` can hold: those that record it, and - in
+    a combined count - not CM Elevate (applications are not beneficiaries, I-13)."""
+    out = [s for s in have if has_measure(s, m)]
+    if _ranks_combined(p, m) and m == "count":
+        out = [s for s in out if s not in _APART_IN_COMBINED]
+    return out
+
+
 def _district_keys(p: Plan, figs: dict, have: list) -> list:
     keys = sorted({k for s in have for k in figs[s] if k != STATE})
-    if p.districts:
+    if p.districts and p.grain == "district":
+        # block-wise rows of a district are block names: never filtered by the district list
         keys = [k for k in keys if k in {d.upper() for d in p.districts}]
     if p.exclude:
         keys = [k for k in keys if k not in {d.upper() for d in p.exclude}]
@@ -1024,6 +1202,14 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
     keys = _district_keys(p, figs, have)
     m = primary(p)
     out = []
+    shown_all = have
+    apart = [s for s in have if s not in ranked_schemes(p, have, m)]
+    if p.op in ("winner", "second", "rank_districts", "condition"):
+        have = ranked_schemes(p, have, m)
+        if len(have) < 2:
+            # one scheme holds the measure: the per-district table, no ranking
+            p = Plan(**{**p.__dict__, "op": "list"})
+            have = shown_all
     if p.op == "condition":
         x, y, more = p.cond
         hits = [k for k in keys if (value(figs[x].get(k, {}), m) > value(figs[y].get(k, {}), m)) == more
@@ -1065,6 +1251,10 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
             out.append(f"{'Second place' if pos else ('Lowest' if p.low else 'Highest')} by district: "
                        + ", ".join(f"**{w}** in {n} district{'s' if n > 1 else ''}"
                                    for w, n in sorted(tally.items(), key=lambda x: -x[1])) + ".")
+        for s in apart:
+            out.append(f"{s} is not in this ranking: it records "
+                       + ("applications only, no money" if m in ("money", "avg") else "applications, not beneficiaries")
+                       + "; its figures are in the table.")
         return out + per
     elif p.op == "rank_districts":
         what = {"money": "money", "villages": "villages covered", "avg": "money per beneficiary"}.get(m, "beneficiaries")
@@ -1097,6 +1287,9 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
             # G-11: the money kinds differ as the counts do
             out.append("The combined figure adds different kinds of money (" + ", ".join(
                 f"{s} {_MONEY_VERB[s]}" for s in have) + "), added because the question asks for the total.")
+        for s in apart:
+            out.append(f"{s} is not in the combined figure: it records "
+                       + ("applications only, no money." if m in ("money", "avg") else "applications, not beneficiaries."))
         n = p.top_n or len(order)
         if n < len(order) and not p.both and not p.nth:
             last = order[-1]
@@ -1112,19 +1305,23 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
             if "count" in p.measures:
                 parts.append(count_text(s, f, short=True, p=p))
             if "money" in p.measures:
-                parts.append(money_text(s, f, short=True))
+                parts.append(money_text(s, f, short=True) if has_measure(s, "money") else "no money")
             if "villages" in p.measures:
                 parts.append(f"{indian(f.get('villages', 0))} villages")
             cells.append(f"{SHORT[s]} {' / '.join(parts)}")
-        line = f"- {k.title()}: " + " | ".join(cells)
+        line = f"- {k if p.grain == 'village' else k.title()}: " + " | ".join(cells)
         if "money" in p.measures and "count" not in p.measures:
-            line += f" | Total {rupees_crore(sum(value(figs[s].get(k, {}), 'money') for s in have))}"
-        if len(have) == 2 and p.op != "condition":
+            line += f" | Total {rupees_crore(sum(value(figs[s].get(k, {}), 'money') for s in have if has_measure(s, 'money')))}"
+        if len(have) == 2 and p.op != "condition" and all(has_measure(s, m) for s in have):
             order = sorted(have, key=lambda s: value(figs[s].get(k, {}), m), reverse=True)
             if value(figs[order[0]].get(k, {}), m) != value(figs[order[1]].get(k, {}), m):
                 line += f" → {order[0]}"
         out.append(line)
     tot_parts = []
+    if p.grain == "village":
+        # same-named villages are different places: one row each, never added (KI-630)
+        out.append("These are different villages that share a name; their figures are not added.")
+        have = []
     for s in have:
         t = {mm: value((totals or {}).get(s) or {}, mm) if (totals or {}).get(s) else
              sum(value(figs[s].get(k, {}), mm) for k in keys) for mm in ("count", "money", "villages")}
@@ -1132,24 +1329,25 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
         if "count" in p.measures:
             bits.append(indian(t["count"]))
         if "money" in p.measures:
-            bits.append(rupees_crore(t["money"]))
+            bits.append(rupees_crore(t["money"]) if has_measure(s, "money") else "no money")
         tot_parts.append(f"{SHORT[s]} {' / '.join(bits)}" if bits else None)
     tot_parts = [x for x in tot_parts if x]
     if tot_parts:
-        label = "Total for these districts" if p.districts else "Total"
+        label = ("Total for these districts" if p.grain == "district" else
+                 f"Total for {p.place_label}") if p.districts else "Total"
         out.append(f"**{label}:** " + " | ".join(tot_parts))
-    if len(have) == 2 and p.op != "condition":
+    if len(have) == 2 and p.op != "condition" and all(has_measure(s, m) for s in have):
         lead = {s: 0 for s in have}
         for k in keys:
             a, b = (value(figs[s].get(k, {}), m) for s in have)
             if a != b:
                 lead[have[0] if a > b else have[1]] += 1
-        out.append(f"{have[0]} leads in {lead[have[0]]} district{'s' if lead[have[0]] != 1 else ''}, "
+        out.append(f"{have[0]} leads in {lead[have[0]]} {p.grain}{'s' if lead[have[0]] != 1 else ''}, "
                    f"{have[1]} in {lead[have[1]]}.")
     if "count" in p.measures and "Focus Plus" in have and any(
             figs["Focus Plus"].get(k) for k in keys) and not p.districts:
-        out.append("District = the district written in each scheme's own records (Focus Plus: its source "
-                   "file's district names).")
+        out.append(f"{p.grain.title()} = the {p.grain} written in each scheme's own records (Focus Plus: its "
+                   f"source file's {p.grain} names).")
     return out
 
 
@@ -1169,7 +1367,7 @@ def _rows(p: Plan, figs: dict, have: list) -> list[dict]:
                 if "count" in p.measures:
                     r["beneficiaries"] = int(f.get("ben", 0))
                 if "money" in p.measures:
-                    r["amount_crore"] = round(f.get("money", 0.0), 2)
+                    r["amount_crore"] = round(f.get("money", 0.0), 2) if has_measure(s, "money") else None
                 if "villages" in p.measures:
                     r["villages"] = int(f.get("villages", 0))
                 rows.append(r)
@@ -1181,6 +1379,7 @@ def _rows(p: Plan, figs: dict, have: list) -> list[dict]:
         m = primary(p)
         col = {"count": "beneficiaries", "money": "amount_crore", "villages": "villages",
                "avg": "rupees_per_beneficiary"}[m]
+        have = ranked_schemes(p, have, m)
         for s in have:
             for i, k in ranked.get(s, ranked.get("")):
                 v = value(figs[s].get(k, {}), m)
@@ -1193,11 +1392,14 @@ def _rows(p: Plan, figs: dict, have: list) -> list[dict]:
         return rows
     for s in have:
         for k, f in sorted(figs[s].items()):
-            if p.districts and p.by_district and k.upper() not in {d.upper() for d in p.districts}:
+            if p.districts and p.by_district and p.grain == "district" \
+                    and k.upper() not in {d.upper() for d in p.districts}:
                 continue
             if p.exclude and k.upper() in {d.upper() for d in p.exclude}:
                 continue
-            r = {"district": k.title()} if k != STATE else {}
+            r = {p.grain: (k if p.grain == "village" else k.title())} if k != STATE else {}
+            if p.grain == "village" and k in {v: c for c, v in p.villages.items()}:
+                r["village_code"] = {v: c for c, v in p.villages.items()}[k]
             r["scheme"] = s
             if "count" in p.measures:
                 r["beneficiaries"] = int(f.get("ben", 0))
@@ -1206,12 +1408,13 @@ def _rows(p: Plan, figs: dict, have: list) -> list[dict]:
                 if s == "Focus Legacy" and p.pgs:
                     r["producer_groups"] = int(f.get("pgs", 0))
             if "money" in p.measures:
-                r["amount_crore"] = round(f.get("money", 0.0), 2)
+                # a scheme with no money keeps the column, as null (the UI shows a dash, never 0)
+                r["amount_crore"] = round(f.get("money", 0.0), 2) if has_measure(s, "money") else None
                 if s == "PMAY-G":
                     r["sanctioned_crore"] = round(f.get("sanctioned", 0.0), 2)
             if "villages" in p.measures:
                 r["villages"] = int(f.get("villages", 0))
-            if p.avg and avg_value(f):
+            if p.avg and has_measure(s, "avg") and avg_value(f):
                 r["rupees_per_beneficiary"] = round(avg_value(f))
             rows.append(r)
     return rows
