@@ -195,7 +195,7 @@ _CMELEVATELEGACY_ONLY_TERMS = Matcher(Alt(
 # Vocabulary only the sanction-and-disbursement dataset can answer. Consulted
 # ONLY once a question is already a CM Elevate question (named, or via a
 # sub-scheme word such as "piggery"), so generic money words are safe here.
-_CMELEVATELEGACY_FORCING = Matcher(Alt(
+_CME_LEGACY_NON_YEAR_TERMS = (
     W("disburs", "sanction", prefix=True), W("subsidy", "subsidies"), _cme_sg("loan", "grant"),
     _cme_sg("amount"), "money", _cme_sg("fund", "rupee", "crore", "lakh"), W("expenditure", "spent", "spend"),
     # "Rs 500", "Rs. 500", "Rs500"
@@ -208,14 +208,21 @@ _CMELEVATELEGACY_FORCING = Matcher(Alt(
     Seq("pending", "to", "be", W("paid", "disbursed", "released")), Seq("yet", "to", "be", W("paid", "disbursed")),
     "refused", _cme_sg("refusal", "duplicate"), W("desanction", prefix=True),
     "lifcom", _cme_sg("lender"), _cme_join("loan", ("entity", "entities")),
-    # "financial year", "FY 24", "FY2024-25", "2023-24", "2023/2024", "year-wise"
+)
+# "financial year", "FY 24", "FY2024-25", "2023-24", "2023/2024", "year-wise"
+_CME_YEAR_TERMS = (
     Seq("financial", W("year", "years"), sep="space"),
     Seq("fy", Pred(lambda w: is_int(w[:2])), sep="space"),
     Pred(lambda w: w.lower().startswith("fy") and is_int(w[2:4])),
     Seq(Pred(lambda w: len(w) == 4 and w.startswith("20") and is_int(w)),
         Pred(lambda w: 2 <= len(w) <= 4 and is_int(w)), sep="dash"),
     _cme_join("year", "wise"),
-))
+)
+_CMELEVATELEGACY_FORCING = Matcher(Alt(*_CME_LEGACY_NON_YEAR_TERMS, *_CME_YEAR_TERMS))
+# The same without the year words: under D-090 a year is not money, so "How many CM Elevate
+# applicants … in FY 2017-18?" stays on the applications data (UAT 2026-10-30, D1).
+_CMELEVATELEGACY_MONEY = Matcher(Alt(*_CME_LEGACY_NON_YEAR_TERMS))
+_CME_YEAR_ASK = Matcher(Alt(*_CME_YEAR_TERMS))
 # Vocabulary only the APPLICATIONS dataset holds: it keeps a bare "CM Elevate"
 # on that dataset when no money word is present (a money word wins, see
 # _cm_elevate_dataset_choice). A typed "CM-ELEVATE applications" is NOT here:
@@ -383,6 +390,13 @@ def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None
     # append to any question; it is not a financial-year filter, so it never
     # moves a question to Legacy (a typed "FY 2024-25" still does).
     unscoped = _CME_ALL_YEARS_SCOPE.sub(" ", q)
+    # D-090 (2026-10-29) over rule 1 for a YEAR: "applications / applicants / applied" with a
+    # year and no money word is an applications question, and that dataset has no date, so it
+    # gets the no-date reply (_cme_notime_query) instead of Legacy's year pause (UAT D1).
+    if _CME_YEAR_ASK.search(unscoped) and _CME_APPLICATION_WORDS.search(q) \
+            and not _CMELEVATELEGACY_MONEY.search(unscoped) and not _CMELEVATELEGACY_ONLY_TERMS.search(unscoped) \
+            and thread_scheme != "CM Elevate Legacy":
+        return "applications"
     if _CMELEVATELEGACY_FORCING.search(unscoped) or _CMELEVATELEGACY_ONLY_TERMS.search(unscoped):
         return "legacy"
     if _CMELEVATE_APPLICATIONS_ONLY.search(q) or _CME_APPLICATIONS_VOCAB.search(q):
@@ -1207,7 +1221,7 @@ _CME_TIME_ASK = Matcher(Alt(
 
 
 def _cme_notime_query(question: str, resolved: dict) -> "tuple[str, list, str] | None":
-    if not _CME_TIME_ASK.search(question or ""):
+    if not (_CME_TIME_ASK.search(question or "") or _CME_YEAR_ASK.search(_CME_ALL_YEARS_SCOPE.sub(" ", question or ""))):
         return None
     where, params = [], []
     for single, col in (("village_code", "village_code"), ("block", "lgd_block"), ("district", "lgd_district")):
