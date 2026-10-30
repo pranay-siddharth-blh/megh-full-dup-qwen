@@ -1,0 +1,102 @@
+{
+ "C01-027-03": {
+  "root": "B18: a 0 pair not stated",
+  "commit": "3ee1dae"
+ },
+ "C01-017AC": {
+  "root": "B19: ac_name case / stray block",
+  "commit": "77d05ef"
+ },
+ "C03-ALONE": {
+  "root": "B20: twins answered with highest/lowest only; catalogue block spelling",
+  "commit": "3a092ce"
+ },
+ "C10-VIL-TOP": {
+  "root": "B20: top-N list without every figure",
+  "commit": "3a092ce"
+ },
+ "C09-BB": {
+  "root": "B21: Tura MB as two rows",
+  "commit": "3a092ce"
+ },
+ "C15-APP-B2D-west_garo_hills": {
+  "root": "B21: Tura MB as two rows",
+  "commit": "3a092ce"
+ },
+ "C04-MONTHLY": {
+  "root": "B22: no answer for a month ask",
+  "commit": "3a092ce"
+ },
+ "C08-": {
+  "root": "B22 (time ask without FY) / D1 (FY -> Legacy year pause)",
+  "commit": "3a092ce"
+ },
+ "C12-": {
+  "root": "D2 (disputed): turn 3 keeps the on-hold filter",
+  "commit": ""
+ },
+ "C06-": {
+  "root": "B28: FY question paused on Legacy",
+  "commit": "882879d"
+ },
+ "C04-FY": {
+  "root": "B28: FY question paused on Legacy",
+  "commit": "882879d"
+ },
+ "C03-": {
+  "root": "B20 / B23 / B24 (twins)",
+  "commit": "3a092ce, 14ad455, 732a96c"
+ },
+ "C14-ZERO": {
+  "root": "B25 (village asked in a block where it has no applications) / D4",
+  "commit": "af54bf9"
+ },
+ "C14-INV": {
+  "root": "B13 / B25 (unknown constituency)",
+  "commit": "14ec7f9"
+ },
+ "C17-09": {
+  "root": "B25 (unnamed programme filter)",
+  "commit": "14ec7f9"
+ },
+ "C01-009-05": {
+  "root": "B26 (repeated GROUP BY key)",
+  "commit": "d7b90f5"
+ },
+ "C02-CNT": {
+  "root": "B1/B2/B7/B17 (v1) / N1 wards (shared spelling, not fixed)",
+  "commit": "e3d7758"
+ },
+ "C01-022-06": {
+  "root": "B27 (O1): non-verified count left out",
+  "commit": "8b8f2f0"
+ },
+ "C03-ALONE-massar": {
+  "root": "B27 (O2): LIMIT 1 on the twin query",
+  "commit": "8b8f2f0"
+ },
+ "C12-AC-east_shillong": {
+  "root": "B31: Shillong constituencies missing from the borrowed catalogue",
+  "commit": "2952b14"
+ },
+ "C11-NAME-5": {
+  "root": "B30: account numbers not refused",
+  "commit": "4bf022f"
+ },
+ "C14-INV-14": {
+  "root": "B32: short invented name corrected by sound",
+  "commit": "67a3ac0"
+ },
+ "C02-CNT-277685": {
+  "root": "B29: CENTRE VILLAGE corrected to Kentra",
+  "commit": "7f9d8f7"
+ },
+ "C02-CNT-71065": {
+  "root": "B29: ward name read as East Garo Hills",
+  "commit": "7f9d8f7"
+ },
+ "C02-CNT-3359": {
+  "root": "B29: ward name start taken as an unknown place",
+  "commit": "7f9d8f7"
+ }
+}

@@ -1,0 +1,2349 @@
+diff --git a/app/data_facts.py b/app/data_facts.py
+index a1ebac2..c5a9054 100644
+--- a/app/data_facts.py
++++ b/app/data_facts.py
+@@ -82,6 +82,13 @@ _QUERIES = {
+                COUNT(*) FILTER (WHERE sector_id IS NOT NULL) AS cme_sector,
+                COUNT(DISTINCT request_id) FILTER (WHERE scheme_name ILIKE 'PRIME Small%') AS cme_prime
+         FROM curated.v_cm_elevate""",
++    # the pending rule of 2026-10-30; refused (permission denied) while scheme_specific is locked,
++    # which only keeps the token at its default — the other CM Elevate figures are unaffected
++    "cm_elevate_pending": """
++        SELECT COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid'
++               AND (LOWER(current_file_status) = 'forward' OR LOWER(current_file_status) LIKE 'sendback%')
++               AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')) AS cme_pending
++        FROM curated.v_cm_elevate""",
+     "cm_elevate_dups": """
+         SELECT COALESCE(SUM(n), 0) AS cme_dup_apps,
+                STRING_AGG(n || ' ' || s, ', ' ORDER BY n DESC, s) AS cme_dup_split
+@@ -178,6 +185,8 @@ def _fy_gaps(years) -> str:
+ 
+ # name -> (default: the figure typed in the rule before 2026-10-29, formatter over the merged row)
+ FACTS = {
++    # CM Elevate pending rule (2026-10-30): Valid + forward-or-sendback + file_status Pending / Send Back
++    "cme_pending": ("7,338", lambda v: _n(v["cme_pending"])),
+     # Focus Plus
+     "fp_rows": ("385,671", lambda v: _n(v["fp_rows"])),
+     "fp_lgdblock_null": ("57,649", lambda v: _n(v["fp_lgdblock_null"])),
+diff --git a/app/edge.py b/app/edge.py
+index 9330bc1..f5b5366 100644
+--- a/app/edge.py
++++ b/app/edge.py
+@@ -908,6 +908,10 @@ _SCHEME_STRONG = [
+           "eligib", "component", "getag", "jobcard"),
+        Joined("focus", "plus"), _S("producer", _P("group")), Joined("cm", "elevate"),
+        "prime small enterprise", "prime tourism vehicle", "warehouse scheme",
++       # CM Elevate programme names as typed: "What is the status distribution for Agro
++       # Tourism Villa?" hit _OFF_TOPIC's "tourism" and was declined (UAT 2026-10-30, OFF-016)
++       "agro tourism", "tourism vehicle", "agriculture response vehicle", "response vehicle",
++       "cinema theatre", "green taxi", "goat farming", "any business venture", "sports and wellness",
+        "indira awaas", _S("rural", _P("hous")), Joined("person", ("day", "days")),
+        _S("job", _P("card")), Joined("semi", "skilled"), _S("material", _P("cost", "exp")),
+        _A(W("100day", "100days"), _S("100", W("day", "days"))), _S("hundred", W("day", "days")),
+diff --git a/app/entity_resolver.py b/app/entity_resolver.py
+index fcea845..1af5336 100644
+--- a/app/entity_resolver.py
++++ b/app/entity_resolver.py
+@@ -283,6 +283,10 @@ def _dimension_values(dims: dict, dim_name: str) -> list:
+ 
+ # scheme -> dimension ("district" | "block" | "year") -> list of value dicts
+ _catalog: dict[str, dict[str, list[dict]]] = {}
++# scheme -> shared admin dimension -> entries ADDED to the borrowed catalogue
++# ("<dim>_supplement" in the resolver YAML): CM Elevate's four urban Shillong
++# constituencies, which the borrowed MGNREGA list leaves out (UAT 2026-10-30).
++_supplement: dict[str, dict[str, list[dict]]] = {}
+ # scheme -> [{canonical, districts, aliases}] — the hill-range groupings a user names
+ # instead of a district ("Garo Hills" = 5 districts). Loaded from the resolver YAML's
+ # region_groupings.groups; single-district groups (Ri Bhoi) are skipped since they
+@@ -440,6 +444,11 @@ def load_all() -> None:
+             values = _dimension_values(dims, dim_name)
+             if values:
+                 _catalog[scheme][dim_name] = values
++        _supplement[scheme] = {}
++        for dim_name in _SHARED_ADMIN_DIMENSIONS:
++            values = _dimension_values(dims, f"{dim_name}_supplement")
++            if values:
++                _supplement[scheme][dim_name] = values
+         for v in _catalog[scheme].get("district", []):
+             _add_direction_aliases(v)
+ 
+@@ -1003,6 +1012,11 @@ def resolve_dimension(text: str, scheme: str, dimension: str) -> Resolved:
+                 logger.info("%s %r resolved via %s's catalogue (missing from %s's)",
+                             dimension, text, _other, scheme)
+                 return _hit
++        _sup = (_supplement.get(scheme) or {}).get(dimension) or []
++        if _sup:
++            _hit = _resolve_in_catalog(_sup, text, dimension, _blocked.get(scheme))
++            if _hit.status == "resolved":
++                return _hit
+         return _direct
+ 
+     folded_input = fold(text)
+@@ -1230,13 +1244,14 @@ def _collision_values(scheme: str, dim: str) -> list:
+     values = _catalog.get(scheme, {}).get(dim, [])
+     if values or dim not in _SHARED_ADMIN_DIMENSIONS:
+         return values
++    extra = list((_supplement.get(scheme) or {}).get(dim) or [])
+     for _other, _dims in _catalog.items():
+         if _other == scheme:
+             continue
+         borrowed = _dims.get(dim) or []
+         if borrowed:
+-            return borrowed
+-    return []
++            return list(borrowed) + extra
++    return extra
+ 
+ 
+ def collision_canonical_names(scheme: str, dimension: str) -> list[str]:
+@@ -1504,6 +1519,9 @@ def scan_districts(question: str, scheme: str) -> list[str]:
+ # every district rather than pausing to ask which one.
+ _REGION_ALL_CUE = Matcher(Alt(
+     W("all", "whole", "entire", "combined", "each", "every", "across", "full", "total", "overall"),
++    # "in the Garo Hills region" names the region itself as the unit (CM Elevate UAT
++    # 2026-10-30: it was answered for East Garo Hills alone)
++    W("region", "regions"),
+     Seq(W("put"), _GapIs(lambda g: g == " "), W("together")),
+ ))
+ 
+@@ -1709,6 +1727,20 @@ def is_village_name(text: str) -> "bool | None":
+     return " ".join(fold_words(text)) in _village_names
+ 
+ 
++_stored_village_keys: "tuple[int, frozenset] | None" = None
++
++
++def is_stored_village_name(text: str) -> bool:
++    """True when `text` is, folded, exactly a stored village name, INCLUDING the one-word
++    names the index leaves out ("CENTRE", D-059). For "do not correct what was typed
++    exactly" checks only, never for reading a place."""
++    global _stored_village_keys
++    names = _village_code_names or {}
++    if _stored_village_keys is None or _stored_village_keys[0] != id(names):
++        _stored_village_keys = (id(names), frozenset(" ".join(fold_words(v)) for v in names.values()))
++    return " ".join(fold_words(text)) in _stored_village_keys[1]
++
++
+ def village_districts(name: str) -> frozenset:
+     """The districts (upper) holding a village of exactly this name; empty when
+     none or the index is not loaded."""
+diff --git a/app/guardrails.py b/app/guardrails.py
+index ccd0b26..467ea0b 100644
+--- a/app/guardrails.py
++++ b/app/guardrails.py
+@@ -432,13 +432,26 @@ _PII_PEOPLE_STEMS = ("applicant", "beneficiar", "member", "farmer", "recipient",
+ _PII_NOT_PEOPLE = frozenset("village villages block blocks district districts scheme schemes sector sectors bank "
+                             "banks group groups pg pgs product products lender lenders constituency".split())
+ _PII_COUNTING = frozenset("many count number total percentage percent share".split())
++# identifier fields that are personal only as a NUMBER: "applicants' bank account numbers", "Aadhaar numbers
++# of beneficiaries" (CM Elevate UAT 2026-10-30, N3: answered with sanctioned amounts, no refusal)
++_PII_ID_FIELDS = frozenset("account accounts aadhaar aadhar ifsc passport pan".split())
++_PII_ID_TAIL = frozenset("number numbers no nos details detail".split())
+ 
+ 
+ def _pii_listing(t: str) -> bool:
+     ws = _tm.words(t)
+-    if not ws or _PII_COUNTING & set(ws) or not _PII_FIELDS & set(ws):
++    if not ws or _PII_COUNTING & set(ws) or not (_PII_FIELDS | _PII_ID_FIELDS) & set(ws):
+         return False
+     for i, w in enumerate(ws):
++        if w in _PII_ID_FIELDS and i + 1 < len(ws) and ws[i + 1] in _PII_ID_TAIL:
++            # "bank" here is part of the field ("bank account numbers"), not an institution
++            before = [x for x in ws[max(0, i - 4):i] if x != "bank"]
++            if any(x.startswith(_PII_PEOPLE_STEMS) for x in before) and not (_PII_NOT_PEOPLE & set(before)):
++                return True
++            window = ws[i + 2:i + 10]
++            if ("of" in window or "for" in window) and any(x.startswith(_PII_PEOPLE_STEMS) for x in window):
++                return True
++            continue
+         if w not in _PII_FIELDS:
+             continue
+         # "<field> [and phone numbers] of/for [the CM Elevate] <people>" — a few words apart
+diff --git a/app/pipeline/common/c09_resolve_entities.py b/app/pipeline/common/c09_resolve_entities.py
+index 315ded8..aa45712 100644
+--- a/app/pipeline/common/c09_resolve_entities.py
++++ b/app/pipeline/common/c09_resolve_entities.py
+@@ -12,6 +12,49 @@ _TWINS_ANSWERED = True
+ _TWINS_MAX = 3
+ 
+ 
++def _c09_alnum(s: str) -> str:
++    """Lower-case letters and digits only: "William Nagar (MB) - Ward No.8" -> "williamnagarmbwardno8"."""
++    return "".join(ch for ch in str(s).lower() if ch.isalnum())
++
++
++_C09_OTHER_LEVEL_WORDS = ("district", "block", "constituency", "assembly", "region")
++
++
++def _c09_labelled_other_level(question: str, name: str) -> bool:
++    """The text writes `name` right before a non-village level word ("Gotham district")
++    and never right before "village"."""
++    low, n = (question or "").lower(), (name or "").strip().lower()
++    if not n:
++        return False
++    nxt = []
++    i = low.find(n)
++    while i >= 0:
++        rest = low[i + len(n):].lstrip(" ,-")
++        nxt.append("".join(ch for ch in rest.split(" ")[0] if ch.isalpha()) if rest else "")
++        i = low.find(n, i + 1)
++    return any(w in _C09_OTHER_LEVEL_WORDS for w in nxt) and "village" not in nxt
++
++
++_C09_LEVEL_AFTER = {"district": "district", "block": "block", "village": "village",
++                    "constituency": "assembly_constituency", "assembly": "assembly_constituency"}
++
++
++def _c09_level_after(question: str, name: str) -> "str | None":
++    """The level word written right after `name` in the text, names compared on letters and
++    digits only ("William Nagar constituency" for WILLIAMNAGAR -> "assembly_constituency")."""
++    want = _c09_alnum(name)
++    words = (question or "").split()
++    if not want:
++        return None
++    for i in range(len(words)):
++        for j in range(i + 1, min(i + 5, len(words)) + 1):
++            if _c09_alnum(" ".join(words[i:j])) == want and j < len(words):
++                lvl = _C09_LEVEL_AFTER.get("".join(ch for ch in words[j].lower() if ch.isalpha()))
++                if lvl:
++                    return lvl
++    return None
++
++
+ def _c09_twins(cands: list, resolved: dict, display: dict) -> bool:
+     """J-10 (chat UI audit 2026-10-29, KI-126, user decision): a name shared by a few
+     villages cost two taps ("which village?", then "which year?"). Each village is
+@@ -628,9 +671,12 @@ async def resolve_entities(question: str, schemes: list[str],
+                           if str(c.get("name") or "").strip().upper() == _scanned[0].strip().upper()]
+                 if len(_exact) == 1:
+                     _scanned = (_scanned[0], _exact)
++            # compared on letters and digits only: the extractor gives "Williamnagar" for
++            # "William Nagar (MB) - Ward No.8", and the plain substring test missed it, so the
++            # ward asked "block or constituency?" (CM Elevate UAT 2026-10-30, OFF-003)
+             if _scanned and len(_scanned[1]) == 1 \
+-                    and str(_name).strip().lower() in _scanned[0].strip().lower() \
+-                    and len(_scanned[0]) > len(str(_name)):
++                    and _c09_alnum(str(_name)) in _c09_alnum(_scanned[0]) \
++                    and len(_c09_alnum(_scanned[0])) > len(_c09_alnum(str(_name))):
+                 logger.info("admin-level gate: %r is a truncation of %r, which resolves "
+                             "to one village — not ambiguous", _name, _scanned[0])
+                 break
+@@ -684,6 +730,19 @@ async def resolve_entities(question: str, schemes: list[str],
+                                     _name, _left)
+                 if len(_dims) < 2:
+                     _dims = {}
++            # "William Nagar constituency": the level word is right there, but the catalogue
++            # spells it WILLIAMNAGAR, so the level matchers missed it and the gate asked "block
++            # or constituency?" (CM Elevate UAT 2026-10-30, H-AC). Compared on letters only.
++            _typed_lvl = _c09_level_after(question, str(_name))
++            if len(_dims) >= 2 and _typed_lvl in _dims:
++                _chip = next(o["question"] for o, d in zip(
++                    _dimension_collision_clarification(question, str(_name), _dims).options, _dims)
++                    if d == _typed_lvl)
++                logger.info("admin-level collision on %r: the text names the %s — taken", _name, _typed_lvl)
++                _out = await resolve_entities(_chip, schemes, prior_resolved=prior_resolved,
++                                              village_hint=village_hint)
++                _out.setdefault("question", _chip)
++                return _out
+             if len(_dims) >= 2 and settings.PLACE_GAZETTEER:
+                 _settle_ctx = ({**(prior_resolved or {}), "district": _gate_district, "block": None}
+                                if _gate_district else prior_resolved)
+@@ -862,7 +921,11 @@ async def resolve_entities(question: str, schemes: list[str],
+                 # mistagged as "district" (a bare place name after "in" gives the
+                 # model no reliable signal for which admin level it is). Try
+                 # village resolution before concluding this is out of scope.
+-                _vr = await _resolve_village_for(schemes, _mdist)
++                # Not when the text itself says "<name> district" / "block" / "constituency":
++                # "Gotham district" was read by sound as the village GAORAM (UAT 2026-10-30).
++                _vr = (Resolved("not_found", "village", str(_mdist))
++                       if _c09_labelled_other_level(question, str(_mdist))
++                       else await _resolve_village_for(schemes, _mdist))
+                 if _vr.status == "ambiguous":
+                     listed = ", ".join(
+                         f"{c['name']} in {c['block']} block ({c['district']})" for c in _vr.candidates[:_vcap])
+@@ -1476,9 +1539,27 @@ async def resolve_entities(question: str, schemes: list[str],
+                         for c in _vhits[:_vcap]
+                     ],
+                     rule="entity-ambiguous", village_hint=_vname)
++    # "Gotham district" was read by sound as the village GAORAM and answered "0 applicants for
++    # Gaoram village" (CM Elevate UAT 2026-10-30): a name the text itself labels as a district /
++    # block / constituency is not a village, so the unknown-place reply says so instead.
++    if _village_text and _c09_labelled_other_level(question, str(_village_text)):
++        logger.info("village mention %r is labelled as another level in the text — not a village", _village_text)
++        _village_text = None
+     if _village_text:
+         r = await _resolve_village_for(schemes, _village_text, district=district_canon,
+                                    block=resolved.get("block"))
++        # "Mawiong village of Rambrai block": the explicit "village" cleared the block slot,
++        # so both Mawiongs (Rambrai 9, Umling 8) were summed as 17 (CM Elevate UAT
++        # 2026-10-30). The one candidate whose block the text names is the village meant.
++        if r.status == "ambiguous":
++            _qa = _c09_alnum(question).replace(_c09_alnum(str(_village_text)), " ")
++            _in_block = [c for c in r.candidates if c.get("village_code") and c.get("block")
++                         and len(_c09_alnum(str(c["block"]))) >= 4 and _c09_alnum(str(c["block"])) in _qa]
++            if len({c["village_code"] for c in _in_block}) == 1:
++                logger.info("village %r: the text names %s block — village_code %s",
++                            _village_text, _in_block[0]["block"], _in_block[0]["village_code"])
++                r.status, r.canonical = "resolved", _in_block[0]["village_code"]
++                r.display = _place_title(str(_in_block[0].get("name") or _village_text))
+         if r.status == "ambiguous" and _c09_twins(r.candidates, resolved, display):
+             r.status = "twins"                   # J-10: each one answered, named with its block
+         if r.status == "ambiguous":
+diff --git a/app/pipeline/common/c10_sql_generation_and_rewrites.py b/app/pipeline/common/c10_sql_generation_and_rewrites.py
+index 389bf06..e2218c7 100644
+--- a/app/pipeline/common/c10_sql_generation_and_rewrites.py
++++ b/app/pipeline/common/c10_sql_generation_and_rewrites.py
+@@ -797,6 +797,9 @@ def _pin_missing_village_code(schemes: list[str], entity_result: dict, sql: str)
+     alone sent NOAGRE to "couldn't build a working query" — the 30B repeated the
+     same village-less SQL on every repair. Anything more complex (a join, a
+     CTE, a subquery) is left to the guard and the repair."""
++    twins = _pin_missing_twin_codes(schemes, entity_result, sql)
++    if twins != sql:
++        return twins
+     code = _village_filter_missing(schemes, entity_result, sql)
+     if code is None:
+         return _village_name_cond_to_code(schemes, entity_result, sql)
+@@ -820,6 +823,53 @@ def _pin_missing_village_code(schemes: list[str], entity_result: dict, sql: str)
+     return _drop_geo_beside_pinned_village(out)
+ 
+ 
++def _c10_group_by_cols(sql: str, cols: list) -> str:
++    """A one-row aggregate (`SELECT COUNT(…) FROM t WHERE …`, no GROUP BY, no join) becomes
++    one row per `cols`: they lead the SELECT and form the GROUP BY. Anything else: unchanged."""
++    def fn(tree):
++        if not isinstance(tree, exp.Select) or tree.args.get("group") is not None                 or tree.args.get("joins") or tree.args.get("with") is not None:
++            return None
++        if not any(e.find(exp.AggFunc) for e in tree.expressions):
++            return None
++        tree.set("expressions", [exp.column(c) for c in cols] + list(tree.expressions))
++        tree.set("group", exp.Group(expressions=[exp.column(c) for c in cols]))
++        return None
++    return sql_ast.transform(sql, fn)
++
++
++def _pin_missing_twin_codes(schemes: list[str], entity_result: dict, sql: str) -> str:
++    """J-10 twins (villages sharing one name, each answered): a simple one-SELECT query
++    that filters none of their codes gets `village_code IN (<all>)`, loses the
++    district / block / village-name literal it used instead, and is grouped per village
++    with its block. "How many CM ELEVATE applicants are there in NONGSDER?" (Pynursla and
++    Bhoirymbong) was written `WHERE lgd_district = 'NONGSDER'` on every repair, and the
++    twin guard in _execute_one_attempt sent it to "couldn't build a working query"
++    (CM Elevate UAT 2026-10-30; NONGSDER, AMPANGGRE)."""
++    res = entity_result.get("resolved") or {}
++    codes = [int(c) for c in res.get("village_code_list") or [] if str(c).isdigit()]
++    if not sql or not res.get("village_twins") or len(codes) < 2 or any(str(c) in sql for c in codes) \
++            or not _sql_is_simple_select(sql):
++        return sql
++
++    def fn(tree):
++        cond = exp.In(this=exp.column("village_code"), expressions=[exp.Literal.number(c) for c in codes])
++        where = tree.args.get("where")
++        if where is not None:
++            conjuncts = list(where.this.flatten()) if isinstance(where.this, exp.And) else [where.this]
++            where.set("this", exp.and_(cond, *conjuncts, copy=False))
++        else:
++            tree.where(cond, copy=False)
++        return None
++
++    out = sql_ast.transform(sql, fn)
++    out = _drop_where_conditions(out, lambda n: _is_geo_literal_eq(n) or (isinstance(n, exp.EQ) and bool(
++        _sql_string_comparisons(n, ("lgd_village_name",), (exp.EQ,)))))
++    out = _c10_group_by_cols(out, ["village_code", "lgd_block"])
++    logger.info("%s: the SQL filtered none of the %d same-name villages — pinned village_code IN %s, per village",
++                schemes[0] if schemes else "?", len(codes), codes)
++    return out
++
++
+ # UPPER( / TRIM( / an alias too: "WHERE UPPER(TRIM(lgd_district)) = 'KASHARIPARA'"
+ # (the village name in the district column, no village filter) got the code
+ # pinned but kept the district literal, which the old `UPPER(col)` check
+diff --git a/app/pipeline/common/c11_sql_verify_repair.py b/app/pipeline/common/c11_sql_verify_repair.py
+index aa15be5..a3640c6 100644
+--- a/app/pipeline/common/c11_sql_verify_repair.py
++++ b/app/pipeline/common/c11_sql_verify_repair.py
+@@ -1505,7 +1505,11 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
+     if not settings.SQL_VERIFY_ENABLED:
+         return None
+     try:
+-        prompt = prompt_builder.build_verify_prompt(question, schemes, entity_result, sql)
++        # A level chip's tail (", the block, not another area type") is UI wording, already
++        # resolved into the entities: shown to the verifier it asked for a block-level
++        # restriction on a correct lgd_block filter, and the repair broke the count
++        # (CM Elevate UAT 2026-10-30: UMLING, SAMANDA, MAWKYRWAT).
++        prompt = prompt_builder.build_verify_prompt(_c01_strip_chip_level(question), schemes, entity_result, sql)
+         raw = await llm.call_sql_verifier(prompt, guided={"guided_json": _SQL_VERIFY_JSON_SCHEMA})
+         data = _extract_json(raw)
+     except Exception:  # noqa: BLE001
+@@ -1608,6 +1612,11 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
+             "(v_cm_elevate_disbursement -> dim_geography on geography_key, ac_name = the resolved "
+             "constituency; KI-381) — discarding: %s", issue)
+         return None
++    if _cme_ac_verifier_complaint_is_false(issue, schemes, entity_result, sql):
++        logger.warning(
++            "SQL verifier rejected the documented CM Elevate constituency query (v_cm_elevate -> "
++            "dim_geography on geography_key, ac_name = the resolved constituency) — discarding: %s", issue)
++        return None
+     if _focus_legacy_aggregate_complaint_is_false(issue, schemes, sql):
+         logger.warning(
+             "SQL verifier said a Focus Legacy measure is not aggregated while the SQL SUMs exactly that "
+@@ -1801,7 +1810,11 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
+     sql = _cm_elevate_sector_zero_groups(schemes, sql)
+     sql = _cm_elevate_level_pending(question, schemes, sql)
+     sql = _cm_elevate_pending_without_level(question, schemes, sql)
++    sql = _cm_elevate_pending_funnel(question, schemes, sql)   # pending rule 2026-10-30, gated
+     sql = _cm_elevate_unasked_level_filter(question, schemes, sql)
++    sql = _cm_elevate_drop_area_level_entity_type(schemes, sql)
++    sql = _cm_elevate_sector_keep_unrecorded(question, schemes, sql)
++    sql = await _cm_elevate_urban_body_spellings(question, schemes, sql)
+     sql = _cm_elevate_status_is_file_status(question, schemes, sql)
+     sql = _cm_elevate_decision_status_column(schemes, sql)
+     sql = _cm_legacy_qualify_shared_geo_cols(schemes, sql)
+diff --git a/app/pipeline/common/c12_answer_numbers.py b/app/pipeline/common/c12_answer_numbers.py
+index b9fa596..b7e5f6f 100644
+--- a/app/pipeline/common/c12_answer_numbers.py
++++ b/app/pipeline/common/c12_answer_numbers.py
+@@ -605,6 +605,9 @@ def _framed_fallback(rows: list[dict], schemes: "list[str] | None", entities: "d
+     lead = f"Under {scheme}, " if scheme else ""
+     where = f"in {place}"
+     when = period if period.startswith("across") else f"in {period}"
++    if schemes and all(_SCHEME_DATA_YEARS.get(s) == [] for s in schemes):
++        when = ""                         # no time dimension (CM Elevate): no period words
++    scope = f"{when} {where}".strip()
+     if len(rows) == 1:
+         row = rows[0]
+         nums = _row_metrics(row)
+@@ -630,10 +633,10 @@ def _framed_fallback(rows: list[dict], schemes: "list[str] | None", entities: "d
+             body = f"the recorded total is {parts[0]}"
+         else:
+             body = "the records show " + ", ".join(parts[:-1]) + f" and {parts[-1]}"
+-        sentence = f"{lead}{for_labels}{when} {where}, {body}."
++        sentence = f"{lead}{for_labels}{scope}, {body}."
+         sentence = sentence[0].upper() + sentence[1:]
+         return " ".join([sentence] + caveats)
+-    head = f"{lead}{when} {where}, here are the {len(rows)} results:"
++    head = f"{lead}{scope}, here are the {len(rows)} results:"
+     head = head[0].upper() + head[1:]
+     body = _deterministic_answer(rows)
+     first_nl = body.find("\n")
+@@ -838,7 +841,11 @@ def _finish_answer(answer: str, rows: list[dict], schemes: "list[str] | None", e
+         return answer
+     text = _group_result_digits(answer, rows, schemes)
+     scheme, place, period = _scope_words(schemes, entities)
+-    if period.startswith("FY"):
++    # CM Elevate has no time dimension at all (_SCHEME_DATA_YEARS = []): "2,624 applicants
++    # in Ri Bhoi across all financial years" implied years the data does not hold (UAT
++    # 2026-10-30). The phrase comes from the question rewrite; drop it and add no period.
++    timeless = bool(schemes) and all(_SCHEME_DATA_YEARS.get(s) == [] for s in schemes)
++    if period.startswith("FY") or timeless:
+         text = _drop_all_years_phrase(text)
+     if not scheme or len(rows) != 1:
+         return text
+@@ -862,7 +869,7 @@ def _finish_answer(answer: str, rows: list[dict], schemes: "list[str] | None", e
+     # This is the MGNREGA figure for East Khasi Hills district, FY 2022-23." said
+     # the place and the year twice (Conversational Memory approach, 2026-10-19).
+     fy = period[3:] if period.startswith("FY ") else ""
+-    when = "" if (fy and fy in text) else f", {period}"
++    when = "" if (fy and fy in text) or timeless else f", {period}"
+     if not names_scheme and not names_place:
+         tail = f"This figure is for {scheme}, {place_text}{' (statewide)' if statewide else ''}{when}."
+     elif not names_scheme:
+diff --git a/app/pipeline/schemes/cm_elevate.py b/app/pipeline/schemes/cm_elevate.py
+index 8bf5b0b..09c03c2 100644
+--- a/app/pipeline/schemes/cm_elevate.py
++++ b/app/pipeline/schemes/cm_elevate.py
+@@ -10,7 +10,7 @@ import sqlglot
+ from sqlglot import exp
+ from sqlglot.errors import SqlglotError
+ 
+-from app import sql_ast
++from app import schema_introspect, sql_ast
+ from app.text_match import (Alt, Cap, Hit, Joined, Matcher, Node, NotBefore, Opt, Pred, Seq, W,
+                             collapse_ws, is_int)
+ from app.text_match import words as _tm_words
+@@ -123,6 +123,13 @@ _CMELEVATE_ONLY_TERMS = Matcher(Alt(
+     # written that way it was read as MGNREGA (OFF-017 full run 2026-10-02)
+     "cinema theatre scheme", Seq("sports", Opt("and"), "wellness"),
+     "any business venture", W("request_id", "requestid"),
++    # The programme names as officers type them, without "PRIME" / "scheme": "applicants
++    # under Agriculture Response Vehicle in Ri Bhoi", "status distribution for Warehouse",
++    # "… for Cinema Theatre" asked "which scheme?" (CM Elevate UAT 2026-10-30, OFF-006 /
++    # 016 / 021 / 023). Which CM Elevate dataset is still settled by the dataset choice.
++    "agriculture response vehicle", Seq("response", W("vehicle", "vehicles")), "cinema theatre",
++    Seq("agro", "tourism"), Seq(W("warehouse", "warehouses", "warehousing"),
++                                Opt(W("scheme", "programme", "program"))),
+     # Missing sub-scheme/commodity words and the scheme-FAMILY phrases
+     # (vehicle/tourism/PRIME/livestock/enterprise scheme(s)) — without these,
+     # a question naming only this vocabulary (no literal "CM Elevate") fell
+@@ -188,7 +195,7 @@ _CMELEVATELEGACY_ONLY_TERMS = Matcher(Alt(
+ # Vocabulary only the sanction-and-disbursement dataset can answer. Consulted
+ # ONLY once a question is already a CM Elevate question (named, or via a
+ # sub-scheme word such as "piggery"), so generic money words are safe here.
+-_CMELEVATELEGACY_FORCING = Matcher(Alt(
++_CME_LEGACY_NON_YEAR_TERMS = (
+     W("disburs", "sanction", prefix=True), W("subsidy", "subsidies"), _cme_sg("loan", "grant"),
+     _cme_sg("amount"), "money", _cme_sg("fund", "rupee", "crore", "lakh"), W("expenditure", "spent", "spend"),
+     # "Rs 500", "Rs. 500", "Rs500"
+@@ -201,14 +208,23 @@ _CMELEVATELEGACY_FORCING = Matcher(Alt(
+     Seq("pending", "to", "be", W("paid", "disbursed", "released")), Seq("yet", "to", "be", W("paid", "disbursed")),
+     "refused", _cme_sg("refusal", "duplicate"), W("desanction", prefix=True),
+     "lifcom", _cme_sg("lender"), _cme_join("loan", ("entity", "entities")),
+-    # "financial year", "FY 24", "FY2024-25", "2023-24", "2023/2024", "year-wise"
++)
++# "financial year", "FY 24", "FY2024-25", "2023-24", "2023/2024", "year-wise"
++_CME_YEAR_TERMS = (
+     Seq("financial", W("year", "years"), sep="space"),
+     Seq("fy", Pred(lambda w: is_int(w[:2])), sep="space"),
+     Pred(lambda w: w.lower().startswith("fy") and is_int(w[2:4])),
+     Seq(Pred(lambda w: len(w) == 4 and w.startswith("20") and is_int(w)),
+         Pred(lambda w: 2 <= len(w) <= 4 and is_int(w)), sep="dash"),
+     _cme_join("year", "wise"),
+-))
++)
++_CMELEVATELEGACY_FORCING = Matcher(Alt(*_CME_LEGACY_NON_YEAR_TERMS, *_CME_YEAR_TERMS))
++# The same without the year words: under D-090 a year is not money, so "How many CM Elevate
++# applicants … in FY 2017-18?" stays on the applications data (UAT 2026-10-30, D1).
++_CMELEVATELEGACY_MONEY = Matcher(Alt(*_CME_LEGACY_NON_YEAR_TERMS))
++_CME_YEAR_ASK = Matcher(Alt(*_CME_YEAR_TERMS))
++_CME_PER_YEAR = Matcher(Alt(Seq(W("each", "every", "per", "by"), Opt("financial"), W("year", "years", "fy")),
++                            _cme_join("year", "wise"), Seq("financial", "year", "wise")))
+ # Vocabulary only the APPLICATIONS dataset holds: it keeps a bare "CM Elevate"
+ # on that dataset when no money word is present (a money word wins, see
+ # _cm_elevate_dataset_choice). A typed "CM-ELEVATE applications" is NOT here:
+@@ -376,6 +392,14 @@ def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None
+     # append to any question; it is not a financial-year filter, so it never
+     # moves a question to Legacy (a typed "FY 2024-25" still does).
+     unscoped = _CME_ALL_YEARS_SCOPE.sub(" ", q)
++    # D-090 (2026-10-29) over rule 1 for a YEAR: "applications / applicants / applied" with a
++    # year and no money word is an applications question, and that dataset has no date, so it
++    # gets the no-date reply (_cme_notime_query) instead of Legacy's year pause (UAT D1).
++    # A breakdown BY year ("for each financial year", "year-wise") stays rule 1: only Legacy holds years.
++    if _CME_YEAR_ASK.search(unscoped) and _CME_APPLICATION_WORDS.search(q) and not _CME_PER_YEAR.search(unscoped) \
++            and not _CMELEVATELEGACY_MONEY.search(unscoped) and not _CMELEVATELEGACY_ONLY_TERMS.search(unscoped) \
++            and thread_scheme != "CM Elevate Legacy":
++        return "applications"
+     if _CMELEVATELEGACY_FORCING.search(unscoped) or _CMELEVATELEGACY_ONLY_TERMS.search(unscoped):
+         return "legacy"
+     if _CMELEVATE_APPLICATIONS_ONLY.search(q) or _CME_APPLICATIONS_VOCAB.search(q):
+@@ -669,14 +693,284 @@ def _cme_data_block(canon: str, question: str, data_blocks: "list[str]") -> "str
+     asked_urban = _cme_runs_then_urban(q_low, _cme_ascii_letter_runs(base.lower()) or [base.lower()]) \
+         or bool(_cme_find_runs(q_low, _cme_ascii_letter_runs(want.lower()) or [want.lower()])
+                 and _URBAN_WORD_MATCH.search(question or ""))
+-    if asked_urban and len(urban) == 1:
+-        return urban[0]
++    # The data spells one board twice ("TURA MUNICIPAL BOARD" 28 and "TURA MUNICIPAL
++    # BOARD-MUNICIPAL BOARD" 77): any one spelling is pinned here and
++    # _cm_elevate_urban_body_spellings widens the SQL to all of them (UAT 2026-10-30:
++    # "Tura Municipal Board" kept lgd_block = 'TURA' and answered 0).
++    if asked_urban and urban:
++        return sorted(urban)[0]
+     if want in data_blocks:
+         return None
+     same = [b for b in data_blocks if not _URBAN_BODY_MATCH.search(b) and _cme_block_base(b) == base]
+     if len(same) == 1:
+         return same[0]
+-    return urban[0] if len(urban) == 1 else None
++    return sorted(urban)[0] if urban else None
++
++
++def _cme_dedupe_group_by(sql: str) -> str:
++    """`GROUP BY scheme_name, scheme_name` (the model repeats a key) hid the asked programmes from
++    _cme_asked_programmes, so two programmes with no applications were answered "couldn't find any matching
++    records" instead of 0 each (UAT 2026-10-30, C01-009-05). A repeated GROUP BY key is dropped."""
++    tree = sql_ast.parse_one(sql)
++    if not isinstance(tree, exp.Select) or tree.args.get("group") is None:
++        return sql
++    seen, keep = set(), []
++    for g in tree.args["group"].expressions:
++        key = g.sql()
++        if key not in seen:
++            seen.add(key)
++            keep.append(g)
++    if len(keep) == len(tree.args["group"].expressions):
++        return sql
++    tree.set("group", exp.Group(expressions=keep))
++    return sql_ast.to_sql(tree)
++
++
++_CME_VERIF_Q = Matcher(Alt(Seq(Opt("data"), W("verification", "verified", "verify")), "verification"))
++
++
++def _cme_valid_eq(node: exp.Expression) -> bool:
++    """[LOWER|UPPER(]data_verified[)] = 'valid' (any case)."""
++    if not isinstance(node, exp.EQ) or _cme_col(node.this, "data_verified") is None:
++        return False
++    lit = node.expression
++    while isinstance(lit, _CME_CASE_WRAPPERS) and lit.this is not None:
++        lit = lit.this
++    v = _cme_str(lit)
++    return v is not None and v.strip().lower() == "valid"
++
++
++def _cme_verification_split(question: str, sql: str) -> str:
++    """OFF-022 asks for the verified AND the non-verified count (and the rate); "How many applicants have
++    completed data verification in Ri Bhoi?" ran a single `… AND data_verified = 'Valid'` count and was
++    answered with 2,039 alone (final run 2026-10-30, C01-022-06). That count becomes verified / not
++    verified / total over the same place."""
++    if not _CME_VERIF_Q.search(question or ""):
++        return sql
++    tree = sql_ast.parse_one(sql)
++    if not isinstance(tree, exp.Select) or tree.args.get("group") is not None or tree.args.get("joins")             or len(tree.expressions) != 1 or not isinstance(tree.expressions[0].unalias(), exp.Count):
++        return sql
++    if not any(_cme_valid_eq(n) for n in tree.find_all(exp.EQ)) or not _cme_drop_conjuncts(tree, _cme_valid_eq):
++        return sql
++    tree.set("expressions", [sqlglot.parse_one(x, read=sql_ast.DIALECT) for x in (
++        "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS verified_applicants",
++        "COUNT(DISTINCT request_id) FILTER (WHERE data_verified IS DISTINCT FROM 'Valid') AS not_verified_applicants",
++        "COUNT(DISTINCT request_id) AS total_applicants")])
++    logger.info("CM Elevate: data-verification count split into verified / not verified / total")
++    return sql_ast.to_sql(tree)
++
++
++def _cme_verification_figures(answer: str, rows: list[dict]) -> str:
++    """The verified / not-verified / total row (see _cme_verification_split): any figure the answer does not
++    state is added, with the verified rate."""
++    if len(rows) != 1 or not {"verified_applicants", "not_verified_applicants", "total_applicants"} <= set(rows[0]):
++        return answer
++    v, nv, t = (int(_as_number(rows[0][k]) or 0) for k in ("verified_applicants", "not_verified_applicants", "total_applicants"))
++    have = set(_cme_nums(answer or ""))
++    if float(v) in have and float(nv) in have:
++        return answer
++    rate = f"{100 * v / t:.1f}%" if t else "n/a"
++    return (answer.rstrip() + f" Verified: {v:,}; not verified: {nv:,}; total applicants: {t:,} "
++            f"(verified rate {rate}).")
++
++
++_CME_COMBINED_Q = Matcher(Alt(W("total", "combined", "together", "altogether", "sum"), Seq("in", "all")))
++
++
++def _cme_villages_per_village(question: str, sql: str) -> str:
++    """`COUNT(DISTINCT request_id) … WHERE village_code IN (a, b)` with no GROUP BY summed two same-name
++    villages: "2 applicants in Nongshilliang (Mawpat block) and Nongshilliang (Mairang block)" (UAT
++    2026-10-30, C03). Several villages are answered one row each (village_code, lgd_block), the J-10 rule,
++    unless the question asks for a combined total."""
++    if _CME_COMBINED_Q.search(question or ""):
++        return sql
++    tree = sql_ast.parse_one(sql)
++    if not isinstance(tree, exp.Select) or tree.args.get("group") is not None or tree.args.get("joins")             or tree.args.get("with") is not None or not any(e.find(exp.AggFunc) for e in tree.expressions):
++        return sql
++    node = next((n for n in tree.find_all(exp.In) if _cme_col(n.this, "village_code") is not None
++                 and not isinstance(n.parent, exp.Not) and len(n.expressions) >= 2), None)
++    if node is None:
++        return _cme_twin_limit(sql)
++    cols = ["village_code", "lgd_block"]
++    tree.set("expressions", [exp.column(c) for c in cols] + list(tree.expressions))
++    tree.set("group", exp.Group(expressions=[exp.column(c) for c in cols]))
++    logger.info("CM Elevate: several villages in one query -> one row per village")
++    return sql_ast.to_sql(tree)
++
++
++def _cme_geo_beside_villages(sql: str) -> str:
++    """"MAWLIEH" (Rambrai, West Khasi Hills 10; Pynursla, East Khasi Hills 3) ran `lgd_district = 'WEST KHASI
++    HILLS' AND village_code IN (278917, 276747)` and lost the Pynursla village (final regression 2026-10-30,
++    C03-ALONE-mawlieh). Beside a village_code list of 2+ the codes pin the places: a district / block literal
++    there is dropped (the single-village form is _drop_geo_beside_pinned_village)."""
++    tree = sql_ast.parse_one(sql)
++    if not isinstance(tree, exp.Select) or tree.args.get("where") is None:
++        return sql
++    if not any(_cme_col(n.this, "village_code") is not None and len(n.expressions) >= 2
++               and not isinstance(n.parent, exp.Not) for n in tree.find_all(exp.In)):
++        return sql
++    changed = False
++    for n in list(tree.args["where"].find_all(exp.EQ)):
++        if (_cme_col(n.this, "lgd_district") is not None or _cme_col(n.this, "lgd_block") is not None)                 and _cme_str(n.expression) is not None and n.find_ancestor(exp.Or) is None:
++            n.replace(exp.true())
++            changed = True
++    if not changed:
++        return sql
++    logger.info("CM Elevate: dropped a district / block literal beside a list of village codes")
++    return sql_ast.to_sql(tree)
++
++
++def _cme_twin_limit(sql: str) -> str:
++    """A query over N village codes grouped by village_code ended `LIMIT 1` and dropped the second Massar
++    (Pynursla, 5) (final run 2026-10-30, C03-ALONE-massar). A LIMIT below N is dropped."""
++    tree = sql_ast.parse_one(sql)
++    if not isinstance(tree, exp.Select) or tree.args.get("group") is None or tree.args.get("limit") is None:
++        return sql
++    node = next((n for n in tree.find_all(exp.In) if _cme_col(n.this, "village_code") is not None
++                 and not isinstance(n.parent, exp.Not) and len(n.expressions) >= 2), None)
++    lim = tree.args["limit"].args.get("expression")
++    if node is None or not (isinstance(lim, exp.Literal) and lim.is_int and int(lim.this) < len(node.expressions)):
++        return sql
++    tree.set("limit", None)
++    logger.info("CM Elevate: dropped a LIMIT smaller than the number of villages asked")
++    return sql_ast.to_sql(tree)
++
++
++def _cme_ac_name_case(sql: str) -> str:
++    """v_cm_elevate stores ac_name in Title Case ("West Shillong"): `ac_name = 'WEST SHILLONG'` matched
++    nothing and the answer was "couldn't find any matching records" (UAT 2026-10-30, C01-017AC-59). An
++    ac_name compared to a literal is compared case-blind (Focus Legacy / Legacy have the same rewrite)."""
++    tree = sql_ast.parse_one(sql)
++    if tree is None:
++        return sql
++    changed = False
++    for node in list(tree.find_all(exp.EQ, exp.In)):
++        col = node.this
++        if not (isinstance(col, exp.Column) and col.name.lower() == "ac_name"):
++            continue
++        if isinstance(node, exp.EQ):
++            lit = _cme_str(node.expression)
++            if lit is None:
++                continue
++            node.replace(exp.EQ(this=exp.Upper(this=col.copy()), expression=exp.Literal.string(lit.upper())))
++        else:
++            vals = _cme_in_values(node)
++            if not vals or any(v is None for v in vals):
++                continue
++            node.replace(exp.In(this=exp.Upper(this=col.copy()),
++                                expressions=[exp.Literal.string(str(v).upper()) for v in vals]))
++        changed = True
++    return sql_ast.to_sql(tree) if changed else sql
++
++
++def _cme_block_inside_constituency(question: str, sql: str) -> str:
++    """"status distribution in West Shillong constituency" also got lgd_block = 'SHILLONG-MUNICIPAL
++    BOARD' (the town's name sits inside the constituency's) and 0 rows (C01-017AC-59). A block filter
++    whose name appears in the question only inside the filtered constituency's name is dropped."""
++    acs = {str(a).upper() for a in _fl_ac_values(sql)}
++    if not acs:
++        return sql
++    rest = (question or "").upper()
++    for a in sorted(acs, key=len, reverse=True):          # only "<AC> [assembly] constituency" goes
++        for tail in (" ASSEMBLY CONSTITUENCY", " CONSTITUENCY", " AC"):
++            rest = rest.replace(a + tail, " ")
++    rest_l = rest.lower()
++    tree = sql_ast.parse_one(sql)
++    if tree is None:
++        return sql
++
++    def stray(node: exp.Expression) -> bool:
++        if not isinstance(node, (exp.EQ, exp.In)) or _cme_col(node.this, "lgd_block") is None:
++            return False
++        vals = [_cme_str(node.expression)] if isinstance(node, exp.EQ) else _cme_in_values(node)
++        return bool(vals) and all(v is not None and _cme_block_base(str(v)).lower() not in
++                                  "".join(ch for ch in rest_l if ch.isalnum()) for v in vals)
++    if not _cme_drop_conjuncts(tree, stray):
++        return sql
++    logger.info("CM Elevate: dropped a block filter named only inside the constituency's name")
++    return sql_ast.to_sql(tree)
++
++
++async def _cm_elevate_urban_body_spellings(question: str, schemes: list[str], sql: str) -> str:
++    """The CM Elevate place-literal pass: a block named only inside the constituency's name is
++    dropped, ac_name compared case-blind, then the urban-body spellings (_cme_urban_block_spellings)."""
++    if schemes != ["CM Elevate"] or not sql:
++        return sql
++    sql = _cme_dedupe_group_by(sql)
++    sql = _cme_verification_split(question, sql)
++    sql = _cme_villages_per_village(question, sql)
++    sql = _cme_twin_limit(sql)
++    sql = _cme_geo_beside_villages(sql)
++    sql = _cme_block_inside_constituency(question, sql)
++    sql = _cme_ac_name_case(sql)
++    return await _cme_urban_block_spellings(question, schemes, sql)
++
++
++async def _cme_urban_block_spellings(question: str, schemes: list[str], sql: str) -> str:
++    """`lgd_block = '<an urban body>'` (or an IN-list holding one) also takes every other
++    stored spelling of the same board: v_cm_elevate holds Tura's applications under
++    "TURA MUNICIPAL BOARD" and "TURA MUNICIPAL BOARD-MUNICIPAL BOARD" (see _cme_data_block).
++    A literal the data does not store becomes the stored block the question names: "Nongpoh
++    Town Committee block … in the Nongpoh constituency" was written lgd_block = 'NONGPOH'
++    once the constituency had cleared the block slot, and answered 0 (UAT 2026-10-30, H-BxAC)."""
++    if schemes != ["CM Elevate"] or not sql or "lgd_block" not in sql.lower():
++        return sql
++    try:
++        data_blocks = await _cm_elevate_block_names("CM Elevate")
++    except Exception:  # noqa: BLE001 — without the live list, leave the SQL as it is
++        return sql
++    urban: "dict[str, list[str]]" = {}
++    for b in data_blocks:
++        if _URBAN_BODY_MATCH.search(b):
++            urban.setdefault(_cme_block_base(b), []).append(b)
++    siblings = {b: sorted(v) for v in urban.values() if len(v) > 1 for b in v}
++    stored = set(data_blocks)
++    tree = sql_ast.parse_one(sql)
++    if tree is None:
++        return sql
++    changed = False
++    for node in list(tree.find_all(exp.EQ, exp.In)):
++        col = _cme_col(node.this, "lgd_block")
++        if col is None:
++            continue
++        vals = [_cme_str(node.expression)] if isinstance(node, exp.EQ) else _cme_in_values(node)
++        if not vals or any(v is None for v in vals):
++            continue
++        want = []
++        mapped = [v if str(v).upper() in stored else (_cme_data_block(str(v), question, data_blocks) or v)
++                  for v in vals]
++        for v in mapped:
++            for s in siblings.get(str(v).upper(), [str(v)]):
++                if s not in want:
++                    want.append(s)
++        if want != list(vals):
++            node.replace(exp.In(this=node.this.copy(), expressions=[exp.Literal.string(s) for s in want]))
++            changed = True
++    # grouped by block: one row per board, not one per stored spelling — "Rongram vs Tura Municipal
++    # Board" compared 609 with Tura's 28 instead of 105 (77 + 28) (UAT 2026-10-30, C09)
++    if isinstance(tree, exp.Select) and tree.args.get("group") is not None:
++        groups = {}
++        for v in siblings.values():
++            groups[tuple(v)] = sorted(v, key=len)[0]
++
++        def merged(col: exp.Expression) -> exp.Expression:
++            case = exp.Case()
++            for sibs, canon in groups.items():
++                case = case.when(exp.In(this=col.copy(), expressions=[exp.Literal.string(x) for x in sibs]),
++                                 exp.Literal.string(canon))
++            return case.else_(col.copy())
++        for i, g in enumerate(list(tree.args["group"].expressions)):
++            if isinstance(g, exp.Column) and g.name.lower() == "lgd_block":
++                tree.args["group"].expressions[i] = merged(g)
++                changed = True
++        for i, e in enumerate(list(tree.expressions)):
++            if isinstance(e, exp.Column) and e.name.lower() == "lgd_block":
++                tree.expressions[i] = exp.alias_(merged(e), "lgd_block")
++                changed = True
++    if not changed:
++        return sql
++    logger.info("CM Elevate: an urban body's other stored spellings added to the lgd_block filter")
++    return sql_ast.to_sql(tree)
+ 
+ 
+ async def _cm_elevate_block_from_mention(mention: str, schemes: "list[str] | None") -> "str | None":
+@@ -704,6 +998,22 @@ async def _cm_elevate_block_from_mention(mention: str, schemes: "list[str] | Non
+     return exact[0] if len(exact) == 1 else None
+ 
+ 
++def _cme_block_only_in_constituency(question: str, block: str) -> bool:
++    """Every place the block's name is written, the next word (after at most one more name word) is
++    "constituency" / "assembly" and never "block" / "municipal" / "town"."""
++    base = _cme_block_base(block).lower()
++    words = ["".join(ch for ch in w.lower() if ch.isalnum()) for w in (question or "").split()]
++    hits = [i for i, w in enumerate(words) if w and w == base]
++    if not base or not hits:
++        return False
++    for i in hits:
++        after = [w for w in words[i + 1:i + 3] if w]
++        if not after or after[0] in ("block", "municipal", "town", "tc", "mb") \
++                or not any(w in ("constituency", "assembly", "ac") for w in after):
++            return False
++    return True
++
++
+ async def _cm_elevate_blocks_to_data(question: str, resolved: dict, display: dict,
+                                      scheme: str = "CM Elevate") -> None:
+     """KI-107 (CM Elevate all-blocks run, 2026-09-28): the CM Elevate block
+@@ -714,6 +1024,15 @@ async def _cm_elevate_blocks_to_data(question: str, resolved: dict, display: dic
+     "Jowai Municipal Board" to JOWAI, which has no rows ("no records"); a
+     resolved RI-MULIANG never matched the stored "RI MULIANG". Rewrite the
+     resolved block(s) to the spelling the data stores."""
++    # "status distribution in West Shillong constituency" resolved the block SHILLONG-MUNICIPAL BOARD from
++    # the town's name inside the constituency's; the missing-filter guard then demanded it on every repair
++    # and the turn ended "couldn't build a working query" (UAT 2026-10-30, C01-017AC-59). A block the
++    # text names only as part of "<name> constituency" is not a block filter.
++    if scheme == "CM Elevate" and isinstance(resolved.get("block"), str) \
++            and _cme_block_only_in_constituency(question, resolved["block"]):
++        logger.info("CM Elevate: block %r named only inside a constituency's name - dropped", resolved["block"])
++        resolved.pop("block", None)
++        display.pop("block", None)
+     try:
+         data_blocks = await _cm_elevate_block_names(scheme)
+     except Exception:  # noqa: BLE001 — without the live list, keep the resolver's answer
+@@ -741,7 +1060,30 @@ _CME_SECTOR_VALUE_MATCH = Matcher(Cap(W("piggery", "poultry", "dairy", "goatery"
+ _CME_SECTOR_EACH_MATCH = Matcher(Alt(Seq(W("each", "every", "all", "by", "per"), Opt("the"), _cme_sg("sector"), sep="space"),
+                                   _cme_join(("sector", "sectors"), "wise")))
+ _CME_PENDING_MATCH = Matcher(Alt("pending", _cme_join("on", "hold")))
+-_CME_SECTOR_FACT_KINDS = ("count", "pending", "programmes", "workflow")
++_CME_SECTOR_FACT_KINDS = ("count", "pending", "programmes", "workflow", "notime")
++# "Pending" (user decision 2026-10-30, superseding the KI-074 On Hold reading): an application
++# verified Valid, whose file has moved forward or been sent back (not resubmitted), and whose
++# file status is Pending or Send Back (correction later the same day: forward OR sendback, not
++# forward only). Invalid / On Hold / Wrong, resubmit and Rejected are reported only when the
++# question names them. file_status lives inside scheme_specific, which the chatbot's
++# database role has not been allowed to read since 2026-10-16 (ingestion team); until it is,
++# the recorded figures are given instead (cme-sector-workflow below) and the rule is stated.
++_CME_PENDING_FUNNEL = ("data_verified = 'Valid' AND (LOWER(current_file_status) = 'forward' "
++                       "OR LOWER(current_file_status) LIKE 'sendback%') "
++                       "AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')")
++_CME_PENDING_RULE_TEXT = ("Pending means: data verified Valid, file forwarded or sent back (not "
++                          "resubmitted), and file status Pending or Send Back.")
++
++
++def _cme_pending_readable() -> bool:
++    """The file status (inside scheme_specific) is among the columns the chatbot's role may read."""
++    return schema_introspect.cme_file_status_readable()
++
++
++def _cme_pending_target() -> str:
++    """The SQL condition a plain "pending" resolves to: the funnel once file_status is
++    readable, the data-verification hold (KI-074) while it is not."""
++    return _CME_PENDING_FUNNEL if _cme_pending_readable() else "data_verified = 'On Hold'"
+ # A WORKFLOW status the data does not hold (ingestion team, 2026-10-26): "pending",
+ # "approved", "rejected" and "sent back" live in an internal API field the chatbot
+ # cannot read; data_verified ('On Hold' …) is the data-verification check, a different
+@@ -767,8 +1109,8 @@ def _cme_level_pending_wording(question: str, schemes: "list[str]", answer: str)
+     (current_level), so the figure is right, but "pending" is a workflow status the
+     data does not hold. The answer keeps the figure, drops the word, and says so."""
+     if schemes != ["CM Elevate"] or not answer or not _CME_PENDING_MATCH.search(question or "") \
+-            or not _CME_LEVEL_ASKED.search(question or ""):
+-        return answer
++            or not _CME_LEVEL_ASKED.search(question or "") or _cme_pending_readable():
++        return answer   # pending IS recorded once file_status is readable (rule of 2026-10-30)
+     kept = [w for w in answer.split(" ") if w.strip(".,;:!?*").lower() != "pending"]
+     out = " ".join(kept)
+     if out == answer:
+@@ -851,12 +1193,79 @@ def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str]
+         params.append([progs] if isinstance(progs, str) else list(progs))
+         where.append(f"scheme_name = ANY(${len(params)}::text[])")
+     wh = (" WHERE " + " AND ".join(where)) if where else ""
+-    sql = ("/* cme-sector-workflow */ SELECT "
++    grp = _cme_workflow_group(q)
++    sel = f"{grp} AS grp, " if grp else ""
++    tail = " GROUP BY 1 ORDER BY 2 DESC, 1" if grp else ""
++    pend = (f"COUNT(DISTINCT request_id) FILTER (WHERE {_CME_PENDING_FUNNEL}) AS pending, "
++            "COUNT(DISTINCT request_id) FILTER (WHERE scheme_specific ->> 'file_status' = 'Send Back') AS sent_back, "
++            if _cme_pending_readable() else "")
++    sql = (f"/* cme-sector-workflow */ SELECT {sel}{pend}"
+            "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS on_hold, "
+            "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'forward') AS forward, "
+            "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'resubmit') AS resubmit, "
+            "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'sendback to vdv/citizen') AS sendback, "
+-           f"COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate{wh}")
++           f"COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate{wh}{tail}")
++    return sql, params, sql
++
++
++# "Which CM ELEVATE programs have the highest number of pending applications?" got the
++# statewide recorded figures only (906 on hold) — the ranking asked for was lost (UAT
++# 2026-10-30, OFF-019 / OFF-020). The recorded figures are grouped the way the question asks.
++_CME_WF_RANK = Matcher(Alt(W("which", "each", "every", "highest", "most", "top", "rank", "ranked", "ranking",
++                             "wise", "by", "per", "lowest", "least"), Seq(_cme_sg("district", "block", "programme",
++                                                                                 "program", "scheme"), "wise")))
++_CME_WF_GROUPS = (("scheme_name", Matcher(W("programs", "programmes", "schemes", "program", "programme", "scheme"))),
++                  ("lgd_district", Matcher(W("districts", "district"))),
++                  ("lgd_block", Matcher(W("blocks", "block"))))
++
++
++def _cme_workflow_group(question: str) -> "str | None":
++    """The column a 'pending' question ranks or breaks down by, else None. A singular noun
++    counts only next to "each" / "which" / "-wise" ("which district has the most…")."""
++    q = question or ""
++    if not _CME_WF_RANK.search(q):
++        return None
++    low = q.lower()
++    for col, noun in _CME_WF_GROUPS:
++        h = noun.search(q)
++        if h is None:
++            continue
++        word = low[h.start():h.end()]
++        if word.endswith("s") or any(f"{w} {word}" in low for w in ("each", "which", "every", "per", "by")) \
++                or f"{word}-wise" in low or f"{word} wise" in low:
++            return col
++    return None
++
++
++# "Show the monthly totals of CM Elevate applications" -> "couldn't build a working query" (UAT
++# 2026-10-30, C04-MONTHLY): v_cm_elevate has no date column at all. A month / quarter / trend /
++# date-range ask on the applications data is answered with that fact and the recorded total
++# (cmelevate_classification_rules.yaml monthly_breakdown_requested / trend_or_growth_requested).
++_CME_TIME_ASK = Matcher(Alt(
++    W("monthly", "month", "months", "quarterly", "quarter", "quarters", "weekly", "daily", "trend", "trends"),
++    _cme_join("month", "wise"), _cme_join("month", "on", "month"), Seq("over", "time"),
++    W("january", "february", "march", "april", "june", "july", "august", "september", "october", "november",
++      "december"), Seq("last", Pred(lambda w: w.isdecimal()), W("months", "days", "weeks", "years")),
++    Seq("last", W("six", "three", "twelve"), W("months", "weeks"))))
++
++
++def _cme_notime_query(question: str, resolved: dict) -> "tuple[str, list, str] | None":
++    if not (_CME_TIME_ASK.search(question or "") or _CME_YEAR_ASK.search(_CME_ALL_YEARS_SCOPE.sub(" ", question or ""))):
++        return None
++    where, params = [], []
++    for single, col in (("village_code", "village_code"), ("block", "lgd_block"), ("district", "lgd_district")):
++        v = resolved.get(single)
++        if v not in (None, "") and not isinstance(v, (list, dict, tuple, set)):
++            params.append(str(v) if col == "village_code" else str(v).upper())
++            where.append(f"{col}{'::text' if col == 'village_code' else ''} = ${len(params)}")
++    ac = resolved.get("assembly_constituency")
++    if isinstance(ac, str) and ac.strip():
++        params.append(ac.strip().upper())
++        where.append(f"UPPER(ac_name) = ${len(params)}")
++    wh = (" WHERE " + " AND ".join(where)) if where else ""
++    # the workflow mark (c13 routes it to _cme_sector_answer); the row's cme_kind tells them apart
++    sql = ("/* cme-sector-workflow */ SELECT 'notime' AS cme_kind, COUNT(DISTINCT request_id) AS applications "
++           f"FROM curated.v_cm_elevate{wh}")
+     return sql, params, sql
+ 
+ 
+@@ -864,6 +1273,9 @@ def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tup
+     if schemes != ["CM Elevate"]:
+         return None
+     q = question or ""
++    _nt = _cme_notime_query(q, resolved or {})
++    if _nt is not None:
++        return _nt
+     _wf = _cme_workflow_query(q, resolved or {}) if not (_CME_SECTOR_EACH_MATCH.search(q)) else None
+     if _wf is not None:
+         return _wf
+@@ -904,8 +1316,11 @@ def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tup
+                "HAVING COUNT(*) FILTER (WHERE sector_id IS NOT NULL) > 0 ORDER BY scheme_name")
+         return sql, params, sql
+     if _CME_SECTOR_EACH_MATCH.search(q) and _CME_PENDING_MATCH.search(q):
++        pend = (f"COUNT(DISTINCT request_id) FILTER (WHERE {_CME_PENDING_FUNNEL}) AS pending, "
++                if _cme_pending_readable() else
++                "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS pending_on_hold, ")
+         sql = ("/* cme-sector-pending */ SELECT COALESCE(sector_id, '(not recorded)') AS sector, "
+-               "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS pending_on_hold, "
++               f"{pend}"
+                "COUNT(DISTINCT request_id) AS applications "
+                f"FROM curated.v_cm_elevate{wh} GROUP BY 1 ORDER BY 2 DESC, 1")
+         return sql, params, sql
+@@ -922,9 +1337,43 @@ def _cme_place_words(display: dict) -> str:
+     return " across Meghalaya"
+ 
+ 
++def _cme_pending_answer(question: str, rows: list[dict], word: str, scope: str) -> "str | None":
++    """The cme-sector-workflow answer once file_status is readable (user decision 2026-10-30):
++    a pending question gets the funnel count, "sent back" the Send Back file status, and the
++    recorded figures the rule leaves out are named so they can be asked for. None for a word
++    the rule does not cover (approved / rejected keep their own path)."""
++    if word == "sent back":
++        col, label = "sent_back", "Applications with file status Send Back"
++    elif word == "pending":
++        col, label = "pending", "Pending CM Elevate applications"
++    else:
++        return None
++    if "grp" in rows[0]:
++        gname = {"scheme_name": "programme", "lgd_district": "district", "lgd_block": "block"}.get(
++            _cme_workflow_group(question) or "", "group")
++        items = [f"{_cme_short(x['grp']) if x.get('grp') is not None else '(not recorded)'} "
++                 f"{int(_as_number(x.get(col)) or 0):,}" for x in rows]
++        total = sum(int(_as_number(x.get(col)) or 0) for x in rows)
++        return (f"{label}{scope}, by {gname} (highest first): " + "; ".join(items)
++                + f". Total {total:,}. {_CME_PENDING_RULE_TEXT}")
++    r = rows[0]
++    n = {k: int(_as_number(r.get(k)) or 0) for k in ("pending", "sent_back", "on_hold", "applications")}
++    if col == "sent_back":
++        return (f"{n['sent_back']:,} CM Elevate application{'s' if n['sent_back'] != 1 else ''}{scope} "
++                f"{'have' if n['sent_back'] != 1 else 'has'} the file status Send Back (of {n['applications']:,}); "
++                f"those also verified Valid and forwarded are counted among the {n['pending']:,} pending. "
++                f"{_CME_PENDING_RULE_TEXT}")
++    return (f"{n['pending']:,} CM Elevate application{'s are' if n['pending'] != 1 else ' is'} pending{scope} "
++            f"(of {n['applications']:,}). {_CME_PENDING_RULE_TEXT} Not counted, and available on request: "
++            f"{n['on_hold']:,} on hold at data verification, and applications verified Invalid or Wrong, "
++            "resubmitted, or rejected.")
++
++
+ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict) -> "str | None":
+     where = _cme_place_words(display or {})
+     kind = _cme_sector_fact_kind(sql)
++    if kind == "workflow" and rows and rows[0].get("cme_kind") == "notime":
++        kind = "notime"
+     if kind == "programmes":
+         m = _CME_SECTOR_VALUE_MATCH.search(question or "")
+         sector = m.group(1).title() if m else "that"
+@@ -934,6 +1383,12 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
+         total = sum(int(_as_number(r.get("sector_applicants")) or 0) for r in rows)
+         return (f"CM Elevate applicants associated with the {sector} sector{where}, by programme:\n"
+                 + "\n".join(lines) + f"\n\nCombined: {total:,}.")
++    if kind == "notime" and rows:
++        n = int(_as_number(rows[0].get("applications")) or 0)
++        return ("A CM Elevate application carries no date — no month, quarter or financial year is recorded "
++                "against it — so applications cannot be split or filtered by time. In all, "
++                f"{n:,} application{'s are' if n != 1 else ' is'} recorded{where}. (Sanctions and disbursements by "
++                "financial year are in CM Elevate Legacy.)")
+     if kind == "count":
+         m = _CME_SECTOR_VALUE_MATCH.search(question or "")
+         sector = m.group(1).title() if m else "that"
+@@ -947,6 +1402,13 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
+         out += (f". Sector is recorded only on Poultry, Dairy and Goat Farming applications — {recorded:,} "
+                 f"of them{where} have it recorded.")
+         return out
++    if kind == "pending" and rows and "pending" in rows[0]:
++        # file_status readable: the pending rule of 2026-10-30, by sector
++        items = [f"{r['sector']} {int(_as_number(r.get('pending')) or 0):,}" for r in rows]
++        total = sum(int(_as_number(r.get("pending")) or 0) for r in rows)
++        return (f"Pending CM Elevate applications by sector{where}: " + "; ".join(items)
++                + f". Total {total:,}. {_CME_PENDING_RULE_TEXT} Sector is recorded only on Poultry, Dairy and "
++                  "Goat Farming applications, so most applications fall under (not recorded).")
+     if kind == "pending":
+         items = [f"{r['sector']} {int(_as_number(r.get('pending_on_hold')) or 0):,}" for r in rows]
+         total = sum(int(_as_number(r.get("pending_on_hold")) or 0) for r in rows)
+@@ -965,6 +1427,20 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
+                 "rejections": "rejected", "send back": "sent back", "sendback": "sent back"}.get(word, word)
+         prog = (display or {}).get("cm_scheme")
+         scope = f"{where}" + (f" under {prog}" if prog else "")
++        if "pending" in r:
++            _pa = _cme_pending_answer(question, rows, word, scope)   # file_status readable (2026-10-30)
++            if _pa:
++                return _pa
++        if "grp" in r:
++            # grouped (OFF-019 / OFF-020): the on-hold figure per programme / district / block, highest first
++            gname = {"scheme_name": "programme", "lgd_district": "district", "lgd_block": "block"}.get(
++                _cme_workflow_group(question) or "", "group")
++            items = [f"{_cme_short(x['grp']) if x.get('grp') is not None else '(not recorded)'} "
++                     f"{int(_as_number(x.get('on_hold')) or 0):,}" for x in rows]
++            total = sum(int(_as_number(x.get("on_hold")) or 0) for x in rows)
++            return (f"The CM Elevate data doesn't record a \"{word}\" status. What it does record{scope} is the "
++                    f"data-verification hold. Applications on hold, by {gname} (highest first): "
++                    + "; ".join(items) + f". Total on hold {total:,}.")
+         out = (f"The CM Elevate data doesn't record a \"{word}\" status. What it does record{scope}: "
+                f"{n['on_hold']:,} application{'s' if n['on_hold'] != 1 else ''} "
+                f"{'are' if n['on_hold'] != 1 else 'is'} on hold at data verification, and by file status "
+@@ -1414,7 +1890,19 @@ def _cm_elevate_unasked_programme_filter(question: str, schemes: list[str], sql:
+     tree = sql_ast.parse_one(sql)
+     node = _cme_in_list(tree, "scheme_name")
+     if node is None:
+-        return sql
++        # one programme too: "Applicants for the Chief Minister's Elevate programme in Ri Bhoi" got
++        # scheme_name = 'Chief Minister''s Green Taxi Scheme' and "1 applicant" (UAT 2026-10-30, C17-09)
++        node = next((n for n in (tree.find_all(exp.EQ) if tree is not None else [])
++                     if _cme_col(n.this, "scheme_name") is not None and _cme_str(n.expression) is not None), None)
++        if node is None:
++            return sql
++        lits = [_cme_str(node.expression)]
++        if any(_cme_question_names(x, q) for x in lits):
++            return sql
++        if not _cme_drop_conjuncts(tree, lambda c: c is node):
++            return sql
++        logger.info("CM Elevate: dropped a programme filter the question never named: %s", lits)
++        return sql_ast.to_sql(tree)
+     lits = _cme_in_values(node)
+     if any(_cme_question_names(x, q) for x in lits):
+         return sql
+@@ -1624,6 +2112,118 @@ def _cm_elevate_unasked_level_filter(question: str, schemes: list[str], sql: str
+     return sql_ast.to_sql(tree)
+ 
+ 
++# entity_type on v_cm_elevate is the ROW's area type — 'Village', 'Ward' or 'Unresolved' —
++# never the level of the area asked about. The block chip resumes "…Umling, the block,
++# not another area type": the verifier then asked for a block-level restriction and the
++# repair added entity_type = 'Block', so UMLING / SAMANDA / MAWKYRWAT applicants came back
++# wrong (CM Elevate UAT, 2026-10-30; MGNREGA had the same, _mgnrega_drop_area_level_entity_type).
++# The block / district / constituency filter does the scoping; an area-level filter is dropped.
++_CME_ROW_TYPES = frozenset({"village", "ward", "unresolved"})
++
++
++def _cme_area_level_eq(node: exp.Expression) -> bool:
++    """[LOWER|UPPER(][t.]entity_type[)] = '<a value that is not a row type>'."""
++    if not isinstance(node, exp.EQ) or _cme_col(node.this, "entity_type") is None:
++        return False
++    lit = node.expression
++    while isinstance(lit, _CME_CASE_WRAPPERS) and lit.this is not None:   # UPPER('block')
++        lit = lit.this
++    val = _cme_str(lit)
++    return val is not None and val.strip().lower() not in _CME_ROW_TYPES
++
++
++def _cme_sector_not_null(node: exp.Expression) -> bool:
++    """[t.]sector_id IS NOT NULL (sqlglot: Is(negate=True), or NOT (… IS NULL))."""
++    if isinstance(node, exp.Not) and isinstance(node.this, exp.Is):
++        node = node.this
++    elif not (isinstance(node, exp.Is) and node.args.get("negate")):
++        return False
++    return _cme_col(node.this, "sector_id") is not None and isinstance(node.expression, exp.Null)
++
++
++def _cm_elevate_sector_keep_unrecorded(question: str, schemes: list[str], sql: str) -> str:
++    """"applicants associated with each sector" grouped by sector_id with `sector_id IS NOT
++    NULL` listed Poultry 22, Dairy 7, Piggery 7, Goatery 1 and dropped the 8,884 applications
++    with no sector recorded, reading as if sector were known for all (UAT 2026-10-30, OFF-011).
++    A sector breakdown keeps that group; the answer names it "(not recorded)"."""
++    if schemes != ["CM Elevate"] or not sql or not _CME_SECTOR_EACH_MATCH.search(question or ""):
++        return sql
++    tree = sql_ast.parse_one(sql)
++    if not isinstance(tree, exp.Select) or tree.args.get("group") is None:
++        return sql
++    keys = []
++    for g in tree.args["group"].expressions:        # GROUP BY 1 -> the first select item
++        if isinstance(g, exp.Literal) and g.is_int and 0 < int(g.this) <= len(tree.expressions):
++            g = tree.expressions[int(g.this) - 1]
++        keys.append(g)
++    if not any(_cme_col(g, "sector_id") is not None or _cme_reads_sector_id(g) for g in keys):
++        return sql
++    if not _cme_drop_conjuncts(tree, _cme_sector_not_null):
++        return sql
++    logger.info("CM Elevate: sector breakdown keeps the applications with no sector recorded")
++    return sql_ast.to_sql(tree)
++
++
++def _cme_twin_verifier_complaint_is_false(issue: str, schemes: list[str], entity_result: dict, sql: str) -> bool:
++    """Same-name villages (J-10 twins): `WHERE village_code IN (<every twin>)`, counted per village or in
++    all, is the documented query, but the verifier complained about it on every repair ("uses
++    COUNT(DISTINCT request_id) …", "groups by lgd_village_name instead of the resolved value") and
++    "How many CM ELEVATE applicants are there in NONGSHILLIANG?" ended "couldn't build a working query"
++    (UAT 2026-10-30, C03). An entity / grouping complaint against exactly that query is discarded; a
++    complaint about the measure still stands."""
++    res = (entity_result or {}).get("resolved") or {}
++    codes = {str(c) for c in res.get("village_code_list") or []}
++    if schemes != ["CM Elevate"] or not res.get("village_twins") or len(codes) < 2 \
++            or not sql_ast.is_parseable(sql or "") or _FL_VERIFIER_MEASURE.search(issue or ""):
++        return False
++    if sql_ast.tables(sql, qualified=True) != {"curated.v_cm_elevate"} or sql_ast.joins(sql):
++        return False
++    tree = sql_ast.parse_one(sql)
++    node = next((n for n in tree.find_all(exp.In) if _cme_col(n.this, "village_code") is not None
++                 and not isinstance(n.parent, exp.Not) and n.expressions
++                 and all(isinstance(e, exp.Literal) for e in n.expressions)), None) if tree is not None else None
++    vals = {str(e.this) for e in node.expressions} if node is not None else set()
++    counts = [c for c in tree.find_all(exp.Count)] if tree is not None else []
++    return vals == codes and bool(counts) and all(
++        isinstance(c.this, exp.Distinct) and _cme_col(c.this.expressions[0] if c.this.expressions else None, "request_id")
++        is not None for c in counts)
++
++
++def _cme_ac_verifier_complaint_is_false(issue: str, schemes: list[str], entity_result: dict, sql: str) -> bool:
++    """A verifier complaint about the join or the resolved constituency raised against the
++    documented constituency query, v_cm_elevate -> dim_geography ON geography_key with
++    ac_name = the resolved constituency. "applicants in Mairang block that fall in the Mairang
++    assembly constituency" wrote exactly that (plus the block) and the verifier called the join
++    prohibited on every repair: "couldn't build a working query" (UAT 2026-10-30, H-BxAC;
++    the Legacy twin is KI-381). A complaint about the measure or the grain still stands."""
++    if _cme_twin_verifier_complaint_is_false(issue, schemes, entity_result, sql):
++        return True
++    ac = ((entity_result or {}).get("resolved") or {}).get("assembly_constituency")
++    if schemes != ["CM Elevate"] or not isinstance(ac, str) or not ac.strip() or not sql_ast.is_parseable(sql or "") \
++            or not _FL_VERIFIER_JOIN_OR_ENTITY.search(issue or "") or _FL_VERIFIER_MEASURE.search(issue or ""):
++        return False
++    if sql_ast.tables(sql, qualified=True) != {"curated.v_cm_elevate", "curated.dim_geography"}:
++        return False
++    js = sql_ast.joins(sql)
++    if not js or not all(j.args.get("on") is not None
++                         and {c.name.lower() for c in j.args["on"].find_all(exp.Column)} == {"geography_key"}
++                         for j in js):
++        return False
++    return ac.strip().upper() in _fl_ac_values(sql)
++
++
++def _cm_elevate_drop_area_level_entity_type(schemes: list[str], sql: str) -> str:
++    if schemes != ["CM Elevate"] or not sql:
++        return sql
++    tree = sql_ast.parse_one(sql)
++    if tree is None or not any(_cme_area_level_eq(n) for n in tree.find_all(exp.EQ)):
++        return sql
++    if not _cme_drop_conjuncts(tree, _cme_area_level_eq):
++        return sql
++    logger.info("CM Elevate: dropped an entity_type area-level filter (the row type is never the asked level)")
++    return sql_ast.to_sql(tree)
++
++
+ _CME_DECISION_STATES = ("approved", "rejected", "pending")
+ 
+ 
+@@ -1659,11 +2259,11 @@ def _cm_elevate_decision_status_column(schemes: list[str], sql: str) -> str:
+         for n in list(tree.find_all(exp.EQ, exp.Like, exp.ILike)):
+             hit = _cme_decision_pred(n)
+             if hit is not None and hit[1] == "Pending":
+-                n.replace(_cme_eq_on(hit[0], "data_verified = 'On Hold'"))
++                n.replace(_cme_eq_on(hit[0], _cme_pending_target()))
+ 
+     out = sql_ast.transform(sql, fn)
+     if out != sql:
+-        logger.info("CM Elevate: current_file_status = 'pending' read as data_verified = 'On Hold'")
++        logger.info("CM Elevate: current_file_status = 'pending' read as %s", _cme_pending_target())
+     return out
+ 
+ 
+@@ -1678,18 +2278,59 @@ def _cm_elevate_pending_without_level(question: str, schemes: list[str], sql: st
+             or _CME_LEVEL_STAGE_Q.search(q)):
+         return sql
+     tree = sql_ast.parse_one(sql)
+-    if tree is None or any(_cme_on_hold_eq(n) for n in tree.find_all(exp.EQ)):
++    if tree is None or any(_cme_on_hold_eq(n) for n in tree.find_all(exp.EQ)) or _cme_reads_file_status(tree):
+         return sql
+     # any level literal, not just 'level<d>': "pending in 12TH MER" came back as
+     # current_level = 'level12' (final pass 2026-09-28, KI-120)
+     levels = [n for n in tree.find_all(exp.EQ) if _cme_level_eq(n)]
+     if len(levels) != 1:
+         return sql
+-    levels[0].replace(_cme_eq_on(_cme_col(levels[0].this, "current_level"), "data_verified = 'On Hold'"))
+-    logger.info("CM Elevate: plain 'pending' was filtered on current_level — restored data_verified = 'On Hold'")
++    levels[0].replace(_cme_eq_on(_cme_col(levels[0].this, "current_level"), _cme_pending_target()))
++    logger.info("CM Elevate: plain 'pending' was filtered on current_level — restored %s", _cme_pending_target())
+     return sql_ast.to_sql(tree)
+ 
+ 
++def _cme_reads_file_status(tree: "exp.Expression | None") -> bool:
++    """The query already reads scheme_specific ->> 'file_status' (the pending funnel)."""
++    if tree is None:
++        return False
++    return (any(str(k.this).lower() == "file_status" for k in tree.find_all(exp.JSONPathKey))
++            or any(s.lower() == "file_status" for s in sql_ast.string_literals(tree)))
++
++
++# a question that names another verification / workflow state is not a plain "pending"
++_CME_PENDING_OTHER_STATE = Matcher(Alt(Pred(lambda w: "verif" in w.lower()),
++                                       W("valid", "invalid", "wrong", "resubmit", "resubmitted",
++                                         "rejected", "approved", "forward", "forwarded")))
++
++
++def _cm_elevate_pending_funnel(question: str, schemes: list[str], sql: str) -> str:
++    """User decision 2026-10-30: a plain "pending" (no "on hold", no other state named) is the
++    pending funnel — Valid, forward or sent back, file status Pending or Send Back — once file_status is
++    readable. A `data_verified = 'On Hold'` the model wrote for it becomes the funnel (in the
++    WHERE or inside a FILTER); a plain query with no status test at all gets the funnel AND-ed
++    into its WHERE. Nothing changes while file_status is locked (the KI-074 reading stays)."""
++    q = question or ""
++    if (schemes != ["CM Elevate"] or not sql or not _cme_pending_readable()
++            or not _CME_PENDING_WORD_Q.search(q) or _CME_ON_HOLD.search(q) or _CME_PENDING_OTHER_STATE.search(q)):
++        return sql
++    tree = sql_ast.parse_one(sql)
++    if tree is None or _cme_reads_file_status(tree):
++        return sql
++    hits = [n for n in tree.find_all(exp.EQ) if _cme_on_hold_eq(n)]
++    if hits:
++        for n in hits:
++            n.replace(_cme_eq_on(n.this, _CME_PENDING_FUNNEL))
++        logger.info("CM Elevate: 'pending' — data_verified = 'On Hold' became the pending funnel (2026-10-30)")
++        return sql_ast.to_sql(tree)
++    sel = _cme_simple_select(tree)
++    if sel is None or any(_cme_status_eq(n) for n in tree.find_all(exp.EQ)):
++        return sql                       # another verification state was written on purpose
++    sel.where(sqlglot.parse_one(_CME_PENDING_FUNNEL, read=sql_ast.DIALECT), append=True, copy=False)
++    logger.info("CM Elevate: 'pending' with no status test — the pending funnel was added (2026-10-30)")
++    return sql_ast.to_sql(sel)
++
++
+ # ════ verify and repair ═══════════════════════════════════════════════════════════════════════════════
+ # Keys read live from curated.v_cm_elevate.scheme_specific on 2026-09-27
+ # (jsonb_object_keys): populated on every row except sector_id. Since
+@@ -1717,7 +2358,11 @@ def _cme_resolved_places_in_sql(resolved: "dict | None", sql: str) -> bool:
+ # (KI-070). Same project pattern as the Focus Plus guarantees: check the text
+ # against the rows, and rebuild or append only what is missing.
+ _CME_LABEL_STOP = {"meghalaya", "prime", "scheme", "development", "farming", "and", "the", "of",
+-                   "chief", "minister", "minister's", "centre", "hills", "not", "block"}
++                   "chief", "minister", "minister's", "centre", "hills", "not", "block",
++                   # place words every ward / town row shares: "ward" beside a "1" in another ward's sentence
++                   # counted "Dabitbibra - Ward No.10 (1)" as stated, so a list missing it was never rebuilt
++                   # (final run 2026-10-30, C01-026-35)
++                   "ward", "village", "villages", "municipal", "board", "town", "committee"}
+ _CME_GARBLED = Matcher(Alt("respectively", Seq("corresponding", _cme_sg("row")), "for each row", "each row"))
+ 
+ 
+@@ -1744,16 +2389,33 @@ _CME_WHOLE_LIST_Q = Matcher(Alt(
+     Seq("all", Opt("the"), _cme_sg("programme", "program", "scheme", "district", "block", "village", "sector"))))
+ 
+ 
++_CME_TOPN_Q = Matcher(Seq(W("top", "bottom", "highest", "lowest", "first", "last"), Pred(lambda w: w.isdecimal())))
++
++
+ def _cme_complete_list(question: str, answer: str, rows: list[dict]) -> str:
+     """KI-068 (text half): "applicants under each CM ELEVATE program" named 5 of
+     the 15 programmes ("the remaining schemes range from 4 … up to 3,617").
+     When the question asks for EVERY value (each / distribution / breakdown)
+     and some row's figure is not beside its label, rebuild the list from the
+     rows. A "which is highest" question naming its top few is left alone."""
+-    if not _CME_WHOLE_LIST_Q.search(question or "") or not 2 <= len(rows) <= 40:
++    # Also rebuilt (UAT 2026-10-30): same-name villages answered together (J-10 twins, rows per
++    # village_code + lgd_block) — "Chandigre … highest 16 in Rongram, lowest 4 in Chokpot" left out
++    # Demdema's 7 (C03); and "top 5 / bottom 5" lists — "the top 5 villages in East Khasi Hills"
++    # gave figures for the first and last only (C10).
++    twins = bool(rows) and "village_code" in rows[0] and "lgd_block" in rows[0] and 2 <= len(rows) <= 3         and len({str(r.get("lgd_village_name") or "").upper() for r in rows}) == 1
++    if not (_CME_WHOLE_LIST_Q.search(question or "") or twins or _CME_TOPN_Q.search(question or ""))             or not 2 <= len(rows) <= 200:
+         return answer
+     nums = _fp_numeric_cols(rows)
+     labels = [k for k in rows[0] if k not in nums]
++    # "each village of Umling" rows carry lgd_village_name + the same lgd_block on every row
++    # + village_code: the composer summed up 93 villages as "highest 69 in UMSHAKEN, lowest 1"
++    # and the list was never rebuilt (UAT 2026-10-30, OFF-026). A code column and a label
++    # that is the same on every row do not tell the rows apart.
++    if len(labels) > 1:
++        labels = [k for k in labels if not _NONSTAT_COL.search(k)
++                  and len({str(r.get(k)).upper() for r in rows}) > 1] or labels
++        if len(labels) > 1 and "lgd_village_name" in labels:      # villages across blocks: the village names them
++            labels = ["lgd_village_name"]
+     if len(nums) != 1 or len(labels) != 1:
+         return answer
+     lab, met = labels[0], nums[0]
+@@ -1767,8 +2429,10 @@ def _cme_complete_list(question: str, answer: str, rows: list[dict]) -> str:
+             for r in rows):
+         return answer
+     name = _FP_LABEL_NAME.get(lab, lab.replace("_", " "))
++    ranked = sorted((r for r in rows if _as_number(r.get(met)) is not None),
++                    key=lambda r: -(_as_number(r.get(met)) or 0))
+     items = [f"{_cme_short(r[lab]) if r.get(lab) is not None else '(not recorded)'} "
+-             f"{_fmt_num(_as_number(r.get(met)))}" for r in rows if _as_number(r.get(met)) is not None]
++             f"{_fmt_num(_as_number(r.get(met)))}" for r in ranked]
+     total = sum(_as_number(r.get(met)) or 0 for r in rows)
+     logger.info("CM Elevate: rebuilt a %s list — the answer left out some %s", name, name)
+     return (f"{_metric_label(met).capitalize()} by {name} ({len(items)}): " + "; ".join(items)
+@@ -2109,17 +2773,142 @@ def _cme_sector_answer_names_wrong_programme(answer: str, sql: str, rows: list[d
+     return "; ".join(parts) + "."
+ 
+ 
++def _cme_compare_missing_zero(sql: str, rows: list[dict], answer: str) -> str:
++    """"Compare … Agriculture Response Vehicle and Dairy across East Jaintia Hills and East Khasi
++    Hills" listed the 3 combinations that have rows and said nothing of Dairy in East Jaintia Hills
++    (0): GROUP BY returns no row for a pair with no applications (UAT 2026-10-30, C01-027-03). Every
++    asked programme x district pair without a row is stated as 0."""
++    progs, dists = _cme_scheme_in_values(sql), _cme_district_in_values(sql)
++    if not progs or len(dists) < 2 or not rows or "scheme_name" not in rows[0] or "lgd_district" not in rows[0]:
++        return answer
++    have = {(str(r["scheme_name"]).upper(), str(r["lgd_district"]).upper()) for r in rows}
++    miss = [(pr, d) for pr in progs for d in dists if (pr.upper(), d.upper()) not in have]
++    if not miss:
++        return answer
++    logger.info("CM Elevate: comparison stated %d programme x district pair(s) with no applications as 0", len(miss))
++    return (answer.rstrip() + "\nNo applications (0): "
++            + "; ".join(f"{_cme_short(pr)} in {_place_title(d)}" for pr, d in miss) + ".")
++
++
++_CME_AC_NAMES: "set[str] | None" = None
++
++
++async def _cme_unknown_constituency(sql: str) -> "str | None":
++    """A constituency in the SQL that v_cm_elevate does not hold: "How many CM Elevate applicants are
++    there in El Dorado constituency?" ran UPPER(ac_name) = UPPER('El Dorado') and said "0 applicants — the
++    data records zero" for a place that does not exist (UAT 2026-10-30, C14-INV-17)."""
++    global _CME_AC_NAMES
++    vals = {str(v).strip() for v in _fl_ac_values(sql or "")} if sql else set()
++    if not vals:
++        return None
++    if _CME_AC_NAMES is None:
++        try:
++            rows = await fetch_rows("SELECT DISTINCT UPPER(ac_name) AS a FROM curated.v_cm_elevate WHERE ac_name IS NOT NULL", [])
++            _CME_AC_NAMES = {str(r["a"]) for r in rows}
++        except Exception:  # noqa: BLE001 — without the list, say nothing
++            return None
++    bad = [v for v in vals if v.upper() not in _CME_AC_NAMES]
++    return _place_title(bad[0]) if bad else None
++
++
++def _cme_village_not_in_named_block(question: str, rows: list[dict]) -> "str | None":
++    """"MAWBRI village of Mawkyrwat block" was answered with the Mawbri villages of Bhoirymbong and
++    Khatarshnong Laitkroh — no Mawbri in Mawkyrwat has an application (UAT 2026-10-30, C14). When the rows
++    carry their block and none is the block the question names, the answer is 0 for that village there."""
++    q = question or ""
++    low = q.lower()
++    i = low.find(" village of ")
++    j = low.find(" block", i + 12) if i >= 0 else -1
++    if i < 0 or j < 0 or not rows or "lgd_block" not in rows[0]:
++        return None
++    blk = q[i + 12:j].strip()
++    k = low.rfind(" in ", 0, i)
++    vil = q[k + 4:i].strip() if k >= 0 else ""
++    # only "in <name> village of <block> block": not "each village of Ranikor, the block, not another
++    # area type" (a resumed chip) nor any list question (final run 2026-10-30, C01-026)
++    if not vil or vil.lower().split()[0] in ("each", "every", "all", "the") or "," in blk or "," in vil             or not all(ch.isalnum() or ch in " -.()'" for ch in blk + vil):
++        return None
++    want = "".join(ch for ch in _cme_block_base(blk).lower() if ch.isalnum())
++    have = {"".join(ch for ch in _cme_block_base(str(r.get("lgd_block") or "")).lower() if ch.isalnum()) for r in rows}
++    if not want or want in have or not vil:
++        return None
++    return (f"There are no CM Elevate applicants (0) in {vil} village of {blk} block. "
++            f"Villages named {vil} in other blocks: "
++            + "; ".join(f"{_place_title(str(r.get('lgd_block')))} {int(_as_number(next((v for k2, v in r.items() if _as_number(v) is not None and k2 != 'village_code'), 0)) or 0):,}"
++                        for r in rows) + ".")
++
++
++async def _cme_village_code_not_in_named_block(question: str, sql: str) -> "str | None":
++    """The single-row form of _cme_village_not_in_named_block: "MEGONGGRE village of Tikrikilla block"
++    (no CM Elevate application) was answered with village_code 273068, the MEGONGGRE of Selsella block
++    (UAT 2026-10-30, C14). The blocks of the village codes the SQL filters are read; none of them being
++    the named block means 0 for the village asked."""
++    low = (question or "").lower()
++    i = low.find(" village of ")
++    j = low.find(" block", i + 12) if i >= 0 else -1
++    if i < 0 or j < 0 or not sql:
++        return None
++    tree = sql_ast.parse_one(sql)
++    codes = []
++    for n in (tree.find_all(exp.EQ, exp.In) if tree is not None else []):
++        if _cme_col(n.this, "village_code") is None:
++            continue
++        lits = [n.expression] if isinstance(n, exp.EQ) else list(n.expressions)
++        codes += [int(x.this) for x in lits if isinstance(x, exp.Literal) and str(x.this).isdigit()]
++    if not codes:
++        return None
++    try:
++        rows = await fetch_rows("SELECT DISTINCT lgd_block AS lgd_block, COUNT(DISTINCT request_id) AS applicants "
++                                "FROM curated.v_cm_elevate WHERE village_code = ANY($1::int[]) GROUP BY 1", [codes])
++    except Exception:  # noqa: BLE001
++        return None
++    return _cme_village_not_in_named_block(question, [dict(r) for r in rows]) if rows else None
++
++
++_CME_YEAR_PHRASE = Matcher(Seq(W("for", "in", "during"), Opt("the"), Opt(W("year", "fy", "financial")), Opt("year"),
++                               Pred(lambda w: len(w) == 4 and w[:2] == "20" and is_int(w)),
++                               Opt(Pred(lambda w: len(w) == 2 and is_int(w))), sep="any"))
++_CME_YEAR_IN_Q = Matcher(Alt(Pred(lambda w: len(w) == 4 and w[:2] == "20" and is_int(w)), W("fy", "year", "years")))
++
++
++def _cme_drop_invented_year(question: str, answer: str) -> str:
++    """"There are 16 CM ELEVATE applicants in Mawhati (Mawhati block) for the year 2024": the applications
++    data holds no date, and nobody asked about a year (UAT 2026-10-30). A year phrase the question did
++    not bring is removed from the answer."""
++    if not answer or _CME_YEAR_IN_Q.search(question or ""):
++        return answer
++    for _ in range(4):
++        h = _CME_YEAR_PHRASE.search(answer)
++        if h is None:
++            break
++        start = h.start()
++        while start > 0 and answer[start - 1] == " ":
++            start -= 1
++        answer = answer[:start] + answer[h.end():]
++    return answer
++
++
+ async def _cm_elevate_answer_guarantees(question: str, sql: str, rows: list[dict], answer: str,
+                                         display: dict) -> str:
+     """Every CM Elevate DATA answer passes through here after the composer."""
++    unknown = await _cme_unknown_constituency(sql)
++    if unknown:
++        return (f"I couldn't find an assembly constituency called “{unknown}” in the CM Elevate data. Please check "
++                "the name, or ask for a district or block instead.")
++    other = _cme_village_not_in_named_block(question, rows) or await _cme_village_code_not_in_named_block(question, sql)
++    if other:
++        return other
+     if not rows:
+         return _cme_all_zero_answer(sql, answer, display)
+     answer = _cme_digits_for_number_words(answer, rows)
++    answer = _cme_drop_invented_year(question, answer)
++    answer = _cme_verification_figures(answer, rows)
+     answer = _cme_sector_answer_names_wrong_programme(answer, sql, rows)
+     answer = _mgnrega_zero_backstop(answer, rows, display)   # a genuine 0 is stated as 0 (KI-070)
+     answer = _cme_grouped_rows(answer, rows)
+     answer = _cme_complete_list(question, answer, rows)
+     answer = _cme_multi_scheme_total(question, sql, rows, answer)
++    answer = _cme_compare_missing_zero(sql, rows, answer)
+     # KI-074 decided 2026-09-28 (product owner): "pending" = verification On Hold
+     # only. The interim second line with the file_status Pending count is gone.
+     return _cme_comparison(question, rows, answer)
+diff --git a/app/schema_context.py b/app/schema_context.py
+index fdce444..5cc297d 100644
+--- a/app/schema_context.py
++++ b/app/schema_context.py
+@@ -742,10 +742,7 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
+        SELECT COUNT(DISTINCT request_id) AS applications
+        FROM curated.v_cm_elevate
+        WHERE lgd_district = 'WEST GARO HILLS';
+-  9. scheme_specific (the JSON column that held gender_id, file_status and
+-     occupation_id) is LOCKED from the chatbot's database role since 2026-10-16. Never
+-     write scheme_specific, ->>, ? or @> against it — the query is refused. Gender and
+-     the Approved / Rejected decision are therefore NOT AVAILABLE for CM Elevate.
++  9. <<CME_RULE_9>>
+   9a. SECTOR is the plain column sector_id (Poultry, Dairy and Goat schemes only;
+      mostly NULL — [[cme_sector]] of [[cme_records]] records). Stored values are Title Case ('Poultry',
+      'Piggery', 'Dairy', 'Goatery'): compare with ILIKE, never an exact lowercase guess.
+@@ -833,8 +830,7 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
+ _CMELEVATE_VOCAB = """
+ CM ELEVATE BUSINESS VOCABULARY (source: cmelevate_schema_partitions.yaml + cmelevate_entity_resolver.yaml)
+     "applications" / "applicants" / "beneficiaries" / "requests" / "records" -> COUNT(DISTINCT request_id)   (an application is a REQUEST, not an award — say "applications"; never COUNT(*): 27 applications have two identical records, rule 8)
+-    "on hold" / "pending" / "held" -> data_verified = 'On Hold'   (NEVER the onhold boolean)
+-    ONLY when the question itself names a level ("pending at level 2", "pending in level1"): -> LOWER(current_level) = 'levelN' alone — the level IS the scope; do NOT also add data_verified = 'On Hold' (no level-2 application is on hold, so that AND returns a false 0). A plain "pending" with NO level named is still data_verified = 'On Hold' — never a current_level filter
++    <<CME_PENDING_VOCAB>>
+     "pending in each sector" / "<status> by sector" / "<status> by <dimension>" -> keep the status test INSIDE COUNT(DISTINCT request_id) FILTER (WHERE data_verified = '...') and GROUP BY the dimension with NO status test in the WHERE, so a group with none still shows 0
+     "approved" / "rejected" / "decision" -> NOT AVAILABLE: that decision lived only in scheme_specific, locked from the chatbot since 2026-10-16 — current_file_status NEVER holds approved/rejected/pending (only forward / resubmit / sendback to vdv/citizen), so filtering it for those returns a false 0   "sanctioned" / "cleared" / "funded" -> NOT AVAILABLE here (sanction lives in CM Elevate Legacy)   "status" / "status distribution" / "status-wise" / "application status" (default) -> current_file_status, send-back spellings merged (rule 13; decided 2026-09-28)   "verification status" -> data_verified
+     "villages" -> COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')   "districts" / "blocks" -> COUNT(DISTINCT lgd_district) / COUNT(DISTINCT lgd_block)
+@@ -1645,8 +1641,45 @@ def build_schema_context(schemes: list[str]) -> str:
+ 
+     parts.append(f"SHARED RULES:\n{_SHARED_RULES}")
+     parts.append(_CLOSING)
++    text = _cme_pending_lines("\n\n".join(parts))
+     # Fill the data-figure tokens, live from megh_db (data_facts); the typed defaults until the first read.
+-    return data_facts.render("\n\n".join(parts))
++    return data_facts.render(text)
++
++
++# CM Elevate "pending" (user decision 2026-10-30): Valid + forward-or-sendback + file_status Pending / Send Back.
++# file_status is inside scheme_specific, locked from the chatbot's role since 2026-10-16, so the
++# rule 9 and vocabulary lines follow the live grant (schema_introspect.cme_file_status_readable).
++_CME_RULE_9_LOCKED = """scheme_specific (the JSON column that holds gender_id, file_status and
++     occupation_id) is LOCKED from the chatbot's database role since 2026-10-16. Never
++     write scheme_specific, ->>, ? or @> against it — the query is refused. Gender and
++     the Approved / Rejected decision are therefore NOT AVAILABLE for CM Elevate. "Pending"
++     is defined (2026-10-30) as data_verified = 'Valid' AND forward-or-sendback AND file_status Pending or
++     Send Back, and file_status is inside scheme_specific: a pending count is NOT AVAILABLE
++     either — say so and offer the recorded figures (on hold, forward / resubmit / sendback)."""
++_CME_RULE_9_OPEN = """scheme_specific is a JSON column. The ONLY key you may read is file_status —
++     scheme_specific ->> 'file_status' ('Pending' / 'Send Back' / 'Rejected') — and only for a
++     pending, sent-back or rejected question. Never read gender_id, occupation_id or any other
++     key: gender is NOT AVAILABLE for CM Elevate."""
++_CME_PENDING_VOCAB_LOCKED = (
++    """"on hold" / "held" -> data_verified = 'On Hold'   (NEVER the onhold boolean)
++    "pending" -> NOT AVAILABLE for now: pending is defined (2026-10-30) as data_verified = 'Valid' AND (LOWER(current_file_status) = 'forward' OR LIKE 'sendback%') AND file_status IN ('Pending', 'Send Back'), and file_status is inside the locked scheme_specific column. Never write scheme_specific; never answer "pending" from data_verified = 'On Hold' as if it were pending — on hold is a different state. State the rule, say the count is not available, and give the recorded figures
++    ONLY when the question itself names a level ("pending at level 2", "pending in level1"): -> LOWER(current_level) = 'levelN' alone — the level IS the scope"""
++)
++_CME_PENDING_VOCAB_OPEN = (
++    """"pending" / "pending applications" / "pendency" -> the PENDING RULE (user decision 2026-10-30): data_verified = 'Valid' AND (LOWER(current_file_status) = 'forward' OR LOWER(current_file_status) LIKE 'sendback%') AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')   ([[cme_pending]] statewide). Put it INSIDE COUNT(DISTINCT request_id) FILTER (WHERE …) when grouping so a group with none shows 0. "pending at level N" = the rule AND LOWER(current_level) = 'levelN'
++    "on hold" / "held" -> data_verified = 'On Hold' ONLY   (NEVER the onhold boolean) — on hold is NOT pending. Invalid / Wrong / On Hold, resubmit and Rejected are reported only when the question names them
++    "sent back" -> scheme_specific ->> 'file_status' = 'Send Back' (the department's decision; the workflow value 'sendback to vdv/citizen' in current_file_status is a different field)"""
++)
++
++
++def _cme_pending_lines(text: str) -> str:
++    """Rule 9 and the pending vocabulary for the live grant on scheme_specific."""
++    if "<<CME_" not in text:
++        return text
++    from app import schema_introspect   # local: schema_introspect imports db at module level
++    open_ = schema_introspect.cme_file_status_readable()
++    return (text.replace("<<CME_RULE_9>>", _CME_RULE_9_OPEN if open_ else _CME_RULE_9_LOCKED)
++                .replace("<<CME_PENDING_VOCAB>>", _CME_PENDING_VOCAB_OPEN if open_ else _CME_PENDING_VOCAB_LOCKED))
+ 
+ 
+ # Kept for any caller that still wants the full, unscoped context (e.g. a
+diff --git a/app/schema_introspect.py b/app/schema_introspect.py
+index 3c665ab..b95bc32 100644
+--- a/app/schema_introspect.py
++++ b/app/schema_introspect.py
+@@ -238,6 +238,15 @@ def readonly_denied() -> "set[tuple[str, str, str]]":
+     return _cache["denied"]
+ 
+ 
++def cme_file_status_readable() -> bool:
++    """curated.v_cm_elevate.scheme_specific — the JSON that holds CM Elevate's file_status —
++    is among the columns the read-only role may SELECT. Locked by the ingestion team on
++    2026-10-16; the CM Elevate "pending" rule of 2026-10-30 needs it. False until the live
++    schema has been read, so a cold start never writes the column."""
++    cols = (live_columns() or {}).get("curated.v_cm_elevate") or []
++    return any(c.get("column") == "scheme_specific" for c in cols)
++
++
+ def column_unit(table: str, column: str) -> "str | None":
+     """The UNIT semantic.column_catalog records for table.column ("rupees", "lakh
+     rupees", "crore rupees", "persons" …), or None (not recorded / catalog unread)."""
+diff --git a/app/spelling.py b/app/spelling.py
+index 1b01718..bcc9b7e 100644
+--- a/app/spelling.py
++++ b/app/spelling.py
+@@ -69,7 +69,11 @@ LEVEL_WORDS = {"district": "district", "districts": "district", "block": "block"
+ # Never part of a place name: "in jayantia hills east" is "in" + the district.
+ _SPAN_STOP = PLACE_PREPS | frozenset(("of", "for", "the", "and", "to", "on", "by", "with", "under", "per", "a",
+                                       "an", "or", "vs", "versus", "compare", "district", "districts", "block",
+-                                      "village"))
++                                      "village",
++                                      # "Dairy across South West Khasi Hills" read "across South West" as
++                                      # South West Garo Hills (fuzzy 81) and the question became
++                                      # "Dairy South West Garo Hills Khasi Hills" (CM Elevate UAT 2026-10-30)
++                                      "across", "between", "among", "amongst", "over", "than"))
+ _DIRECTIONS = frozenset(("east", "west", "north", "south", "south west", "eastern west"))
+ _VOWELS = frozenset("aeiou")
+ _SOUND_MAP = str.maketrans({"y": "i", "c": "k", "q": "k", "w": "u"})
+@@ -490,12 +494,18 @@ def scheme_scores(question: str) -> dict:
+     return out
+ 
+ 
++# Real English words one edit from a vocabulary word, never typos of it: "bank account numbers"
++# became "bank amount numbers" and slipped past the personal-data guardrail; "Kenches Trace"
++# became "Kenches tranche" (CM Elevate UAT 2026-10-30, N1 / N3).
++_NOT_A_TYPO = frozenset("account accounts trace traces".split())
++
++
+ def _domain_word(word: str) -> "str | None":
+     """The closed-vocabulary word a typo stands for ("mony" -> "money"), or None.
+     Never a known word, a place or a village name."""
+     w = word.lower()
+     vocab = _aliases()["words"]
+-    if len(w) < 3 or not word.isalpha() or w in vocab:
++    if len(w) < 3 or not word.isalpha() or w in vocab or w in _NOT_A_TYPO:
+         return None
+     hits = []
+     for v in vocab:
+@@ -572,6 +582,10 @@ def _village_at(toks: list[Tok], i: int) -> "tuple[int, str, int] | None":
+         name = " ".join(t.raw for t in span)
+         if er.is_village_name(name) or (k == 1 and _known_word(name)):
+             return None
++        # a stored name that itself ends in "village" ("CENTRE VILLAGE" was corrected to Kentra,
++        # UAT 2026-10-30, N4): written exactly, left alone
++        if er.is_village_name(f"{name} {toks[j].raw}") or er.is_stored_village_name(name):
++            return None
+         near = village_matches(name, limit=2)
+         if near and (len(near) == 1 or near[1][1] > near[0][1]):
+             return j, _title(near[0][0]), near[0][1]
+@@ -579,6 +593,17 @@ def _village_at(toks: list[Tok], i: int) -> "tuple[int, str, int] | None":
+     return None
+ 
+ 
++def _exact_village_end(question: str, toks: list[Tok], i: int, place_end: int) -> "int | None":
++    """The end token of an exact village name or alias that starts at token i and runs past
++    `place_end` (the district / block reading's end), else None."""
++    from app import entity_resolver as er
++    best = None
++    for j in range(place_end + 1, min(i + 9, len(toks)) + 1):
++        if er.is_village_name(question[toks[i].start:toks[j - 1].end]):
++            best = j
++    return best
++
++
+ def _normalise(question: str) -> Normalised:
+     toks = tokens(question)
+     out: list[str] = []
+@@ -601,7 +626,29 @@ def _normalise(question: str) -> Normalised:
+             i = end
+             continue
+         if t.raw.isalpha():
++            wend = _exact_village_end(question, toks, i, i + 1)
++            if wend is not None and any(not tk.raw.isalpha() for tk in toks[i:wend]):
++                # an exact ward / village name with a number in it is left whole: "Kenches Trace - Ward
++                # No.23" became "Kenches tranche - Ward No.23" (CM Elevate UAT 2026-10-30, N1)
++                i = wend
++                continue
+             phit = _place_hit(toks, i, prev)
++            vend = None
++            if phit is not None:
++                # an exact village / ward name that starts here OR up to 6 tokens earlier and covers
++                # this span: "Ladthalaboh East - Ward No.1" was read as East Garo Hills (UAT 2026-10-30, N1)
++                for j0 in range(max(0, i - 6), i + 1):
++                    # a name that began earlier may END on the corrected word itself:
++                    # "POMLAKRAI RNGI SHYLLONG" (village 278328) lost its last word to Shillong
++                    vend = _exact_village_end(question, toks, j0, phit[1][0] - (1 if j0 < i else 0))
++                    if vend is not None:
++                        break
++            if vend is not None:
++                # "William Nagar (MB) - Ward No.8" is a village written exactly; the block alias
++                # "William Nagar (MB" was rewritten to "Williamnagar) - Ward No.8" and the ward was
++                # lost (CM Elevate UAT 2026-10-30, OFF-003 wards). Left whole.
++                i = vend
++                continue
+             if phit is not None:
+                 level, (end, canon, how, score) = phit
+                 typed = _span_text(question, toks, i, end)
+@@ -774,6 +821,11 @@ def village_matches(text: str, limit: int = 5) -> list[tuple[str, int]]:
+     # Equal sound distance: the closer plain spelling first ("darnggre" is one sound
+     # edit from several villages; DARONGGRE is the one spelt nearest), never A-Z.
+     typed = _letters(text)
++    # A short typed name (up to 6 letters) is read by sound only when its PLAIN spelling is
++    # one edit from the village: "asgard" (an invented place) sounded like ASKAPARA, two
++    # letters away, and was answered 0 for that village (CM Elevate UAT 2026-10-30, C14-INV-14).
++    if len(typed) <= 6:
++        hits = [h for h in hits if DamerauLevenshtein.distance(typed, _letters(h[1]), score_cutoff=1) <= 1]
+     hits.sort(key=lambda h: (h[0], -fuzz.ratio(typed, _letters(h[1])), h[1]))
+     return [(n, d) for d, n in hits[:limit]]
+ 
+@@ -788,6 +840,7 @@ addition case progress kind cash time favour favor respect line rural urban hill
+ aggregate full list points bullet bullets simple plain format writing paragraph sentence sentences
+ total totals sum overall depth short brief points tranche tranches installment instalment batch
+ batches phase phases stage stages round rounds part parts cycle cycles quarter quarters
++level levels hold
+ january february march april may june july august september october november december
+ jan feb mar apr jun jul aug sep sept oct nov dec
+ """.split())
+@@ -823,7 +876,13 @@ def _unresolved_place(question: str) -> "dict | None":
+         if j == i + 1:
+             continue
+         name = _span_text(question, toks, i + 1, j)
++        if _exact_village_end(question, toks, i + 1, i + 1) is not None:
++            continue                      # the start of an exact village / ward name ("Kenches Trace - Ward No.23", N1)
+         level = LEVEL_WORDS.get(toks[j].low) if j < len(toks) else None
++        if level == "village":
++            from app import entity_resolver as er
++            if er.is_stored_village_name(name):
++                continue                  # "CENTRE VILLAGE": a stored one-word name the index leaves out (N4)
+         if _is_place(name) or _out_of_area(name):
+             continue
+         if level is None and len(_letters(name)) < 4:
+diff --git a/tests/live_cme_uat.py b/tests/live_cme_uat.py
+new file mode 100644
+index 0000000..4135a45
+--- /dev/null
++++ b/tests/live_cme_uat.py
+@@ -0,0 +1,607 @@
++"""LIVE CM Elevate UAT (2026-10-30): the 30 sheet use cases (CM-ELEVATE-OFF-001..030,
++"Test Case Results - 30th Sep 26.xlsx" sheet "CM Elevate") filled in with real places and
++programmes, plus a hierarchy / permutation suite (region, district, block, village, assembly
++constituency and their combinations, the scheme's own dimensions, and edge cases).
++
++Every expected figure is computed here, independently, by read-only SQL on curated.v_cm_elevate
++(applications = applicants = COUNT(DISTINCT request_id); pending / on hold = data_verified 'On Hold';
++verified = 'Valid'; status = current_file_status; sector = sector_id). Each question runs in a
++FRESH chat through the product's conversation layer and graph (InProcessDriver); a clarification
++is answered by tapping the chip a user would (the place level / village the case means).
++
++Not collected by pytest. Needs the office VPN (megh_db + gateway).
++
++    .venv/Scripts/python.exe tests/live_cme_uat.py --out logs/cme_uat.json
++    .venv/Scripts/python.exe tests/live_cme_uat.py --only OFF-022,H-AC --out logs/x.json
++"""
++import argparse
++import asyncio
++import json
++import os
++import random
++import re
++import sys
++import time
++
++sys.path.insert(0, os.getcwd())
++sys.path.insert(0, os.path.join(os.getcwd(), "tests"))
++
++V = "curated.v_cm_elevate"
++ONHOLD = "data_verified = 'On Hold'"
++
++# programme: (what a user types, a word the answer must carry)
++PROG = {
++    "PRIME Small Enterprise Empowerment and Development (SEED)": ("Prime SEED", "seed"),
++    "Meghalaya Piggery Development Scheme": ("Piggery", "piggery"),
++    "Meghalaya Poultry Farming Scheme": ("Poultry", "poultry"),
++    "PRIME Tourism Vehicle Scheme": ("Prime Tourism Vehicle", "tourism vehicle"),
++    "PRIME Agriculture Response Vehicle Scheme": ("Agriculture Response Vehicle", "response vehicle"),
++    "Meghalaya Dairy Development Scheme": ("Dairy", "dairy"),
++    "Meghalaya Any Business Venture Scheme": ("Any Business Venture", "business venture"),
++    "Meghalaya Goat Farming Scheme": ("Goat Farming", "goat"),
++    "Meghalaya Warehouse Scheme": ("Warehouse", "warehouse"),
++    "Meghalaya Sericulture & Weaving Scheme": ("Sericulture & Weaving", "sericulture"),
++    "Meghalaya Sports & Wellness Centre Scheme": ("Sports & Wellness Centre", "sports"),
++    "Chief Minister's Green Taxi Scheme": ("Green Taxi", "green taxi"),
++    "Agro Tourism Villa Scheme": ("Agro Tourism Villa", "agro tourism"),
++    "Meghalaya Motorcaravan Scheme": ("Motorcaravan", "motorcaravan"),
++    "Meghalaya Cinema Theatre Scheme": ("Cinema Theatre", "cinema"),
++}
++STATUS_KW = {"forward": ["forward"], "resubmit": ["resubmit"],
++             "sendback to vdv/citizen": ["sent back", "send back", "sendback"]}
++
++
++def title(s: str) -> str:
++    return " ".join(w.capitalize() for w in s.replace("-", " - ").split()).replace(" - ", "-")
++
++
++def norm(s: str) -> str:
++    return re.sub(r"[^a-z0-9]+", " ", (s or "").lower()).strip()
++
++
++def block_core(b: str) -> str:
++    """'SHILLONG-MUNICIPAL BOARD' -> 'shillong'; 'TURA MUNICIPAL BOARD-MUNICIPAL BOARD' -> 'tura'."""
++    core = re.split(r"-|\bMUNICIPAL BOARD\b|\bTOWN COMMITTEE\b", b)[0]
++    return norm(core)
++
++
++def block_say(b: str) -> str:
++    """How a user names the block."""
++    if "MUNICIPAL BOARD" in b:
++        return title(block_core(b)) + " Municipal Board"
++    if "TOWN COMMITTEE" in b:
++        return title(block_core(b)) + " Town Committee"
++    return title(b)
++
++
++def indian(n: int) -> str:
++    s = str(abs(int(n)))
++    if len(s) > 3:
++        head, parts = s[:-3], [s[-3:]]
++        while len(head) > 2:
++            parts.insert(0, head[-2:])
++            head = head[:-2]
++        s = ",".join(([head] if head else []) + parts)
++    return s
++
++
++def has_num(text: str, n) -> bool:
++    if isinstance(n, float) and not float(n).is_integer():
++        forms = {f"{n:.1f}", f"{n:.2f}"}
++    else:
++        n = int(n)
++        forms = {indian(n), str(n), f"{n:,}"}
++        if n == 0:
++            low = text.lower()
++            if any(w in low for w in (" no ", "none", "zero", "not any", "no applica", "no record",
++                                      "no pending", "no on-hold", "no on hold", "no withdrawn")):
++                return True
++    return any(re.search(r"(?<![\d,.])" + re.escape(f) + r"(?![\d]|,\d|\.\d)", text) for f in forms)
++
++
++NOT_FOUND = ["not find", "could not", "couldn't", "not recognis", "not recogniz", "no place", "isn't a",
++             "is not a", "no such", "not found", "unable", "did not match", "doesn't match", "not match",
++             "don't have", "do not have", "no data", "not in the", "no district", "no block", "no village",
++             "no constituency", "not one of", "no area", "which place", "not a known", "isn't in", "is not in"]
++
++
++# ── truth helpers (read-only SELECTs) ──────────────────────────────────────
++class DB:
++    def __init__(self):
++        import psycopg
++        from dotenv import load_dotenv
++        load_dotenv()
++        self.c = psycopg.connect(os.environ["DATABASE_URL"])
++        self.c.read_only = True
++
++    def rows(self, sql, args=()):
++        assert sql.lstrip().upper().startswith(("SELECT", "WITH"))
++        return self.c.execute(sql, args).fetchall()
++
++    def count(self, where="TRUE", args=()):
++        return self.rows(f"SELECT COUNT(DISTINCT request_id) FROM {V} WHERE {where}", args)[0][0]
++
++    def group(self, col, where="TRUE", args=()):
++        return {r[0]: r[1] for r in self.rows(
++            f"SELECT {col}, COUNT(DISTINCT request_id) FROM {V} WHERE {where} GROUP BY 1 ORDER BY 2 DESC", args)}
++
++
++def C(cid, suite, tc, level, desc, q, checks, *, pick=(), total=None, kind="answer", truth_sql="", note=""):
++    """checks: list of (label keywords | None, value). pick: chip label substrings, in order of preference."""
++    return {"id": cid, "suite": suite, "tc": tc, "level": level, "desc": desc, "q": q, "checks": checks,
++            "total": total, "pick": list(pick), "kind": kind, "truth_sql": truth_sql, "note": note}
++
++
++def build_cases(db: DB, seed: int = 30):
++    rnd = random.Random(seed)
++    cases = []
++    dists = sorted(db.group("lgd_district"))
++    raw_blocks = db.rows(f"SELECT lgd_district, lgd_block, COUNT(DISTINCT request_id) FROM {V} GROUP BY 1,2 ORDER BY 3 DESC")
++    # one town stored under two spellings (TURA MUNICIPAL BOARD / ...-MUNICIPAL BOARD) is ONE place
++    # to a user: one case, the union expected
++    SIB = {}
++    for d, b, n in raw_blocks:
++        SIB.setdefault((d, block_say(b)), []).append(b)
++    SIB = {b: v for v in SIB.values() for b in v}
++
++    def SB(b):
++        return SIB.get(b, [b])
++    blocks, seen = [], set()
++    for d, b, n in raw_blocks:
++        if (d, block_say(b)) in seen:
++            continue
++        seen.add((d, block_say(b)))
++        blocks.append((d, b, db.count("lgd_block = ANY(%s)", (SB(b),))))
++    progs = list(db.group("scheme_name"))  # by size
++    big = progs[:6]
++
++    def P(s):
++        return PROG[s][0]
++
++    def K(s):
++        return [PROG[s][1]]
++
++    def dk(d):
++        return [norm(d)]
++
++    # village sample: largest, smallest, random, shared names, wards, block-named
++    vills = db.rows(f"""SELECT village_code, lgd_village_name, lgd_block, lgd_district, COUNT(DISTINCT request_id) n
++                       FROM {V} WHERE entity_type <> 'Unresolved' GROUP BY 1,2,3,4 ORDER BY n DESC, 1""")
++    by_name = {}
++    for v in vills:
++        by_name.setdefault(v[1].upper(), []).append(v)
++    uniq = [v for v in vills if len(by_name[v[1].upper()]) == 1]
++    plain = [v for v in uniq if "ward" not in v[1].lower() and v[1].upper() not in {b[1] for b in blocks}
++             and v[1].upper() not in {d for d in dists}]
++    sample = plain[:3] + plain[-3:] + rnd.sample(plain[3:-3], 10)
++    dupes = [n for n, vs in by_name.items() if len(vs) > 1]
++    dupe_pick = [by_name[n][0] for n in rnd.sample(sorted(dupes), 4)]
++    wards = [v for v in uniq if "ward" in v[1].lower()][:2]
++    vsample = [("plain", v) for v in sample] + [("shared name", v) for v in dupe_pick] + [("ward", v) for v in wards]
++
++    def vq(v):
++        name = v[1]
++        return name if "ward" not in name.lower() else name
++
++    def vpick(v):
++        return [block_core(v[2]), norm(v[3]), "village"]
++
++    vw = "village_code = %s"
++
++    # ── the sheet ──────────────────────────────────────────────────────────
++    S = "sheet"
++    for i, d in enumerate(dists):
++        cases.append(C(f"OFF-001-{i+1:02}", S, "CM-ELEVATE-OFF-001", "District", "Overall district applicant count",
++                       f"How many CM ELEVATE applicants are there in {title(d)}?",
++                       [(None, db.count("lgd_district=%s", (d,)))], pick=["district"],
++                       truth_sql=f"COUNT(DISTINCT request_id) WHERE lgd_district='{d}'"))
++    for i, (d, b, n) in enumerate(blocks):
++        cases.append(C(f"OFF-002-{i+1:02}", S, "CM-ELEVATE-OFF-002", "Block", "Overall block applicant count",
++                       f"How many CM ELEVATE applicants are there in {block_say(b)}?",
++                       [(None, n)], pick=["block", block_core(b)],
++                       truth_sql=f"COUNT(DISTINCT request_id) WHERE lgd_block='{b}'"))
++    for i, (tag, v) in enumerate(vsample):
++        tw = by_name[v[1].upper()]
++        if tag == "shared name" and len(tw) <= 3 and len({t[2] for t in tw}) == len(tw):
++            # J-10: up to three same-name villages in different blocks are each answered,
++            # named with their block (no "which village?" pause)
++            checks = [([block_core(t[2])], t[4]) for t in tw]
++            truth = "per village_code " + ", ".join(f"{t[0]} ({t[2]})={t[4]}" for t in tw)
++        else:
++            checks, truth = [(None, v[4])], f"COUNT(DISTINCT request_id) WHERE village_code={v[0]} ({v[2]} / {v[3]})"
++        cases.append(C(f"OFF-003-{i+1:02}", S, "CM-ELEVATE-OFF-003", "Village", f"Overall village applicant count ({tag})",
++                       f"How many CM ELEVATE applicants are there in {vq(v)}?", checks, pick=vpick(v),
++                       truth_sql=truth))
++    g = db.group("lgd_district")
++    cases.append(C("OFF-004-01", S, "CM-ELEVATE-OFF-004", "District (all)", "District-wise applicant distribution",
++                   "How many CM ELEVATE applicants are there in each district?",
++                   [(dk(d), n) for d, n in g.items()],
++                   truth_sql="COUNT(DISTINCT request_id) GROUP BY lgd_district"))
++    g = db.group("scheme_name")
++    cases.append(C("OFF-005-01", S, "CM-ELEVATE-OFF-005", "State", "Program-wise applicant distribution",
++                   "How many applicants are there under each CM ELEVATE program?",
++                   [(K(s), n) for s, n in g.items()],
++                   truth_sql="COUNT(DISTINCT request_id) GROUP BY scheme_name"))
++    for i, d in enumerate(dists):
++        s = big[i % len(big)]
++        cases.append(C(f"OFF-006-{i+1:02}", S, "CM-ELEVATE-OFF-006", "District x Programme", "Program-specific district analysis",
++                       f"How many applicants are there under {P(s)} in {title(d)}?",
++                       [(None, db.count("scheme_name=%s AND lgd_district=%s", (s, d)))], pick=["district"],
++                       truth_sql=f"scheme_name='{s}' AND lgd_district='{d}'"))
++    bsample = blocks[:4] + blocks[-3:] + rnd.sample(blocks[4:-3], 5)
++    for i, (d, b, _) in enumerate(bsample):
++        s = big[i % len(big)]
++        cases.append(C(f"OFF-007-{i+1:02}", S, "CM-ELEVATE-OFF-007", "Block x Programme", "Program-specific block analysis",
++                       f"How many applicants are there under {P(s)} in {block_say(b)}?",
++                       [(None, db.count("scheme_name=%s AND lgd_block = ANY(%s)", (s, SB(b))))], pick=["block", block_core(b)],
++                       truth_sql=f"scheme_name='{s}' AND lgd_block='{b}'"))
++    for i, (tag, v) in enumerate(vsample[:12]):
++        top = db.group("scheme_name", vw, (v[0],))
++        s = list(top)[0] if i % 4 else big[(i + 3) % len(big)]
++        cases.append(C(f"OFF-008-{i+1:02}", S, "CM-ELEVATE-OFF-008", "Village x Programme", f"Program-specific village analysis ({tag})",
++                       f"How many applicants are there under {P(s)} in {vq(v)}?",
++                       [(None, db.count("scheme_name=%s AND " + vw, (s, v[0])))], pick=vpick(v),
++                       truth_sql=f"scheme_name='{s}' AND village_code={v[0]}"))
++    for i, d in enumerate(dists):
++        s1, s2 = big[i % 6], big[(i + 1) % 6]
++        a, b_ = (db.count("scheme_name=%s AND lgd_district=%s", (s, d)) for s in (s1, s2))
++        cases.append(C(f"OFF-009-{i+1:02}", S, "CM-ELEVATE-OFF-009", "District x 2 Programmes", "Multi-program district analysis",
++                       f"How many applicants are there in {title(d)} under {P(s1)} and {P(s2)}?",
++                       [(K(s1), a), (K(s2), b_)], total=a + b_, pick=["district"],
++                       truth_sql=f"lgd_district='{d}' AND scheme_name IN ('{s1}','{s2}') GROUP BY scheme_name"))
++    for i, (d, b, _) in enumerate(bsample):
++        ss = [big[(i + k) % 6] for k in range(3)]
++        vals = [db.count("scheme_name=%s AND lgd_block = ANY(%s)", (s, SB(b))) for s in ss]
++        cases.append(C(f"OFF-010-{i+1:02}", S, "CM-ELEVATE-OFF-010", "Block x 3 Programmes", "Multi-program block analysis",
++                       f"How many applicants are there in {block_say(b)} under {P(ss[0])}, {P(ss[1])} and {P(ss[2])}?",
++                       [(K(s), n) for s, n in zip(ss, vals)], total=sum(vals), pick=["block", block_core(b)],
++                       truth_sql=f"lgd_block='{b}' AND scheme_name IN 3 GROUP BY scheme_name"))
++    g = db.group("COALESCE(sector_id, '(not recorded)')")
++    cases.append(C("OFF-011-01", S, "CM-ELEVATE-OFF-011", "State x Sector", "Sector-wise applicant distribution",
++                   "How many CM ELEVATE applicants are associated with each sector?",
++                   [([norm(k).split()[0] if k != "(not recorded)" else "not recorded"], n) for k, n in g.items()],
++                   truth_sql="GROUP BY COALESCE(sector_id,'(not recorded)')"))
++    sectors = [k for k in db.group("sector_id", "sector_id IS NOT NULL")]
++    for i, d in enumerate(dists):
++        gs = db.group("sector_id", "sector_id IS NOT NULL AND lgd_district=%s", (d,))
++        sec = list(gs)[0] if gs and i % 3 else sectors[i % len(sectors)]
++        cases.append(C(f"OFF-012-{i+1:02}", S, "CM-ELEVATE-OFF-012", "District x Sector", "Sector and district analysis",
++                       f"How many applicants are associated with the {sec} sector in {title(d)}?",
++                       [(None, db.count("sector_id=%s AND lgd_district=%s", (sec, d)))], pick=["district"],
++                       truth_sql=f"sector_id='{sec}' AND lgd_district='{d}'"))
++    combos = [(s, sec) for s in ("Meghalaya Poultry Farming Scheme", "Meghalaya Piggery Development Scheme",
++                                 "Meghalaya Dairy Development Scheme", "Meghalaya Goat Farming Scheme")
++              for sec in sectors][:7]
++    for i, (s, sec) in enumerate(combos):
++        cases.append(C(f"OFF-013-{i+1:02}", S, "CM-ELEVATE-OFF-013", "Programme x Sector", "Program and sector analysis",
++                       f"How many applicants under {P(s)} belong to the {sec} sector?",
++                       [(None, db.count("scheme_name=%s AND sector_id=%s", (s, sec)))],
++                       truth_sql=f"scheme_name='{s}' AND sector_id='{sec}'"))
++    for i, d in enumerate(dists):
++        s1, s2 = "Meghalaya Poultry Farming Scheme", ["Meghalaya Piggery Development Scheme", "Meghalaya Dairy Development Scheme"][i % 2]
++        sec = sectors[i % len(sectors)]
++        a, b_ = (db.count("scheme_name=%s AND sector_id=%s AND lgd_district=%s", (s, sec, d)) for s in (s1, s2))
++        cases.append(C(f"OFF-014-{i+1:02}", S, "CM-ELEVATE-OFF-014", "District x Sector x 2 Programmes", "Multi-program sector analysis",
++                       f"How many applicants under {P(s1)} and {P(s2)} are associated with the {sec} sector in {title(d)}?",
++                       [(K(s1), a), (K(s2), b_)], total=a + b_, pick=["district"],
++                       truth_sql=f"sector_id='{sec}' AND lgd_district='{d}' GROUP BY scheme_name"))
++    g = db.group("current_file_status")
++    cases.append(C("OFF-015-01", S, "CM-ELEVATE-OFF-015", "State x Status", "Overall status distribution",
++                   "What is the current application status distribution across CM ELEVATE?",
++                   [(STATUS_KW[k], n) for k, n in g.items()], truth_sql="GROUP BY current_file_status"))
++    for i, s in enumerate(progs):
++        g = db.group("current_file_status", "scheme_name=%s", (s,))
++        cases.append(C(f"OFF-016-{i+1:02}", S, "CM-ELEVATE-OFF-016", "Programme x Status", "Program-wise status analysis",
++                       f"What is the status distribution for {P(s)}?",
++                       [(STATUS_KW[k], n) for k, n in g.items()], truth_sql=f"scheme_name='{s}' GROUP BY current_file_status"))
++    for i, d in enumerate(dists):
++        g = db.group("current_file_status", "lgd_district=%s", (d,))
++        cases.append(C(f"OFF-017-{i+1:02}", S, "CM-ELEVATE-OFF-017", "District x Status", "District-wise status analysis",
++                       f"What is the application status distribution in {title(d)}?",
++                       [(STATUS_KW[k], n) for k, n in g.items()], pick=["district"],
++                       truth_sql=f"lgd_district='{d}' GROUP BY current_file_status"))
++    for i, lvl in enumerate(["level0", "level1", "level2", "level4"]):
++        cases.append(C(f"OFF-018-{i+1:02}", S, "CM-ELEVATE-OFF-018", "State x Level", "Pending/pendency analysis",
++                       f"How many CM ELEVATE applications are pending at level {lvl[-1]}?",
++                       [(None, db.count("current_level=%s", (lvl,)))],
++                       truth_sql=f"current_level='{lvl}' (KI-070 / KI-422: pending AT a level = the file sits at that "
++                                 "level; the data records no 'pending' status)"))
++    g = db.group("scheme_name", ONHOLD)
++    cases.append(C("OFF-019-01", S, "CM-ELEVATE-OFF-019", "State x Programme", "Program-wise pendency",
++                   "Which CM ELEVATE programs have the highest number of pending applications?",
++                   [(K(s), n) for s, n in list(g.items())[:3]], truth_sql=f"{ONHOLD} GROUP BY scheme_name"))
++    g = db.group("lgd_district", ONHOLD)
++    cases.append(C("OFF-020-01", S, "CM-ELEVATE-OFF-020", "District (all)", "District-wise pendency",
++                   "Which districts have the highest number of pending CM ELEVATE applications?",
++                   [(dk(d), n) for d, n in list(g.items())[:3]], truth_sql=f"{ONHOLD} GROUP BY lgd_district"))
++    for i, d in enumerate(dists):
++        s = big[i % 6]
++        cases.append(C(f"OFF-021-{i+1:02}", S, "CM-ELEVATE-OFF-021", "District x Programme x Pending", "Program and district pendency",
++                       f"How many applications are pending under {P(s)} in {title(d)}?",
++                       [(None, db.count(f"{ONHOLD} AND scheme_name=%s AND lgd_district=%s", (s, d)))], pick=["district"],
++                       truth_sql=f"{ONHOLD} AND scheme_name='{s}' AND lgd_district='{d}'"))
++    for i, d in enumerate(dists):
++        tot = db.count("lgd_district=%s", (d,))
++        val = db.count("data_verified='Valid' AND lgd_district=%s", (d,))
++        cases.append(C(f"OFF-022-{i+1:02}", S, "CM-ELEVATE-OFF-022", "District x Verification", "Verification status analysis",
++                       f"How many applicants have completed data verification in {title(d)}?",
++                       [(None, val), (None, tot - val)], pick=["district"], note="rate=%.1f" % (100 * val / tot),
++                       truth_sql=f"data_verified='Valid' AND lgd_district='{d}'; non-verified = total - valid"))
++    for i, d in enumerate(dists):
++        s = big[(i + 2) % 6]
++        cases.append(C(f"OFF-023-{i+1:02}", S, "CM-ELEVATE-OFF-023", "District x Programme x On hold", "On-hold analysis",
++                       f"How many applications are currently on hold under {P(s)} in {title(d)}?",
++                       [(None, db.count(f"{ONHOLD} AND scheme_name=%s AND lgd_district=%s", (s, d)))], pick=["district"],
++                       truth_sql=f"{ONHOLD} AND scheme_name='{s}' AND lgd_district='{d}'"))
++    for i, d in enumerate(dists):
++        s = big[i % 6]
++        q = (f"How many applications have been withdrawn under {P(s)} in {title(d)}?" if i % 2 else
++             f"How many applications have been withdrawn across CM ELEVATE in {title(d)}?")
++        cases.append(C(f"OFF-024-{i+1:02}", S, "CM-ELEVATE-OFF-024", "District (x Programme) x Withdrawn", "Withdrawal analysis",
++                       q, [(None, db.count("is_withdraw AND lgd_district=%s", (d,)))], pick=["district"],
++                       truth_sql=f"is_withdraw AND lgd_district='{d}'"))
++    for i, d in enumerate(dists):
++        ss = [big[(i + k) % 6] for k in range(3)]
++        checks = []
++        for s in ss:
++            checks.append((K(s), db.count("scheme_name=%s AND lgd_district=%s", (s, d))))
++            checks.append((K(s), db.count(f"{ONHOLD} AND scheme_name=%s AND lgd_district=%s", (s, d))))
++        cases.append(C(f"OFF-025-{i+1:02}", S, "CM-ELEVATE-OFF-025", "District x 3 Programmes x Sector", "Combined administrative analysis",
++                       f"Give me the applicant count and pendency status for {P(ss[0])}, {P(ss[1])} and {P(ss[2])} in {title(d)}, broken down by sector.",
++                       checks, pick=["district"], truth_sql=f"lgd_district='{d}' per programme: total and {ONHOLD}"))
++    for i, (d, b, _) in enumerate(bsample):
++        top = db.group("scheme_name", "lgd_block = ANY(%s)", (SB(b),))
++        s = list(top)[0]
++        g = db.group("lgd_village_name", "scheme_name=%s AND lgd_block = ANY(%s) AND entity_type <> 'Unresolved'", (s, SB(b)))
++        cases.append(C(f"OFF-026-{i+1:02}", S, "CM-ELEVATE-OFF-026", "Block -> Village x Programme", "Program-wise village analysis",
++                       f"How many applicants are there under {P(s)} in each village of {block_say(b)}?",
++                       [([norm(k)], n) for k, n in list(g.items())[:5]], pick=["block", block_core(b)],
++                       truth_sql=f"scheme_name='{s}' AND lgd_block='{b}' GROUP BY lgd_village_name (top 5 + total)"))
++    pairs = [(dists[i], dists[j]) for i, j in ((0, 1), (2, 3), (4, 5), (6, 7), (8, 9), (10, 11))]
++    for i, (d1, d2) in enumerate(pairs):
++        s1, s2 = big[i % 6], big[(i + 1) % 6]
++        checks = [(K(s) + dk(d), db.count("scheme_name=%s AND lgd_district=%s", (s, d))) for s in (s1, s2) for d in (d1, d2)]
++        cases.append(C(f"OFF-027-{i+1:02}", S, "CM-ELEVATE-OFF-027", "2 Districts x 2 Programmes", "Multi-program district comparison",
++                       f"Compare applicant counts for {P(s1)} and {P(s2)} across {title(d1)} and {title(d2)}.",
++                       checks, truth_sql="per (scheme_name, lgd_district)"))
++    for i, d in enumerate(dists):
++        g = db.group("COALESCE(sector_id, '(not recorded)')", f"{ONHOLD} AND lgd_district=%s", (d,))
++        cases.append(C(f"OFF-028-{i+1:02}", S, "CM-ELEVATE-OFF-028", "District x Sector x Pending", "Sector-wise pendency analysis",
++                       f"How many applications are pending in each sector in {title(d)}?",
++                       [(None, n) for k, n in g.items()], pick=["district"],
++                       truth_sql=f"{ONHOLD} AND lgd_district='{d}' GROUP BY sector"))
++    for i, d in enumerate(dists):
++        s1, s2 = big[i % 6], big[(i + 1) % 6]
++        st, where, word = (("on hold", ONHOLD, "on hold") if i % 2 == 0 else
++                           ("forwarded", "current_file_status='forward'", "forwarded"))
++        a, b_ = (db.count(f"{where} AND scheme_name=%s AND lgd_district=%s", (s, d)) for s in (s1, s2))
++        cases.append(C(f"OFF-029-{i+1:02}", S, "CM-ELEVATE-OFF-029", "District x 2 Programmes x Status", "Program and status combination",
++                       f"How many applications under {P(s1)} and {P(s2)} are currently {word} in {title(d)}?",
++                       [(K(s1), a), (K(s2), b_)], total=a + b_, pick=["district"],
++                       truth_sql=f"{where} AND lgd_district='{d}' GROUP BY scheme_name"))
++    for i, (tag, v) in enumerate(vsample[:12]):
++        s = list(db.group("scheme_name", vw, (v[0],)))[0]
++        g = db.group("current_file_status", "scheme_name=%s AND " + vw, (s, v[0]))
++        cases.append(C(f"OFF-030-{i+1:02}", S, "CM-ELEVATE-OFF-030", "Village x Programme x Status", f"Village-level status analysis ({tag})",
++                       f"What is the status-wise applicant count for {P(s)} in {vq(v)}?",
++                       [(STATUS_KW[k], n) for k, n in g.items()], pick=vpick(v),
++                       truth_sql=f"scheme_name='{s}' AND village_code={v[0]} GROUP BY current_file_status"))
++
++    # ── hierarchy / permutations ──────────────────────────────────────────
++    H = "hierarchy"
++    acs = db.rows(f"SELECT ac_name, COUNT(DISTINCT request_id) FROM {V} WHERE ac_name IS NOT NULL GROUP BY 1 ORDER BY 2 DESC")
++    for i, (a, n) in enumerate(acs):
++        cases.append(C(f"H-AC-{i+1:02}", H, "", "Assembly constituency", "Applicants in a constituency",
++                       f"How many CM Elevate applicants are there in {a} constituency?", [(None, n)],
++                       pick=["constituency"], truth_sql=f"ac_name='{a}'"))
++    for i, r in enumerate(sorted(db.group("region"))):
++        n = db.count("region=%s", (r,))
++        cases.append(C(f"H-REG-{i+1:02}", H, "", "Region", "Applicants in a region (Garo/Khasi/Jaintia Hills)",
++                       f"How many CM Elevate applicants are there in the {r} Hills region?", [(None, n)],
++                       pick=["region"], truth_sql=f"region='{r}'",
++                       note="region column on v_cm_elevate (Ri Bhoi is in Khasi)"))
++    g = db.group("region")
++    cases.append(C("H-REG-ALL", H, "", "Region (all)", "Region-wise applicants",
++                   "How many CM Elevate applicants are there in each region?",
++                   [([r.lower()], n) for r, n in g.items()], truth_sql="GROUP BY region"))
++    for i, r in enumerate(sorted(db.group("region"))):
++        s = big[i]
++        cases.append(C(f"H-REGxP-{i+1:02}", H, "", "Region x Programme", "Programme in a region",
++                       f"How many {P(s)} applicants are there in the {r} Hills region under CM Elevate?",
++                       [(None, db.count("region=%s AND scheme_name=%s", (r, s)))], pick=["region"],
++                       truth_sql=f"region='{r}' AND scheme_name='{s}'"))
++    for i, d in enumerate(dists):
++        g = db.group("lgd_block", "lgd_district=%s", (d,))
++        cases.append(C(f"H-D>B-{i+1:02}", H, "", "District -> Block", "Block-wise applicants in a district",
++                       f"How many CM Elevate applicants are there in each block of {title(d)}?",
++                       [([block_core(b)], n) for b, n in g.items()], pick=["district"],
++                       truth_sql=f"lgd_district='{d}' GROUP BY lgd_block"))
++    for i, d in enumerate(dists):
++        g = db.group("COALESCE(ac_name,'(none)')", "lgd_district=%s", (d,))
++        cases.append(C(f"H-D>AC-{i+1:02}", H, "", "District -> Constituency", "Constituency-wise applicants in a district",
++                       f"How many CM Elevate applicants are there in each assembly constituency of {title(d)}?",
++                       [([norm(a)], n) for a, n in g.items() if a != "(none)"], pick=["district"],
++                       truth_sql=f"lgd_district='{d}' GROUP BY ac_name"))
++    for i, (d, b, _) in enumerate(bsample[:6]):
++        g = db.group("lgd_village_name", "lgd_block = ANY(%s) AND entity_type <> 'Unresolved'", (SB(b),))
++        cases.append(C(f"H-B>V-{i+1:02}", H, "", "Block -> Village", "Village-wise applicants in a block",
++                       f"How many CM Elevate applicants are there in each village of {block_say(b)}?",
++                       [([norm(k)], n) for k, n in list(g.items())[:5]],
++                       pick=["block", block_core(b)], truth_sql=f"lgd_block='{b}' GROUP BY lgd_village_name (top 5 + total)"))
++    split = db.rows(f"""SELECT lgd_block, ac_name, COUNT(DISTINCT request_id) FROM {V}
++                        WHERE ac_name IS NOT NULL AND lgd_block IN (SELECT lgd_block FROM {V} WHERE ac_name IS NOT NULL
++                        GROUP BY 1 HAVING COUNT(DISTINCT ac_name) > 1) GROUP BY 1,2 ORDER BY 3 DESC""")
++    for i, (b, a, n) in enumerate(rnd.sample(split, 6)):
++        cases.append(C(f"H-BxAC-{i+1:02}", H, "", "Block x Constituency (cross)", "Part of a block inside a constituency",
++                       f"How many CM Elevate applicants in {block_say(b)} block fall in the {a} assembly constituency?",
++                       [(None, n)], pick=["block", "constituency"], truth_sql=f"lgd_block='{b}' AND ac_name='{a}'"))
++    for i, (a, _) in enumerate(acs[::6]):
++        s = big[i % 6]
++        cases.append(C(f"H-ACxP-{i+1:02}", H, "", "Constituency x Programme", "Programme in a constituency",
++                       f"How many applicants are there under {P(s)} in {a} constituency?",
++                       [(None, db.count("ac_name=%s AND scheme_name=%s", (a, s)))], pick=["constituency"],
++                       truth_sql=f"ac_name='{a}' AND scheme_name='{s}'"))
++    for i, (a, _) in enumerate(acs[1::12]):
++        cases.append(C(f"H-ACxPend-{i+1:02}", H, "", "Constituency x Pending", "Pending in a constituency",
++                       f"How many CM Elevate applications are pending in {a} constituency?",
++                       [(None, db.count(f"{ONHOLD} AND ac_name=%s", (a,)))], pick=["constituency"],
++                       truth_sql=f"{ONHOLD} AND ac_name='{a}'"))
++    for i, (a, _) in enumerate(acs[2::15]):
++        g = db.group("current_file_status", "ac_name=%s", (a,))
++        cases.append(C(f"H-ACxSt-{i+1:02}", H, "", "Constituency x Status", "Status distribution in a constituency",
++                       f"What is the CM Elevate application status distribution in {a} constituency?",
++                       [(STATUS_KW[k], n) for k, n in g.items()], pick=["constituency"],
++                       truth_sql=f"ac_name='{a}' GROUP BY current_file_status"))
++    for i, (tag, v) in enumerate(vsample[:6]):
++        a = db.rows(f"SELECT ac_name FROM {V} WHERE village_code=%s AND ac_name IS NOT NULL LIMIT 1", (v[0],))
++        if not a:
++            continue
++        cases.append(C(f"H-V>AC-{i+1:02}", H, "", "Village -> Constituency (cross)", "Which constituency a village is in",
++                       f"Which assembly constituency is {vq(v)} village in, and how many CM Elevate applicants does it have?",
++                       [([norm(a[0][0])], v[4])], pick=vpick(v), truth_sql=f"village_code={v[0]} -> ac_name"))
++    dims = [("applicant_category", "applicant category", {"individual": ["individual"], "registered": ["registered"],
++                                                          "unregistered": ["unregistered"]}),
++            ("application_mode", "application mode", {"online": ["online"], "cmconnectcenter": ["connect"]}),
++            ("data_verified", "data verification status", None),
++            ("current_level", "current level", None)]
++    for j, (col, word, kw) in enumerate(dims):
++        for i, d in enumerate([dists[j * 3], dists[j * 3 + 1]]):
++            g = db.group(col, "lgd_district=%s", (d,))
++            cases.append(C(f"H-DIM-{col[:8]}-{i+1}", H, "", f"District x {word}", f"Breakdown by {word}",
++                           f"Break down CM Elevate applicants in {title(d)} by {word}.",
++                           [((kw or {}).get(k) if kw else None, n) for k, n in g.items() if k is not None],
++                           pick=["district"], truth_sql=f"lgd_district='{d}' GROUP BY {col}"))
++    for i, (d, b, _) in enumerate(bsample[:3]):
++        g = db.group("data_verified", "lgd_block = ANY(%s)", (SB(b),))
++        cases.append(C(f"H-BxDV-{i+1}", H, "", "Block x Verification", "Verification status in a block",
++                       f"What is the data verification status breakdown for CM Elevate in {block_say(b)} block?",
++                       [(None, n) for k, n in g.items() if k is not None], pick=["block", block_core(b)],
++                       truth_sql=f"lgd_block='{b}' GROUP BY data_verified"))
++    # edge cases
++    edge = [("RI BHOI", "RI BHOI"), ("ri bhoi", "RI BHOI"), ("west garo hills", "WEST GARO HILLS"),
++            ("Ri-Bhoi", "RI BHOI"), ("W Garo Hills", "WEST GARO HILLS"), ("East Khasi Hill", "EAST KHASI HILLS"),
++            ("South West Khasi Hils", "SOUTH WEST KHASI HILLS"), ("Jaintia Hills West", "WEST JAINTIA HILLS")]
++    for i, (say, d) in enumerate(edge):
++        cases.append(C(f"H-EDGE-dist-{i+1}", H, "", "District (spelling/case)", "Spelling / case variant of a district",
++                       f"How many CM Elevate applicants are there in {say}?", [(None, db.count("lgd_district=%s", (d,)))],
++                       pick=["district", norm(d)], truth_sql=f"lgd_district='{d}'"))
++    for i, (say, b) in enumerate([("UMLING", "UMLING"), ("umling block", "UMLING"), ("Rongrum block", "RONGRAM"),
++                                  ("Mawphlong block", "MAWPHLANG"), ("Tikrikila block", "TIKRIKILLA")]):
++        cases.append(C(f"H-EDGE-block-{i+1}", H, "", "Block (spelling/case)", "Spelling / case variant of a block",
++                       f"How many CM Elevate applicants are there in {say}?", [(None, db.count("lgd_block = ANY(%s)", (SB(b),)))],
++                       pick=["block", block_core(b)], truth_sql=f"lgd_block='{b}'"))
++    for i, b in enumerate(["MAWHATI", "RANIKOR", "SELSELLA", "PYNURSLA"]):
++        cases.append(C(f"H-EDGE-blockvill-{i+1}", H, "", "Block vs Village (same name)", "Block name that is also a village: block chosen",
++                       f"How many CM Elevate applicants are there in {title(b)}?", [(None, db.count("lgd_block = ANY(%s)", (SB(b),)))],
++                       pick=["block"], truth_sql=f"lgd_block='{b}'"))
++    for i, v in enumerate(dupe_pick):
++        cases.append(C(f"H-EDGE-dupvill-{i+1}", H, "", "Village (shared name)", "Village name shared across blocks/districts",
++                       f"How many CM Elevate applicants are there in {title(v[1])} village of {block_say(v[2])} block?",
++                       [(None, v[4])], pick=vpick(v), truth_sql=f"village_code={v[0]}"))
++    zero = []
++    for s in reversed(progs):
++        for d in dists:
++            if db.count("scheme_name=%s AND lgd_district=%s", (s, d)) == 0:
++                zero.append((s, d))
++    for i, (s, d) in enumerate(rnd.sample(zero, 4)):
++        cases.append(C(f"H-EDGE-zero-{i+1}", H, "", "District x Programme (zero)", "Entity combination with zero records",
++                       f"How many applicants are there under {P(s)} in {title(d)}?", [(None, 0)], pick=["district"],
++                       truth_sql=f"scheme_name='{s}' AND lgd_district='{d}' -> 0"))
++    for i, q in enumerate(["How many CM Elevate applicants are there in Gotham district?",
++                           "How many CM Elevate applicants are there in Xyzabad block?",
++                           "How many CM Elevate applicants are there in Narnia village?",
++                           "How many CM Elevate applicants are there in Springfield constituency?"]):
++        cases.append(C(f"H-EDGE-invalid-{i+1}", H, "", "Invalid name", "Non-existent place: no fabricated figure",
++                       q, [], kind="not_found", truth_sql="no such place"))
++    cases.append(C("H-AGG-state", H, "", "State", "State total", "How many CM Elevate applications are there in total?",
++                   [(None, db.count())], truth_sql="COUNT(DISTINCT request_id)"))
++    return cases
++
++
++# ── judging ────────────────────────────────────────────────────────────────
++def judge(c, rec):
++    text = rec.answer or ""
++    low = norm(text)
++    if c["kind"] == "not_found":
++        if rec.route == "pause" or any(w in text.lower() for w in NOT_FOUND):
++            if not re.search(r"\b(are|were|has|have)\s+[1-9][\d,]*\s+(cm elevate\s+)?applica", text.lower()):
++                return []
++        return ["a figure or no 'not found' for a place that does not exist"]
++    if rec.route in ("pause", "error") or rec.route not in ("data",):
++        return [f"no data answer: route={rec.route}: {text[:200]}"]
++    fails = []
++    for kws, n in c["checks"]:
++        if not has_num(text, n):
++            fails.append(f"missing {n}" + (f" ({kws[0]})" if kws else ""))
++        elif kws and n and not any(norm(k) in low for k in kws):
++            fails.append(f"label {kws[0]!r} absent")
++    if c["total"] is not None and c["total"] and not has_num(text, c["total"]):
++        fails.append(f"missing total {c['total']}")
++    return fails
++
++
++async def run_case(d, c, sem):
++    async with sem:
++        conv = d.new_conversation()
++        t0 = time.perf_counter()
++        rec = await conv.ask(c["q"])
++        turns = [{"say": c["q"], "route": rec.route, "answer": rec.answer}]
++        for _ in range(2):
++            if rec.route != "pause":
++                break
++            opts = getattr(conv, "last_options", []) or []
++            choice = None
++            for p in c["pick"]:
++                choice = next((o for o in opts if p and p in norm(o.get("label", ""))), None)
++                if choice:
++                    break
++            # what a user taps on the generic pauses: the CM Elevate (applications) dataset
++            # on "which scheme?", the complete list on "how many results?"
++            for want in ("cm elevate applications", "cm elevate", "complete list", "all of them"):
++                if choice:
++                    break
++                choice = next((o for o in opts if norm(o.get("label", "")).startswith(want)
++                               and "legacy" not in norm(o.get("label", ""))), None)
++            if not choice:
++                break
++            rec = await conv.ask(choice.get("question") or choice.get("label"))
++            turns.append({"say": choice.get("label"), "route": rec.route, "answer": rec.answer})
++        fails = judge(c, rec)
++        return {**c, "route": rec.route, "answer": rec.answer, "turns": turns, "fails": fails,
++                "status": "Pass" if not fails else "Fail", "sql": (rec.raw or {}).get("sql_query"),
++                "secs": round(time.perf_counter() - t0, 1)}
++
++
++async def main():
++    ap = argparse.ArgumentParser()
++    ap.add_argument("--only", help="comma list of case-id prefixes")
++    ap.add_argument("--out", default="logs/cme_uat.json")
++    ap.add_argument("--workers", type=int, default=4)
++    args = ap.parse_args()
++    db = DB()
++    cases = build_cases(db)
++    if args.only:
++        keys = args.only.split(",")
++        cases = [c for c in cases if any(c["id"].startswith(k) for k in keys)]
++    print(f"{len(cases)} cases", flush=True)
++    from conversation_harness.drivers import InProcessDriver
++    sem = asyncio.Semaphore(args.workers)
++    results = []
++    async with InProcessDriver() as d:
++        tasks = [asyncio.create_task(run_case(d, c, sem)) for c in cases]
++        for t in asyncio.as_completed(tasks):
++            r = await t
++            results.append(r)
++            print(f"{r['status']} {r['id']:<22} {r['route']:<6} {r['secs']:>5}s" +
++                  ("" if r["status"] == "Pass" else "  " + "; ".join(r["fails"])[:300]), flush=True)
++    results.sort(key=lambda r: r["id"])
++    os.makedirs(os.path.dirname(args.out) or ".", exist_ok=True)
++    with open(args.out, "w", encoding="utf-8") as fh:
++        json.dump(results, fh, indent=1, ensure_ascii=False, default=str)
++    npass = sum(r["status"] == "Pass" for r in results)
++    print(f"\n{npass}/{len(results)} passed")
++    return 0 if npass == len(results) else 1
++
++
++if __name__ == "__main__":
++    sys.exit(asyncio.run(main()))

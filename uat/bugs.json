@@ -1,0 +1,290 @@
+[
+ {
+  "bug": "B1 Block chip: verifier/repair broke a correct block count",
+  "symptom": "Bare block names that are also villages / constituencies (Umling 1130, Samanda 355, Mawkyrwat 162, Mawsynram 72): after the user taps 'block' the answer was wrong (OFF-002, OFF-007, OFF-010, OFF-026 shapes).",
+  "root": "The block chip resumes the question as '…Umling, the block, not another area type'. The SQL verifier read that UI wording as a demand for a block-level restriction on a correct `lgd_block = 'UMLING'` query, and the repair added `entity_type = 'Block'`; on v_cm_elevate entity_type is the ROW's type (Village / Ward / Unresolved), never the asked level, so the count broke.",
+  "fix": "(1) The verifier now sees the question without the level-chip tail (_c01_strip_chip_level), as the level is already in the resolved entities. (2) New deterministic CM Elevate SQL guard _cm_elevate_drop_area_level_entity_type drops any entity_type filter that is not a row type (same rule MGNREGA already had).",
+  "files": "app/pipeline/common/c11_sql_verify_repair.py; app/pipeline/schemes/cm_elevate.py",
+  "shared": "Yes: verifier prompt (all schemes); guard is CM Elevate only",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B2 Same-name villages: 'couldn't build a working query'",
+  "symptom": "AMPANGGRE (Rongram / Rongara), NONGSDER (Bhoirymbong / Pynursla): the bot answered 'I understood the question but couldn't build a working query' (OFF-003 shared-name villages).",
+  "root": "The resolver correctly found 2 same-name villages (J-10 twins, each to be answered). The 30B model put the village name in the district column (`lgd_district = 'NONGSDER'`); the twin guard rejected it and the repair returned the identical SQL three times.",
+  "fix": "New deterministic rewrite _pin_missing_twin_codes: a simple query that filters none of the twin codes gets `village_code IN (all)`, the wrong district/block/name literal removed, and GROUP BY village_code, lgd_block, so each village is answered with its block.",
+  "files": "app/pipeline/common/c10_sql_generation_and_rewrites.py",
+  "shared": "Yes (all village schemes; only fires on twin villages with no code in the SQL)",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B3 Tura Municipal Board answered 0",
+  "symptom": "'How many CM ELEVATE applicants are there in Tura Municipal Board?' -> 0 (true 105) (OFF-002).",
+  "root": "v_cm_elevate stores the one board under two spellings, 'TURA MUNICIPAL BOARD' (28) and 'TURA MUNICIPAL BOARD-MUNICIPAL BOARD' (77). _cme_data_block mapped a town to its urban body only when exactly ONE stored spelling existed, so the unstored 'TURA' was kept.",
+  "fix": "_cme_data_block now pins a stored spelling when there are several, and the new SQL rewrite _cm_elevate_urban_body_spellings widens `lgd_block = <one spelling>` to every stored spelling of that board.",
+  "files": "app/pipeline/schemes/cm_elevate.py; app/pipeline/common/c11_sql_verify_repair.py",
+  "shared": "No (CM Elevate only)",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B4 Programme names not recognised",
+  "symptom": "'… under Agriculture Response Vehicle in <district>', 'status distribution for Warehouse / Cinema Theatre' asked 'which scheme?' (OFF-006/007/008/016/021/023).",
+  "root": "_CMELEVATE_ONLY_TERMS knew only the long forms ('PRIME agriculture response vehicle', 'warehouse scheme', 'cinema theatre scheme').",
+  "fix": "The programme names as officers type them were added (agriculture response vehicle, response vehicle, cinema theatre, agro tourism, warehouse). Which CM Elevate dataset is still settled by the existing dataset choice.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "shared": "No",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B5 'Agro Tourism Villa' refused as off-topic",
+  "symptom": "'What is the status distribution for Agro Tourism Villa?' -> 'I don't have information about that' (OFF-016).",
+  "root": "The edge layer's off-topic bank lists 'tourism' (flights / holidays); the programme name was not in the strong scheme-intent list that exits before it.",
+  "fix": "CM Elevate programme names added to edge._SCHEME_STRONG.",
+  "files": "app/edge.py",
+  "shared": "Yes (edge layer; only adds specific programme names)",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B6 'pending at level 1' read as a place",
+  "symptom": "'How many CM ELEVATE applications are pending at level 1?' -> 'I couldn't find a place called level' (OFF-018).",
+  "root": "spelling.unresolved_place takes the words after 'at' as a place name; 'level' was not in its non-place word list.",
+  "fix": "'level', 'levels', 'hold' added to _NOT_A_PLACE.",
+  "files": "app/spelling.py",
+  "shared": "Yes (unknown-place check; only stops these words being read as places)",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B7 Ward names asked 'block or constituency?'",
+  "symptom": "'William Nagar (MB) - Ward No.8' asked 'Williamnagar block or assembly constituency?' (OFF-003 wards).",
+  "root": "The admin-level gate stands down when the text holds a longer name that is one village, but compared with a plain substring: the extractor's 'Williamnagar' is not a substring of 'William Nagar (MB) - Ward No.8'.",
+  "fix": "The comparison is on letters and digits only (_c09_alnum).",
+  "files": "app/pipeline/common/c09_resolve_entities.py",
+  "shared": "Yes (all schemes; truncated village mentions)",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B8 'across all financial years' on a scheme with no years",
+  "symptom": "'There are 2,624 CM ELEVATE applicants in Ri Bhoi across all financial years' — CM Elevate holds no year or date at all.",
+  "root": "The question rewrite appends 'across all financial years' for every scheme; the composer repeated it.",
+  "fix": "_finish_answer / _framed_fallback drop the phrase and add no period when every scheme in the answer has no time dimension (_SCHEME_DATA_YEARS = []).",
+  "files": "app/pipeline/common/c12_answer_numbers.py",
+  "shared": "Yes (answer finishing; only for schemes with no years, i.e. CM Elevate)",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B9 Village-wise lists summarised, not listed",
+  "symptom": "'applicants under Piggery in each village of Umling' -> 'highest 69 in UMSHAKEN, lowest 1 in Amphrilling' with no per-village figures; framed lists in village-code order with codes digit-grouped ('2,77,694'); one village misspelt (OFF-026, H-B>V).",
+  "root": "_cme_complete_list rebuilds an incomplete list only when the rows have ONE label column and <= 40 rows; village rows carry lgd_village_name + the same lgd_block on every row + village_code, and blocks have up to 107 villages, so the rebuild never fired.",
+  "fix": "Code columns and labels that are the same on every row no longer count as labels; up to 200 rows; the rebuilt list is ordered by the figure, highest first.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "shared": "CM Elevate (CM Elevate Legacy's list check reads the same helper)",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B10 'Pending' rankings lost under the 'pending is not recorded' rule",
+  "symptom": "'Which CM ELEVATE programs have the highest number of pending applications?' -> only the statewide recorded figures (906 on hold), no ranking (OFF-019; OFF-020 the same for districts).",
+  "root": "Since the ingestion team's 2026-10-26 ruling a 'pending' question is answered by the fixed workflow query with the recorded figures (on hold, file status): one statewide row, whatever grouping the question asked for.",
+  "fix": "_cme_workflow_group: a 'which / each / highest / -wise' question about programmes / districts / blocks groups the recorded figures by that column; the answer lists the on-hold count per group, highest first, still labelled as the data-verification hold.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "shared": "No",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B11 Sector breakdown hid applications with no sector",
+  "symptom": "'How many CM ELEVATE applicants are associated with each sector?' -> Poultry 22, Dairy 7, Piggery 7, Goatery 1, silent on the 8,884 (99.6%) with no sector recorded (OFF-011).",
+  "root": "The model wrote WHERE sector_id IS NOT NULL into the breakdown.",
+  "fix": "_cm_elevate_sector_keep_unrecorded drops that filter from an each-sector breakdown (GROUP BY sector, positional too); the answer names the group '(not recorded)'.",
+  "files": "app/pipeline/schemes/cm_elevate.py; app/pipeline/common/c11_sql_verify_repair.py",
+  "shared": "No",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B12 'Garo Hills region' asked which district / answered one district",
+  "symptom": "'How many CM Elevate applicants are there in the Garo Hills region?' paused 'which Garo Hills district?' (East Garo Hills 622 instead of the region's 3,476) (H-REG).",
+  "root": "detect_region expands a region only on 'all / whole / every ...'; the word 'region' itself did not count.",
+  "fix": "'region' / 'regions' next to the name now means the whole region (its districts; same mapping as v_cm_elevate.region, Khasi includes Ri Bhoi).",
+  "files": "app/entity_resolver.py",
+  "shared": "Yes (all schemes; region questions)",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B13 A made-up district answered as a sound-alike village",
+  "symptom": "'How many CM Elevate applicants are there in Gotham district?' -> '0 applicants for Gaoram village' (H-EDGE-invalid).",
+  "root": "A district mention that is no district is retried as a village; the village resolver matched GAORAM by sound.",
+  "fix": "_c09_labelled_other_level: a name the text labels as a district / block / constituency is not retried as a village; the existing unknown-place reply answers ('I couldn't find a district called ...').",
+  "files": "app/pipeline/common/c09_resolve_entities.py",
+  "shared": "Yes (all schemes; only names followed by district / block / constituency)",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B14 Block x constituency questions failed",
+  "symptom": "'applicants in Mairang block that fall in the Mairang assembly constituency' -> 'couldn't build a working query'; 'Nongpoh Town Committee block ... Nongpoh constituency' -> 0 (H-BxAC).",
+  "root": "(a) The verifier called the app's own documented constituency join (v_cm_elevate -> dim_geography on geography_key) 'prohibited' on every repair. (b) The constituency cleared the block slot and the model wrote lgd_block = 'NONGPOH', which the data does not store ('NONGPOH-TOWN COMMITTEE').",
+  "fix": "(a) _cme_ac_verifier_complaint_is_false overrules join / entity complaints against the documented query (as Focus Legacy KI-369 and CM Elevate Legacy KI-381 already do). (b) _cm_elevate_urban_body_spellings maps an lgd_block literal the data does not store to the stored block the question names.",
+  "files": "app/pipeline/schemes/cm_elevate.py; app/pipeline/common/c11_sql_verify_repair.py",
+  "shared": "No",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B15 'William Nagar constituency' asked block or constituency",
+  "symptom": "'How many CM Elevate applicants are there in William Nagar constituency?' paused 'Williamnagar block or assembly constituency?' (H-AC, H-ACxSt).",
+  "root": "The level word was written, but the catalogue spells the name WILLIAMNAGAR, so the explicit-level matchers (exact catalogue name before the level word) missed it.",
+  "fix": "_c09_level_after: the level word right after the name, names compared on letters only, settles the collision as if its chip were tapped.",
+  "files": "app/pipeline/common/c09_resolve_entities.py",
+  "shared": "Yes (all schemes; collision gate)",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B16 Same-name village with its block named was summed with its twin",
+  "symptom": "'Mawiong village of Rambrai block' -> 17 (Rambrai 9 + Umling 8) (H-EDGE-dupvill).",
+  "root": "The explicit word 'village' clears the other place slots, so the block named in the text no longer narrowed the two Mawiongs; J-10 then answered both, summed.",
+  "fix": "Among same-name candidates, the one whose block the text names is taken.",
+  "files": "app/pipeline/common/c09_resolve_entities.py",
+  "shared": "Yes (all village schemes)",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B17 Spelling pre-pass damaged ward names and 'across <district>'",
+  "symptom": "'William Nagar (MB) - Ward No.8' became 'Williamnagar) - Ward No.8' and asked block or constituency (OFF-003 wards); 'Dairy across South West Khasi Hills' became 'Dairy South West Garo Hills Khasi Hills' and paused (OFF-027).",
+  "root": "app/spelling.py (D-093) rewrote the start of an exact village name to a block alias, and let a fuzzy district reading start on the word 'across'.",
+  "fix": "A district / block correction is skipped where an exact longer village name starts; 'across', 'between', 'among', 'over', 'than' end a place span. With B7 (letters-only truncation check) the ward resolves.",
+  "files": "app/spelling.py; app/pipeline/common/c09_resolve_entities.py",
+  "shared": "Yes (spelling pre-pass, all schemes)",
+  "commit": "e3d7758 (v1 patch)"
+ },
+ {
+  "bug": "B18 Comparison dropped a 0 combination",
+  "symptom": "Compare Agriculture Response Vehicle and Dairy across East Jaintia Hills and East Khasi Hills: Dairy in East Jaintia Hills (0) not mentioned (C01-027-03).",
+  "root": "GROUP BY returns no row for a programme x district pair with no applications; nothing stated it.",
+  "fix": "_cme_compare_missing_zero: every asked pair without a row is stated as 0.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "3ee1dae",
+  "shared": "No"
+ },
+ {
+  "bug": "B19 Constituency questions with ac_name in upper case / a stray block",
+  "symptom": "'status distribution in West Shillong constituency' -> 'couldn't find any matching records' (C01-017AC-59).",
+  "root": "The model wrote ac_name = 'WEST SHILLONG' (stored 'West Shillong') and added lgd_block = 'SHILLONG-MUNICIPAL BOARD' from the town name inside the constituency's.",
+  "fix": "_cme_ac_name_case compares ac_name case-blind; _cme_block_inside_constituency drops a block filter named only inside '<AC> constituency'.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "77d05ef",
+  "shared": "No"
+ },
+ {
+  "bug": "B20 Same-name villages / top-N lists missing figures",
+  "symptom": "'Chandigre' -> highest/lowest only, Demdema's 7 missing; block spelt 'Dadengiri'; 'top 5 villages' -> figures for first and last only (C03, C10).",
+  "root": "_cme_complete_list did not fire for J-10 twin rows or for 'top / bottom N' questions; village rows carry two varying labels.",
+  "fix": "The rebuild also covers twin rows (listed by the data's block) and top/bottom-N lists (labelled by village).",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "3a092ce",
+  "shared": "No"
+ },
+ {
+  "bug": "B21 Tura MB split into two rows in grouped answers",
+  "symptom": "'Rongram vs Tura Municipal Board' compared 609 with 28 (true 105); West Garo Hills block list showed Tura twice (C09, C15).",
+  "root": "GROUP BY lgd_block returns one row per stored spelling.",
+  "fix": "The urban-body pass maps sibling spellings to one name in SELECT and GROUP BY.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "3a092ce",
+  "shared": "No"
+ },
+ {
+  "bug": "B22 Month / trend / date-range questions",
+  "symptom": "'Show the monthly totals of CM Elevate applications' -> 'couldn't build a working query'; 'in the last six months' -> the all-time total as if it were six months (C04-MONTHLY, C08).",
+  "root": "v_cm_elevate has no date column; nothing answered a time ask that names no financial year.",
+  "fix": "_cme_notime_query: a fixed answer 'A CM Elevate application carries no date …' with the recorded total for the place.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "3a092ce",
+  "shared": "No"
+ },
+ {
+  "bug": "B23 Same-name villages: verifier rejected the documented query",
+  "symptom": "'How many CM ELEVATE applicants are there in NONGSHILLIANG?' -> 'couldn't build a working query' (C03).",
+  "root": "The LLM verifier raised entity / grouping complaints against WHERE village_code IN (<every twin>) on every repair.",
+  "fix": "_cme_twin_verifier_complaint_is_false (inside the existing CM Elevate verifier overrule) discards them; measure complaints still stand.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "14ad455",
+  "shared": "No"
+ },
+ {
+  "bug": "B24 Several villages summed; invented year",
+  "symptom": "'2 applicants in Nongshilliang (Mawpat block) and Nongshilliang (Mairang block)'; '16 … in Mawhati … for the year 2024' (C03).",
+  "root": "A village_code IN-list without GROUP BY returns one combined figure; the composer added a year the applications data cannot hold.",
+  "fix": "_cme_villages_per_village groups per village (unless a total is asked); _cme_drop_invented_year removes a year phrase the question never named.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "732a96c",
+  "shared": "No"
+ },
+ {
+  "bug": "B25 Unknown constituency / village in the wrong block / unnamed programme / block inside a constituency name",
+  "symptom": "'El Dorado constituency' -> '0 … the data records zero' (C14-INV-17); 'MAWBRI village of Mawkyrwat block' -> Mawbri of other blocks (C14); 'Chief Minister's Elevate programme' -> Green Taxi, 1 (C17-09); 'West Shillong constituency' -> 'couldn't build a working query' (C01-017AC-59).",
+  "root": "No check that a filtered constituency exists; the asked block not compared with the answered villages' blocks; a single programme equality the question never named kept; 'Shillong' inside 'West Shillong constituency' resolved as a block and demanded by the missing-filter guard.",
+  "fix": "_cme_unknown_constituency; _cme_village_not_in_named_block / _cme_village_code_not_in_named_block (0 for the village asked); _cm_elevate_unasked_programme_filter covers '='; _cme_block_only_in_constituency drops that block.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "14ec7f9, af54bf9",
+  "shared": "No"
+ },
+ {
+  "bug": "B26 Repeated GROUP BY key hid zero programmes",
+  "symptom": "'… in North Garo Hills under Warehouse and Sericulture & Weaving?' (both 0) -> 'couldn't find any matching records' (C01-009-05).",
+  "root": "GROUP BY scheme_name, scheme_name made _cme_asked_programmes return nothing, so the KI-182 all-zero answer did not fire.",
+  "fix": "_cme_dedupe_group_by in the CM Elevate SQL pass.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "d7b90f5",
+  "shared": "No"
+ },
+ {
+  "bug": "B27 Verification counts / twin LIMIT (found in the final run)",
+  "symptom": "'completed data verification in Ri Bhoi' -> 2,039 only, non-verified 585 missing (C01-022-06); 'MASSAR' (two villages) -> one village, Pynursla's 5 cut off by LIMIT 1 (C03-ALONE-massar).",
+  "root": "The model counted only data_verified = 'Valid'; the per-village twin query carried LIMIT 1.",
+  "fix": "_cme_verification_split + _cme_verification_figures (verified / not verified / total, each stated, with the rate); _cme_twin_limit drops a LIMIT below the number of villages asked.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "8b8f2f0",
+  "shared": "No"
+ },
+ {
+  "bug": "B28 Financial-year question on the applications data paused on Legacy (D1)",
+  "symptom": "'How many CM Elevate applicants were there in Adokgre block in FY 2017-18?' -> 'For CM Elevate Legacy, data is available only for 2024-25, 2025-26 … select one' (994 tests: C04-FY, C06).",
+  "root": "Dataset-choice rule 1 (2026-10-22) pinned any financial-year word to CM Elevate Legacy; D-090 (2026-10-29) says application words mean the applications dataset unless MONEY words are present, and a year is not money.",
+  "fix": "_cm_elevate_dataset_choice: a single named year + applicant/application words + no money word stays on the applications data; _cme_notime_query answers with the no-date fact and the recorded total. A breakdown BY year (each year, year-wise) and any money word still go to Legacy.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "882879d, 1f1ab9c",
+  "shared": "no"
+ },
+ {
+  "bug": "B29 Ward and village names broken by the spelling pre-pass (N1, N4)",
+  "symptom": "'Ladthalaboh East - Ward No.1' -> East Garo Hills (622, true 6); 'Kenches Trace - Ward No.23' -> 'couldn't find Kenches' / 'Kenches tranche'; 'CENTRE VILLAGE' -> Kentra (5, true 4).",
+  "root": "_normalise read a district inside a ward name that starts earlier; _domain_word corrected real words (trace, account) to vocabulary words; _village_at corrected a stored one-word name (CENTRE, left out of the index by D-059) by sound; unresolved_place took the start of an exact ward name as an unknown place.",
+  "fix": "Exact ward / village names are left whole (look-back + numbered-name skip); 'account' / 'trace' are never typos; entity_resolver.is_stored_village_name guards CENTRE; the unknown-place check skips an exact stored name.",
+  "files": "app/spelling.py, app/entity_resolver.py",
+  "commit": "7f9d8f7",
+  "shared": "YES — spelling pre-pass of every scheme; full unit suite + 14 scripts pass"
+ },
+ {
+  "bug": "B30 Applicants' bank account / Aadhaar numbers not refused (N3)",
+  "symptom": "'List the CM Elevate applicants' bank account numbers in West Garo Hills.' -> sanctioned amounts per application number from Legacy, no refusal (C11-NAME-5).",
+  "root": "_pii_listing only knew name / phone / address fields; and the spelling pre-pass had turned 'account' into 'amount' before the guardrail ran.",
+  "fix": "_PII_ID_FIELDS (account, aadhaar, ifsc, pan, passport) + number words beside applicant / beneficiary words -> privacy_records refusal; 'account' no longer a typo of 'amount'.",
+  "files": "app/guardrails.py, app/spelling.py",
+  "commit": "4bf022f, 7f9d8f7",
+  "shared": "YES — guardrail of every scheme ('bank accounts opened under PMJDY' is still answered)"
+ },
+ {
+  "bug": "B31 Four Shillong constituencies answered as statewide",
+  "symptom": "'How many CM Elevate applicants are there in East Shillong constituency?' -> 'couldn't find an assembly constituency called East Shillong … statewide figure' (C12-AC-east_shillong; also North / South / West Shillong).",
+  "root": "CM Elevate borrows MGNREGA's constituency catalogue, which omits AC 16-19 (urban Shillong, no MGNREGA rows). CM Elevate holds applications in all four.",
+  "fix": "assembly_constituency_supplement in cmelevate_entity_resolver.yaml (4 entries) + resolver support for a <dim>_supplement that is ADDED to the borrowed shared catalogue (a first attempt as a full catalogue broke the block/constituency collision checks for every other AC and the William Nagar / Gambegre answers — replaced before the final run).",
+  "files": "data/cm_elevate/cmelevate_entity_resolver.yaml, app/entity_resolver.py",
+  "commit": "176fe54, 2952b14",
+  "shared": "entity_resolver gains the supplement hook; only CM Elevate uses it"
+ },
+ {
+  "bug": "B32 Invented short village name corrected to a real one",
+  "symptom": "'Asgard village' -> 'Showing results for Askara … 0 applicants for Askapara' instead of 'not found' (C14-INV-14).",
+  "root": "_village_at accepted a sound-key match two edits away for a 6-letter name.",
+  "fix": "A name of up to 6 letters is rewritten only for ONE plain-letter edit; longer names keep the sound-key allowance.",
+  "files": "app/spelling.py",
+  "commit": "67a3ac0",
+  "shared": "YES — spelling pre-pass; spelling unit tests pass"
+ }
+]

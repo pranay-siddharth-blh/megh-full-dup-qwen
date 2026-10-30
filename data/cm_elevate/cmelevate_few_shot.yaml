@@ -30,7 +30,10 @@
 #                                   no ingested_at, no request_id parsing
 #   entity_type <> 'Unresolved'     on VILLAGE counts and lists only - never on
 #                                   district, block or scheme totals
-#   data_verified = 'On Hold'       never the onhold boolean, which is FALSE on
+#   data_verified = 'On Hold'       ONLY for the verification outcome asked by name; a plain
+#                                   "on hold" / "pending" question is the PENDING RULE
+#                                   (cmelevate_pending_rule.yaml, 2026-10-30). Never the onhold
+#                                   boolean, which is FALSE on
 #                                   every row and returns zero looking correct
 #   LOWER(current_level)            'level1' and 'Level1' are the same level
 #   LOWER(current_file_status)      'sendback' and 'sendback to vdv/citizen' both
@@ -903,17 +906,19 @@ sql_generation_examples:
 # ---------------------------------------------------------------------------
 # STATUS - verification, workflow, level
 # ---------------------------------------------------------------------------
-- question: How many applications are on hold?
+- question: How many applications have the verification outcome On Hold?
   sql: |
-    SELECT COUNT(*) AS on_hold
+    SELECT COUNT(DISTINCT request_id) AS verification_on_hold
     FROM curated.v_cm_elevate
     WHERE data_verified = 'On Hold';
   tables:
   - curated.v_cm_elevate
   note: >
-    THE MOST IMPORTANT EXAMPLE IN THIS FILE. There is also a boolean column named onhold
-    and it is FALSE on every row - a query against it returns zero and looks perfectly
-    correct. 'On hold' ALWAYS routes to data_verified.
+    ONLY when the question asks for the VERIFICATION OUTCOME by name. A plain "how many
+    applications are on hold" (or "pending") is the PENDING RULE (cmelevate_pending_rule.yaml,
+    user decision 2026-10-30) - see the vocabulary line for whether it is available - and must
+    NOT be answered from data_verified. There is also a boolean column named onhold and it is
+    FALSE on every row - a query against it returns zero and looks perfectly correct; never use it.
 
 - question: Show the verification status breakdown
   sql: |
@@ -1028,16 +1033,19 @@ sql_generation_examples:
   tables:
   - curated.v_cm_elevate
 
-- question: Which scheme has the most applications on hold?
+- question: Which scheme has the most applications with the verification outcome On Hold?
   sql: |
-    SELECT scheme_name, COUNT(*) AS on_hold
+    SELECT scheme_name, COUNT(DISTINCT request_id) AS verification_on_hold
     FROM curated.v_cm_elevate
     WHERE data_verified = 'On Hold'
     GROUP BY scheme_name
-    ORDER BY on_hold DESC
+    ORDER BY verification_on_hold DESC
     LIMIT 1;
   tables:
   - curated.v_cm_elevate
+  note: >
+    The verification outcome, asked by name. "Which scheme has the most applications on hold"
+    without that wording is the PENDING RULE (2026-10-30), not data_verified.
 
 - question: Show the workflow file status breakdown
   sql: |

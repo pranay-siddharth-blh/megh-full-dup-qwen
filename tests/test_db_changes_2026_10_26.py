@@ -79,28 +79,39 @@ def test_the_prompt_names_the_region_column_and_ri_bhoi_in_khasi():
     "How many CM Elevate applications were rejected?",
 ])
 def test_a_workflow_status_gets_the_recorded_figures_not_on_hold(q):
-    """Answer 3: "pending" is not "on hold"; the recorded figures are offered, labelled."""
+    """Answer 3 (2026-10-26) as amended by the user on 2026-10-30: the recorded workflow figures
+    are offered; data_verified is never read for pending / on hold."""
     sql, params, _shown = p._cme_workflow_query(q, {"district": "RI BHOI"} if "Ri Bhoi" in q else {})
     assert "cme-sector-workflow" in sql and "COUNT(DISTINCT request_id)" in sql
-    assert "data_verified = 'On Hold'" in sql and "current_file_status = 'forward'" in sql
+    assert "'On Hold'" not in sql and "current_file_status = 'forward'" in sql
 
 
 @pytest.mark.parametrize("q", [
-    "How many CM Elevate applications are on hold?",
-    "How many applications are pending at level 2?",
     "applications pending verification",
     "How many applications are forwarded?",
+    "How many applications were resubmitted?",
 ])
 def test_a_recorded_field_keeps_its_own_path(q):
     assert p._cme_workflow_query(q, {}) is None
 
 
+def test_on_hold_and_levels_take_the_pending_path():
+    """User 2026-10-30: on hold is the pending rule (never data_verified); a level filters it."""
+    sql, params, _ = p._cme_workflow_query("How many CM Elevate applications are on hold?", {})
+    assert "cme-sector-workflow" in sql and "'On Hold'" not in sql
+    sql, params, _ = p._cme_workflow_query("How many applications are pending at level 2?", {})
+    assert "LOWER(current_level) = $1" in sql and params == ["level2"]
+
+
 def test_the_workflow_answer_says_not_recorded_and_labels_the_figures():
-    rows = [{"on_hold": 903, "forward": 8837, "resubmit": 2, "sendback": 1, "applications": 8840}]
+    rows = [{"forward": 8837, "resubmit": 2, "sendback": 1, "applications": 8840}]
     a = p._cme_sector_answer("How many CM Elevate applications are pending?",
                              "/* cme-sector-workflow */ SELECT 1", rows, {})
-    assert 'doesn\'t record a "pending" status' in a
-    assert "903 applications are on hold at data verification" in a and "8,837" in a and "8,840" in a
+    assert a.startswith("Pending means:") and "pending count is not available" in a
+    assert "8,840 valid applications" in a and "8,837 forward" in a and "on hold" not in a.lower().replace("on-hold", "")
+    b = p._cme_sector_answer("How many CM Elevate applications are on hold?",
+                             "/* cme-sector-workflow */ SELECT 1", rows, {})
+    assert "on-hold count is not available" in b and "data verification" not in b
 
 
 def test_money_in_crore_and_lakh_is_rounded_for_display_only():

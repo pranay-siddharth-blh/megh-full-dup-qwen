@@ -291,21 +291,28 @@ overloaded_terms:
 
   on_hold:
     readings:
-    - { means: "data_verified = 'On Hold'", when: always }
+    - { means: "the PENDING RULE (see pending below)", when: "default - a plain on-hold question means pending (user decision 2026-10-30)" }
+    - { means: "data_verified = 'On Hold'", when: "ONLY when the verification outcome is asked by name" }
     critical: true
     text: >
-      THE MOST DANGEROUS TERM IN THIS PARTITION. There is also a boolean column called
-      onhold, and it is FALSE on every one of the 8,436 source rows. A query against it
-      returns zero and looks perfectly correct. Always resolve "on hold", "held",
-      "held up" and "paused" to data_verified = 'On Hold' - about 1,199 applications.
+      A plain "on hold", "held", "held up" or "paused" question follows the pending rule
+      (cmelevate_pending_rule.yaml). The verification outcome data_verified = 'On Hold' is given only
+      when asked by name. There is also a boolean column called onhold, and it is FALSE on
+      every source row: a query against it returns zero and looks perfectly correct - never
+      use it.
 
   pending:
     readings:
-    - { means: "data_verified = 'On Hold'", when: "the user means applications awaiting a verification outcome" }
+    - { means: "the PENDING RULE - cmelevate_pending_rule.yaml (data verified Valid -> file status Pending or Send Back), built at runtime by app/cme_pending_rule.py", when: "default for applications and for a plain on-hold question (user decision 2026-10-30)" }
+    - { means: "data_verified = 'On Hold'", when: "ONLY when the verification outcome is asked by name (verification outcome on hold, data verified on hold)" }
     - { means: "not_available", when: "the user means money awaiting release" }
     default: >
-      Read it as On Hold and say so. There is no pending AMOUNT in CM Elevate - PMAY's
-      amount_pending has no counterpart here.
+      The pending rule (cmelevate_pending_rule.yaml): verified Valid, file status Pending or Send Back. "On hold" means the same.
+      Level-wise = the rule grouped or filtered by current_level. Every other state - Invalid,
+      Wrong, resubmit, Rejected - is given only when the user names it. file_status sits inside
+      scheme_specific; while the chatbot's role cannot read it, say the pending count is not
+      available. There is no pending AMOUNT in CM Elevate - PMAY's amount_pending has no
+      counterpart here.
 
   status:
     readings:
@@ -1363,6 +1370,35 @@ dimensions:
       - { name: Watregre, code: 273460, district: "West Garo Hills", applications: 51 }
       - { name: Balakhawa, code: 277694, district: "Ri Bhoi", applications: 44 }
 
+  # A SUPPLEMENT, not a catalogue: CM Elevate keeps borrowing the shared constituency list (the
+  # collision checks and test_cross_scheme_collision rely on that); these four are added on top.
+  assembly_constituency_supplement:
+    column: ac_name
+    stored_case: Title Case in v_cm_elevate.ac_name (compare with UPPER)
+    note: >
+      CM Elevate borrows MGNREGA's constituency catalogue for the other 56 (the resolver's shared-dimension
+      fallback). MGNREGA has no rows in the four urban Shillong constituencies (AC 16-19), so its catalogue
+      leaves them out, and "East Shillong constituency" was answered as a statewide figure (CM Elevate UAT
+      2026-10-30). CM Elevate holds applications in all four: they are listed here.
+    sql_predicate: "UPPER(ac_name) = UPPER('<canonical>')"
+    values:
+    - canonical: "EAST SHILLONG"
+      number: 16
+      districts: ["East Khasi Hills"]
+      aliases: ["16 EAST SHILLONG", "AC 16", "AC-16", "East Shillong constituency", "East Shillong AC"]
+    - canonical: "NORTH SHILLONG"
+      number: 17
+      districts: ["East Khasi Hills"]
+      aliases: ["17 NORTH SHILLONG", "AC 17", "AC-17", "North Shillong constituency", "North Shillong AC"]
+    - canonical: "WEST SHILLONG"
+      number: 18
+      districts: ["East Khasi Hills"]
+      aliases: ["18 WEST SHILLONG", "AC 18", "AC-18", "West Shillong constituency", "West Shillong AC"]
+    - canonical: "SOUTH SHILLONG"
+      number: 19
+      districts: ["East Khasi Hills"]
+      aliases: ["19 SOUTH SHILLONG", "AC 19", "AC-19", "South Shillong constituency", "South Shillong AC"]
+
   # =========================================================================
   # CATEGORICAL DIMENSIONS
   # =========================================================================
@@ -1428,7 +1464,8 @@ dimensions:
       critical: true
       text: >
         THE ONLY STATUS FIELD ON THIS FACT WITH MEANINGFUL SPREAD, and the correct target
-        for "on hold", "pending", "verified" and "valid". It records whether the
+        for "verified" and "valid"; a plain "pending" or "on hold" question follows the pending
+        rule (cmelevate_pending_rule.yaml) since 2026-10-30. It records whether the
         APPLICATION'S OWN DATA was found valid - it is NOT a funding decision, an approval
         or a rejection.
     not_a_boolean:
@@ -1444,14 +1481,15 @@ dimensions:
     - canonical: "On Hold"
       applications: 1199
       share_pct: 14.2
-      aliases: [on hold, onhold, held, held up, paused, pending, awaiting, stuck,
+      aliases: [on hold, onhold, held, held up, paused, awaiting, stuck,
                 on-hold, in hold]
       note:
         critical: true
         text: >
-          THIS IS WHERE "ON HOLD" RESOLVES, not the onhold boolean, which is FALSE on
-          every row. Getting this wrong returns zero and looks correct. It is the single
-          most likely wrong answer in this partition.
+          The verification outcome "On Hold" - never the onhold boolean, which is FALSE on
+          every row (a query against it returns zero and looks correct). Since 2026-10-30 a
+          plain "on hold" QUESTION means PENDING (cmelevate_pending_rule.yaml); this value answers only
+          an explicit verification-outcome question.
     - canonical: "Wrong"
       applications: 81
       share_pct: 1.0

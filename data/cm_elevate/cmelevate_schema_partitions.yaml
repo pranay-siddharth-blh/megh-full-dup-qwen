@@ -765,12 +765,17 @@ semantic_rules:
     text: >
       All four are uncontrolled varchars with no dimension table and no roll-up flags.
       Enumerate values before writing any filter.
-      ON HOLD ROUTING: data_verified = 'On Hold' is the only correct source for an
-      'on hold' question. The onhold boolean is FALSE on every row and returns zero.
+      ON HOLD ROUTING: a plain 'on hold' question means PENDING (the rule below, 2026-10-30);
+      an explicit verification-outcome question reads data_verified = 'On Hold'. The onhold
+      boolean is FALSE on every row and returns zero.
       CASE FOLDING: current_level stores both 'level1' and 'Level1' for the same level -
       LOWER() before grouping or the level appears twice.
       current_file_status stores both 'sendback' and 'sendback to vdv/citizen'.
       current_file_status is NOT an approval status - 'forward' does not mean funded.
+      PENDING RULE (user decision 2026-10-30): the steps in cmelevate_pending_rule.yaml (data verified Valid -> file status Pending or Send Back), read at runtime by app/cme_pending_rule.py. 'On hold' means
+      the same; level-wise = the rule by current_level; resubmit is not pending. file_status is
+      inside scheme_specific, locked from the chatbot's role since 2026-10-16 - until granted,
+      say the count is not available.
 
   dead_flags:
   - column: onhold

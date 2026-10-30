@@ -328,7 +328,7 @@ clarification_rules:
   # =========================================================================
 
   - condition: "onhold_flag_used_for_on_hold_question"
-    question: "Applications marked 'On Hold' are recorded in the verification field, not in the on-hold flag - that flag is empty on every record. Shall I use the verification field, which has about 1,199 applications on hold?"
+    question: "The on-hold flag is empty on every record. An on-hold question follows the pending rule (verified Valid, file forwarded or sent back, file status Pending or Send Back); the verification outcome 'On Hold' is a different field. Shall I apply the pending rule?"
     note:
       critical: true
       text: >

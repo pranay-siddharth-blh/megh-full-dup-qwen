@@ -69,7 +69,11 @@ LEVEL_WORDS = {"district": "district", "districts": "district", "block": "block"
 # Never part of a place name: "in jayantia hills east" is "in" + the district.
 _SPAN_STOP = PLACE_PREPS | frozenset(("of", "for", "the", "and", "to", "on", "by", "with", "under", "per", "a",
                                       "an", "or", "vs", "versus", "compare", "district", "districts", "block",
-                                      "village"))
+                                      "village",
+                                      # "Dairy across South West Khasi Hills" read "across South West" as
+                                      # South West Garo Hills (fuzzy 81) and the question became
+                                      # "Dairy South West Garo Hills Khasi Hills" (CM Elevate UAT 2026-10-30)
+                                      "across", "between", "among", "amongst", "over", "than"))
 _DIRECTIONS = frozenset(("east", "west", "north", "south", "south west", "eastern west"))
 _VOWELS = frozenset("aeiou")
 _SOUND_MAP = str.maketrans({"y": "i", "c": "k", "q": "k", "w": "u"})
@@ -526,12 +530,18 @@ def scheme_scores(question: str) -> dict:
     return out
 
 
+# Real English words one edit from a vocabulary word, never typos of it: "bank account numbers"
+# became "bank amount numbers" and slipped past the personal-data guardrail; "Kenches Trace"
+# became "Kenches tranche" (CM Elevate UAT 2026-10-30, N1 / N3).
+_NOT_A_TYPO = frozenset("account accounts trace traces".split())
+
+
 def _domain_word(word: str) -> "str | None":
     """The closed-vocabulary word a typo stands for ("mony" -> "money"), or None.
     Never a known word, a place or a village name."""
     w = word.lower()
     vocab = _aliases()["words"]
-    if len(w) < 3 or not word.isalpha() or w in vocab:
+    if len(w) < 3 or not word.isalpha() or w in vocab or w in _NOT_A_TYPO:
         return None
     hits = []
     for v in vocab:
@@ -694,15 +704,27 @@ def _village_at(toks: list[Tok], i: int) -> "tuple[int, str, int] | None":
         name = " ".join(t.raw for t in span)
         if er.is_village_name(name) or (k == 1 and _known_word(name)):
             return None
-        # "Centre Village" (Jirang, 277685) IS a village's name, word "village" included —
-        # it was rewritten to the village Kentra by sound (PMAY-G all-villages run 2026-10-30, KI-631)
-        if _exact_village(name + " " + toks[j].raw):
+        # a stored name that itself ends in "village" ("CENTRE VILLAGE", Jirang 277685, was corrected
+        # to Kentra by sound: UAT 2026-10-30 N4, and the PMAY-G all-villages run, KI-631): written
+        # exactly, left alone — the full-name index (Main) and the stored-name check (UAT) both apply
+        if _exact_village(name + " " + toks[j].raw) or er.is_stored_village_name(name):
             return None
         near = village_matches(name, limit=2)
         if near and (len(near) == 1 or near[1][1] > near[0][1]):
             return j, _title(near[0][0]), near[0][1]
         return None
     return None
+
+
+def _exact_village_end(question: str, toks: list[Tok], i: int, place_end: int) -> "int | None":
+    """The end token of an exact village name or alias that starts at token i and runs past
+    `place_end` (the district / block reading's end), else None."""
+    from app import entity_resolver as er
+    best = None
+    for j in range(place_end + 1, min(i + 9, len(toks)) + 1):
+        if er.is_village_name(question[toks[i].start:toks[j - 1].end]):
+            best = j
+    return best
 
 
 def _normalise(question: str) -> Normalised:
@@ -727,7 +749,29 @@ def _normalise(question: str) -> Normalised:
             i = end
             continue
         if t.raw.isalpha():
+            wend = _exact_village_end(question, toks, i, i + 1)
+            if wend is not None and any(not tk.raw.isalpha() for tk in toks[i:wend]):
+                # an exact ward / village name with a number in it is left whole: "Kenches Trace - Ward
+                # No.23" became "Kenches tranche - Ward No.23" (CM Elevate UAT 2026-10-30, N1)
+                i = wend
+                continue
             phit = _place_hit(toks, i, prev)
+            vend = None
+            if phit is not None:
+                # an exact village / ward name that starts here OR up to 6 tokens earlier and covers
+                # this span: "Ladthalaboh East - Ward No.1" was read as East Garo Hills (UAT 2026-10-30, N1)
+                for j0 in range(max(0, i - 6), i + 1):
+                    # a name that began earlier may END on the corrected word itself:
+                    # "POMLAKRAI RNGI SHYLLONG" (village 278328) lost its last word to Shillong
+                    vend = _exact_village_end(question, toks, j0, phit[1][0] - (1 if j0 < i else 0))
+                    if vend is not None:
+                        break
+            if vend is not None:
+                # "William Nagar (MB) - Ward No.8" is a village written exactly; the block alias
+                # "William Nagar (MB" was rewritten to "Williamnagar) - Ward No.8" and the ward was
+                # lost (CM Elevate UAT 2026-10-30, OFF-003 wards). Left whole.
+                i = vend
+                continue
             if phit is not None:
                 level, (end, canon, how, score) = phit
                 typed = _span_text(question, toks, i, end)
@@ -908,6 +952,11 @@ def village_matches(text: str, limit: int = 5) -> list[tuple[str, int]]:
     # Equal sound distance: the closer plain spelling first ("darnggre" is one sound
     # edit from several villages; DARONGGRE is the one spelt nearest), never A-Z.
     typed = _letters(text)
+    # A short typed name (up to 6 letters) is read by sound only when its PLAIN spelling is
+    # one edit from the village: "asgard" (an invented place) sounded like ASKAPARA, two
+    # letters away, and was answered 0 for that village (CM Elevate UAT 2026-10-30, C14-INV-14).
+    if len(typed) <= 6:
+        hits = [h for h in hits if DamerauLevenshtein.distance(typed, _letters(h[1]), score_cutoff=1) <= 1]
     hits.sort(key=lambda h: (h[0], -fuzz.ratio(typed, _letters(h[1])), h[1]))
     return [(n, d) for d, n in hits[:limit]]
 
@@ -922,6 +971,7 @@ addition case progress kind cash time favour favor respect line rural urban hill
 aggregate full list points bullet bullets simple plain format writing paragraph sentence sentences
 total totals sum overall depth short brief points tranche tranches installment instalment batch
 batches phase phases stage stages round rounds part parts cycle cycles quarter quarters
+level levels hold
 january february march april may june july august september october november december
 jan feb mar apr jun jul aug sep sept oct nov dec
 """.split())
@@ -957,7 +1007,13 @@ def _unresolved_place(question: str) -> "dict | None":
         if j == i + 1:
             continue
         name = _span_text(question, toks, i + 1, j)
+        if _exact_village_end(question, toks, i + 1, i + 1) is not None:
+            continue                      # the start of an exact village / ward name ("Kenches Trace - Ward No.23", N1)
         level = LEVEL_WORDS.get(toks[j].low) if j < len(toks) else None
+        if level == "village":
+            from app import entity_resolver as er
+            if er.is_stored_village_name(name):
+                continue                  # "CENTRE VILLAGE": a stored one-word name the index leaves out (N4)
         if _is_place(name) or _out_of_area(name):
             continue
         if level is None and len(_letters(name)) < 4:

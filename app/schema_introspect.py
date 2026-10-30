@@ -238,6 +238,15 @@ def readonly_denied() -> "set[tuple[str, str, str]]":
     return _cache["denied"]
 
 
+def cme_file_status_readable() -> bool:
+    """Every column the CM Elevate pending rule needs (app.cme_pending_rule, read from the
+    knowledge base) is among the columns the read-only role may SELECT. scheme_specific — where
+    file_status lives — was locked by the ingestion team on 2026-10-16 (KI-624). False until the
+    live schema has been read, so a cold start never writes a locked column."""
+    from app import cme_pending_rule   # local: it imports this module for live_columns()
+    return cme_pending_rule.readable()
+
+
 def column_unit(table: str, column: str) -> "str | None":
     """The UNIT semantic.column_catalog records for table.column ("rupees", "lakh
     rupees", "crore rupees", "persons" …), or None (not recorded / catalog unread)."""

@@ -12,6 +12,49 @@ _TWINS_ANSWERED = True
 _TWINS_MAX = 3
 
 
+def _c09_alnum(s: str) -> str:
+    """Lower-case letters and digits only: "William Nagar (MB) - Ward No.8" -> "williamnagarmbwardno8"."""
+    return "".join(ch for ch in str(s).lower() if ch.isalnum())
+
+
+_C09_OTHER_LEVEL_WORDS = ("district", "block", "constituency", "assembly", "region")
+
+
+def _c09_labelled_other_level(question: str, name: str) -> bool:
+    """The text writes `name` right before a non-village level word ("Gotham district")
+    and never right before "village"."""
+    low, n = (question or "").lower(), (name or "").strip().lower()
+    if not n:
+        return False
+    nxt = []
+    i = low.find(n)
+    while i >= 0:
+        rest = low[i + len(n):].lstrip(" ,-")
+        nxt.append("".join(ch for ch in rest.split(" ")[0] if ch.isalpha()) if rest else "")
+        i = low.find(n, i + 1)
+    return any(w in _C09_OTHER_LEVEL_WORDS for w in nxt) and "village" not in nxt
+
+
+_C09_LEVEL_AFTER = {"district": "district", "block": "block", "village": "village",
+                    "constituency": "assembly_constituency", "assembly": "assembly_constituency"}
+
+
+def _c09_level_after(question: str, name: str) -> "str | None":
+    """The level word written right after `name` in the text, names compared on letters and
+    digits only ("William Nagar constituency" for WILLIAMNAGAR -> "assembly_constituency")."""
+    want = _c09_alnum(name)
+    words = (question or "").split()
+    if not want:
+        return None
+    for i in range(len(words)):
+        for j in range(i + 1, min(i + 5, len(words)) + 1):
+            if _c09_alnum(" ".join(words[i:j])) == want and j < len(words):
+                lvl = _C09_LEVEL_AFTER.get("".join(ch for ch in words[j].lower() if ch.isalpha()))
+                if lvl:
+                    return lvl
+    return None
+
+
 def _c09_twins(cands: list, resolved: dict, display: dict) -> bool:
     """J-10 (chat UI audit 2026-10-29, KI-126, user decision): a name shared by a few
     villages cost two taps ("which village?", then "which year?"). Each village is
@@ -660,9 +703,12 @@ async def resolve_entities(question: str, schemes: list[str],
                           if str(c.get("name") or "").strip().upper() == _scanned[0].strip().upper()]
                 if len(_exact) == 1:
                     _scanned = (_scanned[0], _exact)
+            # compared on letters and digits only: the extractor gives "Williamnagar" for
+            # "William Nagar (MB) - Ward No.8", and the plain substring test missed it, so the
+            # ward asked "block or constituency?" (CM Elevate UAT 2026-10-30, OFF-003)
             if _scanned and len(_scanned[1]) == 1 \
-                    and str(_name).strip().lower() in _scanned[0].strip().lower() \
-                    and len(_scanned[0]) > len(str(_name)):
+                    and _c09_alnum(str(_name)) in _c09_alnum(_scanned[0]) \
+                    and len(_c09_alnum(_scanned[0])) > len(_c09_alnum(str(_name))):
                 logger.info("admin-level gate: %r is a truncation of %r, which resolves "
                             "to one village — not ambiguous", _name, _scanned[0])
                 break
@@ -716,6 +762,19 @@ async def resolve_entities(question: str, schemes: list[str],
                                     _name, _left)
                 if len(_dims) < 2:
                     _dims = {}
+            # "William Nagar constituency": the level word is right there, but the catalogue
+            # spells it WILLIAMNAGAR, so the level matchers missed it and the gate asked "block
+            # or constituency?" (CM Elevate UAT 2026-10-30, H-AC). Compared on letters only.
+            _typed_lvl = _c09_level_after(question, str(_name))
+            if len(_dims) >= 2 and _typed_lvl in _dims:
+                _chip = next(o["question"] for o, d in zip(
+                    _dimension_collision_clarification(question, str(_name), _dims).options, _dims)
+                    if d == _typed_lvl)
+                logger.info("admin-level collision on %r: the text names the %s — taken", _name, _typed_lvl)
+                _out = await resolve_entities(_chip, schemes, prior_resolved=prior_resolved,
+                                              village_hint=village_hint)
+                _out.setdefault("question", _chip)
+                return _out
             if len(_dims) >= 2 and settings.PLACE_GAZETTEER:
                 _settle_ctx = ({**(prior_resolved or {}), "district": _gate_district, "block": None}
                                if _gate_district else prior_resolved)
@@ -894,7 +953,11 @@ async def resolve_entities(question: str, schemes: list[str],
                 # mistagged as "district" (a bare place name after "in" gives the
                 # model no reliable signal for which admin level it is). Try
                 # village resolution before concluding this is out of scope.
-                _vr = await _resolve_village_for(schemes, _mdist)
+                # Not when the text itself says "<name> district" / "block" / "constituency":
+                # "Gotham district" was read by sound as the village GAORAM (UAT 2026-10-30).
+                _vr = (Resolved("not_found", "village", str(_mdist))
+                       if _c09_labelled_other_level(question, str(_mdist))
+                       else await _resolve_village_for(schemes, _mdist))
                 if _vr.status == "ambiguous":
                     listed = ", ".join(
                         f"{c['name']} in {c['block']} block ({c['district']})" for c in _vr.candidates[:_vcap])
@@ -1508,9 +1571,27 @@ async def resolve_entities(question: str, schemes: list[str],
                         for c in _vhits[:_vcap]
                     ],
                     rule="entity-ambiguous", village_hint=_vname)
+    # "Gotham district" was read by sound as the village GAORAM and answered "0 applicants for
+    # Gaoram village" (CM Elevate UAT 2026-10-30): a name the text itself labels as a district /
+    # block / constituency is not a village, so the unknown-place reply says so instead.
+    if _village_text and _c09_labelled_other_level(question, str(_village_text)):
+        logger.info("village mention %r is labelled as another level in the text — not a village", _village_text)
+        _village_text = None
     if _village_text:
         r = await _resolve_village_for(schemes, _village_text, district=district_canon,
                                    block=resolved.get("block"))
+        # "Mawiong village of Rambrai block": the explicit "village" cleared the block slot,
+        # so both Mawiongs (Rambrai 9, Umling 8) were summed as 17 (CM Elevate UAT
+        # 2026-10-30). The one candidate whose block the text names is the village meant.
+        if r.status == "ambiguous":
+            _qa = _c09_alnum(question).replace(_c09_alnum(str(_village_text)), " ")
+            _in_block = [c for c in r.candidates if c.get("village_code") and c.get("block")
+                         and len(_c09_alnum(str(c["block"]))) >= 4 and _c09_alnum(str(c["block"])) in _qa]
+            if len({c["village_code"] for c in _in_block}) == 1:
+                logger.info("village %r: the text names %s block — village_code %s",
+                            _village_text, _in_block[0]["block"], _in_block[0]["village_code"])
+                r.status, r.canonical = "resolved", _in_block[0]["village_code"]
+                r.display = _place_title(str(_in_block[0].get("name") or _village_text))
         if r.status == "ambiguous" and _c09_twins(r.candidates, resolved, display):
             r.status = "twins"                   # J-10: each one answered, named with its block
         if r.status == "ambiguous":

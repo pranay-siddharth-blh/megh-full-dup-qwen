@@ -1,0 +1,34 @@
+# CM Elevate application rules — READ AT RUNTIME by app/cme_pending_rule.py (user decisions of
+# 2026-10-30, D-B1-CME-01). Every SQL guard, fixed query, answer sentence and prompt line is built
+# from this file: change a rule HERE, never in code. The file is re-read when it changes.
+#
+# Column syntax: a plain view column, or `jsonb_col ->> 'key'`. A step's values are OR-ed (`IN`
+# for exact values, `LIKE` for a trailing %); fold_case compares in lower case. label is the
+# wording used in answers.
+
+# 1. Which applications COUNT. Every CM Elevate application count includes only these rows,
+#    unless the question names a verification state (valid, on hold, wrong, invalid, verified…)
+#    — then it is answered exactly as asked — or asks for ALL applications ("all applications",
+#    "including invalid", "irrespective of verification") — then no filter, and the total is
+#    split by verification_states.
+applications_default:
+  column: data_verified
+  label: "valid"
+  values: [Valid]
+
+# 2. The verification states a split shows (NULL is shown as "(not recorded)").
+verification_states:
+  column: data_verified
+  values: [Valid, "On Hold", Wrong, Invalid]
+
+# 3. PENDING. Steps are AND-ed, in this order. "On hold" questions mean the same rule (never the
+#    data_verified outcome). A level-wise question is this rule filtered or grouped by
+#    current_level. Every other state (Invalid / Wrong, resubmit, Rejected) is reported only when
+#    the question names it.
+#    The last step reads scheme_specific, which the chatbot's database role may not SELECT until
+#    the DB team grants it (KI-624): until then the rule is "locked" and the recorded figures are
+#    given. If the team exposes a plain file_status column instead, point the step at it
+#    (column: file_status) and the gate opens by itself.
+pending_rule:
+- { column: data_verified, label: "data verified", values: [Valid] }
+- { column: "scheme_specific ->> 'file_status'", label: "file status", values: [Pending, "Send Back"] }

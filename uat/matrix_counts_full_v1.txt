@@ -1,0 +1,17 @@
+TOTAL 18381
+C01_sheet	554	DB basis: 30 templates; every district (12) / block (66 places, 67 stored) / sector (4) / programme (15) / level (5) in each slot; village templates 003/008/030 are C02
+C02_village	6510	DB basis: 2170 villages with CM Elevate data x 3 metrics = 6510
+C03_shared	192	DB basis: 61 shared names (alone) + 131 villages carrying them (with block)
+C04_places	153	DB basis: 1 state + 3 regions + 12 districts + 66 blocks + 60 constituencies; CM Elevate FYs in DB: 0 -> 9 FY + 1 monthly + 1 YoY refusals
+C05_cross	2293	DB basis: 115 block x AC pairs (115 stored, Tura spellings merged) + 2170 villages with a constituency + 8 constituency-district parts
+C06_place_fy	1269	DB basis: 141 places x 9 FYs (CM Elevate holds 0 FYs: every one a refusal)
+C07_place_dim	994	DB basis: 141 places x 7 dimensions (every value of each checked: 15 programmes, 3 file statuses, 5 verification values, 4 levels, 3 categories, 2 modes, 5 sector values) + 7 dimension x FY refusals
+C08_daterange	84	DB basis: 12 districts x (4 quarters + 3 custom ranges); CM Elevate holds no date column
+C09_compare	501	DB basis: C(12,2)=66 district pairs + block pairs within each district (188) + constituency pairs within each district (247)
+C10_topbottom	52	DB basis: 12 districts x blocks top/bottom + districts top/bottom + constituencies top/bottom + 12 districts x villages top/bottom; per-FY: 0 FYs
+C11_named	5	DB basis: v_cm_elevate exposes no beneficiary / unit names (0) -> 5 personal-data refusals
+C12_followup	12	DB basis: 12 districts x 3 turns
+C13_spelling	414	DB basis: 3 variants x (12 districts + 66 blocks + 60 constituencies)
+C14_zero_invalid	5214	DB basis: 5194 master-list villages with no CM Elevate data (dim_geography, Unresolved placeholders excluded) + 20 invalid names
+C15_totals	114	DB basis: SQL: villages->block (67 stored blocks), blocks->district (12), districts->region (3), regions->state, constituencies->state, 7 dimensions->state, 6 one-place-per-application, FY (n/a); app: 12 district block lists, 3 region district lists, 1 region list
+C16_disambiguation	20	DB basis: 20 questions that name CM Elevate, its programmes / vocabulary, or a neighbour

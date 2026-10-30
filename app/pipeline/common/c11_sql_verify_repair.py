@@ -1550,7 +1550,11 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
     if not settings.SQL_VERIFY_ENABLED:
         return None
     try:
-        prompt = prompt_builder.build_verify_prompt(question, schemes, entity_result, sql)
+        # A level chip's tail (", the block, not another area type") is UI wording, already
+        # resolved into the entities: shown to the verifier it asked for a block-level
+        # restriction on a correct lgd_block filter, and the repair broke the count
+        # (CM Elevate UAT 2026-10-30: UMLING, SAMANDA, MAWKYRWAT).
+        prompt = prompt_builder.build_verify_prompt(_c01_strip_chip_level(question), schemes, entity_result, sql)
         raw = await llm.call_sql_verifier(prompt, guided={"guided_json": _SQL_VERIFY_JSON_SCHEMA})
         data = _extract_json(raw)
     except Exception:  # noqa: BLE001
@@ -1657,6 +1661,11 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
             "SQL verifier rejected the documented CM Elevate Legacy constituency query "
             "(v_cm_elevate_disbursement -> dim_geography on geography_key, ac_name = the resolved "
             "constituency; KI-381) — discarding: %s", issue)
+        return None
+    if _cme_ac_verifier_complaint_is_false(issue, schemes, entity_result, sql):
+        logger.warning(
+            "SQL verifier rejected the documented CM Elevate constituency query (v_cm_elevate -> "
+            "dim_geography on geography_key, ac_name = the resolved constituency) — discarding: %s", issue)
         return None
     if _focus_legacy_aggregate_complaint_is_false(issue, schemes, sql):
         logger.warning(
@@ -1928,7 +1937,13 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_elevate_sector_zero_groups(schemes, sql)
     sql = _cm_elevate_level_pending(question, schemes, sql)
     sql = _cm_elevate_pending_without_level(question, schemes, sql)
+    sql = _cm_elevate_pending_funnel(question, schemes, sql)   # pending rule 2026-10-30, gated
+    sql = _cm_elevate_all_applications(question, schemes, sql)  # all applications asked: total + split (2026-10-30)
+    sql = _cm_elevate_valid_default(question, schemes, sql)     # otherwise only valid applications count (2026-10-30)
     sql = _cm_elevate_unasked_level_filter(question, schemes, sql)
+    sql = _cm_elevate_drop_area_level_entity_type(schemes, sql)
+    sql = _cm_elevate_sector_keep_unrecorded(question, schemes, sql)
+    sql = await _cm_elevate_urban_body_spellings(question, schemes, sql)
     sql = _cm_elevate_status_is_file_status(question, schemes, sql)
     sql = _cm_elevate_decision_status_column(schemes, sql)
     sql = _cm_legacy_qualify_shared_geo_cols(schemes, sql)

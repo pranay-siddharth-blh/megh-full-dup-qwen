@@ -1237,9 +1237,10 @@ day (that port did not answer). No net config change.
   touches are the Unresolved-scheme tuple and the CM Elevate term regex. No YAML was edited.
 - **Next step:**
   - Commit when the user asks.
-  - **Ask the product owner which "pending" is wanted (KI-074)**: verification On Hold (953)
-    or file status Pending (8,472). If they choose file status, change the vocabulary line and
-    drop `_cme_pending_file_status`.
+  - ~~Ask the product owner which "pending" is wanted (KI-074)~~ — decided 2026-10-30 (D-B1-CME-01):
+    pending = Valid → file_status Pending / Send Back, implemented gated on the
+    scheme_specific grant. **Next: get the DB team to grant it (KI-624)**, then re-pin the UAT
+    matrix rows listed in uat/decisions.md §12 and consider approved / rejected on file_status.
   - Consider KI-076.
 - **Harness:**
   - the scratchpad `63ff2b45-…/scratchpad` holds cases, expected, judge, run_bot, render,

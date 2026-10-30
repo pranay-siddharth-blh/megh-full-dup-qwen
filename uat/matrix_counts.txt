@@ -1,0 +1,16 @@
+TOTAL 4959
+C01_sheet	674	DB basis: 30 templates; every district (12) / block (66 places) / constituency (60, for 001 and 017) / sector / programme / level; FY: see C06
+C02_village	2292	DB basis: 2170 villages with CM Elevate data x 1 (applicant count) + OFF-008 and OFF-030 on the first village of every block
+C03_shared	192	DB basis: 61 shared names (alone) + 131 villages carrying them (with block)
+C04_places	153	DB basis: 1 state + 3 regions + 12 districts + 66 blocks + 60 constituencies; CM Elevate FYs in DB: 0 -> 9 FY + 1 monthly + 1 YoY refusals
+C06_place_fy	1269	DB basis: 141 places x 9 FYs (CM Elevate holds 0 FYs: every one a refusal)
+C08_daterange	20	DB basis: about 20 (reduced plan) of 84
+C09_compare	20	DB basis: about 20 (reduced plan) of 501
+C10_topbottom	20	DB basis: about 20 (reduced plan) of 52
+C11_named	5	DB basis: CM Elevate exposes no names: 5 refusals
+C12_followup	20	DB basis: 20 chats: 12 districts + 8 constituencies, 3 turns each
+C13_spelling	20	DB basis: about 20 (reduced plan) of 414
+C14_zero_invalid	120	DB basis: 100 of 5102 zero-record villages (reduced plan, spread over the list) + 20 invalid names
+C15_totals	114	DB basis: SQL: villages->block (67 stored blocks), blocks->district (12), districts->region (3), regions->state, constituencies->state, 7 dimensions->state, 6 one-place-per-application, FY (n/a); app: 12 district block lists, 3 region district lists, 1 region list
+C16_disambiguation	20	DB basis: 20 'which scheme?' / dataset-choice questions
+C17_paraphrase	20	DB basis: 20 rewordings of 2 questions

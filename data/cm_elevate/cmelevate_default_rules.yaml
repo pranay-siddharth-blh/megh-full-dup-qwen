@@ -510,16 +510,12 @@ default_rules:
     assumption_text: "Progress is shown as the verification outcome, since the workflow level does not assert an ordering."
 
   - condition: "pending_term"
-    default_value: "data_verified_on_hold"
-    assumption_text: "Pending is taken as applications with a verification outcome of 'On Hold' - about 1,199."
-    sql_effect: "WHERE data_verified = 'On Hold'"
-    note:
-      critical: true
-      text: >
-        NOT the onhold boolean, which is FALSE on every row and would return zero.
-        This is the most important routing default in the file. PMAY's
-        pending_amount_term has no analogue here - there is no amount to be
-        pending.
+    default_value: "valid_forward_file_status_pending_or_sendback"
+    assumption_text: "Pending is taken as applications verified Valid whose file status is Pending or Send Back. An on-hold question means the same; a level-wise question is the same rule by current_level."
+    sql_effect: "built at runtime by app/cme_pending_rule.py from cmelevate_pending_rule.yaml: data_verified -> file_status"
+    # The steps themselves live in cmelevate_pending_rule.yaml (read at runtime by
+    # app/cme_pending_rule.py; this file is NOT loaded by app code - ingestion team 2026-10-26).
+    # Change the rule THERE, not here and not in code.
 
   - condition: "approved_or_sanctioned_term"
     default_value: "no_approval_field"

@@ -204,13 +204,15 @@ Notes on the table:
 - **Rules:**
   - **no money and no time**: COUNT is the only aggregate, and any year or amount question is
     unanswerable;
-  - "on hold" = `data_verified = 'On Hold'`, never the `onhold` boolean, which is always FALSE;
+  - a plain "on hold" question = the pending rule (2026-10-30); `data_verified = 'On Hold'` only when the
+    verification outcome is asked by name — never the `onhold` boolean, which is always FALSE;
   - applications AND applicants = `COUNT(DISTINCT request_id)` (27 applications, 22 Piggery and 5
     Poultry, have two identical records: 8,840 applications, 8,867 records; D-049);
   - `applicant_category`, not `type_raw`;
   - `LOWER()` levels and statuses;
   - gender and Approved / Rejected are **not available** (they were only in `scheme_specific`):
-    the measure-not-held pause answers them; "pending" stays On Hold (user decision 2026-10-16);
+    the measure-not-held pause answers them; "pending" = Valid → file_status Pending /
+    Send Back (user decision 2026-10-30, D-B1-CME-01), gated on the scheme_specific grant (KI-624);
   - `current_file_status` holds `forward`, `resubmit`, `sendback to vdv/citizen` only;
   - exclude `'Unresolved'` only for village counts;
   - a multi-sub-scheme ask gets a breakdown.
@@ -220,21 +222,23 @@ Notes on the table:
   collision and follow-up suites.
 - **Deterministic guards (2026-09-27, D-027):**
   - SQL rewrites: the programme split, zero-count sectors, pending at a level, plain "pending"
-    = On Hold (also `current_file_status = 'pending'`), every `COUNT(*)` over the view counted as
+    = the pending target (On Hold while file_status is locked; the 2026-10-30 funnel once readable;
+    also `current_file_status = 'pending'`), every `COUNT(*)` over the view counted as
     `COUNT(DISTINCT request_id)`;
   - answer guarantees after the composer: `_cm_elevate_answer_guarantees`;
   - "PRIME SEED" routes to CM Elevate.
-  - "Pending" is still On Hold. A single-figure pending answer also states the file-status
-    count (KI-074 interim).
-- **Status = `current_file_status`** (Forward / Sent back / Resubmit; decided 2026-09-28, KI-123). Pending stays `data_verified = 'On Hold'`; verified = 'Valid'.
-- **All districts / blocks / villages (2026-09-28): 7,364 / 7,364** on the final code (KI-106..120). CM Elevate is a village-grained scheme (`_village_scheme`); urban bodies are stored as blocks ("<TOWN>-MUNICIPAL BOARD" / "-TOWN COMMITTEE") and the block catalogue lags the data (21 of 66 missing) — `_cm_elevate_blocks_to_data` maps to the stored spelling. "Pending" = On Hold only (decided 2026-09-28).
+  - "Pending" (2026-10-30): `data_verified = 'Valid' AND scheme_specific ->> 'file_status' IN ('Pending',
+    'Send Back')` — 7,341 live; On Hold is not pending. Every CM Elevate count is valid-only by default.
+    Gated on the grant (KI-624); the KI-074 On Hold reading stands only while the column is locked.
+- **Status = `current_file_status`** (Forward / Sent back / Resubmit; decided 2026-09-28, KI-123). Pending = the 2026-10-30 funnel (D-B1-CME-01); verified = 'Valid'.
+- **All districts / blocks / villages (2026-09-28): 7,364 / 7,364** on the final code (KI-106..120). CM Elevate is a village-grained scheme (`_village_scheme`); urban bodies are stored as blocks ("<TOWN>-MUNICIPAL BOARD" / "-TOWN COMMITTEE") and the block catalogue lags the data (21 of 66 missing) — `_cm_elevate_blocks_to_data` maps to the stored spelling. "Pending" = Valid → file_status Pending / Send Back (2026-10-30; was On Hold, 2026-09-28).
 - **QA (2026-09-27):** the use cases (`CM Elevate.csv`, CM-ELEVATE-OFF-001..030).
   - Round 1: **23 / 30** (47 / 55 questions). Report:
     `docs/CM_Elevate_UseCase_Test_Report_2026-09-27.xlsx`.
   - After the same-day fixes (KI-068 to KI-075, D-027): **30 / 30** (55 / 55) on 2 of 2 live
     runs. Report: `docs/CM_Elevate_UseCase_Test_Report_2026-09-27_v2_after_fixes.xlsx`.
-  - KI-074, what "pending" means, still needs a product decision. There is an interim that
-    states both readings.
+  - KI-074, what "pending" means: decided On Hold on 2026-09-28; **superseded 2026-10-30** by the
+    user's funnel rule (D-B1-CME-01), live once scheme_specific is readable (KI-624).
   - The raw workbook `CM_Elevate_AllSchemes_20260927_full.xlsx` equals `v_cm_elevate` exactly:
     8,627 rows and 8,600 distinct `request_id`.
   - VERIFIED 2026-09-27: `scheme_specific` also holds `file_status` (Pending 8,472, Send Back 90,

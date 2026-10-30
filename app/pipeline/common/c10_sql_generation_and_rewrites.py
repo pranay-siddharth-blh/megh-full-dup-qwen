@@ -797,6 +797,9 @@ def _pin_missing_village_code(schemes: list[str], entity_result: dict, sql: str)
     alone sent NOAGRE to "couldn't build a working query" — the 30B repeated the
     same village-less SQL on every repair. Anything more complex (a join, a
     CTE, a subquery) is left to the guard and the repair."""
+    twins = _pin_missing_twin_codes(schemes, entity_result, sql)
+    if twins != sql:
+        return twins
     code = _village_filter_missing(schemes, entity_result, sql)
     if code is None:
         return _village_name_cond_to_code(schemes, entity_result, sql)
@@ -818,6 +821,20 @@ def _pin_missing_village_code(schemes: list[str], entity_result: dict, sql: str)
     out = sql_ast.transform(sql, fn)
     logger.info("%s: the SQL filtered no village — pinned the resolved village_code %s", schemes[0], code)
     return _drop_geo_beside_pinned_village(out)
+
+
+def _c10_group_by_cols(sql: str, cols: list) -> str:
+    """A one-row aggregate (`SELECT COUNT(…) FROM t WHERE …`, no GROUP BY, no join) becomes
+    one row per `cols`: they lead the SELECT and form the GROUP BY. Anything else: unchanged."""
+    def fn(tree):
+        if not isinstance(tree, exp.Select) or tree.args.get("group") is not None                 or tree.args.get("joins") or tree.args.get("with") is not None:
+            return None
+        if not any(e.find(exp.AggFunc) for e in tree.expressions):
+            return None
+        tree.set("expressions", [exp.column(c) for c in cols] + list(tree.expressions))
+        tree.set("group", exp.Group(expressions=[exp.column(c) for c in cols]))
+        return None
+    return sql_ast.transform(sql, fn)
 
 
 # UPPER( / TRIM( / an alias too: "WHERE UPPER(TRIM(lgd_district)) = 'KASHARIPARA'"
