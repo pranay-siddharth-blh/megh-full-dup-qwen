@@ -638,7 +638,9 @@ def _normalise(question: str) -> Normalised:
                 # an exact village / ward name that starts here OR up to 6 tokens earlier and covers
                 # this span: "Ladthalaboh East - Ward No.1" was read as East Garo Hills (UAT 2026-10-30, N1)
                 for j0 in range(max(0, i - 6), i + 1):
-                    vend = _exact_village_end(question, toks, j0, phit[1][0])
+                    # a name that began earlier may END on the corrected word itself:
+                    # "POMLAKRAI RNGI SHYLLONG" (village 278328) lost its last word to Shillong
+                    vend = _exact_village_end(question, toks, j0, phit[1][0] - (1 if j0 < i else 0))
                     if vend is not None:
                         break
             if vend is not None:

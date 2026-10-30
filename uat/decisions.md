@@ -29,8 +29,14 @@
 11. **Master-list villages with no CM Elevate data** (cat 2 / 14): asked with their block ("<village> village of
     <block> block") so a shared name does not pause; expected 0 stated plainly, no "data not available" wording.
     The 72 `Unresolved` placeholder rows of dim_geography are not villages and are excluded.
-12. **"pending"** follows the ingestion team's 2026-10-26 ruling (KI-422): the bot must say the status is not
-    recorded and give the recorded figure (on hold; or applications at a level for "pending at level N").
+12. **"pending"** — superseded on 2026-10-30 by the user's rule (D-B1-CME-01): pending = `data_verified = 'Valid'`
+    AND `LOWER(current_file_status) = 'forward'` AND `scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')`
+    (7,335 statewide on 2026-10-30); On Hold is not pending. The code is gated on the chatbot's role being able to
+    read `scheme_specific` (locked since 2026-10-16; grant requested, KI-624). Until the grant the bot keeps the
+    2026-10-26 behaviour (status not recorded; recorded figures given) and the rows below stand as run. Re-pin
+    when the grant lands: C01-018 levels 0/1/2/3/4 = 0 / 7,025 / 309 / 0 / 1 (the rule AND the level); C01-019
+    SEED 3,146, Piggery 2,429, Poultry 470; C01-020 Ri Bhoi 2,024, West Garo Hills 1,619, East Khasi Hills 985;
+    C01-021 = 13, 6, 0, 50, 1, 5, 0, 0, 0, 2, 0, 0 in row order; C01-028 (not recorded) 289 of 306.
 13. **CM Elevate × FY / date.** A financial-year or date word pins **CM Elevate Legacy** (dataset choice, user
     decision 2026-10-22, `_cm_elevate_dataset_choice`): only Legacy holds years. So for categories 4, 6, 7-FY, 8 the
     designed outcomes are (a) the no-time-dimension refusal or (b) an answer from CM Elevate Legacy that says so
@@ -125,3 +131,9 @@ port 8401 and the Focus Legacy worktree still untouched). Each choice and why:
     constituency tests on 2952b14 (the supplement refactor). Tests not in these runs keep their latest earlier
     result (final4 / regress5 / regress6 / final5); the report's Summary names the run of every row.
     Shared-code change in 2952b14 (entity_resolver `<dim>_supplement`): full unit suite + 14 scripts re-run.
+25. **12:10 — stale rows found by the tally.** With the latest row per test, 336 C06-CON (constituency x FY) tests
+    still showed final4's Legacy pause: `final5` was stopped (decision 24) before its C06 constituency block, and
+    `final6b` sampled only 12 of them. Likewise 4 ward villages (C02-CNT-3358 / 71065 / 71066 / 278328) had only
+    pre-fix rows, and 67 C14-ZERO villages added by the D4 regeneration had never run. `final10` re-runs exactly
+    these 407 on the final code (2edd11a). No result is reported from a run older than the fix it depends on:
+    the report's "Run of each result" table and every row's Run column show where each figure comes from.
