@@ -166,6 +166,18 @@ In order:
    released; FOCUS = members; 'Unresolved' out of village counts only; Focus Plus by `district_name_raw` /
    `block_name_raw`. Village / block lists, top N of villages or blocks, years, other measures, CM Elevate:
    the model path above. The route stage keeps such questions DATA (`_cross_figures_question`).
+   **D-097 (2026-10-30, Cross Scheme sheet re-run):** the coded path covers **all six schemes**, **one village**
+   (`Plan.village`, each scheme's own village filter from `cross_scheme.SPECS`), **one constituency** (`Plan.ac`:
+   MGNREGA `assembly_constituency_name` on `v_employment`, `ac_name` on every other view; Focus Plus and CM Elevate
+   record none) and a **block grain** ("block-wise", "each block": `Plan.grain`). CM Elevate = applications
+   (`COUNT(DISTINCT request_id)`), no money and no financial year (`NO_MONEY` / `NO_YEAR`, said, never 0); CM Elevate
+   Legacy = applicants sanctioned (`sanctioned_amount > 0`, 2,820) and `total_disbursement`. What `_cross_scheme_gaps`
+   says a scheme cannot hold is handed to the plan (`Plan.gaps`) and never queried. "Applications" is a count word.
+   A combined total / combined district ranking leaves CM Elevate out and says so (I-13); elsewhere CM Elevate is
+   ranked by applications in its own list. "Widest coverage across districts" is the statewide reach. Still on the
+   model path: village / block lists, top-N villages or blocks, other measures, several villages at once. Before
+   this, 41 of the 57 scheme combinations and every village / constituency question took the model path, where the
+   20 sheet questions gave 3 gateway timeouts and 15 wrong or incomplete answers (KI-644, KI-645).
    **Only what was asked (KI-437, 2026-10-27):** the answer and the table carry the measures `plan` read
    (count / money / villages), the count in one `beneficiaries` column for every scheme; PMAY-G completed
    houses and FOCUS producer groups only when the question names them or is a broad ask (performance;
@@ -269,7 +281,8 @@ In order:
      - a name that is several levels at once (`collides_across_dimensions`) → an
        `entity-ambiguous` chip set;
      - the assembly-constituency arm is kept only for `_AC_CAPABLE_SCHEMES = ("MGNREGA",
-       "Focus Legacy", "CM Elevate Legacy")`. The whole-or-part drill-down reads the asking
+       "Focus Legacy", "CM Elevate Legacy", "CM Elevate", "PMAY-G")` (PMAY-G since D-096, 2026-10-30:
+       `v_pmay.ac_name`). The whole-or-part drill-down reads the asking
        scheme's own rows (`constituency_contents(ac, scheme)`, KI-146).
      - **MGNREGA only (2026-09-26, KI-041):** `_explicit_level_in(question, schemes)` ignores
        a NEGATED level (`_NEGATED_LEVEL_MATCH`, "not the village").
@@ -801,6 +814,12 @@ since 2026-10-15; runs AFTER execution; `build_verify_prompt`, `guided_json {ok,
     called that join "prohibited" and the repairs answered the constituency's district (Dalu 928 for 203).
   - `_focus_legacy_aggregate_complaint_is_false` (Focus Legacy, KI-371): "without aggregating no_of_pg_members /
     wrap it in SUM()" when the SQL already SUMs exactly that column.
+- PMAY-G constituency (D-096, 2026-10-30, KI-445): a resolved `assembly_constituency` with no finer place is a fixed
+  `_pmay_facts_query` shape (dim "ac", `UPPER(ac_name) = ANY(...)`, answer "<X> assembly constituency"); the SQL
+  prompt's entity line names `UPPER(ac_name)` on `v_pmay` (no join). Model path: rewrite `_pmay_ac_name_case`
+  (`ac_name = 'X'` -> `UPPER(ac_name) = 'X'`, dim_geography is Title Case) and guard `_pmay_ac_filter_missing` (a
+  resolved constituency the SQL does not filter on `ac_name` -> repair, never the district's or the state's figure).
+  Shared village names (KI-630): `village_twins` is a fixed-query key too — one block-named row per village, never a sum.
 - Focus Legacy guards in `_execute_one_attempt` (2026-10-22): `_focus_legacy_ac_filter_missing` (a resolved
   constituency the SQL does not filter on `ac_name` -> repair, never the district's figure; KI-369) and
   `_focus_legacy_members_counted_as_groups` (a "members" question answered with `COUNT(DISTINCT pg_id)` only; KI-371).
@@ -1177,7 +1196,13 @@ Brief: `megh_chatbot_spelling_fix_prompt.md` (T1-T10). VERIFIED in code:
     Exact -> same `sound_key` -> Damerau-Levenshtein on the key (1 / 2 / 3 edits by length), same first letter, one
     clear winner; a direction written last ("khasi hills east") is read; spans never include a function word or a
     level word. A one-word near miss needs a cue ("in", "district"). A block is never written over a village name or
-    a village the index spells closer. What the resolver already reads as written is left alone (`_resolver_reads`).
+    a village the index spells closer, and no district / block / scheme-word / domain-word rewrite touches a span
+    that BEGINS an exact multi-word village name (`_starts_a_village`, KI-631 2026-10-30: "RONGARE ADING" had become
+    the block "Rongara ADING", "Pyndeng Shallang" the word "pending"), and the normaliser steps over the whole
+    village span (`_village_span_end`: "hawai bhoi" had lost "bhoi" to the Ri Bhoi alias); a name that is a village WITH the word
+    "village" ("Centre Village") is left alone too. Exactness = the folded index OR the full stored name
+    (`_exact_village`; the index folds VILLAGE away and drops one-word generic names). What the resolver already
+    reads as written is left alone (`_resolver_reads`).
   - Villages: written with their real name only after the word "village" and when one village sounds clearly
     closest (`_village_at`; live T9: the SQL model filtered a view without village_code when the text kept the
     typo). Otherwise `entity_resolver._sound_village_rows` (sound key + edits, in memory) runs before the trigram
@@ -1200,6 +1225,49 @@ Brief: `megh_chatbot_spelling_fix_prompt.md` (T1-T10). VERIFIED in code:
 - **Adding an alias / a scheme**: an alias goes in `data/spelling_aliases.yaml` (restart, or `spelling.reload()`); a
   district / block alias in the scheme's `*_entity_resolver.yaml` is picked up automatically. A new scheme needs its
   `schemes:` entry here plus the registries in docs/SCHEMES.md §Adding a scheme.
+
+### 2.9h MGNREGA UAT round fixes (2026-10-30, KI-635..KI-639; LIVE-VERIFIED in-process)
+Found by `tests/sheet_runs/mg_uat.py` / `mg_uat_villages.py` (the MGNREGA sheet on the answer-with-defaults rules,
+every district / block / constituency / village). VERIFIED in code:
+- **Identifier cells stay bare** (`_c12_bare_codes`, the last step of `_c12_normalise_figures`, c12): a comma-grouped
+  number in the answer whose digits are a `*_code` / `*_id` / `year_key` cell of the result — and not also a figure
+  cell — is written as stored ("village code: 278380", not "2,78,380"). Figures keep their grouping.
+- **A ranking of places is a breakdown by that level** (`_c11_ranked_levels`, c11): `_RANKING_CUE` plus the noun
+  district / block / village feeds `_verifier_total_vs_breakdown_is_false`, so the verifier's "should be a single
+  total" complaint against `GROUP BY lgd_district` is discarded (it had sent "Which district had the highest
+  expenditure?" to the KB fallback once in three runs).
+- **J-10 twins, one row each** (D-089): `sql_ast.group_by_village` runs right after `widen_village_filter` in the c11
+  rewrite chain — a one-SELECT aggregate over `village_code IN (…)` with no village grouping gets `village_code,
+  lgd_village_name, lgd_block` in SELECT and GROUP BY (a CTE / join / window / already-grouped query is left alone).
+  `_verifier_twins_complaint_is_false` (c11 `_verify_sql`) discards the verifier's "should map to one village" /
+  "should be a single total" complaints when every twin code is filtered and the query groups by village.
+  **Fixed queries run once per twin:** `_mgnrega_twin_det` (mgnrega.py, tried in c13 `_data_deterministic_stage`
+  after the fixed-query chain, so the metric catalogue stays the chain's last entry) builds the single-area query
+  for the first twin (job cards, combined facts, breakdown, wages vs materials, admin expenditure, then the metric
+  catalogue) and returns a 4-tuple `mg_det`; `_data_deterministic_rows` runs it once per twin with the village-code
+  parameter slot swapped and tags each row `village_code` / `twin_village`; `_mgnrega_twins_answer` (top of
+  `_data_post_rows_stage`) writes one answer per village with the shape's own writer (a twin with no row is named);
+  catalogue rows go to the composer tagged. **Model path:** `_pin_missing_twin_codes` (c10) adds or substitutes
+  `village_code IN (<twins>)` when the SQL filters no village or names it by text, then `group_by_village`;
+  `_c12_missing_twins_note` (`_finish_data_result`, MGNREGA only) names a twin absent from the rows.
+- **Village-grain money stays in lakh** (`_mgnrega_village_money_in_lakh`, c11 rewrite chain): a MGNREGA query over
+  a village or twin list that divides a money column by 100 into `…_crore` is rewritten to the bare lakh column
+  (aliases and ORDER BY references renamed) unless the question itself says crore — 1.60 lakh had read "0.02 crore".
+- **The rephraser may not bring in "scheme(s)"** (`_rephrase_violation`, c02): a rephrase that adds the word where the
+  user wrote none ("…under the available schemes…") is rejected like one that widens to all schemes.
+- **A `> 0` HAVING is not an unasked threshold** (`_unasked_having_threshold`, KI-641): the T13.3 rewrite drops a HAVING
+  that compares an aggregate with a number the question never gave; a comparison with 0 keeps the places that had the
+  thing at all and stays (it was looping against `_mgnrega_village_list_issue` on every no-year constituency list).
+- **A "which villages" list is one row per village** (`_mgnrega_village_list_one_row_each`, KI-642): a one-SELECT list
+  with no aggregate, GROUP BY or DISTINCT (Raksamgre: 124 rows for 116 villages) is grouped by its plain columns plus
+  `village_code` / `lgd_block`; each `measure > 0` in the WHERE becomes `HAVING SUM(measure) > 0`, the measure is
+  selected as its SUM and the list is ordered by it. `_mgnrega_village_list_issue` (`_mg_lists_raw_rows`) is the backstop.
+- **No year asked, no invented year filter** (`_mgnrega_all_years_no_year_filter`, KI-643): with no year named or
+  resolved, a `year_key` condition the model wrote on an MGNREGA query is dropped (women and job-card queries keep
+  their own year rules) — "average person-days per household in Meghalaya" had silently left FY 2025-26 out.
+- **A block / district near miss inside a longer exact village name is not a near miss** (`spelling._inside_village_name`,
+  KI-640): "RONGARE" in "RONGARE ADING" sounded like the Rongara block and the village guard only knew the two-word name;
+  a sound / fuzzy hit whose span is part of an exact village name in the text (up to three tokens either side) stands.
 
 ### 2.9f Chat UI audit changes (2026-10-29, D-088 / D-089, KI-574; offline-verified)
 - **Cross-scheme reading (`app/cross_figures.py`):** `rank_ask` reads a place level (singular, plural or one letter
@@ -1225,6 +1293,11 @@ Brief: `megh_chatbot_spelling_fix_prompt.md` (T1-T10). VERIFIED in code:
   years for distinct counts / stocks, a rate, or a ranking; `year_key` + `financial_year` are one period;
   `measure_kinds.is_label_col` decides label columns. Every descending ORDER BY gets NULLS LAST (`sql_ast.nulls_last_on_desc`,
   last step of `_scheme_sql_rewrites`).
+- **Chart requests (D-095, 2026-10-30):** a type the officer names is drawn, alone, whatever the rows (a caveat when
+  the figures do not add up or a line joins places); a comparison is charted by default; a single figure asked as a
+  chart is drawn as asked. One pure function decides what is drawn, `viewPlan()` in `frontend/src/chat/analytics.js`.
+  A message of ONE type word and filler ("I want only bar", "now line") re-runs the previous data question with that
+  view (c15 `_chart_view_request`, `bare`; the UI's `viewOnlyRequest` redraws locally the same way).
 
 ## 3. Other flows
 

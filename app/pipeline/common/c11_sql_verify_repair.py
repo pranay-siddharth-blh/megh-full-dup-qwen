@@ -600,12 +600,43 @@ def _crore_conversion_for_single_village(entity_result: dict, sql: str) -> bool:
     money is natively LAKH (schema_context's MGNREGA rule 4) — the crore
     conversion exists only for cross-scheme/statewide normalisation against
     PMAY's rupee figures, never for a single village's own figure."""
-    if not entity_result.get("resolved", {}).get("village_code"):
+    _r = entity_result.get("resolved", {})
+    if not (_r.get("village_code") or _r.get("village_code_list")):      # J-10 twins are village grain too
         return False
     # "crore" is checked as a plain substring, not as a whole word — it is always
     # used here as an identifier suffix ("total_expenditure_crore"), and an
     # underscore is a word character, so no word edge falls between "_" and "c".
     return _vr_divides_by_100(sql) and "crore" in sql.lower()
+
+
+def _mgnrega_village_money_in_lakh(question: str, schemes: list[str], entity_result: dict, sql: str) -> str:
+    """The deterministic half of _crore_conversion_for_single_village (CLAUDE.md §5: a
+    prose rule, then a guard). MGNREGA UAT 2026-10-30 (KI-637): "materials in Kotchugre"
+    and "materials in Anchenggre FY 2025-26" (twins) were written ROUND(SUM(material_exp)
+    / 100.0, 2) AS material_expenditure_crore — 1.60 lakh read "0.02 crore". For a
+    village-grain MGNREGA question that does not itself ask for crore, the ÷100 goes and
+    every …_crore alias / reference becomes …_lakh (the column's own unit)."""
+    if schemes != ["MGNREGA"] or not sql or "crore" in (question or "").lower():
+        return sql
+    if not _crore_conversion_for_single_village(entity_result, sql):
+        return sql
+
+    def fn(tree):
+        for d in list(tree.find_all(exp.Div)):
+            den = _vr_unwrap(d.expression)
+            if isinstance(den, exp.Literal) and not den.is_string and float(den.this) == 100:
+                d.replace(d.this)
+        for a in tree.find_all(exp.Alias):
+            if a.alias and a.alias.lower().endswith("_crore"):
+                a.set("alias", exp.to_identifier(a.alias[:-6] + "_lakh"))
+        for c in tree.find_all(exp.Column):
+            if c.name and c.name.lower().endswith("_crore"):
+                c.set("this", exp.to_identifier(c.name[:-6] + "_lakh"))
+        return None
+    out = sql_ast.transform(sql, fn)
+    if out != sql:
+        logger.info("MGNREGA: a village-grain money figure was converted to crore — written in lakh instead")
+    return out
 
 
 def _village_name_filter_instead_of_code(entity_result: dict, sql: str) -> "int | None":
@@ -1535,6 +1566,11 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
         logger.warning("SQL verifier disputed a calendar-month date filter the question asks for "
                        "— discarding: %s", issue)
         return None
+    if _verifier_twins_complaint_is_false(issue, entity_result.get("resolved") or {}, sql):
+        logger.warning(
+            "SQL verifier disputed the J-10 per-village query for villages that share a name "
+            "(every twin code filtered, one row per village) — discarding: %s", issue)
+        return None
     if _verifier_complaint_is_cosmetic(issue, entity_result.get("resolved") or {}, sql):
         logger.warning(
             "SQL verifier complained about the FORM of an assembly-constituency filter that "
@@ -1645,7 +1681,8 @@ def _verifier_total_vs_breakdown_is_false(issue: str, question: str, sql: str) -
     count … not a breakdown by block … GROUP BY lgd_block violates the requirement
     for a single aggregated total" — then the deterministic breakdown guard put the
     GROUP BY back, and so on until the budget ended."""
-    dims = _c02_breakdowns(question or "", include_per=False) & set(_C11_BREAKDOWN_COLUMNS)
+    dims = (_c02_breakdowns(question or "", include_per=False) | _c11_ranked_levels(question))
+    dims &= set(_C11_BREAKDOWN_COLUMNS)
     if not dims:
         return False
     low = (issue or "").lower()
@@ -1655,6 +1692,48 @@ def _verifier_total_vs_breakdown_is_false(issue: str, question: str, sql: str) -
     if not grouped:
         return False
     return any(col in grouped for d in dims for col in _C11_BREAKDOWN_COLUMNS[d])
+
+
+_C11_TWIN_COMPLAINT_WORDS = ("village_code", "village code", "group", "single", "one specific", "total",
+                             "lgd_village_name", "list of two", "list of three")
+
+
+def _verifier_twins_complaint_is_false(issue: str, resolved: dict, sql: str) -> bool:
+    """J-10 (D-089): villages sharing a name are answered one row each. MGNREGA UAT
+    2026-10-30, "How much was spent on materials in Ambari during FY 2022-23?" (two
+    Ambaris): the verifier said "'Ambari' should map to one specific village_code, not a
+    list of two", then that GROUP BY village_code should be a single total — three
+    repairs, then "couldn't build a working query". When the SQL filters on exactly the
+    twin codes and groups by village, a complaint about the village list or the grouping
+    is false."""
+    codes = {int(c) for c in resolved.get("village_code_list") or []}
+    if not resolved.get("village_twins") or not codes:
+        return False
+    low = (issue or "").lower()
+    if not any(w in low for w in _C11_TWIN_COMPLAINT_WORDS):
+        return False
+    if not ({"village_code", "lgd_village_name"} & sql_ast.group_by_columns(sql or "")):
+        return False
+    for node in sql_ast.filter_conditions(sql or "", "village_code"):
+        if isinstance(node, exp.In):
+            vals = {int(v.this) for v in node.expressions if isinstance(v, exp.Literal) and not v.is_string}
+            if vals == codes:
+                return True
+    return False
+
+
+def _c11_ranked_levels(question: str) -> set[str]:
+    """The place level a ranking question ranks ("which district had the highest …",
+    "top 5 blocks by …"): a ranking cue and the level's noun. MGNREGA UAT 2026-10-30
+    (DATA-024): "Which district had the highest expenditure?" got the no-year default
+    "… across all financial years", the verifier read that as one grand total, rejected
+    GROUP BY lgd_district three times and the turn fell to the documents ("the published
+    scheme information do not contain … expenditure figures"). Ranking places needs the
+    per-place grouping, exactly like a breakdown."""
+    if not _RANKING_CUE.search(question or ""):
+        return set()
+    words = {w.strip("?.,!:;()'\"").lower() for w in (question or "").split()}
+    return {d for d in ("district", "block", "village") if d in words or d + "s" in words}
 
 
 # The repair budget: the graph's execute_attempt -> repair loop runs at most
@@ -1764,6 +1843,13 @@ def _unasked_having_threshold(question: str, sql: str) -> str:
     if not (any(isinstance(x, exp.Literal) and x.is_number for x in sides)
             and any(x.find(exp.AggFunc) is not None for x in sides)):
         return sql
+    # "> 0" is not a threshold the question had to give: it keeps the places that HAD
+    # the thing at all. MGNREGA UAT 2026-10-30 (KI-641): "Which villages in Amlarem
+    # constituency received employment?" (no year, so no digits) lost HAVING
+    # SUM(persons_employed) > 0 here, _mgnrega_village_list_issue demanded it back, and
+    # the four attempts ended in "couldn't build a working query" for every constituency.
+    if any(isinstance(x, exp.Literal) and x.is_number and float(x.this) == 0 for x in sides):
+        return sql
     sel.set("having", None)
     logger.info("ranking: unasked HAVING threshold dropped (T13.3): %s", cond.sql())
     return sql_ast.to_sql(tree)
@@ -1782,6 +1868,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _focus_legacy_ac_name_case(schemes, sql)
     sql = _cm_legacy_ac_as_place_filter(schemes, entity_result, sql)
     sql = _cm_legacy_ac_name_case(schemes, sql)
+    sql = _pmay_ac_name_case(schemes, sql)
     sql = _focusplus_drop_unrequested_verification_status(question, schemes, sql)
     sql = _cm_legacy_keep_unresolved_off_village(question, schemes, sql)
     sql = _cm_legacy_sanctioned_count(question, schemes, sql)
@@ -1804,6 +1891,9 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     _twins = entity_result.get("resolved") or {}
     if _twins.get("village_twins") and _twins.get("village_code_list"):
         sql = sql_ast.widen_village_filter(sql, _twins["village_code_list"])   # J-10
+        # ...one row per village, never their sum (MGNREGA UAT 2026-10-30: Rangmalgre and
+        # Kotchugre were answered with both twins added together)
+        sql = sql_ast.group_by_village(sql)
     sql = _resolved_district_list_literals(entity_result.get("resolved") or {}, sql)
     sql = _resolved_district_literal(entity_result.get("resolved") or {}, sql)
     sql = _stray_block_literal(schemes, entity_result.get("resolved") or {}, sql)
@@ -1819,10 +1909,13 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_elevate_decision_status_column(schemes, sql)
     sql = _cm_legacy_qualify_shared_geo_cols(schemes, sql)
     sql = _mgnrega_avg_of_ratio(schemes, sql)
+    sql = _mgnrega_village_money_in_lakh(question, schemes, entity_result, sql)   # KI-637: 1.60 lakh, not 0.02 crore
     sql = _mgnrega_summary_ratio_columns(question, schemes, sql)   # RAG fix report Issue 3
     sql = _mgnrega_fact_to_view(schemes, sql)
     sql = _mgnrega_drop_area_level_entity_type(schemes, sql)
     sql = _mgnrega_village_rank_placeholders(question, schemes, sql)
+    sql = _mgnrega_village_list_one_row_each(question, schemes, sql)   # KI-642: 124 rows for 116 villages
+    sql = _mgnrega_all_years_no_year_filter(question, schemes, entity_result.get("resolved") or {}, sql)   # KI-643
     sql = _mgnrega_unit_count_not_villages(question, schemes, sql)
     sql = _mgnrega_job_cards_latest_year(schemes, sql, question=question,
                                          resolved=entity_result.get("resolved") or {})
@@ -1849,6 +1942,10 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_unasked_programme_beside_village(question, schemes, entity_result, sql)
     sql = _focus_legacy_beneficiary_four_measures(question, schemes, sql)
     sql = _pin_missing_village_code(schemes, entity_result, sql)
+    # J-10 twins the SQL filtered by text or not at all (MEGAPGRE, KI-637), then one row each
+    _pinned_twins = _pin_missing_twin_codes(schemes, entity_result, sql)
+    if _pinned_twins != sql:
+        sql = sql_ast.group_by_village(_pinned_twins)
     sql = _village_rows_by_code(sql)
     # E-5 (chat UI audit 2026-10-29): places with no figure never head a "top N"
     sql = sql_ast.nulls_last_on_desc(sql)
@@ -2234,6 +2331,10 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
     if _cml_ac_issue:
         context_budget.log_decision("sql_guard", guard="cml_ac_filter_missing", verdict="reject")
         raise ValueError(_cml_ac_issue)
+    _pm_ac_issue = _pmay_ac_filter_missing(schemes, entity_result, sql)
+    if _pm_ac_issue:
+        context_budget.log_decision("sql_guard", guard="pmay_ac_filter_missing", verdict="reject")
+        raise ValueError(_pm_ac_issue)
     _fl_members_issue = _focus_legacy_members_counted_as_groups(question, schemes, sql)
     if _fl_members_issue:
         context_budget.log_decision("sql_guard", guard="fl_members_as_groups", verdict="reject")

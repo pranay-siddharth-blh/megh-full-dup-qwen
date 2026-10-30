@@ -925,6 +925,48 @@ def _village_name_cond_to_code(schemes: list[str], entity_result: dict, sql: str
     return _drop_geo_beside_pinned_village(out)
 
 
+def _pin_missing_twin_codes(schemes: list[str], entity_result: dict, sql: str) -> str:
+    """_pin_missing_village_code / _village_name_cond_to_code for a J-10 twin list
+    (D-089). MGNREGA UAT 2026-10-30 (KI-637): "What was the total expenditure in
+    MEGAPGRE?" (three Megapgres) — the 30B filtered no village code on the first
+    attempt and on all three repairs, the twins guard rejected each ("leaves out
+    273473, 273920, 275787") and the officer got "couldn't build a working query".
+    A simple one-SELECT query with no village_code filter gets `village_code IN
+    (<every twin>)` — in place of a lgd_village_name text condition when there is
+    exactly one, else added to the WHERE — and a block / district literal beside it
+    goes (the villages are the whole scope). sql_ast.group_by_village then makes it
+    one row per village."""
+    resolved = entity_result.get("resolved") or {}
+    codes = [int(c) for c in resolved.get("village_code_list") or []]
+    if not sql or not codes or not resolved.get("village_twins") or len(schemes) != 1:
+        return sql
+    if any(isinstance(n, (exp.EQ, exp.In)) for n in sql_ast.filter_conditions(sql, "village_code")):
+        return sql
+    if not sql_ast.is_parseable(sql) or not _sql_is_simple_select(sql):
+        return sql
+    cond = exp.In(this=exp.column("village_code"), expressions=[exp.Literal.number(c) for c in codes])
+    named = _sql_string_comparisons(sql, ("lgd_village_name",), (exp.EQ, exp.Like, exp.ILike))
+    if len(named) == 1:
+        out = _sql_replace_node(sql, named[0][0], cond)
+        logger.info("%s: twins named by text (%r) — replaced by village_code IN (%s)", schemes[0],
+                    sql_ast.to_sql(named[0][0]), ", ".join(map(str, codes)))
+    elif named:
+        return sql
+    else:
+        def fn(tree):
+            where = tree.args.get("where")
+            if where is not None:
+                conjuncts = list(where.this.flatten()) if isinstance(where.this, exp.And) else [where.this]
+                where.set("this", exp.and_(cond, *conjuncts, copy=False))
+            else:
+                tree.where(cond, copy=False)
+            return None
+        out = sql_ast.transform(sql, fn)
+        logger.info("%s: the SQL filtered no village — pinned the twin codes IN (%s)", schemes[0],
+                    ", ".join(map(str, codes)))
+    return _drop_geo_beside_pinned_village(out)
+
+
 _SHARED_GEO_COLS = ("lgd_district", "lgd_block", "lgd_village_name", "village_code",
                     "entity_type", "on_roster", "has_geo_conflict")
 

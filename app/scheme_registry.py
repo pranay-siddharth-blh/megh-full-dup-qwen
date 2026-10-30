@@ -31,7 +31,7 @@ class Scheme:
 
 SCHEMES: tuple[Scheme, ...] = (
     Scheme("MGNREGA", "mgnrega", "MGNREGA", "MGNREGA", "curated.v_employment", "MGNREGA", True),
-    Scheme("PMAY-G", "pmay", "PMAY-G", "PMAY-G", "curated.v_pmay", "PMAY-G", False),
+    Scheme("PMAY-G", "pmay", "PMAY-G", "PMAY-G", "curated.v_pmay", "PMAY-G", True),
     Scheme("Focus Plus", "focus_plus", "Focus_Plus", "Focus Plus", "curated.v_focus_plus", "FOCUS+", False),
     Scheme("CM Elevate", "cm_elevate", "CM_Elevate", "CM Elevate", "curated.v_cm_elevate", "CM-ELEVATE", True),
     Scheme("Focus Legacy", "focus_legacy", "Focus_Legacy", "Focus Legacy", "curated.v_focus_legacy", "FOCUS", True),

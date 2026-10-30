@@ -126,7 +126,12 @@ _AC_INCAPABLE_METRIC = _tm.Matcher(_tm.Alt(
 # constituency). Without it "How many CM-ELEVATE applications are mapped to
 # Umsning?" offered only block or village and answered the block (CM Elevate
 # Legacy TC-31, test run 2026-10-06).
-_AC_CAPABLE_SCHEMES = ("MGNREGA", "Focus Legacy", "CM Elevate Legacy", "CM Elevate")
+#
+# PMAY-G: v_pmay carries ac_name itself (dim_geography's, the same mapping MGNREGA
+# uses; every row has one). Left out, a constituency question was answered by the
+# model with a bare ac_name = 'AMLAREM' — a false 0 for Amlarem, Mawlai, North Tura
+# (PMAY-G sheet re-test 2026-10-30, KI-445).
+_AC_CAPABLE_SCHEMES = ("MGNREGA", "Focus Legacy", "CM Elevate Legacy", "CM Elevate", "PMAY-G")
 
 
 # The tail a village-disambiguation chip writes: ", RERAPARA block, SOUTH WEST
@@ -499,9 +504,10 @@ def _ac_dimension_available(question: str, schemes: list[str]) -> bool:
     _live = list(schemes or [])
     if len(_live) != 1 or _live[0] not in _AC_CAPABLE_SCHEMES:
         return False
-    if _live[0] in ("CM Elevate Legacy", "CM Elevate"):
+    if _live[0] in ("CM Elevate Legacy", "CM Elevate", "PMAY-G"):
         # Every measure on these views (records, sanctioned, subsidy, loan,
-        # disbursement; applications, status) hangs off the same geography_key,
+        # disbursement; applications, status; PMAY-G's houses and amounts, on
+        # v_pmay.ac_name) hangs off the same geography_key,
         # so the MGNREGA employment-vs-expenditure metric test does not apply.
         return True
     q = question or ""

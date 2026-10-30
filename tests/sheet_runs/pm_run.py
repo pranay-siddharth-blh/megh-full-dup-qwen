@@ -2,7 +2,7 @@
 expected figure from curated.v_pmay (every row: the 126 zero-sanction registrations are
 beneficiaries, D-060; COALESCE(amount_released,0); a full release needs sanctioned_amount > 0).
 Hierarchy: 2 villages per district (24) for the village cases, EVERY block, EVERY
-district, village / block / district pairs, top sanction dates. A year pause is
+district, EVERY assembly constituency (2026-10-30), every district x every FY, village / block / district pairs, top sanction dates. A year pause is
 answered "All financial years combined" (the sheet's questions name no year).
 
 Usage (repo root): pm_run.py [PMAY-OFF-001 ...]  -> pm_results.json (PM_OUT)"""
@@ -180,15 +180,30 @@ async def main():
                                   place=[d.split()[0]], level="district",
                                   expected={k: a[k] for k in ("houses", "sanctioned", "released", "completed")},
                                   mgnrega_only=False))
-            # 025: houses sanctioned + amounts in a district during a year (every district, rotating FY)
-            y = PM_YEARS[i % len(PM_YEARS)]
-            ay = await agg("lgd_district = $1 AND year_key = $2", [d, y])
-            T.append(run_case("PMAY-OFF-025", f"{d} FY {y}-{str(y + 1)[2:]}",
-                              f"How many houses were sanctioned and how much was released in {nm} during "
-                              f"{y}-{str(y + 1)[2:]}?",
-                              checks(("houses", ay["houses"], "num"), ("sanctioned", ay["sanctioned"], "money"),
-                                     ("released", ay["released"], "money")),
-                              year=y, place=[d.split()[0]], level="district", expected=dict(ay), mgnrega_only=False))
+            # 025: houses sanctioned + amounts in a district during a year (every district x EVERY FY,
+            # the year format rotating 2023-24 / 2023-2024 / FY 2023-24 / 23-24)
+            for j, y in enumerate(PM_YEARS):
+                ay = await agg("lgd_district = $1 AND year_key = $2", [d, y])
+                ys = [f"{y}-{str(y + 1)[2:]}", f"{y}-{y + 1}", f"FY {y}-{str(y + 1)[2:]}",
+                      f"{str(y)[2:]}-{str(y + 1)[2:]}"][(i + j) % 4]
+                T.append(run_case("PMAY-OFF-025", f"{d} FY {y}-{str(y + 1)[2:]} as '{ys}'",
+                                  f"How many houses were sanctioned and how much was released in {nm} during {ys}?",
+                                  checks(("houses", ay["houses"], "num"), ("sanctioned", ay["sanctioned"], "money"),
+                                         ("released", ay["released"], "money")),
+                                  year=y, place=[d.split()[0]], level="district", expected=dict(ay),
+                                  mgnrega_only=False))
+        # assembly constituencies: EVERY AC (v_pmay.ac_name, from dim_geography like MGNREGA's) x the
+        # district-level shapes, worded "X constituency" / "X assembly constituency" / "X AC"
+        acs = [r["a"] for r in await fetch("SELECT DISTINCT ac_name a FROM curated.v_pmay "
+                                           "WHERE ac_name IS NOT NULL ORDER BY 1")]
+        for i, ac in enumerate(acs):
+            a = await agg("ac_name = $1", [ac])
+            for j, tc in enumerate(DISTRICT_TCS):
+                nm = [f"{ac} constituency", f"{ac} assembly constituency", f"{ac.upper()} AC"][(i + j) % 3]
+                T.append(run_case(tc, f"AC {ac} as '{nm}'", Q[tc].format(p=nm), checks(*shape(tc, a)),
+                                  year="all", place=[ac], level="ac",
+                                  expected={k: a[k] for k in ("houses", "sanctioned", "released", "completed")},
+                                  mgnrega_only=False))
 
         # 022: village pairs inside one block (which has more completed houses)
         pairs = await fetch("""

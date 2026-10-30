@@ -547,7 +547,9 @@ _HUMAN_METRIC = {
     "job_cards_issued_total": "job cards issued",
     "job_cards": "job cards issued",
     "households_completed_100_days": "households that completed 100 days of work",
-    "women_employment_provided": "person-days of employment provided to women",
+    # a count of women, not person-days (MGNREGA rule 6a: men = persons_employed − this;
+    # the fallback had written "18 person-days of employment provided to women", 2026-10-30)
+    "women_employment_provided": "women provided employment",
     "houses": "houses", "houses_sanctioned": "houses sanctioned", "houses_completed": "houses completed",
     "completed_houses": "completed houses", "sanctioned_houses": "sanctioned houses",
     "beneficiaries": "beneficiaries", "beneficiary_count": "beneficiaries",
@@ -610,7 +612,9 @@ def _framed_fallback(rows: list[dict], schemes: "list[str] | None", entities: "d
     scope = f"{when} {where}".strip()
     if len(rows) == 1:
         row = rows[0]
-        nums = _row_metrics(row)
+        # an identifier cell is not a figure: "the records show 275150 village code and 18 …"
+        # (MGNREGA all-villages run 2026-10-30, Balsrigittim; KI-635)
+        nums = [(k, v) for k, v in _row_metrics(row) if not _c12_is_code_col(str(k))]
         labels = [str(v) for k, v in row.items() if v is not None and _as_number(v) is None]
         for_labels = f"for {', '.join(labels)}, " if labels else ""
         parts = []
@@ -785,7 +789,47 @@ def _c12_normalise_figures(answer: str, rows: list[dict], schemes: "list[str] | 
         if " (≈ " in m and m.endswith(")"):
             size = m[m.index(" (≈ ") + 4:-1]
             text = text.replace(f"{size} ({m})", m).replace(f"{m} ({size})", m)
-    return text
+    return _c12_bare_codes(text, rows)
+
+
+def _c12_is_code_col(name: str) -> bool:
+    n = str(name).lower()
+    return n.endswith(("_code", "_id", "_lgd")) or n in ("year_key", "lgd_code", "code")
+
+
+def _c12_bare_codes(text: str, rows: list[dict]) -> str:
+    """An identifier cell is written as it is stored, never digit-grouped like a count.
+    MGNREGA UAT 2026-10-30: "village code: 2,78,380" (the statewide top-villages list) and
+    "Sangsanggre village, code 9,04,714" (South Tura constituency) — _row_metrics reads every
+    numeric cell as a figure, so _group_result_digits and the Indian-grouping pass above
+    grouped the LGD code too. A grouped number whose digits are a code cell of the result
+    (and no figure cell holds the same value) goes back to bare digits."""
+    if not text or not rows:
+        return text
+    codes, figures = set(), set()
+    for r in rows:
+        if not isinstance(r, dict):
+            continue
+        for k, v in r.items():
+            n = _as_number(v)
+            if n is None or not float(n).is_integer():
+                continue
+            (codes if _c12_is_code_col(k) else figures).add(int(n))
+    codes -= figures
+    if not codes:
+        return text
+    out, last = [], 0
+    for start, end, tok in _c12_number_spans(text, decimals=True, commas=True):
+        if "," not in tok or "." in tok:
+            continue
+        try:
+            val = int(tok.replace(",", ""))
+        except ValueError:
+            continue
+        if val in codes:
+            out.append(text[last:start]); out.append(str(val)); last = end
+    out.append(text[last:])
+    return "".join(out)
 
 
 # "Total person-days for FY 2023-24 across all financial years is 27,264,054":
@@ -929,16 +973,82 @@ def _finish_data_result(result: dict) -> None:
             # statewide figure for all of Meghalaya." (job-card year fix, live 2026-10-21;
             # MGNREGA sheet DATA-022/023/028 village answers, 2026-10-21.)
             result["answer"] = _group_result_digits(result.get("answer") or "", rows, result.get("schemes"))
+            _c12_missing_twins_note(result, rows, display)
             _c17_attach_caveats(result)
             return
         result["answer"] = _finish_answer(result.get("answer") or "", rows, result.get("schemes") or [],
                                           display)
         if (result.get("schemes") or []) == ["Focus Plus"]:          # RAG fix report Issue 12
             result["answer"] = _focusplus_per_beneficiary_caveat(result["answer"], result.get("sql"))
+        _c12_missing_twins_note(result, rows, display)
         _c17_attach_caveats(result)      # provisional money, absent years (data-accuracy brief RC5)
         _c17_mark_winner(result)         # the row a "which … most" answered, for follow-ups
     except Exception:  # noqa: BLE001 — presentation only; the answer stands as written
         logger.warning("_finish_data_result failed (non-fatal)", exc_info=True)
+
+
+def _c12_missing_twins_note(result: dict, rows: list[dict], display: dict) -> None:
+    """J-10 twins (D-089) answered on the model path, one row per village: a twin with
+    no row of its own is named as having no record. MGNREGA UAT 2026-10-30: "women
+    employment in chigitchakgiri FY 2022-23" (three villages) answered the two with
+    rows and never mentioned the third, so the officer asking about the Selsella one
+    read another village's figure. A label the answer already names is left alone."""
+    twins = (result.get("resolved_entities") or {}).get("village_twins") or {}
+    # MGNREGA only: PMAY-G's fixed query writes its own per-twin rows (D-096 session, 2026-10-30)
+    if (result.get("schemes") or []) != ["MGNREGA"] or not twins \
+            or not any("village_code" in r or "lgd_block" in r for r in rows):
+        return
+    seen = {str(r.get("village_code")) for r in rows if r.get("village_code") is not None}
+    # a query grouped by name and block carries no code: the twin is known by its block
+    # ("Balsrigittim (Dambo Rongjeng block)"; MGNREGA all-villages run 2026-10-30)
+    seen_blocks = {str(r.get("lgd_block") or "").upper() for r in rows if r.get("lgd_block")}
+
+    def present(code: str, label: str) -> bool:
+        if code in seen:
+            return True
+        block = label[label.rfind("(") + 1:].removesuffix(")").removesuffix(" block").strip().upper() \
+            if "(" in label else ""
+        return bool(block) and block in seen_blocks
+    answer = result.get("answer") or ""
+    # the scope banner names every twin, so only a "No record … for <label>" already in the
+    # answer counts as said (Balsrigittim: both twins in the banner, one row, no note)
+    said = answer.split("No record", 1)[1] if "No record" in answer else ""
+    missing = [label for code, label in twins.items() if not present(code, label) and label not in said]
+    when = f" in {display['year']}" if display.get("year") else ""
+    # a twin WITH a row whose figure the composer left out ("Semi-skilled wages in Bawegre
+    # (Rongram block) … ₹0.32 lakh" — the Samanda row's 0.63 never said; all-villages run
+    # 2026-10-30): that row's figures are appended, so no twin's figure is lost to sampling
+    nums_in_answer = {round(float(n.replace(",", "")), 2) for _s, _e, n in _c12_number_spans(answer, decimals=True, commas=True)
+                      if n.replace(",", "").replace(".", "", 1).isdigit()}
+    left_out = []
+    for code, label in twins.items():
+        if label in said or any(label == m for m in missing):
+            continue
+        block = label[label.rfind("(") + 1:].removesuffix(")").removesuffix(" block").strip().upper() if "(" in label else ""
+        mine = [r for r in rows if str(r.get("village_code")) == code
+                or (block and str(r.get("lgd_block") or "").upper() == block)]
+        for r in mine:
+            parts = []
+            for k, v in _row_metrics(r):
+                if _c12_is_code_col(str(k)):
+                    continue
+                val = float(v)
+                if round(val, 2) in nums_in_answer or round(val / 100.0, 2) in nums_in_answer \
+                        or round(val * 100000.0, 2) in nums_in_answer:
+                    continue
+                unit = _c12_money_unit(str(k))
+                parts.append(f"{_c12_money(val, unit)} {_human_metric(str(k))}" if unit
+                             else f"{_fmt_num(int(val) if val.is_integer() else val)} {_human_metric(str(k))}")
+            if parts:
+                left_out.append(f"{label}: {', '.join(parts)}")
+    if not missing and not left_out:
+        return
+    tail = ""
+    if left_out:
+        tail += " " + " ".join(f"{s}." for s in left_out)
+    if missing:
+        tail += f" No record{when} for {', '.join(missing)}."
+    result["answer"] = answer.rstrip() + tail
 
 
 def _unit_suffix(col: str) -> "tuple[str, str, str] | None":

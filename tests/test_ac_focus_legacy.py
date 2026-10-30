@@ -54,7 +54,7 @@ def test_mgnrega_is_unchanged():
 
 # CM Elevate left this list on 2026-10-06: v_cm_elevate carries geography_key,
 # the same route to dim_geography.ac_name CM Elevate Legacy uses (TC-31).
-@pytest.mark.parametrize("scheme", ["PMAY-G", "Focus Plus"])
+@pytest.mark.parametrize("scheme", ["Focus Plus"])   # PMAY-G records it since 2026-10-30 (KI-445)
 def test_schemes_with_no_ac_column_still_refuse(scheme):
     """These genuinely have no route to a constituency, so offering the chip
     would invite a choice that can never be answered."""
@@ -65,7 +65,8 @@ def test_the_capable_set_is_exactly_the_schemes_with_a_route():
     # CM Elevate Legacy joined 2026-09-25: geography_key -> dim_geography.ac_name,
     # which reproduces the source's mapped_constituency_name exactly.
     # CM Elevate (applications) joined 2026-10-06 by the same join (TC-31).
-    assert set(_AC_CAPABLE_SCHEMES) == {"MGNREGA", "Focus Legacy", "CM Elevate Legacy", "CM Elevate"}
+    # PMAY-G joined 2026-10-30: v_pmay carries dim_geography's ac_name itself (KI-445).
+    assert set(_AC_CAPABLE_SCHEMES) == {"MGNREGA", "Focus Legacy", "CM Elevate Legacy", "CM Elevate", "PMAY-G"}
 
 
 def test_cm_elevate_applications_offer_the_constituency_reading():

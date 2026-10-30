@@ -22,6 +22,18 @@ def _generated_sql_off_the_chatbot_login(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _cross_figures_years_cache_starts_empty():
+    # cross_figures caches each scheme's years held (_YEARS) for the process: a test
+    # whose fake megh_db returned (2017, 2023) left PMAY-G's years for the next file,
+    # whose fake held a range, so "a stated span" said FY 2022-23 was missing too
+    # (test_chat_ui_audit_rows, only in some file orders; found 2026-10-30).
+    from app import cross_figures
+    cross_figures._YEARS.clear()
+    yield
+    cross_figures._YEARS.clear()
+
+
+@pytest.fixture(autouse=True)
 def _no_request_trace_from_an_earlier_test():
     # turn_trace keeps the request's start time in a context variable; a sync test
     # that started a trace and never finished it left it set for every later test,
