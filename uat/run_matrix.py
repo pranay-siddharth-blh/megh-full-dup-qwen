@@ -43,7 +43,7 @@ BAD_ZERO = ["couldn't find", "could not find", "not found", "doesn't cover", "do
             "couldn't build", "could not build"]
 NAME_OK = re.compile(r"not (hold|record|store|have|include|share|provide|available)|doesn't (hold|record|have|include)|"
                      r"no (names?|personal|individual)|personal|privacy|can(no|')t (share|provide|give)|not able to share|"
-                     r"only (counts|aggregate)|aggregate", re.I)
+                     r"only (counts|aggregate)|aggregate|does not contain|doesn.t contain|isn.t part of|not part of", re.I)  # R9 (decisions 22, D3)
 
 
 def norm(s):

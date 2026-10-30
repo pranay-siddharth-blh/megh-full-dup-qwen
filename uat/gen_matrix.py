@@ -467,7 +467,7 @@ counts["C11_named"] = (len(rows_out) - n0, "v_cm_elevate exposes no beneficiary 
 n0 = len(rows_out)
 for d in dists:
     oh = cnt(f"{ONHOLD} AND lgd_district=%s", (d,))
-    g = grp(f"SELECT lgd_block, COUNT(DISTINCT request_id) FROM {V} WHERE lgd_district=%s GROUP BY 1", (d,))
+    g = grp(f"SELECT lgd_block, COUNT(DISTINCT request_id) FROM {V} WHERE {ONHOLD} AND lgd_district=%s GROUP BY 1", (d,))
     merged = {}
     for b, n in g:
         merged[b2bl[b][0]] = merged.get(b2bl[b][0], 0) + n
@@ -475,7 +475,7 @@ for d in dists:
              {"say": "And how many of them are on hold?", "checks": [[None, oh]]},
              {"say": "Break the applicants down by block.", "checks": [[None, n] for b, n in merged.items()]}]
     add("C12_followup", f"C12-{U.norm(d).replace(' ', '_')}", turns, [], kind="chain", level="District chain", pick=["district"],
-        truth="T1 lgd_district; T2 + On Hold; T3 GROUP BY lgd_block")
+        truth="T1 lgd_district; T2 + On Hold; T3 + On Hold GROUP BY lgd_block (decision 22)")
 counts["C12_followup"] = (len(rows_out) - n0, f"{len(dists)} districts x 3 turns")
 
 # ═══ C13 3 spelling / casing variants per district, block, constituency ═══
@@ -507,7 +507,11 @@ counts["C13_spelling"] = (len(rows_out) - n0, f"3 variants x ({len(dists)} distr
 n0 = len(rows_out)
 zero = grp(f"""SELECT g.village_code, g.lgd_village_name, g.lgd_block, g.lgd_district FROM curated.dim_geography g
                WHERE g.village_code IS NOT NULL AND g.entity_type <> 'Unresolved' AND g.lgd_village_name IS NOT NULL
-               AND NOT EXISTS (SELECT 1 FROM {V} v WHERE v.village_code = g.village_code) ORDER BY 1""")
+               AND NOT EXISTS (SELECT 1 FROM {V} v WHERE v.village_code = g.village_code)
+               -- decisions 22 (D4): a name shared by two villages of the SAME block cannot single the zero one out in words
+               AND NOT EXISTS (SELECT 1 FROM curated.dim_geography g2 WHERE g2.village_code <> g.village_code
+                               AND UPPER(g2.lgd_village_name) = UPPER(g.lgd_village_name) AND g2.lgd_block IS NOT DISTINCT FROM g.lgd_block)
+               ORDER BY 1""")
 for code, nm, b, d in zero:
     bq = f" village of {U.block_say(b)} block" if b else " village"
     add("C14_zero_invalid", f"C14-ZERO-{code}", f"How many CM Elevate applicants are there in {nm}{bq}?", [], kind="zero",
@@ -646,12 +650,12 @@ if REDUCED:
     keep += by["C12_followup"]
     for a in spread(acs, 8):                               # 8 constituency chains -> 20 follow-up chats
         oh = cnt(f"{ONHOLD} AND ac_name=%s", (a,))
-        g = grp(f"SELECT current_file_status, COUNT(DISTINCT request_id) FROM {V} WHERE ac_name=%s GROUP BY 1", (a,))
+        g = grp(f"SELECT current_file_status, COUNT(DISTINCT request_id) FROM {V} WHERE {ONHOLD} AND ac_name=%s GROUP BY 1", (a,))
         turns = [{"say": f"How many CM Elevate applicants are there in {a} constituency?", "checks": [[None, acc[a]]]},
                  {"say": "How many of them are on hold?", "checks": [[None, oh]]},
                  {"say": "What is their file status distribution?", "checks": [[U.STATUS_KW[k], v] for k, v in g]}]
         add("C12_followup", f"C12-AC-{U.norm(a).replace(' ', '_')}", turns, [], kind="chain", level="Constituency chain",
-            pick=["constituency"], truth="T1 ac_name; T2 + On Hold; T3 GROUP BY current_file_status")
+            pick=["constituency"], truth="T1 ac_name; T2 + On Hold; T3 + On Hold GROUP BY current_file_status (decision 22)")
     keep += [r for r in rows_out if r["id"].startswith("C12-AC-")]
     z = by["C14_zero_invalid"]
     keep += spread([r for r in z if r["id"].startswith("C14-ZERO-")], 100) + [r for r in z if r["id"].startswith("C14-INV-")]

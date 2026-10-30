@@ -10,7 +10,7 @@ C10_topbottom	20	DB basis: about 20 (reduced plan) of 52
 C11_named	5	DB basis: CM Elevate exposes no names: 5 refusals
 C12_followup	20	DB basis: 20 chats: 12 districts + 8 constituencies, 3 turns each
 C13_spelling	20	DB basis: about 20 (reduced plan) of 414
-C14_zero_invalid	120	DB basis: 100 of 5194 zero-record villages (reduced plan, spread over the list) + 20 invalid names
+C14_zero_invalid	120	DB basis: 100 of 5102 zero-record villages (reduced plan, spread over the list) + 20 invalid names
 C15_totals	114	DB basis: SQL: villages->block (67 stored blocks), blocks->district (12), districts->region (3), regions->state, constituencies->state, 7 dimensions->state, 6 one-place-per-application, FY (n/a); app: 12 district block lists, 3 region district lists, 1 region list
 C16_disambiguation	20	DB basis: 20 'which scheme?' / dataset-choice questions
 C17_paraphrase	20	DB basis: 20 rewordings of 2 questions
