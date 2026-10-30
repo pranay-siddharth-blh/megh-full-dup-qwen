@@ -2386,18 +2386,6 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
 - Progress: one entry below (2026-10-30); the integrator numbers it from D-095 on.
 
-<<<<<<< ours
-#### D-B1-CME-01 — CM Elevate "pending" = Valid → forward-or-sendback → file_status Pending / Send Back (user decision 2026-10-30; gated on the scheme_specific grant)
-- **Date:** 2026-10-30 (`app/pipeline/schemes/cm_elevate.py`, `app/schema_introspect.py`,
-  `app/schema_context.py`, `app/data_facts.py`, `data/cm_elevate/*.yaml`; supersedes the KI-074 reading of D-027).
-- **Decision (the user's words, 2026-10-30):** a pending CM Elevate application is one whose data was verified
-  **Valid** (never Invalid unless asked), whose current file status is **forward or sendback** (both sendback
-  spellings; resubmit is out — the user's correction later the same day, the first cut said forward only), and
-  whose file status is **Pending or Send Back**: `data_verified = 'Valid' AND (LOWER(current_file_status) = 'forward' OR LOWER(current_file_status) LIKE 'sendback%') AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')`. Every other state — Invalid / Wrong / On Hold,
-  resubmit, Rejected / Approved — is reported only when the user names it. Live on 2026-10-30: **7,338** pending
-  (7,281 forward+Pending, 54 forward+Send Back, 3 sendback+Send Back) of 8,948 applications; the old On Hold
-  reading gave 911.
-=======
 #### D-B1-CME-01 — CM Elevate "pending" = Valid → file_status Pending / Send Back (user decision 2026-10-30; gated on the scheme_specific grant)
 - **Date:** 2026-10-30 (`app/pipeline/schemes/cm_elevate.py`, `app/schema_introspect.py`,
   `app/schema_context.py`, `app/data_facts.py`, `data/cm_elevate/*.yaml`; supersedes the KI-074 reading of D-027).
@@ -2408,7 +2396,6 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
   applications.) Every other state — Invalid / Wrong / On Hold, resubmit, Rejected / Approved — is reported only
   when the user names it. Live on 2026-10-30: **7,341** pending of 7,371 valid applications (8,921 in all); the old
   On Hold reading gave 911.
->>>>>>> theirs
 - **Blocker and gate:** `file_status` exists only inside `curated.v_cm_elevate.scheme_specific` (jsonb), which
   the ingestion team locked from `megh_readonly` on 2026-10-16; `semantic.run_query` (SECURITY DEFINER, owner
   `megh_query_runner`) is refused on it too, and there is no plain `file_status` column. So the rule is
@@ -2428,8 +2415,6 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
     of On Hold (`_cme_pending_target()`); `_cme_level_pending_wording` (KI-422) stops removing the word.
   - schema_context rule 9 and the pending vocabulary switch to the open text; `[[cme_pending]]` is a live token.
   - "pending at level N" = the rule AND the level (309 at level 2, not 310; 3 at level 0).
-<<<<<<< ours
-=======
 - **Refinement (same day, user):**
   - **"On hold" questions follow the same rule** (they are pending questions) and **never read `data_verified`**;
     `data_verified = 'On Hold'` answers only an explicit verification-outcome question. While locked, pending and
@@ -2449,7 +2434,6 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
     sentence, the prompt lines and the gate (every column the rule needs must be readable — so a plain
     `file_status` column, if the DB team adds one, opens the gate by editing the YAML alone). The typed-in
     `[[cme_pending]]` figure was removed; counts come only from the database at question time.
->>>>>>> theirs
 - **Alternatives rejected:**
   - Waiting for the grant before writing anything: the rule would then land untested under deadline.
   - Valid + forward only as an interim (7,386): silently includes the 51 Rejected files.

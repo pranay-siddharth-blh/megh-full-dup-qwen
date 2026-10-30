@@ -1238,11 +1238,7 @@ day (that port did not answer). No net config change.
 - **Next step:**
   - Commit when the user asks.
   - ~~Ask the product owner which "pending" is wanted (KI-074)~~ — decided 2026-10-30 (D-B1-CME-01):
-<<<<<<< ours
-    pending = Valid → forward-or-sendback → file_status Pending / Send Back, implemented gated on the
-=======
     pending = Valid → file_status Pending / Send Back, implemented gated on the
->>>>>>> theirs
     scheme_specific grant. **Next: get the DB team to grant it (KI-624)**, then re-pin the UAT
     matrix rows listed in uat/decisions.md §12 and consider approved / rejected on file_status.
   - Consider KI-076.

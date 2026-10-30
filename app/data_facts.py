@@ -82,13 +82,6 @@ _QUERIES = {
                COUNT(*) FILTER (WHERE sector_id IS NOT NULL) AS cme_sector,
                COUNT(DISTINCT request_id) FILTER (WHERE scheme_name ILIKE 'PRIME Small%') AS cme_prime
         FROM curated.v_cm_elevate""",
-    # the pending rule of 2026-10-30; refused (permission denied) while scheme_specific is locked,
-    # which only keeps the token at its default — the other CM Elevate figures are unaffected
-    "cm_elevate_pending": """
-        SELECT COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid'
-               AND (LOWER(current_file_status) = 'forward' OR LOWER(current_file_status) LIKE 'sendback%')
-               AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')) AS cme_pending
-        FROM curated.v_cm_elevate""",
     "cm_elevate_dups": """
         SELECT COALESCE(SUM(n), 0) AS cme_dup_apps,
                STRING_AGG(n || ' ' || s, ', ' ORDER BY n DESC, s) AS cme_dup_split
@@ -185,8 +178,6 @@ def _fy_gaps(years) -> str:
 
 # name -> (default: the figure typed in the rule before 2026-10-29, formatter over the merged row)
 FACTS = {
-    # CM Elevate pending rule (2026-10-30): Valid + forward-or-sendback + file_status Pending / Send Back
-    "cme_pending": ("7,338", lambda v: _n(v["cme_pending"])),
     # Focus Plus
     "fp_rows": ("385,671", lambda v: _n(v["fp_rows"])),
     "fp_lgdblock_null": ("57,649", lambda v: _n(v["fp_lgdblock_null"])),
