@@ -1363,7 +1363,9 @@ dimensions:
       - { name: Watregre, code: 273460, district: "West Garo Hills", applications: 51 }
       - { name: Balakhawa, code: 277694, district: "Ri Bhoi", applications: 44 }
 
-  assembly_constituency:
+  # A SUPPLEMENT, not a catalogue: CM Elevate keeps borrowing the shared constituency list (the
+  # collision checks and test_cross_scheme_collision rely on that); these four are added on top.
+  assembly_constituency_supplement:
     column: ac_name
     stored_case: Title Case in v_cm_elevate.ac_name (compare with UPPER)
     note: >

@@ -283,6 +283,10 @@ def _dimension_values(dims: dict, dim_name: str) -> list:
 
 # scheme -> dimension ("district" | "block" | "year") -> list of value dicts
 _catalog: dict[str, dict[str, list[dict]]] = {}
+# scheme -> shared admin dimension -> entries ADDED to the borrowed catalogue
+# ("<dim>_supplement" in the resolver YAML): CM Elevate's four urban Shillong
+# constituencies, which the borrowed MGNREGA list leaves out (UAT 2026-10-30).
+_supplement: dict[str, dict[str, list[dict]]] = {}
 # scheme -> [{canonical, districts, aliases}] — the hill-range groupings a user names
 # instead of a district ("Garo Hills" = 5 districts). Loaded from the resolver YAML's
 # region_groupings.groups; single-district groups (Ri Bhoi) are skipped since they
@@ -440,6 +444,11 @@ def load_all() -> None:
             values = _dimension_values(dims, dim_name)
             if values:
                 _catalog[scheme][dim_name] = values
+        _supplement[scheme] = {}
+        for dim_name in _SHARED_ADMIN_DIMENSIONS:
+            values = _dimension_values(dims, f"{dim_name}_supplement")
+            if values:
+                _supplement[scheme][dim_name] = values
         for v in _catalog[scheme].get("district", []):
             _add_direction_aliases(v)
 
@@ -1003,6 +1012,11 @@ def resolve_dimension(text: str, scheme: str, dimension: str) -> Resolved:
                 logger.info("%s %r resolved via %s's catalogue (missing from %s's)",
                             dimension, text, _other, scheme)
                 return _hit
+        _sup = (_supplement.get(scheme) or {}).get(dimension) or []
+        if _sup:
+            _hit = _resolve_in_catalog(_sup, text, dimension, _blocked.get(scheme))
+            if _hit.status == "resolved":
+                return _hit
         return _direct
 
     folded_input = fold(text)
@@ -1230,13 +1244,14 @@ def _collision_values(scheme: str, dim: str) -> list:
     values = _catalog.get(scheme, {}).get(dim, [])
     if values or dim not in _SHARED_ADMIN_DIMENSIONS:
         return values
+    extra = list((_supplement.get(scheme) or {}).get(dim) or [])
     for _other, _dims in _catalog.items():
         if _other == scheme:
             continue
         borrowed = _dims.get(dim) or []
         if borrowed:
-            return borrowed
-    return []
+            return list(borrowed) + extra
+    return extra
 
 
 def collision_canonical_names(scheme: str, dimension: str) -> list[str]:
