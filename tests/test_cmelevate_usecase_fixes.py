@@ -14,7 +14,8 @@ below are the ones the bot produced in that QA.
   OFF-028b     "pending in each sector" lost every 0-pending sector (KI-072).
   OFF-025a     scheme x sector answer garbled ("respectively … each
                corresponding row") (KI-073).
-  KI-074       "pending" = verification On Hold only (decided 2026-09-28).
+  KI-074       "pending" = verification On Hold while file_status is locked (2026-09-28);
+               the 2026-10-30 pending rule is in test_cme_pending_funnel_2026_10_30.py.
   KI-075       "PRIME SEED" asked "which scheme?".
 
 No model or DB: run_readonly is stubbed where needed.
@@ -230,7 +231,7 @@ def test_readable_two_label_answer_is_kept():
     assert p._cme_grouped_rows(ans, rows) == ans
 
 
-# ── KI-074: "pending" = verification On Hold only (product decision 2026-09-28) ─
+# ── KI-074: "pending" = verification On Hold while file_status is locked (2026-09-28) ─
 def test_pending_answer_has_no_file_status_second_reading(monkeypatch):
     async def _ro(sql):
         raise AssertionError("no re-query: the file_status reading was dropped")

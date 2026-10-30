@@ -1810,6 +1810,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_elevate_sector_zero_groups(schemes, sql)
     sql = _cm_elevate_level_pending(question, schemes, sql)
     sql = _cm_elevate_pending_without_level(question, schemes, sql)
+    sql = _cm_elevate_pending_funnel(question, schemes, sql)   # pending rule 2026-10-30, gated
     sql = _cm_elevate_unasked_level_filter(question, schemes, sql)
     sql = _cm_elevate_drop_area_level_entity_type(schemes, sql)
     sql = _cm_elevate_sector_keep_unrecorded(question, schemes, sql)

@@ -742,10 +742,7 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
        SELECT COUNT(DISTINCT request_id) AS applications
        FROM curated.v_cm_elevate
        WHERE lgd_district = 'WEST GARO HILLS';
-  9. scheme_specific (the JSON column that held gender_id, file_status and
-     occupation_id) is LOCKED from the chatbot's database role since 2026-10-16. Never
-     write scheme_specific, ->>, ? or @> against it — the query is refused. Gender and
-     the Approved / Rejected decision are therefore NOT AVAILABLE for CM Elevate.
+  9. <<CME_RULE_9>>
   9a. SECTOR is the plain column sector_id (Poultry, Dairy and Goat schemes only;
      mostly NULL — [[cme_sector]] of [[cme_records]] records). Stored values are Title Case ('Poultry',
      'Piggery', 'Dairy', 'Goatery'): compare with ILIKE, never an exact lowercase guess.
@@ -833,8 +830,7 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
 _CMELEVATE_VOCAB = """
 CM ELEVATE BUSINESS VOCABULARY (source: cmelevate_schema_partitions.yaml + cmelevate_entity_resolver.yaml)
     "applications" / "applicants" / "beneficiaries" / "requests" / "records" -> COUNT(DISTINCT request_id)   (an application is a REQUEST, not an award — say "applications"; never COUNT(*): 27 applications have two identical records, rule 8)
-    "on hold" / "pending" / "held" -> data_verified = 'On Hold'   (NEVER the onhold boolean)
-    ONLY when the question itself names a level ("pending at level 2", "pending in level1"): -> LOWER(current_level) = 'levelN' alone — the level IS the scope; do NOT also add data_verified = 'On Hold' (no level-2 application is on hold, so that AND returns a false 0). A plain "pending" with NO level named is still data_verified = 'On Hold' — never a current_level filter
+    <<CME_PENDING_VOCAB>>
     "pending in each sector" / "<status> by sector" / "<status> by <dimension>" -> keep the status test INSIDE COUNT(DISTINCT request_id) FILTER (WHERE data_verified = '...') and GROUP BY the dimension with NO status test in the WHERE, so a group with none still shows 0
     "approved" / "rejected" / "decision" -> NOT AVAILABLE: that decision lived only in scheme_specific, locked from the chatbot since 2026-10-16 — current_file_status NEVER holds approved/rejected/pending (only forward / resubmit / sendback to vdv/citizen), so filtering it for those returns a false 0   "sanctioned" / "cleared" / "funded" -> NOT AVAILABLE here (sanction lives in CM Elevate Legacy)   "status" / "status distribution" / "status-wise" / "application status" (default) -> current_file_status, send-back spellings merged (rule 13; decided 2026-09-28)   "verification status" -> data_verified
     "villages" -> COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')   "districts" / "blocks" -> COUNT(DISTINCT lgd_district) / COUNT(DISTINCT lgd_block)
@@ -1645,8 +1641,45 @@ def build_schema_context(schemes: list[str]) -> str:
 
     parts.append(f"SHARED RULES:\n{_SHARED_RULES}")
     parts.append(_CLOSING)
+    text = _cme_pending_lines("\n\n".join(parts))
     # Fill the data-figure tokens, live from megh_db (data_facts); the typed defaults until the first read.
-    return data_facts.render("\n\n".join(parts))
+    return data_facts.render(text)
+
+
+# CM Elevate "pending" (user decision 2026-10-30): Valid + forward + file_status Pending / Send Back.
+# file_status is inside scheme_specific, locked from the chatbot's role since 2026-10-16, so the
+# rule 9 and vocabulary lines follow the live grant (schema_introspect.cme_file_status_readable).
+_CME_RULE_9_LOCKED = """scheme_specific (the JSON column that holds gender_id, file_status and
+     occupation_id) is LOCKED from the chatbot's database role since 2026-10-16. Never
+     write scheme_specific, ->>, ? or @> against it — the query is refused. Gender and
+     the Approved / Rejected decision are therefore NOT AVAILABLE for CM Elevate. "Pending"
+     is defined (2026-10-30) as data_verified = 'Valid' AND forward AND file_status Pending or
+     Send Back, and file_status is inside scheme_specific: a pending count is NOT AVAILABLE
+     either — say so and offer the recorded figures (on hold, forward / resubmit / sendback)."""
+_CME_RULE_9_OPEN = """scheme_specific is a JSON column. The ONLY key you may read is file_status —
+     scheme_specific ->> 'file_status' ('Pending' / 'Send Back' / 'Rejected') — and only for a
+     pending, sent-back or rejected question. Never read gender_id, occupation_id or any other
+     key: gender is NOT AVAILABLE for CM Elevate."""
+_CME_PENDING_VOCAB_LOCKED = (
+    """"on hold" / "held" -> data_verified = 'On Hold'   (NEVER the onhold boolean)
+    "pending" -> NOT AVAILABLE for now: pending is defined (2026-10-30) as data_verified = 'Valid' AND LOWER(current_file_status) = 'forward' AND file_status IN ('Pending', 'Send Back'), and file_status is inside the locked scheme_specific column. Never write scheme_specific; never answer "pending" from data_verified = 'On Hold' as if it were pending — on hold is a different state. State the rule, say the count is not available, and give the recorded figures
+    ONLY when the question itself names a level ("pending at level 2", "pending in level1"): -> LOWER(current_level) = 'levelN' alone — the level IS the scope"""
+)
+_CME_PENDING_VOCAB_OPEN = (
+    """"pending" / "pending applications" / "pendency" -> the PENDING RULE (user decision 2026-10-30): data_verified = 'Valid' AND LOWER(current_file_status) = 'forward' AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')   ([[cme_pending]] statewide). Put it INSIDE COUNT(DISTINCT request_id) FILTER (WHERE …) when grouping so a group with none shows 0. "pending at level N" = the rule AND LOWER(current_level) = 'levelN'
+    "on hold" / "held" -> data_verified = 'On Hold' ONLY   (NEVER the onhold boolean) — on hold is NOT pending. Invalid / Wrong / On Hold, resubmit / sendback to vdv/citizen and Rejected are reported only when the question names them
+    "sent back" -> scheme_specific ->> 'file_status' = 'Send Back' (the department's decision; the workflow value 'sendback to vdv/citizen' in current_file_status is a different field)"""
+)
+
+
+def _cme_pending_lines(text: str) -> str:
+    """Rule 9 and the pending vocabulary for the live grant on scheme_specific."""
+    if "<<CME_" not in text:
+        return text
+    from app import schema_introspect   # local: schema_introspect imports db at module level
+    open_ = schema_introspect.cme_file_status_readable()
+    return (text.replace("<<CME_RULE_9>>", _CME_RULE_9_OPEN if open_ else _CME_RULE_9_LOCKED)
+                .replace("<<CME_PENDING_VOCAB>>", _CME_PENDING_VOCAB_OPEN if open_ else _CME_PENDING_VOCAB_LOCKED))
 
 
 # Kept for any caller that still wants the full, unscoped context (e.g. a

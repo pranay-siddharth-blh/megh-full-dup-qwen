@@ -10,7 +10,7 @@ import sqlglot
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
 
-from app import sql_ast
+from app import schema_introspect, sql_ast
 from app.text_match import (Alt, Cap, Hit, Joined, Matcher, Node, NotBefore, Opt, Pred, Seq, W,
                             collapse_ws, is_int)
 from app.text_match import words as _tm_words
@@ -1061,6 +1061,27 @@ _CME_SECTOR_EACH_MATCH = Matcher(Alt(Seq(W("each", "every", "all", "by", "per"),
                                   _cme_join(("sector", "sectors"), "wise")))
 _CME_PENDING_MATCH = Matcher(Alt("pending", _cme_join("on", "hold")))
 _CME_SECTOR_FACT_KINDS = ("count", "pending", "programmes", "workflow", "notime")
+# "Pending" (user decision 2026-10-30, superseding the KI-074 On Hold reading): an application
+# verified Valid, whose file has moved forward, and whose file status is Pending or Send Back.
+# Invalid / On Hold / Wrong, resubmit / sendback to vdv/citizen and Rejected are reported only
+# when the question names them. file_status lives inside scheme_specific, which the chatbot's
+# database role has not been allowed to read since 2026-10-16 (ingestion team); until it is,
+# the recorded figures are given instead (cme-sector-workflow below) and the rule is stated.
+_CME_PENDING_FUNNEL = ("data_verified = 'Valid' AND LOWER(current_file_status) = 'forwa"
+                       "rd' AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')")
+_CME_PENDING_RULE_TEXT = ("Pending means: data verified Valid, file status forward, and file status "
+                          "Pending or Send Back.")
+
+
+def _cme_pending_readable() -> bool:
+    """The file status (inside scheme_specific) is among the columns the chatbot's role may read."""
+    return schema_introspect.cme_file_status_readable()
+
+
+def _cme_pending_target() -> str:
+    """The SQL condition a plain "pending" resolves to: the funnel once file_status is
+    readable, the data-verification hold (KI-074) while it is not."""
+    return _CME_PENDING_FUNNEL if _cme_pending_readable() else "data_verified = 'On Hold'"
 # A WORKFLOW status the data does not hold (ingestion team, 2026-10-26): "pending",
 # "approved", "rejected" and "sent back" live in an internal API field the chatbot
 # cannot read; data_verified ('On Hold' …) is the data-verification check, a different
@@ -1086,8 +1107,8 @@ def _cme_level_pending_wording(question: str, schemes: "list[str]", answer: str)
     (current_level), so the figure is right, but "pending" is a workflow status the
     data does not hold. The answer keeps the figure, drops the word, and says so."""
     if schemes != ["CM Elevate"] or not answer or not _CME_PENDING_MATCH.search(question or "") \
-            or not _CME_LEVEL_ASKED.search(question or ""):
-        return answer
+            or not _CME_LEVEL_ASKED.search(question or "") or _cme_pending_readable():
+        return answer   # pending IS recorded once file_status is readable (rule of 2026-10-30)
     kept = [w for w in answer.split(" ") if w.strip(".,;:!?*").lower() != "pending"]
     out = " ".join(kept)
     if out == answer:
@@ -1173,7 +1194,10 @@ def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str]
     grp = _cme_workflow_group(q)
     sel = f"{grp} AS grp, " if grp else ""
     tail = " GROUP BY 1 ORDER BY 2 DESC, 1" if grp else ""
-    sql = (f"/* cme-sector-workflow */ SELECT {sel}"
+    pend = (f"COUNT(DISTINCT request_id) FILTER (WHERE {_CME_PENDING_FUNNEL}) AS pending, "
+            "COUNT(DISTINCT request_id) FILTER (WHERE scheme_specific ->> 'file_status' = 'Send Back') AS sent_back, "
+            if _cme_pending_readable() else "")
+    sql = (f"/* cme-sector-workflow */ SELECT {sel}{pend}"
            "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS on_hold, "
            "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'forward') AS forward, "
            "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'resubmit') AS resubmit, "
@@ -1290,8 +1314,11 @@ def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tup
                "HAVING COUNT(*) FILTER (WHERE sector_id IS NOT NULL) > 0 ORDER BY scheme_name")
         return sql, params, sql
     if _CME_SECTOR_EACH_MATCH.search(q) and _CME_PENDING_MATCH.search(q):
+        pend = (f"COUNT(DISTINCT request_id) FILTER (WHERE {_CME_PENDING_FUNNEL}) AS pending, "
+                if _cme_pending_readable() else
+                "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS pending_on_hold, ")
         sql = ("/* cme-sector-pending */ SELECT COALESCE(sector_id, '(not recorded)') AS sector, "
-               "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS pending_on_hold, "
+               f"{pend}"
                "COUNT(DISTINCT request_id) AS applications "
                f"FROM curated.v_cm_elevate{wh} GROUP BY 1 ORDER BY 2 DESC, 1")
         return sql, params, sql
@@ -1306,6 +1333,38 @@ def _cme_place_words(display: dict) -> str:
     if display.get("district"):
         return f" in {display['district']}"
     return " across Meghalaya"
+
+
+def _cme_pending_answer(question: str, rows: list[dict], word: str, scope: str) -> "str | None":
+    """The cme-sector-workflow answer once file_status is readable (user decision 2026-10-30):
+    a pending question gets the funnel count, "sent back" the Send Back file status, and the
+    recorded figures the rule leaves out are named so they can be asked for. None for a word
+    the rule does not cover (approved / rejected keep their own path)."""
+    if word == "sent back":
+        col, label = "sent_back", "Applications with file status Send Back"
+    elif word == "pending":
+        col, label = "pending", "Pending CM Elevate applications"
+    else:
+        return None
+    if "grp" in rows[0]:
+        gname = {"scheme_name": "programme", "lgd_district": "district", "lgd_block": "block"}.get(
+            _cme_workflow_group(question) or "", "group")
+        items = [f"{_cme_short(x['grp']) if x.get('grp') is not None else '(not recorded)'} "
+                 f"{int(_as_number(x.get(col)) or 0):,}" for x in rows]
+        total = sum(int(_as_number(x.get(col)) or 0) for x in rows)
+        return (f"{label}{scope}, by {gname} (highest first): " + "; ".join(items)
+                + f". Total {total:,}. {_CME_PENDING_RULE_TEXT}")
+    r = rows[0]
+    n = {k: int(_as_number(r.get(k)) or 0) for k in ("pending", "sent_back", "on_hold", "applications")}
+    if col == "sent_back":
+        return (f"{n['sent_back']:,} CM Elevate application{'s' if n['sent_back'] != 1 else ''}{scope} "
+                f"{'have' if n['sent_back'] != 1 else 'has'} the file status Send Back (of {n['applications']:,}); "
+                f"those also verified Valid and forwarded are counted among the {n['pending']:,} pending. "
+                f"{_CME_PENDING_RULE_TEXT}")
+    return (f"{n['pending']:,} CM Elevate application{'s are' if n['pending'] != 1 else ' is'} pending{scope} "
+            f"(of {n['applications']:,}). {_CME_PENDING_RULE_TEXT} Not counted, and available on request: "
+            f"{n['on_hold']:,} on hold at data verification, and applications verified Invalid or Wrong, "
+            "resubmitted, sent back to VDV/citizen, or rejected.")
 
 
 def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict) -> "str | None":
@@ -1341,6 +1400,13 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
         out += (f". Sector is recorded only on Poultry, Dairy and Goat Farming applications — {recorded:,} "
                 f"of them{where} have it recorded.")
         return out
+    if kind == "pending" and rows and "pending" in rows[0]:
+        # file_status readable: the pending rule of 2026-10-30, by sector
+        items = [f"{r['sector']} {int(_as_number(r.get('pending')) or 0):,}" for r in rows]
+        total = sum(int(_as_number(r.get("pending")) or 0) for r in rows)
+        return (f"Pending CM Elevate applications by sector{where}: " + "; ".join(items)
+                + f". Total {total:,}. {_CME_PENDING_RULE_TEXT} Sector is recorded only on Poultry, Dairy and "
+                  "Goat Farming applications, so most applications fall under (not recorded).")
     if kind == "pending":
         items = [f"{r['sector']} {int(_as_number(r.get('pending_on_hold')) or 0):,}" for r in rows]
         total = sum(int(_as_number(r.get("pending_on_hold")) or 0) for r in rows)
@@ -1359,6 +1425,10 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
                 "rejections": "rejected", "send back": "sent back", "sendback": "sent back"}.get(word, word)
         prog = (display or {}).get("cm_scheme")
         scope = f"{where}" + (f" under {prog}" if prog else "")
+        if "pending" in r:
+            _pa = _cme_pending_answer(question, rows, word, scope)   # file_status readable (2026-10-30)
+            if _pa:
+                return _pa
         if "grp" in r:
             # grouped (OFF-019 / OFF-020): the on-hold figure per programme / district / block, highest first
             gname = {"scheme_name": "programme", "lgd_district": "district", "lgd_block": "block"}.get(
@@ -2187,11 +2257,11 @@ def _cm_elevate_decision_status_column(schemes: list[str], sql: str) -> str:
         for n in list(tree.find_all(exp.EQ, exp.Like, exp.ILike)):
             hit = _cme_decision_pred(n)
             if hit is not None and hit[1] == "Pending":
-                n.replace(_cme_eq_on(hit[0], "data_verified = 'On Hold'"))
+                n.replace(_cme_eq_on(hit[0], _cme_pending_target()))
 
     out = sql_ast.transform(sql, fn)
     if out != sql:
-        logger.info("CM Elevate: current_file_status = 'pending' read as data_verified = 'On Hold'")
+        logger.info("CM Elevate: current_file_status = 'pending' read as %s", _cme_pending_target())
     return out
 
 
@@ -2206,16 +2276,57 @@ def _cm_elevate_pending_without_level(question: str, schemes: list[str], sql: st
             or _CME_LEVEL_STAGE_Q.search(q)):
         return sql
     tree = sql_ast.parse_one(sql)
-    if tree is None or any(_cme_on_hold_eq(n) for n in tree.find_all(exp.EQ)):
+    if tree is None or any(_cme_on_hold_eq(n) for n in tree.find_all(exp.EQ)) or _cme_reads_file_status(tree):
         return sql
     # any level literal, not just 'level<d>': "pending in 12TH MER" came back as
     # current_level = 'level12' (final pass 2026-09-28, KI-120)
     levels = [n for n in tree.find_all(exp.EQ) if _cme_level_eq(n)]
     if len(levels) != 1:
         return sql
-    levels[0].replace(_cme_eq_on(_cme_col(levels[0].this, "current_level"), "data_verified = 'On Hold'"))
-    logger.info("CM Elevate: plain 'pending' was filtered on current_level — restored data_verified = 'On Hold'")
+    levels[0].replace(_cme_eq_on(_cme_col(levels[0].this, "current_level"), _cme_pending_target()))
+    logger.info("CM Elevate: plain 'pending' was filtered on current_level — restored %s", _cme_pending_target())
     return sql_ast.to_sql(tree)
+
+
+def _cme_reads_file_status(tree: "exp.Expression | None") -> bool:
+    """The query already reads scheme_specific ->> 'file_status' (the pending funnel)."""
+    if tree is None:
+        return False
+    return (any(str(k.this).lower() == "file_status" for k in tree.find_all(exp.JSONPathKey))
+            or any(s.lower() == "file_status" for s in sql_ast.string_literals(tree)))
+
+
+# a question that names another verification / workflow state is not a plain "pending"
+_CME_PENDING_OTHER_STATE = Matcher(Alt(Pred(lambda w: "verif" in w.lower()),
+                                       W("valid", "invalid", "wrong", "resubmit", "resubmitted",
+                                         "rejected", "approved", "forward", "forwarded")))
+
+
+def _cm_elevate_pending_funnel(question: str, schemes: list[str], sql: str) -> str:
+    """User decision 2026-10-30: a plain "pending" (no "on hold", no other state named) is the
+    pending funnel — Valid, forward, file status Pending or Send Back — once file_status is
+    readable. A `data_verified = 'On Hold'` the model wrote for it becomes the funnel (in the
+    WHERE or inside a FILTER); a plain query with no status test at all gets the funnel AND-ed
+    into its WHERE. Nothing changes while file_status is locked (the KI-074 reading stays)."""
+    q = question or ""
+    if (schemes != ["CM Elevate"] or not sql or not _cme_pending_readable()
+            or not _CME_PENDING_WORD_Q.search(q) or _CME_ON_HOLD.search(q) or _CME_PENDING_OTHER_STATE.search(q)):
+        return sql
+    tree = sql_ast.parse_one(sql)
+    if tree is None or _cme_reads_file_status(tree):
+        return sql
+    hits = [n for n in tree.find_all(exp.EQ) if _cme_on_hold_eq(n)]
+    if hits:
+        for n in hits:
+            n.replace(_cme_eq_on(n.this, _CME_PENDING_FUNNEL))
+        logger.info("CM Elevate: 'pending' — data_verified = 'On Hold' became the pending funnel (2026-10-30)")
+        return sql_ast.to_sql(tree)
+    sel = _cme_simple_select(tree)
+    if sel is None or any(_cme_status_eq(n) for n in tree.find_all(exp.EQ)):
+        return sql                       # another verification state was written on purpose
+    sel.where(sqlglot.parse_one(_CME_PENDING_FUNNEL, read=sql_ast.DIALECT), append=True, copy=False)
+    logger.info("CM Elevate: 'pending' with no status test — the pending funnel was added (2026-10-30)")
+    return sql_ast.to_sql(sel)
 
 
 # ════ verify and repair ═══════════════════════════════════════════════════════════════════════════════

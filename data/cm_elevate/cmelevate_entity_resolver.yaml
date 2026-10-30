@@ -301,11 +301,16 @@ overloaded_terms:
 
   pending:
     readings:
-    - { means: "data_verified = 'On Hold'", when: "the user means applications awaiting a verification outcome" }
+    - { means: "data_verified = 'Valid' AND LOWER(current_file_status) = 'forward' AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')", when: "default for applications (user decision 2026-10-30)" }
+    - { means: "data_verified = 'On Hold'", when: "ONLY when the user says on hold / held - on hold is not pending" }
     - { means: "not_available", when: "the user means money awaiting release" }
     default: >
-      Read it as On Hold and say so. There is no pending AMOUNT in CM Elevate - PMAY's
-      amount_pending has no counterpart here.
+      The pending rule: verified Valid, file forwarded, file status Pending or Send Back
+      (about 7,335). Every other state - Invalid, Wrong, On Hold, resubmit, sendback to
+      vdv/citizen, Rejected - is given only when the user names it. file_status sits inside
+      scheme_specific; while the chatbot's role cannot read it, say the pending count is not
+      available. There is no pending AMOUNT in CM Elevate - PMAY's amount_pending has no
+      counterpart here.
 
   status:
     readings:
@@ -1457,7 +1462,8 @@ dimensions:
       critical: true
       text: >
         THE ONLY STATUS FIELD ON THIS FACT WITH MEANINGFUL SPREAD, and the correct target
-        for "on hold", "pending", "verified" and "valid". It records whether the
+        for "on hold", "verified" and "valid" ("pending" is its own rule since 2026-10-30:
+        Valid + forward + file_status Pending / Send Back). It records whether the
         APPLICATION'S OWN DATA was found valid - it is NOT a funding decision, an approval
         or a rejection.
     not_a_boolean:
@@ -1473,7 +1479,7 @@ dimensions:
     - canonical: "On Hold"
       applications: 1199
       share_pct: 14.2
-      aliases: [on hold, onhold, held, held up, paused, pending, awaiting, stuck,
+      aliases: [on hold, onhold, held, held up, paused, awaiting, stuck,
                 on-hold, in hold]
       note:
         critical: true

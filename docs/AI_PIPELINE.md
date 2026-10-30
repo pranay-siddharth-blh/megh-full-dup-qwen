@@ -722,10 +722,16 @@ the rewrites and before it runs (`_repaired_sql_denial`; D-033, KI-183). A denia
   - `_cm_elevate_level_pending`: "pending at level N" drops an AND-ed `data_verified = 'On
     Hold'` when `current_level` is filtered.
   - `_cm_elevate_pending_without_level`: a plain "pending" (no level or stage named) that was
-    filtered on `current_level = 'levelN'` is swapped back to `data_verified = 'On Hold'`.
-  - `_cm_elevate_decision_status_column`: `current_file_status = 'approved' / 'rejected' /
-    'pending'` (values that column never holds) → `scheme_specific ->> 'file_status' = 'Approved'`
-    and so on.
+    filtered on `current_level = 'levelN'` is swapped back to the pending target —
+    `data_verified = 'On Hold'` while file_status is locked, the pending funnel once readable.
+  - `_cm_elevate_pending_funnel` (2026-10-30, D-B1-CME-01, gated on
+    `schema_introspect.cme_file_status_readable()`): a plain "pending" written as
+    `data_verified = 'On Hold'` becomes `data_verified = 'Valid' AND LOWER(current_file_status) =
+    'forward' AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')` (WHERE or FILTER);
+    a plain query with no status test gets the funnel AND-ed in. "On hold" or another named state
+    is left alone.
+  - `_cm_elevate_decision_status_column`: `current_file_status = 'pending'` (a value that column
+    never holds) → the pending target above.
 - `_cm_legacy_qualify_shared_geo_cols`
 - **CM Elevate Legacy only (2026-09-29, use-case re-test + all-levels run):**
   - `_cm_legacy_sanctioned_count` (KI-166): a "sanctioned applications" count written as
@@ -1001,7 +1007,11 @@ Legacy's were).
         higher by D (a vs b)" per programme and per place. A one-label two-row result reuses
         `_fp_comparison`.
      KI-074 was decided on 2026-09-28 (product owner): "pending" = `data_verified = 'On Hold'`
-     only. The interim `_cme_pending_file_status` second line was removed.
+     only; the interim `_cme_pending_file_status` second line was removed. **Superseded on
+     2026-10-30 (D-B1-CME-01):** pending = Valid → forward → file_status Pending / Send Back.
+     The fixed `cme-sector-workflow` / `cme-sector-pending` queries count that funnel and
+     `_cme_pending_answer` states it, once `scheme_specific` is readable by the chatbot's role
+     (KI-624); until then the 2026-10-26 "not recorded" answer stands.
 4. **Result:** `route:"data"`, `rows[:20]`, `data` = all rows, `row_count`, `sql`.
 
 ---

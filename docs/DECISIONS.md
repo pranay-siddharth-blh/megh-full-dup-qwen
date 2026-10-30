@@ -2314,7 +2314,43 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
-- Progress: not started
+- Progress: one entry below (2026-10-30); the integrator numbers it from D-095 on.
+
+#### D-B1-CME-01 — CM Elevate "pending" = Valid → forward → file_status Pending / Send Back (user decision 2026-10-30; gated on the scheme_specific grant)
+- **Date:** 2026-10-30 (`app/pipeline/schemes/cm_elevate.py`, `app/schema_introspect.py`,
+  `app/schema_context.py`, `app/data_facts.py`, `data/cm_elevate/*.yaml`; supersedes the KI-074 reading of D-027).
+- **Decision (the user's words, 2026-10-30):** a pending CM Elevate application is one whose data was verified
+  **Valid** (never Invalid unless asked), whose file status is **forward**, and whose file status is **Pending or
+  Send Back**: `data_verified = 'Valid' AND LOWER(current_file_status) = 'forward' AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')`. Every other state — Invalid / Wrong / On Hold, resubmit / sendback to vdv/citizen,
+  Rejected / Approved — is reported only when the user names it. Live on 2026-10-30: **7,335** pending
+  (7,281 Pending + 54 Send Back) of 8,948 applications; the old On Hold reading gave 911.
+- **Blocker and gate:** `file_status` exists only inside `curated.v_cm_elevate.scheme_specific` (jsonb), which
+  the ingestion team locked from `megh_readonly` on 2026-10-16; `semantic.run_query` (SECURITY DEFINER, owner
+  `megh_query_runner`) is refused on it too, and there is no plain `file_status` column. So the rule is
+  **gated** on `schema_introspect.cme_file_status_readable()` (scheme_specific present in the live columns the
+  read-only role may SELECT). While locked, every pending path keeps the 2026-10-26 behaviour ("not recorded" +
+  the recorded figures) and the prompt states the rule and says the count is not available. The grant has been
+  requested from the DB team (KI-624); the moment it lands the funnel answers take over without a deploy.
+- **What changes when the gate opens:**
+  - `_cme_workflow_query` adds `pending` (the funnel) and `sent_back` (file_status Send Back) columns, first after
+    the group so a ranking orders by pending; `_cme_pending_answer` states the count, the rule and the figures
+    the rule leaves out ("available on request").
+  - `_cme_sector_query` "pending in each sector" counts the funnel per sector.
+  - `_cm_elevate_pending_funnel` (new, in `execute_with_repair` after the level guards): a plain "pending"
+    that the model wrote as `data_verified = 'On Hold'` becomes the funnel (WHERE or FILTER); a plain query with
+    no status test gets the funnel AND-ed in. An explicit "on hold" or another named state is left alone.
+  - `_cm_elevate_pending_without_level` and `_cm_elevate_decision_status_column` resolve to the funnel instead
+    of On Hold (`_cme_pending_target()`); `_cme_level_pending_wording` (KI-422) stops removing the word.
+  - schema_context rule 9 and the pending vocabulary switch to the open text; `[[cme_pending]]` is a live token.
+  - "pending at level N" = the rule AND the level (309 at level 2, not 310).
+- **Alternatives rejected:**
+  - Waiting for the grant before writing anything: the rule would then land untested under deadline.
+  - Valid + forward only as an interim (7,386): silently includes the 51 Rejected files.
+  - Changing the UAT matrix now: the harness runs as the chatbot's roles and cannot run the truth SQL; the
+    rows are re-pinned when the grant lands (uat/decisions.md §12 lists the values).
+- **Status:** Implemented, gated; tests `tests/test_cme_pending_funnel_2026_10_30.py`. Open: approved /
+  rejected still take the measure-not-held pause (`_MEASURE_HOLDERS`); once the grant lands they can answer
+  from `file_status` ('Rejected' 62 today, no 'Approved' row).
 <!-- end lane B1 -->
 
 ### Lane B2 · Answers & knowledge base (KI-540 to KI-569)
