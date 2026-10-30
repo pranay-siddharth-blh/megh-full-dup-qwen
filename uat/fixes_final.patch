@@ -1,3 +1,30 @@
+diff --git a/app/data_facts.py b/app/data_facts.py
+index a1ebac2..1d1054e 100644
+--- a/app/data_facts.py
++++ b/app/data_facts.py
+@@ -82,6 +82,13 @@ _QUERIES = {
+                COUNT(*) FILTER (WHERE sector_id IS NOT NULL) AS cme_sector,
+                COUNT(DISTINCT request_id) FILTER (WHERE scheme_name ILIKE 'PRIME Small%') AS cme_prime
+         FROM curated.v_cm_elevate""",
++    # the pending rule of 2026-10-30; refused (permission denied) while scheme_specific is locked,
++    # which only keeps the token at its default — the other CM Elevate figures are unaffected
++    "cm_elevate_pending": """
++        SELECT COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid'
++               AND LOWER(current_file_status) = 'forward'
++               AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')) AS cme_pending
++        FROM curated.v_cm_elevate""",
+     "cm_elevate_dups": """
+         SELECT COALESCE(SUM(n), 0) AS cme_dup_apps,
+                STRING_AGG(n || ' ' || s, ', ' ORDER BY n DESC, s) AS cme_dup_split
+@@ -178,6 +185,8 @@ def _fy_gaps(years) -> str:
+ 
+ # name -> (default: the figure typed in the rule before 2026-10-29, formatter over the merged row)
+ FACTS = {
++    # CM Elevate pending rule (2026-10-30): Valid + forward + file_status Pending / Send Back
++    "cme_pending": ("7,335", lambda v: _n(v["cme_pending"])),
+     # Focus Plus
+     "fp_rows": ("385,671", lambda v: _n(v["fp_rows"])),
+     "fp_lgdblock_null": ("57,649", lambda v: _n(v["fp_lgdblock_null"])),
 diff --git a/app/edge.py b/app/edge.py
 index 9330bc1..f5b5366 100644
 --- a/app/edge.py
@@ -14,10 +41,62 @@ index 9330bc1..f5b5366 100644
         _S("job", _P("card")), Joined("semi", "skilled"), _S("material", _P("cost", "exp")),
         _A(W("100day", "100days"), _S("100", W("day", "days"))), _S("hundred", W("day", "days")),
 diff --git a/app/entity_resolver.py b/app/entity_resolver.py
-index fcea845..5c782ad 100644
+index fcea845..1af5336 100644
 --- a/app/entity_resolver.py
 +++ b/app/entity_resolver.py
-@@ -1504,6 +1504,9 @@ def scan_districts(question: str, scheme: str) -> list[str]:
+@@ -283,6 +283,10 @@ def _dimension_values(dims: dict, dim_name: str) -> list:
+ 
+ # scheme -> dimension ("district" | "block" | "year") -> list of value dicts
+ _catalog: dict[str, dict[str, list[dict]]] = {}
++# scheme -> shared admin dimension -> entries ADDED to the borrowed catalogue
++# ("<dim>_supplement" in the resolver YAML): CM Elevate's four urban Shillong
++# constituencies, which the borrowed MGNREGA list leaves out (UAT 2026-10-30).
++_supplement: dict[str, dict[str, list[dict]]] = {}
+ # scheme -> [{canonical, districts, aliases}] — the hill-range groupings a user names
+ # instead of a district ("Garo Hills" = 5 districts). Loaded from the resolver YAML's
+ # region_groupings.groups; single-district groups (Ri Bhoi) are skipped since they
+@@ -440,6 +444,11 @@ def load_all() -> None:
+             values = _dimension_values(dims, dim_name)
+             if values:
+                 _catalog[scheme][dim_name] = values
++        _supplement[scheme] = {}
++        for dim_name in _SHARED_ADMIN_DIMENSIONS:
++            values = _dimension_values(dims, f"{dim_name}_supplement")
++            if values:
++                _supplement[scheme][dim_name] = values
+         for v in _catalog[scheme].get("district", []):
+             _add_direction_aliases(v)
+ 
+@@ -1003,6 +1012,11 @@ def resolve_dimension(text: str, scheme: str, dimension: str) -> Resolved:
+                 logger.info("%s %r resolved via %s's catalogue (missing from %s's)",
+                             dimension, text, _other, scheme)
+                 return _hit
++        _sup = (_supplement.get(scheme) or {}).get(dimension) or []
++        if _sup:
++            _hit = _resolve_in_catalog(_sup, text, dimension, _blocked.get(scheme))
++            if _hit.status == "resolved":
++                return _hit
+         return _direct
+ 
+     folded_input = fold(text)
+@@ -1230,13 +1244,14 @@ def _collision_values(scheme: str, dim: str) -> list:
+     values = _catalog.get(scheme, {}).get(dim, [])
+     if values or dim not in _SHARED_ADMIN_DIMENSIONS:
+         return values
++    extra = list((_supplement.get(scheme) or {}).get(dim) or [])
+     for _other, _dims in _catalog.items():
+         if _other == scheme:
+             continue
+         borrowed = _dims.get(dim) or []
+         if borrowed:
+-            return borrowed
+-    return []
++            return list(borrowed) + extra
++    return extra
+ 
+ 
+ def collision_canonical_names(scheme: str, dimension: str) -> list[str]:
+@@ -1504,6 +1519,9 @@ def scan_districts(question: str, scheme: str) -> list[str]:
  # every district rather than pausing to ask which one.
  _REGION_ALL_CUE = Matcher(Alt(
      W("all", "whole", "entire", "combined", "each", "every", "across", "full", "total", "overall"),
@@ -27,6 +106,59 @@ index fcea845..5c782ad 100644
      Seq(W("put"), _GapIs(lambda g: g == " "), W("together")),
  ))
  
+@@ -1709,6 +1727,20 @@ def is_village_name(text: str) -> "bool | None":
+     return " ".join(fold_words(text)) in _village_names
+ 
+ 
++_stored_village_keys: "tuple[int, frozenset] | None" = None
++
++
++def is_stored_village_name(text: str) -> bool:
++    """True when `text` is, folded, exactly a stored village name, INCLUDING the one-word
++    names the index leaves out ("CENTRE", D-059). For "do not correct what was typed
++    exactly" checks only, never for reading a place."""
++    global _stored_village_keys
++    names = _village_code_names or {}
++    if _stored_village_keys is None or _stored_village_keys[0] != id(names):
++        _stored_village_keys = (id(names), frozenset(" ".join(fold_words(v)) for v in names.values()))
++    return " ".join(fold_words(text)) in _stored_village_keys[1]
++
++
+ def village_districts(name: str) -> frozenset:
+     """The districts (upper) holding a village of exactly this name; empty when
+     none or the index is not loaded."""
+diff --git a/app/guardrails.py b/app/guardrails.py
+index ccd0b26..467ea0b 100644
+--- a/app/guardrails.py
++++ b/app/guardrails.py
+@@ -432,13 +432,26 @@ _PII_PEOPLE_STEMS = ("applicant", "beneficiar", "member", "farmer", "recipient",
+ _PII_NOT_PEOPLE = frozenset("village villages block blocks district districts scheme schemes sector sectors bank "
+                             "banks group groups pg pgs product products lender lenders constituency".split())
+ _PII_COUNTING = frozenset("many count number total percentage percent share".split())
++# identifier fields that are personal only as a NUMBER: "applicants' bank account numbers", "Aadhaar numbers
++# of beneficiaries" (CM Elevate UAT 2026-10-30, N3: answered with sanctioned amounts, no refusal)
++_PII_ID_FIELDS = frozenset("account accounts aadhaar aadhar ifsc passport pan".split())
++_PII_ID_TAIL = frozenset("number numbers no nos details detail".split())
+ 
+ 
+ def _pii_listing(t: str) -> bool:
+     ws = _tm.words(t)
+-    if not ws or _PII_COUNTING & set(ws) or not _PII_FIELDS & set(ws):
++    if not ws or _PII_COUNTING & set(ws) or not (_PII_FIELDS | _PII_ID_FIELDS) & set(ws):
+         return False
+     for i, w in enumerate(ws):
++        if w in _PII_ID_FIELDS and i + 1 < len(ws) and ws[i + 1] in _PII_ID_TAIL:
++            # "bank" here is part of the field ("bank account numbers"), not an institution
++            before = [x for x in ws[max(0, i - 4):i] if x != "bank"]
++            if any(x.startswith(_PII_PEOPLE_STEMS) for x in before) and not (_PII_NOT_PEOPLE & set(before)):
++                return True
++            window = ws[i + 2:i + 10]
++            if ("of" in window or "for" in window) and any(x.startswith(_PII_PEOPLE_STEMS) for x in window):
++                return True
++            continue
+         if w not in _PII_FIELDS:
+             continue
+         # "<field> [and phone numbers] of/for [the CM Elevate] <people>" — a few words apart
 diff --git a/app/pipeline/common/c09_resolve_entities.py b/app/pipeline/common/c09_resolve_entities.py
 index 315ded8..aa45712 100644
 --- a/app/pipeline/common/c09_resolve_entities.py
@@ -226,7 +358,7 @@ index 389bf06..e2218c7 100644
  # (the village name in the district column, no village filter) got the code
  # pinned but kept the district literal, which the old `UPPER(col)` check
 diff --git a/app/pipeline/common/c11_sql_verify_repair.py b/app/pipeline/common/c11_sql_verify_repair.py
-index aa15be5..303fa52 100644
+index aa15be5..a3640c6 100644
 --- a/app/pipeline/common/c11_sql_verify_repair.py
 +++ b/app/pipeline/common/c11_sql_verify_repair.py
 @@ -1505,7 +1505,11 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
@@ -254,9 +386,11 @@ index aa15be5..303fa52 100644
      if _focus_legacy_aggregate_complaint_is_false(issue, schemes, sql):
          logger.warning(
              "SQL verifier said a Focus Legacy measure is not aggregated while the SQL SUMs exactly that "
-@@ -1802,6 +1811,9 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
+@@ -1801,7 +1810,11 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
+     sql = _cm_elevate_sector_zero_groups(schemes, sql)
      sql = _cm_elevate_level_pending(question, schemes, sql)
      sql = _cm_elevate_pending_without_level(question, schemes, sql)
++    sql = _cm_elevate_pending_funnel(question, schemes, sql)   # pending rule 2026-10-30, gated
      sql = _cm_elevate_unasked_level_filter(question, schemes, sql)
 +    sql = _cm_elevate_drop_area_level_entity_type(schemes, sql)
 +    sql = _cm_elevate_sector_keep_unrecorded(question, schemes, sql)
@@ -314,9 +448,18 @@ index b9fa596..b7e5f6f 100644
          tail = f"This figure is for {scheme}, {place_text}{' (statewide)' if statewide else ''}{when}."
      elif not names_scheme:
 diff --git a/app/pipeline/schemes/cm_elevate.py b/app/pipeline/schemes/cm_elevate.py
-index 8bf5b0b..9740f06 100644
+index 8bf5b0b..102416b 100644
 --- a/app/pipeline/schemes/cm_elevate.py
 +++ b/app/pipeline/schemes/cm_elevate.py
+@@ -10,7 +10,7 @@ import sqlglot
+ from sqlglot import exp
+ from sqlglot.errors import SqlglotError
+ 
+-from app import sql_ast
++from app import schema_introspect, sql_ast
+ from app.text_match import (Alt, Cap, Hit, Joined, Matcher, Node, NotBefore, Opt, Pred, Seq, W,
+                             collapse_ws, is_int)
+ from app.text_match import words as _tm_words
 @@ -123,6 +123,13 @@ _CMELEVATE_ONLY_TERMS = Matcher(Alt(
      # written that way it was read as MGNREGA (OFF-017 full run 2026-10-02)
      "cinema theatre scheme", Seq("sports", Opt("and"), "wellness"),
@@ -331,7 +474,57 @@ index 8bf5b0b..9740f06 100644
      # Missing sub-scheme/commodity words and the scheme-FAMILY phrases
      # (vehicle/tourism/PRIME/livestock/enterprise scheme(s)) — without these,
      # a question naming only this vocabulary (no literal "CM Elevate") fell
-@@ -669,14 +676,284 @@ def _cme_data_block(canon: str, question: str, data_blocks: "list[str]") -> "str
+@@ -188,7 +195,7 @@ _CMELEVATELEGACY_ONLY_TERMS = Matcher(Alt(
+ # Vocabulary only the sanction-and-disbursement dataset can answer. Consulted
+ # ONLY once a question is already a CM Elevate question (named, or via a
+ # sub-scheme word such as "piggery"), so generic money words are safe here.
+-_CMELEVATELEGACY_FORCING = Matcher(Alt(
++_CME_LEGACY_NON_YEAR_TERMS = (
+     W("disburs", "sanction", prefix=True), W("subsidy", "subsidies"), _cme_sg("loan", "grant"),
+     _cme_sg("amount"), "money", _cme_sg("fund", "rupee", "crore", "lakh"), W("expenditure", "spent", "spend"),
+     # "Rs 500", "Rs. 500", "Rs500"
+@@ -201,14 +208,23 @@ _CMELEVATELEGACY_FORCING = Matcher(Alt(
+     Seq("pending", "to", "be", W("paid", "disbursed", "released")), Seq("yet", "to", "be", W("paid", "disbursed")),
+     "refused", _cme_sg("refusal", "duplicate"), W("desanction", prefix=True),
+     "lifcom", _cme_sg("lender"), _cme_join("loan", ("entity", "entities")),
+-    # "financial year", "FY 24", "FY2024-25", "2023-24", "2023/2024", "year-wise"
++)
++# "financial year", "FY 24", "FY2024-25", "2023-24", "2023/2024", "year-wise"
++_CME_YEAR_TERMS = (
+     Seq("financial", W("year", "years"), sep="space"),
+     Seq("fy", Pred(lambda w: is_int(w[:2])), sep="space"),
+     Pred(lambda w: w.lower().startswith("fy") and is_int(w[2:4])),
+     Seq(Pred(lambda w: len(w) == 4 and w.startswith("20") and is_int(w)),
+         Pred(lambda w: 2 <= len(w) <= 4 and is_int(w)), sep="dash"),
+     _cme_join("year", "wise"),
+-))
++)
++_CMELEVATELEGACY_FORCING = Matcher(Alt(*_CME_LEGACY_NON_YEAR_TERMS, *_CME_YEAR_TERMS))
++# The same without the year words: under D-090 a year is not money, so "How many CM Elevate
++# applicants … in FY 2017-18?" stays on the applications data (UAT 2026-10-30, D1).
++_CMELEVATELEGACY_MONEY = Matcher(Alt(*_CME_LEGACY_NON_YEAR_TERMS))
++_CME_YEAR_ASK = Matcher(Alt(*_CME_YEAR_TERMS))
++_CME_PER_YEAR = Matcher(Alt(Seq(W("each", "every", "per", "by"), Opt("financial"), W("year", "years", "fy")),
++                            _cme_join("year", "wise"), Seq("financial", "year", "wise")))
+ # Vocabulary only the APPLICATIONS dataset holds: it keeps a bare "CM Elevate"
+ # on that dataset when no money word is present (a money word wins, see
+ # _cm_elevate_dataset_choice). A typed "CM-ELEVATE applications" is NOT here:
+@@ -376,6 +392,14 @@ def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None
+     # append to any question; it is not a financial-year filter, so it never
+     # moves a question to Legacy (a typed "FY 2024-25" still does).
+     unscoped = _CME_ALL_YEARS_SCOPE.sub(" ", q)
++    # D-090 (2026-10-29) over rule 1 for a YEAR: "applications / applicants / applied" with a
++    # year and no money word is an applications question, and that dataset has no date, so it
++    # gets the no-date reply (_cme_notime_query) instead of Legacy's year pause (UAT D1).
++    # A breakdown BY year ("for each financial year", "year-wise") stays rule 1: only Legacy holds years.
++    if _CME_YEAR_ASK.search(unscoped) and _CME_APPLICATION_WORDS.search(q) and not _CME_PER_YEAR.search(unscoped) \
++            and not _CMELEVATELEGACY_MONEY.search(unscoped) and not _CMELEVATELEGACY_ONLY_TERMS.search(unscoped) \
++            and thread_scheme != "CM Elevate Legacy":
++        return "applications"
+     if _CMELEVATELEGACY_FORCING.search(unscoped) or _CMELEVATELEGACY_ONLY_TERMS.search(unscoped):
+         return "legacy"
+     if _CMELEVATE_APPLICATIONS_ONLY.search(q) or _CME_APPLICATIONS_VOCAB.search(q):
+@@ -669,14 +693,284 @@ def _cme_data_block(canon: str, question: str, data_blocks: "list[str]") -> "str
      asked_urban = _cme_runs_then_urban(q_low, _cme_ascii_letter_runs(base.lower()) or [base.lower()]) \
          or bool(_cme_find_runs(q_low, _cme_ascii_letter_runs(want.lower()) or [want.lower()])
                  and _URBAN_WORD_MATCH.search(question or ""))
@@ -619,7 +812,7 @@ index 8bf5b0b..9740f06 100644
  
  
  async def _cm_elevate_block_from_mention(mention: str, schemes: "list[str] | None") -> "str | None":
-@@ -704,6 +981,22 @@ async def _cm_elevate_block_from_mention(mention: str, schemes: "list[str] | Non
+@@ -704,6 +998,22 @@ async def _cm_elevate_block_from_mention(mention: str, schemes: "list[str] | Non
      return exact[0] if len(exact) == 1 else None
  
  
@@ -642,7 +835,7 @@ index 8bf5b0b..9740f06 100644
  async def _cm_elevate_blocks_to_data(question: str, resolved: dict, display: dict,
                                       scheme: str = "CM Elevate") -> None:
      """KI-107 (CM Elevate all-blocks run, 2026-09-28): the CM Elevate block
-@@ -714,6 +1007,15 @@ async def _cm_elevate_blocks_to_data(question: str, resolved: dict, display: dic
+@@ -714,6 +1024,15 @@ async def _cm_elevate_blocks_to_data(question: str, resolved: dict, display: dic
      "Jowai Municipal Board" to JOWAI, which has no rows ("no records"); a
      resolved RI-MULIANG never matched the stored "RI MULIANG". Rewrite the
      resolved block(s) to the spelling the data stores."""
@@ -658,16 +851,48 @@ index 8bf5b0b..9740f06 100644
      try:
          data_blocks = await _cm_elevate_block_names(scheme)
      except Exception:  # noqa: BLE001 — without the live list, keep the resolver's answer
-@@ -741,7 +1043,7 @@ _CME_SECTOR_VALUE_MATCH = Matcher(Cap(W("piggery", "poultry", "dairy", "goatery"
+@@ -741,7 +1060,28 @@ _CME_SECTOR_VALUE_MATCH = Matcher(Cap(W("piggery", "poultry", "dairy", "goatery"
  _CME_SECTOR_EACH_MATCH = Matcher(Alt(Seq(W("each", "every", "all", "by", "per"), Opt("the"), _cme_sg("sector"), sep="space"),
                                    _cme_join(("sector", "sectors"), "wise")))
  _CME_PENDING_MATCH = Matcher(Alt("pending", _cme_join("on", "hold")))
 -_CME_SECTOR_FACT_KINDS = ("count", "pending", "programmes", "workflow")
 +_CME_SECTOR_FACT_KINDS = ("count", "pending", "programmes", "workflow", "notime")
++# "Pending" (user decision 2026-10-30, superseding the KI-074 On Hold reading): an application
++# verified Valid, whose file has moved forward, and whose file status is Pending or Send Back.
++# Invalid / On Hold / Wrong, resubmit / sendback to vdv/citizen and Rejected are reported only
++# when the question names them. file_status lives inside scheme_specific, which the chatbot's
++# database role has not been allowed to read since 2026-10-16 (ingestion team); until it is,
++# the recorded figures are given instead (cme-sector-workflow below) and the rule is stated.
++_CME_PENDING_FUNNEL = ("data_verified = 'Valid' AND LOWER(current_file_status) = 'forwa"
++                       "rd' AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')")
++_CME_PENDING_RULE_TEXT = ("Pending means: data verified Valid, file status forward, and file status "
++                          "Pending or Send Back.")
++
++
++def _cme_pending_readable() -> bool:
++    """The file status (inside scheme_specific) is among the columns the chatbot's role may read."""
++    return schema_introspect.cme_file_status_readable()
++
++
++def _cme_pending_target() -> str:
++    """The SQL condition a plain "pending" resolves to: the funnel once file_status is
++    readable, the data-verification hold (KI-074) while it is not."""
++    return _CME_PENDING_FUNNEL if _cme_pending_readable() else "data_verified = 'On Hold'"
  # A WORKFLOW status the data does not hold (ingestion team, 2026-10-26): "pending",
  # "approved", "rejected" and "sent back" live in an internal API field the chatbot
  # cannot read; data_verified ('On Hold' …) is the data-verification check, a different
-@@ -851,12 +1153,76 @@ def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str]
+@@ -767,8 +1107,8 @@ def _cme_level_pending_wording(question: str, schemes: "list[str]", answer: str)
+     (current_level), so the figure is right, but "pending" is a workflow status the
+     data does not hold. The answer keeps the figure, drops the word, and says so."""
+     if schemes != ["CM Elevate"] or not answer or not _CME_PENDING_MATCH.search(question or "") \
+-            or not _CME_LEVEL_ASKED.search(question or ""):
+-        return answer
++            or not _CME_LEVEL_ASKED.search(question or "") or _cme_pending_readable():
++        return answer   # pending IS recorded once file_status is readable (rule of 2026-10-30)
+     kept = [w for w in answer.split(" ") if w.strip(".,;:!?*").lower() != "pending"]
+     out = " ".join(kept)
+     if out == answer:
+@@ -851,12 +1191,79 @@ def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str]
          params.append([progs] if isinstance(progs, str) else list(progs))
          where.append(f"scheme_name = ANY(${len(params)}::text[])")
      wh = (" WHERE " + " AND ".join(where)) if where else ""
@@ -675,7 +900,10 @@ index 8bf5b0b..9740f06 100644
 +    grp = _cme_workflow_group(q)
 +    sel = f"{grp} AS grp, " if grp else ""
 +    tail = " GROUP BY 1 ORDER BY 2 DESC, 1" if grp else ""
-+    sql = (f"/* cme-sector-workflow */ SELECT {sel}"
++    pend = (f"COUNT(DISTINCT request_id) FILTER (WHERE {_CME_PENDING_FUNNEL}) AS pending, "
++            "COUNT(DISTINCT request_id) FILTER (WHERE scheme_specific ->> 'file_status' = 'Send Back') AS sent_back, "
++            if _cme_pending_readable() else "")
++    sql = (f"/* cme-sector-workflow */ SELECT {sel}{pend}"
             "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS on_hold, "
             "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'forward') AS forward, "
             "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'resubmit') AS resubmit, "
@@ -727,7 +955,7 @@ index 8bf5b0b..9740f06 100644
 +
 +
 +def _cme_notime_query(question: str, resolved: dict) -> "tuple[str, list, str] | None":
-+    if not _CME_TIME_ASK.search(question or ""):
++    if not (_CME_TIME_ASK.search(question or "") or _CME_YEAR_ASK.search(_CME_ALL_YEARS_SCOPE.sub(" ", question or ""))):
 +        return None
 +    where, params = [], []
 +    for single, col in (("village_code", "village_code"), ("block", "lgd_block"), ("district", "lgd_district")):
@@ -746,7 +974,7 @@ index 8bf5b0b..9740f06 100644
      return sql, params, sql
  
  
-@@ -864,6 +1230,9 @@ def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tup
+@@ -864,6 +1271,9 @@ def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tup
      if schemes != ["CM Elevate"]:
          return None
      q = question or ""
@@ -756,7 +984,55 @@ index 8bf5b0b..9740f06 100644
      _wf = _cme_workflow_query(q, resolved or {}) if not (_CME_SECTOR_EACH_MATCH.search(q)) else None
      if _wf is not None:
          return _wf
-@@ -925,6 +1294,8 @@ def _cme_place_words(display: dict) -> str:
+@@ -904,8 +1314,11 @@ def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tup
+                "HAVING COUNT(*) FILTER (WHERE sector_id IS NOT NULL) > 0 ORDER BY scheme_name")
+         return sql, params, sql
+     if _CME_SECTOR_EACH_MATCH.search(q) and _CME_PENDING_MATCH.search(q):
++        pend = (f"COUNT(DISTINCT request_id) FILTER (WHERE {_CME_PENDING_FUNNEL}) AS pending, "
++                if _cme_pending_readable() else
++                "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS pending_on_hold, ")
+         sql = ("/* cme-sector-pending */ SELECT COALESCE(sector_id, '(not recorded)') AS sector, "
+-               "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'On Hold') AS pending_on_hold, "
++               f"{pend}"
+                "COUNT(DISTINCT request_id) AS applications "
+                f"FROM curated.v_cm_elevate{wh} GROUP BY 1 ORDER BY 2 DESC, 1")
+         return sql, params, sql
+@@ -922,9 +1335,43 @@ def _cme_place_words(display: dict) -> str:
+     return " across Meghalaya"
+ 
+ 
++def _cme_pending_answer(question: str, rows: list[dict], word: str, scope: str) -> "str | None":
++    """The cme-sector-workflow answer once file_status is readable (user decision 2026-10-30):
++    a pending question gets the funnel count, "sent back" the Send Back file status, and the
++    recorded figures the rule leaves out are named so they can be asked for. None for a word
++    the rule does not cover (approved / rejected keep their own path)."""
++    if word == "sent back":
++        col, label = "sent_back", "Applications with file status Send Back"
++    elif word == "pending":
++        col, label = "pending", "Pending CM Elevate applications"
++    else:
++        return None
++    if "grp" in rows[0]:
++        gname = {"scheme_name": "programme", "lgd_district": "district", "lgd_block": "block"}.get(
++            _cme_workflow_group(question) or "", "group")
++        items = [f"{_cme_short(x['grp']) if x.get('grp') is not None else '(not recorded)'} "
++                 f"{int(_as_number(x.get(col)) or 0):,}" for x in rows]
++        total = sum(int(_as_number(x.get(col)) or 0) for x in rows)
++        return (f"{label}{scope}, by {gname} (highest first): " + "; ".join(items)
++                + f". Total {total:,}. {_CME_PENDING_RULE_TEXT}")
++    r = rows[0]
++    n = {k: int(_as_number(r.get(k)) or 0) for k in ("pending", "sent_back", "on_hold", "applications")}
++    if col == "sent_back":
++        return (f"{n['sent_back']:,} CM Elevate application{'s' if n['sent_back'] != 1 else ''}{scope} "
++                f"{'have' if n['sent_back'] != 1 else 'has'} the file status Send Back (of {n['applications']:,}); "
++                f"those also verified Valid and forwarded are counted among the {n['pending']:,} pending. "
++                f"{_CME_PENDING_RULE_TEXT}")
++    return (f"{n['pending']:,} CM Elevate application{'s are' if n['pending'] != 1 else ' is'} pending{scope} "
++            f"(of {n['applications']:,}). {_CME_PENDING_RULE_TEXT} Not counted, and available on request: "
++            f"{n['on_hold']:,} on hold at data verification, and applications verified Invalid or Wrong, "
++            "resubmitted, sent back to VDV/citizen, or rejected.")
++
++
  def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict) -> "str | None":
      where = _cme_place_words(display or {})
      kind = _cme_sector_fact_kind(sql)
@@ -765,7 +1041,7 @@ index 8bf5b0b..9740f06 100644
      if kind == "programmes":
          m = _CME_SECTOR_VALUE_MATCH.search(question or "")
          sector = m.group(1).title() if m else "that"
-@@ -934,6 +1305,12 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
+@@ -934,6 +1381,12 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
          total = sum(int(_as_number(r.get("sector_applicants")) or 0) for r in rows)
          return (f"CM Elevate applicants associated with the {sector} sector{where}, by programme:\n"
                  + "\n".join(lines) + f"\n\nCombined: {total:,}.")
@@ -778,10 +1054,28 @@ index 8bf5b0b..9740f06 100644
      if kind == "count":
          m = _CME_SECTOR_VALUE_MATCH.search(question or "")
          sector = m.group(1).title() if m else "that"
-@@ -965,6 +1342,16 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
+@@ -947,6 +1400,13 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
+         out += (f". Sector is recorded only on Poultry, Dairy and Goat Farming applications — {recorded:,} "
+                 f"of them{where} have it recorded.")
+         return out
++    if kind == "pending" and rows and "pending" in rows[0]:
++        # file_status readable: the pending rule of 2026-10-30, by sector
++        items = [f"{r['sector']} {int(_as_number(r.get('pending')) or 0):,}" for r in rows]
++        total = sum(int(_as_number(r.get("pending")) or 0) for r in rows)
++        return (f"Pending CM Elevate applications by sector{where}: " + "; ".join(items)
++                + f". Total {total:,}. {_CME_PENDING_RULE_TEXT} Sector is recorded only on Poultry, Dairy and "
++                  "Goat Farming applications, so most applications fall under (not recorded).")
+     if kind == "pending":
+         items = [f"{r['sector']} {int(_as_number(r.get('pending_on_hold')) or 0):,}" for r in rows]
+         total = sum(int(_as_number(r.get("pending_on_hold")) or 0) for r in rows)
+@@ -965,6 +1425,20 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
                  "rejections": "rejected", "send back": "sent back", "sendback": "sent back"}.get(word, word)
          prog = (display or {}).get("cm_scheme")
          scope = f"{where}" + (f" under {prog}" if prog else "")
++        if "pending" in r:
++            _pa = _cme_pending_answer(question, rows, word, scope)   # file_status readable (2026-10-30)
++            if _pa:
++                return _pa
 +        if "grp" in r:
 +            # grouped (OFF-019 / OFF-020): the on-hold figure per programme / district / block, highest first
 +            gname = {"scheme_name": "programme", "lgd_district": "district", "lgd_block": "block"}.get(
@@ -795,7 +1089,7 @@ index 8bf5b0b..9740f06 100644
          out = (f"The CM Elevate data doesn't record a \"{word}\" status. What it does record{scope}: "
                 f"{n['on_hold']:,} application{'s' if n['on_hold'] != 1 else ''} "
                 f"{'are' if n['on_hold'] != 1 else 'is'} on hold at data verification, and by file status "
-@@ -1414,7 +1801,19 @@ def _cm_elevate_unasked_programme_filter(question: str, schemes: list[str], sql:
+@@ -1414,7 +1888,19 @@ def _cm_elevate_unasked_programme_filter(question: str, schemes: list[str], sql:
      tree = sql_ast.parse_one(sql)
      node = _cme_in_list(tree, "scheme_name")
      if node is None:
@@ -816,7 +1110,7 @@ index 8bf5b0b..9740f06 100644
      lits = _cme_in_values(node)
      if any(_cme_question_names(x, q) for x in lits):
          return sql
-@@ -1624,6 +2023,118 @@ def _cm_elevate_unasked_level_filter(question: str, schemes: list[str], sql: str
+@@ -1624,6 +2110,118 @@ def _cm_elevate_unasked_level_filter(question: str, schemes: list[str], sql: str
      return sql_ast.to_sql(tree)
  
  
@@ -935,7 +1229,84 @@ index 8bf5b0b..9740f06 100644
  _CME_DECISION_STATES = ("approved", "rejected", "pending")
  
  
-@@ -1717,7 +2228,11 @@ def _cme_resolved_places_in_sql(resolved: "dict | None", sql: str) -> bool:
+@@ -1659,11 +2257,11 @@ def _cm_elevate_decision_status_column(schemes: list[str], sql: str) -> str:
+         for n in list(tree.find_all(exp.EQ, exp.Like, exp.ILike)):
+             hit = _cme_decision_pred(n)
+             if hit is not None and hit[1] == "Pending":
+-                n.replace(_cme_eq_on(hit[0], "data_verified = 'On Hold'"))
++                n.replace(_cme_eq_on(hit[0], _cme_pending_target()))
+ 
+     out = sql_ast.transform(sql, fn)
+     if out != sql:
+-        logger.info("CM Elevate: current_file_status = 'pending' read as data_verified = 'On Hold'")
++        logger.info("CM Elevate: current_file_status = 'pending' read as %s", _cme_pending_target())
+     return out
+ 
+ 
+@@ -1678,18 +2276,59 @@ def _cm_elevate_pending_without_level(question: str, schemes: list[str], sql: st
+             or _CME_LEVEL_STAGE_Q.search(q)):
+         return sql
+     tree = sql_ast.parse_one(sql)
+-    if tree is None or any(_cme_on_hold_eq(n) for n in tree.find_all(exp.EQ)):
++    if tree is None or any(_cme_on_hold_eq(n) for n in tree.find_all(exp.EQ)) or _cme_reads_file_status(tree):
+         return sql
+     # any level literal, not just 'level<d>': "pending in 12TH MER" came back as
+     # current_level = 'level12' (final pass 2026-09-28, KI-120)
+     levels = [n for n in tree.find_all(exp.EQ) if _cme_level_eq(n)]
+     if len(levels) != 1:
+         return sql
+-    levels[0].replace(_cme_eq_on(_cme_col(levels[0].this, "current_level"), "data_verified = 'On Hold'"))
+-    logger.info("CM Elevate: plain 'pending' was filtered on current_level — restored data_verified = 'On Hold'")
++    levels[0].replace(_cme_eq_on(_cme_col(levels[0].this, "current_level"), _cme_pending_target()))
++    logger.info("CM Elevate: plain 'pending' was filtered on current_level — restored %s", _cme_pending_target())
+     return sql_ast.to_sql(tree)
+ 
+ 
++def _cme_reads_file_status(tree: "exp.Expression | None") -> bool:
++    """The query already reads scheme_specific ->> 'file_status' (the pending funnel)."""
++    if tree is None:
++        return False
++    return (any(str(k.this).lower() == "file_status" for k in tree.find_all(exp.JSONPathKey))
++            or any(s.lower() == "file_status" for s in sql_ast.string_literals(tree)))
++
++
++# a question that names another verification / workflow state is not a plain "pending"
++_CME_PENDING_OTHER_STATE = Matcher(Alt(Pred(lambda w: "verif" in w.lower()),
++                                       W("valid", "invalid", "wrong", "resubmit", "resubmitted",
++                                         "rejected", "approved", "forward", "forwarded")))
++
++
++def _cm_elevate_pending_funnel(question: str, schemes: list[str], sql: str) -> str:
++    """User decision 2026-10-30: a plain "pending" (no "on hold", no other state named) is the
++    pending funnel — Valid, forward, file status Pending or Send Back — once file_status is
++    readable. A `data_verified = 'On Hold'` the model wrote for it becomes the funnel (in the
++    WHERE or inside a FILTER); a plain query with no status test at all gets the funnel AND-ed
++    into its WHERE. Nothing changes while file_status is locked (the KI-074 reading stays)."""
++    q = question or ""
++    if (schemes != ["CM Elevate"] or not sql or not _cme_pending_readable()
++            or not _CME_PENDING_WORD_Q.search(q) or _CME_ON_HOLD.search(q) or _CME_PENDING_OTHER_STATE.search(q)):
++        return sql
++    tree = sql_ast.parse_one(sql)
++    if tree is None or _cme_reads_file_status(tree):
++        return sql
++    hits = [n for n in tree.find_all(exp.EQ) if _cme_on_hold_eq(n)]
++    if hits:
++        for n in hits:
++            n.replace(_cme_eq_on(n.this, _CME_PENDING_FUNNEL))
++        logger.info("CM Elevate: 'pending' — data_verified = 'On Hold' became the pending funnel (2026-10-30)")
++        return sql_ast.to_sql(tree)
++    sel = _cme_simple_select(tree)
++    if sel is None or any(_cme_status_eq(n) for n in tree.find_all(exp.EQ)):
++        return sql                       # another verification state was written on purpose
++    sel.where(sqlglot.parse_one(_CME_PENDING_FUNNEL, read=sql_ast.DIALECT), append=True, copy=False)
++    logger.info("CM Elevate: 'pending' with no status test — the pending funnel was added (2026-10-30)")
++    return sql_ast.to_sql(sel)
++
++
+ # ════ verify and repair ═══════════════════════════════════════════════════════════════════════════════
+ # Keys read live from curated.v_cm_elevate.scheme_specific on 2026-09-27
+ # (jsonb_object_keys): populated on every row except sector_id. Since
+@@ -1717,7 +2356,11 @@ def _cme_resolved_places_in_sql(resolved: "dict | None", sql: str) -> bool:
  # (KI-070). Same project pattern as the Focus Plus guarantees: check the text
  # against the rows, and rebuild or append only what is missing.
  _CME_LABEL_STOP = {"meghalaya", "prime", "scheme", "development", "farming", "and", "the", "of",
@@ -948,7 +1319,7 @@ index 8bf5b0b..9740f06 100644
  _CME_GARBLED = Matcher(Alt("respectively", Seq("corresponding", _cme_sg("row")), "for each row", "each row"))
  
  
-@@ -1744,16 +2259,33 @@ _CME_WHOLE_LIST_Q = Matcher(Alt(
+@@ -1744,16 +2387,33 @@ _CME_WHOLE_LIST_Q = Matcher(Alt(
      Seq("all", Opt("the"), _cme_sg("programme", "program", "scheme", "district", "block", "village", "sector"))))
  
  
@@ -983,7 +1354,7 @@ index 8bf5b0b..9740f06 100644
      if len(nums) != 1 or len(labels) != 1:
          return answer
      lab, met = labels[0], nums[0]
-@@ -1767,8 +2299,10 @@ def _cme_complete_list(question: str, answer: str, rows: list[dict]) -> str:
+@@ -1767,8 +2427,10 @@ def _cme_complete_list(question: str, answer: str, rows: list[dict]) -> str:
              for r in rows):
          return answer
      name = _FP_LABEL_NAME.get(lab, lab.replace("_", " "))
@@ -995,7 +1366,7 @@ index 8bf5b0b..9740f06 100644
      total = sum(_as_number(r.get(met)) or 0 for r in rows)
      logger.info("CM Elevate: rebuilt a %s list — the answer left out some %s", name, name)
      return (f"{_metric_label(met).capitalize()} by {name} ({len(items)}): " + "; ".join(items)
-@@ -2109,17 +2643,142 @@ def _cme_sector_answer_names_wrong_programme(answer: str, sql: str, rows: list[d
+@@ -2109,17 +2771,142 @@ def _cme_sector_answer_names_wrong_programme(answer: str, sql: str, rows: list[d
      return "; ".join(parts) + "."
  
  
@@ -1138,8 +1509,101 @@ index 8bf5b0b..9740f06 100644
      # KI-074 decided 2026-09-28 (product owner): "pending" = verification On Hold
      # only. The interim second line with the file_status Pending count is gone.
      return _cme_comparison(question, rows, answer)
+diff --git a/app/schema_context.py b/app/schema_context.py
+index fdce444..031f512 100644
+--- a/app/schema_context.py
++++ b/app/schema_context.py
+@@ -742,10 +742,7 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
+        SELECT COUNT(DISTINCT request_id) AS applications
+        FROM curated.v_cm_elevate
+        WHERE lgd_district = 'WEST GARO HILLS';
+-  9. scheme_specific (the JSON column that held gender_id, file_status and
+-     occupation_id) is LOCKED from the chatbot's database role since 2026-10-16. Never
+-     write scheme_specific, ->>, ? or @> against it — the query is refused. Gender and
+-     the Approved / Rejected decision are therefore NOT AVAILABLE for CM Elevate.
++  9. <<CME_RULE_9>>
+   9a. SECTOR is the plain column sector_id (Poultry, Dairy and Goat schemes only;
+      mostly NULL — [[cme_sector]] of [[cme_records]] records). Stored values are Title Case ('Poultry',
+      'Piggery', 'Dairy', 'Goatery'): compare with ILIKE, never an exact lowercase guess.
+@@ -833,8 +830,7 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
+ _CMELEVATE_VOCAB = """
+ CM ELEVATE BUSINESS VOCABULARY (source: cmelevate_schema_partitions.yaml + cmelevate_entity_resolver.yaml)
+     "applications" / "applicants" / "beneficiaries" / "requests" / "records" -> COUNT(DISTINCT request_id)   (an application is a REQUEST, not an award — say "applications"; never COUNT(*): 27 applications have two identical records, rule 8)
+-    "on hold" / "pending" / "held" -> data_verified = 'On Hold'   (NEVER the onhold boolean)
+-    ONLY when the question itself names a level ("pending at level 2", "pending in level1"): -> LOWER(current_level) = 'levelN' alone — the level IS the scope; do NOT also add data_verified = 'On Hold' (no level-2 application is on hold, so that AND returns a false 0). A plain "pending" with NO level named is still data_verified = 'On Hold' — never a current_level filter
++    <<CME_PENDING_VOCAB>>
+     "pending in each sector" / "<status> by sector" / "<status> by <dimension>" -> keep the status test INSIDE COUNT(DISTINCT request_id) FILTER (WHERE data_verified = '...') and GROUP BY the dimension with NO status test in the WHERE, so a group with none still shows 0
+     "approved" / "rejected" / "decision" -> NOT AVAILABLE: that decision lived only in scheme_specific, locked from the chatbot since 2026-10-16 — current_file_status NEVER holds approved/rejected/pending (only forward / resubmit / sendback to vdv/citizen), so filtering it for those returns a false 0   "sanctioned" / "cleared" / "funded" -> NOT AVAILABLE here (sanction lives in CM Elevate Legacy)   "status" / "status distribution" / "status-wise" / "application status" (default) -> current_file_status, send-back spellings merged (rule 13; decided 2026-09-28)   "verification status" -> data_verified
+     "villages" -> COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')   "districts" / "blocks" -> COUNT(DISTINCT lgd_district) / COUNT(DISTINCT lgd_block)
+@@ -1645,8 +1641,45 @@ def build_schema_context(schemes: list[str]) -> str:
+ 
+     parts.append(f"SHARED RULES:\n{_SHARED_RULES}")
+     parts.append(_CLOSING)
++    text = _cme_pending_lines("\n\n".join(parts))
+     # Fill the data-figure tokens, live from megh_db (data_facts); the typed defaults until the first read.
+-    return data_facts.render("\n\n".join(parts))
++    return data_facts.render(text)
++
++
++# CM Elevate "pending" (user decision 2026-10-30): Valid + forward + file_status Pending / Send Back.
++# file_status is inside scheme_specific, locked from the chatbot's role since 2026-10-16, so the
++# rule 9 and vocabulary lines follow the live grant (schema_introspect.cme_file_status_readable).
++_CME_RULE_9_LOCKED = """scheme_specific (the JSON column that holds gender_id, file_status and
++     occupation_id) is LOCKED from the chatbot's database role since 2026-10-16. Never
++     write scheme_specific, ->>, ? or @> against it — the query is refused. Gender and
++     the Approved / Rejected decision are therefore NOT AVAILABLE for CM Elevate. "Pending"
++     is defined (2026-10-30) as data_verified = 'Valid' AND forward AND file_status Pending or
++     Send Back, and file_status is inside scheme_specific: a pending count is NOT AVAILABLE
++     either — say so and offer the recorded figures (on hold, forward / resubmit / sendback)."""
++_CME_RULE_9_OPEN = """scheme_specific is a JSON column. The ONLY key you may read is file_status —
++     scheme_specific ->> 'file_status' ('Pending' / 'Send Back' / 'Rejected') — and only for a
++     pending, sent-back or rejected question. Never read gender_id, occupation_id or any other
++     key: gender is NOT AVAILABLE for CM Elevate."""
++_CME_PENDING_VOCAB_LOCKED = (
++    """"on hold" / "held" -> data_verified = 'On Hold'   (NEVER the onhold boolean)
++    "pending" -> NOT AVAILABLE for now: pending is defined (2026-10-30) as data_verified = 'Valid' AND LOWER(current_file_status) = 'forward' AND file_status IN ('Pending', 'Send Back'), and file_status is inside the locked scheme_specific column. Never write scheme_specific; never answer "pending" from data_verified = 'On Hold' as if it were pending — on hold is a different state. State the rule, say the count is not available, and give the recorded figures
++    ONLY when the question itself names a level ("pending at level 2", "pending in level1"): -> LOWER(current_level) = 'levelN' alone — the level IS the scope"""
++)
++_CME_PENDING_VOCAB_OPEN = (
++    """"pending" / "pending applications" / "pendency" -> the PENDING RULE (user decision 2026-10-30): data_verified = 'Valid' AND LOWER(current_file_status) = 'forward' AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')   ([[cme_pending]] statewide). Put it INSIDE COUNT(DISTINCT request_id) FILTER (WHERE …) when grouping so a group with none shows 0. "pending at level N" = the rule AND LOWER(current_level) = 'levelN'
++    "on hold" / "held" -> data_verified = 'On Hold' ONLY   (NEVER the onhold boolean) — on hold is NOT pending. Invalid / Wrong / On Hold, resubmit / sendback to vdv/citizen and Rejected are reported only when the question names them
++    "sent back" -> scheme_specific ->> 'file_status' = 'Send Back' (the department's decision; the workflow value 'sendback to vdv/citizen' in current_file_status is a different field)"""
++)
++
++
++def _cme_pending_lines(text: str) -> str:
++    """Rule 9 and the pending vocabulary for the live grant on scheme_specific."""
++    if "<<CME_" not in text:
++        return text
++    from app import schema_introspect   # local: schema_introspect imports db at module level
++    open_ = schema_introspect.cme_file_status_readable()
++    return (text.replace("<<CME_RULE_9>>", _CME_RULE_9_OPEN if open_ else _CME_RULE_9_LOCKED)
++                .replace("<<CME_PENDING_VOCAB>>", _CME_PENDING_VOCAB_OPEN if open_ else _CME_PENDING_VOCAB_LOCKED))
+ 
+ 
+ # Kept for any caller that still wants the full, unscoped context (e.g. a
+diff --git a/app/schema_introspect.py b/app/schema_introspect.py
+index 3c665ab..b95bc32 100644
+--- a/app/schema_introspect.py
++++ b/app/schema_introspect.py
+@@ -238,6 +238,15 @@ def readonly_denied() -> "set[tuple[str, str, str]]":
+     return _cache["denied"]
+ 
+ 
++def cme_file_status_readable() -> bool:
++    """curated.v_cm_elevate.scheme_specific — the JSON that holds CM Elevate's file_status —
++    is among the columns the read-only role may SELECT. Locked by the ingestion team on
++    2026-10-16; the CM Elevate "pending" rule of 2026-10-30 needs it. False until the live
++    schema has been read, so a cold start never writes the column."""
++    cols = (live_columns() or {}).get("curated.v_cm_elevate") or []
++    return any(c.get("column") == "scheme_specific" for c in cols)
++
++
+ def column_unit(table: str, column: str) -> "str | None":
+     """The UNIT semantic.column_catalog records for table.column ("rupees", "lakh
+     rupees", "crore rupees", "persons" …), or None (not recorded / catalog unread)."""
 diff --git a/app/spelling.py b/app/spelling.py
-index 1b01718..911a826 100644
+index 1b01718..bcc9b7e 100644
 --- a/app/spelling.py
 +++ b/app/spelling.py
 @@ -69,7 +69,11 @@ LEVEL_WORDS = {"district": "district", "districts": "district", "block": "block"
@@ -1155,7 +1619,38 @@ index 1b01718..911a826 100644
  _DIRECTIONS = frozenset(("east", "west", "north", "south", "south west", "eastern west"))
  _VOWELS = frozenset("aeiou")
  _SOUND_MAP = str.maketrans({"y": "i", "c": "k", "q": "k", "w": "u"})
-@@ -579,6 +583,17 @@ def _village_at(toks: list[Tok], i: int) -> "tuple[int, str, int] | None":
+@@ -490,12 +494,18 @@ def scheme_scores(question: str) -> dict:
+     return out
+ 
+ 
++# Real English words one edit from a vocabulary word, never typos of it: "bank account numbers"
++# became "bank amount numbers" and slipped past the personal-data guardrail; "Kenches Trace"
++# became "Kenches tranche" (CM Elevate UAT 2026-10-30, N1 / N3).
++_NOT_A_TYPO = frozenset("account accounts trace traces".split())
++
++
+ def _domain_word(word: str) -> "str | None":
+     """The closed-vocabulary word a typo stands for ("mony" -> "money"), or None.
+     Never a known word, a place or a village name."""
+     w = word.lower()
+     vocab = _aliases()["words"]
+-    if len(w) < 3 or not word.isalpha() or w in vocab:
++    if len(w) < 3 or not word.isalpha() or w in vocab or w in _NOT_A_TYPO:
+         return None
+     hits = []
+     for v in vocab:
+@@ -572,6 +582,10 @@ def _village_at(toks: list[Tok], i: int) -> "tuple[int, str, int] | None":
+         name = " ".join(t.raw for t in span)
+         if er.is_village_name(name) or (k == 1 and _known_word(name)):
+             return None
++        # a stored name that itself ends in "village" ("CENTRE VILLAGE" was corrected to Kentra,
++        # UAT 2026-10-30, N4): written exactly, left alone
++        if er.is_village_name(f"{name} {toks[j].raw}") or er.is_stored_village_name(name):
++            return None
+         near = village_matches(name, limit=2)
+         if near and (len(near) == 1 or near[1][1] > near[0][1]):
+             return j, _title(near[0][0]), near[0][1]
+@@ -579,6 +593,17 @@ def _village_at(toks: list[Tok], i: int) -> "tuple[int, str, int] | None":
      return None
  
  
@@ -1173,11 +1668,27 @@ index 1b01718..911a826 100644
  def _normalise(question: str) -> Normalised:
      toks = tokens(question)
      out: list[str] = []
-@@ -602,6 +617,13 @@ def _normalise(question: str) -> Normalised:
+@@ -601,7 +626,29 @@ def _normalise(question: str) -> Normalised:
+             i = end
              continue
          if t.raw.isalpha():
++            wend = _exact_village_end(question, toks, i, i + 1)
++            if wend is not None and any(not tk.raw.isalpha() for tk in toks[i:wend]):
++                # an exact ward / village name with a number in it is left whole: "Kenches Trace - Ward
++                # No.23" became "Kenches tranche - Ward No.23" (CM Elevate UAT 2026-10-30, N1)
++                i = wend
++                continue
              phit = _place_hit(toks, i, prev)
-+            vend = _exact_village_end(question, toks, i, phit[1][0]) if phit is not None else None
++            vend = None
++            if phit is not None:
++                # an exact village / ward name that starts here OR up to 6 tokens earlier and covers
++                # this span: "Ladthalaboh East - Ward No.1" was read as East Garo Hills (UAT 2026-10-30, N1)
++                for j0 in range(max(0, i - 6), i + 1):
++                    # a name that began earlier may END on the corrected word itself:
++                    # "POMLAKRAI RNGI SHYLLONG" (village 278328) lost its last word to Shillong
++                    vend = _exact_village_end(question, toks, j0, phit[1][0] - (1 if j0 < i else 0))
++                    if vend is not None:
++                        break
 +            if vend is not None:
 +                # "William Nagar (MB) - Ward No.8" is a village written exactly; the block alias
 +                # "William Nagar (MB" was rewritten to "Williamnagar) - Ward No.8" and the ward was
@@ -1187,7 +1698,19 @@ index 1b01718..911a826 100644
              if phit is not None:
                  level, (end, canon, how, score) = phit
                  typed = _span_text(question, toks, i, end)
-@@ -788,6 +810,7 @@ addition case progress kind cash time favour favor respect line rural urban hill
+@@ -774,6 +821,11 @@ def village_matches(text: str, limit: int = 5) -> list[tuple[str, int]]:
+     # Equal sound distance: the closer plain spelling first ("darnggre" is one sound
+     # edit from several villages; DARONGGRE is the one spelt nearest), never A-Z.
+     typed = _letters(text)
++    # A short typed name (up to 6 letters) is read by sound only when its PLAIN spelling is
++    # one edit from the village: "asgard" (an invented place) sounded like ASKAPARA, two
++    # letters away, and was answered 0 for that village (CM Elevate UAT 2026-10-30, C14-INV-14).
++    if len(typed) <= 6:
++        hits = [h for h in hits if DamerauLevenshtein.distance(typed, _letters(h[1]), score_cutoff=1) <= 1]
+     hits.sort(key=lambda h: (h[0], -fuzz.ratio(typed, _letters(h[1])), h[1]))
+     return [(n, d) for d, n in hits[:limit]]
+ 
+@@ -788,6 +840,7 @@ addition case progress kind cash time favour favor respect line rural urban hill
  aggregate full list points bullet bullets simple plain format writing paragraph sentence sentences
  total totals sum overall depth short brief points tranche tranches installment instalment batch
  batches phase phases stage stages round rounds part parts cycle cycles quarter quarters
@@ -1195,6 +1718,20 @@ index 1b01718..911a826 100644
  january february march april may june july august september october november december
  jan feb mar apr jun jul aug sep sept oct nov dec
  """.split())
+@@ -823,7 +876,13 @@ def _unresolved_place(question: str) -> "dict | None":
+         if j == i + 1:
+             continue
+         name = _span_text(question, toks, i + 1, j)
++        if _exact_village_end(question, toks, i + 1, i + 1) is not None:
++            continue                      # the start of an exact village / ward name ("Kenches Trace - Ward No.23", N1)
+         level = LEVEL_WORDS.get(toks[j].low) if j < len(toks) else None
++        if level == "village":
++            from app import entity_resolver as er
++            if er.is_stored_village_name(name):
++                continue                  # "CENTRE VILLAGE": a stored one-word name the index leaves out (N4)
+         if _is_place(name) or _out_of_area(name):
+             continue
+         if level is None and len(_letters(name)) < 4:
 diff --git a/tests/live_cme_uat.py b/tests/live_cme_uat.py
 new file mode 100644
 index 0000000..4135a45

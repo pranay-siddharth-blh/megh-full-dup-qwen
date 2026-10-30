@@ -137,3 +137,23 @@ port 8401 and the Focus Legacy worktree still untouched). Each choice and why:
     pre-fix rows, and 67 C14-ZERO villages added by the D4 regeneration had never run. `final10` re-runs exactly
     these 407 on the final code (2edd11a). No result is reported from a run older than the fix it depends on:
     the report's "Run of each result" table and every row's Run column show where each figure comes from.
+26. **12:15 — another session is editing this worktree.** `git status` showed uncommitted changes not made here
+    (app/pipeline/schemes/cm_elevate.py at 12:08, a new tests/test_cme_pending_funnel_2026_10_30.py at 12:09,
+    app/data_facts.py, app/schema_context.py, app/schema_introspect.py, c11, three CM Elevate YAMLs, docs) — the
+    "pending funnel" work. Not touched, not committed, not reverted. Consequences handled:
+    - the unit suite run at 12:04–12:08 in this folder (32 failures, all in that in-progress work) is NOT the
+      figure reported; the suite is re-run in a clean detached checkout of the final commit
+      (`../meghoneai-uat-cm-elevate-clean`, nothing uncommitted);
+    - `final10` (12:09–12:19, 406/407 on the 407 stale rows) may have imported the foreign cm_elevate.py, so the
+      same 407 are re-run there as `final11` on commit 9253603 and merged into results.csv (uat/merge_results.py);
+      `final11` rows are the ones reported for those tests;
+    - every other reported row (final4 / final5 / final6b / final8 / final9) ran before 12:08.
+    One more fix on the way: C02-CNT-278328 "POMLAKRAI RNGI SHYLLONG" (exact village name ending on a word the
+    pre-pass corrects) — 9253603, spelling.py, shared. Commits only ever `git add` this session's own files.
+27. **12:31 — final tally.** results.csv holds a result for every one of the 4,959 matrix IDs (= matrix_counts.txt
+    TOTAL): 4,959 Pass, 0 Fail, 0 Error, 0 disputed, 0 needs-review; all 30 sheet cases working; db_write_attempts
+    0 in every run. Final commit 9253603. Unit suite on it (clean checkout): 5,131 passed, 0 failed, 14/14 scripts.
+    Run of each row: final11 407 (clean checkout, 9253603), final9 1 (2edd11a), final8 237 (67a3ac0), final6b 317
+    (176fe54), final5 1,820 (1f1ab9c), final4 2,177 (d348482, 04:51–06:05). The final4 rows were not re-run after
+    the later commits; `final12` re-runs exactly those 2,177 on the clean checkout as a confirmation (decision 24
+    chose the crucial set for the 11:15 deadline).

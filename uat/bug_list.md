@@ -216,8 +216,59 @@
 - **Commit:** 8b8f2f0  
 - **Shared code:** No
 
+## B28 Financial-year question on the applications data paused on Legacy (D1)
+- **Symptom:** 'How many CM Elevate applicants were there in Adokgre block in FY 2017-18?' -> 'For CM Elevate Legacy, data is available only for 2024-25, 2025-26 … select one' (994 tests: C04-FY, C06).
+- **Root cause:** Dataset-choice rule 1 (2026-10-22) pinned any financial-year word to CM Elevate Legacy; D-090 (2026-10-29) says application words mean the applications dataset unless MONEY words are present, and a year is not money.
+- **Fix:** _cm_elevate_dataset_choice: a single named year + applicant/application words + no money word stays on the applications data; _cme_notime_query answers with the no-date fact and the recorded total. A breakdown BY year (each year, year-wise) and any money word still go to Legacy.
+- **Files:** app/pipeline/schemes/cm_elevate.py  
+- **Commit:** 882879d, 1f1ab9c  
+- **Shared code:** no
+
+## B29 Ward and village names broken by the spelling pre-pass (N1, N4)
+- **Symptom:** 'Ladthalaboh East - Ward No.1' -> East Garo Hills (622, true 6); 'Kenches Trace - Ward No.23' -> 'couldn't find Kenches' / 'Kenches tranche'; 'CENTRE VILLAGE' -> Kentra (5, true 4).
+- **Root cause:** _normalise read a district inside a ward name that starts earlier; _domain_word corrected real words (trace, account) to vocabulary words; _village_at corrected a stored one-word name (CENTRE, left out of the index by D-059) by sound; unresolved_place took the start of an exact ward name as an unknown place.
+- **Fix:** Exact ward / village names are left whole (look-back + numbered-name skip); 'account' / 'trace' are never typos; entity_resolver.is_stored_village_name guards CENTRE; the unknown-place check skips an exact stored name.
+- **Files:** app/spelling.py, app/entity_resolver.py  
+- **Commit:** 7f9d8f7  
+- **Shared code:** YES — spelling pre-pass of every scheme; full unit suite + 14 scripts pass
+
+## B30 Applicants' bank account / Aadhaar numbers not refused (N3)
+- **Symptom:** 'List the CM Elevate applicants' bank account numbers in West Garo Hills.' -> sanctioned amounts per application number from Legacy, no refusal (C11-NAME-5).
+- **Root cause:** _pii_listing only knew name / phone / address fields; and the spelling pre-pass had turned 'account' into 'amount' before the guardrail ran.
+- **Fix:** _PII_ID_FIELDS (account, aadhaar, ifsc, pan, passport) + number words beside applicant / beneficiary words -> privacy_records refusal; 'account' no longer a typo of 'amount'.
+- **Files:** app/guardrails.py, app/spelling.py  
+- **Commit:** 4bf022f, 7f9d8f7  
+- **Shared code:** YES — guardrail of every scheme ('bank accounts opened under PMJDY' is still answered)
+
+## B31 Four Shillong constituencies answered as statewide
+- **Symptom:** 'How many CM Elevate applicants are there in East Shillong constituency?' -> 'couldn't find an assembly constituency called East Shillong … statewide figure' (C12-AC-east_shillong; also North / South / West Shillong).
+- **Root cause:** CM Elevate borrows MGNREGA's constituency catalogue, which omits AC 16-19 (urban Shillong, no MGNREGA rows). CM Elevate holds applications in all four.
+- **Fix:** assembly_constituency_supplement in cmelevate_entity_resolver.yaml (4 entries) + resolver support for a <dim>_supplement that is ADDED to the borrowed shared catalogue (a first attempt as a full catalogue broke the block/constituency collision checks for every other AC and the William Nagar / Gambegre answers — replaced before the final run).
+- **Files:** data/cm_elevate/cmelevate_entity_resolver.yaml, app/entity_resolver.py  
+- **Commit:** 176fe54, 2952b14  
+- **Shared code:** entity_resolver gains the supplement hook; only CM Elevate uses it
+
+## B32 Invented short village name corrected to a real one
+- **Symptom:** 'Asgard village' -> 'Showing results for Askara … 0 applicants for Askapara' instead of 'not found' (C14-INV-14).
+- **Root cause:** _village_at accepted a sound-key match two edits away for a 6-letter name.
+- **Fix:** A name of up to 6 letters is rewritten only for ONE plain-letter edit; longer names keep the sound-key allowance.
+- **Files:** app/spelling.py  
+- **Commit:** 67a3ac0  
+- **Shared code:** YES — spelling pre-pass; spelling unit tests pass
+
 ## Commits on uat-cm-elevate-exhaustive (vs Main)
 ```
+9253603 Spelling pre-pass: an exact village name that ENDS on the corrected word is left whole ("POMLAKRAI RNGI SHYLLONG" lost its last word to the Shillong block; UAT C02-CNT-278328)
+2edd11a Spelling: a short typed name (up to 6 letters) is read by sound only when its plain spelling is one edit from the village — in village_matches, so the resolver and the pre-pass agree ("Asgard village" -> not found; UAT C14-INV-14)
+67a3ac0 Spelling pre-pass: a short "<name> village" is corrected only for one plain-letter edit ("Asgard village" was read as Askara; UAT C14-INV-14)
+2952b14 Entity resolver: a scheme may SUPPLEMENT a borrowed shared catalogue (<dim>_supplement); CM Elevate adds the four Shillong constituencies on top of the borrowed list instead of replacing it (collision checks kept)
+176fe54 CM Elevate resolver: the four urban Shillong constituencies (AC 16-19), missing from the borrowed MGNREGA catalogue, so "East Shillong constituency" was answered as statewide
+e067362 CM Elevate: a breakdown by financial year (each year, year-wise) stays on Legacy; only a single named year on an applications question gets the no-date reply
+e196cba UAT: C12 turn 3 expects the on-hold group (D2), zero-village tests skip same-block twin names (D4), refusal phrases R9 (D3)
+4bf022f Guardrails: requests for applicants' bank account / Aadhaar / ID numbers are refused as personal records (UAT N3)
+7f9d8f7 Spelling pre-pass: exact ward / village names left whole (Ladthalaboh East - Ward No.1, Kenches Trace - Ward No.23), CENTRE VILLAGE not corrected to Kentra, account/trace not typos (UAT N1, N4)
+882879d CM Elevate: an applications question with a financial year and no money word stays on the applications data and gets the no-date reply (D-090 over rule 1; UAT D1)
+e0eeea8 UAT: final results, report, patch, bug list, disputes, needs-review, no-impact proof
 c206e1f CM Elevate: a district / block literal beside a list of village codes is dropped (C03-ALONE-mawlieh)
 8b8f2f0 CM Elevate: a data-verification count returns verified / not verified / total and states each (O1, OFF-022); a per-village query keeps every village asked (O2, LIMIT 1)
 d348482 CM Elevate: generic place words (ward, village, municipal board, town committee) no longer count as naming a row, so a ward list missing a figure is rebuilt (C01-026-35)

@@ -26,6 +26,7 @@ dataset (sanctions / disbursements, `v_cm_elevate_disbursement`) and is out of s
 | 30 Sep | 24 | 6 | 0 |
 | 9th run | 20 | 10 | 0 |
 | After Fix (2026-10-10) | 30 | 0 | 0 |
+| **This UAT (2026-10-30, 4,959 generated questions, final commit 9253603)** | **30** | **0** | **0** |
 
 ## The 30 templates
 | TC | Scenario | Slots |
