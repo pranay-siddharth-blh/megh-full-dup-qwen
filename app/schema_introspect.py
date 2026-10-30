@@ -239,12 +239,21 @@ def readonly_denied() -> "set[tuple[str, str, str]]":
 
 
 def cme_file_status_readable() -> bool:
+<<<<<<< ours
     """curated.v_cm_elevate.scheme_specific — the JSON that holds CM Elevate's file_status —
     is among the columns the read-only role may SELECT. Locked by the ingestion team on
     2026-10-16; the CM Elevate "pending" rule of 2026-10-30 needs it. False until the live
     schema has been read, so a cold start never writes the column."""
     cols = (live_columns() or {}).get("curated.v_cm_elevate") or []
     return any(c.get("column") == "scheme_specific" for c in cols)
+=======
+    """Every column the CM Elevate pending rule needs (app.cme_pending_rule, read from the
+    knowledge base) is among the columns the read-only role may SELECT. scheme_specific — where
+    file_status lives — was locked by the ingestion team on 2026-10-16 (KI-624). False until the
+    live schema has been read, so a cold start never writes a locked column."""
+    from app import cme_pending_rule   # local: it imports this module for live_columns()
+    return cme_pending_rule.readable()
+>>>>>>> theirs
 
 
 def column_unit(table: str, column: str) -> "str | None":

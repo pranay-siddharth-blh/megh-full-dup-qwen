@@ -143,13 +143,15 @@ def test_explicit_on_hold_at_a_level_is_kept():
     assert p._cm_elevate_level_pending("How many are on hold at level 1?", CME, sql) == sql
 
 
-def test_plain_pending_filtered_on_a_level_is_restored_to_on_hold():
-    # the 019a re-test regression: no level named, SQL filtered level1 (SEED "3,633 pending")
+def test_plain_pending_filtered_on_a_level_is_left_while_the_rule_is_locked():
+    # the 019a re-test regression: no level named, SQL filtered level1 (SEED "3,633 pending").
+    # 2026-10-30: pending never becomes data_verified = 'On Hold'; with the rule locked there is
+    # nothing to restore it to (the readable case is in test_cme_pending_funnel_2026_10_30).
     sql = ("SELECT scheme_name, COUNT(*) AS pending_applications FROM curated.v_cm_elevate "
            "WHERE LOWER(current_level) = 'level1' GROUP BY scheme_name ORDER BY pending_applications DESC LIMIT 10")
     out = p._cm_elevate_pending_without_level(
         "Which CM ELEVATE programs have the highest number of pending applications?", CME, sql)
-    assert "WHERE data_verified = 'On Hold' GROUP BY scheme_name" in out and "current_level" not in out
+    assert out == sql
 
 
 @pytest.mark.parametrize("q", ["How many applications are pending at level 2?",
@@ -509,12 +511,12 @@ def test_cm_elevate_is_allowed_the_village_or_outside_place_check():
     assert '["CM Elevate"]' in inspect.getsource(p._mgnrega_village_not_out_of_area)
 
 
-def test_plain_pending_with_a_two_digit_level_becomes_on_hold():
+def test_plain_pending_with_a_two_digit_level_drops_the_level_never_on_hold():
     sql = ("SELECT COUNT(*) AS applications FROM curated.v_cm_elevate WHERE LOWER(current_level) = 'level12' "
            "AND lgd_block = 'KHATARSHNONG LAITKROH' LIMIT 1")
     q = "How many CM ELEVATE applications are pending in 12TH MER, Khatarshnong Laitkroh block?"
     out = p._cm_elevate_unasked_level_filter(q, CME, p._cm_elevate_pending_without_level(q, CME, sql))
-    assert "data_verified = 'On Hold'" in out and "current_level" not in out
+    assert "On Hold" not in out and "current_level" not in out and "KHATARSHNONG LAITKROH" in out
 
 
 def test_verifier_grain_complaint_on_the_view_is_discarded():

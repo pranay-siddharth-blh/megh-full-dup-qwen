@@ -45,10 +45,12 @@ def test_sector_count_across_programmes():
 def test_sector_pending_every_group():
     sql, params, _ = p._cme_sector_query("How many applications are pending in each sector in East Khasi Hills?",
                                          ["CM Elevate"], {"district": "EAST KHASI HILLS"})
-    assert "cme-sector-pending" in sql and "FILTER (WHERE data_verified = 'On Hold')" in sql
-    a = p._cme_sector_answer("q", sql, [{"sector": "(not recorded)", "pending_on_hold": 90},
-                                        {"sector": "Poultry", "pending_on_hold": 0}], {"district": "East Khasi Hills"})
-    assert "(not recorded) 90; Poultry 0" in a and "Total 90" in a
+    # 2026-10-30: pending never reads data_verified; while the rule is locked the sectors'
+    # applications are given and the answer says pending is not available
+    assert "cme-sector-pending" in sql and "'On Hold'" not in sql and "AS applications" in sql
+    a = p._cme_sector_answer("q", sql, [{"sector": "(not recorded)", "applications": 90},
+                                        {"sector": "Poultry", "applications": 0}], {"district": "East Khasi Hills"})
+    assert "(not recorded) 90; Poultry 0" in a and "Total 90" in a and "pending by sector is not available" in a
 
 
 def test_sector_named_programmes_each_stated():

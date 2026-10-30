@@ -709,9 +709,11 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
      is unpadded/ambiguous (a naive parse resolved only 3,038 of 8,436 source rows and
      produced dates after the export date) — NEVER parse it. Any year/month/FY/trend
      question is UNANSWERABLE; say so plainly.
-  3. ON HOLD ROUTING — the single most dangerous trap in this partition: "on hold"
-     ALWAYS means `data_verified = 'On Hold'`. The `onhold` boolean column is FALSE on
-     every row and returns a confident-looking zero if used instead.
+  3. ON HOLD ROUTING — a plain "on hold" / "pending" question means the PENDING RULE (user
+     decision 2026-10-30; see the vocabulary line, which says whether it is available), NEVER
+     `data_verified = 'On Hold'`. That value is the data-verification outcome and is read only
+     when the question asks for the verification outcome by name. The `onhold` boolean column
+     is FALSE on every row and returns a confident-looking zero if used — never use it.
   4. CM Elevate is [[cme_schemes]] schemes under ONE scheme_code, separated by cm_scheme_key /
      scheme_name. A programme-level total with no scheme breakdown mixes [[cme_schemes]] unrelated
      schemes — offer the breakdown. [[cme_small_schemes]] schemes have fewer than 15 applications each;
@@ -1646,6 +1648,7 @@ def build_schema_context(schemes: list[str]) -> str:
     return data_facts.render(text)
 
 
+<<<<<<< ours
 # CM Elevate "pending" (user decision 2026-10-30): Valid + forward-or-sendback + file_status Pending / Send Back.
 # file_status is inside scheme_specific, locked from the chatbot's role since 2026-10-16, so the
 # rule 9 and vocabulary lines follow the live grant (schema_introspect.cme_file_status_readable).
@@ -1680,6 +1683,59 @@ def _cme_pending_lines(text: str) -> str:
     open_ = schema_introspect.cme_file_status_readable()
     return (text.replace("<<CME_RULE_9>>", _CME_RULE_9_OPEN if open_ else _CME_RULE_9_LOCKED)
                 .replace("<<CME_PENDING_VOCAB>>", _CME_PENDING_VOCAB_OPEN if open_ else _CME_PENDING_VOCAB_LOCKED))
+=======
+# CM Elevate "pending" (user decision 2026-10-30): the rule is read from the knowledge base
+# (cmelevate_pending_rule.yaml, via app.cme_pending_rule), and file_status is
+# inside scheme_specific, locked from the chatbot's role since 2026-10-16 (KI-624) — so rule 9
+# and the pending vocabulary are built per request from the rule's steps and the live grant.
+def _cme_rule_9(open_: bool, rule) -> str:
+    if not open_:
+        return (f"""scheme_specific (the JSON column that holds gender_id, file_status and
+     occupation_id) is LOCKED from the chatbot's database role since 2026-10-16. Never
+     write scheme_specific, ->>, ? or @> against it — the query is refused. Gender and
+     the Approved / Rejected decision are therefore NOT AVAILABLE for CM Elevate. {rule.text()}
+     That file status is inside scheme_specific, so a PENDING / ON-HOLD count is NOT AVAILABLE
+     either — say so and offer the recorded figures (applications; forward / resubmit / sendback).
+     NEVER answer pending or on hold from data_verified = 'On Hold' (user decision 2026-10-30).""")
+    keys = ", ".join(sorted(rule.json_keys())) or "none"
+    return (f"""scheme_specific is a JSON column. The ONLY key(s) you may read: {keys} — and only for a
+     pending / on-hold, sent-back or rejected question. Never read gender_id, occupation_id or
+     any other key: gender is NOT AVAILABLE for CM Elevate.""")
+
+
+def _cme_pending_vocab(open_: bool, rule) -> str:
+    if not open_:
+        return (f""""pending" / "pendency" / "on hold" / "held" -> NOT AVAILABLE for now. {rule.text()} That file status is inside the locked scheme_specific column. Never write scheme_specific, and NEVER answer pending or on hold from data_verified = 'On Hold' (user decision 2026-10-30: on hold does not read data_verified). State the rule, say the count is not available, and give the recorded figures (applications; forward / resubmit / sendback by current file status)
+    "verification outcome" / "data verified" on hold (the field asked by name) -> data_verified = 'On Hold'   (NEVER the onhold boolean)
+    ONLY when the question itself names a level ("pending at level 2", "pending in level1"): -> LOWER(current_level) = 'levelN' alone — the level IS the scope""")
+    fs = rule.file_status_column() or "scheme_specific ->> 'file_status'"
+    return (f""""pending" / "pending applications" / "pendency" / "on hold" / "held" -> the PENDING RULE (user decision 2026-10-30): {rule.sql()}. {rule.text()} Put it INSIDE COUNT(DISTINCT request_id) FILTER (WHERE …) when grouping so a group with none shows 0. Level-wise = the rule grouped by LOWER(current_level); "pending at level N" = the rule AND LOWER(current_level) = 'levelN'
+    "verification outcome" / "data verified" on hold (the field asked by name) -> data_verified = 'On Hold'   (NEVER the onhold boolean). Invalid / Wrong, resubmit and Rejected are reported only when the question names them
+    "sent back" -> {fs} = 'Send Back' (the department's decision; the workflow value 'sendback to vdv/citizen' in current_file_status is a different field)""")
+
+
+def _cme_count_default_line(rule) -> str:
+    """Which applications count, from applications_default / verification_states (2026-10-30)."""
+    d = rule.default_sql()
+    if not d:
+        return ""
+    col, states = rule.verification_states()
+    split = ", ".join(f"COUNT(DISTINCT request_id) FILTER (WHERE {col} = '{v}') AS {v.lower().replace(' ', '_')}" for v in states)
+    return (f'"how many applications" / ANY application count -> {rule.default_text()} applications only by default (user decision 2026-10-30): '
+            f'add {d} unless the question names a verification state ({", ".join(states)}, verified, verification — then exactly as asked) '
+            f'or asks for ALL applications ("all applications", "including invalid", "irrespective of verification" — then NO {col} filter, '
+            f'and a single total is also split: {split}, COUNT(DISTINCT request_id) FILTER (WHERE {col} IS NULL) AS not_recorded)')
+
+
+def _cme_pending_lines(text: str) -> str:
+    """Rule 9 and the pending vocabulary, from the knowledge-base rule and the live grant."""
+    if "<<CME_" not in text:
+        return text
+    from app import cme_pending_rule as rule   # local: it reaches schema_introspect -> db
+    open_ = rule.readable()
+    return (text.replace("<<CME_RULE_9>>", _cme_rule_9(open_, rule))
+                .replace("<<CME_PENDING_VOCAB>>", _cme_count_default_line(rule) + "\n    " + _cme_pending_vocab(open_, rule)))
+>>>>>>> theirs
 
 
 # Kept for any caller that still wants the full, unscoped context (e.g. a

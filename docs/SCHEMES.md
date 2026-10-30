@@ -204,13 +204,18 @@ Notes on the table:
 - **Rules:**
   - **no money and no time**: COUNT is the only aggregate, and any year or amount question is
     unanswerable;
-  - "on hold" = `data_verified = 'On Hold'`, never the `onhold` boolean, which is always FALSE;
+  - a plain "on hold" question = the pending rule (2026-10-30); `data_verified = 'On Hold'` only when the
+    verification outcome is asked by name — never the `onhold` boolean, which is always FALSE;
   - applications AND applicants = `COUNT(DISTINCT request_id)` (27 applications, 22 Piggery and 5
     Poultry, have two identical records: 8,840 applications, 8,867 records; D-049);
   - `applicant_category`, not `type_raw`;
   - `LOWER()` levels and statuses;
   - gender and Approved / Rejected are **not available** (they were only in `scheme_specific`):
+<<<<<<< ours
     the measure-not-held pause answers them; "pending" = Valid → forward-or-sendback → file_status Pending /
+=======
+    the measure-not-held pause answers them; "pending" = Valid → file_status Pending /
+>>>>>>> theirs
     Send Back (user decision 2026-10-30, D-B1-CME-01), gated on the scheme_specific grant (KI-624);
   - `current_file_status` holds `forward`, `resubmit`, `sendback to vdv/citizen` only;
   - exclude `'Unresolved'` only for village counts;
@@ -226,12 +231,20 @@ Notes on the table:
     `COUNT(DISTINCT request_id)`;
   - answer guarantees after the composer: `_cm_elevate_answer_guarantees`;
   - "PRIME SEED" routes to CM Elevate.
+<<<<<<< ours
   - "Pending" (2026-10-30): `data_verified = 'Valid' AND (LOWER(current_file_status) = 'forward' OR
     LOWER(current_file_status) LIKE 'sendback%') AND scheme_specific ->> 'file_status' IN ('Pending',
     'Send Back')` — 7,338 live; On Hold is not pending, resubmit is not pending.
     Gated on the grant (KI-624); the KI-074 On Hold reading stands only while the column is locked.
 - **Status = `current_file_status`** (Forward / Sent back / Resubmit; decided 2026-09-28, KI-123). Pending = the 2026-10-30 funnel (D-B1-CME-01); verified = 'Valid'.
 - **All districts / blocks / villages (2026-09-28): 7,364 / 7,364** on the final code (KI-106..120). CM Elevate is a village-grained scheme (`_village_scheme`); urban bodies are stored as blocks ("<TOWN>-MUNICIPAL BOARD" / "-TOWN COMMITTEE") and the block catalogue lags the data (21 of 66 missing) — `_cm_elevate_blocks_to_data` maps to the stored spelling. "Pending" = Valid → forward-or-sendback → file_status Pending / Send Back (2026-10-30; was On Hold, 2026-09-28).
+=======
+  - "Pending" (2026-10-30): `data_verified = 'Valid' AND scheme_specific ->> 'file_status' IN ('Pending',
+    'Send Back')` — 7,341 live; On Hold is not pending. Every CM Elevate count is valid-only by default.
+    Gated on the grant (KI-624); the KI-074 On Hold reading stands only while the column is locked.
+- **Status = `current_file_status`** (Forward / Sent back / Resubmit; decided 2026-09-28, KI-123). Pending = the 2026-10-30 funnel (D-B1-CME-01); verified = 'Valid'.
+- **All districts / blocks / villages (2026-09-28): 7,364 / 7,364** on the final code (KI-106..120). CM Elevate is a village-grained scheme (`_village_scheme`); urban bodies are stored as blocks ("<TOWN>-MUNICIPAL BOARD" / "-TOWN COMMITTEE") and the block catalogue lags the data (21 of 66 missing) — `_cm_elevate_blocks_to_data` maps to the stored spelling. "Pending" = Valid → file_status Pending / Send Back (2026-10-30; was On Hold, 2026-09-28).
+>>>>>>> theirs
 - **QA (2026-09-27):** the use cases (`CM Elevate.csv`, CM-ELEVATE-OFF-001..030).
   - Round 1: **23 / 30** (47 / 55 questions). Report:
     `docs/CM_Elevate_UseCase_Test_Report_2026-09-27.xlsx`.

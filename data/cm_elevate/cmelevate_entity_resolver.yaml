@@ -291,16 +291,19 @@ overloaded_terms:
 
   on_hold:
     readings:
-    - { means: "data_verified = 'On Hold'", when: always }
+    - { means: "the PENDING RULE (see pending below)", when: "default - a plain on-hold question means pending (user decision 2026-10-30)" }
+    - { means: "data_verified = 'On Hold'", when: "ONLY when the verification outcome is asked by name" }
     critical: true
     text: >
-      THE MOST DANGEROUS TERM IN THIS PARTITION. There is also a boolean column called
-      onhold, and it is FALSE on every one of the 8,436 source rows. A query against it
-      returns zero and looks perfectly correct. Always resolve "on hold", "held",
-      "held up" and "paused" to data_verified = 'On Hold' - about 1,199 applications.
+      A plain "on hold", "held", "held up" or "paused" question follows the pending rule
+      (cmelevate_pending_rule.yaml). The verification outcome data_verified = 'On Hold' is given only
+      when asked by name. There is also a boolean column called onhold, and it is FALSE on
+      every source row: a query against it returns zero and looks perfectly correct - never
+      use it.
 
   pending:
     readings:
+<<<<<<< ours
     - { means: "data_verified = 'Valid' AND (LOWER(current_file_status) = 'forward' OR LOWER(current_file_status) LIKE 'sendback%') AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')", when: "default for applications (user decision 2026-10-30)" }
     - { means: "data_verified = 'On Hold'", when: "ONLY when the user says on hold / held - on hold is not pending" }
     - { means: "not_available", when: "the user means money awaiting release" }
@@ -308,6 +311,15 @@ overloaded_terms:
       The pending rule: verified Valid, file forwarded or sent back (not resubmitted), file
       status Pending or Send Back (about 7,338). Every other state - Invalid, Wrong, On Hold,
       resubmit, Rejected - is given only when the user names it. file_status sits inside
+=======
+    - { means: "the PENDING RULE - cmelevate_pending_rule.yaml (data verified Valid -> file status Pending or Send Back), built at runtime by app/cme_pending_rule.py", when: "default for applications and for a plain on-hold question (user decision 2026-10-30)" }
+    - { means: "data_verified = 'On Hold'", when: "ONLY when the verification outcome is asked by name (verification outcome on hold, data verified on hold)" }
+    - { means: "not_available", when: "the user means money awaiting release" }
+    default: >
+      The pending rule (cmelevate_pending_rule.yaml): verified Valid, file status Pending or Send Back. "On hold" means the same.
+      Level-wise = the rule grouped or filtered by current_level. Every other state - Invalid,
+      Wrong, resubmit, Rejected - is given only when the user names it. file_status sits inside
+>>>>>>> theirs
       scheme_specific; while the chatbot's role cannot read it, say the pending count is not
       available. There is no pending AMOUNT in CM Elevate - PMAY's amount_pending has no
       counterpart here.
@@ -1462,8 +1474,13 @@ dimensions:
       critical: true
       text: >
         THE ONLY STATUS FIELD ON THIS FACT WITH MEANINGFUL SPREAD, and the correct target
+<<<<<<< ours
         for "on hold", "verified" and "valid" ("pending" is its own rule since 2026-10-30:
         Valid + forward-or-sendback + file_status Pending / Send Back). It records whether the
+=======
+        for "verified" and "valid"; a plain "pending" or "on hold" question follows the pending
+        rule (cmelevate_pending_rule.yaml) since 2026-10-30. It records whether the
+>>>>>>> theirs
         APPLICATION'S OWN DATA was found valid - it is NOT a funding decision, an approval
         or a rejection.
     not_a_boolean:
@@ -1484,9 +1501,10 @@ dimensions:
       note:
         critical: true
         text: >
-          THIS IS WHERE "ON HOLD" RESOLVES, not the onhold boolean, which is FALSE on
-          every row. Getting this wrong returns zero and looks correct. It is the single
-          most likely wrong answer in this partition.
+          The verification outcome "On Hold" - never the onhold boolean, which is FALSE on
+          every row (a query against it returns zero and looks correct). Since 2026-10-30 a
+          plain "on hold" QUESTION means PENDING (cmelevate_pending_rule.yaml); this value answers only
+          an explicit verification-outcome question.
     - canonical: "Wrong"
       applications: 81
       share_pct: 1.0

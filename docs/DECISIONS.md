@@ -2386,6 +2386,7 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)
 - Progress: one entry below (2026-10-30); the integrator numbers it from D-095 on.
 
+<<<<<<< ours
 #### D-B1-CME-01 — CM Elevate "pending" = Valid → forward-or-sendback → file_status Pending / Send Back (user decision 2026-10-30; gated on the scheme_specific grant)
 - **Date:** 2026-10-30 (`app/pipeline/schemes/cm_elevate.py`, `app/schema_introspect.py`,
   `app/schema_context.py`, `app/data_facts.py`, `data/cm_elevate/*.yaml`; supersedes the KI-074 reading of D-027).
@@ -2396,6 +2397,18 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
   resubmit, Rejected / Approved — is reported only when the user names it. Live on 2026-10-30: **7,338** pending
   (7,281 forward+Pending, 54 forward+Send Back, 3 sendback+Send Back) of 8,948 applications; the old On Hold
   reading gave 911.
+=======
+#### D-B1-CME-01 — CM Elevate "pending" = Valid → file_status Pending / Send Back (user decision 2026-10-30; gated on the scheme_specific grant)
+- **Date:** 2026-10-30 (`app/pipeline/schemes/cm_elevate.py`, `app/schema_introspect.py`,
+  `app/schema_context.py`, `app/data_facts.py`, `data/cm_elevate/*.yaml`; supersedes the KI-074 reading of D-027).
+- **Decision (the user's words, 2026-10-30):** a pending CM Elevate application is one whose data was verified
+  **Valid**, and whose file status is **Pending or Send Back**: `data_verified = 'Valid' AND scheme_specific ->>
+  'file_status' IN ('Pending', 'Send Back')`. (The day's statements moved: first forward-only, then forward-or-sendback
+  in `current_file_status`, finally — with the valid-by-default rule below — `file_status` alone on valid
+  applications.) Every other state — Invalid / Wrong / On Hold, resubmit, Rejected / Approved — is reported only
+  when the user names it. Live on 2026-10-30: **7,341** pending of 7,371 valid applications (8,921 in all); the old
+  On Hold reading gave 911.
+>>>>>>> theirs
 - **Blocker and gate:** `file_status` exists only inside `curated.v_cm_elevate.scheme_specific` (jsonb), which
   the ingestion team locked from `megh_readonly` on 2026-10-16; `semantic.run_query` (SECURITY DEFINER, owner
   `megh_query_runner`) is refused on it too, and there is no plain `file_status` column. So the rule is
@@ -2415,6 +2428,28 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
     of On Hold (`_cme_pending_target()`); `_cme_level_pending_wording` (KI-422) stops removing the word.
   - schema_context rule 9 and the pending vocabulary switch to the open text; `[[cme_pending]]` is a live token.
   - "pending at level N" = the rule AND the level (309 at level 2, not 310; 3 at level 0).
+<<<<<<< ours
+=======
+- **Refinement (same day, user):**
+  - **"On hold" questions follow the same rule** (they are pending questions) and **never read `data_verified`**;
+    `data_verified = 'On Hold'` answers only an explicit verification-outcome question. While locked, pending and
+    on-hold questions both get "not available" + the rule + the recorded workflow figures (applications;
+    forward / resubmit / sendback) — the On Hold figure is not offered, and no guard falls back to it.
+  - **Level-wise = the rule by `current_level`**: "pending at level N" filters it (the fixed query, or the model SQL
+    plus the guard), "level-wise pending" groups by it with the rule inside the COUNT's FILTER so an empty level
+    still shows 0.
+  - **Every CM Elevate application count is valid-only by default** (`applications_default` in the same YAML):
+    `_cm_elevate_valid_default` adds `data_verified = 'Valid'` to any count over `v_cm_elevate` that has no test of
+    that column (WHERE of a simple query; a Valid-only subquery for any other shape), and the fixed queries carry it.
+    A question that names a verification state is answered as asked; one that asks for all applications
+    (`_cm_elevate_all_applications`) gets every application and a single total split by `verification_states`
+    plus not recorded. Answers say "valid applications" when the default applied.
+  - **Nothing hard-coded**: the rule's steps live in `cmelevate_pending_rule.yaml` and are
+    read at runtime by `app/cme_pending_rule.py` (re-read on change), which builds the SQL condition, the answer
+    sentence, the prompt lines and the gate (every column the rule needs must be readable — so a plain
+    `file_status` column, if the DB team adds one, opens the gate by editing the YAML alone). The typed-in
+    `[[cme_pending]]` figure was removed; counts come only from the database at question time.
+>>>>>>> theirs
 - **Alternatives rejected:**
   - Waiting for the grant before writing anything: the rule would then land untested under deadline.
   - Valid + forward only as an interim (7,386): silently includes the 51 Rejected files.

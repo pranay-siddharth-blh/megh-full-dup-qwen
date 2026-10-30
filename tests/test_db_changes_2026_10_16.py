@@ -153,11 +153,12 @@ def test_scheme_count_on_dimension_untouched():
     assert "COUNT(DISTINCT request_id) FILTER" in out
 
 
-# ── CM Elevate: Approved / Rejected and gender are not available; pending is On Hold ──
-def test_pending_on_file_status_becomes_on_hold():
-    out = p._cm_elevate_decision_status_column(
-        ["CM Elevate"], "SELECT COUNT(*) FROM curated.v_cm_elevate WHERE LOWER(current_file_status) = 'pending'")
-    assert "data_verified = 'On Hold'" in out and "scheme_specific" not in out
+# ── CM Elevate: Approved / Rejected and gender are not available; pending never becomes On Hold ──
+def test_pending_on_file_status_is_left_while_the_rule_is_locked():
+    """2026-10-30: a plain pending has nothing to resolve to while file_status is locked —
+    never data_verified = 'On Hold'. The readable case is in test_cme_pending_funnel_2026_10_30."""
+    sql = "SELECT COUNT(*) FROM curated.v_cm_elevate WHERE LOWER(current_file_status) = 'pending'"
+    assert p._cm_elevate_decision_status_column(["CM Elevate"], sql) == sql
 
 
 def test_approved_is_never_pointed_at_scheme_specific():

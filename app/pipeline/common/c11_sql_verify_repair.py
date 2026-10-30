@@ -1938,6 +1938,11 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_elevate_level_pending(question, schemes, sql)
     sql = _cm_elevate_pending_without_level(question, schemes, sql)
     sql = _cm_elevate_pending_funnel(question, schemes, sql)   # pending rule 2026-10-30, gated
+<<<<<<< ours
+=======
+    sql = _cm_elevate_all_applications(question, schemes, sql)  # all applications asked: total + split (2026-10-30)
+    sql = _cm_elevate_valid_default(question, schemes, sql)     # otherwise only valid applications count (2026-10-30)
+>>>>>>> theirs
     sql = _cm_elevate_unasked_level_filter(question, schemes, sql)
     sql = _cm_elevate_drop_area_level_entity_type(schemes, sql)
     sql = _cm_elevate_sector_keep_unrecorded(question, schemes, sql)

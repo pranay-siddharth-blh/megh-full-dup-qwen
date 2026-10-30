@@ -30,12 +30,16 @@
     <block> block") so a shared name does not pause; expected 0 stated plainly, no "data not available" wording.
     The 72 `Unresolved` placeholder rows of dim_geography are not villages and are excluded.
 12. **"pending"** — superseded on 2026-10-30 by the user's rule (D-B1-CME-01): pending = `data_verified = 'Valid'`
-    AND `current_file_status` forward or sendback (`LOWER(...) = 'forward' OR LIKE 'sendback%'`; resubmit out) AND
-    `scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')` (7,338 statewide on 2026-10-30); On Hold is not pending. The code is gated on the chatbot's role being able to
+    AND `scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')` (7,341 statewide on 2026-10-30; the
+    current_file_status step was dropped by the user's final statement, and every CM Elevate count is valid-only
+    by default unless the user asks for all applications or names a verification state). A plain "on hold"
+    question means the same and never reads `data_verified` (while locked: "not available" + recorded workflow
+    figures, no On Hold number); level-wise = the rule by `current_level`. The steps are read at runtime from
+    `cmelevate_pending_rule.yaml` (`app/cme_pending_rule.py`), nothing typed into code. The code is gated on the chatbot's role being able to
     read `scheme_specific` (locked since 2026-10-16; grant requested, KI-624). Until the grant the bot keeps the
     2026-10-26 behaviour (status not recorded; recorded figures given) and the rows below stand as run. Re-pin
-    when the grant lands: C01-018 levels 0/1/2/3/4 = 3 / 7,025 / 309 / 0 / 1 (the rule AND the level); C01-019
-    SEED 3,146, Piggery 2,430, Poultry 470; C01-020 Ri Bhoi 2,024, West Garo Hills 1,619, East Khasi Hills 986;
+    when the grant lands: C01-018 levels 0/1/2/3/4 = 3 / 7,027 / 310 / 0 / 1 (the rule AND the level); C01-019
+    SEED 3,146, Piggery 2,431, Poultry 470; C01-020 Ri Bhoi 2,025, West Garo Hills 1,619, East Khasi Hills 987;
     C01-021 = 13, 6, 0, 50, 1, 5, 0, 0, 0, 2, 0, 0 in row order; C01-028 (not recorded) 289 of 306.
 13. **CM Elevate × FY / date.** A financial-year or date word pins **CM Elevate Legacy** (dataset choice, user
     decision 2026-10-22, `_cm_elevate_dataset_choice`): only Legacy holds years. So for categories 4, 6, 7-FY, 8 the
