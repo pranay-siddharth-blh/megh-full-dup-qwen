@@ -42,5 +42,37 @@
  "C04-FY": {
   "root": "D1 (disputed) / R7",
   "commit": ""
+ },
+ "C03-": {
+  "root": "B20 / B23 / B24 (twins)",
+  "commit": "3a092ce, 14ad455, 732a96c"
+ },
+ "C14-ZERO": {
+  "root": "B25 (village asked in a block where it has no applications) / D4",
+  "commit": "af54bf9"
+ },
+ "C14-INV": {
+  "root": "B13 / B25 (unknown constituency)",
+  "commit": "14ec7f9"
+ },
+ "C17-09": {
+  "root": "B25 (unnamed programme filter)",
+  "commit": "14ec7f9"
+ },
+ "C01-009-05": {
+  "root": "B26 (repeated GROUP BY key)",
+  "commit": "d7b90f5"
+ },
+ "C02-CNT": {
+  "root": "B1/B2/B7/B17 (v1) / N1 wards (shared spelling, not fixed)",
+  "commit": "e3d7758"
+ },
+ "C01-022-06": {
+  "root": "B27 (O1): non-verified count left out",
+  "commit": "8b8f2f0"
+ },
+ "C03-ALONE-massar": {
+  "root": "B27 (O2): LIMIT 1 on the twin query",
+  "commit": "8b8f2f0"
  }
 }

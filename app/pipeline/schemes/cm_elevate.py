@@ -781,6 +781,28 @@ def _cme_villages_per_village(question: str, sql: str) -> str:
     return sql_ast.to_sql(tree)
 
 
+def _cme_geo_beside_villages(sql: str) -> str:
+    """"MAWLIEH" (Rambrai, West Khasi Hills 10; Pynursla, East Khasi Hills 3) ran `lgd_district = 'WEST KHASI
+    HILLS' AND village_code IN (278917, 276747)` and lost the Pynursla village (final regression 2026-10-30,
+    C03-ALONE-mawlieh). Beside a village_code list of 2+ the codes pin the places: a district / block literal
+    there is dropped (the single-village form is _drop_geo_beside_pinned_village)."""
+    tree = sql_ast.parse_one(sql)
+    if not isinstance(tree, exp.Select) or tree.args.get("where") is None:
+        return sql
+    if not any(_cme_col(n.this, "village_code") is not None and len(n.expressions) >= 2
+               and not isinstance(n.parent, exp.Not) for n in tree.find_all(exp.In)):
+        return sql
+    changed = False
+    for n in list(tree.args["where"].find_all(exp.EQ)):
+        if (_cme_col(n.this, "lgd_district") is not None or _cme_col(n.this, "lgd_block") is not None)                 and _cme_str(n.expression) is not None and n.find_ancestor(exp.Or) is None:
+            n.replace(exp.true())
+            changed = True
+    if not changed:
+        return sql
+    logger.info("CM Elevate: dropped a district / block literal beside a list of village codes")
+    return sql_ast.to_sql(tree)
+
+
 def _cme_twin_limit(sql: str) -> str:
     """A query over N village codes grouped by village_code ended `LIMIT 1` and dropped the second Massar
     (Pynursla, 5) (final run 2026-10-30, C03-ALONE-massar). A LIMIT below N is dropped."""
@@ -861,6 +883,7 @@ async def _cm_elevate_urban_body_spellings(question: str, schemes: list[str], sq
     sql = _cme_verification_split(question, sql)
     sql = _cme_villages_per_village(question, sql)
     sql = _cme_twin_limit(sql)
+    sql = _cme_geo_beside_villages(sql)
     sql = _cme_block_inside_constituency(question, sql)
     sql = _cme_ac_name_case(sql)
     return await _cme_urban_block_spellings(question, schemes, sql)

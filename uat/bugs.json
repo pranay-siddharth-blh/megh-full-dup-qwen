@@ -196,5 +196,50 @@
   "files": "app/pipeline/schemes/cm_elevate.py",
   "commit": "3a092ce",
   "shared": "No"
+ },
+ {
+  "bug": "B23 Same-name villages: verifier rejected the documented query",
+  "symptom": "'How many CM ELEVATE applicants are there in NONGSHILLIANG?' -> 'couldn't build a working query' (C03).",
+  "root": "The LLM verifier raised entity / grouping complaints against WHERE village_code IN (<every twin>) on every repair.",
+  "fix": "_cme_twin_verifier_complaint_is_false (inside the existing CM Elevate verifier overrule) discards them; measure complaints still stand.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "14ad455",
+  "shared": "No"
+ },
+ {
+  "bug": "B24 Several villages summed; invented year",
+  "symptom": "'2 applicants in Nongshilliang (Mawpat block) and Nongshilliang (Mairang block)'; '16 … in Mawhati … for the year 2024' (C03).",
+  "root": "A village_code IN-list without GROUP BY returns one combined figure; the composer added a year the applications data cannot hold.",
+  "fix": "_cme_villages_per_village groups per village (unless a total is asked); _cme_drop_invented_year removes a year phrase the question never named.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "732a96c",
+  "shared": "No"
+ },
+ {
+  "bug": "B25 Unknown constituency / village in the wrong block / unnamed programme / block inside a constituency name",
+  "symptom": "'El Dorado constituency' -> '0 … the data records zero' (C14-INV-17); 'MAWBRI village of Mawkyrwat block' -> Mawbri of other blocks (C14); 'Chief Minister's Elevate programme' -> Green Taxi, 1 (C17-09); 'West Shillong constituency' -> 'couldn't build a working query' (C01-017AC-59).",
+  "root": "No check that a filtered constituency exists; the asked block not compared with the answered villages' blocks; a single programme equality the question never named kept; 'Shillong' inside 'West Shillong constituency' resolved as a block and demanded by the missing-filter guard.",
+  "fix": "_cme_unknown_constituency; _cme_village_not_in_named_block / _cme_village_code_not_in_named_block (0 for the village asked); _cm_elevate_unasked_programme_filter covers '='; _cme_block_only_in_constituency drops that block.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "14ec7f9, af54bf9",
+  "shared": "No"
+ },
+ {
+  "bug": "B26 Repeated GROUP BY key hid zero programmes",
+  "symptom": "'… in North Garo Hills under Warehouse and Sericulture & Weaving?' (both 0) -> 'couldn't find any matching records' (C01-009-05).",
+  "root": "GROUP BY scheme_name, scheme_name made _cme_asked_programmes return nothing, so the KI-182 all-zero answer did not fire.",
+  "fix": "_cme_dedupe_group_by in the CM Elevate SQL pass.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "d7b90f5",
+  "shared": "No"
+ },
+ {
+  "bug": "B27 Verification counts / twin LIMIT (found in the final run)",
+  "symptom": "'completed data verification in Ri Bhoi' -> 2,039 only, non-verified 585 missing (C01-022-06); 'MASSAR' (two villages) -> one village, Pynursla's 5 cut off by LIMIT 1 (C03-ALONE-massar).",
+  "root": "The model counted only data_verified = 'Valid'; the per-village twin query carried LIMIT 1.",
+  "fix": "_cme_verification_split + _cme_verification_figures (verified / not verified / total, each stated, with the rate); _cme_twin_limit drops a LIMIT below the number of villages asked.",
+  "files": "app/pipeline/schemes/cm_elevate.py",
+  "commit": "8b8f2f0",
+  "shared": "No"
  }
 ]

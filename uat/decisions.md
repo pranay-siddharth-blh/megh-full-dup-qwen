@@ -74,3 +74,10 @@ No other rule was loosened; numbers are always compared exactly (Indian or plain
     ["village&<block>", "village", "<block>", "<district>"]; before, "<block>" came first and, for a village named like
     its block (BATABARI, RERAPARA), tapped the BLOCK chip — the opposite of what the test means (decision 7). Only the
     `pick` column changed (2,401 rows); IDs and expected values are identical.
+20. **Final runs.** Code frozen at d348482; full re-run `final4` 04:51-06:05: 4,837/4,837 executed, 0 errors,
+    0 DB write attempts. Earlier `final`/`final2`/`final3` were stopped and restarted after a fix each (no partial
+    run is counted). Two CM Elevate failures of final4 (O1, O2) were then fixed in 8b8f2f0 and verified with a
+    regression pass of the affected categories (C01 + C03, run `regress5`) and the full unit suite (5,131 passed).
+    The other 14 categories' final results are from final4 on d348482; 8b8f2f0 changes only the CM Elevate SQL
+    pass (verification split, twin LIMIT) and one answer guarantee, which those categories also go through — a
+    further full re-run on 8b8f2f0 was not possible before 7 AM.
