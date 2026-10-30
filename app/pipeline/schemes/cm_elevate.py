@@ -709,6 +709,54 @@ def _cme_dedupe_group_by(sql: str) -> str:
     return sql_ast.to_sql(tree)
 
 
+_CME_VERIF_Q = Matcher(Alt(Seq(Opt("data"), W("verification", "verified", "verify")), "verification"))
+
+
+def _cme_valid_eq(node: exp.Expression) -> bool:
+    """[LOWER|UPPER(]data_verified[)] = 'valid' (any case)."""
+    if not isinstance(node, exp.EQ) or _cme_col(node.this, "data_verified") is None:
+        return False
+    lit = node.expression
+    while isinstance(lit, _CME_CASE_WRAPPERS) and lit.this is not None:
+        lit = lit.this
+    v = _cme_str(lit)
+    return v is not None and v.strip().lower() == "valid"
+
+
+def _cme_verification_split(question: str, sql: str) -> str:
+    """OFF-022 asks for the verified AND the non-verified count (and the rate); "How many applicants have
+    completed data verification in Ri Bhoi?" ran a single `… AND data_verified = 'Valid'` count and was
+    answered with 2,039 alone (final run 2026-10-30, C01-022-06). That count becomes verified / not
+    verified / total over the same place."""
+    if not _CME_VERIF_Q.search(question or ""):
+        return sql
+    tree = sql_ast.parse_one(sql)
+    if not isinstance(tree, exp.Select) or tree.args.get("group") is not None or tree.args.get("joins")             or len(tree.expressions) != 1 or not isinstance(tree.expressions[0].unalias(), exp.Count):
+        return sql
+    if not any(_cme_valid_eq(n) for n in tree.find_all(exp.EQ)) or not _cme_drop_conjuncts(tree, _cme_valid_eq):
+        return sql
+    tree.set("expressions", [sqlglot.parse_one(x, read=sql_ast.DIALECT) for x in (
+        "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS verified_applicants",
+        "COUNT(DISTINCT request_id) FILTER (WHERE data_verified IS DISTINCT FROM 'Valid') AS not_verified_applicants",
+        "COUNT(DISTINCT request_id) AS total_applicants")])
+    logger.info("CM Elevate: data-verification count split into verified / not verified / total")
+    return sql_ast.to_sql(tree)
+
+
+def _cme_verification_figures(answer: str, rows: list[dict]) -> str:
+    """The verified / not-verified / total row (see _cme_verification_split): any figure the answer does not
+    state is added, with the verified rate."""
+    if len(rows) != 1 or not {"verified_applicants", "not_verified_applicants", "total_applicants"} <= set(rows[0]):
+        return answer
+    v, nv, t = (int(_as_number(rows[0][k]) or 0) for k in ("verified_applicants", "not_verified_applicants", "total_applicants"))
+    have = set(_cme_nums(answer or ""))
+    if float(v) in have and float(nv) in have:
+        return answer
+    rate = f"{100 * v / t:.1f}%" if t else "n/a"
+    return (answer.rstrip() + f" Verified: {v:,}; not verified: {nv:,}; total applicants: {t:,} "
+            f"(verified rate {rate}).")
+
+
 _CME_COMBINED_Q = Matcher(Alt(W("total", "combined", "together", "altogether", "sum"), Seq("in", "all")))
 
 
@@ -725,11 +773,27 @@ def _cme_villages_per_village(question: str, sql: str) -> str:
     node = next((n for n in tree.find_all(exp.In) if _cme_col(n.this, "village_code") is not None
                  and not isinstance(n.parent, exp.Not) and len(n.expressions) >= 2), None)
     if node is None:
-        return sql
+        return _cme_twin_limit(sql)
     cols = ["village_code", "lgd_block"]
     tree.set("expressions", [exp.column(c) for c in cols] + list(tree.expressions))
     tree.set("group", exp.Group(expressions=[exp.column(c) for c in cols]))
     logger.info("CM Elevate: several villages in one query -> one row per village")
+    return sql_ast.to_sql(tree)
+
+
+def _cme_twin_limit(sql: str) -> str:
+    """A query over N village codes grouped by village_code ended `LIMIT 1` and dropped the second Massar
+    (Pynursla, 5) (final run 2026-10-30, C03-ALONE-massar). A LIMIT below N is dropped."""
+    tree = sql_ast.parse_one(sql)
+    if not isinstance(tree, exp.Select) or tree.args.get("group") is None or tree.args.get("limit") is None:
+        return sql
+    node = next((n for n in tree.find_all(exp.In) if _cme_col(n.this, "village_code") is not None
+                 and not isinstance(n.parent, exp.Not) and len(n.expressions) >= 2), None)
+    lim = tree.args["limit"].args.get("expression")
+    if node is None or not (isinstance(lim, exp.Literal) and lim.is_int and int(lim.this) < len(node.expressions)):
+        return sql
+    tree.set("limit", None)
+    logger.info("CM Elevate: dropped a LIMIT smaller than the number of villages asked")
     return sql_ast.to_sql(tree)
 
 
@@ -794,7 +858,9 @@ async def _cm_elevate_urban_body_spellings(question: str, schemes: list[str], sq
     if schemes != ["CM Elevate"] or not sql:
         return sql
     sql = _cme_dedupe_group_by(sql)
+    sql = _cme_verification_split(question, sql)
     sql = _cme_villages_per_village(question, sql)
+    sql = _cme_twin_limit(sql)
     sql = _cme_block_inside_constituency(question, sql)
     sql = _cme_ac_name_case(sql)
     return await _cme_urban_block_spellings(question, schemes, sql)
@@ -2683,6 +2749,7 @@ async def _cm_elevate_answer_guarantees(question: str, sql: str, rows: list[dict
         return _cme_all_zero_answer(sql, answer, display)
     answer = _cme_digits_for_number_words(answer, rows)
     answer = _cme_drop_invented_year(question, answer)
+    answer = _cme_verification_figures(answer, rows)
     answer = _cme_sector_answer_names_wrong_programme(answer, sql, rows)
     answer = _mgnrega_zero_backstop(answer, rows, display)   # a genuine 0 is stated as 0 (KI-070)
     answer = _cme_grouped_rows(answer, rows)

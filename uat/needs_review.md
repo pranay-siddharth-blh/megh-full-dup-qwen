@@ -60,3 +60,9 @@ per-village answer (14ad455 + this run's commit) the asked village's own figure 
 the data), but no refusal either (C11-NAME-5). Proposed: a guardrail rule in app/guardrails.py / edge.py that
 declines requests for personal identifiers (account / Aadhaar / phone numbers, names of applicants) for every
 scheme before routing. Shared code.
+
+### N4 — A village whose name ends in "village" (spelling pre-pass, `_village_at`) — NOT applied
+"How many CM ELEVATE applicants are there in CENTRE VILLAGE?" -> "Showing results for **Kentra** (you typed
+'CENTRE')" -> 5 (true 4 for CENTRE VILLAGE, village_code 277685). `_village_at` treats the stored name's own word
+"VILLAGE" as the level word and corrects "CENTRE" by sound. Proposed: before correcting, skip when
+`er.is_village_name(<span + the level word>)` is True (the whole text is an exact village name).
