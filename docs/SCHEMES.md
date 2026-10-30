@@ -188,9 +188,9 @@ Notes on the table:
 - **Sheet re-test (2026-10-22):** `new_docs/Focus_Plus_Test_Report_2026-10-22.md` — raw CSV = DB row for row; every
   village 3,513/3,513; FOCUS-019 / FOCUS-004 fixed (section 8 of the report). Open: KI-359, KI-362..365.
 - **Sheet re-test (2026-10-30, live in-process vs megh_db):** baseline 145/163 (`tests/sheet_runs/fp_run.py`); real
-  defects: "Tranch N" read as a place (KI-624, FOCUS-007/018/028), un-UPPERed `block_name_raw` (KI-625, FOCUS-004),
-  "how many people got Focus Plus money" answered as an amount (KI-629), "What is it for the whole state?" routed to the
-  documents (KI-630). All fixed; see TESTING.md for the after-fix figures.
+  defects: "Tranch N" read as a place (KI-648, FOCUS-007/018/028), un-UPPERed `block_name_raw` (KI-649, FOCUS-004),
+  "how many people got Focus Plus money" answered as an amount (KI-653), "What is it for the whole state?" routed to the
+  documents (KI-654). All fixed; see TESTING.md for the after-fix figures.
 
 ## CM Elevate
 
@@ -347,8 +347,8 @@ Notes on the table:
   (`tests/sheet_runs/cl_run.py`). **By design:** the sheet's bare "CM-ELEVATE … applications" wording goes to the CM
   Elevate (applications) dataset (user decision 2026-10-29, D-064 narrowed) — 8,921 applications, not Legacy's 2,823;
   name "CM Elevate Legacy" (or a money / sanction word) for Legacy figures. Real defects fixed: TC-35 "across South West
-  Garo Hills" (KI-626), TC-36 total disbursed missing from the summary lines (KI-627), TC-31 "William Nagar
-  constituency" asked block-or-constituency (KI-628).
+  Garo Hills" (KI-650), TC-36 total disbursed missing from the summary lines (KI-651), TC-31 "William Nagar
+  constituency" asked block-or-constituency (KI-652).
 
 ## Cross-scheme behaviour (VERIFIED)
 - **Any comparison of 2+ schemes** (or "which / each / all schemes" with a figure, ranking or

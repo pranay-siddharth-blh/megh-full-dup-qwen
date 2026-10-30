@@ -490,7 +490,7 @@ def _shaped_fallback(shape: "_AnswerShape | None", rows: list, schemes: "list[st
     # E9: with the answer templates on, the fallback is the same templated answer under
     # code's own opening line — one money format, no unasked lines.
     if settings.ANSWER_TEMPLATES_ENABLED:
-        # the question picks which other measures each line shows (KI-627: a ROLLUP district
+        # the question picks which other measures each line shows (KI-651: a ROLLUP district
         # summary falls back here, and lost the "total disbursement" it asked for)
         body = _c12s_e9_body(shape, rows, question, fallback=True)
         if body:

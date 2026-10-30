@@ -204,7 +204,7 @@ def test_sericulture_split_question_is_told_there_is_no_split():
     assert p._cme_sericulture_split_note(q, sql, ans) == ans
 
 
-# ── all-constituencies run (Focus Plus): KI-633 / KI-634 / KI-635 ─────────────
+# ── all-constituencies run (Focus Plus): KI-657 / KI-658 / KI-659 ─────────────
 
 def test_constituency_name_with_level_word_is_not_split():
     q = "How many focus plus beneficiaries are there in Rambrai jyrngam constituency?"
