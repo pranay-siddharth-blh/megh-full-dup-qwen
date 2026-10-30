@@ -772,8 +772,9 @@ semantic_rules:
       current_file_status stores both 'sendback' and 'sendback to vdv/citizen'.
       current_file_status is NOT an approval status - 'forward' does not mean funded.
       PENDING RULE (user decision 2026-10-30): pending = data_verified = 'Valid' AND
-      LOWER(current_file_status) = 'forward' AND scheme_specific ->> 'file_status' IN
-      ('Pending', 'Send Back'). On Hold is NOT pending. file_status is inside scheme_specific,
+      (LOWER(current_file_status) = 'forward' OR LOWER(current_file_status) LIKE 'sendback%')
+      AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back'). On Hold is NOT pending;
+      resubmit is not pending. file_status is inside scheme_specific,
       locked from the chatbot's role since 2026-10-16 - until granted, say the count is not available.
 
   dead_flags:

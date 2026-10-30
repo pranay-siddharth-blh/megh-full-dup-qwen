@@ -739,8 +739,9 @@ the rewrites and before it runs (`_repaired_sql_denial`; D-033, KI-183). A denia
     `data_verified = 'On Hold'` while file_status is locked, the pending funnel once readable.
   - `_cm_elevate_pending_funnel` (2026-10-30, D-B1-CME-01, gated on
     `schema_introspect.cme_file_status_readable()`): a plain "pending" written as
-    `data_verified = 'On Hold'` becomes `data_verified = 'Valid' AND LOWER(current_file_status) =
-    'forward' AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')` (WHERE or FILTER);
+    `data_verified = 'On Hold'` becomes `data_verified = 'Valid' AND (LOWER(current_file_status) =
+    'forward' OR LOWER(current_file_status) LIKE 'sendback%') AND scheme_specific ->> 'file_status'
+    IN ('Pending', 'Send Back')` (WHERE or FILTER);
     a plain query with no status test gets the funnel AND-ed in. "On hold" or another named state
     is left alone.
   - `_cm_elevate_decision_status_column`: `current_file_status = 'pending'` (a value that column
@@ -1027,7 +1028,7 @@ Legacy's were).
         `_fp_comparison`.
      KI-074 was decided on 2026-09-28 (product owner): "pending" = `data_verified = 'On Hold'`
      only; the interim `_cme_pending_file_status` second line was removed. **Superseded on
-     2026-10-30 (D-B1-CME-01):** pending = Valid → forward → file_status Pending / Send Back.
+     2026-10-30 (D-B1-CME-01):** pending = Valid → forward-or-sendback → file_status Pending / Send Back.
      The fixed `cme-sector-workflow` / `cme-sector-pending` queries count that funnel and
      `_cme_pending_answer` states it, once `scheme_specific` is readable by the chatbot's role
      (KI-624); until then the 2026-10-26 "not recorded" answer stands.

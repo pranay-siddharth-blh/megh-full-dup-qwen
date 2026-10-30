@@ -1062,15 +1062,17 @@ _CME_SECTOR_EACH_MATCH = Matcher(Alt(Seq(W("each", "every", "all", "by", "per"),
 _CME_PENDING_MATCH = Matcher(Alt("pending", _cme_join("on", "hold")))
 _CME_SECTOR_FACT_KINDS = ("count", "pending", "programmes", "workflow", "notime")
 # "Pending" (user decision 2026-10-30, superseding the KI-074 On Hold reading): an application
-# verified Valid, whose file has moved forward, and whose file status is Pending or Send Back.
-# Invalid / On Hold / Wrong, resubmit / sendback to vdv/citizen and Rejected are reported only
-# when the question names them. file_status lives inside scheme_specific, which the chatbot's
+# verified Valid, whose file has moved forward or been sent back (not resubmitted), and whose
+# file status is Pending or Send Back (correction later the same day: forward OR sendback, not
+# forward only). Invalid / On Hold / Wrong, resubmit and Rejected are reported only when the
+# question names them. file_status lives inside scheme_specific, which the chatbot's
 # database role has not been allowed to read since 2026-10-16 (ingestion team); until it is,
 # the recorded figures are given instead (cme-sector-workflow below) and the rule is stated.
-_CME_PENDING_FUNNEL = ("data_verified = 'Valid' AND LOWER(current_file_status) = 'forwa"
-                       "rd' AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')")
-_CME_PENDING_RULE_TEXT = ("Pending means: data verified Valid, file status forward, and file status "
-                          "Pending or Send Back.")
+_CME_PENDING_FUNNEL = ("data_verified = 'Valid' AND (LOWER(current_file_status) = 'forward' "
+                       "OR LOWER(current_file_status) LIKE 'sendback%') "
+                       "AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')")
+_CME_PENDING_RULE_TEXT = ("Pending means: data verified Valid, file forwarded or sent back (not "
+                          "resubmitted), and file status Pending or Send Back.")
 
 
 def _cme_pending_readable() -> bool:
@@ -1364,7 +1366,7 @@ def _cme_pending_answer(question: str, rows: list[dict], word: str, scope: str) 
     return (f"{n['pending']:,} CM Elevate application{'s are' if n['pending'] != 1 else ' is'} pending{scope} "
             f"(of {n['applications']:,}). {_CME_PENDING_RULE_TEXT} Not counted, and available on request: "
             f"{n['on_hold']:,} on hold at data verification, and applications verified Invalid or Wrong, "
-            "resubmitted, sent back to VDV/citizen, or rejected.")
+            "resubmitted, or rejected.")
 
 
 def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict) -> "str | None":
@@ -2304,7 +2306,7 @@ _CME_PENDING_OTHER_STATE = Matcher(Alt(Pred(lambda w: "verif" in w.lower()),
 
 def _cm_elevate_pending_funnel(question: str, schemes: list[str], sql: str) -> str:
     """User decision 2026-10-30: a plain "pending" (no "on hold", no other state named) is the
-    pending funnel — Valid, forward, file status Pending or Send Back — once file_status is
+    pending funnel — Valid, forward or sent back, file status Pending or Send Back — once file_status is
     readable. A `data_verified = 'On Hold'` the model wrote for it becomes the funnel (in the
     WHERE or inside a FILTER); a plain query with no status test at all gets the funnel AND-ed
     into its WHERE. Nothing changes while file_status is locked (the KI-074 reading stays)."""

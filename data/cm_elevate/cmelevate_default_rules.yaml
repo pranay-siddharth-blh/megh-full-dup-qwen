@@ -511,14 +511,14 @@ default_rules:
 
   - condition: "pending_term"
     default_value: "valid_forward_file_status_pending_or_sendback"
-    assumption_text: "Pending is taken as applications verified Valid, with the file forwarded, whose file status is Pending or Send Back - about 7,335."
-    sql_effect: "WHERE data_verified = 'Valid' AND LOWER(current_file_status) = 'forward' AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')"
+    assumption_text: "Pending is taken as applications verified Valid, with the file forwarded or sent back (not resubmitted), whose file status is Pending or Send Back - about 7,338."
+    sql_effect: "WHERE data_verified = 'Valid' AND (LOWER(current_file_status) = 'forward' OR LOWER(current_file_status) LIKE 'sendback%') AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')"
     note:
       critical: true
       text: >
         User decision 2026-10-30, superseding the 2026-09-28 'On Hold' reading. On Hold is
-        NOT pending; Invalid / Wrong / On Hold, resubmit / sendback to vdv/citizen and
-        Rejected are reported only when the user names them. file_status lives inside
+        NOT pending; Invalid / Wrong / On Hold, resubmit and Rejected are reported only when
+        the user names them. file_status lives inside
         scheme_specific, which the chatbot's database role has not been allowed to read
         since 2026-10-16; while it cannot, say the pending count is not available and give
         the recorded figures. NOT the onhold boolean, which is FALSE on every row and would

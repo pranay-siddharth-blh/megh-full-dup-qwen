@@ -1,5 +1,5 @@
 """
-CM Elevate "pending" = Valid -> forward -> file_status Pending / Send Back (user decision
+CM Elevate "pending" = Valid -> forward or sendback -> file_status Pending / Send Back (user decision
 2026-10-30, D-B1-CME-01), superseding the KI-074 On Hold reading.
 
 file_status lives inside curated.v_cm_elevate.scheme_specific, which the chatbot's database
@@ -29,7 +29,7 @@ FUNNEL_TAIL = "->> 'file_status' IN ('Pending', 'Send Back')"
 OPEN = {"curated.v_cm_elevate": [{"column": "request_id"}, {"column": "scheme_specific"}]}
 LOCKED = {"curated.v_cm_elevate": [{"column": "request_id"}, {"column": "data_verified"}]}
 WF = "/* cme-sector-workflow */ SELECT 1"
-ONE = {"pending": 7335, "sent_back": 90, "on_hold": 911, "forward": 8942, "resubmit": 3, "sendback": 3,
+ONE = {"pending": 7338, "sent_back": 90, "on_hold": 911, "forward": 8942, "resubmit": 3, "sendback": 3,
        "applications": 8948}
 
 
@@ -48,7 +48,8 @@ def test_gate_is_closed_without_the_live_schema(monkeypatch):
 
 def test_gate_opens_when_scheme_specific_is_readable(readable):
     assert si.cme_file_status_readable()
-    assert p._cme_pending_target().startswith("data_verified = 'Valid' AND LOWER(current_file_status) = 'forward'")
+    assert p._cme_pending_target().startswith("data_verified = 'Valid' AND (LOWER(current_file_status) = 'forward' OR")
+    assert "LIKE 'sendback%')" in p._cme_pending_target() and "resubmit" not in p._cme_pending_target()
 
 
 def test_target_is_on_hold_while_locked(monkeypatch):
@@ -60,7 +61,8 @@ def test_target_is_on_hold_while_locked(monkeypatch):
 def test_workflow_query_counts_the_funnel_first(readable):
     sql, params, _ = p._cme_workflow_query("How many CM Elevate applications are pending?", {})
     assert "cme-sector-workflow" in sql and params == []
-    assert ("FILTER (WHERE data_verified = 'Valid' AND LOWER(current_file_status) = 'forward' "
+    assert ("FILTER (WHERE data_verified = 'Valid' AND (LOWER(current_file_status) = 'forward' "
+            "OR LOWER(current_file_status) LIKE 'sendback%') "
             "AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')) AS pending") in sql
     assert "FILTER (WHERE scheme_specific ->> 'file_status' = 'Send Back') AS sent_back" in sql
     assert sql.index("AS pending") < sql.index("AS on_hold")
@@ -74,8 +76,8 @@ def test_workflow_query_has_no_file_status_while_locked(monkeypatch):
 
 def test_pending_answer_states_the_count_the_rule_and_the_leftovers(readable):
     a = p._cme_sector_answer("How many CM Elevate applications are pending?", WF, [dict(ONE)], {})
-    assert a.startswith("7,335 CM Elevate applications are pending across Meghalaya (of 8,948).")
-    assert "Pending means: data verified Valid, file status forward, and file status Pending or Send Back." in a
+    assert a.startswith("7,338 CM Elevate applications are pending across Meghalaya (of 8,948).")
+    assert "Pending means: data verified Valid, file forwarded or sent back (not resubmitted), and file status Pending or Send Back." in a
     assert "911 on hold at data verification" in a and "Invalid or Wrong" in a
     assert "doesn't record" not in a
 
@@ -100,7 +102,7 @@ def test_pending_ranked_by_programme(readable):
 def test_sent_back_is_the_file_status_decision(readable):
     a = p._cme_sector_answer("How many applications were sent back?", WF, [dict(ONE)], {})
     assert a.startswith("90 CM Elevate applications across Meghalaya have the file status Send Back (of 8,948)")
-    assert "counted among the 7,335 pending" in a
+    assert "counted among the 7,338 pending" in a
 
 
 def test_the_locked_answer_is_unchanged(monkeypatch):
@@ -143,8 +145,8 @@ def test_a_pending_query_with_no_status_test_gets_the_funnel(readable):
 
 
 def test_a_query_already_on_the_funnel_is_left_alone(readable):
-    sql = ("SELECT COUNT(*) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND LOWER(current_file_status) = 'forward' "
-           "AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')")
+    sql = ("SELECT COUNT(*) FROM curated.v_cm_elevate WHERE data_verified = 'Valid' AND (LOWER(current_file_status) = 'forward' "
+           "OR LOWER(current_file_status) LIKE 'sendback%') AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')")
     assert p._cm_elevate_pending_funnel("How many applications are pending?", CME, sql) == sql
 
 
@@ -208,5 +210,5 @@ def test_prompt_rule_and_vocabulary_follow_the_gate(monkeypatch):
 def test_the_live_pending_token_has_its_own_query():
     from app import data_facts as df
     assert "cm_elevate_pending" in df._QUERIES and "scheme_specific ->> 'file_status'" in df._QUERIES["cm_elevate_pending"]
-    assert df.FACTS["cme_pending"][0] == "7,335"
-    assert df.render("[[cme_pending]] pending") == "7,335 pending"
+    assert df.FACTS["cme_pending"][0] == "7,338"
+    assert df.render("[[cme_pending]] pending") == "7,338 pending"

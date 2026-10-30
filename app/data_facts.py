@@ -86,7 +86,7 @@ _QUERIES = {
     # which only keeps the token at its default — the other CM Elevate figures are unaffected
     "cm_elevate_pending": """
         SELECT COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid'
-               AND LOWER(current_file_status) = 'forward'
+               AND (LOWER(current_file_status) = 'forward' OR LOWER(current_file_status) LIKE 'sendback%')
                AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')) AS cme_pending
         FROM curated.v_cm_elevate""",
     "cm_elevate_dups": """
@@ -185,8 +185,8 @@ def _fy_gaps(years) -> str:
 
 # name -> (default: the figure typed in the rule before 2026-10-29, formatter over the merged row)
 FACTS = {
-    # CM Elevate pending rule (2026-10-30): Valid + forward + file_status Pending / Send Back
-    "cme_pending": ("7,335", lambda v: _n(v["cme_pending"])),
+    # CM Elevate pending rule (2026-10-30): Valid + forward-or-sendback + file_status Pending / Send Back
+    "cme_pending": ("7,338", lambda v: _n(v["cme_pending"])),
     # Focus Plus
     "fp_rows": ("385,671", lambda v: _n(v["fp_rows"])),
     "fp_lgdblock_null": ("57,649", lambda v: _n(v["fp_lgdblock_null"])),
