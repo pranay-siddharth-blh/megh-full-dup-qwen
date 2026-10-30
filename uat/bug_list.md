@@ -258,6 +258,7 @@
 
 ## Commits on uat-cm-elevate-exhaustive (vs Main)
 ```
+6c4aac9 UAT: final results 4,959 / 4,959 pass, report, patch, bug list, no-impact proof (decisions 22-27)
 9253603 Spelling pre-pass: an exact village name that ENDS on the corrected word is left whole ("POMLAKRAI RNGI SHYLLONG" lost its last word to the Shillong block; UAT C02-CNT-278328)
 2edd11a Spelling: a short typed name (up to 6 letters) is read by sound only when its plain spelling is one edit from the village — in village_matches, so the resolver and the pre-pass agree ("Asgard village" -> not found; UAT C14-INV-14)
 67a3ac0 Spelling pre-pass: a short "<name> village" is corrected only for one plain-letter edit ("Asgard village" was read as Askara; UAT C14-INV-14)

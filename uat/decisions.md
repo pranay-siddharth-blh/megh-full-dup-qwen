@@ -30,12 +30,12 @@
     <block> block") so a shared name does not pause; expected 0 stated plainly, no "data not available" wording.
     The 72 `Unresolved` placeholder rows of dim_geography are not villages and are excluded.
 12. **"pending"** — superseded on 2026-10-30 by the user's rule (D-B1-CME-01): pending = `data_verified = 'Valid'`
-    AND `LOWER(current_file_status) = 'forward'` AND `scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')`
-    (7,335 statewide on 2026-10-30); On Hold is not pending. The code is gated on the chatbot's role being able to
+    AND `current_file_status` forward or sendback (`LOWER(...) = 'forward' OR LIKE 'sendback%'`; resubmit out) AND
+    `scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')` (7,338 statewide on 2026-10-30); On Hold is not pending. The code is gated on the chatbot's role being able to
     read `scheme_specific` (locked since 2026-10-16; grant requested, KI-624). Until the grant the bot keeps the
     2026-10-26 behaviour (status not recorded; recorded figures given) and the rows below stand as run. Re-pin
-    when the grant lands: C01-018 levels 0/1/2/3/4 = 0 / 7,025 / 309 / 0 / 1 (the rule AND the level); C01-019
-    SEED 3,146, Piggery 2,429, Poultry 470; C01-020 Ri Bhoi 2,024, West Garo Hills 1,619, East Khasi Hills 985;
+    when the grant lands: C01-018 levels 0/1/2/3/4 = 3 / 7,025 / 309 / 0 / 1 (the rule AND the level); C01-019
+    SEED 3,146, Piggery 2,430, Poultry 470; C01-020 Ri Bhoi 2,024, West Garo Hills 1,619, East Khasi Hills 986;
     C01-021 = 13, 6, 0, 50, 1, 5, 0, 0, 0, 2, 0, 0 in row order; C01-028 (not recorded) 289 of 306.
 13. **CM Elevate × FY / date.** A financial-year or date word pins **CM Elevate Legacy** (dataset choice, user
     decision 2026-10-22, `_cm_elevate_dataset_choice`): only Legacy holds years. So for categories 4, 6, 7-FY, 8 the
@@ -157,3 +157,6 @@ port 8401 and the Focus Legacy worktree still untouched). Each choice and why:
     (176fe54), final5 1,820 (1f1ab9c), final4 2,177 (d348482, 04:51–06:05). The final4 rows were not re-run after
     the later commits; `final12` re-runs exactly those 2,177 on the clean checkout as a confirmation (decision 24
     chose the crucial set for the 11:15 deadline).
+28. **13:06 — confirmation run done.** `final12` (clean checkout, commit 9253603): 2,177 / 2,177 pass, 0 errors, 0 DB
+    writes. Every one of the 4,959 results now comes from a run on 1f1ab9c or later (final5 1,820; final6b 317;
+    final8 237; final9 1; final11 407; final12 2,177); no row older than the fixes it depends on remains.
