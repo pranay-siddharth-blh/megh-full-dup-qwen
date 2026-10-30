@@ -90,8 +90,9 @@ async def lifespan(app: FastAPI):
     await _try("qdrant", init_qdrant())
     load_annotations()                    # local YAML, no network
     load_entity_resolver()                # local YAML, no network
-    from app.entity_resolver import load_village_names
+    from app.entity_resolver import load_village_names, load_geography_constituencies
     await _try("village_names", load_village_names())  # bare village names -> a place (2026-10-21)
+    await _try("ac_names", load_geography_constituencies())  # urban constituencies no catalogue has (2026-10-30)
     from app import spelling
     spelling.warm()                       # misspelt names: build the gazetteer now, not on a user's turn
     await _try("app_schema", appdb.ensure_schema())     # app.* tables + seed users

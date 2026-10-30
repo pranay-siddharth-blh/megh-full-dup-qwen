@@ -449,11 +449,12 @@ def expectations(key, turns):
                     and "FOCUS_PLUS" not in _sql(t3) and _has(t3, "DALU"), t3["sql"]),
               check("T4 switches to Focus Legacy only", t4["schemes"] == ["Focus Legacy"]
                     and "V_EMPLOYMENT" not in _sql(t4), t4["sql"]),
-              # D-064 (user 2026-10-22, re-confirmed 2026-10-27, KI-407): a bare
-              # "CM Elevate" count with no money word asks "CM Elevate or CM Elevate
-              # Legacy?" — it replaced the 2026-10-12 Legacy default this step used to pin.
-              check("T5 a bare CM Elevate count asks which dataset (D-064)",
-                    t5["chain"][0].get("rule") == "cm-elevate-dataset",
+              # D-090 (user 2026-10-29, RAG fix report Issue 8): "applications /
+              # applicants / applied" settle a bare "CM Elevate" as the applications
+              # dataset — no dataset pause. (D-064, 2026-10-22, asked here; a bare
+              # "CM Elevate records" with no such word still asks.)
+              check("T5 'applications' answers from CM Elevate applications (D-090)",
+                    t5["chain"][0].get("rule") != "cm-elevate-dataset" and t5["schemes"] == ["CM Elevate"],
                     [t5["chain"][0].get("rule"), t5["schemes"]])]
     if key == "H":
         t3 = turns[2]

@@ -1215,6 +1215,33 @@ Brief: `megh_chatbot_spelling_fix_prompt.md` (T1-T10). VERIFIED in code:
 - **Adding an alias / a scheme**: an alias goes in `data/spelling_aliases.yaml` (restart, or `spelling.reload()`); a
   district / block alias in the scheme's `*_entity_resolver.yaml` is picked up automatically. A new scheme needs its
   `schemes:` entry here plus the registries in docs/SCHEMES.md §Adding a scheme.
+- **2026-10-30 (Focus + / CM Elevate Legacy sheet re-test, KI-648/650/652)**: a word in the few-shot term map
+  (`annotations._FEWSHOT_SYNONYMS`, e.g. the stored "Tranch") is a known word, never a place; a sound / fuzzy
+  multi-word reading never starts on an ordinary word ("across South West Garo Hills" is not "across South West" ->
+  a district); a span followed by "constituency" is read against the constituency catalogue first and is never
+  rewritten to a same-named block ("William Nagar constituency").
+
+### 2.9h Focus + / CM Elevate Legacy sheet re-test fixes (2026-10-30, KI-648..KI-654; LIVE-VERIFIED in-process)
+- **Rephrase check** (c02 `_rephrase_violation`): a how-many / number-of question rephrased as "how much" is a
+  changed measure (rejected; the original goes on). KI-653.
+- **Verifier false positive** (c11 `_verifier_wants_amount_for_count`): on a how-many question whose SQL COUNTs and
+  sums nothing, a complaint asking for a money SUM is discarded ("how many people got Focus Plus money" = 419
+  beneficiaries, not ₹52.4 lakh). KI-653.
+- **Follow-up routing** (c01 `_typed_intent`): a typed "what is it / that …" with a scope (statewide, a place, a year)
+  is not decisive for KNOWLEDGE; the rewrite is classified ("What is it for the whole state?" -> the statewide
+  figure). KI-654.
+- **Focus Plus block guard** (`schemes/focus_plus.py` `_focusplus_lgd_only_block`): an equality on a known raw block
+  is compared in upper case on both sides (`block_name_raw` is stored title case); an `lgd_block` equality naming a
+  raw block moves to `UPPER(block_name_raw)` (not when the SQL filters a village). KI-649.
+- **Verifier false positive** (c11 `_verifier_complaint_is_cosmetic`): the "use the resolved value verbatim, without
+  UPPER()" complaint is discarded when the resolved block is filtered (as for constituencies before). KI-649.
+- **Breakdown list lines** (c12 `_c12s_e9_extras`): the other measures shown per line are the ones the question
+  names first, then SQL order (max 3); `_shaped_fallback` gets the question too. KI-651.
+- **CM Elevate (applications) Sericulture** (`schemes/cm_elevate.py` `_cme_sericulture_split_note`): a spinning /
+  weaving question on the combined scheme is told no split exists there (SME rule
+  `sericulture_spinning_weaving_split_assumed`). KI-656.
+- Live runners: `tests/sheet_runs/fp_run.py`, `cl_run.py` (sheet + hierarchy) and NEW `tests/sheet_runs/fpcl_perm.py`
+  (46 permutation / multi-turn scenarios, DB truth). See TESTING.md.
 
 ### 2.9h MGNREGA UAT round fixes (2026-10-30, KI-635..KI-639; LIVE-VERIFIED in-process)
 Found by `tests/sheet_runs/mg_uat.py` / `mg_uat_villages.py` (the MGNREGA sheet on the answer-with-defaults rules,

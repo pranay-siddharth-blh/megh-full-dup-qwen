@@ -354,7 +354,7 @@ async def _focusplus_lgd_only_block(schemes: list[str], sql: str) -> str:
     "couldn't build a working query" (5/5). A literal with the same letters as
     exactly one raw block (punctuation / underscore / spacing ignored, as KI-112
     does for CM Elevate) is that block."""
-    if schemes != ["Focus Plus"] or not sql or not sql_ast.references_column(sql, "block_name_raw"):
+    if schemes != ["Focus Plus"] or not sql or not sql_ast.references_column(sql, "block_name_raw", "lgd_block"):
         return sql
     try:
         raw = await _focusplus_raw_block_names()
@@ -369,7 +369,28 @@ async def _focusplus_lgd_only_block(schemes: list[str], sql: str) -> str:
     for b in raw:
         by_letters.setdefault(_squash(b.upper()), []).append(b)
 
+    # A block figure filtered on lgd_block under-reports (lgd_block is NULL on 15% of
+    # rows): "Mawpat block" ran `lgd_block = 'MAWPAT'` -> ₹1,06,52,500 for ₹1,29,27,500,
+    # "Rongram block" `UPPER(lgd_block) = 'RONGRAM'` -> ₹3.47 crore for ₹6.43 crore
+    # (FOCUS-004 re-test 2026-10-30), although the prompt says never to. A name that IS a
+    # raw block is moved to block_name_raw — not inside a village question, whose rows
+    # are mapped by LGD.
+    village_q = sql_ast.references_column(sql, "village_code", "lgd_village_name")
+
     def _swap(tree: exp.Expression) -> None:
+        if not village_q:
+            for node in list(tree.find_all(exp.EQ)):
+                for c_side, v_side in ((node.this, node.expression), (node.expression, node.this)):
+                    col = sql_ast._unwrap(c_side) if c_side is not None else None
+                    val = sql_ast._unwrap(v_side) if v_side is not None else None
+                    if isinstance(col, exp.Column) and col.name.lower() == "lgd_block" \
+                            and isinstance(val, exp.Literal) and val.is_string \
+                            and val.this.strip().upper() in raw:
+                        name = val.this.strip().upper()
+                        logger.info("Focus Plus: block %r filtered on lgd_block -> block_name_raw", name)
+                        raw_col = exp.column("block_name_raw", table=col.table or None)
+                        node.replace(exp.EQ(this=exp.Upper(this=raw_col), expression=exp.Literal.string(name)))
+                        break
         for node in list(tree.find_all(exp.EQ, exp.ILike)):
             hit = _fp_raw_block_comparison(node)
             if hit is None:
@@ -379,6 +400,14 @@ async def _focusplus_lgd_only_block(schemes: list[str], sql: str) -> str:
             # an ILIKE pattern ('%siju%') is checked on its name and stays a pattern
             wild = isinstance(node, exp.ILike) and "%" in name
             if not name or name.replace("%", "").strip() in raw:
+                # The stored value is title case ("Mawkynrew"); the generator sometimes
+                # drops the UPPER(): `block_name_raw = 'MAWKYNREW'` matched nothing and
+                # was answered "the data does not cover … Mawkynrew" (FOCUS-004 run
+                # 2026-10-30: Mawkynrew, Mawphlang). An equality on a known block is
+                # compared in upper case on both sides.
+                if isinstance(node, exp.EQ) and name and (value != name or not isinstance(col.parent, exp.Upper)):
+                    logger.info("Focus Plus: block literal %r compared in upper case", value)
+                    node.replace(exp.EQ(this=exp.Upper(this=col.copy()), expression=exp.Literal.string(name)))
                 continue
             same = [] if wild else by_letters.get(_squash(name), [])
             if len(same) == 1:
@@ -389,6 +418,29 @@ async def _focusplus_lgd_only_block(schemes: list[str], sql: str) -> str:
             lgd = exp.column("lgd_block", table=col.table or None)
             node.replace(exp.ILike(this=lgd, expression=exp.Literal.string(name)) if wild
                          else exp.EQ(this=lgd, expression=exp.Literal.string(name)))
+        return None
+    return sql_ast.transform(sql, _swap)
+
+
+def _focusplus_ac_name_case(schemes: list[str], sql: str) -> str:
+    """Focus Plus ac_name is stored Title case ("East Shillong", "Nongkrem"); the generator
+    wrote `ac_name = 'EAST SHILLONG'`, matched nothing and answered "0 … not a known
+    assembly constituency" (all-constituencies run 2026-10-30: East / North / West Shillong).
+    An equality on ac_name is compared in upper case on both sides."""
+    if schemes != ["Focus Plus"] or not sql or not sql_ast.references_column(sql, "ac_name"):
+        return sql
+
+    def _swap(tree: exp.Expression) -> None:
+        for node in list(tree.find_all(exp.EQ)):
+            for c_side, v_side in ((node.this, node.expression), (node.expression, node.this)):
+                col = sql_ast._unwrap(c_side) if c_side is not None else None
+                val = sql_ast._unwrap(v_side) if v_side is not None else None
+                if isinstance(col, exp.Column) and col.name.lower() == "ac_name" \
+                        and isinstance(val, exp.Literal) and val.is_string \
+                        and (val.this != val.this.upper() or not isinstance(col.parent, exp.Upper)):
+                    node.replace(exp.EQ(this=exp.Upper(this=col.copy()),
+                                        expression=exp.Literal.string(val.this.strip().upper())))
+                    break
         return None
     return sql_ast.transform(sql, _swap)
 

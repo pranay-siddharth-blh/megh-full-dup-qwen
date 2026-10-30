@@ -1640,6 +1640,37 @@ def fold_words(text: str) -> "list[str]":
     return "".join(c if c.isalnum() or c.isspace() else " " for c in fold(text or "")).split()
 
 
+# Constituencies that only curated.dim_geography knows. Only MGNREGA ships a constituency
+# catalogue (56 names, its own coverage), and resolve_dimension borrows it for every
+# scheme; the four urban Shillong constituencies have no MGNREGA rows, so Focus Plus's
+# "beneficiaries in East Shillong constituency" resolved nothing and was framed "all of
+# Meghalaya (statewide)" (all-constituencies run 2026-10-30). Read from the data, not
+# typed: names no catalogue resolves are held here, under a key that is not a scheme.
+_GEOGRAPHY_ONLY = "_dim_geography"
+
+
+async def load_geography_constituencies() -> int:
+    """Add the dim_geography constituencies no catalogue knows. Best-effort."""
+    try:
+        rows = await fetch_rows("SELECT DISTINCT ac_name AS a FROM curated.dim_geography WHERE ac_name IS NOT NULL")
+    except Exception as e:  # noqa: BLE001 — the scheme catalogues still resolve the rest
+        logger.warning("dim_geography constituencies not loaded: %s", e)
+        return 0
+    _catalog.pop(_GEOGRAPHY_ONLY, None)
+    extra = []
+    for r in rows:
+        name = str(r["a"] or "").strip()
+        if name and not any(_resolve_in_catalog(d.get("assembly_constituency") or [], name, "assembly_constituency",
+                                                _blocked.get(s)).status == "resolved"
+                            for s, d in _catalog.items()):
+            extra.append({"canonical": name.upper(), "display": name, "aliases": []})
+    if extra:
+        _catalog[_GEOGRAPHY_ONLY] = {"assembly_constituency": extra}
+        logger.info("entity_resolver: %d constituencies from dim_geography only: %s",
+                    len(extra), [e["display"] for e in extra])
+    return len(extra)
+
+
 async def load_village_names(force: bool = False) -> int:
     """Fill the village-name index from curated.dim_geography (+ aliases).
     Best-effort: a DB failure leaves the index empty and is retried at most

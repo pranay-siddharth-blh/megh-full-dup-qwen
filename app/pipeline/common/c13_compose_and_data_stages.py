@@ -293,7 +293,7 @@ Answer:"""
         if still_bad:
             logger.warning("compose_response: retry still wrong — using deterministic answer")
             # in the question's shape when it has one (a ranked list, a comparison …)
-            answer = (_shaped_fallback(shape, _shape_rows, schemes, entities)
+            answer = (_shaped_fallback(shape, _shape_rows, schemes, entities, question)
                       or _framed_fallback(rows if len(rows) > 1 else preview, schemes, entities))
 
     # Deterministic safety net for the opposite failure: the query DID return a
@@ -322,7 +322,7 @@ Answer:"""
             # chart/table built from the same rows showed real data.
             logger.warning("compose_response: hedged over a %d-row breakdown %r — "
                            "deterministic answer", len(preview), answer[:160])
-            answer = _shaped_fallback(shape, _shape_rows, schemes, entities) or _framed_fallback(rows, schemes, entities)
+            answer = _shaped_fallback(shape, _shape_rows, schemes, entities, question) or _framed_fallback(rows, schemes, entities)
     # A list answer must state the list's true size: "Ten villages in the
     # Dadenggre constituency received employment" for 135 villages, and the
     # fallback's "Here are the 40 results" for 114 (it was handed only the
@@ -335,7 +335,7 @@ Answer:"""
                              for n in {len(rows), len(_shape_rows)} | _per_scheme_sizes):
         logger.warning("compose_response: answer states a list size other than %d — deterministic answer",
                        len(rows))
-        answer = _shaped_fallback(shape, _shape_rows, schemes, entities) or _framed_fallback(rows, schemes, entities)
+        answer = _shaped_fallback(shape, _shape_rows, schemes, entities, question) or _framed_fallback(rows, schemes, entities)
     answer = _c12s_fix_trend_direction(answer, shape, _shape_rows)   # KI-441
     answer = _cme_level_pending_wording(question, schemes, answer)  # KI-422
     answer = _fp_cohort_zero_answer(question, schemes, rows, answer)  # KI-365

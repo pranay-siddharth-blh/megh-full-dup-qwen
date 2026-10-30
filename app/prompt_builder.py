@@ -333,6 +333,14 @@ def _entities_block(entity_result: dict, question: str = "",
                         "COUNT(DISTINCT v.request_id). This is the constituency, NOT a block of "
                         "the same name — never filter lgd_block for it; qualify every place "
                         "column with v. (dim_geography has columns of the same names).")
+                elif list(schemes or []) == ["Focus Plus"]:
+                    # v_focus_plus carries its own ac_name, stored Title case
+                    # ("East Shillong"); a bare `ac_name = 'EAST SHILLONG'` matched
+                    # nothing (all-constituencies run 2026-10-30).
+                    lines.append(
+                        f"  UPPER(ac_name) = UPPER({v!r})   -- curated.v_focus_plus has its own "
+                        "ac_name column (stored Title case). This is the constituency, NOT a block "
+                        "of the same name — never filter block_name_raw or lgd_block for it.")
                 elif list(schemes or []) == ["PMAY-G"]:
                     # v_pmay carries ac_name itself (from dim_geography, Title Case
                     # 'Amlarem'). The MGNREGA line below sent the model to
@@ -400,7 +408,9 @@ def _entities_block(entity_result: dict, question: str = "",
                     # villages). Say so outright, since nothing in the resolved
                     # entities tells the generator not to.
                     lines.append(
-                        "      CONSTITUENCY ONLY: filter on assembly_constituency_name and "
+                        "      CONSTITUENCY ONLY: filter on "
+                        + ("ac_name" if list(schemes or []) == ["Focus Plus"] else "assembly_constituency_name")
+                        + " and "
                         "NOTHING ELSE for geography. Do NOT add lgd_block, lgd_district or "
                         "village_code conditions — an assembly constituency cuts across "
                         "blocks and districts, so its name is usually NOT a block or "
