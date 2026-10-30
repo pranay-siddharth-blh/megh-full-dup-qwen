@@ -588,13 +588,6 @@ def _village_at(toks: list[Tok], i: int) -> "tuple[int, str, int] | None":
             return None
         near = village_matches(name, limit=2)
         if near and (len(near) == 1 or near[1][1] > near[0][1]):
-            # A short name is rewritten only for ONE plain-letter edit: "Asgard village" (an
-            # invented place) was corrected to Askara by sound, two letters away (CM Elevate
-            # UAT 2026-10-30, C14-INV-14). Longer names keep the sound-key allowance.
-            plain = DamerauLevenshtein.distance(_letters(name).lower(), _letters(near[0][0]).lower())
-            lim = 1 if len(_letters(name)) <= 6 else max_edits(len(_letters(name)))
-            if plain > lim:
-                return None
             return j, _title(near[0][0]), near[0][1]
         return None
     return None
@@ -826,6 +819,11 @@ def village_matches(text: str, limit: int = 5) -> list[tuple[str, int]]:
     # Equal sound distance: the closer plain spelling first ("darnggre" is one sound
     # edit from several villages; DARONGGRE is the one spelt nearest), never A-Z.
     typed = _letters(text)
+    # A short typed name (up to 6 letters) is read by sound only when its PLAIN spelling is
+    # one edit from the village: "asgard" (an invented place) sounded like ASKAPARA, two
+    # letters away, and was answered 0 for that village (CM Elevate UAT 2026-10-30, C14-INV-14).
+    if len(typed) <= 6:
+        hits = [h for h in hits if DamerauLevenshtein.distance(typed, _letters(h[1]), score_cutoff=1) <= 1]
     hits.sort(key=lambda h: (h[0], -fuzz.ratio(typed, _letters(h[1])), h[1]))
     return [(n, d) for d, n in hits[:limit]]
 

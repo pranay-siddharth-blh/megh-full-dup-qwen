@@ -66,3 +66,16 @@ scheme before routing. Shared code.
 'CENTRE')" -> 5 (true 4 for CENTRE VILLAGE, village_code 277685). `_village_at` treats the stored name's own word
 "VILLAGE" as the level word and corrects "CENTRE" by sound. Proposed: before correcting, skip when
 `er.is_village_name(<span + the level word>)` is True (the whole text is an exact village name).
+
+## C. Status 2026-10-30 ~11:00 — applied on this branch (user: "do whatever you want … fix all the issues")
+| Item | Applied in | Note |
+|---|---|---|
+| N1 ward names | 7f9d8f7 (app/spelling.py, app/entity_resolver.py) | exact ward / village names left whole; see bugs B29 |
+| N2 "<X> village of <X> block" | not applied | no test in the final matrix fails on it (C03 192/192 in final5) |
+| N3 bank account numbers | 4bf022f (app/guardrails.py) + 7f9d8f7 | refusal as personal records; B30 |
+| N4 CENTRE VILLAGE | 7f9d8f7 | is_stored_village_name guard; B29 |
+| new: Shillong constituencies | 2952b14 (app/entity_resolver.py `<dim>_supplement`, CM Elevate YAML) | B31 |
+| new: short invented names | 67a3ac0 (app/spelling.py) | B32 |
+Reach: every scheme's spelling pre-pass, guardrail and resolver. Full unit suite (5,131) + 14 scripts pass on
+each commit. These are on branch `uat-cm-elevate-exhaustive` only; Focus Legacy's worktree and main are untouched.
+Merging is the user's decision.

@@ -75,8 +75,28 @@ sheet(ws, ["Category", "Generated", "Executed", "Passed", "Failed", "Errors", "D
 ws.append([])
 ws.append([f"Unique test IDs in results.csv: {len(last)} / matrix total {len(matrix)}"])
 ws.append([f"Generated {time.strftime('%Y-%m-%d %H:%M')} from uat/test_matrix.csv and uat/results.csv (latest row per test)."])
+ws.append([])
+ws.append(["Run of each result (latest row per test)", "Tests", "Passed"])
+import collections
+_runs = collections.Counter(); _runs_p = collections.Counter()
+for t in matrix:
+    r = last.get(t["id"])
+    if r:
+        _runs[r.get("run", "")] += 1
+        _runs_p[r.get("run", "")] += r.get("status") == "Pass"
+for k in sorted(_runs, key=lambda x: -_runs[x]):
+    ws.append([k, _runs[k], _runs_p[k]])
+ws.append([])
+ws.append(["Sheet test case", "Questions", "Passed", "Status"])
+_tc = collections.defaultdict(lambda: [0, 0])
+for t in matrix:
+    if t["tc"].startswith("CM-ELEVATE"):
+        _tc[t["tc"]][0] += 1
+        _tc[t["tc"]][1] += last.get(t["id"], {}).get("status") == "Pass"
+for k in sorted(_tc):
+    ws.append([k, _tc[k][0], _tc[k][1], "Working" if _tc[k][0] == _tc[k][1] else "Not working"])
 
-HDR = ["Test ID", "Category", "Input", "Expected (SQL)", "Actual (App)", "Status", "Root Cause", "Fix Commit"]
+HDR = ["Test ID", "Category", "Input", "Expected (SQL)", "Actual (App)", "Status", "Root Cause", "Fix Commit", "Run"]
 for c in cats:
     ws = wb.create_sheet(c[:31])
     data = []
@@ -95,8 +115,8 @@ for c in cats:
         if rc:
             root = (rc.get("root", "") + (" | " + root if root and r.get("status") != "Pass" else "")).strip(" |")
         data.append([t["id"], c, q[:2000], exp[:2000], (r.get("actual") or "")[:3000], r.get("status", "Not run"),
-                     root[:1500], (rc or {}).get("commit", "") if rc else ""])
-    sheet(ws, HDR, data, [26, 18, 50, 45, 70, 9, 50, 14], status_col=6)
+                     root[:1500], (rc or {}).get("commit", "") if rc else "", r.get("run", "")])
+    sheet(ws, HDR, data, [26, 18, 50, 45, 70, 9, 50, 14, 10], status_col=6)
 ws = wb.create_sheet("Bugs")
 sheet(ws, ["Bug", "Symptom", "Root cause", "Fix", "Files", "Commit", "Shared code?"],
       [[b.get("bug"), b.get("symptom"), b.get("root"), b.get("fix"), b.get("files"), b.get("commit", ""), b.get("shared", "")]

@@ -36,12 +36,12 @@
   "commit": ""
  },
  "C06-": {
-  "root": "D1 (disputed): FY pins CM Elevate Legacy; Legacy holds 2024-25 / 2025-26 only",
-  "commit": ""
+  "root": "B28: FY question paused on Legacy",
+  "commit": "882879d"
  },
  "C04-FY": {
-  "root": "D1 (disputed) / R7",
-  "commit": ""
+  "root": "B28: FY question paused on Legacy",
+  "commit": "882879d"
  },
  "C03-": {
   "root": "B20 / B23 / B24 (twins)",
@@ -74,5 +74,29 @@
  "C03-ALONE-massar": {
   "root": "B27 (O2): LIMIT 1 on the twin query",
   "commit": "8b8f2f0"
+ },
+ "C12-AC-east_shillong": {
+  "root": "B31: Shillong constituencies missing from the borrowed catalogue",
+  "commit": "2952b14"
+ },
+ "C11-NAME-5": {
+  "root": "B30: account numbers not refused",
+  "commit": "4bf022f"
+ },
+ "C14-INV-14": {
+  "root": "B32: short invented name corrected by sound",
+  "commit": "67a3ac0"
+ },
+ "C02-CNT-277685": {
+  "root": "B29: CENTRE VILLAGE corrected to Kentra",
+  "commit": "7f9d8f7"
+ },
+ "C02-CNT-71065": {
+  "root": "B29: ward name read as East Garo Hills",
+  "commit": "7f9d8f7"
+ },
+ "C02-CNT-3359": {
+  "root": "B29: ward name start taken as an unknown place",
+  "commit": "7f9d8f7"
  }
 }
