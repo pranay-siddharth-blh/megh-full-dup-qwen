@@ -210,6 +210,11 @@ def _needs_rephrase(question: str) -> bool:
 _REPHRASE_COUNT_NOUNS = (Matcher(W("applicant", "applicants")),
                          Matcher(W("application", "applications")),
                          Matcher(W("beneficiary", "beneficiaries")))
+# A count is not an amount: "In Ri Bhoi, how many people got Focus Plus money?" came
+# back "How much money was given under Focus Plus in Ri Bhoi?" and was answered
+# ₹52,37,500 instead of 419 beneficiaries (permutation run 2026-10-30, FP-P02).
+_REPHRASE_HOW_MANY = Matcher(Alt(Seq("how", "many"), Seq(W("number", "count"), "of")))
+_REPHRASE_HOW_MUCH = Matcher(Seq("how", "much"))
 _REPHRASE_COMPARE_WORD = Matcher(Alt(
     W("compar", prefix=True), W("vs", "versus", "difference"),
     Seq("which", Opt("is"), W("higher", "lower", "more", "less", "greater", "bigger"), sep="space")))
@@ -340,6 +345,9 @@ def _rephrase_violation(original: str, rephrased: str) -> "str | None":
     for _word_matcher in _REPHRASE_COUNT_NOUNS:
         if bool(_word_matcher.search(gloss)) != bool(_word_matcher.search(out)):
             return "measure"
+    if _REPHRASE_HOW_MANY.search(gloss) and not _REPHRASE_HOW_MANY.search(out) \
+            and _REPHRASE_HOW_MUCH.search(out):
+        return "measure"
     # An "&" belongs to a name: "mawkohmit & mawkynsah village" (ONE village) came back
     # "mawkohmit and mawkynsah villages" and was asked "which area?" (Focus Legacy
     # all-villages run 2026-10-12).

@@ -2909,6 +2909,33 @@ async def _cm_elevate_answer_guarantees(question: str, sql: str, rows: list[dict
     answer = _cme_complete_list(question, answer, rows)
     answer = _cme_multi_scheme_total(question, sql, rows, answer)
     answer = _cme_compare_missing_zero(sql, rows, answer)
+    answer = _cme_sericulture_split_note(question, sql, answer)
     # KI-074 decided 2026-09-28 (product owner): "pending" = verification On Hold
     # only. The interim second line with the file_status Pending count is gone.
     return _cme_comparison(question, rows, answer)
+
+
+_CME_SERICULTURE = "Meghalaya Sericulture & Weaving Scheme"
+
+
+def _cme_sericulture_split_note(question: str, sql: str, answer: str) -> str:
+    """SME rule `sericulture_spinning_weaving_split_assumed` (cmelevate_classification_rules.yaml):
+    the applications dataset holds Sericulture as ONE scheme, so a spinning / weaving question
+    is told no such split exists here. "How many applications are recorded under Meghalaya
+    Sericulture & Weaving Scheme (spinning)?" was answered "14 applications for spinning" —
+    the combined figure as if it were spinning's (Legacy sheet TC-12, 2026-10-30). The split
+    (spinning / weaving) is held only in CM Elevate Legacy."""
+    words = [t.low for t in tokens(question or "")]
+    asks_split = "spinning" in words or "handloom" in words or words.count("weaving") >= 2
+    if not asks_split or _CME_SERICULTURE not in sql_ast.filter_values(sql or "", "scheme_name"):
+        return answer
+    note = (f"Note: CM Elevate (applications) holds Sericulture as one scheme — {_CME_SERICULTURE} — "
+            "not split into spinning and weaving, so this figure covers both. The spinning / weaving "
+            "split is recorded only in CM Elevate Legacy.")
+    if "not split" in answer:
+        return answer
+    # the composer's "14 applications for spinning" names a filter the SQL never applied
+    for side in ("spinning", "weaving", "handloom"):
+        for lead in (" for ", " under "):
+            answer = answer.replace(f"{lead}{side}", "").replace(f"{lead}{side.capitalize()}", "")
+    return f"{note}\n\n{answer}"

@@ -1781,6 +1781,11 @@ async def resolve_entities(question: str, schemes: list[str],
                 if prior_resolved.get(_c09_lk):
                     resolved[_c09_lk] = list(prior_resolved[_c09_lk])
                     display.setdefault(_c09_dim, " and ".join(_place_title(str(x)) for x in resolved[_c09_lk]))
+            # A region ("Garo Hills") is a list read as ONE total, not a comparison:
+            # its flag travels with the list, or the follow-up came back per district.
+            if resolved.get("district_list") and prior_resolved.get("district_list_region"):
+                resolved["district_list_region"] = prior_resolved["district_list_region"]
+                display["district"] = str(prior_resolved["district_list_region"])
         _c09_list_carried = bool(resolved.get("district_list") or resolved.get("block_list")) \
             and not _c09_names_place
         # The chat's district is carried only around a place that lies in it:
@@ -1799,9 +1804,15 @@ async def resolve_entities(question: str, schemes: list[str],
             _own_bp = _vp[1] if _vp else None
         _block_elsewhere = bool(_own_bp) and prior_resolved.get("district") \
             and str(_own_bp).upper() != str(prior_resolved["district"]).upper()
+        # The same for a LIST of blocks (a comparison): "Mawphlang and Tikrikilla
+        # blocks" after an East Khasi Hills answer must not keep East Khasi Hills,
+        # or Tikrikilla (West Garo Hills) is filtered away (found 2026-10-29).
+        _blocks_elsewhere = bool(prior_resolved.get("district")) and any(
+            str(d).upper() != str(prior_resolved["district"]).upper()
+            for d in (resolved.get("block_list_districts") or {}).values() if d)
         if not mentions.get("district") and "district" not in resolved and prior_resolved.get("district") \
                 and not resolved.get("assembly_constituency") and not _block_elsewhere \
-                and not _c09_list_carried:
+                and not _c09_list_carried and not _blocks_elsewhere:
             resolved["district"] = prior_resolved["district"]
         elif _block_elsewhere and not mentions.get("district") and "district" not in resolved:
             # The block's own district instead, so the answer says where it is

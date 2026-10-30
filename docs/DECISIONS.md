@@ -2373,6 +2373,14 @@ village-ranking guard no longer demands the exclusion on `v_pmay`. Replaces the 
   still a new question.
 - Both extend D-061 / D-075 narrowly; neither changes what counts as standalone. Tests:
   `tests/test_test_team_report_2026_10_29.py`.
+- **2026-10-30 update — D-A2-CTX-09 is SUPERSEDED in part.** D-089 (user, 2026-10-29: a new chat answers with
+  defaults, no place = statewide, no year = all years; `NEW_CHAT_ASKS_SCOPE=false`) replaces its rules 1 and 3 (a new
+  chat asks the place / the year), and D-090 (user: "applications / applicants / applied" settle a bare CM Elevate as the
+  applications dataset) replaces its rule 6 for those words. Rules 2, 4, 5, 7 stand. The eval's `expect_pause` flags
+  are now mostly inert (those items are answered, and an answered item is scored normally).
+- **DOCUMENTATION CONFLICT — NEEDS VERIFICATION** (not this lane's entries): DECISIONS.md has TWO "D-089" headings
+  (answer with defaults; chat UI audit product decisions) and TWO "D-088" headings (SQL repair time budget; one
+  measure-kind rule). The integrator must renumber one of each pair and fix the references.
 <!-- end lane A2 -->
 
 ### Lane B1 · NL to SQL, schemes & evaluation (KI-510 to KI-539)

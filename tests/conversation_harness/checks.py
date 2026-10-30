@@ -92,15 +92,28 @@ def _num(v) -> float | None:
         return None
 
 
+def _banner_type_words() -> tuple:
+    """The place-type words the banner appends (chat UI audit H-5, 2026-10-29:
+    "East Khasi Hills district", "Umling block"), read from the app's own constants
+    so the harness follows them."""
+    try:
+        from app import pipeline as _p
+        return tuple(_p._BANNER_ONE_TYPE) + tuple(w for _, w in _p._BANNER_LIST_TYPE) + ("constituency",)
+    except Exception:  # noqa: BLE001 — no pipeline: compare exactly
+        return ()
+
+
 def _place_matches(expected: str, actual: str | None) -> bool:
     if expected.lower() == "all":
         return (actual or "").lower() in ("all of meghalaya", "meghalaya")
-    return (actual or "").lower() == expected.lower()
+    a, e = (actual or "").lower(), expected.lower()
+    return a == e or any(a == f"{e} {w}" for w in _banner_type_words())
 
 
 def _year_matches(expected: str, actual: str | None) -> bool:
     if expected.lower() == "none":
-        return actual is None
+        # H-6 (chat UI audit 2026-10-29): no year used reads "All years (FY … to …)"
+        return actual is None or actual.lower().startswith("all years")
     e = expected.lower().replace("fy ", "").strip()
     a = (actual or "").lower().replace("fy ", "").strip()
     return e == a

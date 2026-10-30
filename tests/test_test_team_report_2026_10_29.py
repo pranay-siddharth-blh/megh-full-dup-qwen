@@ -249,3 +249,54 @@ def test_measure_typos_are_corrected_from_the_synonym_table():
     assert p._vocab_typo("persendays") == "persondays"
     assert "metric" in cp.continuation_signals(p._rephrase_gloss("toatal persendays"))
     assert "metric" not in cp.continuation_signals(p._rephrase_gloss("he is my collik remember"))
+
+
+# ── Found in a self-review of these fixes (2026-10-29) ──────────────────────
+
+def test_how_the_scheme_works_questions_are_not_measure_fragments():
+    # the measure vocabulary counts only for a fragment ("and sanctioned?"); a full
+    # question about the rules names the same keyword and stays knowledge
+    for q in ("who approves the sanction?", "is there a sanction limit?"):
+        assert not p._is_measure_only(q), q
+    for q in ("and sanctioned?", "sanctioned?"):
+        assert p._is_measure_only(q), q
+
+
+def _resolver(monkeypatch, mentions):
+    async def extract(text):
+        return dict(mentions)
+
+    async def no_village(*a, **k):
+        return entity_resolver.Resolved("not_found", "village", str(a[0]) if a else "")
+
+    async def none(*a, **k):
+        return None
+
+    async def no_contents(*a, **k):
+        return {"districts": [], "blocks": [], "villages": 0}
+
+    async def empty(*a, **k):
+        return {}
+    for name, fn in (("extract_entity_mentions", extract), ("resolve_village", no_village),
+                     ("_scan_village_in_question", none), ("constituency_contents", no_contents),
+                     ("_mgnrega_village_names", empty), ("village_names_exact", empty)):
+        monkeypatch.setattr(p, name, fn)
+
+
+def test_a_regions_flag_travels_with_its_list(monkeypatch):
+    _resolver(monkeypatch, {})
+    r = asyncio.run(p.resolve_entities("what about 2022-23?", ["PMAY-G"], prior_resolved={
+        "district_list": [WGH, "EAST GARO HILLS"], "district_list_region": "Garo Hills", "year_key": 2023}))
+    assert r["resolved"]["district_list_region"] == "Garo Hills"      # one total, not a comparison
+    assert r["display"]["district"] == "Garo Hills"
+
+
+def test_blocks_in_another_district_do_not_inherit_the_chats_district(monkeypatch):
+    _resolver(monkeypatch, {"blocks": ["Mawphlang", "Tikrikilla"], "year": "2022-23"})
+    cross = asyncio.run(p.resolve_entities("Compare person-days in Mawphlang and Tikrikilla blocks in FY 2022-23",
+                                           ["MGNREGA"], prior_resolved={"district": EKH, "year_key": 2022}))["resolved"]
+    assert cross["block_list"] == ["MAWPHLANG", "TIKRIKILLA"] and not cross.get("district")
+    _resolver(monkeypatch, {"blocks": ["Mawphlang", "Mylliem"], "year": "2022-23"})
+    same = asyncio.run(p.resolve_entities("Compare person-days in Mawphlang and Mylliem blocks in FY 2022-23",
+                                          ["MGNREGA"], prior_resolved={"district": EKH, "year_key": 2022}))["resolved"]
+    assert same.get("district") == EKH                                # both in the chat's district: kept

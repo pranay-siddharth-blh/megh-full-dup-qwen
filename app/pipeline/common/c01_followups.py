@@ -841,8 +841,12 @@ def _is_measure_only(question: str, allow_year: bool = False) -> bool:
     # but no measure FAMILY, "sanctioned" being houses or money (test team report
     # 2026-10-29, Bug 2: after "what is PMAY-G and who is eligible?" it was rewritten
     # against the aside and answered with the sanction process).
+    # Only as a FRAGMENT ("and sanctioned?", "sanctioned?"), never a full question:
+    # "who approves the sanction?" / "is there a sanction limit?" name the same
+    # keyword and ask how the scheme works (_REPHRASE_START: the message opens
+    # like a question).
     return bool(context_policy.metric_families(q) or "total" in _c01_tm_words(q)
-                or context_manager.detect_metric(q))
+                or (context_manager.detect_metric(q) and not _REPHRASE_START.search(q)))
 
 
 def _measure_after_knowledge(question: str, prev: "object", allow_year: bool = True) -> bool:
@@ -903,6 +907,14 @@ def _typed_intent(question: str) -> "str | None":
     if _DATA_HINTS.search(q) and not _KNOWLEDGE_HINTS.search(q):
         return "DATA"
     if _KNOWLEDGE_HINTS.search(q) and not _DATA_HINTS.search(q):
+        # "What is it for the whole state?" after "Focus Plus disbursement in East
+        # Khasi Hills" asks for the same figure in a new scope: "it" points at the
+        # previous answer, so its "what is" is no definition. It went to the reference
+        # documents (press figures) instead of ₹119.74 crore (permutation run
+        # 2026-10-30, MT-16). Undecided: the rewrite is classified.
+        if _CONTEXTLESS_REF.search(q) and (_EXPLICIT_STATEWIDE.search(q) or context_policy.extract_year_keys(q)
+                                           or named_places(q)):
+            return None
         return "KNOWLEDGE"
     return None
 def _is_scheme_term_question(question: str) -> bool:
