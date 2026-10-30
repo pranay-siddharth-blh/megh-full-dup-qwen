@@ -116,3 +116,12 @@ port 8401 and the Focus Legacy worktree still untouched). Each choice and why:
     The 02:35 reduced plan kept only the village applicant count (OFF-003) from C02, so OFF-008 (programme x
     village) and OFF-030 (status-wise counts for a programme in a village) had no test. Added: each on the first
     village of every block. The matrix total grows accordingly; matrix_counts.txt regenerated.
+24. **11:15 — finish in 15–20 minutes, crucial tests only, no loosening.** `final5` (full re-run on 882879d…1f1ab9c)
+    was stopped at 2,076 / 4,837 (2,075 pass; the 1 fail was East Shillong, fixed by 176fe54 / 2952b14). Instead of
+    the remaining ~3,000 (≈90 min), a risk-based set of 555 runs on the final code (`final6b`): every constituency
+    test (resolver change), the new OFF-008 / OFF-030 tests, a geographic spread of 100 villages + 20 wards +
+    CENTRE VILLAGE, FY questions at every level (region / district / block / constituency), all 20 follow-up chats,
+    50 zero / invalid places, the 5 personal-data cases and the 20 rewordings. Then `final7` re-runs the 221
+    constituency tests on 2952b14 (the supplement refactor). Tests not in these runs keep their latest earlier
+    result (final4 / regress5 / regress6 / final5); the report's Summary names the run of every row.
+    Shared-code change in 2952b14 (entity_resolver `<dim>_supplement`): full unit suite + 14 scripts re-run.

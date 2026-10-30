@@ -1,6 +1,6 @@
-TOTAL 4837
+TOTAL 4959
 C01_sheet	674	DB basis: 30 templates; every district (12) / block (66 places) / constituency (60, for 001 and 017) / sector / programme / level; FY: see C06
-C02_village	2170	DB basis: 2170 villages with CM Elevate data x 1 (applicant count)
+C02_village	2292	DB basis: 2170 villages with CM Elevate data x 1 (applicant count) + OFF-008 and OFF-030 on the first village of every block
 C03_shared	192	DB basis: 61 shared names (alone) + 131 villages carrying them (with block)
 C04_places	153	DB basis: 1 state + 3 regions + 12 districts + 66 blocks + 60 constituencies; CM Elevate FYs in DB: 0 -> 9 FY + 1 monthly + 1 YoY refusals
 C06_place_fy	1269	DB basis: 141 places x 9 FYs (CM Elevate holds 0 FYs: every one a refusal)

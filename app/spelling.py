@@ -588,6 +588,13 @@ def _village_at(toks: list[Tok], i: int) -> "tuple[int, str, int] | None":
             return None
         near = village_matches(name, limit=2)
         if near and (len(near) == 1 or near[1][1] > near[0][1]):
+            # A short name is rewritten only for ONE plain-letter edit: "Asgard village" (an
+            # invented place) was corrected to Askara by sound, two letters away (CM Elevate
+            # UAT 2026-10-30, C14-INV-14). Longer names keep the sound-key allowance.
+            plain = DamerauLevenshtein.distance(_letters(name).lower(), _letters(near[0][0]).lower())
+            lim = 1 if len(_letters(name)) <= 6 else max_edits(len(_letters(name)))
+            if plain > lim:
+                return None
             return j, _title(near[0][0]), near[0][1]
         return None
     return None
