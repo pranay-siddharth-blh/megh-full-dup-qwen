@@ -432,13 +432,26 @@ _PII_PEOPLE_STEMS = ("applicant", "beneficiar", "member", "farmer", "recipient",
 _PII_NOT_PEOPLE = frozenset("village villages block blocks district districts scheme schemes sector sectors bank "
                             "banks group groups pg pgs product products lender lenders constituency".split())
 _PII_COUNTING = frozenset("many count number total percentage percent share".split())
+# identifier fields that are personal only as a NUMBER: "applicants' bank account numbers", "Aadhaar numbers
+# of beneficiaries" (CM Elevate UAT 2026-10-30, N3: answered with sanctioned amounts, no refusal)
+_PII_ID_FIELDS = frozenset("account accounts aadhaar aadhar ifsc passport pan".split())
+_PII_ID_TAIL = frozenset("number numbers no nos details detail".split())
 
 
 def _pii_listing(t: str) -> bool:
     ws = _tm.words(t)
-    if not ws or _PII_COUNTING & set(ws) or not _PII_FIELDS & set(ws):
+    if not ws or _PII_COUNTING & set(ws) or not (_PII_FIELDS | _PII_ID_FIELDS) & set(ws):
         return False
     for i, w in enumerate(ws):
+        if w in _PII_ID_FIELDS and i + 1 < len(ws) and ws[i + 1] in _PII_ID_TAIL:
+            # "bank" here is part of the field ("bank account numbers"), not an institution
+            before = [x for x in ws[max(0, i - 4):i] if x != "bank"]
+            if any(x.startswith(_PII_PEOPLE_STEMS) for x in before) and not (_PII_NOT_PEOPLE & set(before)):
+                return True
+            window = ws[i + 2:i + 10]
+            if ("of" in window or "for" in window) and any(x.startswith(_PII_PEOPLE_STEMS) for x in window):
+                return True
+            continue
         if w not in _PII_FIELDS:
             continue
         # "<field> [and phone numbers] of/for [the CM Elevate] <people>" — a few words apart
