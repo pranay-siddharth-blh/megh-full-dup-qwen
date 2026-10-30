@@ -16,7 +16,7 @@ os.environ.setdefault("SHEET_SCHEME", "CM Elevate Legacy")
 sys.path.insert(0, ".")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mg_run  # noqa: E402
-from mg_run import run_case, has_name, vals, close  # noqa: E402
+from mg_run import run_case as _run_case, has_name, vals, close  # noqa: E402
 from harness import fetch  # noqa: E402
 from tests._text_checks import need_ok  # noqa: E402
 from app import main as app_main  # noqa: E402
@@ -27,6 +27,26 @@ OUT = os.path.join(HERE, os.environ.get("CL_OUT", "cl_results.json"))
 T_ = "TC-"
 V = "curated.v_cm_elevate_disbursement"
 CN = ["CM-ELEVATE", "CM Elevate Legacy", "CM ELEVATE", "cm elevate legacy"]
+# CL_LEGACY_WORDING=1 (2026-10-30): every DATA question names CM Elevate Legacy. A bare
+# "CM-ELEVATE … applications" is the CM Elevate APPLICATIONS dataset by the user decision of
+# 2026-10-29, so the sheet's own wording cannot test Legacy figures. The knowledge questions
+# (TC-01..10, about the CM-ELEVATE programme) keep the sheet's wording.
+LEGACY_WORDING = os.environ.get("CL_LEGACY_WORDING") == "1"
+_KNOWLEDGE_TCS = {f"TC-{i:02d}" for i in range(1, 11)}
+
+
+def _legacy(tc, q):
+    if not LEGACY_WORDING or tc in _KNOWLEDGE_TCS:
+        return q
+    for bare in ("CM-ELEVATE", "CM ELEVATE"):
+        q = q.replace(bare, "CM Elevate Legacy")
+    if "legacy" not in q.lower():
+        q = q.rstrip(" ?.") + " under CM Elevate Legacy" + ("?" if q.rstrip().endswith("?") else ".")
+    return q
+
+
+def run_case(tc, label, question, check, **kw):
+    return _run_case(tc, label, _legacy(tc, question), check, **kw)
 
 
 def num_ok(rec, n):
@@ -62,8 +82,11 @@ def ordered(names_counts, *more_pairs, money=()):
         ok, note = base(rec)
         a = (rec.get("answer") or "").upper()
         # the order of the LIST: an opening sentence may name the smallest first
-        # ("… EAST JAINTIA HILLS is smallest with 35", answer shapes 2026-10-22)
-        a = a[a.find("\n"):] if "\n" in a else a
+        # ("… EAST JAINTIA HILLS is smallest with 35", answer shapes 2026-10-22); since
+        # 2026-10-29 a heading line comes before that sentence, so only list lines count
+        lines = [ln for ln in a.split("\n") if ln.lstrip().startswith(("-", "*", "1", "2", "3", "4", "5",
+                                                                          "6", "7", "8", "9"))]
+        a = "\n".join(lines) if lines else a
         pos = [a.find(n.upper()) for n, _ in sorted(names_counts, key=lambda x: -x[1])]
         if ok and all(p >= 0 for p in pos) and pos != sorted(pos):
             return False, "not in descending order"
@@ -164,7 +187,8 @@ async def main():
                      checks(*[(r["d"], r["n"]) for r in dist[:5]]), expected={r["d"]: r["n"] for r in dist[:5]}, **kw))
         add(run_case(T_ + "36", "every district", "Give me a district-wise summary of applications, sanctioned cases and "
                      "total disbursement under CM-ELEVATE.",
-                     ordered([(r["d"], r["n"]) for r in dist], *[(r["d"] + " sanctioned", r["k"]) for r in dist]),
+                     ordered([(r["d"], r["n"]) for r in dist], *[(r["d"] + " sanctioned", r["k"]) for r in dist],
+                             money=[(r["d"] + " disbursed", r["t"]) for r in dist]),
                      expected={r["d"]: [r["n"], r["k"], r["t"]] for r in dist}, **kw))
         for i, r in enumerate(dist):
             nm = [r["d"], t(r["d"]), r["d"].lower()][i % 3]

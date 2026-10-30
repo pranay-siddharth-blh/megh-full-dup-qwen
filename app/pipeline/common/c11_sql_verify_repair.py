@@ -757,13 +757,27 @@ def _verifier_complaint_is_cosmetic(issue: str, resolved: dict, sql: str) -> boo
     in fact present and correct in the SQL."""
     if not _VERIFIER_CASE_FORM_COMPLAINT.search(issue or ""):
         return False
+    # The same complaint about a block: "UPPER(block_name_raw) = 'MAWKYNREW' … should be
+    # used verbatim without the UPPER() wrapper". The stored value is title case, so the
+    # repair's bare `block_name_raw = 'MAWKYNREW'` matched nothing ("the data does not
+    # cover … Mawkynrew"), and once the Focus Plus guard kept the UPPER() every repair was
+    # refused the same way -> "couldn't build a working query" (FOCUS-004 re-test
+    # 2026-10-30: Mawkynrew, Mylliem, Mairang, Lawsohtun, Wapung, …).
+    # A resolved constituency keeps its own check below: with an AC + block pair, the
+    # complaint may be about the missing AC (tests/test_admin_level_collision.py §7).
     ac = (resolved or {}).get("assembly_constituency")
+    block = (resolved or {}).get("block")
+    if not ac and block:
+        return any(v.upper() == str(block).upper()
+                   for _, v in _vr_values(sql or "", ["block_name_raw", "lgd_block"], _VR_EQ))
     if not ac:
         return False
     # The AC value is genuinely filtered on, in either form.
     want = str(ac).upper()
+    # ac_name: the Focus Plus / Legacy constituency column (UPPER(ac_name) by the
+    # Focus Plus guard, 2026-10-30)
     return any(v.upper() == want
-               for _, v in _vr_values(sql or "", ["assembly_constituency_name"], _VR_EQ))
+               for _, v in _vr_values(sql or "", ["assembly_constituency_name", "ac_name"], _VR_EQ))
 
 
 # Third known verifier false positive. When a village_code is resolved, the
@@ -1613,7 +1627,30 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
             "SQL verifier said a Focus Legacy measure is not aggregated while the SQL SUMs exactly that "
             "column (KI-371) — discarding: %s", issue)
         return None
+    if _verifier_wants_amount_for_count(issue, question, sql):
+        logger.warning(
+            "SQL verifier asked for a money SUM on a 'how many' question the SQL COUNTs — discarding: %s",
+            issue)
+        return None
     return issue
+
+
+def _verifier_wants_amount_for_count(issue: str, question: str, sql: str) -> bool:
+    """True when the question asks HOW MANY (and not how much), the SQL counts and sums
+    nothing, and the verifier wants a money SUM instead. "In Ri Bhoi, how many people got
+    Focus Plus money?" ran COUNT(DISTINCT beneficiary_key) — 419, right — and the verifier
+    said "'how many people got … money' implies a monetary aggregation (SUM of
+    amount_disbursed)"; the repair then answered ₹52,37,500 (permutation run 2026-10-30,
+    FP-P02). "money" names what they got, the count is what was asked."""
+    q = question or ""
+    if not _REPHRASE_HOW_MANY.search(q) or _REPHRASE_HOW_MUCH.search(q):
+        return False
+    # it must ask for MONEY: "it sums a column unrelated to the question" is another
+    # complaint (tests/test_verifier_after_execution.py)
+    low = (issue or "").lower()
+    if "monetary" not in low and not ("sum" in low and ("amount" in low or "money" in low)):
+        return False
+    return sql_ast.has_aggregate(sql or "", "count") and not sql_ast.has_aggregate(sql or "", "sum")
 
 
 # The GROUP BY columns that answer a breakdown by each dimension.
@@ -1824,6 +1861,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _focusplus_district_group_not_null(schemes, sql)
     sql = _unasked_having_threshold(question, sql)
     sql = await _focusplus_lgd_only_block(schemes, sql)
+    sql = _focusplus_ac_name_case(schemes, sql)                       # Title-case ac_name (2026-10-30)
     sql = _mgnrega_women_years_only(schemes, sql)
     sql = _pmay_count_placeholders(schemes, sql)
     sql = _pmay_comparison_limit(schemes, entity_result, sql)

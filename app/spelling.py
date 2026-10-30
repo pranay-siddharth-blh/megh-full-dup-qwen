@@ -323,7 +323,13 @@ def _known_word(word: str) -> bool:
         return _KNOWN_CACHE[key]
     try:
         p = _pipeline()
-        out = bool(p._is_known_word(word) and word.lower() not in p._place_words())
+        # The few-shot term map knows the data's own spellings: the stored Focus Plus
+        # tranche_label is "Tranch 1". Without it the rephrased "in Tranch 1" was a
+        # place "Tranch" that matched nothing -> "I couldn't find a place called
+        # “Tranch”" (sheet FOCUS-007 / 018 / 028, 2026-10-30).
+        from app.annotations import _FEWSHOT_SYNONYMS
+        out = bool((p._is_known_word(word) or word.lower() in _FEWSHOT_SYNONYMS)
+                   and word.lower() not in p._place_words())
     except Exception:  # noqa: BLE001 — pipeline not importable: treat as unknown
         return False
     if len(_KNOWN_CACHE) > 20000:
@@ -430,9 +436,14 @@ def _place_at(toks: list[Tok], i: int, level: str, *, cue: bool) -> "tuple[int, 
     # the span "s wrong"), so the complaint was no longer read as one and its apology was
     # lost (harness META_correction_keeps_scope, live 2026-10-29). A sound / fuzzy reading
     # never starts on a one-letter piece of a contraction, nor covers only ordinary words.
+    # Nor does it start on an ordinary word: "applications across South West Garo Hills"
+    # read "across South West" as South West Garo Hills (fuzzy 81.2) and wrote "…
+    # South West Garo Hills Garo Hills and …", which then asked "which district is
+    # 'garo hills'?" (CM Elevate Legacy sheet TC-35, 2026-10-30). The exact reading one
+    # word later is the place.
     if tier >= 1 and end - i > 1:
         span = toks[i:end]
-        if len(span[0].raw) == 1 or all(_known_word(t.raw) for t in span):
+        if len(span[0].raw) == 1 or _known_word(span[0].raw) or all(_known_word(t.raw) for t in span):
             return None
     score = 100.0 if tier < 2 else round(100.0 * (1 - d / max(1, len(sound_key(canon)))), 1)
     return end, canon, how, score
@@ -540,10 +551,27 @@ def _place_hit(toks: list[Tok], i: int, prev: str) -> "tuple[str, tuple] | None"
     word written after it rules ("Mawryngkneng block", "jakrm village": no district
     / block rewrite over a village)."""
     def level_after(end: int) -> str:
-        return LEVEL_WORDS.get(toks[end].low, "") if end < len(toks) else ""
+        if end >= len(toks):
+            return ""
+        # "William Nagar constituency" is the assembly constituency's own spelling; it
+        # was rewritten to the block "Williamnagar" and then asked "block or
+        # constituency?" (CM Elevate Legacy sheet TC-31, 2026-10-30).
+        if toks[end].low in ("constituency", "constituencies"):
+            return "assembly_constituency"
+        return LEVEL_WORDS.get(toks[end].low, "")
 
     nxt = toks[i + 1].low if i + 1 < len(toks) else ""
     cue = prev in PLACE_PREPS or nxt in LEVEL_WORDS
+    ac = _place_at(toks, i, "assembly_constituency", cue=True)
+    if ac is not None and level_after(ac[0]) == "assembly_constituency":
+        return "assembly_constituency", ac
+    # The catalogue also holds "<name> constituency" forms, so the reading may swallow
+    # the level word: "Rambrai jyrngam constituency" was not taken at "Rambrai", and the
+    # next word alone read "jyrngam" -> Jirang (fuzzy), answering Jirang's 417 for
+    # Rambrai Jyrngam's 694 (all-constituencies run 2026-10-30). The span then ends
+    # before the level word, which stays in the text.
+    if ac is not None and ac[0] - i > 1 and level_after(ac[0] - 1) == "assembly_constituency":
+        return "assembly_constituency", (ac[0] - 1, *ac[1:])
     d = _district_at(toks, i, cue=cue)
     if d is not None and level_after(d[0]) in ("", "district"):
         return "district", d

@@ -907,6 +907,14 @@ def _typed_intent(question: str) -> "str | None":
     if _DATA_HINTS.search(q) and not _KNOWLEDGE_HINTS.search(q):
         return "DATA"
     if _KNOWLEDGE_HINTS.search(q) and not _DATA_HINTS.search(q):
+        # "What is it for the whole state?" after "Focus Plus disbursement in East
+        # Khasi Hills" asks for the same figure in a new scope: "it" points at the
+        # previous answer, so its "what is" is no definition. It went to the reference
+        # documents (press figures) instead of ₹119.74 crore (permutation run
+        # 2026-10-30, MT-16). Undecided: the rewrite is classified.
+        if _CONTEXTLESS_REF.search(q) and (_EXPLICIT_STATEWIDE.search(q) or context_policy.extract_year_keys(q)
+                                           or named_places(q)):
+            return None
         return "KNOWLEDGE"
     return None
 def _is_scheme_term_question(question: str) -> bool:

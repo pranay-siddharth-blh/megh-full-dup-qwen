@@ -477,7 +477,7 @@ def _c12s_fix_trend_direction(answer: str, shape: "_AnswerShape | None", rows: l
 
 
 def _shaped_fallback(shape: "_AnswerShape | None", rows: list, schemes: "list[str] | None",
-                     entities: "dict | None") -> "str | None":
+                     entities: "dict | None", question: str = "") -> "str | None":
     """The deterministic answer in the question's shape, for when the composer
     keeps misquoting: a ranked list for a ranking, the verdict for a comparison,
     first-to-last for a trend, the split for a breakdown. None for the other
@@ -490,7 +490,9 @@ def _shaped_fallback(shape: "_AnswerShape | None", rows: list, schemes: "list[st
     # E9: with the answer templates on, the fallback is the same templated answer under
     # code's own opening line — one money format, no unasked lines.
     if settings.ANSWER_TEMPLATES_ENABLED:
-        body = _c12s_e9_body(shape, rows, "", fallback=True)
+        # the question picks which other measures each line shows (KI-627: a ROLLUP district
+        # summary falls back here, and lost the "total disbursement" it asked for)
+        body = _c12s_e9_body(shape, rows, question, fallback=True)
         if body:
             return _c12s_e9_frame_default(shape, rows, schemes, entities) + "\n" + body
     scheme, place, period = _scope_words(schemes, entities)
@@ -641,10 +643,22 @@ def _c12s_e9_period(row: dict, shape: _AnswerShape) -> str:
     return lab
 
 
-def _c12s_e9_extras(shape: _AnswerShape, row: dict, limit: int = 3) -> str:
-    """The row's other measures, '; households employed 41,210', for a list line."""
-    bits = [f"{_c12s_e9_what(str(c))} {_c12_fmt_value(str(c), _as_number(row.get(c)))}"
-            for c in shape.metrics if c != shape.metric and _as_number(row.get(c)) is not None][:limit]
+def _c12s_e9_asked(col: str, question: str) -> int:
+    """How many of the column name's words (4+ letters) the question also uses, compared
+    on their first six letters ("total_disbursed_cr" ~ "total disbursement": 2)."""
+    stems = {w.lower()[:6] for w in _c12s_words(question or "") if len(w) >= 4}
+    return sum(1 for w in str(col).lower().split("_") if len(w) >= 4 and w[:6] in stems)
+
+
+def _c12s_e9_extras(shape: _AnswerShape, row: dict, limit: int = 3, question: str = "") -> str:
+    """The row's other measures, '; households employed 41,210', for a list line. The
+    measures the question names come first: "district-wise summary of applications,
+    sanctioned cases and total disbursement" kept sanctioned records, sanctioned amount
+    and subsidy (the SQL's first three) and dropped the total disbursed it asked for
+    (CM Elevate Legacy sheet TC-36, 2026-10-30)."""
+    cols = [c for c in shape.metrics if c != shape.metric and _as_number(row.get(c)) is not None]
+    cols.sort(key=lambda c: -_c12s_e9_asked(str(c), question))     # stable: SQL order otherwise
+    bits = [f"{_c12s_e9_what(str(c))} {_c12_fmt_value(str(c), _as_number(row.get(c)))}" for c in cols[:limit]]
     return ("; " + "; ".join(bits)) if bits else ""
 
 
@@ -730,7 +744,7 @@ def _c12s_e9_body(shape: "_AnswerShape | None", rows: list, question: str,
         lines.append(f"{_c12_fmt_value(m, total)} {what} in total across {n} {nouns}.")
     lines.append(f"{_c12s_label(hi_r, shape)} is the largest with {_c12_fmt_value(m, hi_v)}{_share(hi_v)}; "
                  f"{_c12s_label(lo_r, shape)} is the smallest with {_c12_fmt_value(m, lo_v)}{_share(lo_v)}.")
-    lines += [f"- **{_c12s_label(r, shape)}** — {_c12_fmt_value(m, v)}{_share(v)}{_c12s_e9_extras(shape, r)}"
+    lines += [f"- **{_c12s_label(r, shape)}** — {_c12_fmt_value(m, v)}{_share(v)}{_c12s_e9_extras(shape, r, question=q)}"
               for r, v in ordered[:_C12S_LIST_MAX]]
     if n > _C12S_LIST_MAX:
         lines.append(f"…and {n - _C12S_LIST_MAX} more in the table.")

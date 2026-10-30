@@ -3,6 +3,35 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-10-30 afternoon (STOPPED by the user mid-run): all villages / blocks / constituencies for Focus Plus and CM Elevate Legacy.**
+Done: Focus Plus every block + constituency (NEW `tests/sheet_runs/fp_places.py`) first run 217/228; the failures
+led to KI-633/634/635, all fixed and unit-tested (`tests/test_fp_cl_sheet_2026_10_30.py` 22/22); Shillong /
+Nongkrem checked live. Files this part: `schemes/focus_plus.py` `_focusplus_ac_name_case`, c11 (chain + cosmetic
+`ac_name`), c08 `_ac_dimension_available` / `_C08_CONSTITUENCY_WORD`, `prompt_builder.py` (Focus Plus AC line),
+`entity_resolver.py` `load_geography_constituencies`, `main.py` (startup call), `spelling.py` `_place_hit`,
+`tests/sheet_runs/cl_all.py` (Legacy wording), `fp_places.py`. NOT DONE (resume here, VPN up, one run at a time,
+`CONC=3 POOL=3`; drivers in the session scratchpad `merge_retry.sh` / `village_retry.sh`, or run the scripts directly):
+(1) re-run `fp_places.py` on this code; (2) `CL_LEGACY_WORDING=1 tests/sheet_runs/cl_all.py` (every Legacy village,
+was passing when stopped, no checkpoint written); (3) `tests/sheet_runs/fp_all.py` (every Focus Plus village, ~3,500);
+(4) full pytest + 14 scripts after the constituency changes (only the new file and spelling were run).
+
+**2026-10-30 (code, Focus + / CM Elevate Legacy sheet re-test, KI-624..KI-631): uncommitted; :8401 NOT restarted.**
+Stopping the running :8401 server (PID 12452 / 37620, started 2026-10-29 20:11, plain HTTP) was refused by the permission
+classifier; restart it from `.venv` to serve this work (`.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0
+--port 8401`). Files: `app/spelling.py` (`_known_word` reads `annotations._FEWSHOT_SYNONYMS`; `_place_at` no reading
+starting on an ordinary word; `_place_hit` "constituency" level), `schemes/focus_plus.py` `_focusplus_lgd_only_block`
+(UPPER on known raw blocks; lgd_block -> block_name_raw), c11 (`_verifier_complaint_is_cosmetic` block branch,
+NEW `_verifier_wants_amount_for_count`), c02 (`_REPHRASE_HOW_MANY` / `_HOW_MUCH` measure check), c01 `_typed_intent`,
+c12 `_c12s_e9_extras` / `_c12s_e9_asked` / `_shaped_fallback(question)`, c13 (passes the question),
+`schemes/cm_elevate.py` `_cme_sericulture_split_note` (KI-632), tests: NEW
+`tests/test_fp_cl_sheet_2026_10_30.py`, NEW `tests/sheet_runs/fpcl_perm.py`, `tests/sheet_runs/cl_run.py` (TC-36 check
+reads list lines + total disbursed). Full live re-run of every case done (Focus Plus 163/163, Legacy 214 + 86 by design all verified, permutations 46/46;
+Legacy with the scheme named, `CL_LEGACY_WORDING=1 tests/sheet_runs/cl_run.py`: 300/300;
+KI-632 found and fixed, `schemes/cm_elevate.py` `_cme_sericulture_split_note`). Next: (1) restart :8401; (2) when
+re-running live suites, one at a time at `MG_CONC` <= 3 (other sessions saturate the megh_chatbot role, KI-631);
+(3) the sheet's plain "CM-ELEVATE … applications" wording answers from the applications dataset by the 2026-10-29
+decision — tell the testers to say "CM Elevate Legacy" for Legacy figures.
+
 **2026-10-29 night (code, spelling brief, D-093, KI-604..KI-610, KI-622, KI-623 open): uncommitted; :8401 NOT restarted.** The :8401 server
 (PID 17776, system Python, started 20:16, another session's) predates this work: restart it from `.venv` to serve it
 (`.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8401 --ssl-certfile certs/dev-cert.pem

@@ -13,7 +13,7 @@ os.environ.setdefault("SHEET_SCHEME", "CM Elevate Legacy")
 sys.path.insert(0, ".")
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import mg_run  # noqa: E402
-from cl_run import checks, CN as FN  # noqa: E402
+from cl_run import checks, CN as FN, _legacy  # noqa: E402  (CL_LEGACY_WORDING=1: name Legacy)
 from harness import fetch  # noqa: E402
 from app import main as app_main  # noqa: E402
 
@@ -64,7 +64,7 @@ async def main():
 
 
 async def _case(tc, lab, q, chk, ex, code, kw):
-    await mg_run.run_case(tc, lab, q, chk, expected=ex, mgnrega_only=False, code=code, **kw)
+    await mg_run.run_case(tc, lab, _legacy(tc, q), chk, expected=ex, mgnrega_only=False, code=code, **kw)
     mg_run.RESULTS[tc][-1]["code"] = code
 
 

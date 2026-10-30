@@ -127,6 +127,7 @@ _AC_INCAPABLE_METRIC = _tm.Matcher(_tm.Alt(
 # Umsning?" offered only block or village and answered the block (CM Elevate
 # Legacy TC-31, test run 2026-10-06).
 _AC_CAPABLE_SCHEMES = ("MGNREGA", "Focus Legacy", "CM Elevate Legacy", "CM Elevate")
+_C08_CONSTITUENCY_WORD = Matcher(W("constituency", "constituencies"))
 
 
 # The tail a village-disambiguation chip writes: ", RERAPARA block, SOUTH WEST
@@ -497,6 +498,13 @@ def _ac_dimension_available(question: str, schemes: list[str]) -> bool:
     """True when an assembly-constituency reading of a place name could
     actually be queried for THIS question. False suppresses the AC chip."""
     _live = list(schemes or [])
+    # Focus Plus carries its own ac_name, but a bare shared name ("Mawsynram") stays the
+    # block (no new block-or-constituency question): only a question that SAYS
+    # "constituency" reads one. Without this, "beneficiaries in East Shillong
+    # constituency" resolved nothing and was framed "all of Meghalaya (statewide)"
+    # (all-constituencies run 2026-10-30).
+    if _live == ["Focus Plus"]:
+        return bool(_C08_CONSTITUENCY_WORD.search(question or ""))
     if len(_live) != 1 or _live[0] not in _AC_CAPABLE_SCHEMES:
         return False
     if _live[0] in ("CM Elevate Legacy", "CM Elevate"):
