@@ -223,6 +223,8 @@ _CMELEVATELEGACY_FORCING = Matcher(Alt(*_CME_LEGACY_NON_YEAR_TERMS, *_CME_YEAR_T
 # applicants … in FY 2017-18?" stays on the applications data (UAT 2026-10-30, D1).
 _CMELEVATELEGACY_MONEY = Matcher(Alt(*_CME_LEGACY_NON_YEAR_TERMS))
 _CME_YEAR_ASK = Matcher(Alt(*_CME_YEAR_TERMS))
+_CME_PER_YEAR = Matcher(Alt(Seq(W("each", "every", "per", "by"), Opt("financial"), W("year", "years", "fy")),
+                            _cme_join("year", "wise"), Seq("financial", "year", "wise")))
 # Vocabulary only the APPLICATIONS dataset holds: it keeps a bare "CM Elevate"
 # on that dataset when no money word is present (a money word wins, see
 # _cm_elevate_dataset_choice). A typed "CM-ELEVATE applications" is NOT here:
@@ -393,7 +395,8 @@ def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None
     # D-090 (2026-10-29) over rule 1 for a YEAR: "applications / applicants / applied" with a
     # year and no money word is an applications question, and that dataset has no date, so it
     # gets the no-date reply (_cme_notime_query) instead of Legacy's year pause (UAT D1).
-    if _CME_YEAR_ASK.search(unscoped) and _CME_APPLICATION_WORDS.search(q) \
+    # A breakdown BY year ("for each financial year", "year-wise") stays rule 1: only Legacy holds years.
+    if _CME_YEAR_ASK.search(unscoped) and _CME_APPLICATION_WORDS.search(q) and not _CME_PER_YEAR.search(unscoped) \
             and not _CMELEVATELEGACY_MONEY.search(unscoped) and not _CMELEVATELEGACY_ONLY_TERMS.search(unscoped) \
             and thread_scheme != "CM Elevate Legacy":
         return "applications"
