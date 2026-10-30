@@ -523,6 +523,47 @@ def widen_village_filter(sql: str, codes: list) -> str:
     return transform(sql, fn)
 
 
+def group_by_village(sql: str) -> str:
+    """J-10 guard (MGNREGA UAT 2026-10-30): a one-SELECT aggregate over a village_code IN
+    (...) filter that does not group by village gets village_code, lgd_village_name and
+    lgd_block in its SELECT and GROUP BY, so villages that share a name are answered one
+    row each instead of summed ("Rangmalgre" = Demdema + Resubelpara, 12.55 lakh for a
+    2.99 lakh village). A CTE, join, set operation or window query: unchanged."""
+    def fn(tree):
+        if not isinstance(tree, exp.Select) or tree.find(exp.With) or tree.find(exp.Join) \
+                or tree.find(exp.Window) or any(s is not tree for s in tree.find_all(exp.Select)):
+            return None
+        if not tree.find(exp.AggFunc):
+            return None
+        if not any(isinstance(i.this, exp.Column) and i.this.name.lower() == "village_code"
+                   for i in tree.find_all(exp.In)):
+            return None
+        grouped = group_by_columns(tree)
+        selected = {_lc(_unwrap(e.unalias()).name) for e in tree.expressions
+                    if isinstance(_unwrap(e.unalias()), exp.Column)}
+        # "SELECT village_code, … GROUP BY 1": positional, already one row per village
+        if "village_code" in selected and not grouped:
+            return None
+        # grouped by name and block only (Bawegre, all-villages run 2026-10-30): the rows
+        # carried no code, so nothing could tie a row to its twin — the code is always added
+        cols = [c for c in ("village_code", "lgd_village_name", "lgd_block") if c not in grouped and c not in selected]
+        if not cols or ("village_code" not in cols and {"village_code", "lgd_village_name"} & grouped):
+            return None
+        tree.set("expressions", [exp.column(c) for c in cols] + list(tree.expressions))
+        group = tree.args.get("group")
+        if group is not None:
+            group.set("expressions", list(group.expressions) + [exp.column(c) for c in cols])
+        else:
+            tree.set("group", exp.Group(expressions=[exp.column(c) for c in cols]))
+        lim = tree.args.get("limit")
+        if lim is not None and isinstance(lim.args.get("expression"), exp.Literal) \
+                and int(lim.args["expression"].this) < 10:
+            tree.set("limit", None)
+        return None
+
+    return transform(sql, fn)
+
+
 def without_limit(sql: str) -> str:
     """The query without its outer LIMIT / OFFSET (E-3: counting the rows past the cap).
     Unparseable or not one SELECT: unchanged."""

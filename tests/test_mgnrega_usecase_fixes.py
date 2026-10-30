@@ -108,7 +108,7 @@ def test_block_chip_resolves_the_block_not_the_village(monkeypatch):
 def test_exact_ac_name_is_recognised_for_mgnrega_only():
     assert p._mgnrega_ac_reading("SOUTH TURA", MG) == "SOUTH TURA"
     assert p._mgnrega_ac_reading("south  tura", MG) == "SOUTH TURA"
-    assert p._mgnrega_ac_reading("SOUTH TURA", ["PMAY-G"]) is None
+    assert p._mgnrega_ac_reading("SOUTH TURA", ["Focus Plus"]) is None   # PMAY-G records it since D-096
     assert p._mgnrega_ac_reading("Guwahati", MG) is None
     assert p._mgnrega_ac_reading("SOUTH TUR", MG) is None       # exact only, never fuzzy
 

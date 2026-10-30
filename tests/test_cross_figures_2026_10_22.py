@@ -136,6 +136,11 @@ def test_plan_measures():
     assert pl.avg and "money" in pl.measures and pl.op == "leader"
     pl = _plan("Which of MGNREGA, PMAY-G, Focus+ and FOCUS has the widest coverage across the districts of Meghalaya?")
     assert pl.measures == ["villages"] and not pl.by_district
+    # CROSS-13 (sheet re-run 2026-10-30): the same question without "the" is statewide too
+    pl = _plan("Which scheme has the widest coverage across districts of Meghalaya?")
+    assert pl.measures == ["villages"] and not pl.by_district and pl.op == "leader"
+    # … while a count across districts is still per district
+    assert _plan("Compare beneficiaries across districts for MGNREGA and PMAY-G", ["MGNREGA", "PMAY-G"]).by_district
     pl = _plan("Compare the coverage of MGNREGA, PMAY-G and Focus+ in Mylliem block.",
                ["MGNREGA", "PMAY-G", "Focus Plus"], {"block": "MYLLIEM"})
     assert pl.block == "MYLLIEM" and pl.first == "villages" and set(pl.measures) == {"count", "money", "villages"}
@@ -147,11 +152,68 @@ def test_plan_measures():
 @pytest.mark.parametrize("q, schemes, resolved", [
     ("I have a query. Breakdown into I want top ten highest villages in Mgnrega and pmay", ["MGNREGA", "PMAY-G"], {}),
     ("top 5 blocks in MGNREGA and PMAY-G by beneficiaries", ["MGNREGA", "PMAY-G"], {}),
-    ("Compare MGNREGA, PMAY-G and CM-ELEVATE", ["MGNREGA", "PMAY-G", "CM Elevate"], {}),
-    ("Compare MGNREGA and PMAY-G in Pamila village", ["MGNREGA", "PMAY-G"], {"village_code": 274001}),
+    ("Compare MGNREGA and PMAY-G in Pamila and Nongpoh villages", ["MGNREGA", "PMAY-G"],
+     {"village_code_list": [274001, 274002]}),
+    ("Compare MGNREGA person days and PMAY-G houses", ["MGNREGA", "PMAY-G"], {}),
 ])
 def test_other_shapes_stay_on_the_model_path(q, schemes, resolved):
     assert cf.plan(q, schemes, resolved, {}, M) is None
+
+
+def test_cm_elevate_a_village_and_a_constituency_are_on_the_coded_path():
+    # D-097 (Cross Scheme sheet re-run 2026-10-30): every combination with a CM
+    # Elevate dataset, a village and a constituency went to the model path (timeouts,
+    # MGNREGA dropped, village counts added across schemes)
+    pl = cf.plan("Compare MGNREGA, PMAY-G and CM-ELEVATE", ["MGNREGA", "PMAY-G", "CM Elevate"], {}, {}, M)
+    assert pl is not None and pl.schemes == ["MGNREGA", "PMAY-G", "CM Elevate"] and pl.left_out == []
+    pl = cf.plan("Compare MGNREGA and PMAY-G in Pamila village", ["MGNREGA", "PMAY-G"], {"village_code": 274001},
+                 {"village": "Pamila", "block": "UMSNING"}, M)
+    assert pl.village == 274001 and not pl.by_district and pl.place_label == "Pamila village (Umsning block)"
+    pl = cf.plan("Compare MGNREGA and Focus Legacy beneficiaries in Mawhati constituency", ["MGNREGA", "Focus Legacy"],
+                 {"assembly_constituency": "MAWHATI"}, {"assembly_constituency": "MAWHATI"}, M)
+    assert pl.ac == "MAWHATI" and pl.place_label == "Mawhati constituency" and pl.measures == ["count"]
+    # "beneficiary / application count" is CM Elevate's count, no longer an "other measure"
+    pl = cf.plan("Compare the number of beneficiaries/applications in each district for Focus+, FOCUS and CM-ELEVATE.",
+                 ["Focus Plus", "Focus Legacy", "CM Elevate"], {}, {}, M)
+    assert pl is not None and pl.by_district and pl.measures == ["count"]
+
+
+def test_cm_elevate_has_no_money_and_no_year(monkeypatch):
+    seen = []
+    _fake_db(monkeypatch, seen)
+    pl = cf.plan("Compare MGNREGA and CM-ELEVATE performance", ["MGNREGA", "CM Elevate"], {}, {}, M)
+    out = asyncio.run(cf.answer(pl))
+    assert "- **CM Elevate:** 1,000 applications, no money recorded" in out["answer"]
+    assert "**MGNREGA** has the most beneficiaries" in out["answer"]
+    assert "has the most money" not in out["answer"]            # one scheme holds money: nothing to rank
+    cme = next(r for r in out["rows"] if r["scheme"] == "CM Elevate")
+    assert cme["beneficiaries"] == 1000 and cme["amount_crore"] is None
+    assert all("year_key" not in q for q in seen if "v_cm_elevate " in q)
+    pl = cf.plan("Compare MGNREGA and CM-ELEVATE in FY 2022-23", ["MGNREGA", "CM Elevate"], {"year_key": 2022}, {}, M)
+    out = asyncio.run(cf.answer(pl))
+    assert "CM Elevate records no financial year, so it has no figure for FY 2022-23" in out["answer"]
+    assert {r["scheme"] for r in out["rows"]} == {"MGNREGA"}
+
+
+def test_gaps_from_the_scope_stage_are_said_not_queried(monkeypatch):
+    seen = []
+    _fake_db(monkeypatch, seen)
+    pl = cf.plan("Compare MGNREGA and Focus Plus in Mawhati constituency", ["MGNREGA", "Focus Plus"],
+                 {"assembly_constituency": "MAWHATI"}, {}, M)
+    pl.gaps = {"Focus Plus": "Focus Plus does not record assembly constituency, so it has no figure for Mawhati"}
+    out = asyncio.run(cf.answer(pl))
+    assert "Focus Plus does not record assembly constituency" in out["answer"]
+    assert not any("v_focus_plus" in q for q in seen)
+    assert "UPPER(assembly_constituency_name) = $1" in out["sql"]
+
+
+def test_a_combined_count_leaves_cm_elevate_out_and_says_so(monkeypatch):
+    _fake_db(monkeypatch)
+    pl = cf.plan("What is the total beneficiary count across MGNREGA, PMAY-G and CM-ELEVATE combined?",
+                 ["MGNREGA", "PMAY-G", "CM Elevate"], {}, {}, M)
+    out = asyncio.run(cf.answer(pl))
+    assert "**Combined: 4,24,535**" in out["answer"]           # 3,73,823 + 50,712, no applications
+    assert "CM Elevate counts applications, not beneficiaries, so it is not in the combined figure" in out["answer"]
 
 
 def test_year_by_year_is_one_fixed_query_per_scheme():
@@ -168,9 +230,12 @@ _DIST = {
     "PMAY-G": {"WEST GARO HILLS": (33147, 425.01), "RI BHOI": (17565, 222.85)},
     "Focus Plus": {"WEST GARO HILLS": (35059, 39.16), "RI BHOI": (419, 0.5238)},
     "Focus Legacy": {"WEST GARO HILLS": (21867, 10.93), "RI BHOI": (9858, 4.93)},
+    "CM Elevate": {"WEST GARO HILLS": (600, 0.0), "RI BHOI": (400, 0.0)},
+    "CM Elevate Legacy": {"WEST GARO HILLS": (300, 9.0), "RI BHOI": (200, 6.0)},
 }
 _VIEW = {"v_employment": "MGNREGA", "v_expenditure": "MGNREGA", "v_pmay": "PMAY-G",
-         "v_focus_plus": "Focus Plus", "v_focus_legacy": "Focus Legacy"}
+         "v_focus_plus": "Focus Plus", "v_focus_legacy": "Focus Legacy",
+         "v_cm_elevate_disbursement": "CM Elevate Legacy", "v_cm_elevate ": "CM Elevate"}
 
 
 def _fake_db(monkeypatch, seen=None):

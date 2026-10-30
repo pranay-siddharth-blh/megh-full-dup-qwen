@@ -80,11 +80,12 @@ def test_scope_reads_a_year_written_without_a_space(monkeypatch):
 
 
 def test_scope_answers_outright_when_no_scheme_holds_what_is_asked():
-    d = _cross_d("Compare PMAY-G and Focus Plus in Mawhati constituency", ["PMAY-G", "Focus Plus"],
+    # PMAY-G records the constituency since 2026-10-30 (v_pmay.ac_name, KI-445): CM Elevate here
+    d = _cross_d("Compare CM Elevate and Focus Plus in Mawhati constituency", ["CM Elevate", "Focus Plus"],
                  resolved={"assembly_constituency": "MAWHATI"})
     out = asyncio.run(p._cross_scheme_scope(d))
     assert out is not None and out["rows"] == []
-    assert "PMAY-G does not record assembly constituency" in out["answer"]
+    assert "CM Elevate does not record assembly constituency" in out["answer"]
     assert "Focus Plus does not record assembly constituency" in out["answer"]
 
 
@@ -93,7 +94,7 @@ def test_scope_answers_outright_when_no_scheme_holds_what_is_asked():
 def test_gaps_constituency():
     gaps = p._cross_scheme_gaps(["MGNREGA", "PMAY-G", "Focus Legacy", "CM Elevate Legacy", "Focus Plus",
                                  "CM Elevate"], {"assembly_constituency": "MAWHATI"})
-    assert set(gaps) == {"PMAY-G", "Focus Plus", "CM Elevate"}
+    assert set(gaps) == {"Focus Plus", "CM Elevate"}      # PMAY-G records it since 2026-10-30 (KI-445)
 
 
 def test_gaps_year_lists_the_years_held():
@@ -186,11 +187,11 @@ def test_a_scheme_that_cannot_hold_it_is_not_queried(monkeypatch):
         return question
     monkeypatch.setattr(p, "generate_sql", gen)
     monkeypatch.setattr(p, "_cross_scheme_subquestion", sub)
-    d = _cross_d("Compare MGNREGA and PMAY-G in Mawhati constituency", ["MGNREGA", "PMAY-G"],
+    d = _cross_d("Compare MGNREGA and Focus Plus in Mawhati constituency", ["MGNREGA", "Focus Plus"],
                  resolved={"assembly_constituency": "MAWHATI"})
     asyncio.run(p._data_sql_stage(d))
     assert seen == ["MGNREGA"]
-    pm = [it for it in d["per_scheme"] if it[0] == "PMAY-G"][0]
+    pm = [it for it in d["per_scheme"] if it[0] == "Focus Plus"][0]
     assert pm[1] is None and pm[2].startswith(p._NOT_HELD)
 
 
@@ -281,12 +282,21 @@ def test_an_all_null_row_is_no_records():
     assert "MGNREGA has no records matching this question." in p._cross_scheme_no_figure_lines("x", per, out)
 
 
-def test_the_added_all_years_text_is_not_a_money_question():
-    # Baghmara run 2026-10-22: "across all financial years" made CM Elevate "no money"
+def test_the_added_all_years_text_is_not_a_money_question(monkeypatch):
+    # Baghmara run 2026-10-22: "across all financial years" made CM Elevate "no money".
+    # Since D-097 (2026-10-30) the comparison is answered on the coded path, with CM
+    # Elevate in it and no gap.
     q = "Compare MGNREGA, PMAY-G and CM-ELEVATE"
     d = _cross_d(q, ["MGNREGA", "PMAY-G", "CM Elevate"])
-    assert asyncio.run(p._cross_scheme_scope(d)) is None
-    assert d["question"].endswith("across all financial years")
+    seen = {}
+
+    async def fake_answer(plan):
+        seen["plan"] = plan
+        return {"answer": "ok", "rows": [], "sql": "S", "totals": None, "measure_notes": {}, "schemes_with_data": []}
+    monkeypatch.setattr(p.cross_figures, "answer", fake_answer)
+    out = asyncio.run(p._cross_scheme_scope(d))
+    assert out["answer"] == "ok" and seen["plan"].schemes == ["MGNREGA", "PMAY-G", "CM Elevate"]
+    assert seen["plan"].gaps == {}
     assert p._cross_scheme_gaps(d["schemes"], {}, {}, d["cross"]["text"]) == {}
 
 

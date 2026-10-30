@@ -39,3 +39,8 @@ tests/ui_device_shots/
 raw_uc/
 new_docs/*.csv
 new_docs/~$*
+
+# Local zip of the nested older copy and Office lock files (2026-10-30).
+meghalaya.zip
+documents/~$*
+reference_documents/~$*

@@ -32,6 +32,36 @@ re-running live suites, one at a time at `MG_CONC` <= 3 (other sessions saturate
 (3) the sheet's plain "CM-ELEVATE … applications" wording answers from the applications dataset by the 2026-10-29
 decision — tell the testers to say "CM Elevate Legacy" for Legacy figures.
 
+**2026-10-30 (Cross Scheme sheet re-run, D-097, KI-644..647): uncommitted; live run IN PROGRESS.** Driver:
+`bash tests/sheet_runs/cross/cross_drive.sh <log dir>` (waits for the VPN, runs every family of `cross_run.py`
+resumably into `tests/sheet_runs/cross/cross_results.json`, drops connection-error cases and re-runs them, then
+`write_report.py` writes the workbook columns I..M + Coverage / All conversations; the 2026-10-13 columns D..H stay).
+Before-fix baseline graded in `tests/sheet_runs/cross/baseline_1030_graded.json` (2/20). If the driver was cut: re-run
+the same command (resumable); failures are listed by `failed.py <results> <out>`; look at a case with
+`python -c "import json;r=json.load(open('tests/sheet_runs/cross/cross_results.json',encoding='utf-8'))['<id>'];print(r['bad'],r['turns'][-1]['answer'])"`.
+Files: `app/cross_figures.py` (SUPPORTED six, `NO_MONEY` / `NO_YEAR`, `_AC_COL` / `_AC_VIEW_COL`, `_block_names`,
+`has_measure`, `ranked_schemes`, `_without_dataset_words`, `_BLOCK_GRAIN`, `_ACROSS_DISTRICTS`, Plan `village` / `ac` /
+`gaps` / `grain`, `answer()` gaps), c13 (`_cross_after_exclusions` uses `MAIN`, `_plan.gaps = gaps`, village / AC in
+`_c13_e12_cross_figures_denial`), `app/spelling.py` (`_starts_a_block`), `tests/conftest.py` (`_YEARS` cache cleared per
+test), harness `tests/sheet_runs/cross/` (`grade.py` NEW, `truth.py`, `cross_run.py`, `write_report.py`,
+`grade_baseline.py` NEW, `cross_drive.sh` NEW), `tests/sheet_runs/harness.py` (`_rows` reads `data`, cap 300). Docs:
+D-097, KI-644..647, AI_PIPELINE §2.1 1a, SCHEMES, CURRENT_STATE. Still to do when the run ends: README (cross section),
+TESTING §3 row, CURRENT_STATE / HANDOFF final numbers, full pytest + 14 scripts on the final tree, restart :8401 from
+`.venv` (the running server predates D-097).
+
+**2026-10-30 ~09:00 (PMAY-G sheet re-test, D-096, KI-445 fixed, KI-630, KI-631): uncommitted; :8401 restarted from `.venv` 08:55 over HTTPS (serves everything in the working copy at that time; meghoneai-c3 will restart it once more after ~12:30 for its MGNREGA spot-check).**
+Files: `app/pipeline/schemes/pmay_g.py` (`_PMAY_DET_KEYS` + `assembly_constituency` / `village_twins`, dim `ac`, twins answer shape, `_pmay_ac_name_case`, `_pmay_ac_filter_missing`), c11 (both in the rewrite / guard chain), `app/prompt_builder.py` (PMAY-G constituency entity line), `app/scheme_registry.py` (PMAY-G `records_constituency=True`), c08 `_AC_CAPABLE_SCHEMES` / `_ac_dimension_available`, c13 `_CROSS_AC_RECORDED`, `app/entity_resolver.py` (`_AC_CONTENTS_SQL["PMAY-G"]`), `app/followups.py` (AC / twin scope, no state drill-down), `app/spelling.py` (`_starts_a_village`, `_village_span_end`, `_exact_village`, `_village_at` guard; coexists with meghoneai-c3's `_inside_village_name`, KI-640). Tests: NEW `tests/test_pmay_sheet_rerun_2026_10_30.py` (18); 5 pinned tests updated to D-096 (listed in CURRENT_STATE). Runners: `tests/sheet_runs/pm_run.py` (every AC x 3 wordings, every district x FY), NEW `pm_drive.sh` (VPN-proof: sheet + villages until clean, then pytest + scripts), NEW `write_pm.py` (columns U..X). Results: sheet 1,142/1,142, villages 5,121/5,121, pytest 5,208/0, scripts 14/14; result files in this session's scratchpad (`pm_fix.json`, `pm_all_fix.json`, `pytest_full2.log`, `eval_pmay.log`). Docs: D-096, KI-445 / 630 / 631, SCHEMES, AI_PIPELINE (constituency paragraph, §2.9g), TESTING §3, `reference_documents/README.md`. Next: nothing open for PMAY-G; wait for the user's go-ahead on the next sheet. Open question for the data team: confirm that `v_pmay.ac_name` is meant as the beneficiary's constituency (D-096 "not decided").
+
+**2026-10-30 (charts, D-095, KI-624..629): uncommitted; frontend rebuilt (`web/app/`); :8401 NOT restarted.** Files:
+`frontend/src/chat/analytics.js` (`viewPlan`, `asksCompare`, `bareTypeRequest`, compare `charts`, named types drawn with
+`caveatNote`), `frontend/src/chat/components/Messages.jsx` (renders `viewPlan`), c15 `_chart_view_request` (`bare`),
+`app/pipeline/schemes/pmay_g.py` (`yks` year comparison in `_pmay_facts_query`, `_pmay_with_year_gap_note`) + one line in
+c13 after `_pmay_expenditure_not_held`. Tests: NEW `frontend/tests/chart_requests.test.js`, `frontend/tests/chart_live_grade.mjs`,
+`tests/live_chat_charts.py`, `tests/test_pmay_year_gap_note_2026_10_30.py`; updated `audit.test.js` (G-1, G-13, A-7) and
+`tests/test_chart_view_requests_2026_10_19.py` ("line please"). Next: restart :8401 from `.venv` so the chat serves the new
+build and the PMAY-G fix; re-run `tests/live_chat_charts.py` after any chart or routing change. The PMAY-G sheet session
+(meghoneai-4c) also edits pmay_g.py (KI-445 constituencies, twin villages next) — re-read before editing.
+
 **2026-10-29 night (code, spelling brief, D-093, KI-604..KI-610, KI-622, KI-623 open): uncommitted; :8401 NOT restarted.** The :8401 server
 (PID 17776, system Python, started 20:16, another session's) predates this work: restart it from `.venv` to serve it
 (`.venv/Scripts/python.exe -m uvicorn app.main:app --host 0.0.0.0 --port 8401 --ssl-certfile certs/dev-cert.pem

@@ -235,14 +235,23 @@ def test_a_question_that_is_no_ranking_runs_no_extra_query():
 
 # ── I-13: CM Elevate's own list beside an "all schemes" ranking ────────────
 def test_i13_cm_elevate_gets_its_own_district_list(monkeypatch):
+    # D-097 (2026-10-30): CM Elevate is on the coded path; its list is one ranked
+    # list like every other scheme's, by applications, never added to theirs
     async def rows(sql, params):
-        assert "v_cm_elevate" in sql and "COUNT(DISTINCT request_id)" in sql
-        return [{"district": "RI BHOI", "applications": 40}, {"district": "WEST GARO HILLS", "applications": 90}]
+        if "DISTINCT year_key" in sql:
+            return [{"y": 2022}, {"y": 2025}]
+        if "v_cm_elevate" in sql:
+            assert "COUNT(DISTINCT request_id)" in sql and "year_key" not in sql
+            return [{"k": "RI BHOI", "ben": 40, "villages": 3, "districts": 1, "blocks": 1},
+                    {"k": "WEST GARO HILLS", "ben": 90, "villages": 5, "districts": 1, "blocks": 2}]
+        return [{"k": "RI BHOI", "ben": 400, "villages": 30, "districts": 1, "blocks": 1, "money": 1.0},
+                {"k": "WEST GARO HILLS", "ben": 900, "villages": 50, "districts": 1, "blocks": 2, "money": 2.0}]
     monkeypatch.setattr(cf.db, "fetch_rows", rows)
-    pl = SimpleNamespace(low=False, both=False, top_n=None, exclude=[])
-    line, sql = asyncio.run(cf._cm_elevate_ranking(pl))
-    assert line.startswith("CM Elevate, its own list (highest 2 districts by applications")
-    assert line.endswith("1. West Garo Hills 90; 2. Ri Bhoi 40.")
+    pl = cf.plan("top 2 districts across all schemes", ["MGNREGA", "CM Elevate"], {}, {}, p._SCHEME_NAME_MATCHER)
+    out = asyncio.run(cf.answer(pl))
+    assert "**CM Elevate** — Top 2 districts by applications: 1. West Garo Hills 90; 2. Ri Bhoi 40." in out["answer"]
+    assert "**MGNREGA** — Top 2 districts by households given work: 1. West Garo Hills 900; 2. Ri Bhoi 400." \
+        in out["answer"]
 
 
 # ── X-14: money with no unit in its name gets one ──────────────────────────

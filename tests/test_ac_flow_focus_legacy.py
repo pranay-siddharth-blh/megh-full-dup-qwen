@@ -89,8 +89,9 @@ def test_non_shared_dimensions_keep_the_strict_guard():
 
 
 # ── the upstream gate still protects schemes with no AC route ──────────────
-# CM Elevate has had an AC route since 2026-10-06 (geography_key -> dim_geography).
-@pytest.mark.parametrize("scheme", ["PMAY-G", "Focus Plus"])
+# CM Elevate has had an AC route since 2026-10-06 (geography_key -> dim_geography);
+# PMAY-G since 2026-10-30 (v_pmay.ac_name, D-096).
+@pytest.mark.parametrize("scheme", ["Focus Plus"])
 def test_ac_less_schemes_never_reach_the_ac_branch(scheme):
     """resolve_dimension is now looser, so the safety net is the chip gate:
     these schemes are never offered the AC reading in the first place."""

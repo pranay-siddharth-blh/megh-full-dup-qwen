@@ -449,8 +449,31 @@ def _place_at(toks: list[Tok], i: int, level: str, *, cue: bool) -> "tuple[int, 
     return end, canon, how, score
 
 
+def _inside_village_name(toks: list[Tok], i: int, end: int) -> bool:
+    """The span toks[i:end] is part of a LONGER phrase in the text that is exactly a
+    village name. MGNREGA UAT 2026-10-30 (KI-640): "households … in RONGARE ADING" —
+    "RONGARE" alone sounds like the Rongara block, the village index knows only the
+    two-word name, so the block guard below did not fire, the text became "Rongara
+    ADING" and the officer was asked block / constituency / village with the real
+    village not offered. A village is never rewritten in the text (D-093)."""
+    from app import entity_resolver as er
+    for a in range(max(0, i - 3), i + 1):
+        for b in range(end, min(len(toks), end + 3) + 1):
+            if b - a <= end - i:
+                continue
+            span = toks[a:b]
+            if not all(t.raw.isalpha() or t.raw in "()-." for t in span):
+                continue
+            if er.is_village_name(" ".join(t.raw for t in span)):
+                return True
+    return False
+
+
 def _district_at(toks: list[Tok], i: int, *, cue: bool) -> "tuple[int, str, str, float] | None":
-    return _place_at(toks, i, "district", cue=cue)
+    hit = _place_at(toks, i, "district", cue=cue)
+    if hit is not None and hit[2] != "alias" and _inside_village_name(toks, i, hit[0]):
+        return None
+    return hit
 
 
 def _block_at(toks: list[Tok], i: int, *, cue: bool) -> "tuple[int, str, str, float] | None":
@@ -459,6 +482,8 @@ def _block_at(toks: list[Tok], i: int, *, cue: bool) -> "tuple[int, str, str, fl
     hit = _place_at(toks, i, "block", cue=cue)
     if hit is None or hit[2] == "alias":
         return hit
+    if _inside_village_name(toks, i, hit[0]):
+        return None
     # A few edits away, of any length, only beside a place word: "we are a self help
     # group" read "self help" as the block Selsella (2 edits, no cue).
     after = toks[hit[0]].low if hit[0] < len(toks) else ""
@@ -573,12 +598,81 @@ def _place_hit(toks: list[Tok], i: int, prev: str) -> "tuple[str, tuple] | None"
     if ac is not None and ac[0] - i > 1 and level_after(ac[0] - 1) == "assembly_constituency":
         return "assembly_constituency", (ac[0] - 1, *ac[1:])
     d = _district_at(toks, i, cue=cue)
-    if d is not None and level_after(d[0]) in ("", "district"):
+    if d is not None and level_after(d[0]) in ("", "district") and not _starts_a_village(toks, i, d[0]) \
+            and not _starts_a_block(toks, i, d[0]):
         return "district", d
     b = _block_at(toks, i, cue=cue or bool(level_after(i + 1)))
-    if b is not None and level_after(b[0]) in ("", "block"):
+    if b is not None and level_after(b[0]) in ("", "block") and not _starts_a_village(toks, i, b[0]) \
+            and not _starts_a_block(toks, i, b[0]):
         return "block", b
     return None
+
+
+def _starts_a_block(toks: list[Tok], i: int, end: int) -> bool:
+    """The tokens from i begin a LONGER span that is exactly a block name of some
+    scheme's catalogue: "William Nagar-Municipal Board block" (the LGD block, CM
+    Elevate 149 applications) was rewritten to Focus Plus's spelling "Williamnagar"
+    on its first two words and every scheme then answered 0 for the block
+    (Cross Scheme sheet re-run 2026-10-30, CROSS-9). An exact block name is never
+    rewritten, like an exact village name (_starts_a_village)."""
+    spell = _spellings("block")
+    for k in range(end + 1, min(len(toks), i + 6) + 1):
+        if not all(t.raw.replace("-", "").replace("'", "").isalnum() for t in toks[i:k]):
+            break
+        if _spaced(" ".join(t.raw for t in toks[i:k])) in spell:
+            return True
+    return False
+
+
+def _starts_a_village(toks: list[Tok], i: int, end: int) -> bool:
+    """The tokens from i up to `end` (the place hit) begin a longer span that is EXACTLY a
+    village name: "RONGARE ADING" (village 274191) was rewritten to the block "Rongara ADING"
+    (fuzzy 85.7 on its first word) and asked Rongara block / constituency / village instead
+    of answering the village (PMAY-G all-villages run 2026-10-30). _block_at checks only the
+    matched tokens themselves; a multi-word village is checked here."""
+    return _village_span_end(toks, i, end) is not None
+
+
+def _village_span_end(toks: list[Tok], i: int, end: int) -> "int | None":
+    """The end (exclusive token index) of the LONGEST span starting at i, longer than `end`,
+    that is exactly a village name; None when there is none. The whole span is what the
+    normaliser must step over: "hawai bhoi" (279381) kept its first word but the loop moved
+    one token, and "bhoi" alone was then read as the district alias of Ri Bhoi ("Showing
+    results for Ri Bhoi (you typed 'bhoi')", all-villages run 2026-10-30, KI-631)."""
+    found = None
+    # ward villages are "William Nagar (Mb) - Ward No.1", "Mendipathar - Ward No.10":
+    # digits and the stripped punctuation are part of the name (cross-scheme village
+    # run 2026-10-30, KI-646), so the span is compared on its letters and digits
+    for k in range(end + 1, min(len(toks), i + 8) + 1):
+        if not all(t.raw.isalnum() for t in toks[i:k]):
+            break
+        if _exact_village(" ".join(t.raw for t in toks[i:k])):
+            found = k
+    return found
+
+
+_FULL_NAMES: dict = {}
+
+
+def _fold_name(text: str) -> str:
+    return "".join(ch for ch in str(text).upper() if ch.isalnum())
+
+
+def _exact_village(text: str) -> bool:
+    """`text` is exactly a village name: by the folded index, or by the full stored name.
+    The index folds the word VILLAGE away and leaves out one-word generic names, so
+    "CENTRE VILLAGE" (folded "CENTRE", a denied solo word) is not in it; the code -> name
+    map holds every stored name as written. A name with punctuation ("William Nagar
+    (Mb) - Ward No.1") is matched on its letters and digits."""
+    from app import entity_resolver as er
+    if er.is_village_name(text):
+        return True
+    gen = _catalog_id()
+    if _FULL_NAMES.get("gen") != gen:
+        names = [str(n) for n in (getattr(er, "_village_code_names", None) or {}).values()]
+        _FULL_NAMES.update(gen=gen, names=frozenset(" ".join(n.upper().split()) for n in names),
+                           folded=frozenset(_fold_name(n) for n in names) - {""})
+    return " ".join(str(text).upper().split()) in _FULL_NAMES["names"] or _fold_name(text) in _FULL_NAMES["folded"]
 
 
 def _village_at(toks: list[Tok], i: int) -> "tuple[int, str, int] | None":
@@ -599,6 +693,10 @@ def _village_at(toks: list[Tok], i: int) -> "tuple[int, str, int] | None":
             return None
         name = " ".join(t.raw for t in span)
         if er.is_village_name(name) or (k == 1 and _known_word(name)):
+            return None
+        # "Centre Village" (Jirang, 277685) IS a village's name, word "village" included —
+        # it was rewritten to the village Kentra by sound (PMAY-G all-villages run 2026-10-30, KI-631)
+        if _exact_village(name + " " + toks[j].raw):
             return None
         near = village_matches(name, limit=2)
         if near and (len(near) == 1 or near[1][1] > near[0][1]):
@@ -651,6 +749,14 @@ def _normalise(question: str) -> Normalised:
                 last = toks[end - 1].end
                 corrections.append(Correction(typed, canon, "village", "sound" if d == 0 else "fuzzy"))
                 i = end
+                continue
+            vend = _village_span_end(toks, i, i + 1)
+            if vend is not None:
+                # no word of an exact multi-word village name is a typo of a scheme, domain
+                # word, district or block: "Pyndeng Shallang" (276876) became "pending Shallang"
+                # and was answered as the Shallang block; "hawai bhoi" (279381) lost its second
+                # word to the Ri Bhoi alias (all-villages run 2026-10-30, KI-631)
+                i = vend
                 continue
             if t.low in aliases["bare_focus"] or (
                     t.low != "focus" and len(t.low) >= 5 and t.low[0] == "f" and fuzz.ratio(t.low, "focus") >= 80

@@ -312,6 +312,11 @@ def _rephrase_violation(original: str, rephrased: str) -> "str | None":
     # was classified to all six and failed (MGNREGA sheet DATA-030, 2026-10-09).
     if _EXPLICIT_BOTH.search(out) and not _EXPLICIT_BOTH.search(gloss):
         return "scheme"
+    # ...nor bring in the word "scheme(s)" at all: "What was the total expenditure in
+    # JIGABARI during 2025-2026?" came back "…under the available schemes…", which the
+    # scheme gate read as unscoped and asked "which scheme?" (MGNREGA UAT 2026-10-30).
+    if _TALKS_ABOUT_SCHEMES.search(out) and not _TALKS_ABOUT_SCHEMES.search(gloss):
+        return "scheme"
     # Places: the same districts / blocks, compared canonically ("ekh" = East Khasi Hills).
     if set(context_policy._places(out)) != set(context_policy._places(gloss)):
         return "place"

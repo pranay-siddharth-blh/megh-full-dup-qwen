@@ -330,7 +330,12 @@ async def _pmay_two_villages(question: str) -> "list[dict] | None":
 # the model path, which has its own guards (_pmay_sql_issue / _pmay_comparison_limit).
 
 _PMAY_DET_KEYS = {"village_code", "village_code_list", "block", "block_list", "block_list_districts",
-                  "district", "district_list", "district_list_region", "year_key", "house_status"}
+                  "district", "district_list", "district_list_region", "year_key", "house_status",
+                  "assembly_constituency", "year_key_list", "village_twins"}
+# "village_twins" (D-089 J-10: a name shared by 2-3 villages is answered for each, one row
+# per village with its block): without it every twin question left this path, and the model
+# path summed the twins ("39 beneficiaries in Kotchugre (Batabari block) and Kotchugre
+# (Tikrikilla block)") or failed to build a query (PMAY-G all-villages re-test 2026-10-30).
 # Shapes the deterministic path does not answer (the model path keeps them).
 def _pmay_p(*options: str) -> W:
     """A word starting with any of `options` (the stem, then any more letters or none)."""
@@ -800,7 +805,27 @@ def _pmay_facts_query(question: str, schemes: list[str], resolved: dict,
     yk = resolved.get("year_key")
     if yk is not None and not isinstance(yk, int):
         return None
-    if resolved.get("village_code") is not None:
+    # Two or more years for one place ("Compare PMAY-G houses completed in 2022-23 and
+    # 2023-24"): one row per sanction year (KI-629). It went to the model path, which added
+    # the years into one total (78,224) or built no query at all (live chart suite 2026-10-30).
+    yks = resolved.get("year_key_list") or None
+    if yks is not None:
+        if (not isinstance(yks, (list, tuple)) or not all(isinstance(y, int) and not isinstance(y, bool) for y in yks)
+                or not 2 <= len(set(yks)) <= 12 or calendar_year is not None):
+            return None
+        yks, yk = sorted(set(yks)), None
+    # An assembly constituency (v_pmay.ac_name, from dim_geography like MGNREGA's): the model
+    # path wrote ac_name = 'AMLAREM' against the Title Case 'Amlarem' and answered a false 0
+    # for Amlarem / Mawlai / North Tura (PMAY-G sheet re-test 2026-10-30, KI-445). A
+    # constituency narrowed to a district / block / village (the drill-down overlap) stays
+    # with the model path.
+    _ac = resolved.get("assembly_constituency")
+    if _ac:
+        if not isinstance(_ac, str) or any(resolved.get(k) not in (None, "", [], {}) for k in (
+                "village_code", "village_code_list", "block", "block_list", "district", "district_list")):
+            return None
+        dim, ents = "ac", [_ac]
+    elif resolved.get("village_code") is not None:
         dim, ents = "village", [resolved["village_code"]]
     elif resolved.get("village_code_list"):
         dim, ents = "village", list(resolved["village_code_list"])
@@ -824,22 +849,26 @@ def _pmay_facts_query(question: str, schemes: list[str], resolved: dict,
         dim, ents = "state", ["MEGHALAYA"]
     if any(isinstance(e, (list, dict, set, tuple)) for e in ents) or len(ents) > 6:
         return None
-    metrics = _pmay_metrics(question, len(ents) > 1)
+    if yks is not None and len(ents) > 1:
+        return None          # places x years: the model path's grouped query
+    metrics = _pmay_metrics(question, len(ents) > 1 or yks is not None)
     if not metrics:
         return None
     _typed = _PMAY_TYPED_TURN.get()
     if _typed and _typed != question:
-        _own = _pmay_metrics(_typed, len(ents) > 1)
+        _own = _pmay_metrics(_typed, len(ents) > 1 or yks is not None)
         if _own and set(_own) < set(metrics):
             metrics = _own
     day = _pmay_date(question)
+    if yks is not None and day is not None:
+        return None
     # A year the user typed is never dropped. "How many PMAY houses were sanctioned in
     # 2023?" left year_key unresolved and this path answered for ALL years (170,981;
     # 21 Sep test-sheet recheck, 2026-09-28). A bare year is read as FY 2023-24, the
     # project convention (year_key); the answer adds the calendar-year figure too,
     # because pmay_entity_resolver.yaml reads "sanctioned in 2023" as calendar 2023.
     bare_year = None
-    if day is None and calendar_year is None:
+    if day is None and calendar_year is None and yks is None:
         _bm = _pmay_bare_year(question or "")
         if _bm and not _pmay_ends_with_fy((question or "")[:_bm[0]]):
             bare_year = _bm[1]
@@ -865,6 +894,9 @@ def _pmay_facts_query(question: str, schemes: list[str], resolved: dict,
     elif dim == "district":
         params.append([str(e).upper() for e in ents]); where.append(f"UPPER(lgd_district) = ANY(${len(params)}::text[])")
         key, name = "UPPER(lgd_district)", "MAX(lgd_district) AS name"
+    elif dim == "ac":
+        params.append([str(e).upper() for e in ents]); where.append(f"UPPER(ac_name) = ANY(${len(params)}::text[])")
+        key, name = "UPPER(ac_name)", "MAX(ac_name) AS name"
     else:
         key, name = "'MEGHALAYA'", "'Meghalaya' AS name"
     if day is not None:
@@ -875,6 +907,13 @@ def _pmay_facts_query(question: str, schemes: list[str], resolved: dict,
         params.append(_dt.date(calendar_year + 1, 1, 1)); where.append(f"sanction_date < ${len(params)}")
     elif yk is not None:
         params.append(yk); where.append(f"year_key = ${len(params)}")
+    elif yks is not None:
+        params.append(yks); where.append(f"year_key = ANY(${len(params)}::int[])")
+    # the place filters the rows; a year comparison's rows are its years
+    place_dim, place_ents = dim, ents
+    if yks is not None:
+        dim, ents = "year", list(yks)
+        key, name = "year_key", "MAX(financial_year_short) AS name"
     if stages:
         params.append(stages); where.append(f"status_name = ANY(${len(params)}::text[])")
     rel = "COALESCE(amount_released, 0)"
@@ -905,9 +944,11 @@ def _pmay_facts_query(question: str, schemes: list[str], resolved: dict,
            + ("\nWHERE " + "\n  AND ".join(where) if where else "") + group)
     shown = _pmay_inline_params(sql, params)
     return {"sql": sql, "params": params, "shown": shown, "metrics": metrics, "dim": dim,
+            "place_dim": place_dim, "place_entities": place_ents, "year_list": yks,
             "entities": ents, "year_key": None if calendar_year is not None else yk, "date": day, "stages": stages,
             "calendar_year": calendar_year, "bare_year": bare_year,
             "word": "beneficiaries" if "beneficiar" in (question or "").lower() else "houses",
+            "twins": bool(resolved.get("village_twins")),
             "question": question}
 
 
@@ -981,6 +1022,14 @@ def _pmay_period(spec: dict, sanctioned_words: bool = True) -> str:
     # 2022-23: 454" read as "completed during 2022-23". It is said as the cohort it is:
     # "of the houses sanctioned in FY 2022-23". The no-houses sentence already says
     # "were sanctioned", so it keeps the plain "in FY …" (sanctioned_words=False).
+    if spec.get("year_list"):
+        # each year row is the cohort sanctioned that year (Issue 11 above); the place is said once
+        pd, pe = spec.get("place_dim"), spec.get("place_entities") or []
+        disp = spec.get("display") or {}
+        place = ("Meghalaya (statewide)" if pd in (None, "state") else _pmay_entity_name(
+            {**spec, "dim": pd, "entities": pe}, {"name": disp.get(pd) or (pe[0] if pe else ""),
+                                                  "entity_key": pe[0] if pe else ""}))
+        return f"{place}, by the year the houses were sanctioned"
     if spec.get("year_key") is not None and spec.get("date") is None and spec.get("calendar_year") is None \
             and sanctioned_words:
         y = spec["year_key"]
@@ -1000,6 +1049,9 @@ def _pmay_period(spec: dict, sanctioned_words: bool = True) -> str:
 
 def _pmay_entity_name(spec: dict, row: dict) -> str:
     disp = spec.get("display") or {}
+    if spec["dim"] == "year":
+        y = int(row.get("entity_key"))
+        return f"FY {y}-{(y + 1) % 100:02d}"
     if not row.get("block") and spec["dim"] == "village" and len(spec["entities"]) == 1:
         row = {**row, "name": row.get("name") if row.get("name") != row.get("entity_key") else None,
                "block": disp.get("block"), "district": disp.get("district")}
@@ -1011,11 +1063,15 @@ def _pmay_entity_name(spec: dict, row: dict) -> str:
     n = _place_title(row.get("name") or row.get("entity_key") or "")
     if spec["dim"] == "block":
         return f"{n} block"
+    if spec["dim"] == "ac":
+        return f"{n} assembly constituency"
     if spec["dim"] == "village":
         # "MODEL VILLAGE" is already a village's name — not "Model Village village"
         _vw = "" if _pmay_ends_with_village(n) else " village"
-        return f"{n}{_vw} ({_place_title(row.get('block') or '')} block, {_place_title(row.get('district') or '')})" \
-            if len(spec["entities"]) == 1 else n
+        if len(spec["entities"]) == 1:
+            return f"{n}{_vw} ({_place_title(row.get('block') or '')} block, {_place_title(row.get('district') or '')})"
+        # twins share the name: only the block tells the rows apart (D-089 J-10)
+        return f"{n}{_vw} ({_place_title(row['block'])} block)" if spec.get("twins") and row.get("block") else n
     return n
 
 
@@ -1040,7 +1096,7 @@ def _pmay_lines(spec: dict, row: dict) -> list[str]:
             ph = int(row.get("placeholders") or 0)
             L.append((f"PMAY-G {word}: {h:,}"
                       if word == "beneficiaries" or (spec.get("date") is None and spec.get("year_key") is None
-                                                     and spec.get("calendar_year") is None)
+                                                     and spec.get("calendar_year") is None and not spec.get("year_list"))
                       else f"PMAY-G houses sanctioned: {h:,}")
                      + (f" (including {ph:,} registered with a sanctioned amount of ₹0 and no house "
                         "sanctioned yet)" if ph else ""))
@@ -1134,7 +1190,11 @@ def _pmay_display_rows(spec: dict, rows: list[dict]) -> list[dict]:
     …) was returned as-is and the UI printed every column (user report 2026-09-29)."""
     out = []
     for r in rows:
-        d = {spec["dim"] if spec["dim"] != "state" else "area": _place_title(str(r.get("name") or r.get("entity_key")))}
+        _col = {"state": "area", "ac": "assembly_constituency", "year": "financial_year"}.get(spec["dim"], spec["dim"])
+        d = {_col: _pmay_entity_name(spec, r)[3:] if spec["dim"] == "year"
+             else _place_title(str(r.get("name") or r.get("entity_key")))}
+        if spec.get("twins") and r.get("block"):
+            d["block"] = _place_title(r["block"])      # the only thing that tells twins apart
         for m in spec["metrics"]:
             if m == "status":
                 for st, c in _PMAY_STAGE_COL.items():
@@ -1156,6 +1216,14 @@ _PMAY_SPEND_WORD_MATCH = Matcher(Alt(W("expenditure", "expenditures", "expense",
                                     "costs"), W("spend", prefix=True)))
 
 
+def _pmay_with_year_gap_note(answer: str, notes: "list[str] | None") -> str:
+    """The fixed-query answer with the year-gap note (_apply_year_gap) it used to drop:
+    "Compare PMAY-G houses completed in 2023-24 and 2024-25" answered 2023-24 alone and
+    never said FY 2024-25 holds no PMAY-G data (live chart suite 2026-10-30)."""
+    gaps = [n for n in (notes or []) if "holds no data for this scheme" in n and n not in answer]
+    return answer + "".join(f"\n\n{n[0].upper()}{n[1:]}" for n in gaps) if gaps else answer
+
+
 def _pmay_expenditure_not_held(spec: dict, answer: str) -> str:
     """Prefix the 'PMAY-G records no expenditure' note to an answer that gives
     the amount released for an expenditure question."""
@@ -1175,7 +1243,7 @@ def _pmay_facts_answer(spec: dict, rows: list[dict]) -> "str | None":
         r = by_key.get(str(e).upper())
         if r is None or not int(r["houses"]):
             if (spec.get("date") is None and spec.get("year_key") is None and spec.get("calendar_year") is None
-                    and not spec.get("stages")):
+                    and not spec.get("stages") and not spec.get("year_list")):
                 return None          # the place holds no PMAY-G rows under this name: let the model path handle it
             r = r or {"entity_key": e, "name": e, "houses": 0, **{k: 0 for k in (
                 "sanctioned", "released", "released_on_sanctioned", "sanctioned_positive", "completed", "incomplete",
@@ -1198,6 +1266,14 @@ def _pmay_facts_answer(spec: dict, rows: list[dict]) -> "str | None":
         return f"PMAY-G — {where}, {period}{stage_note}:\n" + "\n".join(f"- {ln}" for ln in lines)
     # comparison of the named entities
     names = [_pmay_entity_name(spec, r) for r in ordered]
+    if spec.get("twins"):
+        # one name, several villages: each on its own, never added up or "compared" (D-089 J-10)
+        out = [f"“{_place_title(ordered[0].get('name') or '')}” is the name of {len(ordered)} villages in the "
+               f"PMAY-G data; each is shown on its own, {period}{stage_note}:"]
+        for n, r in zip(names, ordered):
+            out.append(f"{n}:")
+            out.extend(f"- {ln}" for ln in _pmay_lines(spec, r))
+        return "\n".join(out)
     out = [f"PMAY-G comparison, {period}{stage_note}:"]
     for n, r in zip(names, ordered):
         out.append(f"{n}:")
@@ -1303,6 +1379,34 @@ def _pmay_sql_issue(question: str, schemes: list[str], sql: str) -> "str | None"
                 "whose release is NULL and averages per-house ratios — a different, wrong number (98.82% for a "
                 "true 98.76% in East Khasi Hills). Replace the AVG with that SUM ratio and keep every filter.")
     return None
+
+
+def _pmay_ac_name_case(schemes: list[str], sql: str) -> str:
+    """`ac_name = 'X'` -> `UPPER(ac_name) = 'X'` on v_pmay (ac_name comes from dim_geography,
+    Title Case 'Amlarem'; the resolver hands over 'AMLAREM'): a bare comparison answered a
+    false 0 for Amlarem, Mawlai and North Tura (PMAY-G sheet re-test 2026-10-30, KI-445).
+    The Focus Legacy rewrite, for PMAY-G."""
+    if schemes != ["PMAY-G"]:
+        return sql
+    return _focus_legacy_ac_name_case(["Focus Legacy"], sql)
+
+
+def _pmay_ac_filter_missing(schemes: list[str], entity_result: dict, sql: str) -> "str | None":
+    """The repair instruction when a constituency was resolved but the PMAY-G query does
+    not filter ac_name on it (it would report a district's or the state's figure as the
+    constituency's). None otherwise."""
+    ac = ((entity_result or {}).get("resolved") or {}).get("assembly_constituency")
+    if schemes != ["PMAY-G"] or not isinstance(ac, str) or not ac.strip() \
+            or not sql or not sql_ast.is_parseable(sql):
+        return None
+    if ac.strip().upper() in _fl_ac_values(sql):
+        return None
+    return (f"the question is about the assembly constituency {ac} (a RESOLVED, MANDATORY filter), but "
+            "this query does not filter on it, so it returns the figure of a district or of the whole "
+            "state. curated.v_pmay carries the constituency itself: add "
+            f"WHERE UPPER(ac_name) = UPPER('{ac}') (no join), drop any lgd_district / lgd_block filter "
+            "the question did not name, and keep the measure, the year filter and the grouping exactly "
+            "as they were.")
 
 
 def _pmay_no_houses_answer(spec: dict, row: "dict | None", display: dict) -> str:

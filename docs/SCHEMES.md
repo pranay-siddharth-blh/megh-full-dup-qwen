@@ -18,7 +18,7 @@ are in `app/schema_context.py` (`_<X>_TABLES`, `_<X>_RULES`, `_<X>_VOCAB`).
 | Scheme | Data folder | Query surface | Grain | Money | FY coverage | AC answerable | Few-shot pool | KB docs |
 |---|---|---|---|---|---|---|---|---|
 | MGNREGA | `data/mgnrega` | `v_employment`, `v_expenditure`, `v_district_year_summary` | source row | lakh ₹ | 2022-23…2025-26 | yes (`assembly_constituency_name`) | `few_shot.yaml` (68) | reference + FAQ + web |
-| PMAY-G | `data/pmay` | `v_pmay`, `v_pmay_monthly_sanctions` | house | ₹ (monthly: crore) | 2017-18…2023-24 | no | `pmay_few_shot.yaml` (63) | reference + FAQ + web |
+| PMAY-G | `data/pmay` | `v_pmay`, `v_pmay_monthly_sanctions` | house | ₹ (monthly: crore) | 2017-18…2023-24 | yes (`ac_name`, D-096) | `pmay_few_shot.yaml` (63) | reference + FAQ + web |
 | Focus Plus | `data/focus_plus` | `v_focus_plus` | payment (member × tranche) | unverified | 2022-23, 2025-26 | no | `focusplus_few_shot.yaml` (87) | reference + FAQ |
 | CM Elevate | `data/cm_elevate` | `v_cm_elevate` | application | **none** | **none** | no | `cmelevate_few_shot.yaml` (155) | reference + FAQ |
 | Focus Legacy | `data/focus_legacy` | `v_focus_legacy` | payment to a producer group | unverified (= members × 5000) | 2021-22, 2022-23, 2024-25, 2025-26 (**no 2023-24**) | yes (via `dim_geography.ac_name`) | `focuslegacy_few_shot.yaml` (86) | reference + FAQ |
@@ -111,12 +111,19 @@ Notes on the table:
   - exclude `sanctioned_amount = 0` from rates;
   - "expenditure" means `amount_released`;
   - filter on `year_key`;
-  - the cross-scheme `scheme_code` is `'PMAY'`.
+  - the cross-scheme `scheme_code` is `'PMAY'`;
+  - **constituency (D-096, 2026-10-30, KI-445):** `v_pmay.ac_name` (dim_geography's, Title Case, on every row) answers
+    'X constituency / assembly constituency / AC' through the fixed query (dim "ac", `UPPER(ac_name)`); model path:
+    `_pmay_ac_name_case`, `_pmay_ac_filter_missing`;
+  - **shared village names (KI-630, 2026-10-30):** 2-3 villages of one name (D-089 J-10) are one fixed-query row each,
+    named with the block, never summed ("“Kotchugre” is the name of 2 villages …").
 - **Tests:** the cross-scheme and edge suites, plus `tests/test_pmay_usecase_fixes.py` (2026-09-28).
 - **Deterministic facts path (D-029):** the fixed use-case shapes (counts, money, remaining,
   stages, release status, rates, summaries, A-vs-B comparisons; one FY or one date) are
   answered by `_pmay_facts_query` / `_pmay_facts_answer` in `app/pipeline/schemes/pmay_g.py`, not
-  the SQL model. PMAY-G is a village-grained scheme for resolution (`_village_scheme`,
+  the SQL model. Two to twelve named years for ONE place (`year_key_list`) are one row per sanction year on the same
+  fixed query (dim "year", 2026-10-30, KI-629; places x years stays on the model path), and a year PMAY-G does not
+  hold (FY 2024-25 and later) is named in the answer (`_pmay_with_year_gap_note`, KI-628). PMAY-G is a village-grained scheme for resolution (`_village_scheme`,
   `_pmay_village_names`). `amount_released` is NULL on 336 sanctioned houses (462 with the 126
   zero-sanction registrations) — COALESCE it. The "nothing released" count (`no_release`,
   `COALESCE(amount_released, 0) = 0`) includes the registrations: 462 statewide (2026-10-29). Its
@@ -356,16 +363,14 @@ Notes on the table:
   - names: a bare "FOCUS" beside "Focus+" = Focus Legacy; a bare "CM-ELEVATE" beside other schemes
     = CM Elevate (applications) as written, Legacy when named — or when the question carries a
     financial word, which the context-stage pin turns into "CM Elevate Legacy" first (D-064, 2026-10-22);
-  - said, never queried (`_cross_scheme_gaps`): constituency for PMAY-G, Focus Plus, CM Elevate
-    (only MGNREGA, Focus Legacy and CM Elevate Legacy record it); a financial year the scheme has
+  - said, never queried (`_cross_scheme_gaps`): constituency for Focus Plus, CM Elevate
+    (MGNREGA, PMAY-G since D-096, Focus Legacy and CM Elevate Legacy record it); a financial year the scheme has
     no data for (its years listed); CM Elevate for a money-only question (applications only);
   - places are resolved against all six schemes, plus `refine_block` (urban blocks),
     `refine_constituency` (Shillong ACs) and twin-village LGD chips (KI-284..288); no area / year
     pause (statewide, each scheme's own years).
-  - QA: offline `tests/test_cross_scheme_llm_2026_10_22.py`; the D-044 bulk harness
-    `tests/sheet_runs/cross/` checks the old table's exact figures and measures, so it no longer
-    applies as written (DOCUMENTATION CONFLICT — NEEDS VERIFICATION: rewrite its truth to the
-    per-scheme answers before re-using it).
+  - QA: offline `tests/test_cross_scheme_llm_2026_10_22.py`; the bulk harness `tests/sheet_runs/cross/` was
+    re-written on 2026-10-30 for the coded answer shape (`grade.py`, `truth.py` with the D-066 / D-097 measures).
 - **D-066 (2026-10-22 night): beneficiaries / money / village coverage of MGNREGA, PMAY-G, Focus Plus and
   Focus Legacy** (statewide, a district / districts / a block, per district, one FY) are worked out in code
   (`app/cross_figures.py`): fixed per-scheme queries, then totals, district rankings, the leading / second
@@ -379,6 +384,16 @@ Notes on the table:
   A combined total only when asked. "Excluding / leaving out <scheme>" removes it (CM-ELEVATE = both
   datasets; none named -> the four main schemes minus the excluded). A bare FOCUS with no Focus+ beside it
   asks which Focus. UAT: 59/60 = megh_db, 47/60 = raw files (the rest = KI-393 data differences).
+- **D-097 (2026-10-30, Cross Scheme sheet re-run): the coded path covers all six schemes, a village, a constituency
+  and a block grain.** CM Elevate = applications (distinct request ids), no money, no financial year — said, never
+  0; CM Elevate Legacy = applicants sanctioned (records with a sanctioned amount, 2,820) and the total disbursement
+  (subsidy + loan). A constituency reads MGNREGA's `assembly_constituency_name` (employment), `ac_name` elsewhere;
+  Focus Plus and CM Elevate do not record one. A village uses each scheme's own village filter. A combined total or
+  combined district ranking leaves CM Elevate out (applications are not beneficiaries) and says so; everywhere else
+  CM Elevate is one of the schemes, ranked by applications in its own list. Exclusions still leave the four main
+  schemes. Still on the model path: village / block lists, top-N villages or blocks, other measures, several
+  villages at once. Results: `reference_documents/Cross Scheme Test Cases.xlsx` (columns I..M, tabs Coverage / All
+  conversations) and `reference_documents/README.md`.
 - "Which scheme paid out the most?" (`_wants_cross_scheme_money_ranking`) → the same path over every
   scheme that records money (D-062; `_cross_scheme_money_answer` removed). Test: `test_cross_scheme_money.py`.
 - MGNREGA + PMAY: `v_cross_scheme_money_district_year` (crore) and

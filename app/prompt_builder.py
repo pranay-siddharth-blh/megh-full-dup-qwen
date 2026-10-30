@@ -341,6 +341,16 @@ def _entities_block(entity_result: dict, question: str = "",
                         f"  UPPER(ac_name) = UPPER({v!r})   -- curated.v_focus_plus has its own "
                         "ac_name column (stored Title case). This is the constituency, NOT a block "
                         "of the same name — never filter block_name_raw or lgd_block for it.")
+                elif list(schemes or []) == ["PMAY-G"]:
+                    # v_pmay carries ac_name itself (from dim_geography, Title Case
+                    # 'Amlarem'). The MGNREGA line below sent the model to
+                    # assembly_constituency_name / a bare ac_name = 'AMLAREM', which
+                    # matched nothing (PMAY-G sheet re-test 2026-10-30, KI-445).
+                    lines.append(
+                        f"  UPPER(ac_name) = UPPER({v!r})   -- on curated.v_pmay (no join; the "
+                        "column is on the view). This is the constituency, NOT a block or district "
+                        "of the same name — never filter lgd_block / lgd_district for it, and never "
+                        "answer it with a district or statewide figure.")
                 elif _focus_legacy_only(schemes):
                     # v_focus_legacy has NO constituency column. The AC is
                     # reached through the documented dimension join on
