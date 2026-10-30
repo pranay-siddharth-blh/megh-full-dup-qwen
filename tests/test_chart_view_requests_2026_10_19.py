@@ -60,9 +60,18 @@ def test_wide_alone_keeps_the_last_type():
 
 
 @pytest.mark.parametrize("msg", ["what about East Khasi Hills", "How many PMAY-G houses in pie chart",
-                                 "line please", "pie chart for each year"])
+                                 "pie chart for each year"])
 def test_questions_with_their_own_content_are_not_view_requests(msg):
     assert p._chart_view_question(msg, _prev()) is None
+
+
+@pytest.mark.parametrize("msg,view", [("line please", "a line chart"), ("I want only bar", "a bar chart"),
+                                      ("now line", "a line chart"), ("bar", "a bar chart")])
+def test_a_bare_type_alone_is_a_view_request(msg, view):
+    # user 2026-10-30: "I want only bar" — the message is nothing but the type
+    # (was: "line please" needed "chart", 2026-10-19)
+    q, _, _ = p._chart_view_question(msg, _prev())
+    assert q.endswith("as " + view)
 
 
 def test_meghalaya_after_a_district_answer_is_a_new_scope():

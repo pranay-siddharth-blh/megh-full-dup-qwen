@@ -377,26 +377,53 @@ def test_resolve_village_takes_the_clearly_closest_lookalike(_gazetteer, monkeyp
 
 
 # ── KI-346: "give me for dalu" after a PMAY-G by-district answer (user, live 18:18) ──
+
+def _block_chip(exc):
+    """The block option's question of a block-or-constituency pause (the user's tap)."""
+    labels = [o["label"] for o in exc.options]
+    assert any("block" in l.lower() for l in labels) and any("constituency" in l.lower() for l in labels), labels
+    return next(o["question"] for o in exc.options if "block" in o["label"].lower())
+
+
 def test_a_block_the_extractor_called_a_village_is_the_block(_gazetteer, monkeypatch):
     # The 4B tagged Dalu a village; no village is named DALU, so the trigram
-    # fallback asked "DALUAGRE or DALUGAON?".
+    # fallback asked "DALUAGRE or DALUGAON?". DALU is a block AND a constituency, and
+    # PMAY-G records the constituency since D-096 (2026-10-30), so the level gate asks
+    # block or constituency (D-059, as for MGNREGA) — never a village. The block chip
+    # then resolves to the block.
     _stub_resolver(monkeypatch, {"district": "West Garo Hills", "village": "Dalu", "year": "2019-20"})
-    out = asyncio.run(p.resolve_entities(
-        "How many PMAY-G houses were completed in Dalu, West Garo Hills for FY 2019-20?", ["PMAY-G"],
-        prior_resolved={"year_key": 2019}))
+    with pytest.raises(p.ClarificationNeeded) as ei:
+        asyncio.run(p.resolve_entities(
+            "How many PMAY-G houses were completed in Dalu, West Garo Hills for FY 2019-20?", ["PMAY-G"],
+            prior_resolved={"year_key": 2019}))
+    out = asyncio.run(p.resolve_entities(_block_chip(ei.value), ["PMAY-G"], prior_resolved={"year_key": 2019}))
     assert out["resolved"].get("block") == "DALU"
-    assert "village_code" not in out["resolved"]
+    assert "village_code" not in out["resolved"] and not out["resolved"].get("assembly_constituency")
 
 
 def test_a_stated_village_is_left_to_the_old_path(_gazetteer, monkeypatch):
     # "Dalu village" states the level: the guard does not run, and the result is
-    # whatever the existing village branch decides, flag on or off.
-    _stub_resolver(monkeypatch, {"village": "Dalu", "year": "2019-20"})
-    q = "How many PMAY-G houses were completed in Dalu village for FY 2019-20?"
-    on = asyncio.run(p.resolve_entities(q, ["PMAY-G"]))
+    # whatever the existing village branch decides. No village is named DALU; the name
+    # is a block AND a constituency. MGNREGA re-reads it as the block (flag on or off).
+    # PMAY-G is a village-grained scheme and records the constituency since D-096
+    # (2026-10-30), so its village branch now offers block or constituency (D-059) with
+    # the gazetteer on, and the block with it off — the same as before D-096 except that
+    # the constituency reading is no longer dropped. Never a village, on any path.
+    _stub_resolver(monkeypatch, {"village": "Dalu", "year": "2023-24"})     # a year both schemes hold
+
+    def run(scheme):
+        q = f"How many {scheme} houses were completed in Dalu village for FY 2023-24?"
+        try:
+            out = asyncio.run(p.resolve_entities(q, [scheme]))["resolved"]
+            assert "village_code" not in out
+            return {k: v for k, v in out.items() if k in ("block", "assembly_constituency")}
+        except p.ClarificationNeeded as e:
+            return ("pause", sorted(o["label"].split(" (")[0].lower() for o in e.options))
+    on = (run("PMAY-G"), run("MGNREGA"))
     _gazetteer.PLACE_GAZETTEER = False
-    off = asyncio.run(p.resolve_entities(q, ["PMAY-G"]))
-    assert on["resolved"] == off["resolved"]
+    off = (run("PMAY-G"), run("MGNREGA"))
+    assert on == (("pause", ["the dalu assembly constituency", "the dalu c&rd block"]), {"block": "DALU"}), on
+    assert off == ({"block": "DALU"}, {"block": "DALU"}), off
 
 
 def test_place_swap_drops_a_by_district_breakdown(_gazetteer):
@@ -506,11 +533,15 @@ def test_a_block_mention_that_is_only_a_village_is_the_village(_rasong, monkeypa
 
 
 def test_a_constituency_mention_goes_to_the_one_reading_left(_gazetteer, monkeypatch):
-    # PMAY-G has no constituency data: "Chokpot" (block + AC), tagged AC by the
-    # extractor, asked "whole constituency or part?".
+    # "Chokpot" (block + AC), tagged AC by the extractor, asked "whole constituency or
+    # part?" when PMAY-G had no constituency data. Since D-096 (2026-10-30) PMAY-G records
+    # it, so the bare name is asked block or constituency (D-059) — the extractor's tag
+    # alone never decides; the block chip gives the block.
     _stub_resolver(monkeypatch, {"assembly_constituency": "Chokpot", "year": "2023-24"})
-    out = asyncio.run(p.resolve_entities(
-        "What is the total sanctioned amount in Chokpot for PMAY-G for FY 2023-24?", ["PMAY-G"]))
+    with pytest.raises(p.ClarificationNeeded) as ei:
+        asyncio.run(p.resolve_entities(
+            "What is the total sanctioned amount in Chokpot for PMAY-G for FY 2023-24?", ["PMAY-G"]))
+    out = asyncio.run(p.resolve_entities(_block_chip(ei.value), ["PMAY-G"]))
     assert out["resolved"].get("block") == "CHOKPOT"
     assert not out["resolved"].get("assembly_constituency")
 
@@ -522,8 +553,13 @@ def test_a_named_district_settles_a_same_name_place(_gazetteer, monkeypatch):
     async def _vil(*a, **k):
         return er.Resolved("resolved", "village", "Mawlai", canonical=276564, display="Mawlai")
     monkeypatch.setattr(p, "resolve_village", _vil)
-    out = asyncio.run(p.resolve_entities(
-        "Total PMAY-G amount sanctioned in Mawlai, East Khasi Hills for FY 2023-24", ["PMAY-G"]))
+    # The district rules the WKH village out; the EKH block and the Mawlai constituency are
+    # both left (PMAY-G records the constituency since D-096), so it asks; the block chip
+    # gives the block — never the village.
+    with pytest.raises(p.ClarificationNeeded) as ei:
+        asyncio.run(p.resolve_entities(
+            "Total PMAY-G amount sanctioned in Mawlai, East Khasi Hills for FY 2023-24", ["PMAY-G"]))
+    out = asyncio.run(p.resolve_entities(_block_chip(ei.value), ["PMAY-G"]))
     assert out["resolved"].get("block") == "MAWLAI"
     assert "village_code" not in out["resolved"]
 

@@ -1,0 +1,1969 @@
+{
+ "label": "final3",
+ "results": [
+  {
+   "id": "D01",
+   "group": "default",
+   "turns": [
+    {
+     "q": "Compare beneficiaries in MGNREGA and PMAY-G",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "**All of Meghalaya, all financial years**\n- **MGNREGA:** 14,94,437 households given work (counted once per financial year, FY 2022-23 to 2025-26)\n- **PMAY-G:** 1,71,107 houses sanctioned\n**MGNREGA** has the most beneficiaries (14,94,437), 13,23,330 more than PMAY-G (1,71,107, 8.73x).",
+      "data": [
+       {
+        "scheme": "MGNREGA",
+        "beneficiaries": 1494437
+       },
+       {
+        "scheme": "PMAY-G",
+        "beneficiaries": 171107
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": null,
+      "schemes": [
+       "MGNREGA",
+       "PMAY-G"
+      ],
+      "row_count": 2,
+      "chart_wide": null,
+      "measure_notes": {
+       "MGNREGA": {
+        "beneficiaries": "household-years: households given work, counted once per year worked",
+        "amount_crore": "money spent"
+       },
+       "PMAY-G": {
+        "beneficiaries": "houses sanctioned",
+        "amount_crore": "money released"
+       }
+      },
+      "column_totals": null,
+      "seconds": 20.06
+     }
+    }
+   ]
+  },
+  {
+   "id": "D02",
+   "group": "default",
+   "turns": [
+    {
+     "q": "Compare MGNREGA person days in East Khasi Hills and West Garo Hills",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "This briefing compares MGNREGA person-days of employment in East Khasi Hills and West Garo Hills across all financial years:\nWEST GARO HILLS is higher than EAST KHASI HILLS on person-days of employment: 1,75,39,710 against 1,10,54,100, a difference of 64,85,610 (58.7% more).",
+      "data": [
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "person_days": 17539710
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "person_days": 11054100
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": null,
+      "schemes": [
+       "MGNREGA"
+      ],
+      "row_count": 2,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 32.66
+     }
+    }
+   ]
+  },
+  {
+   "id": "D03",
+   "group": "default",
+   "turns": [
+    {
+     "q": "MGNREGA households provided employment by district",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "This table ranks Meghalaya's top 12 districts by household-years of employment under MGNREGA across all financial years:\n1. **WEST GARO HILLS** — 2,61,666\n2. **EAST KHASI HILLS** — 2,24,663\n3. **SOUTH WEST GARO HILLS** — 1,64,976\n4. **NORTH GARO HILLS** — 1,36,418\n5. **WEST JAINTIA HILLS** — 1,21,768\n6. **RI BHOI** — 1,12,602\n7. **SOUTH GARO HILLS** — 1,06,610\n8. **EAST GARO HILLS** — 1,06,136\n9. **SOUTH WEST KHASI HILLS** — 75,887\n10. **EAST JAINTIA HILLS** — 70,665\n11. **WEST KHASI HILLS** — 62,655\n12. **EASTERN WEST KHASI HILLS** — 50,391",
+      "data": [
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "household_years": 261666
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "household_years": 224663
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "household_years": 164976
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "household_years": 136418
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "household_years": 121768
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "household_years": 112602
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "household_years": 106610
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "household_years": 106136
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "household_years": 75887
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "household_years": 70665
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "household_years": 62655
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "household_years": 50391
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": "How many MGNREGA households were provided employment by district?",
+      "schemes": [
+       "MGNREGA"
+      ],
+      "row_count": 12,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 27.68
+     }
+    }
+   ]
+  },
+  {
+   "id": "D04",
+   "group": "default",
+   "turns": [
+    {
+     "q": "PMAY-G houses completed by financial year",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "This briefing outlines PMAY-G housing completions across all Meghalaya districts for every financial year:\nHouses rose from 15,456 in FY 2017-18 to 71,976 in FY 2023-24, up 56,520 (365.7%).\n- FY 2017-18: 15,456\n- FY 2018-19: 3,524\n- FY 2019-20: 9,702\n- FY 2020-21: 20,664\n- FY 2021-22: 2,371\n- FY 2022-23: 6,248\n- FY 2023-24: 71,976",
+      "data": [
+       {
+        "sanction_fy_start": "2017-18",
+        "houses": 15456
+       },
+       {
+        "sanction_fy_start": "2018-19",
+        "houses": 3524
+       },
+       {
+        "sanction_fy_start": "2019-20",
+        "houses": 9702
+       },
+       {
+        "sanction_fy_start": "2020-21",
+        "houses": 20664
+       },
+       {
+        "sanction_fy_start": "2021-22",
+        "houses": 2371
+       },
+       {
+        "sanction_fy_start": "2022-23",
+        "houses": 6248
+       },
+       {
+        "sanction_fy_start": "2023-24",
+        "houses": 71976
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": "How many PMAY-G houses were completed by financial year?",
+      "schemes": [
+       "PMAY-G"
+      ],
+      "row_count": 7,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 27.59
+     }
+    }
+   ]
+  },
+  {
+   "id": "D05",
+   "group": "default",
+   "turns": [
+    {
+     "q": "Compare PMAY-G houses completed in 2022-23 and 2023-24",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "PMAY-G comparison, Meghalaya (statewide), by the year the houses were sanctioned:\nFY 2022-23:\n- Completed houses: 6,248\nFY 2023-24:\n- Completed houses: 71,976\nDifference:\n- Completed houses: FY 2023-24 is higher by 65,728.",
+      "data": [
+       {
+        "financial_year": "2022-23",
+        "completed houses": 6248
+       },
+       {
+        "financial_year": "2023-24",
+        "completed houses": 71976
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": null,
+      "schemes": [
+       "PMAY-G"
+      ],
+      "row_count": 2,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 5.02
+     }
+    }
+   ]
+  },
+  {
+   "id": "D08",
+   "group": "default",
+   "turns": [
+    {
+     "q": "Compare PMAY-G houses completed in 2023-24 and 2024-25",
+     "want": "any",
+     "view": null,
+     "says": "2024-25 holds no data",
+     "response": {
+      "route": "data",
+      "answer": "Completed houses in Meghalaya (statewide), of the houses sanctioned in FY 2023-24: 71,976.\n\nFY 2024-25 holds no data for this scheme, so it is left out — that is a gap in the records, not a zero. This is the PMAY-G figure.",
+      "data": [
+       {
+        "area": "Meghalaya",
+        "completed houses": 71976
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": null,
+      "schemes": [
+       "PMAY-G"
+      ],
+      "row_count": 1,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 4.6
+     }
+    }
+   ]
+  },
+  {
+   "id": "D06",
+   "group": "default",
+   "turns": [
+    {
+     "q": "Compare Focus Plus beneficiaries in East Garo Hills and Ri Bhoi",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "Focus Plus beneficiaries in East Garo Hills and Ri Bhoi across all financial years:\nEAST GARO HILLS is higher than RI BHOI on beneficiaries: 11,379 against 419, a difference of 10,960 (2615.8% more).\n\nNote: there is no Focus Plus data for FY 2023-24 and FY 2024-25 (absent years, not zero).",
+      "data": [
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "beneficiaries": 11379
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "beneficiaries": 419
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": null,
+      "schemes": [
+       "Focus Plus"
+      ],
+      "row_count": 2,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 23.47
+     }
+    }
+   ]
+  },
+  {
+   "id": "D07",
+   "group": "default",
+   "turns": [
+    {
+     "q": "Compare MGNREGA expenditure and PMAY-G expenditure",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "**All of Meghalaya, all financial years**\n- **MGNREGA:** ₹3,628.67 crore spent\n- **PMAY-G:** ₹2,185.26 crore released (sanctioned ₹2,222.75 crore)\n**MGNREGA** has the most money (₹3,628.67 crore), ₹1,443.41 crore more than PMAY-G (₹2,185.26 crore, 1.66x).",
+      "data": [
+       {
+        "scheme": "MGNREGA",
+        "amount_crore": 3628.67
+       },
+       {
+        "scheme": "PMAY-G",
+        "amount_crore": 2185.26,
+        "sanctioned_crore": 2222.75
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": null,
+      "schemes": [
+       "MGNREGA",
+       "PMAY-G"
+      ],
+      "row_count": 2,
+      "chart_wide": null,
+      "measure_notes": {
+       "MGNREGA": {
+        "beneficiaries": "household-years: households given work, counted once per year worked",
+        "amount_crore": "money spent"
+       },
+       "PMAY-G": {
+        "beneficiaries": "houses sanctioned",
+        "amount_crore": "money released"
+       }
+      },
+      "column_totals": null,
+      "seconds": 3.22
+     }
+    }
+   ]
+  },
+  {
+   "id": "C01",
+   "group": "chart",
+   "turns": [
+    {
+     "q": "Show MGNREGA person days by district in a graph",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "This graph displays MGNREGA person-days for all districts in Meghalaya across all financial years:\n1. **WEST GARO HILLS** — 1,75,39,710\n2. **EAST KHASI HILLS** — 1,10,54,100\n3. **NORTH GARO HILLS** — 1,07,24,749\n4. **SOUTH WEST GARO HILLS** — 1,05,16,665\n5. **EAST GARO HILLS** — 89,48,770\n6. **SOUTH GARO HILLS** — 88,20,484\n7. **SOUTH WEST KHASI HILLS** — 53,17,562\n8. **RI BHOI** — 47,61,757\n9. **WEST JAINTIA HILLS** — 44,67,950\n10. **EAST JAINTIA HILLS** — 35,73,771\n11. **WEST KHASI HILLS** — 30,49,071\n12. **EASTERN WEST KHASI HILLS** — 21,40,592",
+      "data": [
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "person_days": 17539710
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "person_days": 11054100
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "person_days": 10724749
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "person_days": 10516665
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "person_days": 8948770
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "person_days": 8820484
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "person_days": 5317562
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "person_days": 4761757
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "person_days": 4467950
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "person_days": 3573771
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "person_days": 3049071
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "person_days": 2140592
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": "Show MGNREGA person-days by district in a graph.",
+      "schemes": [
+       "MGNREGA"
+      ],
+      "row_count": 12,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 20.5
+     }
+    }
+   ]
+  },
+  {
+   "id": "C02",
+   "group": "chart",
+   "turns": [
+    {
+     "q": "give me chart of PMAY-G houses sanctioned by district",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "This briefing outlines the top twelve districts in Meghalaya ranked by PMAY-G houses sanctioned statewide across all financial years:\n1. **WEST GARO HILLS** — 33,143\n2. **EAST KHASI HILLS** — 23,921\n3. **RI BHOI** — 17,525\n4. **EAST GARO HILLS** — 16,899\n5. **NORTH GARO HILLS** — 16,018\n6. **WEST JAINTIA HILLS** — 12,549\n7. **SOUTH WEST GARO HILLS** — 11,938\n8. **SOUTH GARO HILLS** — 11,890\n9. **WEST KHASI HILLS** — 8,437\n10. **SOUTH WEST KHASI HILLS** — 7,411\n11. **EAST JAINTIA HILLS** — 5,756\n12. **EASTERN WEST KHASI HILLS** — 5,494",
+      "data": [
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "houses_sanctioned": 33143
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "houses_sanctioned": 23921
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "houses_sanctioned": 17525
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "houses_sanctioned": 16899
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "houses_sanctioned": 16018
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "houses_sanctioned": 12549
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "houses_sanctioned": 11938
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "houses_sanctioned": 11890
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "houses_sanctioned": 8437
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "houses_sanctioned": 7411
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "houses_sanctioned": 5756
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "houses_sanctioned": 5494
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": "Provide a chart of PMAY-G houses sanctioned by district.",
+      "schemes": [
+       "PMAY-G"
+      ],
+      "row_count": 12,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 19.08
+     }
+    }
+   ]
+  },
+  {
+   "id": "C03",
+   "group": "chart",
+   "turns": [
+    {
+     "q": "Compare beneficiaries in MGNREGA and PMAY-G in a graph",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "**All of Meghalaya, all financial years**\n- **MGNREGA:** 14,94,437 households given work (counted once per financial year, FY 2022-23 to 2025-26)\n- **PMAY-G:** 1,71,107 houses sanctioned\n**MGNREGA** has the most beneficiaries (14,94,437), 13,23,330 more than PMAY-G (1,71,107, 8.73x).",
+      "data": [
+       {
+        "scheme": "MGNREGA",
+        "beneficiaries": 1494437
+       },
+       {
+        "scheme": "PMAY-G",
+        "beneficiaries": 171107
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": "Compare beneficiaries in MGNREGA and PMAY-G in a graph.",
+      "schemes": [
+       "MGNREGA",
+       "PMAY-G"
+      ],
+      "row_count": 2,
+      "chart_wide": null,
+      "measure_notes": {
+       "MGNREGA": {
+        "beneficiaries": "household-years: households given work, counted once per year worked",
+        "amount_crore": "money spent"
+       },
+       "PMAY-G": {
+        "beneficiaries": "houses sanctioned",
+        "amount_crore": "money released"
+       }
+      },
+      "column_totals": null,
+      "seconds": 10.18
+     }
+    }
+   ]
+  },
+  {
+   "id": "C04",
+   "group": "chart",
+   "turns": [
+    {
+     "q": "Visualise CM Elevate applications by district",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "This briefing outlines CM Elevate applications across all Meghalaya districts for every financial year:\n1. **RI BHOI** — 2,624\n2. **WEST GARO HILLS** — 1,740\n3. **EAST KHASI HILLS** — 1,131\n4. **EAST GARO HILLS** — 622\n5. **WEST KHASI HILLS** — 526\n6. **SOUTH GARO HILLS** — 495\n7. **SOUTH WEST KHASI HILLS** — 431\n8. **SOUTH WEST GARO HILLS** — 329\n9. **EASTERN WEST KHASI HILLS** — 306\n10. **NORTH GARO HILLS** — 290\n11. **WEST JAINTIA HILLS** — 263\n12. **EAST JAINTIA HILLS** — 164",
+      "data": [
+       {
+        "lgd_district": "RI BHOI",
+        "applications": 2624
+       },
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "applications": 1740
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "applications": 1131
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "applications": 622
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "applications": 526
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "applications": 495
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "applications": 431
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "applications": 329
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "applications": 306
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "applications": 290
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "applications": 263
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "applications": 164
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": "Visualise CM Elevate applications by district.",
+      "schemes": [
+       "CM Elevate"
+      ],
+      "row_count": 12,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 8.8
+     }
+    }
+   ]
+  },
+  {
+   "id": "N01",
+   "group": "named",
+   "turns": [
+    {
+     "q": "bar chart of MGNREGA households provided employment by district",
+     "want": "bar",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "This chart ranks Meghalaya's top 12 districts by household-years of employment under MGNREGA across all financial years:\n1. **WEST GARO HILLS** — 2,61,666\n2. **EAST KHASI HILLS** — 2,24,663\n3. **SOUTH WEST GARO HILLS** — 1,64,976\n4. **NORTH GARO HILLS** — 1,36,418\n5. **WEST JAINTIA HILLS** — 1,21,768\n6. **RI BHOI** — 1,12,602\n7. **SOUTH GARO HILLS** — 1,06,610\n8. **EAST GARO HILLS** — 1,06,136\n9. **SOUTH WEST KHASI HILLS** — 75,887\n10. **EAST JAINTIA HILLS** — 70,665\n11. **WEST KHASI HILLS** — 62,655\n12. **EASTERN WEST KHASI HILLS** — 50,391",
+      "data": [
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "household_years": 261666
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "household_years": 224663
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "household_years": 164976
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "household_years": 136418
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "household_years": 121768
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "household_years": 112602
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "household_years": 106610
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "household_years": 106136
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "household_years": 75887
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "household_years": 70665
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "household_years": 62655
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "household_years": 50391
+       }
+      ],
+      "chart_type": "bar",
+      "rewritten_question": "What is the bar chart of MGNREGA households provided employment by district?",
+      "schemes": [
+       "MGNREGA"
+      ],
+      "row_count": 12,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 21.7
+     }
+    }
+   ]
+  },
+  {
+   "id": "N02",
+   "group": "named",
+   "turns": [
+    {
+     "q": "pie chart of PMAY-G houses completed by district",
+     "want": "pie",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "This briefing outlines the top 12 districts in Meghalaya ranked by PMAY-G houses completed statewide across all financial years:\n1. **WEST GARO HILLS** — 26,822\n2. **EAST KHASI HILLS** — 18,154\n3. **EAST GARO HILLS** — 13,784\n4. **NORTH GARO HILLS** — 13,183\n5. **RI BHOI** — 12,056\n6. **SOUTH WEST GARO HILLS** — 10,212\n7. **WEST JAINTIA HILLS** — 8,932\n8. **WEST KHASI HILLS** — 7,294\n9. **SOUTH WEST KHASI HILLS** — 7,100\n10. **SOUTH GARO HILLS** — 6,316\n11. **EASTERN WEST KHASI HILLS** — 4,465\n12. **EAST JAINTIA HILLS** — 1,623",
+      "data": [
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "houses_completed": 26822
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "houses_completed": 18154
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "houses_completed": 13784
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "houses_completed": 13183
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "houses_completed": 12056
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "houses_completed": 10212
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "houses_completed": 8932
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "houses_completed": 7294
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "houses_completed": 7100
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "houses_completed": 6316
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "houses_completed": 4465
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "houses_completed": 1623
+       }
+      ],
+      "chart_type": "pie",
+      "rewritten_question": "What is the pie chart of PMAY-G houses completed by district?",
+      "schemes": [
+       "PMAY-G"
+      ],
+      "row_count": 12,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 21.96
+     }
+    }
+   ]
+  },
+  {
+   "id": "N03",
+   "group": "named",
+   "turns": [
+    {
+     "q": "line graph of MGNREGA expenditure by financial year",
+     "want": "line",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "The statewide MGNREGA expenditure across all financial years in Meghalaya is detailed below:\nTotal expenditure rose from ₹886.29 crore in FY 2022-23 to ₹916.06 crore in FY 2025-26, up ₹29.77 crore (3.4%).\n- FY 2022-23: ₹886.29 crore\n- FY 2023-24: ₹759.61 crore\n- FY 2024-25: ₹1,066.70 crore\n- FY 2025-26: ₹916.06 crore",
+      "data": [
+       {
+        "year_key": 2022,
+        "financial_year_short": "2022-23",
+        "total_expenditure_crore": "886.29"
+       },
+       {
+        "year_key": 2023,
+        "financial_year_short": "2023-24",
+        "total_expenditure_crore": "759.61"
+       },
+       {
+        "year_key": 2024,
+        "financial_year_short": "2024-25",
+        "total_expenditure_crore": "1066.70"
+       },
+       {
+        "year_key": 2025,
+        "financial_year_short": "2025-26",
+        "total_expenditure_crore": "916.06"
+       }
+      ],
+      "chart_type": "line",
+      "rewritten_question": "Show a line graph of MGNREGA expenditure by financial year.",
+      "schemes": [
+       "MGNREGA"
+      ],
+      "row_count": 4,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 22.48
+     }
+    }
+   ]
+  },
+  {
+   "id": "N04",
+   "group": "named",
+   "turns": [
+    {
+     "q": "donut chart of Focus Plus beneficiaries by district",
+     "want": "doughnut",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "The donut chart displays Focus Plus beneficiaries across all Meghalaya districts for every financial year:\n1. **WEST GARO HILLS** — 35,039\n2. **SOUTH WEST GARO HILLS** — 15,294\n3. **EAST KHASI HILLS** — 13,608\n4. **EAST GARO HILLS** — 11,379\n5. **NORTH GARO HILLS** — 11,007\n6. **SOUTH GARO HILLS** — 8,612\n7. **WEST KHASI HILLS** — 6,754\n8. **SOUTH WEST KHASI HILLS** — 1,792\n9. **EASTERN WEST KHASI HILLS** — 1,221\n10. **RI BHOI** — 419\n11. **EAST JAINTIA HILLS** — 404\n12. **WEST JAINTIA HILLS** — 283\n\nNote: there is no Focus Plus data for FY 2023-24 and FY 2024-25 (absent years, not zero).",
+      "data": [
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "beneficiaries": 35039
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "beneficiaries": 15294
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "beneficiaries": 13608
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "beneficiaries": 11379
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "beneficiaries": 11007
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "beneficiaries": 8612
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "beneficiaries": 6754
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "beneficiaries": 1792
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "beneficiaries": 1221
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "beneficiaries": 419
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "beneficiaries": 404
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "beneficiaries": 283
+       }
+      ],
+      "chart_type": "doughnut",
+      "rewritten_question": "What is the distribution of Focus Plus beneficiaries by district in a donut chart?",
+      "schemes": [
+       "Focus Plus"
+      ],
+      "row_count": 12,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 19.71
+     }
+    }
+   ]
+  },
+  {
+   "id": "N05",
+   "group": "named",
+   "turns": [
+    {
+     "q": "Compare beneficiaries in MGNREGA and PMAY-G as a pie chart",
+     "want": "pie",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "**All of Meghalaya, all financial years**\n- **MGNREGA:** 14,94,437 households given work (counted once per financial year, FY 2022-23 to 2025-26)\n- **PMAY-G:** 1,71,107 houses sanctioned\n**MGNREGA** has the most beneficiaries (14,94,437), 13,23,330 more than PMAY-G (1,71,107, 8.73x).",
+      "data": [
+       {
+        "scheme": "MGNREGA",
+        "beneficiaries": 1494437
+       },
+       {
+        "scheme": "PMAY-G",
+        "beneficiaries": 171107
+       }
+      ],
+      "chart_type": "pie",
+      "rewritten_question": "Compare beneficiaries in MGNREGA and PMAY-G as a pie chart?",
+      "schemes": [
+       "MGNREGA",
+       "PMAY-G"
+      ],
+      "row_count": 2,
+      "chart_wide": null,
+      "measure_notes": {
+       "MGNREGA": {
+        "beneficiaries": "household-years: households given work, counted once per year worked",
+        "amount_crore": "money spent"
+       },
+       "PMAY-G": {
+        "beneficiaries": "houses sanctioned",
+        "amount_crore": "money released"
+       }
+      },
+      "column_totals": null,
+      "seconds": 9.6
+     }
+    }
+   ]
+  },
+  {
+   "id": "N06",
+   "group": "named",
+   "turns": [
+    {
+     "q": "Compare beneficiaries in MGNREGA and PMAY-G, I want only bar graph",
+     "want": "bar",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "**All of Meghalaya, all financial years**\n- **MGNREGA:** 14,94,437 households given work (counted once per financial year, FY 2022-23 to 2025-26)\n- **PMAY-G:** 1,71,107 houses sanctioned\n**MGNREGA** has the most beneficiaries (14,94,437), 13,23,330 more than PMAY-G (1,71,107, 8.73x).",
+      "data": [
+       {
+        "scheme": "MGNREGA",
+        "beneficiaries": 1494437
+       },
+       {
+        "scheme": "PMAY-G",
+        "beneficiaries": 171107
+       }
+      ],
+      "chart_type": "bar",
+      "rewritten_question": null,
+      "schemes": [
+       "MGNREGA",
+       "PMAY-G"
+      ],
+      "row_count": 2,
+      "chart_wide": null,
+      "measure_notes": {
+       "MGNREGA": {
+        "beneficiaries": "household-years: households given work, counted once per year worked",
+        "amount_crore": "money spent"
+       },
+       "PMAY-G": {
+        "beneficiaries": "houses sanctioned",
+        "amount_crore": "money released"
+       }
+      },
+      "column_totals": null,
+      "seconds": 9.94
+     }
+    }
+   ]
+  },
+  {
+   "id": "N07",
+   "group": "named",
+   "turns": [
+    {
+     "q": "Show MGNREGA person days by district as a line chart",
+     "want": "line",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "Under MGNREGA, across all financial years in all of Meghalaya (statewide), here are the 48 results:\n- EASTERN WEST KHASI HILLS / 2022-23 — person days: 5,48,650\n- EASTERN WEST KHASI HILLS / 2023-24 — person days: 6,77,731\n- EASTERN WEST KHASI HILLS / 2024-25 — person days: 3,83,973\n- EASTERN WEST KHASI HILLS / 2025-26 — person days: 5,30,238\n- EAST GARO HILLS / 2022-23 — person days: 28,51,088\n- EAST GARO HILLS / 2023-24 — person days: 27,65,439\n- EAST GARO HILLS / 2024-25 — person days: 12,44,810\n- EAST GARO HILLS / 2025-26 — person days: 20,87,433\n- EAST JAINTIA HILLS / 2022-23 — person days: 9,67,220\n- EAST JAINTIA HILLS / 2023-24 — person days: 8,93,276\n- EAST JAINTIA HILLS / 2024-25 — person days: 7,47,745\n- EAST JAINTIA HILLS / 2025-26 — person days: 9,65,530\n- EAST KHASI HILLS / 2022-23 — person days: 34,08,697\n- EAST KHASI HILLS / 2023-24 — person days: 30,61,525\n- EAST KHASI HILLS / 2024-25 — person days: 16,32,188\n…and 33 more rows in the table.",
+      "data": [
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "financial_year_short": "2022-23",
+        "person_days": 548650
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "financial_year_short": "2023-24",
+        "person_days": 677731
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "financial_year_short": "2024-25",
+        "person_days": 383973
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "financial_year_short": "2025-26",
+        "person_days": 530238
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "financial_year_short": "2022-23",
+        "person_days": 2851088
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "financial_year_short": "2023-24",
+        "person_days": 2765439
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "financial_year_short": "2024-25",
+        "person_days": 1244810
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "financial_year_short": "2025-26",
+        "person_days": 2087433
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "financial_year_short": "2022-23",
+        "person_days": 967220
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "financial_year_short": "2023-24",
+        "person_days": 893276
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "financial_year_short": "2024-25",
+        "person_days": 747745
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "financial_year_short": "2025-26",
+        "person_days": 965530
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "financial_year_short": "2022-23",
+        "person_days": 3408697
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "financial_year_short": "2023-24",
+        "person_days": 3061525
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "financial_year_short": "2024-25",
+        "person_days": 1632188
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "financial_year_short": "2025-26",
+        "person_days": 2951690
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "financial_year_short": "2022-23",
+        "person_days": 2933021
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "financial_year_short": "2023-24",
+        "person_days": 3066633
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "financial_year_short": "2024-25",
+        "person_days": 1755083
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "financial_year_short": "2025-26",
+        "person_days": 2970012
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "financial_year_short": "2022-23",
+        "person_days": 1212513
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "financial_year_short": "2023-24",
+        "person_days": 1481572
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "financial_year_short": "2024-25",
+        "person_days": 928817
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "financial_year_short": "2025-26",
+        "person_days": 1138855
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "financial_year_short": "2022-23",
+        "person_days": 2999810
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "financial_year_short": "2023-24",
+        "person_days": 2823825
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "financial_year_short": "2024-25",
+        "person_days": 1048786
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "financial_year_short": "2025-26",
+        "person_days": 1948063
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "financial_year_short": "2022-23",
+        "person_days": 2962230
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "financial_year_short": "2023-24",
+        "person_days": 3282990
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "financial_year_short": "2024-25",
+        "person_days": 1628509
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "financial_year_short": "2025-26",
+        "person_days": 2642936
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "financial_year_short": "2022-23",
+        "person_days": 1679392
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "financial_year_short": "2023-24",
+        "person_days": 1315587
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "financial_year_short": "2024-25",
+        "person_days": 944752
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "financial_year_short": "2025-26",
+        "person_days": 1377831
+       },
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "financial_year_short": "2022-23",
+        "person_days": 4254412
+       },
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "financial_year_short": "2023-24",
+        "person_days": 5489616
+       },
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "financial_year_short": "2024-25",
+        "person_days": 2808417
+       },
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "financial_year_short": "2025-26",
+        "person_days": 4987265
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "financial_year_short": "2022-23",
+        "person_days": 976990
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "financial_year_short": "2023-24",
+        "person_days": 1510239
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "financial_year_short": "2024-25",
+        "person_days": 818826
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "financial_year_short": "2025-26",
+        "person_days": 1161895
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "financial_year_short": "2022-23",
+        "person_days": 802214
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "financial_year_short": "2023-24",
+        "person_days": 895621
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "financial_year_short": "2024-25",
+        "person_days": 725966
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "financial_year_short": "2025-26",
+        "person_days": 625270
+       }
+      ],
+      "chart_type": "line",
+      "rewritten_question": "Show MGNREGA person-days by district as a line chart?",
+      "schemes": [
+       "MGNREGA"
+      ],
+      "row_count": 48,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 16.3
+     }
+    }
+   ]
+  },
+  {
+   "id": "N08",
+   "group": "named",
+   "turns": [
+    {
+     "q": "pie chart of top 5 districts by MGNREGA expenditure",
+     "want": "pie",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "This briefing lists the top five districts in Meghalaya by total MGNREGA spending across all financial years:\n1. **WEST GARO HILLS** — ₹792.42 crore\n2. **SOUTH WEST GARO HILLS** — ₹462.79 crore\n3. **EAST KHASI HILLS** — ₹414.93 crore\n4. **NORTH GARO HILLS** — ₹404.65 crore\n5. **EAST GARO HILLS** — ₹321.79 crore",
+      "data": [
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "total_expenditure_crore": "792.42"
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "total_expenditure_crore": "462.79"
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "total_expenditure_crore": "414.93"
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "total_expenditure_crore": "404.65"
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "total_expenditure_crore": "321.79"
+       }
+      ],
+      "chart_type": "pie",
+      "rewritten_question": "What is the pie chart of the top 5 districts by MGNREGA expenditure?",
+      "schemes": [
+       "MGNREGA"
+      ],
+      "row_count": 5,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 22.13
+     }
+    }
+   ]
+  },
+  {
+   "id": "N09",
+   "group": "named",
+   "turns": [
+    {
+     "q": "PMAY-G houses completed by year in a bar graph",
+     "want": "bar",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "The bar graph displays completed PMAY-G houses across all financial years for Meghalaya:\nCompleted houses rose from 15,456 in FY 2017-18 to 71,976 in FY 2023-24, up 56,520 (365.7%).\n- FY 2017-18: 15,456\n- FY 2018-19: 3,524\n- FY 2019-20: 9,702\n- FY 2020-21: 20,664\n- FY 2021-22: 2,371\n- FY 2022-23: 6,248\n- FY 2023-24: 71,976",
+      "data": [
+       {
+        "financial_year_short": "2017-18",
+        "completed_houses": 15456
+       },
+       {
+        "financial_year_short": "2018-19",
+        "completed_houses": 3524
+       },
+       {
+        "financial_year_short": "2019-20",
+        "completed_houses": 9702
+       },
+       {
+        "financial_year_short": "2020-21",
+        "completed_houses": 20664
+       },
+       {
+        "financial_year_short": "2021-22",
+        "completed_houses": 2371
+       },
+       {
+        "financial_year_short": "2022-23",
+        "completed_houses": 6248
+       },
+       {
+        "financial_year_short": "2023-24",
+        "completed_houses": 71976
+       }
+      ],
+      "chart_type": "bar",
+      "rewritten_question": "How many PMAY-G houses were completed by year in a bar graph?",
+      "schemes": [
+       "PMAY-G"
+      ],
+      "row_count": 7,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 23.81
+     }
+    }
+   ]
+  },
+  {
+   "id": "N10",
+   "group": "named",
+   "turns": [
+    {
+     "q": "Compare PMAY-G houses completed in 2022-23 and 2023-24 as a line graph",
+     "want": "line",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "PMAY-G comparison, Meghalaya (statewide), by the year the houses were sanctioned:\nFY 2022-23:\n- Completed houses: 6,248\nFY 2023-24:\n- Completed houses: 71,976\nDifference:\n- Completed houses: FY 2023-24 is higher by 65,728.",
+      "data": [
+       {
+        "financial_year": "2022-23",
+        "completed houses": 6248
+       },
+       {
+        "financial_year": "2023-24",
+        "completed houses": 71976
+       }
+      ],
+      "chart_type": "line",
+      "rewritten_question": "Compare the number of PMAY-G houses completed in FY 2022-23 and FY 2023-24 as a line graph.",
+      "schemes": [
+       "PMAY-G"
+      ],
+      "row_count": 2,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 12.03
+     }
+    }
+   ]
+  },
+  {
+   "id": "N11",
+   "group": "named",
+   "turns": [
+    {
+     "q": "stacked bar chart of PMAY-G houses sanctioned and completed by district",
+     "want": "stacked",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "The published scheme information does not contain any information regarding a stacked bar chart or specific data visualizations of sanctioned PMAY-G houses.\n\nThere is no single published chart of sanctioned houses in the scheme documents; you should confirm specific sanction data at the Block office, Gram Panchayat, or the scheme portal.\n\n**From the data:**\n\nThis briefing outlines houses completed under PMAY-G across all districts in Meghalaya statewide:\nWEST GARO HILLS is the largest with 26,822; EAST JAINTIA HILLS is the smallest with 1,623.\n- **WEST GARO HILLS** — 26,822\n- **EAST KHASI HILLS** — 18,154\n- **EAST GARO HILLS** — 13,784\n- **NORTH GARO HILLS** — 13,183\n- **RI BHOI** — 12,056\n- **SOUTH WEST GARO HILLS** — 10,212\n- **WEST JAINTIA HILLS** — 8,932\n- **WEST KHASI HILLS** — 7,294\n- **SOUTH WEST KHASI HILLS** — 7,100\n- **SOUTH GARO HILLS** — 6,316\n- **EASTERN WEST KHASI HILLS** — 4,465\n- **EAST JAINTIA HILLS** — 1,623",
+      "data": [
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "houses_completed": 4465
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "houses_completed": 13784
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "houses_completed": 1623
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "houses_completed": 18154
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "houses_completed": 13183
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "houses_completed": 12056
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "houses_completed": 6316
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "houses_completed": 10212
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "houses_completed": 7100
+       },
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "houses_completed": 26822
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "houses_completed": 8932
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "houses_completed": 7294
+       }
+      ],
+      "chart_type": "stacked",
+      "rewritten_question": "Completed by district under PMAY-G?",
+      "schemes": [
+       "PMAY-G"
+      ],
+      "row_count": 12,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 25.6
+     }
+    }
+   ]
+  },
+  {
+   "id": "S01",
+   "group": "single",
+   "turns": [
+    {
+     "q": "Total MGNREGA expenditure as a bar chart",
+     "want": "bar",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "The total MGNREGA expenditure for Meghalaya across all financial years is ₹3,628.67 crore.",
+      "data": [
+       {
+        "total_expenditure_crore": "3628.67"
+       }
+      ],
+      "chart_type": "bar",
+      "rewritten_question": "What is the total MGNREGA expenditure as a bar chart?",
+      "schemes": [
+       "MGNREGA"
+      ],
+      "row_count": 1,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 7.86
+     }
+    }
+   ]
+  },
+  {
+   "id": "S02",
+   "group": "single",
+   "turns": [
+    {
+     "q": "How many PMAY-G houses were completed? show in pie chart",
+     "want": "pie",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "Completed houses in Meghalaya (statewide), across all financial years (FY 2017-18 to FY 2023-24): 1,29,941. This is the PMAY-G figure across all financial years.",
+      "data": [
+       {
+        "area": "Meghalaya",
+        "completed houses": 129941
+       }
+      ],
+      "chart_type": "pie",
+      "rewritten_question": "How many PMAY-G houses were completed, and show the data in a pie chart?",
+      "schemes": [
+       "PMAY-G"
+      ],
+      "row_count": 1,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 16.22
+     }
+    }
+   ]
+  },
+  {
+   "id": "S03",
+   "group": "single",
+   "turns": [
+    {
+     "q": "Show me the total Focus Plus beneficiaries in a graph",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "The total Focus Plus beneficiaries across all financial years for Meghalaya is 1,05,813.\n\nNote: there is no Focus Plus data for FY 2023-24 and FY 2024-25 (absent years, not zero).",
+      "data": [
+       {
+        "total_beneficiaries": 105813
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": "Show the total Focus Plus beneficiaries in a graph.",
+      "schemes": [
+       "Focus Plus"
+      ],
+      "row_count": 1,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 16.36
+     }
+    }
+   ]
+  },
+  {
+   "id": "F01",
+   "group": "followup",
+   "turns": [
+    {
+     "q": "MGNREGA households provided employment by district",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "This table ranks Meghalaya's top 12 districts by household-years of employment under MGNREGA across all financial years:\n1. **WEST GARO HILLS** — 2,61,666\n2. **EAST KHASI HILLS** — 2,24,663\n3. **SOUTH WEST GARO HILLS** — 1,64,976\n4. **NORTH GARO HILLS** — 1,36,418\n5. **WEST JAINTIA HILLS** — 1,21,768\n6. **RI BHOI** — 1,12,602\n7. **SOUTH GARO HILLS** — 1,06,610\n8. **EAST GARO HILLS** — 1,06,136\n9. **SOUTH WEST KHASI HILLS** — 75,887\n10. **EAST JAINTIA HILLS** — 70,665\n11. **WEST KHASI HILLS** — 62,655\n12. **EASTERN WEST KHASI HILLS** — 50,391",
+      "data": [
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "household_years": 261666
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "household_years": 224663
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "household_years": 164976
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "household_years": 136418
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "household_years": 121768
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "household_years": 112602
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "household_years": 106610
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "household_years": 106136
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "household_years": 75887
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "household_years": 70665
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "household_years": 62655
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "household_years": 50391
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": "How many MGNREGA households were provided employment by district?",
+      "schemes": [
+       "MGNREGA"
+      ],
+      "row_count": 12,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 9.72
+     }
+    },
+    {
+     "q": "pie chart",
+     "want": "pie",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "This pie chart displays MGNREGA household-years of employment across all financial years for every district in Meghalaya:\n1. **WEST GARO HILLS** — 2,61,666\n2. **EAST KHASI HILLS** — 2,24,663\n3. **SOUTH WEST GARO HILLS** — 1,64,976\n4. **NORTH GARO HILLS** — 1,36,418\n5. **WEST JAINTIA HILLS** — 1,21,768\n6. **RI BHOI** — 1,12,602\n7. **SOUTH GARO HILLS** — 1,06,610\n8. **EAST GARO HILLS** — 1,06,136\n9. **SOUTH WEST KHASI HILLS** — 75,887\n10. **EAST JAINTIA HILLS** — 70,665\n11. **WEST KHASI HILLS** — 62,655\n12. **EASTERN WEST KHASI HILLS** — 50,391",
+      "data": [
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "household_years": 261666
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "household_years": 224663
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "household_years": 164976
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "household_years": 136418
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "household_years": 121768
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "household_years": 112602
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "household_years": 106610
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "household_years": 106136
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "household_years": 75887
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "household_years": 70665
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "household_years": 62655
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "household_years": 50391
+       }
+      ],
+      "chart_type": "pie",
+      "rewritten_question": "How many MGNREGA households were provided employment by district? as a pie chart",
+      "schemes": [
+       "MGNREGA"
+      ],
+      "row_count": 12,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 9.25
+     }
+    },
+    {
+     "q": "now give me line graph",
+     "want": "line",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "This line chart displays the top 12 districts in Meghalaya ranked by household-years of employment under MGNREGA across all financial years:\n1. **WEST GARO HILLS** — 2,61,666\n2. **EAST KHASI HILLS** — 2,24,663\n3. **SOUTH WEST GARO HILLS** — 1,64,976\n4. **NORTH GARO HILLS** — 1,36,418\n5. **WEST JAINTIA HILLS** — 1,21,768\n6. **RI BHOI** — 1,12,602\n7. **SOUTH GARO HILLS** — 1,06,610\n8. **EAST GARO HILLS** — 1,06,136\n9. **SOUTH WEST KHASI HILLS** — 75,887\n10. **EAST JAINTIA HILLS** — 70,665\n11. **WEST KHASI HILLS** — 62,655\n12. **EASTERN WEST KHASI HILLS** — 50,391",
+      "data": [
+       {
+        "lgd_district": "WEST GARO HILLS",
+        "household_years": 261666
+       },
+       {
+        "lgd_district": "EAST KHASI HILLS",
+        "household_years": 224663
+       },
+       {
+        "lgd_district": "SOUTH WEST GARO HILLS",
+        "household_years": 164976
+       },
+       {
+        "lgd_district": "NORTH GARO HILLS",
+        "household_years": 136418
+       },
+       {
+        "lgd_district": "WEST JAINTIA HILLS",
+        "household_years": 121768
+       },
+       {
+        "lgd_district": "RI BHOI",
+        "household_years": 112602
+       },
+       {
+        "lgd_district": "SOUTH GARO HILLS",
+        "household_years": 106610
+       },
+       {
+        "lgd_district": "EAST GARO HILLS",
+        "household_years": 106136
+       },
+       {
+        "lgd_district": "SOUTH WEST KHASI HILLS",
+        "household_years": 75887
+       },
+       {
+        "lgd_district": "EAST JAINTIA HILLS",
+        "household_years": 70665
+       },
+       {
+        "lgd_district": "WEST KHASI HILLS",
+        "household_years": 62655
+       },
+       {
+        "lgd_district": "EASTERN WEST KHASI HILLS",
+        "household_years": 50391
+       }
+      ],
+      "chart_type": "line",
+      "rewritten_question": "How many MGNREGA households were provided employment by district as a line chart",
+      "schemes": [
+       "MGNREGA"
+      ],
+      "row_count": 12,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 6.6
+     }
+    },
+    {
+     "q": "I want only bar",
+     "want": "bar",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "edge",
+      "answer": "I don't write posts, essays, code or assignments. But I can give you the official figures for MGNREGA to use yourself.",
+      "data": [],
+      "chart_type": null,
+      "rewritten_question": null,
+      "schemes": [],
+      "row_count": 0,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 2.58
+     }
+    }
+   ]
+  },
+  {
+   "id": "F02",
+   "group": "followup",
+   "turns": [
+    {
+     "q": "Compare beneficiaries in MGNREGA and PMAY-G",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "**All of Meghalaya, all financial years**\n- **MGNREGA:** 14,94,437 households given work (counted once per financial year, FY 2022-23 to 2025-26)\n- **PMAY-G:** 1,71,107 houses sanctioned\n**MGNREGA** has the most beneficiaries (14,94,437), 13,23,330 more than PMAY-G (1,71,107, 8.73x).",
+      "data": [
+       {
+        "scheme": "MGNREGA",
+        "beneficiaries": 1494437
+       },
+       {
+        "scheme": "PMAY-G",
+        "beneficiaries": 171107
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": null,
+      "schemes": [
+       "MGNREGA",
+       "PMAY-G"
+      ],
+      "row_count": 2,
+      "chart_wide": null,
+      "measure_notes": {
+       "MGNREGA": {
+        "beneficiaries": "household-years: households given work, counted once per year worked",
+        "amount_crore": "money spent"
+       },
+       "PMAY-G": {
+        "beneficiaries": "houses sanctioned",
+        "amount_crore": "money released"
+       }
+      },
+      "column_totals": null,
+      "seconds": 6.67
+     }
+    },
+    {
+     "q": "show this in a pie chart",
+     "want": "pie",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "**All of Meghalaya, all financial years**\n- **MGNREGA:** 14,94,437 households given work (counted once per financial year, FY 2022-23 to 2025-26)\n- **PMAY-G:** 1,71,107 houses sanctioned\n**MGNREGA** has the most beneficiaries (14,94,437), 13,23,330 more than PMAY-G (1,71,107, 8.73x).",
+      "data": [
+       {
+        "scheme": "MGNREGA",
+        "beneficiaries": 1494437
+       },
+       {
+        "scheme": "PMAY-G",
+        "beneficiaries": 171107
+       }
+      ],
+      "chart_type": "pie",
+      "rewritten_question": "Compare beneficiaries in MGNREGA and PMAY-G as a pie chart",
+      "schemes": [
+       "MGNREGA",
+       "PMAY-G"
+      ],
+      "row_count": 2,
+      "chart_wide": null,
+      "measure_notes": {
+       "MGNREGA": {
+        "beneficiaries": "household-years: households given work, counted once per year worked",
+        "amount_crore": "money spent"
+       },
+       "PMAY-G": {
+        "beneficiaries": "houses sanctioned",
+        "amount_crore": "money released"
+       }
+      },
+      "column_totals": null,
+      "seconds": 6.38
+     }
+    }
+   ]
+  },
+  {
+   "id": "F03",
+   "group": "followup",
+   "turns": [
+    {
+     "q": "Total PMAY-G houses completed",
+     "want": "any",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "Completed houses in Meghalaya (statewide), across all financial years (FY 2017-18 to FY 2023-24): 1,29,941. This is the PMAY-G figure across all financial years.",
+      "data": [
+       {
+        "area": "Meghalaya",
+        "completed houses": 129941
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": null,
+      "schemes": [
+       "PMAY-G"
+      ],
+      "row_count": 1,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 5.1
+     }
+    },
+    {
+     "q": "show it in graph",
+     "want": "chart",
+     "view": null,
+     "says": null,
+     "response": {
+      "route": "data",
+      "answer": "Completed houses in Meghalaya (statewide), across all financial years (FY 2017-18 to FY 2023-24): 1,29,941. This is the PMAY-G figure across all financial years.",
+      "data": [
+       {
+        "area": "Meghalaya",
+        "completed houses": 129941
+       }
+      ],
+      "chart_type": null,
+      "rewritten_question": "Total PMAY-G houses completed as a chart",
+      "schemes": [
+       "PMAY-G"
+      ],
+      "row_count": 1,
+      "chart_wide": null,
+      "measure_notes": null,
+      "column_totals": null,
+      "seconds": 6.72
+     }
+    }
+   ]
+  }
+ ]
+}

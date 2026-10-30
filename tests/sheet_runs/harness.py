@@ -21,9 +21,34 @@ from app.session_store import SessionStore  # noqa: E402
 STORE = SessionStore(ttl=3600, max_sessions=5000, max_turns=8)
 
 
+class _RepairLog(logging.Handler):
+    """Keeps the pipeline's repair / fallback warnings ("SQL failed (attempt 1/4), repairing: …",
+    "data path failed (…) — trying KB fallback") so a "couldn't build a working query" case
+    carries its diagnosis in the results file (MGNREGA UAT 2026-10-30: a Jirang list failed
+    once in the run and never again in three traces)."""
+
+    def __init__(self):
+        super().__init__(level=logging.WARNING)
+        self.lines: list[str] = []
+
+    def emit(self, record):
+        msg = record.getMessage()
+        if "SQL failed" in msg or "data path failed" in msg or "verifier" in msg.lower():
+            self.lines.append(msg[:600])
+
+
+for _n in ("app.pipeline", "app.pipeline_graph"):
+    logging.getLogger(_n).setLevel(logging.WARNING)
+_REPAIRS = _RepairLog()
+logging.getLogger("app.pipeline").addHandler(_REPAIRS)
+logging.getLogger("app.pipeline_graph").addHandler(_REPAIRS)
+
+
 def _rows(r):
-    rows = r.get("rows") or r.get("data") or []
-    return [dict(x) for x in rows][:50]
+    # `data` is the full table; `rows` is the first 20 the router shows (a six-scheme
+    # per-district answer has 72 rows, cross-scheme run 2026-10-30)
+    rows = r.get("data") or r.get("rows") or []
+    return [dict(x) for x in rows][:300]
 
 
 class Conv:
@@ -51,6 +76,10 @@ class Conv:
         except Exception as e:  # noqa: BLE001
             rec.update(kind="error", answer=f"{type(e).__name__}: {e}")
         rec["ms"] = round((time.perf_counter() - t0) * 1000)
+        if _REPAIRS.lines:
+            # concurrent conversations share the handler: the lines are a best-effort trail
+            rec["repairs"] = list(_REPAIRS.lines[-8:])
+            _REPAIRS.lines.clear()
         self.turns.append(rec)
         return rec
 

@@ -937,6 +937,67 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-097 — Cross-scheme figures in code for all six schemes, villages and constituencies (2026-10-30)
+- **Date:** 2026-10-30. User: "I want 100% UAT in cross scheme test cases also" (`reference_documents/Cross Scheme
+  Test Cases.xlsx`, CROSS-1..20 and the generated 8,649-conversation set, last run 2026-10-13 under D-044).
+- **Context:** D-066 put beneficiaries / money / village coverage of the four main schemes on fixed queries and kept
+  CM Elevate, CM Elevate Legacy, a village and a constituency on the D-062 model path. On the re-run baseline, the
+  20 sheet questions gave 3 gateway `ReadTimeout`s (84-121 s) and, on the model path, MGNREGA dropped ("No MGNREGA
+  figure could be worked out"), PMAY-G's sanctioned ₹2,222.75 crore as its amount, village counts added across
+  schemes ("97 villages across all schemes"), "24 districts" for every scheme and CM Elevate's districts "combined"
+  for three named districts — the KI-387..392 defects again, for 41 of the 57 scheme combinations.
+- **Decision:** `app/cross_figures.py` covers all six schemes (`SUPPORTED`), one village (`Plan.village`) and one
+  constituency (`Plan.ac`), and a block grain ("block-wise", "each block": `Plan.grain`). CM Elevate: applications =
+  `COUNT(DISTINCT request_id)`, no money and no financial year (said, never 0; `NO_MONEY` / `NO_YEAR`); CM Elevate
+  Legacy: applicants sanctioned = records with `sanctioned_amount > 0` (2,820, the scheme's own rule, KI-166), money
+  = `total_disbursement`. Constituency columns: MGNREGA `assembly_constituency_name` on `v_employment`, `ac_name`
+  elsewhere (D-096); Focus Plus and CM Elevate do not record one. What c13 `_cross_scheme_gaps` says a scheme cannot
+  hold (constituency, year, money) is handed to the plan (`Plan.gaps`) and never queried. "Applications" is a count
+  word (no longer B-7's other measure). A combined total or combined district ranking leaves CM Elevate out and says
+  so (I-13's rule kept); in every other shape CM Elevate is one of the schemes, ranked by applications in its own
+  list. Exclusions still leave the four main schemes (`cross_figures.MAIN`). "Widest coverage across districts" is
+  the statewide reach, not a per-district winner (CROSS-13).
+- **Not changed:** village / block lists, "top N" villages or blocks, other measures (person days, job cards,
+  wages) and several villages at once stay on the D-062 model path.
+- **Harness:** `tests/sheet_runs/cross/` re-written for this answer shape (`grade.py` grades the scheme-tagged rows
+  and the coded text; `truth.py` carries the D-066 / D-097 measures and the KI-393 geography; the CM Elevate dataset
+  of a generated question follows `_cm_elevate_dataset_choice`).
+- **Rollback:** `SUPPORTED = MAIN` and the two `village_code` / `assembly_constituency` lines in `plan()` restore D-066.
+
+### D-096 — PMAY-G records the assembly constituency (2026-10-30)
+- **Date:** 2026-10-30 (PMAY-G sheet re-test: every constituency failed, KI-445 was waiting for a decision).
+- **Evidence (VERIFIED, read-only):** `curated.v_pmay.ac_name` / `ac_number` come from `dim_geography` through the
+  house's `geography_key` — the same mapping MGNREGA's constituency uses. Every one of the 1,71,107 rows has one
+  (0 NULL), 56 constituencies (the state's 56), 63 (constituency, district) pairs (8 ACs straddle two districts,
+  as in MGNREGA). Title Case ('Amlarem'). Amlarem = 2,677 houses / ₹34.79 cr sanctioned, matching the sum of its
+  villages.
+- **Decision:** PMAY-G is constituency-capable (`scheme_registry.records_constituency=True`; c08
+  `_AC_CAPABLE_SCHEMES`, c13 `_CROSS_AC_RECORDED`, `entity_resolver._AC_CONTENTS_SQL`). A constituency question is a
+  fixed-query shape (`_pmay_facts_query` dim "ac", `UPPER(ac_name)`), with the Focus Legacy-style model-path pair
+  (`_pmay_ac_name_case`, `_pmay_ac_filter_missing`) behind it; the SQL prompt's entity line names `ac_name` on
+  `v_pmay` (no join). A constituency narrowed to a district / block (the drill-down overlap) stays on the model path.
+- **Not decided here:** Focus Plus (`v_focus_plus.ac_name` exists but is unverified) and CM Elevate in the
+  cross-scheme list stay as they were. The user may still want the ingestion team to confirm the PMAY-G mapping; the
+  numbers above are the check this session could make.
+- **Revert:** set `records_constituency=False` for PMAY-G and remove it from the two lists; the guard test
+  `tests/test_scheme_registry_e5_2026_10_27.py` then names every other place.
+
+### D-095 — The chart the officer names is the chart drawn; a comparison is charted by default (2026-10-30)
+- **Context:** user rule 2026-10-30: "whatever chart the user asks — bar, pie, line — give it; if they say only
+  'compare' or 'chart', give the chart; if a question has no chart, generate one". The UI refused named types the
+  figures did not suit (D-088 last line, audit A-7 / G-1), drew two tiles and no chart for a comparison, drew nothing
+  for a single figure asked as a chart, and missed "I want only bar".
+- **Decision:** (1) a named type is drawn, alone (no switcher), whatever the rows; when the figures do not add up
+  (schemes, overlapping counts, rates) or a line joins places, a one-line caveat says what not to read into it. This
+  supersedes D-088's "refused … drawn as bars" for NAMED types only; unasked defaults keep D-088 (no misleading pie,
+  donut or stack). (2) A comparison (two rows, or one row of figures in one unit with a compare word) shows its tiles
+  AND a chart. (3) A single figure asked as a chart is drawn as asked, with breakdown chips. (4) A message of one type
+  word and filler ("I want only bar") is a view request. (5) What is drawn is decided by ONE pure function,
+  `viewPlan()` in `frontend/src/chat/analytics.js`; `Messages.jsx` renders it, and the unit tests and the live chart
+  suite grade the same function.
+- **Consequences:** `frontend/tests/chart_requests.test.js` (28 requirement cases); `tests/live_chat_charts.py` +
+  `frontend/tests/chart_live_grade.mjs` (live, 29 chats). Three audit tests now assert the caveat instead of the refusal.
+
 ### D-094 — Knowledge routing by the question's FORM; multi-part RAG; deterministic related-fact and number backstops (2026-10-29)
 - **Date:** 2026-10-29 (knowledge fix prompt `megh_chatbot_knowledge_fix_prompt.md`, KR1-KR13).
 - **Decision:**
@@ -1186,7 +1247,8 @@ not recorded.*
   (`tests/test_chat_ui_audit_totals_2026_10_29.py` fails when they differ). A measure is added only along a dimension
   its kind allows: flow across places and years; distinct and stock across places only; rate never; nothing across
   schemes. The UI (`columns.canAdd` / `dimOf`) and the backend (`measure_kinds.can_add` in `_chart_hint`) apply it.
-  A chart type the rule forbids is refused with a one-line note and drawn as bars.
+  A chart type the rule forbids is refused with a one-line note and drawn as bars. **Superseded for a type the
+  officer NAMES by D-095 (2026-10-30): it is drawn, with a caveat; defaults are unchanged.**
 - **Consequences:** no donut / share / Total across schemes or across years for counts; a stack only where it adds
   honestly. A real union of villages across schemes is computed by `cross_figures` (overlap mode) instead.
 

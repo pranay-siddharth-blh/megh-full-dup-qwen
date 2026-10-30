@@ -2,7 +2,7 @@
 filled with every district / block) plus generated permutations — every combination
 of 2..6 schemes, at state, district, block, village and constituency level, every
 financial year, every question shape — through the live LangGraph pipeline, checked
-cell by cell against truth.py.
+cell by cell against truth.py (grading in grade.py; re-run 2026-10-30, D-097).
 
 Usage (repo root):  python tests/sheet_runs/cross/cross_run.py [FAMILY ...]
   families: sheet, state, year, district, dwise, rank, coverage, block, ac, village, words
@@ -115,167 +115,27 @@ def case(cid, fam, shape, combo, i, *, P="", Y="", f=None, level=None, place=Non
     tpl = SHAPES[shape][i % len(SHAPES[shape])]
     q = q or tpl.format(S=joined(combo, i), O=joined(combo, i, sep_or=True), P=P, Y=Y)
     c, m, cov, rk, grp, lead, topd = FLAGS[shape]
+    if shape == "coverage":
+        # D-066: the coverage of a NAMED place reads with its scale (villages, people,
+        # money, T09); statewide coverage is the reach alone (districts, blocks, villages)
+        c = m = 1 if (f and any(f.get(k) for k in ("districts", "block", "village", "ac"))) else 0
     combo = list(combo)
-    # the product rule (user decision 2026-10-12, _pin_cm_elevate_dataset): a CM Elevate
-    # named with money / FY words is the sanction-and-disbursement data (CM Elevate Legacy)
-    if "CM Elevate" in combo and "CM Elevate Legacy" not in combo and PL._pin_cm_elevate_dataset(q) != q:
-        combo = [("CM Elevate Legacy" if x == "CM Elevate" else x) for x in combo]
+    # Which CM Elevate dataset the question means (user decisions 2026-10-19 / D-064 /
+    # D-090, _cm_elevate_dataset_choice): money / sanction words -> CM Elevate Legacy;
+    # "Legacy" named -> Legacy; otherwise a bare "CM-ELEVATE" in a comparison is the
+    # applications dataset. When both datasets are named, both are asked.
+    if ("CM Elevate" in combo) != ("CM Elevate Legacy" in combo):
+        # exactly what the app does: the context-stage pin (money / FY words -> Legacy)
+        # on the question, then the scheme-name matcher on the pinned text
+        legacy = PL._SCHEME_NAME_MATCHER["CM Elevate Legacy"].search(PL._pin_cm_elevate_dataset(q)) is not None
+        want = "CM Elevate Legacy" if legacy else "CM Elevate"
+        combo = [(want if x in ("CM Elevate", "CM Elevate Legacy") else x) for x in combo]
     return dict(id=cid, fam=fam, shape=shape, q=q, schemes=combo, f=f or {}, count=c, money=m,
                 coverage=cov, rank=rk, group=grp, leader=lead, topd=topd, level=level, place=place, code=code)
 
 
-# ── answer parsing ────────────────────────────────────────────────────────────
-
-def scheme_of(cell):
-    c = cell.lower()
-    for k, s in (("focus legacy", "Focus Legacy"), ("focus plus", "Focus Plus"), ("cm elevate legacy", "CM Elevate Legacy"),
-                 ("cm elevate", "CM Elevate"), ("mgnrega", "MGNREGA"), ("pmay", "PMAY-G")):
-        if k in c:
-            return s
-    return None
-
-
-def tables(text):
-    out, cur, heading = [], None, None
-    for ln in (text or "").splitlines():
-        s = ln.strip()
-        if s.startswith("|"):
-            cells = [x.strip() for x in s.strip("|").split("|")]
-            if cur is None:
-                cur = dict(heading=heading, header=cells, rows=[])
-                out.append(cur)
-            elif set(s) <= set("|-: "):
-                continue
-            else:
-                cur["rows"].append(cells)
-        else:
-            cur = None
-            if len(s) >= 5 and s.startswith("**") and s.endswith("**"):   # a **bold** line
-                heading = s[2:-2]
-    return out
-
-
-def money_val(cell, div=None):
-    if div is not None:
-        runs = number_runs(cell, signed=True, commas_first=True)
-        return float(runs[0][2].replace(",", "")) * div if runs else None
-    found = _rupees(cell)
-    if not found:
-        return None
-    num, unit = found
-    return float(num.replace(",", "")) * {"crore": 1e7, "lakh": 1e5, None: 1}[unit]
-
-
-def _rupees(cell):
-    """The first '₹ <digits/commas>[.<digits>] [crore|lakh]' in the cell ->
-    (number text, 'crore' | 'lakh' | None), or None."""
-    k = cell.find("₹")
-    while k != -1:
-        i = k + 1
-        while i < len(cell) and cell[i].isspace():
-            i += 1
-        runs = number_runs(cell[i:], commas_first=True)
-        if runs and runs[0][0] == 0:
-            num = runs[0][2]
-            j = i + len(num)
-            while j < len(cell) and cell[j].isspace():
-                j += 1
-            unit = next((u for u in ("crore", "lakh") if cell.startswith(u, j)), None)
-            return num, unit
-        k = cell.find("₹", k + 1)
-    return None
-
-
-def _after_bold(text, label):
-    """Every position just past '**<label>:**' and the whitespace after it,
-    with the start of that whitespace: [(ws_start, ws_end), ...]."""
-    marker = f"**{label}:**"
-    out = []
-    k = text.find(marker)
-    while k != -1:
-        a = b = k + len(marker)
-        while b < len(text) and text[b].isspace():
-            b += 1
-        out.append((a, b))
-        k = text.find(marker, k + 1)
-    return out
-
-
-def _bold_value(text, label, stop="\n"):
-    """The run after '**<label>:**' (and its whitespace) up to the first char
-    in `stop` (at least one char). When nothing follows the
-    whitespace on that line, the old reader backed into the whitespace: the last
-    non-newline whitespace char before it is the value."""
-    for a, b in _after_bold(text, label):
-        for start in range(b, a - 1, -1):
-            if start < b and text[start] == "\n":
-                continue
-            end = start
-            while end < len(text) and text[end] not in stop and text[end] != "\n":
-                end += 1
-            if end > start:
-                return text[start:end]
-    return None
-
-
-def _bold_lead(text, label):
-    """The shortest run (no newline) after '**<label>:**' and its whitespace
-    that is followed by ' at ' or ' with ' on the same line."""
-    for a, b in _after_bold(text, label):
-        for start in range(b, a - 1, -1):
-            if start < b and text[start] == "\n":
-                continue
-            line_end = text.find("\n", start)
-            line_end = len(text) if line_end == -1 else line_end
-            hits = [k for k in (text.find(" at ", start + 1), text.find(" with ", start + 1))
-                    if k != -1 and k <= line_end]
-            if hits:
-                return text[start:min(hits)]
-    return None
-
-
-def _first_bold(text):
-    """The text of the first **bold** span on one line (shortest, not empty)."""
-    i = text.find("**")
-    while i != -1:
-        j = text.find("**", i + 3)
-        if j != -1 and "\n" not in text[i + 2:j]:
-            return text[i + 2:j]
-        if j == -1:
-            return None
-        i = text.find("**", i + 1)
-    return None
-
-
-def money_ok(got, exp, unit):
-    return got is not None and abs(got - exp) <= max(unit * 0.0051, abs(exp) * 0.0005)
-
-
-def first_int(cell):
-    runs = number_runs(cell)
-    if not runs:
-        return None
-    digits = runs[0][2].split(".")[0]          # digits and commas, stopping before any decimal part
-    return int(digits.replace(",", ""))
-
-
-def unit_of(v):
-    return 1e7 if abs(v) >= 1e7 else (1e5 if abs(v) >= 1e5 else 1)
-
-
-def check_single(c, exp, cell, kind):
-    """One scheme's cell in the one-row-per-scheme table."""
-    if exp == T.NO_MONEY:
-        return "no money recorded" in cell.lower()
-    if exp == T.NOT_RECORDED:
-        return "not recorded" in cell.lower()
-    if exp == T.NO_YEAR:
-        return cell.strip() in ("—", "-") or "no data" in cell.lower() or "not recorded by financial year" in cell.lower()
-    if not exp:
-        return "no records" in cell.lower()
-    if kind == "count":
-        return first_int(cell) == int(round(exp))
-    return money_ok(money_val(cell), exp, unit_of(exp))
+# ── answer grading: grade.py (the D-062 / D-066 / D-097 answer shape) ───────
+from grade import check, scheme_of  # noqa: E402,F401
 
 
 async def expected(c):
@@ -289,128 +149,6 @@ async def expected(c):
             E[s]["reach"] = await T.reach(s, c["f"]) if not (c["f"].get("year") and (
                 not T.S[s]["year"] or int(c["f"]["year"]) not in T.YEARS.get(s, set()))) else T.NO_YEAR
     return E
-
-
-def check(c, rec, E):
-    """[] when the answer is right, else the list of what is wrong."""
-    bad = []
-    text = rec.get("answer") or ""
-    if c["shape"] == "kb_all":   # a conceptual comparison of every scheme (knowledge path)
-        miss = [s for s in ORDER if f"**{s}**" not in text]
-        return [f"knowledge comparison misses {miss}"] if miss else []
-    tbs = tables(text)
-    if not c["group"]:
-        tb = next((t for t in tbs if t["header"] and t["header"][0].lower() == "scheme"), None)
-        if not tb:
-            return ["no per-scheme table"]
-        hdr = [h.lower() for h in tb["header"]]
-        rows = {scheme_of(r[0]): r for r in tb["rows"]}
-        if set(rows) != set(c["schemes"]):
-            bad.append(f"schemes shown {sorted(k for k in rows if k)} != asked {sorted(c['schemes'])}")
-        for s in c["schemes"]:
-            r = rows.get(s)
-            if not r:
-                continue
-            for kind, col in (("count", "beneficiaries / applications"), ("money", "amount")):
-                if not c[kind]:
-                    continue
-                if col not in hdr:
-                    bad.append(f"no {kind} column")
-                    continue
-                cell = r[hdr.index(col)]
-                if not check_single(c, E[s][kind], cell, kind):
-                    bad.append(f"{s} {kind}: '{cell}' expected {E[s][kind]}")
-            if c["coverage"]:
-                ex = E[s]["reach"]
-                if "districts" not in hdr:
-                    bad.append("no coverage columns")
-                elif isinstance(ex, tuple):
-                    got = tuple(first_int(r[hdr.index(k)]) for k in ("districts", "blocks", "villages"))
-                    if got != tuple(int(x) for x in ex):
-                        bad.append(f"{s} reach {got} expected {ex}")
-        if c["rank"]:
-            kind = "money" if c["money"] else "count"
-            cand = {s: E[s][kind] for s in c["schemes"] if isinstance(E[s].get(kind), float) and E[s][kind]}
-            if cand:
-                top = max(cand, key=cand.get)
-                lab = "Highest amount" if kind == "money" else "Highest count"
-                said = _bold_lead(text, lab)
-                if said is None or scheme_of(said) != top:
-                    bad.append(f"ranking says {said if said is not None else 'nothing'}; top is {top}")
-        if c["coverage"] and not c["f"]:
-            cand = {s: E[s]["reach"] for s in c["schemes"] if isinstance(E[s]["reach"], tuple)}
-            top_v = max((v[0], v[2]) for v in cand.values())
-            tops = {s for s, v in cand.items() if (v[0], v[2]) == top_v}
-            said = _bold_value(text, "Widest coverage", stop="\n—")
-            if said is None or scheme_of(said) not in tops:
-                bad.append(f"widest says {said if said is not None else 'nothing'}; expected {tops}")
-        return bad
-    # grouped (district / block matrices)
-    unit = c["group"]
-    for kind in ("count", "money"):
-        if not c[kind]:
-            continue
-        tb = next((t for t in tbs if t["header"] and t["header"][0].lower() == unit
-                   and ((t["heading"] or "").lower().startswith("amount") == (kind == "money"))), None)
-        if not tb:
-            bad.append(f"no {unit} {kind} table")
-            continue
-        div = None
-        if kind == "money":
-            h = (tb["heading"] or "").lower()
-            div = 1e7 if "crore" in h else (1e5 if "lakh" in h else 1.0)
-        cols = {scheme_of(h): i for i, h in enumerate(tb["header"]) if i and scheme_of(h)}
-        want = [s for s in c["schemes"] if not (kind == "money" and E[s][kind] == T.NO_MONEY)]
-        if set(cols) != set(want):
-            bad.append(f"{kind} columns {sorted(cols)} != {sorted(want)}")
-        rowkeys = {r[0].upper(): r for r in tb["rows"]}
-        for s in want:
-            ex = E[s][kind]
-            if s not in cols:
-                continue
-            if not isinstance(ex, dict):
-                if not all(r[cols[s]] in ("—", "-") for r in tb["rows"]):
-                    bad.append(f"{s} {kind} should be '—' ({ex})")
-                continue
-            for k, v in ex.items():
-                if v and k.upper() not in rowkeys:
-                    bad.append(f"{s} {kind}: {k} missing")
-            for k, r in rowkeys.items():
-                v = ex.get(k, ex.get(k.title(), 0.0)) or 0.0
-                cell = r[cols[s]]
-                ok = first_int(cell) == int(round(v)) if kind == "count" else money_ok(money_val(cell, div), v, div)
-                if not ok:
-                    bad.append(f"{s} {kind} {k}: '{cell}' expected {v}")
-            if c["f"].get("districts") and c["group"] == "district":
-                extra = set(rowkeys) - {d.upper() for d in c["f"]["districts"]}
-                if extra:
-                    bad.append(f"districts not asked shown: {sorted(extra)[:3]}")
-        if c["leader"] and kind == "count":
-            if "leading scheme" not in [h.lower() for h in tb["header"]]:
-                bad.append("no leading-scheme column")
-            else:
-                li = [h.lower() for h in tb["header"]].index("leading scheme")
-                for k, r in rowkeys.items():
-                    vals = {s: (E[s]["count"] or {}).get(k, 0.0) for s in want if isinstance(E[s]["count"], dict)}
-                    if vals and max(vals.values()) > 0:
-                        best = max(vals.values())
-                        if scheme_of(r[li]) not in {s for s, v in vals.items() if v == best}:
-                            bad.append(f"leader {k}: {r[li]}")
-    if c["topd"]:
-        line = _bold_value(text, "Highest district per scheme")
-        if line is None:
-            bad.append("no highest-district line")
-        else:
-            seg = {scheme_of(x.split(":")[0]): x for x in line.split(";")}
-            for s in c["schemes"]:
-                ex = E[s]["count"]
-                if isinstance(ex, dict) and ex and max(ex.values()) > 0:
-                    best = max(ex.values())
-                    tops = {k.upper() for k, v in ex.items() if v == best}
-                    got = _first_bold(seg.get(s, ""))
-                    if got is None or got.upper() not in tops:
-                        bad.append(f"top district {s}: {got if got is not None else 'missing'} expected {tops}")
-    return bad
 
 
 # ── running ───────────────────────────────────────────────────────────────────

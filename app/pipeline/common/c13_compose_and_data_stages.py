@@ -1003,7 +1003,7 @@ def _cross_after_exclusions(text: str, named: list, cross: "list | None", exclud
             or cross_scheme._COVERAGE.search(text) or cross_scheme._RANK.search(text)
             or cross_scheme._XS_COMPARISON.search(text)):
         return None
-    left = [s for s in cross_figures.SUPPORTED if s not in excluded]
+    left = [s for s in cross_figures.MAIN if s not in excluded]
     return left if len(left) >= 2 else None
 
 
@@ -1876,9 +1876,12 @@ async def _cross_scheme_scope(d: dict, scope: "auth.UserScope | None" = None) ->
     # (D-066). The model wrote the parts right and never the whole: 40 of 60 UAT
     # cases failed (cross-scheme re-test 2026-10-22, KI-387..392). Every other shape
     # (village / block lists, top-N villages, other measures) goes on below (D-062).
+    # D-097 (2026-10-30): the CM Elevate datasets, a village and a constituency are
+    # on this path too; what a scheme cannot hold here (`gaps`) is said, not queried.
     _plan = None if d["cross"].get("place_unrecognised") else cross_figures.plan(
         text, schemes, resolved, display, _SCHEME_NAME_MATCHER)
     if _plan is not None:
+        _plan.gaps = dict(gaps)
         # KI-419: the fixed per-scheme figures never reached the authorize node, so a
         # by-district ranking showed every district to any officer
         _denial = _c13_e12_cross_figures_denial(scope, schemes, _plan)
@@ -1914,6 +1917,12 @@ def _c13_e12_cross_figures_denial(scope: "auth.UserScope | None", schemes: list[
     places = [{"district": d} for d in plan.districts] if plan.districts else [{}]
     if plan.block:
         places = [{**pl, "block": plan.block} for pl in places]
+    if plan.village:
+        places = [{**pl, "village_code": plan.village} for pl in places]          # D-097
+    if plan.villages:
+        places = [{**pl, "village_code": code} for pl in places for code in plan.villages]
+    if plan.ac:
+        places = [{**pl, "assembly_constituency": plan.ac} for pl in places]
     shape = "SELECT lgd_district FROM curated.v_employment GROUP BY lgd_district" if plan.by_district else None
     if plan.op == "overlap" and plan.list_villages:
         # a list of villages (G-8) is village-level data
@@ -1929,7 +1938,8 @@ def _c13_e12_cross_figures_denial(scope: "auth.UserScope | None", schemes: list[
 # Focus Legacy and CM Elevate Legacy through dim_geography.ac_name). PMAY-G, Focus
 # Plus and CM Elevate do not: a model asked for their constituency figure answers
 # the district or the state instead (cross-scheme run 2026-10-13, D-044).
-_CROSS_AC_RECORDED = frozenset({"MGNREGA", "Focus Legacy", "CM Elevate Legacy"})
+# PMAY-G since 2026-10-30 (v_pmay.ac_name, KI-445).
+_CROSS_AC_RECORDED = frozenset({"MGNREGA", "Focus Legacy", "CM Elevate Legacy", "PMAY-G"})
 
 
 def _cross_scheme_gaps(schemes: list[str], resolved: dict, display: "dict | None" = None,
@@ -2039,6 +2049,7 @@ async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = No
                     _pm_det, _pm_rows, _pm_answer = _cal, _cal_rows, _cal_answer
         if _pm_answer:
             _pm_answer = _pmay_expenditure_not_held(_pm_det, _pm_answer)
+            _pm_answer = _pmay_with_year_gap_note(_pm_answer, entity_result.get("notes"))
             _pm_rows = _pmay_display_rows(_pm_det, _pm_rows)
             return {
                 "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
@@ -2069,6 +2080,10 @@ async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = No
         or _mgnrega_wage_material_query(question, schemes, entity_result["resolved"]) \
         or _cme_sector_query(question, schemes, entity_result["resolved"])         or _fp_status_cohort_query(question, schemes, entity_result["resolved"])         or _focus_legacy_duplicates_query(question, schemes, entity_result["resolved"])         or _focus_legacy_fy_compare_query(question, schemes, entity_result["resolved"])         or _metric_catalog_query(question, schemes, entity_result)
     d.update(mg_admin=_mg_admin, mg_women=_mg_women, mg_det=_mg_det)
+    if d["mg_det"] is None and not _mg_women:
+        # J-10 twins through the fixed queries (KI-637..639): a 4-tuple, run once per twin
+        # (after the chain: the metric catalogue stays its last fixed query, D-071)
+        d["mg_det"] = _mgnrega_twin_det(question, schemes, entity_result["resolved"], entity_result)
     return None
 
 
@@ -2381,7 +2396,17 @@ async def _data_deterministic_rows(d: dict, scope: "auth.UserScope | None" = Non
     # A catalogue query's measure text comes from semantic.metric_definitions,
     # not from this code: it runs on the read-only pool (D-071).
     _run = _c16_fetch_rows_readonly if metric_catalog.is_catalog_sql(_mg_det[0]) else fetch_rows
-    rows = [dict(r) for r in await _run(_mg_det[0], _mg_det[1])]
+    _twin_meta = _mg_det[3] if len(_mg_det) > 3 else None
+    if _twin_meta:
+        # J-10 twins: the same parameter-bound query once per village, rows tagged
+        rows = []
+        for code, label in _twin_meta["twins"].items():
+            params = list(_mg_det[1])
+            params[_twin_meta["code_slot"]] = int(code)
+            for r in await _run(_mg_det[0], params):
+                rows.append(dict(r, village_code=int(code), twin_village=label))
+    else:
+        rows = [dict(r) for r in await _run(_mg_det[0], _mg_det[1])]
     logger.info("MGNREGA deterministic query: %s | params=%s", _mg_det[2].replace("\n", " "),
                 _mg_det[1])
     d["rows"] = rows
@@ -2391,6 +2416,17 @@ async def _data_post_rows_stage(d: dict, scope: "auth.UserScope | None" = None) 
     """Deterministic post-row answers, composer notes and the premise check (graph: post_rows)."""
     question, schemes, entity_result = d["question"], d["schemes"], d["entity_result"]
     sql, rows, _mg_admin, _mg_women = d["sql"], d["rows"], d["mg_admin"], d["mg_women"]
+    _twin_meta = d["mg_det"][3] if (d.get("mg_det") and len(d["mg_det"]) > 3) else None
+    if _twin_meta and schemes == ["MGNREGA"]:
+        # J-10 twins (KI-637..639): one answer per village, by the shape's own writer
+        answer = await _mgnrega_twins_answer(sql, rows, entity_result.get("display") or {}, _twin_meta,
+                                             statewide=not (scope and scope.geo_restricted))
+        if answer:
+            return {
+                "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
+                "resolved_entities": entity_result["resolved"], "sql": sql, "sql_query": sql,
+                "row_count": len(rows), "rows": rows[:20], "data": rows, "answer": answer,
+            }
     if _mg_admin:
         answer = await _mgnrega_admin_expenditure_answer(rows, entity_result.get("display") or {},
                                                          statewide=not (scope and scope.geo_restricted))

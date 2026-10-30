@@ -1,8 +1,9 @@
 """Write the cross-scheme results into 'reference_documents/Cross Scheme Test Cases.xlsx'
-(back it up first): Sheet1 gets the 9th-run and After-fix columns, plus a
+(back it up first). Sheet1 keeps the 2026-10-13 columns D..H and gets the
+2026-10-30 re-run in columns I..M (before the fixes, after the fixes), plus a
 'Coverage' summary and an 'All conversations' tab with every case run.
 
-Usage (repo root): python tests/sheet_runs/cross/write_report.py"""
+Usage (repo root): python tests/sheet_runs/cross/write_report.py [results.json] [baseline_graded.json]"""
 import collections
 import json
 import os
@@ -14,9 +15,12 @@ from openpyxl.styles import Alignment, Font, PatternFill
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 WB = os.path.join("reference_documents", "Cross Scheme Test Cases.xlsx")
-BASE = json.load(open(os.path.join(HERE, "baseline.json"), encoding="utf-8"))
-RES = json.load(open(os.path.join(HERE, "cross_results.json"), encoding="utf-8"))
+RES_PATH = sys.argv[1] if len(sys.argv) > 1 else os.path.join(HERE, "cross_results.json")
+BASE_PATH = sys.argv[2] if len(sys.argv) > 2 else os.path.join(HERE, "baseline_1030_graded.json")
+RES = json.load(open(RES_PATH, encoding="utf-8"))
 RES = {k: v for k, v in RES.items() if not k.startswith("VI--")}       # placeholder geography rows
+BASE = json.load(open(BASE_PATH, encoding="utf-8")) if os.path.exists(BASE_PATH) else {}
+RUN_DATE = "2026-10-30"
 GREEN, RED, AMBER = (PatternFill("solid", fgColor=c) for c in ("C6EFCE", "FFC7CE", "FFEB9C"))
 WRAP = Alignment(wrap_text=True, vertical="top")
 FAM = {"sheet": "Sheet cases (CROSS-1..20, every [district] / [block] filled)",
@@ -31,20 +35,6 @@ FAM = {"sheet": "Sheet cases (CROSS-1..20, every [district] / [block] filled)",
        "ac": "Every assembly constituency (60), two combinations each",
        "village": "Every village any scheme holds (one question each)"}
 
-# 9th run (before the fixes): the 20 questions verbatim, [district] = East Khasi Hills, [block] = Mylliem
-NINTH = {}
-for k, r in BASE.items():
-    if r["kind"] == "pause":
-        NINTH[k] = ("Fail", f"Paused ({r.get('rule')}): {(r.get('answer') or '')[:220]}")
-    elif k == "CROSS-14":
-        NINTH[k] = ("Fail", "Answered with '(no label)' rows and figures not tied to schemes: "
-                    + (r.get("answer") or "")[:200])
-    elif k == "CROSS-20":
-        NINTH[k] = ("Fail", "Added MGNREGA expenditure, PMAY-G releases and Focus Plus disbursements into "
-                    "one 'total across all schemes'; no beneficiary figures: " + (r.get("answer") or "")[:160])
-    else:
-        NINTH[k] = ("Fail", (r.get("answer") or "")[:240])
-
 
 def sheet_case(cid):
     return cid.split("|")[0]
@@ -53,10 +43,11 @@ def sheet_case(cid):
 def main():
     wb = load_workbook(WB)
     ws = wb["Sheet1"]
-    heads = ["9th Run (2026-10-13, before fixes)", "9th Run remarks", "After Fix (2026-10-13)",
+    heads = [f"{RUN_DATE} Run (before fixes)", f"{RUN_DATE} remarks", f"After Fix ({RUN_DATE})",
              "After Fix — conversations passed", "After Fix remarks"]
+    col0 = 9                                   # I..M; D..H hold the 2026-10-13 run
     for i, h in enumerate(heads):
-        c = ws.cell(row=1, column=4 + i, value=h)
+        c = ws.cell(row=1, column=col0 + i, value=h)
         c.font = Font(bold=True)
         c.alignment = WRAP
     by_case = collections.defaultdict(list)
@@ -67,28 +58,42 @@ def main():
         tid = ws.cell(row=row, column=1).value
         if not tid:
             continue
-        st, rm = NINTH.get(tid, ("", ""))
-        ws.cell(row=row, column=4, value=st).fill = RED if st == "Fail" else GREEN
-        ws.cell(row=row, column=5, value=rm).alignment = WRAP
+        b = BASE.get(tid)
+        if b:
+            st = "Pass" if b["ok"] else "Fail"
+            rm = ("Each scheme's figure checked against megh_db." if b["ok"]
+                  else "; ".join(b["bad"])[:400] + " | answer: " + (b.get("answer") or "")[:300])
+        else:
+            st, rm = "", ""
+        ws.cell(row=row, column=col0, value=st).fill = RED if st == "Fail" else GREEN
+        ws.cell(row=row, column=col0 + 1, value=rm).alignment = WRAP
         runs = by_case.get(tid, [])
         ok = sum(r["ok"] for _, r in runs)
         st2 = "Pass" if runs and ok == len(runs) else ("Fail" if runs else "")
-        ws.cell(row=row, column=6, value=st2).fill = GREEN if st2 == "Pass" else RED
-        ws.cell(row=row, column=7, value=f"{ok}/{len(runs)}")
+        ws.cell(row=row, column=col0 + 2, value=st2).fill = GREEN if st2 == "Pass" else RED
+        ws.cell(row=row, column=col0 + 3, value=f"{ok}/{len(runs)}")
         if len(runs) > 1:
             lvl = "every district" if tid in ("CROSS-8", "CROSS-11", "CROSS-14") else (
                 "every block" if tid == "CROSS-9" else "district trios")
             note = f"Run for {lvl} ({len(runs)} conversations); each scheme's figure checked against megh_db."
+            fails = [f"{k}: {'; '.join(r['bad'])[:120]}" for k, r in runs if not r["ok"]]
+            if fails:
+                note += " Failed: " + " | ".join(fails)[:600]
         else:
-            note = "Each scheme's figure checked against megh_db. " + (runs[0][1]["turns"][-1]["answer"] or "")[:300] if runs else ""
-        ws.cell(row=row, column=8, value=note).alignment = WRAP
-    for col, w in zip("ABCDEFGH", (11, 38, 60, 14, 60, 12, 14, 70)):
+            note = ("Each scheme's figure checked against megh_db. " + (runs[0][1]["turns"][-1]["answer"] or "")[:300]) \
+                if runs else ""
+            if runs and not runs[0][1]["ok"]:
+                note = "; ".join(runs[0][1]["bad"])[:300] + " | " + note
+        ws.cell(row=row, column=col0 + 4, value=note).alignment = WRAP
+    for col, w in zip("ABCDEFGHIJKLM", (11, 38, 60, 14, 60, 12, 14, 70, 14, 60, 12, 14, 70)):
         ws.column_dimensions[col].width = w
 
     for name in ("Coverage", "All conversations"):
         if name in wb.sheetnames:
             del wb[name]
     cv = wb.create_sheet("Coverage")
+    cv.append([f"Re-run {RUN_DATE}: every conversation through the live LangGraph pipeline, every figure checked "
+               "against megh_db (tests/sheet_runs/cross/)"])
     cv.append(["Family", "What it covers", "Conversations", "Passed", "Result"])
     tot = [0, 0]
     for fam, desc in FAM.items():
@@ -106,7 +111,7 @@ def main():
     lv = collections.Counter(r.get("level") or ("year" if r["f"].get("year") else "state") for r in RES.values())
     for k, n in sorted(lv.items()):
         cv.append([f"Level: {k}", n])
-    for c in cv[1]:
+    for c in cv[2]:
         c.font = Font(bold=True)
     for col, w in zip("ABCDE", (14, 80, 14, 10, 10)):
         cv.column_dimensions[col].width = w
