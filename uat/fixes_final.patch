@@ -314,7 +314,7 @@ index b9fa596..b7e5f6f 100644
          tail = f"This figure is for {scheme}, {place_text}{' (statewide)' if statewide else ''}{when}."
      elif not names_scheme:
 diff --git a/app/pipeline/schemes/cm_elevate.py b/app/pipeline/schemes/cm_elevate.py
-index 8bf5b0b..8f399aa 100644
+index 8bf5b0b..9740f06 100644
 --- a/app/pipeline/schemes/cm_elevate.py
 +++ b/app/pipeline/schemes/cm_elevate.py
 @@ -123,6 +123,13 @@ _CMELEVATE_ONLY_TERMS = Matcher(Alt(
@@ -331,7 +331,7 @@ index 8bf5b0b..8f399aa 100644
      # Missing sub-scheme/commodity words and the scheme-FAMILY phrases
      # (vehicle/tourism/PRIME/livestock/enterprise scheme(s)) — without these,
      # a question naming only this vocabulary (no literal "CM Elevate") fell
-@@ -669,14 +676,195 @@ def _cme_data_block(canon: str, question: str, data_blocks: "list[str]") -> "str
+@@ -669,14 +676,284 @@ def _cme_data_block(canon: str, question: str, data_blocks: "list[str]") -> "str
      asked_urban = _cme_runs_then_urban(q_low, _cme_ascii_letter_runs(base.lower()) or [base.lower()]) \
          or bool(_cme_find_runs(q_low, _cme_ascii_letter_runs(want.lower()) or [want.lower()])
                  and _URBAN_WORD_MATCH.search(question or ""))
@@ -371,6 +371,54 @@ index 8bf5b0b..8f399aa 100644
 +    return sql_ast.to_sql(tree)
 +
 +
++_CME_VERIF_Q = Matcher(Alt(Seq(Opt("data"), W("verification", "verified", "verify")), "verification"))
++
++
++def _cme_valid_eq(node: exp.Expression) -> bool:
++    """[LOWER|UPPER(]data_verified[)] = 'valid' (any case)."""
++    if not isinstance(node, exp.EQ) or _cme_col(node.this, "data_verified") is None:
++        return False
++    lit = node.expression
++    while isinstance(lit, _CME_CASE_WRAPPERS) and lit.this is not None:
++        lit = lit.this
++    v = _cme_str(lit)
++    return v is not None and v.strip().lower() == "valid"
++
++
++def _cme_verification_split(question: str, sql: str) -> str:
++    """OFF-022 asks for the verified AND the non-verified count (and the rate); "How many applicants have
++    completed data verification in Ri Bhoi?" ran a single `… AND data_verified = 'Valid'` count and was
++    answered with 2,039 alone (final run 2026-10-30, C01-022-06). That count becomes verified / not
++    verified / total over the same place."""
++    if not _CME_VERIF_Q.search(question or ""):
++        return sql
++    tree = sql_ast.parse_one(sql)
++    if not isinstance(tree, exp.Select) or tree.args.get("group") is not None or tree.args.get("joins")             or len(tree.expressions) != 1 or not isinstance(tree.expressions[0].unalias(), exp.Count):
++        return sql
++    if not any(_cme_valid_eq(n) for n in tree.find_all(exp.EQ)) or not _cme_drop_conjuncts(tree, _cme_valid_eq):
++        return sql
++    tree.set("expressions", [sqlglot.parse_one(x, read=sql_ast.DIALECT) for x in (
++        "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS verified_applicants",
++        "COUNT(DISTINCT request_id) FILTER (WHERE data_verified IS DISTINCT FROM 'Valid') AS not_verified_applicants",
++        "COUNT(DISTINCT request_id) AS total_applicants")])
++    logger.info("CM Elevate: data-verification count split into verified / not verified / total")
++    return sql_ast.to_sql(tree)
++
++
++def _cme_verification_figures(answer: str, rows: list[dict]) -> str:
++    """The verified / not-verified / total row (see _cme_verification_split): any figure the answer does not
++    state is added, with the verified rate."""
++    if len(rows) != 1 or not {"verified_applicants", "not_verified_applicants", "total_applicants"} <= set(rows[0]):
++        return answer
++    v, nv, t = (int(_as_number(rows[0][k]) or 0) for k in ("verified_applicants", "not_verified_applicants", "total_applicants"))
++    have = set(_cme_nums(answer or ""))
++    if float(v) in have and float(nv) in have:
++        return answer
++    rate = f"{100 * v / t:.1f}%" if t else "n/a"
++    return (answer.rstrip() + f" Verified: {v:,}; not verified: {nv:,}; total applicants: {t:,} "
++            f"(verified rate {rate}).")
++
++
 +_CME_COMBINED_Q = Matcher(Alt(W("total", "combined", "together", "altogether", "sum"), Seq("in", "all")))
 +
 +
@@ -387,11 +435,49 @@ index 8bf5b0b..8f399aa 100644
 +    node = next((n for n in tree.find_all(exp.In) if _cme_col(n.this, "village_code") is not None
 +                 and not isinstance(n.parent, exp.Not) and len(n.expressions) >= 2), None)
 +    if node is None:
-+        return sql
++        return _cme_twin_limit(sql)
 +    cols = ["village_code", "lgd_block"]
 +    tree.set("expressions", [exp.column(c) for c in cols] + list(tree.expressions))
 +    tree.set("group", exp.Group(expressions=[exp.column(c) for c in cols]))
 +    logger.info("CM Elevate: several villages in one query -> one row per village")
++    return sql_ast.to_sql(tree)
++
++
++def _cme_geo_beside_villages(sql: str) -> str:
++    """"MAWLIEH" (Rambrai, West Khasi Hills 10; Pynursla, East Khasi Hills 3) ran `lgd_district = 'WEST KHASI
++    HILLS' AND village_code IN (278917, 276747)` and lost the Pynursla village (final regression 2026-10-30,
++    C03-ALONE-mawlieh). Beside a village_code list of 2+ the codes pin the places: a district / block literal
++    there is dropped (the single-village form is _drop_geo_beside_pinned_village)."""
++    tree = sql_ast.parse_one(sql)
++    if not isinstance(tree, exp.Select) or tree.args.get("where") is None:
++        return sql
++    if not any(_cme_col(n.this, "village_code") is not None and len(n.expressions) >= 2
++               and not isinstance(n.parent, exp.Not) for n in tree.find_all(exp.In)):
++        return sql
++    changed = False
++    for n in list(tree.args["where"].find_all(exp.EQ)):
++        if (_cme_col(n.this, "lgd_district") is not None or _cme_col(n.this, "lgd_block") is not None)                 and _cme_str(n.expression) is not None and n.find_ancestor(exp.Or) is None:
++            n.replace(exp.true())
++            changed = True
++    if not changed:
++        return sql
++    logger.info("CM Elevate: dropped a district / block literal beside a list of village codes")
++    return sql_ast.to_sql(tree)
++
++
++def _cme_twin_limit(sql: str) -> str:
++    """A query over N village codes grouped by village_code ended `LIMIT 1` and dropped the second Massar
++    (Pynursla, 5) (final run 2026-10-30, C03-ALONE-massar). A LIMIT below N is dropped."""
++    tree = sql_ast.parse_one(sql)
++    if not isinstance(tree, exp.Select) or tree.args.get("group") is None or tree.args.get("limit") is None:
++        return sql
++    node = next((n for n in tree.find_all(exp.In) if _cme_col(n.this, "village_code") is not None
++                 and not isinstance(n.parent, exp.Not) and len(n.expressions) >= 2), None)
++    lim = tree.args["limit"].args.get("expression")
++    if node is None or not (isinstance(lim, exp.Literal) and lim.is_int and int(lim.this) < len(node.expressions)):
++        return sql
++    tree.set("limit", None)
++    logger.info("CM Elevate: dropped a LIMIT smaller than the number of villages asked")
 +    return sql_ast.to_sql(tree)
 +
 +
@@ -456,7 +542,10 @@ index 8bf5b0b..8f399aa 100644
 +    if schemes != ["CM Elevate"] or not sql:
 +        return sql
 +    sql = _cme_dedupe_group_by(sql)
++    sql = _cme_verification_split(question, sql)
 +    sql = _cme_villages_per_village(question, sql)
++    sql = _cme_twin_limit(sql)
++    sql = _cme_geo_beside_villages(sql)
 +    sql = _cme_block_inside_constituency(question, sql)
 +    sql = _cme_ac_name_case(sql)
 +    return await _cme_urban_block_spellings(question, schemes, sql)
@@ -530,7 +619,7 @@ index 8bf5b0b..8f399aa 100644
  
  
  async def _cm_elevate_block_from_mention(mention: str, schemes: "list[str] | None") -> "str | None":
-@@ -704,6 +892,22 @@ async def _cm_elevate_block_from_mention(mention: str, schemes: "list[str] | Non
+@@ -704,6 +981,22 @@ async def _cm_elevate_block_from_mention(mention: str, schemes: "list[str] | Non
      return exact[0] if len(exact) == 1 else None
  
  
@@ -553,7 +642,7 @@ index 8bf5b0b..8f399aa 100644
  async def _cm_elevate_blocks_to_data(question: str, resolved: dict, display: dict,
                                       scheme: str = "CM Elevate") -> None:
      """KI-107 (CM Elevate all-blocks run, 2026-09-28): the CM Elevate block
-@@ -714,6 +918,15 @@ async def _cm_elevate_blocks_to_data(question: str, resolved: dict, display: dic
+@@ -714,6 +1007,15 @@ async def _cm_elevate_blocks_to_data(question: str, resolved: dict, display: dic
      "Jowai Municipal Board" to JOWAI, which has no rows ("no records"); a
      resolved RI-MULIANG never matched the stored "RI MULIANG". Rewrite the
      resolved block(s) to the spelling the data stores."""
@@ -569,7 +658,7 @@ index 8bf5b0b..8f399aa 100644
      try:
          data_blocks = await _cm_elevate_block_names(scheme)
      except Exception:  # noqa: BLE001 — without the live list, keep the resolver's answer
-@@ -741,7 +954,7 @@ _CME_SECTOR_VALUE_MATCH = Matcher(Cap(W("piggery", "poultry", "dairy", "goatery"
+@@ -741,7 +1043,7 @@ _CME_SECTOR_VALUE_MATCH = Matcher(Cap(W("piggery", "poultry", "dairy", "goatery"
  _CME_SECTOR_EACH_MATCH = Matcher(Alt(Seq(W("each", "every", "all", "by", "per"), Opt("the"), _cme_sg("sector"), sep="space"),
                                    _cme_join(("sector", "sectors"), "wise")))
  _CME_PENDING_MATCH = Matcher(Alt("pending", _cme_join("on", "hold")))
@@ -578,7 +667,7 @@ index 8bf5b0b..8f399aa 100644
  # A WORKFLOW status the data does not hold (ingestion team, 2026-10-26): "pending",
  # "approved", "rejected" and "sent back" live in an internal API field the chatbot
  # cannot read; data_verified ('On Hold' …) is the data-verification check, a different
-@@ -851,12 +1064,76 @@ def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str]
+@@ -851,12 +1153,76 @@ def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str]
          params.append([progs] if isinstance(progs, str) else list(progs))
          where.append(f"scheme_name = ANY(${len(params)}::text[])")
      wh = (" WHERE " + " AND ".join(where)) if where else ""
@@ -657,7 +746,7 @@ index 8bf5b0b..8f399aa 100644
      return sql, params, sql
  
  
-@@ -864,6 +1141,9 @@ def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tup
+@@ -864,6 +1230,9 @@ def _cme_sector_query(question: str, schemes: list[str], resolved: dict) -> "tup
      if schemes != ["CM Elevate"]:
          return None
      q = question or ""
@@ -667,7 +756,7 @@ index 8bf5b0b..8f399aa 100644
      _wf = _cme_workflow_query(q, resolved or {}) if not (_CME_SECTOR_EACH_MATCH.search(q)) else None
      if _wf is not None:
          return _wf
-@@ -925,6 +1205,8 @@ def _cme_place_words(display: dict) -> str:
+@@ -925,6 +1294,8 @@ def _cme_place_words(display: dict) -> str:
  def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict) -> "str | None":
      where = _cme_place_words(display or {})
      kind = _cme_sector_fact_kind(sql)
@@ -676,7 +765,7 @@ index 8bf5b0b..8f399aa 100644
      if kind == "programmes":
          m = _CME_SECTOR_VALUE_MATCH.search(question or "")
          sector = m.group(1).title() if m else "that"
-@@ -934,6 +1216,12 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
+@@ -934,6 +1305,12 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
          total = sum(int(_as_number(r.get("sector_applicants")) or 0) for r in rows)
          return (f"CM Elevate applicants associated with the {sector} sector{where}, by programme:\n"
                  + "\n".join(lines) + f"\n\nCombined: {total:,}.")
@@ -689,7 +778,7 @@ index 8bf5b0b..8f399aa 100644
      if kind == "count":
          m = _CME_SECTOR_VALUE_MATCH.search(question or "")
          sector = m.group(1).title() if m else "that"
-@@ -965,6 +1253,16 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
+@@ -965,6 +1342,16 @@ def _cme_sector_answer(question: str, sql: str, rows: list[dict], display: dict)
                  "rejections": "rejected", "send back": "sent back", "sendback": "sent back"}.get(word, word)
          prog = (display or {}).get("cm_scheme")
          scope = f"{where}" + (f" under {prog}" if prog else "")
@@ -706,7 +795,7 @@ index 8bf5b0b..8f399aa 100644
          out = (f"The CM Elevate data doesn't record a \"{word}\" status. What it does record{scope}: "
                 f"{n['on_hold']:,} application{'s' if n['on_hold'] != 1 else ''} "
                 f"{'are' if n['on_hold'] != 1 else 'is'} on hold at data verification, and by file status "
-@@ -1414,7 +1712,19 @@ def _cm_elevate_unasked_programme_filter(question: str, schemes: list[str], sql:
+@@ -1414,7 +1801,19 @@ def _cm_elevate_unasked_programme_filter(question: str, schemes: list[str], sql:
      tree = sql_ast.parse_one(sql)
      node = _cme_in_list(tree, "scheme_name")
      if node is None:
@@ -727,7 +816,7 @@ index 8bf5b0b..8f399aa 100644
      lits = _cme_in_values(node)
      if any(_cme_question_names(x, q) for x in lits):
          return sql
-@@ -1624,6 +1934,118 @@ def _cm_elevate_unasked_level_filter(question: str, schemes: list[str], sql: str
+@@ -1624,6 +2023,118 @@ def _cm_elevate_unasked_level_filter(question: str, schemes: list[str], sql: str
      return sql_ast.to_sql(tree)
  
  
@@ -846,7 +935,7 @@ index 8bf5b0b..8f399aa 100644
  _CME_DECISION_STATES = ("approved", "rejected", "pending")
  
  
-@@ -1717,7 +2139,11 @@ def _cme_resolved_places_in_sql(resolved: "dict | None", sql: str) -> bool:
+@@ -1717,7 +2228,11 @@ def _cme_resolved_places_in_sql(resolved: "dict | None", sql: str) -> bool:
  # (KI-070). Same project pattern as the Focus Plus guarantees: check the text
  # against the rows, and rebuild or append only what is missing.
  _CME_LABEL_STOP = {"meghalaya", "prime", "scheme", "development", "farming", "and", "the", "of",
@@ -859,7 +948,7 @@ index 8bf5b0b..8f399aa 100644
  _CME_GARBLED = Matcher(Alt("respectively", Seq("corresponding", _cme_sg("row")), "for each row", "each row"))
  
  
-@@ -1744,16 +2170,33 @@ _CME_WHOLE_LIST_Q = Matcher(Alt(
+@@ -1744,16 +2259,33 @@ _CME_WHOLE_LIST_Q = Matcher(Alt(
      Seq("all", Opt("the"), _cme_sg("programme", "program", "scheme", "district", "block", "village", "sector"))))
  
  
@@ -894,7 +983,7 @@ index 8bf5b0b..8f399aa 100644
      if len(nums) != 1 or len(labels) != 1:
          return answer
      lab, met = labels[0], nums[0]
-@@ -1767,8 +2210,10 @@ def _cme_complete_list(question: str, answer: str, rows: list[dict]) -> str:
+@@ -1767,8 +2299,10 @@ def _cme_complete_list(question: str, answer: str, rows: list[dict]) -> str:
              for r in rows):
          return answer
      name = _FP_LABEL_NAME.get(lab, lab.replace("_", " "))
@@ -906,7 +995,7 @@ index 8bf5b0b..8f399aa 100644
      total = sum(_as_number(r.get(met)) or 0 for r in rows)
      logger.info("CM Elevate: rebuilt a %s list — the answer left out some %s", name, name)
      return (f"{_metric_label(met).capitalize()} by {name} ({len(items)}): " + "; ".join(items)
-@@ -2109,17 +2554,141 @@ def _cme_sector_answer_names_wrong_programme(answer: str, sql: str, rows: list[d
+@@ -2109,17 +2643,142 @@ def _cme_sector_answer_names_wrong_programme(answer: str, sql: str, rows: list[d
      return "; ".join(parts) + "."
  
  
@@ -1039,6 +1128,7 @@ index 8bf5b0b..8f399aa 100644
          return _cme_all_zero_answer(sql, answer, display)
      answer = _cme_digits_for_number_words(answer, rows)
 +    answer = _cme_drop_invented_year(question, answer)
++    answer = _cme_verification_figures(answer, rows)
      answer = _cme_sector_answer_names_wrong_programme(answer, sql, rows)
      answer = _mgnrega_zero_backstop(answer, rows, display)   # a genuine 0 is stated as 0 (KI-070)
      answer = _cme_grouped_rows(answer, rows)

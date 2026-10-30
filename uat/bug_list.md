@@ -208,8 +208,18 @@
 - **Commit:** d7b90f5  
 - **Shared code:** No
 
+## B27 Verification counts / twin LIMIT (found in the final run)
+- **Symptom:** 'completed data verification in Ri Bhoi' -> 2,039 only, non-verified 585 missing (C01-022-06); 'MASSAR' (two villages) -> one village, Pynursla's 5 cut off by LIMIT 1 (C03-ALONE-massar).
+- **Root cause:** The model counted only data_verified = 'Valid'; the per-village twin query carried LIMIT 1.
+- **Fix:** _cme_verification_split + _cme_verification_figures (verified / not verified / total, each stated, with the rate); _cme_twin_limit drops a LIMIT below the number of villages asked.
+- **Files:** app/pipeline/schemes/cm_elevate.py  
+- **Commit:** 8b8f2f0  
+- **Shared code:** No
+
 ## Commits on uat-cm-elevate-exhaustive (vs Main)
 ```
+c206e1f CM Elevate: a district / block literal beside a list of village codes is dropped (C03-ALONE-mawlieh)
+8b8f2f0 CM Elevate: a data-verification count returns verified / not verified / total and states each (O1, OFF-022); a per-village query keeps every village asked (O2, LIMIT 1)
 d348482 CM Elevate: generic place words (ward, village, municipal board, town committee) no longer count as naming a row, so a ward list missing a figure is rebuilt (C01-026-35)
 25462ea CM Elevate: the village-in-the-named-block check fires only on 'in <village> village of <block> block' (regression on 'each village of <block>')
 d7b90f5 CM Elevate: a repeated GROUP BY key is dropped, so programmes with no applications are still stated as 0 (C01-009-05)

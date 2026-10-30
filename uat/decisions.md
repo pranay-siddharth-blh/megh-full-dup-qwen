@@ -81,3 +81,7 @@ No other rule was loosened; numbers are always compared exactly (Indian or plain
     The other 14 categories' final results are from final4 on d348482; 8b8f2f0 changes only the CM Elevate SQL
     pass (verification split, twin LIMIT) and one answer guarantee, which those categories also go through — a
     further full re-run on 8b8f2f0 was not possible before 7 AM.
+21. **Last fix** c206e1f (district / block literal beside a list of village codes, C03-ALONE-mawlieh, found by the
+    C01 + C03 regression on 8b8f2f0): C03 re-run in full on c206e1f (`regress6`, 192/192); full unit suite re-run.
+    Final code = c206e1f. Results per category: C01 from `regress5` (8b8f2f0), C03 from `regress6` (c206e1f), all
+    other categories from `final4` (d348482).

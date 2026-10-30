@@ -132,3 +132,5 @@
 06:30:07 regress5 done 700/866 pass 699 fail 0 error 1 db_write_attempts 0
 06:31:11 regress5 done 800/866 pass 798 fail 1 error 1 db_write_attempts 0
 06:31:51 regress5 done 866/866 pass 864 fail 1 error 1 db_write_attempts 0
+06:34:58 regress6 done 100/192 pass 100 fail 0 error 0 db_write_attempts 0
+06:35:58 regress6 done 192/192 pass 192 fail 0 error 0 db_write_attempts 0
