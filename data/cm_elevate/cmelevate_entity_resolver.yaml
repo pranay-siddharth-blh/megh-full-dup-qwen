@@ -1363,6 +1363,33 @@ dimensions:
       - { name: Watregre, code: 273460, district: "West Garo Hills", applications: 51 }
       - { name: Balakhawa, code: 277694, district: "Ri Bhoi", applications: 44 }
 
+  assembly_constituency:
+    column: ac_name
+    stored_case: Title Case in v_cm_elevate.ac_name (compare with UPPER)
+    note: >
+      CM Elevate borrows MGNREGA's constituency catalogue for the other 56 (the resolver's shared-dimension
+      fallback). MGNREGA has no rows in the four urban Shillong constituencies (AC 16-19), so its catalogue
+      leaves them out, and "East Shillong constituency" was answered as a statewide figure (CM Elevate UAT
+      2026-10-30). CM Elevate holds applications in all four: they are listed here.
+    sql_predicate: "UPPER(ac_name) = UPPER('<canonical>')"
+    values:
+    - canonical: "EAST SHILLONG"
+      number: 16
+      districts: ["East Khasi Hills"]
+      aliases: ["16 EAST SHILLONG", "AC 16", "AC-16", "East Shillong constituency", "East Shillong AC"]
+    - canonical: "NORTH SHILLONG"
+      number: 17
+      districts: ["East Khasi Hills"]
+      aliases: ["17 NORTH SHILLONG", "AC 17", "AC-17", "North Shillong constituency", "North Shillong AC"]
+    - canonical: "WEST SHILLONG"
+      number: 18
+      districts: ["East Khasi Hills"]
+      aliases: ["18 WEST SHILLONG", "AC 18", "AC-18", "West Shillong constituency", "West Shillong AC"]
+    - canonical: "SOUTH SHILLONG"
+      number: 19
+      districts: ["East Khasi Hills"]
+      aliases: ["19 SOUTH SHILLONG", "AC 19", "AC-19", "South Shillong constituency", "South Shillong AC"]
+
   # =========================================================================
   # CATEGORICAL DIMENSIONS
   # =========================================================================

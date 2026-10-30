@@ -640,6 +640,15 @@ if REDUCED:
             pick=["constituency", "cm elevate"], truth=f"ac_name='{a}' GROUP BY current_file_status")
     keep += [r for r in rows_out if r["id"].startswith(("C01-001AC-", "C01-017AC-"))]
     keep += [r for r in by["C02_village"] if r["id"].startswith("C02-CNT-")]
+    # sheet cases OFF-008 (programme x village) and OFF-030 (status x programme x village): the first village
+    # of every block, each (decisions 23 — these two cases had no test in the 02:35 reduced plan)
+    for pre in ("C02-PRG-", "C02-STS-"):
+        seen = set()
+        for r in by["C02_village"]:
+            blk = json.loads(r["pick"])[2] if isinstance(r["pick"], str) else r["pick"][2]
+            if r["id"].startswith(pre) and blk not in seen:
+                seen.add(blk)
+                keep.append(r)
     keep += by["C03_shared"] + by["C04_places"] + by["C06_place_fy"] + by["C15_totals"] + by["C16_disambiguation"]
     keep += by["C11_named"]
     keep += spread(by["C08_daterange"], 20) + spread(by["C09_compare"], 20) + spread(by["C13_spelling"], 20)
@@ -680,7 +689,7 @@ if REDUCED:
         nc[r["category"]] = nc.get(r["category"], 0) + 1
     basis = {
         "C01_sheet": "30 templates; every district (12) / block (66 places) / constituency (60, for 001 and 017) / sector / programme / level; FY: see C06",
-        "C02_village": f"{len(vil)} villages with CM Elevate data x 1 (applicant count)",
+        "C02_village": f"{len(vil)} villages with CM Elevate data x 1 (applicant count) + OFF-008 and OFF-030 on the first village of every block",
         "C03_shared": full_counts["C03_shared"][1], "C04_places": full_counts["C04_places"][1],
         "C06_place_fy": full_counts["C06_place_fy"][1], "C15_totals": full_counts["C15_totals"][1],
         "C16_disambiguation": "20 'which scheme?' / dataset-choice questions",

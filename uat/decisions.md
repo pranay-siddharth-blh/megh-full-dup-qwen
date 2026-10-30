@@ -85,3 +85,34 @@ No other rule was loosened; numbers are always compared exactly (Indian or plain
     C01 + C03 regression on 8b8f2f0): C03 re-run in full on c206e1f (`regress6`, 192/192); full unit suite re-run.
     Final code = c206e1f. Results per category: C01 from `regress5` (8b8f2f0), C03 from `regress6` (c206e1f), all
     other categories from `final4` (d348482).
+
+## 22. User instruction 2026-10-30 ~09:35 — "do whatever you want … fix all the issues … make UAT 100 percent"
+Read as authority to settle D1–D4 and to apply the shared-code fixes N1/N3/N4 ON THIS BRANCH ONLY (main, DB,
+port 8401 and the Focus Legacy worktree still untouched). Each choice and why:
+- **D1 → code (882879d, CM Elevate only).** D-090 (2026-10-29) is the later user decision and says application
+  words mean the applications dataset unless MONEY words are present; a year is not money. So "applications /
+  applicants / applied" + a financial year + no money word stays on CM Elevate (applications) and gets the
+  no-date reply. A year with any money word, or "Legacy", or a Legacy thread, still goes to Legacy (probed:
+  "total CM Elevate disbursement in FY 2024-25" -> ₹59.82 crore from Legacy). Test expectation unchanged.
+- **D2 → test expectation corrected (gen_matrix.py).** Turn 3 ("their file status", "break the applicants down")
+  follows turn 2 ("how many of them are on hold?"); the bot keeps the on-hold group and its figures match SQL
+  exactly (disputed.md D2). The test's all-applicants reading was the weaker one; T3 now expects
+  `data_verified = 'On Hold'` figures. Only the 20 C12 rows changed.
+- **D3 → pass rule R9 (run_matrix.py NAME_OK).** "does not contain" / "isn't part of" are refusals; the reply
+  holds no personal data (no such column exists). Added to the refusal phrases. This widens a rule after
+  seeing a result — listed here as required.
+- **D4 → generator (gen_matrix.py).** A zero-record village whose exact name is shared with another village in
+  the SAME block cannot be singled out in words, so it is no longer drawn as a C14 zero test. 96 C14-ZERO picks
+  shifted (spread over a 5,102 list instead of 5,194); TOTAL stays 4,837.
+- **N1, N4 → shared code (7f9d8f7, app/spelling.py + entity_resolver.is_stored_village_name).** Exact ward /
+  village names are left whole by the spelling pre-pass; a stored one-word village name the index leaves out
+  (CENTRE) is not "corrected" by sound; "account" / "trace" are never typos.
+- **N3 → shared code (4bf022f, app/guardrails.py).** Account / Aadhaar / IFSC / PAN / passport NUMBERS of
+  applicants or beneficiaries are refused as personal records. Probed: "How many bank accounts were opened
+  under PMJDY?" and "Which bank account receives the subsidy?" are not refused.
+- These shared changes reach every scheme: the full unit suite is re-run on them (result in sheet_summary /
+  final report). They are on branch uat-cm-elevate-exhaustive only; merging is the user's call.
+23. **Sheet cases OFF-008 and OFF-030 put back** (user 2026-10-30 ~10:45: "how many [sheet use cases] are working").
+    The 02:35 reduced plan kept only the village applicant count (OFF-003) from C02, so OFF-008 (programme x
+    village) and OFF-030 (status-wise counts for a programme in a village) had no test. Added: each on the first
+    village of every block. The matrix total grows accordingly; matrix_counts.txt regenerated.
