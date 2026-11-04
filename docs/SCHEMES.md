@@ -49,6 +49,12 @@ Notes on the table:
   per household by DBT; FOCUS = ₹5,000 per PG member, a grant; CM Elevate Legacy = the programme's records).
 
 **CM Elevate vs CM Elevate Legacy.**
+- **All statuses (2026-11-03, KI-670):** "in all statuses" / "any status" / "all verification states" count every
+  application (no valid-only default) with the split by verification state; a valid-only figure whose answer does not
+  say "valid" gets a Note built from `cmelevate_pending_rule.yaml`.
+- **D-099 (2026-11-03, user decision) replaces the automatic rules below:** a new chat ASKS "CM Elevate or CM Elevate
+  Legacy?" for every bare CM Elevate data question (no keyword picks the dataset); a chat already on one dataset keeps
+  it; a question only the other dataset can answer asks "switch or stay?". The D-064 / D-090 bullets below are history.
 - A bare "CM Elevate" (or only a CM Elevate sub-scheme such as piggery / dairy) — **D-064, user decision
   2026-10-22** (`_cm_elevate_dataset_choice`, `_pin_cm_elevate_dataset`):
   - money, sanction, subsidy, loan, lender, LIFCOM, desanction, disbursement, a specific FY, expenditure → **Legacy,
@@ -388,6 +394,8 @@ Notes on the table:
   A combined total only when asked. "Excluding / leaving out <scheme>" removes it (CM-ELEVATE = both
   datasets; none named -> the four main schemes minus the excluded). A bare FOCUS with no Focus+ beside it
   asks which Focus. UAT: 59/60 = megh_db, 47/60 = raw files (the rest = KI-393 data differences).
+- **2026-11-03 (KI-666): a district-wise summary of 3+ schemes is written point-wise**: a crisp Summary (top district per
+  scheme), the Total, then one block per district with a point per scheme; two schemes keep the one-line-per-district form.
 - **D-097 (2026-10-30, Cross Scheme sheet re-run): the coded path covers all six schemes, a village, a constituency
   and a block grain.** CM Elevate = applications (distinct request ids), no money, no financial year — said, never
   0; CM Elevate Legacy = applicants sanctioned (records with a sanctioned amount, 2,820) and the total disbursement

@@ -155,12 +155,14 @@ def context_years(text: str) -> list:
 @pytest.mark.parametrize("q", ["How many CM Elevate applications are there?", "Total CM Elevate applications statewide",
                                "Total CM Elevate applications statewide (applications dataset)"])
 def test_cm_elevate_applications_words(q):
-    assert p._cm_elevate_dataset_choice(q) == "applications"
+    # D-090 answered these from the applications data unasked; user decision 2026-11-03: ask
+    assert p._cm_elevate_dataset_choice(q) == "ask"
     assert p._cm_elevate_dataset_choice(q, "CM Elevate Legacy") == "legacy"     # the thread still wins
+    assert p._cm_elevate_dataset_choice(q, "CM Elevate") == "applications"
 
 
 def test_cm_elevate_money_and_bare_records():
-    assert p._cm_elevate_dataset_choice("How many CM Elevate applications were sanctioned?") == "legacy"
+    assert p._cm_elevate_dataset_choice("How many CM Elevate applications were sanctioned?") == "ask"   # 2026-11-03
     assert p._cm_elevate_dataset_choice("How many CM Elevate records in Ri Bhoi?") == "ask"
 
 

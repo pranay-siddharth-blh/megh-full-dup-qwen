@@ -789,6 +789,145 @@ def answer_excerpt(answer: str, max_tokens: "int | None" = None) -> str:
     return " ".join(out)
 
 
+def _cm_number_runs(text: str) -> list[str]:
+    """The numbers written in `text`, thousands separators dropped ("1,71,107" ->
+    "171107", "₹0" -> "0", "2023-24" -> "2023", "24")."""
+    out, cur = [], ""
+    s = text or ""
+    for i, ch in enumerate(s):
+        if ch.isdigit():
+            cur += ch
+        elif ch == "," and cur and i + 1 < len(s) and s[i + 1].isdigit():
+            continue
+        else:
+            if cur:
+                out.append(cur)
+            cur = ""
+    if cur:
+        out.append(cur)
+    return out
+
+
+def quoted_figures(question: str) -> list[str]:
+    """Figures the follow-up quotes from the previous answer: a number written right
+    after a pointer word ("these 126 beneficiaries", "the 45 pending ones", "those 12
+    villages"). The pointers are turn_kind's own reference words plus "the"; a year is
+    never a quoted figure. D-098."""
+    from app import context_policy
+    pointers = set(context_policy._TK_ALWAYS_REF) | {"this", "that", "the"}
+    q = question or ""
+    toks = context_policy.tokens(q)
+    years = {str(y) for y in context_policy.extract_year_keys(q)}
+    out = []
+    for i in range(1, len(toks)):
+        if toks[i - 1].low in pointers and toks[i].low[:1].isdigit():
+            # the whole written number, separators included ("the 1,71,107")
+            end = toks[i].start
+            while end < len(q) and (q[end].isdigit() or (q[end] == "," and end + 1 < len(q) and q[end + 1].isdigit())):
+                end += 1
+            for n in _cm_number_runs(q[toks[i].start:end])[:1]:
+                if n not in years and n not in out:
+                    out.append(n)
+    return out
+
+
+def result_subsets(result: "dict | None") -> list:
+    """The sub-counts a one-row DATA result holds, each with the condition that defines
+    it, read from the SQL tree: `COUNT(*) FILTER (WHERE is_placeholder) AS placeholders`
+    = 126 -> {"figure": "126", "column": "placeholders", "condition": "is_placeholder"}.
+    Stored on the Turn (D-098) so "where are these 126?" filters by exactly the set the
+    answer counted, whatever words the answer used for it. [] for anything else; never
+    raises."""
+    try:
+        if not result or result.get("route") != "data":
+            return []
+        rows = result.get("rows") or result.get("data") or []
+        sql = result.get("sql")
+        if not sql or len(rows) != 1 or not isinstance(rows[0], dict):
+            return []
+        from sqlglot import exp
+        from app import sql_ast
+        tree = sql_ast.parse_one(sql)
+        sel = sql_ast.outer_select(tree) if tree is not None else None
+        if sel is None:
+            return []
+        out = []
+        for proj in sel.expressions:
+            flt = proj.find(exp.Filter)
+            where = flt.args.get("expression") if flt is not None else None
+            cond = where.this if isinstance(where, exp.Where) else where
+            val = rows[0].get(proj.alias_or_name)
+            if cond is None or isinstance(val, bool) or not isinstance(val, (int, float)) \
+                    or val <= 0 or val != int(val):
+                continue
+            out.append({"figure": str(int(val)), "column": proj.alias_or_name,
+                        "condition": sql_ast.to_sql(cond)})
+        return out[:40]
+    except Exception:  # noqa: BLE001
+        logger.warning("context_manager.result_subsets failed (non-fatal)", exc_info=True)
+        return []
+
+
+def subset_for_figure(prev: object, figure: str) -> "dict | None":
+    """The one stored subset whose figure is `figure`, or None (none, or several with
+    different conditions — never a guess)."""
+    hits = [s for s in (getattr(prev, "subsets", None) or []) if isinstance(s, dict)
+            and s.get("figure") == figure and s.get("condition")]
+    if not hits or len({s["condition"] for s in hits}) != 1:
+        return None
+    return hits[0]
+
+
+_CM_CLAUSE_BREAKS = "()[];:"
+
+
+def figure_clause(question: str, answer: str) -> "tuple[str, str] | None":
+    """(figure as written, what the answer says the figure counts) for the first figure
+    the follow-up quotes, read from the CLAUSE of the previous answer that states it:
+    "… 1,71,107 (including 126 registered with a sanctioned amount of ₹0 and no house
+    sanctioned yet)." -> ("126", "registered with a sanctioned amount of ₹0 and no house
+    sanctioned yet"). The clause, not the sentence: the sentence also carried the year
+    range, which the rewrite copied into a filter that the year-less subset never matches
+    (live check 2026-11-02). None when nothing quoted is stated there. D-098."""
+    figures = quoted_figures(question)
+    if not figures or not answer:
+        return None
+    for sentence in _cm_split_sentences(answer):
+        start = 0
+        while start < len(sentence):
+            end = start
+            while end < len(sentence) and sentence[end] not in _CM_CLAUSE_BREAKS:
+                end += 1
+            clause = sentence[start:end].strip(" ,.")
+            runs = _cm_number_runs(clause)
+            hit = next((f for f in figures if f in runs), None)
+            if hit is not None:
+                # the words after the figure, up to the clause's end: what it counts
+                i, n = 0, len(clause)
+                while i < n:
+                    j = i
+                    while j < n and (clause[j].isdigit() or (clause[j] == "," and j + 1 < n and clause[j + 1].isdigit())):
+                        j += 1
+                    if j > i and _cm_number_runs(clause[i:j]) == [hit]:
+                        tail = clause[j:].strip(" ,.")
+                        return (clause[i:j], tail) if tail else None
+                    i = j + 1 if j > i else i + 1
+            start = end + 1
+    return None
+
+
+def figure_excerpt(question: str, answer: str) -> str:
+    """The sentences of the previous answer that state a figure the follow-up quotes,
+    or ''. "where are these 126 beneficiaries registered?" after "... 1,71,107
+    (including 126 registered with a sanctioned amount of ₹0 and no house sanctioned
+    yet)" gets that sentence, so the rewrite keeps WHICH 126 (BLH UAT 2026-11-02, item 8:
+    it got only the previous question and filters, dropped the subset and answered the
+    district split of all 1,71,107). Our own composed answer, sentence-bounded and only
+    for a figure the user points at — the same rule D-022 gives a knowledge answer."""
+    fc = figure_clause(question, answer)
+    return f"{fc[0]} {fc[1]}" if fc else ""
+
+
 # resolved_entities key -> the label shown in the PREVIOUS filters line.
 # village_code is left out on purpose: a bare surrogate integer tells the
 # rewrite nothing (the village NAME is already in the previous question), and
@@ -854,6 +993,13 @@ def build_rewrite_evidence(question: str, prev: object, kind: "str | None" = Non
                 if excerpt:
                     out["answer"] = f'PREVIOUS answer (excerpt): "{excerpt}"'
                     out["tiers"].append("answer_excerpt")
+        if not out["answer"]:
+            # A figure the follow-up points at ("these 126") that only the answer's
+            # text states (a note, a caveat, an "including …"): its sentence (D-098).
+            fig = figure_excerpt(question, getattr(prev, "answer", "") or "")
+            if fig:
+                out["answer"] = f'PREVIOUS answer (the sentence stating the figure the FOLLOW-UP points at): "{fig}"'
+                out["tiers"].append("answer_figure")
         return out
     except Exception:  # noqa: BLE001
         logger.warning("context_manager.build_rewrite_evidence failed (non-fatal)", exc_info=True)

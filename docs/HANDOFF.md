@@ -3,6 +3,59 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-11-04 (CM Elevate "all beneficiaries" -> every application, KI-676): uncommitted; LIVE-VERIFIED in-process; :8401 NOT restarted.** Files: `app/pipeline/schemes/cm_elevate.py` (NEW `_cme_whole_count`, `_cme_restore_all_applications`; `_cme_asks_all_applications` reads the first), `app/pipeline/common/c14_turn_stages.py` (`_turn_route_stage` calls the restore after the CM dataset switch check), `app/entity_resolver.py` (NEW `count_terms`), `tests/test_cm_elevate_legacy.py` (+17). No new files. Next: restart :8401 from `.venv` and re-ask the chat in the browser.
+
+**2026-11-04 (chart: scheme with no figure = 0 bar, KI-675): uncommitted; built (`web/app`).** `frontend/src/chat/analytics.js` NEW `withAllSchemes`, called in `viewPlan`; NEW `frontend/tests/scheme_zero_bars.test.js`. Next: re-ask "How much total amount has been disbursed under Focus+, FOCUS, and CM-ELEVATE?" in the browser.
+
+**2026-11-03/04 (context frames, D-100, KI-671..674): uncommitted; LIVE-VERIFIED in-process; :8401 NOT restarted.**
+Files: NEW `app/context_frames.py`; `app/session_store.py` (`Session.frames`, snapshot `frames`); `app/conversation_layer.py`
+(frames inside the `comparison_with_earlier` branch; `clear_context`; expiry set-aside / continue keep frames);
+c13 `_update_context` (`context_frames.record`); c14 (after-rewrite hook in the LLM-rewrite branch; gate-miss `elif` at the
+END of the outer follow-up chain + NEW `_c14_frame_gate_miss`; `frame_resolved` kept across the turn_context reset and kept
+off "(new question)"); `app/llm.py` (`call_rewriter(guided=)`); `app/config.py` (`CONTEXT_FRAMES_ENABLED=True`);
+`tests/conftest.py` (frames off for the other suites); NEW `tests/test_context_frames_2026_11_03.py` (24). Docs: D-100,
+KI-671..674, AI_PIPELINE §5.9, TESTING row. Lessons: a first form ran the resolver FIRST in the layer and pre-empted precise
+rules (P15 / BLH8 / AF02) — keep it a fallback; a model choice of the base turn picked T1 for "this" — keep it deterministic.
+Next: (1) restart :8401 from `.venv` and re-ask the user's 6-turn chat in the browser; (2) the 15 harness scenarios that fail
+with or without the frames (list in TESTING) need their expectations reviewed (most are CM Elevate vs D-099); (3) watch
+`pipeline_decision stage=frame` (skip / rejected reasons) on real chats before widening where the frames run.
+
+
+**2026-11-03 (fallback list grouping, KI-665): uncommitted; offline-verified; no live run.** File:
+`app/pipeline/common/c12_answer_numbers.py` (`_c12_grouped_lines`, called from `_deterministic_answer`; `_c12_row_split`;
+`_c12_key_points`, called from `_framed_fallback(..., sql=)`), `c13_compose_and_data_stages.py` (3 calls pass `sql=sql`); `app/cross_figures.py` (`_district_tables`,
+`_scheme_total`, KI-666: 3+ schemes by district as point-wise blocks; `tests/test_cross_figures_2026_10_22.py` +2 tests, one pin moved
+to the district block); `c17_data_answer_rules.py` `_c17_caveats` (KI-667: the provisional-money Note removed; test
+`test_d8_provisional_money_note_removed`; `tests/live_chat_golden.py` D8 / P8 / CARD-fp-amt updated); same function, KI-668: the gap Note names the years covered (and, for several schemes, every scheme's years; `_c17_fy_span`). **D-099 / KI-669 (CM Elevate dataset choice):**
+`schemes/cm_elevate.py` (`_cm_elevate_dataset_choice` rewritten, NEW `_cme_words_dataset`, `_cm_elevate_switch_pause`;
+pin and dataset pause labels), `c14_turn_stages.py` (route stage raises the switch pause); tests rewritten in
+`test_cm_elevate_legacy.py`, `test_cmelevate_legacy_sheet_fixes.py`, `test_rag_fix_report_2026_10_29.py`,
+`test_new_vs_followup_2026_10_22.py`. Next: live check (VPN) — new chat asks; Legacy chat + "subsidy" keeps Legacy;
+applications chat + "subsidy disbursed" asks to switch; `tests/live_context_validation.py` (CM Elevate scenarios
+that expected the automatic Legacy pin will need their expectations moved to D-099). **KI-670:** `cm_elevate.py`
+(`_CME_ALL_APPLICATIONS_Q` + status words, NEW `_cme_default_only_note`, `_cme_marker_echo`), `c17` (calls both);
+tests +4 in `test_cm_elevate_legacy.py`; live in-process: all statuses = 8,938 with the split, Ri Bhoi 2,038 + the Note. Tests: 5 new in
+`tests/test_answer_framing_2026_10_18.py`. Full pytest 5,346 / 1 failed (the 2026-11-02 BLH scenario vs
+`test_cacheable_shapes_2026_10_28`, not this change), scripts 14/14. Next: restart :8401 and re-ask BLH UAT 8 to see the
+grouped list live; optional follow-ups in KNOWN_ISSUES KI-665 (code bolding in the frontend).
+
+**2026-11-02 (context memory, BLH Bot UAT 2026-11-02, D-098, KI-660..664): uncommitted; LIVE-VERIFIED in-process; :8401 NOT restarted.**
+Files: `app/pipeline/common/c03_scheme_terms.py` (`_resume_scheme_pause_typed`, `_C03_ALL_OPTIONS`, `_c03_scope_tail`),
+`c14_turn_stages.py` (step 0a' calls it; `_c14_cue_followup` in the rewrite gate; `_c14_figure_reference_question` in the
+deterministic rewrite chain; `figure_reference` -> DATA in the route stage; `figure_subset` -> `prior_resolved`;
+`_vague_topic_clarification` active-topic rule), `c13` (`subset_condition` into resolved; PMAY-G fixed path returns
+`subsets`), `c11` (calls `_c17_figure_reference_mismatch`), `c17` (that guard), `schemes/pmay_g.py`
+(`_pmay_stated_condition`), `app/context_manager.py` (`quoted_figures`, `figure_clause`, `figure_excerpt`,
+`result_subsets`, `subset_for_figure`, tier `answer_figure`), `app/session_store.py` + `app/topic_memory.py`
+(`Turn.subsets` in both snapshots), `app/routers/query.py` (`build_turn`), `app/prompt_builder.py` (`subset_condition`
+line). Tests: NEW `tests/test_context_memory_uat_2026_11_02.py`, NEW harness `scenarios/blh_uat_2026_11_02.yaml`, two
+D-061-rule-4 tests updated. Replay driver used: in-process, fresh worker per turn, typed replies (scripts in the
+session scratchpad). Next: (1) restart :8401 from `.venv` and run
+`.venv/Scripts/python.exe -m tests.conversation_harness.run --driver http --tags blh_uat_2026_11_02`; (2) KI-664 needs a
+plain-language definition source for measures (ask the data team); (3) extend `result_subsets` to a figure in one row of
+a multi-row table if testers ask for it.
+
+
 **2026-10-30 afternoon (STOPPED by the user mid-run): all villages / blocks / constituencies for Focus Plus and CM Elevate Legacy.**
 Done: Focus Plus every block + constituency (NEW `tests/sheet_runs/fp_places.py`) first run 217/228; the failures
 led to KI-657/658/659, all fixed and unit-tested (`tests/test_fp_cl_sheet_2026_10_30.py` 22/22); Shillong /

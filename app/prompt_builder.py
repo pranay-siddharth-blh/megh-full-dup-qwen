@@ -432,6 +432,14 @@ def _entities_block(entity_result: dict, question: str = "",
                         "for the other.")
             elif k == "year_key":
                 lines.append(f"  year_key = {v!r}")
+            elif k == "subset_condition":
+                # D-098: "where are these 126 …?" — the condition that defined the figure
+                # in the previous answer's own query, read from its SQL tree.
+                lines.append(
+                    f"  {v}   -- the exact set the question points at (the figure the previous "
+                    "answer stated). Filter by THIS condition and add no other condition that "
+                    "narrows it (no status, year or NOT / <> test the question did not state); "
+                    "group and count over it as the question asks.")
             elif k == "year_key_list":
                 # KI-427: a stated span ("from 2022-23 through 2025-26") — every year
                 # in it, never only the last one the extractor handed back.

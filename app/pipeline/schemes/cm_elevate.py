@@ -380,16 +380,40 @@ def _cme_name_dataset(question: str, target: str) -> str:
 
 
 def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None) -> "str | None":
-    """For a question that names a bare "CM Elevate" (or only a sub-scheme of
-    it): "applications", "legacy", or "ask". None when no bare CM Elevate is
-    named (or Legacy is named outright), and for a question with no data words
-    at all."""
+    """For a question that names a bare "CM Elevate" (or only a sub-scheme of it):
+    "applications", "legacy", "ask", or — in a chat already on one dataset whose
+    question only the other can answer — "switch_to_legacy" / "switch_to_applications"
+    (the user confirms; _cm_elevate_switch_pause). None when no bare CM Elevate is
+    named (or Legacy is named outright).
+
+    User decision 2026-11-03 (replaces D-064 rules 2-5 and D-090 for a new chat):
+    "ask users to select CM ELEVATE or Legacy rather than switching automatically;
+    the selected dataset must remain until the user requests or confirms a change".
+    So: the chip marker (a choice made) -> applications; a chat already on a dataset
+    keeps it, and a question only the other dataset holds asks to switch; no dataset
+    in the chat yet -> always ask, whatever the words (the words only order nothing:
+    both options are offered)."""
     q = question or ""
     if not q or _SCHEME_NAME_MATCHER["CM Elevate Legacy"].search(q) or not _names_cm_elevate(q):
         return None
     # The dataset chip's own marker: the user chose the applications dataset.
     if _CME_APPS_MARKER in q:
         return "applications"
+    if thread_scheme not in _CME_DATASETS:
+        return "ask"
+    wants = _cme_words_dataset(q, thread_scheme)
+    if thread_scheme == "CM Elevate Legacy":
+        return "switch_to_applications" if wants == "applications" else "legacy"
+    return "switch_to_legacy" if wants == "legacy" else "applications"
+
+
+def _cme_words_dataset(question: str, thread_scheme: "str | None" = None) -> "str | None":
+    """The dataset the question's own words can only mean — "legacy" (money, sanction,
+    a specific FY: only Legacy holds them), "applications" (status, verification,
+    level, sector: only the applications data holds them) — or None. Used only to spot
+    a question the chat's dataset cannot answer, so the user is asked to switch; it
+    never picks the dataset by itself (user decision 2026-11-03)."""
+    q = question or ""
     # "across all financial years" is the scope wording the chips and rewrites
     # append to any question; it is not a financial-year filter, so it never
     # moves a question to Legacy (a typed "FY 2024-25" still does).
@@ -406,18 +430,6 @@ def _cm_elevate_dataset_choice(question: str, thread_scheme: "str | None" = None
         return "legacy"
     if _CMELEVATE_APPLICATIONS_ONLY.search(q) or _CME_APPLICATIONS_VOCAB.search(q):
         return "applications"
-    if thread_scheme == "CM Elevate Legacy":
-        return "legacy"
-    if thread_scheme == "CM Elevate":
-        return "applications"
-    # User decision 2026-10-29 (RAG fix report Issue 8, replaces rule 4 for these words):
-    # "How many CM Elevate applications are there?" / "(applications dataset)" asked
-    # "applications or Legacy?" every time; applications / applicants / applied now mean
-    # the applications dataset. The thread (above) and the financial words still win.
-    if _CME_APPLICATION_WORDS.search(q):
-        return "applications"
-    if _CME_BOTH_DATASETS_VOCAB.search(q) or _CME_DATA_REQUEST.search(q):
-        return "ask"
     return None
 
 
@@ -438,39 +450,61 @@ def _cme_open_topic_pin(question: str, topics: "list[str]") -> "list[str] | None
 def _pin_cm_elevate_dataset(question: str, thread_scheme: "str | None" = None) -> str:
     """Settle a bare "CM Elevate" ONCE, on the question text, before routing —
     the same way a misspelled scheme name is corrected — so every later word
-    check sees one consistent dataset. Rewrites to "CM Elevate Legacy" when
-    the question's financial words or a Legacy thread settle it (the answer and
-    `rewritten_question` then say Legacy), and to "CM Elevate (applications)" for
-    an applications thread whose words alone would have had to ask. A question
-    its applications-only words settle, or one that must ask, is returned
-    unchanged (the ask is raised in the data stage, _cm_elevate_dataset_pause).
-    The rewritten question is returned to the user as `rewritten_question`."""
+    check sees one consistent dataset. Only the chat's own dataset settles it
+    (user decision 2026-11-03): a Legacy chat -> "CM Elevate Legacy", an
+    applications chat -> "CM Elevate (applications)". A question the chat's dataset
+    cannot answer (a switch) and a chat with no dataset yet are returned unchanged:
+    the route stage asks to switch (_cm_elevate_switch_pause), the data stage asks
+    which dataset (_cm_elevate_dataset_pause). Shown as `rewritten_question`."""
     q = question or ""
     choice = _cm_elevate_dataset_choice(q, thread_scheme)
     if choice == "legacy":
         out = _cme_name_dataset(q, "CM Elevate Legacy")
-        logger.info("CM Elevate dataset settled: Legacy %r -> %r", q, out)
+        logger.info("CM Elevate dataset kept by the chat: Legacy %r -> %r", q, out)
         return out
-    if choice == "applications" and thread_scheme == "CM Elevate" \
-            and _cm_elevate_dataset_choice(q) == "ask":
+    if choice == "applications" and thread_scheme == "CM Elevate" and _CME_APPS_MARKER not in q:
         out = _cme_name_dataset(q, _CME_APPS_MARKER)
-        logger.info("CM Elevate dataset settled by the thread: applications %r -> %r", q, out)
+        logger.info("CM Elevate dataset kept by the chat: applications %r -> %r", q, out)
         return out
     return q
 
 
 def _cm_elevate_dataset_pause(question: str) -> "ClarificationNeeded | None":
-    """The "CM Elevate or CM Elevate Legacy?" pause for a data question the
-    words and the conversation did not settle; None otherwise."""
+    """The "CM Elevate or CM Elevate Legacy?" pause for a data question naming a bare
+    CM Elevate that the chat's dataset did not settle (the context stage pins a chat's
+    dataset into the question first); None otherwise."""
     if _cm_elevate_dataset_choice(question) != "ask":
         return None
     stem = (question or "").strip().rstrip(" ?.")
+    # labels "CM Elevate" / "CM Elevate Legacy" (user 2026-11-03); a typed reply is read
+    # by the label before " (" (c03 _resume_scheme_pause), so both stay scheme names
     return ClarificationNeeded(
-        "CM Elevate has two datasets — applications, and sanctions and disbursements "
-        "(CM Elevate Legacy). Which one do you mean?",
-        options=[{"label": "CM Elevate (applications)", "question": _cme_name_dataset(stem, _CME_APPS_MARKER)},
-                 {"label": "CM Elevate Legacy (sanctions & disbursements)",
-                  "question": _cme_name_dataset(stem, "CM Elevate Legacy")}],
+        "CM Elevate has two datasets — CM Elevate (applications) and CM Elevate Legacy "
+        "(sanctions and disbursements). Which one do you mean?",
+        options=[{"label": "CM Elevate", "question": _cme_name_dataset(stem, _CME_APPS_MARKER)},
+                 {"label": "CM Elevate Legacy", "question": _cme_name_dataset(stem, "CM Elevate Legacy")}],
+        rule="cm-elevate-dataset")
+
+
+def _cm_elevate_switch_pause(question: str, thread_scheme: "str | None") -> "ClarificationNeeded | None":
+    """In a chat already on one CM Elevate dataset, a DATA question only the other one
+    can answer: ask to switch, never switch unasked (user decision 2026-11-03: "the
+    selected dataset must remain consistent ... unless the user explicitly requests or
+    confirms a change"). The switch option comes first; "stay" keeps the chat's dataset.
+    Same rule as the dataset pause, so a typed scheme name resumes it. None otherwise."""
+    choice = _cm_elevate_dataset_choice(question, thread_scheme)
+    if choice not in ("switch_to_legacy", "switch_to_applications"):
+        return None
+    stem = (question or "").strip().rstrip(" ?.")
+    here, there = (("CM Elevate Legacy", "CM Elevate") if choice == "switch_to_applications"
+                   else ("CM Elevate", "CM Elevate Legacy"))
+    as_q = {"CM Elevate Legacy": _cme_name_dataset(stem, "CM Elevate Legacy"),
+            "CM Elevate": _cme_name_dataset(stem, _CME_APPS_MARKER)}
+    return ClarificationNeeded(
+        f"This chat is on {here}. This question asks for something only {there} holds. "
+        f"Switch to {there}, or stay on {here}?",
+        options=[{"label": f"{there} (switch)", "question": as_q[there]},
+                 {"label": f"{here} (stay)", "question": as_q[here]}],
         rule="cm-elevate-dataset")
 
 
@@ -1109,7 +1143,12 @@ _CME_ALL_APPLICATIONS_Q = Matcher(Alt(
     Seq("not", "only", W("valid", "verified")),
     Seq(W("valid", "verified"), W("and", "plus", "or"), W("invalid", "not", "unverified")),
     Seq("without", Opt("the"), Opt("data"), W("verification", "validity"), Opt("filter")),
-    W("unfiltered")))
+    W("unfiltered"),
+    # "total applications in all statuses", "any status", "all verification states", "whatever
+    # the status" (user report 2026-11-03: 7,375 valid applications were given as "across all
+    # statuses"; the true all-status total was 8,938)
+    Seq(W("all", "any", "every", "each", "whatever"), Opt(W("the", "its", "their")),
+        Opt(W("verification", "application", "applications", "data")), W("status", "statuses", "state", "states"))))
 _CME_VERIF_WORD = Matcher(Alt(Pred(lambda w: "verif" in w.lower()), W("validity", "invalid", "unverified")))
 
 
@@ -1127,7 +1166,57 @@ def _cme_names_verification_state(question: str) -> bool:
 
 
 def _cme_asks_all_applications(question: str) -> bool:
-    return _CME_ALL_APPLICATIONS_Q.search(question or "") is not None
+    return _CME_ALL_APPLICATIONS_Q.search(question or "") is not None or _cme_whole_count(question)
+
+
+def _cme_restore_all_applications(question: str, typed: "list") -> str:
+    """The question with "all applications" when the officer TYPED a request for every
+    application but the rewrite lost it (user 2026-11-04: "i need all beneficiaries" was rewritten
+    "how many beneficiaries in CM Elevate (applications)", and "total beneficiaries in entire em
+    elevate" was rephrased "… in the entire state of Meghalaya" — both then got the valid-only
+    default). Only for a CM Elevate (applications) question; unchanged otherwise. The words added
+    are the ones the valid-only Note itself tells the officer to type."""
+    s = _exact_schemes(question or "")
+    if "CM Elevate" not in s or "CM Elevate Legacy" in s or _cme_asks_all_applications(question):
+        return question
+    if not any(_cme_asks_all_applications(x) for x in typed if x):
+        return question
+    logger.info("CM Elevate: every application was asked in the typed words — %r keeps it", question)
+    return f"{question.strip().rstrip(' ?.')}, all applications?"
+
+
+def _cme_whole_count(question: str) -> bool:
+    """"i need all beneficiaries", "total beneficiaries in entire CM Elevate" (user 2026-11-04:
+    both answered with the 7,375 valid applications). A whole-set word (the all-years reply
+    keys: all, every, entire, whole, overall, …) that qualifies a word the SME resolver file
+    reads as an application COUNT (entity_resolver.count_terms: beneficiaries, applicants) or
+    the scheme itself. Not when that word's phrase is a place or a time scope the existing
+    readers claim ("beneficiaries in all districts", "entire state", "all years"), nor for the
+    sub-schemes ("all CM Elevate schemes"). A plain "total" keeps the default (2026-10-30)."""
+    from app.entity_resolver import count_terms
+    terms = count_terms("CM Elevate")
+    ws = [w.lower() for w in _tm_words(question or "")]
+
+    def counted(w: str) -> bool:
+        return w in terms or f"{w}s" in terms or (w.endswith("y") and f"{w[:-1]}ies" in terms)
+
+    if not terms or not any(counted(w) for w in ws):
+        return False
+    for i, w in enumerate(ws):
+        if w not in _ALL_YEARS_REPLY_KEYS:
+            continue
+        rest = ws[i + 1:i + 6]
+        while rest and rest[0] in ("the", "of"):
+            rest = rest[1:]
+        phrase = " ".join([w, *rest[:3]])
+        if not rest or (context_policy.asked_levels(phrase) or context_policy.extract_year_keys(phrase)
+                        or context_policy._ALL_YEARS_MATCH.search(phrase)
+                        or any(m.search(phrase) for m in context_policy._ALL_GEO_MATCH.values())):
+            continue
+        if counted(rest[0]) or ("CM Elevate" in _exact_schemes(" ".join(rest[:3]))
+                                and "schemes" not in rest[:4]):
+            return True
+    return False
 
 
 def _cme_default_where(question: str) -> "str | None":
@@ -1137,6 +1226,51 @@ def _cme_default_where(question: str) -> "str | None":
     if not d or _cme_asks_all_applications(question) or _cme_names_verification_state(question):
         return None
     return d
+
+
+def _cme_default_only_note(sql: str, answer: str) -> "str | None":
+    """A Note when the executed SQL kept only the default applications (applications_default:
+    data verified Valid) and the answer never says so — a valid-only figure must not read as
+    every application (user report 2026-11-03: "Total applications ... across all statuses ...
+    is 7,375", all 8,938 in truth). Read from the SQL tree and the knowledge-base file, so a
+    change of the default there changes this too. None when the answer already names the rows
+    ("valid applications", the pending rule's own sentence) or the SQL does not filter to them."""
+    d = _pending_rule.default_step()
+    col, label = _pending_rule.default_column(), _pending_rule.default_text()
+    if not d or not col or not label or not sql:
+        return None
+    try:
+        vals = {str(v).strip().lower() for v in sql_ast.filter_values(sql, col)}
+    except Exception:  # noqa: BLE001 — a SQL we cannot read gets no note
+        return None
+    wanted = {str(v).strip().lower() for v in d.get("values") or []}
+    if not vals or not vals <= wanted:
+        return None                          # not filtered to the default (or a named state)
+    if label in {w.lower() for w in _c12s_words(answer or "")}:
+        return None
+    shown = ", ".join(str(v) for v in d.get("values") or [])
+    return (f"Note: these figures count {label} applications only ({col.replace('_', ' ')}: {shown}). "
+            "Ask for all applications to include every status.")
+
+
+def _cme_marker_echo(answer: str) -> str:
+    """The chip marker copied by the composer in front of the same word: "2,038 CM Elevate
+    (applications) applications" -> "2,038 CM Elevate applications" (live 2026-11-03). Any other
+    use of the marker is left as written; the dataset is named in the answer chip either way."""
+    text, marker = answer or "", _CME_APPS_MARKER
+    base = marker.split(" (")[0]
+    out, i = [], 0
+    while True:
+        j = text.find(marker, i)
+        if j < 0:
+            out.append(text[i:])
+            return "".join(out)
+        after = text[j + len(marker):]
+        if after.lstrip().lower().startswith(("application", "applicant")):
+            out.append(text[i:j] + base)
+        else:
+            out.append(text[i:j] + marker)
+        i = j + len(marker)
 
 
 def _cme_unit(question: str) -> str:

@@ -171,11 +171,12 @@ def test_unordered_superlative_rejected():
 
 
 # ── RC5: caveats ───────────────────────────────────────────────────────────
-def test_d8_provisional_money_note():
+def test_d8_provisional_money_note_removed():
+    # user decision 2026-11-03: the note came with every money answer; it is no longer added
     r = {"route": "data", "schemes": ["Focus Plus"], "answer": "₹46,64,30,000 paid.",
          "rows": [{"a": 1}], "resolved_entities": {"year_key": 2022}, "sql": "SELECT 1"}
     p._c17_attach_caveats(r)
-    assert "provisional" in r["answer"] and "not been verified" in r["answer"]
+    assert r["answer"] == "₹46,64,30,000 paid."
 
 
 def test_d9_absent_year_note(monkeypatch):
@@ -183,7 +184,18 @@ def test_d9_absent_year_note(monkeypatch):
     r = {"route": "data", "schemes": ["Focus Legacy"], "answer": "11,906 groups.", "rows": [{"g": 11906}],
          "resolved_entities": {}, "sql": "SELECT COUNT(DISTINCT pg_id) AS g FROM curated.v_focus_legacy"}
     p._c17_attach_caveats(r)
-    assert "no Focus Legacy data for FY 2023-24" in r["answer"]
+    # user decision 2026-11-03: the years the data holds, from _SCHEME_DATA_YEARS, not the missing ones
+    assert "Note: Focus Legacy data covers FY 2021-22, FY 2022-23, FY 2024-25 and FY 2025-26." in r["answer"]
+    assert "no Focus Legacy data" not in r["answer"] and "absent" not in r["answer"]
+    monkeypatch.setitem(p._SCHEME_DATA_YEARS, "Focus Legacy", ["2024-25", "2021-22", "2022-23"])   # unordered
+    r2 = dict(r, answer="11,906 groups.")
+    p._c17_attach_caveats(r2)
+    assert "Note: Focus Legacy data covers FY 2021-22, FY 2022-23 and FY 2024-25." in r2["answer"]
+    # no gap in the years held: no note
+    monkeypatch.setitem(p._SCHEME_DATA_YEARS, "Focus Legacy", ["2021-22", "2022-23"])
+    r3 = dict(r, answer="11,906 groups.")
+    p._c17_attach_caveats(r3)
+    assert "Note" not in r3["answer"]
     assert "provisional" not in r["answer"]                 # no money stated
     one_year = dict(r, answer="5 groups.", sql="SELECT COUNT(*) FROM curated.v_focus_legacy WHERE year_key = 2024")
     p._c17_attach_caveats(one_year)
@@ -245,3 +257,27 @@ def test_follow_up_context_points_at_the_winner_row():
     p._c17_mark_winner(r)
     assert r["winner_row"] == rows[0]
     assert context_manager.summarize_result(r).startswith("1 row (the one asked for): district=EAST GARO HILLS")
+
+
+def test_years_note_names_every_scheme_of_a_multi_scheme_answer(monkeypatch):
+    # user report 2026-11-03: "total disbursement in MGNREGA, PMAY-G, Focus Plus, CM Elevate"
+    # noted Focus Plus' years alone; every scheme's years are listed (live list, sorted)
+    monkeypatch.setitem(p._SCHEME_DATA_YEARS, "MGNREGA", ["2018-19", "2017-18", "2019-20"])
+    monkeypatch.setitem(p._SCHEME_DATA_YEARS, "PMAY-G", ["2017-18", "2018-19"])
+    monkeypatch.setitem(p._SCHEME_DATA_YEARS, "Focus Plus", ["2022-23", "2025-26"])
+    monkeypatch.setitem(p._SCHEME_DATA_YEARS, "CM Elevate", [])
+    r = {"route": "data", "schemes": ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate"], "answer": "₹1 crore.",
+         "rows": [{"a": 1}], "resolved_entities": {}, "sql": "SELECT 1"}
+    p._c17_attach_caveats(r)
+    assert ("Note: years in the data — MGNREGA: FY 2017-18 to FY 2019-20; PMAY-G: FY 2017-18 and FY 2018-19; "
+            "Focus Plus: FY 2022-23 and FY 2025-26.") in r["answer"]
+    assert "CM Elevate:" not in r["answer"]                    # no financial year: nothing to list
+    # the same years for every scheme and no gap: no note
+    monkeypatch.setitem(p._SCHEME_DATA_YEARS, "Focus Plus", ["2017-18", "2018-19"])
+    same = dict(r, answer="₹1 crore.", schemes=["PMAY-G", "Focus Plus"])
+    p._c17_attach_caveats(same)
+    assert "Note" not in same["answer"]
+    # one year asked: no note
+    one = dict(r, answer="₹1 crore.", resolved_entities={"year_key": 2022})
+    p._c17_attach_caveats(one)
+    assert "Note" not in one["answer"]

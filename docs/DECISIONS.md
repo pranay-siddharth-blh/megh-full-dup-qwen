@@ -937,6 +937,132 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-100 — Context frames: the whole window in the snapshot, one checked resolver for a follow-up (2026-11-03)
+- **Date:** 2026-11-03. User: "everytime i am asking context … i want permanent solution for this context issue, it
+  should have context to all the window … not hard coded … dont create any new problems". Files: NEW
+  `app/context_frames.py`; `session_store.py` (`Session.frames`, snapshot key `frames`); `conversation_layer.py`
+  (hook inside the `comparison_with_earlier` branch, `clear_context`, idle set-aside / continue); c13 `_update_context`
+  (`record`); c14 (two hooks, below; NEW `_c14_frame_gate_miss`; `frame_resolved` kept across the turn_context
+  reset, so a resolved comparison is not "(new question)"); `llm.call_rewriter`
+  (`guided=`, default None); `config.CONTEXT_FRAMES_ENABLED` (default True); `tests/conftest.py` (off for the other
+  suites, as for every extra model call); NEW `tests/test_context_frames_2026_11_03.py`.
+- **Context (the user's chat, replayed live on the old code, all reproduced):** Focus Plus total -> "Give a
+  district-wise breakup" -> "compare this with spend on Focus scheme" (which-Focus pause, correct) -> "compare this
+  with spend on Focus Legacy scheme" = statewide totals (`comparison_with_earlier` carries scheme / place / year
+  only, no breakdown) -> "include focus plus also" = the documents' "what is Focus Plus" ("also" is a cue only as the
+  first word; no rewrite; the rephraser + intent took a bare scheme name as KNOWLEDGE) -> "i mean compare focus plus
+  also" = Focus Plus alone (the model's correct rewrite rejected by provenance: `allowed_schemes` = the previous turn,
+  which was that documents answer; `_data_thread_antecedent` skips an aside only for place / year changes). Root
+  pattern: ~10 phrase checks each decide "follow-up?", "of which turn?" (always the previous) and "what carries?"
+  (scheme / place / year, never the breakdown or measure) for one wording; and `apply_snapshot` keeps only the LAST
+  turn, so no worker could see the rest of the chat.
+- **Decision:**
+  1. **A frame per answered turn** (data / knowledge): the question the pipeline ran + schemes, breakdown level
+     (`asked_levels`), place, years. Every frame of the window (`SESSION_MAX_TURNS`) is in the snapshot (D-023).
+  2. **The turn a follow-up continues is the latest ANSWERED figure** (deterministic). Pauses, greetings and
+     how-it-works asides in between are skipped. A model choice among turns was tried first and picked T1 for "this"
+     (replay 2026-11-03), so it is not used. Going back to an older topic stays with topic memory (recall runs first).
+  3. **One guided-JSON call to the rewrite model** (the 9B, its existing role — no role moved) with the window's
+     frames writes that turn's question with the message's change applied. It runs **only where the existing path
+     loses the context, after every precise rule has had its turn** (three hooks):
+     a. `comparison_with_earlier` matched (conversation layer): its state-only question dropped the breakdown and
+        measure; the frames' question replaces it, the state's question stays when they decline;
+     b. c14, `rewrite_followup` gave up (returned the question unchanged: failed, or provenance-rejected against
+        the previous turn only) — after the scheme / place / rest-of-schemes swaps and the figure-reference,
+        measure, ranking and compare-place rules;
+     c. c14, `turn_kind` says FOLLOWUP but no follow-up check fired (the gate miss).
+     First built as the FIRST step of the conversation layer: the live harness then showed it pre-empting precise
+     rules (P15 constituency place swap, BLH8 "these 126" figure reference, AF02 swap-measure-unavailable pause —
+     2026-11-03), so it was moved behind them.
+  4. **Deterministic checks**, the pipeline's own readers only (no new word lists): schemes from the message or the
+     base turn only (`_exact_schemes`); D-024 provenance (`rewrite_violation`) against the message + base question;
+     nothing of the base turn the message leaves alone may be lost (schemes — kept on a one-side comparison, the
+     `compare-one-side` cue —, breakdown level, place, years, measure family); no bare "Focus"; the result must be
+     STANDALONE.
+  5. **Never** for a STANDALONE or VAGUE message (D-061, D-098), a bare "Focus" (CLAUDE.md §4: still asked), a reply
+     an open pause understands itself (D-065 / D-098), or an aside about another scheme than the figure
+     (`_data_thread_antecedent` decides).
+  6. **Any skip, failure, timeout or failed check = the pre-D-100 path, unchanged** (verified by accident on
+     2026-11-03: a broken edit raised in every call and every turn answered exactly as before).
+- **Amends:** D-022 / D-024 (provenance is kept, applied to the chosen turn instead of always the previous one); D-024's
+  rejected "LLM classifier for the follow-up kind, an extra call per turn" does not apply: it is not a classifier
+  and runs only on the turns where the existing path already failed.
+- **Cost:** one 9B guided call, only on a turn that hits one of the three hooks; every other turn unchanged.
+- **Rollback:** `CONTEXT_FRAMES_ENABLED=false` (frames are not recorded; the conversation layer runs as before).
+- **The precise rules stay first** (`counterpart_swap`, scheme / place swaps, figure reference, measure change, ...);
+  the frames do not replace them. The decision log (`pipeline_decision stage=frame`, and `followup rewrite=
+  context-frame-*` / `conversation action=compare-earlier-frame`) shows each hook firing, for measurement.
+- **Status:** Active. Verification: see TESTING.md 2026-11-03 (D-100).
+
+### D-099 — CM Elevate: ask which dataset in a new chat; the chosen dataset stays until the user switches (2026-11-03)
+- **Date:** 2026-11-03. User requirement ("CM ELEVATE – Dataset Selection and Context Retention: ask users to select
+  CM ELEVATE API or Legacy rather than switching automatically; the selected dataset must remain consistent across
+  subsequent queries unless the user explicitly requests or confirms a change") and AskUserQuestion answers: "in
+  context it should not ask, remaining it should"; a mismatch asks to confirm the switch; buttons "CM Elevate" and
+  "CM Elevate Legacy".
+- **Decision** (`schemes/cm_elevate.py` `_cm_elevate_dataset_choice`), for a bare "CM Elevate" (or a sub-scheme only):
+  1. the chip marker "CM Elevate (applications)" -> applications (a choice made);
+  2. **no CM Elevate dataset in the chat yet -> always ask** (`cm-elevate-dataset`, buttons "CM Elevate" /
+     "CM Elevate Legacy"), whatever the words — money / sanction / FY words no longer go to Legacy unasked (D-064
+     rule 2) and "applications / applicants" no longer go to the applications data unasked (D-090);
+  3. **a chat on one dataset keeps it** (`_pin_cm_elevate_dataset` writes it into the question);
+  4. a DATA question only the other dataset holds (`_cme_words_dataset`: Legacy's money / sanction / FY words, or the
+     applications data's status / pending / level / sector words) -> **asks to switch**
+     (`_cm_elevate_switch_pause`, raised in the route stage after DATA is decided, so a how-it-works question is never
+     asked): "This chat is on X. This question asks for something only Y holds. Switch to Y, or stay on X?" —
+     buttons "Y (switch)" / "X (stay)"; either pick is final for that question, and a switch moves the chat.
+  Explicit switches stay as they were ("legacy" after an applications answer, "now give me for cm elevate" after a
+  Legacy answer, a question naming CM Elevate Legacy).
+- **Replaces** D-064 rules 2-5 (automatic Legacy on financial words, automatic applications on status words) and D-090.
+- **Rollback:** restore the D-064 / D-090 body of `_cm_elevate_dataset_choice` (git history, 2026-11-02) and remove the
+  route-stage `_cm_elevate_switch_pause` call.
+
+### D-098 — Context memory: typed pause replies, one follow-up decision, the active topic, referenceable figures (2026-11-02)
+- **Date:** 2026-11-02. BLH Bot UAT 2026-11-02 (4 of 10 failed on context). User: "for any query it comes it should
+  remember the context and also the clarification if user won't click the buttons … it shouldn't be hard-coded …
+  just enhance the current context memory".
+- **Causes (VERIFIED, each reproduced live on the current code before the change):**
+  1. UAT 3 — `_resume_scheme_pause` accepts only ONE bare scheme name; "compare both schemes by district" to the
+     which-Focus pause went through untouched, the paused question was cleared, and the reply was rewritten against the
+     last answer (Focus Plus only).
+  2. UAT 4 — `context_policy.turn_kind` read "show the comparison visually in chart form" as FOLLOWUP (cue
+     "compare-one-side") but the rewrite gate (c14, five older predicates) did not; no rewrite, no scheme, "Which
+     scheme?". `_chart_view_request` did not know "comparison" / "visually".
+  3. UAT 8 — "126 registered with ₹0" lived only in the answer's prose; the rewrite sees the previous question and
+     filters (D-022), so "these 126" became all 1,71,107. The explicit question went to `_pmay_facts_query`, which read
+     "sanction amount" as the measure and answered the statewide sanctioned total.
+  4. UAT 10 — D-061 rule 4 asked "PMAY-G, Focus Legacy or Focus Plus?" whenever two or more single-scheme topics were
+     open, even right after a PMAY-G answer (only in a long chat; a short one passed).
+- **Decision (each layer generic — no scheme names, no new word lists; values from existing vocabularies, the SQL tree
+  and the conversation's own state):**
+  1. **Typed pause replies** (`c03 _resume_scheme_pause_typed`, step 0a'): "both / all of them / compare them" takes
+     every offered scheme, several named schemes take those, one scheme or side word plus scope ("legacy by
+     district") takes it, scope alone ("by district") is merged into the paused question. The scope is read by
+     `context_policy.asked_levels`, `extract_year_keys`, `place_mentions`. **Never a guess:** the built question must
+     hold every word the reply typed (bar pick / filler words), else the reply goes on untouched as before.
+  2. **One follow-up decision:** a reference CUE `turn_kind` found (`cue:*`, `lead*`, not a bare fragment) opens the
+     rewrite gate when there is an answered scheme turn (`c14 _c14_cue_followup`).
+  3. **Active topic wins (amends D-061 rule 4):** a vague question runs in the topic memory's ACTIVE topic when that
+     topic is one of the open single-scheme topics; the picker stays for a chat whose active topic is a comparison
+     (or whose active topic the measure excluded). The active topic, not the last turn, so an aside keeps it.
+  4. **Figures are referenceable:** `Turn.subsets` (durable snapshot + topic memory) holds each sub-count of a one-row
+     result with its condition, read from the SQL tree (`context_manager.result_subsets`: `COUNT(*) FILTER (WHERE
+     is_placeholder) AS placeholders` = 126). A follow-up quoting a figure after a pointer word ("these 126",
+     `quoted_figures`) is rewritten deterministically (`_c14_figure_reference_question`: the user's words + "(the 126
+     placeholders)" + scheme + scope), routed DATA, and the condition travels as the resolved entity
+     `subset_condition` (MANDATORY in the SQL prompt). Without a stored condition the answer's own CLAUSE stating the
+     figure is used (`figure_clause`; a D-022-style sentence-bounded tier, `answer_figure`).
+  5. **Deterministic guards:** the rows of a figure-reference question must add up to the figure
+     (`_c17_figure_reference_mismatch`, repair otherwise); `_pmay_facts_query` refuses a question stating a figure
+     that is not a year / FY / date / instalment count (`_pmay_stated_condition`).
+- **Rejected:** a model-only interpreter (prose rules fail under sampling, CLAUDE.md §5 — the live check showed the 9B
+  turning "where" into "how many" and copying the year range); passing whole answer sentences (the year range became a
+  filter); a "where / location" word list (user rule: no new lists); keeping D-061 rule 4 as is (user, 2026-11-02).
+- **Consequences:** `Turn` and its snapshot carry `subsets` (older snapshots load with `[]`); result dicts of the
+  PMAY-G fixed path carry `subsets`; `"subsets"` reaches the API response. Not covered yet: subsets of multi-row
+  results (a figure for one row of a table), and "define <measure>" when the documents hold no definition.
+- **Status:** Active.
+
 ### D-097 — Cross-scheme figures in code for all six schemes, villages and constituencies (2026-10-30)
 - **Date:** 2026-10-30. User: "I want 100% UAT in cross scheme test cases also" (`reference_documents/Cross Scheme
   Test Cases.xlsx`, CROSS-1..20 and the generated 8,649-conversation set, last run 2026-10-13 under D-044).
@@ -1086,6 +1212,11 @@ not recorded.*
   - **Dataset facts registry:** `scheme_registry.DATASETS` (grain, money unit, unit verified, provisional, has dates,
     sub-scheme column, owned tables). Cards and chat read the same flags. Years held stay live (`_SCHEME_DATA_YEARS`).
   - **Caveats are said:** provisional / unverified money and absent years get a visible "Note:" line.
+    **Amended 2026-11-03 (user decision):** the provisional / unverified-money Note is removed from chat answers
+    ("it is coming for every query"); the absent-year Note stays, and the cards keep their "*".
+    Same day: the absent-year Note names the financial years the scheme's data covers ("Note: Focus Plus data
+    covers FY …", read live from `_SCHEME_DATA_YEARS`), not the years it lacks; same trigger (all-years answer,
+    a gap in the years held). Several schemes over different periods: one Note with every scheme's years.
   - **Superlatives:** the winner plus the next two, written by code; ties said.
   - **Multi-part questions:** a total + a "which … most" run as two questions in the conversation layer and are merged
     in the order asked; PMAY-G "total and completed" adds the breakdown that sums to the total.

@@ -234,11 +234,20 @@ def _two_topics():
 
 
 def test_vague_with_two_topics_asks_with_one_chip_per_topic():
-    s = _session(topics=_two_topics())
+    # D-098 (BLH UAT 2026-11-02, item 10): the ACTIVE topic answers a vague question;
+    # the picker is for a chat whose active topic is no single scheme (a comparison).
+    topics = _two_topics()
+    topics["active"] = "MGNREGA + PMAY-G"
+    s = _session(topics=topics)
     e = p._vague_topic_clarification("How many beneficiaries?", s)
     assert e is not None and e.rule == "topic-ambiguous"
     assert [o["label"] for o in e.options] == ["PMAY-G", "MGNREGA"]
     assert e.options[0]["question"] == "Go back to PMAY-G: How many beneficiaries?"
+
+
+def test_vague_with_two_topics_runs_in_the_active_one():
+    # D-098: active PMAY-G (the answer just given) — no picker, the question runs there
+    assert p._vague_topic_clarification("How many beneficiaries?", _session(topics=_two_topics())) is None
 
 
 def test_vague_with_one_topic_or_a_pinned_scheme_is_not_asked():
@@ -391,6 +400,10 @@ def test_a_resumed_year_pause_keeps_the_cm_elevate_legacy_pin(monkeypatch):
     s.pending_scope_q = "How many applications have been sanctioned under CM-ELEVATE?"
     s.pending_scope_rule = "year-not-specified"
     s.pending_turn_kind = cp.TURN_STANDALONE
-    seen = _drive(monkeypatch, "all of them combined", s)
-    assert "CM Elevate Legacy" in seen["q"], seen["q"]
-    assert "across all financial years" in seen["q"]
+    # user decision 2026-11-03: the applications chat is not switched to Legacy unasked —
+    # it asks to switch, and never answers the sanction question from the applications data
+    with pytest.raises(p.ClarificationNeeded) as ask:
+        _drive(monkeypatch, "all of them combined", s)
+    assert ask.value.rule == "cm-elevate-dataset"
+    assert [o["label"] for o in ask.value.options] == ["CM Elevate Legacy (switch)", "CM Elevate (stay)"]
+    assert "across all financial years" in ask.value.options[0]["question"]

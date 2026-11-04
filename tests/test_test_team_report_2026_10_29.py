@@ -231,8 +231,12 @@ def _three_topics():
 def test_bug5_an_applications_only_word_settles_the_open_cm_elevate_topic():
     s = _three_topics()
     assert p._vague_topic_clarification("how many are on hold?", s) is None       # runs in CM Elevate
-    # a measure every topic can hold still asks
+    # D-098 (BLH UAT 2026-11-02, item 10): a measure every topic can hold runs in the ACTIVE
+    # topic; it still asks when no single topic is active (e.g. after a comparison)
+    assert p._vague_topic_clarification("how many beneficiaries?", s) is None
+    s.topics["active"] = "MGNREGA + PMAY-G"
     assert p._vague_topic_clarification("how many beneficiaries?", s) is not None
+    s.topics["active"] = "CM Elevate"
     # without an open CM Elevate topic the word stays generic
     assert p._cme_open_topic_pin("how many are on hold?", ["MGNREGA", "PMAY-G"]) is None
 

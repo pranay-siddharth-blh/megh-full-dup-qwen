@@ -267,6 +267,30 @@ _RESOLVER_FILE = {
 # is read under that name and resolve_cm_scheme() works for both.
 _DIMENSION_ALIASES = {"cm_scheme": ("scheme",)}
 
+_COUNT_TERMS: dict = {}
+
+
+def count_terms(scheme: str) -> frozenset:
+    """The words a scheme's SME resolver file reads as a record COUNT: every term of its
+    `overloaded_terms` whose `means` (or one of whose `readings`) is a COUNT(...) — for CM
+    Elevate "beneficiaries" and "applicants", one application each. Lower case; empty when
+    the file or the section is missing. Read once per scheme."""
+    if scheme not in _COUNT_TERMS:
+        out = set()
+        try:
+            data = yaml.safe_load(_RESOLVER_FILE[scheme].read_text(encoding="utf-8")) or {}
+            for term, spec in (data.get("overloaded_terms") or {}).items():
+                if not isinstance(spec, dict):
+                    continue
+                means = [spec.get("means")] + [r.get("means") for r in spec.get("readings") or []
+                                               if isinstance(r, dict)]
+                if any(str(m or "").strip().upper().startswith("COUNT(") for m in means):
+                    out.add(str(term).strip().lower())
+        except Exception:  # noqa: BLE001 — no file, no terms: callers keep their own rules
+            logger.warning("entity_resolver: count terms of %s not read", scheme, exc_info=True)
+        _COUNT_TERMS[scheme] = frozenset(out)
+    return _COUNT_TERMS[scheme]
+
 
 def _dimension_values(dims: dict, dim_name: str) -> list:
     """A dimension's value list, tolerating the two shapes the SME files use:

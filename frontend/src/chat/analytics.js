@@ -340,6 +340,26 @@ const TWO_DIM_ALL = ['bar', 'stacked', 'line', 'doughnut'];
 const periodAxis = (labels) => Array.isArray(labels) && labels.length > 0
   && labels.every((l) => isPeriodLabel(l) || isMonthLabel(l) || isQuarterLabel(l));
 
+/** `a` with every scheme the answer covered (response.schemes) on its charts of
+    schemes: one the rows hold no figure for is drawn as 0. User 2026-11-04: "How
+    much … under Focus+, FOCUS, and CM-ELEVATE?" — CM Elevate records no money, so the
+    rows had two schemes and the chart drew two bars under a "3 schemes" heading.
+    Only a single-series chart whose every label is a scheme of the answer: the tiles
+    keep "—", the table keeps the rows, year lines keep their gaps (E11). */
+export function withAllSchemes(a, schemes) {
+  if (!a || !Array.isArray(a.charts) || !Array.isArray(schemes) || schemes.length < 2) return a;
+  const key = (s) => String(s ?? '').trim().toLowerCase();
+  const named = new Set(schemes.map(key));
+  const charts = a.charts.map((c) => {
+    if (c.datasets || !Array.isArray(c.labels) || !Array.isArray(c.values) || !c.labels.length
+      || !c.labels.every((l) => named.has(key(l)))) return c;
+    const have = new Set(c.labels.map(key));
+    const missing = schemes.filter((s) => !have.has(key(s)));
+    return missing.length ? { ...c, labels: [...c.labels, ...missing], values: [...c.values, ...missing.map(() => 0)] } : c;
+  });
+  return { ...a, charts };
+}
+
 /** What an answer shows (components/Messages.jsx renders exactly this; the live chart
     suite grades it, tests/live_chat_charts.py): { asked, prefer, a, mode, note, charts }
     where each chart is { kind, types, initial } — the type switcher's choices and the
@@ -347,7 +367,7 @@ const periodAxis = (labels) => Array.isArray(labels) && labels.length > 0
 export function viewPlan(question, response, view = null) {
   const asked = view || chartPreference(response.rewritten_question) || chartPreference(question);
   const prefer = asked === 'chart' || (asked && asked !== 'table') ? asked : null;
-  const a = buildAnalytics(question, response.data, response.chart_type, prefer);
+  const a = withAllSchemes(buildAnalytics(question, response.data, response.chart_type, prefer), response.schemes);
   if (!a) return null;
   const plan = (mode, charts = []) => ({ asked, prefer, a, mode, note: a.note || null, charts });
   if (asked === 'table') return plan('table');

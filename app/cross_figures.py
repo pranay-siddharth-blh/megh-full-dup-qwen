@@ -1297,7 +1297,13 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
                        f"({rupees_crore(tot[last]) if m == 'money' else indian(tot[last])}).")
         return out
     # the per-district table
-    for k in keys:
+    # 3+ schemes: a summary, then one block of points per district (user report 2026-11-03:
+    # five schemes ran together on one wrapped line per district, "MGNREGA 1,06,136 /
+    # ₹321.79 crore | PMAY-G …"). Two schemes keep the lines below.
+    tabled = len(have) >= 3 and p.grain != "village" and p.op == "list"
+    if tabled:
+        out += _district_tables(p, figs, have, keys, totals)
+    for k in ([] if tabled else keys):
         cells = []
         for s in have:
             f = figs[s].get(k, {})
@@ -1322,9 +1328,8 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
         # same-named villages are different places: one row each, never added (KI-630)
         out.append("These are different villages that share a name; their figures are not added.")
         have = []
-    for s in have:
-        t = {mm: value((totals or {}).get(s) or {}, mm) if (totals or {}).get(s) else
-             sum(value(figs[s].get(k, {}), mm) for k in keys) for mm in ("count", "money", "villages")}
+    for s in ([] if tabled else have):      # the blocks carry their own Total
+        t = _scheme_total(s, figs, keys, totals)
         bits = []
         if "count" in p.measures:
             bits.append(indian(t["count"]))
@@ -1348,6 +1353,83 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
             figs["Focus Plus"].get(k) for k in keys) and not p.districts:
         out.append(f"{p.grain.title()} = the {p.grain} written in each scheme's own records (Focus Plus: its "
                    f"source file's {p.grain} names).")
+    return out
+
+
+def _scheme_total(s: str, figs: dict, keys: list, totals: "dict | None") -> dict:
+    """One scheme's Total per measure: its statewide figure when fetched (G-12: records
+    with no district still count), else the sum of the district rows."""
+    return {mm: value((totals or {}).get(s) or {}, mm) if (totals or {}).get(s) else
+            sum(value(figs[s].get(k, {}), mm) for k in keys) for mm in ("count", "money", "villages")}
+
+
+def _district_tables(p: Plan, figs: dict, have: list, keys: list, totals: "dict | None") -> list:
+    """The per-district figures of 3+ schemes, point-wise (user report 2026-11-03: the
+    one-line-per-district form ran five schemes together; then "give it in points, with
+    space below each, and a crisp summary"): a **Summary** (each scheme's top district,
+    said once when one district tops them all), the **Total** block, then one block per
+    district, a point per scheme, a blank line after each block. Every figure is the same
+    text the line form wrote (count_text / money_text / villages, the Total line's
+    statewide figures, and the money-only per-district cross-scheme total)."""
+    paid = [s for s in have if has_measure(s, "money")]
+    asked = [x for x in ("count", "money", "villages") if x in p.measures]
+    money_alone = "money" in p.measures and "count" not in p.measures
+
+    def figures(s: str, f: dict, total: "dict | None" = None) -> str:
+        bits = []
+        for mm in asked:
+            if mm == "count":
+                bits.append(indian(total["count"]) if total else count_text(s, f, short=True, p=p))
+            elif mm == "money":
+                bits.append(("no money" if not has_measure(s, "money") else
+                             rupees_crore(total["money"]) if total else money_text(s, f, short=True)))
+            else:
+                bits.append(f"{indian(total['villages'] if total else f.get('villages', 0))} villages")
+        return " · ".join(bits)
+
+    def block(title: str, points: list) -> list:
+        return [f"**{title}**"] + [f"- {x}" for x in points] + [""]
+
+    # the summary: each scheme's top place per asked measure
+    found = {}
+    for s in have:
+        for mm in [x for x in ("count", "money") if x in p.measures and has_measure(s, x)]:
+            vals = {k: value(figs[s].get(k, {}), mm) for k in keys}
+            best = max(vals.values(), default=0)
+            if best > 0:
+                top = [k for k in keys if vals[k] == best]
+                found[(s, mm)] = (" and ".join(k.title() for k in top), fmt(s, figs[s].get(top[0], {}), mm))
+    summary = []
+    places = {n for n, _v in found.values()}
+    word = " and ".join("beneficiaries" if mm == "count" else "money"
+                        for mm in ("count", "money") if any(m == mm for _s, m in found))
+    # one sentence only when every scheme has a top place on every asked measure (CM Elevate
+    # records no money, so "on beneficiaries and money" would not hold for it)
+    every = all((s, mm) in found for s in have for mm in ("count", "money") if mm in p.measures)
+    if len(keys) > 1 and len(places) == 1 and every:
+        summary.append(f"{next(iter(places))} is the top {p.grain} in every scheme, on {word}.")
+    else:
+        for s in have:
+            mine = [(mm, found[(s, mm)]) for mm in ("count", "money") if (s, mm) in found]
+            if len(mine) == 2 and mine[0][1][0] == mine[1][1][0]:
+                summary.append(f"{SHORT[s]}: top {p.grain} {mine[0][1][0]} ({mine[0][1][1]} · {mine[1][1][1]}).")
+            elif mine:
+                summary.append(f"{SHORT[s]}: " + "; ".join(
+                    f"most {'money' if mm == 'money' else 'beneficiaries'} in {n} ({v})" for mm, (n, v) in mine) + ".")
+    out: list = []
+    if summary and len(keys) > 1:
+        out += block("Summary", summary)
+    label = ("Total for these districts" if p.grain == "district" else
+             f"Total for {p.place_label}") if p.districts else "Total"
+    tot = [f"{SHORT[s]}: {figures(s, {}, _scheme_total(s, figs, keys, totals))}" for s in have]
+    if money_alone:
+        tot.append(f"All schemes: {rupees_crore(sum(_scheme_total(s, figs, keys, totals)['money'] for s in paid))}")
+    out += block(label, tot)
+    for k in keys:
+        pts = [f"{SHORT[s]}: {figures(s, figs[s].get(k, {}))}" for s in have]
+        if money_alone:
+            pts.append(f"All schemes: {rupees_crore(sum(value(figs[s].get(k, {}), 'money') for s in paid))}")
+        out += block(k.title(), pts)
     return out
 
 

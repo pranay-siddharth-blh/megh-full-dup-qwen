@@ -80,3 +80,78 @@ def test_finish_data_result_runs_for_any_data_path():
     assert p._finish_answer("In 2023 there were 12345 visits.", rows, ["MGNREGA"], {}).count("12345") == 1
     # cross-scheme and multi-row answers are left alone apart from grouping
     assert p._finish_answer("MGNREGA 1 vs PMAY-G 2", [{"a": 1}, {"a": 2}], ["MGNREGA", "PMAY-G"], {}) == "MGNREGA 1 vs PMAY-G 2"
+
+
+# ── Repeated place names written once (user report 2026-11-03) ──────────────
+# PMAY-G "where are these 126 beneficiaries registered?": every fallback line repeated
+# "EAST KHASI HILLS / MAWPHLANG / …" and printed the village code as a figure.
+def _ph(d, b, v, n, c):
+    return {"lgd_district": d, "lgd_block": b, "lgd_village_name": v, "placeholder_houses": n, "village_code": c}
+
+
+PH_ROWS = [_ph("EAST KHASI HILLS", "KHATARSHNONG LAITKROH", "KHRANG", 1, 278564),
+           _ph("EAST KHASI HILLS", "KHATARSHNONG LAITKROH", "KONGTHONG", 1, 278556),
+           _ph("EAST KHASI HILLS", "MAWPHLANG", "LADUMRISAIN", 2, 278230)]
+
+
+def test_fallback_groups_repeated_place_names_and_keeps_every_value():
+    out = p._finish_answer(p._framed_fallback(PH_ROWS, ["PMAY-G"], {}), PH_ROWS, ["PMAY-G"], {})
+    assert out.count("EAST KHASI HILLS / KHATARSHNONG LAITKROH") == 1
+    assert "- **EAST KHASI HILLS / MAWPHLANG**" in out
+    assert "  - KHRANG (village code 278564) — placeholder houses: 1" in out
+    assert "  - LADUMRISAIN (village code 278230) — placeholder houses: 2" in out
+    for r in PH_ROWS:                       # nothing is lost: every name, code and figure is written
+        assert r["lgd_village_name"] in out and str(r["village_code"]) in out
+    assert "here are the 3 results:" in out
+    assert p._is_fallback_answer(p._framed_fallback(PH_ROWS, ["PMAY-G"], {}), PH_ROWS, ["PMAY-G"], {})
+
+
+def test_fallback_stays_flat_when_grouping_would_move_a_row():
+    # a group split across the list (a ranking across blocks): the row order wins
+    rows = [PH_ROWS[0], PH_ROWS[2], PH_ROWS[1]]
+    out = p._deterministic_answer(rows)
+    assert "- EAST KHASI HILLS / KHATARSHNONG LAITKROH / KHRANG — placeholder houses: 1" in out
+    assert "**" not in out
+    # one label column, or labels that never repeat: flat as before
+    assert "- DALU — person days: 390,921" in p._deterministic_answer(
+        [{"lgd_block": "DALU", "person_days": 390921}, {"lgd_block": "RONGRAM", "person_days": 470583}])
+    assert "**" not in p._deterministic_answer(
+        [{"d": "A", "b": "X", "n": 1}, {"d": "B", "b": "Y", "n": 2}])
+
+
+# ── Key points over a multi-row fallback (user report 2026-11-03) ───────────
+# "highlight points of what the question asked": the 72-village answer never said 126.
+KP_ROWS = PH_ROWS + [_ph("RI BHOI", "UMSNING", "UMIAM", 3, 270001)]
+KP_SQL = ("SELECT lgd_district, lgd_block, lgd_village_name, village_code, "
+          "COUNT(*) FILTER (WHERE is_placeholder) AS placeholder_houses FROM curated.v_pmay GROUP BY 1, 2, 3, 4")
+
+
+def test_fallback_key_points_are_computed_from_every_row():
+    out = p._framed_fallback(KP_ROWS, ["PMAY-G"], {}, sql=KP_SQL)
+    assert out.startswith("Under PMAY-G, across all financial years in all of Meghalaya (statewide), here are the 4 results:\n"
+                          "**Key points**\n")
+    assert "- Placeholder houses: 7 in total, across 4 villages." in out
+    assert "- Spread over 2 districts and 3 blocks." in out
+    assert "- Most in EAST KHASI HILLS: 4, across 3 villages." in out
+    assert "- Highest single village: 3, at UMSNING / UMIAM." in out
+    assert "\n**Details**\n- **EAST KHASI HILLS / KHATARSHNONG LAITKROH**" in out
+    for r in KP_ROWS:                       # the details still carry every value
+        assert r["lgd_village_name"] in out and str(r["village_code"]) in out
+
+
+def test_fallback_key_points_skip_the_rollup_total_and_years():
+    rows = [{"lgd_district": "A", "houses": 5}, {"lgd_district": "B", "houses": 7},
+            {"lgd_district": "C", "houses": 1}, {"lgd_district": None, "houses": 13}]
+    out = p._framed_fallback(rows, ["PMAY-G"], {},
+                             sql="SELECT lgd_district, COUNT(*) AS houses FROM curated.v_pmay GROUP BY ROLLUP(lgd_district)")
+    assert "- Houses: 13 in total, across 3 districts." in out      # not 26: the TOTAL row is not a district
+    yrs = [{"district": "A", "financial_year": 2022 + i, "houses": i + 1} for i in range(3)]
+    assert "6,066" not in p._framed_fallback(yrs, ["PMAY-G"], {}, sql="SELECT 1")   # years are never summed
+
+
+def test_fallback_without_sql_or_with_two_rows_is_unchanged():
+    assert "**Key points**" not in p._framed_fallback(KP_ROWS, ["PMAY-G"], {})
+    assert "**Key points**" not in p._framed_fallback(KP_ROWS[:2], ["PMAY-G"], {}, sql=KP_SQL)
+    # rows of different layouts (one with a label missing): no highlights, the list as before
+    mixed = KP_ROWS + [{"lgd_district": "X", "placeholder_houses": 1}]
+    assert "**Key points**" not in p._framed_fallback(mixed, ["PMAY-G"], {}, sql=KP_SQL)
