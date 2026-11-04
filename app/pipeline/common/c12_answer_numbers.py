@@ -514,8 +514,8 @@ def _deterministic_answer(rows: list[dict]) -> str:
     # debug output and silently dropped the rest (a 12-district summary showed 5
     # districts — CM Elevate Legacy use-case QA TC-25 / TC-36, 2026-09-25).
     shown = rows[:_DETERMINISTIC_MAX_ROWS]
-    lines = []
-    for r in shown:
+    lines = _c12_grouped_lines(shown)
+    for r in ([] if lines else shown):
         labels = [str(v) for v in r.values() if v is not None and _as_number(v) is None]
         metrics = ", ".join(f"{_unit_suffix(k)[0]}: {_c12_money(v, _c12_money_unit(k))}" if _c12_money_unit(k)
                             else f"{_metric_label(k)}: {_fmt_num(v)}" for k, v in _row_metrics(r))
@@ -527,6 +527,128 @@ def _deterministic_answer(rows: list[dict]) -> str:
 
 
 _DETERMINISTIC_MAX_ROWS = 15
+
+
+def _c12_row_split(r: dict) -> "tuple[list, list, list]":
+    """(labels, codes, figures) of one result row: (column, text) of each label cell,
+    (column, value) of each identifier cell (_c12_is_code_col) and of each figure cell."""
+    labels = [(k, str(v)) for k, v in r.items()
+              if v is not None and _as_number(v) is None and not _c12_is_code_col(str(k))]
+    codes = [(k, v) for k, v in r.items() if v is not None and _c12_is_code_col(str(k))]
+    metrics = [(k, v) for k, v in _row_metrics(r) if not _c12_is_code_col(str(k))]
+    return labels, codes, metrics
+
+
+def _c12_key_points(rows: list[dict]) -> list[str]:
+    """The highlights of a multi-row list, computed by code from EVERY row (user report
+    2026-11-03: "highlight points of what the question asked" — the 72-village answer to
+    "where are these 126 beneficiaries registered?" never said 126, nor where most were).
+    The total of the first figure column (additive measures only), how many places of each
+    outer level, the place with the most, and the highest single row. [] when the rows do
+    not share one label layout and one figure column (a ROLLUP total row, mixed shapes),
+    so nothing is said that the rows do not show."""
+    if len(rows) < 3:
+        return []
+    parts = [_c12_row_split(r) for r in rows]
+    keys = [k for k, _v in parts[0][0]]
+    # the figure: the first measure column that is not a year / rank / code (_NONSTAT_COL,
+    # as the result digest reads it) — a numeric financial_year is never summed
+    m = next((k for k, _v in parts[0][2] if not _NONSTAT_COL.search(str(k))), None)
+    if not keys or m is None or any([k for k, _v in p[0]] != keys for p in parts):
+        return []
+    vals = [dict(p[2]).get(m) for p in parts]
+    if any(v is None for v in vals):
+        return []
+    money = _c12_money_unit(str(m))
+
+    def fmt(v):
+        return _c12_money(v, money) if money else _fmt_num(v)
+
+    label = _unit_suffix(str(m))[0] if money else _metric_label(str(m))
+    label = label[:1].upper() + label[1:]
+
+    def noun(col: str, plural: bool = True) -> str:
+        return _c12s_dim_noun(_AnswerShape(kind="list", labels=[col]), plural=plural)
+
+    tuples = [tuple(v for _k, v in p[0]) for p in parts]
+    unique = len(set(tuples)) == len(rows)
+    item, items = (noun(keys[-1], False), noun(keys[-1])) if unique else ("row", "rows")
+    additive = _c12s_additive(str(m)) and all(v >= 0 for v in vals)
+    points: list[str] = []
+    if additive:
+        points.append(f"{label}: {fmt(sum(vals))} in total, across {len(rows)} {items}.")
+    else:
+        points.append(f"{len(rows)} {items} in the result.")
+    spread, single = [], None
+    for i, k in enumerate(keys[:-1]):
+        seen = list(dict.fromkeys(t[i] for t in tuples))
+        if len(seen) == 1 and single is None:
+            single = seen[0]
+        elif len(seen) > 1:
+            spread.append(f"{len(seen)} {noun(k)}")
+    if single is not None:
+        points.append(f"All in {single}.")
+    if spread:
+        points.append("Spread over " + " and ".join(spread) + ".")
+    outer = next((i for i, k in enumerate(keys[:-1]) if len({t[i] for t in tuples}) > 1), None)
+    if additive and outer is not None:
+        sums: dict = {}
+        counts: dict = {}
+        for t, v in zip(tuples, vals):
+            sums[t[outer]] = sums.get(t[outer], 0) + v
+            counts[t[outer]] = counts.get(t[outer], 0) + 1
+        ranked = sorted(sums.items(), key=lambda kv: kv[1], reverse=True)
+        if ranked[0][1] > ranked[1][1]:
+            top = ranked[0][0]
+            points.append(f"Most in {top}: {fmt(ranked[0][1])}, across {counts[top]} "
+                          f"{item if counts[top] == 1 else items}.")
+    hi, lo = max(vals), min(vals)
+    if hi == lo:
+        points.append(f"Every {item} has {fmt(hi)}.")
+    else:
+        where = [" / ".join(t[-2:]) if len(t) > 1 else t[-1] for t, v in zip(tuples, vals) if v == hi]
+        more = f" and {len(where) - 3} more" if len(where) > 3 else ""
+        points.append(f"Highest single {item}: {fmt(hi)}, at {', '.join(where[:3])}{more}.")
+    return [f"- {p}" for p in points]
+
+
+def _c12_grouped_lines(shown: list[dict]) -> list[str]:
+    """The fallback's lines with the repeated outer place names written once, or [] to
+    keep the flat list. PMAY-G "where are these 126 beneficiaries registered?" (user
+    report 2026-11-03) printed "EAST KHASI HILLS / MAWPHLANG / LADUMRISAIN — placeholder
+    houses: 2, village code: 278230" on every line: district and block repeated, and the
+    LGD code dressed as a figure. Rows whose leading labels repeat become one header per
+    group with the last label under it, its code beside the name. Only when every row has
+    the same 2+ label columns and each group's rows are already consecutive, so no row is
+    moved (a ranking keeps its order) and every value is still written."""
+    if len(shown) < 2:
+        return []
+    parts = [_c12_row_split(r) for r in shown]
+    keys = [k for k, _v in parts[0][0]]
+    if len(keys) < 2 or any([k for k, _v in p[0]] != keys for p in parts):
+        return []
+    group_of = [" / ".join(v for _k, v in p[0][:-1]) for p in parts]
+    order: list[str] = []
+    for g in group_of:
+        if not order or order[-1] != g:
+            if g in order:
+                return []                     # a group split across the list: keep the row order
+            order.append(g)
+    if len(order) == len(shown):
+        return []                             # nothing repeats: the flat list is as short
+    lines: list[str] = []
+    prev = None
+    for g, (labels, codes, metrics) in zip(group_of, parts):
+        if g != prev:
+            lines.append(f"- **{g}**")
+            prev = g
+        name = labels[-1][1]
+        code = ", ".join(f"{_metric_label(str(k))} {v}" for k, v in codes)
+        figs = ", ".join(f"{_unit_suffix(k)[0]}: {_c12_money(v, _c12_money_unit(k))}" if _c12_money_unit(k)
+                         else f"{_metric_label(k)}: {_fmt_num(v)}" for k, v in metrics)
+        item = f"{name} ({code})" if code else name
+        lines.append(f"  - {item} — {figs}" if figs else f"  - {item}")
+    return lines
 
 
 # ── Professional framing of an answer (user report 2026-10-18) ──────────────
@@ -600,9 +722,12 @@ def _scope_words(schemes: "list[str] | None", entities: "dict | None") -> tuple[
     return scheme, place, period
 
 
-def _framed_fallback(rows: list[dict], schemes: "list[str] | None", entities: "dict | None") -> str:
+def _framed_fallback(rows: list[dict], schemes: "list[str] | None", entities: "dict | None",
+                     sql: "str | None" = None) -> str:
     """The deterministic answer as a briefing sentence: scheme, figure, what it
-    counts, area and period — never a bare "<value> <column>."."""
+    counts, area and period — never a bare "<value> <column>.". With `sql` (the
+    compose path), a multi-row answer also opens with code's key points
+    (_c12_key_points), read from the rows without the query's own TOTAL row."""
     scheme, place, period = _scope_words(schemes, entities)
     lead = f"Under {scheme}, " if scheme else ""
     where = f"in {place}"
@@ -644,7 +769,16 @@ def _framed_fallback(rows: list[dict], schemes: "list[str] | None", entities: "d
     head = head[0].upper() + head[1:]
     body = _deterministic_answer(rows)
     first_nl = body.find("\n")
-    return head + (body[first_nl:] if first_nl >= 0 else "\n" + body)
+    lines = body[first_nl:] if first_nl >= 0 else "\n" + body
+    points: list[str] = []
+    if sql is not None:
+        try:
+            points = _c12_key_points(_c12s_rollup_split(sql, rows)[0])
+        except Exception:                    # the highlights are extra: never lose the answer over them
+            logger.warning("framed fallback: key points skipped", exc_info=True)
+    if points:
+        return head + "\n**Key points**\n" + "\n".join(points) + "\n**Details**" + lines
+    return head + lines
 
 
 def _is_fallback_answer(answer: str, rows: list[dict], schemes: "list[str] | None", entities: "dict | None") -> bool:
@@ -981,7 +1115,7 @@ def _finish_data_result(result: dict) -> None:
         if (result.get("schemes") or []) == ["Focus Plus"]:          # RAG fix report Issue 12
             result["answer"] = _focusplus_per_beneficiary_caveat(result["answer"], result.get("sql"))
         _c12_missing_twins_note(result, rows, display)
-        _c17_attach_caveats(result)      # provisional money, absent years (data-accuracy brief RC5)
+        _c17_attach_caveats(result)      # absent years (data-accuracy brief RC5; the provisional-money note removed 2026-11-03)
         _c17_mark_winner(result)         # the row a "which … most" answered, for follow-ups
     except Exception:  # noqa: BLE001 — presentation only; the answer stands as written
         logger.warning("_finish_data_result failed (non-fatal)", exc_info=True)

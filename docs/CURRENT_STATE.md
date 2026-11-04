@@ -5,6 +5,56 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: context frames — whole-window context (2026-11-03/04, D-100, KI-671..674). Code changed, uncommitted; LIVE-VERIFIED in-process. :8401 NOT restarted.
+- User chat: Focus Plus total -> district-wise -> "compare this with … Focus Legacy" (was statewide) -> "include focus
+  plus also" (was the documents) -> "i mean compare focus plus also" (was Focus Plus alone). Now all three give the
+  district-wise Focus Plus vs Focus Legacy comparison; the bare "Focus" turn still asks which (CLAUDE.md §4).
+- How (`app/context_frames.py`): a frame per answered turn, the whole window in the snapshot (it held only the last
+  turn before, KI-674); where the existing path loses context — the `comparison_with_earlier` branch, a give-up of
+  `rewrite_followup`, a follow-up no gate caught — one 9B guided-JSON call continues the latest ANSWERED figure
+  (asides / pauses skipped) and deterministic checks (existing readers, no word lists) refuse any loss or invented
+  name; any skip / failure -> the old path. The precise rules (swaps, figure reference, measure change …) stay first.
+- Rollback: `CONTEXT_FRAMES_ENABLED=false`. Tests: NEW `tests/test_context_frames_2026_11_03.py` (24); live harness
+  144/159, the 15 failures identical with the frames off (stale expectations, mostly CM Elevate vs D-099).
+- :8401 runs on SYSTEM Python (PID 12828 on 11-03), not `.venv`: restart it from `.venv` to serve this and the RAG
+  embedding path correctly.
+
+## Latest: fallback list reads grouped (2026-11-03, KI-665). Code changed, uncommitted; offline-verified only.
+- The composer's deterministic fallback (`_deterministic_answer`, multi-row) no longer repeats "DISTRICT / BLOCK /" on
+  every line: `_c12_grouped_lines` writes the repeated labels once as a bold header, each row under it, the LGD code
+  beside the name instead of among the figures. Same rows, same 15-row cap, same values; flat list kept when grouping
+  would reorder a row. Composer layer only (`c12_answer_numbers.py`); no frontend change.
+- The same fallback now opens with **Key points** computed by code from every row (total, how many districts / blocks,
+  where most, highest single row), then **Details** (the list). Only on the compose path's multi-row fallbacks (`sql=`).
+- Cross-scheme district-wise summaries of 3+ schemes are now point-wise blocks (Summary, Total, one block per district,
+  a point per scheme) instead of one wrapped `|` line per district (KI-666, `app/cross_figures.py` `_district_tables`).
+- The chat no longer adds "Note: … amounts are provisional, and the money unit has not been verified by the
+  department." to money answers (KI-667, user decision; the absent-year Note and the cards' "*" stay).
+- An all-years answer over a scheme with a year gap now notes the years its data covers ("Note: Focus Plus data
+  covers FY …", live from `_SCHEME_DATA_YEARS`) instead of naming the missing years (KI-668); a multi-scheme answer lists every scheme's years in one Note.
+- **CM Elevate (D-099, KI-669):** a new chat asks "CM Elevate or CM Elevate Legacy?" (no keyword switching); the
+  chosen dataset stays for the chat; a question only the other dataset holds asks "switch or stay?".
+- **CM Elevate "all statuses" (KI-670):** answered with every application (8,938 live) and its verification split;
+  a valid-only figure now says it is valid-only.
+- Still open: the frontend bolds the code too; why the composer's own answer was rejected for BLH UAT 8 is unconfirmed (check the server log).
+## Latest: context memory — BLH Bot UAT 2026-11-02 (D-098, KI-660..664). Code changed, uncommitted; LIVE-VERIFIED in-process. :8401 NOT restarted (it still serves the old code).
+- UAT `BLH Bot UAT 20261102.pdf`: 4 of 10 failed, all on context. Each reproduced live on the old code first (UAT 10
+  only in one long chat). Causes and the decision: DECISIONS D-098.
+- Fixed, generic (no scheme names, no new word lists): typed replies to a scheme pause ("both", "all of them",
+  several names, one name + scope, scope alone; never loses a typed word) — KI-660; a reference cue opens the
+  follow-up rewrite (one decision with `turn_kind`) — KI-661; a figure the previous answer stated is referenceable
+  (`Turn.subsets` from the SQL tree, deterministic rewrite, `subset_condition`, rows-add-up guard, PMAY-G fixed query
+  refuses a stated subset) — KI-662; a vague question runs in the ACTIVE topic (amends D-061 rule 4) — KI-663.
+- Live after: UAT 3 both schemes by district; UAT 4 comparison kept, no picker; UAT 8 "these 126" and the explicit
+  wording 3/3 each = `is_placeholder`, 126 in 72 villages (DB truth); UAT 10 no picker, PMAY-G. Whole UAT as one chat:
+  every turn right.
+- Tests: NEW `tests/test_context_memory_uat_2026_11_02.py` (23); 2 tests pinning the old D-061 rule 4 updated
+  (`test_new_vs_followup_2026_10_22.py`, `test_test_team_report_2026_10_29.py`); full pytest 5,341 passed / 0 failed
+  after the update (first run 5,340 / 1 = that pinned test); scripts 14/14; live context suite 27/27 scenarios, 109
+  checks, 0 failed; NEW harness file `tests/conversation_harness/scenarios/blh_uat_2026_11_02.yaml` 4/4 in-process.
+- Open: KI-664 ("define completion rate" — documents hold no definition; content, not context); subsets of
+  multi-row results; restart :8401 from `.venv`, then run the harness file over HTTP.
+
 ## Latest: Focus + / CM Elevate Legacy sheet re-test (2026-10-30, KI-648..KI-655). Code changed, uncommitted; LIVE-VERIFIED in-process (except TC-31, VPN down).
 - Workbook `Test Case Results - 30th Sep 26.xlsx`, sheets "Focus +" and "CM Elevate Legacy", run live through the graph
   with megh_db truth (`tests/sheet_runs/fp_run.py`, `cl_run.py`) + 46 new permutations (`tests/sheet_runs/fpcl_perm.py`).

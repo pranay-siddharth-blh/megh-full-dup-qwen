@@ -36,6 +36,11 @@ class Turn:
     # character slice of `answer`, which could carry names the follow-up never
     # referred to. Empty for knowledge, edge and failed turns.
     result_summary: str = ""
+    # D-098: the sub-counts this turn's answer stated, with the condition that
+    # defines each, read from the SQL tree ([{"figure": "126", "column":
+    # "placeholders", "condition": "is_placeholder"}], context_manager.result_subsets).
+    # "where are these 126?" is resolved against them. Empty when none.
+    subsets: list = field(default_factory=list)
 
 
 @dataclass
@@ -188,6 +193,10 @@ class Session:
     # conversation, so "go back to MGNREGA" restores MGNREGA's place and year.
     # Part of the durable snapshot, so a return works on any worker.
     topics: dict = field(default_factory=dict)
+    # D-100: one frame per answered turn of the window (app/context_frames.py) —
+    # the question run and its scope. In the snapshot in full, unlike `turns`
+    # (which keep only the last turn there), so any worker sees the whole chat.
+    frames: list = field(default_factory=list)
     # Wall-clock time (time.time()) of this conversation's last message, for
     # the idle expiry in app/conversation_layer.py. Wall clock, not monotonic:
     # it is compared across workers and VMs. 0 = unknown (an older snapshot).
@@ -233,6 +242,7 @@ class Session:
                 "resolved_entities": dict(last.resolved_entities),
                 "answer": (last.answer or "")[: self._SNAPSHOT_ANSWER_CHARS],
                 "result_summary": last.result_summary,
+                "subsets": list(last.subsets or []),
             },
             "pending": None if not self.pending_scope_q else {
                 "question": self.pending_scope_q,
@@ -244,6 +254,7 @@ class Session:
             # as many as the session keeps (SESSION_MAX_TURNS; questions only, short)
             "recent_questions": [t.question for t in self.turns[-max(1, settings.SESSION_MAX_TURNS):] if t.question],
             "topics": self.topics or None,
+            "frames": list(self.frames or []) or None,
             "context_at": self.context_at or None,
             "memory_since": self.memory_since or None,
             "expired": self.expired_ctx or None,
@@ -267,7 +278,8 @@ class Session:
                 question=last.get("question") or "", raw_question=last.get("raw_question") or "",
                 route=last.get("route") or "data", schemes=list(last.get("schemes") or []),
                 resolved_entities=dict(last.get("resolved_entities") or {}),
-                answer=last.get("answer") or "", result_summary=last.get("result_summary") or ""))
+                answer=last.get("answer") or "", result_summary=last.get("result_summary") or "",
+                subsets=list(last.get("subsets") or [])))
         self.turns = turns
         pending = extra.get("pending") or {}
         self.pending_scope_q = pending.get("question")
@@ -278,6 +290,7 @@ class Session:
         # Absent in a snapshot written before topic memory / the idle expiry
         # were stored: no topics, age unknown.
         self.topics = dict(extra.get("topics") or {})
+        self.frames = list(extra.get("frames") or [])
         self.context_at = float(extra.get("context_at") or 0.0)
         self.memory_since = float(extra.get("memory_since") or 0.0)
         self.expired_ctx = extra.get("expired") or None

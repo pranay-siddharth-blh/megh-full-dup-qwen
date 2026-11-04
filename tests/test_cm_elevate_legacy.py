@@ -99,12 +99,13 @@ def test_application_questions_stay_on_cm_elevate(question):
     "how many CM Elevate records in FY 2024-25",
 ])
 def test_money_year_lender_questions_go_straight_to_legacy(question):
-    # User decision 2026-10-22 (replacing 2026-10-19's "ask"): financial data lives
-    # only in CM Elevate Legacy, so a money / FY / lender question goes there directly.
-    pinned = p._pin_cm_elevate_dataset(question)
-    assert LEGACY in pinned and p._shortcut_scheme(pinned) == [LEGACY]
-    assert p._cm_elevate_dataset_choice(question) == "legacy"
-    assert p._cm_elevate_dataset_pause(question) is None
+    # User decision 2026-11-03 (replaces 2026-10-22's "straight to Legacy"): a new chat
+    # ASKS, whatever the words; a Legacy chat keeps Legacy; an applications chat asks to switch.
+    assert p._pin_cm_elevate_dataset(question) == question
+    assert p._cm_elevate_dataset_choice(question) == "ask"
+    assert p._cm_elevate_dataset_pause(question) is not None
+    assert LEGACY in p._pin_cm_elevate_dataset(question, LEGACY)
+    assert p._cm_elevate_dataset_choice(question, "CM Elevate") == "switch_to_legacy"
 
 
 def test_applications_chip_wording_keeps_the_applications_dataset():
@@ -127,13 +128,13 @@ def test_applications_chip_wording_keeps_the_applications_dataset():
     "How many applications are recorded under Meghalaya Piggery Development Scheme?",
 ])
 def test_applications_word_alone_is_the_applications_dataset(question):
-    # 2026-10-22 these asked (both datasets hold applications); user decision 2026-10-29
-    # (D-090, RAG fix report Issue 8): the word "applications" / "applicants" settles it
-    # as the applications dataset; money words still mean Legacy, the thread still wins.
+    # D-090 (2026-10-29) settled these as the applications dataset unasked; user decision
+    # 2026-11-03: a new chat asks; a chat already on a dataset keeps it (both hold applications).
     assert p._pin_cm_elevate_dataset(question) == question
-    assert p._cm_elevate_dataset_choice(question) == "applications"
-    assert p._cm_elevate_dataset_pause(question) is None
+    assert p._cm_elevate_dataset_choice(question) == "ask"
+    assert [o["label"] for o in p._cm_elevate_dataset_pause(question).options] == ["CM Elevate", LEGACY]
     assert p._cm_elevate_dataset_choice(question, "CM Elevate Legacy") == "legacy"
+    assert p._cm_elevate_dataset_choice(question, "CM Elevate") == "applications"
 
 
 def test_a_knowledge_turn_does_not_settle_the_dataset():
@@ -160,12 +161,13 @@ def test_each_scheme_follows_the_answer_dataset_not_the_typed_name():
 
 
 def test_a_sub_scheme_follows_the_rule_too():
-    assert p._cm_elevate_dataset_choice("How many piggery applications are pending?") == "applications"
+    assert p._cm_elevate_dataset_choice("How many piggery applications are pending?") == "ask"     # new chat
+    assert p._cm_elevate_dataset_choice("How many piggery applications are pending?", "CM Elevate") == "applications"
     assert p._cm_elevate_dataset_choice("How many applications under the piggery scheme in Ri Bhoi?",
                                         "CM Elevate Legacy") == "legacy"
     assert LEGACY in p._pin_cm_elevate_dataset("How many applications under the piggery scheme in Ri Bhoi?",
                                                "CM Elevate Legacy")
-    assert p._cm_elevate_dataset_choice("What is the piggery scheme?") is None      # knowledge: no ask
+    assert p._pin_cm_elevate_dataset("What is the piggery scheme?") == "What is the piggery scheme?"  # no rewrite
     assert p._cm_elevate_dataset_choice("How many MGNREGA households in Ri Bhoi?") is None
 
 
@@ -177,26 +179,38 @@ def test_a_sub_scheme_follows_the_rule_too():
 ])
 def test_applications_plus_a_financial_word_is_legacy(question):
     # Legacy sheet run 2026-10-22: these went to the applications data and answered
-    # "80.63% sanctioned" (true 99.89%) and "8,840 not sanctioned" (true 3).
-    assert p._cm_elevate_dataset_choice(question) == "legacy"
-    assert p._cm_elevate_dataset_choice(question, "CM Elevate") == "legacy"   # even in an applications chat
+    # "80.63% sanctioned" (true 99.89%) and "8,840 not sanctioned" (true 3). Since the user
+    # decision 2026-11-03 they are never answered from the applications data unasked:
+    # a new chat asks, an applications chat asks to switch, a Legacy chat keeps Legacy.
+    assert p._cm_elevate_dataset_choice(question) == "ask"
+    assert p._cm_elevate_dataset_choice(question, "CM Elevate") == "switch_to_legacy"
+    assert p._cm_elevate_dataset_choice(question, LEGACY) == "legacy"
+    ask = p._cm_elevate_switch_pause(question, "CM Elevate")
+    assert ask.rule == "cm-elevate-dataset" and [o["label"] for o in ask.options] == [
+        "CM Elevate Legacy (switch)", "CM Elevate (stay)"]
+    switch_q, stay_q = (o["question"] for o in ask.options)
+    assert p._cm_elevate_switch_pause(switch_q, "CM Elevate") is None       # the pick is final: no second ask
+    assert p._cm_elevate_switch_pause(stay_q, "CM Elevate") is None
+    assert p._resume_scheme_pause("legacy", ask.options) == switch_q
 
 
 def test_the_thread_settles_a_bare_cm_elevate():
     q = "give me the applications under CM Elevate in Ri Bhoi"
     assert LEGACY in p._pin_cm_elevate_dataset(q, "CM Elevate Legacy")
     assert p._cm_elevate_dataset_choice(q, "CM Elevate Legacy") == "legacy"
-    apps = p._pin_cm_elevate_dataset(q, "CM Elevate")   # the words already settle it (D-090): no rewrite
-    assert p._cm_elevate_dataset_choice(apps) == "applications"
-    recs = p._pin_cm_elevate_dataset("give me the records under CM Elevate in Ri Bhoi", "CM Elevate")
-    assert "CM Elevate (applications)" in recs and p._cm_elevate_dataset_choice(recs) == "applications"
-    assert p._pin_cm_elevate_dataset(q, "Focus Plus") == q       # another thread: the words decide (D-090)
-    assert p._cm_elevate_dataset_choice(q, "Focus Plus") == "applications"
-    assert p._cm_elevate_dataset_choice("give me the records under CM Elevate in Ri Bhoi", "Focus Plus") == "ask"
-    # a financial word overrides the thread (the 2026-10-22 chat answered
-    # "8,840 applications have been sanctioned" on the applications thread)
+    apps = p._pin_cm_elevate_dataset(q, "CM Elevate")          # the chat's dataset is written in
+    assert "CM Elevate (applications)" in apps and p._cm_elevate_dataset_choice(apps) == "applications"
+    assert p._pin_cm_elevate_dataset(q, "Focus Plus") == q       # another thread: no dataset yet -> ask
+    assert p._cm_elevate_dataset_choice(q, "Focus Plus") == "ask"
+    # user decision 2026-11-03: a financial word in an applications chat no longer switches
+    # it; it asks to switch (before, it went to Legacy unasked)
     money = "give me the amount disbursed under CM Elevate in Ri Bhoi"
-    assert LEGACY in p._pin_cm_elevate_dataset(money, "CM Elevate")
+    assert p._pin_cm_elevate_dataset(money, "CM Elevate") == money
+    assert p._cm_elevate_switch_pause(money, "CM Elevate") is not None
+    # and an applications-only word in a Legacy chat asks to switch the other way
+    held = "how many CM Elevate applications are on hold in Ri Bhoi"
+    ask = p._cm_elevate_switch_pause(held, LEGACY)
+    assert [o["label"] for o in ask.options] == ["CM Elevate (switch)", "CM Elevate Legacy (stay)"]
 
 
 def test_dataset_pause_chips_and_typed_replies_resolve():
@@ -400,9 +414,7 @@ def test_naming_both_retrieves_the_shared_docs_once(monkeypatch):
 
 def test_knowledge_question_is_not_shown_a_dataset_rewrite():
     q = "how much subsidy does CM Elevate provide"
-    pinned = p._pin_cm_elevate_dataset(q)
-    assert pinned != q                                    # the DATA-side decision (a money word, 2026-10-22)
-    assert p._unpin_cm_elevate(pinned) == q               # undone on the KNOWLEDGE route
+    assert p._pin_cm_elevate_dataset(q) == q                 # new chat: no rewrite (the data stage asks)
     assert p._unpin_cm_elevate(p._pin_cm_elevate_dataset(q, "CM Elevate Legacy")) == q
     assert p._unpin_cm_elevate(p._pin_cm_elevate_dataset(q, "CM Elevate")) == q
 
@@ -1026,3 +1038,117 @@ def test_place_spelling_fix_keeps_a_name_that_ends_in_a_bracket():
     assert p._cml_fix_place_spelling(ok, d) == ok        # was "( Upper ) )"
     assert p._cml_fix_place_spelling("in Teporpra ( Upper ) block", d) == "in Teporpara ( Upper ) block"
     assert p._cml_fix_place_spelling("the Sellsella block", {"block": "SELSELLA"}) == "the Selsella block"
+
+
+# ── "all statuses" and the valid-only default (user report 2026-11-03) ──────
+# "give me total applications in CM Elevate in all statuses?" -> 7,375 (the valid applications)
+# was given as "across all statuses"; the all-status total was 8,938.
+_VALID_SQL = "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE data_verified = 'Valid'"
+
+
+@pytest.mark.parametrize("question", [
+    "give me total applications in CM Elevate (applications) in all statuses",
+    "total CM Elevate applications in any status",
+    "CM Elevate applications across all verification states",
+    "whatever the status, how many CM Elevate applications are there",
+    "How many CM Elevate applications in every status?",
+])
+def test_all_statuses_means_every_application(question):
+    assert p._cme_asks_all_applications(question)
+    assert p._cm_elevate_valid_default(question, ["CM Elevate"],
+                                       "SELECT COUNT(DISTINCT request_id) AS a FROM curated.v_cm_elevate") \
+        == "SELECT COUNT(DISTINCT request_id) AS a FROM curated.v_cm_elevate"     # no valid filter added
+    out = p._cm_elevate_all_applications(question, ["CM Elevate"], _VALID_SQL)
+    assert "WHERE" not in out.split("FROM")[-1]                                   # the model's valid filter dropped
+    assert "FILTER(WHERE data_verified = 'Valid')" in out and "IS NULL" in out     # and the split by state
+
+
+@pytest.mark.parametrize("question", [
+    "How many CM Elevate applications in Ri Bhoi?",
+    "status wise CM Elevate applications",
+    "how many applications are pending in all districts",
+])
+def test_other_questions_keep_the_valid_default(question):
+    assert not p._cme_asks_all_applications(question)
+
+
+def test_a_valid_only_figure_says_so():
+    note = p._cme_default_only_note(_VALID_SQL, "Total applications across all statuses is 7,375.")
+    assert note == ("Note: these figures count valid applications only (data verified: Valid). "
+                    "Ask for all applications to include every status.")
+    assert p._cme_default_only_note(_VALID_SQL, "There are 7,375 valid applications.") is None
+    assert p._cme_default_only_note("SELECT COUNT(*) FROM curated.v_cm_elevate", "8,938 applications.") is None
+    assert p._cme_default_only_note(
+        "SELECT COUNT(*) FROM curated.v_cm_elevate WHERE data_verified IN ('Valid', 'Wrong')", "x") is None
+    # through the finalize step, CM Elevate only; the chip marker echo is tidied
+    r = {"route": "data", "schemes": ["CM Elevate"], "rows": [{"applications": 2038}], "sql": _VALID_SQL,
+         "resolved_entities": {"district": "RI BHOI"},
+         "answer": "There are 2,038 CM Elevate (applications) applications in Ri Bhoi."}
+    p._c17_attach_caveats(r)
+    assert r["answer"] == ("There are 2,038 CM Elevate applications in Ri Bhoi.\n\n" + note)
+    other = dict(r, schemes=["MGNREGA"], answer="2,038.")
+    p._c17_attach_caveats(other)
+    assert "valid applications only" not in other["answer"]
+
+
+def test_marker_echo_only_before_the_same_word():
+    assert p._cme_marker_echo("Under CM Elevate (applications) there are 5 applicants.") == \
+        "Under CM Elevate (applications) there are 5 applicants."
+    assert p._cme_marker_echo("5 CM Elevate (applications) applicants") == "5 CM Elevate applicants"
+
+
+# ── "all beneficiaries" / "entire CM Elevate" mean every application (user 2026-11-04) ──
+# "i need all beneficiaries" and "i need total beneficiaries in entire em elevate" were both
+# answered with the 7,375 valid applications (all statuses: 8,938): "beneficiaries" was not a
+# word the all-applications reader knew, and the follow-up rewrite / the rephraser dropped the
+# "all" / "entire" the officer typed.
+def test_count_terms_come_from_the_sme_resolver_file():
+    assert {"beneficiaries", "applicants"} <= entity_resolver.count_terms("CM Elevate")
+    assert entity_resolver.count_terms("No Such Scheme") == frozenset()
+
+
+@pytest.mark.parametrize("question", [
+    "i need all beneficiaries",
+    "i need total beneficiaries in entire CM Elevate",
+    "total beneficiaries in the whole CM Elevate scheme",
+    "all applicants in CM Elevate",
+    "how many beneficiaries overall in CM Elevate, every beneficiary",
+])
+def test_a_whole_set_of_beneficiaries_is_every_application(question):
+    assert p._cme_asks_all_applications(question)
+
+
+@pytest.mark.parametrize("question", [
+    "how many beneficiaries in CM Elevate (applications)",
+    "total beneficiaries in CM Elevate",                                  # a plain total: the default (2026-10-30)
+    "beneficiaries in all districts under CM Elevate",                    # a place scope
+    "beneficiaries in CM Elevate across the entire state",
+    "beneficiaries in the entire state of Meghalaya under CM Elevate",
+    "CM Elevate beneficiaries for all years",                             # a time scope
+    "beneficiaries in all CM Elevate schemes",                            # the sub-schemes
+    "how many applications are on hold",
+])
+def test_a_scope_word_or_a_plain_total_keeps_the_valid_default(question):
+    assert not p._cme_asks_all_applications(question)
+
+
+def test_the_typed_request_for_every_application_survives_the_rewrite():
+    rewritten = "how many beneficiaries in CM Elevate (applications)"
+    out = p._cme_restore_all_applications(rewritten, ["i need all beneficiaries", None])
+    assert out == "how many beneficiaries in CM Elevate (applications), all applications?"
+    assert p._cme_asks_all_applications(out)
+    rephrased = "How many total beneficiaries (applications) are there under CM Elevate in the entire state of Meghalaya?"
+    typed = ["i need total beneficiaries in entire em elevate",
+             "i need total beneficiaries in entire em CM Elevate (applications)"]     # the pinned, pre-rephrase form
+    assert p._cme_asks_all_applications(p._cme_restore_all_applications(rephrased, typed))
+
+
+def test_restore_leaves_everything_else_alone():
+    q = "how many beneficiaries in CM Elevate (applications)"
+    assert p._cme_restore_all_applications(q, [q]) == q                                 # nothing typed asks for all
+    legacy = "how many beneficiaries in CM Elevate Legacy"
+    assert p._cme_restore_all_applications(legacy, ["i need all beneficiaries"]) == legacy
+    other = "how many MGNREGA households"
+    assert p._cme_restore_all_applications(other, ["i need all beneficiaries"]) == other
+    done = "all applications in CM Elevate"
+    assert p._cme_restore_all_applications(done, ["i need all beneficiaries"]) == done

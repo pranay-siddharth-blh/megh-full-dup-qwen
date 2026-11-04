@@ -630,6 +630,113 @@ def _resume_scheme_pause(reply: str, options: "list | None") -> "str | None":
     return offered.get(named[0])
 
 
+# D-098 (BLH UAT 2026-11-02, item 3): "compare this with spend on Focus scheme" ->
+# "Which Focus?" -> typed "compare both schemes by district" was no single scheme name,
+# so _resume_scheme_pause let it through, the paused question was dropped and the reply
+# was rewritten against the last answer (Focus Plus alone). A reply that takes EVERY
+# offered scheme: "both", "all of them / all schemes", or "compare" with no side named.
+_C03_ALL_OPTIONS = Matcher(Alt(
+    W("both"),
+    Seq(W("all", "each", "every"), Opt("of"), Opt(W("the", "these", "those")),
+        W("them", "schemes", "options"), sep="space"),
+    Seq(W(*sorted(context_policy._TK_COMPARE)), W("them", "these", "those"), sep="space")))
+
+
+def _c03_scope_tail(reply: str, base: str) -> str:
+    """The scope a typed reply adds to a paused question, read by the same scanners the
+    follow-up plan uses (context_policy.asked_levels, extract_year_keys, place_mentions):
+    " by district", " in FY 2023-24", " in Ri Bhoi". What `base` already says is skipped."""
+    from app.entity_resolver import place_mentions
+    tail = []
+    for lvl in context_policy.asked_levels(reply):
+        if lvl not in context_policy.asked_levels(base):
+            tail.append(f"by {lvl}")
+    for yk in sorted(context_policy.extract_year_keys(reply) - context_policy.extract_year_keys(base)):
+        tail.append(f"in {context_manager._fy_text(yk)}")
+    have = place_mentions(base)
+    for name in place_mentions(reply):
+        if name not in have:
+            tail.append(f"in {name.title()}")
+    return (" " + " ".join(tail)) if tail else ""
+
+
+def _c03_join_names(names: "list[str]") -> str:
+    return names[0] if len(names) == 1 else ", ".join(names[:-1]) + f" and {names[-1]}"
+
+
+def _resume_scheme_pause_typed(reply: str, paused: str, options: "list | None") -> "str | None":
+    """The question a typed reply to a scheme pause stands for when it is more than one
+    bare scheme name (_resume_scheme_pause handles that), or None (the reply then goes on
+    untouched, as before). D-098:
+      - every offered scheme ("both", "all of them", "compare" naming no side), plus any
+        scope the reply adds: "compare both schemes by district" -> the paused question
+        for Focus Legacy and Focus Plus, by district;
+      - ONE offered scheme plus scope: "legacy by district";
+      - scope only, no scheme: "by district" -> the paused question with that scope, so
+        the scheme question asked again carries it.
+    Never a guess: the built question must hold every word the reply typed (bar the pick
+    and filler words); a reply with a measure or filter of its own is a new message."""
+    if not reply or not paused or not options:
+        return None
+    opts = [o for o in options if isinstance(o, dict) and o.get("question")]
+    paused_schemes = _exact_schemes(paused)
+    per_option = []
+    for o in opts:
+        own = sorted(_exact_schemes(o["question"]) - paused_schemes)
+        if len(own) != 1:
+            return None
+        per_option.append((own[0], o["question"]))
+    if not per_option:
+        return None
+    r = reply.strip()
+    offered = [s for s, _ in per_option]
+    named = [s for s in offered if s in _exact_schemes(r)]
+    if _exact_schemes(r) - set(offered):
+        return None                      # names a scheme the pause did not offer: a new question
+    words = set(w.lower() for w in _c01_tm_words(r))
+    side_words = set()
+    if not named:
+        # "legacy by district" to the which-Focus pause: the side word names the scheme
+        # exactly as a bare "legacy" does in _resume_scheme_pause.
+        for _side in (_FOCUS_SIDE_WORD, _CME_SIDE_WORD):
+            if set(offered) == set(_side.values()):
+                hits = {_side[w] for w in words if w in _side}
+                if len(hits) == 1:
+                    named = sorted(hits)
+                    side_words = {w for w in words if w in _side}
+    wants_all = bool(_C03_ALL_OPTIONS.search(r)) or (
+        not named and words & context_policy._TK_COMPARE and len(per_option) > 1)
+    tail = _c03_scope_tail(r, paused)
+    picked = offered if wants_all else named
+    if len(picked) > 1:
+        # every offered scheme, or the several the reply named ("mgnrega and pmay-g")
+        first_scheme, first_q = next((s, q) for s, q in per_option if s == picked[0])
+        built = _SCHEME_NAME_MATCHER[first_scheme].sub(_c03_join_names(picked), first_q, count=1
+                                                       ).rstrip(" ?.") + tail
+        how = "all-options" if wants_all else "several-options"
+    elif len(named) == 1 and tail:
+        built = dict(per_option)[named[0]].rstrip(" ?.") + tail
+        how = "one-option+scope"
+    elif not named and tail:
+        built = paused.strip().rstrip(" ?.") + tail
+        how = "scope-only"
+    else:
+        return None
+    # Nothing the officer typed may be lost: every reply word must be in the built
+    # question once the scheme names, the pick words and the reply filler are taken out.
+    rest = r
+    for s in _exact_schemes(r):
+        rest = _SCHEME_NAME_MATCHER[s].sub(" ", rest)
+    rest = _SCHEME_REPLY_FILLER.sub(" ", _C03_ALL_OPTIONS.sub(" ", rest))
+    built_words = set(w.lower() for w in _c01_tm_words(built)) | side_words
+    lost = [w for w in (x.lower() for x in _c01_tm_words(rest)) if w not in built_words]
+    if lost:
+        context_budget.log_decision("pause_reply", typed="not-resumed", lost=lost[:6])
+        return None
+    context_budget.log_decision("pause_reply", typed=how)
+    return built + "?"
+
+
 # ── CM Elevate: "the vehicle scheme?" — which of several real sub-schemes? ──
 # The phrase used to name a scheme-FAMILY the question named in the singular
 # (resolve_cm_scheme_group_ambiguity's match) — swapped out for each candidate's

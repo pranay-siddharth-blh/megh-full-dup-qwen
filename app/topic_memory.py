@@ -330,7 +330,8 @@ def _state_topic(state) -> "str | None":
 def _turn_dict(turn) -> dict:
     return {"question": turn.question, "raw_question": turn.raw_question, "route": turn.route,
             "schemes": list(turn.schemes or []), "resolved_entities": dict(turn.resolved_entities or {}),
-            "answer": (turn.answer or "")[:_ANSWER_CHARS], "result_summary": turn.result_summary or ""}
+            "answer": (turn.answer or "")[:_ANSWER_CHARS], "result_summary": turn.result_summary or "",
+            "subsets": list(getattr(turn, "subsets", None) or [])}
 
 
 def _turn_from(d: dict):
@@ -338,7 +339,8 @@ def _turn_from(d: dict):
     return Turn(question=d.get("question") or "", raw_question=d.get("raw_question") or "",
                 route=d.get("route") or "data", schemes=list(d.get("schemes") or []),
                 resolved_entities=dict(d.get("resolved_entities") or {}),
-                answer=d.get("answer") or "", result_summary=d.get("result_summary") or "")
+                answer=d.get("answer") or "", result_summary=d.get("result_summary") or "",
+                subsets=list(d.get("subsets") or []))
 
 
 def _fingerprint(turn) -> str:

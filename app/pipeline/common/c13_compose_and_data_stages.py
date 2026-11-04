@@ -294,7 +294,7 @@ Answer:"""
             logger.warning("compose_response: retry still wrong — using deterministic answer")
             # in the question's shape when it has one (a ranked list, a comparison …)
             answer = (_shaped_fallback(shape, _shape_rows, schemes, entities, question)
-                      or _framed_fallback(rows if len(rows) > 1 else preview, schemes, entities))
+                      or _framed_fallback(rows if len(rows) > 1 else preview, schemes, entities, sql=sql))
 
     # Deterministic safety net for the opposite failure: the query DID return a
     # real, non-zero number, but the composer hedged with a "not covered / no
@@ -322,7 +322,7 @@ Answer:"""
             # chart/table built from the same rows showed real data.
             logger.warning("compose_response: hedged over a %d-row breakdown %r — "
                            "deterministic answer", len(preview), answer[:160])
-            answer = _shaped_fallback(shape, _shape_rows, schemes, entities, question) or _framed_fallback(rows, schemes, entities)
+            answer = _shaped_fallback(shape, _shape_rows, schemes, entities, question) or _framed_fallback(rows, schemes, entities, sql=sql)
     # A list answer must state the list's true size: "Ten villages in the
     # Dadenggre constituency received employment" for 135 villages, and the
     # fallback's "Here are the 40 results" for 114 (it was handed only the
@@ -335,7 +335,7 @@ Answer:"""
                              for n in {len(rows), len(_shape_rows)} | _per_scheme_sizes):
         logger.warning("compose_response: answer states a list size other than %d — deterministic answer",
                        len(rows))
-        answer = _shaped_fallback(shape, _shape_rows, schemes, entities, question) or _framed_fallback(rows, schemes, entities)
+        answer = _shaped_fallback(shape, _shape_rows, schemes, entities, question) or _framed_fallback(rows, schemes, entities, sql=sql)
     answer = _c12s_fix_trend_direction(answer, shape, _shape_rows)   # KI-441
     answer = _cme_level_pending_wording(question, schemes, answer)  # KI-422
     answer = _fp_cohort_zero_answer(question, schemes, rows, answer)  # KI-365
@@ -1251,6 +1251,10 @@ async def _data_entity_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
         raise
     if _fp_amount is not None:
         entity_result.setdefault("notes", []).append(_focusplus_amount_note(_fp_amount))
+    if (prior_resolved or {}).get("subset_condition") and not d.get("cross"):
+        # D-098: the set a figure reference points at ("these 126"), read from the
+        # previous answer's SQL — a MANDATORY filter like any resolved entity.
+        entity_result.setdefault("resolved", {})["subset_condition"] = prior_resolved["subset_condition"]
     if _rel_note:
         entity_result.setdefault("notes", []).append(_rel_note)
     # A year-gap rewrite (see resolve_entities) replaces the question for
@@ -2050,12 +2054,16 @@ async def _data_deterministic_stage(d: dict, scope: "auth.UserScope | None" = No
         if _pm_answer:
             _pm_answer = _pmay_expenditure_not_held(_pm_det, _pm_answer)
             _pm_answer = _pmay_with_year_gap_note(_pm_answer, entity_result.get("notes"))
+            # D-098: the sub-counts the answer states ("including 126 …") from the RAW row,
+            # before it is shaped for display, so "where are these 126?" can be resolved
+            _pm_subsets = context_manager.result_subsets(
+                {"route": "data", "sql": _pm_det["shown"], "rows": [dict(r) for r in _pm_rows]})
             _pm_rows = _pmay_display_rows(_pm_det, _pm_rows)
             return {
                 "route": "data", "intent": "DATA", "confidence": "high", "schemes": schemes,
                 "resolved_entities": entity_result["resolved"], "sql": _pm_det["shown"],
                 "sql_query": _pm_det["shown"], "row_count": len(_pm_rows), "rows": _pm_rows[:20],
-                "data": _pm_rows, "answer": _pm_answer,
+                "data": _pm_rows, "answer": _pm_answer, "subsets": _pm_subsets,
             }
         if (_pm_det["dim"] == "village" and len(_pm_det["entities"]) == 1 and _pm_det.get("date") is None
                 and _pm_det.get("year_key") is None and not _pm_det.get("stages")):
@@ -3261,6 +3269,9 @@ async def _update_context(session: "Session | None", raw_question: str, result: 
             await context_manager.maybe_update_summary(session)
         except Exception:  # noqa: BLE001 — the context layer must never break an answer
             logger.warning("context layer post-processing failed (non-fatal)", exc_info=True)
+    # D-100: this turn's frame, for a later follow-up resolved over the whole window.
+    from app import context_frames as _c13_frames
+    _c13_frames.record(session, raw_question, result)
     # E1 stage 1 (D-078): the query plan, logged beside this turn's decisions. Built in
     # the background AFTER the answer, unless stage 2a (D-085) already started it
     # during the turn, beside the guardrail call: then that plan is reused (or

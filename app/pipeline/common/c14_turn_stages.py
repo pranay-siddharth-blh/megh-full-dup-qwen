@@ -318,7 +318,11 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
     # reply and the question after reference substitution. Never persisted.
     if session is not None:
         _before = session.state.to_dict()
+        # D-100: the conversation layer resolved this follow-up over the window
+        # (context_frames); kept across the reset below.
+        _frame_resolved = bool((session.turn_context or {}).get("frame_resolved"))
         session.turn_context = {
+            "frame_resolved": _frame_resolved,
             "state_before": {k: _before.get(k) for k in
                              ("scheme", "district", "block", "village", "year", "metric", "tranche")},
             "previous_question": getattr(prev, "question", "") or "",
@@ -381,7 +385,8 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
         session.pending_village_hint = None
         session.pending_scope_rule = None
         session.pending_scope_options = None
-        _picked = _resume_scheme_pause(question, _pending_options)
+        _picked = (_resume_scheme_pause(question, _pending_options)
+                   or _resume_scheme_pause_typed(question, pending, _pending_options))   # D-098
         if _picked:
             logger.info("scheme clarification resumed from typed reply %r -> %r", question, _picked)
             session.turn_context["clarification_reply"] = question
@@ -1481,9 +1486,12 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
             # (_c14_keeps_chat_scope): the conversation layer writes a measure after
             # a knowledge aside that way, and it was labelled new (test team report
             # 2026-10-29, Bug 1).
+            # A follow-up the context frames resolved (D-100) reads as a whole
+            # question but continues the chat: not "new".
             session.turn_context["new_question"] = bool(
                 _standalone and getattr(ctx_state, "scheme", None)
-                and not _c14_keeps_chat_scope(raw_question, ctx_state))
+                and not _c14_keeps_chat_scope(raw_question, ctx_state)
+                and not session.turn_context.get("frame_resolved"))
         if _tk.kind == context_policy.TURN_VAGUE and not _meta_rewrite and not _resumed_kind \
                 and not (session is not None and session.turn_context.get("topic_switched")):
             _ask = _vague_topic_clarification(raw_question, session)
@@ -1509,6 +1517,13 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
     elif (looks_like_followup(question) or is_scopeless_followup(question, prev)
             or is_scheme_substitution(question, prev)
             or pronoun_refers_to_previous_term(question, prev)
+            # D-098 (BLH UAT 2026-11-02, item 4): "show the comparison visually in chart
+            # form" after a Focus Plus vs Focus Legacy answer — turn_kind read the
+            # reference cue (FOLLOWUP) but none of the checks above did, so it ran as a
+            # new question with no scheme and paused "Which scheme?". One decision: a
+            # reference CUE turn_kind found is a follow-up here too (a bare fragment
+            # still needs the checks above, which keep off-topic messages out).
+            or _c14_cue_followup(_tk, prev)
             # "what is the wage part of that?", "how much of that was …": a
             # back-reference into the previous (or paused) question is a
             # follow-up whatever its opening words (context audit 2026-10-19).
@@ -1566,6 +1581,17 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                 question = _c01_kmeasure_question(question, prev, _thread_state)
                 context_budget.log_decision("followup", rewrite="deterministic-measure-after-knowledge",
                                             scheme=prev.schemes[0])
+            elif (_fig_q := _c14_figure_reference_question(question, prev, _thread_state)):
+                # "where are these 126 …?": the figure's own description from the
+                # previous answer (D-098).
+                question, _fig_cond = _fig_q
+                if session is not None:
+                    session.turn_context["figure_reference"] = True
+                    if _fig_cond:
+                        session.turn_context["figure_subset"] = _fig_cond
+                context_budget.log_decision("followup", rewrite="deterministic-figure-reference",
+                                            scheme=prev.schemes[0])
+                logger.info("follow-up figure reference -> %r", question)
             elif _pure_measure_change(question, prev, _plan) and not (
                     session is not None and session.turn_context.get("antecedent_from_pause")):
                 # (Not when the antecedent is a question still waiting for its year:
@@ -1596,9 +1622,20 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                                             scheme=prev.schemes[0])
                 logger.info("follow-up comparison with a place -> %r", question)
             else:
+                _before_rw = question
                 question = await rewrite_followup(question, prev, extra_context=_extra_ctx,
                                                   kind=_plan.kind if _plan else None,
                                                   cleared=_cleared_filters(_plan, prev, _thread_state))
+                if question == _before_rw:
+                    # D-100: the rewrite gave up (failed, or its provenance check
+                    # rejected it against the PREVIOUS turn only) — "i mean compare
+                    # focus plus also" after a documents aside lost Focus Legacy
+                    # (2026-11-03). The context frames resolve it over the window.
+                    from app import context_frames as _c14_frames
+                    _framed = await _c14_frames.resolve(session, question)
+                    if _framed:
+                        question = _framed
+                        context_budget.log_decision("followup", rewrite="context-frame-after-rewrite")
                 question = _c14_keep_block_level(question, prev, _plan)          # KI-037
             # The rewrite can introduce a bare "CM Elevate" ("give me for cm
             # elevate") — the same thread decision as above; outside a CM Elevate
@@ -1643,6 +1680,16 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                                "you'd like to know."),
                     "suggestions": list(edge.STARTERS),
                     **_empty_data_fields()}
+    elif (_tk is not None and _tk.kind == context_policy.TURN_FOLLOWUP and not _standalone
+          and has_context and not scope_resumed and not _bare_focus and not _term_question
+          and (_framed_gm := await _c14_frame_gate_miss(session, question))):
+        # D-100: turn_kind reads a follow-up but none of the checks above did, so
+        # nothing carried it ("include focus plus also" went to the documents as a
+        # new question, 2026-11-03). The context frames resolve it over the window.
+        question = _pin_cm_elevate_dataset(_framed_gm, _cm_thread_scheme(prev, _thread_state))
+        _cm_pinned = question != _framed_gm
+        is_followup_rewrite = True
+        context_budget.log_decision("followup", rewrite="context-frame-gate-miss")
 
     # 1b. Re-check edge on the rewrite (cheap, and the rewrite can surface one).
     #     Same scope-resume carve-out as step 0.
@@ -2137,6 +2184,12 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
         # The user's own words are classified instead.
         intent = await classify_intent(raw_question, **_c14_plan_kw)
     intent = intent or await classify_intent(question, **_c14_plan_kw)
+    if intent != "DATA" and session is not None and (session.turn_context or {}).get("figure_reference"):
+        # D-098: a figure the previous DATA answer stated ("where are these 126 …?") is
+        # asked of the data that produced it; the 4B read "where … registered" as a
+        # how-to and sent it to the documents in 1 of 2 live runs (2026-11-02).
+        context_budget.log_decision("intent", override="figure_reference", was=intent)
+        intent = "DATA"
     if intent == "DATA" and _is_entitlement_question(raw_question):
         intent = "KNOWLEDGE"
     # KR1 (knowledge fix 2026-10-29): the question's form, not its words — see _KF_FORMS.
@@ -2185,6 +2238,23 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
     if intent == "KNOWLEDGE" and not _DEFINITION_ASK_MATCH.search(raw_question) \
             and not _is_entitlement_question(raw_question) and _cross_figures_question(raw_question):
         intent = "DATA"
+    # User decision 2026-11-03: a chat on one CM Elevate dataset keeps it; a DATA question
+    # only the other dataset holds asks to switch (the context stage left it unpinned).
+    # Here, after routing, so a how-it-works question is never asked.
+    if intent == "DATA" and session is not None:
+        _cm_thread_now = _cm_thread_scheme(session.last_turn, _turn_ctx_state(session),
+                                           getattr(session, "pending_scope_q", None))
+        _cm_switch_ask = _cm_elevate_switch_pause(t.get("pre_rephrase_question") or question, _cm_thread_now)
+        if _cm_switch_ask is not None:
+            context_budget.log_decision("cm_dataset", rule="switch-confirm", scheme=_cm_thread_now)
+            raise _cm_switch_ask
+    if intent == "DATA":
+        # Every CM Elevate application asked in the officer's own words, lost by the follow-up
+        # rewrite or the rephraser, comes back (user 2026-11-04; _cme_restore_all_applications).
+        _all_q = _cme_restore_all_applications(question, [raw_question, t.get("pre_rephrase_question")])
+        if _all_q != question:
+            question = t["question"] = _all_q
+            context_budget.log_decision("cm_dataset", rule="all-applications-typed")
     context_budget.log_decision("intent", intent=intent, followup=is_followup_rewrite,
                                 kind=_plan.kind if _plan else None,
                                 schemes_named=sorted(_named_schemes(question)))
@@ -2406,6 +2476,11 @@ async def _turn_data_context_stage(t: dict, session: "Session | None" = None,
         _prior_resolved = _same_scheme_context_year(
             t["question"], t["raw_question"], _thread_state,
             kind=(session.turn_context or {}).get("turn_kind") if session is not None else None)
+    _subset = (session.turn_context or {}).get("figure_subset") if session is not None else None
+    if _subset:
+        # D-098: "the 126" as the previous answer's own query defined it; resolve_entities'
+        # caller copies it into the resolved entities (c13 _data_entity_stage).
+        _prior_resolved = {**(_prior_resolved or {}), "subset_condition": _subset}
     t["prior_resolved"] = _prior_resolved
 
 
@@ -2555,6 +2630,60 @@ def _compare_with_place_followup_question(question: str, prev, plan, state) -> "
             f"{schemes[0]}{_swap_scope_phrase(year_only, schemes[0], prev, with_place=False)}?")
 
 
+def _c14_figure_reference_question(question: str, prev, state) -> "tuple[str, str | None] | None":
+    """The rewrite of a follow-up that points at a figure the previous DATA answer stated
+    ("where are these 126 beneficiaries registered?"), or None: the user's own words, what
+    the answer said that figure counts, the chat's scheme and scope.
+
+    D-098 (BLH UAT 2026-11-02, item 8): the model rewrite saw only the previous question
+    and filters and answered the district split of all 1,71,107; given the answer's
+    sentence it kept the subset but turned "where" into "how many" and copied the year
+    range. Deterministic, like the measure-change rewrite (KI-334): nothing the user typed
+    is dropped and nothing is added but the figure's own description.
+
+    Returns (question, condition): `condition` is the SQL condition that defined the
+    figure in the previous query (Turn.subsets) when there is exactly one, and the figure
+    is then described by that column's name — the answer's prose ("no house sanctioned
+    yet") was read by the entity resolver as the status 'House Sanctioned' (live
+    2026-11-02). Without a stored condition, the answer's own clause describes it."""
+    if prev is None or getattr(prev, "route", None) != "data":
+        return None
+    schemes = list(getattr(prev, "schemes", None) or [])
+    if len(schemes) != 1:
+        return None
+    sub = next((s for s in (context_manager.subset_for_figure(prev, f)
+                            for f in context_manager.quoted_figures(question)) if s), None)
+    if sub is not None:
+        fig, what, cond = sub["figure"], sub["column"].replace("_", " "), sub["condition"]
+    else:
+        fc = context_manager.figure_clause(question, getattr(prev, "answer", "") or "")
+        if fc is None:
+            return None
+        (fig, what), cond = fc, None
+    body = question.strip().rstrip(" ?.")
+    from app.entity_resolver import place_mentions as _c14_pm
+    return (f"{body} (the {fig} {what}) under {schemes[0]}"
+            f"{_swap_scope_phrase(state, schemes[0], prev, with_place=not _c14_pm(question))}?"), cond
+
+
+async def _c14_frame_gate_miss(session, question: str) -> "str | None":
+    """D-100: the context frames' question for a follow-up the rewrite gate missed, or None."""
+    from app import context_frames
+    return await context_frames.resolve(session, question)
+
+
+def _c14_cue_followup(tk, prev) -> bool:
+    """True when turn_kind found an explicit reference cue ("this", "these", "both",
+    "compare" with one side named, a leading "and") and there is an answered scheme
+    turn to refer to (D-098). The fragment verdict alone ("fragment") does not count:
+    an unanchored short message is left to looks_like_followup / continuation_signals."""
+    if tk is None or tk.kind != context_policy.TURN_FOLLOWUP or prev is None:
+        return False
+    if getattr(prev, "route", None) not in _ANTECEDENT_ROUTES or not getattr(prev, "schemes", None):
+        return False
+    return any(r.startswith(("cue:", "lead")) for r in tk.reasons)
+
+
 def _vague_topic_clarification(question: str, session) -> "ClarificationNeeded | None":
     """D-061: a vague question ("how many beneficiaries?") while two or more
     topics are open is asked, one chip per topic — never a default scheme. With
@@ -2582,6 +2711,18 @@ def _vague_topic_clarification(question: str, session) -> "ClarificationNeeded |
         # vocabulary only one open topic's data holds ("on hold" = CM Elevate)
         keys = _cme_open_topic_pin(question, keys) or keys
     if len(keys) < 2:
+        return None
+    # D-098 (BLH UAT 2026-11-02, item 10): "What is completion rate" right after
+    # "What is the PMAY-G completion rate … by district?" asked "PMAY-G, Focus Legacy or
+    # Focus Plus?" — Focus topics from ten turns earlier outranked the answer just given,
+    # and the chip answer was asked again for "define completion rate". The topic the
+    # LAST answer was about is the one a vague question continues; the picker is for a
+    # chat whose active topic is no single scheme (a comparison), or whose active topic
+    # the measure itself excluded above. The ACTIVE topic, not the last turn: a "thanks"
+    # in between leaves the topic as it was (topic_memory, aside).
+    active = mem.get("active")
+    if active in keys:
+        context_budget.log_decision("turn_kind", vague="active-topic", topic=active)
         return None
     q = (question or "").strip()
     names = ", ".join(keys[:-1]) + f" or {keys[-1]}"

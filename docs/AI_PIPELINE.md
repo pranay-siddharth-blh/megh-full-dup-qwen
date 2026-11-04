@@ -73,7 +73,7 @@ node. The order matters: many steps exist to run
 | a | Spelling fix of scheme names | `_correct_scheme_spelling` | – | – |
 | b | Pin bare "CM Elevate" (or a lone CM Elevate sub-scheme) to a dataset — D-064: financial words → "CM Elevate Legacy" (thread included); the thread's dataset; otherwise left for the data stage's "CM Elevate (applications) or CM Elevate Legacy?" pause, which reads `pre_rephrase_question` (c13) | `_pin_cm_elevate_dataset`, `_cm_elevate_dataset_choice` | – | – |
 | c | **Resume a paused clarification**: merge `"<paused q>, <reply>"` unless the reply is a chip (full question), conversational, or a new question (`_reply_abandons_scope_pause`) | reads `session.pending_scope_q` | – | – |
-| c' | **Resume a scheme pause** (`SCHEME_PAUSE_RULES`): a typed scheme name becomes that chip's question; anything else passes through unchanged (§5.2) | `_resume_scheme_pause`, reads `pending_scope_rule/options` | – | – |
+| c' | **Resume a scheme pause** (`SCHEME_PAUSE_RULES`): a typed scheme name becomes that chip's question; since D-098 also "both / all of them", several names, one name + scope, scope alone (§5.2); anything that would lose a typed word passes through unchanged | `_resume_scheme_pause`, `_resume_scheme_pause_typed`, reads `pending_scope_rule/options` | – | – |
 | c'' | **Continuation gate** (2026-09-29, KI-130): does the message share anything with the previous turn? `has_context` = antecedent AND a signal (or a pause resume). Without one: edge whitelist applies, no rewrite, no KNOWLEDGE scheme fallback (§5.7) | `context_policy.continuation_signals` | – | – |
 | d | Harmful-request refusal; guardrail rules, scope rules, then the guardrail model (D-040 / D-041). Model down (error, timeout, unreadable reply): a message with an abuse word gets the `unverified` reply (not cached), the rest go on; counted and alerted (`outage_monitor`, D-080, 2026-10-29) | `edge.detect_harmful`, c14 `_guardrail_check`, `guardrails.check_model` | **4B** (guardrail) | `edge` |
 | e | "What is EKH?" district/block definition | `_geo_definition_answer` | – | `knowledge` |
@@ -166,6 +166,9 @@ In order:
    released; FOCUS = members; 'Unresolved' out of village counts only; Focus Plus by `district_name_raw` /
    `block_name_raw`. Village / block lists, top N of villages or blocks, years, other measures, CM Elevate:
    the model path above. The route stage keeps such questions DATA (`_cross_figures_question`).
+   **Per-district list of 3+ schemes (2026-11-03, KI-666):** `_district_lines` hands it to `_district_tables`: a
+   **Summary** (top district per scheme, one sentence when one district tops all), a **Total** block (statewide figures,
+   G-12), then one bold block per district with a point per scheme, blank line after each block. Two schemes keep the `- District: A x | B y → A` lines.
    **D-097 (2026-10-30, Cross Scheme sheet re-run):** the coded path covers **all six schemes**, **one village**
    (`Plan.village`, each scheme's own village filter from `cross_scheme.SPECS`), **one constituency** (`Plan.ac`:
    MGNREGA `assembly_constituency_name` on `v_employment`, `ac_name` on every other view; Focus Plus and CM Elevate
@@ -1045,6 +1048,24 @@ scheme nor the area gets one closing scope sentence built from the resolved enti
 sentence with a plain-words label per column (`_HUMAN_METRIC`), the money unit, and the household-years / person-years
 caveat (`_METRIC_CAVEAT`). `_deterministic_answer` is unchanged for its other callers; `_is_fallback_answer` recognises
 both forms (CM Elevate Legacy guarantees). Failed data turns (`answer_failed`) are left untouched.
+Multi-row fallback grouping (2026-11-03, KI-665): when every shown row has the same 2+ label columns and the
+leading labels repeat in consecutive runs, `_c12_grouped_lines` writes `- **DISTRICT / BLOCK**` once and each row
+under it as `  - VILLAGE (village code N) — measure: v`; identifier columns (`_c12_is_code_col`) sit beside the name,
+not among the figures. A group split across the list (a ranking) or labels that never repeat keep the flat list.
+Key points (same day): `compose_response` passes `sql=sql` to `_framed_fallback` at its three multi-row fallbacks; the
+answer then reads head line, `**Key points**` (`_c12_key_points` over `_c12s_rollup_split(sql, rows)[0]`: total, spread,
+most, highest — computed by code, money through `_c12_money`), `**Details**`, then the list. No `sql` (cross-scheme
+per-scheme lines, `_is_fallback_answer`, single-row) = unchanged. Any exception in the key points leaves the plain list.
+
+### 2.9b' CM Elevate dataset choice (2026-11-03, D-099)
+Context stage: `_pin_cm_elevate_dataset(question, _cm_thread_scheme(...))` writes the chat's CM Elevate dataset into a
+bare "CM Elevate" question (Legacy, or the "CM Elevate (applications)" marker) and leaves it bare otherwise. Route
+stage (after DATA is decided): `_cm_elevate_switch_pause` asks "switch or stay?" when the question's words need the
+other dataset (`_cme_words_dataset`). Data stage: `_cm_elevate_dataset_pause` asks "CM Elevate or CM Elevate Legacy?"
+for any bare CM Elevate the chat did not settle — every new-chat data question, whatever its words.
+Valid-only default (2026-10-30) and its exits: `_cme_asks_all_applications` (now also "all / any status(es) / states",
+KI-670) drops it and splits by verification state; finalize adds `_cme_default_only_note` when the executed SQL kept
+only the default rows and the answer does not say so (read from the SQL tree and the rule YAML).
 
 ### 2.9c Answer shapes (2026-10-22, D-063, KI-377)
 
@@ -1168,8 +1189,12 @@ the stages that own each step), plus targeted edits. No graph node changed.
   model or the catalogue wrote (`_c17_widen_top1`; c16 `_c16_shape` builds 3); `compose_response` then answers in code
   (`_c17_runners_up_answer`): "Highest <measure> (<scope>): A, v1. Next: B (v2), then C (v3).", a tie said. The 4B
   verifier is shown the query with LIMIT 1 (`_c17_as_asked`): with LIMIT 3 it rejected every repair.
-- **RC5 caveats.** `_finish_data_result` -> `_c17_attach_caveats`: a Note line when the answer states ₹ from a
-  provisional / unverified dataset, and when an unfiltered (all-years) answer spans a year the dataset does not hold
+- **RC5 caveats.** `_finish_data_result` -> `_c17_attach_caveats`: a Note line when an unfiltered (all-years)
+  answer spans a year the dataset does not hold — since 2026-11-03 it names the years the data covers ("Note:
+  Focus Legacy data covers FY 2021-22, …", from `_SCHEME_DATA_YEARS`; several schemes over different periods:
+  one Note listing every scheme's years, "Note: years in the data — MGNREGA: FY 2017-18 to FY 2025-26; …"), not the
+  missing ones (the provisional / unverified-money Note was removed 2026-11-03,
+  user decision, KI-667)
   (years from `_SCHEME_DATA_YEARS`, live). The facts come from `scheme_registry.DATASETS` (D-092), which the cards'
   "*" now reads too (`routers/stats._cards`).
 - **RC6 money.** `_c12_money` writes the exact amount and its size: "₹37,49,31,500 (≈ ₹37.49 crore)", paise only
@@ -1472,6 +1497,7 @@ through the same function.
 | Structured state | `ConversationState`: schemes, entities, years, comparison districts. `update_state` runs after every answer but commits only a **successful** DATA turn. Persisted as `app.conversations.context_state` | – |
 | Prior entities | `merged_prior_resolved` seeds `resolve_entities` for follow-ups; tranche / sub-scheme are only taken for their own scheme | – |
 | Summary | `maybe_update_summary` every 4 turns | 4B |
+| Context frames (D-100) | `app/context_frames.py`: a frame per answered turn (whole window in the snapshot); `resolve` where the path above loses context (§5.9) | 9B, guided JSON |
 
 ### 5.0 Standalone or follow-up — decided before any rewrite (D-061, 2026-10-22; VERIFIED offline)
 
@@ -1482,7 +1508,7 @@ Every in-scope message that reaches the follow-up stage with a previous answer i
 |---|---|---|
 | FOLLOWUP | reference cue (it/its/there/same/this/that as pointers/instead/above/previous, "compare this", "what about", leading "and"/"also", Hinglish dobara/wahi/uska/pehle) or a fragment with no measure | only what it leaves out (merge plan, rewrite, `prior_resolved`) |
 | STANDALONE | own measure AND own scheme (named; or pinned by the measure when it also names its own year or place), no cue | nothing: statewide unless it names a place; its year, else the year chips (c13; D-065 — was the scheme's latest FY); banner "(new question)"; never rewritten. **Exception (D-075, KI-406):** when it only repeats the chat's measure (`detect_metric` = `state.metric`) on the chat's scheme, it keeps the chat's year (never the place) |
-| VAGUE | a measure with no scheme named | one open topic: that topic's scope; 2+ single-scheme topics: chips (`_vague_topic_clarification`, rule `topic-ambiguous`) |
+| VAGUE | a measure with no scheme named | one open topic: that topic's scope; the ACTIVE topic when it is one of the open single-scheme topics (D-098, amends rule 4); otherwise 2+ single-scheme topics: chips (`_vague_topic_clarification`, rule `topic-ambiguous`) |
 
 Slot-conflict guard: `context_policy.asked_levels` ("which X", "top N X", "by/each/per X", "X-wise") — that level
 and below are never inherited as the filter, the parent is (`_c14_kept_place_fields`, and the merge plan's
@@ -1579,6 +1605,30 @@ Previously a typed "Focus Plus" was answered as a new question and the paused as
 - The measure-gap pause is remembered as its first offer (`turn_context["standalone_question"]`),
   a real question in the new scheme with the carried scope.
 - Pauses with no options (`reference-ambiguous`, `column-not-held`) are not remembered.
+
+**2026-11-02 (D-098, BLH UAT, KI-660..663): context memory for typed replies, cues, the active topic and figures. LIVE-VERIFIED in-process.**
+- **Typed scheme-pause replies** (`c03 _resume_scheme_pause_typed`, after `_resume_scheme_pause` at step 0a'): every
+  offered scheme for "both" / "all of them" / "compare them" (`_C03_ALL_OPTIONS`, from `_TK_COMPARE`) or a reply
+  naming several; one scheme (or a Focus / CM Elevate side word) plus scope; scope alone merged into the paused
+  question. Scope = `_c03_scope_tail` (`asked_levels`, `extract_year_keys`, `place_mentions`). The built question
+  must contain every word the reply typed once scheme names, pick words and `_SCHEME_REPLY_FILLER` are removed;
+  otherwise None (log `pause_reply typed=not-resumed lost=[…]`) and the reply goes on as before.
+- **Follow-up gate** (c14, the `elif` before the rewrite): `_c14_cue_followup(turn_kind, prev)` — a reference cue
+  (`cue:*` / `lead*`, not `fragment`) after an answered data / knowledge scheme turn.
+- **Vague question**: `_vague_topic_clarification` returns None (runs in the chat's scope) when the topic memory's
+  `active` topic is among the open single-scheme topics (log `turn_kind vague=active-topic`).
+- **Figure references**: `Turn.subsets` = `context_manager.result_subsets(result)` (one-row results; each
+  `FILTER (WHERE …)` projection with its integer value; the PMAY-G fixed path computes it from its raw row before
+  `_pmay_display_rows` and returns `subsets`; `build_turn` prefers it). Saved in `Session.to_snapshot` and topic
+  memory. `quoted_figures(q)` = numbers right after a pointer word (`_TK_ALWAYS_REF` + this / that / the), never a
+  year. `_c14_figure_reference_question` (deterministic rewrite chain, after the measure-after-knowledge branch):
+  "<user's words> (the <N> <column or answer clause>) under <scheme><scope>?"; `turn_context["figure_reference"]`
+  makes the route stage keep DATA; `turn_context["figure_subset"]` -> `prior_resolved["subset_condition"]` -> c13
+  `_data_entity_stage` -> `resolved["subset_condition"]`, rendered MANDATORY by `prompt_builder._entities_block`.
+  `build_rewrite_evidence` adds tier `answer_figure` (the clause stating the figure) when no other excerpt is sent.
+- **Guards**: `_c17_figure_reference_mismatch` (c11 `_execute_one_attempt`, after execution) — rows of a question
+  carrying "(the N " must add up to N in an integer column, or be N rows; no rows = mismatch. `_pmay_stated_condition`
+  makes `_pmay_facts_query` return None for a stated figure that is not a year, short FY, date or instalment count.
 
 **2026-09-27 (Focus Plus QA, FOCUS-029):**
 - **Bank pause chips.** The "which bank?" pause (`_bank_clarification`) for a question naming
@@ -1965,6 +2015,28 @@ versus / against) + exactly ONE scheme name that is not the previous turn's (exa
 else (no place, year or other words beyond fillers) after a single-scheme DATA turn -> "Compare <prev> and <named> in <place>
 in <FY>" (place / year from `_scope_banner_place` / `_scope_banner_year` of the previous resolved entities), standalone, no model
 call; `cross_scheme.detect` then takes it.
+
+### 5.9 Context frames over the whole window (2026-11-03, D-100; LIVE-VERIFIED in-process 2026-11-04)
+- **Record** (`context_frames.record`, from c13 `_update_context`): every answered data / knowledge turn adds
+  `{id, q (the question run), route, schemes, by (asked_levels), place, years}` to `Session.frames`, capped at
+  `SESSION_MAX_TURNS`, persisted in the snapshot (`_session.frames`). Reset / expiry clear it; "continue" restores it.
+- **Base turn:** the latest frame with route `data` (deterministic). Pauses, greetings and how-it-works asides are
+  never a base. A knowledge aside about a scheme the base does not hold -> skip (`_data_thread_antecedent` decides).
+- **Resolve** (`context_frames.resolve`): skipped for STANDALONE / VAGUE (D-061, D-098), a bare "Focus", a reply an
+  open pause understands, no data turn yet, or `CONTEXT_FRAMES_ENABLED=false`. Otherwise one `llm.call_rewriter(...,
+  role="frame", guided={"guided_json": _SCHEMA})` with the window -> `{relation: followup|new, question}`.
+- **Checks** (`context_frames.check`, the pipeline's own readers): schemes only from the message or the base;
+  `context_policy.rewrite_violation` against message + base question; nothing of the base lost (schemes — also on a
+  one-side comparison, the `compare-one-side` cue —, breakdown level, place, years, measure family); no bare Focus;
+  the result is STANDALONE. Any skip / failure / failed check -> None -> the pre-D-100 path.
+- **Where it runs** — only where the existing path loses context, after every precise rule:
+  1. conversation layer, inside the `comparison_with_earlier` branch (its state-only question has no breakdown);
+  2. c14, after `rewrite_followup` returned the question unchanged;
+  3. c14, `turn_kind` FOLLOWUP but no follow-up check fired (`_c14_frame_gate_miss`).
+- **Logs:** `pipeline_decision stage=frame outcome=skip|rejected|resolved reason=… base=… back=…`;
+  `followup rewrite=context-frame-after-rewrite|context-frame-gate-miss`; `conversation action=compare-earlier-frame`.
+- **Tests:** `tests/test_context_frames_2026_11_03.py` (model stubbed). `tests/conftest.py` turns it off for the
+  other suites.
 
 ## 6. Post-answer
 - `followups.build_followups(route, question, schemes, resolved, sql, rows)`: up to 3

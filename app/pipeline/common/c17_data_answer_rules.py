@@ -10,7 +10,7 @@
 #   RC1  _c17_sub_asks                      — the asks one question carries
 #   RC3  _c17_sql_hygiene, _c17_sql_issue   — LIMIT noise, literal answers, other schemes' views
 #   RC4  _c17_runners_up_answer             — the winner plus the next two, ties said
-#   RC5  _c17_attach_caveats                — provisional / unverified money, absent years
+#   RC5  _c17_attach_caveats                — absent years (the provisional-money note removed 2026-11-03)
 #   RC6  _c17_money_cols                    — a money column's unit from the dataset registry
 # Facts about each dataset come from scheme_registry.DATASETS; the years each one
 # holds are read live (_SCHEME_DATA_YEARS). No regex (D-046): words through
@@ -298,9 +298,9 @@ def _c17_money_cols(rows: "list[dict]", schemes: "list[str] | None" = None) -> "
 # ── RC5: the dataset's caveats, said with the answer ───────────────────────
 # The cards mark Focus Plus / Focus Legacy / CM Elevate Legacy money "*" (figures
 # provisional) and say "no FY 2023-24" for Focus Legacy; the chat said neither (D8,
-# D9). A Note line is added when the answer states money from a provisional or
-# unverified dataset, and when an all-years figure spans a year the data does not
-# hold. Never twice: an answer that already names the gap year keeps its words.
+# D9). A Note line is added when an all-years figure spans a year the data does not
+# hold (the provisional-money Note was removed 2026-11-03, user decision). Never
+# twice: an answer that already names the gap year keeps its words.
 _C17_NOTE = "Note:"
 
 
@@ -330,24 +330,43 @@ def _c17_caveats(result: dict) -> "list[str]":
         return []
     schemes = [s for s in (result.get("schemes") or []) if s in scheme_registry.DATASETS]
     notes: list[str] = []
-    if "₹" in answer:
-        soft = [s for s in schemes if scheme_registry.DATASETS[s].money_unit
-                and (scheme_registry.DATASETS[s].provisional or not scheme_registry.DATASETS[s].money_verified)]
-        if soft:
-            notes.append(f"{_C17_NOTE} {_join_list(soft)} amounts are provisional, and the money unit has not been "
-                         "verified by the department.")
+    # The "amounts are provisional, and the money unit has not been verified by the
+    # department" note (D8) was removed by user decision 2026-11-03: it came with every
+    # money answer. The cards keep their "*" (scheme_registry.provisional, routers/stats.py).
+    if schemes == ["CM Elevate"]:
+        # a valid-only count must say so (applications_default, 2026-11-03)
+        _cme_note = _cme_default_only_note(result.get("sql") or result.get("sql_query") or "", answer)
+        if _cme_note:
+            notes.append(_cme_note)
     years = _c17_answer_years(result)
     if years == []:
-        for s in schemes:
-            held = list(_SCHEME_DATA_YEARS.get(s) or [])
-            gaps = _year_gaps(held) if len(held) > 1 else []
-            gaps = [g for g in gaps if g not in answer]
-            if gaps:
-                # the gap only: a cohort-locked column (Focus Plus women, FY 2025-26 only)
-                # covers fewer years than the dataset, so no "this total covers …"
-                notes.append(f"{_C17_NOTE} there is no {s} data for {_join_list(['FY ' + g for g in gaps])} "
-                             f"({'an absent year' if len(gaps) == 1 else 'absent years'}, not zero).")
+        # The years each scheme's data holds, read live (_SCHEME_DATA_YEARS), not the years
+        # it lacks (user decision 2026-11-03: "show the financial years applicable"; it said
+        # "there is no Focus Plus data for FY 2023-24 and FY 2024-25 (absent years, not
+        # zero)"). Said of the dataset, not "this total": a cohort-locked column (Focus Plus
+        # women, FY 2025-26 only) covers fewer. A scheme with no financial year at all
+        # (CM Elevate) has nothing to list.
+        held = {s: sorted(_SCHEME_DATA_YEARS.get(s) or [], key=_fy_start) for s in schemes}
+        held = {s: y for s, y in held.items() if y}
+        gapped = [s for s, y in held.items()
+                  if len(y) > 1 and [g for g in _year_gaps(y) if g not in answer]]
+        if len(held) == 1 and gapped:
+            s = gapped[0]
+            notes.append(f"{_C17_NOTE} {s} data covers {_c17_fy_span(held[s])}.")
+        elif len(held) > 1 and (gapped or len({tuple(y) for y in held.values()}) > 1):
+            # several schemes over different periods: every one of them, not only the gapped
+            # one (user report 2026-11-03: four schemes asked, the Note named Focus Plus alone)
+            notes.append(f"{_C17_NOTE} years in the data — "
+                         + "; ".join(f"{s}: {_c17_fy_span(y)}" for s, y in held.items()) + ".")
     return [n for n in notes if n not in answer]
+
+
+def _c17_fy_span(years: "list[str]") -> str:
+    """Sorted '2022-23' years as words: "FY 2017-18 to FY 2025-26" for three or more
+    consecutive years, else each one ("FY 2022-23 and FY 2025-26")."""
+    if len(years) >= 3 and not _year_gaps(years):
+        return f"FY {years[0]} to FY {years[-1]}"
+    return _join_list(["FY " + y for y in years])
 
 
 def _c17_mark_winner(result: dict) -> None:
@@ -366,6 +385,8 @@ def _c17_mark_winner(result: dict) -> None:
 
 def _c17_attach_caveats(result: dict) -> None:
     """Add the dataset's Note lines under a finished DATA answer (finalize, via _finish_data_result)."""
+    if isinstance(result, dict) and result.get("schemes") == ["CM Elevate"] and result.get("answer"):
+        result["answer"] = _cme_marker_echo(result["answer"])       # "CM Elevate (applications) applications"
     try:
         notes = _c17_caveats(result)
     except Exception:  # noqa: BLE001 — a caveat must never cost the answer
@@ -443,3 +464,37 @@ def _c17_ranking_question(ask: str, first: dict) -> str:
             break
     out += f" in {disp['year']}" if disp.get("year") else " across all financial years"
     return out + "?"
+
+
+def _c17_figure_reference_mismatch(question: str, rows: "list[dict]") -> "str | None":
+    """The repair message when a figure-reference question (c14
+    _c14_figure_reference_question writes "(the 126 registered with …)") got rows that do
+    not account for that figure, else None.
+
+    D-098 (live check 2026-11-02): "where are these 126 beneficiaries registered (the 126
+    registered with a sanctioned amount of ₹0 and no house sanctioned yet)" was filtered
+    status_name <> 'House Sanctioned' as well, which also drops the 12 with no status: 114
+    rows answered as "the 126". The officer named the size of the set, so the rows must
+    add up to it: a count column summing to N, or N rows. Only integer columns are read;
+    a result without one (a plain list of places) is not judged."""
+    for fig in context_manager.quoted_figures(question):
+        if f"(the {fig} " not in question:
+            continue
+        want = int(fig)
+        if want <= 0 or len(rows) == want:
+            return None
+        sums = {}
+        for col in (rows[0] if rows else {}):
+            vals = [r.get(col) for r in rows]
+            if all(isinstance(v, int) and not isinstance(v, bool) for v in vals):
+                sums[col] = sum(vals)
+        if rows and (not sums or want in sums.values()):
+            return None
+        got = (", ".join(f"{c} adds up to {s:,}" for c, s in sums.items())
+               if rows else "it returned no rows at all")
+        return (f"the question is about exactly {want:,} records — the set the previous answer "
+                f"described (the text in brackets) — but this result does not account for them "
+                f"({got}). Filter ONLY by what defines that set; drop any extra condition the "
+                f"question did not state (a status, a year, a NOT / <> test that also drops NULLs). "
+                f"Keep the grouping and the COUNT(*).")
+    return None

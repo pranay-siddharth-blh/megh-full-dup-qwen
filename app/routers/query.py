@@ -711,6 +711,7 @@ def build_turn(question: str, result: dict) -> Turn:
         # Structured evidence for a later "what about the top one?" —
         # see context_manager.build_rewrite_evidence (never raises).
         result_summary=context_manager.summarize_result(result),
+        subsets=result.get("subsets") or context_manager.result_subsets(result),     # D-098
     )
 
 

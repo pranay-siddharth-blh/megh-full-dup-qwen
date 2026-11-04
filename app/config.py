@@ -589,6 +589,10 @@ class Settings(BaseSettings):
     # them. See app/context_manager.py. Everything here degrades to the
     # pre-existing behaviour when disabled or on any failure.
     CONTEXT_LAYER_ENABLED: bool = True
+    # D-100: a frame per answered turn (the whole window in the snapshot) and one
+    # resolver call for a follow-up, checked deterministically (app/context_frames.py).
+    # Off, or on any failure / failed check, the follow-up path is the pre-D-100 one.
+    CONTEXT_FRAMES_ENABLED: bool = True
     # Deterministic structured-state carry (scheme hint, previous/current year
     # substitution, comparison-entity former/latter/other resolution). Cheap,
     # no model call; safe to leave on independent of the summary/memory knobs.

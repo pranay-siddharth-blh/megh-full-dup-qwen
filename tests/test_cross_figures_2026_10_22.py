@@ -307,8 +307,10 @@ def test_rank_districts(monkeypatch):
 def test_lakh_below_one_crore_and_totals_from_the_state_query(monkeypatch):
     _fake_db(monkeypatch)
     out = _ask("District-wise financial summary for MGNREGA, PMAY-G, Focus+ and FOCUS.")
-    assert "Focus Plus ₹52.38 lakh" in out["answer"]
-    assert "Total ₹" in out["answer"]
+    # 3+ schemes are point-wise blocks since 2026-11-03 (KI-666): the same figures, one district per block
+    assert ("**Ri Bhoi**\n- MGNREGA: ₹183.16 crore\n- PMAY-G: ₹222.85 crore\n- Focus Plus: ₹52.38 lakh\n"
+            "- Focus Legacy: ₹4.93 crore\n- All schemes: ₹411.46 crore\n") in out["answer"]
+    assert "**Total**\n- MGNREGA: ₹975.58 crore" in out["answer"]
 
 
 def test_average_per_beneficiary_is_each_schemes_own(monkeypatch):
@@ -437,3 +439,32 @@ def test_an_unasked_having_threshold_is_dropped_from_a_ranking():
     assert p._unasked_having_threshold("districts with fewer than 10 villages in Focus+", sql) == sql
     flat = sql.replace(" ORDER BY villages_covered ASC LIMIT 10", "")
     assert p._unasked_having_threshold(q, flat) == flat
+
+
+def test_three_or_more_schemes_by_district_are_point_blocks_with_every_value(monkeypatch):
+    # user report 2026-11-03 (KI-666): five schemes per district on one wrapped "|" line;
+    # then "points, with space below each, and a crisp summary"
+    _fake_db(monkeypatch)
+    out = _ask("Give me a district-wise summary comparing MGNREGA, PMAY-G, Focus Plus and Focus Legacy.")["answer"]
+    assert out.startswith("**All of Meghalaya, all financial years**\n**Summary**\n"
+                          "- West Garo Hills is the top district in every scheme, on beneficiaries and money.\n\n")
+    assert "**Total**\n- MGNREGA: 3,73,823 · ₹975.58 crore\n- PMAY-G: 50,712 · ₹647.86 crore\n" in out
+    assert ("**Ri Bhoi**\n- MGNREGA: 1,12,602 · ₹183.16 crore\n- PMAY-G: 17,565 · ₹222.85 crore\n"
+            "- Focus Plus: 419 · ₹52.38 lakh\n- Focus Legacy: 9,858 members (1,232 PGs) · ₹4.93 crore\n\n") in out
+    assert "- Ri Bhoi: MGNREGA" not in out and "**Total:**" not in out and "| District |" not in out
+    # two schemes keep the line form
+    two = _ask("District-wise MGNREGA and PMAY-G beneficiaries and money.", ["MGNREGA", "PMAY-G"])["answer"]
+    assert "**Summary**" not in two and "- Ri Bhoi: MGNREGA" in two
+
+
+def test_point_blocks_summary_is_per_scheme_when_a_scheme_has_no_money():
+    # CM Elevate records no money: never "top in every scheme, on beneficiaries and money"
+    plan = cf.Plan(schemes=["MGNREGA", "PMAY-G", "CM Elevate"], by_district=True, districts=None, block=None,
+                   year=None, measures=["count", "money"], op="list")
+    figs = {"MGNREGA": {"A": {"ben": 9, "money": 5.0}, "B": {"ben": 1, "money": 1.0}},
+            "PMAY-G": {"A": {"ben": 8, "money": 4.0}, "B": {"ben": 2, "money": 1.0}},
+            "CM Elevate": {"A": {"ben": 7}, "B": {"ben": 3}}}
+    out = "\n".join(cf._district_tables(plan, figs, ["MGNREGA", "PMAY-G", "CM Elevate"], ["A", "B"], None))
+    assert "in every scheme" not in out
+    assert "- CM Elevate: 7 · no money" in out
+    assert "- MGNREGA: top district A (9 · ₹5.00 crore)." in out

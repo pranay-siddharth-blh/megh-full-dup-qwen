@@ -794,6 +794,32 @@ def _pmay_ends_with_fy(text: str) -> bool:
 _PMAY_TYPED_TURN: "contextvars.ContextVar[str | None]" = contextvars.ContextVar("_PMAY_TYPED_TURN", default=None)
 
 
+def _pmay_stated_condition(question: str) -> bool:
+    """True when the question states a figure this fixed query has no column for: not a
+    year, a short FY, a date or an instalment count. "What is the location of 126 PMAY-G
+    beneficiaries with a sanction amount of 0" (BLH UAT 2026-11-02, item 8) was answered
+    with Meghalaya's total sanctioned amount — "126" and "0" are a subset, not a measure,
+    and the model path (which knows is_placeholder) has to answer it. D-098."""
+    q = question or ""
+    if context_manager.quoted_figures(q):
+        return True
+    fy_spans = [(s, s + len(tok)) for s, tok, _y in context_policy.short_fy_tokens(q)]
+    toks = tokens(q)
+    for i, t in enumerate(toks):
+        if not is_int(t.raw) or is_year(t.raw) or any(a <= t.start < b for a, b in fy_spans):
+            continue
+        before = q[t.start - 1:t.start] if t.start else ""
+        after = q[t.end:t.end + 1]
+        if before in "/.-" and before or after in "/.-" and after:
+            continue                                   # a date (12/05/2023) or a year part
+        nxt = toks[i + 1].raw if i + 1 < len(toks) else ""
+        if _pmay_instalment_word(nxt) or nxt.lower()[:3] in _PMAY_MONTH_WORDS or \
+                (i and toks[i - 1].raw.lower()[:3] in _PMAY_MONTH_WORDS):
+            continue                                   # "3 instalments", "15 March"
+        return True
+    return False
+
+
 def _pmay_facts_query(question: str, schemes: list[str], resolved: dict,
                       notes: "list[str] | None" = None, calendar_year: "int | None" = None) -> "dict | None":
     """Parameter-bound query + answer spec for a fixed-shape PMAY-G question, else None.
@@ -854,6 +880,9 @@ def _pmay_facts_query(question: str, schemes: list[str], resolved: dict,
     metrics = _pmay_metrics(question, len(ents) > 1 or yks is not None)
     if not metrics:
         return None
+    if _pmay_stated_condition(question):
+        return None          # D-098: a subset ("these 126", "amount of 0") — the model path
+    # (checked after the metrics, so a question this path never answered is unaffected)
     _typed = _PMAY_TYPED_TURN.get()
     if _typed and _typed != question:
         _own = _pmay_metrics(_typed, len(ents) > 1 or yks is not None)

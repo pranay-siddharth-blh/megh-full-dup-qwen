@@ -23,8 +23,10 @@ def test_cm_elevate_questions_without_dataset_words_ask_which_dataset(q):
                                "How many CM-ELEVATE applications are mapped to Amlarem constituency?",
                                "Show me the number of CM-ELEVATE applications in each block of West Garo Hills."])
 def test_cm_elevate_applications_questions_are_the_applications_dataset(q):
+    # user decision 2026-11-03: a new chat asks which dataset; an applications chat keeps it
     assert p._pin_cm_elevate_dataset(q) == q
-    assert p._cm_elevate_dataset_choice(q) == "applications"
+    assert p._cm_elevate_dataset_choice(q) == "ask"
+    assert p._cm_elevate_dataset_choice(q, "CM Elevate") == "applications"
 
 
 @pytest.mark.parametrize("q", ["What is the total amount disbursed under CM Elevate?",
@@ -32,8 +34,11 @@ def test_cm_elevate_applications_questions_are_the_applications_dataset(q):
                                "Compare the number of sanctioned CM-ELEVATE applications across West Garo Hills "
                                "and Ri Bhoi."])
 def test_bare_cm_elevate_with_a_financial_word_is_legacy(q):
-    assert "CM Elevate Legacy" in p._pin_cm_elevate_dataset(q)
-    assert p._cm_elevate_dataset_choice(q) == "legacy"
+    # user decision 2026-11-03: never Legacy unasked in a new chat; a Legacy chat keeps it,
+    # an applications chat asks to switch (never answered from the applications data unasked)
+    assert p._pin_cm_elevate_dataset(q) == q and p._cm_elevate_dataset_choice(q) == "ask"
+    assert "CM Elevate Legacy" in p._pin_cm_elevate_dataset(q, "CM Elevate Legacy")
+    assert p._cm_elevate_dataset_choice(q, "CM Elevate") == "switch_to_legacy"
 
 
 @pytest.mark.parametrize("q", ["How many CM ELEVATE applicants are there in East Khasi Hills?",

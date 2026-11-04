@@ -315,10 +315,11 @@ async def call_classifier(
 
 
 async def call_rewriter(prompt: str, *, max_tokens: int = 200, timeout: float | None = None,
-                        role: str = "rewrite") -> str:
+                        role: str = "rewrite", guided: dict | None = None) -> str:
     """Query rewrite / follow-up resolution (REWRITE_MODEL, the 9B): the
     follow-up rewrite and the conversation summary. Needs real language
-    understanding, so not the 4B classifier."""
+    understanding, so not the 4B classifier. `guided`: guided-JSON fields
+    (the context frame resolver, D-100); None for every other caller."""
     return await call_model(
         base_url=settings.REWRITE_BASE_URL,
         model=settings.REWRITE_MODEL,
@@ -328,6 +329,7 @@ async def call_rewriter(prompt: str, *, max_tokens: int = 200, timeout: float | 
         max_tokens=max_tokens,
         timeout=timeout or settings.REWRITE_TIMEOUT_SECONDS,
         role=role,
+        guided=guided if (guided and settings.GUIDED_DECODING_ENABLED) else None,
     )
 
 

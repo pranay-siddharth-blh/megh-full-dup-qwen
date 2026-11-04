@@ -2622,6 +2622,10 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
             "SUM(material_exp) AS material_exp_lakh), no CASE label. Keep every "
             "filter exactly as it was."
         )
+    _fig_issue = _c17_figure_reference_mismatch(question, rows)          # D-098
+    if _fig_issue:
+        context_budget.log_decision("sql_guard", guard="figure_reference_total", verdict="reject")
+        raise ValueError(_fig_issue)
     # The runners-up LIMIT 3 of a "which … most" (_c17_widen_top1) is ours, not the
     # model's: the 4B verifier read it as "a list, not the one asked for" and rejected
     # every repair (P3, 2026-10-29). It judges the query as the question asked it.

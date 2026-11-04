@@ -1064,6 +1064,7 @@ def clear_context(session) -> None:
     session.pending_scope_rule = None
     session.pending_scope_options = None
     session.topics = {}
+    session.frames = []
     session.turn_context = {}
     # The older turns of this chat stay in semantic memory (Qdrant); from now
     # on only turns after this moment may come back as context (KI-224).
@@ -1118,6 +1119,7 @@ def _set_aside(session) -> "str | None":
         prev = topic_memory._turn_from(item["last_turn"]) if item.get("last_turn") else None
     session.expired_ctx = {"chip": chip, "state": session.state.to_dict(),
                            "topics": copy.deepcopy(getattr(session, "topics", None) or {}),
+                           "frames": copy.deepcopy(getattr(session, "frames", None) or []),
                            "summary": session.summary,
                            "last_turn": topic_memory._turn_dict(prev) if prev is not None else None}
     return chip
@@ -1139,6 +1141,7 @@ def _continue_expired(session, question: str = "") -> dict:
     restored.turn_count = session.state.turn_count
     session.state = restored
     session.topics = exp.get("topics") or {}
+    session.frames = exp.get("frames") or []
     session.summary = exp.get("summary")
     if exp.get("last_turn"):
         session.turns.append(topic_memory._turn_from(exp["last_turn"]))
@@ -1378,6 +1381,25 @@ async def _prepare(session, question: str) -> LayerTurn:
 
         compared = comparison_with_earlier(session, question)
         if compared is not None:
+            # D-100: the comparison built from the state alone keeps scheme, place and
+            # year but not the breakdown or the measure ("compare this with spend on
+            # Focus Legacy scheme" after a district-wise answer ran statewide,
+            # 2026-11-03). The context frames resolve it over the window; the state's
+            # comparison below stays when they decline.
+            from app import context_frames
+            framed = await context_frames.resolve(session, question)
+            if framed is not None:
+                if getattr(session, "pending_scope_q", None):
+                    # A pause the reply did not answer (context_frames._pause_owns_reply):
+                    # abandoned, as for a listing question above.
+                    session.pending_scope_q = None
+                    session.pending_village_hint = None
+                    session.pending_scope_rule = None
+                    session.pending_scope_options = None
+                    await _drop_paused_run(session.session_id)
+                session.turn_context["frame_resolved"] = True
+                context_budget.log_decision("conversation", action="compare-earlier-frame", question=framed)
+                return LayerTurn(question=framed, action="compare", changed=True)
             context_budget.log_decision("conversation", action="compare-earlier", question=compared)
             return LayerTurn(question=compared, action="compare", changed=True)
 

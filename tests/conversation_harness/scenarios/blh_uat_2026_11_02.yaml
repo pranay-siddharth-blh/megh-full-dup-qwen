@@ -1,0 +1,59 @@
+# BLH Bot UAT 2026-11-02: the four context failures, typed exactly as the testers typed
+# them (D-098). Typed replies, never a tapped chip — a typed reply is context too. Run live:
+#   .venv/Scripts/python.exe -m tests.conversation_harness.run --driver http --tags blh_uat_2026_11_02
+# Figures observed live on 2026-11-02 (126 zero-sanction PMAY-G registrations, is_placeholder).
+
+- name: BLH3_typed_both_to_the_which_focus_pause
+  doc: "UAT 3: Focus Plus total -> district breakup -> compare with Focus (pause) -> typed 'compare both schemes by district' = both schemes"
+  tags: [blh_uat_2026_11_02, context, pause_reply]
+  account: superadmin
+  turns:
+    - say: "What is the total benefit amount disbursed in focus plus till date?"
+      expect: {route: data, scheme: Focus Plus}
+    - say: "Give a district-wise breakup"
+      expect: {route: data, scheme: Focus Plus}
+    - say: "compare this with spend on Focus scheme"
+      expect: {route: pause, pause_rule: focus-scheme-ambiguous}
+    - say: "compare both schemes by district"
+      expect: {route: data, scheme: Focus Plus + Focus Legacy}
+
+- name: BLH4_chart_request_keeps_the_comparison
+  doc: "UAT 4: Focus Plus vs Focus Legacy by district -> 'show the comparison visually in chart form' (no scheme picker, both schemes)"
+  tags: [blh_uat_2026_11_02, context, comparison]
+  account: superadmin
+  turns:
+    - say: "compare focus plus and focus legacy by district"
+      expect: {route: data, scheme: Focus Plus + Focus Legacy}
+    - say: "show the comparison visually in chart form"
+      expect: {route: data, scheme: Focus Plus + Focus Legacy}
+
+- name: BLH8_these_126_are_the_zero_sanction_registrations
+  doc: "UAT 8: PMAY overview -> how many enrolled (… including 126 …) -> 'where are these 126 beneficiaries registered?' = locations of the 126"
+  tags: [blh_uat_2026_11_02, context, reference]
+  account: superadmin
+  turns:
+    - say: "What is PMAY scheme?"
+      expect: {route: knowledge}
+    - say: "How many beneficiaries are enrolled?"
+      expect: {route: data, scheme: PMAY-G, numbers_any: [126]}
+    - say: "where are these 126 beneficiaries registered?"
+      expect: {route: data, scheme: PMAY-G, answer_not_contains: ["1,71,107", "171107"],
+               truth: {sql: "SELECT COUNT(DISTINCT village_code) FROM curated.v_pmay WHERE is_placeholder"}}
+    - say: "What is the location of 126 beneficiaries of PMAY-G with sanction amount as 0"
+      expect: {route: data, scheme: PMAY-G, answer_not_contains: ["2,222.75"]}
+
+- name: BLH10_vague_measure_stays_in_the_active_topic
+  doc: "UAT 10: Focus topics earlier, then PMAY-G completion by district -> 'What is completion rate' and 'define completion rate' stay on PMAY-G (no picker)"
+  tags: [blh_uat_2026_11_02, context, vague]
+  account: superadmin
+  turns:
+    - say: "What is the total benefit amount disbursed in focus plus till date?"
+      expect: {route: data, scheme: Focus Plus}
+    - say: "How much was disbursed under Focus Legacy?"
+      expect: {route: data, scheme: Focus Legacy}
+    - say: "What is the PMAY-G completion rate in Meghalaya, by district?"
+      expect: {route: data, scheme: PMAY-G}
+    - say: "What is completion rate"
+      expect: {route: data, scheme: PMAY-G}
+    - say: "define completion rate"
+      expect: {route: knowledge}
