@@ -1,0 +1,265 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>RAG-06 Use the Qdrant Metadata_* schema collections for SQL retrieval, valida</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: verdict first (honest assessment, corrections), then the merge plan, then the filterable task board, then the file matrix. */
+:root{
+  --bg:#f5f7f5; --surface:#ffffff; --sunk:#eaefeb; --fg:#17201b; --muted:#56635b; --line:#d3dbd5;
+  --accent:#1d6b55; --accent-soft:#dcefe7;
+  --crit:#b3261e; --crit-soft:#fbe4e1; --high:#b85c00; --high-soft:#fdebd8;
+  --med:#8a6d00; --med-soft:#f8f0cc; --low:#4b6478; --low-soft:#e3ebf1; --dec:#6a3fa0; --dec-soft:#eee5f8;
+  --ok:#2c7a3f; --ok-soft:#dff1e3;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(28px,4.6vw,42px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:24px;font-weight:600}
+h3{font-size:18px;font-weight:600}
+p{margin:0;max-width:74ch}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunk);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+a{color:var(--accent)}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+header{display:flex;flex-direction:column;gap:14px;border-bottom:2px solid var(--fg);padding-bottom:22px}
+.lede{font-size:17px;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:10px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.stat b{font:700 28px/1.1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{font-size:12.5px;color:var(--muted)}
+.stat.crit b{color:var(--crit)} .stat.high b{color:var(--high)} .stat.med b{color:var(--med)} .stat.low b{color:var(--low)}
+section{display:flex;flex-direction:column;gap:16px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.panel ol,.panel ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.verdict{border-left:4px solid var(--accent)}
+.prio{counter-reset:p;list-style:none;padding:0!important}
+.prio li{display:grid;grid-template-columns:auto auto auto 1fr;gap:10px;align-items:baseline}
+.prio li::before{counter-increment:p;content:counter(p);font:700 15px var(--f-display);color:var(--muted);width:1.4em;text-align:right}
+.idlink{font:600 13px var(--f-mono);text-decoration:none;white-space:nowrap}
+.pill{display:inline-block;font:600 11px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;padding:4px 7px;border-radius:999px;white-space:nowrap}
+.s-Critical{background:var(--crit-soft);color:var(--crit)} .s-High{background:var(--high-soft);color:var(--high)}
+.s-Medium{background:var(--med-soft);color:var(--med)} .s-Low{background:var(--low-soft);color:var(--low)} .s-Decision{background:var(--dec-soft);color:var(--dec)}
+.tag{font:500 11.5px var(--f-mono);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:2px 6px;white-space:nowrap}
+.tag.wave{color:var(--accent);border-color:var(--accent)}
+.controls{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{font:500 13px var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:5px 11px;border-radius:999px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.chip:focus-visible,.btn:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#q{flex:1 1 200px;min-width:0;font:14px var(--f-body);padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+select{font:14px var(--f-body);padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+.count{font:500 13px var(--f-mono);color:var(--muted);margin-left:auto}
+.btn{font:600 13px var(--f-body);border:1px solid var(--accent);color:var(--accent);background:transparent;padding:6px 12px;border-radius:7px;cursor:pointer}
+.btn:hover{background:var(--accent-soft)}
+.trackhead{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;padding-top:18px;border-top:1px solid var(--line)}
+.trackhead p{color:var(--muted);font-size:14px;flex-basis:100%}
+.tasks{display:flex;flex-direction:column;gap:12px}
+.task{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--low);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-width:0;scroll-margin-top:150px}
+.task.Critical{border-left-color:var(--crit)} .task.High{border-left-color:var(--high)} .task.Medium{border-left-color:var(--med)} .task.Decision{border-left-color:var(--dec)}
+.task:target{box-shadow:0 0 0 2px var(--accent)}
+.thead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tid{font:600 14px var(--f-mono)}
+.task h3{flex-basis:100%;font-size:19px}
+.status{font-size:13.5px;background:var(--ok-soft);color:var(--fg);border-radius:6px;padding:6px 10px}
+.status b{color:var(--ok)}
+.lbl{font:600 12px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:2px}
+.task details{border-top:1px dashed var(--line);padding-top:8px}
+.task summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.task ul{margin:6px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:5px}
+.task li{max-width:82ch}
+.dont li::marker{content:"✕  ";color:var(--crit)}
+.files li code{background:transparent;padding:0;color:var(--accent);font-weight:500}
+.tfoot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.after{font-size:13px;color:var(--muted)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--sunk)}
+.waves{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.wavebox{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.wavebox h3{font-size:16px}
+.wavebox .ids{display:flex;flex-wrap:wrap;gap:4px 8px}
+.wavebox p{font-size:13px;color:var(--muted)}
+.toast{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:14px}
+.note{font-size:13.5px;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.task{transition:box-shadow .2s}}
+
+.crumbs{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font:500 13px var(--f-mono)}
+.crumbs a{text-decoration:none}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.meta div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.meta b{display:block;font:600 11.5px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+pre.prompt{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px;font:12.5px/1.55 var(--f-mono);max-height:520px;overflow:auto;margin:0}
+.task details[open] summary{margin-bottom:4px}
+.idx td:first-child{white-space:nowrap}
+</style></head>
+<body><div class="wrap">
+<nav class="crumbs" aria-label="Navigation"><a href="index.html">← All tasks</a><a href="UI-02.html">← UI-02</a><a href="QA-03.html">QA-03 →</a><span class="note">Megh One AI audit v2 · 28 Oct 2026</span></nav>
+<article class="task Medium" id="RAG-06" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">RAG-06</span><span class="pill s-Medium">Medium</span><span class="tag wave">wave 3</span><span class="tag">KI-010</span><span class="tag">KI-011</span><span class="tag">new</span><h1 style="flex-basis:100%;font-size:clamp(24px,3.6vw,34px)">Use the Qdrant Metadata_* schema collections for SQL retrieval, validated and measured</h1></div>
+  <div class="meta">
+    <div><b>Area</b>Knowledge base (RAG)</div>
+    <div><b>Wave</b>Wave 3: last</div>
+    <div><b>Start after</b><a class="idlink" href="SEC-07.html">SEC-07</a>, <a class="idlink" href="QA-01.html">QA-01</a>, <a class="idlink" href="SQL-01.html">SQL-01</a></div>
+    <div><b>Unblocks</b>no task waits on this</div>
+    <div><b>New KI ids</b>KI-500–519</div>
+  </div>
+  <div class="status"><b>REPRODUCED</b> on 28 Oct, read-only: no code reads any <code>Metadata_*</code> collection. Their 4,016 points re-embed with our <code>qwen3-embedding</code> at cosine 0.9999. Only CM Elevate and Focus Plus describe the curated views the bot queries.</div>
+  <div><span class="lbl">The issue</span>Seven <code>Metadata_*</code> collections on our Qdrant server hold column meanings, synonyms, entity values with row counts, formulas, aggregation rules, clarification rules, the join graph and example question→SQL pairs, all embedded with our own model. <b>Neither RAG nor NL→SQL uses them.</b> SQL generation instead relies on the hand-written <code>schema_context.py</code>, which is large, falls back to all schemes (KI-011) and drifts from the SME YAMLs (KI-010). But they cannot be plugged in as they are:<ul><li>MGNREGA, PMAY, Focus Legacy and CM Elevate Legacy describe a different layout (<code>mgnrega_employment</code>, <code>pmay_beneficiaries</code>, <code>mapped_*_lgd_name</code>) from the curated views the bot queries.</li><li>NRLM is not one of our schemes.</li><li>Another team owns them, with no version contract.</li><li>They are writable by anyone until SEC-07.</li></ul></div>
+  <div><span class="lbl">The solution</span><ul><li><b>Step 1, no code in the answer path:</b> write an offline script that lists, per collection, which doc tables and columns exist in the live <code>schema_introspect</code> catalogue. Send the result to the owning team. Ask whether the <code>mapped_*</code> layout is a planned schema, and agree a pin on <code>schema_version</code> plus <code>content_hash</code> and a read-only Qdrant key for the bot.</li><li><b>Step 2:</b> add a new <code>app/schema_rag.py</code>. Embed the question once. Search <code>Metadata_&lt;scheme&gt;</code> filtered to <code>excluded=False</code> and <code>doc_type</code> in column, formula, rule or clarification, top 8, with a 1.5 s timeout that fails open to today's prompt. <b>Drop every item whose table or column is not live.</b> Add example SQL only if SQLGlot parses it and it references only live curated objects.</li><li>Add the survivors as one short "Relevant schema notes" block in the SQL generation prompt, behind <code>SCHEMA_RAG_ENABLED</code> (default off), with a per-scheme allow-list that starts at CM Elevate and Focus Plus.</li><li>Shadow mode first: log the block without sending it. Then A/B on the golden set (QA-01). Switch on per scheme only if accuracy holds or improves and the prompt gets shorter. Record the result as a DECISIONS entry.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Adding them to the officer-facing knowledge path (<code>megh_scheme_kb_v4</code> or <code>answer_from_kb</code>). They are schema metadata, not scheme guidance.</li><li>Feeding the MGNREGA, PMAY or Legacy collections to the SQL model before the layout question is answered. Their table names would steer it to tables it cannot query.</li><li>Writing to, re-indexing or deleting any <code>Metadata_*</code> collection.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>A grep of <code>app/</code> finds no <code>Metadata_</code> reference. CLAUDE.md:246 and ARCHITECTURE.md:439 say "not ours".</li><li>Point counts: CMElevate 917, FocusPlus 659, FocusLegacy 733, CMElevateLegacy 501, PMAY 459, NRLM 387, MGNREGA 360.</li><li>The bot queries <code>curated.v_employment</code>, <code>v_pmay</code>, <code>v_focus_legacy</code> and <code>v_cm_elevate</code>, with <code>lgd_district</code>. <code>mapped_district_lgd_name</code> has 0 references in <code>app/</code>.</li><li>Five of the nine source YAMLs named in the payloads are not in <code>data/</code>.</li><li>Re-embedding the stored text with our gateway reproduces the stored vectors (cosine 0.9999 to 1.0, 6 of 6 samples).</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/schema_rag.py</code> · new</li><li><code>app/prompt_builder.py</code> · one optional block in the SQL generation prompt builder (not _entities_block, build_repair_prompt or build_verify_prompt)</li><li><code>app/pipeline/common/c10_sql_generation_and_rewrites.py</code> · generate_sql call site (not _c1x_apos0)</li><li><code>app/config.py</code> · SCHEMA_RAG_* settings in a new block next to the RAG settings</li><li><code>scripts/metadata_schema_check.py</code> · new</li><li><code>tests/test_schema_rag_2026_10_28.py</code> · new; stubbed Qdrant client</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>The offline check report is shared with the owner, and a reply is recorded.</li><li>Unit tests: any item naming a table or column outside the live catalogue is dropped; a timeout falls back to today's prompt; flag off means a byte-identical prompt.</li><li>The golden-set A/B is recorded, and the flag stays off unless accuracy is equal or better.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/prompt_builder.py</code> (you: one optional block in the SQL generation prompt builder (not _entities_block, build_repair_prompt or build_verify_prompt))<ul><li><a class="idlink" href="SQL-01.html">SQL-01</a> <span class="tag wave">W1a</span> _entities_block: merges <b>before</b> you</li><li><a class="idlink" href="SQL-03.html">SQL-03</a> <span class="tag wave">W1b</span> build_repair_prompt: earlier wave</li><li><a class="idlink" href="SQL-04.html">SQL-04</a> <span class="tag wave">W2</span> build_verify_prompt: earlier wave</li></ul></li><li><code>app/pipeline/common/c10_sql_generation_and_rewrites.py</code> (you: generate_sql call site (not _c1x_apos0))<ul><li><a class="idlink" href="QA-04.html">QA-04</a> <span class="tag wave">W3</span> _c1x_apos0: same wave, separate region</li></ul></li><li><code>app/config.py</code> (you: SCHEMA_RAG_* settings in a new block next to the RAG settings)<ul><li><a class="idlink" href="REL-02.html">REL-02</a> <span class="tag wave">W0</span> model_config, delete 4 dead fields: earlier wave</li><li><a class="idlink" href="SEC-05.html">SEC-05</a> <span class="tag wave">W1a</span> TRUSTED_PROXIES line 70: earlier wave</li><li><a class="idlink" href="SEC-07.html">SEC-07</a> <span class="tag wave">W1a</span> insecure_secrets, CSP_ENFORCE: merges <b>before</b> you</li><li><a class="idlink" href="REL-01.html">REL-01</a> <span class="tag wave">W1a</span> APP_BUILD (next to the Redis settings): earlier wave</li><li><a class="idlink" href="SEC-06.html">SEC-06</a> <span class="tag wave">W1b</span> DB_POOL_ACQUIRE_TIMEOUT next to the pool settings: earlier wave</li><li><a class="idlink" href="RAG-05.html">RAG-05</a> <span class="tag wave">W2</span> startup warning near the RAG settings: earlier wave</li><li><a class="idlink" href="CMP-03.html">CMP-03</a> <span class="tag wave">W2</span> PROMPT_BUDGET_COMPOSER_TOKENS (line 669): earlier wave</li><li><a class="idlink" href="UI-02.html">UI-02</a> <span class="tag wave">W2</span> CSP font hosts: earlier wave</li><li><a class="idlink" href="REL-04.html">REL-04</a> <span class="tag wave">W3</span> RAISE_INTERNAL_ERRORS: same wave, separate region</li></ul></li></ul></details>
+  
+</article>
+<section>
+  <h2>Does the bot use the Qdrant <code>Metadata_*</code> collections?</h2>
+  <div class="panel verdict">
+    <p><b>No.</b> Neither the knowledge path nor the NL→SQL path reads them. No code anywhere in <code>app/</code> names them; the only mentions are docs saying "not ours, never touch" (CLAUDE.md:246, ARCHITECTURE.md:439, HANDOFF.md:694). The knowledge path reads only <code>megh_scheme_kb_v4</code>, and conversation memory reads only <code>megh_conversation_memory_1024</code>.</p>
+    <p><b>Verified on 28 Oct, read-only:</b> there are 7 collections, 4,016 points, 1024-dim, cosine. Each point carries a <code>text</code> field and typed payload: column meanings with synonyms and sample values, entity values with row counts and parent places, formulas with SQL expressions, aggregation and NULL rules, clarification rules, the join graph, and example question→SQL pairs. <b>They were embedded with our own model</b>: re-embedding their text through our gateway's <code>qwen3-embedding</code> gives cosine 0.9999 to 1.0 against the stored vectors. So they are directly searchable with no re-embedding.</p>
+  </div>
+  <div class="tablewrap"><table>
+    <thead><tr><th>Collection</th><th>Points</th><th>Tables it describes</th><th>Matches what the bot queries?</th></tr></thead>
+    <tbody>
+      <tr><td><code>Metadata_CMElevate</code></td><td>917</td><td><code>curated.v_cm_elevate</code> (source <code>data/cm_elevate/cmelevate_schema_partitions.yaml</code>, already in our repo)</td><td><b>Yes</b></td></tr>
+      <tr><td><code>Metadata_FocusPlus</code></td><td>659</td><td><code>curated.dim_*</code> join graph and clarification rules (sources in <code>data/focus_plus/</code>)</td><td><b>Yes</b></td></tr>
+      <tr><td><code>Metadata_MGNREGA</code></td><td>360</td><td><code>mgnrega_employment</code> (<code>stage2_mgnrega_combined_production.yaml</code>, not in repo)</td><td><b>No</b>: the bot uses <code>curated.v_employment</code> and <code>v_expenditure</code></td></tr>
+      <tr><td><code>Metadata_PMAY</code></td><td>459</td><td><code>pmay_beneficiaries</code>, <code>mapped_*_lgd_name</code></td><td><b>No</b>: the bot uses <code>curated.v_pmay</code> and <code>lgd_district</code></td></tr>
+      <tr><td><code>Metadata_FocusLegacy</code></td><td>733</td><td><code>focus_legacy</code>, <code>mapped_constituency_name_and_number</code></td><td><b>No</b>: the bot uses <code>curated.v_focus_legacy</code></td></tr>
+      <tr><td><code>Metadata_CMElevateLegacy</code></td><td>501</td><td><code>cm_elevate_legacy</code>, <code>mapped_district_lgd_name</code></td><td><b>No</b></td></tr>
+      <tr><td><code>Metadata_NRLM</code></td><td>387</td><td><code>nrlm_shg</code></td><td>Not a scheme this bot serves</td></tr>
+    </tbody>
+  </table></div>
+  <div class="cols">
+    <div class="panel">
+      <h3>The problem</h3>
+      <ul>
+        <li><b>A missed capability, not a bug.</b> The bot works without them. But SQL generation gets its schema from the hand-written <code>schema_context.py</code>, a large static block that falls back to all schemes (KI-011) and drifts from the SME YAMLs (KI-010). A question-relevant index of exactly that knowledge already exists and goes unused.</li>
+        <li><b>Four of the six scheme collections describe a different database layout</b> from the curated views the bot queries. Fed to the SQL model as they are, their column names and example SQL would steer it toward tables that are not in its schema, which means more repairs and more wrong SQL.</li>
+        <li><b>The bot does not own or control them.</b> Another team owns them, there is no versioning contract, five of the nine source YAMLs are not in our repo, and some entries are flagged <code>needs_sme_confirmation</code>.</li>
+        <li><b>They are unprotected.</b> Qdrant has no API key (SEC-07), so anyone who can reach it could rewrite them. Putting them into SQL prompts would add a prompt-poisoning path.</li>
+      </ul>
+    </div>
+    <div class="panel">
+      <h3>The best solution (task RAG-06)</h3>
+      <ul>
+        <li><b>Do not</b> connect them to the officer-facing knowledge path. They are schema metadata, not scheme guidance.</li>
+        <li>Use them as an <b>optional, validated schema-retrieval step for SQL generation</b>, starting with the two collections that match (CM Elevate, Focus Plus).</li>
+        <li>Check every retrieved item against the live catalogue (<code>schema_introspect</code>). Drop any item whose table or column is not live. Never insert example SQL unless SQLGlot parses it and it references only live curated objects.</li>
+        <li>Run in shadow mode first (log what would be added), then A/B on the golden set, then switch on per scheme behind a flag. If it is not faster or more accurate, leave it off.</li>
+        <li>For the other four, ask the owner whether that layout is a planned new schema or the raw layer. Agree a version pin (<code>schema_version</code> plus <code>content_hash</code>) and a read-only key for the bot.</li>
+      </ul>
+    </div>
+  </div>
+</section>
+
+
+<section>
+  <div class="row" style="justify-content:space-between"><h2>Session prompt</h2><button type="button" class="btn" data-copy-pre="p-RAG-06">Copy session prompt</button></div>
+  <p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p>
+  <pre class="prompt" id="p-RAG-06">TASK RAG-06: Use the Qdrant Metadata_* schema collections for SQL retrieval, validated and measured
+Repo: meghoneai (Megh One AI). Area: Knowledge base (RAG). Severity: Medium. Wave: 3. Related: KI-010, KI-011, new.
+Start only after these are merged into Main: SEC-07, QA-01, SQL-01. Then create branch task/rag-06 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+REPRODUCED on 28 Oct, read-only: no code reads any Metadata_* collection. Their 4,016 points re-embed with our qwen3-embedding at cosine 0.9999. Only CM Elevate and Focus Plus describe the curated views the bot queries.
+
+THE ISSUE
+Seven Metadata_* collections on our Qdrant server hold column meanings, synonyms, entity values with row counts, formulas, aggregation rules, clarification rules, the join graph and example question→SQL pairs, all embedded with our own model. Neither RAG nor NL→SQL uses them. SQL generation instead relies on the hand-written schema_context.py, which is large, falls back to all schemes (KI-011) and drifts from the SME YAMLs (KI-010). But they cannot be plugged in as they are:
+  - MGNREGA, PMAY, Focus Legacy and CM Elevate Legacy describe a different layout (mgnrega_employment, pmay_beneficiaries, mapped_*_lgd_name) from the curated views the bot queries.
+  - NRLM is not one of our schemes.
+  - Another team owns them, with no version contract.
+  - They are writable by anyone until SEC-07.
+
+EVIDENCE
+- A grep of app/ finds no Metadata_ reference. CLAUDE.md:246 and ARCHITECTURE.md:439 say "not ours".
+- Point counts: CMElevate 917, FocusPlus 659, FocusLegacy 733, CMElevateLegacy 501, PMAY 459, NRLM 387, MGNREGA 360.
+- The bot queries curated.v_employment, v_pmay, v_focus_legacy and v_cm_elevate, with lgd_district. mapped_district_lgd_name has 0 references in app/.
+- Five of the nine source YAMLs named in the payloads are not in data/.
+- Re-embedding the stored text with our gateway reproduces the stored vectors (cosine 0.9999 to 1.0, 6 of 6 samples).
+
+THE SOLUTION
+- Step 1, no code in the answer path: write an offline script that lists, per collection, which doc tables and columns exist in the live schema_introspect catalogue. Send the result to the owning team. Ask whether the mapped_* layout is a planned schema, and agree a pin on schema_version plus content_hash and a read-only Qdrant key for the bot.
+- Step 2: add a new app/schema_rag.py. Embed the question once. Search Metadata_&lt;scheme&gt; filtered to excluded=False and doc_type in column, formula, rule or clarification, top 8, with a 1.5 s timeout that fails open to today's prompt. Drop every item whose table or column is not live. Add example SQL only if SQLGlot parses it and it references only live curated objects.
+- Add the survivors as one short "Relevant schema notes" block in the SQL generation prompt, behind SCHEMA_RAG_ENABLED (default off), with a per-scheme allow-list that starts at CM Elevate and Focus Plus.
+- Shadow mode first: log the block without sending it. Then A/B on the golden set (QA-01). Switch on per scheme only if accuracy holds or improves and the prompt gets shorter. Record the result as a DECISIONS entry.
+
+DO NOT
+- Adding them to the officer-facing knowledge path (megh_scheme_kb_v4 or answer_from_kb). They are schema metadata, not scheme guidance.
+- Feeding the MGNREGA, PMAY or Legacy collections to the SQL model before the layout question is answered. Their table names would steer it to tables it cannot query.
+- Writing to, re-indexing or deleting any Metadata_* collection.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/schema_rag.py: new
+- app/prompt_builder.py: one optional block in the SQL generation prompt builder (not _entities_block, build_repair_prompt or build_verify_prompt)
+- app/pipeline/common/c10_sql_generation_and_rewrites.py: generate_sql call site (not _c1x_apos0)
+- app/config.py: SCHEMA_RAG_* settings in a new block next to the RAG settings
+- scripts/metadata_schema_check.py: new
+- tests/test_schema_rag_2026_10_28.py: new; stubbed Qdrant client
+
+DONE WHEN
+- The offline check report is shared with the owner, and a reply is recorded.
+- Unit tests: any item naming a table or column outside the live catalogue is dropped; a timeout falls back to today's prompt; flag off means a byte-identical prompt.
+- The golden-set A/B is recorded, and the flag stays off unless accuracy is equal or better.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_rag06_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your RAG-06 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-500–519. New decisions as "D-RAG-06". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</section>
+<section><div class="cols"><div class="panel">
+      <h3>Rules every session follows</h3>
+      <ul>
+        <li><b>Branch:</b> name it <code>task/&lt;id&gt;</code>. Cut it from Main only after the tasks listed in its "start after" have merged. Merge through the Bitbucket merge queue, which tests each PR on top of everything already queued.</li>
+        <li><b>Docs:</b> edit only your task's pre-made stub in CURRENT_STATE and HANDOFF (DOC-02 creates them) and your own KI detail sections. Never edit the KI summary table, the TESTING history table or the "Last updated" lines; the integrator updates those at merge.</li>
+        <li><b>Ids:</b> new KI ids come only from your track's range (shown on the board). New decisions are written as <code>D-&lt;task id&gt;</code>, and the integrator numbers them from D-074.</li>
+        <li><b>Pipeline helpers:</b> prefix every new pipeline name with your file and task, for example <code>_c11_sql01_</code>. A duplicate top-level name silently replaces the other one (KI-413). Run <code>tests/test_pipeline_namespace_2026_10_26.py</code> before every PR.</li>
+        <li><b><code>config.py</code> and <code>.env.example</code>:</b> add settings next to related ones, in their own commented block. Never add at the end of the class, and never reorder.</li>
+        <li><b>Frontend:</b> never commit <code>web/app</code>. Before a PR, <code>git diff --name-only origin/Main...HEAD -- web/app</code> must be empty. The integrator builds once after the last frontend merge.</li>
+        <li><b>Requirements:</b> only QA-02 (wave 0) edits the requirements files.</li>
+      </ul>
+    </div><div class="panel">
+      <h3>Integration checklist after each wave</h3>
+      <ol>
+        <li>Run the full pytest command from TESTING.md §2 (baseline 3,910 passed and 3 skipped at HEAD; about 3,932 once P0 is in). After QA-02, <code>pytest tests -q</code> must finish too.</li>
+        <li>Run all 14 script suites; all must pass.</li>
+        <li>Run the namespace test and the duplicate KI and D id tests (from QA-02).</li>
+        <li>Run <code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code> and commit <code>web/app</code>. The node card and table tests must pass, not skip.</li>
+        <li>On the VPN: <code>live_context_validation.py</code> with caches on and off, <code>nl2sql_eval --fail-on-regression</code>, <code>rag_eval</code>, and one in-process answer per scheme as a district officer.</li>
+        <li>Restart on port 8401 and check <code>/health</code>, <code>/megh-chat</code> and <code>/admin-ui</code>.</li>
+        <li>Integrator only: update the KI table, the TESTING history and the "Last updated" lines.</li>
+      </ol>
+    </div></div></section>
+<nav class="crumbs" aria-label="Navigation"><a href="index.html">← All tasks</a><a href="UI-02.html">← UI-02</a><a href="QA-03.html">QA-03 →</a></nav>
+</div><script>
+document.addEventListener("click",function(e){var b=e.target.closest("[data-copy-pre]");if(!b)return;var pre=document.getElementById(b.getAttribute("data-copy-pre"));var t=pre.textContent;
+function sel(){var r=document.createRange();r.selectNodeContents(pre);var s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent="Selected, press Ctrl+C";}
+try{navigator.clipboard.writeText(t).then(function(){b.textContent="Copied";setTimeout(function(){b.textContent="Copy session prompt"},2000)},sel)}catch(err){sel()}});
+</script></body></html>

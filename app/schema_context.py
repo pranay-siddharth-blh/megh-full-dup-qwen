@@ -675,7 +675,7 @@ CM ELEVATE TABLES
         geography_key, village_code, lgd_village_name, lgd_block, lgd_district,
         on_roster, has_geo_conflict, entity_type, applicant_category, type_raw,
         current_file_status, current_level, application_mode, data_verified,
-        onhold, is_withdraw, sector_id, district_name_raw
+        onhold, is_withdraw, sector_id, district_name_raw<<CME_FS_COL>>
       scheme_specific is LOCKED: the chatbot's database role may not read it
       (2026-10-16), so a query naming it is refused. Never write it.
       dim_cm_elevate_scheme and dim_geography are PRE-JOINED (both INNER, both keys
@@ -789,19 +789,7 @@ CM ELEVATE RULES (breaking these produces a wrong number, not just an ugly query
      channels, Month/Year columns). Never adopt one of its figures — there are [[cme_schemes]]
      schemes here, not 13, and PRIME Small Enterprise Empowerment (the LARGEST scheme
      at ~[[cme_prime_pct]]% of applications) is entirely absent from that workbook's list.
- 13. UNQUALIFIED "status" / "status distribution" / "status-wise" / "current status" /
-     "application status" / "status breakdown" ALWAYS means current_file_status
-     (product decision 2026-09-28 — NOT data_verified). Its stored values: 'forward',
-     'resubmit', 'sendback to vdv/citizen' (rule 7). Group them with exactly this
-     expression, which keeps any send-back spelling in one bucket:
-       CASE WHEN LOWER(current_file_status) LIKE 'sendback%' THEN 'Sent back'
-            WHEN current_file_status IS NULL THEN '(not recorded)'
-            ELSE INITCAP(LOWER(current_file_status)) END AS status
-     A status question is a GROUP BY over ALL values, never a single filtered COUNT.
-     data_verified stays the column for VERIFICATION words only: "verified" /
-     "verification" / "valid" / "invalid" / "wrong" / "on hold" / "pending" (see
-     rules 3 and 14 and the vocabulary) — its values are 'Valid', 'On Hold',
-     'Invalid', 'Wrong' or NULL.
+ 13. <<CME_RULE_13>>
  14. "verified" / "verification completed" / "completed data verification" ->
      data_verified = 'Valid'. "not verified" / "verification pending" / "incomplete
      verification" -> data_verified IS DISTINCT FROM 'Valid' (covers On Hold, Invalid,
@@ -834,7 +822,7 @@ CM ELEVATE BUSINESS VOCABULARY (source: cmelevate_schema_partitions.yaml + cmele
     "applications" / "applicants" / "beneficiaries" / "requests" / "records" -> COUNT(DISTINCT request_id)   (an application is a REQUEST, not an award — say "applications"; never COUNT(*): 27 applications have two identical records, rule 8)
     <<CME_PENDING_VOCAB>>
     "pending in each sector" / "<status> by sector" / "<status> by <dimension>" -> keep the status test INSIDE COUNT(DISTINCT request_id) FILTER (WHERE data_verified = '...') and GROUP BY the dimension with NO status test in the WHERE, so a group with none still shows 0
-    "approved" / "rejected" / "decision" -> NOT AVAILABLE: that decision lived only in scheme_specific, locked from the chatbot since 2026-10-16 — current_file_status NEVER holds approved/rejected/pending (only forward / resubmit / sendback to vdv/citizen), so filtering it for those returns a false 0   "sanctioned" / "cleared" / "funded" -> NOT AVAILABLE here (sanction lives in CM Elevate Legacy)   "status" / "status distribution" / "status-wise" / "application status" (default) -> current_file_status, send-back spellings merged (rule 13; decided 2026-09-28)   "verification status" -> data_verified
+    <<CME_DECISION_VOCAB>>   "sanctioned" / "cleared" / "funded" -> NOT AVAILABLE here (sanction lives in CM Elevate Legacy)   <<CME_STATUS_VOCAB>>   "verification status" -> data_verified
     "villages" -> COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')   "districts" / "blocks" -> COUNT(DISTINCT lgd_district) / COUNT(DISTINCT lgd_block)
     "amount" / "money" / "disbursed" / "subsidy" / "loan" / "sanctioned amount" -> NOT AVAILABLE, no money column exists   "gender" / "women" -> NOT AVAILABLE (locked inside scheme_specific)
     "type" (default) -> applicant_category   "mode" -> application_mode (online / cmconnectcenter)   "schemes" -> COUNT(*) FROM curated.dim_cm_elevate_scheme  (= 15)
@@ -1661,6 +1649,14 @@ def _cme_rule_9(open_: bool, rule) -> str:
      That file status is inside scheme_specific, so a PENDING / ON-HOLD count is NOT AVAILABLE
      either — say so and offer the recorded figures (applications; forward / resubmit / sendback).
      NEVER answer pending or on hold from data_verified = 'On Hold' (user decision 2026-10-30).""")
+    if not rule.json_keys():
+        # 2026-11-04: the decision is the plain file-status column; scheme_specific stays locked
+        # (it holds each applicant's personal identifiers — ingestion team CHATBOT_DB_CHANGES_2026-11-04).
+        return (f"""scheme_specific (the JSON column that holds gender_id and the applicant's identifiers)
+     is LOCKED from the chatbot's database role. Never write scheme_specific, ->>, ? or @>
+     against it — the query is refused. Gender is therefore NOT AVAILABLE for CM Elevate. The
+     department's file status (and the Approved / Rejected decision) is the plain column
+     {rule.file_status_column()} — read that, never a JSON key.""")
     keys = ", ".join(sorted(rule.json_keys())) or "none"
     return (f"""scheme_specific is a JSON column. The ONLY key(s) you may read: {keys} — and only for a
      pending / on-hold, sent-back or rejected question. Never read gender_id, occupation_id or
@@ -1676,6 +1672,61 @@ def _cme_pending_vocab(open_: bool, rule) -> str:
     return (f""""pending" / "pending applications" / "pendency" / "on hold" / "held" -> the PENDING RULE (user decision 2026-10-30): {rule.sql()}. {rule.text()} Put it INSIDE COUNT(DISTINCT request_id) FILTER (WHERE …) when grouping so a group with none shows 0. Level-wise = the rule grouped by LOWER(current_level); "pending at level N" = the rule AND LOWER(current_level) = 'levelN'
     "verification outcome" / "data verified" on hold (the field asked by name) -> data_verified = 'On Hold'   (NEVER the onhold boolean). Invalid / Wrong, resubmit and Rejected are reported only when the question names them
     "sent back" -> {fs} = 'Send Back' (the department's decision; the workflow value 'sendback to vdv/citizen' in current_file_status is a different field)""")
+
+
+# Rule 13 and the status / decision vocabulary (2026-11-04, user; ingestion team
+# CHATBOT_DB_CHANGES_2026-11-04, KI-624 closed): "status" is the knowledge base's file-status
+# column (cmelevate_pending_rule.yaml) once the role may read it; current_file_status is only the
+# file's last movement. The locked wording below is the 2026-09-28 / 2026-10-16 text, word for word.
+_CME_RULE_13_LOCKED = """UNQUALIFIED "status" / "status distribution" / "status-wise" / "current status" /
+     "application status" / "status breakdown" ALWAYS means current_file_status
+     (product decision 2026-09-28 — NOT data_verified). Its stored values: 'forward',
+     'resubmit', 'sendback to vdv/citizen' (rule 7). Group them with exactly this
+     expression, which keeps any send-back spelling in one bucket:
+       CASE WHEN LOWER(current_file_status) LIKE 'sendback%' THEN 'Sent back'
+            WHEN current_file_status IS NULL THEN '(not recorded)'
+            ELSE INITCAP(LOWER(current_file_status)) END AS status
+     A status question is a GROUP BY over ALL values, never a single filtered COUNT.
+     data_verified stays the column for VERIFICATION words only: "verified" /
+     "verification" / "valid" / "invalid" / "wrong" / "on hold" / "pending" (see
+     rules 3 and 14 and the vocabulary) — its values are 'Valid', 'On Hold',
+     'Invalid', 'Wrong' or NULL."""
+_CME_DECISION_VOCAB_LOCKED = ('"approved" / "rejected" / "decision" -> NOT AVAILABLE: that decision lived only in '
+                              "scheme_specific, locked from the chatbot since 2026-10-16 — current_file_status NEVER "
+                              "holds approved/rejected/pending (only forward / resubmit / sendback to vdv/citizen), so "
+                              "filtering it for those returns a false 0")
+_CME_STATUS_VOCAB_LOCKED = ('"status" / "status distribution" / "status-wise" / "application status" (default) -> '
+                            "current_file_status, send-back spellings merged (rule 13; decided 2026-09-28)")
+
+
+def _cme_fs_col_listed(open_: bool, rule) -> str:
+    """", file_status" for the readable-columns list once the plain file-status column is readable."""
+    fs = rule.file_status_column() if open_ else None
+    return f", {fs}" if fs and "->>" not in fs else ""
+
+
+def _cme_status_lines(open_: bool, rule) -> "tuple[str, str, str]":
+    """Rule 13, the decision vocabulary and the status vocabulary, from the file-status column of
+    the knowledge base while the role may read it (a plain column; a JSON key stays locked)."""
+    fs = rule.file_status_column() if open_ else None
+    if not fs or "->>" in fs:
+        return _CME_RULE_13_LOCKED, _CME_DECISION_VOCAB_LOCKED, _CME_STATUS_VOCAB_LOCKED
+    r13 = f"""UNQUALIFIED "status" / "status distribution" / "status-wise" / "current status" /
+     "application status" / "status breakdown" ALWAYS means {fs}, the department's
+     status of the application (user decision 2026-11-04 — NOT current_file_status, NOT
+     data_verified). Group by it with exactly: COALESCE({fs}, '(not recorded)') AS status.
+     A status question is a GROUP BY over ALL values, never a single filtered COUNT.
+     current_file_status is NOT a status: it is the file's last MOVEMENT (rule 7) and reads
+     'forward' for rejected applications too — never read 'forward' as progressing or as not
+     rejected. Use it only when the question asks where the file was last sent or names one of
+     its own values (forward / resubmit / sendback). data_verified stays the column for
+     VERIFICATION words only (rules 3 and 14) — 'Valid', 'On Hold', 'Invalid', 'Wrong' or NULL."""
+    dec = (f'"rejected" / "approved" / "decision" -> {fs} (the department\'s decision, its exact stored spelling: '
+           f"{fs} = 'Rejected'); current_file_status NEVER holds approved / rejected / pending")
+    st = (f'"status" / "status distribution" / "status-wise" / "application status" (default) -> {fs} (rule 13; '
+          f'decided 2026-11-04)   "where was the file last sent" / "current file status" / forward / resubmit -> '
+          f"current_file_status")
+    return r13, dec, st
 
 
 def _cme_count_default_line(rule) -> str:
@@ -1697,7 +1748,11 @@ def _cme_pending_lines(text: str) -> str:
         return text
     from app import cme_pending_rule as rule   # local: it reaches schema_introspect -> db
     open_ = rule.readable()
+    r13, dec, st = _cme_status_lines(open_, rule)
     return (text.replace("<<CME_RULE_9>>", _cme_rule_9(open_, rule))
+                .replace("<<CME_RULE_13>>", r13).replace("<<CME_DECISION_VOCAB>>", dec)
+                .replace("<<CME_STATUS_VOCAB>>", st)
+                .replace("<<CME_FS_COL>>", _cme_fs_col_listed(open_, rule))
                 .replace("<<CME_PENDING_VOCAB>>", _cme_count_default_line(rule) + "\n    " + _cme_pending_vocab(open_, rule)))
 
 

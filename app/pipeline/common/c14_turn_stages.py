@@ -2208,10 +2208,13 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
     # to DATA in 2 of 3 runs (dataset question, then Legacy totals — Legacy sheet
     # TC-09, 2026-10-22, KI-382). A place or a figure word keeps it data ("overview
     # of Ri Bhoi", "financial summary for Amlarem", D-052).
+    # A summary a fixed data answer claims is its figures too: "Overall summary of FOCUS+"
+    # reads "summary of … focus" here and went back to the documents (KI-681); the briefing
+    # wording above is not claimed (_c13_fixed_data_answer_claims).
     _scheme_overview = bool(_OVERVIEW_REQUEST.search(raw_question)) \
         and not _C14_COUNT_WORDS.search(raw_question) and not _C14_FIGURE_WORDS.search(raw_question) \
         and not named_places(raw_question) and not _AREA_CHIP_MARKER_MATCH.search(raw_question) \
-        and not _overview_names_a_place(raw_question)
+        and not _overview_names_a_place(raw_question) and not _c13_fixed_data_answer_claims(raw_question)
     if intent == "DATA" and _scheme_overview:
         intent = "KNOWLEDGE"
     _no_scheme = question

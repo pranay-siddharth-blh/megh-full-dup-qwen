@@ -1080,6 +1080,14 @@ def test_a_valid_only_figure_says_so():
     assert p._cme_default_only_note("SELECT COUNT(*) FROM curated.v_cm_elevate", "8,938 applications.") is None
     assert p._cme_default_only_note(
         "SELECT COUNT(*) FROM curated.v_cm_elevate WHERE data_verified IN ('Valid', 'Wrong')", "x") is None
+    # user 2026-11-04: "Give ALL applications and pendency …" counted every status; the pending FILTER's
+    # own 'Valid' is not the query's scope, so no "valid only" Note
+    all_sql = ("SELECT scheme_name, COUNT(DISTINCT request_id) AS applications, COUNT(DISTINCT request_id) "
+               "FILTER (WHERE data_verified = 'Valid' AND file_status IN ('Pending', 'Send Back')) AS pending "
+               "FROM curated.v_cm_elevate WHERE lgd_district = 'WEST KHASI HILLS' GROUP BY scheme_name")
+    assert p._cme_default_only_note(all_sql, "Piggery 225 applications, 196 pending.") is None
+    assert p._cme_default_only_note(all_sql.replace("GROUP BY", "AND data_verified = 'Valid' GROUP BY"),
+                                    "Piggery 197 applications, 196 pending.") is not None
     # through the finalize step, CM Elevate only; the chip marker echo is tidied
     r = {"route": "data", "schemes": ["CM Elevate"], "rows": [{"applications": 2038}], "sql": _VALID_SQL,
          "resolved_entities": {"district": "RI BHOI"},

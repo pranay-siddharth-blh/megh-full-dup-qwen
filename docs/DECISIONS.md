@@ -937,6 +937,27 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-101 — CM Elevate "status" is the file status, not current_file_status (2026-11-04)
+- **Date:** 2026-11-04. User: "for this kind of status questions … you need to refer file status column. Not okay.
+  Current file status." Ingestion team, `CHATBOT_DB_CHANGES_2026-11-04.md` (reply to `docs/CM_Elevate_DB_Issues.md`
+  Issue 2): `curated.v_cm_elevate` has a plain `file_status` column (Pending 8,813 / Send Back 90 / Rejected 62,
+  exact spelling), readable by `megh_readonly` and `semantic.run_query`; `scheme_specific` stays locked (applicant
+  identifiers); `current_file_status` is the file's last movement and reads `forward` for every Rejected
+  application. **Supersedes** the 2026-09-28 product decision (rule 13: status = `current_file_status`) and the
+  2026-10-26 workaround (D-069 4b: pending / approved / rejected "not in the data").
+- **What:** the knowledge-base file `data/cm_elevate/cmelevate_pending_rule.yaml` points its "file status" step at
+  `file_status`; that step is the one source for the pending rule AND for every plain "status" question. Gate:
+  `cme_pending_rule.readable()` (the column among megh_readonly's live columns). Open: rule 13, the decision and
+  status vocabulary, the readable-column list and rule 9 are built from that column (`schema_context._cme_status_lines`,
+  `_cme_fs_col_listed`); `_cm_elevate_status_is_file_status` regroups data_verified / current_file_status groupings
+  on `COALESCE(file_status, '(not recorded)')` unless the question asks for a movement (`_CME_MOVEMENT_Q`: the
+  column's own stored values or "current file status"); `_cm_elevate_decision_status_column` moves approved /
+  rejected on current_file_status to `file_status`; `_cme_workflow_query` leaves approved / rejected to the model
+  path; `_MEASURE_HOLDERS` counts CM Elevate as holding the decision. Closed: every 2026-09-28 / 2026-10-16 text and
+  guard, word for word.
+- **Kept:** valid-only default (2026-10-30), so a status answer counts valid applications unless "all" is asked.
+- **Status:** Active.
+
 ### D-100 — Context frames: the whole window in the snapshot, one checked resolver for a follow-up (2026-11-03)
 - **Date:** 2026-11-03. User: "everytime i am asking context … i want permanent solution for this context issue, it
   should have context to all the window … not hard coded … dont create any new problems". Files: NEW

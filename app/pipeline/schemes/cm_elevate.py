@@ -1240,7 +1240,17 @@ def _cme_default_only_note(sql: str, answer: str) -> "str | None":
     if not d or not col or not label or not sql:
         return None
     try:
-        vals = {str(v).strip().lower() for v in sql_ast.filter_values(sql, col)}
+        # The query's own scope only: a test inside one aggregate's FILTER (the pending rule's
+        # "data_verified = 'Valid' AND file_status …") scopes that count, not the figures.
+        # "Give ALL applications and pendency …" (user 2026-11-04) counted every status yet
+        # carried the "valid applications only" Note because of that FILTER.
+        tree = sql_ast.parse_one(sql)
+        if tree is None:
+            return None
+        scope = tree.copy()
+        for f in list(scope.find_all(exp.Filter)):
+            f.replace(f.this)
+        vals = {str(v).strip().lower() for v in sql_ast.filter_values(scope, col)}
     except Exception:  # noqa: BLE001 — a SQL we cannot read gets no note
         return None
     wanted = {str(v).strip().lower() for v in d.get("values") or []}
@@ -1383,6 +1393,13 @@ def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str]
     open_ = _cme_pending_readable()
     asked = _CME_WORKFLOW_WORD.search(q) is not None or _CME_ON_HOLD_Q.search(q) is not None
     if not asked or _CME_RECORDED_STATUS_WORD_OPEN.search(q):
+        return None
+    # 2026-11-04 (ingestion team CHATBOT_DB_CHANGES_2026-11-04, "retire the 26 October workaround"):
+    # with the file status readable, an approved / rejected question is a figure the data holds —
+    # the model path answers it (rule 13, _cm_elevate_decision_status_column), never "not recorded".
+    # Pending / on hold / sent back stay here: this query counts them from the same column.
+    _wf = _CME_WORKFLOW_WORD.search(q)
+    if open_ and _wf is not None and _wf.group(1).lower().startswith(("approv", "reject")):
         return None
     where, params = [], []
     for single, many, col in (("village_code", "village_code_list", "village_code"),
@@ -2261,6 +2278,28 @@ def _cm_elevate_level_pending(question: str, schemes: list[str], sql: str) -> st
 _CME_FILE_STATUS_EXPR = ("CASE WHEN LOWER(current_file_status) LIKE 'sendback%' THEN 'Sent back' "
                          "WHEN current_file_status IS NULL THEN '(not recorded)' "
                          "ELSE INITCAP(LOWER(current_file_status)) END")
+# 2026-11-04 (user; ingestion team CHATBOT_DB_CHANGES_2026-11-04, KI-624 closed): "status" is the
+# department's FILE STATUS — the knowledge base's "file status" step (cmelevate_pending_rule.yaml,
+# the plain file_status column: Pending / Send Back / Rejected). current_file_status is only the
+# file's last MOVEMENT and reads 'forward' for every Rejected application; it answers a question
+# that asks for a movement — one of its own stored values (the set data_facts
+# cme_file_status_values checks live) or "current file status" by name. While the file-status
+# column is not readable, the 2026-09-28 reading (current_file_status) stays.
+_CME_MOVEMENT_VALUES = ("forward", "resubmit", "sendback to vdv/citizen")
+_CME_MOVEMENT_Q = Matcher(Alt(W(*(v.split()[0] for v in _CME_MOVEMENT_VALUES), prefix=True),
+                              Seq("current", "file", "status", sep="space")))
+
+
+def _cme_status_column() -> "str | None":
+    """The file-status column a plain "status" groups by, while the role may read it; else None."""
+    return _pending_rule.file_status_column() if _cme_pending_readable() else None
+
+
+def _cme_status_expr_sql() -> str:
+    """The SQL a "status" breakdown groups by: the file status (NULL shown as '(not recorded)')
+    once readable, else the 2026-09-28 current_file_status expression."""
+    fs = _cme_status_column()
+    return f"COALESCE({fs}, '(not recorded)')" if fs else _CME_FILE_STATUS_EXPR
 _CME_STATUS_Q = Matcher(Alt(
     _cme_join("status", ("wise", "distribution", "breakdown", "split", "count", "counts")),
     Seq(W("application", "current", "file", "overall"), "status"), Seq("status", W("of", "for", "in")),
@@ -2298,30 +2337,58 @@ def _cme_dv_group_exprs(node: exp.Expression) -> list:
     return found
 
 
+def _cme_movement_group_exprs(node: exp.Expression) -> list:
+    """The current_file_status GROUPING expressions under `node`: the outermost expression built
+    from that column alone (the bare column, LOWER / INITCAP of it, the 2026-09-28 CASE). One being
+    compared or filtered on (a predicate, a WHERE / FILTER) is a movement filter, not the grouping."""
+    found: list = []
+
+    def visit(n: exp.Expression) -> None:
+        if isinstance(n, (exp.Predicate, exp.Where, exp.AggFunc)):
+            return
+        if isinstance(n, exp.Alias):     # the select item keeps its own name
+            visit(n.this)
+            return
+        names = {c.name.lower() for c in n.find_all(exp.Column)}
+        if names == {"current_file_status"}:
+            found.append(n)
+            return
+        for child in n.iter_expressions():
+            visit(child)
+
+    visit(node)
+    return found
+
+
 def _cm_elevate_status_is_file_status(question: str, schemes: list[str], sql: str) -> str:
-    """A plain CM Elevate "status" question grouped by data_verified is rewritten
-    to group by current_file_status. Comparisons on data_verified (a verification
-    filter the question asked for) are never touched; a question with any
-    verification / pending / on-hold / decision word keeps data_verified."""
+    """A plain CM Elevate "status" question grouped by data_verified is rewritten to group by
+    the status column: the file status once the role may read it (2026-11-04), current_file_status
+    before (2026-09-28). With the file status readable, a grouping on current_file_status moves to
+    it too, unless the question asks for a movement (_CME_MOVEMENT_Q). Comparisons (a filter the
+    question asked for) are never touched; a question with any verification / pending / on-hold /
+    decision word keeps its columns."""
     q = question or ""
     if schemes != ["CM Elevate"] or not sql or not _CME_STATUS_Q.search(q) or _CME_VERIFICATION_Q.search(q):
         return sql
     tree = sql_ast.parse_one(sql)
     sel = sql_ast.outer_select(tree) if tree is not None else None
-    if sel is None or not sql_ast.has_group_by(tree) or not sql_ast.references_column(tree, "data_verified"):
+    if sel is None or not sql_ast.has_group_by(tree):
         return sql
-    heads = [n for e in sel.expressions for n in _cme_dv_group_exprs(e)]
-    if not heads:
-        return sql                       # data_verified only inside a WHERE / FILTER — not the grouping
+    finders = [_cme_dv_group_exprs]
+    if _cme_status_column() and not _CME_MOVEMENT_Q.search(q):
+        finders.append(_cme_movement_group_exprs)
     group = sel.args.get("group")
-    targets = heads + ([n for g in group.expressions for n in _cme_dv_group_exprs(g)] if group is not None else [])
-    status = sqlglot.parse_one(_CME_FILE_STATUS_EXPR, read=sql_ast.DIALECT)
+    heads = [n for f in finders for e in sel.expressions for n in f(e)]
+    if not heads:
+        return sql                       # neither column groups the query — nothing to move
+    targets = heads + ([n for f in finders for g in group.expressions for n in f(g)] if group is not None else [])
+    status = sqlglot.parse_one(_cme_status_expr_sql(), read=sql_ast.DIALECT)
     for n in targets:
         new = status.copy()
         if n.parent is sel:              # a bare select item keeps a name: "status", not "case"
             new = exp.alias_(new, "status")
         n.replace(new)
-    logger.info("CM Elevate: 'status' grouped by current_file_status, not data_verified (2026-09-28)")
+    logger.info("CM Elevate: 'status' grouped by %s", _cme_status_column() or "current_file_status (2026-09-28)")
     return sql_ast.to_sql(tree)
 
 
@@ -2495,15 +2562,21 @@ def _cm_elevate_decision_status_column(schemes: list[str], sql: str) -> str:
     if schemes != ["CM Elevate"] or not sql:
         return sql
 
+    # 2026-11-04: the decision IS readable again, as the plain file-status column
+    # (_cme_status_column); approved / rejected move there, in its stored spelling.
+    fs = _cme_status_column()
+
     def fn(tree: exp.Expression) -> None:
         for n in list(tree.find_all(exp.EQ, exp.Like, exp.ILike)):
             hit = _cme_decision_pred(n)
             if hit is not None and hit[1] == "Pending" and _cme_pending_target():
                 n.replace(_cme_eq_on(hit[0], _cme_pending_target()))
+            elif hit is not None and hit[1] != "Pending" and fs and "->>" not in fs:
+                n.replace(_cme_eq_on(hit[0], f"{fs} = '{hit[1]}'"))
 
     out = sql_ast.transform(sql, fn)
     if out != sql:
-        logger.info("CM Elevate: current_file_status = 'pending' read as %s", _cme_pending_target())
+        logger.info("CM Elevate: a decision state on current_file_status moved to %s", fs or _cme_pending_target())
     return out
 
 
@@ -2629,6 +2702,24 @@ def _cm_elevate_all_applications(question: str, schemes: list[str], sql: str) ->
     return sql_ast.to_sql(tree)
 
 
+def _cme_tests_verification(tree: exp.Expression, col: str, default: exp.Expression) -> bool:
+    """The query itself chooses a verification state: `col` appears anywhere except as the
+    default's own condition inside one aggregate's FILTER. User 2026-11-04 ("Give the applicant
+    count and pendency for Piggery, Poultry and Dairy in West Khasi Hills, split by sector"): the
+    pending count's FILTER (WHERE data_verified = 'Valid' AND file_status IN …) — the pending rule,
+    which applies the default itself — made the whole query look verification-scoped, so the
+    plain applicant count went out over every status (225 Piggery) under a "valid only" Note."""
+    want = sql_ast.to_sql(default)
+    for c in tree.find_all(exp.Column):
+        if c.name.lower() != col:
+            continue
+        eq = c.parent
+        if isinstance(eq, exp.EQ) and sql_ast.to_sql(eq) == want and eq.find_ancestor(exp.Filter) is not None:
+            continue                     # the default itself, scoping one count only
+        return True
+    return False
+
+
 def _cm_elevate_valid_default(question: str, schemes: list[str], sql: str) -> str:
     """User decision 2026-10-30: every CM Elevate application count includes only the default
     applications (applications_default in the knowledge base: data verified Valid). A count over
@@ -2640,9 +2731,9 @@ def _cm_elevate_valid_default(question: str, schemes: list[str], sql: str) -> st
             or _cme_names_verification_state(question)):
         return sql
     tree = sql_ast.parse_one(sql)
-    if not _cme_counts_v_cm_elevate(tree) or sql_ast.references_column(tree, _pending_rule.default_column()):
-        return sql
     cond = sqlglot.parse_one(d, read=sql_ast.DIALECT)
+    if not _cme_counts_v_cm_elevate(tree) or _cme_tests_verification(tree, _pending_rule.default_column(), cond):
+        return sql
     sel = _cme_simple_select(tree)
     if sel is not None:
         sel.where(cond, append=True, copy=False)

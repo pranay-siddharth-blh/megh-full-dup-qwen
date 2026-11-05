@@ -195,7 +195,12 @@ In order:
    year and tranche pauses become the chip text appended ("for all of Meghalaya", "across all financial years",
    "across all tranches"); job-card questions get no year default (stock pinned by
    `_mgnrega_job_cards_latest_year`).
-4b. **CM Elevate workflow statuses (D-069, 2026-10-26):** pending / approved / rejected / sent back are not in the data
+4b. **CM Elevate workflow statuses (D-069, 2026-10-26; superseded for a readable file status by D-101, 2026-11-04):**
+   since 2026-11-04 `curated.v_cm_elevate.file_status` holds the department's status (Pending / Send Back / Rejected)
+   and every plain "status" question groups by it (`_cm_elevate_status_is_file_status`, rule 13 built by
+   `schema_context._cme_status_lines` from `cmelevate_pending_rule.yaml`); `current_file_status` answers only a
+   movement question (`_CME_MOVEMENT_Q`); approved / rejected leave the fixed query for the model path. The rest of
+   this step is the behaviour while that column is NOT readable: pending / approved / rejected / sent back are not in the data
    (ingestion team). `_cme_workflow_query` (via `_cme_sector_query`) answers "not recorded" plus the recorded figures
    (on hold at verification, each file status; distinct applications) with the question's place and programme;
    a recorded field (on hold, verification, forward, resubmit, level) keeps the model path.
@@ -397,6 +402,8 @@ retry, then the deterministic answer.
     (`_pmay_village_beside_block(..., scheme)`) run for it.
 - `_focusplus_pin_village_where` runs for `["Focus Plus"]` and `["CM Elevate"]`
   (`_PIN_VILLAGE_WHERE_SCHEMES`). Since KI-108 it:
+  - splits the WHERE through bracketed AND groups too (`_and_terms`, KI-678): the CM Elevate valid default
+    brackets the model's WHERE, and the bracket holding `village_code` once took `scheme_name` with it;
   - finds the query's own WHERE with `_top_level_where_span`, never one inside
     `COUNT(*) FILTER (WHERE …)`;
   - splits conditions on AND outside string literals, so "…Empowerment and Development (SEED)"
@@ -1265,6 +1272,19 @@ Brief: `megh_chatbot_spelling_fix_prompt.md` (T1-T10). VERIFIED in code:
 - **Follow-up routing** (c01 `_typed_intent`): a typed "what is it / that …" with a scope (statewide, a place, a year)
   is not decisive for KNOWLEDGE; the rewrite is classified ("What is it for the whole state?" -> the statewide
   figure). KI-654.
+- **One cue list for intent** (c13 `_c13_intent_by_cues`, 2026-11-04, KI-677): `classify_intent`'s deterministic
+  cues and `_typed_intent` read the same ordered list, so a higher-ranked rule (`_MEASURE_IN_PLACE`: "Piggery
+  applications in Umshaken village") is never overturned by a lone "what is" when the rephraser has touched the
+  question (every D-099 dataset chip). The query-plan / 4B fallback is `_c13_intent_by_model`.
+- **Fixed data answers claim their questions at routing** (c13 `_c13_fixed_data_answer_claims`, 2026-11-04, KI-681):
+  inside `_c13_intent_by_cues`, after the knowledge hard cues (contact, wage rate, programme design, process), a
+  question that a fixed DATA answer's own predicate claims is DATA, so the 4B is never asked: the Focus Plus overall
+  summary (`_focusplus_wants_overall_summary`) and the cross-scheme money ranking (`_wants_cross_scheme_money_ranking`).
+  Not claimed: a definition / entitlement / knowledge-form question, or one with a knowledge cue other than a bare
+  "what is / what are". A claimed question is also left alone by the B3 score net (`classify_intent`) and by the c14
+  scheme-overview rule (KI-382; "Overall summary of FOCUS+"). Why: since D-094 the classifier prompt says "no place, no year, no count -> KNOWLEDGE", which
+  sent "Give me an overall Focus Plus summary." to the documents. **A new fixed answer decided by the question's words
+  alone should be added to this function**, or the classifier can make it unreachable.
 - **Focus Plus block guard** (`schemes/focus_plus.py` `_focusplus_lgd_only_block`): an equality on a known raw block
   is compared in upper case on both sides (`block_name_raw` is stored title case); an `lgd_block` equality naming a
   raw block moves to `UPPER(block_name_raw)` (not when the SQL filters a village). KI-649.

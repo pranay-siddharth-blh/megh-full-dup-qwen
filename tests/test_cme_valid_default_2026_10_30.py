@@ -73,8 +73,26 @@ def test_a_cte_reads_the_view_through_a_valid_only_subquery():
 def test_a_query_that_already_tests_verification_is_left_alone():
     for sql in (f"SELECT COUNT(*) FROM {V} WHERE data_verified = 'On Hold'",
                 f"SELECT data_verified, COUNT(*) FROM {V} GROUP BY 1",
-                f"SELECT COUNT(*) FILTER (WHERE data_verified = 'Valid') AS valid FROM {V}"):
+                f"SELECT COUNT(*) FILTER (WHERE data_verified = 'Invalid') AS invalid, COUNT(*) AS n FROM {V}"):
         assert p._cm_elevate_valid_default("How many applications?", CME, sql) == sql
+
+
+def test_the_pending_filter_does_not_switch_the_default_off():
+    # User 2026-11-04 (screenshot): "applicant count and pendency for Piggery, Poultry and Dairy in West
+    # Khasi Hills, split by sector" — the pending FILTER (which applies the default itself) left the
+    # applicant count over every status (Piggery 225) under a "valid only" Note.
+    q = "Give the applicant count and pendency for Piggery, Poultry and Dairy in West Khasi Hills, split by sector"
+    sql = (f"SELECT scheme_name, COUNT(DISTINCT request_id) AS applicant_count, COUNT(DISTINCT request_id) "
+           f"FILTER (WHERE data_verified = 'Valid' AND file_status IN ('Pending', 'Send Back')) AS pending "
+           f"FROM {V} WHERE lgd_district = 'WEST KHASI HILLS' GROUP BY scheme_name")
+    out = p._cm_elevate_valid_default(q, CME, sql)
+    from app import sql_ast
+    assert sql_ast.filter_values(out, "data_verified").count("Valid") == 2, out     # the WHERE and the FILTER
+    assert "lgd_district = 'WEST KHASI HILLS'" in out
+    only = f"SELECT COUNT(*) FILTER (WHERE data_verified = 'Valid') AS valid FROM {V}"
+    assert "WHERE data_verified = 'Valid'" in p._cm_elevate_valid_default("How many applications?", CME, only)
+    # asked for every application: no default, the pending FILTER untouched
+    assert p._cm_elevate_valid_default("Give all applications and pendency in West Khasi Hills", CME, sql) == sql
 
 
 @pytest.mark.parametrize("q", ["How many applications are on hold?",          # on hold is pending: the rule carries the default

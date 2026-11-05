@@ -233,10 +233,15 @@ Notes on the table:
     `COUNT(DISTINCT request_id)`;
   - answer guarantees after the composer: `_cm_elevate_answer_guarantees`;
   - "PRIME SEED" routes to CM Elevate.
-  - "Pending" (2026-10-30): `data_verified = 'Valid' AND scheme_specific ->> 'file_status' IN ('Pending',
-    'Send Back')` — 7,341 live; On Hold is not pending. Every CM Elevate count is valid-only by default.
-    Gated on the grant (KI-624); the KI-074 On Hold reading stands only while the column is locked.
-- **Status = `current_file_status`** (Forward / Sent back / Resubmit; decided 2026-09-28, KI-123). Pending = the 2026-10-30 funnel (D-B1-CME-01); verified = 'Valid'.
+  - "Pending" (2026-10-30): `data_verified = 'Valid' AND file_status IN ('Pending', 'Send Back')` (the plain
+    `file_status` column since 2026-11-04; was `scheme_specific ->> 'file_status'`, locked, KI-624 closed) —
+    7,348 per the ingestion team on 2026-11-04; On Hold is not pending. Every CM Elevate count is valid-only by default.
+    Gated on `cme_pending_rule.readable()`; the locked wording stands only while the column is not readable.
+- **Status = `file_status`** (Pending / Send Back / Rejected; D-101, user 2026-11-04, superseding the 2026-09-28
+  `current_file_status` decision, KI-123). `current_file_status` (forward / resubmit / sendback) is the file's last
+  MOVEMENT — it reads `forward` for every Rejected application — and answers only a movement question. Pending =
+  the 2026-10-30 funnel (D-B1-CME-01); verified = 'Valid'. 27 applications have two records (one Pending, one
+  Rejected; ingestion team 2026-11-04), so a per-status breakdown adds up to 27 more than the total.
 - **All districts / blocks / villages (2026-09-28): 7,364 / 7,364** on the final code (KI-106..120). CM Elevate is a village-grained scheme (`_village_scheme`); urban bodies are stored as blocks ("<TOWN>-MUNICIPAL BOARD" / "-TOWN COMMITTEE") and the block catalogue lags the data (21 of 66 missing) — `_cm_elevate_blocks_to_data` maps to the stored spelling. "Pending" = Valid → file_status Pending / Send Back (2026-10-30; was On Hold, 2026-09-28).
 - **QA (2026-09-27):** the use cases (`CM Elevate.csv`, CM-ELEVATE-OFF-001..030).
   - Round 1: **23 / 30** (47 / 55 questions). Report:

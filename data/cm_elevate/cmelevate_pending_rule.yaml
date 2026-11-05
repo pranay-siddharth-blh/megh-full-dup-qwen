@@ -25,10 +25,11 @@ verification_states:
 #    data_verified outcome). A level-wise question is this rule filtered or grouped by
 #    current_level. Every other state (Invalid / Wrong, resubmit, Rejected) is reported only when
 #    the question names it.
-#    The last step reads scheme_specific, which the chatbot's database role may not SELECT until
-#    the DB team grants it (KI-624): until then the rule is "locked" and the recorded figures are
-#    given. If the team exposes a plain file_status column instead, point the step at it
-#    (column: file_status) and the gate opens by itself.
+#    The "file status" step is also the column every plain "status" question groups by.
+#    2026-11-04 (ingestion team, KI-624 closed): curated.v_cm_elevate has a plain file_status
+#    column (Pending / Send Back / Rejected, exact case) that megh_readonly may read;
+#    scheme_specific stays locked (it holds member_id / gender_id). Were the column ever revoked,
+#    readable() closes the gate again and the recorded figures are given.
 pending_rule:
 - { column: data_verified, label: "data verified", values: [Valid] }
-- { column: "scheme_specific ->> 'file_status'", label: "file status", values: [Pending, "Send Back"] }
+- { column: file_status, label: "file status", values: [Pending, "Send Back"] }

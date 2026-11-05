@@ -635,3 +635,158 @@ def test_focusplus_block_rewrite_is_focus_plus_only(monkeypatch):
 ])
 def test_number_words_become_digits_for_every_scheme(answer, rows, expected):
     assert p._cme_digits_for_number_words(answer, rows) == expected
+
+
+# ── KI-681 (user 2026-11-04): "Give me an overall Focus Plus summary." went to the documents ──
+# No intent cue matched it, so the 4B decided; since the D-094 prompt line ("no place, no year,
+# no count -> KNOWLEDGE") it said KNOWLEDGE and the fixed summary query never ran. c13
+# _c13_fixed_data_answer_claims now asks the data stage's own predicates before the model,
+# and the B3 score net leaves a claimed question alone.
+import json  # noqa: E402
+
+from app.config import settings  # noqa: E402
+from test_pipeline_graph import _loaded, env  # noqa: E402,F401 — the shared graph stubs
+
+_KI681_REAL_CLASSIFY_INTENT = p.classify_intent   # captured before the env fixture stubs it
+
+KI681_SUMMARY_ASKS = [
+    "Give me an overall Focus Plus summary.",
+    "Give an overall Focus Plus summary",
+    "Give me overall Focus Plus summary",
+    "What is the overall Focus+ summary?",          # the rephraser's "What is …" (KI-250)
+    "Overall summary of FOCUS+",
+    "Give me the complete Focus Plus data summary",
+    "Summarise Focus Plus data",
+    "Give me an overall summary of the Focus Plus scheme",
+]
+KI681_NOT_CLAIMED = [
+    "Summarise the Focus Plus eligibility rules",
+    "Summarise the Focus Plus guidelines",
+    "Summarize the benefits of Focus Plus",
+    "Explain Focus Plus overall summary",
+    "What does Focus Plus mean?",
+    "Who is eligible for Focus Plus?",
+    "Give me a short overview of FOCUS+ that I can use for an official briefing",
+    "How much does Focus Plus pay?",
+    "Give me an overall MGNREGA summary",             # no fixed summary answer: the model's call
+]
+
+
+@pytest.mark.parametrize("q", KI681_SUMMARY_ASKS)
+def test_ki681_overall_summary_is_data_by_rule(q):
+    assert p._c13_fixed_data_answer_claims(q)
+    assert p._c13_intent_by_cues(q) == "DATA"
+    assert p._typed_intent(q) == "DATA"               # a rephrased / follow-up turn reads the same
+
+
+@pytest.mark.parametrize("q", KI681_NOT_CLAIMED)
+def test_ki681_knowledge_forms_are_not_claimed(q, monkeypatch):
+    # (their routing is the older rules' — "How much does Focus Plus pay?" is DATA here by
+    # "how much" and turned back by c14 _knowledge_form_question; unchanged)
+    assert not p._c13_fixed_data_answer_claims(q)
+    now = p._c13_intent_by_cues(q)
+    monkeypatch.setattr(p, "_c13_fixed_data_answer_claims", lambda _q: False)
+    assert p._c13_intent_by_cues(q) == now
+
+
+def test_ki681_cross_scheme_money_ranking_is_data_by_rule():
+    q = "Which scheme spent the most money?"
+    assert p._wants_cross_scheme_money_ranking(q) and p._c13_fixed_data_answer_claims(q)
+
+
+def test_ki681_no_labelled_knowledge_question_is_claimed():
+    rows = json.load(open(Path(__file__).parent / "intent_scores" / "labels.json", encoding="utf-8"))
+    assert not [q for label, q in rows if label == "KNOWLEDGE" and p._c13_fixed_data_answer_claims(q)]
+
+
+def test_ki681_b3_net_leaves_a_claimed_question_alone(monkeypatch):
+    """B3 would say 'documents closer'; a claimed question stays DATA, an unclaimed one flips."""
+    monkeypatch.setattr(settings, "INTENT_SCORE_TIEBREAK", True)
+    monkeypatch.setattr(p, "_c13_b3_eligible", lambda _q: True)
+
+    async def closer(_q):
+        return True
+    monkeypatch.setattr(p, "_c13_knowledge_is_closer", closer)
+    assert asyncio.run(_KI681_REAL_CLASSIFY_INTENT("Summarise Focus Plus data")) == "DATA"
+    assert asyncio.run(_KI681_REAL_CLASSIFY_INTENT("How many Focus Plus beneficiaries are there?")) == "KNOWLEDGE"
+
+
+_KI681_ROW = {"payments": 10, "beneficiaries": 5, "amount": 25000, "districts": 2, "missing_district_rows": 0,
+              "years_list": "2022-23", "batch_list": "93K", "tranche_count": 1, "top_ben_district": "RI BHOI",
+              "top_ben_district_count": 3, "top_amt_district": "RI BHOI", "top_amt_district_amount": 15000,
+              "top_bank_name": "SBI", "top_bank_amount": 25000, "female": 1, "male": 1,
+              "cohort_beneficiaries": 2, "farmers": 1,
+              "pending": 0, "approved": 1, "rejected": 0, "verified_approved": 1}
+
+
+def _ki681_turn(monkeypatch, question, model_says="KNOWLEDGE", b3=True):
+    """The real classify_intent; its model call answers KNOWLEDGE as the 4B does since D-094,
+    and the B3 net is on and would vote for the documents."""
+    monkeypatch.setattr(p, "classify_intent", _KI681_REAL_CLASSIFY_INTENT)
+    monkeypatch.setattr(settings, "INTENT_SCORE_TIEBREAK", b3)
+    monkeypatch.setattr(p, "_c13_b3_eligible", lambda _q: True)
+
+    async def closer(_q):
+        return True
+    monkeypatch.setattr(p, "_c13_knowledge_is_closer", closer)
+
+    async def model_verdict(_q, _session=None):
+        return model_says
+    monkeypatch.setattr(p, "_c13_intent_by_model", model_verdict)
+
+    async def classify_scheme(_q):
+        return ["Focus Plus"]
+    monkeypatch.setattr(p, "classify_scheme", classify_scheme)
+    seen = []
+
+    async def run_readonly(sql):
+        seen.append(sql)
+        return [dict(_KI681_ROW)]
+    monkeypatch.setattr(p, "run_readonly", run_readonly)
+    return asyncio.run(graph_turn(question)), seen
+
+
+@pytest.mark.parametrize("q", KI681_SUMMARY_ASKS)
+def test_ki681_overall_summary_turn_answers_the_figures(env, monkeypatch, q):
+    out, seen = _ki681_turn(monkeypatch, q)
+    assert out["route"] == "data"
+    assert p._FOCUSPLUS_OVERALL_SUMMARY_SQL in seen
+    assert "Focus+ overall summary" in out["answer"]
+
+
+def test_overall_summary_cohort_share_is_computed_and_scope_not_glued(env, monkeypatch):
+    """UAT 2026-11-05: "~3% of beneficiaries" was hard-coded (12,527 is 3% of the
+    3,85,671 payment rows, 11.8% of the 1,05,813 beneficiaries), and the closing
+    scope sentence was glued onto the last bullet ("12,527 Approved This figure is for …")."""
+    live = dict(_KI681_ROW, payments=385671, beneficiaries=105813, female=10263, male=2264,
+                cohort_beneficiaries=12527, verified_approved=12527)
+
+    async def run_readonly(_sql):
+        return [dict(live)]
+    monkeypatch.setattr(p, "run_readonly", run_readonly)
+    out = asyncio.run(p._focusplus_overall_summary_answer(["Focus Plus"], {"resolved": {}}))
+    ans = out["answer"]
+    assert "~3%" not in ans
+    assert "12,527 of 105,813 beneficiaries, ~11.8%" in ans
+    assert "10,263 female, 2,264 male" in ans
+    assert "cohort_beneficiaries" in p._FOCUSPLUS_OVERALL_SUMMARY_SQL
+    # the scope line stands on its own, so the universal last pass adds nothing
+    finished = p._finish_answer(ans, out["rows"], ["Focus Plus"], {})
+    assert "Approved This figure" not in finished and "This figure is for" not in finished
+    assert finished.rstrip().endswith("financial year in the data.")
+
+
+def test_ki681_without_the_claim_the_turn_went_to_the_documents(env, monkeypatch):
+    """The reported failure: the same turn with the claim disabled."""
+    monkeypatch.setattr(p, "_c13_fixed_data_answer_claims", lambda _q: False)
+    out, seen = _ki681_turn(monkeypatch, "Give me an overall Focus Plus summary.")
+    assert out["route"] != "data" and p._FOCUSPLUS_OVERALL_SUMMARY_SQL not in seen
+
+
+@pytest.mark.parametrize("q", [
+    "Give me a short overview of FOCUS+ that I can use for an official briefing",   # KI-382
+])
+def test_ki681_scheme_overview_still_goes_to_the_documents(env, monkeypatch, q):
+    """KI-382 kept: even when the model says DATA, a scheme overview is the documents'."""
+    out, seen = _ki681_turn(monkeypatch, q, model_says="DATA", b3=False)
+    assert out["route"] != "data" and p._FOCUSPLUS_OVERALL_SUMMARY_SQL not in seen

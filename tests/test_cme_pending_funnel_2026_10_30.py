@@ -6,8 +6,10 @@ FROM THE KNOWLEDGE BASE (cmelevate_pending_rule.yaml) through app/cme_pending_ru
 typed into code, so these tests read the rule the same way and also prove that changing the YAML
 steps changes the SQL.
 
-file_status lives inside curated.v_cm_elevate.scheme_specific, which the chatbot's database role
-has not been allowed to read since 2026-10-16 (KI-624). Every change is gated on
+file_status lived inside curated.v_cm_elevate.scheme_specific, which the chatbot's database role
+has not been allowed to read since 2026-10-16 (KI-624). Since 2026-11-04 it is a plain, readable
+file_status column (ingestion team CHATBOT_DB_CHANGES_2026-11-04) and the YAML step points at it.
+Every change is still gated on
 cme_pending_rule.readable(): every column the rule needs is among the live columns the read-only
 role may SELECT. These tests open the gate by patching schema_introspect.live_columns(). With it
 closed, a pending / on-hold question gets "not available" + the rule + the recorded workflow
@@ -33,7 +35,7 @@ PIG = "Meghalaya Piggery Development Scheme"
 RULE_SQL = rule.sql()                       # from the YAML, not typed here
 RULE_TEXT = rule.text()
 OPEN = {"curated.v_cm_elevate": [{"column": c} for c in ("request_id", "data_verified", "current_file_status",
-                                                         "current_level", "scheme_specific")]}
+                                                         "current_level", "file_status")]}
 LOCKED = {"curated.v_cm_elevate": [{"column": c} for c in ("request_id", "data_verified", "current_file_status")]}
 WF = "/* cme-sector-workflow */ SELECT 1"
 ONE = {"pending": 7341, "sent_back": 90, "forward": 8942, "resubmit": 3, "sendback": 3, "applications": 8948}
@@ -53,13 +55,13 @@ def locked(monkeypatch):
 # ── the rule comes from the knowledge base ───────────────────────────────────
 def test_rule_is_read_from_the_yaml_steps():
     steps = rule.steps()
-    assert [s["column"] for s in steps] == ["data_verified", "scheme_specific ->> 'file_status'"]
-    assert RULE_SQL == "data_verified = 'Valid' AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')"
+    assert [s["column"] for s in steps] == ["data_verified", "file_status"]
+    assert RULE_SQL == "data_verified = 'Valid' AND file_status IN ('Pending', 'Send Back')"
     assert RULE_TEXT == "Pending means: data verified Valid, and file status Pending or Send Back."
-    assert rule.columns() == {"data_verified", "scheme_specific"}
+    assert rule.columns() == {"data_verified", "file_status"}
     assert rule.default_sql() == "data_verified = 'Valid'" and rule.default_text() == "valid"
     assert rule.verification_states() == ("data_verified", ["Valid", "On Hold", "Wrong", "Invalid"])
-    assert rule.json_keys() == {"file_status"} and rule.file_status_column() == "scheme_specific ->> 'file_status'"
+    assert rule.json_keys() == set() and rule.file_status_column() == "file_status"
 
 
 def test_changing_the_yaml_steps_changes_the_sql(monkeypatch, readable):
@@ -69,9 +71,10 @@ def test_changing_the_yaml_steps_changes_the_sql(monkeypatch, readable):
     assert rule.sql() == "data_verified = 'Valid' AND file_status = 'Pending'"
     assert rule.text() == "Pending means: data verified Valid, and file status Pending."
     assert rule.columns() == {"data_verified", "file_status"} and rule.json_keys() == set()
-    # the gate follows the rule: a plain file_status column is not in the live columns -> closed
+    # the gate follows the rule: without the file_status column in the live columns -> closed
+    monkeypatch.setattr(si, "live_columns", lambda: LOCKED)
     assert not rule.readable()
-    monkeypatch.setattr(si, "live_columns", lambda: {"curated.v_cm_elevate": OPEN["curated.v_cm_elevate"] + [{"column": "file_status"}]})
+    monkeypatch.setattr(si, "live_columns", lambda: OPEN)
     assert rule.readable()
     sql, _, _ = p._cme_workflow_query("How many applications are pending?", {})
     assert "FILTER (WHERE data_verified = 'Valid' AND file_status = 'Pending') AS pending" in sql
@@ -111,7 +114,7 @@ def test_workflow_query_counts_the_rule_first(readable):
     sql, params, _ = p._cme_workflow_query("How many CM Elevate applications are pending?", {})
     assert "cme-sector-workflow" in sql and params == []
     assert f"COUNT(DISTINCT request_id) FILTER (WHERE {RULE_SQL}) AS pending" in sql
-    assert "FILTER (WHERE scheme_specific ->> 'file_status' = 'Send Back') AS sent_back" in sql
+    assert "FILTER (WHERE file_status = 'Send Back') AS sent_back" in sql
     assert sql.index("AS pending") < sql.index("AS forward") and "data_verified = 'On Hold'" not in sql
 
 
@@ -227,7 +230,7 @@ def test_sector_pending_while_locked_never_reads_data_verified(locked):
 
 
 # ── the model-SQL guards ─────────────────────────────────────────────────────
-TAIL = "->> 'file_status' IN ('Pending', 'Send Back')"
+TAIL = "file_status IN ('Pending', 'Send Back')"
 
 
 def test_on_hold_written_for_pending_becomes_the_rule(readable):
@@ -319,7 +322,8 @@ def test_prompt_rule_and_vocabulary_follow_the_gate_and_the_yaml(monkeypatch):
     monkeypatch.setattr(si, "live_columns", lambda: OPEN)
     open_ = sc.build_schema_context(CME)
     assert "the PENDING RULE (user decision 2026-10-30): " + RULE_SQL in open_ and RULE_TEXT in open_
-    assert '"on hold" / "held" -> the PENDING RULE' in open_ and "The ONLY key(s) you may read: file_status" in open_
+    assert '"on hold" / "held" -> the PENDING RULE' in open_ and "file_status — read that, never a JSON key" in open_
+    assert "scheme_specific (the JSON column that holds gender_id and the applicant's identifiers)\n     is LOCKED" in open_
     assert "Level-wise = the rule grouped by LOWER(current_level)" in open_ and "<<CME_" not in open_
     assert "[[cme_pending]]" not in open_ and "7,33" not in open_
     monkeypatch.setattr(si, "live_columns", lambda: LOCKED)
@@ -334,3 +338,72 @@ def test_prompt_rule_and_vocabulary_follow_the_gate_and_the_yaml(monkeypatch):
 def test_no_typed_in_pending_figure_remains():
     from app import data_facts as df
     assert "cme_pending" not in df.FACTS and "cm_elevate_pending" not in df._QUERIES
+
+
+# ── "status" is the file status (user 2026-11-04; ingestion team CHATBOT_DB_CHANGES_2026-11-04) ──
+UMSHAKEN_Q = "What is the status of Piggery applications in Umshaken village under CM Elevate?"
+CASE_SQL = ("SELECT CASE WHEN LOWER(current_file_status) LIKE 'sendback%' THEN 'Sent back' "
+            "WHEN current_file_status IS NULL THEN '(not recorded)' ELSE INITCAP(LOWER(current_file_status)) END "
+            "AS status, COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate "
+            f"WHERE scheme_name = '{PIG}' AND village_code = 277617 GROUP BY 1")
+
+
+def test_a_status_question_groups_by_the_file_status(readable):
+    out = p._cm_elevate_status_is_file_status(UMSHAKEN_Q, CME, CASE_SQL)
+    assert "COALESCE(file_status, '(not recorded)') AS status" in out and "current_file_status" not in out, out
+    assert f"scheme_name = '{PIG}'" in out and "village_code = 277617" in out
+    dv = ("SELECT data_verified, COUNT(DISTINCT request_id) AS n FROM curated.v_cm_elevate "
+          "WHERE lgd_district = 'RI BHOI' GROUP BY data_verified")
+    out = p._cm_elevate_status_is_file_status("What is the application status in Ri Bhoi?", CME, dv)
+    assert "COALESCE(file_status, '(not recorded)')" in out and "data_verified" not in out, out
+
+
+def test_a_movement_question_keeps_current_file_status(readable):
+    for q in ("What is the current file status of applications in Ri Bhoi?",
+              "Status of forwarded applications in Ri Bhoi"):
+        assert p._cm_elevate_status_is_file_status(q, CME, CASE_SQL) == CASE_SQL, q
+
+
+def test_status_keeps_the_2026_09_28_reading_while_file_status_is_locked(locked):
+    assert p._cm_elevate_status_is_file_status(UMSHAKEN_Q, CME, CASE_SQL) == CASE_SQL
+    dv = "SELECT data_verified, COUNT(*) FROM curated.v_cm_elevate GROUP BY data_verified"
+    out = p._cm_elevate_status_is_file_status("What is the application status?", CME, dv)
+    assert "INITCAP(LOWER(current_file_status))" in out and "file_status," not in out
+
+
+def test_rejected_on_current_file_status_moves_to_the_file_status(readable):
+    sql = "SELECT COUNT(DISTINCT request_id) FROM curated.v_cm_elevate WHERE LOWER(current_file_status) = 'rejected'"
+    out = p._cm_elevate_decision_status_column(CME, sql)
+    assert "file_status = 'Rejected'" in out and "current_file_status" not in out, out
+
+
+def test_rejected_is_left_alone_while_locked(locked):
+    sql = "SELECT COUNT(*) FROM curated.v_cm_elevate WHERE current_file_status = 'rejected'"
+    assert p._cm_elevate_decision_status_column(CME, sql) == sql
+
+
+def test_prompt_status_rule_follows_the_gate(monkeypatch):
+    from app import schema_context as sc
+    monkeypatch.setattr(si, "live_columns", lambda: OPEN)
+    open_ = sc.build_schema_context(CME)
+    assert "ALWAYS means file_status" in open_ and "current_file_status is NOT a status" in open_
+    assert "district_name_raw, file_status" in open_ and "file_status = 'Rejected'" in open_
+    assert "ALWAYS means current_file_status" not in open_ and "<<CME_" not in open_
+    monkeypatch.setattr(si, "live_columns", lambda: LOCKED)
+    locked = sc.build_schema_context(CME)
+    assert "ALWAYS means current_file_status" in locked and "district_name_raw, file_status" not in locked
+    assert '"approved" / "rejected" / "decision" -> NOT AVAILABLE' in locked and "<<CME_" not in locked
+
+
+def test_rejected_or_approved_takes_the_model_path_once_file_status_is_readable(readable):
+    # the 26 October "not recorded" answer is retired for a readable file status (2026-11-04)
+    for q in ("How many applications were rejected in Ri Bhoi?", "How many CM Elevate applications were approved?"):
+        assert p._cme_workflow_query(q, {"district": "RI BHOI"}) is None, q
+    # pending / sent back still use the fixed query, counted from the file status
+    sql, _, _ = p._cme_workflow_query("How many applications were sent back?", {})
+    assert "FILTER (WHERE file_status = 'Send Back') AS sent_back" in sql
+
+
+def test_rejected_keeps_the_recorded_figures_answer_while_locked(locked):
+    sql, _, _ = p._cme_workflow_query("How many applications were rejected?", {})
+    assert sql is not None and "cme-sector-workflow" in sql and "file_status" not in sql.replace("current_file_status", "")
