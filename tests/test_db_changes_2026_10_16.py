@@ -167,13 +167,19 @@ def test_approved_is_never_pointed_at_scheme_specific():
     assert "scheme_specific" not in out
 
 
-@pytest.mark.parametrize("q", ["How many CM Elevate applications were approved?",
-                               "How many applications were rejected in Ri Bhoi?",
-                               "What is the gender split of CM Elevate applicants?",
+@pytest.mark.parametrize("q", ["What is the gender split of CM Elevate applicants?",
                                "How many women applied?"])
 def test_locked_fields_answered_not_held(q):
     c = p._measure_not_held_gap(q, ["CM Elevate"])
     assert c is not None and c.rule == "measure-not-held"
+
+
+@pytest.mark.parametrize("q", ["How many CM Elevate applications were approved?",
+                               "How many applications were rejected in Ri Bhoi?"])
+def test_the_decision_is_held_again_since_the_file_status_column(q):
+    # 2026-11-04 (ingestion team CHATBOT_DB_CHANGES_2026-11-04, KI-624 closed): the plain
+    # file_status column holds Pending / Send Back / Rejected, so the decision is asked of the data.
+    assert p._measure_not_held_gap(q, ["CM Elevate"]) is None
 
 
 @pytest.mark.parametrize("q,schemes", [("How many applications are pending?", ["CM Elevate"]),

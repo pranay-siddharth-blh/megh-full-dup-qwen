@@ -902,11 +902,14 @@ def _typed_intent(question: str) -> "str | None":
     path (the same matchers classify_intent uses), else None. For a follow-up,
     the typed words outrank the model rewrite's phrasing: "give me
     beneficiaries" is a count even when the rewrite reads "What are the
-    beneficiaries of…" (a "what are" knowledge cue)."""
+    beneficiaries of…" (a "what are" knowledge cue).
+    The verdict is classify_intent's own cue list (_c13_intent_by_cues), so a rule
+    ranked above the keyword fast path there ("Piggery applications in Umshaken
+    village", _MEASURE_IN_PLACE) is never overturned by a lone "what is" here
+    (user 2026-11-04)."""
     q = question or ""
-    if _DATA_HINTS.search(q) and not _KNOWLEDGE_HINTS.search(q):
-        return "DATA"
-    if _KNOWLEDGE_HINTS.search(q) and not _DATA_HINTS.search(q):
+    verdict = _c13_intent_by_cues(q)
+    if verdict == "KNOWLEDGE" and _KNOWLEDGE_HINTS.search(q) and not _DATA_HINTS.search(q):
         # "What is it for the whole state?" after "Focus Plus disbursement in East
         # Khasi Hills" asks for the same figure in a new scope: "it" points at the
         # previous answer, so its "what is" is no definition. It went to the reference
@@ -915,8 +918,9 @@ def _typed_intent(question: str) -> "str | None":
         if _CONTEXTLESS_REF.search(q) and (_EXPLICIT_STATEWIDE.search(q) or context_policy.extract_year_keys(q)
                                            or named_places(q)):
             return None
-        return "KNOWLEDGE"
-    return None
+    return verdict
+
+
 def _is_scheme_term_question(question: str) -> bool:
     """A self-contained "what is <scheme term>?" — "What is SECC?", "What is
     Gram Sabha?", "meaning of muster roll" — naming no scheme and pointing at
@@ -1670,9 +1674,13 @@ _MEASURE_HOLDERS: "list[tuple[str, Matcher, frozenset[str]]]" = [
     # forward / resubmit / sendback to vdv/citizen only, so a filter on it for
     # approved / rejected is a confident false 0. "pending" is NOT here: it stays
     # data_verified = 'On Hold' (user decision 2026-10-16, keeping the sheet rule).
+    # 2026-11-04: CM Elevate holds the decision again — the ingestion team added the plain
+    # file_status column (Pending / Send Back / Rejected) that megh_readonly may read
+    # (CHATBOT_DB_CHANGES_2026-11-04, KI-624 closed); a current_file_status filter for it is moved
+    # there (_cm_elevate_decision_status_column). The label stays for the rephraser's measure guard.
     ("approval or rejection decisions", Matcher(W(
         "approved", "approve", "approval", "approvals", "rejected", "reject", "rejection", "rejections")),
-     _ALL_SCHEMES - {"CM Elevate"}),
+     _ALL_SCHEMES),
     ("rupee amounts", Matcher(Alt(
         W("amount", "amounts", "expenditure", "spend", "spent", "rupee", "rupees", "crore", "crores",
           "money", "fund", "funds", "paid_out"),

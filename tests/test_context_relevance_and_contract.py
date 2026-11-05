@@ -507,6 +507,21 @@ def test_typed_words_decide_intent():
     assert p._typed_intent("and Dalu?") is None
 
 
+def test_typed_words_never_contradict_classify_intents_cues():
+    # User 2026-11-04: the CM Elevate dataset chip's question is rephrased, so the stage reads
+    # _typed_intent; it said KNOWLEDGE ("what is") although classify_intent's _MEASURE_IN_PLACE
+    # rule says DATA, and the chip got the reference documents instead of the 69 applications.
+    chip = "What is the status of Piggery applications in Umshaken village under CM Elevate (applications)"
+    for q in (chip, "What is the status of Piggery applications in Umshaken village under CM Elevate Legacy",
+              "What is the status of Piggery applications in Umshaken village?"):
+        assert p._c13_intent_by_cues(q) == "DATA", q
+        assert p._typed_intent(q) == "DATA", q
+    # The one deliberate difference stays: a "what is it …" re-scope is left to the rewrite.
+    assert p._typed_intent("What is it for Ri Bhoi?") is None
+    for q in ("give me beneficiaries", "eligibility?", "What is Focus Plus?", "how do I apply for PMAY-G?"):
+        assert p._typed_intent(q) == p._c13_intent_by_cues(q), q
+
+
 def test_a_paused_followup_is_remembered_in_full():
     from app.routers import query as router
     s = Session(session_id="t", user_id="u", created=0.0, last_seen=0.0)

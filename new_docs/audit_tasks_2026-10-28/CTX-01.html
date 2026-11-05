@@ -1,0 +1,223 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>CTX-01 Conversation ownership and turn integrity</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: verdict first (honest assessment, corrections), then the merge plan, then the filterable task board, then the file matrix. */
+:root{
+  --bg:#f5f7f5; --surface:#ffffff; --sunk:#eaefeb; --fg:#17201b; --muted:#56635b; --line:#d3dbd5;
+  --accent:#1d6b55; --accent-soft:#dcefe7;
+  --crit:#b3261e; --crit-soft:#fbe4e1; --high:#b85c00; --high-soft:#fdebd8;
+  --med:#8a6d00; --med-soft:#f8f0cc; --low:#4b6478; --low-soft:#e3ebf1; --dec:#6a3fa0; --dec-soft:#eee5f8;
+  --ok:#2c7a3f; --ok-soft:#dff1e3;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(28px,4.6vw,42px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:24px;font-weight:600}
+h3{font-size:18px;font-weight:600}
+p{margin:0;max-width:74ch}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunk);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+a{color:var(--accent)}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+header{display:flex;flex-direction:column;gap:14px;border-bottom:2px solid var(--fg);padding-bottom:22px}
+.lede{font-size:17px;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:10px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.stat b{font:700 28px/1.1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{font-size:12.5px;color:var(--muted)}
+.stat.crit b{color:var(--crit)} .stat.high b{color:var(--high)} .stat.med b{color:var(--med)} .stat.low b{color:var(--low)}
+section{display:flex;flex-direction:column;gap:16px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.panel ol,.panel ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.verdict{border-left:4px solid var(--accent)}
+.prio{counter-reset:p;list-style:none;padding:0!important}
+.prio li{display:grid;grid-template-columns:auto auto auto 1fr;gap:10px;align-items:baseline}
+.prio li::before{counter-increment:p;content:counter(p);font:700 15px var(--f-display);color:var(--muted);width:1.4em;text-align:right}
+.idlink{font:600 13px var(--f-mono);text-decoration:none;white-space:nowrap}
+.pill{display:inline-block;font:600 11px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;padding:4px 7px;border-radius:999px;white-space:nowrap}
+.s-Critical{background:var(--crit-soft);color:var(--crit)} .s-High{background:var(--high-soft);color:var(--high)}
+.s-Medium{background:var(--med-soft);color:var(--med)} .s-Low{background:var(--low-soft);color:var(--low)} .s-Decision{background:var(--dec-soft);color:var(--dec)}
+.tag{font:500 11.5px var(--f-mono);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:2px 6px;white-space:nowrap}
+.tag.wave{color:var(--accent);border-color:var(--accent)}
+.controls{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{font:500 13px var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:5px 11px;border-radius:999px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.chip:focus-visible,.btn:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#q{flex:1 1 200px;min-width:0;font:14px var(--f-body);padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+select{font:14px var(--f-body);padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+.count{font:500 13px var(--f-mono);color:var(--muted);margin-left:auto}
+.btn{font:600 13px var(--f-body);border:1px solid var(--accent);color:var(--accent);background:transparent;padding:6px 12px;border-radius:7px;cursor:pointer}
+.btn:hover{background:var(--accent-soft)}
+.trackhead{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;padding-top:18px;border-top:1px solid var(--line)}
+.trackhead p{color:var(--muted);font-size:14px;flex-basis:100%}
+.tasks{display:flex;flex-direction:column;gap:12px}
+.task{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--low);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-width:0;scroll-margin-top:150px}
+.task.Critical{border-left-color:var(--crit)} .task.High{border-left-color:var(--high)} .task.Medium{border-left-color:var(--med)} .task.Decision{border-left-color:var(--dec)}
+.task:target{box-shadow:0 0 0 2px var(--accent)}
+.thead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tid{font:600 14px var(--f-mono)}
+.task h3{flex-basis:100%;font-size:19px}
+.status{font-size:13.5px;background:var(--ok-soft);color:var(--fg);border-radius:6px;padding:6px 10px}
+.status b{color:var(--ok)}
+.lbl{font:600 12px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:2px}
+.task details{border-top:1px dashed var(--line);padding-top:8px}
+.task summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.task ul{margin:6px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:5px}
+.task li{max-width:82ch}
+.dont li::marker{content:"✕  ";color:var(--crit)}
+.files li code{background:transparent;padding:0;color:var(--accent);font-weight:500}
+.tfoot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.after{font-size:13px;color:var(--muted)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--sunk)}
+.waves{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.wavebox{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.wavebox h3{font-size:16px}
+.wavebox .ids{display:flex;flex-wrap:wrap;gap:4px 8px}
+.wavebox p{font-size:13px;color:var(--muted)}
+.toast{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:14px}
+.note{font-size:13.5px;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.task{transition:box-shadow .2s}}
+
+.crumbs{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font:500 13px var(--f-mono)}
+.crumbs a{text-decoration:none}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.meta div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.meta b{display:block;font:600 11.5px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+pre.prompt{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px;font:12.5px/1.55 var(--f-mono);max-height:520px;overflow:auto;margin:0}
+.task details[open] summary{margin-bottom:4px}
+.idx td:first-child{white-space:nowrap}
+</style></head>
+<body><div class="wrap">
+<nav class="crumbs" aria-label="Navigation"><a href="index.html">← All tasks</a><a href="SEC-06.html">← SEC-06</a><a href="SQL-02.html">SQL-02 →</a><span class="note">Megh One AI audit v2 · 28 Oct 2026</span></nav>
+<article class="task Medium" id="CTX-01" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">CTX-01</span><span class="pill s-Medium">Medium</span><span class="tag wave">wave 1b</span><span class="tag">KI-399</span><span class="tag">KI-028</span><h1 style="flex-basis:100%;font-size:clamp(24px,3.6vw,34px)">Conversation ownership and turn integrity</h1></div>
+  <div class="meta">
+    <div><b>Area</b>Context memory</div>
+    <div><b>Wave</b>Wave 1b: parallel</div>
+    <div><b>Start after</b><a class="idlink" href="REL-02.html">REL-02</a></div>
+    <div><b>Unblocks</b><a class="idlink" href="CTX-04.html">CTX-04</a>, <a class="idlink" href="CTX-06.html">CTX-06</a>, <a class="idlink" href="RAG-05.html">RAG-05</a>, <a class="idlink" href="UI-02.html">UI-02</a>, <a class="idlink" href="QA-03.html">QA-03</a></div>
+    <div><b>New KI ids</b>KI-470–499</div>
+  </div>
+  <div class="status"><b>REPRODUCED</b>: <code>ensure('sid','alice')</code> then <code>ensure('sid','bob')</code> returns alice's session. Severity lowered: the attacker must be logged in and hold another user's id (about 46 random bits), and figures are still re-authorised. This card merges v1 CTX-01 and CTX-03.</div>
+  <div><span class="lbl">The issue</span>Nothing checks that a session id belongs to the caller. A user holding another's id inherits that chat's context, can ask "what did we discuss?" and receive the other user's questions, and overwrites the other user's state. Within one worker, two concurrent requests on one id interleave state, because only the graph run is locked. A Stop can save half-applied state. The client's 75 s limit applies to the whole stream, even while pings keep it alive.</div>
+  <div><span class="lbl">The solution</span><ul><li>Ownership: <code>load_context_state</code> also returns <code>user_id</code>. <code>sync_in</code> returns "foreign" without applying the snapshot. <code>_answer</code> returns 403 (and logs it) when the in-memory or durable owner differs from <code>scope.user_id</code>, and sets a flag so <code>_remember_stopped</code> skips. Add a SQL backstop: <code>AND user_id IS NOT DISTINCT FROM $n</code> in the upsert's <code>ON CONFLICT … WHERE</code>.</li><li>Concurrency: add a router-level per-session <code>asyncio.Lock</code> dict, as a wrapper. Keep the name <code>_answer</code> and rename the inner function. Do not reuse the graph's lock: it is not re-entrant and would deadlock.</li><li>Cancel: snapshot the Session when the turn starts, and restore it in <code>_remember_stopped</code> before recording <code>stopped_ctx</code>.</li><li>Client: make the stream timeout an inactivity timer that resets on any chunk, pings included.</li></ul></div>
+  <div><span class="lbl">Don't do this</span><ul class="dont"><li>Namespacing the graph <code>thread_id</code> by user. It orphans live paused threads at deploy.</li><li>409 plus UI retry, or a server-side request_id dedup table. These are over-built; count stale writes instead.</li></ul></div>
+  <details open><summary>Evidence</summary><ul><li>query.py:143-170 <code>_session_id</code>; session_store.py:306-324 <code>ensure</code>; conversation_store <code>load_context_state</code> (~379, session_id only), <code>save_session_state</code> (350) and <code>_persist_turn</code> (40-124).</li><li>pipeline_graph.py:789 locks only the graph. <code>_remember_stopped</code> (query.py:176-198) saves unconditionally.</li><li>api.js:96 and :134 apply the 75 s limit. <code>: ping</code> frames are skipped before <code>gotEvent</code>.</li><li>The history routes are already owner-scoped.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/routers/query.py</code> · _session_id, _answer wrapper, query_stream, _remember_stopped</li><li><code>app/session_sync.py</code> · sync_in, _retry_once (stale counter)</li><li><code>app/conversation_store.py</code> · load_context_state, save_session_state, _persist_turn</li><li><code>app/session_store.py</code> · ensure</li><li><code>frontend/src/chat/api.js</code> · stream timeout</li></ul><p class="note" style="margin-top:6px"><b>Tests that pin this source (update deliberately, never delete):</b></p><ul><li>test_query_stream.py:227-228 (<code>return await _answer(req, request, scope)</code>)</li><li>test_context_hardening.py:252-255 (exactly 2 <code>sync_out(</code> calls in _answer)</li><li>test_history_charts.py:67-72 (conversation_store strings)</li></ul></details>
+  <details open><summary>Done when</summary><ul><li>Two users on one id: the second gets 403, and the owner's row is unchanged. Test through the real <code>_answer</code> with stubs.</li><li>Two concurrent turns on one id are serialised.</li><li>A cancel after <code>context_update</code> leaves the pre-turn state plus <code>stopped_ctx</code>.</li><li>Pinned tests are updated deliberately, not deleted.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/routers/query.py</code> (you: _session_id, _answer wrapper, query_stream, _remember_stopped)<ul><li><a class="idlink" href="REL-02.html">REL-02</a> <span class="tag wave">W0</span> non-stream timeout (~279): merges <b>before</b> you</li><li><a class="idlink" href="CTX-06.html">CTX-06</a> <span class="tag wave">W2</span> is_cacheable: merges <b>after</b> you</li><li><a class="idlink" href="RAG-05.html">RAG-05</a> <span class="tag wave">W2</span> except mapping: merges <b>after</b> you</li></ul></li><li><code>app/conversation_store.py</code> (you: load_context_state, save_session_state, _persist_turn)<ul><li><a class="idlink" href="CTX-04.html">CTX-04</a> <span class="tag wave">W2</span> delete_conversation, new purge: merges <b>after</b> you</li></ul></li><li><code>app/session_store.py</code> (you: ensure)<ul><li><a class="idlink" href="CTX-04.html">CTX-04</a> <span class="tag wave">W2</span> new drop() after ensure: merges <b>after</b> you</li></ul></li><li><code>frontend/src/chat/api.js</code> (you: stream timeout)<ul><li><a class="idlink" href="UI-02.html">UI-02</a> <span class="tag wave">W2</span> API_BASE: merges <b>after</b> you</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>CTX-01 + CTX-03:</b> High was too strong. Thread-id namespacing, 409 retry and request-id dedup were over-built. The graph lock would deadlock if reused. <i>Now:</i> Merged into CTX-01, Medium, 403 + router lock.</li></ul></details>
+</article>
+
+<section>
+  <div class="row" style="justify-content:space-between"><h2>Session prompt</h2><button type="button" class="btn" data-copy-pre="p-CTX-01">Copy session prompt</button></div>
+  <p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p>
+  <pre class="prompt" id="p-CTX-01">TASK CTX-01: Conversation ownership and turn integrity
+Repo: meghoneai (Megh One AI). Area: Context memory. Severity: Medium. Wave: 1b. Related: KI-399, KI-028.
+Start only after these are merged into Main: REL-02. Then create branch task/ctx-01 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+REPRODUCED: ensure('sid','alice') then ensure('sid','bob') returns alice's session. Severity lowered: the attacker must be logged in and hold another user's id (about 46 random bits), and figures are still re-authorised. This card merges v1 CTX-01 and CTX-03.
+
+THE ISSUE
+Nothing checks that a session id belongs to the caller. A user holding another's id inherits that chat's context, can ask "what did we discuss?" and receive the other user's questions, and overwrites the other user's state. Within one worker, two concurrent requests on one id interleave state, because only the graph run is locked. A Stop can save half-applied state. The client's 75 s limit applies to the whole stream, even while pings keep it alive.
+
+EVIDENCE
+- query.py:143-170 _session_id; session_store.py:306-324 ensure; conversation_store load_context_state (~379, session_id only), save_session_state (350) and _persist_turn (40-124).
+- pipeline_graph.py:789 locks only the graph. _remember_stopped (query.py:176-198) saves unconditionally.
+- api.js:96 and :134 apply the 75 s limit. : ping frames are skipped before gotEvent.
+- The history routes are already owner-scoped.
+
+THE SOLUTION
+- Ownership: load_context_state also returns user_id. sync_in returns "foreign" without applying the snapshot. _answer returns 403 (and logs it) when the in-memory or durable owner differs from scope.user_id, and sets a flag so _remember_stopped skips. Add a SQL backstop: AND user_id IS NOT DISTINCT FROM $n in the upsert's ON CONFLICT … WHERE.
+- Concurrency: add a router-level per-session asyncio.Lock dict, as a wrapper. Keep the name _answer and rename the inner function. Do not reuse the graph's lock: it is not re-entrant and would deadlock.
+- Cancel: snapshot the Session when the turn starts, and restore it in _remember_stopped before recording stopped_ctx.
+- Client: make the stream timeout an inactivity timer that resets on any chunk, pings included.
+
+DO NOT
+- Namespacing the graph thread_id by user. It orphans live paused threads at deploy.
+- 409 plus UI retry, or a server-side request_id dedup table. These are over-built; count stale writes instead.
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/routers/query.py: _session_id, _answer wrapper, query_stream, _remember_stopped
+- app/session_sync.py: sync_in, _retry_once (stale counter)
+- app/conversation_store.py: load_context_state, save_session_state, _persist_turn
+- app/session_store.py: ensure
+- frontend/src/chat/api.js: stream timeout
+
+TESTS THAT PIN THIS SOURCE (update deliberately, never delete)
+- test_query_stream.py:227-228 (return await _answer(req, request, scope))
+- test_context_hardening.py:252-255 (exactly 2 sync_out( calls in _answer)
+- test_history_charts.py:67-72 (conversation_store strings)
+
+DONE WHEN
+- Two users on one id: the second gets 403, and the owner's row is unchanged. Test through the real _answer with stubs.
+- Two concurrent turns on one id are serialised.
+- A cancel after context_update leaves the pre-turn state plus stopped_ctx.
+- Pinned tests are updated deliberately, not deleted.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_ctx01_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your CTX-01 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-470–499. New decisions as "D-CTX-01". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</section>
+<section><div class="cols"><div class="panel">
+      <h3>Rules every session follows</h3>
+      <ul>
+        <li><b>Branch:</b> name it <code>task/&lt;id&gt;</code>. Cut it from Main only after the tasks listed in its "start after" have merged. Merge through the Bitbucket merge queue, which tests each PR on top of everything already queued.</li>
+        <li><b>Docs:</b> edit only your task's pre-made stub in CURRENT_STATE and HANDOFF (DOC-02 creates them) and your own KI detail sections. Never edit the KI summary table, the TESTING history table or the "Last updated" lines; the integrator updates those at merge.</li>
+        <li><b>Ids:</b> new KI ids come only from your track's range (shown on the board). New decisions are written as <code>D-&lt;task id&gt;</code>, and the integrator numbers them from D-074.</li>
+        <li><b>Pipeline helpers:</b> prefix every new pipeline name with your file and task, for example <code>_c11_sql01_</code>. A duplicate top-level name silently replaces the other one (KI-413). Run <code>tests/test_pipeline_namespace_2026_10_26.py</code> before every PR.</li>
+        <li><b><code>config.py</code> and <code>.env.example</code>:</b> add settings next to related ones, in their own commented block. Never add at the end of the class, and never reorder.</li>
+        <li><b>Frontend:</b> never commit <code>web/app</code>. Before a PR, <code>git diff --name-only origin/Main...HEAD -- web/app</code> must be empty. The integrator builds once after the last frontend merge.</li>
+        <li><b>Requirements:</b> only QA-02 (wave 0) edits the requirements files.</li>
+      </ul>
+    </div><div class="panel">
+      <h3>Integration checklist after each wave</h3>
+      <ol>
+        <li>Run the full pytest command from TESTING.md §2 (baseline 3,910 passed and 3 skipped at HEAD; about 3,932 once P0 is in). After QA-02, <code>pytest tests -q</code> must finish too.</li>
+        <li>Run all 14 script suites; all must pass.</li>
+        <li>Run the namespace test and the duplicate KI and D id tests (from QA-02).</li>
+        <li>Run <code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code> and commit <code>web/app</code>. The node card and table tests must pass, not skip.</li>
+        <li>On the VPN: <code>live_context_validation.py</code> with caches on and off, <code>nl2sql_eval --fail-on-regression</code>, <code>rag_eval</code>, and one in-process answer per scheme as a district officer.</li>
+        <li>Restart on port 8401 and check <code>/health</code>, <code>/megh-chat</code> and <code>/admin-ui</code>.</li>
+        <li>Integrator only: update the KI table, the TESTING history and the "Last updated" lines.</li>
+      </ol>
+    </div></div></section>
+<nav class="crumbs" aria-label="Navigation"><a href="index.html">← All tasks</a><a href="SEC-06.html">← SEC-06</a><a href="SQL-02.html">SQL-02 →</a></nav>
+</div><script>
+document.addEventListener("click",function(e){var b=e.target.closest("[data-copy-pre]");if(!b)return;var pre=document.getElementById(b.getAttribute("data-copy-pre"));var t=pre.textContent;
+function sel(){var r=document.createRange();r.selectNodeContents(pre);var s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent="Selected, press Ctrl+C";}
+try{navigator.clipboard.writeText(t).then(function(){b.textContent="Copied";setTimeout(function(){b.textContent="Copy session prompt"},2000)},sel)}catch(err){sel()}});
+</script></body></html>

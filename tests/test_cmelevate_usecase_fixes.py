@@ -298,6 +298,27 @@ def test_single_village_where_is_pinned(sql, want):
     assert out.endswith(want), out
 
 
+def test_pin_keeps_the_sub_scheme_after_the_valid_default_brackets_the_where():
+    # User 2026-11-04: "status of Piggery applications in Umshaken village" (CM Elevate chip).
+    # The valid-applications default bracketed the model's WHERE, and the pin dropped the
+    # bracket (it holds village_code) with scheme_name in it: 63 applications of every scheme
+    # were answered as Umshaken's Piggery ones (57 in megh_db). The real rewrites, in pipeline order.
+    q = "What is the status of Piggery applications in Umshaken village under CM Elevate?"
+    sql = ("SELECT current_file_status, COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate "
+           "WHERE scheme_name = 'Meghalaya Piggery Development Scheme' AND village_code = 277617 GROUP BY 1")
+    defaulted = p._cm_elevate_valid_default(q, CME, sql)
+    assert "data_verified" in defaulted
+    out = p._focusplus_pin_village_where(CME, {"resolved": {"village_code": 277617}}, defaulted)
+    from app import sql_ast
+    assert sql_ast.filter_values(out, "scheme_name") == ["Meghalaya Piggery Development Scheme"], out
+    assert "village_code = 277617" in out and "data_verified = 'Valid'" in out, out
+    # a bracketed place condition inside the AND group is still replaced by the code
+    out = p._focusplus_pin_village_where(CME, {"resolved": {"village_code": 277617}},
+                                         "SELECT COUNT(*) FROM curated.v_cm_elevate WHERE "
+                                         "(lgd_block = 'UMLING' AND scheme_name = 'X') AND data_verified = 'Valid'")
+    assert "lgd_block" not in out and "scheme_name = 'X'" in out and "village_code = 277617" in out, out
+
+
 def test_pin_keeps_count_filters_in_the_select_list():
     sql = ("SELECT COUNT(*) FILTER (WHERE data_verified = 'Valid') AS verified, "
            "COUNT(*) FILTER (WHERE data_verified IS DISTINCT FROM 'Valid') AS not_verified "

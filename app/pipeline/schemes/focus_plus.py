@@ -112,8 +112,9 @@ top_bank AS (
   GROUP BY bank_name_raw ORDER BY top_bank_amount DESC LIMIT 1
 ),
 gender AS (
-  SELECT COUNT(*) FILTER (WHERE gender = 'Female') AS female,
-         COUNT(*) FILTER (WHERE gender = 'Male') AS male
+  SELECT COUNT(DISTINCT beneficiary_key) FILTER (WHERE gender = 'Female') AS female,
+         COUNT(DISTINCT beneficiary_key) FILTER (WHERE gender = 'Male') AS male,
+         COUNT(DISTINCT beneficiary_key) AS cohort_beneficiaries
   FROM curated.v_focus_plus WHERE batch_label = '12.5K'
 ),
 occupation AS (
@@ -134,7 +135,7 @@ SELECT totals.payments, totals.beneficiaries, totals.amount, totals.districts,
        top_disbursement_district.top_amt_district,
        top_disbursement_district.top_amt_district_amount,
        top_bank.top_bank_name, top_bank.top_bank_amount,
-       gender.female, gender.male, occupation.farmers,
+       gender.female, gender.male, gender.cohort_beneficiaries, occupation.farmers,
        status.pending, status.approved, status.rejected, status.verified_approved
 FROM totals, years, batches, tranches, top_beneficiary_district,
      top_disbursement_district, top_bank, gender, occupation, status
@@ -150,6 +151,11 @@ async def _focusplus_overall_summary_answer(schemes: list[str], entity_result: d
     rows = await run_readonly(_FOCUSPLUS_OVERALL_SUMMARY_SQL)
     r = rows[0]
     avg_per_beneficiary = float(r["amount"]) / r["beneficiaries"]
+    # The cohort's share is read from the rows. A hard-coded "~3% of beneficiaries"
+    # was 12,527 of the 3,85,671 PAYMENT records; of the 1,05,813 beneficiaries it is
+    # 11.8% (UAT 2026-11-05). Gender is NULL for every 93K beneficiary (rule 6b).
+    cohort = r["cohort_beneficiaries"]
+    cohort_pct = 100.0 * cohort / r["beneficiaries"] if r["beneficiaries"] else 0.0
     answer = (
         f"Focus+ overall summary:\n"
         f"- Disbursement records (payments): {r['payments']:,}\n"
@@ -166,12 +172,18 @@ async def _focusplus_overall_summary_answer(schemes: list[str], entity_result: d
         f"- District with the highest disbursement: {r['top_amt_district']} — "
         f"{_money(r['top_amt_district_amount'])}\n"
         f"- Top bank by disbursement: {r['top_bank_name']} — {_money(r['top_bank_amount'])}\n"
-        f"- Gender split (12.5K cohort only, ~3% of beneficiaries): "
+        f"- Gender split (12.5K cohort only: {cohort:,} of {r['beneficiaries']:,} beneficiaries, "
+        f"~{cohort_pct:.1f}%; gender is not recorded for the 93K cohort): "
         f"{r['female']:,} female, {r['male']:,} male\n"
         f"- Farmers (12.5K cohort only): {r['farmers']:,}\n"
         f"- Status (12.5K cohort only): {r['pending']:,} Pending, {r['approved']:,} Approved, "
         f"{r['rejected']:,} Rejected\n"
-        f"- Verification status (12.5K cohort only): {r['verified_approved']:,} Approved"
+        f"- Verification status (12.5K cohort only): {r['verified_approved']:,} Approved\n\n"
+        # Naming the scheme and the area here keeps _finish_answer from gluing its
+        # "This figure is for Focus Plus, all of Meghalaya …" onto the last bullet
+        # ("12,527 Approved This figure is for …", UAT 2026-11-05).
+        "All figures are for Focus Plus, all of Meghalaya (statewide), across every "
+        "financial year in the data."
     )
     return {
         "route": "data",
@@ -739,7 +751,19 @@ def _focusplus_pin_village_where(schemes: list[str], entity_result: dict, sql: s
         # 'PRIME Small Enterprise Empowerment and Development (SEED)' stays whole —
         # CM Elevate all-villages smoke run 2026-09-28); COUNT(*) FILTER (WHERE …) in
         # the select list is not this WHERE and is left alone
-        conds = list(where.this.flatten()) if isinstance(where.this, exp.And) else [where.this]
+        # A bracketed AND group is opened too: the CM Elevate valid-applications default
+        # is appended as "(scheme_name = 'Meghalaya Piggery …' AND village_code = 277617)
+        # AND data_verified = 'Valid'", and the bracket, holding village_code, was dropped
+        # whole as a place condition — the sub-scheme went with it and Umshaken's 63
+        # applications of every scheme were answered as its Piggery ones (57, user
+        # 2026-11-04). Only AND is opened; an OR returned above.
+        def _and_terms(node: exp.Expression) -> list:
+            inner = node.unnest() if isinstance(node, exp.Paren) else node
+            if isinstance(inner, exp.And):
+                return [t for part in inner.flatten() for t in _and_terms(part)]
+            return [node]
+
+        conds = _and_terms(where.this)
         kept = [c for c in conds if not _fp_place_cond(c) and not _fp_place_literal(c, schemes[0])]
         where.set("this", exp.and_(_pin(), *kept, copy=False))
         return None

@@ -1,0 +1,207 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>QA-04 Delete dead pipeline functions; fix the smoke-test port</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Condensed:wght@500;600;700&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: verdict first (honest assessment, corrections), then the merge plan, then the filterable task board, then the file matrix. */
+:root{
+  --bg:#f5f7f5; --surface:#ffffff; --sunk:#eaefeb; --fg:#17201b; --muted:#56635b; --line:#d3dbd5;
+  --accent:#1d6b55; --accent-soft:#dcefe7;
+  --crit:#b3261e; --crit-soft:#fbe4e1; --high:#b85c00; --high-soft:#fdebd8;
+  --med:#8a6d00; --med-soft:#f8f0cc; --low:#4b6478; --low-soft:#e3ebf1; --dec:#6a3fa0; --dec-soft:#eee5f8;
+  --ok:#2c7a3f; --ok-soft:#dff1e3;
+  --f-display:"IBM Plex Sans Condensed","Arial Narrow",system-ui,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){:root:not([data-theme="light"]){
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}}
+:root[data-theme="dark"]{
+  --bg:#111613; --surface:#18201b; --sunk:#202a24; --fg:#e4ebe6; --muted:#9caca2; --line:#2f3b34;
+  --accent:#5cc3a2; --accent-soft:#1d3a30;
+  --crit:#ff8a80; --crit-soft:#3d1c1a; --high:#ffb062; --high-soft:#3a2714; --med:#e6c54a; --med-soft:#353015;
+  --low:#9cb8cf; --low-soft:#1f2b35; --dec:#c7a4f2; --dec-soft:#2c2140; --ok:#7fd193; --ok-soft:#1c3323; color-scheme:dark}
+*{box-sizing:border-box}
+body{background:var(--bg);color:var(--fg);font:15px/1.6 var(--f-body);padding-left:max(16px,env(safe-area-inset-left,0px));padding-right:max(16px,env(safe-area-inset-right,0px));padding-block:28px 64px}
+.wrap{max-width:1080px;margin:0 auto;display:flex;flex-direction:column;gap:40px}
+h1,h2,h3{font-family:var(--f-display);text-wrap:balance;margin:0;line-height:1.15}
+h1{font-size:clamp(28px,4.6vw,42px);font-weight:700;letter-spacing:-.01em}
+h2{font-size:24px;font-weight:600}
+h3{font-size:18px;font-weight:600}
+p{margin:0;max-width:74ch}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--sunk);padding:1px 5px;border-radius:4px;overflow-wrap:anywhere}
+a{color:var(--accent)}
+.eyebrow{font:600 12px/1 var(--f-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--accent)}
+header{display:flex;flex-direction:column;gap:14px;border-bottom:2px solid var(--fg);padding-bottom:22px}
+.lede{font-size:17px;color:var(--muted)}
+.stats{display:grid;grid-template-columns:repeat(auto-fit,minmax(125px,1fr));gap:10px}
+.stat{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:2px}
+.stat b{font:700 28px/1.1 var(--f-display);font-variant-numeric:tabular-nums}
+.stat span{font-size:12.5px;color:var(--muted)}
+.stat.crit b{color:var(--crit)} .stat.high b{color:var(--high)} .stat.med b{color:var(--med)} .stat.low b{color:var(--low)}
+section{display:flex;flex-direction:column;gap:16px}
+.cols{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:16px}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:18px 20px;display:flex;flex-direction:column;gap:10px;min-width:0}
+.panel ol,.panel ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:6px}
+.verdict{border-left:4px solid var(--accent)}
+.prio{counter-reset:p;list-style:none;padding:0!important}
+.prio li{display:grid;grid-template-columns:auto auto auto 1fr;gap:10px;align-items:baseline}
+.prio li::before{counter-increment:p;content:counter(p);font:700 15px var(--f-display);color:var(--muted);width:1.4em;text-align:right}
+.idlink{font:600 13px var(--f-mono);text-decoration:none;white-space:nowrap}
+.pill{display:inline-block;font:600 11px/1 var(--f-mono);letter-spacing:.04em;text-transform:uppercase;padding:4px 7px;border-radius:999px;white-space:nowrap}
+.s-Critical{background:var(--crit-soft);color:var(--crit)} .s-High{background:var(--high-soft);color:var(--high)}
+.s-Medium{background:var(--med-soft);color:var(--med)} .s-Low{background:var(--low-soft);color:var(--low)} .s-Decision{background:var(--dec-soft);color:var(--dec)}
+.tag{font:500 11.5px var(--f-mono);color:var(--muted);border:1px solid var(--line);border-radius:4px;padding:2px 6px;white-space:nowrap}
+.tag.wave{color:var(--accent);border-color:var(--accent)}
+.controls{position:sticky;top:env(safe-area-inset-top,0px);z-index:5;background:var(--bg);padding-block:10px;border-bottom:1px solid var(--line);display:flex;flex-direction:column;gap:10px}
+body::before{content:"";position:fixed;inset:0 0 auto;height:env(safe-area-inset-top,0px);z-index:10;background:var(--bg)}
+.row{display:flex;flex-wrap:wrap;gap:6px;align-items:center}
+.chip{font:500 13px var(--f-body);border:1px solid var(--line);background:var(--surface);color:var(--fg);padding:5px 11px;border-radius:999px;cursor:pointer}
+.chip[aria-pressed="true"]{background:var(--fg);color:var(--bg);border-color:var(--fg)}
+.chip:focus-visible,.btn:focus-visible,summary:focus-visible,input:focus-visible,select:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+#q{flex:1 1 200px;min-width:0;font:14px var(--f-body);padding:7px 11px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+select{font:14px var(--f-body);padding:6px 9px;border:1px solid var(--line);border-radius:8px;background:var(--surface);color:var(--fg)}
+.count{font:500 13px var(--f-mono);color:var(--muted);margin-left:auto}
+.btn{font:600 13px var(--f-body);border:1px solid var(--accent);color:var(--accent);background:transparent;padding:6px 12px;border-radius:7px;cursor:pointer}
+.btn:hover{background:var(--accent-soft)}
+.trackhead{display:flex;flex-wrap:wrap;gap:6px 14px;align-items:baseline;padding-top:18px;border-top:1px solid var(--line)}
+.trackhead p{color:var(--muted);font-size:14px;flex-basis:100%}
+.tasks{display:flex;flex-direction:column;gap:12px}
+.task{background:var(--surface);border:1px solid var(--line);border-left:4px solid var(--low);border-radius:8px;padding:16px 18px;display:flex;flex-direction:column;gap:10px;min-width:0;scroll-margin-top:150px}
+.task.Critical{border-left-color:var(--crit)} .task.High{border-left-color:var(--high)} .task.Medium{border-left-color:var(--med)} .task.Decision{border-left-color:var(--dec)}
+.task:target{box-shadow:0 0 0 2px var(--accent)}
+.thead{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.tid{font:600 14px var(--f-mono)}
+.task h3{flex-basis:100%;font-size:19px}
+.status{font-size:13.5px;background:var(--ok-soft);color:var(--fg);border-radius:6px;padding:6px 10px}
+.status b{color:var(--ok)}
+.lbl{font:600 12px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);display:block;margin-bottom:2px}
+.task details{border-top:1px dashed var(--line);padding-top:8px}
+.task summary{cursor:pointer;font:600 13px var(--f-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--muted)}
+.task ul{margin:6px 0 0;padding-left:20px;display:flex;flex-direction:column;gap:5px}
+.task li{max-width:82ch}
+.dont li::marker{content:"✕  ";color:var(--crit)}
+.files li code{background:transparent;padding:0;color:var(--accent);font-weight:500}
+.tfoot{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:space-between}
+.after{font-size:13px;color:var(--muted)}
+.tablewrap{overflow-x:auto;border:1px solid var(--line);border-radius:8px;background:var(--surface)}
+table{border-collapse:collapse;width:100%;font-size:13.5px}
+th,td{text-align:left;padding:8px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font:600 12px var(--f-mono);text-transform:uppercase;letter-spacing:.05em;color:var(--muted);background:var(--sunk)}
+.waves{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:10px}
+.wavebox{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;min-width:0}
+.wavebox h3{font-size:16px}
+.wavebox .ids{display:flex;flex-wrap:wrap;gap:4px 8px}
+.wavebox p{font-size:13px;color:var(--muted)}
+.toast{position:fixed;right:max(16px,env(safe-area-inset-right,0px));bottom:calc(16px + env(safe-area-inset-bottom,0px));background:var(--fg);color:var(--bg);padding:10px 14px;border-radius:8px;font-size:14px}
+.note{font-size:13.5px;color:var(--muted)}
+@media (prefers-reduced-motion:no-preference){.task{transition:box-shadow .2s}}
+
+.crumbs{display:flex;flex-wrap:wrap;gap:8px 16px;align-items:center;font:500 13px var(--f-mono)}
+.crumbs a{text-decoration:none}
+.meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:10px}
+.meta div{background:var(--surface);border:1px solid var(--line);border-radius:8px;padding:10px 12px;min-width:0}
+.meta b{display:block;font:600 11.5px var(--f-mono);letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:2px}
+pre.prompt{white-space:pre-wrap;overflow-wrap:anywhere;background:var(--sunk);border:1px solid var(--line);border-radius:8px;padding:14px;font:12.5px/1.55 var(--f-mono);max-height:520px;overflow:auto;margin:0}
+.task details[open] summary{margin-bottom:4px}
+.idx td:first-child{white-space:nowrap}
+</style></head>
+<body><div class="wrap">
+<nav class="crumbs" aria-label="Navigation"><a href="index.html">← All tasks</a><a href="QA-03.html">← QA-03</a><a href="REL-03.html">REL-03 →</a><span class="note">Megh One AI audit v2 · 28 Oct 2026</span></nav>
+<article class="task Low" id="QA-04" style="scroll-margin-top:0">
+  <div class="thead"><span class="tid">QA-04</span><span class="pill s-Low">Low</span><span class="tag wave">wave 3</span><span class="tag">KI-021</span><h1 style="flex-basis:100%;font-size:clamp(24px,3.6vw,34px)">Delete dead pipeline functions; fix the smoke-test port</h1></div>
+  <div class="meta">
+    <div><b>Area</b>Testing & evaluation</div>
+    <div><b>Wave</b>Wave 3: last</div>
+    <div><b>Start after</b><a class="idlink" href="SQL-02.html">SQL-02</a>, <a class="idlink" href="CMP-03.html">CMP-03</a>, <a class="idlink" href="SQL-07.html">SQL-07</a></div>
+    <div><b>Unblocks</b>no task waits on this</div>
+    <div><b>New KI ids</b>KI-610–619</div>
+  </div>
+  <div class="status"><b>CONFIRMED</b> by an AST scan. Exactly five functions are dead. The strays and <code>.gitignore</code> work moved to SEC-01.</div>
+  <div><span class="lbl">The issue</span>Five pipeline functions are never referenced anywhere. <code>smoke_restructure.py</code> hard-codes port 8502, which breaks the 8401-only rule.</div>
+  <div><span class="lbl">The solution</span><ul><li>Read each comment, then delete the five functions.</li><li>Set <code>BASE = os.environ.get("MEGH_BASE", "http://127.0.0.1:8401")</code>.</li></ul></div>
+  
+  <details open><summary>Evidence</summary><ul><li><code>c06:289 _year_choices_for</code>, <code>c10:35 _c1x_apos0</code>, <code>cm_elevate.py:727 _cme_programme_named</code>, <code>:997 _cme_district_in_values</code>, <code>pmay_g.py:929 _pmay_money_short</code>.</li><li>The two <code>data/*/prompt_assembler.py</code> files are SME artefacts; delete them only with your agreement.</li></ul></details>
+  <details open><summary>Files and functions you may edit</summary><ul class="files"><li><code>app/pipeline/common/c06_years_tranches.py</code> · _year_choices_for</li><li><code>app/pipeline/common/c10_sql_generation_and_rewrites.py</code> · _c1x_apos0</li><li><code>app/pipeline/schemes/cm_elevate.py</code> · two functions</li><li><code>app/pipeline/schemes/pmay_g.py</code> · _pmay_money_short</li><li><code>tests/smoke_restructure.py</code></li></ul></details>
+  <details open><summary>Done when</summary><ul><li>Full tests green and the namespace test passes.</li></ul></details>
+  <details open><summary>Other tasks in the same files</summary><ul><li><code>app/pipeline/common/c06_years_tranches.py</code> (you: _year_choices_for)<ul><li><a class="idlink" href="SQL-02.html">SQL-02</a> <span class="tag wave">W1b</span> new _c06_sql02_year_span: merges <b>before</b> you</li><li><a class="idlink" href="SQL-08.html">SQL-08</a> <span class="tag wave">W1b</span> refresh_scheme_years return value: earlier wave</li></ul></li><li><code>app/pipeline/common/c10_sql_generation_and_rewrites.py</code> (you: _c1x_apos0)<ul><li><a class="idlink" href="RAG-06.html">RAG-06</a> <span class="tag wave">W3</span> generate_sql call site (not _c1x_apos0): same wave, separate region</li></ul></li><li><code>app/pipeline/schemes/cm_elevate.py</code> (you: two functions)<ul><li><a class="idlink" href="CTX-09.html">CTX-09</a> <span class="tag wave">W0</span> _CME_BOTH_DATASETS_VOCAB: earlier wave</li></ul></li><li><code>app/pipeline/schemes/pmay_g.py</code> (you: _pmay_money_short)<ul><li><a class="idlink" href="SQL-07.html">SQL-07</a> <span class="tag wave">W1a</span> line 1243: merges <b>before</b> you</li></ul></li></ul></details>
+  <details open><summary>What changed from v1</summary><ul><li><b>QA-04:</b> No exporter path bug exists. Missed the tracked JWT. <i>Now:</i> Dead functions only.</li></ul></details>
+</article>
+
+<section>
+  <div class="row" style="justify-content:space-between"><h2>Session prompt</h2><button type="button" class="btn" data-copy-pre="p-QA-04">Copy session prompt</button></div>
+  <p class="note">Paste this into a fresh Claude Code session in the repo. It is self-contained.</p>
+  <pre class="prompt" id="p-QA-04">TASK QA-04: Delete dead pipeline functions; fix the smoke-test port
+Repo: meghoneai (Megh One AI). Area: Testing &amp; evaluation. Severity: Low. Wave: 3. Related: KI-021.
+Start only after these are merged into Main: SQL-02, CMP-03, SQL-07. Then create branch task/qa-04 from Main.
+
+Before starting: read CLAUDE.md, docs/CURRENT_STATE.md, docs/HANDOFF.md and the docs for this area. Run git status. Re-check each finding in the code; line numbers are from the 2026-10-28 audit and may have moved.
+
+VERIFIED STATUS
+CONFIRMED by an AST scan. Exactly five functions are dead. The strays and .gitignore work moved to SEC-01.
+
+THE ISSUE
+Five pipeline functions are never referenced anywhere. smoke_restructure.py hard-codes port 8502, which breaks the 8401-only rule.
+
+EVIDENCE
+- c06:289 _year_choices_for, c10:35 _c1x_apos0, cm_elevate.py:727 _cme_programme_named, :997 _cme_district_in_values, pmay_g.py:929 _pmay_money_short.
+- The two data/*/prompt_assembler.py files are SME artefacts; delete them only with your agreement.
+
+THE SOLUTION
+- Read each comment, then delete the five functions.
+- Set BASE = os.environ.get("MEGH_BASE", "http://127.0.0.1:8401").
+
+EDIT ONLY THESE FILES AND FUNCTIONS (other tasks edit the rest in parallel)
+- app/pipeline/common/c06_years_tranches.py: _year_choices_for
+- app/pipeline/common/c10_sql_generation_and_rewrites.py: _c1x_apos0
+- app/pipeline/schemes/cm_elevate.py: two functions
+- app/pipeline/schemes/pmay_g.py: _pmay_money_short
+- tests/smoke_restructure.py
+
+DONE WHEN
+- Full tests green and the namespace test passes.
+
+MERGE-SAFETY RULES
+- Every fix gets a regression test that calls the real function.
+- No regex (D-046/D-047): use app/sql_ast.py and app/text_match.py.
+- Never change megh_db data or schema.
+- Prefix every new pipeline top-level name with your file and task (for example _c11_qa04_). Run tests/test_pipeline_namespace_2026_10_26.py.
+- config.py and .env.example: add settings next to related ones, never at the end, never reorder.
+- Frontend: never commit web/app (git diff --name-only origin/Main...HEAD -- web/app must be empty).
+- Docs: fill only your QA-04 stub in CURRENT_STATE.md and HANDOFF.md and your own KI detail sections. New KI ids only from KI-610–619. New decisions as "D-QA-04". Do not edit the KI summary table, the TESTING history table or the "Last updated" lines.
+- Run the full pytest command (docs/TESTING.md §2) and the 14 script suites before the PR. Merge through the merge queue.
+- Finish with the CLAUDE.md §8 summary.</pre>
+</section>
+<section><div class="cols"><div class="panel">
+      <h3>Rules every session follows</h3>
+      <ul>
+        <li><b>Branch:</b> name it <code>task/&lt;id&gt;</code>. Cut it from Main only after the tasks listed in its "start after" have merged. Merge through the Bitbucket merge queue, which tests each PR on top of everything already queued.</li>
+        <li><b>Docs:</b> edit only your task's pre-made stub in CURRENT_STATE and HANDOFF (DOC-02 creates them) and your own KI detail sections. Never edit the KI summary table, the TESTING history table or the "Last updated" lines; the integrator updates those at merge.</li>
+        <li><b>Ids:</b> new KI ids come only from your track's range (shown on the board). New decisions are written as <code>D-&lt;task id&gt;</code>, and the integrator numbers them from D-074.</li>
+        <li><b>Pipeline helpers:</b> prefix every new pipeline name with your file and task, for example <code>_c11_sql01_</code>. A duplicate top-level name silently replaces the other one (KI-413). Run <code>tests/test_pipeline_namespace_2026_10_26.py</code> before every PR.</li>
+        <li><b><code>config.py</code> and <code>.env.example</code>:</b> add settings next to related ones, in their own commented block. Never add at the end of the class, and never reorder.</li>
+        <li><b>Frontend:</b> never commit <code>web/app</code>. Before a PR, <code>git diff --name-only origin/Main...HEAD -- web/app</code> must be empty. The integrator builds once after the last frontend merge.</li>
+        <li><b>Requirements:</b> only QA-02 (wave 0) edits the requirements files.</li>
+      </ul>
+    </div><div class="panel">
+      <h3>Integration checklist after each wave</h3>
+      <ol>
+        <li>Run the full pytest command from TESTING.md §2 (baseline 3,910 passed and 3 skipped at HEAD; about 3,932 once P0 is in). After QA-02, <code>pytest tests -q</code> must finish too.</li>
+        <li>Run all 14 script suites; all must pass.</li>
+        <li>Run the namespace test and the duplicate KI and D id tests (from QA-02).</li>
+        <li>Run <code>cd frontend &amp;&amp; npm ci &amp;&amp; npm run build</code> and commit <code>web/app</code>. The node card and table tests must pass, not skip.</li>
+        <li>On the VPN: <code>live_context_validation.py</code> with caches on and off, <code>nl2sql_eval --fail-on-regression</code>, <code>rag_eval</code>, and one in-process answer per scheme as a district officer.</li>
+        <li>Restart on port 8401 and check <code>/health</code>, <code>/megh-chat</code> and <code>/admin-ui</code>.</li>
+        <li>Integrator only: update the KI table, the TESTING history and the "Last updated" lines.</li>
+      </ol>
+    </div></div></section>
+<nav class="crumbs" aria-label="Navigation"><a href="index.html">← All tasks</a><a href="QA-03.html">← QA-03</a><a href="REL-03.html">REL-03 →</a></nav>
+</div><script>
+document.addEventListener("click",function(e){var b=e.target.closest("[data-copy-pre]");if(!b)return;var pre=document.getElementById(b.getAttribute("data-copy-pre"));var t=pre.textContent;
+function sel(){var r=document.createRange();r.selectNodeContents(pre);var s=getSelection();s.removeAllRanges();s.addRange(r);b.textContent="Selected, press Ctrl+C";}
+try{navigator.clipboard.writeText(t).then(function(){b.textContent="Copied";setTimeout(function(){b.textContent="Copy session prompt"},2000)},sel)}catch(err){sel()}});
+</script></body></html>

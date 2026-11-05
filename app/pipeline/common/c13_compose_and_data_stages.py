@@ -480,7 +480,11 @@ async def classify_intent(question: str, session: "Session | None" = None) -> st
     this turn's query plan, D-085); then the B3 retrieval-score safety net
     (_c13_knowledge_is_closer)."""
     intent = await _c13_intent_by_rules(question, session)
+    # A question a fixed data answer claims is not a single-word DATA guess, which is all the
+    # B3 net corrects: "Summarise Focus Plus data" is near the FOCUS+ "Overview" passage, and
+    # B3 would hand the statistics question back to the documents (KI-681).
     if intent == "DATA" and settings.INTENT_SCORE_TIEBREAK and _c13_b3_eligible(question) \
+            and not _c13_fixed_data_answer_claims(question) \
             and await _c13_knowledge_is_closer(question):
         return "KNOWLEDGE"
     return intent
@@ -562,6 +566,19 @@ def _c13_bare_which_is_better(question: str) -> bool:
 async def _c13_intent_by_rules(question: str, session: "Session | None" = None) -> str:
     """The cue rules, then this turn's query plan or one classifier call (the
     pre-B3 classify_intent)."""
+    cue = _c13_intent_by_cues(question)
+    if cue is not None:
+        return cue
+    return await _c13_intent_by_model(question, session)
+
+
+def _c13_intent_by_cues(question: str) -> "str | None":
+    """DATA / KNOWLEDGE when a deterministic cue decides it, else None — in this order,
+    the one rule list both classify_intent and the typed-words check (_typed_intent) read.
+    _typed_intent once copied only the last two keyword checks, so "What is the status of
+    Piggery applications in Umshaken village under CM Elevate?" (the dataset chip, which
+    the rephraser always touches) was KNOWLEDGE there although _MEASURE_IN_PLACE below
+    makes it DATA here, and the chip got the reference documents (user 2026-11-04)."""
     # "what are common districts in both schemes?" opens with "what are", which
     # otherwise reads as KNOWLEDGE — but it is a list computed from the coverage
     # data, never something in the reference docs. Force DATA before the keyword
@@ -591,6 +608,10 @@ async def _c13_intent_by_rules(question: str, session: "Session | None" = None) 
     if _PROCESS_QUESTION_CUE.search(question) and not _C13_COUNT_ASKED.search(question) \
             and not context_policy.extract_year_keys(question):
         return "KNOWLEDGE"
+    # A question the DATA path already answers by a fixed query is data: the router asks
+    # the very predicate the data stage answers by, so the two can never disagree.
+    if _c13_fixed_data_answer_claims(question):
+        return "DATA"
     if _BREAKDOWN_CUE.search(question):
         return "DATA"
     if _METRIC_WHATIS_CUE.search(question):
@@ -605,6 +626,41 @@ async def _c13_intent_by_rules(question: str, session: "Session | None" = None) 
         return "KNOWLEDGE"
     if _APPLICANT_PLACE_CUE.search(question) and not _KNOWLEDGE_HINTS.search(question):
         return "DATA"
+    return None
+
+
+def _c13_fixed_data_answer_claims(question: str) -> bool:
+    """True when one of the DATA path's fixed answers, decided by the question's words
+    alone, claims this question: the Focus Plus overall summary (focus_plus.py) and the
+    cross-scheme money ranking (c06). Each is checked only inside the data stage, so
+    reaching it depended on the 4B classifier saying DATA first. "Give me an overall
+    Focus Plus summary." has no place, year or count word, and the D-094 prompt line
+    (2026-10-29, "with no place, no year and no total … it is KNOWLEDGE") sent it to the
+    reference documents: the scheme description instead of the statistics the sheet
+    expects (Focus+ sheet 030, user 2026-11-04). A definition, entitlement or
+    how-it-works form stays with the knowledge rules (KI-611), and so does any knowledge
+    cue but a bare "what is / what are" — the rephraser's own opening for "Give me …"
+    (KI-250): "Summarise the Focus Plus eligibility rules" is the documents'."""
+    q = question or ""
+    if _DEFINITION_ASK_MATCH.search(q) or _is_entitlement_question(q) or _knowledge_form_question(q):
+        return False
+    if any(" ".join(h.group(0).lower().split()) not in ("what is", "what are")
+           for h in _KNOWLEDGE_HINTS.finditer(q)):
+        return False
+    schemes = _named_schemes(_correct_scheme_spelling(q))
+    if _focusplus_wants_overall_summary(q, schemes):
+        for hit in _FOCUSPLUS_OVERALL_SUMMARY_CUE.finditer(q):
+            words = hit.group(0).lower().split()
+            # The cue's "summarise … focus" arm takes any object: "Summarise Focus Plus data"
+            # is the figures, "Summarize the benefits of Focus Plus" is the documents'.
+            if words[0].startswith("summari") and any(w != "the" for w in words[1:-1]):
+                continue
+            return True
+    return _wants_cross_scheme_money_ranking(q)
+
+
+async def _c13_intent_by_model(question: str, session: "Session | None" = None) -> str:
+    """No cue decided: this turn's query plan, else one classifier call."""
     # E1 stage 2b (D-085): the rules found no cue; the plan built during this turn
     # (only with QUERY_PLAN_IN_TURN, only from these same words) already read the
     # intent, so its call stands in for this one. Measured on the 383 shadow-log

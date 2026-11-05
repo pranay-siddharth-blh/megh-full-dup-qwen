@@ -5,6 +5,35 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: overall Focus Plus summary — wrong "~3%" cohort share, glued scope sentence (2026-11-05, KI-682). Code changed, uncommitted; LIVE-VERIFIED in-process. :8401 NOT restarted.
+- "~3% of beneficiaries" was hard-coded (it is 3% of payment records); now computed from the query: 12,527 of 1,05,813
+  beneficiaries, ~11.8%. The answer ends with its own scope line, so c12 `_finish_answer` no longer glues one to the last bullet.
+- `app/pipeline/schemes/focus_plus.py` only; `tests/test_focusplus_usecase_fixes.py` +1, file 94/94; namespace guard passes.
+
+## Latest: "overall Focus Plus summary" answered from the documents (2026-11-04, KI-681). Code changed, uncommitted; offline-verified only (VPN down). :8401 NOT restarted.
+- Cause: no intent cue matched, so the 4B decided; the D-094 prompt line (2026-10-29, "no place, no year, no count ->
+  KNOWLEDGE") made it KNOWLEDGE, and the fixed summary query (checked only in the DATA stage) never ran.
+- Fix: c13 `_c13_fixed_data_answer_claims` — routing asks the fixed DATA answers' own predicates before the model;
+  the B3 score net and the c14 scheme-overview rule (KI-382) leave a claimed question alone. Focus Plus only.
+  0 of 173 labelled routing questions change; `tests/test_focusplus_usecase_fixes.py` +27, file 93/93.
+- NOT yet live-verified: the classifier was unreachable (no VPN) — see HANDOFF for the live checks.
+## Latest: CM Elevate "status" = file_status (2026-11-04, D-101, KI-679, KI-680; KI-624 closed). Code changed, uncommitted; LIVE-VERIFIED in-process. :8401 NOT restarted.
+- Ingestion team added a plain `curated.v_cm_elevate.file_status` (Pending / Send Back / Rejected), readable by megh_readonly.
+  `cmelevate_pending_rule.yaml` points its file-status step at it; the existing gate `cme_pending_rule.readable()` opens
+  when the live schema lists it. Then status questions group by file_status, pending / sent back count from it, approved /
+  rejected are answered from it; current_file_status only for a movement question. Closed gate = the old wording.
+- LIVE-VERIFIED in-process once the VPN was back: Umshaken Piggery "57 pending" (file_status), "rejected in Ri Bhoi" 17.
+- Same day, KI-680: a count beside the pending FILTER went out over every status (Piggery 225 in West Khasi Hills) under a
+  "valid only" Note; the FILTER's own 'Valid' had switched the default off. Now 197 valid (+ Note); "all applications" 225, no Note.
+
+## Latest: CM Elevate dataset chip answered from the documents / Piggery filter lost (2026-11-04, KI-677, KI-678). Code changed, uncommitted; LIVE-VERIFIED in-process. :8401 NOT restarted.
+- "What is the status of Piggery applications in Umshaken village?" -> D-099 dataset pause -> either chip went to RAG
+  ("no village-level status"): `_typed_intent` (used when the rephraser touched the question) copied only part of
+  `classify_intent`'s cues. Both now read c13 `_c13_intent_by_cues`.
+- Then the CM Elevate chip said 63 (every scheme in the village): the village pin dropped the bracketed WHERE group that
+  the valid default creates, `scheme_name` with it. The pin now opens bracketed AND groups. Now 57 (= megh_db).
+- Full pytest 5,404 passed / 1 failed (pre-existing BLH8); scripts 14/14.
+
 ## Latest: context frames — whole-window context (2026-11-03/04, D-100, KI-671..674). Code changed, uncommitted; LIVE-VERIFIED in-process. :8401 NOT restarted.
 - User chat: Focus Plus total -> district-wise -> "compare this with … Focus Legacy" (was statewide) -> "include focus
   plus also" (was the documents) -> "i mean compare focus plus also" (was Focus Plus alone). Now all three give the
