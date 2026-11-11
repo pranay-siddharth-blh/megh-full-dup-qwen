@@ -3,7 +3,7 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
-**2026-11-11 (CMSS onboarded by scheme-onboarder): on branch, NOT merged, NOT live-verified.** Review the tool's report (plan.html / apply.json) and every DRAFT entry; answer the open questions; run the live suites with the VPN; update CURRENT_STATE / DECISIONS / AI_PIPELINE.
+**2026-11-11 (CMSS onboarded by scheme-onboarder): branch `onboard/cmss-2026-11-11` @ 3379836, NOT merged, NOT pushed.** Live acceptance ran (CURRENT_STATE 2026-11-11): CMSS 8/12, no regression on the six schemes after KI-686 (FP-11, fixed). Next: (1) KI-687 — report the West Garo Hills code-663 rows to megh-ingestion; CS-10 region rule (prompt + few-shot + guard); CS-09 place reader; CS-12 runners-up vs evaluator; (2) data team confirms CS gold SQL and the Ri Bhoi resolver grouping; (3) run `tests/live_context_validation.py` on the branch; (4) user decision KI-684; (5) review, merge.
 
 **2026-11-06 (scheme onboarding tool, D-102): docs-only in this repo (SCHEMES.md §Adding a scheme, DECISIONS
 D-102, KNOWN_ISSUES KI-683, CURRENT_STATE); uncommitted.** The tool is `C:\Users\dell\Desktop\MEGH-LANG\scheme-onboarder`

@@ -5,6 +5,15 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: CMSS onboarded (2026-11-11), branch `onboard/cmss-2026-11-11`, NOT merged
+- Commits: c75e594 (scheme-onboarder apply), 8bba583 (review fixes: `prompt_builder._scheme_of` CMSS, Ri Bhoi in the
+  "Khasi Hills" resolver entry, 13 test files updated for a 7th scheme, CS-01..CS-12 held-out items), 3379836 (KI-686).
+- VERIFIED offline: 77/79 test files as on base (test_pmay_sheet_rerun already failed before); Focus Plus files 165/165.
+- VERIFIED live acceptance (`onboard test`, 86 items, 78.3%): MGNREGA 100, PMAY-G 92.3, Focus Plus 91.7, CM Elevate Legacy 91.7,
+  Focus Legacy 83.3, CMSS 66.7 (8/12), CM Elevate 0 (KI-684, pending user decision). FP-11 regression found and fixed (KI-686);
+  CL-12 flaky on base too. CMSS misses: KI-687 (one data defect, three pipeline items).
+- NOT done: live multi-turn suite (`tests/live_context_validation.py`) on the branch; SME review of `data/cmss/scheme.yaml`
+  answers and of the CS gold SQL; `npm run build` output review in the UI.
 ## Latest: scheme onboarding tool (2026-11-05/06, D-102, KI-683). No app code changed in this repo; docs only.
 - New tool outside this repo: `C:\Users\dell\Desktop\MEGH-LANG\scheme-onboarder` (own git repo, README).
   - It learns the schemes and finds every per-scheme registry by itself (186 in 40+ files).

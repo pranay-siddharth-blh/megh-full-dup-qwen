@@ -522,4 +522,16 @@ After adding a scheme: restart the service, run the registry guard and a routing
 
 
 ## CMSS (onboarded 2026-11-11 by scheme-onboarder — REVIEW)
-PLANNED / NEEDS VERIFICATION: written by the onboarding tool from `data/cmss/scheme.yaml`. 141 registries updated; 50 left for review (questions, scheme-specific branches, drafts). Fill in: what the data holds, its truth rules, its namesakes, its live QA results.
+Branch `onboard/cmss-2026-11-11` (commits c75e594 tool, 8bba583 review fixes, 3379836 KI-686). NOT merged.
+
+- **Data (VERIFIED, megh_db read-only 2026-11-11):** one view, `curated.v_cmss`; FY 2025-26 only; money in rupees, a flat
+  Rs 6,000 per paid student. 1,04,827 applications, 98,751 paid, ₹59.25 Cr disbursed (the stats card pins these).
+- **Truth rules (pinned in `data/cmss/scheme.yaml` overrides):** beneficiaries = `COUNT(*) FILTER (WHERE is_disbursed)`
+  (`is_disbursed` is never NULL); the 1,218 "Unresolved" rows are left out of village and constituency figures; the view
+  carries `ac_number` / `ac_name` and `region`; implemented by DHTE.
+- **Resolver:** `data/cmss/cmss_entity_resolver.yaml` "Khasi Hills" includes Ri Bhoi (district_codes 274, 740, 658, 279, 276;
+  52,667 applications / 49,880 paid) — confirm with the SME.
+- **Namesakes:** none with the six schemes; the matchers are `cmss`, `scholarship`, `scholarships`.
+- **KB:** `data/incoming/CMSS/` holds two .md files REBUILT from the `megh_knowledge` chunks (the KB itself is read-only, D-074).
+- **Held-out set:** `tests/nl2sql_eval/questions.yaml` CS-01..CS-12 (gold SQL written in this session; NEEDS data-team confirmation).
+- **Live acceptance:** see CURRENT_STATE (2026-11-11).
