@@ -1,0 +1,1057 @@
+# cmss_few_shot.yaml
+#
+# Validated question-to-SQL pairs for CMSS - node 5.10.
+#
+# ===========================================================================
+# v1.0 - 2026-11-04 - FIRST VERSION, WRITTEN AGAINST THE CURATED STAR SCHEMA
+#
+# Every example runs against curated.v_cmss (19 columns, one row per student
+# application, paid or not).
+#
+# House rules encoded in every example below:
+#   FROM curated.v_cmss                    never fact_cmss_application
+#   COUNT(*)                               is an APPLICATION count - paid and not paid
+#   COUNT(*) FILTER (WHERE is_disbursed)   is students PAID - the 'beneficiary' count
+#   NOT is_disbursed                       is not paid - is_disbursed is NOT NULL
+#   COUNT(DISTINCT member_key)             the ONLY permitted use of member_key
+#   SUM(amount_disbursed)                  rupees; Rs 6,000 on every paid row, NULL otherwise
+#   / 1e7 crore, / 1e5 lakh                and say the unit
+#   district_lgd_code / block_lgd_code /   CODES in every WHERE - never a name literal
+#   ac_number / village_code
+#   GROUP BY <code>, <name>                never the display name alone
+#   entity_type <> 'Unresolved'            on village and constituency questions ONLY
+#   financial_year_short = '2025-26'       the only year loaded
+#   towns are blocks                       11 block_lgd_code values above 200000
+#
+# Questions CMSS must refuse (gender, institution type, student lists, highest-paid
+# student, other years, trends, payment dates, rejection reasons, cross-scheme
+# person matching) have no SQL and are NOT in this file - they are in
+# cmss_schema_partitions.yaml few_shot_examples with sql: null, and the gate in
+# cmss_classification_rules.yaml catches them first.
+#
+# NOT ONE OF THESE QUERIES HAS BEEN EXECUTED against megh_db. They are correct
+# against the structure in SCHEMA_FOR_DEVELOPERS.md (2026-11-03). Every `expected`
+# value was produced by executing the SQL against a SQLite emulation of v_cmss
+# built from datasets/CMSS/CMSS - 2026-10-23.csv. Run them against megh_db before
+# trusting a result. Counts and codes are exact; DISPLAY NAMES inside an expected
+# value (lgd_district, lgd_block, ac_name) are the source file's spellings upper-cased
+# - the roster's stored spellings, especially for the 11 towns, may differ.
+# ===========================================================================
+
+sql_generation_examples:
+
+# ---- applications and beneficiaries ----------------------------------------
+- question: How many beneficiaries are recorded under CMSS?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*)                             AS applications
+    FROM curated.v_cmss;
+  tables:
+  - curated.v_cmss
+  note: Use case 1. A beneficiary is a paid student; the application total travels with it.
+  expected: {beneficiaries_paid: 98751, applications: 104827}
+- question: How many CMSS applications were received?
+  sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_cmss;
+  tables:
+  - curated.v_cmss
+  expected: 104827
+- question: How many students received the CM scholarship?
+  sql: |
+    SELECT COUNT(*) AS students_paid
+    FROM curated.v_cmss
+    WHERE is_disbursed;
+  tables:
+  - curated.v_cmss
+  expected: 98751
+- question: How many unique students applied for CMSS?
+  sql: |
+    SELECT COUNT(DISTINCT member_key) AS distinct_students
+    FROM curated.v_cmss;
+  tables:
+  - curated.v_cmss
+  note: member_key only inside COUNT(DISTINCT). Equal to applications in 2025-26.
+  expected: 104827
+- question: How many CMSS applications were not paid?
+  sql: |
+    SELECT COUNT(*) AS not_paid
+    FROM curated.v_cmss
+    WHERE NOT is_disbursed;
+  tables:
+  - curated.v_cmss
+  note: No reason is recorded - report as 'not paid', never 'rejected'.
+  expected: 6076
+- question: What share of CMSS applications were paid?
+  sql: |
+    SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE is_disbursed) / COUNT(*), 2) AS paid_pct
+    FROM curated.v_cmss;
+  tables:
+  - curated.v_cmss
+  expected: 94.2
+- question: Give me paid, not paid and total CMSS applications
+  sql: |
+    SELECT COUNT(*)                                 AS applications,
+           COUNT(*) FILTER (WHERE is_disbursed)     AS paid,
+           COUNT(*) FILTER (WHERE NOT is_disbursed) AS not_paid
+    FROM curated.v_cmss;
+  tables:
+  - curated.v_cmss
+  expected: {applications: 104827, paid: 98751, not_paid: 6076}
+- question: Paid versus not paid CMSS applications
+  sql: |
+    SELECT CASE WHEN is_disbursed THEN 'Paid' ELSE 'Not paid' END AS payment_status,
+           COUNT(*) AS applications
+    FROM curated.v_cmss
+    GROUP BY 1
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 2, values: [{payment_status: "Paid", applications: 98751}, {payment_status: "Not paid", applications: 6076}]}
+
+# ---- districts ---------------------------------------------------------------
+- question: How many CMSS beneficiaries are recorded in East Khasi Hills?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*)                             AS applications
+    FROM curated.v_cmss
+    WHERE district_lgd_code = 274;
+  tables:
+  - curated.v_cmss
+  note: Use case 2. Districts are filtered on the LGD code.
+  expected: {beneficiaries_paid: 24932, applications: 26326}
+- question: How many CMSS beneficiaries are there in West Garo Hills?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE district_lgd_code = 278;
+  tables:
+  - curated.v_cmss
+  expected: 11966
+- question: How many students applied for CMSS from Ri Bhoi?
+  sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE district_lgd_code = 276;
+  tables:
+  - curated.v_cmss
+  expected: 9229
+- question: CMSS beneficiaries in Eastern West Khasi Hills
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE district_lgd_code = 740;
+  tables:
+  - curated.v_cmss
+  note: 740 is Eastern West Khasi Hills - never 279 (West Khasi Hills).
+  expected: 4724
+- question: CMSS beneficiaries in East Jaintia Hills
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*)                             AS applications
+    FROM curated.v_cmss
+    WHERE district_lgd_code = 657;
+  tables:
+  - curated.v_cmss
+  note: Includes the 19 Tangnub students whose source name says Eastern West Khasi Hills - the code is trusted.
+  expected: {beneficiaries_paid: 5517, applications: 5812}
+- question: Beneficiary count for each district
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*)                             AS applications
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY beneficiaries_paid DESC;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 12, first: {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", beneficiaries_paid: 24932, applications: 26326}, second: {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", beneficiaries_paid: 12288, applications: 12865}, last: {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", beneficiaries_paid: 4520, applications: 4985}}
+- question: Which district has the most CMSS beneficiaries?
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY beneficiaries_paid DESC
+    LIMIT 1;
+  tables:
+  - curated.v_cmss
+  expected: {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", beneficiaries_paid: 24932}
+- question: Which district has the fewest CMSS beneficiaries?
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY beneficiaries_paid ASC
+    LIMIT 1;
+  tables:
+  - curated.v_cmss
+  expected: {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", beneficiaries_paid: 4520}
+- question: Top 3 districts by CMSS applications
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS applications
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY applications DESC
+    LIMIT 3;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 3, values: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", applications: 26326}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", applications: 12865}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", applications: 12744}]}
+- question: Which district has the lowest share of CMSS applications paid?
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE is_disbursed) / COUNT(*), 2) AS paid_pct
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY paid_pct ASC
+    LIMIT 1;
+  tables:
+  - curated.v_cmss
+  expected: {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", paid_pct: 89.61}
+- question: Unpaid CMSS applications by district
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) FILTER (WHERE NOT is_disbursed) AS not_paid,
+           COUNT(*)                                 AS applications
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY not_paid DESC;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 12, first: {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", not_paid: 1394, applications: 26326}, second: {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", not_paid: 778, applications: 12744}, last: {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", not_paid: 232, applications: 4787}}
+- question: What share of the state's CMSS beneficiaries are in East Khasi Hills?
+  sql: |
+    SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE is_disbursed AND district_lgd_code = 274)
+                 / COUNT(*) FILTER (WHERE is_disbursed), 2) AS share_pct
+    FROM curated.v_cmss;
+  tables:
+  - curated.v_cmss
+  expected: 25.25
+- question: Compare CMSS beneficiaries in East Garo Hills and West Garo Hills
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*)                             AS applications
+    FROM curated.v_cmss
+    WHERE district_lgd_code IN (273, 278)
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY district_lgd_code;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 2, values: [{district_lgd_code: 273, lgd_district: "EAST GARO HILLS", beneficiaries_paid: 4554, applications: 5082}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", beneficiaries_paid: 11966, applications: 12744}]}
+
+# ---- blocks and towns --------------------------------------------------------
+- question: How many CMSS beneficiaries are in Laskein block?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 1997;
+  tables:
+  - curated.v_cmss
+  expected: 4303
+- question: CMSS applications in Mawkynrew block
+  sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 1991;
+  tables:
+  - curated.v_cmss
+  note: CM-10 - the LGD block series. 1991, not the old file's 2456.
+  expected: 1311
+- question: How many students from Shillong Municipal Board received CMSS?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*)                             AS applications
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 249814;
+  tables:
+  - curated.v_cmss
+  note: Towns are blocks (CM-08).
+  expected: {beneficiaries_paid: 2321, applications: 2495}
+- question: CMSS beneficiaries in Tura Municipal Board
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 249806;
+  tables:
+  - curated.v_cmss
+  expected: 950
+- question: CMSS beneficiaries in Jowai
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 249820;
+  tables:
+  - curated.v_cmss
+  note: Jowai has no rural block, so it defaults to Jowai Municipal Board (stated). Jowai constituency is the follow-up.
+  expected: 1441
+- question: CMSS beneficiaries in Nongstoin block and Nongstoin Town Committee together
+  sql: |
+    SELECT block_lgd_code, lgd_block,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE block_lgd_code IN (1980, 249810)
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY block_lgd_code;
+  tables:
+  - curated.v_cmss
+  note: The user chose 'both' after the gate asked. Show them separately with a combined total.
+  expected: {rows: 2, values: [{block_lgd_code: 1980, lgd_block: "NONGSTOIN", beneficiaries_paid: 2057}, {block_lgd_code: 249810, lgd_block: "NONGSTOIN-TOWN COMMITTEE", beneficiaries_paid: 1620}]}
+- question: Applications from Saipung block
+  sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 2000;
+  tables:
+  - curated.v_cmss
+  note: By code - 19 source rows name this block Mairang.
+  expected: 1474
+- question: List the blocks of West Jaintia Hills with CMSS beneficiaries
+  sql: |
+    SELECT block_lgd_code, lgd_block,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE district_lgd_code = 275
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY beneficiaries_paid DESC;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 5, first: {block_lgd_code: 1997, lgd_block: "LASKEIN", beneficiaries_paid: 4303}, second: {block_lgd_code: 1996, lgd_block: "THADLASKEIN", beneficiaries_paid: 3888}, last: {block_lgd_code: 7335, lgd_block: "NAMDONG", beneficiaries_paid: 594}}
+- question: Top 10 blocks by CMSS beneficiaries
+  sql: |
+    SELECT block_lgd_code, lgd_block,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY beneficiaries_paid DESC
+    LIMIT 10;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 10, first: {block_lgd_code: 1997, lgd_block: "LASKEIN", beneficiaries_paid: 4303}, second: {block_lgd_code: 1996, lgd_block: "THADLASKEIN", beneficiaries_paid: 3888}, last: {block_lgd_code: 6541, lgd_block: "MAWPAT", beneficiaries_paid: 2377}}
+- question: Bottom 5 blocks by CMSS applications
+  sql: |
+    SELECT block_lgd_code, lgd_block, COUNT(*) AS applications
+    FROM curated.v_cmss
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY applications ASC
+    LIMIT 5;
+  tables:
+  - curated.v_cmss
+  note: The two smallest are towns (Khliehriat TC, Mawkyrwat TC). Say so.
+  expected: {rows: 5, first: {block_lgd_code: 279714, lgd_block: "KHLIEHRIAT-TOWN COMMITTEE", applications: 50}, second: {block_lgd_code: 282009, lgd_block: "MAWKYRWAT-TOWN COMMITTEE", applications: 61}, last: {block_lgd_code: 7338, lgd_block: "SHALLANG", applications: 532}}
+- question: Which rural block has the most CMSS beneficiaries?
+  sql: |
+    SELECT block_lgd_code, lgd_block,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE block_lgd_code NOT IN (249806, 249807, 249808, 249809, 249810, 249811,
+                                 249812, 249814, 249820, 279714, 282009)
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY beneficiaries_paid DESC
+    LIMIT 1;
+  tables:
+  - curated.v_cmss
+  expected: {block_lgd_code: 1997, lgd_block: "LASKEIN", beneficiaries_paid: 4303}
+- question: CMSS beneficiaries in each town reported as a block
+  sql: |
+    SELECT block_lgd_code, lgd_block,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*)                             AS applications
+    FROM curated.v_cmss
+    WHERE block_lgd_code IN (249806, 249807, 249808, 249809, 249810, 249811,
+                             249812, 249814, 249820, 279714, 282009)
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 11, first: {block_lgd_code: 249814, lgd_block: "SHILLONG-MUNICIPAL BOARD", beneficiaries_paid: 2321, applications: 2495}, second: {block_lgd_code: 249810, lgd_block: "NONGSTOIN-TOWN COMMITTEE", beneficiaries_paid: 1620, applications: 1727}, last: {block_lgd_code: 279714, lgd_block: "KHLIEHRIAT-TOWN COMMITTEE", beneficiaries_paid: 47, applications: 50}}
+- question: Which blocks have the highest share of unpaid CMSS applications?
+  sql: |
+    SELECT block_lgd_code, lgd_block,
+           COUNT(*) AS applications,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE NOT is_disbursed) / COUNT(*), 1) AS not_paid_pct
+    FROM curated.v_cmss
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY not_paid_pct DESC
+    LIMIT 5;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 5, first: {block_lgd_code: 1978, lgd_block: "RONGARA", applications: 721, not_paid_pct: 14.4}, second: {block_lgd_code: 1976, lgd_block: "GASUAPARA", applications: 769, not_paid_pct: 13.8}, last: {block_lgd_code: 249808, lgd_block: "WILLIAM NAGAR-MUNICIPAL BOARD", applications: 636, not_paid_pct: 10.5}}
+- question: How many blocks have CMSS applicants in South Garo Hills?
+  sql: |
+    SELECT COUNT(DISTINCT block_lgd_code) AS blocks
+    FROM curated.v_cmss
+    WHERE district_lgd_code = 277;
+  tables:
+  - curated.v_cmss
+  note: Includes Baghmara Municipal Board, a town reported as a block.
+  expected: 6
+- question: CMSS beneficiaries in Purakhasia
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 7418;
+  tables:
+  - curated.v_cmss
+  note: CM-09 - Purakhasia's block code is now filled.
+  expected: 549
+
+# ---- constituencies ------------------------------------------------------------
+- question: How many CMSS beneficiaries are recorded in Mawkyrwat constituency?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*)                             AS applications
+    FROM curated.v_cmss
+    WHERE ac_number = 36;
+  tables:
+  - curated.v_cmss
+  note: Use case 5. Constituency is filtered on the ECI number.
+  expected: {beneficiaries_paid: 3341, applications: 3521}
+- question: CMSS beneficiaries in Jowai constituency
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE ac_number = 2;
+  tables:
+  - curated.v_cmss
+  expected: 3064
+- question: CMSS beneficiaries in the four Shillong constituencies
+  sql: |
+    SELECT ac_number, ac_name,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE ac_number BETWEEN 16 AND 19
+    GROUP BY ac_number, ac_name
+    ORDER BY ac_number;
+  tables:
+  - curated.v_cmss
+  note: Together the same students as Shillong Municipal Board.
+  expected: {rows: 4, first: {ac_number: 16, ac_name: "East Shillong", beneficiaries_paid: 627}, second: {ac_number: 17, ac_name: "North Shillong", beneficiaries_paid: 529}, last: {ac_number: 19, ac_name: "South Shillong", beneficiaries_paid: 534}}
+- question: How much has been disbursed to beneficiaries in Nongstoin constituency?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS students_paid,
+           ROUND(SUM(amount_disbursed) / 1e5, 2) AS disbursed_lakh
+    FROM curated.v_cmss
+    WHERE ac_number = 32;
+  tables:
+  - curated.v_cmss
+  note: Use case 17.
+  expected: {students_paid: 3156, disbursed_lakh: 189.36}
+- question: Which constituency has the most CMSS beneficiaries?
+  sql: |
+    SELECT ac_number, ac_name,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE entity_type <> 'Unresolved'
+    GROUP BY ac_number, ac_name
+    ORDER BY beneficiaries_paid DESC
+    LIMIT 1;
+  tables:
+  - curated.v_cmss
+  expected: {ac_number: 36, ac_name: "Mawkyrwat", beneficiaries_paid: 3341}
+- question: Bottom 5 constituencies by CMSS applications
+  sql: |
+    SELECT ac_number, ac_name, COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE entity_type <> 'Unresolved'
+    GROUP BY ac_number, ac_name
+    ORDER BY applications ASC
+    LIMIT 5;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 5, first: {ac_number: 51, ac_name: "South Tura", applications: 65}, second: {ac_number: 22, ac_name: "Nongkrem", applications: 380}, last: {ac_number: 18, ac_name: "West Shillong", applications: 689}}
+- question: CMSS beneficiaries in Dalu constituency, West Garo Hills part only
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE ac_number = 57
+      AND district_lgd_code = 278;
+  tables:
+  - curated.v_cmss
+  note: Dalu constituency spans two districts; the gate asked and the user chose one part.
+  expected: 890
+- question: How many constituencies have CMSS applicants?
+  sql: |
+    SELECT COUNT(DISTINCT ac_number) AS constituencies
+    FROM curated.v_cmss
+    WHERE entity_type <> 'Unresolved';
+  tables:
+  - curated.v_cmss
+  expected: 60
+- question: CMSS beneficiaries by constituency in East Jaintia Hills
+  sql: |
+    SELECT ac_number, ac_name,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE district_lgd_code = 657
+      AND entity_type <> 'Unresolved'
+    GROUP BY ac_number, ac_name
+    ORDER BY beneficiaries_paid DESC;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 2, values: [{ac_number: 6, ac_name: "Khliehriat", beneficiaries_paid: 2837}, {ac_number: 5, ac_name: "Sutnga-saipung", beneficiaries_paid: 2680}]}
+
+# ---- villages and wards ----------------------------------------------------------
+- question: How many CMSS beneficiaries are from Mihmyntdu village?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*)                             AS applications
+    FROM curated.v_cmss
+    WHERE village_code = 279185;
+  tables:
+  - curated.v_cmss
+  note: Use case 4 answered as a count - no student list.
+  expected: {beneficiaries_paid: 428, applications: 454}
+- question: What is the total amount disbursed to beneficiaries from Nongbah in Thadlaskein?
+  sql: |
+    SELECT SUM(amount_disbursed) AS disbursed_rupees
+    FROM curated.v_cmss
+    WHERE village_code = 279159;
+  tables:
+  - curated.v_cmss
+  note: Use case 18. Nongbah has two codes - the Thadlaskein one is 279159. A single village is shown in rupees.
+  expected: 2334000
+- question: How many villages have CMSS applicants?
+  sql: |
+    SELECT COUNT(DISTINCT village_code) AS villages
+    FROM curated.v_cmss
+    WHERE entity_type <> 'Unresolved';
+  tables:
+  - curated.v_cmss
+  note: Wards count as villages (CM-13).
+  expected: 5902
+- question: How many villages in West Garo Hills have CMSS beneficiaries?
+  sql: |
+    SELECT COUNT(DISTINCT village_code) AS villages
+    FROM curated.v_cmss
+    WHERE district_lgd_code = 278
+      AND entity_type <> 'Unresolved'
+      AND is_disbursed;
+  tables:
+  - curated.v_cmss
+  expected: 942
+- question: Top 10 villages by CMSS beneficiaries
+  sql: |
+    SELECT village_code, lgd_village_name, lgd_block,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE entity_type <> 'Unresolved'
+    GROUP BY village_code, lgd_village_name, lgd_block
+    ORDER BY beneficiaries_paid DESC
+    LIMIT 10;
+  tables:
+  - curated.v_cmss
+  note: Group by village_code - 231 names are shared. Show the block to tell namesakes apart.
+  expected: {rows: 10, first: {village_code: 279185, lgd_village_name: "Mihmyntdu", lgd_block: "THADLASKEIN", beneficiaries_paid: 428}, second: {village_code: 279159, lgd_village_name: "Nongbah", lgd_block: "THADLASKEIN", beneficiaries_paid: 389}, last: {village_code: 279403, lgd_village_name: "Sutnga", lgd_block: "WAPUNG", beneficiaries_paid: 283}}
+- question: Find all CMSS beneficiaries from villages within Laskein block
+  sql: |
+    SELECT village_code, lgd_village_name,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*)                             AS applications
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 1997
+      AND entity_type <> 'Unresolved'
+    GROUP BY village_code, lgd_village_name
+    ORDER BY beneficiaries_paid DESC;
+  tables:
+  - curated.v_cmss
+  note: Use case 35 - a count per village, never a list of students.
+  expected: {rows: 81, first: {village_code: 279266, lgd_village_name: "Raliang", beneficiaries_paid: 252, applications: 256}, second: {village_code: 279258, lgd_village_name: "Shangpung Pohshnong", beneficiaries_paid: 219, applications: 227}, last: {village_code: 279286, lgd_village_name: "Madanrwai", beneficiaries_paid: 1, applications: 1}}
+- question: CMSS beneficiaries in Mawprem Ward No. 19
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE village_code = 3355;
+  tables:
+  - curated.v_cmss
+  note: A Shillong ward, in the village column (CM-13).
+  expected: 333
+- question: CMSS applications by ward in Tura Municipal Board
+  sql: |
+    SELECT village_code, lgd_village_name, COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 249806
+      AND entity_type <> 'Unresolved'
+    GROUP BY village_code, lgd_village_name
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_cmss
+  note: 19 Tura applications have no ward and are excluded here - state it.
+  expected: {rows: 13, first: {village_code: 2371, lgd_village_name: "Ward No. 11", applications: 235}, second: {village_code: 2368, lgd_village_name: "Ward No. 8", applications: 146}, last: {village_code: 1299531, lgd_village_name: "Ward No. 12", applications: 16}}
+- question: How many villages have only one CMSS applicant?
+  sql: |
+    SELECT COUNT(*) AS villages_with_one_applicant
+    FROM (SELECT village_code
+          FROM curated.v_cmss
+          WHERE entity_type <> 'Unresolved'
+          GROUP BY village_code
+          HAVING COUNT(*) = 1) AS v;
+  tables:
+  - curated.v_cmss
+  expected: 669
+- question: In how many villages was no CMSS applicant paid?
+  sql: |
+    SELECT COUNT(*) AS villages_none_paid
+    FROM (SELECT village_code
+          FROM curated.v_cmss
+          WHERE entity_type <> 'Unresolved'
+          GROUP BY village_code
+          HAVING COUNT(*) FILTER (WHERE is_disbursed) = 0) AS v;
+  tables:
+  - curated.v_cmss
+  expected: 50
+- question: Give me a village-wise summary of CMSS beneficiaries and the amount disbursed in Umling block
+  sql: |
+    SELECT village_code, lgd_village_name,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           SUM(amount_disbursed)                AS disbursed_rupees
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 1985
+      AND entity_type <> 'Unresolved'
+    GROUP BY village_code, lgd_village_name
+    ORDER BY beneficiaries_paid DESC;
+  tables:
+  - curated.v_cmss
+  note: Use case 39, scoped to one block after the gate warned about 5,902 rows.
+  expected: {rows: 199, first: {village_code: 277574, lgd_village_name: "Diwon", beneficiaries_paid: 96, disbursed_rupees: 576000}, second: {village_code: 277630, lgd_village_name: "Umsawnongbri", beneficiaries_paid: 85, disbursed_rupees: 510000}, last: {village_code: 277540, lgd_village_name: "Dendral", beneficiaries_paid: 0, disbursed_rupees: null}}
+
+# ---- money ---------------------------------------------------------------------
+- question: What is the total amount disbursed under CMSS?
+  sql: |
+    SELECT ROUND(SUM(amount_disbursed) / 1e7, 2) AS disbursed_crore
+    FROM curated.v_cmss;
+  tables:
+  - curated.v_cmss
+  note: Use case 14.
+  expected: 59.25
+- question: Total CMSS disbursement in rupees
+  sql: |
+    SELECT SUM(amount_disbursed) AS disbursed_rupees
+    FROM curated.v_cmss;
+  tables:
+  - curated.v_cmss
+  expected: 592506000
+- question: What is the total CMSS amount disbursed in each district?
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           ROUND(SUM(amount_disbursed) / 1e7, 2) AS disbursed_crore
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY disbursed_crore DESC;
+  tables:
+  - curated.v_cmss
+  note: Use case 15.
+  expected: {rows: 12, first: {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", disbursed_crore: 14.96}, second: {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", disbursed_crore: 7.37}, last: {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", disbursed_crore: 2.71}}
+- question: What is the total CMSS amount disbursed in Thadlaskein block?
+  sql: |
+    SELECT ROUND(SUM(amount_disbursed) / 1e5, 2) AS disbursed_lakh
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 1996;
+  tables:
+  - curated.v_cmss
+  note: Use case 16. Below one crore, so lakh.
+  expected: 233.28
+- question: How much CMSS money went to West Jaintia Hills?
+  sql: |
+    SELECT ROUND(SUM(amount_disbursed) / 1e7, 2) AS disbursed_crore
+    FROM curated.v_cmss
+    WHERE district_lgd_code = 275;
+  tables:
+  - curated.v_cmss
+  expected: 7.37
+- question: What is the average amount disbursed per CMSS beneficiary?
+  sql: |
+    SELECT ROUND(AVG(amount_disbursed), 2)            AS per_paid_student,
+           ROUND(SUM(amount_disbursed) / COUNT(*), 2) AS per_application
+    FROM curated.v_cmss;
+  tables:
+  - curated.v_cmss
+  note: Use case 20. The first is always Rs 6,000; label the second 'per application'.
+  expected: {per_paid_student: 6000, per_application: 5652.23}
+- question: What is the average amount disbursed per beneficiary in each district?
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           ROUND(SUM(amount_disbursed) / COUNT(*), 2) AS per_application
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY per_application DESC;
+  tables:
+  - curated.v_cmss
+  note: Use case 25. State once that the per-paid-student average is Rs 6,000 everywhere; show the per-application figure, which varies.
+  expected: {rows: 12, first: {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", per_application: 5730.9}, second: {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", per_application: 5709.21}, last: {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", per_application: 5376.62}}
+- question: What is the average CMSS assistance per application in each block?
+  sql: |
+    SELECT block_lgd_code, lgd_block,
+           ROUND(SUM(amount_disbursed) / COUNT(*), 2) AS per_application
+    FROM curated.v_cmss
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY per_application ASC
+    LIMIT 5;
+  tables:
+  - curated.v_cmss
+  note: Use case 26. Lowest first - the blocks where the most applications were not paid.
+  expected: {rows: 5, first: {block_lgd_code: 1978, lgd_block: "RONGARA", per_application: 5134.54}, second: {block_lgd_code: 1976, lgd_block: "GASUAPARA", per_application: 5172.95}, last: {block_lgd_code: 249808, lgd_block: "WILLIAM NAGAR-MUNICIPAL BOARD", per_application: 5367.92}}
+- question: What is the scholarship amount per student under CMSS?
+  sql: |
+    SELECT amount_disbursed, COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE is_disbursed
+    GROUP BY amount_disbursed;
+  tables:
+  - curated.v_cmss
+  note: Shows the flat rate from the data rather than asserting it.
+  expected: {amount_disbursed: 6000, applications: 98751}
+- question: How many beneficiaries received more than Rs 5,000 under CMSS?
+  sql: |
+    SELECT COUNT(*) AS students_above_5000
+    FROM curated.v_cmss
+    WHERE amount_disbursed > 5000;
+  tables:
+  - curated.v_cmss
+  note: Use case 23. Every paid student - say so.
+  expected: 98751
+- question: How many CMSS students received more than Rs 6,000?
+  sql: |
+    SELECT COUNT(*) AS students_above_6000
+    FROM curated.v_cmss
+    WHERE amount_disbursed > 6000;
+  tables:
+  - curated.v_cmss
+  note: Zero - the rate is flat. A real 0, not missing data.
+  expected: 0
+- question: How many CMSS records have zero or missing disbursement amounts?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE amount_disbursed IS NULL) AS missing_amount,
+           COUNT(*) FILTER (WHERE amount_disbursed = 0)     AS zero_amount
+    FROM curated.v_cmss;
+  tables:
+  - curated.v_cmss
+  note: Use case 24. Missing = not paid.
+  expected: {missing_amount: 6076, zero_amount: 0}
+- question: Which district received the most CMSS money?
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           ROUND(SUM(amount_disbursed) / 1e7, 2) AS disbursed_crore
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY disbursed_crore DESC
+    LIMIT 1;
+  tables:
+  - curated.v_cmss
+  note: Same answer as the most beneficiaries - the rate is flat.
+  expected: {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", disbursed_crore: 14.96}
+- question: Total CMSS disbursement to the towns reported as blocks
+  sql: |
+    SELECT ROUND(SUM(amount_disbursed) / 1e7, 2) AS disbursed_crore
+    FROM curated.v_cmss
+    WHERE block_lgd_code IN (249806, 249807, 249808, 249809, 249810, 249811,
+                             249812, 249814, 249820, 279714, 282009);
+  tables:
+  - curated.v_cmss
+  expected: 5.71
+
+# ---- time - one year loaded ---------------------------------------------------
+- question: How many CMSS beneficiaries are recorded for 2025-26?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26';
+  tables:
+  - curated.v_cmss
+  note: Use case 6.
+  expected: 98751
+- question: What is the total CMSS amount disbursed during 2025-26?
+  sql: |
+    SELECT ROUND(SUM(amount_disbursed) / 1e7, 2) AS disbursed_crore
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26';
+  tables:
+  - curated.v_cmss
+  note: Use case 19.
+  expected: 59.25
+- question: How many beneficiaries received CMSS assistance in each financial year?
+  sql: |
+    SELECT financial_year_short,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    GROUP BY financial_year_short
+    ORDER BY financial_year_short;
+  tables:
+  - curated.v_cmss
+  note: Use case 32. One row today - say a trend needs more years. The query widens on its own.
+  expected: {financial_year_short: "2025-26", beneficiaries_paid: 98751}
+- question: How much was disbursed under CMSS in each financial year?
+  sql: |
+    SELECT financial_year_short,
+           ROUND(SUM(amount_disbursed) / 1e7, 2) AS disbursed_crore
+    FROM curated.v_cmss
+    GROUP BY financial_year_short
+    ORDER BY financial_year_short;
+  tables:
+  - curated.v_cmss
+  note: Use case 33.
+  expected: {financial_year_short: "2025-26", disbursed_crore: 59.25}
+- question: Which financial years does the CMSS data cover?
+  sql: |
+    SELECT DISTINCT financial_year, financial_year_short
+    FROM curated.v_cmss
+    ORDER BY financial_year;
+  tables:
+  - curated.v_cmss
+  expected: {financial_year: "2025-2026", financial_year_short: "2025-26"}
+- question: Latest year CMSS beneficiaries by district
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26'
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY beneficiaries_paid DESC;
+  tables:
+  - curated.v_cmss
+  note: "'Latest' defaults to 2025-26, the only year loaded."
+  expected: {rows: 12, first: {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", beneficiaries_paid: 24932}, second: {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", beneficiaries_paid: 12288}, last: {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", beneficiaries_paid: 4520}}
+
+# ---- region and urban / rural ---------------------------------------------------
+- question: CMSS beneficiaries in the Garo Hills
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE district_lgd_code IN (273, 656, 277, 663, 278);
+  tables:
+  - curated.v_cmss
+  expected: 31066
+- question: CMSS beneficiaries in the Jaintia Hills
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE district_lgd_code IN (657, 275);
+  tables:
+  - curated.v_cmss
+  expected: 17805
+- question: CMSS beneficiaries in the Khasi Hills, excluding Ri Bhoi
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE district_lgd_code IN (274, 740, 658, 279);
+  tables:
+  - curated.v_cmss
+  note: The user answered the gate's Ri Bhoi question.
+  expected: 41179
+- question: CMSS beneficiaries by hill region
+  sql: |
+    SELECT CASE WHEN district_lgd_code IN (273, 656, 277, 663, 278) THEN 'Garo Hills'
+                WHEN district_lgd_code IN (274, 740, 658, 279)      THEN 'Khasi Hills'
+                WHEN district_lgd_code IN (657, 275)                THEN 'Jaintia Hills'
+                ELSE 'Ri Bhoi' END AS region_group,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*)                             AS applications
+    FROM curated.v_cmss
+    GROUP BY 1
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_cmss
+  note: The district-code CASE is used instead of the region column because Ri Bhoi's stored region is unverified.
+  expected: {rows: 4, first: {region_group: "Khasi Hills", beneficiaries_paid: 41179, applications: 43438}, second: {region_group: "Garo Hills", beneficiaries_paid: 31066, applications: 33483}, last: {region_group: "Ri Bhoi", beneficiaries_paid: 8701, applications: 9229}}
+- question: How many CMSS students are from towns versus rural blocks?
+  sql: |
+    SELECT CASE WHEN block_lgd_code IN (249806, 249807, 249808, 249809, 249810, 249811,
+                                        249812, 249814, 249820, 279714, 282009)
+                THEN 'Town' ELSE 'Rural block' END AS area_type,
+           COUNT(*)                             AS applications,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    GROUP BY 1
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 2, values: [{area_type: "Rural block", applications: 94654, beneficiaries_paid: 89227}, {area_type: "Town", applications: 10173, beneficiaries_paid: 9524}]}
+- question: Is the paid share higher in towns or in rural blocks?
+  sql: |
+    SELECT CASE WHEN block_lgd_code IN (249806, 249807, 249808, 249809, 249810, 249811,
+                                        249812, 249814, 249820, 279714, 282009)
+                THEN 'Town' ELSE 'Rural block' END AS area_type,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE is_disbursed) / COUNT(*), 2) AS paid_pct
+    FROM curated.v_cmss
+    GROUP BY 1
+    ORDER BY paid_pct DESC;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 2, values: [{area_type: "Rural block", paid_pct: 94.27}, {area_type: "Town", paid_pct: 93.62}]}
+
+# ---- reports (use cases 36-41) ---------------------------------------------------
+- question: Give me a constituency-wise summary of CMSS beneficiaries and total disbursement
+  sql: |
+    SELECT ac_number, ac_name,
+           COUNT(*)                              AS applications,
+           COUNT(*) FILTER (WHERE is_disbursed)  AS beneficiaries_paid,
+           ROUND(SUM(amount_disbursed) / 1e5, 2) AS disbursed_lakh
+    FROM curated.v_cmss
+    WHERE entity_type <> 'Unresolved'
+    GROUP BY ac_number, ac_name
+    ORDER BY ac_number;
+  tables:
+  - curated.v_cmss
+  note: Use case 36. Totals reach 103,609 applications, not 104,827 - say so.
+  expected: {rows: 60, first: {ac_number: 1, ac_name: "Nartiang", applications: 2110, beneficiaries_paid: 2013, disbursed_lakh: 120.78}, second: {ac_number: 2, ac_name: "Jowai", applications: 3219, beneficiaries_paid: 3064, disbursed_lakh: 183.84}, last: {ac_number: 60, ac_name: "Baghmara", applications: 1673, beneficiaries_paid: 1515, disbursed_lakh: 90.9}}
+- question: Give me a district-wise CMSS report with beneficiary count and total amount disbursed
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*)                                 AS applications,
+           COUNT(*) FILTER (WHERE is_disbursed)     AS beneficiaries_paid,
+           COUNT(*) FILTER (WHERE NOT is_disbursed) AS not_paid,
+           ROUND(SUM(amount_disbursed) / 1e7, 2)    AS disbursed_crore,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE is_disbursed) / COUNT(*), 2) AS paid_pct
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY lgd_district;
+  tables:
+  - curated.v_cmss
+  note: Use case 37 without gender and institution type, which are not recorded - say so.
+  expected: {rows: 12, first: {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", applications: 5082, beneficiaries_paid: 4554, not_paid: 528, disbursed_crore: 2.73, paid_pct: 89.61}, second: {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", applications: 5812, beneficiaries_paid: 5517, not_paid: 295, disbursed_crore: 3.31, paid_pct: 94.92}, last: {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", applications: 7358, beneficiaries_paid: 6968, not_paid: 390, disbursed_crore: 4.18, paid_pct: 94.7}}
+- question: Generate a block-wise CMSS report showing beneficiary count, total disbursement, and average assistance
+  sql: |
+    SELECT district_lgd_code, lgd_district, block_lgd_code, lgd_block,
+           COUNT(*)                                   AS applications,
+           COUNT(*) FILTER (WHERE is_disbursed)       AS beneficiaries_paid,
+           ROUND(SUM(amount_disbursed) / 1e5, 2)      AS disbursed_lakh,
+           ROUND(SUM(amount_disbursed) / COUNT(*), 2) AS average_per_application
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district, block_lgd_code, lgd_block
+    ORDER BY lgd_district, lgd_block;
+  tables:
+  - curated.v_cmss
+  note: Use case 38. The per-paid-student average is Rs 6,000 in every block - state it once.
+  expected: {rows: 67, first: {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", block_lgd_code: 1971, lgd_block: "DAMBO RONGJENG", applications: 1887, beneficiaries_paid: 1736, disbursed_lakh: 104.16, average_per_application: 5519.87}, second: {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", block_lgd_code: 1974, lgd_block: "SAMANDA", applications: 1750, beneficiaries_paid: 1535, disbursed_lakh: 92.1, average_per_application: 5262.86}, last: {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", block_lgd_code: 7338, lgd_block: "SHALLANG", applications: 532, beneficiaries_paid: 504, disbursed_lakh: 30.24, average_per_application: 5684.21}}
+- question: Generate a consolidated CMSS report by district and block for 2025-26
+  sql: |
+    SELECT financial_year_short, district_lgd_code, lgd_district, block_lgd_code, lgd_block,
+           COUNT(*)                                 AS applications,
+           COUNT(*) FILTER (WHERE is_disbursed)     AS beneficiaries_paid,
+           COUNT(*) FILTER (WHERE NOT is_disbursed) AS not_paid,
+           SUM(amount_disbursed)                    AS disbursed_rupees
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26'
+    GROUP BY financial_year_short, district_lgd_code, lgd_district, block_lgd_code, lgd_block
+    ORDER BY lgd_district, lgd_block;
+  tables:
+  - curated.v_cmss
+  note: Use case 41 with every dimension that exists. Gender and institution type are stated as not held.
+  expected: {rows: 67, first: {financial_year_short: "2025-26", district_lgd_code: 273, lgd_district: "EAST GARO HILLS", block_lgd_code: 1971, lgd_block: "DAMBO RONGJENG", applications: 1887, beneficiaries_paid: 1736, not_paid: 151, disbursed_rupees: 10416000}, second: {financial_year_short: "2025-26", district_lgd_code: 273, lgd_district: "EAST GARO HILLS", block_lgd_code: 1974, lgd_block: "SAMANDA", applications: 1750, beneficiaries_paid: 1535, not_paid: 215, disbursed_rupees: 9210000}, last: {financial_year_short: "2025-26", district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", block_lgd_code: 7338, lgd_block: "SHALLANG", applications: 532, beneficiaries_paid: 504, not_paid: 28, disbursed_rupees: 3024000}}
+- question: State summary of CMSS for 2025-26
+  sql: |
+    SELECT COUNT(*)                                 AS applications,
+           COUNT(*) FILTER (WHERE is_disbursed)     AS beneficiaries_paid,
+           COUNT(*) FILTER (WHERE NOT is_disbursed) AS not_paid,
+           ROUND(SUM(amount_disbursed) / 1e7, 2)    AS disbursed_crore,
+           COUNT(DISTINCT district_lgd_code)        AS districts,
+           COUNT(DISTINCT block_lgd_code)           AS blocks,
+           COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved') AS villages
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26';
+  tables:
+  - curated.v_cmss
+  expected: {applications: 104827, beneficiaries_paid: 98751, not_paid: 6076, disbursed_crore: 59.25, districts: 12, blocks: 67, villages: 5902}
+- question: District by block counts of CMSS beneficiaries in Ri Bhoi
+  sql: |
+    SELECT block_lgd_code, lgd_block,
+           COUNT(*)                             AS applications,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    WHERE district_lgd_code = 276
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY beneficiaries_paid DESC;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 6, first: {block_lgd_code: 1985, lgd_block: "UMLING", applications: 3071, beneficiaries_paid: 2861}, second: {block_lgd_code: 1987, lgd_block: "UMSNING", applications: 2190, beneficiaries_paid: 2085}, last: {block_lgd_code: 249812, lgd_block: "NONGPOH-TOWN COMMITTEE", applications: 593, beneficiaries_paid: 542}}
+
+# ---- data quality and unmapped rows ---------------------------------------------
+- question: How many CMSS applications have no village recorded?
+  sql: |
+    SELECT COUNT(*) AS applications_without_village
+    FROM curated.v_cmss
+    WHERE entity_type = 'Unresolved';
+  tables:
+  - curated.v_cmss
+  expected: 1218
+- question: Which blocks have CMSS applications with no village recorded?
+  sql: |
+    SELECT block_lgd_code, lgd_block, COUNT(*) AS applications_without_village
+    FROM curated.v_cmss
+    WHERE entity_type = 'Unresolved'
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY applications_without_village DESC;
+  tables:
+  - curated.v_cmss
+  expected: {rows: 7, first: {block_lgd_code: 1965, lgd_block: "RONGRAM", applications_without_village: 825}, second: {block_lgd_code: 1994, lgd_block: "SHELLA BHOLAGANJ", applications_without_village: 359}, last: {block_lgd_code: 1973, lgd_block: "SONGSAK", applications_without_village: 1}}
+- question: Were the CMSS applications with no village paid?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed)     AS paid,
+           COUNT(*) FILTER (WHERE NOT is_disbursed) AS not_paid
+    FROM curated.v_cmss
+    WHERE entity_type = 'Unresolved';
+  tables:
+  - curated.v_cmss
+  note: All are paid - they are real students whose village could not be mapped.
+  expected: {paid: 1218, not_paid: 0}
+- question: How many CMSS applications have a district or block name that disagrees with the LGD code?
+  sql: |
+    SELECT COUNT(*) AS name_code_conflicts
+    FROM curated.v_cmss
+    WHERE has_name_code_conflict;
+  tables:
+  - curated.v_cmss
+  note: The DB comment quotes 35 (19 Tangnub on Saipung codes + 16 Betasing on Demdema villages). The CSV alone shows only the 19 - the other 16 are visible only against the roster.
+  expected: {csv_emulation: 19, db_comment: 35}
+- question: Rongram CMSS applications with and without a village
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE entity_type = 'Unresolved')  AS without_village,
+           COUNT(*) FILTER (WHERE entity_type <> 'Unresolved') AS with_village
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 1965;
+  tables:
+  - curated.v_cmss
+  note: Rongram holds 825 of the 1,218 unmapped applications.
+  expected: {without_village: 825, with_village: 2841}
+
+# ---- cross-scheme - aggregate each side, then combine -----------------------------
+- question: Compare CMSS beneficiaries with NRLM SHGs by district
+  sql: |
+    WITH c AS (
+      SELECT district_lgd_code, COUNT(*) FILTER (WHERE is_disbursed) AS cmss_students_paid
+      FROM curated.v_cmss
+      GROUP BY district_lgd_code),
+    n AS (
+      SELECT district_lgd_code, COUNT(*) AS nrlm_shgs
+      FROM curated.v_nrlm
+      GROUP BY district_lgd_code)
+    SELECT c.district_lgd_code, c.cmss_students_paid, n.nrlm_shgs
+    FROM c
+    LEFT JOIN n ON n.district_lgd_code = c.district_lgd_code
+    ORDER BY c.district_lgd_code;
+  tables:
+  - curated.v_cmss
+  - curated.v_nrlm
+  note: Each scheme aggregated to district in its own subquery, then joined on the code - never a row-level join. Different units (students vs groups) - say so.
+  expected: null   # cross-scheme - the other scheme's data is not in datasets/CMSS; CMSS side verified separately
+- question: Villages with both CMSS students and PMAY houses
+  sql: |
+    WITH c AS (
+      SELECT village_code, COUNT(*) AS cmss_applications
+      FROM curated.v_cmss
+      WHERE entity_type <> 'Unresolved'
+      GROUP BY village_code),
+    p AS (
+      SELECT village_code, COUNT(*) AS pmay_houses
+      FROM curated.v_pmay
+      WHERE NOT is_placeholder
+      GROUP BY village_code)
+    SELECT COUNT(*) AS villages_with_both
+    FROM c
+    JOIN p ON p.village_code = c.village_code;
+  tables:
+  - curated.v_cmss
+  - curated.v_pmay
+  note: Aggregate-then-combine on village_code. PMAY's NOT is_placeholder stays on the PMAY side only.
+  expected: null   # cross-scheme - the other scheme's data is not in datasets/CMSS; CMSS side verified separately

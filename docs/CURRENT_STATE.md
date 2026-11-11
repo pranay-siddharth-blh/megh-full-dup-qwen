@@ -5,6 +5,49 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: scheme onboarding tool (2026-11-05/06, D-102, KI-683). No app code changed in this repo; docs only.
+- New tool outside this repo: `C:\Users\dell\Desktop\MEGH-LANG\scheme-onboarder` (own git repo, README).
+  - It learns the schemes and finds every per-scheme registry by itself (186 in 40+ files).
+  - It derives a new scheme's entries or drafts them with the project gateway, checking every value, including
+    SQL on megh_db.
+  - It refuses incomplete plans and applies to a new branch only.
+  - It tests with the project's suites (new failures vs the original branch) and `tests/nl2sql_eval`.
+  - `docs/SCHEMES.md §Adding a scheme` now starts from it.
+- VERIFIED:
+  - tool tests 27/27 (incl. an end-to-end onboarding with rollback on a synthetic project);
+  - leave-one-out on the 6 schemes;
+  - live check, drafting and acceptance (Focus Plus 11/12) on 2026-11-06.
+- FOUND: KI-683 (FP-05 Focus Plus blocks of North Garo Hills, 6 rows vs gold 4) — open.
+- Later on 2026-11-06:
+  - `onboard run` added: the whole flow, stopping only where a person is needed.
+  - `init` pre-fills `scheme.yaml`.
+  - `apply` rolls back on new test failures and holds entries that would break a fixed unpack, such as
+    `routers/stats.py::_cards`.
+  - Edits keep each file's line endings (a bug found on a CRLF clone: JS offsets were shifted).
+  - The frontend build is verified on a clone.
+  - Tool tests: 35/35. Leave-one-out: 89 exact.
+- QDRANT (2026-11-06, live, read-only):
+  - The tool reads each scheme's points in `megh_sql_metadata` (examples / views / joins) and
+    `megh_knowledge`.
+  - VERIFIED: the field names match the app's reader (`app/sql_examples.py`, `app/vectorstore.py`).
+  - Both collections ALREADY hold three schemes that are not onboarded:
+    | Scheme | Examples | Views | Joins | Knowledge pieces |
+    |---|---|---|---|---|
+    | CMSS | 26 | `curated.v_cmss` | 8 | 44 |
+    | Home Stay | 34 | `curated.v_homestay_api` | 8 | 39 |
+    | Home Stay Legacy | 30 | `curated.v_homestay_legacy` | 8 | 39 |
+  - Trial in a clone: `init --live --name CMSS` filled 8 of 13 manifest fields (main view, grain and owned
+    tables from Qdrant) and wrote a 26-example few-shot file from Qdrant. All 26 SQL examples ran read-only
+    on megh_db. What the SME still has to supply: the resolver / rules / partitions YAMLs.
+  - The app reads `megh_sql_metadata` only with `SQL_EXAMPLES_SOURCE=qdrant`; `.env` says `yaml`.
+- BASELINE DONE (2026-11-06, VPN, commit 09ac437): 74 held-out questions, accuracy 81.7%.
+  MGNREGA 100%, CM Elevate Legacy 100%, PMAY-G 92.3%, Focus Plus 91.7%, Focus Legacy 83.3%, CM Elevate 0%
+  (9 dataset pauses, KI-684). Other misses: KI-683, KI-685. Saved in the tool's
+  `reports/acceptance/2026-11-06_1542_09ac437.json`; later onboardings are compared against it.
+- Found by the scan, not fixed here (pre-existing drift):
+  - edge `_RESPONSES["profanity"]` and `translate.py` name 5 schemes;
+  - `config.APP_NAME` names 4.
+
 ## Latest: overall Focus Plus summary — wrong "~3%" cohort share, glued scope sentence (2026-11-05, KI-682). Code changed, uncommitted; LIVE-VERIFIED in-process. :8401 NOT restarted.
 - "~3% of beneficiaries" was hard-coded (it is 3% of payment records); now computed from the query: 12,527 of 1,05,813
   beneficiaries, ~11.8%. The answer ends with its own scope line, so c12 `_finish_answer` no longer glues one to the last bullet.

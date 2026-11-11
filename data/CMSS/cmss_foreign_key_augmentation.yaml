@@ -1,0 +1,885 @@
+# cmss_foreign_key_augmentation.yaml
+#
+# Join edges and the materialised join graph for CMSS - node 5.9.
+#
+#   nodes       what each object is, its grain, and whether it may be aggregated
+#   edges       every join, with the exact ON clause the generator must emit
+#   join_graph  adjacency list, listed from the many side, traversed undirected
+#
+# declared: true      the edge is a real constraint in information_schema
+# declared: false     the edge exists only here
+# is_prohibited: true the generator must refuse this join and use `use_instead`
+#
+# ===========================================================================
+# v1.0 - 2026-11-04 - FIRST VERSION, WRITTEN AGAINST THE LIVE DATABASE
+#
+# Authority: SCHEMA_FOR_DEVELOPERS.md, regenerated 2026-11-03 13:12 UTC.
+#
+# fact_cmss_application carries FOUR REAL DECLARED FOREIGN KEYS - dim_geography,
+# dim_scheme, dim_year and raw.source_rows - and all are NOT NULL except raw_id.
+# curated.v_cmss pre-joins dim_geography and dim_year, so the generator emits no
+# joins for ordinary questions.
+#
+# The prohibited edges are the point of this file. CMSS is recorded per student
+# application. Its only shared keys are the LGD codes (village_code,
+# district_lgd_code, block_lgd_code) - usable to join AGGREGATES, never rows - and
+# member_key, which it shares with Focus+ alone.
+#
+# member_key IS THE NEW HAZARD. It is the same HMAC as Focus+'s member_key, so
+# "CMSS students who also got Focus+" is one JOIN away. That join is prohibited:
+# it identifies people across schemes (CM-23). The database's own rule for
+# schemes that share people (semantic.v_scheme_relationship_terms,
+# 'shared_people') permits exactly one thing - COUNT(DISTINCT member_key) over a
+# UNION of both schemes. It is recorded below as a CONDITIONAL pattern, off until
+# the CMSS / FOCUS_PLUS row of semantic.scheme_relationships is read.
+#
+# NOT VERIFIED: semantic.join_graph and semantic.scheme_relationships rows for
+# CMSS were not read (no read credential on this machine). The live table comment
+# on fact_cmss_application says "Never row-join to another fact (CLAUDE.md rule 1)",
+# which this file encodes.
+# ===========================================================================
+
+foreign_key_augmentation:
+
+  version: '1.0'
+  database: megh_db
+  schema: curated
+  read_role: megh_readonly
+  structure_verified: '2026-11-03'
+  primary_query_surface: curated.v_cmss
+
+  # =======================================================================
+  nodes:
+
+    curated.v_cmss:
+      role: fact_view
+      object_type: view
+      over: curated.fact_cmss_application
+      primary_key: cmss_fact_id
+      natural_key: none in the view (source_application_id is on the fact only)
+      grain: one row per CMSS student application (paid or not), financial year 2025-26
+      column_count: 19
+      aggregate_before_reporting: false
+      unit: rupees
+      row_count: unverified_in_db
+      note: >
+        THE DEFAULT FROM CLAUSE FOR EVERY CMSS QUESTION. Pre-joins dim_geography and
+        dim_year. COUNT(*) is an application count; COUNT(*) FILTER (WHERE is_disbursed) is
+        students paid. There is no mandatory predicate; village and constituency questions
+        add entity_type <> 'Unresolved'. Filters use LGD codes.
+
+    curated.fact_cmss_application:
+      role: fact
+      object_type: table
+      primary_key: cmss_fact_id
+      natural_key: source_application_id
+      grain: one row per CMSS student application (paid or not)
+      column_count: 24
+      aggregate_before_reporting: false
+      unit: rupees
+      row_count: unverified_in_db
+      note: >
+        The underlying fact. Reach for it only when the question needs a column the view
+        does not expose - source_application_id, district_name_raw, block_name_raw,
+        village_name_raw, constituency_name_raw, constituency_number_raw,
+        is_repeat_member_in_year, scheme_key, or the audit columns. Otherwise use v_cmss.
+
+    curated.dim_scheme:
+      role: dimension
+      object_type: table
+      primary_key: scheme_key
+      grain: one row per scheme
+      shared_across_schemes: true
+      safe_to_aggregate: false
+      note: >
+        Authority on money_unit, time_semantics and data_as_of. Constant within the CMSS
+        partition, so never a grouping key for a CMSS-only question. Not in v_cmss - read it
+        on its own.
+
+    curated.dim_year:
+      role: dimension
+      object_type: table
+      primary_key: year_key
+      row_count: 42
+      grain: one row per financial year
+      shared_across_schemes: true
+      safe_to_aggregate: false
+      cmss_meaning: financial year of the application (April-March), NOT the academic year
+      cmss_years_present: ['2025-26']
+      note: >
+        Joined from fact_cmss_application.year_key, which is NOT NULL. 42 years exist for all
+        schemes; CMSS uses one. Joining dim_year to v_cmss does NOT create rows for other
+        years - an absent year has no data, not zero.
+
+    curated.dim_geography:
+      role: dimension
+      object_type: table
+      primary_key: geography_key
+      natural_key: village_code
+      grain: one row per LGD village or ward, plus synthetic 'Unresolved' placeholders
+      shared_across_schemes: true
+      safe_to_aggregate: false
+      note: >
+        Conformed geography. fact_cmss_application.geography_key is NOT NULL, so an inner
+        join loses nothing - the 1,218 villageless applications point at their block's
+        Unresolved placeholder. Pre-joined into v_cmss. Carries lgd_district_code,
+        lgd_block_code and region from the 3 Sep 2026 LGD master.
+
+    curated.dim_geography_alias:
+      role: dimension
+      object_type: table
+      primary_key: alias_key
+      grain: one row per source spelling of a village
+      reachable: true
+      used_by_cmss: false
+      note: >
+        REACHABLE BUT NOT PART OF THE CMSS GRAPH. fact_cmss_application has no alias_key -
+        CMSS geography was resolved at ingest from the department's LGD codes. Use it only
+        as a name lookup for the resolver, never in a join to v_cmss.
+
+    curated.v_place_names:
+      role: lookup_view
+      object_type: view
+      grain: one row per place name per level per district (and block, for villages)
+      note: >
+        A NAME LOOKUP, NOT A JOIN TARGET. Read it to decide what level a typed name is
+        (Mawlai = village, block and constituency), then filter v_cmss by the resolved CODE.
+        Joining it to v_cmss on a name fans out over every place sharing that name.
+
+    curated.v_data_coverage:
+      role: lookup_view
+      object_type: view
+      grain: one row per chatbot-facing dataset
+      note: Read before answering for a year. Never joined to v_cmss.
+
+    semantic.scheme_relationships:
+      role: metadata
+      object_type: table
+      grain: one row per pair of scheme codes
+      readable_by_read_role: unverified
+      note: >
+        Holds the combine rule for each pair of schemes (separate_payees, separate_schemes,
+        shared_people, successor). The CMSS rows were not readable from this machine. The
+        relationship type for CMSS / FOCUS_PLUS decides whether the conditional
+        distinct-people pattern below may be enabled.
+
+    curated.v_focus_plus:
+      role: fact_view
+      object_type: view
+      grain: one row per beneficiary x tranche disbursement event
+      shares_person_key_with_cmss: true
+      person_key: member_key (12.5K cohort only - 12,527 of 385,671 rows; NULL elsewhere)
+      note: >
+        The ONLY other scheme whose rows carry the same member_key hash as CMSS. Far end of
+        the most dangerous prohibited edge in this file, and the other side of the
+        conditional distinct-people pattern.
+
+    curated.fact_focus_plus_disbursement:
+      role: fact
+      object_type: table
+      grain: one row per beneficiary x tranche disbursement event
+      note: Focus+ partition. member_key indexed WHERE NOT NULL. Far end of a prohibited edge only.
+
+    curated.v_homestay_legacy:
+      role: fact_view
+      object_type: view
+      grain: one row per disbursed homestay loan, snapshot
+      shares_person_key_with_cmss: false
+      geography_level: block (no village)
+      note: >
+        CM-18 says some CMSS member ids also appear in Homestay applications - but the
+        Homestay Legacy view carries NO member key, so no person-level link exists. It can
+        meet CMSS only as block or district totals.
+
+    curated.v_pmay:
+      role: fact_view
+      object_type: view
+      grain: one row per sanctioned PMAY-G house
+      note: Other scheme. Far end of a prohibited row-level edge, and a partner in aggregate_then_combine (with NOT is_placeholder on its side).
+
+    curated.v_nrlm:
+      role: fact_view
+      object_type: view
+      grain: one row per Self Help Group, snapshot
+      note: Other scheme. Same role as v_pmay.
+
+    curated.v_employment:
+      role: fact_view
+      object_type: view
+      grain: MGNREGA source row (village-year, may repeat)
+      aggregate_before_reporting: true
+      note: Other scheme. Same role as v_pmay.
+
+    curated.v_expenditure:
+      role: fact_view
+      object_type: view
+      grain: MGNREGA source row (village-year, may repeat)
+      aggregate_before_reporting: true
+      unit: lakh_rupees
+      note: Other scheme, LAKH rupees. Same role as v_pmay.
+
+    curated.fact_mgnrega_employment:
+      role: fact
+      object_type: table
+      grain: one row per source row of the employment workbook
+      aggregate_before_reporting: true
+      note: MGNREGA partition. Far end of a prohibited edge only - reach MGNREGA through v_employment.
+
+    curated.fact_mgnrega_expenditure:
+      role: fact
+      object_type: table
+      grain: one row per source row of the expenditure workbook
+      aggregate_before_reporting: true
+      unit: lakh_rupees
+      note: MGNREGA partition, LAKH rupees. Far end of a prohibited edge only - reach it through v_expenditure.
+
+    curated.v_focus_legacy:
+      role: fact_view
+      object_type: view
+      grain: one row per payment to one Producer Group
+      note: Other scheme. Pays groups, not students. Same role as v_pmay.
+
+    curated.v_cm_elevate:
+      role: fact_view
+      object_type: view
+      grain: one row per CM Elevate application
+      note: >
+        Other scheme. Also an 'application' grain and also a 'CM' scheme - a generator may
+        treat them as siblings. They are not: no shared id, different populations.
+
+    curated.v_cm_elevate_disbursement:
+      role: fact_view
+      object_type: view
+      grain: one applicant's sanction-and-disbursement record
+      note: Other scheme. Same role as v_pmay.
+
+    curated.v_cross_scheme_money_district_year:
+      role: cross_scheme_view
+      object_type: view
+      includes_cmss: false
+      note: >
+        Covers MGNREGA and PMAY only, in CRORE. CMSS is not in it. A CMSS money comparison
+        is built by aggregate_then_combine, converting CMSS rupees to crore on its own side.
+
+    curated.v_cross_scheme_village_coverage:
+      role: cross_scheme_view
+      object_type: view
+      includes_cmss: false
+      note: Covers PMAY and MGNREGA only. CMSS coverage is built by aggregate_then_combine.
+
+    meta.v_reconciliation_cmss:
+      role: reconciliation
+      object_type: view
+      readable_by_read_role: false
+      note: Operator check (raw = curated + quarantined). Not a chatbot surface.
+
+    raw.source_rows:
+      role: lineage
+      object_type: table
+      primary_key: raw_id
+      readable_by_read_role: false
+      note: >
+        fact_cmss_application.raw_id is a real declared FK to this table, but `raw` is
+        outside the megh_readonly boundary. The edge exists and the application cannot
+        traverse it.
+
+  # =======================================================================
+  edges:
+
+    # ---- REAL DECLARED FOREIGN KEYS -------------------------------------
+    # All four are constraints in the live database as of 2026-11-03.
+    # dim_geography and dim_year are already resolved inside curated.v_cmss,
+    # so emit them ONLY when querying fact_cmss_application directly.
+
+    - from_table: curated.fact_cmss_application
+      from_column: geography_key
+      to_table: curated.dim_geography
+      to_column: geography_key
+      cardinality: many_to_one
+      declared: true
+      nullable: false
+      constraint: fact_cmss_application_geography_key_fkey
+      on_clause: "curated.fact_cmss_application.geography_key = curated.dim_geography.geography_key"
+      prefer_instead: curated.v_cmss
+      reason: >
+        The conformed geography join. NOT NULL, so an inner join loses nothing. v_cmss
+        already carries village_code, lgd_village_name, lgd_block, lgd_district,
+        entity_type, ac_number, ac_name and region.
+
+    - from_table: curated.fact_cmss_application
+      from_column: year_key
+      to_table: curated.dim_year
+      to_column: year_key
+      cardinality: many_to_one
+      declared: true
+      nullable: false
+      join_type: INNER
+      constraint: fact_cmss_application_year_key_fkey
+      on_clause: "curated.fact_cmss_application.year_key = curated.dim_year.year_key"
+      prefer_instead: curated.v_cmss
+      reason: >
+        NOT NULL, so INNER is safe - unlike PMAY's nullable year_key. One year in use
+        (2025). The resulting financial year is the year of the application, not the
+        academic session.
+
+    - from_table: curated.fact_cmss_application
+      from_column: scheme_key
+      to_table: curated.dim_scheme
+      to_column: scheme_key
+      cardinality: many_to_one
+      declared: true
+      nullable: false
+      constraint: fact_cmss_application_scheme_key_fkey
+      on_clause: "curated.fact_cmss_application.scheme_key = curated.dim_scheme.scheme_key"
+      prefer_instead: read dim_scheme on its own
+      reason: >
+        Constant within the CMSS partition. Read dim_scheme separately (WHERE scheme_code =
+        'CMSS') when the answer needs money_unit, time_semantics or data_as_of.
+
+    - from_table: curated.fact_cmss_application
+      from_column: raw_id
+      to_table: raw.source_rows
+      to_column: raw_id
+      cardinality: many_to_one
+      declared: true
+      nullable: true
+      traversable_by_read_role: false
+      constraint: fact_cmss_application_raw_id_fkey
+      on_clause: "curated.fact_cmss_application.raw_id = raw.source_rows.raw_id"
+      reason: >
+        Real constraint, unreachable in practice. `raw` is outside the megh_readonly
+        boundary, so the generator must never emit this join.
+
+    - from_table: curated.v_cmss
+      from_column: cmss_fact_id
+      to_table: curated.fact_cmss_application
+      to_column: cmss_fact_id
+      cardinality: one_to_one
+      declared: false
+      on_clause: "curated.v_cmss.cmss_fact_id = curated.fact_cmss_application.cmss_fact_id"
+      reason: >
+        View to its own fact, one to one. Needed only when a single question wants a view
+        column AND a lineage column (e.g. lgd_block beside block_name_raw). Prefer querying
+        one object. Never select member_key through it.
+
+    # ---- SANCTIONED CROSS-SCHEME PATTERNS - aggregates only -------------
+
+    - from_table: "aggregate of curated.v_cmss GROUP BY village_code"
+      from_column: village_code
+      to_table: "aggregate of <other scheme view> GROUP BY village_code"
+      to_column: village_code
+      cardinality: one_to_one
+      declared: false
+      is_prohibited: false
+      pattern: aggregate_then_combine
+      join_type: FULL
+      on_clause: "c.village_code = o.village_code"
+      reason: >
+        Aggregate each side to village_code (the national LGD id) in its own CTE, applying
+        each scheme's own predicates (CMSS: entity_type <> 'Unresolved'; PMAY: NOT
+        is_placeholder; NRLM: entity_type <> 'Unresolved'), THEN join the aggregates. One
+        row per village on each side - no fan-out. Never use geography_key across schemes
+        - it is unstable across reloads. Not available for Home Stay Legacy (no village).
+      example: see cmss_few_shot.yaml 'Villages with both CMSS students and PMAY houses'
+
+    - from_table: "aggregate of curated.v_cmss GROUP BY district_lgd_code"
+      from_column: district_lgd_code
+      to_table: "aggregate of <other scheme view> GROUP BY district_lgd_code"
+      to_column: district_lgd_code
+      cardinality: one_to_one
+      declared: false
+      is_prohibited: false
+      pattern: aggregate_then_combine
+      join_type: FULL
+      on_clause: "c.district_lgd_code = o.district_lgd_code"
+      reason: >
+        District-level version of the same pattern, on the LGD code that every scheme view
+        now carries (2026-11-03 schema). The answer states what each side counts - CMSS
+        students vs the other scheme's houses, SHGs or person-days - and never adds them.
+      example: see cmss_few_shot.yaml 'Compare CMSS beneficiaries with NRLM SHGs by district'
+
+    - from_table: "aggregate of curated.v_cmss GROUP BY block_lgd_code"
+      from_column: block_lgd_code
+      to_table: "aggregate of <other scheme view> GROUP BY block_lgd_code"
+      to_column: block_lgd_code
+      cardinality: one_to_one
+      declared: false
+      is_prohibited: false
+      pattern: aggregate_then_combine
+      join_type: FULL
+      on_clause: "c.block_lgd_code = o.block_lgd_code"
+      reason: >
+        The finest level at which CMSS can meet Home Stay Legacy (block only). Caution:
+        CMSS counts the 11 towns as blocks; a rural-only scheme will show NULL for those
+        codes - that is the finding, not a defect.
+
+    - from_table: "member_key set of curated.v_cmss"
+      from_column: member_key
+      to_table: "member_key set of curated.v_focus_plus (WHERE member_key IS NOT NULL)"
+      to_column: member_key
+      cardinality: none - a UNION, not a join
+      declared: false
+      is_prohibited: false
+      pattern: distinct_people_across_schemes
+      status: CONDITIONAL - disabled until verified
+      enable_when: >
+        semantic.scheme_relationships has a CMSS / FOCUS_PLUS row with relationship =
+        'shared_people'. Until that row is read, refuse and report the two counts side by
+        side instead.
+      on_clause: null
+      sql_shape: |
+        SELECT COUNT(DISTINCT member_key) AS people_in_either
+        FROM (SELECT member_key FROM curated.v_cmss
+              UNION
+              SELECT member_key FROM curated.v_focus_plus WHERE member_key IS NOT NULL) AS u;
+      reason: >
+        The database's own counting rule for schemes that share people: 'count people across
+        both as DISTINCT member_key over both, never add the two counts'. It returns ONE
+        number and exposes no person. It must say that Focus+ carries member_key only for
+        its 12.5K cohort, so the figure covers that cohort only.
+      never: >
+        An intersection count ('how many are in both'), a list of shared people, or any
+        JOIN on member_key - see the prohibited edge below.
+
+    # ---- THE JOINS THAT MUST NEVER BE MADE -------------------------------
+
+    - from_table: curated.v_cmss
+      from_column: member_key
+      to_table: curated.v_focus_plus
+      to_column: member_key
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      critical: true
+      use_instead: distinct_people_across_schemes (if enabled), else side-by-side totals
+      on_clause: null
+      reason: >
+        PERSON-LEVEL CROSS-SCHEME LINK. The keys match by design (same HMAC), so this join
+        runs and returns real people who received both a scholarship and Focus+ money. That
+        is exactly what masking member_id (CM-23) is meant to prevent. It also fans out:
+        one CMSS row against every Focus+ tranche of the same person. Refuse.
+
+    - from_table: curated.fact_cmss_application
+      from_column: member_key
+      to_table: curated.fact_focus_plus_disbursement
+      to_column: member_key
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      critical: true
+      use_instead: distinct_people_across_schemes (if enabled), else side-by-side totals
+      on_clause: null
+      reason: The same person-level link through the facts. Both member_key columns are indexed - it would be fast, which makes it more dangerous, not less.
+
+    - from_table: curated.v_cmss
+      from_column: member_key
+      to_table: curated.v_cmss
+      to_column: member_key
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: "COUNT(*) vs COUNT(DISTINCT member_key) in one query"
+      on_clause: null
+      reason: >
+        Self-join on the student key. In 2025-26 every key is unique, so it returns nothing
+        new; across years it is the way to trace one student's history, which is a
+        person-level lookup. Repeats are measured with COUNT(DISTINCT), never traced.
+
+    - from_table: curated.v_cmss
+      from_column: village_code
+      to_table: curated.v_pmay
+      to_column: village_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code
+      on_clause: null
+      reason: >
+        CROSS-SCHEME ROW-LEVEL JOIN. Application grain against HOUSE grain on a shared
+        village: a village with 454 applications and 300 houses returns 136,200 rows, and
+        every SUM is multiplied by the other side's count. Aggregate each side first.
+
+    - from_table: curated.v_cmss
+      from_column: village_code
+      to_table: curated.v_nrlm
+      to_column: village_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code
+      on_clause: null
+      reason: >
+        Application grain against SHG grain. There is no member-level key in NRLM, so a
+        student and an SHG member can never be matched either.
+
+    - from_table: curated.v_cmss
+      from_column: village_code
+      to_table: curated.fact_mgnrega_employment
+      to_column: geography_key
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code (via curated.v_employment)
+      on_clause: null
+      reason: >
+        Grain mismatch (application vs village-year source row that may repeat) and key
+        mismatch (LGD code vs unstable surrogate).
+
+    - from_table: curated.v_cmss
+      from_column: village_code
+      to_table: curated.fact_mgnrega_expenditure
+      to_column: geography_key
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code (via curated.v_expenditure)
+      on_clause: null
+      reason: >
+        As the employment edge, plus a unit mismatch - MGNREGA expenditure is LAKH, CMSS is
+        rupees - and a meaning mismatch: MGNREGA is spending on works, CMSS is a transfer to
+        students. No combined money figure is meaningful.
+
+    - from_table: curated.v_cmss
+      from_column: village_code
+      to_table: curated.v_focus_plus
+      to_column: village_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code
+      on_clause: null
+      reason: >
+        Application grain against payment-event grain on a shared village - both sides
+        multiply. Separate from the member_key edge, and prohibited for a different reason.
+
+    - from_table: curated.v_cmss
+      from_column: village_code
+      to_table: curated.v_focus_legacy
+      to_column: village_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code
+      on_clause: null
+      reason: Row-level cross-scheme join. Student applications against Producer Group payments.
+
+    - from_table: curated.v_cmss
+      from_column: village_code
+      to_table: curated.v_cm_elevate
+      to_column: village_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code
+      on_clause: null
+      reason: >
+        Row-level cross-scheme join. Both are 'CM' schemes with 'application' grain, which
+        makes the join look natural. It is not: no shared id, different applicants.
+
+    - from_table: curated.v_cmss
+      from_column: village_code
+      to_table: curated.v_cm_elevate_disbursement
+      to_column: village_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code
+      on_clause: null
+      reason: Row-level cross-scheme join. Student applications against enterprise sanction records.
+
+    - from_table: curated.v_cmss
+      from_column: block_lgd_code
+      to_table: curated.v_homestay_legacy
+      to_column: block_lgd_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on block_lgd_code
+      on_clause: null
+      reason: >
+        Row-level cross-scheme join at block level: every application in a block repeats
+        once per homestay loan in that block. Homestay Legacy carries no member key (CM-18
+        notwithstanding), so no person link exists either.
+
+    - from_table: curated.v_cmss
+      from_column: district_lgd_code
+      to_table: curated.v_cross_scheme_money_district_year
+      to_column: lgd_district
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on district_lgd_code
+      on_clause: null
+      reason: >
+        The cross-scheme money view does not include CMSS, is in CRORE and is keyed by name
+        and financial year. Joining application rows to it repeats each district-year figure
+        once per application.
+
+    - from_table: curated.v_cmss
+      from_column: village_code
+      to_table: curated.v_cross_scheme_village_coverage
+      to_column: village_code
+      cardinality: many_to_one
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code
+      on_clause: null
+      reason: >
+        Row-to-aggregate join: each village's PMAY and MGNREGA totals would repeat once per
+        CMSS application, inflating any SUM. Aggregate v_cmss by village_code first.
+
+    - from_table: curated.v_cmss
+      from_column: block_lgd_code
+      to_table: curated.dim_geography
+      to_column: lgd_block_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: curated.v_cmss (geography already pre-joined)
+      on_clause: null
+      reason: >
+        dim_geography has one row per VILLAGE; joining on the block code repeats every
+        application once per village in its block (Umling: 3,071 applications x ~200
+        villages). The same applies to district_lgd_code = lgd_district_code.
+
+    - from_table: curated.v_cmss
+      from_column: lgd_village_name
+      to_table: curated.v_place_names
+      to_column: place_name
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: read v_place_names to resolve the level, then filter v_cmss by code
+      on_clause: null
+      reason: >
+        A name join. 231 CMSS village names repeat and v_place_names lists every level a
+        name exists at, so the join multiplies rows and mixes villages with blocks and
+        constituencies.
+
+    - from_table: curated.v_cmss
+      from_column: village_code
+      to_table: curated.dim_geography_alias
+      to_column: geography_key
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: curated.v_cmss
+      on_clause: null
+      reason: >
+        CMSS HAS NO alias_key. The alias table holds several spellings per village from other
+        sources and fans out, multiplying application rows.
+
+    - from_table: curated.v_cmss
+      from_column: ac_number
+      to_table: curated.v_cmss
+      to_column: block_lgd_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: filter on one level only
+      on_clause: null
+      reason: >
+        Constituency and block share 26 names (30 counting alias spellings) but are
+        different areas in general (Mawkyrwat block 3,460 applications vs Mawkyrwat
+        constituency 3,521). Never equate them in a join or a filter - even where two
+        happen to coincide (Mawlai block = Mawlai constituency, 3,161), that is a fact about
+        this file, not a rule.
+
+    - from_table: curated.v_cmss
+      from_column: any
+      to_table: raw.source_rows
+      to_column: raw_id
+      cardinality: many_to_one
+      declared: false
+      is_prohibited: true
+      use_instead: none
+      on_clause: null
+      reason: >
+        The view does not expose raw_id, and `raw` is outside the read boundary in any case.
+        A lineage request is answered by telling the user it is a DBA task.
+
+  # =======================================================================
+  join_graph:
+
+    # v_cmss pre-joins every dimension. Ordinary questions emit WHERE and
+    # GROUP BY only.
+    curated.v_cmss:
+    - {to: curated.fact_cmss_application, on: cmss_fact_id, join_type: INNER, note: lineage columns only}
+
+    # the raw fact is the only CMSS node with real outbound edges
+    curated.fact_cmss_application:
+    - {to: curated.dim_geography, on: geography_key, join_type: INNER}
+    - {to: curated.dim_year,      on: year_key,      join_type: INNER}
+    - {to: curated.dim_scheme,    on: scheme_key,    join_type: INNER}
+
+    # dimensions are terminal
+    curated.dim_geography: []
+    curated.dim_year: []
+    curated.dim_scheme: []
+
+    # cross-scheme: aggregates only, via CTEs - never a direct edge
+    aggregate_then_combine:
+      keys: [village_code, district_lgd_code, block_lgd_code]
+      join_type: FULL
+      partners: [curated.v_pmay, curated.v_nrlm, curated.v_employment, curated.v_expenditure,
+                 curated.v_focus_plus, curated.v_focus_legacy, curated.v_cm_elevate,
+                 curated.v_cm_elevate_disbursement, curated.v_homestay_legacy]
+      partner_key_limits:
+        curated.v_homestay_legacy: [district_lgd_code, block_lgd_code]   # no village
+
+    # person count across schemes: a UNION, never a join - conditional
+    distinct_people_across_schemes:
+      status: disabled_until_verified
+      partners: [curated.v_focus_plus]
+      key: member_key
+
+    # lookups: read, never joined
+    curated.v_place_names: []
+    curated.v_data_coverage: []
+    semantic.scheme_relationships: []
+
+    # reachable in megh_db but closed to this scheme - see the prohibited edges
+    curated.dim_geography_alias: []
+    curated.v_cross_scheme_money_district_year: []
+    curated.v_cross_scheme_village_coverage: []
+    curated.fact_focus_plus_disbursement: []
+    curated.fact_mgnrega_employment: []
+    curated.fact_mgnrega_expenditure: []
+    meta.v_reconciliation_cmss: []
+    raw.source_rows: []
+
+# ===========================================================================
+# WORKED EXAMPLES: which join (if any) a question needs
+#
+# For each question: the decision, the edge used or refused, and why. CMSS figures
+# are from datasets/CMSS/CMSS - 2026-10-23.csv grouped by LGD code; other schemes'
+# figures are not in this folder and are not quoted.
+# ===========================================================================
+worked_examples:
+
+- question: "How many CMSS beneficiaries are in Laskein block?"
+  decision: no_join
+  from: curated.v_cmss
+  why: v_cmss already carries block_lgd_code. Any join here is wasted work.
+  sql: "SELECT COUNT(*) FILTER (WHERE is_disbursed) AS paid FROM curated.v_cmss WHERE block_lgd_code = 1997;"
+  expected: 4303
+
+- question: "CMSS beneficiaries by district for 2025-26"
+  decision: no_join
+  from: curated.v_cmss
+  why: The financial year from dim_year is pre-joined as financial_year_short.
+  sql: "SELECT district_lgd_code, lgd_district, COUNT(*) FILTER (WHERE is_disbursed) AS paid FROM curated.v_cmss WHERE financial_year_short = '2025-26' GROUP BY district_lgd_code, lgd_district ORDER BY paid DESC LIMIT 1;"
+  expected: {district_lgd_code: 274, paid: 24932}
+
+- question: "Show the source district name next to the LGD district for the Tangnub students"
+  decision: view_to_fact_lineage_edge
+  edge: curated.v_cmss.cmss_fact_id = curated.fact_cmss_application.cmss_fact_id
+  why: district_name_raw is only on the fact. The one-to-one lineage edge is allowed for this; member_key is never selected.
+  sql: |
+    SELECT v.lgd_district, f.district_name_raw, f.block_name_raw, COUNT(*) AS applications
+    FROM curated.v_cmss v
+    JOIN curated.fact_cmss_application f ON f.cmss_fact_id = v.cmss_fact_id
+    WHERE v.has_name_code_conflict AND v.district_lgd_code = 657
+    GROUP BY v.lgd_district, f.district_name_raw, f.block_name_raw;
+  expected: {lgd_district: EAST JAINTIA HILLS, district_name_raw: Eastern West Khasi Hills, block_name_raw: Mairang, applications: 19}
+  note: Querying fact_cmss_application alone would also work. Not executed - the emulation has no fact table.
+
+- question: "What is the money unit and data date for CMSS?"
+  decision: read_dimension_alone
+  from: curated.dim_scheme
+  why: Constant for the partition - no join to the fact is needed.
+  sql: "SELECT money_unit, data_as_of, data_as_of_basis FROM curated.dim_scheme WHERE scheme_code = 'CMSS';"
+  expected: unverified_in_db
+
+- question: "Which villages have both CMSS students and PMAY houses?"
+  decision: aggregate_then_combine
+  key: village_code
+  why: >
+    Application grain vs house grain. Aggregate v_cmss by village_code (excluding the 1,218
+    unmapped applications) and v_pmay by village_code (NOT is_placeholder) separately, then
+    join the aggregates.
+  cmss_side_expected: {villages: 5902}
+  example: cmss_few_shot.yaml 'Villages with both CMSS students and PMAY houses'
+
+- question: "Give each CMSS student in Mihmyntdu their village's PMAY house count"
+  decision: refuse_row_level_and_rewrite
+  refused_edge: curated.v_cmss.village_code -> curated.v_pmay.village_code
+  why: >
+    Mihmyntdu has 454 CMSS applications. A row join to its PMAY houses repeats every house
+    454 times and every application once per house - and students cannot be listed anyway.
+    Return Mihmyntdu's two village totals side by side instead.
+  rewrite: aggregate_then_combine on village_code = 279185
+
+- question: "CMSS students vs NRLM SHGs in each district"
+  decision: aggregate_then_combine
+  key: district_lgd_code
+  why: >
+    Different units - students paid vs Self Help Groups - so the totals sit side by side and
+    are never added. NRLM is a snapshot; CMSS is financial year 2025-26. Say both.
+  example: cmss_few_shot.yaml 'Compare CMSS beneficiaries with NRLM SHGs by district'
+
+- question: "CMSS beneficiaries and homestay loans in each block of East Khasi Hills"
+  decision: aggregate_then_combine
+  key: block_lgd_code
+  why: >
+    Home Stay Legacy has no village and no person key, so block is the finest level. CMSS
+    counts Shillong Municipal Board as a block; if Home Stay has no row for it, that is
+    shown as none, not as an error.
+  cmss_side_sql: "SELECT block_lgd_code, COUNT(*) FILTER (WHERE is_disbursed) AS paid FROM curated.v_cmss WHERE district_lgd_code = 274 GROUP BY block_lgd_code ORDER BY paid DESC LIMIT 1;"
+  cmss_side_expected: {block_lgd_code: 6540, paid: 3008}
+
+- question: "Which CMSS students also received Focus Plus money?"
+  decision: refuse
+  refused_edge: curated.v_cmss.member_key -> curated.v_focus_plus.member_key
+  why: >
+    A person-level link across schemes. The keys match by design, so the join would run -
+    and identify people who were masked at the department's request (CM-23). The gate
+    (cross_scheme_person_match_requested) catches this first.
+  offer: each scheme's own count by district, side by side
+
+- question: "How many people received CMSS or Focus Plus (12.5K cohort)?"
+  decision: distinct_people_across_schemes
+  status: CONDITIONAL - only if semantic.scheme_relationships records CMSS / FOCUS_PLUS as shared_people
+  why: >
+    The database's own counting rule: DISTINCT member_key over a UNION of both, never the
+    sum of the two counts. One number, no person exposed. If the relationship row is not
+    confirmed, refuse and give the two counts separately.
+  sql: |
+    SELECT COUNT(DISTINCT member_key) AS people_in_either
+    FROM (SELECT member_key FROM curated.v_cmss
+          UNION
+          SELECT member_key FROM curated.v_focus_plus WHERE member_key IS NOT NULL) AS u;
+  cmss_side_expected: {distinct_students: 104827}
+
+- question: "How many people are in both CMSS and Focus Plus?"
+  decision: refuse
+  why: >
+    An intersection count is a person-level overlap, beyond the database's shared_people
+    rule (which permits only the union count). Report each scheme's count instead.
+
+- question: "Total CMSS money plus MGNREGA expenditure in Ri Bhoi"
+  decision: refuse_combined_figure
+  why: >
+    CMSS is rupees paid to students; MGNREGA expenditure is LAKH rupees spent on works.
+    Adding them produces a number with no meaning. Show each separately, each in crore
+    with its unit and meaning stated.
+  cmss_side_expected: {disbursed_crore: 5.22}
+
+- question: "Students in Mawkyrwat block and Mawkyrwat constituency together"
+  decision: no_join
+  refused_edge: curated.v_cmss.ac_number = curated.v_cmss.block_lgd_code
+  why: >
+    Two different areas with overlapping students. Answer each on its own filter (block
+    1984: 3,460 applications; constituency 36: 3,521) - never OR them into one total, which
+    would double-count the overlap only partly.
+  sql: "SELECT COUNT(*) FILTER (WHERE block_lgd_code = 1984) AS block_apps, COUNT(*) FILTER (WHERE ac_number = 36) AS constituency_apps FROM curated.v_cmss;"
+  expected: {block_apps: 3460, constituency_apps: 3521}
+
+- question: "Number of villages per block for CMSS"
+  decision: no_join
+  refused_edge: curated.v_cmss.block_lgd_code -> curated.dim_geography.lgd_block_code
+  why: >
+    COUNT(DISTINCT village_code) on v_cmss answers it. A join to dim_geography on block
+    code fans out over every roster village of the block.
+  sql: "SELECT block_lgd_code, COUNT(DISTINCT village_code) AS villages FROM curated.v_cmss WHERE entity_type <> 'Unresolved' GROUP BY block_lgd_code ORDER BY villages DESC LIMIT 1;"
+  expected: {block_lgd_code: 1975, villages: 211}

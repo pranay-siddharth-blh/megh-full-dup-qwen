@@ -1,0 +1,463 @@
+# cmss_classification_rules.yaml
+#
+# ===========================================================================
+# v1.0 - 2026-11-04 - FIRST VERSION, WRITTEN AGAINST THE CURATED STAR SCHEMA
+#
+# Target: curated.v_cmss over curated.fact_cmss_application (megh_db). See
+# cmss_schema_partitions.yaml for every column referenced here.
+#
+# Five facts about CMSS decide most of the rules in this file:
+#
+#   1. ONE ROW IS ONE STUDENT APPLICATION, PAID OR NOT. A beneficiary is a paid
+#      application (defaulted, not asked - see cmss_default_rules.yaml).
+#   2. THE MONEY IS A FLAT RS 6,000. Questions that assume the amount varies
+#      between students ("highest paid student") are caught here.
+#   3. UNPAID HAS NO REASON, STATUS OR DATE (CM-02, CM-22). "Rejected", "pending",
+#      "defective" and "when was it paid" are caught here.
+#   4. ONE FINANCIAL YEAR ONLY - 2025-26. Any other year, any comparison and any
+#      trend is caught here before it reaches the generator.
+#   5. GENDER AND INSTITUTION TYPE WERE REMOVED (CM-03/04/05/15). Thirteen of the
+#      41 client use cases ask for them; every one is caught here and redirected.
+#   And one about geography: towns are reported as blocks (CM-08), so five block
+#   names, Shillong and Tura need a which-one question before any filter.
+#
+# Every count in a question below is a source-file figure
+# (datasets/CMSS/CMSS - 2026-10-23.csv, profiled 2026-11-04) and has NOT been
+# re-measured against megh_db.
+# ===========================================================================
+# Clarification rules for CMSS. First rule that fires wins; its question is asked
+# and the pipeline pauses. Editable by analysts - no code change needed.
+# {placeholders} are filled from the user's query at runtime.
+# Order matters: requests the source cannot answer are caught before missing detail
+# is asked for, so the bot never collects details for a question it cannot answer.
+# Conditions already filled silently by cmss_default_rules.yaml are absent here -
+# among them: beneficiaries = paid students, no year = 2025-26, top N = 5, ranking
+# metric = students paid, bare 'amount' = amount disbursed, average = per paid
+# student, 'zero disbursement' = unpaid, money unit by level, towns included in
+# block lists, Unresolved rows in totals but not in village figures.
+
+clarification_rules:
+
+  # ---- the source cannot answer this at all -----------------------------
+  - condition: "other_state_comparison_requested"
+    question: "Only Meghalaya is held here, so other states cannot be compared. Shall I compare districts within Meghalaya instead?"
+
+  - condition: "gender_requested"
+    question: "Gender is no longer recorded in the CMSS data - the department removed it from the file. I can give the same figures by district, block or constituency instead. Which would help?"
+
+  - condition: "gender_list_requested"
+    question: "Gender is not recorded, and individual students cannot be listed - names were removed and the student id is masked. Shall I give the number of students paid in {value} instead?"
+
+  - condition: "institution_type_requested"
+    question: "Institution type is no longer recorded in the CMSS data - the department removed it from the file. I can break the same figures down by district, block or constituency instead. Which would help?"
+
+  - condition: "institution_name_or_location_requested"
+    question: "The data does not record which institution a student attends, or whether it is inside or outside Meghalaya. It records the student's home district, block and village. Shall I answer by home location?"
+
+  - condition: "course_or_class_level_requested"
+    question: "Course and class level (Class XI to Ph.D.) are not recorded - every student receives the same Rs 6,000 whatever the level. Shall I give the total instead?"
+
+  - condition: "marks_or_academic_performance_requested"
+    question: "Marks and academic results are not recorded in the CMSS data. Shall I answer on applications and payments instead?"
+
+  - condition: "fresh_vs_renewal_requested"
+    question: "Whether an application is Fresh or Renewal is not recorded, and only one year is loaded, so renewals cannot be traced either. Shall I give the total for 2025-26?"
+
+  - condition: "application_status_or_reason_requested"
+    question: "The data records only whether an application was paid - there is no status, rejection reason or defect flag. Shall I give the number not paid ({unpaid_count}) without a reason?"
+
+  - condition: "verification_or_defect_status_requested"
+    question: "Verification stages and defect notices are not recorded in the CMSS data - only whether the scholarship was paid. Shall I report paid and not-paid counts?"
+
+  - condition: "payment_date_or_timing_requested"
+    question: "No payment date is recorded - only the financial year 2025-26 and whether the scholarship was paid. Shall I report the paid count for 2025-26?"
+
+  - condition: "dbt_or_bank_details_requested"
+    question: "Bank accounts, IFSC codes and DBT transaction status are not held - only the amount paid. Shall I report the amount disbursed instead?"
+
+  - condition: "caste_tribe_income_requested"
+    question: "CMSS has no income or community criterion, so caste, tribe and income are not recorded. Shall I answer for all students instead?"
+
+  - condition: "age_or_date_of_birth_requested"
+    question: "Age and date of birth are not recorded in the CMSS data. Shall I answer on applications and payments by area instead?"
+
+  - condition: "budget_or_target_requested"
+    question: "Budget allocations and targets are not in the data. The scheme announcement projected about 80,000 students and Rs 48 crore a year; the data shows {paid_count} students paid Rs {amount_crore} crore. Shall I report the actual figures?"
+
+  - condition: "coverage_or_saturation_rate_requested"
+    question: "The number of eligible post-matric students is not held, so coverage or saturation cannot be calculated. Shall I report the number of students paid instead?"
+
+  - condition: "cancellation_or_refund_requested"
+    question: "Cancelled scholarships and refunds are not recorded - only whether an amount was paid. Shall I report the paid and not-paid counts?"
+
+  - condition: "other_scholarship_scheme_requested"
+    question: "This data covers the Chief Minister's Scholarship Scheme only - not the NSP Post-Matric Scholarship for ST students, pre-matric scholarships or PMSS. Shall I answer for CMSS?"
+
+  - condition: "other_scheme_requested"
+    question: "This source holds CMSS only. Shall I answer for CMSS alone?"
+
+  - condition: "scheme_policy_question"
+    question: "That is answered from the CMSS scheme guidelines rather than the data. Shall I answer from the scheme document?"
+    note: Eligibility, documents, how to apply, deadlines, helpline - routed to the knowledge base, never to SQL.
+
+  # ---- people and identity - CMSS has no individual a user can see ----------
+  - condition: "student_list_requested"
+    question: "Individual students cannot be listed - names were removed from the data and the student id is masked. Shall I show the number of students paid in each village of {value} instead?"
+    note: >
+      Use cases 3, 4, 8, 9, 12 and 35. CM-16, CM-17, CM-23. The answer is always an
+      aggregate one level down.
+
+  - condition: "student_lookup_by_id_requested"
+    question: "A student cannot be looked up - the Meghalaya One member id is masked in this data and cannot be reversed. For an individual application, the Meghalaya One portal or helpline 1971 can help. Shall I give area totals instead?"
+
+  - condition: "student_name_lookup_requested"
+    question: "Student names are not held in the CMSS data, so '{value}' cannot be looked up. Shall I answer by village, block or district instead?"
+
+  - condition: "highest_or_lowest_student_amount_requested"
+    question: "Every paid student received the same Rs 6,000, so no student received more or less than another, and students cannot be named. Shall I show which districts or blocks have the most students paid instead?"
+    note: Use cases 21 and 22.
+
+  - condition: "cross_scheme_person_match_requested"
+    question: "Matching the same student across schemes (Focus Plus, Home Stay and others) is not permitted. Shall I give each scheme's count by district or village separately?"
+    note: >
+      critical - member_key is the same hash in CMSS and Focus+, so the join is
+      technically possible and must be refused here.
+
+  # ---- payment status - unpaid is not rejected -----------------------------
+  - condition: "unpaid_described_as_rejected"
+    question: "{unpaid_count} applications have no amount paid, but the data does not say why - they may be rejected, defective or still in process. Shall I report them as 'not paid'?"
+
+  - condition: "pending_term_ambiguous"
+    question: "The data does not record a pending status. Do you mean applications with no amount paid ({unpaid_count}), or applications still open in the current 2026-27 cycle, which are not in this data?"
+
+  - condition: "unpaid_reason_by_area_requested"
+    question: "The share not paid in {value} can be shown, but not the reason. Shall I show the paid and not-paid counts for {value}?"
+
+  # ---- time - one financial year only ---------------------------------------
+  - condition: "year_not_loaded_requested"
+    question: "CMSS data is loaded for financial year 2025-26 only, so there is no data for {value}. Shall I answer for 2025-26?"
+    note: critical - never answer 0 for a year that is not loaded.
+
+  - condition: "current_cycle_requested"
+    question: "The 2026-27 application cycle (open 7 October to 6 November 2026) is not in the data yet - only 2025-26 is loaded. Shall I answer for 2025-26?"
+
+  - condition: "year_comparison_requested"
+    question: "Only one financial year, 2025-26, is loaded, so years cannot be compared yet. Shall I give the 2025-26 figures?"
+    note: critical - use case 34.
+
+  - condition: "trend_or_growth_requested"
+    question: "A trend needs more than one year, and only 2025-26 is loaded. Shall I give the 2025-26 figure, by district if useful?"
+    note: critical - use cases 32 and 33 are answered with the single year, not refused, if the user accepts.
+
+  - condition: "academic_year_requested"
+    question: "The data carries the financial year (2025-26), not the academic session, and the two do not line up. Shall I answer for financial year 2025-26?"
+    note: CM-21.
+
+  - condition: "calendar_year_requested"
+    question: "There are no dates in the CMSS data - only the financial year 2025-26 (April 2025 to March 2026). Did you mean financial year 2025-26?"
+
+  - condition: "month_quarter_or_date_requested"
+    question: "No dates are recorded in the CMSS data, so months, quarters and dates cannot be shown - only the financial year 2025-26. Shall I give the 2025-26 figure?"
+
+  # ---- which measure ----------------------------------------------------
+  - condition: "performance_term_unclear"
+    question: "Best or worst measured how - by number of students paid, or by the share of applications paid?"
+
+  - condition: "amount_comparison_across_areas_flat_rate"
+    question: "Every paid student got Rs 6,000, so the amount in each area is just its paid count times 6,000 - the ranking is identical. Shall I rank by students paid instead, with amounts alongside?"
+
+  - condition: "projection_vs_actual_unclear"
+    question: "Compare against what - the announced projection of about 80,000 students and Rs 48 crore, or the applications received ({application_count})?"
+
+  - condition: "per_capita_requested"
+    question: "Population figures are not held here, so students per head of population cannot be calculated. Shall I give students paid per district instead?"
+
+  # ---- geography --------------------------------------------------------
+  - condition: "home_vs_institution_location"
+    question: "The data records where students LIVE, not where they study. Shall I report students from {value}?"
+    note: critical - CM-20. Fires on 'studying in', 'colleges in', 'schools in'.
+
+  - condition: "town_and_rural_block_share_name"
+    question: "'{value}' is both a rural block and a town reported as a block - {rural_label} ({rural_count} applications) and {town_label} ({town_count}). Which one, or both together?"
+    note: Nongstoin, Mairang, Resubelpara, Baghmara, Mawkyrwat.
+
+  - condition: "tura_is_not_a_block"
+    question: "Tura is not a rural block. It is Tura Municipal Board (1,015 applications) or the North Tura and South Tura constituencies (2,283 together). Which did you mean?"
+
+  - condition: "shillong_scope_unclear"
+    question: "Shillong could mean Shillong Municipal Board (2,495 applications, the same students as the four Shillong constituencies) or the whole of East Khasi Hills (26,326). Which one?"
+
+  - condition: "ambiguous_geography_level"
+    question: "'{value}' is a {levels} name. Which level did you mean?"
+    note: e.g. Mawlai (village, block and constituency); Mawkyrwat (block, town committee, village and constituency).
+
+  - condition: "ambiguous_village_needs_district"
+    question: "'{value}' exists in {districts}. Which district?"
+
+  - condition: "ambiguous_village_needs_block"
+    question: "There is more than one {value} in {district}. Which block - {blocks}?"
+
+  - condition: "ambiguous_village_needs_code"
+    question: "There is more than one {value} in {block} block. Which one - {villages_with_codes}?"
+    note: Chokdenggre, Dewsaw, Konchikol Apal, Old Kalapara, Umsaw.
+
+  - condition: "blocked_fuzzy_pair"
+    question: "'{value}' is close to both {candidate_a} and {candidate_b}, which are different places. Which one?"
+
+  - condition: "eastern_west_vs_west_khasi_hills"
+    question: "Eastern West Khasi Hills and West Khasi Hills are separate districts ({ewkh_count} and {wkh_count} applications). Which one?"
+
+  - condition: "source_name_vs_lgd_code_requested"
+    question: "The source file names 19 students in Tangnub as 'Eastern West Khasi Hills / Mairang', but their LGD codes are East Jaintia Hills / Saipung. Use the LGD codes (as every total does), or the source names?"
+
+  - condition: "constituency_spans_two_districts"
+    question: "{value} constituency lies in both {district_a} and {district_b}. The whole constituency, or only the {district_a} part?"
+    note: 11 constituencies span two districts, e.g. Dalu, Sutnga-Saipung, Mawthadraishan, Rangsakona.
+
+  - condition: "constituency_total_mismatch"
+    question: "1,218 applications have no village, and so no constituency - constituency figures add up to 103,609, not 104,827. Continue with that noted?"
+
+  - condition: "region_ri_bhoi_unconfirmed"
+    question: "Ri Bhoi's region in the LGD master is not confirmed. Khasi Hills districts alone have {khasi_count} applications; with Ri Bhoi {khasi_rb_count}. Include Ri Bhoi?"
+
+  - condition: "rural_only_or_urban_only_unclear"
+    question: "Should the block figures include the 11 towns reported as blocks (10,173 applications), or rural C&RD blocks only?"
+
+  - condition: "missing_geography_level_for_breakdown"
+    question: "Broken down by which level - district, block, constituency, or village?"
+
+  - condition: "mixed_geography_levels_compared"
+    question: "{value_a} is a {level_a} and {value_b} is a {level_b}, so comparing them is not like-for-like. Compare at {level_b} level instead?"
+
+  - condition: "village_level_breakdown_size"
+    question: "A village-level breakdown returns up to 5,902 rows. Shall I show the top 10, or restrict it to one district or block?"
+
+  - condition: "below_village_geography_requested"
+    question: "Geography runs down to village, or ward in towns. There is no locality or household level below it. Which village or ward should I report on?"
+
+  - condition: "unmatched_geography_name"
+    question: "I could not match '{value}' to any district, block, town, village or constituency in the CMSS data. Did you mean {suggestions}?"
+
+  # ---- shape of the answer ----------------------------------------------
+  - condition: "report_with_unavailable_dimensions"
+    question: "Gender and institution type are not recorded, so the report can carry district, block, constituency, financial year, applications, students paid and amount disbursed. Prepare it with those?"
+    note: Use cases 37 and 41.
+
+  - condition: "missing_aggregation_level"
+    question: "At what level - statewide, by district, by block, by constituency, or by village?"
+
+  - condition: "ranking_direction_unclear"
+    question: "Highest or lowest?"
+
+  - condition: "missing_comparison_target"
+    question: "Compare {value} with which other district, block or constituency?"
+
+  - condition: "share_denominator_missing"
+    question: "As a share of what - the district's own applications, or the state total of {paid_count} students paid?"
+
+  - condition: "percentage_vs_count"
+    question: "As percentages, or as counts?"
+
+  - condition: "multi_measure_table"
+    question: "Which measures should the table carry - applications, students paid, not paid, amount disbursed, share paid?"
+
+  # ---- cross-scheme -------------------------------------------------------
+  - condition: "cross_scheme_money_comparison"
+    question: "CMSS pays a flat Rs 6,000 per student, while {other_scheme} amounts mean something different and may be in another unit. Compare them anyway, with that stated, or compare counts?"
+
+  - condition: "cross_scheme_row_level_request"
+    question: "CMSS is recorded per student application and {other_scheme} per {other_grain}, so they cannot be listed side by side row by row. Shall I compare them by district or village totals?"
+
+# ===========================================================================
+# WORKED EXAMPLES - what a user typed, which condition fires, what the bot asks.
+# Every figure is computed from datasets/CMSS/CMSS - 2026-10-23.csv grouped by
+# LGD code (2026-11-04). unverified_in_db.
+# ===========================================================================
+worked_examples:
+
+  # ---- not held ---------------------------------------------------------
+  - user: "How many male and female beneficiaries are recorded under CMSS?"
+    fires: gender_requested
+    bot_asks: "Gender is no longer recorded in the CMSS data - the department removed it from the file. I can give the same figures by district, block or constituency instead. Which would help?"
+
+  - user: "List the female beneficiaries recorded under CMSS in West Garo Hills"
+    fires: gender_list_requested
+    bot_asks: "Gender is not recorded, and individual students cannot be listed. Shall I give the number of students paid in West Garo Hills instead (11,966)?"
+
+  - user: "How many beneficiaries are enrolled in private professional institutions?"
+    fires: institution_type_requested
+    bot_asks: "Institution type is no longer recorded in the CMSS data - the department removed it from the file. I can break the same figures down by district, block or constituency instead. Which would help?"
+
+  - user: "How many CMSS students are studying outside Meghalaya?"
+    fires: institution_name_or_location_requested
+    bot_asks: "The data does not record which institution a student attends, or whether it is inside or outside Meghalaya. It records the student's home district, block and village. Shall I answer by home location?"
+
+  - user: "How many PhD scholars got CMSS?"
+    fires: course_or_class_level_requested
+    bot_asks: "Course and class level (Class XI to Ph.D.) are not recorded - every student receives the same Rs 6,000 whatever the level. Shall I give the total instead (98,751 students paid)?"
+
+  - user: "Why were applications rejected in East Garo Hills?"
+    fires: application_status_or_reason_requested
+    bot_asks: "The data records only whether an application was paid - there is no status, rejection reason or defect flag. Shall I give the number not paid in East Garo Hills (528 of 5,082) without a reason?"
+
+  - user: "When will the scholarship be credited for Ri Bhoi students?"
+    fires: payment_date_or_timing_requested
+    bot_asks: "No payment date is recorded - only the financial year 2025-26 and whether the scholarship was paid. Shall I report the paid count for Ri Bhoi in 2025-26 (8,701)?"
+
+  - user: "Did CMSS reach its target?"
+    fires: budget_or_target_requested
+    bot_asks: "Budget allocations and targets are not in the data. The scheme announcement projected about 80,000 students and Rs 48 crore a year; the data shows 98,751 students paid Rs 59.25 crore. Shall I report the actual figures?"
+
+  - user: "How many ST students got the CM scholarship?"
+    fires: caste_tribe_income_requested
+    bot_asks: "CMSS has no income or community criterion, so caste, tribe and income are not recorded. Shall I answer for all students instead?"
+
+  - user: "How many students got the NSP post-matric scholarship?"
+    fires: other_scholarship_scheme_requested
+    bot_asks: "This data covers the Chief Minister's Scholarship Scheme only - not the NSP Post-Matric Scholarship for ST students, pre-matric scholarships or PMSS. Shall I answer for CMSS?"
+
+  - user: "What documents do I need for a renewal?"
+    fires: scheme_policy_question
+    bot_asks: "That is answered from the CMSS scheme guidelines rather than the data. Shall I answer from the scheme document?"
+
+  # ---- people and identity ---------------------------------------------
+  - user: "List all CMSS beneficiaries from Dalu block"
+    fires: student_list_requested
+    bot_asks: "Individual students cannot be listed - names were removed from the data and the student id is masked. Shall I show the number of students paid in each village of Dalu instead (124 villages, 1,257 students paid)?"
+
+  - user: "Show me all CMSS beneficiaries from Mihmyntdu"
+    fires: student_list_requested
+    bot_asks: "Individual students cannot be listed - names were removed from the data and the student id is masked. Shall I give the count for Mihmyntdu instead (428 paid of 454 applications)?"
+
+  - user: "Check the status of member id R3M2KN"
+    fires: student_lookup_by_id_requested
+    bot_asks: "A student cannot be looked up - the Meghalaya One member id is masked in this data and cannot be reversed. For an individual application, the Meghalaya One portal or helpline 1971 can help. Shall I give area totals instead?"
+
+  - user: "Which beneficiaries have received the highest amount under CMSS?"
+    fires: highest_or_lowest_student_amount_requested
+    bot_asks: "Every paid student received the same Rs 6,000, so no student received more or less than another, and students cannot be named. Shall I show which districts or blocks have the most students paid instead?"
+
+  - user: "Which CMSS students also got Focus Plus money?"
+    fires: cross_scheme_person_match_requested
+    bot_asks: "Matching the same student across schemes (Focus Plus, Home Stay and others) is not permitted. Shall I give each scheme's count by district or village separately?"
+
+  # ---- payment status ---------------------------------------------------
+  - user: "How many CMSS applications were rejected?"
+    fires: unpaid_described_as_rejected
+    bot_asks: "6,076 applications have no amount paid, but the data does not say why - they may be rejected, defective or still in process. Shall I report them as 'not paid'?"
+
+  - user: "How many CMSS applications are pending?"
+    fires: pending_term_ambiguous
+    bot_asks: "The data does not record a pending status. Do you mean applications with no amount paid (6,076), or applications still open in the current 2026-27 cycle, which are not in this data?"
+
+  # ---- time -------------------------------------------------------------
+  - user: "How many CMSS beneficiaries were there in 2024-25?"
+    fires: year_not_loaded_requested
+    bot_asks: "CMSS data is loaded for financial year 2025-26 only, so there is no data for 2024-25. Shall I answer for 2025-26?"
+
+  - user: "How many students applied in this year's cycle?"
+    fires: current_cycle_requested
+    bot_asks: "The 2026-27 application cycle (open 7 October to 6 November 2026) is not in the data yet - only 2025-26 is loaded. Shall I answer for 2025-26?"
+
+  - user: "Compare the number of beneficiaries and total disbursement between 2025-26 and 2026-27"
+    fires: year_comparison_requested
+    bot_asks: "Only one financial year, 2025-26, is loaded, so years cannot be compared yet. Shall I give the 2025-26 figures (98,751 students paid, Rs 59.25 crore)?"
+
+  - user: "Show the growth in CMSS disbursement"
+    fires: trend_or_growth_requested
+    bot_asks: "A trend needs more than one year, and only 2025-26 is loaded. Shall I give the 2025-26 figure, by district if useful?"
+
+  - user: "How many students got CMSS in academic year 2025-26?"
+    fires: academic_year_requested
+    bot_asks: "The data carries the financial year (2025-26), not the academic session, and the two do not line up. Shall I answer for financial year 2025-26?"
+
+  - user: "CMSS payments in 2025"
+    fires: calendar_year_requested
+    bot_asks: "There are no dates in the CMSS data - only the financial year 2025-26 (April 2025 to March 2026). Did you mean financial year 2025-26?"
+
+  - user: "How much was disbursed last month?"
+    fires: month_quarter_or_date_requested
+    bot_asks: "No dates are recorded in the CMSS data, so months, quarters and dates cannot be shown - only the financial year 2025-26. Shall I give the 2025-26 figure?"
+
+  # ---- which measure ----------------------------------------------------
+  - user: "Which is the best performing district in CMSS?"
+    fires: performance_term_unclear
+    bot_asks: "Best or worst measured how - by number of students paid (East Khasi Hills, 24,932), or by the share of applications paid (West Jaintia Hills, 95.5%)?"
+
+  - user: "Which district got the most money per student?"
+    fires: amount_comparison_across_areas_flat_rate
+    bot_asks: "Every paid student got Rs 6,000, so the amount in each area is just its paid count times 6,000 - the ranking is identical. Shall I rank by students paid instead, with amounts alongside?"
+
+  # ---- geography --------------------------------------------------------
+  - user: "How many students are studying in Shillong colleges under CMSS?"
+    fires: home_vs_institution_location
+    bot_asks: "The data records where students LIVE, not where they study. Shall I report students from Shillong?"
+
+  - user: "CMSS beneficiaries in Nongstoin block"
+    fires: town_and_rural_block_share_name
+    bot_asks: "'Nongstoin' is both a rural block and a town reported as a block - Nongstoin C&RD block (2,146 applications) and Nongstoin Town Committee (1,727). Which one, or both together?"
+
+  - user: "How many students paid in Mawkyrwat?"
+    fires: ambiguous_geography_level
+    bot_asks: "'Mawkyrwat' is a block (3,460 applications), a town committee (61), a village (137) and a constituency (3,521). Which level did you mean?"
+
+  - user: "CMSS students in Tura block"
+    fires: tura_is_not_a_block
+    bot_asks: "Tura is not a rural block. It is Tura Municipal Board (1,015 applications) or the North Tura and South Tura constituencies (2,283 together). Which did you mean?"
+
+  - user: "How many CMSS beneficiaries in Shillong?"
+    fires: shillong_scope_unclear
+    bot_asks: "Shillong could mean Shillong Municipal Board (2,495 applications, the same students as the four Shillong constituencies) or the whole of East Khasi Hills (26,326). Which one?"
+
+  - user: "How many students from Asimgre village got the scholarship?"
+    fires: ambiguous_village_needs_district
+    bot_asks: "'Asimgre' exists in West Garo Hills, South West Garo Hills, East Garo Hills and South Garo Hills. Which district?"
+
+  - user: "CMSS students from Nongthymmai in West Khasi Hills"
+    fires: ambiguous_village_needs_block
+    bot_asks: "There is more than one Nongthymmai in West Khasi Hills. Which block - Mawshynrut, Ri Muliang or Rambrai?"
+
+  - user: "Students paid in Umsaw, Nongstoin block"
+    fires: ambiguous_village_needs_code
+    bot_asks: "There is more than one Umsaw in Nongstoin block. Which one - Umsaw (276758, 22 applications) or Umsaw (276898, 1 application)?"
+
+  - user: "CMSS in West Khasi"
+    fires: eastern_west_vs_west_khasi_hills
+    bot_asks: "Eastern West Khasi Hills and West Khasi Hills are separate districts (4,967 and 7,358 applications). Which one?"
+
+  - user: "What district does the file give for the Tangnub students?"
+    fires: source_name_vs_lgd_code_requested
+    bot_asks: "The source file names 19 students in Tangnub as 'Eastern West Khasi Hills / Mairang', but their LGD codes are East Jaintia Hills / Saipung. Use the LGD codes (as every total does), or the source names?"
+
+  - user: "How many beneficiaries in Dalu constituency in West Garo Hills?"
+    fires: constituency_spans_two_districts
+    bot_asks: "Dalu constituency lies in both West Garo Hills and South West Garo Hills. The whole constituency (896 paid), or only the West Garo Hills part (890)?"
+
+  - user: "Constituency-wise CMSS totals adding up to the state total"
+    fires: constituency_total_mismatch
+    bot_asks: "1,218 applications have no village, and so no constituency - constituency figures add up to 103,609, not 104,827. Continue with that noted?"
+
+  - user: "How many CMSS students are from Khasi Hills?"
+    fires: region_ri_bhoi_unconfirmed
+    bot_asks: "Ri Bhoi's region in the LGD master is not confirmed. Khasi Hills districts alone have 43,438 applications; with Ri Bhoi 52,667. Include Ri Bhoi?"
+
+  - user: "Rank all blocks by CMSS beneficiaries - rural blocks"
+    fires: rural_only_or_urban_only_unclear
+    bot_asks: "Should the block figures include the 11 towns reported as blocks (10,173 applications), or rural C&RD blocks only?"
+
+  - user: "Give me a village-wise summary of CMSS beneficiaries and the amount disbursed"
+    fires: village_level_breakdown_size
+    bot_asks: "A village-level breakdown returns up to 5,902 rows. Shall I show the top 10, or restrict it to one district or block?"
+
+  # ---- shape and cross-scheme ---------------------------------------------
+  - user: "Give me a district-wise report showing beneficiary count, gender distribution, institution type, and total amount disbursed"
+    fires: report_with_unavailable_dimensions
+    bot_asks: "Gender and institution type are not recorded, so the report can carry district, block, constituency, financial year, applications, students paid and amount disbursed. Prepare it with those?"
+
+  - user: "Compare CMSS money with MGNREGA expenditure by district"
+    fires: cross_scheme_money_comparison
+    bot_asks: "CMSS pays a flat Rs 6,000 per student, while MGNREGA expenditure is spending on works in lakh rupees. Compare them anyway, with that stated, or compare counts?"
+
+  - user: "Show each NRLM SHG next to the CMSS students in its village"
+    fires: cross_scheme_row_level_request
+    bot_asks: "CMSS is recorded per student application and NRLM per Self Help Group, so they cannot be listed side by side row by row. Shall I compare them by district or village totals?"

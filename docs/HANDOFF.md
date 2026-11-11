@@ -3,6 +3,19 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-11-06 (scheme onboarding tool, D-102): docs-only in this repo (SCHEMES.md §Adding a scheme, DECISIONS
+D-102, KNOWN_ISSUES KI-683, CURRENT_STATE); uncommitted.** The tool is `C:\Users\dell\Desktop\MEGH-LANG\scheme-onboarder`
+(committed in its own repo; README there).
+
+Next:
+1. DONE: the acceptance baseline ran (81.7%; CM Elevate 0%, see KI-684, which needs a user decision: D-090 vs
+   D-099).
+2. When the data team delivers the 7th scheme's view, run
+   `python -m onboarder run --project ..\meghoneai data\<folder> --view curated.v_<scheme> --accept-suggestions`
+   (SCHEMES.md §Adding a scheme). Repeat it after each stop. Expect a stop for `_cards` in
+   `app/routers/stats.py`: pin the whole function rewritten for the new card.
+3. KI-683, KI-684 and KI-685 are open; they have not been investigated.
+
 **2026-11-05 (overall Focus Plus summary figures, KI-682): uncommitted; LIVE-VERIFIED in-process ("Give an overall Focus+ summary." -> "12,527 of 1,05,813 beneficiaries, ~11.8%", no glued scope sentence); this also live-confirms KI-681 routing; :8401 NOT restarted.** File: `app/pipeline/schemes/focus_plus.py` (summary SQL `gender` CTE: DISTINCT beneficiary_key + NEW `cohort_beneficiaries`; `_focusplus_overall_summary_answer` computes the share, ends with its own scope line). Test +1 in `tests/test_focusplus_usecase_fixes.py` (`_KI681_ROW` gained `cohort_beneficiaries`). No new files. Next: restart :8401 from `.venv` (backend only, no `npm run build` needed) and re-ask in the browser.
 
 **2026-11-04 (overall Focus Plus summary routed to the documents, KI-681): uncommitted; offline-verified only (VPN down, gateway unreachable); :8401 NOT restarted.** Files: `app/pipeline/common/c13_compose_and_data_stages.py` (NEW `_c13_fixed_data_answer_claims`, called in `_c13_intent_by_cues` after the process cue; `classify_intent` skips the B3 net for a claimed question), `app/pipeline/common/c14_turn_stages.py` (`_scheme_overview` false for a claimed question); `tests/test_focusplus_usecase_fixes.py` +27 (KI-681 section). No new files (user rule for this task). Docs: KI-681, AI_PIPELINE (intent rules), TESTING, CURRENT_STATE. Next, with the VPN: (1) `.venv/Scripts/python.exe -X utf8 tests/intent_scores/run_eval.py tests/intent_scores/labels.json` and `tests/live_chat_knowledge.py` (routing must not regress); (2) ask "Give me an overall Focus Plus summary." in-process / in the browser; (3) restart :8401 — and the :8400 server in the screenshot (115.124.102.52) needs this code deployed; (4) open question for the user: whether the D-094 prompt line itself should be softened (only after measuring with (1)); (5) separate quirk found, not fixed: `_overview_names_a_place` True for "Give me a summary of the Focus Plus scheme for a briefing" (KI-681 row).
