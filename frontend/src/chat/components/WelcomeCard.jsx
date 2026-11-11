@@ -1,6 +1,19 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { CARD_QUESTIONS, SCHEME_CARDS, STATS_SYNCED, UNIFIED_SAMPLES } from '../constants.js';
 import { fetchSchemeStats } from '../api.js';
+import { SCHEME_HUES, schemeOfSeries, tint } from '../chartTheme.js';
+
+// Each scheme card wears its scheme's chart hue (user 2026-11-11: every KPI card its own colour) —
+// the 4 shared `cls` looks gave MGNREGA, Focus Legacy and CMSS one purple. No hue (an unknown name)
+// leaves the card on its `cls` look.
+function cardHueStyle(name) {
+  const hue = SCHEME_HUES[schemeOfSeries(name)];
+  if (!hue) return undefined;
+  return {
+    '--card-bg1': tint(hue.main, 0.94), '--card-bg2': tint(hue.main, 0.86),
+    '--card-ico-bg': tint(hue.main, 0.78), '--card-ink': hue.deep, '--card-edge': tint(hue.main, 0.55),
+  };
+}
 
 /* The welcome card: hero, the scheme overview carousel and "Try a question".
    The carousel pages the cards --page-cols x --page-rows at a time (read from
@@ -204,7 +217,8 @@ export function WelcomeCard({ strings, prompts, setPrompts, onAsk, signedIn = tr
           {pages.map((page, i) => (
             <div className="scheme-page" key={perPage + '-' + i}>
               {page.map((s) => (
-                <div key={s.key} data-scheme={s.key} className={'scheme-card ' + s.cls}>
+                <div key={s.key} data-scheme={s.key} style={cardHueStyle(s.name)}
+                     className={'scheme-card ' + s.cls + (cardHueStyle(s.name) ? ' hued' : '')}>
                   <div className="scheme-card-head">
                     <div className="ico">{s.ico}</div>
                     <div>

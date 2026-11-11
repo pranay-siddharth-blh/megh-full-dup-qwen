@@ -23,7 +23,9 @@ export const SCHEME_HUES = {
   'CM Elevate': { main: '#6250d6', deep: '#3f2f9e' },
   'Focus Legacy': { main: '#008300', deep: '#005a00' },
   'CM Elevate Legacy': { main: '#d55181', deep: '#9c2c56' },
-  "CMSS": { main: '#4a90e2', deep: '#2c5f99' },
+  // amber, not the onboarding's #4a90e2 — that blue was too close to PMAY-G's for the welcome cards,
+  // which wear these hues too (user 2026-11-11: every scheme's KPI card its own colour)
+  CMSS: { main: '#d99a00', deep: '#8a5f00' },
 };
 // The console's own purple: cross-scheme and unknown answers.
 const BRAND = { main: '#7C3FBF', deep: '#4A2380' };

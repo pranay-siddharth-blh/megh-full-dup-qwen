@@ -550,6 +550,12 @@
   .unified-card .stat-val { color: var(--teal); }
   .elevate-card .stat-val { color: var(--amber); }
   .cmelevate-card .stat-val { color: var(--blue); }
+  /* A card with its scheme's own hue (WelcomeCard cardHueStyle, user 2026-11-11) — after the
+     shared looks above so it wins; text uses the hue's deep step (>= 4.5:1 on the card). */
+  .scheme-card.hued { background: linear-gradient(135deg, var(--card-bg1) 0%, var(--card-bg2) 100%); }
+  .scheme-card.hued:hover { border-color: var(--card-edge); }
+  .scheme-card.hued .ico { background: var(--card-ico-bg); color: var(--card-ink); }
+  .scheme-card.hued .stat-val { color: var(--card-ink); }
   /* Under the carousel: where the card figures came from (live DB, or the typed fallback). */
   .stats-status {
     font-size: 11px; color: var(--ink-3); text-align: center; margin: 8px 0 0;
