@@ -391,6 +391,29 @@ async def _focusplus_lgd_only_block(schemes: list[str], sql: str) -> str:
 
     def _swap(tree: exp.Expression) -> None:
         if not village_q:
+            # Several blocks in one IN list (KI-686, CMSS onboarding acceptance 2026-11-11): "Compare
+            # Tikrikilla and Selsella blocks" ran `lgd_block IN ('TIKRIKILLA', 'SELSELLA') … GROUP BY
+            # lgd_block` — the EQ swap below never saw an IN, so the comparison lost the 15% of rows with
+            # no lgd_block (FP-11). When every value is a raw block, the filter AND the grouping /
+            # ordering / selected column move to UPPER(block_name_raw) (the output keeps its name).
+            ins = [n for n in tree.find_all(exp.In)
+                   if isinstance(sql_ast._unwrap(n.this), exp.Column) and sql_ast._unwrap(n.this).name.lower() == "lgd_block"
+                   and n.expressions and all(isinstance(v, exp.Literal) and v.is_string
+                                             and v.this.strip().upper() in raw for v in n.expressions)]
+            if ins:
+                logger.info("Focus Plus: blocks %s filtered on lgd_block -> block_name_raw",
+                            [v.this.strip().upper() for n in ins for v in n.expressions])
+                for col in list(tree.find_all(exp.Column)):
+                    if col.name.lower() != "lgd_block":
+                        continue
+                    raw_upper = exp.Upper(this=exp.column("block_name_raw", table=col.table or None))
+                    target = col.parent if isinstance(col.parent, exp.Upper) else col
+                    if isinstance(target.parent, exp.Select) and target in target.parent.expressions:
+                        target.replace(exp.alias_(raw_upper, "lgd_block"))
+                    else:
+                        target.replace(raw_upper)
+                for n in ins:
+                    n.set("expressions", [exp.Literal.string(v.this.strip().upper()) for v in n.expressions])
             for node in list(tree.find_all(exp.EQ)):
                 for c_side, v_side in ((node.this, node.expression), (node.expression, node.this)):
                     col = sql_ast._unwrap(c_side) if c_side is not None else None
