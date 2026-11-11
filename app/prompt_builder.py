@@ -73,6 +73,9 @@ def _scheme_of(table: str) -> str:
         return "MGNREGA"
     if "pmay" in t:
         return "PMAY-G"
+    # CMSS (onboarded 2026-11-11): v_cmss and fact_cmss_application
+    if "cmss" in t or t in _CMSS_EXACT:
+        return "CMSS"
     return "shared"  # unknown object -> show it rather than hide it
 
 

@@ -12,7 +12,7 @@ def test_sources_come_from_incoming_one_folder_per_scheme():
     src = K._sme_sources()
     assert src, "no SME sources found under data/incoming/"
     schemes = {s for _, s in src}
-    assert schemes == {"MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate"}
+    assert schemes == {"MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CMSS"}
     assert all(f.startswith("incoming/") or f in dict(K._EXTRA_SOURCES) for f, _ in src)
     assert not any("README" in f for f, _ in src)
 

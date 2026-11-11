@@ -205,7 +205,8 @@ def test_d9_absent_year_note(monkeypatch):
 def test_cards_and_chat_read_one_provisional_flag():
     row = {"person_days": 1, "exp_lakh": 1, "villages": 1, "sanctioned": 1, "completed": 1, "released": 1,
            "payments": 1, "amount": 1e7, "districts": 1, "applications": 1, "schemes": 1, "groups": 1,
-           "memberships": 1, "records": 1, "disbursed": 1e7}
+           "memberships": 1, "records": 1, "disbursed": 1e7,
+           "students_paid": 1, "amount_disbursed": 1e7}
     cards = stats._cards({k: row for k in stats._SQL})
     assert cards["focus_plus"][1][0].endswith("*") == scheme_registry.DATASETS["Focus Plus"].provisional
     assert not cards["pmay_g"][2][0].endswith("*")

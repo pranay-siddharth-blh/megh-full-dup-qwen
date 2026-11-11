@@ -1063,3 +1063,145 @@
     HAVING SUM(total_disbursement) < 0.5 * SUM(sanctioned_amount)
   note: Utilisation = SUM(total_disbursement) / SUM(sanctioned_amount) (rule 6), threshold in HAVING on unrounded
     sums; desanctioned records stay in money totals (rule 5). Gold trimmed to the asked-for columns (review 2026-10-15).
+- id: CS-01
+  scheme: CMSS
+  difficulty: easy
+  ordered: false
+  question: How many CMSS scholarship applications came from students living in East Garo Hills in FY 2025-26?
+  gold_sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE lgd_district = 'EAST GARO HILLS' AND financial_year_short = '2025-26'
+  note: One row = one application, paid or not (CMSS rule 3); the geography is the student's home address (rule 6).
+    Drafted 2026-11-11 at onboarding from data/cmss/cmss_schema_partitions.yaml — data team to confirm.
+- id: CS-02
+  scheme: CMSS
+  difficulty: easy
+  ordered: false
+  question: Across Meghalaya, how many students were actually paid the CMSS scholarship in FY 2025-26?
+  gold_sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS students_paid
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26'
+  note: Beneficiaries = paid applications, COUNT(*) FILTER (WHERE is_disbursed) (beneficiary_term). Drafted 2026-11-11
+    at onboarding — data team to confirm.
+- id: CS-03
+  scheme: CMSS
+  difficulty: easy
+  ordered: false
+  question: What total CMSS scholarship money was paid out to students from West Jaintia Hills in FY 2025-26?
+  gold_sql: |
+    SELECT SUM(amount_disbursed) AS amount_disbursed
+    FROM curated.v_cmss
+    WHERE lgd_district = 'WEST JAINTIA HILLS' AND financial_year_short = '2025-26'
+  note: Rupees; NULL on unpaid rows (rule 4). Drafted 2026-11-11 at onboarding — data team to confirm.
+- id: CS-04
+  scheme: CMSS
+  difficulty: medium
+  ordered: false
+  question: District by district, how many CMSS applications went unpaid in FY 2025-26?
+  gold_sql: |
+    SELECT lgd_district, COUNT(*) FILTER (WHERE NOT is_disbursed) AS applications_not_paid
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26'
+    GROUP BY lgd_district
+  note: is_disbursed is NOT NULL, so NOT is_disbursed is the complement; never "rejected" (rule 5). Drafted 2026-11-11
+    at onboarding — data team to confirm.
+- id: CS-05
+  scheme: CMSS
+  difficulty: medium
+  ordered: true
+  question: Name the three districts with the most CMSS scholarship recipients in FY 2025-26.
+  gold_sql: |
+    SELECT lgd_district, COUNT(*) FILTER (WHERE is_disbursed) AS students_paid
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26'
+    GROUP BY lgd_district
+    ORDER BY students_paid DESC
+    LIMIT 3
+  note: Rank on counts, not amount (flat Rs 6,000 gives the same order, rule 11). Drafted 2026-11-11 at onboarding —
+    data team to confirm.
+- id: CS-06
+  scheme: CMSS
+  difficulty: medium
+  ordered: false
+  question: In FY 2025-26, what percentage of CMSS applications from Ri Bhoi ended up paid?
+  gold_sql: |
+    SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE is_disbursed) / COUNT(*), 2) AS paid_share_pct
+    FROM curated.v_cmss
+    WHERE lgd_district = 'RI BHOI' AND financial_year_short = '2025-26'
+  note: paid_share_pct from aggregation_defaults. Drafted 2026-11-11 at onboarding — data team to confirm.
+- id: CS-07
+  scheme: CMSS
+  difficulty: hard
+  ordered: false
+  question: In FY 2025-26, how many different villages in South West Khasi Hills had at least one student receive CMSS?
+  gold_sql: |
+    SELECT COUNT(DISTINCT village_code) AS villages
+    FROM curated.v_cmss
+    WHERE lgd_district = 'SOUTH WEST KHASI HILLS' AND financial_year_short = '2025-26'
+      AND is_disbursed AND entity_type <> 'Unresolved'
+  note: Villages by village_code, Unresolved rows excluded from village counts (unresolved_rule). Drafted 2026-11-11 at
+    onboarding — data team to confirm.
+- id: CS-08
+  scheme: CMSS
+  difficulty: hard
+  ordered: true
+  question: For FY 2025-26, which five assembly constituencies sent in the largest number of CMSS applications?
+  gold_sql: |
+    SELECT ac_name, COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26' AND entity_type <> 'Unresolved'
+    GROUP BY ac_name
+    ORDER BY applications DESC
+    LIMIT 5
+  note: Constituency figures exclude the Unresolved rows (advisory_localities_note). Drafted 2026-11-11 at onboarding —
+    data team to confirm.
+- id: CS-09
+  scheme: CMSS
+  difficulty: easy
+  ordered: false
+  question: How many CMSS applications in FY 2025-26 came from town wards rather than villages?
+  gold_sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE entity_type = 'Ward' AND financial_year_short = '2025-26'
+  note: Wards take the place of villages in towns (towns_as_blocks_rule). Drafted 2026-11-11 at onboarding — data team
+    to confirm.
+- id: CS-10
+  scheme: CMSS
+  difficulty: medium
+  ordered: false
+  question: Break down FY 2025-26 CMSS applications by region of Meghalaya.
+  gold_sql: |
+    SELECT region, COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26'
+    GROUP BY region
+  note: region groups districts (Garo / Khasi / Jaintia), Ri Bhoi in Khasi (LGD master). Drafted 2026-11-11 at
+    onboarding — data team to confirm.
+- id: CS-11
+  scheme: CMSS
+  difficulty: medium
+  ordered: false
+  question: Counting paid and unpaid together, what was the average CMSS amount per application in East Khasi Hills in FY 2025-26?
+  gold_sql: |
+    SELECT ROUND(SUM(amount_disbursed) / COUNT(*), 2) AS average_per_application
+    FROM curated.v_cmss
+    WHERE lgd_district = 'EAST KHASI HILLS' AND financial_year_short = '2025-26'
+  note: average_per_application = SUM / COUNT(*), labelled per application (paid and unpaid); per paid student it is
+    always Rs 6,000 (flat_rate_rule). Drafted 2026-11-11 at onboarding — data team to confirm.
+- id: CS-12
+  scheme: CMSS
+  difficulty: hard
+  ordered: true
+  question: Within West Garo Hills, which block had the fewest students paid under CMSS in FY 2025-26?
+  gold_sql: |
+    SELECT lgd_block, COUNT(*) FILTER (WHERE is_disbursed) AS students_paid
+    FROM curated.v_cmss
+    WHERE lgd_district = 'WEST GARO HILLS' AND financial_year_short = '2025-26'
+    GROUP BY lgd_block
+    ORDER BY students_paid ASC
+    LIMIT 1
+  note: Blocks include municipal boards and town committees (towns_as_blocks_rule). Drafted 2026-11-11 at onboarding —
+    data team to confirm.

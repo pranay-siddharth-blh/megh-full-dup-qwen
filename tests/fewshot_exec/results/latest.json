@@ -1,5 +1,5 @@
 {
- "when": "2026-10-26T16:01:53",
+ "when": "2026-11-11T13:43:10",
  "files": {
   "data/mgnrega/few_shot.yaml": {
    "scheme": "MGNREGA",
@@ -60,7 +60,7 @@
      "key": "sql",
      "question": "What is the gender split of CM Elevate applicants?",
      "outcome": "error",
-     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "detail": "RunQueryError: permission denied for view v_cm_elevate",
      "in_prompt": false
     },
     {
@@ -68,7 +68,7 @@
      "key": "sql",
      "question": "How many women applied to CM Elevate?",
      "outcome": "error",
-     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "detail": "RunQueryError: permission denied for view v_cm_elevate",
      "in_prompt": false
     },
     {
@@ -76,7 +76,7 @@
      "key": "sql",
      "question": "Gender split by scheme",
      "outcome": "error",
-     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "detail": "RunQueryError: permission denied for view v_cm_elevate",
      "in_prompt": false
     },
     {
@@ -84,7 +84,7 @@
      "key": "sql",
      "question": "Gender split by district",
      "outcome": "error",
-     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "detail": "RunQueryError: permission denied for view v_cm_elevate",
      "in_prompt": false
     },
     {
@@ -92,7 +92,7 @@
      "key": "sql",
      "question": "Which schemes are majority female?",
      "outcome": "error",
-     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "detail": "RunQueryError: permission denied for view v_cm_elevate",
      "in_prompt": false
     },
     {
@@ -100,7 +100,7 @@
      "key": "sql",
      "question": "Gender split by application mode",
      "outcome": "error",
-     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "detail": "RunQueryError: permission denied for view v_cm_elevate",
      "in_prompt": false
     },
     {
@@ -108,7 +108,7 @@
      "key": "sql",
      "question": "What extra fields does the Warehouse scheme record?",
      "outcome": "error",
-     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "detail": "RunQueryError: permission denied for view v_cm_elevate",
      "in_prompt": false
     },
     {
@@ -116,7 +116,7 @@
      "key": "sql",
      "question": "How many scheme-specific fields does each scheme record?",
      "outcome": "error",
-     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "detail": "RunQueryError: permission denied for view v_cm_elevate",
      "in_prompt": false
     },
     {
@@ -124,7 +124,7 @@
      "key": "sql",
      "question": "Read a scheme-specific field (occupation) for the Piggery scheme",
      "outcome": "error",
-     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "detail": "RunQueryError: permission denied for view v_cm_elevate",
      "in_prompt": false
     },
     {
@@ -132,7 +132,7 @@
      "key": "sql",
      "question": "Find applications with a specific scheme-specific value",
      "outcome": "error",
-     "detail": "InsufficientPrivilegeError: permission denied for table fact_cm_elevate_application",
+     "detail": "RunQueryError: permission denied for table fact_cm_elevate_application",
      "in_prompt": false
     },
     {
@@ -140,7 +140,7 @@
      "key": "sql",
      "question": "Which scheme-specific fields are common to every scheme?",
      "outcome": "error",
-     "detail": "InsufficientPrivilegeError: permission denied for view v_cm_elevate",
+     "detail": "RunQueryError: permission denied for view v_cm_elevate",
      "in_prompt": false
     },
     {
@@ -204,6 +204,16 @@
    "counts": {
     "ok": 120,
     "empty": 1
+   },
+   "all_pass": true,
+   "failing_in_prompt": 0,
+   "failing": []
+  },
+  "data/cmss/cmss_few_shot.yaml": {
+   "scheme": "CMSS",
+   "examples": 95,
+   "counts": {
+    "ok": 95
    },
    "all_pass": true,
    "failing_in_prompt": 0,

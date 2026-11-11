@@ -45,7 +45,7 @@ def test_gender_and_applications_offer_only_the_scheme_holding_both():
 
 def test_one_measure_offers_its_holders():
     head, schemes = _picked("district wise applications")
-    assert schemes == ["Focus Plus", "CM Elevate", "CM Elevate Legacy"]
+    assert schemes == ["Focus Plus", "CM Elevate", "CM Elevate Legacy", "CMSS"]   # CMSS: one row per application
     assert "Which one" in head
     # CM Elevate records no money
     assert "CM Elevate" not in _picked("total amount disbursed in 2024")[1]
@@ -53,14 +53,14 @@ def test_one_measure_offers_its_holders():
 
 def test_measures_no_scheme_holds_together_offer_each_holder():
     head, schemes = _picked("person days and applications by district")
-    assert schemes == ["MGNREGA", "Focus Plus", "CM Elevate", "CM Elevate Legacy"]
+    assert schemes == ["MGNREGA", "Focus Plus", "CM Elevate", "CM Elevate Legacy", "CMSS"]
     assert head.startswith("No single scheme")
 
 
 def test_no_measure_named_keeps_all_six():
-    assert len(_picked("Show beneficiaries")[1]) == 6
+    assert len(_picked("Show beneficiaries")[1]) == 7
     # the KNOWLEDGE path never narrows: "how do I apply?" holds for every scheme
-    assert len(p._scheme_clarification("district wise applications").options) == 6
+    assert len(p._scheme_clarification("district wise applications").options) == 7   # + CMSS, 2026-11-11
 
 
 # ── MGNREGA: a short per-area breakdown names every area (harness 2026-10-19) ──

@@ -23,12 +23,12 @@ def _kturn(q, scheme):
 @pytest.mark.parametrize("question", ["What schemes are available?", "what schemes do you have?"])
 def test_tc001_listing_counts_six(question):
     ans = p._scheme_listing_answer(question)["answer"]
-    assert ans.startswith("I cover six ")
-    assert sum(1 for line in ans.splitlines() if line.startswith("- **")) == 6
+    assert ans.startswith("I cover seven ")          # CMSS onboarded 2026-11-11
+    assert sum(1 for line in ans.splitlines() if line.startswith("- **")) == 7
 
 
 def test_tc001_not_covered_reply_says_six():
-    assert "I cover six Meghalaya schemes" in p._knowledge_not_covered_answer("x", None)
+    assert "I cover seven Meghalaya schemes" in p._knowledge_not_covered_answer("x", None)
 
 
 # ── TC-005: Focus Legacy has its own how-to-apply entry ─────────────────────
