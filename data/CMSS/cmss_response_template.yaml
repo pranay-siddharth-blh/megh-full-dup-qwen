@@ -1,0 +1,534 @@
+# NOT LOADED BY THE APP (see app/annotations.py) - kept as the scheme team's reference only.
+# Counts quoted below were computed from the CMSS source CSV (README, 2026-11-04) and are not yet checked
+# against megh_db. Never wire this file into the app without re-checking every figure against megh_db;
+# tests/test_db_changes_2026_10_26.py fails if app code reads it.
+# cmss_response_template.yaml
+#
+# ===========================================================================
+# v1.0 - 2026-11-04 - WRITTEN AGAINST THE CURATED STAR SCHEMA
+#
+# Response templates for CMSS - node 5.15, the response composer.
+# Editable by analysts - no code change needed.
+# Numbers are locked from the result set; templates only shape the wording
+# around them.
+#
+# CMSS was loaded straight into curated, so there is no flat-table ancestor and
+# no v1 wording to retire.
+#
+# SEVEN CAVEATS MUST TRAVEL WITH THE ANSWERS THEY BELONG TO. Each one is a way
+# this partition produces a true number that reads as a false claim:
+#
+#   1. BENEFICIARY = PAID. The file holds every application, paid or not. A
+#      beneficiary figure states the application total beside it (CM-01).
+#   2. THE RATE IS FLAT. Every paid student received Rs 6,000. An amount is a
+#      paid count x 6,000; an average, highest or lowest per student is Rs 6,000
+#      everywhere and must never read as a finding.
+#   3. NOT PAID IS NOT REJECTED. No reason, status or date is recorded (CM-02,
+#      CM-22). The words 'rejected', 'pending' and 'defective' are never used
+#      for the 6,076.
+#   4. ONE YEAR. Only 2025-26 is loaded. No trend, no growth, no comparison -
+#      and a year that is not loaded is 'no data', never 0. Academic year is not
+#      financial year (CM-21).
+#   5. HOME ADDRESS. Places are where students live, not where they study
+#      (CM-20). 'Students from X', never 'students in X colleges'.
+#   6. GENDER AND INSTITUTION ARE NOT HELD (CM-03/04/05/15). Refuse, offer
+#      geography - never approximate one from the other.
+#   7. VILLAGE AND CONSTITUENCY FIGURES EXCLUDE 1,218 UNMAPPED APPLICATIONS, so
+#      they do not reconcile to district or State totals (103,609 vs 104,827).
+#   And one about identity: no student is ever named, listed or identified.
+#
+# Every figure quoted inside a template below is a source-file observation
+# (datasets/CMSS/CMSS - 2026-10-23.csv, 2026-11-04) and is not re-verified
+# against megh_db.
+# ===========================================================================
+
+response_templates:
+
+  # ---- how the answer text is shaped ------------------------------------
+  formatting:
+    number_format: "indian"              # 1,04,827 not 104,827
+    currency_symbol: "₹"
+    decimal_places: 2
+    percent_decimal_places: 2
+    financial_year_format: "YYYY-YY"     # 2025-26; stored as financial_year_short
+    date_format: null                    # no date column exists - never render one
+    money_unit: "crore"                  # v_cmss stores RUPEES; State and district totals in crore
+    money_unit_below_one_crore: "lakh"   # most blocks, towns and constituencies
+    row_level_money_unit: "rupees"       # a village, or the per-student rate (₹6,000), never 0.0006 crore
+    money_unit_warning: >
+      curated.v_cmss is RUPEES. MGNREGA expenditure is LAKH and the cross-scheme money view
+      is CRORE. Never add across them, and state the unit on every figure. The authority is
+      curated.dim_scheme.money_unit.
+    flat_rate_display: "₹6,000"          # always written this way, never 6000.00
+    show_unit_always: true
+    show_assumptions: true               # surface the defaults that fired
+    show_application_total_with_beneficiaries: true
+    geography_display_case: "title"      # lgd_district / lgd_block are stored UPPERCASE
+    town_display: "canonical"            # 'Tura Municipal Board', never the source's 'Tura Municipal Board-Municipal Board'
+    geography_phrase: "students from {place}"
+    null_display: "not recorded"
+    unpaid_display: "not paid"           # never 'rejected', 'pending', 'failed' or '₹0'
+    zero_display: "0"                    # a computed zero (e.g. above ₹6,000) is real
+    tie_behaviour: "show_all"
+    empty_result_message: "No CMSS applications for that selection."
+    max_rows_inline: 20
+    person_identifiers: never_rendered   # member_key, member_id, application numbers
+
+  # =======================================================================
+  templates:
+
+    # ---- result shapes --------------------------------------------------
+    single_value: "{metric} for {scope} in {period} is {value}."
+    multi_metric: "For {scope} in {period}: {metric_list}."
+    count: "{scope} has {value} {entity} in {period}."
+    beneficiary_count: "{value} students from {scope} were paid the CM Scholarship in {period}, out of {applications} applications."
+    application_count: "{value} students from {scope} applied for the CM Scholarship in {period}; {paid} were paid."
+    not_paid_count: "{value} of {applications} applications from {scope} have no amount paid ({not_paid_pct}%)."
+    paid_share: "{paid_pct}% of applications from {scope} were paid - {paid} of {applications}."
+    amount_total: "{value} was disbursed to {paid} students from {scope} in {period}."
+    average_value: "Average {metric} per {denominator} for {scope} in {period} is {value}."
+    share_percentage: "{metric} for {scope} in {period} is {value}%."
+    proportion_of_total: "{scope} accounts for {value}% of the State's {metric} in {period}."
+    distinct_students: "{value} unique students from {scope} applied in {period}."
+
+    ranked_list: "Top {n} {entity} by {metric} in {period}:"
+    bottom_list: "Bottom {n} {entity} by {metric} in {period}:"
+    extremes: "Highest is {top_entity} at {top_value}; lowest is {bottom_entity} at {bottom_value}."
+    rank_position: "{scope} ranks {rank} of {total} {entity} by {metric} in {period}."
+    tie_at_top: "{tied_entities} are level at {value}."
+
+    breakdown: "{metric} by {level} for {period}:"
+    paid_breakdown: "Applications from {scope} by payment: {paid} paid, {not_paid} not paid."
+    town_rural_breakdown: "Of {applications} applications, {town} are from the 11 towns reported as blocks and {rural} from rural blocks."
+    village_summary: "Students per village in {scope} (individual students are not listed):"
+    report_heading: "CMSS {level}-wise summary, financial year {period} (as at the extract of {as_of}):"
+    comparison: "{entity_a} {value_a} against {entity_b} {value_b} - a difference of {change}."
+    single_year_series: "{metric} by financial year: {period} {value}. Only {period} is loaded, so there is no trend to show yet."
+    year_list: "Financial years loaded: {years}."
+    coverage_statement: "Students from {value} villages and wards in {scope} applied for CMSS."
+
+    # ---- refusals - a first-class section --------------------------------
+    # Thirteen of the 41 use cases ask for data the department removed. Each
+    # refusal says why in one line, then offers the nearest real question,
+    # named as a different question.
+    gender_not_held:
+      critical: true
+      text: "Gender is not recorded in the CMSS data - the department removed it from the file."
+      offer: "I can give the same figure by district, block or constituency{scope_suffix} - which would help?"
+      never: "Do not estimate gender from names, villages or another scheme's data. Do not render a male/female split of any kind."
+
+    institution_not_held:
+      critical: true
+      text: "Institution type is not recorded in the CMSS data - the department removed it from the file, and the institution's name and location were never in it."
+      offer: "I can break the figure down by the students' home district, block or constituency instead."
+      never: "Do not infer institution type from the town a student lives in. Home address is not the place of study."
+
+    course_level_not_held:
+      text: "Course and class level are not recorded - every student, Class XI to Ph.D., receives the same ₹6,000."
+      offer: "The total for {scope} is available."
+
+    status_or_reason_not_held:
+      critical: true
+      text: "The data records only whether an application was paid. There is no status, rejection reason, defect notice or verification stage."
+      offer: "{not_paid} applications from {scope} have no amount paid - the reason is not recorded."
+      never: "Do not call the unpaid applications rejected, pending, defective or cancelled."
+
+    payment_date_not_held:
+      text: "No payment date is recorded - only the financial year, 2025-26."
+      offer: "The number of students paid in 2025-26{scope_suffix} is available."
+      never: "Do not use the load or extract date as a payment date."
+
+    year_not_loaded:
+      critical: true
+      text: "CMSS data is loaded for 2025-26 only, so there is no data for {value}."
+      offer: "Shall I give the 2025-26 figure instead?"
+      never: "Do not answer 0 for a year that is not loaded."
+
+    comparison_needs_second_year:
+      text: "Only one financial year, 2025-26, is loaded, so years cannot be compared and there is no trend yet."
+      offer: "The 2025-26 figure{scope_suffix} is available - it will become a series as new years are added."
+
+    academic_year_not_held:
+      text: "The data carries the financial year (2025-26), not the academic session - the two do not line up."
+      offer: "Shall I answer for financial year 2025-26?"
+
+    student_not_listable:
+      critical: true
+      text: "Individual students cannot be listed - names were removed from the data and the student id is masked."
+      offer: "I can show the number of students per village{scope_suffix} instead."
+      never: "Do not render member_key, a member id, an application number or any row-level list of students."
+
+    student_lookup_refused:
+      critical: true
+      text: "A student cannot be looked up here - the Meghalaya One member id is masked and cannot be reversed."
+      offer: "For an individual application, the Meghalaya One portal or helpline 1971 can help."
+      never: "Do not echo the id back, and do not say whether it exists in the data."
+
+    highest_paid_student:
+      text: "Every paid student received the same ₹6,000, so no student received more or less than another."
+      offer: "I can show which districts or blocks have the most students paid."
+      never: "Do not render a ranking of students or a 'top beneficiaries' list."
+
+    cross_scheme_person_match_refused:
+      critical: true
+      text: "Matching the same student across schemes is not permitted."
+      offer: "I can give each scheme's count by district or village, side by side."
+      never: "Do not report an overlap count or a list of shared people."
+
+    caste_or_income_not_held:
+      text: "CMSS has no income or community criterion, so caste, tribe and income are not recorded."
+      offer: "The figure for all students is available."
+      never: "Do not draw on the NSP Post-Matric Scholarship for ST Students - it is a different scheme."
+
+    budget_not_held:
+      text: "Budget allocations and targets are not in the data."
+      offer: "For reference, the 2025-26 budget announcement projected about 80,000 students and ₹48 crore a year; the data shows {paid} students paid ₹{amount_crore} crore."
+      never: "Do not present the projection as a target the data was measured against."
+
+    other_scholarship_not_held:
+      text: "This data covers the Chief Minister's Scholarship Scheme only."
+      offer: "The NSP Post-Matric Scholarship for ST students is a separate central scheme on scholarships.gov.in."
+
+    report_partial:
+      text: "Gender and institution type are not recorded, so this report carries every field that is: district, block, constituency, financial year, applications, students paid, not paid and amount disbursed."
+
+    # ---- situations that need specific wording ---------------------------
+    empty_result: "No CMSS applications for {scope} in {period}."
+    no_paid_students: "{applications} students from {scope} applied, but none has an amount paid in {period}."
+    above_flat_rate_zero: "No student received more than ₹6,000 - every paid student received exactly ₹6,000."
+    unavailable_in_source: "{requested} is not held in the CMSS data."
+    entity_not_found: "'{value}' is not in the CMSS data. Closest matches: {suggestions}."
+    ambiguous_entity_resolved: "Read '{value}' as {resolved} in {district}. There are {count} places with that name."
+    town_resolved: "Read '{value}' as {town}, which the department reports as a block."
+    colliding_name_resolved: "Read '{value}' as the {level}. It is also the name of a {other_levels} - say which if you meant that."
+    same_area_note: "{value_a} and {value_b} cover exactly the same students, so the figure is the same either way."
+    permission_denied: "That level of detail is above your access. The finest level available to you is {allowed_level}."
+    execution_failed: "The query could not be completed. Please try a smaller area."
+    data_service_unavailable: "The data service is not responding right now - this is not a problem with your question. Please try again shortly."
+
+    # ---- lines that travel alongside the answer --------------------------
+    unit_statement: "Amounts are in {unit} rupees."
+    assumption_prefix: "Assumed: {assumptions}."
+    beneficiary_definition_note: "A beneficiary here is a student who was paid; {applications} applications were made in all."
+    flat_rate_note: "Every paid student received a flat ₹6,000, so the amount is the number of students paid times ₹6,000."
+    flat_average_note: "The average per paid student is ₹6,000 in every area; the figure that varies is the average per application, which reflects the share paid."
+    flat_ranking_note: "Ranking by amount gives the same order as ranking by students paid, since every student receives ₹6,000."
+    not_paid_note: "{not_paid} applications have no amount paid. The data does not record why."
+    one_year_note: "Only financial year 2025-26 is loaded."
+    academic_year_note: "Figures are by financial year (April to March), not by academic session."
+    home_address_note: "Places are the students' home addresses, not where they study."
+    towns_as_blocks_note: "Municipal boards and town committees are counted as blocks, as the department reports them."
+    wards_as_villages_note: "In towns, wards are counted in place of villages."
+    unresolved_village_note: "{unresolved} applications have no village recorded and are left out of village figures; they are included in block and district totals."
+    constituency_total_note: "1,218 applications have no constituency recorded, so constituency figures add up to 1,03,609, not 1,04,827."
+    village_identity_note: "Villages are counted by LGD code, since 231 village names are shared by more than one village."
+    code_over_name_note: "Locations follow the LGD codes; the source file names 19 Tangnub students as Eastern West Khasi Hills / Mairang, but their codes are East Jaintia Hills / Saipung."
+    region_expansion_note: "{region} covers {districts}."
+    ri_bhoi_region_note: "Ri Bhoi is shown separately; it is not counted under Khasi Hills."
+    two_district_constituency_note: "{constituency} constituency spans {district_a} and {district_b}."
+    as_of_note: "Figures are as at the department's extract of {as_of}."
+    projection_note: "The 2025-26 budget announcement projected about 80,000 students and ₹48 crore a year."
+    cross_scheme_caveat: "CMSS counts students paid a flat ₹6,000; {other_scheme} counts {other_measure}. The two are shown side by side, not added."
+    large_result: "Showing the first {shown} of {total} rows."
+
+  # =======================================================================
+  follow_up_rules:
+
+    # ---- move up or down the hierarchy ----------------------------------
+    - condition: "result_is_statewide"
+      suggestion: "Split this by district?"
+
+    - condition: "result_by_district"
+      suggestion: "Break this down by block?"
+
+    - condition: "result_by_block"
+      suggestion: "See the number of students per village in this block?"
+
+    - condition: "result_is_town"
+      suggestion: "See the same figure by ward?"
+
+    - condition: "result_is_single_village"
+      suggestion: "Compare this against the rest of the block?"
+
+    - condition: "result_is_single_district"
+      suggestion: "See how this compares with the other districts?"
+
+    - condition: "result_is_region"
+      suggestion: "See the districts inside that region separately?"
+
+    - condition: "result_is_constituency"
+      suggestion: "See the block of the same name, which covers a different area?"
+
+    # ---- move across measures -------------------------------------------
+    - condition: "result_is_beneficiary_count"
+      suggestion: "See how many applications were not paid?"
+
+    - condition: "result_is_application_count"
+      suggestion: "See what share of them were paid?"
+
+    - condition: "result_is_not_paid_count"
+      suggestion: "See which blocks have the highest share not paid?"
+
+    - condition: "result_is_amount"
+      suggestion: "See the number of students paid behind this amount?"
+
+    - condition: "result_is_average_amount"
+      suggestion: "See the share of applications paid, which is what moves the per-application average?"
+
+    - condition: "result_is_paid_share"
+      suggestion: "See the counts behind that share?"
+
+    # ---- move across geography types --------------------------------------
+    - condition: "result_is_block_list"
+      suggestion: "Show rural blocks and towns separately?"
+
+    - condition: "result_is_town_and_rural_split"
+      suggestion: "See the 11 towns individually?"
+
+    - condition: "result_resolved_town_by_default"
+      suggestion: "See the constituency of the same name instead?"
+
+    - condition: "result_is_district_with_unresolved"
+      suggestion: "See the applications with no village recorded?"
+
+    # ---- time -------------------------------------------------------------
+    - condition: "result_is_single_year_series"
+      suggestion: "See the 2025-26 figure by district instead?"
+
+    - condition: "result_refused_other_year"
+      suggestion: "See the 2025-26 figure instead?"
+
+    # ---- work with the list just returned --------------------------------
+    - condition: "result_is_ranked_list"
+      suggestion: "Would you like to see the lowest as well?"
+
+    - condition: "result_is_ranked_list_top_n"
+      suggestion: "See what share of the State total these account for?"
+
+    - condition: "result_has_tie"
+      suggestion: "Break the tie on the share paid?"
+
+    - condition: "result_row_count_exceeds_display"
+      suggestion: "Export the full list?"
+
+    - condition: "result_is_village_summary"
+      suggestion: "See the villages where no applicant was paid?"
+
+    # ---- recover from a thin, refused or failed answer --------------------
+    - condition: "result_is_empty"
+      suggestion: "Try the block this village sits in?"
+
+    - condition: "entity_not_found"
+      suggestion: "List the blocks in that district instead?"
+
+    - condition: "entity_resolved_by_assumption"
+      suggestion: "Did you mean another place of that name?"
+
+    - condition: "measure_refused_gender_or_institution"
+      suggestion: "See the same figure by district instead?"
+
+    - condition: "result_refused_student_list"
+      suggestion: "See the number of students per village instead?"
+
+    - condition: "result_is_cross_scheme"
+      suggestion: "See each scheme's figure by village instead?"
+
+  # =======================================================================
+  composer_checks:
+    critical: true
+    note: >
+      Assertions the composer runs against its own draft before sending. Each one catches a
+      failure this partition is specifically prone to. Every caveat in the header list has
+      at least one check.
+    checks:
+    - "Every count says whether it is applications, students paid or not paid. If 'beneficiaries' appears, the application total appears beside it."
+    - "Every money figure states its unit. A per-student figure is written ₹6,000, never in crore or lakh."
+    - "If an average, highest or lowest amount per student appears, the draft says the rate is a flat ₹6,000. No table of identical ₹6,000 values is rendered."
+    - "The words 'rejected', 'pending', 'defective', 'cancelled' and 'failed' are not used for the unpaid applications."
+    - "Only 2025-26 appears as a year. If another year was asked for, the draft says it is not loaded and does not show 0."
+    - "No trend, growth or change over time is described."
+    - "Places are phrased as where students are from. The words 'studying in', 'colleges in' and 'schools in' do not describe a CMSS place."
+    - "No gender, sex or institution-type figure appears anywhere in the draft, including in a chart label."
+    - "If a village or constituency figure was given, the draft says the 1,218 unmapped applications are excluded."
+    - "If a block list was given, towns are labelled as municipal boards or town committees, not as rural blocks."
+    - "No member_key, member id, application number or student-level row appears in the draft."
+    - "If a district or block name appears, it is title-cased, and a town uses its canonical name, not the source's doubled suffix."
+    - "If the answer refused something, it offered the nearest real question and named it as a different question."
+    - "The phrase 'excluding placeholder records' does not appear - that is PMAY's rule, and CMSS has no such column."
+    - "If a cross-scheme comparison was made, the two measures are named separately and are not added together, and no person is matched across schemes."
+    - "If Khasi Hills was reported, the draft says whether Ri Bhoi was included."
+
+  # =======================================================================
+  maintenance:
+    companion_files:
+    - Annotations/CMSS/cmss_schema_partitions.yaml
+    - Annotations/CMSS/cmss_classification_rules.yaml
+    - Annotations/CMSS/cmss_default_rules.yaml
+    - Annotations/CMSS/cmss_entity_resolver.yaml
+    - Annotations/CMSS/cmss_few_shot.yaml
+    - Annotations/CMSS/cmss_foreign_key_augmentation.yaml
+    - Annotations/CMSS/README.md
+    - Annotations/PMAY/pmay_response_template.yaml   # the file format this one follows
+    regeneration_rules:
+    - "Every assumption_text in cmss_default_rules.yaml should have a template here that can state it back. When a default is added, check the wording exists."
+    - "Every caveat in the seven-caveat list at the top of this file must have both a template and a composer_check. Adding a caveat means adding both."
+    - "When a second financial year is loaded, delete one_year_note, comparison_needs_second_year and the 'no trend' check - and add growth wording - rather than leave them to contradict the data."
+    - "If the rate stops being flat, delete flat_rate_note, flat_average_note, flat_ranking_note, highest_paid_student and their checks."
+    - "If gender or institution type return to the file, retire their refusals and add breakdown templates."
+    - "When dim_scheme.data_as_of is confirmed, fill {as_of} from it rather than from the file name."
+    - APPEND templates. Never delete one silently - a caveat that quietly disappears is how a wrong claim ships.
+
+# ===========================================================================
+# RENDERED EXAMPLES - finished answers, filled with real figures from
+# datasets/CMSS/CMSS - 2026-10-23.csv (grouped by LGD code), in the Indian number
+# format set in `formatting`. Use these to test the composer and as the
+# reference for tone.
+# ===========================================================================
+rendered_examples:
+
+- question: "How many beneficiaries are recorded under CMSS?"
+  templates: [beneficiary_count, flat_rate_note, one_year_note]
+  answer: >
+    98,751 students were paid the CM Scholarship in 2025-26, out of 1,04,827 applications.
+    Every paid student received a flat ₹6,000. Only financial year 2025-26 is loaded.
+  follow_up: "See how many applications were not paid?"
+
+- question: "What is the total amount disbursed under CMSS?"
+  templates: [amount_total, flat_rate_note, unit_statement]
+  answer: >
+    ₹59.25 crore was disbursed to 98,751 students across Meghalaya in 2025-26. Every paid
+    student received a flat ₹6,000, so the amount is the number of students paid times
+    ₹6,000. Amounts are in crore rupees.
+  follow_up: "Split this by district?"
+
+- question: "How many CMSS applications were not paid?"
+  templates: [not_paid_count, not_paid_note]
+  answer: >
+    6,076 of 1,04,827 applications have no amount paid (5.80%). The data does not record
+    why - there is no status or reason for an application, only whether it was paid.
+  follow_up: "See which blocks have the highest share not paid?"
+
+- question: "What is the average amount disbursed per CMSS beneficiary?"
+  templates: [average_value, flat_average_note]
+  answer: >
+    Every paid student received ₹6,000, so the average per beneficiary is ₹6,000. Across all
+    1,04,827 applications, paid and not paid, the average is ₹5,652.23.
+  follow_up: "See the share of applications paid, which is what moves the per-application average?"
+
+- question: "What is the average amount disbursed per beneficiary in each district?"
+  templates: [flat_average_note, ranked_list]
+  answer: >
+    The average per paid student is ₹6,000 in every district. The figure that varies is the
+    average per application, which reflects the share paid: highest in West Jaintia Hills
+    (₹5,730.90) and lowest in East Garo Hills (₹5,376.62).
+  follow_up: "See the share of applications paid by district?"
+
+- question: "Which district has the most CMSS beneficiaries?"
+  templates: [ranked_list, beneficiary_definition_note]
+  answer: >
+    East Khasi Hills has the most - 24,932 students paid, out of 26,326 applications,
+    followed by West Jaintia Hills (12,288) and West Garo Hills (11,966).
+  follow_up: "Break this down by block?"
+
+- question: "What is the total CMSS amount disbursed in Laskein block?"
+  templates: [amount_total, unit_statement]
+  answer: >
+    ₹258.18 lakh was disbursed to 4,303 students from Laskein block in 2025-26 - the most of
+    any block. Amounts are in lakh rupees.
+  follow_up: "See the number of students per village in this block?"
+
+- question: "How many CMSS beneficiaries are in Shillong?"
+  templates: [town_resolved, beneficiary_count, same_area_note]
+  answer: >
+    Read 'Shillong' as Shillong Municipal Board, which the department reports as a block.
+    2,321 students from Shillong Municipal Board were paid in 2025-26, out of 2,495
+    applications. These are the same students as the four Shillong constituencies together.
+  follow_up: "See the same figure by ward?"
+  note: Only after the gate's shillong_scope_unclear was answered 'the town'.
+
+- question: "How many CMSS beneficiaries are recorded in Mawkyrwat constituency?"
+  templates: [beneficiary_count, constituency_total_note]
+  answer: >
+    3,341 students from Mawkyrwat constituency were paid in 2025-26, out of 3,521
+    applications - the most of any constituency. 1,218 applications statewide have no
+    constituency recorded and are not in constituency figures.
+  follow_up: "See the block of the same name, which covers a different area?"
+
+- question: "Show me all CMSS beneficiaries from Mihmyntdu"
+  templates: [student_not_listable, beneficiary_count]
+  answer: >
+    Individual students cannot be listed - names were removed from the data and the student
+    id is masked. 428 students from Mihmyntdu (Thadlaskein block) were paid in 2025-26, out
+    of 454 applications - the most of any village.
+  follow_up: "Compare this against the rest of the block?"
+
+- question: "How many male and female beneficiaries are recorded under CMSS?"
+  templates: [gender_not_held]
+  answer: >
+    Gender is not recorded in the CMSS data - the department removed it from the file. I can
+    give the same figure by district, block or constituency - which would help?
+  follow_up: "See the same figure by district instead?"
+
+- question: "How many beneficiaries are enrolled in private professional institutions?"
+  templates: [institution_not_held]
+  answer: >
+    Institution type is not recorded in the CMSS data - the department removed it from the
+    file, and the institution's name and location were never in it. I can break the figure
+    down by the students' home district, block or constituency instead.
+
+- question: "Which beneficiaries have received the highest amount under CMSS?"
+  templates: [highest_paid_student]
+  answer: >
+    Every paid student received the same ₹6,000, so no student received more or less than
+    another. I can show which districts or blocks have the most students paid.
+
+- question: "Compare beneficiaries between 2024-25 and 2025-26"
+  templates: [year_not_loaded, comparison_needs_second_year]
+  answer: >
+    CMSS data is loaded for 2025-26 only, so there is no data for 2024-25 - CMSS began in
+    2025-26. In 2025-26, 98,751 students were paid ₹59.25 crore. This will become a
+    comparison as new years are added.
+
+- question: "How many beneficiaries received more than ₹5,000?"
+  templates: [beneficiary_count, flat_rate_note]
+  answer: >
+    All 98,751 paid students - every paid student received exactly ₹6,000, which is above
+    ₹5,000.
+
+- question: "How many villages have CMSS applicants?"
+  templates: [coverage_statement, wards_as_villages_note, unresolved_village_note]
+  answer: >
+    Students from 5,902 villages and wards across Meghalaya applied for CMSS - 5,782 villages
+    and 120 urban wards. 1,218 applications have no village recorded and are left out of
+    village figures; they are included in block and district totals.
+
+- question: "How many CMSS students are from towns versus rural blocks?"
+  templates: [town_rural_breakdown, towns_as_blocks_note]
+  answer: >
+    Of 1,04,827 applications, 10,173 are from the 11 towns reported as blocks and 94,654
+    from rural blocks. 93.62% of town applications and 94.27% of rural ones were paid.
+  follow_up: "See the 11 towns individually?"
+
+- question: "CMSS beneficiaries in the Khasi Hills"
+  templates: [region_expansion_note, ri_bhoi_region_note, beneficiary_count]
+  answer: >
+    Khasi Hills covers East, West, South West and Eastern West Khasi Hills. 41,179 students
+    from these districts were paid in 2025-26, out of 43,438 applications. Ri Bhoi is shown
+    separately; it is not counted under Khasi Hills.
+  note: Only after the gate's region_ri_bhoi_unconfirmed was answered 'exclude Ri Bhoi'.
+
+- question: "How many CMSS students are studying in Shillong colleges?"
+  templates: [home_address_note, institution_not_held]
+  answer: >
+    The data records where students live, not where they study, so students attending
+    Shillong colleges cannot be counted. 2,321 students FROM Shillong Municipal Board were
+    paid in 2025-26.
+
+- question: "Give me a district-wise report with beneficiary count, gender distribution, institution type, and total amount disbursed"
+  templates: [report_partial, report_heading]
+  answer: >
+    Gender and institution type are not recorded, so this report carries every field that
+    is: district, block, constituency, financial year, applications, students paid, not paid
+    and amount disbursed. Statewide: 1,04,827 applications, 98,751 paid, 6,076 not paid,
+    ₹59.25 crore, across 12 districts - East Khasi Hills the largest (24,932 paid,
+    ₹14.96 crore).

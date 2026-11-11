@@ -1,0 +1,1116 @@
+schema_version: '1.0'
+schema_name: cmss_curated_semantic_schema
+display_name: CMSS (Chief Minister's Scholarship Scheme) Curated Star-Schema Semantic Schema (megh_db)
+
+# ===========================================================================
+# v1.0 - 2026-11-04 - FIRST VERSION, WRITTEN AGAINST THE LIVE DATABASE
+#
+# There is no flat-table predecessor for CMSS. This file describes the curated
+# star schema as loaded, from the beginning.
+#
+# Authority: SCHEMA_FOR_DEVELOPERS.md, regenerated 2026-11-03 13:12 UTC from the
+# live database.
+#
+# WHAT CMSS IS
+#   Chief Minister's Scholarship Scheme, Education Department, Government of
+#   Meghalaya, implemented by the Directorate of Higher and Technical Education
+#   (DHTE), Shillong. A flat Rs 6,000 per year to every domiciled student in a
+#   full-time, regular post-matric course (Class XI to Ph.D.), within or outside
+#   Meghalaya. No income ceiling, no community quota. Applied for on the
+#   Meghalaya One portal; paid by DBT. Notified 25 Aug 2025; first cycle 2025-26.
+#
+# THE FIVE FACTS THAT GOVERN EVERY RULE IN THIS FILE
+#   1. ONE ROW IS ONE STUDENT APPLICATION, PAID OR NOT. COUNT(*) is applications.
+#      Students paid is COUNT(*) FILTER (WHERE is_disbursed). member_id is unique
+#      in the source, so in 2025-26 applications = distinct students = 104,827.
+#   2. THE MONEY IS A FLAT RS 6,000. amount_disbursed is 6000 on all 98,751 paid
+#      rows and NULL on the 6,076 unpaid. An amount is a paid count x 6,000; an
+#      average, maximum or minimum per student is always Rs 6,000.
+#   3. UNPAID HAS NO REASON, STATUS OR DATE (CM-02, CM-22). Never "rejected".
+#   4. ONE FINANCIAL YEAR ONLY: 2025-26. No trend, no comparison, no growth until
+#      a second year is loaded. Academic year is NOT financial year (CM-21).
+#   5. GENDER AND INSTITUTION TYPE WERE REMOVED FROM THE FILE (CM-03/04/05/15).
+#      13 of the 41 client use cases ask for them and are refused.
+#
+# WHAT IS NOT IN THE CURATED LAYER
+#   member_id (source)    -> HASHED to member_key (HMAC-SHA256) at ingest (CM-23).
+#                            Never displayed. COUNT(DISTINCT member_key) only.
+#   id (source)           -> fact_cmss_application.source_application_id, lineage only.
+#   source district/block/village/constituency names
+#                         -> fact only (*_raw). The view exposes the LGD roster names.
+#   is_repeat_member_in_year -> fact only. FALSE on every row of the 2026-10-23 file.
+#   Student names, gender, institution type / name / location, course, class,
+#   marks, application status, rejection reason, payment date, academic year
+#                         -> NOT IN THE SOURCE (removed or never held).
+#
+# PROVENANCE OF NUMBERS IN THIS FILE
+#   Column names, types, nullability, defaults, PKs, FKs, indexes, comments
+#                                                  -> live DB, 2026-11-03. Trust.
+#   Row counts, distinct counts, value distributions
+#                                                  -> source file datasets/CMSS/CMSS - 2026-10-23.csv,
+#                                                     104,827 rows, profiled 2026-11-04.
+#                                                     NOT re-measured against megh_db
+#                                                     (no read credential on this machine).
+#                                                     Marked `unverified_in_db: true`.
+#   The live table comments independently quote the same figures (104,827 rows,
+#   1,218 unresolved villages, 6000 on every paid row, 35 name/code conflicts) -
+#   strong but indirect agreement.
+#
+# CLIENT ISSUE CODES (datasets/CMSS/CMSS Dataset Answers.xlsx)
+#   CM-01/02 paid vs unpaid        CM-03/04/05 institution removed   CM-08 towns as blocks
+#   CM-13 wards as villages        CM-15 gender removed              CM-18 member_id = Meghalaya One id
+#   CM-20 home address             CM-21 financial year only         CM-22 no status/date
+#   CM-23 mask member_id
+# ===========================================================================
+
+architecture_alignment:
+  schema_linking: Enriched table and column documents are embedded for scheme-partitioned Qdrant retrieval.
+  entity_resolution: Dimension catalogue plus approved aliases, RapidFuzz, and BGE-small fallback.
+  join_discovery: information_schema FKs plus SME-reviewed implicit FK YAML; LLM never invents joins.
+  sql_generation: Retrieved schema, resolved entities, graph-generated joins, and curated question-to-SQL examples.
+  safety: SQLGlot read-only validation, enforced LIMIT, SELECT-only database role.
+  observability: Inputs, outputs, rule firings, SQL, results, chart spec, and response are traceable.
+
+database:
+  name: megh_db
+  schema: curated
+  read_role: megh_readonly
+  primary_query_surface: curated.v_cmss
+  structure_verified: '2026-11-03'
+  volumes_verified: false
+
+datasets:
+
+  # =========================================================================
+  # PRIMARY QUERY SURFACE - query this, not the fact table
+  # =========================================================================
+  v_cmss:
+    table_name: curated.v_cmss
+    object_type: view
+    over: curated.fact_cmss_application
+    column_count: 19
+    grain: one row per CMSS student application (paid or not), financial year 2025-26
+    row_count: unverified_in_db
+    row_count_note: >
+      The source file holds 104,827 rows and the live fact comment quotes ~104,827.
+      meta.v_reconciliation_cmss should balance as 104,827 = 104,827 + 0. The curated
+      count has not been measured from this machine. Quote 104,827 only with that caveat.
+    aggregate_before_reporting: false
+    grain_note: >
+      One row IS one application, so COUNT(*) is an application count with no prior
+      aggregation. Students paid is COUNT(*) FILTER (WHERE is_disbursed). Every
+      member_key is unique in 2025-26, so COUNT(DISTINCT member_key) = COUNT(*) today;
+      that stops being true when a second year is loaded.
+    money_unit: rupees
+    money_unit_authority: curated.dim_scheme.money_unit
+    years_present: ['2025-26']
+    columns:
+
+    # ---- keys -------------------------------------------------------------
+    - name: cmss_fact_id
+      source_column: fact_cmss_application.cmss_fact_id
+      meaning: Surrogate primary key of the CMSS application fact.
+      type: bigint
+      category: technical_identifier
+      nlp_sql_priority: low
+      sql_operations: [WHERE, COUNT, COUNT DISTINCT]
+      synonyms: [record id, row id, fact id]
+      business_rules:
+      - Identifier only; never SUM or AVG.
+      - Not stable across a reload. Never export it or store it outside the database.
+      - Not the department's application number. That is source_application_id, on the fact only.
+
+    - name: member_key
+      source_column: fact_cmss_application.member_key
+      meaning: >
+        Masked student identity - HMAC-SHA256 (64 hex characters) of the student's
+        Meghalaya One member_id, keyed with a secret held outside the database. Same
+        student, same key, across years and across schemes that use the same key (Focus+).
+      type: char(64)
+      category: person_identifier_masked
+      nlp_sql_priority: medium
+      sql_operations: [COUNT DISTINCT]
+      synonyms: [student, distinct students, unique students, unique beneficiaries, member id]
+      pii: true
+      business_rules:
+      - "PERSONAL DATA (CM-23). NEVER SELECT, DISPLAY, EXPORT, GROUP BY OR FILTER ON IT. The only permitted use is COUNT(DISTINCT member_key)."
+      - No sample_values are recorded for this column, by design.
+      - "Unique on every row of the 2026-10-23 file: COUNT(DISTINCT member_key) = COUNT(*) = 104,827 (unverified_in_db)."
+      - "When a second financial year is loaded, distinct students across years will be fewer than applications - use COUNT(DISTINCT member_key) for 'how many students ever'."
+      - "Never use it to link a CMSS student to a Focus+ member or a Homestay applicant. That cross-scheme link is prohibited - see cmss_foreign_key_augmentation.yaml."
+      - Not reversible. A user who quotes their member id cannot be looked up.
+
+    # ---- time -------------------------------------------------------------
+    - name: year_key
+      source_column: fact_cmss_application.year_key
+      meaning: Financial-year key of the application, resolved against dim_year.
+      type: smallint
+      nullable: false
+      category: time_key
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [year key, financial year key]
+      sample_values: [2025]
+      business_rules:
+      - Value is the FY start year - 2025 means FY 2025-26.
+      - NOT NULL on the fact. A GROUP BY on it drops nothing.
+      - "ONE VALUE ONLY in the 2026-10-23 file: 2025."
+
+    - name: financial_year
+      source_column: dim_year.financial_year
+      meaning: Canonical financial year of the application (April to March).
+      type: char(9)
+      category: time_dimension
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, GROUP BY, ORDER BY]
+      synonyms: [financial year, FY, fiscal year, year]
+      sample_values: ['2025-2026']
+      business_rules:
+      - "ONE VALUE ONLY: '2025-2026'. A question about any other year has NO DATA - say so, never answer 0."
+      - "NOT THE ACADEMIC YEAR (CM-21). The scholarship runs on academic sessions (2025-26 cycle opened 1 Sep 2025, closed 31 Oct 2025). The data carries only the financial year and answers are given by financial year."
+      - Trends, growth and year-on-year comparison need a second year and are refused until one is loaded.
+
+    - name: financial_year_short
+      source_column: dim_year.financial_year_short
+      meaning: Short form of the financial year.
+      type: char(7)
+      category: time_dimension
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, GROUP BY, ORDER BY]
+      synonyms: [FY short, financial year short, 2025-26]
+      sample_values: ['2025-26']
+      business_rules:
+      - Prefer this for display and for filters written from user text ('2025-26').
+      - "ONE VALUE ONLY: '2025-26'."
+
+    # ---- geography --------------------------------------------------------
+    - name: geography_key
+      source_column: fact_cmss_application.geography_key
+      meaning: Surrogate key into the conformed geography dimension.
+      type: integer
+      category: geographic_identifier
+      nlp_sql_priority: low
+      sql_operations: [WHERE, GROUP BY, COUNT DISTINCT]
+      synonyms: [geography key]
+      business_rules:
+      - Identifier only; never SUM or AVG.
+      - NOT stable across a reload. Use village_code for anything leaving the database.
+
+    - name: village_code
+      source_column: dim_geography.village_code
+      meaning: >
+        LGD village code - or, in towns, the LGD ward code (CM-13). On the 1,218
+        applications with no village it is the block's 'Unresolved' placeholder code.
+      type: integer
+      category: geographic_identifier
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY, COUNT DISTINCT]
+      synonyms: [village code, LGD village code, ward code, mapped village code]
+      sample_values: [279185, 279159, 3355, 278361, 931624]
+      business_rules:
+      - Identifier only; never SUM or AVG.
+      - "VILLAGE IDENTITY. 231 village names are shared by two or more villages (up to 8: Umsaw), so count and filter villages by village_code, never by name."
+      - "Count villages with COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved'). Without the filter the Unresolved placeholders are counted as villages."
+      - "5,902 distinct real codes in the source: 5,782 villages + 120 urban wards (unverified_in_db)."
+
+    - name: lgd_village_name
+      source_column: dim_geography.lgd_village_name
+      meaning: LGD-standardised village or ward name (the student's home locality).
+      type: varchar(200)
+      category: geographic_dimension
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [village, ward, locality, LGD village, village name, home village]
+      sample_values: [Mihmyntdu, Nongbah, 'Mawprem - Ward No.19', 'Umlyngka (Ct)', Mawlai Mawdatbaki]
+      business_rules:
+      - Display name. NOT an identity - see village_code.
+      - "Wards carry the ward in the name ('Mawprem - Ward No.19', 'Ward No. 8' in Tura). 8,541 applications sit on 120 ward codes."
+      - "'(Ct)' marks a census town; it is still a village row."
+      - Stored mixed case as the roster records it. Compare case-folded.
+
+    - name: lgd_block
+      source_column: dim_geography.lgd_block
+      meaning: >
+        LGD block name from the roster, stored UPPERCASE. In CMSS the block level also
+        holds 11 municipal boards and town committees, which the department reports as
+        blocks (CM-08).
+      type: varchar(150)
+      category: geographic_dimension
+      nlp_sql_priority: critical
+      sql_operations: [GROUP BY]
+      synonyms: [block, C&RD block, development block, municipal board, town committee, town, urban body]
+      sample_values: [LASKEIN, THADLASKEIN, RONGRAM, MAWKYRWAT, WAPUNG]
+      business_rules:
+      - "DISPLAY AND GROUPING LABEL ONLY. FILTER ON block_lgd_code - the stored spelling of the town blocks is unverified and the Tura placeholder is spelled differently (dim_geography.lgd_block_code note)."
+      - "Stored UPPERCASE. Title-case it for display."
+      - "67 block codes in CMSS: 56 rural C&RD blocks + 11 urban local bodies (Shillong MB, Tura MB, Jowai MB, Nongstoin TC, Mairang TC, Resubelpara MB, William Nagar MB, Nongpoh TC, Baghmara MB, Mawkyrwat TC, Khliehriat TC)."
+      - "Five towns share a name with a rural block (Nongstoin, Mairang, Resubelpara, Baghmara, Mawkyrwat). Resolve WHICH one before filtering."
+      - "27 block names are also village names and 26 are also constituency names (Mawlai is all three). Resolve the level before filtering."
+      - "For a grouped answer GROUP BY block_lgd_code, lgd_block - never lgd_block alone."
+
+    - name: lgd_district
+      source_column: dim_geography.lgd_district
+      meaning: LGD district name from the roster, stored UPPERCASE.
+      type: varchar(100)
+      category: geographic_dimension
+      nlp_sql_priority: critical
+      sql_operations: [GROUP BY]
+      synonyms: [district, LGD district, district name]
+      sample_values: [EAST KHASI HILLS, WEST JAINTIA HILLS, WEST GARO HILLS, RI BHOI, WEST KHASI HILLS]
+      business_rules:
+      - "DISPLAY AND GROUPING LABEL. FILTER ON district_lgd_code."
+      - Stored UPPERCASE. Title-case it for display.
+      - 12 districts, all Meghalaya.
+      - "'Eastern West Khasi Hills' (740) and 'West Khasi Hills' (279) are different districts. Never let one resolve to the other."
+
+    - name: entity_type
+      source_column: dim_geography.entity_type
+      meaning: What kind of locality the row points at - 'Village', 'Ward' or 'Unresolved'.
+      type: varchar(10)
+      category: geographic_quality
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY, FILTER]
+      synonyms: [locality type, unmapped, unresolved, no village]
+      sample_values: [Village, Ward, Unresolved]
+      business_rules:
+      - "'Unresolved' marks the 1,218 applications with no village (all paid): West Garo Hills 848 (825 Rongram, 19 Tura MB, 4 Tikrikilla), East Khasi Hills 359 (Shella Bholaganj), East Garo Hills 8, West Jaintia Hills 3."
+      - "INCLUDE Unresolved rows in State, district and block figures. EXCLUDE them from village counts, village lists, village rankings and constituency figures."
+      - "Whether the 120 CMSS ward codes carry entity_type 'Ward' or 'Village' is unverified_in_db. Both are real localities - the only filter ever needed is <> 'Unresolved'."
+
+    - name: ac_number
+      source_column: dim_geography.ac_number
+      meaning: Assembly constituency number (ECI, 1-60) of the student's home village, from the roster.
+      type: smallint
+      category: geographic_identifier
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [constituency number, AC number, assembly constituency number, MLA constituency]
+      sample_values: [36, 32, 2, 15, 6]
+      business_rules:
+      - "FILTER CONSTITUENCIES ON THIS COLUMN. Names have spelling variants (Sohiong / Sohing, Ampati / Ampathi, Tikrikilla / Tikrikila)."
+      - "All 60 constituencies are present in the source."
+      - "NULL on the Unresolved rows: a constituency total sums to 103,609, not 104,827. Say so."
+      - Identifier only; never SUM or AVG.
+      - "Comes from the roster (dim_geography), not from the source's constituency columns, which stay on the fact as constituency_name_raw / constituency_number_raw."
+
+    - name: ac_name
+      source_column: dim_geography.ac_name
+      meaning: Assembly constituency name of the student's home village, from the roster.
+      type: varchar(100)
+      category: geographic_dimension
+      nlp_sql_priority: critical
+      sql_operations: [GROUP BY]
+      synonyms: [constituency, assembly constituency, AC, MLA constituency, vidhan sabha constituency]
+      sample_values: [Mawkyrwat, Nongstoin, Jowai, Mawlai, Khliehriat]
+      business_rules:
+      - "DISPLAY LABEL. Filter on ac_number. The stored spelling and case of ac_name are unverified_in_db."
+      - "A constituency is not a district subdivision: 11 constituencies span two districts (e.g. Sutnga-Saipung, Mawthadraishan, Dalu, Selsella)."
+      - "26 constituency names are also block names. 'Mawkyrwat' can be the block, the town committee or the constituency - resolve the level first."
+
+    - name: district_lgd_code
+      source_column: fact_cmss_application.district_lgd_code
+      meaning: LGD district code of the student's home address, as mapped by the department.
+      type: integer
+      category: geographic_identifier
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [district code, LGD district code]
+      sample_values: [274, 275, 278, 276, 279]
+      business_rules:
+      - "AUTHORITATIVE. Filter and group districts on this code."
+      - "19 source rows carry code 657 (East Jaintia Hills) with the name 'Eastern West Khasi Hills'. The code is trusted: East Jaintia Hills = 5,812 applications by code, 5,793 by source name."
+      - Identifier only; never SUM or AVG.
+      - "NOT NULL on the fact."
+
+    - name: block_lgd_code
+      source_column: fact_cmss_application.block_lgd_code
+      meaning: >
+        LGD block code of the student's home address - a rural C&RD block, or the LGD
+        code of a municipal board / town committee reported as a block (CM-08).
+      type: integer
+      category: geographic_identifier
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [block code, LGD block code, town code]
+      sample_values: [1997, 1996, 1965, 1984, 249814]
+      business_rules:
+      - "AUTHORITATIVE. Filter and group blocks on this code."
+      - "Urban bodies use codes 249806-249820, 279714 and 282009. Rural blocks are four-digit codes."
+      - "The source uses the LGD block series (CM-10): Mawkynrew = 1991, Purakhasia = 7418 (CM-09)."
+      - "19 source rows carry code 2000 (Saipung) with the name 'Mairang'. The code is trusted: Saipung = 1,474 applications by code."
+      - "Comes from the FACT (the department's mapping), while lgd_block comes from the ROSTER. On the 35 has_name_code_conflict rows the two may disagree - group by block_lgd_code."
+      - Identifier only; never SUM or AVG.
+
+    # ---- money and payment ---------------------------------------------------
+    - name: amount_disbursed
+      source_column: fact_cmss_application.amount_disbursed
+      meaning: Rupees disbursed to the student by DBT for the application.
+      type: numeric(12,2)
+      nullable: true
+      unit: rupees
+      category: financial_measure
+      nlp_sql_priority: critical
+      sql_operations: [SUM, AVG, MIN, MAX]
+      synonyms: [amount disbursed, scholarship amount, amount paid, disbursement, money paid, DBT amount, assistance, grant, funds released]
+      sample_values: [6000.00]
+      business_rules:
+      - "UNIT IS RUPEES. Divide by 1e7 for crore. Do not confuse with MGNREGA expenditure, which is LAKH."
+      - "FLAT RATE: 6000 on EVERY paid application (98,751 rows), NULL on every unpaid one (6,076). There is no other value and no zero (unverified_in_db)."
+      - "Total Rs 59,25,06,000 = Rs 59.25 crore (unverified_in_db)."
+      - "NULL means NOT PAID. SUM ignores it correctly. Never coerce it to 0 in a list, and never call a NULL 'zero disbursement' without saying it means 'no amount recorded'."
+      - "AVG(amount_disbursed) is the average per PAID student and is always 6000. Average per APPLICATION is SUM(amount_disbursed) / COUNT(*) and must be labelled as such."
+      - "MAX and MIN per student are both 6000. A 'highest / lowest beneficiary' question is answered with that fact, never with a list of students."
+      - "The scheme guidelines (Section 6) allow differential rates in future. Re-check the distribution on every new extract."
+
+    - name: is_disbursed
+      source_column: fact_cmss_application.is_disbursed
+      meaning: Whether the scholarship was paid for this application.
+      type: boolean
+      nullable: false
+      category: payment_status_flag
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, COUNT, FILTER, GROUP BY]
+      synonyms: [paid, disbursed, received, beneficiary, got the scholarship, unpaid, not paid, not disbursed, pending payment]
+      sample_values: [true, false]
+      business_rules:
+      - "DEFINES A BENEFICIARY. 'Beneficiaries' / 'students paid' / 'received CMSS' = COUNT(*) FILTER (WHERE is_disbursed) = 98,751 (unverified_in_db)."
+      - "NOT NULL, so NOT is_disbursed is the true complement: 6,076 unpaid (unverified_in_db)."
+      - "DB constraint ck_cmss_disbursed: is_disbursed = (amount_disbursed IS NOT NULL). The two columns always agree."
+      - "UNPAID IS NOT REJECTED. No reason, status, defect flag or date is recorded (CM-02, CM-22). Say 'not paid (no amount recorded)'."
+
+    # ---- data quality and region ---------------------------------------------
+    - name: has_name_code_conflict
+      source_column: fact_cmss_application.has_name_code_conflict
+      meaning: The source district/block NAME disagrees with the LGD location of the row's codes.
+      type: boolean
+      nullable: false
+      default: false
+      category: data_quality_flag
+      nlp_sql_priority: low
+      sql_operations: [WHERE, COUNT, FILTER]
+      synonyms: [name code conflict, geography conflict, mismatched location]
+      business_rules:
+      - "TRUE on 35 rows (DB comment): 19 named Eastern West Khasi Hills / Mairang on Saipung villages (district 657, block 2000), and 16 named South West Garo Hills / Betasing on Demdema villages."
+      - "Codes were trusted. These are real applications - never exclude them."
+      - Surface only when a question lands on Saipung, Mairang, Betasing or Demdema, or asks about data quality.
+
+    - name: region
+      source_column: dim_geography.region
+      meaning: Hills region of the district (Garo / Khasi / Jaintia), from the 3 Sep 2026 LGD master.
+      type: varchar(10)
+      category: geographic_dimension
+      nlp_sql_priority: medium
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [region, hills, Garo Hills, Khasi Hills, Jaintia Hills]
+      sample_values: [Garo, Khasi, Jaintia]
+      business_rules:
+      - "Garo = East, North, South, South West and West Garo Hills (33,483 applications). Khasi = East, West, South West and Eastern West Khasi Hills (43,438). Jaintia = East and West Jaintia Hills (18,677)."
+      - "RI BHOI (9,229 applications) - its region value is unverified_in_db. Check before quoting a Khasi or regional total."
+      - Derived from district, so a region filter equals a district-list filter.
+
+  # =========================================================================
+  # UNDERLYING FACT - documented for lineage; query v_cmss instead
+  # =========================================================================
+  fact_cmss_application:
+    table_name: curated.fact_cmss_application
+    object_type: table
+    column_count: 24
+    grain: one row per CMSS student application (paid or not)
+    primary_key: cmss_fact_id
+    natural_key: source_application_id
+    row_count: unverified_in_db
+    row_count_note: Approx. 104,827 per the live extract; 104,827 in the source file.
+    query_preference: >
+      Use curated.v_cmss. It pre-joins dim_year and dim_geography, so the generator never
+      has to emit those joins, and it does not expose the raw source names.
+    foreign_keys:
+    - {column: geography_key, references: curated.dim_geography.geography_key, declared: true, nullable: false}
+    - {column: scheme_key,    references: curated.dim_scheme.scheme_key,       declared: true, nullable: false}
+    - {column: year_key,      references: curated.dim_year.year_key,           declared: true, nullable: false}
+    - {column: raw_id,        references: raw.source_rows.raw_id,              declared: true, nullable: true}
+    check_constraints:
+    - {name: ck_cmss_amount,     clause: "amount_disbursed IS NULL OR amount_disbursed >= 0"}
+    - {name: ck_cmss_disbursed,  clause: "is_disbursed = (amount_disbursed IS NOT NULL)"}
+    - {name: ck_cmss_member_key, clause: "member_key ~ '^[0-9a-f]{64}$'"}
+    unique_constraints:
+    - {columns: [source_application_id]}
+    columns_not_in_v_cmss:
+    - name: source_application_id
+      type: bigint
+      meaning: The source file's application id. Unique, and stable across deliveries (the 13 Oct and 23 Oct files were identical).
+      business_rules:
+      - Lineage only. Not the user-facing Unique Application Number from the portal - never offer it as a lookup.
+    - name: scheme_key
+      meaning: FK to dim_scheme. Constant for this partition.
+      business_rules: [Never a grouping key within CMSS - it has one value.]
+    - name: district_name_raw
+      type: varchar(100)
+      meaning: District name exactly as the source wrote it.
+    - name: block_name_raw
+      type: varchar(150)
+      meaning: Block name exactly as the source wrote it, e.g. 'Tura Municipal Board-Municipal Board'.
+    - name: village_code_raw
+      type: integer
+      meaning: Village code exactly as the source wrote it (NULL on 1,218 rows).
+    - name: village_name_raw
+      type: varchar(200)
+      meaning: Village name exactly as the source wrote it.
+    - name: constituency_name_raw
+      type: varchar(100)
+      meaning: Source constituency name, mixed case ('Mawkyrwat', 'Sohing', 'Ampathi').
+    - name: constituency_number_raw
+      type: varchar(120)
+      meaning: Source number-and-name string ('36 MAWKYRWAT'). Holds the name too, despite the column name.
+    - name: is_repeat_member_in_year
+      type: boolean
+      meaning: TRUE when the same member_key has more than one application in the same financial year.
+      business_rules: [FALSE on every row of the 2026-10-23 file. Not exposed in the view.]
+    - name: raw_id
+      meaning: FK to raw.source_rows for full lineage back to the source cell.
+      business_rules: [Not readable by megh_readonly - raw is outside the read boundary.]
+    - name: source_row_num
+      meaning: Audit.
+    - name: batch_id
+      type: uuid
+      meaning: Audit - the load batch.
+    - name: source_system
+      type: varchar(50)
+      default: "'cmss'"
+      meaning: Audit - constant 'cmss' for this partition.
+    - name: ingested_at
+      type: timestamptz
+      meaning: Audit.
+    dropped_at_ingest:
+    - column: member_id
+      reason: >
+        Personal identifier (CM-23). Replaced by member_key, an irreversible HMAC-SHA256.
+        A user quoting their member id cannot be looked up.
+    removed_from_source_by_department:
+    - column: student names
+      reason: Removed from the file (CM-16, CM-17).
+    - column: gender
+      reason: Removed from the file (CM-15). Every gender question is refused.
+    - column: institution_type
+      reason: Removed from the file (CM-03, CM-04, CM-05). Every institution question is refused.
+    - column: draft_requestid
+      reason: Removed from the file (CM-14).
+    - column: assembly_constituency_code (internal series)
+      reason: Removed (CM-06). Constituency comes from the roster's ECI number.
+
+  # =========================================================================
+  # DIMENSIONS
+  # =========================================================================
+  dim_scheme:
+    table_name: curated.dim_scheme
+    object_type: table
+    column_count: 10
+    grain: one row per scheme
+    primary_key: scheme_key
+    shared_across_schemes: true
+    columns:
+    - {name: scheme_key,       type: smallint,     nullable: false, meaning: PK.}
+    - {name: scheme_code,      type: varchar(40),  nullable: false, meaning: "Short scheme code - 'CMSS' for this partition."}
+    - {name: scheme_name,      type: text,         nullable: false, meaning: Full scheme name.}
+    - {name: ministry,         type: varchar(100), nullable: true,  meaning: Owning department.}
+    - {name: grain_note,       type: text,         nullable: false, meaning: What one fact row means for this scheme.}
+    - {name: money_unit,       type: varchar(20),  nullable: false, meaning: The scheme's money unit.}
+    - {name: time_semantics,   type: text,         nullable: false, meaning: What the year on a row means.}
+    - {name: created_at,       type: timestamptz,  nullable: false, meaning: Audit.}
+    - {name: data_as_of,       type: date,         nullable: true,  meaning: The date the data is current to.}
+    - {name: data_as_of_basis, type: text,         nullable: true,  meaning: How data_as_of was determined.}
+    business_rules:
+    - "AUTHORITY ON MONEY UNIT. Read money_unit rather than hardcoding 'rupees' - three units are live across megh_db. Expected 'rupees' for CMSS (unverified_in_db)."
+    - "data_as_of is the 'as at' date every CMSS answer should carry. The source file is dated 2026-10-23."
+    - Not pre-joined into v_cmss. Read it separately when a unit or as-at date is needed.
+
+  dim_year:
+    table_name: curated.dim_year
+    object_type: table
+    column_count: 9
+    row_count: 42
+    grain: one row per financial year
+    primary_key: year_key
+    shared_across_schemes: true
+    coverage_for_cmss: FY 2025-26 only
+    business_rules:
+    - Pre-joined into v_cmss as financial_year and financial_year_short.
+    - "dim_year holds 42 years for all schemes. That a year EXISTS in dim_year does not mean CMSS has data for it - use curated.v_data_coverage or the CMSS years_present list."
+    - data_quality_note on a year must be surfaced with any answer covering that year.
+
+  dim_geography:
+    table_name: curated.dim_geography
+    object_type: table
+    column_count: 16
+    row_count: 7436
+    grain: one row per LGD village or ward, plus Unresolved placeholders
+    primary_key: geography_key
+    natural_key: village_code
+    shared_across_schemes: true
+    business_rules:
+    - "Master since 2026-10-23: the LGD master of 3 Sep 2026."
+    - Pre-joined into v_cmss. Do not join it yourself.
+    - "Carries lgd_district_code, lgd_block_code and region. v_cmss takes district_lgd_code and block_lgd_code from the FACT instead (the department's mapping)."
+    - "lgd_block_code covers 56 rural C&RD blocks plus 11 municipal boards / town committees - the same 67 CMSS reports."
+    - "Names are stored UPPERCASE for block and district."
+    - "entity_type 'Unresolved' rows are placeholders; on_roster is FALSE for every one."
+
+  # =========================================================================
+  # LOOKUP AND COVERAGE VIEWS - read, never join to v_cmss
+  # =========================================================================
+  v_place_names:
+    table_name: curated.v_place_names
+    object_type: view
+    grain: one row per place name per level per district (and block, for villages)
+    columns:
+    - {name: place_name,            type: text,    meaning: Upper-cased name.}
+    - {name: level,                 type: text,    meaning: "village / block / assembly constituency / district."}
+    - {name: lgd_district,          type: varchar, meaning: District.}
+    - {name: lgd_block,             type: varchar, meaning: Block (village level only).}
+    - {name: villages,              type: bigint,  meaning: Villages under the name at that level.}
+    - {name: places_with_this_name, type: bigint,  meaning: How many places share the name.}
+    - {name: levels_with_this_name, type: text,    meaning: Every level the name exists at.}
+    business_rules:
+    - "LOOK A BARE NAME UP HERE BEFORE FILTERING. MAWLAI is a village, a block and a constituency. TURA is only a municipal board and two constituencies (North / South Tura)."
+    - Built over the whole roster, not only CMSS - a name found here may have no CMSS applications.
+
+  v_data_coverage:
+    table_name: curated.v_data_coverage
+    object_type: view
+    grain: one row per chatbot-facing dataset
+    business_rules:
+    - "Check before answering for a specific year. A year not in years_present means NO DATA - say so, never answer 0."
+    - "For CMSS: years_present = 2025-26 (unverified_in_db)."
+
+# ===========================================================================
+semantic_rules:
+
+  geography_hierarchy:
+  - lgd_district
+  - lgd_block
+  - lgd_village_name
+
+  geography_codes:
+  - district_lgd_code
+  - block_lgd_code
+  - village_code
+  - ac_number
+  geography_codes_note: >
+    CMSS carries all four codes on the view. They are authoritative over the names:
+    19 source rows contradict their district and block names, the town blocks' stored
+    spellings are unverified, and constituency names have spelling variants. Filter on
+    codes; use names for display. Village identity is village_code (231 names shared).
+
+  geography_meaning:
+    critical: true
+    text: >
+      The geography is the STUDENT'S HOME ADDRESS, not the institution (CM-20). Phrase
+      every answer as 'students from <place>', never 'students studying in <place>'.
+
+  towns_as_blocks_rule: >
+    Municipal boards and town committees are reported as blocks (CM-08): 11 urban bodies,
+    10,173 applications. A block list or block ranking includes them. 'Rural blocks only'
+    excludes block_lgd_code IN (249806, 249807, 249808, 249809, 249810, 249811, 249812,
+    249814, 249820, 279714, 282009). Wards take the place of villages in towns (CM-13).
+
+  advisory_localities: [ac_number, ac_name, region]
+  advisory_localities_note: >
+    Assembly constituency is a parallel electoral hierarchy, NULL on the 1,218 Unresolved
+    rows, so its totals reach 103,609, not the State total. Region is a grouping of districts.
+
+  unresolved_rule:
+    critical: true
+    text: >
+      entity_type = 'Unresolved' marks the 1,218 applications with no village (all paid).
+      INCLUDE them in State, district and block counts and sums. EXCLUDE them
+      (entity_type <> 'Unresolved') from village counts, village lists, village rankings
+      and constituency figures. Never the other way round.
+
+  time_dimension: financial_year_short
+  time_dimensions_available: [year_key, financial_year, financial_year_short]
+  time_meaning: FINANCIAL_YEAR_OF_APPLICATION
+  time_runtime_rule: >
+    One financial year is loaded: 2025-26. A question naming 2025-26, 'this year' (as the
+    data's year) or no year is answered for 2025-26. A question naming any other year is
+    answered 'no CMSS data is loaded for <year>' - never 0. Trend, growth, 'each year' and
+    year-on-year comparison are answered with the single year and the statement that a
+    trend needs more years.
+  academic_year_rule: >
+    The academic year is not the financial year (CM-21). 'Academic session 2026-27' or
+    'this admission cycle' cannot be mapped to the data. Answer by financial year and say so.
+  time_null_rule: year_key is NOT NULL; a GROUP BY on financial year drops nothing.
+  no_date_columns: >
+    No application, verification, sanction or payment date exists (CM-22). 'When was it
+    paid', 'this month', 'last quarter' and 'paid after <date>' cannot be answered.
+
+  beneficiary_term:
+    status: DEFINED_AS_PAID_APPLICATION
+    reason: >
+      The file holds every application, paid or not (CM-01: 'check whether amount is
+      disbursed or not'). A beneficiary is a student who received the scholarship.
+    runtime_behavior: >
+      'How many beneficiaries / students received / students paid' is
+      COUNT(*) FILTER (WHERE is_disbursed). State the application total alongside it.
+    applications_behavior: >
+      'How many applications / applicants / students applied / records' is COUNT(*).
+    distinct_behavior: >
+      'How many unique / distinct students' is COUNT(DISTINCT member_key). Equal to
+      COUNT(*) in 2025-26; different once a second year exists.
+    name_lookup: >
+      NOT POSSIBLE. Student names were removed from the file and member_id is hashed.
+      A list of named or identified students must be refused, with an offer of counts by
+      village or block instead.
+
+  financial_measures:
+    amount_disbursed: SUM(amount_disbursed) - rupees. Default for a bare 'amount'.
+    flat_rate_rule:
+      critical: true
+      text: >
+        Every paid application received exactly Rs 6,000. SUM(amount_disbursed) always
+        equals 6,000 x the paid count. AVG, MIN and MAX per paid student are all Rs 6,000,
+        in every district, block and village. Never present a table of identical averages
+        as if they varied, and never rank students by amount.
+    average_per_application: >
+      SUM(amount_disbursed) / COUNT(*) - Rs 5,652.23 statewide. It varies only with the
+      paid share. Label it 'per application (paid and unpaid)' whenever it is used.
+    unit_rule: >
+      Rupees. Divide by 1e7 for crore (Rs 59.25 crore total) or 1e5 for lakh, and state the
+      unit in every answer. MGNREGA expenditure is LAKH; never put a CMSS rupee figure
+      beside it unconverted.
+    projection_note: >
+      The 2025-26 budget projected ~80,000 students and ~Rs 48 crore a year. The data shows
+      98,751 paid and Rs 59.25 crore. Report the data; mention the projection only when asked.
+
+  payment_status_dimension: is_disbursed
+  payment_status_rule: >
+    is_disbursed is NOT NULL, so NOT is_disbursed is the true complement (6,076 unpaid).
+    Unpaid carries no reason, status or date (CM-02, CM-22) - never call it rejected,
+    pending, defective or failed. 'Zero or missing disbursement' means the unpaid rows:
+    there are no zero amounts.
+
+  not_held_dimensions:
+    gender: Removed from the file (CM-15).
+    institution_type: Removed from the file (CM-03, CM-04, CM-05).
+    institution_name_or_location: Never in the file. Inside vs outside Meghalaya is unknown.
+    course_or_class_level: Not in the file (Class XI to Ph.D. cannot be split).
+    marks: Not in the file.
+    application_track_fresh_or_renewal: Not in the file.
+    application_status_or_reason: Not in the file (CM-02, CM-22).
+    payment_date: Not in the file (CM-22).
+    income_caste_tribe_community: Never collected - the scheme has no income or community criterion.
+    student_name: Removed from the file (CM-16, CM-17).
+  not_held_rule: >
+    A question on any not-held dimension is refused with the reason and an offer of the
+    nearest answerable breakdown (district, block, constituency, village or paid / unpaid).
+    Never approximate one dimension with another.
+
+  data_quality_flags: [has_name_code_conflict]
+  data_quality_rule: >
+    has_name_code_conflict marks 35 real rows whose source names disagree with their codes.
+    Never excluded. Surface it only when a question lands on Saipung, Mairang, Betasing or
+    Demdema, or asks about data quality.
+
+  null_behavior: >
+    NULL is missing; never silently coerce NULL to zero. amount_disbursed is NULL exactly
+    when is_disbursed is FALSE. ac_number / ac_name are NULL on Unresolved rows.
+
+  identifier_behavior:
+  - cmss_fact_id is a technical identifier, unstable across reloads.
+  - member_key is a masked person identifier - COUNT(DISTINCT) only, never displayed.
+  - village_code, geography_key, district_lgd_code, block_lgd_code and ac_number are geographic identifiers.
+  - year_key is a dimension key.
+  - Identifiers and keys must never be SUMed or AVGed.
+  - geography_key and cmss_fact_id are unstable across a reload - never export them.
+
+# ===========================================================================
+nlp_sql_rules:
+  read_only: true
+  allowed_operations: [SELECT]
+  default_from: curated.v_cmss
+
+  aggregation_defaults:
+    applications: COUNT(*)
+    records: COUNT(*)
+    beneficiaries: COUNT(*) FILTER (WHERE is_disbursed)
+    students_paid: COUNT(*) FILTER (WHERE is_disbursed)
+    unpaid_applications: COUNT(*) FILTER (WHERE NOT is_disbursed)
+    distinct_students: COUNT(DISTINCT member_key)
+    amount_disbursed: SUM(amount_disbursed)
+    amount_disbursed_crore: ROUND(SUM(amount_disbursed) / 1e7, 2)
+    average_per_beneficiary: AVG(amount_disbursed)
+    average_per_application: ROUND(SUM(amount_disbursed) / COUNT(*), 2)
+    paid_share_pct: ROUND(100.0 * COUNT(*) FILTER (WHERE is_disbursed) / COUNT(*), 2)
+    distinct_villages: COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')
+
+  mandatory_predicate:
+    clause: none
+    note: >
+      Unlike PMAY's NOT is_placeholder, CMSS has no row to exclude from counts. The only
+      conditional exclusion is entity_type <> 'Unresolved', and only for village-level and
+      constituency-level questions.
+
+  geography_filter_behavior: >
+    Filter on codes: district_lgd_code, block_lgd_code, village_code, ac_number. Group on
+    the code and its display name together (GROUP BY district_lgd_code, lgd_district).
+    Never filter lgd_block or lgd_district with a literal typed by the user.
+
+  date_behavior: >
+    Only financial year exists, with one value. A year filter uses financial_year_short.
+    No calendar-year, month, quarter or date question is answerable.
+
+  comparison: >
+    Comparisons are across geography and paid / unpaid. Comparison across years is refused
+    until a second year is loaded; answer for 2025-26 and say a comparison is not possible yet.
+
+  ranking: >
+    ORDER BY the requested aggregate and default top 5 when N is omitted for plural 'top'
+    requests; singular 'highest / lowest' uses LIMIT 1. Rank on counts (applications or
+    paid) - amount gives the same order as paid, because the rate is flat. Village and
+    constituency rankings exclude Unresolved rows. Ties are shown in full.
+
+  entity_behavior: >
+    Resolve district, block (including towns), village / ward and constituency to their
+    codes using cmss_entity_resolver.yaml before SQL generation. District and block names
+    are stored UPPERCASE; filters use codes, so casing never reaches the SQL.
+
+  unknown_entity: Do not guess; return not-found/did-you-mean.
+
+  join_behavior: >
+    v_cmss pre-joins dim_year and dim_geography, so the generator emits no joins for
+    ordinary questions. Never join fact_cmss_application or v_cmss row-to-row to any other
+    scheme's fact or view - see cmss_foreign_key_augmentation.yaml.
+
+  cross_scheme_behavior: >
+    No cross-scheme view includes CMSS. A cross-scheme question ('villages with CMSS
+    students and PMAY houses') aggregates each scheme SEPARATELY to village_code or
+    district, then combines the aggregates. Never match students across schemes through
+    member_key.
+
+  money_behavior: >
+    v_cmss is rupees. Convert explicitly and state the unit. Every money answer says the
+    rate is a flat Rs 6,000 per paid student.
+
+  list_behavior: >
+    No student-level list is ever returned - there is no name and member_key is masked.
+    'List / show the beneficiaries in <place>' returns counts by the next level down
+    (block -> villages, village -> paid and unpaid count) and says why.
+
+# ===========================================================================
+few_shot_examples:
+
+- question: How many beneficiaries are recorded under CMSS?
+  explanation: A beneficiary is a student who was paid. The application total is reported alongside it.
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*) AS applications
+    FROM curated.v_cmss;
+
+- question: How many CMSS applications are there?
+  explanation: One row is one application, paid or not.
+  sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_cmss;
+
+- question: How many unique students applied for CMSS?
+  explanation: member_key is the masked student identity. Equal to the application count in 2025-26, but written to stay correct when more years arrive.
+  sql: |
+    SELECT COUNT(DISTINCT member_key) AS distinct_students
+    FROM curated.v_cmss;
+
+- question: What is the total amount disbursed under CMSS?
+  explanation: Money is rupees in this view, so convert to crore explicitly. NULL rows are unpaid and SUM ignores them.
+  sql: |
+    SELECT ROUND(SUM(amount_disbursed) / 1e7, 2) AS disbursed_crore,
+           COUNT(*) FILTER (WHERE is_disbursed) AS students_paid
+    FROM curated.v_cmss;
+
+- question: How many CMSS beneficiaries are recorded in East Khasi Hills?
+  explanation: Filter districts on the authoritative LGD code (274), never on the uppercase name.
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE district_lgd_code = 274;
+
+- question: What is the total CMSS amount disbursed in each district?
+  explanation: Group on the code and its display name together. Twelve districts, so no LIMIT is needed.
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) FILTER (WHERE is_disbursed) AS students_paid,
+           ROUND(SUM(amount_disbursed) / 1e7, 2) AS disbursed_crore
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY disbursed_crore DESC;
+
+- question: What is the total CMSS amount disbursed in Laskein block?
+  explanation: Blocks are filtered on block_lgd_code (Laskein = 1997). Rupees for a single block are shown in lakh.
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS students_paid,
+           ROUND(SUM(amount_disbursed) / 1e5, 2) AS disbursed_lakh
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 1997;
+
+- question: How many students from Shillong Municipal Board received CMSS?
+  explanation: Towns are reported as blocks (CM-08). Shillong Municipal Board is block_lgd_code 249814.
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS students_paid,
+           COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 249814;
+
+- question: How many CMSS beneficiaries are recorded in Mawkyrwat constituency?
+  explanation: Constituency is filtered on the ECI number (36). Unresolved rows carry no constituency, so they never match.
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE ac_number = 36;
+
+- question: Give me a constituency-wise summary of CMSS beneficiaries and total disbursement.
+  explanation: Constituency totals exclude the 1,218 Unresolved rows, which have no constituency. Sixty constituencies.
+  sql: |
+    SELECT ac_number, ac_name,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*) AS applications,
+           ROUND(SUM(amount_disbursed) / 1e5, 2) AS disbursed_lakh
+    FROM curated.v_cmss
+    WHERE entity_type <> 'Unresolved'
+    GROUP BY ac_number, ac_name
+    ORDER BY ac_number;
+
+- question: What is the total amount disbursed to beneficiaries from Mihmyntdu village?
+  explanation: Villages are resolved to village_code first (Mihmyntdu = 279185) because 231 village names repeat.
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS students_paid,
+           SUM(amount_disbursed) AS disbursed_rupees
+    FROM curated.v_cmss
+    WHERE village_code = 279185;
+
+- question: How many villages have at least one CMSS applicant?
+  explanation: Village identity is the LGD code, and the Unresolved placeholders are not villages.
+  sql: |
+    SELECT COUNT(DISTINCT village_code) AS villages
+    FROM curated.v_cmss
+    WHERE entity_type <> 'Unresolved';
+
+- question: How many CMSS beneficiaries are recorded for 2025-26?
+  explanation: 2025-26 is the only financial year loaded.
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26';
+
+- question: How many beneficiaries received CMSS assistance in each financial year?
+  explanation: The grouping is correct and will widen when more years load. Today it returns one row, and the answer must say a trend needs more years.
+  sql: |
+    SELECT financial_year_short,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           ROUND(SUM(amount_disbursed) / 1e7, 2) AS disbursed_crore
+    FROM curated.v_cmss
+    GROUP BY financial_year_short
+    ORDER BY financial_year_short;
+
+- question: What is the average amount disbursed per CMSS beneficiary?
+  explanation: AVG over paid rows is the flat rate. The per-application figure is shown beside it and labelled, because it is a different number.
+  sql: |
+    SELECT ROUND(AVG(amount_disbursed), 2) AS average_per_paid_student,
+           ROUND(SUM(amount_disbursed) / COUNT(*), 2) AS average_per_application
+    FROM curated.v_cmss;
+
+- question: How many CMSS applications have zero or missing disbursement amounts?
+  explanation: There are no zero amounts. Missing means unpaid, and is_disbursed is the NOT NULL flag for it.
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE NOT is_disbursed) AS not_paid,
+           COUNT(*) FILTER (WHERE amount_disbursed = 0) AS zero_amount
+    FROM curated.v_cmss;
+
+- question: How many beneficiaries received more than Rs 5,000 under CMSS?
+  explanation: Every paid student received Rs 6,000, so this is the paid count. The answer must say so.
+  sql: |
+    SELECT COUNT(*) AS students_above_5000
+    FROM curated.v_cmss
+    WHERE amount_disbursed > 5000;
+
+- question: Which district has the highest number of CMSS beneficiaries?
+  explanation: Singular superlative - group by district code and name, order descending, LIMIT 1.
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY beneficiaries_paid DESC
+    LIMIT 1;
+
+- question: Top blocks by number of CMSS beneficiaries
+  explanation: No N supplied, so the ranking rule defaults to top 5. Towns are blocks and are included.
+  sql: |
+    SELECT block_lgd_code, lgd_block,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY beneficiaries_paid DESC
+    LIMIT 5;
+
+- question: Which blocks have the highest share of unpaid CMSS applications?
+  explanation: A share needs both counts. Unpaid carries no reason, so the answer reports the share only.
+  sql: |
+    SELECT block_lgd_code, lgd_block,
+           COUNT(*) AS applications,
+           COUNT(*) FILTER (WHERE NOT is_disbursed) AS not_paid,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE NOT is_disbursed) / COUNT(*), 1) AS not_paid_pct
+    FROM curated.v_cmss
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY not_paid_pct DESC
+    LIMIT 5;
+
+- question: Generate a block-wise CMSS report showing beneficiary count, total disbursement, and average assistance.
+  explanation: Average per paid student is Rs 6,000 in every block, so the report shows the per-application average, which is the figure that varies, and labels it.
+  sql: |
+    SELECT district_lgd_code, lgd_district, block_lgd_code, lgd_block,
+           COUNT(*) AS applications,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           SUM(amount_disbursed) AS disbursed_rupees,
+           ROUND(SUM(amount_disbursed) / COUNT(*), 2) AS average_per_application
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district, block_lgd_code, lgd_block
+    ORDER BY lgd_district, lgd_block;
+
+- question: Find all CMSS beneficiaries from villages within Mawkynrew block.
+  explanation: No student-level list exists (names removed, id masked). Answer with a count per village in the block, excluding Unresolved placeholders.
+  sql: |
+    SELECT village_code, lgd_village_name,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE block_lgd_code = 1991
+      AND entity_type <> 'Unresolved'
+    GROUP BY village_code, lgd_village_name
+    ORDER BY beneficiaries_paid DESC;
+
+- question: How many CMSS applications have no village recorded?
+  explanation: Unresolved rows are real, paid applications whose village could not be mapped. They count in district and block totals.
+  sql: |
+    SELECT district_lgd_code, lgd_district, lgd_block, COUNT(*) AS applications_without_village
+    FROM curated.v_cmss
+    WHERE entity_type = 'Unresolved'
+    GROUP BY district_lgd_code, lgd_district, lgd_block
+    ORDER BY applications_without_village DESC;
+
+- question: How many CMSS students are from towns versus rural blocks?
+  explanation: The 11 urban local bodies are identified by their block codes.
+  sql: |
+    SELECT CASE WHEN block_lgd_code IN (249806, 249807, 249808, 249809, 249810, 249811,
+                                        249812, 249814, 249820, 279714, 282009)
+                THEN 'Town (municipal board / town committee)'
+                ELSE 'Rural block' END AS area_type,
+           COUNT(*) AS applications,
+           COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid
+    FROM curated.v_cmss
+    GROUP BY 1
+    ORDER BY applications DESC;
+
+- question: How many CMSS beneficiaries are there in the Garo Hills region?
+  explanation: Region is a district grouping from the LGD master. Garo Hills is stored as 'Garo'.
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid,
+           COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE region = 'Garo';
+
+- question: What is the paid percentage of CMSS applications in each district?
+  explanation: Paid share by district. Never call the remainder rejected.
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) AS applications,
+           COUNT(*) FILTER (WHERE is_disbursed) AS paid,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE is_disbursed) / COUNT(*), 2) AS paid_pct
+    FROM curated.v_cmss
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY paid_pct;
+
+# ---- questions that must be refused -----------------------------------
+- question: How many male and female beneficiaries are recorded under CMSS?
+  explanation: >
+    Gender was removed from the CMSS file (CM-15) and is not in the curated layer.
+    Refuse and offer the same count by district, block or constituency.
+  sql: null
+
+- question: How many beneficiaries are enrolled in private professional institutions?
+  explanation: >
+    Institution type was removed from the CMSS file (CM-03, CM-04, CM-05). No column
+    records the institution, its type or whether it is inside Meghalaya. Refuse and offer
+    a geographic breakdown of the student's home address.
+  sql: null
+
+- question: List all CMSS beneficiaries from Dalu block.
+  explanation: >
+    No student-level list exists. Names were removed (CM-16) and member_id is hashed to
+    member_key, which must never be displayed (CM-23). Offer the count of beneficiaries
+    per village in Dalu instead.
+  sql: null
+
+- question: Which beneficiaries have received the highest amount under CMSS?
+  explanation: >
+    Every paid student received exactly Rs 6,000, so there is no highest or lowest, and
+    no student can be named. State the flat rate and the paid count.
+  sql: null
+
+- question: Compare the number of beneficiaries and total disbursement between 2024-25 and 2025-26.
+  explanation: >
+    Only 2025-26 is loaded (CMSS was notified in August 2025; there is no 2024-25 cycle in
+    the data). Answer 2025-26 and say the comparison year is not held - never answer 0.
+  sql: null
+
+- question: Why were 6,076 CMSS applications not paid?
+  explanation: >
+    The file has no application status, rejection reason, defect flag or payment date
+    (CM-02, CM-22). Report the unpaid count and say the reason is not recorded. Never
+    describe them as rejected.
+  sql: null
+
+- question: When was the CMSS scholarship paid in Ri Bhoi?
+  explanation: >
+    No payment date exists (CM-22). Only the financial year 2025-26 is recorded. Offer the
+    paid count for Ri Bhoi in 2025-26.
+  sql: null
+
+- question: How many Class XII students received CMSS?
+  explanation: >
+    Course and class level are not in the file. The scheme covers Class XI to Ph.D. at one
+    flat rate, so nothing in the data distinguishes levels. Refuse and offer the total.
+  sql: null
+
+- question: How many students studying outside Meghalaya received CMSS?
+  explanation: >
+    Institution location is not recorded (CM-05). The geography in the data is the
+    student's HOME address (CM-20), so it cannot answer where they study.
+  sql: null
+
+- question: How many CMSS beneficiaries are Scheduled Tribe students?
+  explanation: >
+    CMSS has no community criterion and records no caste, tribe or income. Refuse; do not
+    confuse CMSS with the NSP Post-Matric Scholarship for ST students, a different scheme.
+  sql: null
+
+- question: Show the member id of students paid in Jowai.
+  explanation: >
+    member_id is personal data hashed to member_key at ingest (CM-23). It is never
+    selected or displayed. Offer the paid count for Jowai Municipal Board or Jowai
+    constituency instead.
+  sql: null
+
+- question: Which CMSS students also received Focus Plus support?
+  explanation: >
+    The two schemes share the same member_key hash, but a row-level match of people across
+    schemes is prohibited. Offer each scheme's count by district or village separately.
+  sql: null
+
+- question: What is the total of all village LGD codes in CMSS?
+  explanation: >
+    LGD codes are identifiers, not measures. SUM on village_code is semantically invalid.
+    Decline and offer COUNT(DISTINCT village_code) instead.
+  sql: null
+
+- question: Mark the unpaid CMSS applications as paid.
+  explanation: The read role permits SELECT only. Refuse rather than translating into write SQL.
+  sql: null

@@ -937,6 +937,39 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
+### D-102 — New schemes are onboarded by a separate tool that learns from the onboarded ones (2026-11-06)
+- **Date:** 2026-11-05/06. User: automate onboarding a 7th scheme and future ones, "without any hard coding",
+  in a tool "not in current project", production grade.
+- **Context:** a new scheme had to be added by hand to ~186 per-scheme registries in 40+ files (D-079 had mapped
+  ~124). Some had already drifted:
+  - edge `profanity` names 5 schemes;
+  - `translate.py` names 5;
+  - `config.APP_NAME` names 4;
+  - c13 `_CROSS_AC_RECORDED` misses CM Elevate.
+
+  An unknown scheme also hit unguarded lookups (c05 `_BANK_NOT_HELD_TEXT[...]`) and MGNREGA fallbacks
+  (c08 `_scheme_village_names`, followups dispatch).
+- **Decision:** `scheme-onboarder` (outside this repo, at `Desktop\MEGH-LANG\scheme-onboarder`). It edits this
+  repo only on a new branch `onboard/<slug>-<date>` and never pushes. It learns everything from this repo:
+  - **Scheme facts:** from the `scheme_registry` AST and `data/<folder>/` resolvers.
+  - **Registries:** found by a code scan.
+  - **Entries:** a template must reproduce every onboarded entry; membership comes from a fact rule that the
+    registry itself mentions.
+  - **Everything else:** gateway drafts through `app.llm.call_model` (composer / coder roles), or values the SME
+    pins in `data/<folder>/scheme.yaml`. Both are checked: parse, key, shape, and SQL through `db.run_readonly`.
+  - **Blocking:** open questions, drafts and held entries stop `apply`.
+  - **Tests:** the project's own suites, compared against the original branch, and acceptance through
+    `tests/nl2sql_eval` for every scheme.
+- **Not chosen:** migrating every registry onto `scheme_registry` (a refactor of working code across 40+ files;
+  D-079 kept the guard approach), and a fully autonomous agent (nobody accountable for the numbers).
+- **Evidence (2026-11-06):** a leave-one-out test reproduced 85 entries exactly, 13 prose rewrites and 3
+  differing entries (MGNREGA legacy file names). Of 30 wrong memberships, 22 are the CM Elevate pair or KI-445.
+  The rest became questions or drafts. The tool's own 27 tests pass, including an end-to-end onboarding of a
+  synthetic project with rollback. The live check, gateway drafting (47/63 accepted on a dummy without a view) and
+  acceptance (Focus Plus 11/12) were verified on 2026-11-06 with the VPN.
+- **Status:** Active. It does not replace review: scheme-specific rules (namesakes, counting rules) are still
+  written by hand.
+
 ### D-101 — CM Elevate "status" is the file status, not current_file_status (2026-11-04)
 - **Date:** 2026-11-04. User: "for this kind of status questions … you need to refer file status column. Not okay.
   Current file status." Ingestion team, `CHATBOT_DB_CHANGES_2026-11-04.md` (reply to `docs/CM_Elevate_DB_Issues.md`

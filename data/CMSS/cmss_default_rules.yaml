@@ -1,0 +1,524 @@
+# NOT LOADED BY THE APP (see app/annotations.py) - kept as the scheme team's reference only.
+# Counts quoted below were computed from the CMSS source CSV (README, 2026-11-04) and are not yet checked
+# against megh_db. Never wire this file into the app without re-checking every figure against megh_db;
+# tests/test_db_changes_2026_10_26.py fails if app code reads it.
+# cmss_default_rules.yaml
+#
+# Default rules for CMSS - node 5.5. Runs after the clarification gate.
+# Each rule fills a missing detail silently and hands the response composer an
+# assumption line, so the user can correct it without being interrupted first.
+# Editable by analysts - no code change needed.
+#
+# A condition must live in EITHER the clarification file OR this one. The gate runs
+# first, so any condition present in both will always ask and never default.
+# {placeholders} are filled from the resolved query at runtime.
+#
+# ===========================================================================
+# v1.0 - 2026-11-04 - FIRST VERSION, WRITTEN AGAINST THE CURATED STAR SCHEMA
+#
+# Target: curated.v_cmss over curated.fact_cmss_application (megh_db).
+#
+# What makes CMSS's defaults different from PMAY's:
+#
+#   * there is NO mandatory exclusion predicate - every row is a real application
+#     (PMAY's NOT is_placeholder has no CMSS counterpart)
+#   * "beneficiary" is DEFAULTED to a PAID student, and the application total is
+#     always shown beside it - the file holds paid and unpaid applications (CM-01)
+#   * the money is a flat Rs 6,000, so average, per-area average and amount
+#     thresholds are defaulted to a statement of the flat rate, not a table
+#   * there is one financial year, so every time default lands on 2025-26 and any
+#     other year is left to the gate
+#   * geography is filtered by LGD CODE (district_lgd_code, block_lgd_code,
+#     ac_number, village_code), never by a name literal
+#   * towns are blocks (CM-08) and wards are villages (CM-13) by default
+#   * the one conditional exclusion is entity_type <> 'Unresolved', for village and
+#     constituency questions ONLY
+#
+# EVERY NUMBER IN AN assumption_text BELOW IS A SOURCE-FILE FIGURE
+# (datasets/CMSS/CMSS - 2026-10-23.csv, profiled 2026-11-04) AND HAS NOT BEEN
+# RE-MEASURED AGAINST megh_db. The live table comments quote the same figures, but
+# re-verify before these reach a user.
+# ===========================================================================
+#
+# Reserved for cmss_classification_rules.yaml, not defaulted here: any year other
+# than 2025-26, year comparison, trend or growth, academic or calendar year, months
+# and dates; "rejected" and "pending"; student lists and lookups; highest or lowest
+# student; gender and institution type; a name shared by a town and a rural block;
+# Tura; Shillong; multi-level names; shared village names; Eastern West vs West
+# Khasi Hills; constituencies spanning two districts; Khasi region with Ri Bhoi;
+# rural-only vs with-towns; and anything the source cannot answer at all.
+
+default_rules:
+
+  # ---- population - fires before everything else -------------------------
+  - condition: "payment_status_unspecified_in_application_count"
+    default_value: "all_applications_paid_and_unpaid"
+    assumption_text: "Counting every application in the data, paid and not paid ({application_count} in all)."
+    note: The file holds every application (CM-01). Filtering to paid silently would hide 5.8%.
+
+  - condition: "beneficiary_term"
+    default_value: "paid_applications"
+    assumption_text: "A beneficiary is a student who was paid the scholarship. {paid_count} of {application_count} applications were paid."
+    sql_effect: "COUNT(*) FILTER (WHERE is_disbursed)"
+    note: >
+      critical - 'beneficiary', 'received', 'got the scholarship', 'covered' all default
+      here. The application total travels with the answer so nothing is hidden.
+
+  - condition: "application_term"
+    default_value: "all_applications"
+    assumption_text: "Counting applications, paid and not paid."
+    sql_effect: "COUNT(*)"
+
+  - condition: "student_term_unqualified"
+    default_value: "show_applications_and_paid"
+    assumption_text: "'Students' is shown two ways - students who applied ({application_count}) and students paid ({paid_count})."
+    note: Each student has one application in 2025-26, so applications = students who applied.
+
+  - condition: "distinct_student_term"
+    default_value: "count_distinct_member_key"
+    assumption_text: "Counting unique students by their masked Meghalaya One id; in 2025-26 every student has exactly one application."
+    sql_effect: "COUNT(DISTINCT member_key)"
+
+  - condition: "unresolved_rows_in_state_district_or_block_total"
+    default_value: "include"
+    assumption_text: "Applications with no village recorded are included - they still belong to a known block and district."
+    note: 1,218 applications, all paid. Excluding them under-reports West Garo Hills by 848 and East Khasi Hills by 359.
+
+  - condition: "unresolved_rows_in_village_question"
+    default_value: "exclude_and_state_count"
+    assumption_text: "{unresolved_count} applications with no village recorded are left out of village figures and counted only at block and district level."
+    sql_effect: "WHERE entity_type <> 'Unresolved'"
+
+  - condition: "unresolved_rows_in_constituency_question"
+    default_value: "exclude_and_state_count"
+    assumption_text: "Applications with no village recorded have no constituency and are left out of constituency figures (1,218 statewide)."
+    sql_effect: "WHERE entity_type <> 'Unresolved'"
+
+  - condition: "name_code_conflict_rows_present"
+    default_value: "include_by_code"
+    assumption_text: "Locations are taken from the LGD codes, which the department's names contradict on a few rows."
+    note: 35 rows (19 Tangnub on 657/2000, 16 on Betasing/Demdema per the DB). Never excluded.
+
+  - condition: "towns_in_block_figures"
+    default_value: "include_towns_as_blocks"
+    assumption_text: "Municipal boards and town committees are counted as blocks, as the department reports them."
+    note: CM-08. 11 towns, 10,173 applications. The gate asks only when the user signals 'rural'.
+
+  - condition: "wards_in_village_figures"
+    default_value: "include_wards_as_villages"
+    assumption_text: "In towns, wards take the place of villages and are counted as villages."
+    note: CM-13. 120 ward codes, 8,541 applications.
+
+  - condition: "repeat_applications_in_year"
+    default_value: "none_present"
+    assumption_text: "No student has more than one application in 2025-26, so applications and students are the same number."
+    note: is_repeat_member_in_year is FALSE on every row. Re-check when a new year loads.
+
+  # ---- time -------------------------------------------------------------
+  - condition: "missing_time_period"
+    default_value: "2025-26"
+    assumption_text: "Covering financial year 2025-26, the only year in the CMSS data."
+    sql_effect: "financial_year_short = '2025-26'"
+
+  - condition: "relative_year_latest"
+    default_value: "2025-26"
+    assumption_text: "Taking the latest year as financial year 2025-26, the only year loaded."
+
+  - condition: "relative_year_current_as_data_year"
+    default_value: "2025-26"
+    assumption_text: "Taking 'this year' as 2025-26, the year the data covers. The 2026-27 cycle is not in the data yet."
+
+  - condition: "all_years_requested"
+    default_value: "2025-26_only"
+    assumption_text: "All years held means 2025-26 alone - CMSS began in 2025-26."
+
+  - condition: "per_year_breakdown_requested"
+    default_value: "single_year_with_note"
+    assumption_text: "Only 2025-26 is loaded, so the year-by-year view has one row. A trend will be possible when more years are added."
+    note: Use cases 32 and 33. The SQL groups by financial_year_short so it widens on its own.
+
+  - condition: "time_dimension_unspecified"
+    default_value: "financial_year"
+    assumption_text: "Dated by financial year (April to March) - there are no application or payment dates."
+
+  - condition: "data_currency_unstated"
+    default_value: "as_at_extract"
+    assumption_text: "Figures are as at the department's extract of 23 October 2026."
+    note: Prefer curated.dim_scheme.data_as_of where it is filled.
+
+  # ---- geography --------------------------------------------------------
+  - condition: "missing_geography"
+    default_value: "all_districts"
+    assumption_text: "Covering all 12 districts of Meghalaya."
+
+  - condition: "whole_state_reference"
+    default_value: "no_district_filter"
+    assumption_text: "Figures are statewide."
+
+  - condition: "geography_meaning_unstated"
+    default_value: "student_home_address"
+    assumption_text: "Places are the students' home addresses, not where they study."
+    note: critical - CM-20. Phrase answers as 'students from <place>'.
+
+  - condition: "geography_filter_form_unspecified"
+    default_value: "lgd_code"
+    assumption_text: "Filtered on the LGD code of the place."
+    sql_effect: "district_lgd_code / block_lgd_code / village_code / ac_number = <code>"
+    note: Names have casing and spelling variants; codes do not. Never emit a name literal.
+
+  - condition: "region_group_named"
+    default_value: "expand_to_member_districts"
+    assumption_text: "{region} covers {districts}."
+    note: Garo = 273, 277, 278, 656, 663. Jaintia = 275, 657. Khasi with or without Ri Bhoi is asked by the gate.
+
+  - condition: "town_named_without_rural_namesake"
+    default_value: "town_block_code"
+    assumption_text: "Reading {value} as {town_label}, which the department reports as a block."
+    note: Jowai (249820), Nongpoh (249812), William Nagar (249808), Khliehriat (279714). No rural block shares these names.
+
+  - condition: "constituency_name_spelling_variant"
+    default_value: "resolve_to_ac_number"
+    assumption_text: "Reading {value} as constituency {ac_number} {ac_name}."
+    note: Sohing / Sohiong, Ampathi / Ampati, Tikrikila / Tikrikilla, and the truncated forms.
+
+  - condition: "geography_display_case"
+    default_value: "title_case"
+    assumption_text: "District and block names are shown in title case."
+    note: Stored UPPERCASE in dim_geography.
+
+  - condition: "breakdown_includes_unresolved_block_placeholder"
+    default_value: "label_as_no_village"
+    assumption_text: "Applications with no village are shown under their block as 'village not recorded'."
+
+  # ---- which measure ----------------------------------------------------
+  - condition: "missing_scheme"
+    default_value: "cmss"
+    assumption_text: "Answering for the Chief Minister's Scholarship Scheme (CMSS)."
+
+  - condition: "scheme_alias_named"
+    default_value: "cmss"
+    assumption_text: "Reading '{value}' as the Chief Minister's Scholarship Scheme (CMSS)."
+    note: CM scholarship, Chief Minister scholarship, CMSS Meghalaya, Meghalaya CM Scholarship.
+
+  - condition: "bare_amount_term"
+    default_value: "amount_disbursed"
+    assumption_text: "Using the amount disbursed to students by DBT."
+    sql_effect: "SUM(amount_disbursed)"
+
+  - condition: "missing_metric_for_ranking"
+    default_value: "students_paid"
+    assumption_text: "Ranked by number of students paid - the amount gives the same order, since every student gets Rs 6,000."
+
+  - condition: "average_amount_unspecified"
+    default_value: "per_paid_student_and_per_application"
+    assumption_text: "Every paid student received Rs 6,000. Across all applications, paid and not, the average is Rs {average_per_application}."
+    sql_effect: "AVG(amount_disbursed), SUM(amount_disbursed) / COUNT(*)"
+    note: Use case 20. Statewide per application = Rs 5,652.23.
+
+  - condition: "average_amount_by_geography_requested"
+    default_value: "flat_rate_statement_plus_per_application"
+    assumption_text: "The average per paid student is Rs 6,000 in every {level}. The per-application average, which varies with the share paid, is shown instead."
+    note: Use cases 25 and 26. Never print a column of identical 6,000s as if it varied.
+
+  - condition: "amount_threshold_question"
+    default_value: "flat_rate_comparison"
+    assumption_text: "Every paid student received exactly Rs 6,000, so above {value} means {threshold_answer}."
+    note: Use case 23. Any threshold below 6,000 = all paid (98,751); 6,000 or above = none.
+
+  - condition: "zero_or_missing_disbursement_term"
+    default_value: "not_paid"
+    assumption_text: "There are no zero amounts. 'Zero or missing' means applications with no amount paid."
+    sql_effect: "COUNT(*) FILTER (WHERE NOT is_disbursed)"
+    note: Use case 24. 6,076.
+
+  - condition: "not_paid_term"
+    default_value: "is_disbursed_false"
+    assumption_text: "Counting applications with no amount paid; the data does not record why."
+    sql_effect: "WHERE NOT is_disbursed"
+
+  - condition: "paid_share_term"
+    default_value: "paid_over_applications"
+    assumption_text: "Measured as students paid as a share of applications - {paid_pct}% statewide."
+    sql_effect: "100.0 * COUNT(*) FILTER (WHERE is_disbursed) / COUNT(*)"
+    note: success rate, approval rate, disbursement rate, coverage of applicants. 94.20% statewide.
+
+  - condition: "money_per_student_requested"
+    default_value: "flat_rate"
+    assumption_text: "Each paid student received a flat Rs 6,000 a year."
+
+  - condition: "scholarship_value_policy_question"
+    default_value: "rs_6000_per_annum"
+    assumption_text: "CMSS pays a fixed Rs 6,000 per year at every level, Class XI to Ph.D."
+
+  # ---- which table ------------------------------------------------------
+  - condition: "default_table_choice"
+    default_value: "curated.v_cmss"
+    assumption_text: "Answered from the CMSS application records."
+
+  - condition: "year_coverage_check"
+    default_value: "curated.v_data_coverage"
+    assumption_text: "Checked which years are loaded before answering for a year."
+
+  - condition: "money_unit_authority"
+    default_value: "curated.dim_scheme.money_unit"
+    assumption_text: "Amounts are in rupees, as the scheme records them."
+
+  - condition: "cross_scheme_coverage_question"
+    default_value: "aggregate_each_scheme_separately"
+    assumption_text: "Each scheme is counted separately by {level} and the totals are then set side by side; no student is matched across schemes."
+    note: No cross-scheme view includes CMSS.
+
+  # ---- units ------------------------------------------------------------
+  - condition: "money_unit_unspecified"
+    default_value: "crore"
+    assumption_text: "Amounts are in crore rupees."
+    note: >
+      For the State and districts. v_cmss stores RUPEES - divide by 1e7. MGNREGA
+      expenditure is LAKH and the cross-scheme money view is CRORE; never add across them.
+
+  - condition: "money_below_one_crore"
+    default_value: "lakh"
+    assumption_text: "Amounts are in lakh rupees, as the figures are below one crore."
+    note: Most blocks, constituencies and towns.
+
+  - condition: "single_village_money_value"
+    default_value: "rupees"
+    assumption_text: "Amounts are in rupees."
+
+  - condition: "percentage_precision_unspecified"
+    default_value: 2
+    assumption_text: "Percentages are rounded to two decimal places."
+
+  - condition: "number_format_unspecified"
+    default_value: "indian"
+    assumption_text: "Numbers use Indian grouping (1,04,827)."
+
+  # ---- shape of the answer ----------------------------------------------
+  - condition: "missing_aggregation_function"
+    default_value: "count_applications_and_paid"
+    assumption_text: "Figures are counts of applications and of students paid."
+
+  - condition: "money_aggregation_unspecified"
+    default_value: "SUM"
+    assumption_text: "Amounts are summed across the selected applications."
+
+  - condition: "village_count_requested"
+    default_value: "count_distinct_village_code"
+    assumption_text: "Villages are counted by LGD code, since 231 village names are shared by more than one village."
+    sql_effect: "COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')"
+
+  - condition: "block_count_requested"
+    default_value: "count_distinct_block_code"
+    assumption_text: "Counting 67 blocks - 56 rural blocks and 11 towns reported as blocks."
+    sql_effect: "COUNT(DISTINCT block_lgd_code)"
+
+  - condition: "missing_top_n"
+    default_value: 5
+    assumption_text: "Showing the top 5."
+
+  - condition: "singular_superlative_without_n"
+    default_value: 1
+    assumption_text: "Showing the single highest."
+
+  - condition: "ranking_direction_unspecified"
+    default_value: "descending"
+    assumption_text: "Ranked highest first."
+
+  - condition: "missing_sort_column"
+    default_value: "requested_metric"
+    assumption_text: "Sorted by {metric}."
+
+  - condition: "missing_result_limit"
+    default_value: 10
+    assumption_text: "Showing the first 10 rows."
+
+  - condition: "ties_in_ranking"
+    default_value: "show_all_tied"
+    assumption_text: "{tied_count} places are level at {value}; all are shown."
+
+  - condition: "summary_report_level_unspecified"
+    default_value: "district"
+    assumption_text: "The report is by district."
+    note: For 'report', 'summary', 'consolidated'. A bare 'breakdown' with no level is asked by the gate.
+
+  - condition: "report_columns_unspecified"
+    default_value: "applications_paid_not_paid_amount_share"
+    assumption_text: "The report shows applications, students paid, not paid, amount disbursed and the share paid."
+    note: Use cases 36-41. Gender and institution are never columns - the gate states that.
+
+  - condition: "village_aggregate_instead_of_student_list"
+    default_value: "count_per_village"
+    assumption_text: "Shown as the number of students per village - individual students are not listed."
+    note: The follow-up after the gate's student_list_requested is accepted.
+
+  - condition: "chart_type_unspecified"
+    default_value: "auto_by_result_shape"
+    assumption_text: "Chart type chosen to suit the shape of the result."
+
+  # ---- nulls and zeros --------------------------------------------------
+  - condition: "null_amount_values"
+    default_value: "exclude_from_sum_and_average"
+    assumption_text: "Applications with no amount paid are left out of amount totals and the per-student average, and are not shown as Rs 0."
+    note: 6,076 rows. SUM and AVG already ignore NULL.
+
+  - condition: "null_constituency_values"
+    default_value: "exclude_and_state_count"
+    assumption_text: "{unresolved_count} applications have no constituency recorded and are left out of constituency figures."
+
+# ===========================================================================
+# WORKED EXAMPLES - what a user typed, which defaults fire, what is stated back,
+# and the result. Every figure is computed from datasets/CMSS/CMSS - 2026-10-23.csv
+# grouped by LGD code (2026-11-04). unverified_in_db.
+# ===========================================================================
+worked_examples:
+
+  - user: "How many beneficiaries are recorded under CMSS?"
+    fires: [beneficiary_term, missing_time_period, missing_geography]
+    assumptions_shown: "A beneficiary is a student who was paid the scholarship. 98,751 of 104,827 applications were paid. Covering financial year 2025-26, the only year in the CMSS data. Covering all 12 districts of Meghalaya."
+    sql: "SELECT COUNT(*) FILTER (WHERE is_disbursed) AS beneficiaries_paid, COUNT(*) AS applications FROM curated.v_cmss;"
+    result: "98,751 paid of 104,827"
+
+  - user: "How many students applied for CMSS in Ri Bhoi?"
+    fires: [application_term, geography_filter_form_unspecified]
+    assumptions_shown: "Counting applications, paid and not paid. Filtered on the LGD code of the place."
+    sql: "SELECT COUNT(*) AS applications FROM curated.v_cmss WHERE district_lgd_code = 276;"
+    result: 9229
+
+  - user: "How many CMSS students in West Khasi Hills?"
+    fires: [student_term_unqualified]
+    assumptions_shown: "'Students' is shown two ways - students who applied (7,358) and students paid (6,968)."
+    sql: "SELECT COUNT(*) AS applications, COUNT(*) FILTER (WHERE is_disbursed) AS students_paid FROM curated.v_cmss WHERE district_lgd_code = 279;"
+    result: "7,358 applied, 6,968 paid"
+
+  - user: "How many unique students got CMSS?"
+    fires: [distinct_student_term, beneficiary_term]
+    assumptions_shown: "Counting unique students by their masked Meghalaya One id; in 2025-26 every student has exactly one application."
+    sql: "SELECT COUNT(DISTINCT member_key) FILTER (WHERE is_disbursed) AS distinct_students_paid FROM curated.v_cmss;"
+    result: 98751
+
+  - user: "What is the total amount disbursed under CMSS?"
+    fires: [bare_amount_term, money_unit_unspecified, missing_time_period]
+    assumptions_shown: "Using the amount disbursed to students by DBT. Amounts are in crore rupees. Covering financial year 2025-26."
+    sql: "SELECT ROUND(SUM(amount_disbursed) / 1e7, 2) AS disbursed_crore FROM curated.v_cmss;"
+    result: 59.25
+
+  - user: "What is the total CMSS amount disbursed in Laskein?"
+    fires: [bare_amount_term, money_below_one_crore]
+    assumptions_shown: "Using the amount disbursed to students by DBT. Amounts are in lakh rupees, as the figures are below one crore."
+    sql: "SELECT ROUND(SUM(amount_disbursed) / 1e5, 2) AS disbursed_lakh FROM curated.v_cmss WHERE block_lgd_code = 1997;"
+    result: 258.18
+
+  - user: "What is the total amount disbursed to beneficiaries from Nongbah, Thadlaskein?"
+    fires: [bare_amount_term, single_village_money_value]
+    assumptions_shown: "Using the amount disbursed to students by DBT. Amounts are in rupees."
+    sql: "SELECT SUM(amount_disbursed) AS disbursed_rupees FROM curated.v_cmss WHERE village_code = 279159;"
+    result: "Rs 23,34,000 (389 students paid)"
+
+  - user: "What is the average amount disbursed per CMSS beneficiary?"
+    fires: [average_amount_unspecified]
+    assumptions_shown: "Every paid student received Rs 6,000. Across all applications, paid and not, the average is Rs 5,652.23."
+    sql: "SELECT AVG(amount_disbursed) AS per_paid_student, ROUND(SUM(amount_disbursed) / COUNT(*), 2) AS per_application FROM curated.v_cmss;"
+    result: "Rs 6,000 per paid student; Rs 5,652.23 per application"
+
+  - user: "What is the average CMSS assistance per beneficiary in each district?"
+    fires: [average_amount_by_geography_requested]
+    assumptions_shown: "The average per paid student is Rs 6,000 in every district. The per-application average, which varies with the share paid, is shown instead."
+    sql: "SELECT district_lgd_code, lgd_district, ROUND(SUM(amount_disbursed) / COUNT(*), 2) AS per_application FROM curated.v_cmss GROUP BY district_lgd_code, lgd_district ORDER BY per_application;"
+    result: "Lowest East Garo Hills Rs 5,376.62; highest West Jaintia Hills Rs 5,730.90"
+
+  - user: "How many beneficiaries received more than Rs 5,000 under CMSS?"
+    fires: [amount_threshold_question]
+    assumptions_shown: "Every paid student received exactly Rs 6,000, so above Rs 5,000 means every paid student."
+    sql: "SELECT COUNT(*) AS above_5000 FROM curated.v_cmss WHERE amount_disbursed > 5000;"
+    result: 98751
+
+  - user: "How many CMSS records have zero or missing disbursement amounts?"
+    fires: [zero_or_missing_disbursement_term]
+    assumptions_shown: "There are no zero amounts. 'Zero or missing' means applications with no amount paid."
+    sql: "SELECT COUNT(*) FILTER (WHERE NOT is_disbursed) AS not_paid FROM curated.v_cmss;"
+    result: 6076
+
+  - user: "What is the CMSS success rate in East Garo Hills?"
+    fires: [paid_share_term]
+    assumptions_shown: "Measured as students paid as a share of applications - 94.20% statewide."
+    sql: "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE is_disbursed) / COUNT(*), 2) AS paid_pct FROM curated.v_cmss WHERE district_lgd_code = 273;"
+    result: 89.61
+    note: The lowest share paid of any district.
+
+  - user: "Top blocks by CMSS beneficiaries"
+    fires: [missing_top_n, missing_metric_for_ranking, towns_in_block_figures]
+    assumptions_shown: "Showing the top 5. Ranked by number of students paid - the amount gives the same order, since every student gets Rs 6,000. Municipal boards and town committees are counted as blocks, as the department reports them."
+    sql: "SELECT block_lgd_code, lgd_block, COUNT(*) FILTER (WHERE is_disbursed) AS paid FROM curated.v_cmss GROUP BY block_lgd_code, lgd_block ORDER BY paid DESC LIMIT 5;"
+    result: "Laskein 4,303; Thadlaskein 3,888; Rongram 3,468; Mawkyrwat 3,284; Wapung 3,206"
+
+  - user: "Which constituency has the most CMSS beneficiaries?"
+    fires: [singular_superlative_without_n, unresolved_rows_in_constituency_question]
+    assumptions_shown: "Showing the single highest. Applications with no village recorded have no constituency and are left out of constituency figures (1,218 statewide)."
+    sql: "SELECT ac_number, ac_name, COUNT(*) FILTER (WHERE is_disbursed) AS paid FROM curated.v_cmss WHERE entity_type <> 'Unresolved' GROUP BY ac_number, ac_name ORDER BY paid DESC LIMIT 1;"
+    result: "36 Mawkyrwat, 3,341"
+
+  - user: "How many villages in East Khasi Hills have CMSS students?"
+    fires: [village_count_requested, unresolved_rows_in_village_question, wards_in_village_figures]
+    assumptions_shown: "Villages are counted by LGD code, since 231 village names are shared by more than one village. 359 applications with no village recorded are left out of village figures. In towns, wards take the place of villages and are counted as villages."
+    sql: "SELECT COUNT(DISTINCT village_code) AS villages FROM curated.v_cmss WHERE district_lgd_code = 274 AND entity_type <> 'Unresolved';"
+    result: 900
+
+  - user: "How many blocks have CMSS applicants?"
+    fires: [block_count_requested]
+    assumptions_shown: "Counting 67 blocks - 56 rural blocks and 11 towns reported as blocks."
+    sql: "SELECT COUNT(DISTINCT block_lgd_code) AS blocks FROM curated.v_cmss;"
+    result: 67
+
+  - user: "How many CMSS beneficiaries are there in Jowai?"
+    fires: [town_named_without_rural_namesake, beneficiary_term]
+    assumptions_shown: "Reading Jowai as Jowai Municipal Board, which the department reports as a block. A beneficiary is a student who was paid the scholarship."
+    sql: "SELECT COUNT(*) FILTER (WHERE is_disbursed) AS paid, COUNT(*) AS applications FROM curated.v_cmss WHERE block_lgd_code = 249820;"
+    result: "1,441 paid of 1,521"
+    note: Jowai constituency (3,064 paid) is the other reading - offered as a follow-up.
+
+  - user: "CMSS beneficiaries in Sohing constituency"
+    fires: [constituency_name_spelling_variant, beneficiary_term]
+    assumptions_shown: "Reading Sohing as constituency 23 Sohiong."
+    sql: "SELECT COUNT(*) FILTER (WHERE is_disbursed) AS paid FROM curated.v_cmss WHERE ac_number = 23;"
+    result: 2296
+
+  - user: "CMSS beneficiaries in the Garo Hills"
+    fires: [region_group_named, beneficiary_term]
+    assumptions_shown: "Garo Hills covers East, North, South, South West and West Garo Hills."
+    sql: "SELECT COUNT(*) FILTER (WHERE is_disbursed) AS paid FROM curated.v_cmss WHERE district_lgd_code IN (273, 277, 278, 656, 663);"
+    result: 31066
+
+  - user: "How many beneficiaries received CMSS assistance in each financial year?"
+    fires: [per_year_breakdown_requested, beneficiary_term]
+    assumptions_shown: "Only 2025-26 is loaded, so the year-by-year view has one row. A trend will be possible when more years are added."
+    sql: "SELECT financial_year_short, COUNT(*) FILTER (WHERE is_disbursed) AS paid FROM curated.v_cmss GROUP BY financial_year_short ORDER BY financial_year_short;"
+    result: "2025-26: 98,751"
+
+  - user: "Latest year CMSS disbursement"
+    fires: [relative_year_latest, bare_amount_term, money_unit_unspecified]
+    assumptions_shown: "Taking the latest year as financial year 2025-26, the only year loaded. Amounts are in crore rupees."
+    sql: "SELECT ROUND(SUM(amount_disbursed) / 1e7, 2) AS disbursed_crore FROM curated.v_cmss WHERE financial_year_short = '2025-26';"
+    result: 59.25
+
+  - user: "Give me a constituency-wise summary of CMSS beneficiaries and total disbursement"
+    fires: [unresolved_rows_in_constituency_question, money_below_one_crore, report_columns_unspecified]
+    assumptions_shown: "Applications with no village recorded have no constituency and are left out of constituency figures (1,218 statewide). Amounts are in lakh rupees. The report shows applications, students paid, not paid, amount disbursed and the share paid."
+    result: "60 constituencies, 103,609 applications, 97,533 paid"
+
+  - user: "Generate a consolidated CMSS report"
+    fires: [summary_report_level_unspecified, report_columns_unspecified, data_currency_unstated]
+    assumptions_shown: "The report is by district. The report shows applications, students paid, not paid, amount disbursed and the share paid. Figures are as at the department's extract of 23 October 2026."
+    result: "12 districts; totals 104,827 applications, 98,751 paid, 6,076 not paid, Rs 59.25 crore, 94.20% paid"
+
+  - user: "List all CMSS beneficiaries from Mawkynrew block (after accepting the village summary)"
+    fires: [village_aggregate_instead_of_student_list, unresolved_rows_in_village_question]
+    assumptions_shown: "Shown as the number of students per village - individual students are not listed."
+    sql: "SELECT village_code, lgd_village_name, COUNT(*) FILTER (WHERE is_disbursed) AS paid FROM curated.v_cmss WHERE block_lgd_code = 1991 AND entity_type <> 'Unresolved' GROUP BY village_code, lgd_village_name ORDER BY paid DESC;"
+    result: "64 villages; Jongksha 94, Laitkyrhong 90, Thangsning 89, ..."
+
+  - user: "How many CMSS applications from Rongram have no village?"
+    fires: [unresolved_rows_in_state_district_or_block_total]
+    assumptions_shown: "Applications with no village recorded are included - they still belong to a known block and district."
+    sql: "SELECT COUNT(*) FILTER (WHERE entity_type = 'Unresolved') AS no_village, COUNT(*) AS applications FROM curated.v_cmss WHERE block_lgd_code = 1965;"
+    result: "825 of 3,666"
+    note: Rongram holds 825 of the 1,218 applications with no village.

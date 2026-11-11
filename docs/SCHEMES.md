@@ -443,6 +443,36 @@ village scheme, and a single-village query is pinned to its `village_code` (D-03
 
 ## Adding a scheme
 
+**Use the onboarding tool (2026-11-06, D-102):** `C:\Users\dell\Desktop\MEGH-LANG\scheme-onboarder` (its own repo;
+README there). It keeps no scheme list. It learns the schemes from `app/scheme_registry.py` and `data/<folder>/`, and
+finds every per-scheme registry by scanning `app/`, `frontend/src/` and `tests/` (186 in 40+ files on 2026-11-06).
+It derives the new scheme's entry in each one from the onboarded entries, and drafts the rest with the project's
+own gateway. Questions, drafts and held entries block `apply`; values pinned in `data/<folder>/scheme.yaml` get the
+same checks as drafts, including the SQL on megh_db.
+
+The workflow is one command, run from the tool folder with the VPN on:
+
+```
+python -m onboarder run --project ..\meghoneai data\<folder> --view curated.v_<scheme> --accept-suggestions
+```
+
+It stops only where a person is needed:
+- a new `scheme.yaml` to review (pre-filled where it can learn: the resolver, conventions, the live columns);
+- errors in the folder;
+- open questions or values still missing (`questions.yaml`).
+
+Otherwise it runs, in order:
+1. an acceptance baseline;
+2. `apply` on a new branch, rolled back if any project test that passed before now fails;
+3. acceptance again, with regressions named.
+
+It never merges or pushes.
+
+Code it cannot extend (a list unpacked into a fixed number of names, e.g. `routers/stats.py::_cards`) is held
+until the whole function is pinned in `overrides:`.
+
+The manual list below is what the tool edits; it stays as the reference for reviewing its branch.
+
 **Start at `app/scheme_registry.py` (E5, D-079, 2026-10-27).** It holds the facts for each scheme (canonical
 name, metric-catalogue subject area, KB folder and tag, main view, document label, constituency capability).
 These read it directly: `auth.ROLE_PERMISSIONS` (every role), c01 `_ALL_SCHEMES`, `query_plan.SCHEMES`,
