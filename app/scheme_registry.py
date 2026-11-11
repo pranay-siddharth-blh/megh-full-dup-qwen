@@ -37,6 +37,7 @@ SCHEMES: tuple[Scheme, ...] = (
     Scheme("Focus Legacy", "focus_legacy", "Focus_Legacy", "Focus Legacy", "curated.v_focus_legacy", "FOCUS", True),
     Scheme("CM Elevate Legacy", "cm_elevate_disbursement", "CM_Elevate_Legacy", "CM Elevate",
            "curated.v_cm_elevate_disbursement", "CM-ELEVATE", True),
+    Scheme("CMSS", "cmss", "CMSS", "CMSS", "curated.v_cmss", "CMSS", True),
 )
 
 NAMES: tuple[str, ...] = tuple(s.name for s in SCHEMES)
@@ -85,6 +86,7 @@ DATASETS: dict[str, DatasetFacts] = {
     "CM Elevate Legacy": DatasetFacts(
         "one applicant's sanction and disbursement record", "rupees", False, True, True, "scheme_name",
         ("v_cm_elevate_disbursement", "dim_cm_elevate_disb_scheme")),
+    "CMSS": DatasetFacts("one row per student application (paid or not); each student (member_key) appears once. COUNT(*) = applications, COUNT(*) FILTER (WHERE is_disbursed) = students paid, SUM(amount_disbursed) = rupees paid.", "rupees", True, False, True, None, ("v_cmss",), not_held="CMSS records no gender, age, institution, course, student names, payment dates or the reason an application was not paid; only FY 2025-26 is held"),
 }
 
 
@@ -108,4 +110,5 @@ KNOWLEDGE_DISTINCTIONS: dict[str, str] = {
     "PMAY-G": "PMAY-G is the RURAL housing scheme (Gramin); it is not PMAY-Urban.",
     "MGNREGA": "MGNREGA (also NREGA, MGNREGS, the '100 days work' scheme) is the rural employment "
                "guarantee Act.",
+    "CMSS": "CMSS (the Chief Minister's Scholarship Scheme) pays a flat Rs 6,000 a year to eligible students; it is a state scholarship, not the CM Elevate enterprise programme.",
 }

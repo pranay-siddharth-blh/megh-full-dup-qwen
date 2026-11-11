@@ -258,6 +258,7 @@ _RESOLVER_FILE = {
     "CM Elevate": _DATA_PART / "cm_elevate" / "cmelevate_entity_resolver.yaml",
     "Focus Legacy": _DATA_PART / "focus_legacy" / "focuslegacy_entity_resolver.yaml",
     "CM Elevate Legacy": _DATA_PART / "cm_elevate_legacy" / "cmelevatelegacy_entity_resolver.yaml",
+    "CMSS": _DATA_PART / "cmss" / "cmss_entity_resolver.yaml",
 }
 
 # The dimension key a resolver file uses when it differs from the one this
@@ -1645,7 +1646,7 @@ _village_scheme_codes: "dict[str, frozenset]" = {}
 _village_code_names: "dict[int, str]" = {}
 _VILLAGE_SCHEME_VIEWS = (
     ("MGNREGA", "v_employment"), ("MGNREGA", "v_expenditure"), ("PMAY-G", "v_pmay"),
-    ("Focus Plus", "v_focus_plus"), ("CM Elevate", "v_cm_elevate"), ("Focus Legacy", "v_focus_legacy"),
+    ("Focus Plus", "v_focus_plus"), ("CM Elevate", "v_cm_elevate"), ("Focus Legacy", "v_focus_legacy"), ("CMSS", "v_cmss"),
 )
 # Typo floor for a village name (rapidfuzz WRatio, 0-100) and the shortest
 # folded name the fuzzy stage will try: "bir" / "mot" would match anything.
@@ -2249,6 +2250,7 @@ _ACTIVITY_VIEWS = (
     "curated.v_employment", "curated.v_expenditure", "curated.v_pmay",
     "curated.v_focus_plus", "curated.v_cm_elevate", "curated.v_focus_legacy",
     "curated.v_cm_elevate_disbursement",
+    "curated.v_cmss",
 )
 
 
@@ -2351,11 +2353,13 @@ _AC_CONTENTS_SQL = {
     # PMAY-G: v_pmay carries dim_geography's ac_name itself (2026-10-30, KI-445).
     "PMAY-G": ("SELECT DISTINCT lgd_district, lgd_block, village_code FROM curated.v_pmay "
                "WHERE UPPER(ac_name) = UPPER($1)"),
+    "CMSS": ("SELECT DISTINCT lgd_district, lgd_block, village_code FROM curated.v_cmss "
+             "WHERE UPPER(ac_name) = UPPER($1) AND entity_type <> 'Unresolved'"),
 }
 # How the drill-down names each scheme's data ("190 villages in the <this>").
 AC_CONTENTS_SOURCE = {"MGNREGA": "MGNREGA employment data", "Focus Legacy": "Focus Legacy data",
                       "CM Elevate Legacy": "CM Elevate Legacy data",
-                      "CM Elevate": "CM Elevate applications data", "PMAY-G": "PMAY-G data"}
+                      "CM Elevate": "CM Elevate applications data", "PMAY-G": "PMAY-G data", "CMSS": "CMSS scholarship applications data"}
 
 
 async def constituency_contents(ac_name: str, scheme: "str | None" = None) -> dict:

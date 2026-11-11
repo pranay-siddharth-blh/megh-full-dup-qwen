@@ -90,6 +90,7 @@ def _infer_scheme_from_terms(question: str) -> list[str] | None:
             ("CM Elevate", _CMELEVATE_ONLY_TERMS),
             ("Focus Legacy", _FOCUSLEGACY_ONLY_TERMS),
             ("CM Elevate Legacy", _CMELEVATELEGACY_ONLY_TERMS),
+            ("CMSS", _CMSS_ONLY_TERMS),
         ) if word_matcher.search(question)
     ]
     # A CM Elevate sub-scheme word ("piggery", "dairy") belongs to BOTH CM
@@ -136,6 +137,7 @@ _SCHEME_PICK_LABELS = (
     ("CM Elevate", "CM Elevate (livelihood / enterprise schemes)"),
     ("Focus Legacy", "Focus Legacy (producer group payments)"),
     ("CM Elevate Legacy", "CM Elevate Legacy (sanctions & disbursements)"),
+    ("CMSS", "CMSS (Chief Minister's Scholarship Scheme)"),
 )
 
 
@@ -178,7 +180,8 @@ def _scheme_clarification(question: str, by_measure: bool = False) -> "Clarifica
                      {"label": "Focus Legacy (producer group payments)",
                       "question": _scheme_option_question(stem, "Focus Legacy")},
                      {"label": "CM Elevate Legacy (sanctions & disbursements)",
-                      "question": _scheme_option_question(stem, "CM Elevate Legacy")}],
+                      "question": _scheme_option_question(stem, "CM Elevate Legacy")},
+                     {"label": "CMSS (student scholarships)", "question": _scheme_option_question(stem, "CMSS")}],
             rule="scheme-not-specified")
     held, measures, together = _schemes_recording(question) if by_measure else ([], [], False)
     if held and len(held) < len(_SCHEME_PICK_LABELS):

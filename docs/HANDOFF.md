@@ -3,6 +3,8 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-11-11 (CMSS onboarded by scheme-onboarder): on branch, NOT merged, NOT live-verified.** Review the tool's report (plan.html / apply.json) and every DRAFT entry; answer the open questions; run the live suites with the VPN; update CURRENT_STATE / DECISIONS / AI_PIPELINE.
+
 **2026-11-06 (scheme onboarding tool, D-102): docs-only in this repo (SCHEMES.md §Adding a scheme, DECISIONS
 D-102, KNOWN_ISSUES KI-683, CURRENT_STATE); uncommitted.** The tool is `C:\Users\dell\Desktop\MEGH-LANG\scheme-onboarder`
 (committed in its own repo; README there).

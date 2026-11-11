@@ -430,13 +430,14 @@ _YEAR_METRICS = [
                                 W("money", "amount", "amounts", "fund", "funds", "funding", "released", "disbursed",
                                   "spending", "crore", "lakh", "rupees"),
                                 W("releas", "disburs", prefix=True))), "money", None),
-    ("villages", Matcher(W("village", "villages")), "villages", ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy")),
+    ("villages", Matcher(W("village", "villages")), "villages", ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CMSS")),
     ("beneficiaries", Matcher(_cp_has("beneficiar")), "count", None),
 ]
 # what each scheme's money is (the money measure is asked in the scheme's own kind)
 _MONEY_LABEL = {"MGNREGA": "expenditure", "PMAY-G": "amount released", "Focus Plus": "amount disbursed",
                 "Focus Legacy": "amount disbursed", "CM Elevate Legacy": "amount disbursed",
-                "CM Elevate": "amount disbursed"}
+                "CM Elevate": "amount disbursed",
+                "CMSS": "amount disbursed"}
 
 
 def _year_measures(*texts) -> list:

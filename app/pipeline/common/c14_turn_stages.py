@@ -684,7 +684,7 @@ async def _mask_village_names(text: str) -> str:
     found = None
     # Every scheme's villages, not MGNREGA's only: the Focus Legacy village "CHOKCHAKIA"
     # was refused as violence ("chok…") — Focus Legacy all-villages run 2026-10-12.
-    for _vs in ("MGNREGA", "Focus Legacy", "PMAY-G", "Focus Plus", "CM Elevate", "CM Elevate Legacy"):
+    for _vs in ("MGNREGA", "Focus Legacy", "PMAY-G", "Focus Plus", "CM Elevate", "CM Elevate Legacy", "CMSS"):
         try:
             found = await _scan_village_in_question(out, _vs)
         except Exception:  # noqa: BLE001 — no catalogue: check the text as typed
@@ -697,7 +697,7 @@ async def _mask_village_names(text: str) -> str:
         words = _c14_letter_words(out)
         runs = [" ".join(words[i:i + n]) for n in (4, 3, 2, 1) for i in range(len(words) - n + 1)]
         runs = [r for r in runs if len(r) >= 5 and r.lower() not in _NOT_A_PLACE_WORD]
-        for _vs in ("MGNREGA", "Focus Legacy", "PMAY-G", "Focus Plus", "CM Elevate", "CM Elevate Legacy"):
+        for _vs in ("MGNREGA", "Focus Legacy", "PMAY-G", "Focus Plus", "CM Elevate", "CM Elevate Legacy", "CMSS"):
             try:
                 _names = await _scheme_village_names(_vs)
             except Exception:  # noqa: BLE001
@@ -1675,7 +1675,7 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                     "edge_type": "confused",
                     "answer": ("I don't have an earlier answer to build on, so I'm not "
                                "sure what that refers to. Tell me the scheme — MGNREGA, "
-                               "PMAY-G, Focus Plus, CM Elevate, Focus Legacy, or CM Elevate "
+                               "PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CMSS (Chief Minister's Scholarship Scheme), or CM Elevate "
                                "Legacy — and what "
                                "you'd like to know."),
                     "suggestions": list(edge.STARTERS),
@@ -3068,11 +3068,11 @@ def _knowledge_not_covered_answer(question: str, scheme: "str | None") -> str:
             "financial year. If you meant a different scheme, tell me which."
         )
     return (
-        "That isn't something I hold. I cover six Meghalaya schemes — MGNREGA "
+        "That isn't something I hold. I cover seven Meghalaya schemes — MGNREGA "
         "(rural employment), PMAY-G (rural housing), Focus Plus (farmer cash "
         "benefit), CM Elevate (livelihood and enterprise support — its applications), "
-        "CM Elevate Legacy (CM Elevate's sanctions and disbursements) and Focus Legacy "
-        "(producer group payments) — both how "
+        "CM Elevate Legacy (CM Elevate's sanctions and disbursements) Focus Legacy "
+        "(producer group payments) and CMSS (the Chief Minister's Scholarship Scheme) — both how "
         "each one works and its actual data. If your question is about one of "
         "those, name it and I'll answer; if it's about another scheme or another "
         "state, that's outside what I can see."

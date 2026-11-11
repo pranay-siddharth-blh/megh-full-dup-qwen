@@ -63,6 +63,23 @@ schemes:
     - elevate legacy
     - cm elevate disbursement
     - cmelevatelegacy
+  CMSS:
+    - cmss
+    - cm scholarship
+    - cm scholarship scheme
+    - chief minister scholarship
+    - chief minister's scholarship
+    - chief minister's scholarship scheme
+    - chief minister scholarship scheme meghalaya
+    - cmss meghalaya
+    - meghalaya cm scholarship
+    - meghalaya cm scholarship scheme
+    - cm scholarship scheme 2025
+    - state scholarship
+    - post matric state scholarship
+    - rs 6000 scholarship
+    - 6000 scholarship
+    - chief minister scholarship scheme 2025
 
 # Other NAMES of a scheme, always written as the scheme's name even though the pipeline's
 # own matcher reads them: the 4B guardrail model does not, and refused "who is eligible

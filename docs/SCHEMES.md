@@ -519,3 +519,7 @@ After adding a scheme: restart the service, run the registry guard and a routing
 - The `YEAR_RANGE_GUARD_ENABLED` comment says "both schemes … exactly those four years".
 - The `annotations.py` docstring says "for both schemes".
 - A `_run_pipeline` comment says "only four are loaded".
+
+
+## CMSS (onboarded 2026-11-11 by scheme-onboarder — REVIEW)
+PLANNED / NEEDS VERIFICATION: written by the onboarding tool from `data/cmss/scheme.yaml`. 141 registries updated; 50 left for review (questions, scheme-specific branches, drafts). Fill in: what the data holds, its truth rules, its namesakes, its live QA results.

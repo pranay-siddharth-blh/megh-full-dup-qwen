@@ -406,6 +406,7 @@ _VR_ROW_GRAIN_GROUPS = (
     ("curated.v_cm_elevate", "curated.fact_cm_elevate_application"),
     ("curated.v_focus_legacy", "curated.fact_focus_legacy_disbursement"),
     ("curated.v_cm_elevate_disbursement", "curated.fact_cm_elevate_disbursement"),
+    ("curated.v_cmss", "curated.fact_cmss_application"),
 )
 
 
@@ -1802,7 +1803,7 @@ def _repaired_sql_denial(scope: "auth.UserScope | None", schemes: list[str], ent
 # them: rewrites, re-authorization of a repair, guards, verifier, execution.
 
 _VR_PLACEHOLDER_VIEWS = frozenset({"v_employment", "v_expenditure", "v_focus_plus", "v_focus_legacy",
-                                   "v_cm_elevate", "v_cm_elevate_disbursement"})
+                                   "v_cm_elevate", "v_cm_elevate_disbursement", "v_cmss"})
 
 
 def _vr_excludes_placeholder_codes(sel: exp.Select) -> bool:

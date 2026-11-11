@@ -31,7 +31,7 @@ def test_card_figures_from_rows():
     assert c["focus_legacy"][0] == ["11,906", "Producer Groups"]
     assert c["cm_elevate_legacy"][2] == ["₹82.90 Cr*", "Disbursed (subsidy + loan)*"]
     # same six keys as the cards in frontend/src/chat/constants.js
-    assert set(c) == {"mgnrega", "pmay_g", "focus_plus", "cm_elevate", "focus_legacy", "cm_elevate_legacy"}
+    assert set(c) == {"mgnrega", "pmay_g", "focus_plus", "cm_elevate", "focus_legacy", "cm_elevate_legacy", "cmss"}
 
 
 # ── 2026-10-22: the cards follow the data (user: "kpi cards … need to update dynamically … based on the

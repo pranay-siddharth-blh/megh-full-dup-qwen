@@ -47,6 +47,8 @@ SCHEME_CATALOG = {
                          "lender (Bank / LIFCOM) and a financial year (FY2024-25, "
                          "FY2025-26). NOT the 15-scheme CM Elevate applications dataset: "
                          "the two share a name and no key.",
+    "CMSS": "Chief Minister's Scholarship Scheme — one row per student application "
+            "(paid or not), one financial year (2025-26), money in RUPEES (a flat Rs 6,000 per paid student).",
 }
 
 # The metrics each scheme actually carries in the curated data — the plain-English
@@ -130,6 +132,13 @@ SCHEME_METRICS = {
         "distinct villages / blocks / districts reached",
         "NO applicant name, gender, caste, applicant type, application status, repayment, "
         "target, budget or monthly figure exists",
+    ],
+    "CMSS": [
+        "scholarship applications (paid or not)",
+        "students paid (beneficiaries) and applications not paid",
+        "amount disbursed (in rupees; a flat Rs 6,000 per paid student)",
+        "paid share of applications, and the average per application",
+        "by district, block (towns included), village or ward, assembly constituency or region",
     ],
 }
 
@@ -241,7 +250,7 @@ _SHARED_RULES = """
   * GENDER (business definition): use only the gender data a scheme actually records —
     MGNREGA: women_employment_provided only (men = persons_employed -
     women_employment_provided; MGNREGA rule 6); Focus Plus: gender, 12.5K cohort only;
-    PMAY-G, Focus Legacy and CM Elevate Legacy record NO gender, and CM Elevate's
+    PMAY-G, Focus Legacy, CM Elevate Legacy and CMSS record NO gender, and CM Elevate's
     (scheme_specific ->> 'gender_id') is locked from the chatbot — answer "not available". Never label a total of all persons as "men" or "women".
 """.strip()
 
@@ -1079,6 +1088,20 @@ CM ELEVATE LEGACY TABLES (source: data/cm_elevate_legacy/*.yaml)
       fact-to-fact join is prohibited).
 """.strip()
 
+
+_CMSS_TABLES = """
+CMSS TABLES
+  curated.v_cmss  -- THE query surface (Chief Minister's Scholarship Scheme). One row = one student
+      APPLICATION, paid or not; each student (member_key) appears once in 2025-26.
+      Columns: cmss_fact_id, member_key, year_key, financial_year, financial_year_short, geography_key,
+        village_code, lgd_village_name, lgd_block, lgd_district, entity_type, ac_number, ac_name,
+        district_lgd_code, block_lgd_code, amount_disbursed, is_disbursed, has_name_code_conflict, region
+      dim_year and dim_geography are PRE-JOINED: no join is needed for any statewide, district, block,
+      village, constituency or region figure. Money is RUPEES. No scheme_key column: the view is CMSS only.
+      Not on the row (not recorded at all): gender, age, institution, course / class, marks, student
+      names, application status or reason, any date — see CMSS RULES.
+""".strip()
+
 _CMELEVATELEGACY_RULES = """
 CM ELEVATE LEGACY RULES (breaking these produces a wrong number, not just an ugly query):
   1. NOT THE CM ELEVATE APPLICATIONS DATASET. This is a separate scheme: [[cl_schemes]] schemes (not [[cme_schemes]]),
@@ -1174,6 +1197,53 @@ CM ELEVATE LEGACY RULES (breaking these produces a wrong number, not just an ugl
      FY2025-26.
 """.strip()
 
+
+_CMSS_RULES = """
+CMSS RULES (breaking these produces a wrong number, not just an ugly query):
+  1. Query curated.v_cmss. It is pre-joined; emit no join for an ordinary question. NEVER join v_cmss or
+     fact_cmss_application row-to-row to another scheme's fact or view, and never match students across
+     schemes through member_key. No cross-scheme view includes CMSS: aggregate each scheme SEPARATELY
+     (to village_code or district) and combine the aggregates.
+  2. THERE IS NO MANDATORY PREDICATE (unlike PMAY's NOT is_placeholder). Every row counts.
+  3. One row = one student APPLICATION, paid or not.
+       applications / applicants / records       -> COUNT(*)
+       beneficiaries / students paid / received  -> COUNT(*) FILTER (WHERE is_disbursed)  — state the
+                                                    application total alongside it
+       unpaid applications                       -> COUNT(*) FILTER (WHERE NOT is_disbursed)
+       unique / distinct students                -> COUNT(DISTINCT member_key)
+     member_key is masked: COUNT(DISTINCT member_key) is its ONLY permitted use — never SELECT, GROUP BY,
+     ORDER BY or show it. No list of individual students is ever returned (no names exist): answer a
+     "list the beneficiaries in <place>" with counts by the next level down and say why.
+  4. MONEY: amount_disbursed is RUPEES and is NULL on unpaid rows (SUM ignores them). Divide by 1e7 for
+     crore, 1e5 for lakh, and state the unit. Never put a CMSS rupee figure beside MGNREGA's LAKH
+     unconverted. Every paid application received exactly Rs 6,000: AVG, MIN and MAX per paid student are
+     Rs 6,000 everywhere — never present a table of identical averages as if they varied, never rank by
+     amount. "Per application" = ROUND(SUM(amount_disbursed) / COUNT(*), 2), labelled "per application
+     (paid and unpaid)". Every money answer says the rate is a flat Rs 6,000 per paid student.
+  5. is_disbursed is NOT NULL, so NOT is_disbursed is the true complement. Unpaid carries no reason, status
+     or date: never call it rejected, pending, defective or failed — say "not paid".
+  6. GEOGRAPHY is the STUDENT'S HOME address, not the institution: say "students from <place>", never
+     "studying in <place>". Filter on the codes (district_lgd_code, block_lgd_code, village_code,
+     ac_number) and group on code and name together (GROUP BY district_lgd_code, lgd_district). Municipal
+     boards and town committees are reported as blocks; wards take the place of villages in towns.
+  7. entity_type = 'Unresolved' marks 1,218 applications with no village (all paid). INCLUDE them in State,
+     district and block counts and sums; EXCLUDE them (entity_type <> 'Unresolved') from village counts,
+     village lists and rankings and from constituency figures. Villages = COUNT(DISTINCT village_code)
+     FILTER (WHERE entity_type <> 'Unresolved').
+  8. CONSTITUENCY (ac_number, ac_name) is NULL on the Unresolved rows, so constituency totals reach
+     103,609, not the State total — say so. region groups districts.
+  9. TIME: only FY 2025-26 is loaded (financial_year_short = '2025-26'). No year or "this year" -> 2025-26.
+     Any other year -> "no CMSS data is loaded for <year>", never 0. Trend / year-on-year -> the single year
+     and "a trend needs more years". No application, payment or other date exists; the academic year is
+     not the financial year.
+ 10. NOT HELD — gender, age, institution type / name / location, course or class, marks, fresh / renewal,
+     application status or reason, payment date, income / caste / community, student names: answer "not
+     recorded in the CMSS data" and offer district, block, constituency, village or paid / unpaid. Never
+     approximate one dimension with another.
+ 11. RANKING: rank on counts (applications or students paid); default top 5 for a plural "top", LIMIT 1
+     for "highest / lowest". Village and constituency rankings exclude Unresolved rows. Show ties in full.
+""".strip()
+
 _CMELEVATELEGACY_VOCAB = """
 CM ELEVATE LEGACY BUSINESS VOCABULARY (source: cmelevatelegacy_schema_partitions.yaml + cmelevatelegacy_entity_resolver.yaml)
   "applications" / "records" / "beneficiaries" / "cases" / "sanctions" -> COUNT(*)   (every row is a sanction)
@@ -1192,6 +1262,22 @@ CM ELEVATE LEGACY BUSINESS VOCABULARY (source: cmelevatelegacy_schema_partitions
   "this year" / "current year" -> FY 2025-26 (say so);  "last year" -> FY 2024-25
   Financial years held: 2024-25 ([[cl_rows_2425]] records), 2025-26 ([[cl_rows_2526]] records; only Prime Tourism
   Vehicle, Agriculture Warehouse and Prime Agriculture Response Vehicle), none ([[cl_year_null]], Sericulture).
+""".strip()
+
+
+_CMSS_VOCAB = """
+CMSS BUSINESS VOCABULARY (source: data/cmss/cmss_schema_partitions.yaml)
+    "applications" / "applicants" / "students applied" / "records" -> COUNT(*)
+    "beneficiaries" / "students paid" / "students received" -> COUNT(*) FILTER (WHERE is_disbursed)
+    "not paid" / "unpaid" / "missing disbursement" -> COUNT(*) FILTER (WHERE NOT is_disbursed)   (never "rejected" / "pending")
+    "unique students" / "distinct students" -> COUNT(DISTINCT member_key)
+    "amount" / "disbursed" / "paid out" / "spent" / "money" -> SUM(amount_disbursed)  (rupees)
+    "per student" / "average per beneficiary" -> Rs 6,000 (flat)   "per application" -> ROUND(SUM(amount_disbursed) / COUNT(*), 2)
+    "paid share" / "% paid" -> ROUND(100.0 * COUNT(*) FILTER (WHERE is_disbursed) / COUNT(*), 2)
+    "villages" -> COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')   "wards" -> entity_type = 'Ward'
+    "towns" / "municipal boards" / "town committees" -> blocks (block_lgd_code)   "region" -> region
+    "constituency" / "AC" -> ac_number, ac_name (Unresolved rows excluded)
+    "year" / "this year" / "2025-26" -> financial_year_short = '2025-26' (the only year loaded)
 """.strip()
 
 _CROSS_SCHEME = """
@@ -1610,6 +1696,7 @@ _SCHEME_BLOCKS = {
     "CM Elevate": (_CMELEVATE_TABLES, _CMELEVATE_RULES, _CMELEVATE_VOCAB),
     "Focus Legacy": (_FOCUSLEGACY_TABLES, _FOCUSLEGACY_RULES, _FOCUSLEGACY_VOCAB),
     "CM Elevate Legacy": (_CMELEVATELEGACY_TABLES, _CMELEVATELEGACY_RULES, _CMELEVATELEGACY_VOCAB),
+    "CMSS": (_CMSS_TABLES, _CMSS_RULES, _CMSS_VOCAB),
 }
 
 

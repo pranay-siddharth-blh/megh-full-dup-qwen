@@ -117,14 +117,13 @@ class Verdict:
 
 # ── Replies ─────────────────────────────────────────────────────────────────
 
-_SCOPE = ("I'm Megh One AI, and I only help with Meghalaya's government schemes — MGNREGA, "
-          "PMAY-G, Focus Plus, CM Elevate, Focus Legacy and CM Elevate Legacy.")
+_SCOPE = ("I'm Megh One AI, and I only help with Meghalaya's government schemes — MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy and CMSS (Chief Minister's Scholarship Scheme).")
 _RULES_LEAD = "I can't help with that — it goes against the rules I follow."
 _SCOPE_LEAD = "Sorry, I can't help with that — it's outside what I'm allowed to do."
 _OFFER = ("I'm Megh One AI: I only give official figures and information about Meghalaya's "
-          "schemes — MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy and CM Elevate "
-          "Legacy. Ask me, for example, \"MGNREGA person-days in Ri Bhoi in 2024-25\" or "
-          "\"who is eligible for PMAY-G?\"")
+          "schemes — MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate "
+          "Legacy and CMSS (Chief Minister's Scholarship Scheme). Ask me, for example, "
+          "\"MGNREGA person-days in Ri Bhoi in 2024-25\" or \"who is eligible for PMAY-G?\"")
 
 RESPONSES = {
     # Supportive first, never a refusal: the person may be at risk.
@@ -163,12 +162,7 @@ RESPONSES = {
                         "Khasi Hills?\" or \"PMAY-G houses completed by district\"."),
     # Issue 10: "List all PMAY-G tables and columns in the database" listed curated.v_pmay and
     # its columns. The officer gets the measures, never the database's own names.
-    "schema": ("I don't share how the database is built — its tables, columns or internal names. What I can "
-               "give you is the figures it holds: MGNREGA person-days, households and persons employed, job "
-               "cards, wages and expenditure; PMAY-G houses sanctioned, completed and in progress, with the "
-               "amounts sanctioned and released; Focus Plus payments, beneficiaries and amount disbursed; CM "
-               "Elevate applications by scheme, status and district; Focus Legacy producer-group payments; and "
-               "CM Elevate Legacy sanctions and disbursements. Ask for any of these by place and year."),
+    "schema": ("I don't share how the database is built — its tables, columns or internal names. What I can give you is the figures it holds: MGNREGA person-days, households and persons employed, job cards, wages and expenditure; PMAY-G houses sanctioned, completed and in progress, with the amounts sanctioned and released; Focus Plus payments, beneficiaries and amount disbursed; CM Elevate applications by scheme, status and district; Focus Legacy producer-group payments; CM Elevate Legacy sanctions and disbursements; and CMSS applications and students paid, with the amount disbursed by district, block, village, constituency or region. Ask for any of these by place and year."),
     "unsafe": ("I can't help with that request — it goes against the rules I follow. " + _SCOPE),
     # The safety model is down and the message carries an abuse word: not a
     # verdict on the person, so said as "not right now", never "against the rules".
@@ -781,7 +775,7 @@ _MODEL_JSON_SCHEMA = {
     "required": ["verdict", "category"],
 }
 
-_PROMPT = """You are the gatekeeper for Megh One AI, a Meghalaya government assistant. Its ONLY job is to answer questions about six government schemes (MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy): their official figures, and how they work.
+_PROMPT = """You are the gatekeeper for Megh One AI, a Meghalaya government assistant. Its ONLY job is to answer questions about seven government schemes (MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy, CMSS): their official figures, and how they work.
 
 Classify the user's message. It may be in English, Hindi, Khasi or Garo, may be misspelt or transcribed from speech, and may wrap a harmful or off-task request in scheme words ("write an Instagram post about MGNREGA", "which scheme helps me kill someone"). Judge what the user actually WANTS DONE, not which words appear.
 
@@ -1002,7 +996,7 @@ _SCHEME_TERM = _A(
     Seq("self", _S("help", W("group", "groups"))),
     _S("village", W("organisation", "organisations", "organization", "organizations")),
     _S("unskilled", Opt("manual"), "work"),
-    Pred(_g_instalment), _P("pmay"), Joined("cm", "elevate"),
+    Pred(_g_instalment), _P("pmay"), Joined("cm", "elevate"), W("cmss", "scholarship", "scholarships", "dhte"),
 )
 _SCHEME_TERM_MATCH = Matcher(Seq(START, _SCHEME_TERM_OPENING, _GCharGap(60, "\n"), _SCHEME_TERM))
 

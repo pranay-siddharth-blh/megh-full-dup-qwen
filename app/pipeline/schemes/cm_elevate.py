@@ -194,6 +194,12 @@ _CMELEVATELEGACY_ONLY_TERMS = Matcher(Alt(
     # columns (total_loan_disbursement, loan_entity …) are on v_cm_elevate_disbursement only.
     _cme_sg("loan"),
 ))
+
+
+_CMSS_ONLY_TERMS = Matcher(Alt(
+    # the Chief Minister's Scholarship Scheme: no other scheme mentions a scholarship
+    "cmss", W("scholarship", "scholarships"), "post matric",
+))
 # Vocabulary only the sanction-and-disbursement dataset can answer. Consulted
 # ONLY once a question is already a CM Elevate question (named, or via a
 # sub-scheme word such as "piggery"), so generic money words are safe here.

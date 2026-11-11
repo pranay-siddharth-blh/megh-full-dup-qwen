@@ -212,7 +212,7 @@ check("  and says plainly it is not covered", "isn't one of the schemes I cover"
 # a list repeated in the sentence (user, 2026-10-18: keep the text short).
 _labels = " | ".join(o["label"] for o in _pause.options)
 check("  and offers every scheme that IS covered as an option",
-      all(s in _labels for s in ("MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy")))
+      all(s in _labels for s in ("MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy", "CMSS")))
 check("  and the text does not repeat the scheme list",
       "MGNREGA" not in _reply and "PMAY-G" not in _reply, _reply)
 check("  and is not the old dead-end wording",

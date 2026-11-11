@@ -23,6 +23,7 @@ export const SCHEME_HUES = {
   'CM Elevate': { main: '#6250d6', deep: '#3f2f9e' },
   'Focus Legacy': { main: '#008300', deep: '#005a00' },
   'CM Elevate Legacy': { main: '#d55181', deep: '#9c2c56' },
+  "CMSS": { main: '#4a90e2', deep: '#2c5f99' },
 };
 // The console's own purple: cross-scheme and unknown answers.
 const BRAND = { main: '#7C3FBF', deep: '#4A2380' };
@@ -253,7 +254,8 @@ const SERIES_SCHEME = [
   [(l) => hasJoined(l, ['focus', 'legacy']), 'Focus Legacy'],
   [(l) => hasJoined(l, ['focus', ['plus', '+']]) || hasAlone(l, 'fp'), 'Focus Plus'],
   [(l) => l.includes('pmay'), 'PMAY-G'],
-  [(l) => l.includes('nrega'), 'MGNREGA'],          // also "mgnrega"
+  [(l) => l.includes('nrega'), 'MGNREGA'],
+  [(l) => hasAlone(l, 'cmss'), 'CMSS'],          // also "mgnrega"
 ];
 export const schemeOfSeries = (label) => {
   const low = String(label).toLowerCase();

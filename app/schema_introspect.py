@@ -36,6 +36,7 @@ _SUBJECT_TO_SCHEME = {"mgnrega": "MGNREGA", "pmay": "PMAY-G", "pmayg": "PMAY-G",
                       "cm elevate legacy": "CM Elevate Legacy",
                       "cm_elevate_disbursement": "CM Elevate Legacy",
                       "cm elevate disbursement": "CM Elevate Legacy",
+                      "cmss": "CMSS",
                       # Not one of our schemes: mapped so its rows are scoped
                       # OUT (an unmapped subject_area applies to every scheme).
                       # CMSS / Home Stay: their glossary terms ("combining CMSS
@@ -49,7 +50,8 @@ _SUBJECT_TO_SCHEME = {"mgnrega": "MGNREGA", "pmay": "PMAY-G", "pmayg": "PMAY-G",
 # curated.v_data_coverage.scheme -> our scheme label (NRLM is not served here).
 _COVERAGE_TO_SCHEME = {"MGNREGA": "MGNREGA", "PMAY": "PMAY-G", "FOCUS_PLUS": "Focus Plus",
                        "CM_ELEVATE": "CM Elevate", "FOCUS_LEGACY": "Focus Legacy",
-                       "CM_ELEVATE_DISBURSEMENT": "CM Elevate Legacy"}
+                       "CM_ELEVATE_DISBURSEMENT": "CM Elevate Legacy",
+                       "CMSS": "CMSS"}
 
 # Never shown to the SQL generator and refused by sql_guard: they carry unmasked
 # account numbers / holder names / applicant names (KI-004). The views mask them.
@@ -90,6 +92,7 @@ _TABLE_NAME_TO_SCHEME = {
     "cm_elevate_disb": "CM Elevate Legacy",
     "cm_elevate": "CM Elevate",
     "focus_legacy": "Focus Legacy",
+    "cmss": "CMSS",
     "producer_group": "Focus Legacy",
     "pg_entity_type": "Focus Legacy",
     "pg_bank_history": "Focus Legacy",

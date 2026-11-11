@@ -50,6 +50,7 @@ _SCHEME_DATA_YEARS: dict[str, list[str]] = {
     # "all financial years" answer still includes them because it applies no
     # year filter (cmelevatelegacy_schema_partitions.yaml year_key rules).
     "CM Elevate Legacy": ["2024-25", "2025-26"],
+    "CMSS": ["2025-26"],
 }
 
 
@@ -290,6 +291,7 @@ _SCHEME_YEAR_SQL: "dict[str, str]" = {
         "SELECT DISTINCT year_key FROM curated.v_cm_elevate_disbursement "
         "WHERE year_key IS NOT NULL"
     ),
+    "CMSS": "SELECT DISTINCT year_key FROM curated.v_cmss WHERE year_key IS NOT NULL",
     # CM Elevate deliberately has no entry here — curated.v_cm_elevate has no
     # year_key column at all (not merely NULL), so there is nothing to probe.
     # Its default of [] in _SCHEME_DATA_YEARS above is the permanent value.
