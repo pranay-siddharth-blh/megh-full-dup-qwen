@@ -3,7 +3,7 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
-**2026-11-12 (Homestay onboarded by scheme-onboarder): on branch, NOT merged, NOT live-verified.** Review the tool's report (plan.html / apply.json) and every DRAFT entry; answer the open questions; run the live suites with the VPN; update CURRENT_STATE / DECISIONS / AI_PIPELINE.
+**2026-11-12 (Homestay onboarded by scheme-onboarder): branch `onboard/homestay-2026-11-12` @ c8890d8, built ON the CMSS branch (merge CMSS first), NOT merged, NOT pushed.** Tests green except the pre-existing BLH8; live acceptance 0 regressions, Homestay 9-10/12 (CURRENT_STATE 2026-11-12). Next: (1) KI-690 (number word read as a place; KNOWLEDGE routing for some phrasings) and KI-687 (CMSS); (2) data team / SME: KI-689 (one missing application, Tura block spellings, confirm the column remap and Ri Bhoi) and the HS / CS gold SQL; (3) `tests/live_context_validation.py` on the branch; (4) user decision KI-684; (5) review, merge CMSS then Homestay. Homestay Legacy, if onboarded, needs a which-Homestay rule and its own frontend SERIES_SCHEME entry first.
 
 **2026-11-11 (welcome KPI cards: one colour per scheme): uncommitted, built (`web/app`), frontend tests 115/115.** Each card wears its scheme's chart hue (`WelcomeCard.cardHueStyle` <- `chartTheme.SCHEME_HUES` via `schemeOfSeries`; CSS `.scheme-card.hued`); CMSS hue changed #4a90e2 -> amber #d99a00 / #8a5f00 (the blue was too close to PMAY-G). Text contrast >= 4.5:1 on every card.
 
