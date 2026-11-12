@@ -535,3 +535,7 @@ Branch `onboard/cmss-2026-11-11` (commits c75e594 tool, 8bba583 review fixes, 33
 - **KB:** `data/incoming/CMSS/` holds two .md files REBUILT from the `megh_knowledge` chunks (the KB itself is read-only, D-074).
 - **Held-out set:** `tests/nl2sql_eval/questions.yaml` CS-01..CS-12 (gold SQL written in this session; NEEDS data-team confirmation).
 - **Live acceptance:** see CURRENT_STATE (2026-11-11).
+
+
+## Homestay (onboarded 2026-11-12 by scheme-onboarder — REVIEW)
+PLANNED / NEEDS VERIFICATION: written by the onboarding tool from `data/homestay/scheme.yaml`. 138 registries updated; 32 left for review (questions, scheme-specific branches, drafts). Fill in: what the data holds, its truth rules, its namesakes, its live QA results.

@@ -41,11 +41,11 @@ FRIENDLY_KINDS = {"identity", "greeting", "thanks", "goodbye", "capability"}
 NO_INTRO = {"harm", "small_talk", "abuse", "me_who", "me_feelings", "me_doing", "me_name", "me_maker", "me_human",
             "me_personal", "affection", "joke", "greeting", "thanks", "goodbye", "capability", "time_date"}
 
-INTRO = ("I'm Megh One AI — I help with Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy and CMSS (Chief Minister's Scholarship Scheme) schemes.")
+INTRO = ("I'm Megh One AI — I help with Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy, CMSS and Homestay (Chief Minister's Scholarship Scheme) schemes.")
 # The first greeting of a chat introduces the assistant (Conversational Memory
 # approach, 2026-10-19, §8.1: "Hello! I'm Megh One AI. I can help you explore
 # data on Meghalaya's schemes…"); later greetings never do.
-FIRST_HELLO = ("I'm Megh One AI — I can help you explore data on Meghalaya's seven schemes: jobs, housing, "
+FIRST_HELLO = ("I'm Megh One AI — I can help you explore data on Meghalaya's eight schemes: jobs, housing, "
                "farmer support and enterprise. What would you like to look at?")
 FIRST_CHIPS = ["What schemes are there?", "What can you do?"]
 # Refusals that steer back to the topic — once per run of them (§8.2: the second
@@ -348,8 +348,8 @@ BANK = {
          "I can look up figures like job cards, houses, payments or beneficiaries for any district, block or "
          "village, and explain who is eligible and how to apply. What would you like to know?",
          "We were just looking at {topic} — shall I continue?"),
-        ("I'm Megh One AI — your guide to MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy and "
-         "CMSS.",
+        ("I'm Megh One AI — your guide to MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy, CMSS and "
+         "Homestay.",
          "Ask me for the numbers, or for how a scheme works.",
          "Want to carry on with {topic}?"),
     ],
@@ -367,7 +367,7 @@ BANK = {
     "me_name": [
         ("My name is Megh One AI.", "What would you like to know about the schemes?",
          "Shall we continue with {topic}?"),
-        ("I'm called Megh One AI!", "Ask me about any of the seven schemes.", "Want to carry on with {topic}?"),
+        ("I'm called Megh One AI!", "Ask me about any of the eight schemes.", "Want to carry on with {topic}?"),
     ],
     "me_maker": [
         ("I was built for the Government of Meghalaya, to help officers get scheme information quickly.",
@@ -424,7 +424,7 @@ BANK = {
         ("See you soon!", "Thanks for using Megh One AI.", None),
     ],
     "capability": [
-        ("As I mentioned, I cover MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy and CMSS.",
+        ("As I mentioned, I cover MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy, CMSS and Homestay.",
          "Ask me for figures by district, block, village or year — or how a scheme works.",
          "For example, more on {topic}?"),
         ("In short: scheme figures, and how the schemes work.", "Try one of the questions below.",

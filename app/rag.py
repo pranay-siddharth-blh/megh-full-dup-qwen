@@ -268,6 +268,7 @@ _SCHEME_DOC_NAMES = {
     "MGNREGA": ("MGNREGA", "MGNREGA"),
     "PMAY-G": ("PMAY-G", "PMAY-G / PMAY-Gramin"),
     "CMSS": ("CMSS", "CMSS (the Chief Minister's Scholarship Scheme) pays a flat Rs 6,000 a year to eligible students; it is a state scholarship, not the CM Elevate enterprise programme."),
+    "Home Stay": ("Homestay", "Homestay (the Chief Minister's Meghalaya Homestay Mission, Tourism Department) supports building a new homestay or upgrading an existing one; this data is its online applications from October 2025, not the older Homestay Legacy bank loans"),
 }
 
 
@@ -308,7 +309,7 @@ def kb_scheme(scheme: str | None) -> str | None:
     return _KB_SCHEME_ALIAS.get(scheme, scheme) if scheme else scheme
 
 
-_KB_SCHEMES = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CMSS")
+_KB_SCHEMES = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CMSS", "Home Stay")
 
 _STOP = frozenset("""a an the is are was were be what whats what's who whom which how why when where does do
 did of in on for to and or under about tell me explain define meaning describe role please kindly
@@ -774,7 +775,7 @@ async def _rerank(question: str, candidates: list[dict]) -> list[dict]:
 # knowledge answer, so an officer can see where it came from. Built from the
 # best-ranked pieces (the re-sorter puts the piece that answers first).
 
-_SCHEME_TITLE = {"Focus Plus": "FOCUS+", "Focus Legacy": "FOCUS (Legacy)", "CM Elevate": "CM-ELEVATE", "CMSS": "CMSS"}
+_SCHEME_TITLE = {"Focus Plus": "FOCUS+", "Focus Legacy": "FOCUS (Legacy)", "CM Elevate": "CM-ELEVATE", "CMSS": "CMSS", "Homestay": "Homestay"}
 
 
 def _doc_title(doc: str, scheme: str) -> str:

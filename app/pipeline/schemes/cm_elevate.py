@@ -200,6 +200,12 @@ _CMSS_ONLY_TERMS = Matcher(Alt(
     # the Chief Minister's Scholarship Scheme: no other scheme mentions a scholarship
     "cmss", W("scholarship", "scholarships"), "post matric",
 ))
+
+
+_HOMESTAY_ONLY_TERMS = Matcher(Alt(
+    # the Chief Minister's Meghalaya Homestay Mission: no other scheme mentions a homestay or a tourism cluster
+    W("homestay", "homestays", "cmmhm"), Joined("home", "stay"), Seq(W("tourism"), W("cluster", "clusters")),
+))
 # Vocabulary only the sanction-and-disbursement dataset can answer. Consulted
 # ONLY once a question is already a CM Elevate question (named, or via a
 # sub-scheme word such as "piggery"), so generic money words are safe here.

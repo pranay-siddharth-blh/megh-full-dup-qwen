@@ -1,0 +1,505 @@
+# homestay_classification_rules.yaml
+#
+# ===========================================================================
+# v1.0 - 2026-11-06 - FIRST VERSION, WRITTEN AHEAD OF THE DATABASE LOAD
+#
+# Target: curated.v_homestay_api (PLACEHOLDER - the view is not loaded yet) over
+# curated.fact_homestay_application. See homestay_schema_partitions.yaml for
+# every column referenced here.
+#
+# Six facts about the Homestay API feed decide most of the rules in this file:
+#
+#   1. ONE ROW IS ONE APPLICATION - not a person, not a homestay built. Questions
+#      about operational, constructed or disbursed homestays are caught here.
+#   2. THERE IS NO MONEY COLUMN. Every subsidy, loan, cost, grant or EMI question
+#      is caught here and redirected to the scheme rates (as scheme facts) or to
+#      application counts.
+#   3. PROJECT START / END DATES ARE EMPTY. Use cases 43-44 are caught here.
+#   4. FOUR STATUS COLUMNS. 'Pending' vs 'Forward' vs 'Unknown' and 'on hold' are
+#      caught only where the user's word could mean two of them.
+#   5. TWO GEOGRAPHIES. Home address (default) vs proposed site; tourism clusters
+#      vs LGD blocks; towns reported as blocks.
+#   6. TWO PARTIAL YEARS. 2025-26 (from Oct 2025) and 2026-27 (to 19 Oct 2026).
+#      Comparisons carry a caveat; other years have no data.
+#
+# Every count in a question below is a source-file figure
+# (datasets/Homestay/Home Stay API - 2026-11-01.csv, profiled 2026-11-06) and
+# has NOT been measured in megh_db.
+# ===========================================================================
+# Clarification rules for Homestay. First rule that fires wins; its question is
+# asked and the pipeline pauses. Editable by analysts - no code change needed.
+# {placeholders} are filled from the user's query at runtime.
+# Order: what the source cannot answer -> scheme-specific refusals -> people and
+# identity -> status -> time -> measure -> geography -> answer shape.
+# Conditions already filled silently by homestay_default_rules.yaml are absent
+# here - among them: bare 'status' = file_status, 'applications/beneficiaries' =
+# COUNT(*), no year = both years with split, geography = home address (mapped),
+# rooms exclude the outlier, facility shares over new-build, top N = 5, towns
+# included in block lists, Unresolved in totals but not in village figures.
+
+clarification_rules:
+
+  # ---- the source cannot answer this at all -----------------------------
+  - condition: "other_state_comparison_requested"
+    question: "Only Meghalaya is held here, so other states cannot be compared. Shall I compare districts within Meghalaya instead?"
+
+  - condition: "money_amount_requested"
+    question: "The Homestay application data has no money figures - no project cost, loan, subsidy, grant or EMI amount is recorded. I can tell you the scheme's rates from the guidelines, or give the number of applications ({application_count}) and approvals ({approved_count}). Which would help?"
+    note: >
+      critical - fires on subsidy, loan, sanctioned amount, disbursed, project cost, grant,
+      EMI, PMEGP, margin money, funds released, budget spent. Never multiply approvals by a
+      scheme rate.
+
+  - condition: "estimated_subsidy_from_rate_requested"
+    question: "An estimate (approvals x the Rs 7 lakh cap) would not be real data - actual project costs and subsidy shares are not recorded. Shall I give the approved count ({approved_count}) and the scheme rates separately?"
+
+  - condition: "project_timeline_requested"
+    question: "Proposed project start and end dates are empty for every application, so project timelines and durations cannot be shown. Shall I show applications by the month they were submitted instead?"
+    note: critical - use cases 43 and 44.
+
+  - condition: "construction_or_operational_status_requested"
+    question: "This data records applications and their approval status, not whether a homestay has been built, is under construction or is operating. Shall I give the number of approved applications ({approved_count}) instead?"
+    note: >
+      critical - fires on operational, functional, completed, under construction,
+      commissioned, running, onboarded, launched. Those words belong to Homestay Legacy's
+      use-case sheet and are not answerable from this feed.
+
+  - condition: "loan_or_bank_details_requested"
+    question: "Bank, branch, loan sanction and disbursement details are not in the Homestay application data. Shall I report approved and pending applications instead?"
+
+  - condition: "rejection_reason_requested"
+    question: "The data records that {rejected_count} applications were rejected, but not why. Shall I give the rejected count by district instead?"
+
+  - condition: "sendback_reason_requested"
+    question: "The data records that files were sent back or resubmitted, but not the reason. Shall I give the counts (Sendback {sendback_count}, Resubmit {resubmit_count})?"
+
+  - condition: "caste_tribe_income_requested"
+    question: "Caste, tribe and income are not recorded in the Homestay application data. I can break applications down by applicant category (Youth, Women, First Generation Entrepreneur, Differently Abled, Other) or gender instead. Which would help?"
+
+  - condition: "pwd_subsidy_rate_requested"
+    question: "The data records 7 applicants in the 'Differently Abled' category, but no disability certificate and no subsidy rate. The scheme allows up to 80% for persons with disabilities - that is a scheme rule, not a recorded payment. Shall I give the 7 by district?"
+
+  - condition: "training_design_or_footfall_requested"
+    question: "IHM training completion, the standard design chosen (of the 33), and guest bed-nights are not recorded in this data. Shall I answer on applications instead?"
+
+  - condition: "beds_requested"
+    question: "Beds are not recorded - only the number of guest rooms proposed. Shall I give the room count instead?"
+
+  - condition: "target_or_achievement_requested"
+    question: "The Mission's target is 3,000 homestays and 15,000 jobs by 2028, but this data holds applications, not homestays built or jobs created. It shows {application_count} applications and {approved_count} approvals. Shall I report those against the target, with that caveat?"
+
+  - condition: "jobs_or_employment_created_requested"
+    question: "Jobs created by the scheme are not recorded. Only the 24 upgradation applications state their current staff ({employee_total} employees). Shall I give that, with the caveat that it is existing staff?"
+
+  - condition: "boutique_homestay_requested"
+    question: "No boutique homestay (Component 3) application is recorded in this data - only new homestays (1,274) and upgradations (24). Shall I give the scheme's boutique rules from the guidelines, or the new-homestay figures?"
+
+  - condition: "withdrawn_requested"
+    question: "No application is marked withdrawn in this data. Shall I give the status breakdown instead (Pending, Unknown, Approved, Rejected)?"
+
+  - condition: "other_scheme_requested"
+    question: "This data covers the Chief Minister's Meghalaya Homestay Mission applications only. Shall I answer for Homestay applications alone?"
+
+  - condition: "scheme_policy_question"
+    question: "That is answered from the Homestay Mission guidelines rather than the data. Shall I answer from the scheme document?"
+    note: Eligibility, subsidy rates, documents, how to apply, the 33 designs, penalties, helpline - routed to the knowledge base, never to SQL.
+
+  # ---- homestay legacy vs this feed --------------------------------------
+  - condition: "homestay_dataset_ambiguous"
+    question: "Do you mean Homestay Mission applications (the online application data, {application_count} applications from Oct 2025), or the older Homestay loans already disbursed? They are separate datasets."
+    note: >
+      critical - fires only when the question carries a loan-register cue (disbursed loan,
+      outstanding, branch, sanction date, closed, cancelled) together with a plain
+      'homestay'. Application cues (applied, application, approved, pending, forward,
+      verification, category, rooms, solar) route here without asking.
+
+  # ---- people and identity --------------------------------------------------
+  - condition: "applicant_list_requested"
+    question: "Individual applicants cannot be listed - names, phone numbers and ids are personal data. Shall I show the count by {next_level} for {value} instead?"
+    note: >
+      Use cases 17 ('identify ... Wrong data'), 29, 33, 36, 44, 45. The answer is always
+      an aggregate one level down or by the requested attribute.
+
+  - condition: "applicant_lookup_requested"
+    question: "An individual application cannot be looked up here. For your own application, the Meghalaya One portal or the citizen service line 1971 (MIPA: +91 7085741695) can help. Shall I give area totals instead?"
+
+  - condition: "personal_identifier_values_requested"
+    question: "EPIC numbers, family ids, member ids and phone numbers are personal data and cannot be shown. I can give how many applicants appear more than once ({repeat_applicants} people, {extra_applications} extra applications). Shall I?"
+    note: Use case 45.
+
+  - condition: "establishment_name_requested"
+    question: "The names of the 24 existing homestays applying for upgradation are held, but are not shown until the department confirms they may be (some are the owner's own name). Shall I give them by district instead?"
+
+  - condition: "cross_scheme_person_match_requested"
+    question: "Matching the same person across schemes (CMSS, Focus Plus, NRLM or Homestay loans) is not permitted. Shall I give each scheme's count by district separately?"
+    note: critical.
+
+  # ---- status - which column ---------------------------------------------------
+  - condition: "pending_vs_forward_ambiguous"
+    question: "'Pending' could mean files with status Pending ({pending_count}) or files sitting in Forward movement ({forward_count}, which also includes Unknown and 2 Rejected). Which one?"
+    note: Fires only when the user mixes 'pending' with 'forward', 'in process' or 'under process'. A plain 'pending' is defaulted to file_status.
+
+  - condition: "unknown_status_meaning_requested"
+    question: "{unknown_count} applications have status 'Unknown'. The data does not say what Unknown means; 19 of them are second or third applications by people who also have another application. Shall I give the Unknown count by district?"
+
+  - condition: "unknown_described_as_rejected"
+    question: "Status 'Unknown' is not the same as Rejected - only {rejected_count} applications are Rejected. Shall I report Rejected ({rejected_count}) and Unknown ({unknown_count}) separately?"
+
+  - condition: "invalid_vs_wrong_combined_unclear"
+    question: "Verification records 'Invalid' ({invalid_count}) and 'Wrong' ({wrong_count}) separately. Count only Invalid, or both together?"
+
+  - condition: "level_meaning_requested"
+    question: "Files are recorded at 'level1' ({level1_count}) or 'level4' ({level4_count}); the data does not say which office each level is. Shall I give the counts by level?"
+
+  - condition: "approved_described_as_sanctioned_or_disbursed"
+    question: "{approved_count} applications are marked Approved. The data does not say whether that means the bank has sanctioned or released a loan. Shall I report them as 'approved applications'?"
+
+  # ---- time ---------------------------------------------------------------
+  - condition: "year_not_loaded_requested"
+    question: "Homestay applications are held for 2025-26 (from October 2025) and 2026-27 (to 19 October 2026) only, so there is no data for {value}. Shall I answer for those years?"
+    note: critical - never answer 0 for a year that is not loaded.
+
+  - condition: "year_comparison_partial_years"
+    question: "Both years are part years - 2025-26 covers Oct 2025 to Mar 2026 (505 applications) and 2026-27 covers Apr to 19 Oct 2026 (793). Compare them as they are, with that noted, or compare month by month?"
+    note: Use case 4-style comparisons and 'growth'. Fires once per conversation; afterwards the caveat is applied silently.
+
+  - condition: "approval_trend_across_years"
+    question: "All 80 approvals are on 2025-26 applications; no 2026-27 application has been approved yet. Shall I give approvals for 2025-26 and the pending count for 2026-27?"
+
+  - condition: "calendar_year_requested"
+    question: "Do you mean calendar year {value} (January to December, by application date) or financial year {fy_value}?"
+
+  - condition: "future_period_requested"
+    question: "The latest application in this data is dated 19 October 2026, so {value} has no data yet. Shall I give the latest available figures?"
+
+  # ---- which measure -----------------------------------------------------
+  - condition: "applications_vs_people_unclear"
+    question: "Count applications ({application_count}) or distinct applicants ({distinct_applicants})? 17 people applied more than once."
+    note: Fires only for 'how many people / persons / individuals' together with a duplicate or repeat cue; plain 'applicants' is defaulted to applications.
+
+  - condition: "performance_term_unclear"
+    question: "Best or worst measured how - by number of applications, number approved, or approval rate?"
+
+  - condition: "room_total_with_outlier_requested"
+    question: "One application records 3,500 rooms, which is a data-entry error. The total is 5,113 rooms without it and 8,613 with it. Shall I use 5,113?"
+    note: Fires only when the user explicitly asks to include every row or asks why totals differ.
+
+  - condition: "rooms_new_vs_upgradation_unclear"
+    question: "Rooms are recorded two ways - rooms proposed in new homestays (5,113) and existing rooms in the 24 homestays applying for upgradation (122). Which one, or both labelled separately?"
+
+  - condition: "facility_question_on_upgradation"
+    question: "Solar, rainwater harvesting and waste-management answers were collected only for new-homestay applications (1,274), not for the 24 upgradations. Shall I answer for new homestays?"
+
+  - condition: "per_capita_requested"
+    question: "Population figures are not held here, so applications per head cannot be calculated. Shall I give applications per district instead?"
+
+  - condition: "age_requested_individually"
+    question: "Individual ages cannot be shown. Shall I give applicants by age band (18-25, 26-35, 36-45, 46-60, over 60)?"
+
+  # ---- geography -----------------------------------------------------------
+  - condition: "home_vs_site_location_unclear"
+    question: "Do you mean where the applicants live ({home_count} applications from {value}) or where the homestay is proposed to be located ({site_count})? They differ for 113 applications."
+    note: >
+      critical - fires when the question says 'homestays in <district>' with a site cue
+      ('located', 'built', 'set up', 'proposed', 'tourism circuit') AND the two counts
+      differ. Ri Bhoi is the largest gap (103 by home, 148 by site).
+
+  - condition: "cluster_vs_block_ambiguous"
+    question: "'{value}' is a tourism cluster for the proposed site ({cluster_count} applications) and also a block where applicants live ({block_count}). Which did you mean?"
+    note: e.g. Nongstoin (cluster 115 vs block 43 / town 41), Mawkyrwat, Pynursla, Thadlaskein, Resubelpara.
+
+  - condition: "town_and_rural_block_share_name"
+    question: "'{value}' is both a rural block and a town reported as a block - {rural_label} ({rural_count} applications) and {town_label} ({town_count}). Which one, or both together?"
+    note: Nongstoin (43 / 41), Mairang (13 / 14), Resubelpara (17 / 39), Baghmara (12 / 19), Mawkyrwat (49 / 1).
+
+  - condition: "tura_scope_unclear"
+    question: "Tura could mean Tura Municipal Board (94 applicants live there), the North and South Tura constituencies (146 together), or the Tura tourism clusters for the proposed site (Tura Municipal 103, Tura Non-Municipal 68). Which one?"
+
+  - condition: "shillong_scope_unclear"
+    question: "Shillong could mean Shillong Municipal Board (39 applications) or the whole of East Khasi Hills (342). Which one?"
+
+  - condition: "sohra_scope_unclear"
+    question: "Sohra (Cherrapunjee) could mean the Sohra tourism cluster for the proposed site (113 applications) or Sohra constituency (23 applicants live there). Which one?"
+    note: The 37 applicants whose home is Cherrapunjee town carry no mapped village (they are the Unresolved rows of Shella Bholaganj block).
+
+  - condition: "ambiguous_geography_level"
+    question: "'{value}' is a {levels} name. Which level did you mean?"
+    note: e.g. Mawkyrwat (block 49, town committee 1, constituency 50); Nongstoin (block, town committee, constituency 80, cluster).
+
+  - condition: "ambiguous_village_needs_district"
+    question: "'{value}' exists in {districts}. Which district?"
+    note: Jarain, Lapalang, Lumsohphoh, Mawdiangum, Mawpdang, Nongbah, Nonglang, Nongthymmai, Umjarain.
+
+  - condition: "blocked_fuzzy_pair"
+    question: "'{value}' is close to both {candidate_a} and {candidate_b}, which are different places. Which one?"
+
+  - condition: "eastern_west_vs_west_khasi_hills"
+    question: "Eastern West Khasi Hills and West Khasi Hills are separate districts (64 and 125 applications). Which one?"
+
+  - condition: "source_district_vs_mapped_requested"
+    question: "13 applicants entered 'Eastern West Khasi Hills' but their LGD mapping places them in West Khasi Hills (and 1 West Garo Hills entry is in South West Garo Hills). Use the LGD mapping, as every total does, or the district as entered?"
+
+  - condition: "constituency_total_mismatch"
+    question: "64 applications have no mapped village, and so no constituency - constituency figures add up to 1,234, not 1,298. Continue with that noted?"
+
+  - condition: "region_ri_bhoi_unconfirmed"
+    question: "Ri Bhoi's region in the LGD master is not confirmed. Khasi Hills districts alone have 601 applications; with Ri Bhoi 704. Include Ri Bhoi?"
+
+  - condition: "rural_only_or_urban_only_unclear"
+    question: "Should the block figures include the 11 towns reported as blocks (278 applications), or rural C&RD blocks only?"
+
+  - condition: "missing_geography_level_for_breakdown"
+    question: "Broken down by which level - district, block, constituency, or village?"
+
+  - condition: "mixed_geography_levels_compared"
+    question: "{value_a} is a {level_a} and {value_b} is a {level_b}, so comparing them is not like-for-like. Compare at {level_b} level instead?"
+
+  - condition: "village_level_breakdown_size"
+    question: "A village-level breakdown returns up to 667 rows. Shall I show the top 10, or restrict it to one district or block?"
+
+  - condition: "unmatched_geography_name"
+    question: "I could not match '{value}' to any district, block, town, village, constituency or tourism cluster in the Homestay data. Did you mean {suggestions}?"
+
+  # ---- shape of the answer ---------------------------------------------------
+  - condition: "report_with_unavailable_dimensions"
+    question: "Money, construction status and project dates are not recorded, so the report can carry applications, approved, pending, verification status, category, gender, land type and rooms. Prepare it with those?"
+
+  - condition: "missing_aggregation_level"
+    question: "At what level - statewide, by district, by block, by constituency, or by village?"
+
+  - condition: "ranking_direction_unclear"
+    question: "Highest or lowest?"
+
+  - condition: "missing_comparison_target"
+    question: "Compare {value} with which other district, block or constituency?"
+
+  - condition: "share_denominator_missing"
+    question: "As a share of what - the district's own applications, or the state total of {application_count}?"
+
+  - condition: "percentage_vs_count"
+    question: "As percentages, or as counts?"
+
+  - condition: "multi_measure_table"
+    question: "Which measures should the table carry - applications, approved, pending, unknown, rejected, invalid, rooms?"
+
+  # ---- cross-scheme -----------------------------------------------------------
+  - condition: "cross_scheme_money_comparison"
+    question: "Homestay applications carry no money, so they cannot be compared with {other_scheme} amounts. Shall I compare application counts with {other_scheme} counts by district instead?"
+
+  - condition: "cross_scheme_row_level_request"
+    question: "Homestay is recorded per application and {other_scheme} per {other_grain}, so they cannot be listed side by side row by row. Shall I compare them by district totals?"
+
+# ===========================================================================
+# WORKED EXAMPLES - what a user typed, which condition fires, what the bot asks.
+# Every figure is computed from datasets/Homestay/Home Stay API - 2026-11-01.csv
+# grouped by LGD code (2026-11-06). unverified_in_db.
+# ===========================================================================
+worked_examples:
+
+  # ---- not held -----------------------------------------------------------
+  - user: "How much subsidy has been released under the Homestay scheme?"
+    fires: money_amount_requested
+    bot_asks: "The Homestay application data has no money figures - no project cost, loan, subsidy, grant or EMI amount is recorded. I can tell you the scheme's rates from the guidelines, or give the number of applications (1,298) and approvals (80). Which would help?"
+
+  - user: "What is the total project cost of approved homestays in East Khasi Hills?"
+    fires: money_amount_requested
+    bot_asks: "The Homestay application data has no money figures - no project cost, loan, subsidy, grant or EMI amount is recorded. I can tell you the scheme's rates from the guidelines, or give the number of applications (342) and approvals (23) in East Khasi Hills. Which would help?"
+
+  - user: "Estimate the subsidy committed for the 80 approved homestays"
+    fires: estimated_subsidy_from_rate_requested
+    bot_asks: "An estimate (approvals x the Rs 7 lakh cap) would not be real data - actual project costs and subsidy shares are not recorded. Shall I give the approved count (80) and the scheme rates separately?"
+
+  - user: "Give me the number of Home Stay projects based on their proposed project start and end dates"
+    fires: project_timeline_requested
+    bot_asks: "Proposed project start and end dates are empty for every application, so project timelines and durations cannot be shown. Shall I show applications by the month they were submitted instead?"
+
+  - user: "Identify Home Stay projects with unusually long proposed project durations"
+    fires: project_timeline_requested
+    bot_asks: "Proposed project start and end dates are empty for every application, so project timelines and durations cannot be shown. Shall I show applications by the month they were submitted instead?"
+
+  - user: "How many homestays are currently operational?"
+    fires: construction_or_operational_status_requested
+    bot_asks: "This data records applications and their approval status, not whether a homestay has been built, is under construction or is operating. Shall I give the number of approved applications (80) instead?"
+
+  - user: "How many ST applicants applied for a homestay?"
+    fires: caste_tribe_income_requested
+    bot_asks: "Caste, tribe and income are not recorded in the Homestay application data. I can break applications down by applicant category (Youth, Women, First Generation Entrepreneur, Differently Abled, Other) or gender instead. Which would help?"
+
+  - user: "How many disabled applicants are getting 80% subsidy?"
+    fires: pwd_subsidy_rate_requested
+    bot_asks: "The data records 7 applicants in the 'Differently Abled' category, but no disability certificate and no subsidy rate. The scheme allows up to 80% for persons with disabilities - that is a scheme rule, not a recorded payment. Shall I give the 7 by district?"
+
+  - user: "How many beds will the new homestays add?"
+    fires: beds_requested
+    bot_asks: "Beds are not recorded - only the number of guest rooms proposed. Shall I give the room count instead (5,113 rooms in new-homestay applications)?"
+
+  - user: "Are we on track for the 3,000 homestay target?"
+    fires: target_or_achievement_requested
+    bot_asks: "The Mission's target is 3,000 homestays and 15,000 jobs by 2028, but this data holds applications, not homestays built or jobs created. It shows 1,298 applications and 80 approvals. Shall I report those against the target, with that caveat?"
+
+  - user: "How many boutique homestays have been sanctioned?"
+    fires: boutique_homestay_requested
+    bot_asks: "No boutique homestay (Component 3) application is recorded in this data - only new homestays (1,274) and upgradations (24). Shall I give the scheme's boutique rules from the guidelines, or the new-homestay figures?"
+
+  - user: "Why were the 2 applications rejected?"
+    fires: rejection_reason_requested
+    bot_asks: "The data records that 2 applications were rejected, but not why. Shall I give the rejected count by district instead?"
+
+  - user: "What documents are needed to apply for the homestay subsidy?"
+    fires: scheme_policy_question
+    bot_asks: "That is answered from the Homestay Mission guidelines rather than the data. Shall I answer from the scheme document?"
+
+  # ---- dataset choice -------------------------------------------------------
+  - user: "How many homestay loans have been disbursed and how much is outstanding?"
+    fires: homestay_dataset_ambiguous
+    bot_asks: "Do you mean Homestay Mission applications (the online application data, 1,298 applications from Oct 2025), or the older Homestay loans already disbursed? They are separate datasets."
+
+  # ---- people and identity --------------------------------------------------
+  - user: "List all Home Stay beneficiaries whose verification is marked Wrong"
+    fires: applicant_list_requested
+    bot_asks: "Individual applicants cannot be listed - names, phone numbers and ids are personal data. Shall I show the count by district for the 5 'Wrong' applications instead?"
+
+  - user: "Identify Home Stay properties with more than 10 rooms"
+    fires: applicant_list_requested
+    bot_asks: "Individual applicants cannot be listed - names, phone numbers and ids are personal data. Shall I show the count by district for the 34 applications proposing more than 10 rooms instead?"
+
+  - user: "Show the duplicate EPIC numbers and family ids"
+    fires: personal_identifier_values_requested
+    bot_asks: "EPIC numbers, family ids, member ids and phone numbers are personal data and cannot be shown. I can give how many applicants appear more than once (17 people, 19 extra applications). Shall I?"
+
+  - user: "What is the status of my homestay application REQ/239/157/1172026/349542?"
+    fires: applicant_lookup_requested
+    bot_asks: "An individual application cannot be looked up here. For your own application, the Meghalaya One portal or the citizen service line 1971 (MIPA: +91 7085741695) can help. Shall I give area totals instead?"
+
+  - user: "Which homestays have applied for upgradation? Give names"
+    fires: establishment_name_requested
+    bot_asks: "The names of the 24 existing homestays applying for upgradation are held, but are not shown until the department confirms they may be (some are the owner's own name). Shall I give them by district instead?"
+
+  - user: "Which homestay applicants also got CMSS scholarships for their children?"
+    fires: cross_scheme_person_match_requested
+    bot_asks: "Matching the same person across schemes (CMSS, Focus Plus, NRLM or Homestay loans) is not permitted. Shall I give each scheme's count by district separately?"
+
+  # ---- status ---------------------------------------------------------------
+  - user: "How many applications are pending or still under process in forward?"
+    fires: pending_vs_forward_ambiguous
+    bot_asks: "'Pending' could mean files with status Pending (1,082) or files sitting in Forward movement (1,214, which also includes Unknown and 2 Rejected). Which one?"
+
+  - user: "What does Unknown status mean?"
+    fires: unknown_status_meaning_requested
+    bot_asks: "134 applications have status 'Unknown'. The data does not say what Unknown means; 19 of them are second or third applications by people who also have another application. Shall I give the Unknown count by district?"
+
+  - user: "How many applications were rejected, including unknown?"
+    fires: unknown_described_as_rejected
+    bot_asks: "Status 'Unknown' is not the same as Rejected - only 2 applications are Rejected. Shall I report Rejected (2) and Unknown (134) separately?"
+
+  - user: "How many applications failed verification?"
+    fires: invalid_vs_wrong_combined_unclear
+    bot_asks: "Verification records 'Invalid' (93) and 'Wrong' (5) separately. Count only Invalid, or both together?"
+
+  - user: "How many homestay loans have been sanctioned?"
+    fires: approved_described_as_sanctioned_or_disbursed
+    bot_asks: "80 applications are marked Approved. The data does not say whether that means the bank has sanctioned or released a loan. Shall I report them as 'approved applications'?"
+
+  - user: "What is level 4?"
+    fires: level_meaning_requested
+    bot_asks: "Files are recorded at 'level1' (733) or 'level4' (565); the data does not say which office each level is. Shall I give the counts by level?"
+
+  # ---- time ---------------------------------------------------------------
+  - user: "How many Homestay applications were received in 2024-25?"
+    fires: year_not_loaded_requested
+    bot_asks: "Homestay applications are held for 2025-26 (from October 2025) and 2026-27 (to 19 October 2026) only, so there is no data for 2024-25. Shall I answer for those years?"
+
+  - user: "Compare the number of Home Stay applications across all financial years"
+    fires: year_comparison_partial_years
+    bot_asks: "Both years are part years - 2025-26 covers Oct 2025 to Mar 2026 (505 applications) and 2026-27 covers Apr to 19 Oct 2026 (793). Compare them as they are, with that noted, or compare month by month?"
+
+  - user: "How has the approval rate changed from last year to this year?"
+    fires: approval_trend_across_years
+    bot_asks: "All 80 approvals are on 2025-26 applications; no 2026-27 application has been approved yet. Shall I give approvals for 2025-26 and the pending count for 2026-27?"
+
+  - user: "Homestay applications in 2026"
+    fires: calendar_year_requested
+    bot_asks: "Do you mean calendar year 2026 (January to December, by application date) or financial year 2026-27?"
+
+  - user: "How many applications came in December 2026?"
+    fires: future_period_requested
+    bot_asks: "The latest application in this data is dated 19 October 2026, so December 2026 has no data yet. Shall I give the latest available figures?"
+
+  # ---- measure -------------------------------------------------------------
+  - user: "How many individual people applied, counting duplicates once?"
+    fires: applications_vs_people_unclear
+    bot_asks: "Count applications (1,298) or distinct applicants (1,279)? 17 people applied more than once."
+
+  - user: "Which is the best performing district for Homestay?"
+    fires: performance_term_unclear
+    bot_asks: "Best or worst measured how - by number of applications (East Khasi Hills, 342), number approved (East Khasi Hills, 23), or approval rate (South West Khasi Hills, 15.7%)?"
+
+  - user: "Total rooms including all records, why is it 8,613?"
+    fires: room_total_with_outlier_requested
+    bot_asks: "One application records 3,500 rooms, which is a data-entry error. The total is 5,113 rooms without it and 8,613 with it. Shall I use 5,113?"
+
+  - user: "How many rooms in total, new and existing?"
+    fires: rooms_new_vs_upgradation_unclear
+    bot_asks: "Rooms are recorded two ways - rooms proposed in new homestays (5,113) and existing rooms in the 24 homestays applying for upgradation (122). Which one, or both labelled separately?"
+
+  - user: "How many upgradation homestays use solar energy?"
+    fires: facility_question_on_upgradation
+    bot_asks: "Solar, rainwater harvesting and waste-management answers were collected only for new-homestay applications (1,274), not for the 24 upgradations. Shall I answer for new homestays?"
+
+  # ---- geography -------------------------------------------------------------
+  - user: "How many homestays are proposed to be built in Ri Bhoi?"
+    fires: home_vs_site_location_unclear
+    bot_asks: "Do you mean where the applicants live (103 applications from Ri Bhoi) or where the homestay is proposed to be located (148)? They differ for 113 applications."
+
+  - user: "Homestay applications in Nongstoin"
+    fires: cluster_vs_block_ambiguous
+    bot_asks: "'Nongstoin' is a tourism cluster for the proposed site (115 applications) and also a block where applicants live (Nongstoin block 43, Nongstoin Town Committee 41). Which did you mean?"
+
+  - user: "Applications from Mairang block"
+    fires: town_and_rural_block_share_name
+    bot_asks: "'Mairang' is both a rural block and a town reported as a block - Mairang C&RD block (13 applications) and Mairang Town Committee (14). Which one, or both together?"
+
+  - user: "How many homestay applications from Tura?"
+    fires: tura_scope_unclear
+    bot_asks: "Tura could mean Tura Municipal Board (94 applicants live there), the North and South Tura constituencies (146 together), or the Tura tourism clusters for the proposed site (Tura Municipal 103, Tura Non-Municipal 68). Which one?"
+
+  - user: "How many homestay applications in Shillong?"
+    fires: shillong_scope_unclear
+    bot_asks: "Shillong could mean Shillong Municipal Board (39 applications) or the whole of East Khasi Hills (342). Which one?"
+
+  - user: "How many homestays are coming up in Sohra?"
+    fires: sohra_scope_unclear
+    bot_asks: "Sohra (Cherrapunjee) could mean the Sohra tourism cluster for the proposed site (113 applications) or Sohra constituency (23 applicants live there). Which one?"
+
+  - user: "Applications from Mawkyrwat"
+    fires: ambiguous_geography_level
+    bot_asks: "'Mawkyrwat' is a block (49 applications), a town committee (1) and a constituency (50). Which level did you mean?"
+
+  - user: "How many applicants from Nongthymmai village?"
+    fires: ambiguous_village_needs_district
+    bot_asks: "'Nongthymmai' exists in Eastern West Khasi Hills (Mairang block), Ri Bhoi (Jirang block) and East Khasi Hills (Mawryngkneng block). Which district?"
+
+  - user: "Homestay applications in West Khasi"
+    fires: eastern_west_vs_west_khasi_hills
+    bot_asks: "Eastern West Khasi Hills and West Khasi Hills are separate districts (64 and 125 applications). Which one?"
+
+  - user: "Constituency-wise applications adding up to the state total"
+    fires: constituency_total_mismatch
+    bot_asks: "64 applications have no mapped village, and so no constituency - constituency figures add up to 1,234, not 1,298. Continue with that noted?"
+
+  - user: "How many homestay applicants are from the Khasi Hills?"
+    fires: region_ri_bhoi_unconfirmed
+    bot_asks: "Ri Bhoi's region in the LGD master is not confirmed. Khasi Hills districts alone have 601 applications; with Ri Bhoi 704. Include Ri Bhoi?"
+
+  - user: "Rank rural blocks by homestay applications"
+    fires: rural_only_or_urban_only_unclear
+    bot_asks: "Should the block figures include the 11 towns reported as blocks (278 applications), or rural C&RD blocks only?"
+
+  # ---- shape and cross-scheme ------------------------------------------------
+  - user: "Give a district report of applications, subsidy amount, construction status and approvals"
+    fires: report_with_unavailable_dimensions
+    bot_asks: "Money, construction status and project dates are not recorded, so the report can carry applications, approved, pending, verification status, category, gender, land type and rooms. Prepare it with those?"
+
+  - user: "Compare Homestay subsidy with PMAY spending by district"
+    fires: cross_scheme_money_comparison
+    bot_asks: "Homestay applications carry no money, so they cannot be compared with PMAY amounts. Shall I compare application counts with PMAY counts by district instead?"

@@ -455,7 +455,7 @@ def test_scheme_listing_shows_all_six_and_counts_correctly():
     ans = p._scheme_listing_answer("what schemes do you have?")["answer"]
     bullets = [line for line in ans.splitlines() if line.startswith("- **")]
     assert ans.startswith("I cover seven ")          # CMSS onboarded 2026-11-11
-    assert len(bullets) == 7
+    assert len(bullets) == 8
     cm = next(b for b in bullets if b.startswith("- **CM Elevate**"))
     assert "applications" in cm
     legacy = next(b for b in bullets if b.startswith("- **CM Elevate Legacy**"))
@@ -962,7 +962,7 @@ def test_village_read_as_a_programme_is_corrected_to_the_village():
 
 
 def test_village_guard_now_covers_every_scheme():
-    for s in (["CM Elevate Legacy"], ["CM Elevate"], ["PMAY-G"], ["Focus Plus"], ["Focus Legacy"], ["MGNREGA"], ["CMSS"]):
+    for s in (["CM Elevate Legacy"], ["CM Elevate"], ["PMAY-G"], ["Focus Plus"], ["Focus Legacy"], ["MGNREGA"], ["CMSS"], ["Homestay"]):
         assert p._village_filter_missing(s, _NOAGRE_ER, "SELECT COUNT(*) FROM t WHERE lgd_block = 'X'") == 273728
         assert p._village_filter_missing(s, _NOAGRE_ER, "SELECT COUNT(*) FROM t WHERE village_code = 273728") is None
     assert p._village_filter_missing(["PMAY-G", "Focus Plus"], _NOAGRE_ER, "SELECT 1") is None

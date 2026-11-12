@@ -27,8 +27,8 @@ NAMES = set(R.NAMES)
 
 
 def test_the_registry_itself():
-    assert R.NAMES == ("MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy", "CMSS")
-    assert len(R.BY_NAME) == 7 and len(R.SUBJECT_TO_SCHEME) == 7
+    assert R.NAMES == ("MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy", "CMSS", "Homestay")
+    assert len(R.BY_NAME) == 8 and len(R.SUBJECT_TO_SCHEME) == 8
 
 
 def test_pure_name_lists_read_the_registry():

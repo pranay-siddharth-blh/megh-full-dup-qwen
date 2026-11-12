@@ -1,0 +1,593 @@
+# homestay_default_rules.yaml
+#
+# Default rules for Homestay - node 5.5. Runs after the clarification gate.
+# Each rule fills a missing detail silently and hands the response composer an
+# assumption line, so the user can correct it without being interrupted first.
+# Editable by analysts - no code change needed.
+#
+# A condition must live in EITHER the clarification file OR this one. The gate runs
+# first, so any condition present in both will always ask and never default.
+# {placeholders} are filled from the resolved query at runtime.
+#
+# ===========================================================================
+# v1.0 - 2026-11-06 - FIRST VERSION, WRITTEN AHEAD OF THE DATABASE LOAD
+#
+# Target: curated.v_homestay_api (PLACEHOLDER) over curated.fact_homestay_application.
+#
+# What makes Homestay's defaults different from CMSS's:
+#
+#   * there is NO mandatory exclusion predicate - every row is a real application
+#   * 'beneficiary' in the client workbook means an APPLICANT, so it defaults to
+#     COUNT(*) with a line saying an application is not yet a benefit received
+#   * a bare 'status' defaults to file_status; 'pending' to file_status = 'Pending'
+#   * no year named -> both partial years, with the split stated
+#   * geography defaults to the applicant's HOME (LGD-mapped), filtered by code;
+#     the proposed site is used only when the user signals it
+#   * facility measures (rooms, solar, rainwater, waste) default to the 1,274
+#     new-build applications, and room measures exclude the 3,500-room outlier
+#   * there is no money, so no unit default exists - money is the gate's job
+#
+# EVERY NUMBER IN AN assumption_text BELOW IS A SOURCE-FILE FIGURE
+# (datasets/Homestay/Home Stay API - 2026-11-01.csv, profiled 2026-11-06) AND HAS
+# NOT BEEN MEASURED IN megh_db.
+# ===========================================================================
+#
+# Reserved for homestay_classification_rules.yaml, not defaulted here: every money
+# question; project dates; construction / operational status; caste, PwD rate,
+# beds, training, target, jobs, boutique, withdrawn; the Homestay vs Homestay
+# Legacy choice; applicant lists, lookups and identifier values; 'pending' mixed
+# with 'forward'; Unknown meaning; Invalid + Wrong together; levels; approved as
+# sanctioned; years not loaded; year comparison; approval trend; calendar year;
+# future periods; people vs applications with a duplicate cue; performance
+# measure; rooms with the outlier; new vs existing rooms; facilities on
+# upgradation; home vs site where they differ; cluster vs block; town vs rural
+# block; Tura; Shillong; Sohra; multi-level names; shared village names; Eastern
+# West vs West Khasi Hills; Khasi with Ri Bhoi; rural-only vs with-towns.
+
+default_rules:
+
+  # ---- population - fires before everything else -------------------------
+  - condition: "status_unspecified_in_application_count"
+    default_value: "all_applications_any_status"
+    assumption_text: "Counting every application in the data, whatever its status ({application_count} in all)."
+    note: Filtering to Approved silently would show 80 of 1,298.
+
+  - condition: "beneficiary_term"
+    default_value: "all_applications"
+    assumption_text: "'Beneficiaries' here means applicants - {application_count} applications, of which {approved_count} are approved. An application is not yet a subsidy received."
+    sql_effect: "COUNT(*)"
+    note: >
+      critical - the client workbook uses 'beneficiary' for applicant. The approved count
+      always travels with the answer.
+
+  - condition: "application_term"
+    default_value: "all_applications"
+    assumption_text: "Counting applications."
+    sql_effect: "COUNT(*)"
+
+  - condition: "applicant_term_unqualified"
+    default_value: "count_applications"
+    assumption_text: "Counting applications ({application_count}); {distinct_applicants} different people made them."
+    sql_effect: "COUNT(*)"
+    note: Without a 'unique / distinct / people' cue. 19 repeat applications.
+
+  - condition: "distinct_people_term"
+    default_value: "count_distinct_member_key"
+    assumption_text: "Counting different people by their masked Meghalaya One id - 17 people applied more than once."
+    sql_effect: "COUNT(DISTINCT member_key)"
+
+  - condition: "homestay_term_for_application"
+    default_value: "applications"
+    assumption_text: "'Homestays' is read as homestay applications - the data does not record homestays built."
+    note: "'How many homestays in X' without a site or operation cue."
+
+  - condition: "repeat_applications_in_count"
+    default_value: "include"
+    assumption_text: "Repeat applications by the same person are counted as separate applications."
+    note: 19 rows, all status Unknown.
+
+  - condition: "unresolved_rows_in_state_district_or_block_total"
+    default_value: "include"
+    assumption_text: "Applications with no mapped village are included - they still belong to a known block and district."
+    note: 64 applications (Shella Bholaganj 37, Rongram 25, Ranikor 1, Tura MB 1).
+
+  - condition: "unresolved_rows_in_village_question"
+    default_value: "exclude_and_state_count"
+    assumption_text: "{unresolved_count} applications with no mapped village are left out of village figures and counted only at block and district level."
+    sql_effect: "WHERE entity_type <> 'Unresolved'"
+
+  - condition: "unresolved_rows_in_constituency_question"
+    default_value: "exclude_and_state_count"
+    assumption_text: "Applications with no mapped village have no constituency and are left out of constituency figures (64 statewide)."
+    sql_effect: "WHERE entity_type <> 'Unresolved'"
+
+  - condition: "name_code_conflict_rows_present"
+    default_value: "include_by_mapped_code"
+    assumption_text: "Districts are taken from the LGD mapping, which moves 14 applications from the district the applicant typed."
+    note: 13 Eastern West Khasi Hills -> West Khasi Hills; 1 West Garo Hills -> South West Garo Hills.
+
+  - condition: "towns_in_block_figures"
+    default_value: "include_towns_as_blocks"
+    assumption_text: "Municipal boards and town committees are counted as blocks, as the department reports them."
+    note: 11 towns, 278 applications. The gate asks only when the user signals 'rural'.
+
+  - condition: "wards_in_village_figures"
+    default_value: "include_wards_as_villages"
+    assumption_text: "In towns, wards take the place of villages and are counted as villages."
+
+  # ---- component -----------------------------------------------------------
+  - condition: "component_unspecified"
+    default_value: "both_new_and_upgradation"
+    assumption_text: "Covering both new-homestay ({new_count}) and upgradation ({upgradation_count}) applications."
+
+  - condition: "upgradation_term"
+    default_value: "is_upgradation"
+    assumption_text: "Upgradation means applications to upgrade an existing homestay (Component 2) - 24 in all, all pending."
+    sql_effect: "WHERE is_upgradation"
+
+  - condition: "new_homestay_term"
+    default_value: "not_is_upgradation"
+    assumption_text: "New homestay means applications to build a new homestay (Component 1)."
+    sql_effect: "WHERE NOT is_upgradation"
+
+  - condition: "facility_measure_base"
+    default_value: "new_build_applications"
+    assumption_text: "Solar, rainwater harvesting, waste management and rooms were recorded for new-homestay applications only (1,274); shares are out of those."
+    sql_effect: "WHERE NOT is_upgradation"
+    note: Use cases 34-42.
+
+  - condition: "room_measure_outlier"
+    default_value: "exclude_outlier"
+    assumption_text: "One application recording 3,500 rooms is treated as a data-entry error and left out of room totals and averages."
+    sql_effect: "FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE))"
+
+  - condition: "room_term_unqualified"
+    default_value: "proposed_rooms_new_build"
+    assumption_text: "Rooms means guest rooms proposed in new-homestay applications."
+    sql_effect: "SUM(homestay_rooms)"
+
+  - condition: "facility_proposed_not_built"
+    default_value: "state_proposed"
+    assumption_text: "These are facilities proposed in the application, not facilities verified on site."
+
+  # ---- status ---------------------------------------------------------------
+  - condition: "bare_status_term"
+    default_value: "file_status"
+    assumption_text: "Status means the application file status (Approved, Pending, Unknown, Rejected)."
+    sql_effect: "GROUP BY file_status"
+    note: Use case 8.
+
+  - condition: "pending_term"
+    default_value: "file_status_pending"
+    assumption_text: "Pending means applications with file status Pending ({pending_count})."
+    sql_effect: "WHERE file_status = 'Pending'"
+
+  - condition: "approved_term"
+    default_value: "file_status_approved"
+    assumption_text: "Approved means applications with file status Approved."
+    sql_effect: "WHERE (file_status = 'Approved')"
+
+  - condition: "forward_term"
+    default_value: "current_file_status_forward"
+    assumption_text: "Forward means files whose latest movement is Forward ({forward_count}); this includes Pending, Unknown and 2 Rejected files."
+    sql_effect: "WHERE current_file_status = 'Forward'"
+    note: Use cases 10 and 13.
+
+  - condition: "verification_term"
+    default_value: "data_verified"
+    assumption_text: "Verification status is the data-verification result (Valid, Invalid, On Hold, Wrong); {not_verified_count} applications are not yet verified."
+    sql_effect: "GROUP BY COALESCE(data_verified, 'Not yet verified')"
+    note: Use cases 14-19.
+
+  - condition: "on_hold_term"
+    default_value: "data_verified_on_hold"
+    assumption_text: "On hold means applications whose verification is On Hold."
+    sql_effect: "WHERE data_verified = 'On Hold'"
+
+  - condition: "unknown_status_display"
+    default_value: "label_status_not_recorded"
+    assumption_text: "Status 'Unknown' is shown as recorded; the data does not explain it."
+
+  - condition: "approval_rate_term"
+    default_value: "approved_over_all_applications"
+    assumption_text: "Approval rate is approved applications as a share of all applications; all approvals so far are on 2025-26 applications."
+    sql_effect: "100.0 * COUNT(*) FILTER (WHERE (file_status = 'Approved')) / COUNT(*)"
+    note: Use case 11. 6.2% overall, 15.8% for 2025-26.
+
+  - condition: "invalid_term_alone"
+    default_value: "data_verified_invalid_only"
+    assumption_text: "Invalid means verification status Invalid; the 5 marked 'Wrong' are a separate group."
+    sql_effect: "WHERE data_verified = 'Invalid'"
+
+  # ---- time ---------------------------------------------------------------
+  - condition: "missing_time_period"
+    default_value: "all_years_with_split"
+    assumption_text: "Covering all applications from 7 October 2025 to 19 October 2026 (2025-26: 505, 2026-27: 793)."
+    note: No year filter; the split is shown when the answer is a single number.
+
+  - condition: "relative_year_current"
+    default_value: "2026-27"
+    assumption_text: "Taking 'this year' as financial year 2026-27, which runs only to 19 October 2026 in this data."
+    sql_effect: "financial_year_short = '2026-27'"
+
+  - condition: "relative_year_last"
+    default_value: "2025-26"
+    assumption_text: "Taking 'last year' as financial year 2025-26 (October 2025 to March 2026, when the scheme opened)."
+    sql_effect: "financial_year_short = '2025-26'"
+
+  - condition: "per_year_breakdown_requested"
+    default_value: "both_years_with_partial_note"
+    assumption_text: "Both financial years are part years: 2025-26 from October and 2026-27 to 19 October."
+    sql_effect: "GROUP BY financial_year_short"
+    note: Use cases 2 and 4, after the gate has asked once.
+
+  - condition: "month_breakdown_requested"
+    default_value: "application_month"
+    assumption_text: "Months are the month the application was submitted."
+    sql_effect: "GROUP BY date_trunc('month', application_date)"
+
+  - condition: "time_dimension_unspecified"
+    default_value: "financial_year"
+    assumption_text: "Dated by financial year of application (April to March)."
+
+  - condition: "data_currency_unstated"
+    default_value: "as_at_extract"
+    assumption_text: "Figures are as at the department's extract of 1 November 2026 (latest application 19 October 2026)."
+
+  # ---- geography --------------------------------------------------------
+  - condition: "missing_geography"
+    default_value: "all_districts"
+    assumption_text: "Covering all 12 districts of Meghalaya."
+
+  - condition: "whole_state_reference"
+    default_value: "no_district_filter"
+    assumption_text: "Figures are statewide."
+
+  - condition: "geography_meaning_unstated"
+    default_value: "applicant_home_address"
+    assumption_text: "Places are where the applicants live (LGD-mapped home address), not the proposed homestay site."
+    note: critical - phrase answers as 'applications from <place>'.
+
+  - condition: "site_geography_signalled"
+    default_value: "proposed_site_columns"
+    assumption_text: "Places are where the homestay is proposed to be located, as the applicant entered them."
+    sql_effect: "lower(proposed_district) / lower(proposed_cluster) = '<resolved value>'"
+    note: Fires on 'located in', 'proposed in', 'site', 'cluster', 'tourism circuit' when the gate did not ask.
+
+  - condition: "cluster_named_without_block_namesake"
+    default_value: "proposed_cluster"
+    assumption_text: "Reading {value} as the {cluster} tourism cluster for the proposed site."
+    note: Cluster-only names - Wari Chora, Kheliriat, Babadam, Dawki, Mawdiangdiang, Umden, Kynshi, Umiam, Nokrek (homestay_entity_resolver.yaml cluster_collisions.cluster_only). Every other cluster name collides with a block, town or constituency and is asked by the gate.
+
+  - condition: "geography_filter_form_unspecified"
+    default_value: "lgd_code"
+    assumption_text: "Filtered on the LGD code of the place."
+    sql_effect: "district_lgd_code / block_lgd_code / village_code / ac_number = <code>"
+
+  - condition: "region_group_named"
+    default_value: "expand_to_member_districts"
+    assumption_text: "{region} covers {districts}."
+    note: Garo = 273, 277, 278, 656, 663. Jaintia = 275, 657. Khasi with or without Ri Bhoi is asked by the gate.
+
+  - condition: "town_named_without_rural_namesake"
+    default_value: "town_block_code"
+    assumption_text: "Reading {value} as {town_label}, which the department reports as a block."
+    note: Jowai MB (249820), Nongpoh TC (249812), William Nagar MB (249808), Khliehriat TC (279714).
+
+  - condition: "geography_display_case"
+    default_value: "title_case"
+    assumption_text: "District and block names are shown in title case."
+
+  - condition: "breakdown_includes_unresolved_block_placeholder"
+    default_value: "label_as_no_village"
+    assumption_text: "Applications with no mapped village are shown under their block as 'village not recorded'."
+
+  # ---- applicant attributes -----------------------------------------------
+  - condition: "gender_vs_women_category"
+    default_value: "gender_column"
+    assumption_text: "Female / male is the applicant's recorded gender; the 'Women' applicant category is a separate field."
+    sql_effect: "GROUP BY gender"
+    note: Female 681 vs Women category 479.
+
+  - condition: "women_category_term"
+    default_value: "applicant_category_women"
+    assumption_text: "Counting applications made under the Women category (self-declared)."
+    sql_effect: "WHERE applicant_category = 'Women'"
+    note: Use case 25 ('under the Women category').
+
+  - condition: "youth_term"
+    default_value: "applicant_category_youth"
+    assumption_text: "Youth means the 'Youth (18-35 yrs)' applicant category, as declared."
+    sql_effect: "WHERE applicant_category = 'Youth (18-35 yrs)'"
+
+  - condition: "csc_term"
+    default_value: "cm_connect_centre"
+    assumption_text: "Assisted applications are those made through a CM Connect Centre."
+    sql_effect: "WHERE application_mode = 'cmConnectCenter'"
+    note: CSC, common service centre, kiosk, assisted.
+
+  - condition: "lease_review_term"
+    default_value: "lease_review_rule"
+    assumption_text: "A lease needs review if it is shorter than the scheme's 7-year minimum, has no lease years, or has inconsistent years."
+    sql_effect: "type_of_land_holding = 'Leased' AND (lease_years IS NULL OR lease_years < 7 OR land_lease_year_start < 1990 OR land_lease_year_end - land_lease_year_start <> lease_years)"
+    note: Use case 33. 10 applications.
+
+  - condition: "age_measure_unspecified"
+    default_value: "age_bands_at_application"
+    assumption_text: "Ages are at the date of application, in bands; one recorded age under 18 is a data error and is left out."
+    sql_effect: "WHERE applicant_age_years >= 18"
+
+  # ---- which measure ----------------------------------------------------
+  - condition: "missing_scheme"
+    default_value: "homestay"
+    assumption_text: "Answering for the Chief Minister's Meghalaya Homestay Mission applications."
+
+  - condition: "scheme_alias_named"
+    default_value: "homestay"
+    assumption_text: "Reading '{value}' as the Chief Minister's Meghalaya Homestay Mission (Homestay scheme)."
+    note: Home Stay, home-stay, CMMHM, CM Homestay Mission, Meghalaya Tourism Homestay Scheme, homestay subsidy scheme.
+
+  - condition: "missing_metric_for_ranking"
+    default_value: "applications"
+    assumption_text: "Ranked by number of applications."
+
+  - condition: "duplicate_check_term"
+    default_value: "repeat_applicant_counts"
+    assumption_text: "Duplicates are checked by applicant: counts only, no ids shown."
+    sql_effect: "COUNT(*) - COUNT(DISTINCT member_key)"
+    note: Use cases 39 (Legacy sheet wording) and 45 once the gate's id-value rule has not fired.
+
+  # ---- which table ------------------------------------------------------
+  - condition: "default_table_choice"
+    default_value: "curated.v_homestay_api"
+    assumption_text: "Answered from the Homestay Mission application records."
+
+  - condition: "year_coverage_check"
+    default_value: "curated.v_data_coverage"
+    assumption_text: "Checked which years are loaded before answering for a year."
+
+  - condition: "cross_scheme_coverage_question"
+    default_value: "aggregate_each_scheme_separately"
+    assumption_text: "Each scheme is counted separately by {level} and the totals are then set side by side; no person is matched across schemes."
+
+  # ---- numbers ------------------------------------------------------------
+  - condition: "percentage_precision_unspecified"
+    default_value: 1
+    assumption_text: "Percentages are rounded to one decimal place."
+
+  - condition: "number_format_unspecified"
+    default_value: "indian"
+    assumption_text: "Numbers use Indian grouping (1,298)."
+
+  - condition: "average_rooms_precision"
+    default_value: 1
+    assumption_text: "Average rooms are rounded to one decimal place."
+
+  # ---- shape of the answer ----------------------------------------------
+  - condition: "missing_aggregation_function"
+    default_value: "count_applications"
+    assumption_text: "Figures are counts of applications."
+
+  - condition: "village_count_requested"
+    default_value: "count_distinct_village_code"
+    assumption_text: "Villages are counted by LGD code, since 9 village names are shared by more than one village."
+    sql_effect: "COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')"
+
+  - condition: "block_count_requested"
+    default_value: "count_distinct_block_code"
+    assumption_text: "Counting 65 blocks - 54 rural blocks and 11 towns reported as blocks."
+    sql_effect: "COUNT(DISTINCT block_lgd_code)"
+
+  - condition: "missing_top_n"
+    default_value: 5
+    assumption_text: "Showing the top 5."
+
+  - condition: "singular_superlative_without_n"
+    default_value: 1
+    assumption_text: "Showing the single highest."
+
+  - condition: "ranking_direction_unspecified"
+    default_value: "descending"
+    assumption_text: "Ranked highest first."
+
+  - condition: "missing_sort_column"
+    default_value: "requested_metric"
+    assumption_text: "Sorted by {metric}."
+
+  - condition: "missing_result_limit"
+    default_value: 10
+    assumption_text: "Showing the first 10 rows."
+
+  - condition: "ties_in_ranking"
+    default_value: "show_all_tied"
+    assumption_text: "{tied_count} places are level at {value}; all are shown."
+
+  - condition: "summary_report_level_unspecified"
+    default_value: "district"
+    assumption_text: "The report is by district."
+
+  - condition: "report_columns_unspecified"
+    default_value: "applications_status_verification"
+    assumption_text: "The report shows applications, approved, pending, unknown, rejected and invalid."
+    note: Use cases 35-36 style. Money and construction columns are never offered.
+
+  - condition: "aggregate_instead_of_applicant_list"
+    default_value: "count_by_next_level"
+    assumption_text: "Shown as counts by {next_level} - individual applicants are not listed."
+    note: The follow-up after the gate's applicant_list_requested is accepted.
+
+  - condition: "chart_type_unspecified"
+    default_value: "auto_by_result_shape"
+    assumption_text: "Chart type chosen to suit the shape of the result."
+
+  # ---- nulls ----------------------------------------------------------------
+  - condition: "null_verification_values"
+    default_value: "label_not_yet_verified"
+    assumption_text: "{not_verified_count} applications have no verification result yet and are shown as 'Not yet verified'."
+
+  - condition: "null_constituency_values"
+    default_value: "exclude_and_state_count"
+    assumption_text: "{unresolved_count} applications have no constituency recorded and are left out of constituency figures."
+
+  - condition: "null_site_values"
+    default_value: "label_not_recorded"
+    assumption_text: "Applications with no proposed site recorded are shown as 'not recorded'."
+    note: proposed_district NULL on the 24 upgradation rows; proposed_cluster NULL on 46.
+
+# ===========================================================================
+# WORKED EXAMPLES - what a user typed, which defaults fire, what is stated back,
+# and the result. Every result is produced by executing the sql against an
+# emulation of curated.v_homestay_api built from
+# datasets/Homestay/Home Stay API - 2026-11-01.csv (2026-11-06). unverified_in_db.
+# ===========================================================================
+worked_examples:
+
+  - user: "How many Home Stay beneficiaries are there in total?"
+    fires: [beneficiary_term, missing_time_period, missing_geography]
+    assumptions_shown: "'Beneficiaries' here means applicants - 1,298 applications, of which 80 are approved. An application is not yet a subsidy received. Covering all applications from 7 October 2025 to 19 October 2026 (2025-26: 505, 2026-27: 793). Covering all 12 districts of Meghalaya."
+    sql: "SELECT COUNT(*) AS applications, COUNT(*) FILTER (WHERE (file_status = 'Approved')) AS approved FROM curated.v_homestay_api;"
+    result: {applications: 1298, approved: 80}
+
+  - user: "Give me the overall application status breakdown"
+    fires: [bare_status_term, missing_time_period]
+    assumptions_shown: "Status means the application file status (Approved, Pending, Unknown, Rejected). Covering all applications from 7 October 2025 to 19 October 2026."
+    sql: "SELECT file_status, COUNT(*) AS applications FROM curated.v_homestay_api GROUP BY file_status ORDER BY applications DESC;"
+    result: [{file_status: "Pending", applications: 1082}, {file_status: "Unknown", applications: 134}, {file_status: "Approved", applications: 80}, {file_status: "Rejected", applications: 2}]
+
+  - user: "How many applications are pending in East Khasi Hills?"
+    fires: [pending_term, geography_filter_form_unspecified, geography_meaning_unstated]
+    assumptions_shown: "Pending means applications with file status Pending. Filtered on the LGD code of the place. Places are where the applicants live."
+    sql: "SELECT COUNT(*) AS pending FROM curated.v_homestay_api WHERE file_status = 'Pending' AND district_lgd_code = 274;"
+    result: 256
+
+  - user: "Give me the district-wise number of applications that are still in Forward status"
+    fires: [forward_term]
+    assumptions_shown: "Forward means files whose latest movement is Forward; this includes Pending, Unknown and 2 Rejected files."
+    sql: "SELECT district_lgd_code, lgd_district, COUNT(*) AS forwarded FROM curated.v_homestay_api WHERE current_file_status = 'Forward' GROUP BY district_lgd_code, lgd_district ORDER BY forwarded DESC;"
+    result: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", forwarded: 318}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", forwarded: 199}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", forwarded: 119}, {district_lgd_code: 276, lgd_district: "RI BHOI", forwarded: 96}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", forwarded: 90}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", forwarded: 84}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", forwarded: 73}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", forwarded: 64}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", forwarded: 59}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", forwarded: 59}, {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", forwarded: 36}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", forwarded: 17}]
+
+  - user: "What is the approval rate?"
+    fires: [approval_rate_term, percentage_precision_unspecified]
+    assumptions_shown: "Approval rate is approved applications as a share of all applications; all approvals so far are on 2025-26 applications. Percentages are rounded to one decimal place."
+    sql: "SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE (file_status = 'Approved')) / COUNT(*), 1) AS approval_rate_pct FROM curated.v_homestay_api;"
+    result: 6.2
+
+  - user: "Give me the overall data verification status of Home Stay applications"
+    fires: [verification_term, null_verification_values]
+    assumptions_shown: "Verification status is the data-verification result (Valid, Invalid, On Hold, Wrong); 32 applications are not yet verified."
+    sql: "SELECT COALESCE(data_verified, 'Not yet verified') AS verification_status, COUNT(*) AS applications FROM curated.v_homestay_api GROUP BY COALESCE(data_verified, 'Not yet verified') ORDER BY applications DESC;"
+    result: [{verification_status: "Valid", applications: 1145}, {verification_status: "Invalid", applications: 93}, {verification_status: "Not yet verified", applications: 32}, {verification_status: "On Hold", applications: 23}, {verification_status: "Wrong", applications: 5}]
+
+  - user: "Which districts have the highest number of Invalid Home Stay applications?"
+    fires: [invalid_term_alone, missing_top_n]
+    assumptions_shown: "Invalid means verification status Invalid; the 5 marked 'Wrong' are a separate group. Showing the top 5."
+    sql: "SELECT district_lgd_code, lgd_district, COUNT(*) AS invalid FROM curated.v_homestay_api WHERE data_verified = 'Invalid' GROUP BY district_lgd_code, lgd_district ORDER BY invalid DESC LIMIT 5;"
+    result: [{district_lgd_code: 278, lgd_district: "WEST GARO HILLS", invalid: 25}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", invalid: 14}, {district_lgd_code: 276, lgd_district: "RI BHOI", invalid: 11}, {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", invalid: 9}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", invalid: 8}]
+
+  - user: "How many Home Stay applications this year?"
+    fires: [relative_year_current]
+    assumptions_shown: "Taking 'this year' as financial year 2026-27, which runs only to 19 October 2026 in this data."
+    sql: "SELECT COUNT(*) AS applications FROM curated.v_homestay_api WHERE financial_year_short = '2026-27';"
+    result: 793
+
+  - user: "Show applications month by month"
+    fires: [month_breakdown_requested]
+    assumptions_shown: "Months are the month the application was submitted."
+    sql: "SELECT date_trunc('month', application_date) AS month, COUNT(*) AS applications FROM curated.v_homestay_api GROUP BY date_trunc('month', application_date) ORDER BY month;"
+    result: [{month: "2025-10", applications: 44}, {month: "2025-11", applications: 166}, {month: "2025-12", applications: 72}, {month: "2026-01", applications: 43}, {month: "2026-02", applications: 70}, {month: "2026-03", applications: 110}, {month: "2026-04", applications: 134}, {month: "2026-05", applications: 104}, {month: "2026-06", applications: 108}, {month: "2026-07", applications: 95}, {month: "2026-08", applications: 140}, {month: "2026-09", applications: 147}, {month: "2026-10", applications: 65}]
+
+  - user: "How many unique applicants are there?"
+    fires: [distinct_people_term]
+    assumptions_shown: "Counting different people by their masked Meghalaya One id - 17 people applied more than once."
+    sql: "SELECT COUNT(DISTINCT member_key) AS distinct_applicants FROM curated.v_homestay_api;"
+    result: 1279
+
+  - user: "Which districts have the highest number of female Home Stay applicants?"
+    fires: [gender_vs_women_category, missing_top_n]
+    assumptions_shown: "Female / male is the applicant's recorded gender; the 'Women' applicant category is a separate field. Showing the top 5."
+    sql: "SELECT district_lgd_code, lgd_district, COUNT(*) AS female_applicants FROM curated.v_homestay_api WHERE gender = 'Female' GROUP BY district_lgd_code, lgd_district ORDER BY female_applicants DESC LIMIT 5;"
+    result: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", female_applicants: 154}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", female_applicants: 138}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", female_applicants: 69}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", female_applicants: 53}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", female_applicants: 46}]
+
+  - user: "How many Home Stay applications have been submitted under the Women category?"
+    fires: [women_category_term]
+    assumptions_shown: "Counting applications made under the Women category (self-declared)."
+    sql: "SELECT COUNT(*) AS women_category FROM curated.v_homestay_api WHERE applicant_category = 'Women';"
+    result: 479
+
+  - user: "How many applications were made through CSC?"
+    fires: [csc_term]
+    assumptions_shown: "Assisted applications are those made through a CM Connect Centre."
+    sql: "SELECT COUNT(*) AS cm_connect_applications FROM curated.v_homestay_api WHERE application_mode = 'cmConnectCenter';"
+    result: 63
+
+  - user: "Identify Home Stay applications where the land lease period needs to be reviewed"
+    fires: [lease_review_term, aggregate_instead_of_applicant_list]
+    assumptions_shown: "A lease needs review if it is shorter than the scheme's 7-year minimum, has no lease years, or has inconsistent years. Shown as counts by district - individual applicants are not listed."
+    sql: "SELECT district_lgd_code, lgd_district, COUNT(*) AS lease_to_review FROM curated.v_homestay_api WHERE type_of_land_holding = 'Leased' AND (lease_years IS NULL OR lease_years < 7 OR land_lease_year_start < 1990 OR land_lease_year_end - land_lease_year_start <> lease_years) GROUP BY district_lgd_code, lgd_district ORDER BY lease_to_review DESC;"
+    result: [{district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", lease_to_review: 3}, {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", lease_to_review: 2}, {district_lgd_code: 276, lgd_district: "RI BHOI", lease_to_review: 1}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", lease_to_review: 1}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", lease_to_review: 1}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", lease_to_review: 1}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", lease_to_review: 1}]
+
+  - user: "What is the total number of Home Stay rooms proposed?"
+    fires: [room_term_unqualified, room_measure_outlier, facility_measure_base]
+    assumptions_shown: "Rooms means guest rooms proposed in new-homestay applications. One application recording 3,500 rooms is treated as a data-entry error and left out of room totals and averages."
+    sql: "SELECT SUM(homestay_rooms) FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE)) AS proposed_rooms, ROUND(AVG(homestay_rooms) FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE)), 1) AS average_rooms FROM curated.v_homestay_api WHERE NOT is_upgradation;"
+    result: {proposed_rooms: 5113, average_rooms: 4}
+
+  - user: "Give me the total proposed Home Stay room capacity district-wise"
+    fires: [room_term_unqualified, room_measure_outlier, geography_meaning_unstated]
+    assumptions_shown: "Rooms means guest rooms proposed in new-homestay applications. The 3,500-room entry is left out. Places are where the applicants live."
+    sql: "SELECT district_lgd_code, lgd_district, SUM(homestay_rooms) FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE)) AS proposed_rooms FROM curated.v_homestay_api WHERE NOT is_upgradation GROUP BY district_lgd_code, lgd_district ORDER BY proposed_rooms DESC;"
+    result: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", proposed_rooms: 1325}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", proposed_rooms: 609}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", proposed_rooms: 570}, {district_lgd_code: 276, lgd_district: "RI BHOI", proposed_rooms: 489}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", proposed_rooms: 463}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", proposed_rooms: 373}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", proposed_rooms: 356}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", proposed_rooms: 284}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", proposed_rooms: 262}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", proposed_rooms: 200}, {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", proposed_rooms: 132}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", proposed_rooms: 50}]
+
+  - user: "How many proposed Home Stays have solar energy facilities?"
+    fires: [facility_measure_base, facility_proposed_not_built]
+    assumptions_shown: "Solar, rainwater harvesting, waste management and rooms were recorded for new-homestay applications only (1,274); shares are out of those. These are facilities proposed in the application, not facilities verified on site."
+    sql: "SELECT COUNT(*) FILTER (WHERE solar_energy) AS with_solar, COUNT(*) AS new_build_applications, ROUND(100.0 * COUNT(*) FILTER (WHERE solar_energy) / COUNT(*), 1) AS solar_pct FROM curated.v_homestay_api WHERE NOT is_upgradation;"
+    result: {with_solar: 976, new_build_applications: 1274, solar_pct: 76.6}
+
+  - user: "How many upgradation applications are there?"
+    fires: [upgradation_term]
+    assumptions_shown: "Upgradation means applications to upgrade an existing homestay (Component 2) - 24 in all, all pending."
+    sql: "SELECT COUNT(*) AS upgradation_applications FROM curated.v_homestay_api WHERE is_upgradation;"
+    result: 24
+
+  - user: "How many homestays are proposed in the Wari Chora cluster?"
+    fires: [cluster_named_without_block_namesake, site_geography_signalled]
+    assumptions_shown: "Reading Wari Chora as the Wari Chora Cluster tourism cluster for the proposed site. Places are where the homestay is proposed to be located, as the applicant entered them."
+    sql: "SELECT COUNT(*) AS applications FROM curated.v_homestay_api WHERE lower(proposed_cluster) = 'wari chora cluster';"
+    result: 77
+
+  - user: "Applications from Jowai"
+    fires: [town_named_without_rural_namesake, application_term]
+    assumptions_shown: "Reading Jowai as Jowai Municipal Board, which the department reports as a block. Counting applications."
+    sql: "SELECT COUNT(*) AS applications FROM curated.v_homestay_api WHERE block_lgd_code = 249820;"
+    result: 10
+
+  - user: "How many Home Stay applicants are from Garo Hills?"
+    fires: [region_group_named]
+    assumptions_shown: "Garo Hills covers East, North, South, South West and West Garo Hills."
+    sql: "SELECT COUNT(*) AS applications FROM curated.v_homestay_api WHERE district_lgd_code IN (273, 277, 278, 656, 663);"
+    result: 443
+
+  - user: "Give me a district-wise summary of Home Stay applications and their status"
+    fires: [summary_report_level_unspecified, report_columns_unspecified]
+    assumptions_shown: "The report is by district. The report shows applications, approved, pending, unknown, rejected and invalid."
+    sql: "SELECT district_lgd_code, lgd_district, COUNT(*) AS applications, COUNT(*) FILTER (WHERE (file_status = 'Approved')) AS approved, COUNT(*) FILTER (WHERE file_status = 'Pending') AS pending, COUNT(*) FILTER (WHERE file_status = 'Unknown') AS unknown, COUNT(*) FILTER (WHERE file_status = 'Rejected') AS rejected, COUNT(*) FILTER (WHERE data_verified = 'Invalid') AS invalid FROM curated.v_homestay_api GROUP BY district_lgd_code, lgd_district ORDER BY applications DESC;"
+    result: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", applications: 342, approved: 23, pending: 256, unknown: 62, rejected: 1, invalid: 9}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", applications: 209, approved: 10, pending: 162, unknown: 37, rejected: 0, invalid: 25}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", applications: 125, approved: 6, pending: 117, unknown: 2, rejected: 0, invalid: 3}, {district_lgd_code: 276, lgd_district: "RI BHOI", applications: 103, approved: 7, pending: 95, unknown: 1, rejected: 0, invalid: 11}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", applications: 96, approved: 6, pending: 89, unknown: 1, rejected: 0, invalid: 6}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", applications: 89, approved: 5, pending: 83, unknown: 1, rejected: 0, invalid: 6}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", applications: 82, approved: 6, pending: 76, unknown: 0, rejected: 0, invalid: 8}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", applications: 70, approved: 11, pending: 37, unknown: 22, rejected: 0, invalid: 2}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", applications: 64, approved: 0, pending: 58, unknown: 6, rejected: 0, invalid: 6}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", applications: 62, approved: 3, pending: 59, unknown: 0, rejected: 0, invalid: 14}, {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", applications: 39, approved: 3, pending: 35, unknown: 0, rejected: 1, invalid: 2}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", applications: 17, approved: 0, pending: 15, unknown: 2, rejected: 0, invalid: 1}]
+
+  - user: "Are there any duplicate Home Stay applications?"
+    fires: [duplicate_check_term]
+    assumptions_shown: "Duplicates are checked by applicant: counts only, no ids shown."
+    sql: "SELECT COUNT(*) - COUNT(DISTINCT member_key) AS extra_applications, COUNT(DISTINCT member_key) FILTER (WHERE is_repeat_member) AS repeat_applicants FROM curated.v_homestay_api;"
+    result: {extra_applications: 19, repeat_applicants: 17}
+
+  - user: "How many villages have a Home Stay applicant?"
+    fires: [village_count_requested, unresolved_rows_in_village_question]
+    assumptions_shown: "Villages are counted by LGD code, since 9 village names are shared by more than one village. 64 applications with no mapped village are left out of village figures."
+    sql: "SELECT COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved') AS villages FROM curated.v_homestay_api;"
+    result: 667
+
+  - user: "Give me applicants by age group"
+    fires: [age_measure_unspecified]
+    assumptions_shown: "Ages are at the date of application, in bands; one recorded age under 18 is a data error and is left out."
+    sql: "SELECT CASE WHEN applicant_age_years <= 25 THEN '18-25' WHEN applicant_age_years <= 35 THEN '26-35' WHEN applicant_age_years <= 45 THEN '36-45' WHEN applicant_age_years <= 60 THEN '46-60' ELSE 'Over 60' END AS age_band, COUNT(*) AS applications FROM curated.v_homestay_api WHERE applicant_age_years >= 18 GROUP BY 1 ORDER BY 1;"
+    result: [{age_band: "18-25", applications: 176}, {age_band: "26-35", applications: 510}, {age_band: "36-45", applications: 398}, {age_band: "46-60", applications: 191}, {age_band: "Over 60", applications: 20}]

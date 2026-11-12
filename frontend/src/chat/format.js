@@ -78,7 +78,7 @@ export function prettyName(s) {
   for (const [find, rep] of [['fact_mgnrega_', 'MGNREGA '], ['fact_pmay_', 'PMAY-G '], ['fact_focus_plus_', 'FOCUS+ '],
     ['v_focus_plus', 'FOCUS+ disbursements'], ['v_cm_elevate_disbursement', 'CM Elevate Legacy'],
     ['focus_plus', 'FOCUS+'],
-    ['v_cmss', 'CMSS'], ['curated.v_cmss', 'CMSS']]) t = replaceAllCI(t, find, rep);
+    ['v_cmss', 'CMSS'], ['curated.v_cmss', 'CMSS'], ['v_homestay_api', 'Homestay'], ['curated.v_homestay_api', 'Homestay']]) t = replaceAllCI(t, find, rep);
   t = dropPrefixCI(t, 'v_');
   t = replaceAllCI(t, 'mgnrega', 'MGNREGA');
   t = replaceAllCI(t, 'pmay', 'PMAY-G');

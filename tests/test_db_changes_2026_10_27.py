@@ -15,7 +15,7 @@ from app import pipeline as p
 from app.config import settings
 from app.sql_guard import UnsafeSQLError, prepare_readonly
 
-SIX = ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy", "CMSS"]
+SIX = ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy", "CMSS", "Homestay"]
 
 
 # ── KI-428: glossary scope ──────────────────────────────────────────────────

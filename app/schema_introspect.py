@@ -44,6 +44,7 @@ _SUBJECT_TO_SCHEME = {"mgnrega": "MGNREGA", "pmay": "PMAY-G", "pmayg": "PMAY-G",
                       # rules) reached all six SQL prompts, pointing the
                       # generator at v_cmss / v_homestay_legacy (KI-428).
                       "nrlm": "NRLM", "cmss": "CMSS",
+                      "homestay_api": "Homestay",
                       "homestay": "Home Stay", "homestay_legacy": "Home Stay",
                       "home stay": "Home Stay", "home_stay": "Home Stay"}
 
@@ -51,7 +52,8 @@ _SUBJECT_TO_SCHEME = {"mgnrega": "MGNREGA", "pmay": "PMAY-G", "pmayg": "PMAY-G",
 _COVERAGE_TO_SCHEME = {"MGNREGA": "MGNREGA", "PMAY": "PMAY-G", "FOCUS_PLUS": "Focus Plus",
                        "CM_ELEVATE": "CM Elevate", "FOCUS_LEGACY": "Focus Legacy",
                        "CM_ELEVATE_DISBURSEMENT": "CM Elevate Legacy",
-                       "CMSS": "CMSS"}
+                       "CMSS": "CMSS",
+                       "HOMESTAY_API": "Homestay"}
 
 # Never shown to the SQL generator and refused by sql_guard: they carry unmasked
 # account numbers / holder names / applicant names (KI-004). The views mask them.
@@ -99,7 +101,8 @@ _TABLE_NAME_TO_SCHEME = {
     # Not our schemes: scoped OUT, like their glossary terms (KI-428). Without
     # these, ~40 v_cmss / v_homestay_legacy column notes (ingestion 2026-10-26)
     # went into every scheme's SQL prompt and spent its description budget.
-    "cmss": "CMSS", "homestay": "Home Stay", "nrlm": "NRLM",
+    "cmss": "CMSS",
+    "homestay_api": "Homestay", "homestay": "Home Stay", "nrlm": "NRLM",
 }
 
 

@@ -51,6 +51,7 @@ _SCHEME_DATA_YEARS: dict[str, list[str]] = {
     # year filter (cmelevatelegacy_schema_partitions.yaml year_key rules).
     "CM Elevate Legacy": ["2024-25", "2025-26"],
     "CMSS": ["2025-26"],
+    "Homestay": ["2025-26", "2026-27"],
 }
 
 
@@ -292,6 +293,7 @@ _SCHEME_YEAR_SQL: "dict[str, str]" = {
         "WHERE year_key IS NOT NULL"
     ),
     "CMSS": "SELECT DISTINCT year_key FROM curated.v_cmss WHERE year_key IS NOT NULL",
+    "Homestay": "SELECT DISTINCT year_key FROM curated.v_homestay_api WHERE year_key IS NOT NULL",
     # CM Elevate deliberately has no entry here — curated.v_cm_elevate has no
     # year_key column at all (not merely NULL), so there is nothing to probe.
     # Its default of [] in _SCHEME_DATA_YEARS above is the permanent value.

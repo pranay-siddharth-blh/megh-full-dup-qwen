@@ -18,7 +18,7 @@ from app.session_store import Session
 M = p._SCHEME_NAME_MATCHER
 MP = ["MGNREGA", "PMAY-G"]
 FOUR = ["MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy"]
-ALL6 = ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy", "CMSS"]
+ALL6 = ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy", "CMSS", "Homestay"]
 EKH = {"district": "EAST KHASI HILLS"}
 
 

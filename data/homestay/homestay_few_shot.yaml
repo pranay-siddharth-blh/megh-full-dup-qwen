@@ -1,0 +1,1036 @@
+# homestay_few_shot.yaml
+#
+# Validated question-to-SQL pairs for Homestay - node 5.10.
+#
+# ===========================================================================
+# v1.0 - 2026-11-06 - FIRST VERSION, WRITTEN AHEAD OF THE DATABASE LOAD
+#
+# Every example runs against curated.v_homestay_api (PLACEHOLDER, 52 columns, one row
+# per application, new-build or upgradation, any status).
+#
+# House rules encoded in every example below:
+#   FROM curated.v_homestay_api                 never the fact, never v_homestay_legacy
+#   COUNT(*)                                is an APPLICATION count - any status, both components
+#   COUNT(*) FILTER (WHERE (file_status = 'Approved'))     approved applications (80) - never 'sanctioned'
+#   COUNT(DISTINCT member_key)              the ONLY permitted use of member_key (people)
+#   file_status                             the default 'status'; 'Pending' lives here
+#   current_file_status                     'Forward' / 'Sendback' / 'Resubmit'
+#   data_verified                           'Valid' / 'Invalid' / 'On Hold' / 'Wrong'; NULL = not yet verified
+#   is_upgradation                          components - never the misspelled stored text
+#   NOT is_upgradation                      the base for rooms, solar, rainwater, waste
+#   NOT COALESCE(homestay_rooms > 100, FALSE)               inside every room SUM / AVG / MAX
+#   district_lgd_code / block_lgd_code /    CODES for home geography - never a name literal
+#   ac_number / village_code
+#   lower(proposed_cluster) = '<stored>'    site questions only
+#   GROUP BY <code>, <name>                 never the display name alone
+#   entity_type <> 'Unresolved'             on village and constituency questions ONLY
+#   no money column                         money questions are refused in the gate
+#
+# Questions Homestay must refuse (money, project dates, construction / operational
+# status, caste, applicant lists, identifier values, other years) have no SQL and
+# are NOT in this file - they are in homestay_schema_partitions.yaml
+# few_shot_examples with sql: null, and the gate catches them first.
+#
+# NOT ONE OF THESE QUERIES HAS BEEN EXECUTED against megh_db - the view does not
+# exist yet. Every `expected` value was produced by executing the SQL against a
+# SQLite emulation of the planned v_homestay built from
+# datasets/Homestay/Home Stay API - 2026-11-01.csv. Counts and codes are exact;
+# display names inside an expected value are the source's mapped spellings
+# upper-cased. Results longer than 15 rows are shown as a row count + first 10.
+# The 'Use case n' notes refer to the 'Homestay API' sheet of HomeStay_Use_Cases.xlsx.
+# ===========================================================================
+
+sql_generation_examples:
+
+# ---- applications ----------------------------------------------------------
+- question: How many Home Stay applications have been received in total?
+  sql: |
+    SELECT COUNT(*)                            AS applications,
+           COUNT(*) FILTER (WHERE (file_status = 'Approved')) AS approved
+    FROM curated.v_homestay_api;
+  tables:
+  - curated.v_homestay_api
+  note: The approved count travels with the total.
+  expected: {applications: 1298, approved: 80}
+
+- question: How many Home Stay applications have been received in 2025-26?
+  sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE financial_year_short = '2025-26';
+  tables:
+  - curated.v_homestay_api
+  note: Use case 1. 2025-26 starts in October 2025, when the scheme opened.
+  expected: 505
+
+- question: How many Home Stay applications have been received in 2026-27?
+  sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE financial_year_short = '2026-27';
+  tables:
+  - curated.v_homestay_api
+  note: Use case 1. Partial year, to 19 Oct 2026.
+  expected: 793
+
+- question: Give me the number of Home Stay applications in each financial year.
+  sql: |
+    SELECT financial_year_short,
+           MIN(application_date) AS first_application,
+           MAX(application_date) AS last_application,
+           COUNT(*)              AS applications
+    FROM curated.v_homestay_api
+    GROUP BY financial_year_short
+    ORDER BY financial_year_short;
+  tables:
+  - curated.v_homestay_api
+  note: The date range shows that both years are partial.
+  expected: [{financial_year_short: "2025-26", first_application: "2025-10-07", last_application: "2026-03-31", applications: 505}, {financial_year_short: "2026-27", first_application: "2026-04-01", last_application: "2026-10-19", applications: 793}]
+
+- question: How many unique people have applied for the Homestay scheme?
+  sql: |
+    SELECT COUNT(DISTINCT member_key) AS distinct_applicants,
+           COUNT(*)                   AS applications
+    FROM curated.v_homestay_api;
+  tables:
+  - curated.v_homestay_api
+  expected: {distinct_applicants: 1279, applications: 1298}
+
+- question: Give me the month-wise number of Home Stay applications.
+  sql: |
+    SELECT date_trunc('month', application_date) AS month,
+           COUNT(*)                              AS applications
+    FROM curated.v_homestay_api
+    GROUP BY date_trunc('month', application_date)
+    ORDER BY month;
+  tables:
+  - curated.v_homestay_api
+  expected: [{month: "2025-10", applications: 44}, {month: "2025-11", applications: 166}, {month: "2025-12", applications: 72}, {month: "2026-01", applications: 43}, {month: "2026-02", applications: 70}, {month: "2026-03", applications: 110}, {month: "2026-04", applications: 134}, {month: "2026-05", applications: 104}, {month: "2026-06", applications: 108}, {month: "2026-07", applications: 95}, {month: "2026-08", applications: 140}, {month: "2026-09", applications: 147}, {month: "2026-10", applications: 65}]
+
+- question: How many Home Stay applications were received in November 2025?
+  sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE application_date >= DATE '2025-11-01'
+      AND application_date <  DATE '2025-12-01';
+  tables:
+  - curated.v_homestay_api
+  expected: 166
+
+# ---- district and block (home address) ---------------------------------------
+- question: Give me the district-wise distribution of Home Stay applications.
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 2. Applicant's home district (LGD-mapped).
+  expected: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", applications: 342}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", applications: 209}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", applications: 125}, {district_lgd_code: 276, lgd_district: "RI BHOI", applications: 103}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", applications: 96}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", applications: 89}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", applications: 82}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", applications: 70}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", applications: 64}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", applications: 62}, {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", applications: 39}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", applications: 17}]
+
+- question: Give me the block-wise number of Home Stay applications.
+  sql: |
+    SELECT district_lgd_code, lgd_district, block_lgd_code, lgd_block,
+           COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district, block_lgd_code, lgd_block
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 3. 65 blocks including 11 towns.
+  expected: {rows: 65, first_10: [{district_lgd_code: 278, lgd_district: "WEST GARO HILLS", block_lgd_code: 249806, lgd_block: "TURA MUNICIPAL BOARD-MUNICIPAL BOARD", applications: 94}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", block_lgd_code: 1965, lgd_block: "RONGRAM", applications: 91}, {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", block_lgd_code: 1994, lgd_block: "SHELLA BHOLAGANJ", applications: 87}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", block_lgd_code: 1984, lgd_block: "MAWKYRWAT", applications: 49}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", block_lgd_code: 1999, lgd_block: "WAPUNG", applications: 47}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", block_lgd_code: 1980, lgd_block: "NONGSTOIN", applications: 43}, {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", block_lgd_code: 1995, lgd_block: "PYNURSLA", applications: 42}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", block_lgd_code: 249810, lgd_block: "NONGSTOIN-TOWN COMMITTEE", applications: 41}, {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", block_lgd_code: 249814, lgd_block: "SHILLONG-MUNICIPAL BOARD", applications: 39}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", block_lgd_code: 249807, lgd_block: "RESUBELPARA-MUNICIPAL BOARD", applications: 39}]}
+
+- question: Which district has received the highest number of Home Stay applications?
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY applications DESC
+    LIMIT 1;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 4.
+  expected: {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", applications: 342}
+
+- question: Which district has received the lowest number of Home Stay applications?
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY applications ASC
+    LIMIT 1;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 5.
+  expected: {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", applications: 17}
+
+- question: Compare the number of Home Stay applications between Ri Bhoi and West Jaintia Hills.
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE district_lgd_code IN (276, 275)
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 6.
+  expected: [{district_lgd_code: 276, lgd_district: "RI BHOI", applications: 103}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", applications: 89}]
+
+- question: Which are the top 10 blocks with the highest number of Home Stay applications?
+  sql: |
+    SELECT block_lgd_code, lgd_block, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY applications DESC
+    LIMIT 10;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 7. Towns are blocks.
+  expected: [{block_lgd_code: 249806, lgd_block: "TURA MUNICIPAL BOARD-MUNICIPAL BOARD", applications: 94}, {block_lgd_code: 1965, lgd_block: "RONGRAM", applications: 91}, {block_lgd_code: 1994, lgd_block: "SHELLA BHOLAGANJ", applications: 87}, {block_lgd_code: 1984, lgd_block: "MAWKYRWAT", applications: 49}, {block_lgd_code: 1999, lgd_block: "WAPUNG", applications: 47}, {block_lgd_code: 1980, lgd_block: "NONGSTOIN", applications: 43}, {block_lgd_code: 1995, lgd_block: "PYNURSLA", applications: 42}, {block_lgd_code: 249810, lgd_block: "NONGSTOIN-TOWN COMMITTEE", applications: 41}, {block_lgd_code: 249807, lgd_block: "RESUBELPARA-MUNICIPAL BOARD", applications: 39}, {block_lgd_code: 249814, lgd_block: "SHILLONG-MUNICIPAL BOARD", applications: 39}]
+
+- question: Top rural blocks by Home Stay applications, excluding towns.
+  sql: |
+    SELECT block_lgd_code, lgd_block, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE block_lgd_code NOT IN (249806, 249807, 249808, 249809, 249810, 249811,
+                                 249812, 249814, 249820, 279714, 282009)
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY applications DESC
+    LIMIT 5;
+  tables:
+  - curated.v_homestay_api
+  expected: [{block_lgd_code: 1965, lgd_block: "RONGRAM", applications: 91}, {block_lgd_code: 1994, lgd_block: "SHELLA BHOLAGANJ", applications: 87}, {block_lgd_code: 1984, lgd_block: "MAWKYRWAT", applications: 49}, {block_lgd_code: 1999, lgd_block: "WAPUNG", applications: 47}, {block_lgd_code: 1980, lgd_block: "NONGSTOIN", applications: 43}]
+
+- question: How many Home Stay applications are from towns versus rural blocks?
+  sql: |
+    SELECT CASE WHEN block_lgd_code IN (249806, 249807, 249808, 249809, 249810, 249811,
+                                        249812, 249814, 249820, 279714, 282009)
+                THEN 'Town (municipal board / town committee)'
+                ELSE 'Rural block' END AS area_type,
+           COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY 1
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  expected: [{area_type: "Rural block", applications: 1020}, {area_type: "Town (municipal board / town committee)", applications: 278}]
+
+- question: How many Home Stay applications are there from Shella Bholaganj block?
+  sql: |
+    SELECT COUNT(*)                                          AS applications,
+           COUNT(*) FILTER (WHERE entity_type = 'Unresolved') AS no_village_mapped
+    FROM curated.v_homestay_api
+    WHERE block_lgd_code = 1994;
+  tables:
+  - curated.v_homestay_api
+  note: 37 of these are Cherrapunjee town applicants with no mapped village.
+  expected: {applications: 87, no_village_mapped: 37}
+
+- question: Give me the village-wise Home Stay applications in Rongram block.
+  sql: |
+    SELECT village_code, lgd_village_name, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE block_lgd_code = 1965
+      AND entity_type <> 'Unresolved'
+    GROUP BY village_code, lgd_village_name
+    ORDER BY applications DESC
+    LIMIT 10;
+  tables:
+  - curated.v_homestay_api
+  note: Village figures exclude the 25 Unresolved Rongram rows.
+  expected: [{village_code: 273609, lgd_village_name: "Danakgre", applications: 6}, {village_code: 273498, lgd_village_name: "Balupara", applications: 5}, {village_code: 273612, lgd_village_name: "Agilanggre", applications: 5}, {village_code: 273455, lgd_village_name: "Jongdikgre", applications: 4}, {village_code: 273511, lgd_village_name: "Kemragre", applications: 4}, {village_code: 273512, lgd_village_name: "Buripara", applications: 4}, {village_code: 273526, lgd_village_name: "Cherangre", applications: 4}, {village_code: 273582, lgd_village_name: "Darechikgre", applications: 4}, {village_code: 273583, lgd_village_name: "Boldorenggre", applications: 4}, {village_code: 273502, lgd_village_name: "Chidaogre", applications: 2}]
+
+- question: Which villages have the most Home Stay applicants?
+  sql: |
+    SELECT village_code, lgd_village_name, lgd_block, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE entity_type <> 'Unresolved'
+    GROUP BY village_code, lgd_village_name, lgd_block
+    ORDER BY applications DESC
+    LIMIT 5;
+  tables:
+  - curated.v_homestay_api
+  expected: [{village_code: 276917, lgd_village_name: "Nongkasen", lgd_block: "MAWTHADRAISHAN", applications: 20}, {village_code: 2368, lgd_village_name: "Ward No. 8", lgd_block: "TURA MUNICIPAL BOARD-MUNICIPAL BOARD", applications: 19}, {village_code: 2369, lgd_village_name: "Ward No. 9", lgd_block: "TURA MUNICIPAL BOARD-MUNICIPAL BOARD", applications: 16}, {village_code: 279444, lgd_village_name: "Iapmala", lgd_block: "WAPUNG", applications: 11}, {village_code: 951, lgd_village_name: "Ward No. 2", lgd_block: "TURA MUNICIPAL BOARD-MUNICIPAL BOARD", applications: 10}]
+
+- question: How many villages have at least one Home Stay applicant?
+  sql: |
+    SELECT COUNT(DISTINCT village_code) AS villages
+    FROM curated.v_homestay_api
+    WHERE entity_type <> 'Unresolved';
+  tables:
+  - curated.v_homestay_api
+  expected: 667
+
+- question: Give me a constituency-wise count of Home Stay applications.
+  sql: |
+    SELECT ac_number, ac_name, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE entity_type <> 'Unresolved'
+    GROUP BY ac_number, ac_name
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Totals 1,234 - the 64 Unresolved rows have no constituency.
+  expected: {rows: 58, first_10: [{ac_number: 50, ac_name: "North Tura", applications: 138}, {ac_number: 32, ac_name: "Nongstoin", applications: 80}, {ac_number: 36, ac_name: "Mawkyrwat", applications: 50}, {ac_number: 6, ac_name: "Khliehriat", applications: 48}, {ac_number: 31, ac_name: "Mawthadraishan", applications: 44}, {ac_number: 26, ac_name: "Shella", applications: 43}, {ac_number: 39, ac_name: "Resubelpara", applications: 43}, {ac_number: 27, ac_name: "Pynursla", applications: 42}, {ac_number: 7, ac_name: "Amlarem", applications: 37}, {ac_number: 58, ac_name: "Rongara-siju", applications: 35}]}
+
+- question: How many Home Stay applicants are from the Jaintia Hills?
+  sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE district_lgd_code IN (275, 657);
+  tables:
+  - curated.v_homestay_api
+  expected: 151
+
+# ---- proposed site -----------------------------------------------------------
+- question: Give me the number of Home Stay applications by proposed site district.
+  sql: |
+    SELECT COALESCE(proposed_district, 'Not recorded (upgradation)') AS proposed_district,
+           COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY COALESCE(proposed_district, 'Not recorded (upgradation)')
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Site geography, free text. Differs from the home district for 113 new-build applications.
+  expected: [{proposed_district: "East Khasi Hills", applications: 289}, {proposed_district: "West Garo Hills", applications: 207}, {proposed_district: "Ri-Bhoi", applications: 148}, {proposed_district: "West Khasi Hills", applications: 120}, {proposed_district: "South Garo Hills", applications: 97}, {proposed_district: "West Jaintia Hills", applications: 91}, {proposed_district: "North Garo Hills", applications: 78}, {proposed_district: "South West Khasi Hills", applications: 69}, {proposed_district: "Eastern West Khasi Hills", applications: 60}, {proposed_district: "East Jaintia Hills", applications: 55}, {proposed_district: "East Garo Hills", applications: 40}, {proposed_district: "Not recorded (upgradation)", applications: 24}, {proposed_district: "South West Garo Hills", applications: 20}]
+
+- question: Which tourism clusters have the most proposed Home Stays?
+  sql: |
+    SELECT proposed_cluster, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE proposed_cluster IS NOT NULL
+    GROUP BY proposed_cluster
+    ORDER BY applications DESC
+    LIMIT 5;
+  tables:
+  - curated.v_homestay_api
+  expected: [{proposed_cluster: "Nongstoin Cluster", applications: 115}, {proposed_cluster: "Sohra Cluster", applications: 113}, {proposed_cluster: "Tura (Municipal)", applications: 103}, {proposed_cluster: "Wari Chora Cluster", applications: 77}, {proposed_cluster: "Tura (Non Municipal)", applications: 68}]
+
+- question: How many Home Stays are proposed in the Dawki cluster, and how many are approved?
+  sql: |
+    SELECT COUNT(*)                            AS applications,
+           COUNT(*) FILTER (WHERE (file_status = 'Approved')) AS approved
+    FROM curated.v_homestay_api
+    WHERE lower(proposed_cluster) = 'dawki cluster';
+  tables:
+  - curated.v_homestay_api
+  expected: {applications: 36, approved: 0}
+
+- question: How many applicants want to set up a Home Stay outside their home district?
+  sql: |
+    SELECT COUNT(*) AS applications_site_outside_home_district
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation
+      AND lower(replace(proposed_district, '-', ' ')) <> lower(lgd_district);
+  tables:
+  - curated.v_homestay_api
+  expected: 113
+
+# ---- status ------------------------------------------------------------------
+- question: Give me the overall application status breakdown.
+  sql: |
+    SELECT file_status, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY file_status
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 8. Bare 'status' = file_status.
+  expected: [{file_status: "Pending", applications: 1082}, {file_status: "Unknown", applications: 134}, {file_status: "Approved", applications: 80}, {file_status: "Rejected", applications: 2}]
+
+- question: How many Home Stay applications have been approved?
+  sql: |
+    SELECT COUNT(*) AS approved
+    FROM curated.v_homestay_api
+    WHERE (file_status = 'Approved');
+  tables:
+  - curated.v_homestay_api
+  note: Use case 9. Say 'approved', never 'sanctioned'.
+  expected: 80
+
+- question: How many Home Stay applications are currently in Forward status?
+  sql: |
+    SELECT COUNT(*) AS forwarded
+    FROM curated.v_homestay_api
+    WHERE current_file_status = 'Forward';
+  tables:
+  - curated.v_homestay_api
+  note: Use case 10. Forward includes Pending, Unknown and 2 Rejected files.
+  expected: 1214
+
+- question: What percentage of Home Stay applications have been approved?
+  sql: |
+    SELECT COUNT(*)                                                     AS applications,
+           COUNT(*) FILTER (WHERE (file_status = 'Approved'))                          AS approved,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE (file_status = 'Approved')) / COUNT(*), 1) AS approval_rate_pct
+    FROM curated.v_homestay_api;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 11.
+  expected: {applications: 1298, approved: 80, approval_rate_pct: 6.2}
+
+- question: What is the approval rate in each financial year?
+  sql: |
+    SELECT financial_year_short,
+           COUNT(*)                                                     AS applications,
+           COUNT(*) FILTER (WHERE (file_status = 'Approved'))                          AS approved,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE (file_status = 'Approved')) / COUNT(*), 1) AS approval_rate_pct
+    FROM curated.v_homestay_api
+    GROUP BY financial_year_short
+    ORDER BY financial_year_short;
+  tables:
+  - curated.v_homestay_api
+  note: 2026-27 has no approvals yet - say 'none approved yet'.
+  expected: [{financial_year_short: "2025-26", applications: 505, approved: 80, approval_rate_pct: 15.8}, {financial_year_short: "2026-27", applications: 793, approved: 0, approval_rate_pct: 0}]
+
+- question: Give me the district-wise number of approved Home Stay applications.
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) FILTER (WHERE (file_status = 'Approved')) AS approved,
+           COUNT(*)                            AS applications
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY approved DESC, applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 12. Districts with no approval are shown with 0.
+  expected: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", approved: 23, applications: 342}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", approved: 11, applications: 70}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", approved: 10, applications: 209}, {district_lgd_code: 276, lgd_district: "RI BHOI", approved: 7, applications: 103}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", approved: 6, applications: 125}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", approved: 6, applications: 96}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", approved: 6, applications: 82}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", approved: 5, applications: 89}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", approved: 3, applications: 62}, {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", approved: 3, applications: 39}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", approved: 0, applications: 64}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", approved: 0, applications: 17}]
+
+- question: Give me the district-wise number of applications that are still in Forward status.
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS forwarded
+    FROM curated.v_homestay_api
+    WHERE current_file_status = 'Forward'
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY forwarded DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 13.
+  expected: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", forwarded: 318}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", forwarded: 199}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", forwarded: 119}, {district_lgd_code: 276, lgd_district: "RI BHOI", forwarded: 96}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", forwarded: 90}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", forwarded: 84}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", forwarded: 73}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", forwarded: 64}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", forwarded: 59}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", forwarded: 59}, {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", forwarded: 36}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", forwarded: 17}]
+
+- question: Which district has the highest approval rate for Home Stay applications?
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*)                                                     AS applications,
+           COUNT(*) FILTER (WHERE (file_status = 'Approved'))                          AS approved,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE (file_status = 'Approved')) / COUNT(*), 1) AS approval_rate_pct
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY approval_rate_pct DESC
+    LIMIT 1;
+  tables:
+  - curated.v_homestay_api
+  expected: {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", applications: 70, approved: 11, approval_rate_pct: 15.7}
+
+- question: How many Home Stay applications are pending?
+  sql: |
+    SELECT COUNT(*) AS pending
+    FROM curated.v_homestay_api
+    WHERE file_status = 'Pending';
+  tables:
+  - curated.v_homestay_api
+  expected: 1082
+
+- question: How many Home Stay applications have status Unknown, by district?
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS unknown_status
+    FROM curated.v_homestay_api
+    WHERE file_status = 'Unknown'
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY unknown_status DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Unknown is reported as recorded; its meaning is open (HS-02).
+  expected: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", unknown_status: 62}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", unknown_status: 37}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", unknown_status: 22}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", unknown_status: 6}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", unknown_status: 2}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", unknown_status: 2}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", unknown_status: 1}, {district_lgd_code: 276, lgd_district: "RI BHOI", unknown_status: 1}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", unknown_status: 1}]
+
+- question: How many Home Stay applications were rejected?
+  sql: |
+    SELECT COUNT(*) AS rejected
+    FROM curated.v_homestay_api
+    WHERE file_status = 'Rejected';
+  tables:
+  - curated.v_homestay_api
+  note: No reason is recorded.
+  expected: 2
+
+- question: How many files were sent back or resubmitted?
+  sql: |
+    SELECT current_file_status, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE current_file_status IN ('Sendback', 'Resubmit')
+    GROUP BY current_file_status;
+  tables:
+  - curated.v_homestay_api
+  expected: [{current_file_status: "Resubmit", applications: 1}, {current_file_status: "Sendback", applications: 3}]
+
+- question: How many applications are at each level?
+  sql: |
+    SELECT current_level, file_status, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY current_level, file_status
+    ORDER BY current_level, applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: What each level is (which office) is not recorded (HS-03).
+  expected: [{current_level: "level1", file_status: "Pending", applications: 731}, {current_level: "level1", file_status: "Rejected", applications: 2}, {current_level: "level4", file_status: "Pending", applications: 351}, {current_level: "level4", file_status: "Unknown", applications: 134}, {current_level: "level4", file_status: "Approved", applications: 80}]
+
+# ---- verification -----------------------------------------------------------
+- question: Give me the overall data verification status of Home Stay applications.
+  sql: |
+    SELECT COALESCE(data_verified, 'Not yet verified') AS verification_status,
+           COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY COALESCE(data_verified, 'Not yet verified')
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 14.
+  expected: [{verification_status: "Valid", applications: 1145}, {verification_status: "Invalid", applications: 93}, {verification_status: "Not yet verified", applications: 32}, {verification_status: "On Hold", applications: 23}, {verification_status: "Wrong", applications: 5}]
+
+- question: How many Home Stay applications have been marked as Invalid during verification?
+  sql: |
+    SELECT COUNT(*) AS invalid
+    FROM curated.v_homestay_api
+    WHERE data_verified = 'Invalid';
+  tables:
+  - curated.v_homestay_api
+  note: Use case 15.
+  expected: 93
+
+- question: How many Home Stay applications are currently marked as On Hold during verification?
+  sql: |
+    SELECT COUNT(*) AS on_hold
+    FROM curated.v_homestay_api
+    WHERE data_verified = 'On Hold';
+  tables:
+  - curated.v_homestay_api
+  note: Use case 16. Not the source onhold column (FALSE everywhere).
+  expected: 23
+
+- question: Identify the Home Stay applications marked as having Wrong data.
+  sql: |
+    SELECT district_lgd_code, lgd_district, file_status, COUNT(*) AS wrong_data
+    FROM curated.v_homestay_api
+    WHERE data_verified = 'Wrong'
+    GROUP BY district_lgd_code, lgd_district, file_status
+    ORDER BY wrong_data DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 17. No applicant list - counts by district and status.
+  expected: [{district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", file_status: "Pending", wrong_data: 2}, {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", file_status: "Pending", wrong_data: 1}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", file_status: "Pending", wrong_data: 1}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", file_status: "Pending", wrong_data: 1}]
+
+- question: Give me district-wise Valid, Invalid, On Hold, and Wrong verification counts.
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) FILTER (WHERE data_verified = 'Valid')   AS valid,
+           COUNT(*) FILTER (WHERE data_verified = 'Invalid') AS invalid,
+           COUNT(*) FILTER (WHERE data_verified = 'On Hold') AS on_hold,
+           COUNT(*) FILTER (WHERE data_verified = 'Wrong')   AS wrong,
+           COUNT(*) FILTER (WHERE data_verified IS NULL)     AS not_yet_verified
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY lgd_district;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 18.
+  expected: [{district_lgd_code: 273, lgd_district: "EAST GARO HILLS", valid: 32, invalid: 2, on_hold: 0, wrong: 1, not_yet_verified: 4}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", valid: 42, invalid: 14, on_hold: 6, wrong: 0, not_yet_verified: 0}, {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", valid: 321, invalid: 9, on_hold: 5, wrong: 0, not_yet_verified: 7}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", valid: 53, invalid: 6, on_hold: 0, wrong: 1, not_yet_verified: 4}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", valid: 74, invalid: 8, on_hold: 0, wrong: 0, not_yet_verified: 0}, {district_lgd_code: 276, lgd_district: "RI BHOI", valid: 90, invalid: 11, on_hold: 1, wrong: 0, not_yet_verified: 1}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", valid: 78, invalid: 6, on_hold: 2, wrong: 2, not_yet_verified: 8}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", valid: 13, invalid: 1, on_hold: 1, wrong: 0, not_yet_verified: 2}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", valid: 67, invalid: 2, on_hold: 1, wrong: 0, not_yet_verified: 0}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", valid: 178, invalid: 25, on_hold: 0, wrong: 0, not_yet_verified: 6}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", valid: 82, invalid: 6, on_hold: 0, wrong: 1, not_yet_verified: 0}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", valid: 115, invalid: 3, on_hold: 7, wrong: 0, not_yet_verified: 0}]
+
+- question: Which districts have the highest number of Invalid Home Stay applications?
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS invalid
+    FROM curated.v_homestay_api
+    WHERE data_verified = 'Invalid'
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY invalid DESC
+    LIMIT 5;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 19.
+  expected: [{district_lgd_code: 278, lgd_district: "WEST GARO HILLS", invalid: 25}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", invalid: 14}, {district_lgd_code: 276, lgd_district: "RI BHOI", invalid: 11}, {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", invalid: 9}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", invalid: 8}]
+
+- question: How many approved applications are not marked Valid in verification?
+  sql: |
+    SELECT COALESCE(data_verified, 'Not yet verified') AS verification_status,
+           COUNT(*) AS approved
+    FROM curated.v_homestay_api
+    WHERE (file_status = 'Approved')
+    GROUP BY COALESCE(data_verified, 'Not yet verified')
+    ORDER BY approved DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Data-quality check - 2 approved files are Invalid or On Hold.
+  expected: [{verification_status: "Valid", approved: 78}, {verification_status: "On Hold", approved: 1}, {verification_status: "Invalid", approved: 1}]
+
+# ---- application mode ------------------------------------------------------
+- question: Give me the distribution of Home Stay applications by application mode.
+  sql: |
+    SELECT application_mode, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY application_mode
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 20. Display cmConnectCenter as 'CM Connect Centre'.
+  expected: [{application_mode: "Online", applications: 1235}, {application_mode: "cmConnectCenter", applications: 63}]
+
+- question: How many Home Stay applications were submitted through CM Connect Centre?
+  sql: |
+    SELECT COUNT(*) AS cm_connect_applications
+    FROM curated.v_homestay_api
+    WHERE application_mode = 'cmConnectCenter';
+  tables:
+  - curated.v_homestay_api
+  note: Use case 21.
+  expected: 63
+
+- question: How many Home Stay applications were submitted online?
+  sql: |
+    SELECT COUNT(*) AS online_applications
+    FROM curated.v_homestay_api
+    WHERE application_mode = 'Online';
+  tables:
+  - curated.v_homestay_api
+  note: Use case 22.
+  expected: 1235
+
+# ---- applicant category, gender, age ---------------------------------------
+- question: Give me the applicant-category-wise distribution of Home Stay applications.
+  sql: |
+    SELECT applicant_category, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY applicant_category
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 23.
+  expected: [{applicant_category: "Youth (18-35 yrs)", applications: 491}, {applicant_category: "Women", applications: 479}, {applicant_category: "First Generation Entrepreneur", applications: 214}, {applicant_category: "Other", applications: 107}, {applicant_category: "Differently Abled", applications: 7}]
+
+- question: How many Home Stay applications have been submitted by Youth applicants?
+  sql: |
+    SELECT COUNT(*) AS youth_applications
+    FROM curated.v_homestay_api
+    WHERE applicant_category = 'Youth (18-35 yrs)';
+  tables:
+  - curated.v_homestay_api
+  note: Use case 24. Self-declared category.
+  expected: 491
+
+- question: How many Home Stay applications have been submitted under the Women category?
+  sql: |
+    SELECT COUNT(*) AS women_category
+    FROM curated.v_homestay_api
+    WHERE applicant_category = 'Women';
+  tables:
+  - curated.v_homestay_api
+  note: Use case 25. Category, not gender (681 female applicants).
+  expected: 479
+
+- question: How many applicants are classified as First Generation Entrepreneurs?
+  sql: |
+    SELECT COUNT(*) AS first_generation_entrepreneurs
+    FROM curated.v_homestay_api
+    WHERE applicant_category = 'First Generation Entrepreneur';
+  tables:
+  - curated.v_homestay_api
+  note: Use case 26.
+  expected: 214
+
+- question: How many Home Stay applications are from Differently Abled applicants?
+  sql: |
+    SELECT COUNT(*) AS differently_abled
+    FROM curated.v_homestay_api
+    WHERE applicant_category = 'Differently Abled';
+  tables:
+  - curated.v_homestay_api
+  note: Use case 27. No disability certificate or subsidy rate is recorded.
+  expected: 7
+
+- question: Give me the district-wise distribution of Women, Youth, and First Generation Entrepreneur applicants.
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) FILTER (WHERE applicant_category = 'Women')                         AS women,
+           COUNT(*) FILTER (WHERE applicant_category = 'Youth (18-35 yrs)')             AS youth,
+           COUNT(*) FILTER (WHERE applicant_category = 'First Generation Entrepreneur') AS first_generation
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY lgd_district;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 28.
+  expected: [{district_lgd_code: 273, lgd_district: "EAST GARO HILLS", women: 18, youth: 9, first_generation: 10}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", women: 18, youth: 26, first_generation: 9}, {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", women: 107, youth: 139, first_generation: 76}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", women: 20, youth: 26, first_generation: 10}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", women: 40, youth: 31, first_generation: 2}, {district_lgd_code: 276, lgd_district: "RI BHOI", women: 30, youth: 44, first_generation: 17}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", women: 22, youth: 36, first_generation: 34}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", women: 8, youth: 5, first_generation: 2}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", women: 28, youth: 22, first_generation: 11}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", women: 100, youth: 68, first_generation: 21}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", women: 35, youth: 37, first_generation: 14}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", women: 53, youth: 48, first_generation: 8}]
+
+- question: Give me the male and female applicant distribution for Home Stay applications.
+  sql: |
+    SELECT gender, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY gender
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 29.
+  expected: [{gender: "Female", applications: 681}, {gender: "Male", applications: 617}]
+
+- question: Which districts have the highest number of female Home Stay applicants?
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS female_applicants
+    FROM curated.v_homestay_api
+    WHERE gender = 'Female'
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY female_applicants DESC
+    LIMIT 5;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 30.
+  expected: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", female_applicants: 154}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", female_applicants: 138}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", female_applicants: 69}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", female_applicants: 53}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", female_applicants: 46}]
+
+- question: What share of Home Stay applicants are women in each district?
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) AS applications,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE gender = 'Female') / COUNT(*), 1) AS female_pct
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY female_pct DESC;
+  tables:
+  - curated.v_homestay_api
+  expected: [{district_lgd_code: 278, lgd_district: "WEST GARO HILLS", applications: 209, female_pct: 66}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", applications: 82, female_pct: 64.6}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", applications: 64, female_pct: 59.4}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", applications: 17, female_pct: 58.8}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", applications: 70, female_pct: 58.6}, {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", applications: 39, female_pct: 56.4}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", applications: 125, female_pct: 55.2}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", applications: 89, female_pct: 51.7}, {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", applications: 342, female_pct: 45}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", applications: 96, female_pct: 43.8}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", applications: 62, female_pct: 41.9}, {district_lgd_code: 276, lgd_district: "RI BHOI", applications: 103, female_pct: 40.8}]
+
+- question: Give me Home Stay applicants by age group.
+  sql: |
+    SELECT CASE WHEN applicant_age_years <= 25 THEN '18-25'
+                WHEN applicant_age_years <= 35 THEN '26-35'
+                WHEN applicant_age_years <= 45 THEN '36-45'
+                WHEN applicant_age_years <= 60 THEN '46-60'
+                ELSE 'Over 60' END AS age_band,
+           COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE applicant_age_years >= 18
+    GROUP BY 1
+    ORDER BY 1;
+  tables:
+  - curated.v_homestay_api
+  note: Age at application; the one age under 18 is a data error and is left out; 2 have no age.
+  expected: [{age_band: "18-25", applications: 176}, {age_band: "26-35", applications: 510}, {age_band: "36-45", applications: 398}, {age_band: "46-60", applications: 191}, {age_band: "Over 60", applications: 20}]
+
+# ---- land --------------------------------------------------------------------
+- question: Give me the number of Home Stay applications on owned versus leased land.
+  sql: |
+    SELECT type_of_land_holding, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY type_of_land_holding
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 31.
+  expected: [{type_of_land_holding: "Owned", applications: 1005}, {type_of_land_holding: "Leased", applications: 293}]
+
+- question: Which districts have the highest number of Home Stay applications on leased land?
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS leased_land
+    FROM curated.v_homestay_api
+    WHERE type_of_land_holding = 'Leased'
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY leased_land DESC
+    LIMIT 5;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 32.
+  expected: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", leased_land: 90}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", leased_land: 54}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", leased_land: 43}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", leased_land: 25}, {district_lgd_code: 276, lgd_district: "RI BHOI", leased_land: 25}]
+
+- question: Identify Home Stay applications where the land lease period needs to be reviewed.
+  sql: |
+    SELECT CASE WHEN lease_years IS NULL                                THEN 'Leased, no lease years recorded'
+                WHEN land_lease_year_start < 1990                            THEN 'Malformed lease start year'
+                WHEN land_lease_year_end - land_lease_year_start <> lease_years  THEN 'Lease years do not add up'
+                WHEN lease_years < 7                                    THEN 'Shorter than 7-year minimum'
+           END AS review_reason,
+           COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE type_of_land_holding = 'Leased'
+      AND (lease_years IS NULL OR lease_years < 7 OR land_lease_year_start < 1990
+           OR land_lease_year_end - land_lease_year_start <> lease_years)
+    GROUP BY 1
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 33. Counts by reason - no applicant list.
+  expected: [{review_reason: "Shorter than 7-year minimum", applications: 4}, {review_reason: "Leased, no lease years recorded", applications: 3}, {review_reason: "Malformed lease start year", applications: 2}, {review_reason: "Lease years do not add up", applications: 1}]
+
+- question: What is the distribution of lease periods for leased land?
+  sql: |
+    SELECT lease_years, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE type_of_land_holding = 'Leased'
+      AND lease_years IS NOT NULL
+    GROUP BY lease_years
+    ORDER BY applications DESC
+    LIMIT 10;
+  tables:
+  - curated.v_homestay_api
+  expected: [{lease_years: 10, applications: 75}, {lease_years: 15, applications: 68}, {lease_years: 20, applications: 59}, {lease_years: 30, applications: 35}, {lease_years: 25, applications: 17}, {lease_years: 7, applications: 9}, {lease_years: 5, applications: 4}, {lease_years: 50, applications: 3}, {lease_years: 60, applications: 2}, {lease_years: 40, applications: 2}]
+
+# ---- rooms ---------------------------------------------------------------------
+- question: Give me the distribution of Home Stay applications by number of rooms.
+  sql: |
+    SELECT homestay_rooms AS rooms, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation
+      AND NOT COALESCE(homestay_rooms > 100, FALSE)
+    GROUP BY rooms
+    ORDER BY rooms;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 34. New-build only; the 3,500-room entry is left out.
+  expected: {rows: 16, first_10: [{rooms: 1, applications: 3}, {rooms: 2, applications: 544}, {rooms: 3, applications: 114}, {rooms: 4, applications: 283}, {rooms: 5, applications: 77}, {rooms: 6, applications: 103}, {rooms: 7, applications: 14}, {rooms: 8, applications: 42}, {rooms: 9, applications: 2}, {rooms: 10, applications: 57}]}
+
+- question: What is the total number of Home Stay rooms proposed across all applications?
+  sql: |
+    SELECT SUM(homestay_rooms) FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE))               AS proposed_rooms,
+           ROUND(AVG(homestay_rooms) FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE)), 1)     AS average_rooms,
+           COUNT(*) FILTER (WHERE COALESCE(homestay_rooms > 100, FALSE))                     AS outlier_rows_excluded
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 35.
+  expected: {proposed_rooms: 5113, average_rooms: 4, outlier_rows_excluded: 1}
+
+- question: Identify Home Stay properties with more than 10 rooms.
+  sql: |
+    SELECT homestay_rooms AS rooms, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE homestay_rooms > 10
+      AND NOT COALESCE(homestay_rooms > 100, FALSE)
+    GROUP BY rooms
+    ORDER BY rooms;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 36. Counts by room size - no applicant list. The 3,500 entry is reported separately.
+  expected: [{rooms: 12, applications: 14}, {rooms: 14, applications: 4}, {rooms: 15, applications: 6}, {rooms: 20, applications: 8}, {rooms: 24, applications: 1}, {rooms: 25, applications: 1}]
+
+- question: Give me the total proposed Home Stay room capacity district-wise.
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           SUM(homestay_rooms) FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE)) AS proposed_rooms,
+           COUNT(*)                                            AS new_build_applications
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY proposed_rooms DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 37.
+  expected: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", proposed_rooms: 1325, new_build_applications: 334}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", proposed_rooms: 609, new_build_applications: 207}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", proposed_rooms: 570, new_build_applications: 123}, {district_lgd_code: 276, lgd_district: "RI BHOI", proposed_rooms: 489, new_build_applications: 101}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", proposed_rooms: 463, new_build_applications: 88}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", proposed_rooms: 373, new_build_applications: 96}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", proposed_rooms: 356, new_build_applications: 61}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", proposed_rooms: 284, new_build_applications: 69}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", proposed_rooms: 262, new_build_applications: 62}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", proposed_rooms: 200, new_build_applications: 79}, {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", proposed_rooms: 132, new_build_applications: 39}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", proposed_rooms: 50, new_build_applications: 15}]
+
+- question: How many existing rooms are in the homestays applying for upgradation?
+  sql: |
+    SELECT (room_details -> 0 ->> 'type_of_room_available') AS upgradation_room_type,
+           COUNT(*)               AS upgradation_applications,
+           SUM(COALESCE(NULLIF(room_details -> 0 ->> 'total_number_single_room', '')::int, 0) + COALESCE(NULLIF(room_details -> 0 ->> 'total_number_double_bed_room', '')::int, 0)) AS existing_rooms
+    FROM curated.v_homestay_api
+    WHERE is_upgradation
+    GROUP BY upgradation_room_type
+    ORDER BY existing_rooms DESC;
+  tables:
+  - curated.v_homestay_api
+  expected: [{upgradation_room_type: "Single", upgradation_applications: 6, existing_rooms: 46}, {upgradation_room_type: "Double", upgradation_applications: 11, existing_rooms: 42}, {upgradation_room_type: "Both", upgradation_applications: 7, existing_rooms: 34}]
+
+# ---- sustainability ------------------------------------------------------------
+- question: How many proposed Home Stays have rainwater harvesting facilities?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE rainwater_harvesting) AS with_rainwater_harvesting,
+           COUNT(*)                                         AS new_build_applications
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 38.
+  expected: {with_rainwater_harvesting: 937, new_build_applications: 1274}
+
+- question: How many proposed Home Stays have solar energy facilities?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE solar_energy) AS with_solar,
+           COUNT(*)                                 AS new_build_applications
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 39.
+  expected: {with_solar: 976, new_build_applications: 1274}
+
+- question: Give me the breakdown of Home Stay applications by waste-management method.
+  sql: |
+    SELECT waste_management, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation
+    GROUP BY waste_management
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 40.
+  expected: [{waste_management: "Composting", applications: 579}, {waste_management: "Segregation", applications: 456}, {waste_management: "Recycling", applications: 194}, {waste_management: "Other", applications: 45}]
+
+- question: Which districts have the highest adoption of solar energy and rainwater harvesting?
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) AS new_build_applications,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE solar_energy) / COUNT(*), 1)         AS solar_pct,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE rainwater_harvesting) / COUNT(*), 1) AS rainwater_pct
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY solar_pct DESC;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 41. Shares within each district's new-build applications.
+  expected: [{district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", new_build_applications: 15, solar_pct: 100, rainwater_pct: 93.3}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", new_build_applications: 79, solar_pct: 98.7, rainwater_pct: 98.7}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", new_build_applications: 61, solar_pct: 90.2, rainwater_pct: 80.3}, {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", new_build_applications: 39, solar_pct: 84.6, rainwater_pct: 79.5}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", new_build_applications: 62, solar_pct: 75.8, rainwater_pct: 82.3}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", new_build_applications: 69, solar_pct: 75.4, rainwater_pct: 75.4}, {district_lgd_code: 276, lgd_district: "RI BHOI", new_build_applications: 101, solar_pct: 75.2, rainwater_pct: 59.4}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", new_build_applications: 207, solar_pct: 74.9, rainwater_pct: 79.7}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", new_build_applications: 123, solar_pct: 74, rainwater_pct: 67.5}, {district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", new_build_applications: 334, solar_pct: 72.8, rainwater_pct: 70.7}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", new_build_applications: 88, solar_pct: 72.7, rainwater_pct: 67}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", new_build_applications: 96, solar_pct: 69.8, rainwater_pct: 61.5}]
+
+- question: How many Home Stay applications have both solar energy and rainwater harvesting?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE solar_energy AND rainwater_harvesting) AS both_features,
+           COUNT(*)                                                             AS new_build_applications
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 42.
+  expected: {both_features: 843, new_build_applications: 1274}
+
+- question: How many proposed Home Stays have neither solar nor rainwater harvesting?
+  sql: |
+    SELECT COUNT(*) AS neither_feature
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation
+      AND NOT solar_energy
+      AND NOT rainwater_harvesting;
+  tables:
+  - curated.v_homestay_api
+  expected: 204
+
+# ---- components ----------------------------------------------------------------
+- question: How many applications are for new homestays and how many for upgradation?
+  sql: |
+    SELECT CASE WHEN is_upgradation THEN 'Upgradation of existing homestay'
+                ELSE 'Development of new homestay' END AS application_type,
+           COUNT(*)                            AS applications,
+           COUNT(*) FILTER (WHERE (file_status = 'Approved')) AS approved
+    FROM curated.v_homestay_api
+    GROUP BY 1
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  note: The stored text 'Updragation' is never displayed or filtered.
+  expected: [{application_type: "Development of new homestay", applications: 1274, approved: 80}, {application_type: "Upgradation of existing homestay", applications: 24, approved: 0}]
+
+- question: In which districts are the homestays applying for upgradation located?
+  sql: |
+    SELECT establishment_district, COUNT(*) AS upgradation_applications
+    FROM curated.v_homestay_api
+    WHERE is_upgradation
+    GROUP BY establishment_district
+    ORDER BY upgradation_applications DESC;
+  tables:
+  - curated.v_homestay_api
+  expected: [{establishment_district: "East Khasi Hills", upgradation_applications: 10}, {establishment_district: "West Garo Hills", upgradation_applications: 3}, {establishment_district: "North Garo Hills", upgradation_applications: 3}, {establishment_district: "West Khasi Hills", upgradation_applications: 2}, {establishment_district: "West Jaintia Hills", upgradation_applications: 1}, {establishment_district: "South West Khasi Hills", upgradation_applications: 1}, {establishment_district: "South West Garo Hills", upgradation_applications: 1}, {establishment_district: "Ri-Bhoi", upgradation_applications: 1}, {establishment_district: "Eastern West Khasi Hills", upgradation_applications: 1}, {establishment_district: "East Garo Hills", upgradation_applications: 1}]
+
+- question: How many upgradation applicants had room bookings in the last 6 months?
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE room_booking_6months)     AS with_bookings,
+           COUNT(*) FILTER (WHERE NOT room_booking_6months) AS without_bookings
+    FROM curated.v_homestay_api
+    WHERE is_upgradation;
+  tables:
+  - curated.v_homestay_api
+  expected: {with_bookings: 12, without_bookings: 12}
+
+- question: How many upgradation applications plan to install solar panels?
+  sql: |
+    SELECT COUNT(*) AS planning_solar_panels
+    FROM curated.v_homestay_api
+    WHERE is_upgradation
+      AND fund_utilization LIKE '%solar panels%';
+  tables:
+  - curated.v_homestay_api
+  note: The items list contains commas inside items, so it is searched with LIKE, never split.
+  expected: 12
+
+# ---- duplicates and data quality --------------------------------------------------
+- question: Are there any duplicate Home Stay applications in the dataset?
+  sql: |
+    SELECT COUNT(*)                                                  AS applications,
+           COUNT(DISTINCT member_key)                                AS distinct_applicants,
+           COUNT(*) - COUNT(DISTINCT member_key)                     AS extra_applications,
+           COUNT(DISTINCT member_key) FILTER (WHERE is_repeat_member) AS repeat_applicants
+    FROM curated.v_homestay_api;
+  tables:
+  - curated.v_homestay_api
+  note: Use case 45 (member id part). EPIC and family ids are not in the view - counts only.
+  expected: {applications: 1298, distinct_applicants: 1279, extra_applications: 19, repeat_applicants: 17}
+
+- question: What status do the repeat applications have?
+  sql: |
+    SELECT file_status, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE is_repeat_member
+    GROUP BY file_status
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  expected: [{file_status: "Unknown", applications: 19}, {file_status: "Pending", applications: 16}, {file_status: "Approved", applications: 1}]
+
+- question: Which applicant categories have applicants outside the declared age range?
+  sql: |
+    SELECT applicant_category, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE (applicant_category = 'Youth (18-35 yrs)' AND applicant_age_years > 35)
+       OR applicant_age_years < 18
+    GROUP BY applicant_category;
+  tables:
+  - curated.v_homestay_api
+  expected: [{applicant_category: "Women", applications: 1}, {applicant_category: "Youth (18-35 yrs)", applications: 41}]
+
+# ---- summaries -----------------------------------------------------------------
+- question: Give me a district-wise summary of total applications, approved, pending and invalid.
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*)                                          AS applications,
+           COUNT(*) FILTER (WHERE (file_status = 'Approved'))               AS approved,
+           COUNT(*) FILTER (WHERE file_status = 'Pending')   AS pending,
+           COUNT(*) FILTER (WHERE file_status = 'Unknown')   AS unknown,
+           COUNT(*) FILTER (WHERE data_verified = 'Invalid') AS invalid
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  expected: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", applications: 342, approved: 23, pending: 256, unknown: 62, invalid: 9}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", applications: 209, approved: 10, pending: 162, unknown: 37, invalid: 25}, {district_lgd_code: 279, lgd_district: "WEST KHASI HILLS", applications: 125, approved: 6, pending: 117, unknown: 2, invalid: 3}, {district_lgd_code: 276, lgd_district: "RI BHOI", applications: 103, approved: 7, pending: 95, unknown: 1, invalid: 11}, {district_lgd_code: 277, lgd_district: "SOUTH GARO HILLS", applications: 96, approved: 6, pending: 89, unknown: 1, invalid: 6}, {district_lgd_code: 275, lgd_district: "WEST JAINTIA HILLS", applications: 89, approved: 5, pending: 83, unknown: 1, invalid: 6}, {district_lgd_code: 656, lgd_district: "NORTH GARO HILLS", applications: 82, approved: 6, pending: 76, unknown: 0, invalid: 8}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", applications: 70, approved: 11, pending: 37, unknown: 22, invalid: 2}, {district_lgd_code: 740, lgd_district: "EASTERN WEST KHASI HILLS", applications: 64, approved: 0, pending: 58, unknown: 6, invalid: 6}, {district_lgd_code: 657, lgd_district: "EAST JAINTIA HILLS", applications: 62, approved: 3, pending: 59, unknown: 0, invalid: 14}, {district_lgd_code: 273, lgd_district: "EAST GARO HILLS", applications: 39, approved: 3, pending: 35, unknown: 0, invalid: 2}, {district_lgd_code: 663, lgd_district: "SOUTH WEST GARO HILLS", applications: 17, approved: 0, pending: 15, unknown: 2, invalid: 1}]
+
+- question: Give me a financial-year-wise summary of applications and their current status.
+  sql: |
+    SELECT financial_year_short,
+           COUNT(*)                                        AS applications,
+           COUNT(*) FILTER (WHERE (file_status = 'Approved'))             AS approved,
+           COUNT(*) FILTER (WHERE file_status = 'Pending') AS pending,
+           COUNT(*) FILTER (WHERE file_status = 'Unknown') AS unknown,
+           COUNT(*) FILTER (WHERE file_status = 'Rejected') AS rejected
+    FROM curated.v_homestay_api
+    GROUP BY financial_year_short
+    ORDER BY financial_year_short;
+  tables:
+  - curated.v_homestay_api
+  expected: [{financial_year_short: "2025-26", applications: 505, approved: 80, pending: 377, unknown: 48, rejected: 0}, {financial_year_short: "2026-27", applications: 793, approved: 0, pending: 705, unknown: 86, rejected: 2}]
+
+- question: Give me a category-wise approval summary.
+  sql: |
+    SELECT applicant_category,
+           COUNT(*)                                                     AS applications,
+           COUNT(*) FILTER (WHERE (file_status = 'Approved'))                          AS approved,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE (file_status = 'Approved')) / COUNT(*), 1) AS approval_rate_pct
+    FROM curated.v_homestay_api
+    GROUP BY applicant_category
+    ORDER BY applications DESC;
+  tables:
+  - curated.v_homestay_api
+  expected: [{applicant_category: "Youth (18-35 yrs)", applications: 491, approved: 25, approval_rate_pct: 5.1}, {applicant_category: "Women", applications: 479, approved: 36, approval_rate_pct: 7.5}, {applicant_category: "First Generation Entrepreneur", applications: 214, approved: 12, approval_rate_pct: 5.6}, {applicant_category: "Other", applications: 107, approved: 5, approval_rate_pct: 4.7}, {applicant_category: "Differently Abled", applications: 7, approved: 2, approval_rate_pct: 28.6}]

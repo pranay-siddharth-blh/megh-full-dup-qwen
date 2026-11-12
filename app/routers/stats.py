@@ -51,6 +51,7 @@ _SQL = {
     "cm_elevate_legacy": """SELECT COUNT(*) AS records, COUNT(DISTINCT scheme_name) AS schemes,
                                    SUM(total_disbursement) AS disbursed FROM curated.v_cm_elevate_disbursement""",
     "cmss": """SELECT COUNT(*) AS applications, COUNT(*) FILTER (WHERE is_disbursed) AS students_paid, SUM(amount_disbursed) AS amount_disbursed FROM curated.v_cmss""",
+    "homestay": """SELECT COUNT(*) AS applications, COUNT(DISTINCT member_key) AS applicants, COUNT(*) FILTER (WHERE file_status = 'Approved') AS approved FROM curated.v_homestay_api""",
 }
 
 # The financial years each card covers, read from the same views. The cards' period text
@@ -65,6 +66,7 @@ _YEARS_SQL = {
     "focus_legacy": "SELECT DISTINCT financial_year_short AS fy FROM curated.v_focus_legacy",
     "cm_elevate_legacy": "SELECT DISTINCT financial_year_short AS fy FROM curated.v_cm_elevate_disbursement",
     "cmss": "SELECT DISTINCT financial_year_short AS fy FROM curated.v_cmss",
+    "homestay": "SELECT DISTINCT financial_year_short AS fy FROM curated.v_homestay_api",
 }
 
 _cache: dict = {"at": 0.0, "body": None}
@@ -116,8 +118,8 @@ def _period(years) -> str:
 
 
 def _cards(r: dict, years: "dict | None" = None) -> dict:
-    m, p, f, c, fl, cl, cs = (r[k] for k in ("mgnrega", "pmay_g", "focus_plus", "cm_elevate", "focus_legacy",
-                                             "cm_elevate_legacy", "cmss"))
+    m, p, f, c, fl, cl, cs, hs = (r[k] for k in ("mgnrega", "pmay_g", "focus_plus", "cm_elevate", "focus_legacy",
+                                                 "cm_elevate_legacy", "cmss", "homestay"))
     # "(4 yr)" is the number of financial years the MGNREGA views hold, counted
     n_mg = len((years or {}).get("mgnrega") or [])
     span = f" ({n_mg} yr)" if n_mg else ""
@@ -153,6 +155,9 @@ def _cards(r: dict, years: "dict | None" = None) -> dict:
         # CMSS: applications (paid or not), students paid, rupees paid — a flat Rs 6,000 per paid student
         "cmss": [[ind(cs["applications"]), "Applications"], [ind(cs["students_paid"]), "Students paid"],
                  [cr(cs["amount_disbursed"], prov("CMSS")), "Amount disbursed"]],
+        # Homestay: applications, distinct applicants, approved — the feed records no money
+        "homestay": [[ind(hs["applications"]), "Applications"], [ind(hs["applicants"]), "Applicants"],
+                     [ind(hs["approved"]), "Approved"]],
     }
 
 

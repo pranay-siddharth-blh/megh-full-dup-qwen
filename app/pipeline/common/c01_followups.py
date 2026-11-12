@@ -409,6 +409,7 @@ _C01_SWAP_SCHEME = Alt(
     _c01_chain(["focus", "plus"], ["opt1"]),
     _c01_chain(["focus", "legacy"], ["opt1"]), W("focus"),
     W("cmss"),
+    W("homestay"),
     _c01_chain(["cm", "elevate", "legacy"], ["opt1", "opt1"]),
     _c01_chain(["cm", "elevate"], ["opt1"]))
 _C01_WS0 = _C01Gap(_c01_ws0)
@@ -1610,6 +1611,7 @@ _SCHEME_HEADLINE_OFFERS: "dict[str, list[tuple[str, str]]]" = {
                           ("Total disbursed",
                            "What is the total amount disbursed under CM Elevate Legacy{scope}?")],
     "CMSS": [("Applications", "How many CMSS applications were received{scope}?"), ("Students paid", "How many students were paid under CMSS{scope}?"), ("Amount disbursed", "How much was disbursed under CMSS{scope}?")],
+    "Homestay": [("Applications", "How many Homestay applications were received{scope}?"), ("Approved", "How many Homestay applications were approved{scope}?"), ("Applicants", "How many people applied under the Homestay scheme{scope}?")],
 }
 # CM Elevate (applications) records no financial year at all (SCHEME_METRICS),
 # so a carried year is left out of its offers rather than paused on again.
@@ -1665,7 +1667,7 @@ _MEASURE_HOLDERS: "list[tuple[str, Matcher, frozenset[str]]]" = [
     ("subsidy", Matcher(W("subsidy", "subsidies")), frozenset({"CM Elevate Legacy"})),
     ("loans", Matcher(W("loan", "loans")), frozenset({"CM Elevate Legacy"})),
     ("applications", Matcher(W("application", "applications", "applicant", "applicants")),
-     frozenset({"CM Elevate", "CM Elevate Legacy", "Focus Plus", "CMSS"})),
+     frozenset({"CM Elevate", "CM Elevate Legacy", "Focus Plus", "CMSS", "Homestay"})),
     # CM Elevate left the holders on 2026-10-16: its gender was only ever the
     # scheme_specific ->> 'gender_id' JSON key, and megh_readonly may not read
     # scheme_specific (ingestion team, CHATBOT_DB_CHANGES_2026-10-16).

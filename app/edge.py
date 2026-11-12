@@ -549,7 +549,7 @@ class _EdgeAnyOf:
 _SCHEME_NAMED = _EdgeAnyOf(
     _M(W("mgnrega", "mnrega", "nrega", "pmay", "pmayg", "awaas", "awas", "focusplus", "cmelevate",
          "focuslegacy"),
-       Joined("focus", "plus"), Joined("cm", "elevate"), Joined("focus", "legacy"), W("cmss", "scholarship", "scholarships"),
+       Joined("focus", "plus"), Joined("cm", "elevate"), Joined("focus", "legacy"), W("cmss", "scholarship", "scholarships"), Alt(W("homestay", "homestays", "cmmhm"), Joined("home", "stay")),
        Joined("producer", ("group", "groups"))),
     _GRule(_focus_plus),
 )
@@ -782,7 +782,8 @@ _CHIP_TARGET = _S(W("for", "under", "in", "across"), Opt("the"),
                   _A(_S("focus", "legacy"), _S("focus", "plus"), W("mgnrega", "pmayg"),
                       _GSeq("pmay", "g", ok=lambda g: g == "-"),
                       _S("cm", "elevate", Opt("legacy")),
-                      W("cmss"), _S("all", "of", "meghalaya"),
+                      W("cmss"),
+                      W("homestay"), _S("all", "of", "meghalaya"),
                       _S("all", Opt("the"), Opt("financial"), "years", Opt("combined"))),
                   Opt("scheme"))
 
@@ -907,7 +908,7 @@ _SCHEME_STRONG = [
          "comparison", "trend", "financialyear"),
        _P("disbursement", "wage", "household", "sanction", "release", "instal", "beneficiar",
           "eligib", "component", "getag", "jobcard"),
-       Joined("focus", "plus"), _S("producer", _P("group")), Joined("cm", "elevate"), W("cmss", "scholarship", "scholarships"),
+       Joined("focus", "plus"), _S("producer", _P("group")), Joined("cm", "elevate"), W("cmss", "scholarship", "scholarships"), Alt(W("homestay", "homestays", "cmmhm"), Joined("home", "stay")),
        "prime small enterprise", "prime tourism vehicle", "warehouse scheme",
        # CM Elevate programme names as typed: "What is the status distribution for Agro
        # Tourism Villa?" hit _OFF_TOPIC's "tourism" and was declined (UAT 2026-10-30, OFF-016)
@@ -986,7 +987,7 @@ _ASKS_FOR_A_FIGURE = _M(
     # a can-you check.
     Seq(W("tell", "explain", "describe"), _GCharGap(30, "?"),
         _A(W("mgnrega", "mnrega", "nrega", "pmay", "awaas", "awas", "focus", "focusplus",
-              "cmelevate", "focuslegacy", "cmss"),
+              "cmelevate", "focuslegacy", "cmss", "homestay", "cmmhm"),
             Joined("cm", "elevate"), Joined("producer", ("group", "groups")))),
     _A(W("total", "sum", "count", "average", "avg", "expenditure", "spend", "spending", "spent",
           "wage", "wages", "house", "houses", "applications", "application", "breakdown", "compare",
@@ -1168,7 +1169,23 @@ _DOMAIN_WORDS = [
     "post matric state scholarship",
     "rs 6000 scholarship",
     "6000 scholarship",
-    "chief minister scholarship scheme 2025", _M(W("pfms", "shg", "shgs")), "self help group", "self-help group", "rozgar sahayak",
+    "chief minister scholarship scheme 2025",
+    "homestay",
+    "home stay",
+    "home-stay",
+    "homestay scheme",
+    "homestay mission",
+    "cm homestay mission",
+    "chief minister's meghalaya homestay mission",
+    "cmmhm",
+    "cm's meghalaya homestay mission",
+    "meghalaya tourism homestay scheme",
+    "tourism homestay scheme",
+    "homestay subsidy scheme",
+    "homestay applications",
+    "homestay api",
+    "new homestay scheme",
+    "homestay upgradation scheme", _M(W("pfms", "shg", "shgs")), "self help group", "self-help group", "rozgar sahayak",
     "geo-tagg", "c&rd", "direct benefit transfer",
     "benefit",
     # work / employment
@@ -1240,20 +1257,20 @@ _STARTER_KINDS = {"greeting", "identity", "capability", "money_advice", "profani
 # topic, a general-knowledge question, or a place outside Meghalaya. Callers past
 # the edge layer (the pipeline's OutOfScope handler) reuse it via out_of_scope().
 _OUT_OF_SCOPE_REPLY = (
-    "I'm Megh One AI, the assistant for Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy (producer groups), CM Elevate Legacy (sanctions and disbursements), and CMSS (Chief Minister's Scholarship Scheme, a flat Rs 6,000 annual state scholarship for eligible students). I can only answer questions about those schemes and their data in Meghalaya — not other topics, other states, or places outside Meghalaya."
+    "I'm Megh One AI, the assistant for Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy (producer groups), CM Elevate Legacy (sanctions and disbursements), CMSS (Chief Minister's Scholarship Scheme, a flat Rs 6,000 annual state scholarship for eligible students), and Homestay (the Chief Minister's Meghalaya Homestay Mission applications). I can only answer questions about those schemes and their data in Meghalaya — not other topics, other states, or places outside Meghalaya."
 )
 
 _RESPONSES = {
     "greeting": (
         "Hello! I answer questions about Meghalaya's MGNREGA, PMAY-G, Focus Plus, "
-        "CM Elevate, Focus Legacy, CM Elevate Legacy and CMSS data — person-days, expenditure, "
+        "CM Elevate, Focus Legacy, CM Elevate Legacy, CMSS and Homestay data — person-days, expenditure, "
         "houses sanctioned and completed, Focus Plus disbursements, CM Elevate applications "
         "by scheme, Focus Legacy producer-group payments, CM Elevate Legacy subsidy and "
-        "loans disbursed, CMSS scholarship applications and payments, district and block "
+        "loans disbursed, CMSS scholarship applications and payments, Homestay applications and approvals, district and block "
         "breakdowns — and general questions about how the schemes work."
     ),
     "identity": (
-        "I can help you with Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy and CMSS schemes — things like person-days and wage expenditure, houses sanctioned and completed, Focus Plus disbursements, CM Elevate applications, Focus Legacy payments to producer groups, CM Elevate Legacy sanctions and disbursements, CMSS scholarship applications and disbursements, district and block breakdowns, and eligibility or how-to-apply questions for any of these schemes. Just ask in plain language."
+        "I can help you with Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy, CMSS and Homestay schemes — things like person-days and wage expenditure, houses sanctioned and completed, Focus Plus disbursements, CM Elevate applications, Focus Legacy payments to producer groups, CM Elevate Legacy sanctions and disbursements, CMSS scholarship applications and disbursements, district and block breakdowns, and eligibility or how-to-apply questions for any of these schemes. Just ask in plain language."
     ),
     # Answers the question that was actually asked — "can you?" — with a plain
     # yes first, then what that covers. Deliberately NOT the _OUT_OF_SCOPE_REPLY
@@ -1262,9 +1279,10 @@ _RESPONSES = {
     "capability": (
         "Yes — that's exactly what I'm here for. I can answer questions about "
         "Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM "
-        "Elevate Legacy and CMSS schemes, in two ways: the actual data (person-days, expenditure, houses "
+        "Elevate Legacy, CMSS and Homestay schemes, in two ways: the actual data (person-days, expenditure, houses "
         "sanctioned and completed, Focus Plus disbursements, CM Elevate applications, "
-        "Focus Legacy producer-group payments, CM Elevate Legacy disbursements, CMSS scholarships — by "
+        "Focus Legacy producer-group payments, CM Elevate Legacy disbursements, CMSS scholarships, "
+        "Homestay applications — by "
         "district, block, village or "
         "financial year), and how the schemes work (eligibility, benefits, documents, "
         "how to apply). Ask in plain language and I'll take it from there."
@@ -1276,8 +1294,8 @@ _RESPONSES = {
     "money_advice": (
         "I can't advise on investing or saving your own money — I'm not a financial "
         "adviser, and that's outside what I do. I'm Megh One AI: I answer questions "
-        "about Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy and "
-        "CMSS schemes — who "
+        "about Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy, CMSS and "
+        "Homestay schemes — who "
         "is eligible, what benefits they pay, how to apply, and the actual figures by "
         "district, block or year. If you'd like to know what any of those schemes "
         "offers, ask away."
@@ -1297,7 +1315,7 @@ _RESPONSES = {
         "loan). Ask me \"who is eligible for CM Elevate?\" or \"how do I apply for "
         "MGNREGA?\" and I'll explain."
     ),
-    "thanks": ("You're welcome. Ask me anything else about MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy, or CMSS (Chief Minister's Scholarship Scheme) in Meghalaya."),
+    "thanks": ("You're welcome. Ask me anything else about MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy, CMSS, or Homestay (Chief Minister's Scholarship Scheme) in Meghalaya."),
     "goodbye": "Thanks for using the Meghalaya scheme assistant. Come back any time.",
     "profanity": (
         "I'm here to help. I can answer MGNREGA, PMAY-G, Focus Plus, CM Elevate and "
@@ -1375,6 +1393,7 @@ _SCHEME_ALIASES = {
     "Focus Legacy": _M(Joined("focus", "legacy"), Joined("legacy", "focus"),
                        Joined("producer", ("group", "groups"))),
     "CMSS": _M(W("cmss", "scholarship", "scholarships")),
+    "Homestay": _M(Alt(W("homestay", "homestays", "cmmhm"), Joined("home", "stay"))),
 }
 
 # What each scheme actually holds — the data side and the knowledge side — so
@@ -1414,6 +1433,9 @@ _SCHEME_CAPABILITY = {
     ),
     "CMSS": (
     "applications and students paid, amount disbursed (Rs 6,000 flat), and geography breakdowns by district, block, village, constituency or region — by financial year (FY 2025-26 only)"
+),
+    "Homestay": (
+    "applications for new homestays or upgradations, application mode, workflow level and verification status — by district, block, village, constituency or financial year"
 ),
 }
 
@@ -1466,6 +1488,13 @@ _SCHEME_STARTERS = {
         "Total CMSS amount disbursed in 2025-26",
         "Which block has the most CMSS applications?",
         "Who is eligible for CMSS?",
+    ],
+    "Homestay": [
+        "How many Homestay applications are there?",
+        "Homestay applications by district",
+        "How many Homestay applications were approved in 2025-26?",
+        "Which tourism cluster has the most proposed homestays?",
+        "Who is eligible for the Homestay scheme?",
     ],
 }
 
@@ -1530,7 +1559,7 @@ def _out_of_area_reply(question: str, place: str) -> str:
     else:
         lead = f"I don't hold any data for {name}. "
     return (
-        lead + "I'm Megh One AI, and I only cover Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy and CMSS (Chief Minister's Scholarship Scheme) — the data is Meghalaya's alone, so I have nothing for other states or countries. If there's something you'd like to know about these seven schemes in Meghalaya, I can help with that."
+        lead + "I'm Megh One AI, and I only cover Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy, CMSS and Homestay (Chief Minister's Scholarship Scheme) — the data is Meghalaya's alone, so I have nothing for other states or countries. If there's something you'd like to know about these eight schemes in Meghalaya, I can help with that."
     )
 
 

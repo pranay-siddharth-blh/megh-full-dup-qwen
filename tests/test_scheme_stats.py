@@ -34,7 +34,7 @@ def test_card_figures_from_rows():
     # CMSS (2026-11-11): money verified, not provisional — no "*"
     assert c["cmss"] == [["1,04,827", "Applications"], ["98,751", "Students paid"], ["₹59.25 Cr", "Amount disbursed"]]
     # same six keys as the cards in frontend/src/chat/constants.js
-    assert set(c) == {"mgnrega", "pmay_g", "focus_plus", "cm_elevate", "focus_legacy", "cm_elevate_legacy", "cmss"}
+    assert set(c) == {"mgnrega", "pmay_g", "focus_plus", "cm_elevate", "focus_legacy", "cm_elevate_legacy", "cmss", "homestay"}
 
 
 # ── 2026-10-22: the cards follow the data (user: "kpi cards … need to update dynamically … based on the

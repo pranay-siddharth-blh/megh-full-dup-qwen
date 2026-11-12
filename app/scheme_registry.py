@@ -38,6 +38,7 @@ SCHEMES: tuple[Scheme, ...] = (
     Scheme("CM Elevate Legacy", "cm_elevate_disbursement", "CM_Elevate_Legacy", "CM Elevate",
            "curated.v_cm_elevate_disbursement", "CM-ELEVATE", True),
     Scheme("CMSS", "cmss", "CMSS", "CMSS", "curated.v_cmss", "CMSS", True),
+    Scheme("Homestay", "homestay_api", "Homestay", "Home Stay", "curated.v_homestay_api", "Homestay", True),
 )
 
 NAMES: tuple[str, ...] = tuple(s.name for s in SCHEMES)
@@ -87,6 +88,7 @@ DATASETS: dict[str, DatasetFacts] = {
         "one applicant's sanction and disbursement record", "rupees", False, True, True, "scheme_name",
         ("v_cm_elevate_disbursement", "dim_cm_elevate_disb_scheme")),
     "CMSS": DatasetFacts("one row per student application (paid or not); each student (member_key) appears once. COUNT(*) = applications, COUNT(*) FILTER (WHERE is_disbursed) = students paid, SUM(amount_disbursed) = rupees paid.", "rupees", True, False, True, None, ("v_cmss",), not_held="CMSS records no gender, age, institution, course, student names, payment dates or the reason an application was not paid; only FY 2025-26 is held"),
+    "Homestay": DatasetFacts("one row per homestay application (request_id, unique). COUNT(*) = applications; COUNT(DISTINCT member_key) = applicants (17 applicants have more than one application). Statuses are as at the extract (about 1 Nov 2026).", None, True, False, True, None, ("v_homestay_api",), not_held="Homestay (applications) records no money (project cost, subsidy, loan, sanction or disbursement), no operational or completed status, no project dates, no applicant names or contact details, and no reason for a rejection; Homestay Legacy holds the older bank-loan homestays"),
 }
 
 
@@ -111,4 +113,5 @@ KNOWLEDGE_DISTINCTIONS: dict[str, str] = {
     "MGNREGA": "MGNREGA (also NREGA, MGNREGS, the '100 days work' scheme) is the rural employment "
                "guarantee Act.",
     "CMSS": "CMSS (the Chief Minister's Scholarship Scheme) pays a flat Rs 6,000 a year to eligible students; it is a state scholarship, not the CM Elevate enterprise programme.",
+    "Homestay": "Homestay (the Chief Minister's Meghalaya Homestay Mission, Tourism Department) supports building a new homestay or upgrading an existing one; this data is its online applications from October 2025, not the older Homestay Legacy bank loans.",
 }

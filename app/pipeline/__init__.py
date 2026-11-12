@@ -39,6 +39,7 @@ _PIPELINE_FILES = (
     "schemes/focus_legacy",
     "schemes/cm_elevate_legacy",
     "schemes/cmss",
+    "schemes/homestay",
     # shared steps, in pipeline order
     "common/c04_scheme_listing",
     "common/c05_clarifications",

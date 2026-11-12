@@ -1,0 +1,1493 @@
+schema_version: '1.0'
+schema_name: homestay_curated_semantic_schema
+display_name: Homestay (CM's Meghalaya Homestay Mission - API application feed) Curated Semantic Schema (megh_db)
+
+# ===========================================================================
+# v1.0 - 2026-11-06 - FIRST VERSION, WRITTEN AHEAD OF THE DATABASE LOAD
+#
+# THE VIEW DOES NOT EXIST YET. SCHEMA_FOR_DEVELOPERS.md (2026-11-03) has no
+# Homestay API object. curated.v_homestay_api and curated.fact_homestay_application
+# are PLACEHOLDER names. Every column below is the EXPECTED view column, built
+# from the source CSV and named to the house conventions of v_cmss and
+# v_homestay_legacy. When the loader lands: align names, types and order to the
+# live view and log the diff in Annotations/Homestay/README.md section 13.
+#
+# WHAT HOMESTAY IS
+#   Chief Minister's Meghalaya Homestay Mission (CMMHM), formerly the Meghalaya
+#   Tourism Homestay Scheme. Tourism Department, Government of Meghalaya, with
+#   the District Commerce and Industry Centres (DCIC), MIPA and partner banks
+#   (Meghalaya Rural Bank, SBI). Capital / credit-linked subsidy of up to 70%
+#   (35% PMEGP + 35% Tourism), up to 80% for persons with disabilities.
+#   Component 1 = new homestay (cost up to Rs 10 lakh), Component 2 = upgradation
+#   of an existing homestay (Rs 50,000 per room, max Rs 2 lakh), Component 3 =
+#   boutique homestay (10+ rooms, min Rs 80 lakh). Applied for online on
+#   invest.meghalaya.gov.in / meghalayaone.gov.in or at a CM Connect Centre.
+#   Target: 3,000 homestays and 15,000+ jobs by 2028.
+#
+# THE SIX FACTS THAT GOVERN EVERY RULE IN THIS FILE
+#   1. ONE ROW IS ONE APPLICATION. COUNT(*) is applications (1,298). People are
+#      COUNT(DISTINCT member_key) (1,279): 19 rows are repeat applications by the
+#      same person, all with file_status 'Unknown'. Applications are not homestays.
+#   2. THERE IS NO MONEY COLUMN. No project cost, loan, subsidy, grant or EMI.
+#      Every money question is refused as a data question. Scheme rates are
+#      scheme facts from the reference document, labelled as such.
+#   3. TWO APPLICATION TYPES. application_type 'Development of New Homestay'
+#      (1,274, Component 1) and 'Updragation of New Homestay' (24, Component 2 -
+#      the typo is the source's). Facility columns (homestay_rooms, solar, rainwater,
+#      waste) exist only for new-build rows; establishment columns only for
+#      upgradation rows. No boutique (Component 3) application exists.
+#   4. FOUR STATUS COLUMNS. file_status (Approved 80 / Pending 1,082 / Unknown 134
+#      / Rejected 2) is the default 'status'. current_file_status (Forward /
+#      Approved / Sendback / Resubmit) is the workflow movement. current_level
+#      (level1 / level4) is the desk. data_verified (Valid / Invalid / On Hold /
+#      Wrong / NULL) is the verification result.
+#   5. TWO GEOGRAPHIES. The applicant's HOME address (district_lgd_code ...
+#      village_code, LGD-mapped) is the default. The PROPOSED SITE
+#      (proposed_district, proposed_cluster, proposed_village) is free text and
+#      clusters are tourism clusters, not LGD blocks. They differ on 113 new-build rows.
+#   6. FY 2026-27 IS PARTIAL. application_date runs 7 Oct 2025 to 19 Oct 2026.
+#      financial_year is derived exactly from it. All 80 approvals are 2025-26.
+#
+# WHAT IS NOT IN THE CURATED LAYER (expected)
+#   member_id (source)    -> HASHED to member_key at ingest, as for CMSS / Focus+.
+#   Names, date of birth, mobile, email, address, pincode, EPIC, family id, PDS id,
+#   M-TIME portal id, proposed-site address and pincode, establishment address
+#                         -> PERSONAL DATA, dropped or kept on the fact only.
+#   request_id, id        -> fact only, lineage (source_request_id, source_application_id).
+#   Raw district / block / village names and the old block-code series
+#                         -> fact only (*_raw). The view exposes the LGD mapping.
+#   project_start_date, project_end_date, establishment_manager,
+#   property_estimated_area_in_square_feet -> NULL on every row; not exposed.
+#   onhold, is_withdraw   -> FALSE on every row; not exposed (on hold is in data_verified).
+#   Free text (category_remarks, waste remarks, food, amenities, fund remarks)
+#                         -> fact only; one remark holds a person's name and address.
+#
+# PROVENANCE OF NUMBERS IN THIS FILE
+#   Every count, distinct count and sample value -> source file
+#   datasets/Homestay/Home Stay API - 2026-11-01.csv (1,298 rows x 81 columns),
+#   profiled 2026-11-06 and executed against a SQLite emulation of the planned
+#   view built from that file. None is measured in megh_db: all are
+#   `unverified_in_db: true`.
+#
+# CLIENT QUESTION CODES (Annotations/Homestay/README.md section 10)
+#   HS-01 load / names        HS-02 'Unknown' status      HS-03 level1 / level4
+#   HS-04 upgradation type    HS-05 establishment name    HS-06 meaning of Approved
+#   HS-07 money / construction HS-08 outliers             HS-09 home vs site geography
+# ===========================================================================
+
+architecture_alignment:
+  schema_linking: Enriched table and column documents are embedded for scheme-partitioned Qdrant retrieval.
+  entity_resolution: Dimension catalogue plus approved aliases, RapidFuzz, and BGE-small fallback.
+  join_discovery: information_schema FKs plus SME-reviewed implicit FK YAML; LLM never invents joins.
+  sql_generation: Retrieved schema, resolved entities, graph-generated joins, and curated question-to-SQL examples.
+  safety: SQLGlot read-only validation, enforced LIMIT, SELECT-only database role.
+  observability: Inputs, outputs, rule firings, SQL, results, chart spec, and response are traceable.
+
+database:
+  name: megh_db
+  schema: curated
+  read_role: megh_readonly
+  primary_query_surface: curated.v_homestay_api
+  view_status: planned_not_loaded
+  structure_verified: false
+  volumes_verified: false
+
+datasets:
+
+  # =========================================================================
+  # PRIMARY QUERY SURFACE - query this, not the fact table
+  # =========================================================================
+  v_homestay:
+    table_name: curated.v_homestay_api
+    object_type: view
+    over: curated.fact_homestay_application
+    placeholder_name: true
+    column_count: 52
+    grain: one row per Homestay Mission application (new-build or upgradation), any status
+    row_count: unverified_in_db
+    row_count_note: >
+      The source file holds 1,298 rows (ids 1 to 1,298, request_id unique). The view is not
+      loaded. Quote 1,298 only as 'in the 1 Nov 2026 extract'.
+    aggregate_before_reporting: false
+    grain_note: >
+      One row IS one application, so COUNT(*) is an application count. 1,279 distinct
+      member_key values: 17 people have 2 or 3 applications (36 rows). 'How many people /
+      applicants / persons' is COUNT(DISTINCT member_key). An application is not a homestay:
+      only 80 are approved and nothing records construction or operation.
+    money_unit: none
+    money_unit_note: No money column exists in this feed. Never return a money figure from this view.
+    years_present: ['2025-26', '2026-27']
+    data_as_of: '2026-10-19'
+    data_as_of_note: Latest application_date in the extract dated 2026-11-01.
+    columns:
+
+    # ---- keys -------------------------------------------------------------
+    - name: homestay_api_fact_id   # was homestay_fact_id (planned view); live curated.v_homestay_api 2026-11-11
+      source_column: fact_homestay_application.homestay_api_fact_id
+      meaning: Surrogate primary key of the Homestay application fact.
+      type: bigint
+      category: technical_identifier
+      nlp_sql_priority: low
+      sql_operations: [WHERE, COUNT, COUNT DISTINCT]
+      synonyms: [record id, row id, fact id]
+      business_rules:
+      - Identifier only; never SUM or AVG.
+      - Not stable across a reload. Never export it or store it outside the database.
+      - "Not the portal's request number (REQ/239/157/...). That is source_request_id, on the fact only."
+
+    - name: member_key
+      source_column: fact_homestay_application.member_key
+      meaning: >
+        Masked applicant identity - an irreversible hash of the applicant's Meghalaya One
+        member_id. Same person, same key, across applications.
+      type: char(64)
+      category: person_identifier_masked
+      nlp_sql_priority: medium
+      sql_operations: [COUNT DISTINCT]
+      synonyms: [applicant, distinct applicants, unique applicants, persons, people, member id]
+      pii: true
+      business_rules:
+      - "PERSONAL DATA. NEVER SELECT, DISPLAY, EXPORT, GROUP BY OR FILTER ON IT. The only permitted use is COUNT(DISTINCT member_key)."
+      - No sample_values are recorded for this column, by design.
+      - "1,279 distinct keys on 1,298 applications (unverified_in_db). 17 keys repeat (36 rows)."
+      - "Never use it to link a Homestay applicant to a CMSS student, a Focus+ member or a Homestay Legacy borrower. Cross-scheme person matching is prohibited."
+
+    # ---- time -------------------------------------------------------------
+    - name: application_date
+      source_column: fact_homestay_application.application_date
+      meaning: Date the application was created on the portal (source createddate).
+      type: date
+      nullable: false
+      category: time_dimension
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY, MIN, MAX, ORDER BY]
+      synonyms: [application date, created date, date of application, submitted on, applied on, month, when applied]
+      sample_values: ['2025-11-26', '2025-11-19', '2026-03-31', '2026-04-14', '2026-09-30']
+      business_rules:
+      - "Range 2025-10-07 to 2026-10-19 (unverified_in_db). There is no earlier application."
+      - "Month-wise questions GROUP BY date_trunc('month', application_date). Busiest month: Nov 2025 (166), then Sep 2026 (147), Aug 2026 (140)."
+      - "It is the APPLICATION date only. No approval, sanction, disbursement, construction or completion date exists."
+      - "The 4th segment of the source request_id repeats this date - never parse request_id."
+
+    - name: year_key
+      source_column: fact_homestay_application.year_key
+      meaning: Financial-year key of the application, resolved against dim_year.
+      type: smallint
+      nullable: false
+      category: time_key
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [year key, financial year key]
+      sample_values: [2025, 2026]
+      business_rules:
+      - Value is the FY start year - 2025 means FY 2025-26.
+      - "Two values: 2025 (505 rows), 2026 (793 rows)."
+
+    - name: financial_year
+      source_column: dim_year.financial_year
+      meaning: Canonical financial year of the application (April to March).
+      type: char(9)
+      category: time_dimension
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, GROUP BY, ORDER BY]
+      synonyms: [financial year, FY, fiscal year, year]
+      sample_values: ['2025-2026', '2026-2027']
+      business_rules:
+      - "Derived from application_date exactly: all 1,298 source rows agree with their createddate."
+      - "A year other than 2025-26 or 2026-27 has NO DATA - say so, never answer 0."
+
+    - name: financial_year_short
+      source_column: dim_year.financial_year_short
+      meaning: Short form of the financial year.
+      type: char(7)
+      category: time_dimension
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, GROUP BY, ORDER BY]
+      synonyms: [FY short, financial year short, 2025-26, 2026-27, this year, last year]
+      sample_values: ['2025-26', '2026-27']
+      business_rules:
+      - Prefer this for display and for filters written from user text ('2026-27').
+      - "2025-26: 505 applications (7 Oct 2025 - 31 Mar 2026, a part year: the scheme opened in Oct 2025)."
+      - "2026-27: 793 applications to 19 Oct 2026 - A PARTIAL YEAR. Every comparison with 2025-26 must say both years are part years."
+      - "All 80 approvals are in 2025-26. 2026-27 has 0 approved - say 'none approved yet', not a 0% approval rate without context."
+
+    # ---- applicant home geography (LGD-mapped) ------------------------------
+    - name: geography_key
+      source_column: fact_homestay_application.geography_key
+      meaning: Surrogate key into the conformed geography dimension.
+      type: integer
+      category: geographic_identifier
+      nlp_sql_priority: low
+      sql_operations: [WHERE, GROUP BY, COUNT DISTINCT]
+      synonyms: [geography key]
+      business_rules:
+      - Identifier only; never SUM or AVG.
+      - NOT stable across a reload. Use village_code for anything leaving the database.
+
+    - name: village_code
+      source_column: dim_geography.village_code
+      meaning: >
+        LGD village code of the applicant's home (or LGD ward code in towns). On the 64
+        applications with no mapped village it is the block's 'Unresolved' placeholder code.
+      type: integer
+      category: geographic_identifier
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY, COUNT DISTINCT]
+      synonyms: [village code, LGD village code, ward code, mapped village code]
+      sample_values: [276917, 2368, 2369, 279444, 951]
+      business_rules:
+      - Identifier only; never SUM or AVG.
+      - "VILLAGE IDENTITY. 9 village names carry two codes (Jarain, Lapalang, Lumsohphoh, Mawdiangum, Mawpdang, Nongbah, Nonglang, Nongthymmai, Umjarain). Count and filter villages by code."
+      - "Count villages with COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved') - 667 real villages and wards."
+      - "Source carries two village codes (village_lgd_code, mapped_village_lgd_code); they agree on 1,235 rows. The view uses the mapped one."
+
+    - name: lgd_village_name
+      source_column: dim_geography.lgd_village_name
+      meaning: LGD village or ward name of the applicant's home.
+      type: varchar(200)
+      category: geographic_dimension
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [village, ward, locality, home village, village name]
+      sample_values: [Nongkasen, 'Ward No. 8', 'Ward No. 9', Iapmala, 'Resubelpara - Ward No.11']
+      business_rules:
+      - Display name. NOT an identity - see village_code.
+      - "Tura wards are 'Ward No. 8' etc. without the town in the name. Always show the block beside a ward."
+      - Compare case-folded.
+
+    - name: lgd_block
+      source_column: dim_geography.lgd_block
+      meaning: >
+        LGD block of the applicant's home, stored UPPERCASE. The block level also holds 11
+        municipal boards and town committees (278 applications).
+      type: varchar(150)
+      category: geographic_dimension
+      nlp_sql_priority: critical
+      sql_operations: [GROUP BY]
+      synonyms: [block, C&RD block, development block, municipal board, town committee, town]
+      sample_values: [TURA MUNICIPAL BOARD-MUNICIPAL BOARD, RONGRAM, SHELLA BHOLAGANJ, MAWKYRWAT, WAPUNG]
+      business_rules:
+      - "DISPLAY AND GROUPING LABEL. FILTER ON block_lgd_code."
+      - Stored UPPERCASE. Title-case it for display.
+      - "65 block codes: 54 rural C&RD blocks + 11 urban bodies (Tura MB 94, Nongstoin TC 41, Resubelpara MB 39, Shillong MB 39, Baghmara MB 19, Mairang TC 14, William Nagar MB 11, Jowai MB 10, Nongpoh TC 9, Khliehriat TC 1, Mawkyrwat TC 1)."
+      - "Five towns share a name with a rural block (Nongstoin, Mairang, Resubelpara, Baghmara, Mawkyrwat). Resolve which one before filtering."
+      - "NOT the proposed homestay cluster. 'Sohra Cluster', 'Wari Chora Cluster' are proposed_cluster values."
+      - "For a grouped answer GROUP BY block_lgd_code, lgd_block - never lgd_block alone."
+
+    - name: lgd_district
+      source_column: dim_geography.lgd_district
+      meaning: LGD district of the applicant's home, stored UPPERCASE.
+      type: varchar(100)
+      category: geographic_dimension
+      nlp_sql_priority: critical
+      sql_operations: [GROUP BY]
+      synonyms: [district, LGD district, district name, home district]
+      sample_values: [EAST KHASI HILLS, WEST GARO HILLS, WEST KHASI HILLS, RI BHOI, SOUTH GARO HILLS]
+      business_rules:
+      - "DISPLAY AND GROUPING LABEL. FILTER ON district_lgd_code."
+      - Stored UPPERCASE. Title-case it for display.
+      - "12 districts. Largest East Khasi Hills 342, smallest South West Garo Hills 17."
+      - "'Eastern West Khasi Hills' (740) and 'West Khasi Hills' (279) are different districts. Never let one resolve to the other."
+
+    - name: entity_type
+      source_column: dim_geography.entity_type
+      meaning: What kind of locality the row points at - 'Village', 'Ward' or 'Unresolved'.
+      type: varchar(10)
+      category: geographic_quality
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY, FILTER]
+      synonyms: [locality type, unmapped, unresolved, no village]
+      sample_values: [Village, Ward, Unresolved]
+      business_rules:
+      - "'Unresolved' marks the 64 applications with no mapped village: Shella Bholaganj 37, Rongram 25, Ranikor 1, Tura MB 1."
+      - "INCLUDE Unresolved rows in State, district and block figures. EXCLUDE them from village counts, village lists, village rankings and constituency figures."
+      - "Ward vs Village split (254 / 980 in the emulation) is unverified_in_db. The only filter ever needed is <> 'Unresolved'."
+
+    - name: ac_number
+      source_column: dim_geography.ac_number
+      meaning: Assembly constituency number (ECI, 1-60) of the applicant's home village.
+      type: smallint
+      category: geographic_identifier
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [constituency number, AC number, assembly constituency number, MLA constituency]
+      sample_values: [50, 32, 36, 6, 31]
+      business_rules:
+      - "FILTER CONSTITUENCIES ON THIS COLUMN."
+      - "58 of 60 constituencies have at least one application. Largest: 50 North Tura (138)."
+      - "NULL on the 64 Unresolved rows: a constituency total reaches 1,234, not 1,298. Say so."
+      - Identifier only; never SUM or AVG.
+
+    - name: ac_name
+      source_column: dim_geography.ac_name
+      meaning: Assembly constituency name of the applicant's home village.
+      type: varchar(100)
+      category: geographic_dimension
+      nlp_sql_priority: critical
+      sql_operations: [GROUP BY]
+      synonyms: [constituency, assembly constituency, AC, MLA constituency, vidhan sabha constituency]
+      sample_values: [North Tura, Nongstoin, Mawkyrwat, Khliehriat, Mawthadraishan]
+      business_rules:
+      - "DISPLAY LABEL. Filter on ac_number."
+      - "Many constituency names are also block names (Nongstoin, Mawkyrwat, Khliehriat, Mawthadraishan). Resolve the level first."
+
+    - name: district_lgd_code
+      source_column: fact_homestay_application.district_lgd_code
+      meaning: LGD district code of the applicant's home, as mapped by the department (source mapped_district_lgd_code).
+      type: integer
+      category: geographic_identifier
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [district code, LGD district code]
+      sample_values: [274, 278, 279, 276, 277]
+      business_rules:
+      - "AUTHORITATIVE. Filter and group districts on this code."
+      - "Taken from the source's mapped_district_lgd_code. The raw district_lgd_code differs on 14 rows (13 raw 'Eastern West Khasi Hills' 740 mapped to West Khasi Hills 279; 1 raw West Garo Hills mapped to South West Garo Hills 663). The mapped code is trusted - see has_name_code_conflict."
+      - Identifier only; never SUM or AVG.
+
+    - name: block_lgd_code
+      source_column: fact_homestay_application.block_lgd_code
+      meaning: LGD block code of the applicant's home (source mapped_block_lgd_code), rural block or urban body.
+      type: integer
+      category: geographic_identifier
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [block code, LGD block code, town code]
+      sample_values: [249806, 1965, 1994, 1984, 1999]
+      business_rules:
+      - "AUTHORITATIVE. Filter and group blocks on this code. The LGD 1960-series, the same series as Homestay Legacy, NRLM and CMSS."
+      - "The source's raw block_lgd_code is an OLDER series (Rongram 2479, Shella Bholaganj 2462, Mawlai 7185) with 57 values. It stays on the fact as block_code_raw and is never used."
+      - "Urban bodies use codes 249806-249820, 279714 and 282009."
+      - Identifier only; never SUM or AVG.
+
+    - name: region
+      source_column: dim_geography.region
+      meaning: Hills region of the applicant's home district (Garo / Khasi / Jaintia).
+      type: varchar(10)
+      category: geographic_dimension
+      nlp_sql_priority: medium
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [region, hills, Garo Hills, Khasi Hills, Jaintia Hills]
+      sample_values: [Garo, Khasi, Jaintia]
+      business_rules:
+      - "Garo = East, North, South, South West and West Garo Hills (443). Jaintia = East and West Jaintia Hills (151). Khasi = East, West, South West, Eastern West Khasi Hills (601) plus Ri Bhoi (103) if the master puts Ri Bhoi in Khasi."
+      - "Ri Bhoi's region value is unverified_in_db. Check before quoting a Khasi total."
+
+    # ---- application type and workflow ---------------------------------------
+    - name: application_type
+      source_column: fact_homestay_application.application_type
+      meaning: Scheme component applied for (source response_type).
+      type: varchar(60)
+      nullable: false
+      category: scheme_component
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, GROUP BY, COUNT]
+      synonyms: [component, type of application, application type, new homestay, new construction, upgradation, upgrade, renovation, existing homestay]
+      sample_values: ['Development of New Homestay', 'Updragation of New Homestay']
+      business_rules:
+      - "'Development of New Homestay' = Component 1, new construction: 1,274 rows."
+      - "'Updragation of New Homestay' = Component 2, upgradation of an existing operational homestay: 24 rows. The spelling 'Updragation' is the source's; never correct it inside a filter - use is_upgradation."
+      - "No Component 3 (boutique homestay) value exists. 'Boutique homestays' = 0 recorded; say so with the scheme fact."
+      - All 24 upgradation applications are Pending (7 in 2025-26, 17 in 2026-27).
+
+    - name: is_upgradation
+      source_column: derived (application_type = 'Updragation of New Homestay')
+      meaning: TRUE for an upgradation (Component 2) application, FALSE for a new-build (Component 1) one.
+      type: boolean
+      nullable: false
+      category: scheme_component_flag
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, FILTER, GROUP BY]
+      synonyms: [upgradation, upgrade, existing homestay, renovation, new build, new homestay]
+      sample_values: [true, false]
+      business_rules:
+      - "Filter components on this flag, not on the misspelled text."
+      - "Facility columns (homestay_rooms, solar_energy, rainwater_harvesting, waste_management, proposed_*) are populated only WHERE NOT is_upgradation. Establishment columns only WHERE is_upgradation."
+
+    - name: file_status
+      source_column: fact_homestay_application.file_status
+      meaning: Outcome status of the application file. THE DEFAULT MEANING OF 'STATUS'.
+      type: varchar(20)
+      nullable: false
+      category: application_status
+      nlp_sql_priority: critical
+      sql_operations: [WHERE, GROUP BY, COUNT, FILTER]
+      synonyms: [status, application status, file status, approved, sanctioned, pending, rejected, unknown, outcome]
+      sample_values: [Pending, Unknown, Approved, Rejected]
+      business_rules:
+      - "Pending 1,082, Unknown 134, Approved 80, Rejected 2 (unverified_in_db)."
+      - "'Approved' = 80, all in FY 2025-26, all at current_level 'level4'. Whether this is the District Task Force recommendation or the bank sanction is open (HS-06): say 'approved', never 'sanctioned' or 'loan disbursed'."
+      - "'Unknown' meaning is open (HS-02). All 19 repeat applications are Unknown. Report it as 'status not recorded (Unknown)', never as rejected or pending."
+      - "'Rejected' = 2 (both FY 2026-27, current_level level1, current_file_status Forward)."
+      - "Approval rate = Approved / all applications = 6.2%. Within FY 2025-26 it is 80 / 505 = 15.8%."
+
+    - name: current_file_status
+      source_column: fact_homestay_application.current_file_status
+      meaning: Last workflow movement of the file between desks.
+      type: varchar(20)
+      nullable: false
+      category: workflow_status
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY, COUNT, FILTER]
+      synonyms: [forward, forwarded, sendback, sent back, returned, resubmit, resubmitted, workflow status, movement]
+      sample_values: [Forward, Approved, Sendback, Resubmit]
+      business_rules:
+      - "Forward 1,214, Approved 80, Sendback 3, Resubmit 1."
+      - "'Forward' includes 1,078 Pending, 134 Unknown and 2 Rejected files. 'In Forward status' is NOT the same as 'pending'."
+      - "current_file_status = 'Approved' coincides exactly with file_status = 'Approved' (80)."
+
+    - name: current_level
+      source_column: fact_homestay_application.current_level
+      meaning: Desk level at which the file currently sits, lower-cased.
+      type: varchar(10)
+      nullable: false
+      category: workflow_status
+      nlp_sql_priority: medium
+      sql_operations: [WHERE, GROUP BY, COUNT]
+      synonyms: [level, desk, stage, current stage, level 1, level 4]
+      sample_values: [level1, level4]
+      business_rules:
+      - "level1 733 (731 Pending + 2 Rejected), level4 565 (80 Approved + 351 Pending + 134 Unknown)."
+      - "Source casing is 'level1' / 'Level4'. The view stores lower case; compare in lower case."
+      - "Which office each level is, and whether levels 2 and 3 exist, is open (HS-03). Report the stored level, do not name an office."
+
+    - name: data_verified
+      source_column: fact_homestay_application.data_verified
+      meaning: Result of the data-verification check on the application.
+      type: varchar(10)
+      nullable: true
+      category: verification_status
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY, COUNT, FILTER]
+      synonyms: [verification status, data verification, verified, valid, invalid, on hold, onhold, wrong, wrong data, not verified]
+      sample_values: [Valid, Invalid, On Hold, Wrong]
+      business_rules:
+      - "Valid 1,145, Invalid 93, On Hold 23, Wrong 5, NULL 32 (unverified_in_db)."
+      - "NULL = 'not yet verified' (all 32 in FY 2026-27). Report it as a separate group; never fold it into Valid."
+      - "'Invalid' and 'Wrong' are different stored values. Report each; combine only when asked."
+      - "ON HOLD LIVES HERE. The source onhold column is FALSE on every row and is not exposed."
+      - "Of the 80 approved files, 78 are Valid, 1 Invalid and 1 On Hold - a data-quality caveat when asked."
+
+    - name: is_approved
+      view_expression: "(file_status = 'Approved')"   # NOT a column of curated.v_homestay_api (2026-11-11)
+      source_column: derived (file_status = 'Approved')
+      meaning: TRUE when file_status is Approved.
+      type: boolean
+      nullable: false
+      category: application_status_flag
+      nlp_sql_priority: high
+      sql_operations: [WHERE, FILTER, COUNT]
+      synonyms: [approved, approval]
+      sample_values: [true, false]
+      business_rules:
+      - "TRUE on 80 rows. Convenience flag; identical to file_status = 'Approved'."
+
+    - name: application_mode
+      source_column: fact_homestay_application.application_mode
+      meaning: Channel through which the application was submitted.
+      type: varchar(20)
+      nullable: false
+      category: channel
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY, COUNT]
+      synonyms: [mode, channel, application mode, online, portal, CM Connect, CM Connect Centre, CSC, assisted]
+      sample_values: [Online, cmConnectCenter]
+      business_rules:
+      - "Online 1,235, cmConnectCenter 63."
+      - "'CSC' or 'common service centre' maps to cmConnectCenter (the CM Connect Centre is the state's assisted channel). State that mapping."
+      - "Display cmConnectCenter as 'CM Connect Centre'."
+
+    # ---- applicant attributes -------------------------------------------------
+    - name: gender
+      source_column: fact_homestay_application.gender
+      meaning: Gender of the applicant (source gender_id).
+      type: varchar(10)
+      nullable: false
+      category: demographic_dimension
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY, COUNT]
+      synonyms: [gender, sex, male, female, men, women applicants]
+      sample_values: [Female, Male]
+      business_rules:
+      - "Female 681, Male 617. No other value."
+      - "Gender is NOT applicant_category. 'Women category' (479) is a scheme category; 'female applicants' (681) is gender. 4 men are recorded in the Women category."
+
+    - name: applicant_category
+      source_column: fact_homestay_application.applicant_category
+      meaning: Scheme category the applicant applied under.
+      type: varchar(40)
+      nullable: false
+      category: demographic_dimension
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY, COUNT]
+      synonyms: [category, applicant category, youth, women, first generation entrepreneur, FGE, differently abled, PwD, disabled, divyang, other]
+      sample_values: ['Youth (18-35 yrs)', Women, First Generation Entrepreneur, Other, Differently Abled]
+      business_rules:
+      - "Youth (18-35 yrs) 491, Women 479, First Generation Entrepreneur 214, Other 107, Differently Abled 7."
+      - "One category per application; the categories do not overlap in the data."
+      - "Self-declared. 41 'Youth' applicants were 36 or older on the application date; 4 'Women' applicants are male. Caveat when the figure is used."
+      - "'Differently Abled' is the only PwD signal. The data holds no disability certificate and no subsidy rate - never say these 7 'receive 80% subsidy'."
+      - "No caste / ST / SC field exists. 'ST applicants' is refused."
+
+    - name: applicant_age_years   # was age_years (planned view); live curated.v_homestay_api 2026-11-11
+      source_column: derived (application_date - date_of_birth, whole years)
+      meaning: Applicant's age in completed years on the application date.
+      type: smallint
+      nullable: true
+      category: demographic_measure
+      nlp_sql_priority: medium
+      sql_operations: [WHERE, GROUP BY, AVG, MIN, MAX]
+      synonyms: [age, age group, age band, how old, young applicants, senior applicants]
+      sample_values: [28, 35, 42]
+      business_rules:
+      - "Derived at ingest; date_of_birth itself is personal data and is not exposed."
+      - "NULL on 2 rows (no date of birth). Range 9 to 72, mean about 35.7."
+      - "One applicant is aged 9 - a data error (scheme minimum is 18). Exclude age < 18 from averages and say so."
+      - "Report ages in bands (18-25, 26-35, 36-45, 46-60, 60+), never per person."
+
+    # ---- land ------------------------------------------------------------------
+    - name: type_of_land_holding   # was land_holding_type (planned view); live curated.v_homestay_api 2026-11-11
+      source_column: fact_homestay_application.type_of_land_holding
+      meaning: Whether the homestay land is owned or leased by the applicant.
+      type: varchar(10)
+      nullable: false
+      category: land_dimension
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY, COUNT]
+      synonyms: [land, land ownership, owned, own land, leased, lease, rented land, land holding]
+      sample_values: [Owned, Leased]
+      business_rules:
+      - "Owned 1,005, Leased 293."
+      - "Scheme rule: a lease must have at least 7 unexpired years (15 for boutique)."
+
+    - name: land_lease_year_start   # was lease_start_year (planned view); live curated.v_homestay_api 2026-11-11
+      source_column: fact_homestay_application.land_lease_year_start
+      meaning: Year the land lease starts (source land_lease_year_start).
+      type: smallint
+      nullable: true
+      category: land_measure
+      nlp_sql_priority: low
+      sql_operations: [WHERE, MIN, MAX]
+      synonyms: [lease start, lease from]
+      sample_values: [2026, 2025, 2024]
+      business_rules:
+      - "Filled on 289 rows. 3 Leased rows have no lease_years; 1 Owned row carries lease years."
+      - "3 rows are malformed (start 20, 1, 10). Treat start < 1990 as invalid."
+
+    - name: land_lease_year_end   # was lease_end_year (planned view); live curated.v_homestay_api 2026-11-11
+      source_column: fact_homestay_application.land_lease_year_end
+      meaning: Year the land lease ends.
+      type: smallint
+      nullable: true
+      category: land_measure
+      nlp_sql_priority: low
+      sql_operations: [WHERE, MIN, MAX]
+      synonyms: [lease end, lease expiry, lease until]
+      sample_values: [2041, 2036, 2046]
+
+    - name: lease_years
+      source_column: fact_homestay_application.lease_years
+      meaning: Lease period in years as recorded (source difference_lease_year).
+      type: smallint
+      nullable: true
+      category: land_measure
+      nlp_sql_priority: medium
+      sql_operations: [WHERE, GROUP BY, AVG, MIN, MAX]
+      synonyms: [lease period, lease duration, lease length, years of lease]
+      sample_values: [10, 15, 20, 30]
+      business_rules:
+      - "Filled on 291 rows. end - start = lease_years on 286 of the 289 rows that have both."
+      - "Lease shorter than 7 years (scheme minimum): 4 rows (5 years each)."
+      - "Leased rows needing review under the rule below: 10."
+      - "'Lease needs review' = Leased AND (lease_years IS NULL OR lease_years < 7 OR land_lease_year_start < 1990 OR land_lease_year_end - land_lease_year_start <> lease_years). Report counts only."
+
+    # ---- proposed site (new-build) -----------------------------------------
+    - name: proposed_district
+      source_column: fact_homestay_application.proposed_district
+      meaning: District of the proposed homestay site, as typed (source district_of_proposed_location).
+      type: varchar(30)
+      nullable: true
+      category: site_geography
+      nlp_sql_priority: medium
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [proposed location district, site district, homestay location district, district of proposed location, located in]
+      sample_values: [East Khasi Hills, West Garo Hills, Ri-Bhoi, West Khasi Hills, South Garo Hills]
+      business_rules:
+      - "NOT LGD-coded: mixed case, 'Ri-Bhoi' spelling. Compare case-folded."
+      - "NULL on 24 rows - the upgradation applications (use establishment_district for them)."
+      - "Differs from the mapped home district on 113 new-build rows (e.g. Ri-Bhoi 148 by site vs 103 by home). Use only when the user asks where the homestay is PROPOSED or LOCATED."
+
+    - name: proposed_cluster
+      source_column: fact_homestay_application.proposed_cluster
+      meaning: Tourism cluster of the proposed homestay site (source block_of_proposed_location).
+      type: varchar(30)
+      nullable: true
+      category: site_geography
+      nlp_sql_priority: medium
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [cluster, tourism cluster, tourist circuit, proposed block, site block, block of proposed location]
+      sample_values: [Nongstoin Cluster, Sohra Cluster, Tura (Municipal), Wari Chora Cluster, Kheliriat]
+      business_rules:
+      - "37 values. A TOURISM CLUSTER, NOT AN LGD BLOCK. Never join or compare it with lgd_block."
+      - "NULL on 46 rows (45 new-build + 1 upgradation)."
+      - "Spelling is the source's ('Kheliriat' for Khliehriat). Resolve through the entity resolver."
+
+    - name: proposed_village
+      source_column: fact_homestay_application.proposed_village
+      meaning: Village of the proposed homestay site, as selected.
+      type: varchar(40)
+      nullable: true
+      category: site_geography
+      nlp_sql_priority: low
+      sql_operations: [GROUP BY]
+      synonyms: [proposed village, site village]
+      sample_values: [Nongstoin Town, Pynursla Block, Mawpat, Resubelpara, Rambrai]
+      business_rules:
+      - "'Others' on 542 rows and NULL on 54. Not usable for village counts - use village_code (home)."
+
+    - name: property_area_sqft
+      source_column: fact_homestay_application.property_area_sqft
+      meaning: Estimated area of the proposed property in square feet (new-build).
+      type: integer
+      nullable: true
+      unit: square_feet
+      category: facility_measure
+      nlp_sql_priority: low
+      sql_operations: [AVG, MIN, MAX, WHERE]
+      synonyms: [property area, plot area, land area, square feet]
+      sample_values: [14400, 3000, 10000, 2500, 5000]
+      business_rules:
+      - "Self-declared. NULL on the 24 upgradation rows. Use MEDIAN in preference to AVG: values are skewed."
+
+    # ---- new-build facility -------------------------------------------------
+    - name: homestay_rooms   # was rooms (planned view); live curated.v_homestay_api 2026-11-11
+      source_column: fact_homestay_application.homestay_rooms
+      meaning: Number of guest rooms proposed in a new homestay (source homesaty_rooms).
+      type: smallint
+      nullable: true
+      category: capacity_measure
+      nlp_sql_priority: critical
+      sql_operations: [SUM, AVG, MIN, MAX, GROUP BY, WHERE]
+      synonyms: [rooms, room capacity, number of rooms, guest rooms, proposed rooms, capacity, beds]
+      sample_values: [2, 4, 3, 6, 5, 10]
+      business_rules:
+      - "NEW-BUILD ONLY. NULL on all 24 upgradation rows (their rooms are in upgradation_rooms)."
+      - "OUTLIER: one row (Ri Bhoi, Pending) holds 3,500 - a data-entry error (HS-08). EXCLUDE COALESCE(homestay_rooms > 100, FALSE) from every SUM / AVG / MAX and say so."
+      - "Total proposed rooms = 5,113 excluding the outlier (8,613 with it). Average 4.0 per new-build application."
+      - "2 rooms is the commonest (544). More than 10 rooms: 34 real applications (35 with the outlier)."
+      - "'Beds' is not recorded; answer in rooms and say so."
+      - "Rooms are PROPOSED capacity, not built capacity."
+
+    - name: rainwater_harvesting   # was has_rainwater_harvesting (planned view); live curated.v_homestay_api 2026-11-11
+      source_column: fact_homestay_application.rainwater_harvesting
+      meaning: Whether the proposed new homestay includes rainwater harvesting.
+      type: boolean
+      nullable: true
+      category: sustainability_flag
+      nlp_sql_priority: high
+      sql_operations: [WHERE, FILTER, COUNT, GROUP BY]
+      synonyms: [rainwater harvesting, RWH, water harvesting, rain water]
+      sample_values: [true, false]
+      business_rules:
+      - "TRUE 937, FALSE 337 of 1,274 new-build. NULL on the 24 upgradation rows."
+      - "A share is over new-build applications (1,274), never over 1,298."
+      - "Proposed, not installed."
+
+    - name: solar_energy   # was has_solar_energy (planned view); live curated.v_homestay_api 2026-11-11
+      source_column: fact_homestay_application.solar_energy
+      meaning: Whether the proposed new homestay includes solar energy.
+      type: boolean
+      nullable: true
+      category: sustainability_flag
+      nlp_sql_priority: high
+      sql_operations: [WHERE, FILTER, COUNT, GROUP BY]
+      synonyms: [solar, solar energy, solar panels, solar power, renewable energy]
+      sample_values: [true, false]
+      business_rules:
+      - "TRUE 976, FALSE 298 of 1,274 new-build. NULL on the 24 upgradation rows."
+      - "Both solar AND rainwater: 843."
+
+    - name: waste_management
+      source_column: fact_homestay_application.waste_management
+      meaning: Proposed waste-management method of the new homestay.
+      type: varchar(15)
+      nullable: true
+      category: sustainability_dimension
+      nlp_sql_priority: high
+      sql_operations: [WHERE, GROUP BY, COUNT]
+      synonyms: [waste management, waste disposal, composting, segregation, recycling]
+      sample_values: [Composting, Segregation, Recycling, Other]
+      business_rules:
+      - "Composting 579, Segregation 456, Recycling 194, Other 45. NULL on 24 upgradation rows."
+      - "One method per application."
+
+    # ---- upgradation (existing homestay) ---------------------------------------
+    - name: establishment_name
+      source_column: fact_homestay_application.establishment_name
+      meaning: Business name of the existing homestay (upgradation only).
+      type: varchar(80)
+      nullable: true
+      category: business_identifier
+      nlp_sql_priority: low
+      sql_operations: [COUNT]
+      synonyms: [homestay name, establishment name, property name]
+      business_rules:
+      - "Filled on the 24 upgradation rows only."
+      - "NOT SHOWN until HS-05 is answered: at least one value is the owner's own name. Count only."
+
+    - name: establishment_district
+      source_column: fact_homestay_application.establishment_district
+      meaning: District of the existing homestay (upgradation only), as typed.
+      type: varchar(30)
+      nullable: true
+      category: site_geography
+      nlp_sql_priority: medium
+      sql_operations: [WHERE, GROUP BY]
+      synonyms: [establishment district, existing homestay district]
+      sample_values: [East Khasi Hills, West Garo Hills, North Garo Hills]
+      business_rules:
+      - "24 rows. East Khasi Hills 10, West Garo Hills 3, North Garo Hills 3, others 1-2."
+
+    - name: is_mtime_registered
+      source_column: fact_homestay_application.is_mtime_registered
+      meaning: Whether the existing homestay is registered on the Meghalaya M-TIME tourism portal (upgradation only).
+      type: boolean
+      nullable: true
+      category: compliance_flag
+      nlp_sql_priority: medium
+      sql_operations: [WHERE, FILTER, COUNT]
+      synonyms: [M-TIME, MTIME, M-TIME registered, tourism portal registration]
+      sample_values: [true]
+      business_rules:
+      - "TRUE on all 24 upgradation rows; NULL on new-build rows (not asked of them)."
+      - "Never answer 'how many homestays are on M-TIME' from this - only applicants for upgradation are covered."
+
+    - name: room_booking_6months   # was has_bookings_last_6_months (planned view); live curated.v_homestay_api 2026-11-11
+      source_column: fact_homestay_application.room_booking_6months
+      meaning: Whether the existing homestay had room bookings in the last 6 months (upgradation only).
+      type: boolean
+      nullable: true
+      category: operational_flag
+      nlp_sql_priority: low
+      sql_operations: [WHERE, FILTER, COUNT]
+      synonyms: [bookings, room bookings, occupied, operational, guests last 6 months]
+      sample_values: [true, false]
+      business_rules:
+      - "TRUE 12, FALSE 12 of 24. Not the scheme's 50 bed-night test - no bed-night count exists."
+
+    - name: employees
+      source_column: fact_homestay_application.employees
+      meaning: Employees at the existing homestay (upgradation only).
+      type: smallint
+      nullable: true
+      category: employment_measure
+      nlp_sql_priority: low
+      sql_operations: [SUM, AVG]
+      synonyms: [employees, staff, workers, jobs]
+      sample_values: [3, 2, 1, 4]
+      business_rules:
+      - "24 rows, total 84 (one row reports 25). NOT jobs created by the scheme - the 15,000-jobs target cannot be measured from this feed."
+
+    - name: built_up_area_sqft
+      source_column: fact_homestay_application.built_up_area_sqft
+      meaning: Built-up area of the existing homestay in square feet (upgradation only).
+      type: integer
+      nullable: true
+      unit: square_feet
+      category: facility_measure
+      nlp_sql_priority: low
+      sql_operations: [AVG, MIN, MAX]
+      synonyms: [built up area, building area]
+
+    - name: upgradation_rooms
+      view_expression: "COALESCE(NULLIF(room_details -> 0 ->> 'total_number_single_room', '')::int, 0) + COALESCE(NULLIF(room_details -> 0 ->> 'total_number_double_bed_room', '')::int, 0)"   # NOT a column of curated.v_homestay_api (2026-11-11)
+      source_column: derived (tourism_upgradation_room_details JSON - single + double rooms)
+      meaning: Guest rooms in the existing homestay (upgradation only).
+      type: smallint
+      nullable: true
+      category: capacity_measure
+      nlp_sql_priority: medium
+      sql_operations: [SUM, AVG, MIN, MAX]
+      synonyms: [existing rooms, rooms to upgrade, upgradation rooms]
+      sample_values: [3, 4, 6]
+      business_rules:
+      - "24 rows, 122 rooms. Never add to rooms (proposed new-build) without saying so."
+      - "Scheme grant is Rs 50,000 per room, max Rs 2 lakh - a scheme fact; no grant amount is recorded."
+
+    - name: upgradation_room_type
+      view_expression: "room_details -> 0 ->> 'type_of_room_available'"   # NOT a column of curated.v_homestay_api (2026-11-11)
+      source_column: derived (tourism_upgradation_room_details JSON - type_of_room_available)
+      meaning: Room types in the existing homestay (Single / Double / Both).
+      type: varchar(10)
+      nullable: true
+      category: facility_dimension
+      nlp_sql_priority: low
+      sql_operations: [GROUP BY, COUNT]
+      synonyms: [room type, single room, double room]
+      sample_values: [Double, Both, Single]
+      business_rules:
+      - "Double 11, Both 7, Single 6. Tariffs and room sizes stay on the fact (self-declared, not a scheme measure)."
+
+    - name: fund_utilization   # was fund_utilisation_items (planned view); live curated.v_homestay_api 2026-11-11
+      source_column: fact_homestay_application.fund_utilization
+      meaning: Comma-separated list of planned upgradation works (upgradation only).
+      type: text
+      nullable: true
+      category: free_text_list
+      nlp_sql_priority: low
+      sql_operations: [WHERE]
+      synonyms: [fund utilisation, planned works, upgradation works, renovation items]
+      business_rules:
+      - "24 rows. Items include 'Re-Painting', 'New bedding and curtains', 'Installation of solar panels for sustainable energy', 'Installation of Rainwater harvesting systems'."
+      - "Items themselves contain commas ('Landscaping, Garden seating (benches, chairs)'), so never split on ','. Count an item with LIKE '%<item>%'."
+
+    # ---- data-quality flags -----------------------------------------------------
+    - name: is_repeat_member   # was is_repeat_applicant (planned view); live curated.v_homestay_api 2026-11-11
+      source_column: derived (member_key appears on more than one application)
+      meaning: TRUE when the same applicant has more than one application in the extract.
+      type: boolean
+      nullable: false
+      category: data_quality_flag
+      nlp_sql_priority: medium
+      sql_operations: [WHERE, FILTER, COUNT]
+      synonyms: [duplicate, duplicate application, repeat application, applied twice, same person]
+      business_rules:
+      - "TRUE on 36 rows (17 people). Applications - people = 19."
+      - "In every repeating group exactly one file is Pending or Approved; the rest are Unknown."
+      - "Real rows - never excluded from an application count. Use COUNT(DISTINCT member_key) for people."
+
+    - name: is_room_count_outlier
+      view_expression: "COALESCE(homestay_rooms > 100, FALSE)"   # NOT a column of curated.v_homestay_api (2026-11-11)
+      source_column: derived (homestay_rooms > 100)
+      meaning: TRUE on the new-build application whose room count is implausible.
+      type: boolean
+      nullable: false
+      category: data_quality_flag
+      nlp_sql_priority: high
+      sql_operations: [WHERE, FILTER]
+      synonyms: [outlier, wrong rooms, implausible rooms]
+      business_rules:
+      - "TRUE on 1 row (3,500 rooms). Excluded from room SUM / AVG / MAX by default; counted as an application."
+
+    - name: has_name_code_conflict
+      source_column: derived (source district_lgd_code <> mapped_district_lgd_code)
+      meaning: The department's raw district code disagrees with the mapped LGD district.
+      type: boolean
+      nullable: false
+      category: data_quality_flag
+      nlp_sql_priority: low
+      sql_operations: [WHERE, FILTER, COUNT]
+      synonyms: [name code conflict, geography conflict, remapped district]
+      business_rules:
+      - "TRUE on 14 rows: 13 raw Eastern West Khasi Hills now West Khasi Hills, 1 raw West Garo Hills now South West Garo Hills."
+      - "The mapping is trusted; never exclude these rows. Surface only for questions on those districts' data quality."
+
+  # =========================================================================
+  # UNDERLYING FACT - documented for lineage; query v_homestay instead
+  # =========================================================================
+  fact_homestay_application:
+    table_name: curated.fact_homestay_application
+    object_type: table
+    placeholder_name: true
+    grain: one row per Homestay Mission application
+    primary_key: homestay_api_fact_id
+    natural_key: source_application_id
+    row_count: unverified_in_db
+    row_count_note: 1,298 in the source file.
+    query_preference: >
+      Use curated.v_homestay_api. It pre-joins dim_year and dim_geography and hides the personal
+      and raw columns.
+    foreign_keys_expected:
+    - {column: geography_key, references: curated.dim_geography.geography_key, declared: expected, nullable: false}
+    - {column: scheme_key,    references: curated.dim_scheme.scheme_key,       declared: expected, nullable: false}
+    - {column: year_key,      references: curated.dim_year.year_key,           declared: expected, nullable: false}
+    - {column: raw_id,        references: raw.source_rows.raw_id,              declared: expected, nullable: true}
+    columns_not_in_v_homestay:
+    - name: source_application_id
+      meaning: The source id (1..1,298). Lineage only.
+    - name: source_request_id
+      meaning: "Portal request number 'REQ/239/157/<DMYYYY>/<n>'. Lineage only; never parsed."
+    - name: entered_district_name   # was district_name_raw (planned view); live curated.v_homestay_api 2026-11-11
+      meaning: "District as the source wrote it ('Ri-bhoi', 'Eastern West Khasi Hills')."
+    - name: district_code_raw
+      meaning: Source district_lgd_code; differs from the mapped code on 14 rows.
+    - name: block_name_raw
+      meaning: "Block as the source wrote it ('Rongram C & Rd Block')."
+    - name: block_code_raw
+      meaning: "Old block-code series (Rongram 2479). Never used for filters."
+    - name: village_name_raw
+      meaning: "Village as the source wrote it ('Cherrapunjee (ct)')."
+    - name: village_code_raw
+      meaning: Source village_lgd_code; agrees with the mapped code on 1,235 rows.
+    - name: ac_name_and_number_raw
+      meaning: "Source '50 NORTH TURA' string."
+    - name: is_difference_lease
+      meaning: "Upgradation-form lease flag (TRUE 22, FALSE 2). Meaning undocumented; not exposed."
+    - name: declaration
+      meaning: TRUE on every new-build row, NULL on upgradation rows. Carries no information.
+    - name: free-text columns
+      meaning: >
+        category_remarks, waste_managment_remarks, food_detail_establishment,
+        eco_friendly_amenities, additional_amenities_home_stay,
+        fund_utilization_home_stay_remarks. Unstructured; one holds a person's name and address.
+    - name: upgradation area and tariff details
+      meaning: lounge_area, dining_area, room sizes and tariffs from the room JSON. Self-declared.
+    - name: batch_id, source_system, ingested_at, raw_id, source_row_num
+      meaning: Audit.
+    dropped_at_ingest_personal_data:
+    - first_name
+    - middle_name
+    - last_name
+    - date_of_birth (replaced by applicant_age_years)
+    - mobile_number
+    - email_id
+    - address
+    - pincode
+    - epic_id
+    - family_id
+    - member_id (replaced by member_key)
+    - pds_id (also corrupted - scientific notation)
+    - mtime_portal_id (values are mobile numbers)
+    - address_of_proposed_location
+    - pincode_of_proposed_location
+    - address_of_establishment
+    - pincode_of_establishment
+    - establishment_manager_self
+    empty_in_source:
+    - {column: project_start_date, reason: NULL on all 1,298 rows - project timeline questions are refused.}
+    - {column: project_end_date, reason: NULL on all 1,298 rows.}
+    - {column: establishment_manager, reason: NULL on all rows.}
+    - {column: property_estimated_area_in_square_feet, reason: NULL on all rows (the filled column is property_estimated_area_insquare_feet).}
+    - {column: onhold, reason: FALSE on all rows. On hold is data_verified = 'On Hold'.}
+    - {column: is_withdraw, reason: FALSE on all rows. Withdrawn = 0.}
+
+  # =========================================================================
+  # DIMENSIONS
+  # =========================================================================
+  dim_scheme:
+    table_name: curated.dim_scheme
+    object_type: table
+    grain: one row per scheme
+    primary_key: scheme_key
+    shared_across_schemes: true
+    business_rules:
+    - "Expected scheme_code 'HOMESTAY' for this feed (unverified). 'HOMESTAY_LEGACY' is a different scheme row."
+    - "money_unit for this scheme is expected to be NULL or 'none' - this feed has no money."
+    - "data_as_of is the 'as at' date every answer should carry (extract 2026-11-01, latest application 2026-10-19)."
+
+  dim_year:
+    table_name: curated.dim_year
+    object_type: table
+    grain: one row per financial year
+    primary_key: year_key
+    shared_across_schemes: true
+    coverage_for_homestay: FY 2025-26 (part) and 2026-27 (part, to 19 Oct 2026)
+    business_rules:
+    - Pre-joined into v_homestay as financial_year and financial_year_short.
+    - "That a year exists in dim_year does not mean Homestay has data for it."
+
+  dim_geography:
+    table_name: curated.dim_geography
+    object_type: table
+    grain: one row per LGD village or ward, plus Unresolved placeholders
+    primary_key: geography_key
+    natural_key: village_code
+    shared_across_schemes: true
+    business_rules:
+    - Pre-joined into v_homestay. Do not join it yourself.
+    - "Names are stored UPPERCASE for block and district."
+    - "The proposed-site columns are NOT in dim_geography - they are free text on the fact."
+
+  # =========================================================================
+  # LOOKUP AND COVERAGE VIEWS - read, never join to v_homestay
+  # =========================================================================
+  v_place_names:
+    table_name: curated.v_place_names
+    object_type: view
+    business_rules:
+    - "Look a bare place name up here before filtering: NONGSTOIN is a block, a town committee and a constituency."
+
+  v_data_coverage:
+    table_name: curated.v_data_coverage
+    object_type: view
+    business_rules:
+    - "Check before answering for a specific year. Expected years_present for Homestay: 2025-26, 2026-27."
+
+# ===========================================================================
+semantic_rules:
+
+  geography_hierarchy:
+  - lgd_district
+  - lgd_block
+  - lgd_village_name
+
+  geography_codes:
+  - district_lgd_code
+  - block_lgd_code
+  - village_code
+  - ac_number
+  geography_codes_note: >
+    Codes are authoritative over names. 14 rows were remapped to a different district,
+    the source's own block codes are an older series, and 9 village names repeat. Filter on
+    codes; use names for display.
+
+  geography_meaning:
+    critical: true
+    text: >
+      The default geography is the APPLICANT'S HOME ADDRESS (LGD-mapped). Phrase answers as
+      'applications from <place>'. The PROPOSED SITE (proposed_district, proposed_cluster) is
+      used only when the user asks where the homestay is proposed, located, sited or built.
+      The two differ on 113 new-build rows. Never mix them in one answer without labelling both.
+
+  site_geography_rule: >
+    proposed_cluster is a tourism cluster (Sohra Cluster, Nongstoin Cluster, Wari Chora
+    Cluster, Dawki Cluster ...), not an LGD block. proposed_district is free text with
+    'Ri-Bhoi' spelling and is NULL for upgradation rows (use establishment_district).
+
+  towns_as_blocks_rule: >
+    11 municipal boards and town committees are reported as blocks (278 applications). A
+    block list includes them. 'Rural blocks only' excludes block_lgd_code IN (249806, 249807,
+    249808, 249809, 249810, 249811, 249812, 249814, 249820, 279714, 282009).
+
+  advisory_localities: [ac_number, ac_name, region]
+
+  unresolved_rule:
+    critical: true
+    text: >
+      entity_type = 'Unresolved' marks 64 applications with no mapped village (and no
+      constituency). INCLUDE them in State, district and block figures. EXCLUDE them from
+      village counts, village lists, village rankings and constituency figures.
+
+  time_dimension: financial_year_short
+  time_dimensions_available: [application_date, year_key, financial_year, financial_year_short]
+  time_meaning: DATE_AND_FINANCIAL_YEAR_OF_APPLICATION
+  time_runtime_rule: >
+    Two financial years are loaded, both partial: 2025-26 (from 7 Oct 2025) and 2026-27 (to
+    19 Oct 2026). No year named -> all applications, with the year split stated. A named
+    other year -> 'no Homestay applications are recorded for <year>', never 0. Month and
+    date questions use application_date. 'This year' = 2026-27 (partial).
+  partial_year_rule:
+    critical: true
+    text: >
+      Any year-on-year comparison, growth or trend must say that 2025-26 covers Oct-Mar
+      (6 months) and 2026-27 covers Apr-19 Oct (about 6.5 months). Approvals exist only in
+      2025-26; a 2026-27 approval count of 0 means 'none approved yet'.
+  no_date_columns: >
+    No approval, sanction, loan disbursement, construction start/end, completion or
+    operational date exists. project_start_date and project_end_date are empty.
+
+  applications_vs_people_vs_homestays:
+    critical: true
+    text: >
+      'Applications', 'beneficiaries', 'applicants' (bare) and 'records' = COUNT(*). 'People',
+      'persons', 'unique / distinct applicants' = COUNT(DISTINCT member_key). 'Homestays
+      approved' = COUNT(*) FILTER (WHERE (file_status = 'Approved')). There is no count of homestays built
+      or operating. 'Beneficiary' in the client workbook means an applicant - state that an
+      application is not yet a benefit received.
+
+  component_rule:
+    critical: true
+    text: >
+      Component 1 (new build) = NOT is_upgradation, 1,274. Component 2 (upgradation) =
+      is_upgradation, 24. Component 3 (boutique) = 0. Facility questions (rooms, solar,
+      rainwater, waste) are about new-build applications and use 1,274 as the base.
+
+  status_rule:
+    critical: true
+    text: >
+      'Status' with no qualifier = file_status. 'Forward / sent back / resubmitted' =
+      current_file_status. 'Level' = current_level. 'Verified / valid / invalid / wrong /
+      on hold' = data_verified. Never combine two status columns in one breakdown without
+      labelling each. 'Pending' = file_status 'Pending' (1,082), not 'Forward' (1,214).
+
+  money_rule:
+    critical: true
+    text: >
+      This feed has no money column. Project cost, loan, subsidy, grant, EMI support, PMEGP
+      margin money and amount disbursed are not held. Refuse every money aggregate; offer the
+      scheme's rates as a scheme fact (Component 1: up to 70% subsidy capped at Rs 7 lakh,
+      80% / Rs 8 lakh for PwD; Component 2: Rs 50,000 per room, max Rs 2 lakh; Component 3:
+      up to Rs 15 lakh) and offer application counts instead. Never compute 'subsidy =
+      approved x 7 lakh'.
+
+  not_held_dimensions:
+    money: No cost, loan, subsidy, grant or disbursement.
+    project_dates: project_start_date / project_end_date empty on every row.
+    construction_or_operational_status: Not in this feed.
+    bank_or_branch: Not in this feed.
+    rejection_reason: Not recorded.
+    caste_tribe_income: Not collected.
+    disability_certificate_or_subsidy_rate: Not collected; only the 'Differently Abled' category.
+    training_completion: Not in this feed.
+    standard_design_chosen: Not in this feed (the 33 designs).
+    bed_nights_or_footfall: Not in this feed.
+    beds: Not recorded; rooms only.
+  not_held_rule: >
+    A question on a not-held dimension is refused with the reason and an offer of the
+    nearest answerable breakdown. Never approximate one dimension with another.
+
+  data_quality_flags: [is_repeat_member, COALESCE(homestay_rooms > 100, FALSE), has_name_code_conflict]
+  data_quality_rule: >
+    Flags mark real rows; none is excluded from an application count. COALESCE(homestay_rooms > 100, FALSE)
+    is excluded from room measures only. Category / age inconsistencies (41 Youth over 35,
+    4 male in Women, 1 aged 9) are caveats, not filters.
+
+  null_behavior: >
+    NULL is missing; never coerce NULL to zero or FALSE. Facility columns are NULL on
+    upgradation rows; establishment columns are NULL on new-build rows; data_verified NULL
+    = not yet verified; ac_number NULL on Unresolved rows.
+
+  identifier_behavior:
+  - homestay_api_fact_id is a technical identifier, unstable across reloads.
+  - member_key is a masked person identifier - COUNT(DISTINCT) only, never displayed.
+  - village_code, geography_key, district_lgd_code, block_lgd_code and ac_number are geographic identifiers.
+  - Identifiers and keys must never be SUMed or AVGed.
+
+  personal_data_rule:
+    critical: true
+    text: >
+      No name, date of birth, mobile, email, address, pincode, EPIC, family id, PDS id,
+      member id or M-TIME id ever reaches an answer. Duplicate-identifier questions are
+      answered with counts of duplicated values, never the values.
+
+# ===========================================================================
+nlp_sql_rules:
+  read_only: true
+  allowed_operations: [SELECT]
+  default_from: curated.v_homestay_api
+
+  aggregation_defaults:
+    applications: COUNT(*)
+    records: COUNT(*)
+    beneficiaries: COUNT(*)
+    distinct_applicants: COUNT(DISTINCT member_key)
+    approved: COUNT(*) FILTER (WHERE (file_status = 'Approved'))
+    pending: COUNT(*) FILTER (WHERE file_status = 'Pending')
+    forwarded: COUNT(*) FILTER (WHERE current_file_status = 'Forward')
+    approval_rate_pct: ROUND(100.0 * COUNT(*) FILTER (WHERE (file_status = 'Approved')) / COUNT(*), 1)
+    new_build_applications: COUNT(*) FILTER (WHERE NOT is_upgradation)
+    upgradation_applications: COUNT(*) FILTER (WHERE is_upgradation)
+    proposed_rooms: SUM(homestay_rooms) FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE))
+    average_rooms: ROUND(AVG(homestay_rooms) FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE)), 1)
+    solar_share_pct: ROUND(100.0 * COUNT(*) FILTER (WHERE solar_energy) / COUNT(*) FILTER (WHERE NOT is_upgradation), 1)
+    distinct_villages: COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')
+
+  mandatory_predicate:
+    clause: none
+    note: >
+      No row is excluded from application counts. Conditional exclusions: NOT
+      COALESCE(homestay_rooms > 100, FALSE) for room measures; NOT is_upgradation as the base for facility
+      shares; entity_type <> 'Unresolved' for village and constituency questions.
+
+  geography_filter_behavior: >
+    Filter on codes: district_lgd_code, block_lgd_code, village_code, ac_number. Group on
+    the code and its display name together. Site questions filter proposed_district /
+    proposed_cluster with the resolver's stored value, compared with lower().
+
+  date_behavior: >
+    Financial-year filters use financial_year_short. Month, quarter and date-range filters
+    use application_date. No other date exists.
+
+  status_behavior: >
+    Filter file_status, current_file_status and data_verified with the exact stored value
+    from the resolver. current_level is stored lower case.
+
+  comparison: >
+    Across geography, category, gender, mode, land type, component, status and the two
+    partial financial years (with the partial-year caveat).
+
+  ranking: >
+    ORDER BY the requested aggregate; default top 5 when N is omitted for plural 'top'
+    requests; singular 'highest / lowest' uses LIMIT 1 but shows ties. Village and
+    constituency rankings exclude Unresolved rows.
+
+  entity_behavior: >
+    Resolve district, block, village, constituency, cluster, status, category, mode and
+    component through homestay_entity_resolver.yaml before SQL generation.
+
+  unknown_entity: Do not guess; return not-found/did-you-mean.
+
+  join_behavior: >
+    v_homestay pre-joins dim_year and dim_geography; ordinary questions need no join. Never
+    join it row-to-row to another scheme's fact or view, including v_homestay_legacy.
+
+  cross_scheme_behavior: >
+    'Homestay applications vs Homestay Legacy loans by district' aggregates each view
+    separately to district_lgd_code (or block_lgd_code) and combines the aggregates. Never
+    match people across schemes.
+
+  money_behavior: Refuse - no money column. See semantic_rules.money_rule.
+
+  list_behavior: >
+    No applicant-level list is ever returned. 'List / identify / show the applicants ...'
+    returns counts by the next level down (district -> block, block -> village) or by the
+    requested attribute, and says why.
+
+# ===========================================================================
+few_shot_examples:
+
+- question: How many Homestay applications are there?
+  explanation: One row is one application, new-build or upgradation, any status. The FY split is shown because both years are partial.
+  sql: |
+    SELECT COUNT(*) AS applications,
+           COUNT(*) FILTER (WHERE financial_year_short = '2025-26') AS fy_2025_26,
+           COUNT(*) FILTER (WHERE financial_year_short = '2026-27') AS fy_2026_27
+    FROM curated.v_homestay_api;
+
+- question: How many unique people have applied under the Homestay scheme?
+  explanation: member_key is the masked applicant identity. 19 applications are repeats by the same person.
+  sql: |
+    SELECT COUNT(DISTINCT member_key) AS distinct_applicants,
+           COUNT(*) AS applications
+    FROM curated.v_homestay_api;
+
+- question: How many Homestay applications have been received in 2026-27?
+  explanation: Filter on the short financial year. 2026-27 runs only to 19 Oct 2026.
+  sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE financial_year_short = '2026-27';
+
+- question: Give me the district-wise distribution of Homestay applications.
+  explanation: Home district by LGD code and name. Twelve districts, so no LIMIT.
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY applications DESC;
+
+- question: Which are the top 10 blocks with the highest number of Homestay applications?
+  explanation: Blocks include the 11 urban bodies. Group on code and name.
+  sql: |
+    SELECT block_lgd_code, lgd_block, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY block_lgd_code, lgd_block
+    ORDER BY applications DESC
+    LIMIT 10;
+
+- question: Which district has received the lowest number of Homestay applications?
+  explanation: Singular superlative, ascending, LIMIT 1.
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY applications ASC
+    LIMIT 1;
+
+- question: Compare the number of Homestay applications between East Khasi Hills and West Garo Hills.
+  explanation: Both districts resolved to LGD codes (274, 278).
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE district_lgd_code IN (274, 278)
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY applications DESC;
+
+- question: Give me the overall application status breakdown.
+  explanation: A bare 'status' is file_status.
+  sql: |
+    SELECT file_status, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY file_status
+    ORDER BY applications DESC;
+
+- question: How many Homestay applications are currently in Forward status?
+  explanation: Forward is a workflow movement in current_file_status, not file_status.
+  sql: |
+    SELECT COUNT(*) AS forwarded
+    FROM curated.v_homestay_api
+    WHERE current_file_status = 'Forward';
+
+- question: What percentage of Homestay applications have been approved?
+  explanation: Approved over all applications, with the per-year rate because approvals exist only in 2025-26.
+  sql: |
+    SELECT financial_year_short,
+           COUNT(*) AS applications,
+           COUNT(*) FILTER (WHERE (file_status = 'Approved')) AS approved,
+           ROUND(100.0 * COUNT(*) FILTER (WHERE (file_status = 'Approved')) / COUNT(*), 1) AS approval_rate_pct
+    FROM curated.v_homestay_api
+    GROUP BY financial_year_short
+    ORDER BY financial_year_short;
+
+- question: Give me the district-wise number of approved Homestay applications.
+  explanation: Count approved per home district; all districts shown, including those with none.
+  sql: |
+    SELECT district_lgd_code, lgd_district,
+           COUNT(*) FILTER (WHERE (file_status = 'Approved')) AS approved,
+           COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY approved DESC;
+
+- question: Give me the overall data verification status of Home Stay applications.
+  explanation: data_verified; NULL is reported as 'Not yet verified', never folded into Valid.
+  sql: |
+    SELECT COALESCE(data_verified, 'Not yet verified') AS verification_status,
+           COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY COALESCE(data_verified, 'Not yet verified')
+    ORDER BY applications DESC;
+
+- question: How many Home Stay applications are marked On Hold?
+  explanation: On hold lives in data_verified. The source onhold column is FALSE on every row and is not in the view.
+  sql: |
+    SELECT COUNT(*) AS on_hold
+    FROM curated.v_homestay_api
+    WHERE data_verified = 'On Hold';
+
+- question: How many Home Stay applications were submitted through CM Connect Centre?
+  explanation: The stored value is 'cmConnectCenter'.
+  sql: |
+    SELECT COUNT(*) AS cm_connect_applications
+    FROM curated.v_homestay_api
+    WHERE application_mode = 'cmConnectCenter';
+
+- question: Give me the applicant-category-wise distribution of Home Stay applications.
+  explanation: Five self-declared categories.
+  sql: |
+    SELECT applicant_category, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY applicant_category
+    ORDER BY applications DESC;
+
+- question: Give me the male and female applicant distribution for Home Stay applications.
+  explanation: gender, not applicant_category.
+  sql: |
+    SELECT gender, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY gender
+    ORDER BY applications DESC;
+
+- question: Give me the number of Home Stay applications on owned versus leased land.
+  explanation: type_of_land_holding.
+  sql: |
+    SELECT type_of_land_holding, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY type_of_land_holding
+    ORDER BY applications DESC;
+
+- question: What is the total number of Home Stay rooms proposed across all applications?
+  explanation: New-build only; the 3,500-room outlier is excluded and reported separately.
+  sql: |
+    SELECT SUM(homestay_rooms) FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE)) AS proposed_rooms,
+           COUNT(*) FILTER (WHERE homestay_rooms IS NOT NULL AND NOT COALESCE(homestay_rooms > 100, FALSE)) AS new_build_applications,
+           COUNT(*) FILTER (WHERE COALESCE(homestay_rooms > 100, FALSE)) AS outlier_rows_excluded
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation;
+
+- question: Identify Home Stay properties with more than 10 rooms.
+  explanation: No applicant list - answer with counts by district. The outlier is excluded.
+  sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS applications_over_10_rooms
+    FROM curated.v_homestay_api
+    WHERE homestay_rooms > 10
+      AND NOT COALESCE(homestay_rooms > 100, FALSE)
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY applications_over_10_rooms DESC;
+
+- question: How many Home Stay applications have both solar energy and rainwater harvesting?
+  explanation: Base is new-build applications (1,274); upgradation rows have no value.
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE solar_energy AND rainwater_harvesting) AS both_features,
+           COUNT(*) AS new_build_applications
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation;
+
+- question: How many upgradation applications are there for existing homestays?
+  explanation: Component 2, filtered on the flag rather than the misspelled stored text.
+  sql: |
+    SELECT COUNT(*) AS upgradation_applications,
+           SUM(COALESCE(NULLIF(room_details -> 0 ->> 'total_number_single_room', '')::int, 0) + COALESCE(NULLIF(room_details -> 0 ->> 'total_number_double_bed_room', '')::int, 0)) AS existing_rooms
+    FROM curated.v_homestay_api
+    WHERE is_upgradation;
+
+- question: How many Homestay applications propose a site in the Sohra Cluster?
+  explanation: A site question uses proposed_cluster (a tourism cluster), not the home block.
+  sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE lower(proposed_cluster) = 'sohra cluster';
+
+- question: Give me the month-wise number of Homestay applications.
+  explanation: Month comes from application_date.
+  sql: |
+    SELECT date_trunc('month', application_date) AS month,
+           COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY date_trunc('month', application_date)
+    ORDER BY month;
+
+- question: Identify duplicate EPIC IDs, Family IDs, or Member IDs that require verification.
+  explanation: EPIC and family ids are not in the view. The view answers repeat applicants as counts, never the ids.
+  sql: |
+    SELECT COUNT(*) FILTER (WHERE is_repeat_member) AS applications_by_repeat_applicants,
+           COUNT(DISTINCT member_key) FILTER (WHERE is_repeat_member) AS repeat_applicants,
+           COUNT(*) - COUNT(DISTINCT member_key) AS extra_applications
+    FROM curated.v_homestay_api;
+
+- question: How many Homestay applications are there in Nongstoin constituency?
+  explanation: Constituency filtered on ac_number (32). Unresolved rows have no constituency.
+  sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE ac_number = 32;
+
+# ---- questions that must be refused -----------------------------------
+- question: How much subsidy has been released under the Homestay scheme?
+  explanation: >
+    No money column exists in this feed. Refuse; offer the scheme's subsidy rates as a
+    scheme fact and the count of approved applications (80).
+  sql: null
+
+- question: Give me the number of Home Stay projects based on their proposed project start and end dates.
+  explanation: >
+    project_start_date and project_end_date are empty on every row. Offer application
+    counts by month (application_date) instead.
+  sql: null
+
+- question: Identify Home Stay projects with unusually long proposed project durations.
+  explanation: >
+    No project dates are recorded, so no duration exists. Refuse and offer the lease-period
+    review or application-date counts.
+  sql: null
+
+- question: How many homestays are currently operational?
+  explanation: >
+    This feed holds applications, not built or operating homestays. Refuse and offer
+    approved applications (80). Operational status is not in this feed.
+  sql: null
+
+- question: List the names and phone numbers of approved Homestay applicants in Tura.
+  explanation: >
+    Personal data is never returned. Offer the count of approved applications from Tura
+    Municipal Board.
+  sql: null
+
+- question: Show the duplicate EPIC numbers in the Homestay data.
+  explanation: >
+    EPIC numbers are personal data and not in the view. Offer the count of repeat applicants.
+  sql: null
+
+- question: How many ST applicants applied for Homestay?
+  explanation: >
+    No caste or tribe field exists. Offer the applicant-category breakdown.
+  sql: null
+
+- question: How many boutique homestays have been sanctioned?
+  explanation: >
+    No Component 3 (boutique) application exists in the feed - answer 'none recorded' with
+    the scheme fact, not SQL.
+  sql: null
+
+- question: Why were 2 Homestay applications rejected?
+  explanation: >
+    No rejection reason is recorded. Report the count and say the reason is not held.
+  sql: null
+
+- question: What is the total of all block codes in Homestay?
+  explanation: LGD codes are identifiers; SUM is meaningless. Offer COUNT(DISTINCT block_lgd_code).
+  sql: null
+
+- question: Approve all pending Homestay applications in Ri Bhoi.
+  explanation: The read role permits SELECT only. Refuse rather than translating into write SQL.
+  sql: null

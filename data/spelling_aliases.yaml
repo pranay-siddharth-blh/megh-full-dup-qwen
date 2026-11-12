@@ -80,6 +80,23 @@ schemes:
     - rs 6000 scholarship
     - 6000 scholarship
     - chief minister scholarship scheme 2025
+  Homestay:
+    - homestay
+    - home stay
+    - home-stay
+    - homestay scheme
+    - homestay mission
+    - cm homestay mission
+    - chief minister's meghalaya homestay mission
+    - cmmhm
+    - cm's meghalaya homestay mission
+    - meghalaya tourism homestay scheme
+    - tourism homestay scheme
+    - homestay subsidy scheme
+    - homestay applications
+    - homestay api
+    - new homestay scheme
+    - homestay upgradation scheme
 
 # Other NAMES of a scheme, always written as the scheme's name even though the pipeline's
 # own matcher reads them: the 4B guardrail model does not, and refused "who is eligible

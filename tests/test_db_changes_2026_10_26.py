@@ -61,7 +61,7 @@ from app import entity_resolver as er  # noqa: E402
 def test_khasi_hills_includes_ri_bhoi_for_every_scheme():
     """Answer 2: the LGD master puts Ri Bhoi in the Khasi region."""
     er.load_all()
-    for s in ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CM Elevate Legacy", "CMSS"):
+    for s in ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CM Elevate Legacy", "CMSS", "Homestay"):
         r = er.detect_region("total in all of Khasi Hills", s)
         assert r is not None and "Ri Bhoi" in r["districts"] and len(r["districts"]) == 5, s
     assert er.detect_region("total in Ri Bhoi", "MGNREGA") is None          # the district, not a region

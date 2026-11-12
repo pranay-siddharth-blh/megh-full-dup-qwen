@@ -667,6 +667,7 @@ _SCHEME_NAME_MATCHER = {
         _c01_chain(["old", "focus"], ["opt1"]), _c01_chain(["focus", "pg"], ["opt1"]),
         _c01_chain(["pg", "focus"], ["opt1"])), need=("focus",)),
     "CMSS": _C01Quick(W("cmss", "scholarship", "scholarships"), need=("cmss", "scholarship")),
+    "Homestay": _C01Quick(Alt(W("homestay", "homestays", "cmmhm"), Joined("home", "stay")), need=("homestay", "home stay", "home-stay", "cmmhm")),
 }
 # Fuzzy fallback for a scheme name the exact matcher above misses because it's
 # misspelled ("manrega", "pamay") — mirrors the RapidFuzz tolerance
@@ -689,6 +690,7 @@ _SCHEME_FUZZY_ALIASES = {
     "Focus Legacy": ["focuslegacy"],
     "CM Elevate Legacy": ["cmelevatelegacy"],
     "CMSS": ["cmss", "scholarship"],
+    "Homestay": ["homestay", "home stay", "cmmhm"],
 }
 _FUZZY_SCHEME_ACCEPT = 80
 
@@ -715,7 +717,7 @@ _SCHEME_SPOKEN_FORMS = {"manrega": "MGNREGA", "manraya": "MGNREGA"}
 _SCHEME_CANONICAL_SPELLING = {
     "MGNREGA": "MGNREGA", "PMAY-G": "PMAY-G",
     "Focus Plus": "Focus Plus", "CM Elevate": "CM Elevate",
-    "Focus Legacy": "Focus Legacy", "CM Elevate Legacy": "CM Elevate Legacy", "CMSS": "CMSS",
+    "Focus Legacy": "Focus Legacy", "CM Elevate Legacy": "CM Elevate Legacy", "CMSS": "CMSS", "Homestay": "Homestay",
 }
 
 

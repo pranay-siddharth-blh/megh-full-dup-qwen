@@ -49,6 +49,8 @@ SCHEME_CATALOG = {
                          "the two share a name and no key.",
     "CMSS": "Chief Minister's Scholarship Scheme — one row per student application "
             "(paid or not), one financial year (2025-26), money in RUPEES (a flat Rs 6,000 per paid student).",
+    "Homestay": "Chief Minister's Meghalaya Homestay Mission (Tourism Department) — one row per "
+            "homestay application (new or upgradation), FY 2025-26 and 2026-27 (partial). NO money column.",
 }
 
 # The metrics each scheme actually carries in the curated data — the plain-English
@@ -139,6 +141,15 @@ SCHEME_METRICS = {
         "amount disbursed (in rupees; a flat Rs 6,000 per paid student)",
         "paid share of applications, and the average per application",
         "by district, block (towns included), village or ward, assembly constituency or region",
+    ],
+    "Homestay": [
+        "homestay applications (one row per application) and distinct applicants",
+        "applications by status (Approved / Pending / Rejected / Unknown), approvals and the approval rate",
+        "verification result (Valid / Invalid / On Hold / Wrong) and application mode (online / CM Connect)",
+        "new homestays vs upgradations; proposed rooms, solar, rainwater harvesting and waste management",
+        "applicant gender, age and category (women, youth, first generation, differently abled); land owned or leased",
+        "by district, block (towns included), village or ward, assembly constituency, region, or proposed tourism cluster",
+        "no money of any kind is recorded",
     ],
 }
 
@@ -250,6 +261,7 @@ _SHARED_RULES = """
   * GENDER (business definition): use only the gender data a scheme actually records —
     MGNREGA: women_employment_provided only (men = persons_employed -
     women_employment_provided; MGNREGA rule 6); Focus Plus: gender, 12.5K cohort only;
+    Homestay: gender (the applicant's) on every application;
     PMAY-G, Focus Legacy, CM Elevate Legacy and CMSS record NO gender, and CM Elevate's
     (scheme_specific ->> 'gender_id') is locked from the chatbot — answer "not available". Never label a total of all persons as "men" or "women".
 """.strip()
@@ -1102,6 +1114,25 @@ CMSS TABLES
       names, application status or reason, any date — see CMSS RULES.
 """.strip()
 
+
+_HOMESTAY_TABLES = """
+HOMESTAY TABLES
+  curated.v_homestay_api  -- THE query surface (Chief Minister's Meghalaya Homestay Mission, online application
+      feed). One row = one homestay APPLICATION (request_id unique); 1,297 rows from 7 Oct 2025.
+      Columns: homestay_api_fact_id, request_id, member_key, year_key, financial_year, financial_year_short,
+        application_date, geography_key, village_code, lgd_village_name, lgd_block, lgd_district, entity_type,
+        district_lgd_code, block_lgd_code, ac_number, ac_name, region, component, is_upgradation, file_status,
+        current_file_status, current_level, data_verified, application_mode, applicant_category, gender,
+        applicant_age_years, type_of_land_holding, lease_years, land_lease_year_start,
+        land_lease_year_end, homestay_rooms, solar_energy, rainwater_harvesting, waste_management,
+        proposed_district, proposed_cluster, proposed_village, room_details (JSON, upgradation only),
+        room_booking_6months, fund_utilization, is_repeat_member, onhold, is_withdraw
+      dim_year and dim_geography are PRE-JOINED: no join is needed for any statewide, district, block,
+      village, constituency or region figure. There is NO money column. No scheme_key column.
+      Not recorded at all: any amount (cost, subsidy, loan, grant), project dates, construction or
+      operating status, rejection reasons — see HOMESTAY RULES.
+""".strip()
+
 _CMELEVATELEGACY_RULES = """
 CM ELEVATE LEGACY RULES (breaking these produces a wrong number, not just an ugly query):
   1. NOT THE CM ELEVATE APPLICATIONS DATASET. This is a separate scheme: [[cl_schemes]] schemes (not [[cme_schemes]]),
@@ -1244,6 +1275,58 @@ CMSS RULES (breaking these produces a wrong number, not just an ugly query):
      for "highest / lowest". Village and constituency rankings exclude Unresolved rows. Show ties in full.
 """.strip()
 
+
+_HOMESTAY_RULES = """
+HOMESTAY RULES (breaking these produces a wrong number, not just an ugly query):
+  1. Query curated.v_homestay_api. It is pre-joined; emit no join for an ordinary question. NEVER join it
+     row-to-row to another scheme's fact or view (Homestay Legacy, v_homestay_legacy, is a different dataset
+     of older bank loans: never row-join or add the two), and never match people across schemes through
+     member_key. Aggregate each scheme SEPARATELY and combine the aggregates.
+  2. One row = one APPLICATION.
+       applications / requests / records          -> COUNT(*)
+       applicants / people / unique applicants    -> COUNT(DISTINCT member_key)   (1,278 people; 17 applied
+                                                     more than once)
+       approved / sanctioned applications        -> COUNT(*) FILTER (WHERE file_status = 'Approved')
+     member_key is masked: COUNT(DISTINCT member_key) is its ONLY permitted use — never SELECT, GROUP BY,
+     ORDER BY or show it. No list of individual applicants is ever returned: answer a "list the applicants"
+     with counts by the next level down and say why. Never select pincode, establishment_manager_self or the
+     *_remarks columns (they can carry names and addresses).
+  3. NO MONEY: the data records no project cost, subsidy, loan, grant or disbursement. Any money question is
+     answered "not recorded in the Homestay application data" (the subsidy rates are scheme facts from the
+     reference documents, not data). Never SUM or AVG anything as rupees.
+  4. STATUS: a bare "status" = file_status (Approved / Pending / Rejected / Unknown). "forwarded", "sent
+     back", "resubmitted" -> current_file_status. "verified", "valid", "invalid", "on hold", "wrong" ->
+     data_verified (on hold is data_verified = 'On Hold'; onhold and is_withdraw are FALSE on every row).
+     Compare current_level with LOWER() (level1 / Level4). All 80 approvals are in FY 2025-26.
+  5. TWO KINDS OF APPLICATION (component): 'Development of New Homestay' (is_upgradation = FALSE) and
+     'Updragation of New Homestay' (the typo is the source's; is_upgradation = TRUE, 24 rows). Rooms,
+     solar_energy, rainwater_harvesting, waste_management and the proposed_* columns are filled only
+     WHERE NOT is_upgradation: their shares are out of the new-homestay applications, and say so.
+  6. ROOMS: SUM / AVG / MAX of homestay_rooms always add FILTER (WHERE NOT COALESCE(homestay_rooms > 100,
+     FALSE)) — one application records 3,500 rooms (a data-entry error) — and say it was left out.
+     Rooms in the 24 upgradation homestays sit only in room_details:
+     COALESCE(NULLIF(room_details -> 0 ->> 'total_number_single_room', '')::int, 0)
+       + COALESCE(NULLIF(room_details -> 0 ->> 'total_number_double_bed_room', '')::int, 0).
+     Never add the two room counts without saying so. Beds are not recorded.
+  7. GEOGRAPHY is the APPLICANT'S HOME address (district_lgd_code, block_lgd_code, village_code). Use the
+     proposed homestay site (proposed_district, proposed_cluster, proposed_village) ONLY when the question
+     says "located in", "proposed in", "site" or names a tourism cluster; proposed_cluster holds tourism
+     clusters, never LGD blocks. Filter on codes and group on code and name together. Municipal boards and
+     town committees are reported as blocks; wards take the place of villages in towns.
+  8. entity_type = 'Unresolved' marks 64 applications with no village and no constituency. INCLUDE them in
+     State, district and block counts; EXCLUDE them (entity_type <> 'Unresolved') from village counts,
+     lists and rankings and from constituency figures, and say so.
+  9. TIME: financial_year_short '2025-26' (from 7 Oct 2025, when the scheme launched) and '2026-27'
+     (PARTIAL, to 19 Oct 2026). No year -> every year, stated. A year comparison must say 2026-27 is
+     incomplete. application_date is the application's date. Any earlier year -> "no Homestay applications
+     are recorded for <year>", never 0.
+ 10. NOT HELD — money of any kind, project start / end dates, construction progress, operating status,
+     bed-nights or guests, the design chosen, bank or sanction letter, rejection reason, caste / ST subsidy
+     rate, Boutique (Component 3) homestays (none applied): answer "not recorded in the Homestay data".
+ 11. RANKING: rank on counts; default top 5 for a plural "top", LIMIT 1 for "highest / lowest". Village and
+     constituency rankings exclude Unresolved rows. Show ties in full.
+""".strip()
+
 _CMELEVATELEGACY_VOCAB = """
 CM ELEVATE LEGACY BUSINESS VOCABULARY (source: cmelevatelegacy_schema_partitions.yaml + cmelevatelegacy_entity_resolver.yaml)
   "applications" / "records" / "beneficiaries" / "cases" / "sanctions" -> COUNT(*)   (every row is a sanction)
@@ -1278,6 +1361,26 @@ CMSS BUSINESS VOCABULARY (source: data/cmss/cmss_schema_partitions.yaml)
     "towns" / "municipal boards" / "town committees" -> blocks (block_lgd_code)   "region" -> region
     "constituency" / "AC" -> ac_number, ac_name (Unresolved rows excluded)
     "year" / "this year" / "2025-26" -> financial_year_short = '2025-26' (the only year loaded)
+""".strip()
+
+
+_HOMESTAY_VOCAB = """
+HOMESTAY BUSINESS VOCABULARY (source: data/homestay/homestay_schema_partitions.yaml)
+    "applications" / "requests" / "proposals" -> COUNT(*)
+    "applicants" / "people" / "unique applicants" -> COUNT(DISTINCT member_key)
+    "approved" / "sanctioned" -> COUNT(*) FILTER (WHERE file_status = 'Approved')   "approval rate" -> ROUND(100.0 * that / COUNT(*), 1)
+    "pending" / "rejected" / "unknown status" -> file_status   "forwarded" / "sent back" / "resubmitted" -> current_file_status
+    "verified" / "valid" / "invalid" / "on hold" / "wrong" -> data_verified
+    "new homestay" / "new build" -> NOT is_upgradation   "upgradation" / "upgrade" / "existing homestay" -> is_upgradation
+    "rooms" -> SUM(homestay_rooms) FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE))   (new homestays)
+    "solar" -> solar_energy   "rainwater harvesting" -> rainwater_harvesting   "waste" -> waste_management
+    "women" / "youth" / "first generation" / "differently abled" -> applicant_category   "male" / "female" -> gender
+    "age" -> applicant_age_years   "owned" / "leased land" -> type_of_land_holding   "lease period" -> lease_years
+    "online" / "CM Connect" -> application_mode   "repeat applicants" -> is_repeat_member
+    "cluster" / "tourism cluster" -> proposed_cluster   "proposed site" / "located in" -> proposed_district, proposed_village
+    "villages" -> COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')   "wards" -> entity_type = 'Ward'
+    "constituency" / "AC" -> ac_number, ac_name (Unresolved rows excluded)   "region" -> region
+    "year" -> financial_year_short ('2025-26', '2026-27' partial)
 """.strip()
 
 _CROSS_SCHEME = """
@@ -1697,6 +1800,7 @@ _SCHEME_BLOCKS = {
     "Focus Legacy": (_FOCUSLEGACY_TABLES, _FOCUSLEGACY_RULES, _FOCUSLEGACY_VOCAB),
     "CM Elevate Legacy": (_CMELEVATELEGACY_TABLES, _CMELEVATELEGACY_RULES, _CMELEVATELEGACY_VOCAB),
     "CMSS": (_CMSS_TABLES, _CMSS_RULES, _CMSS_VOCAB),
+    "Homestay": (_HOMESTAY_TABLES, _HOMESTAY_RULES, _HOMESTAY_VOCAB),
 }
 
 

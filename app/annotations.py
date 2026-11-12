@@ -45,6 +45,7 @@ _SCHEME_DIRS = {
     "Focus Legacy": _DATA_PART / "focus_legacy",
     "CM Elevate Legacy": _DATA_PART / "cm_elevate_legacy",
     "CMSS": _DATA_PART / "cmss",
+    "Homestay": _DATA_PART / "homestay",
 }
 _FEW_SHOT_FILE = {
     "MGNREGA": "few_shot.yaml",
@@ -57,6 +58,7 @@ _FEW_SHOT_FILE = {
     # `status: REFUSED`, which this loader does not treat as a negative example.
     "CM Elevate Legacy": "cmelevatelegacy_prompt_few_shots.yaml",
     "CMSS": "cmss_few_shot.yaml",
+    "Homestay": "homestay_few_shot.yaml",
 }
 _FK_FILE = {
     "MGNREGA": "foreign_key_augmentation.yaml",
@@ -66,6 +68,7 @@ _FK_FILE = {
     "Focus Legacy": "focuslegacy_foreign_key_augmentation.yaml",
     "CM Elevate Legacy": "cmelevatelegacy_foreign_key_augmentation.yaml",
     "CMSS": "cmss_foreign_key_augmentation.yaml",
+    "Homestay": "homestay_foreign_key_augmentation.yaml",
 }
 
 _few_shot_cache: dict[str, list[dict]] = {}

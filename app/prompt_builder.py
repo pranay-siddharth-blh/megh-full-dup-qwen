@@ -53,6 +53,9 @@ _CMELEVATELEGACY_EXACT = {"v_cm_elevate_disbursement", "fact_cm_elevate_disburse
 _CMSS_EXACT = {"v_cmss"}
 
 
+_HOMESTAY_EXACT = {"v_homestay_api", "fact_homestay_api_application"}
+
+
 def _scheme_of(table: str) -> str:
     """'MGNREGA' | 'PMAY-G' | 'Focus Plus' | 'CM Elevate' | 'Focus Legacy' |
     'CM Elevate Legacy' | 'shared' | 'cross' for a bare (unqualified) table name."""
@@ -99,7 +102,7 @@ def _live_schema_block(schemes: list[str]) -> str:
         if owner == "cross" and not multi:
             continue
         if owner in ("MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate",
-                     "Focus Legacy", "CM Elevate Legacy", "CMSS") and owner not in want:
+                     "Focus Legacy", "CM Elevate Legacy", "CMSS", "Homestay") and owner not in want:
             continue
         lines.append(f"  {qualified}({', '.join(c['column'] for c in cols)})")
 
@@ -820,7 +823,7 @@ def build_verify_prompt(question: str, schemes: list[str], entity_result: dict, 
 # that adds, drops or changes a scheme, place, year, number or measure is
 # thrown away and the original question goes on unchanged.
 _REPHRASE_RULES = """You clean up questions asked to a government data assistant for Meghalaya.
-The schemes are MGNREGA, PMAY-G, Focus Plus, Focus Legacy, CM Elevate, CM Elevate Legacy and CMSS.
+The schemes are MGNREGA, PMAY-G, Focus Plus, Focus Legacy, CM Elevate, CM Elevate Legacy, CMSS and Homestay.
 Rewrite the user's message as ONE clear, grammatical English question that means exactly the same thing.
 
 Rules:

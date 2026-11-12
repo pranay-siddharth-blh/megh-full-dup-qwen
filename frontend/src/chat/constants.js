@@ -91,6 +91,12 @@ export const SCHEME_CARDS = [
     meta: 'Chief Minister\'s Scholarship Scheme · one row per student application', period: 'FY 2025-26',
     stats: [['1,04,827', 'Applications'], ['98,751', 'Students paid'], ['₹59.25 Cr', 'Amount disbursed']],
   },
+  {
+    key: 'homestay', cls: 'unified-card', ico: '🏡', name: 'Homestay',
+    meta: 'CM\'s Meghalaya Homestay Mission · one row per application', period: 'FY 2025-26 to 2026-27',
+    metaTail: 'no money data; 2026-27 partial',
+    stats: [['1,297', 'Applications'], ['1,278', 'Applicants'], ['80', 'Approved']],
+  },
 ];
 
 // Each scheme's own questions, shown when a carousel page holds that scheme alone.
@@ -170,6 +176,19 @@ export const CARD_QUESTIONS = {
       { ico: '📍', text: 'CMSS applications by constituency' },
       { ico: '📈', text: 'CMSS applications by financial year' },
       { ico: '📖', text: 'Who is eligible for CMSS?' },
+    ],
+  },
+  homestay: {
+    title: 'Try a Homestay question',
+    items: [
+      { ico: '📝', text: 'How many Homestay applications are there?' },
+      { ico: '📊', text: 'Homestay applications by district' },
+      { ico: '📍', text: 'Homestay applications by block' },
+      { ico: '📅', text: 'Homestay applications by financial year' },
+      { ico: '✅', text: 'Show the application status breakdown for Homestay' },
+      { ico: '👥', text: 'What is the gender split of Homestay applicants?' },
+      { ico: '🏠', text: 'How many new homestays vs upgradations are in the applications?' },
+      { ico: '📖', text: 'Who is eligible for the Homestay scheme?' },
     ],
   },
 };

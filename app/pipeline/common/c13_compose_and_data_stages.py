@@ -863,7 +863,7 @@ def _c13_drop_trailing_village(name: str) -> str:
 
 
 _VILLAGE_CATALOGUES = {"MGNREGA": "_mgnrega_village_names", "Focus Plus": "_focusplus_village_names",
-                       "PMAY-G": "_pmay_village_names", "CM Elevate": "_cm_elevate_village_names", "CMSS": "_cmss_village_names"}
+                       "PMAY-G": "_pmay_village_names", "CM Elevate": "_cm_elevate_village_names", "CMSS": "_cmss_village_names", "Homestay": "_homestay_village_names"}
 
 
 def _village_name_search(question: str) -> "tuple[str, str] | None":
@@ -1351,7 +1351,7 @@ async def _data_clarification_stage(d: dict, scope: "auth.UserScope | None" = No
     # Focus Plus too: "SHYAMDING ( GARO )" asked "which Garo Hills district?" (Focus + sheet
     # all-villages run 2026-10-10).
     _mg_place_settled = schemes in (["MGNREGA"], ["PMAY-G"], ["CM Elevate"], ["Focus Legacy"],
-                                    ["CM Elevate Legacy"], ["Focus Plus"], ["CMSS"]) and any(
+                                    ["CM Elevate Legacy"], ["Focus Plus"], ["CMSS"], ["Homestay"]) and any(
         entity_result["resolved"].get(k) for k in ("village_code", "village_code_list", "block",
                                                    "assembly_constituency"))
     if not entity_result["resolved"].get("district") and not entity_result["resolved"].get("district_list") \
@@ -1999,7 +1999,7 @@ def _c13_e12_cross_figures_denial(scope: "auth.UserScope | None", schemes: list[
 # Plus and CM Elevate do not: a model asked for their constituency figure answers
 # the district or the state instead (cross-scheme run 2026-10-13, D-044).
 # PMAY-G since 2026-10-30 (v_pmay.ac_name, KI-445).
-_CROSS_AC_RECORDED = frozenset({"MGNREGA", "Focus Legacy", "CM Elevate Legacy", "PMAY-G", "CMSS"})
+_CROSS_AC_RECORDED = frozenset({"MGNREGA", "Focus Legacy", "CM Elevate Legacy", "PMAY-G", "CMSS", "Homestay"})
 
 
 def _cross_scheme_gaps(schemes: list[str], resolved: dict, display: "dict | None" = None,
@@ -2938,7 +2938,8 @@ def _sql_latest_year_view(sql: "str | None") -> "str | None":
     return None
 _YEAR_VIEWS = {"v_employment", "v_expenditure", "v_pmay", "v_focus_plus", "v_focus_legacy",
                "v_cm_elevate_disbursement",
-               "v_cmss"}
+               "v_cmss",
+               "v_homestay_api"}
 
 
 # The answer states the period the QUERY read, not the one the question named:

@@ -30,7 +30,7 @@ from app.text_match import Alt, Matcher, Node, Opt, Seq, W, fy_spans
 
 logger = logging.getLogger(__name__)
 
-ORDER = ["MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CM Elevate Legacy", "CMSS"]
+ORDER = ["MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CM Elevate Legacy", "CMSS", "Homestay"]
 
 
 @dataclass(frozen=True)
@@ -56,6 +56,7 @@ SPECS: dict[str, SchemeSpec] = {
         "CM Elevate Legacy", "curated.v_cm_elevate_disbursement",
         village_where="village_code > 0 AND entity_type <> 'Unresolved'"),
     "CMSS": SchemeSpec("CMSS", "curated.v_cmss"),
+    "Homestay": SchemeSpec("Homestay", "curated.v_homestay_api"),
 }
 
 # ── detection ────────────────────────────────────────────────────────────────
