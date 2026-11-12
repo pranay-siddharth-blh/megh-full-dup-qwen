@@ -454,7 +454,7 @@ def test_scheme_listing_shows_all_six_and_counts_correctly():
     # General TC-001 (2026-10-09): "I cover five schemes" against six in the picker.
     ans = p._scheme_listing_answer("what schemes do you have?")["answer"]
     bullets = [line for line in ans.splitlines() if line.startswith("- **")]
-    assert ans.startswith("I cover seven ")          # CMSS onboarded 2026-11-11
+    assert ans.startswith("I cover eight ")          # CMSS 2026-11-11, Homestay 2026-11-12
     assert len(bullets) == 8
     cm = next(b for b in bullets if b.startswith("- **CM Elevate**"))
     assert "applications" in cm

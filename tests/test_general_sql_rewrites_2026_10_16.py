@@ -254,4 +254,6 @@ def test_two_places_merged_into_one_figure_go_to_repair():
 def test_cm_elevate_each_scheme_stays_cm_elevate():
     assert p._shortcut_scheme("For each CM Elevate scheme, how many applications came from Ri Bhoi?") == ["CM Elevate"]
     assert p._shortcut_scheme("CM Elevate Legacy records by scheme") == ["CM Elevate Legacy"]
-    assert len(p._shortcut_scheme("Compare beneficiaries across all schemes") or []) == 6
+    # every onboarded scheme (was a pinned 6 — CMSS / Homestay onboarding 2026-11-11/12)
+    from app import scheme_registry
+    assert len(p._shortcut_scheme("Compare beneficiaries across all schemes") or []) == len(scheme_registry.NAMES)

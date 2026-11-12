@@ -68,7 +68,7 @@ def test_the_capable_set_is_exactly_the_schemes_with_a_route():
     # PMAY-G joined 2026-10-30: v_pmay carries dim_geography's ac_name itself (KI-445).
     # CMSS joined 2026-11-11 (onboarding): v_cmss carries ac_number / ac_name.
     assert set(_AC_CAPABLE_SCHEMES) == {"MGNREGA", "Focus Legacy", "CM Elevate Legacy", "CM Elevate", "PMAY-G",
-                                        "CMSS"}
+                                        "CMSS", "Homestay"}   # Homestay 2026-11-12: ac_number / ac_name
 
 
 def test_cm_elevate_applications_offer_the_constituency_reading():

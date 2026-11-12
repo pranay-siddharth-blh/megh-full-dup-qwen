@@ -1,3 +1,7 @@
+# NOT LOADED BY THE APP (see app/annotations.py) - kept as the scheme team's reference only.
+# Counts quoted below were computed from the Homestay source CSV (1,298 rows, README 2026-11-06); megh_db holds
+# 1,297 (one application missing, 2026-11-11), so most counts differ by one. Never wire this file into the app
+# without re-checking every figure against megh_db; tests/test_db_changes_2026_10_26.py fails if app code reads it.
 # homestay_default_rules.yaml
 #
 # Default rules for Homestay - node 5.5. Runs after the clarification gate.

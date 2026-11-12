@@ -79,6 +79,11 @@ def _scheme_of(table: str) -> str:
     # CMSS (onboarded 2026-11-11): v_cmss and fact_cmss_application
     if "cmss" in t or t in _CMSS_EXACT:
         return "CMSS"
+    # Homestay (onboarded 2026-11-12): v_homestay_api and fact_homestay_api_application — NOT
+    # v_homestay_legacy (Homestay Legacy, a different dataset). Without this branch both objects
+    # fell to "shared" and reached every scheme's prompt (the CMSS leak behind FP-11, KI-686).
+    if "homestay_api" in t or t in _HOMESTAY_EXACT:
+        return "Homestay"
     return "shared"  # unknown object -> show it rather than hide it
 
 

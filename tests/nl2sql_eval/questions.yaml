@@ -1205,3 +1205,131 @@
     LIMIT 1
   note: Blocks include municipal boards and town committees (towns_as_blocks_rule). Drafted 2026-11-11 at onboarding —
     data team to confirm.
+- id: HS-01
+  scheme: Homestay
+  difficulty: easy
+  ordered: false
+  question: How many Homestay applications were sent in by people whose home is in West Jaintia Hills?
+  gold_sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE lgd_district = 'WEST JAINTIA HILLS'
+  note: One row = one application (Homestay rule 2); geography is the applicant's home address (rule 7), every year.
+    Drafted 2026-11-12 at onboarding from data/homestay/README.md — data team to confirm.
+- id: HS-02
+  scheme: Homestay
+  difficulty: easy
+  ordered: false
+  question: Counting each person once, how many individuals have applied to the Homestay mission so far?
+  gold_sql: |
+    SELECT COUNT(DISTINCT member_key) AS applicants
+    FROM curated.v_homestay_api
+  note: People = COUNT(DISTINCT member_key); 17 people applied more than once (rule 2). Drafted 2026-11-12 — data team to confirm.
+- id: HS-03
+  scheme: Homestay
+  difficulty: easy
+  ordered: false
+  question: Of the Homestay applications lodged in FY 2025-26, how many ended up approved?
+  gold_sql: |
+    SELECT COUNT(*) FILTER (WHERE file_status = 'Approved') AS approved
+    FROM curated.v_homestay_api
+    WHERE financial_year_short = '2025-26'
+  note: Approved = file_status (rule 4); every approval is in 2025-26. Drafted 2026-11-12 — data team to confirm.
+- id: HS-04
+  scheme: Homestay
+  difficulty: medium
+  ordered: false
+  question: District by district, how many Homestay applications are still awaiting a decision?
+  gold_sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS pending
+    FROM curated.v_homestay_api
+    WHERE file_status = 'Pending'
+    GROUP BY district_lgd_code, lgd_district
+  note: Awaiting a decision = file_status 'Pending' (rule 4). Drafted 2026-11-12 — data team to confirm.
+- id: HS-05
+  scheme: Homestay
+  difficulty: medium
+  ordered: true
+  question: Name the three districts with the most female Homestay applicants, with their counts.
+  gold_sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS female_applications
+    FROM curated.v_homestay_api
+    WHERE gender = 'Female'
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY female_applications DESC
+    LIMIT 3
+  note: Female = gender (vocabulary), counted as applications. Drafted 2026-11-12 — data team to confirm.
+- id: HS-06
+  scheme: Homestay
+  difficulty: medium
+  ordered: false
+  question: What percentage of the proposed new homestays include rainwater harvesting under the Homestay scheme?
+  gold_sql: |
+    SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE rainwater_harvesting) / COUNT(*), 1) AS rainwater_pct
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation
+  note: Out of new-homestay applications only (rule 5). Drafted 2026-11-12 — data team to confirm.
+- id: HS-07
+  scheme: Homestay
+  difficulty: medium
+  ordered: false
+  question: How do Homestay applications divide between those filed online and those filed through a CM Connect centre?
+  gold_sql: |
+    SELECT application_mode, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY application_mode
+  note: application_mode (vocabulary). Drafted 2026-11-12 — data team to confirm.
+- id: HS-08
+  scheme: Homestay
+  difficulty: hard
+  ordered: false
+  question: Adding up the guest rooms planned in new homestays from East Khasi Hills applicants, what is the total once implausible room counts are left out?
+  gold_sql: |
+    SELECT SUM(homestay_rooms) FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE)) AS proposed_rooms
+    FROM curated.v_homestay_api
+    WHERE lgd_district = 'EAST KHASI HILLS' AND NOT is_upgradation
+  note: Room sums exclude the 3,500-room entry (rule 6); new homestays only (rule 5). Drafted 2026-11-12 — data team to confirm.
+- id: HS-09
+  scheme: Homestay
+  difficulty: hard
+  ordered: false
+  question: In South Garo Hills, from how many separate villages did at least one Homestay application come?
+  gold_sql: |
+    SELECT COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved') AS villages
+    FROM curated.v_homestay_api
+    WHERE lgd_district = 'SOUTH GARO HILLS'
+  note: Villages exclude the Unresolved rows (rule 8). Drafted 2026-11-12 — data team to confirm.
+- id: HS-10
+  scheme: Homestay
+  difficulty: medium
+  ordered: false
+  question: Year by year, how many Homestay applications ask to upgrade a homestay that already exists?
+  gold_sql: |
+    SELECT financial_year_short, COUNT(*) AS upgradation_applications
+    FROM curated.v_homestay_api
+    WHERE is_upgradation
+    GROUP BY financial_year_short
+  note: Upgradation = is_upgradation (rule 5); 2026-27 is partial (rule 9). Drafted 2026-11-12 — data team to confirm.
+- id: HS-11
+  scheme: Homestay
+  difficulty: hard
+  ordered: true
+  question: Which tourism cluster is the proposed location for the largest number of Homestay applications?
+  gold_sql: |
+    SELECT proposed_cluster, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE proposed_cluster IS NOT NULL
+    GROUP BY proposed_cluster
+    ORDER BY applications DESC
+    LIMIT 1
+  note: The proposed site, not the home address, because the question names a tourism cluster (rule 7). Drafted 2026-11-12 — data team to confirm.
+- id: HS-12
+  scheme: Homestay
+  difficulty: medium
+  ordered: false
+  question: How many Homestay applications from Ri Bhoi were found Invalid when they were verified?
+  gold_sql: |
+    SELECT COUNT(*) AS invalid_applications
+    FROM curated.v_homestay_api
+    WHERE lgd_district = 'RI BHOI' AND data_verified = 'Invalid'
+  note: Verification = data_verified (rule 4). Drafted 2026-11-12 — data team to confirm.

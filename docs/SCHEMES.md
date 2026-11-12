@@ -538,4 +538,32 @@ Branch `onboard/cmss-2026-11-11` (commits c75e594 tool, 8bba583 review fixes, 33
 
 
 ## Homestay (onboarded 2026-11-12 by scheme-onboarder — REVIEW)
-PLANNED / NEEDS VERIFICATION: written by the onboarding tool from `data/homestay/scheme.yaml`. 138 registries updated; 32 left for review (questions, scheme-specific branches, drafts). Fill in: what the data holds, its truth rules, its namesakes, its live QA results.
+Branch `onboard/homestay-2026-11-12`, built ON `onboard/cmss-2026-11-11` (merge CMSS first). NOT merged.
+
+- **Data (VERIFIED, megh_db read-only 2026-11-11/12):** one view, `curated.v_homestay_api` (fact
+  `curated.fact_homestay_api_application`); the Chief Minister's Meghalaya Homestay Mission's online
+  applications. 1,297 applications, 1,278 distinct applicants (`member_key`), 80 approved (all FY 2025-26).
+  FY 2025-26 (from 7 Oct 2025) and 2026-27 (PARTIAL, to 19 Oct 2026). **No money column at all.**
+  Two kinds (`component` / `is_upgradation`): 1,273 new homestays, 24 upgradations.
+- **Names differ by system (VERIFIED):** display name "Homestay"; Qdrant tag (megh_knowledge 39 pieces shared
+  with Home Stay Legacy, megh_sql_metadata 43) "Home Stay" — `rag._KB_SCHEME_ALIAS` maps it; glossary
+  subject_area `homestay_api`; `v_data_coverage.scheme` `HOMESTAY_API`.
+- **Truth rules (`schema_context._HOMESTAY_RULES`):** applications = `COUNT(*)`, people =
+  `COUNT(DISTINCT member_key)`; a bare status = `file_status`; verification = `data_verified` (on hold lives
+  there); room sums exclude the one 3,500-room entry (`COALESCE(homestay_rooms > 100, FALSE)`); facility columns
+  are new-homestay only; upgradation rooms are in the `room_details` JSON; geography is the applicant's HOME;
+  the proposed site (`proposed_*`, tourism clusters) only when asked; `entity_type = 'Unresolved'` (64 rows) is
+  excluded from village and constituency figures; any money question is "not recorded".
+- **Measures:** holds applications, approvals, gender (applicant) and constituency; holds NO money — the
+  money measure's holders are now derived from `scheme_registry.DATASETS[s].money_unit` (c01, 2026-11-12) and the
+  constituency picker drops schemes without the asked measure (c03).
+- **SME files:** written for a PLANNED view (`curated.v_homestay`, 17 other column names). Remapped at onboarding
+  to `v_homestay_api` (every one of the 174 SQL statements runs; 136 of 143 match their `expected`, the rest are one
+  application missing from megh_db and tie order) — SME to confirm. Resolver: Ri Bhoi added to "Khasi Hills"
+  (megh_db `region = 'Khasi'`, 703 applications) — SME to confirm.
+- **Namesake:** "Homestay Legacy" (`v_homestay_legacy`, 909 older bank loans) is NOT onboarded; a bare
+  "homestay" is this feed. Onboarding Legacy will need a which-Homestay rule like Focus / CM Elevate, and its own
+  `SERIES_SCHEME` entry before Homestay's (frontend).
+- **KB:** `data/incoming/Homestay/` = the two documents REBUILT from megh_knowledge chunks (read-only KB, D-074).
+- **Held-out set:** `tests/nl2sql_eval/questions.yaml` HS-01..HS-12 (gold SQL drafted 2026-11-12, run live;
+  data team to confirm).

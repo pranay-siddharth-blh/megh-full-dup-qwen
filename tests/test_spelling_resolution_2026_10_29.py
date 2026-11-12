@@ -177,7 +177,7 @@ def test_generic_scheme_picker_offers_all_six():
 def test_scheme_picker_puts_the_typed_scheme_first():
     e = p._scheme_clarification("how many records for fokis plas")
     assert e.options[0]["label"].startswith("Focus Plus")
-    assert len(e.options) == 7          # CMSS onboarded 2026-11-11
+    assert len(e.options) == 8          # CMSS 2026-11-11, Homestay 2026-11-12
 
 
 @pytest.mark.parametrize("typed,want", [("who is eligble for awas yojana", "who is eligible for PMAY-G"),

@@ -268,7 +268,8 @@ _SCHEME_DOC_NAMES = {
     "MGNREGA": ("MGNREGA", "MGNREGA"),
     "PMAY-G": ("PMAY-G", "PMAY-G / PMAY-Gramin"),
     "CMSS": ("CMSS", "CMSS (the Chief Minister's Scholarship Scheme) pays a flat Rs 6,000 a year to eligible students; it is a state scholarship, not the CM Elevate enterprise programme."),
-    "Home Stay": ("Homestay", "Homestay (the Chief Minister's Meghalaya Homestay Mission, Tourism Department) supports building a new homestay or upgrading an existing one; this data is its online applications from October 2025, not the older Homestay Legacy bank loans"),
+    # keyed by the scheme name (as "CM Elevate Legacy"), not the KB tag "Home Stay"; the label = scheme_registry doc_label
+    "Homestay": ("Homestay", "Homestay (the Chief Minister's Meghalaya Homestay Mission, Tourism Department) supports building a new homestay or upgrading an existing one; this data is its online applications from October 2025, not the older Homestay Legacy bank loans"),
 }
 
 
@@ -301,7 +302,9 @@ def _naming_note(scheme: str | None) -> str:
 # both read the same reference docs — stored under "CM Elevate" (kb_ingest folds
 # a Legacy-tagged doc into that tag too). The vector filter is an exact match,
 # so every retrieval goes through kb_scheme(). Every other scheme maps to itself.
-_KB_SCHEME_ALIAS = {"CM Elevate Legacy": "CM Elevate"}
+# Homestay (onboarded 2026-11-12): its documents are tagged "Home Stay" in megh_knowledge (39 pieces,
+# shared with Home Stay Legacy); a filter on "Homestay" matched none.
+_KB_SCHEME_ALIAS = {"CM Elevate Legacy": "CM Elevate", "Homestay": "Home Stay"}
 
 
 def kb_scheme(scheme: str | None) -> str | None:

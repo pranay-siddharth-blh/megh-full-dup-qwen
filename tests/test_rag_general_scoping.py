@@ -183,7 +183,10 @@ def test_every_kb_chunk_is_tagged_with_a_queryable_scheme():
 
     # PMAY-U is deliberate — Urban sections are re-tagged so a PMAY-G search
     # can never surface them. It is a real, intentional exclusion tag.
-    allowed = set(SCHEME_CATALOG) | {"PMAY-U"}
+    # A tag reached through kb_scheme() is queryable too: Homestay's documents are tagged "Home Stay"
+    # (onboarding 2026-11-12), as CM Elevate Legacy reads the "CM Elevate" tag.
+    from app.rag import kb_scheme
+    allowed = set(SCHEME_CATALOG) | {kb_scheme(s) for s in SCHEME_CATALOG} | {"PMAY-U"}
     seen = {c["scheme"] for c in _collect_chunks()}
     assert seen <= allowed, f"unqueryable scheme tags in the KB: {seen - allowed}"
     assert "GENERAL" not in seen

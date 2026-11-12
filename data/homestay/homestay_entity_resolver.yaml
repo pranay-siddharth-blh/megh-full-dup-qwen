@@ -2466,12 +2466,15 @@ region_groupings:
       applications: 443
       aliases: [Garo, Garo region, Garo Hills region, GH]
     "Khasi Hills":
-      districts: [East Khasi Hills, Eastern West Khasi Hills, South West Khasi Hills, West Khasi Hills]
-      district_codes: [274, 740, 658, 279]
+      # 2026-11-12 (onboarding): Ri Bhoi added. megh_db curated.v_homestay_api stores region = 'Khasi' for
+      # RI BHOI (103 applications), as the ingestion team's LGD master does for every scheme (answer 2,
+      # 2026-10-26; tests/test_db_changes_2026_10_26.py). Live total 703 (the CSV's 704 has one row megh_db lacks).
+      districts: [East Khasi Hills, Eastern West Khasi Hills, South West Khasi Hills, West Khasi Hills, Ri Bhoi]
+      district_codes: [274, 740, 658, 279, 276]
       stored_region: Khasi
-      applications: 601
+      applications: 703
       aliases: [Khasi, Khasi region, Khasi Hills region, KH]
-      note: Ri Bhoi NOT included (unverified region). With Ri Bhoi 704. The gate asks.
+      note: Ri Bhoi included (region = 'Khasi' in megh_db, verified 2026-11-12). SME - please confirm.
     "Jaintia Hills":
       districts: [East Jaintia Hills, West Jaintia Hills]
       district_codes: [657, 275]

@@ -28,10 +28,12 @@ _DIST = {
     "CM Elevate Legacy": {"WEST GARO HILLS": (700, 20.5, 200), "RI BHOI": (300, 9.1, 100)},
     # CMSS (2026-11-11): students paid, Rs crore at a flat Rs 6,000, villages; Ri Bhoi paid = 8,701 (v_cmss)
     "CMSS": {"WEST GARO HILLS": (8000, 4.8, 300), "RI BHOI": (8701, 5.2206, 250)},
+    # Homestay (2026-11-12): applications, no money, villages; West Garo Hills 209 / Ri Bhoi 103 (v_homestay_api)
+    "Homestay": {"WEST GARO HILLS": (209, 0.0, 40), "RI BHOI": (103, 0.0, 30)},
 }
 _VIEW = {"v_employment": "MGNREGA", "v_expenditure": "MGNREGA", "v_pmay": "PMAY-G", "v_focus_plus": "Focus Plus",
          "v_focus_legacy": "Focus Legacy", "v_cm_elevate_disbursement": "CM Elevate Legacy", "v_cm_elevate ": "CM Elevate",
-         "v_cmss": "CMSS"}
+         "v_cmss": "CMSS", "v_homestay_api": "Homestay"}
 
 
 @pytest.fixture

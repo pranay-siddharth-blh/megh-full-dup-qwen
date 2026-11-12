@@ -175,7 +175,7 @@ def test_card_keys_are_the_cards_the_endpoint_builds():
     empty = {k: {c: None for c in ("person_days", "exp_lakh", "villages", "sanctioned", "completed",
                                     "released", "payments", "amount", "districts", "applications",
                                     "schemes", "groups", "memberships", "records", "disbursed",
-                                    "students_paid", "amount_disbursed")}
+                                    "students_paid", "amount_disbursed", "applicants", "approved")}
              for k in stats._SQL}
     assert set(stats._cards(empty, {})) == set(stats._CARD_SCHEME)
 
@@ -189,10 +189,10 @@ def test_a_pmay_only_user_sees_one_card(monkeypatch):
     sc = auth.scope_from_user({"username": "u", "role": "analyst", "schemes": ["PMAY-G"]})
     out = asyncio.run(stats.scheme_stats(scope=sc))
     assert list(out["cards"]) == ["pmay_g"] and list(out["periods"]) == ["pmay_g"]
-    # the shared cache still holds every card (seven: CMSS 2026-11-11) for the next caller
-    assert len(stats._cache["body"]["cards"]) == 7
+    # the shared cache still holds every card (eight: CMSS 2026-11-11, Homestay 2026-11-12) for the next caller
+    assert len(stats._cache["body"]["cards"]) == 8
     every = asyncio.run(stats.scheme_stats(scope=auth.scope_from_user({"username": "a", "role": "analyst"})))
-    assert len(every["cards"]) == 7
+    assert len(every["cards"]) == 8
 
 
 # ── KI-419: the four fixed answers are authorised ────────────────────────────

@@ -259,7 +259,7 @@ const SERIES_SCHEME = [
   [(l) => l.includes('pmay'), 'PMAY-G'],
   [(l) => l.includes('nrega'), 'MGNREGA'],
   [(l) => hasAlone(l, 'cmss'), 'CMSS'],
-  [(l) => hasAlone(l, 'homestay') || hasJoined(l, ['home', 'stay']), 'Homestay'],          // also "mgnrega"
+  [(l) => hasAlone(l, 'homestay') || hasJoined(l, ['home', 'stay']), 'Homestay'],   // "Homestay", "Home Stay"
 ];
 export const schemeOfSeries = (label) => {
   const low = String(label).toLowerCase();

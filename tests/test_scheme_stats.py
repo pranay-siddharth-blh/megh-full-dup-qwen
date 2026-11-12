@@ -20,6 +20,7 @@ def test_card_figures_from_rows():
         "focus_legacy": {"groups": 11906, "memberships": 102021, "amount": 510105000},
         "cm_elevate_legacy": {"records": 2823, "schemes": 13, "disbursed": 828978537.75},
         "cmss": {"applications": 104827, "students_paid": 98751, "amount_disbursed": 592506000},
+        "homestay": {"applications": 1297, "applicants": 1278, "approved": 80},
     }
     years = {"mgnrega": ["2022-23", "2023-24", "2024-25", "2025-26"]}
     c = stats._cards(rows, years)
@@ -34,6 +35,8 @@ def test_card_figures_from_rows():
     # CMSS (2026-11-11): money verified, not provisional — no "*"
     assert c["cmss"] == [["1,04,827", "Applications"], ["98,751", "Students paid"], ["₹59.25 Cr", "Amount disbursed"]]
     # same six keys as the cards in frontend/src/chat/constants.js
+    # Homestay (2026-11-12): counts only — the application feed records no money (live v_homestay_api)
+    assert c["homestay"] == [["1,297", "Applications"], ["1,278", "Applicants"], ["80", "Approved"]]
     assert set(c) == {"mgnrega", "pmay_g", "focus_plus", "cm_elevate", "focus_legacy", "cm_elevate_legacy", "cmss", "homestay"}
 
 
@@ -54,7 +57,8 @@ def test_year_count_follows_the_data():
                                  "applications", "schemes", "groups", "memberships", "records", "disbursed"), 1)
                for k in ("pmay_g", "focus_plus", "cm_elevate", "focus_legacy", "cm_elevate_legacy")},
             "mgnrega": {"person_days": 1, "exp_lakh": 1, "villages": 1},
-            "cmss": {"applications": 1, "students_paid": 1, "amount_disbursed": 1}}
+            "cmss": {"applications": 1, "students_paid": 1, "amount_disbursed": 1},
+            "homestay": {"applications": 1, "applicants": 1, "approved": 1}}
     c = stats._cards(rows, {"mgnrega": ["2022-23", "2023-24", "2024-25", "2025-26", "2026-27"]})
     assert c["mgnrega"][0][1] == "Person-days (5 yr)" and c["mgnrega"][1][1] == "Expenditure (5 yr)"
 
@@ -66,10 +70,12 @@ def test_a_missing_figure_is_a_dash_not_zero():
             "cm_elevate": {"applications": 0, "schemes": 0, "districts": 0},
             "focus_legacy": {"groups": 0, "memberships": None, "amount": None},
             "cm_elevate_legacy": {"records": 0, "schemes": 0, "disbursed": None},
-            "cmss": {"applications": 0, "students_paid": 0, "amount_disbursed": None}}
+            "cmss": {"applications": 0, "students_paid": 0, "amount_disbursed": None},
+            "homestay": {"applications": None, "applicants": 0, "approved": 0}}
     c = stats._cards(rows, {})
     assert c["mgnrega"][0] == ["—", "Person-days"] and c["mgnrega"][2] == ["0", "Villages with activity"]
     assert c["pmay_g"][2] == ["—", "Funds released"] and c["focus_legacy"][1] == ["—", "Memberships paid"]
+    assert c["homestay"][0] == ["—", "Applications"] and c["homestay"][2] == ["0", "Approved"]
 
 
 def test_pmay_card_counts_zero_sanction_registrations():
