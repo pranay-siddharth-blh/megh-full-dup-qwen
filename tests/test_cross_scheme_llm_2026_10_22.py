@@ -93,7 +93,9 @@ def test_scope_answers_outright_when_no_scheme_holds_what_is_asked():
 
 def test_gaps_constituency():
     gaps = p._cross_scheme_gaps(["MGNREGA", "PMAY-G", "Focus Legacy", "CM Elevate Legacy", "Focus Plus",
-                                 "CM Elevate"], {"assembly_constituency": "MAWHATI"})
+                                 "CM Elevate",
+                                 "CMSS",
+                                 "Homestay"], {"assembly_constituency": "MAWHATI"})
     assert set(gaps) == {"Focus Plus", "CM Elevate"}      # PMAY-G records it since 2026-10-30 (KI-445)
 
 

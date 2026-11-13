@@ -81,7 +81,7 @@ def test_scheme_not_specified_pause_several_and_all():
     opts = [{"label": lbl, "question": p._scheme_option_question(stem, s)} for s, lbl in p._SCHEME_PICK_LABELS]
     assert _typed("mgnrega and pmay-g", stem, opts) == "How many beneficiaries are there for MGNREGA and PMAY-G?"
     assert _typed("pmay by block", stem, opts) == "How many beneficiaries are there for PMAY-G by block?"
-    assert _typed("all of them by district", stem, opts).endswith("CM Elevate Legacy by district?")
+    assert _typed("all of them by district", stem, opts).endswith("CMSS and Homestay by district?")
 
 
 def test_a_scheme_the_pause_did_not_offer_is_a_new_question():

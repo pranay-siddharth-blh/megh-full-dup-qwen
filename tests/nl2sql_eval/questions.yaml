@@ -1063,3 +1063,273 @@
     HAVING SUM(total_disbursement) < 0.5 * SUM(sanctioned_amount)
   note: Utilisation = SUM(total_disbursement) / SUM(sanctioned_amount) (rule 6), threshold in HAVING on unrounded
     sums; desanctioned records stay in money totals (rule 5). Gold trimmed to the asked-for columns (review 2026-10-15).
+- id: CS-01
+  scheme: CMSS
+  difficulty: easy
+  ordered: false
+  question: How many CMSS scholarship applications came from students living in East Garo Hills in FY 2025-26?
+  gold_sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE lgd_district = 'EAST GARO HILLS' AND financial_year_short = '2025-26'
+  note: One row = one application, paid or not (CMSS rule 3); the geography is the student's home address (rule 6).
+    Drafted 2026-11-11 at onboarding from data/cmss/cmss_schema_partitions.yaml — data team to confirm.
+- id: CS-02
+  scheme: CMSS
+  difficulty: easy
+  ordered: false
+  question: Across Meghalaya, how many students were actually paid the CMSS scholarship in FY 2025-26?
+  gold_sql: |
+    SELECT COUNT(*) FILTER (WHERE is_disbursed) AS students_paid
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26'
+  note: Beneficiaries = paid applications, COUNT(*) FILTER (WHERE is_disbursed) (beneficiary_term). Drafted 2026-11-11
+    at onboarding — data team to confirm.
+- id: CS-03
+  scheme: CMSS
+  difficulty: easy
+  ordered: false
+  question: What total CMSS scholarship money was paid out to students from West Jaintia Hills in FY 2025-26?
+  gold_sql: |
+    SELECT SUM(amount_disbursed) AS amount_disbursed
+    FROM curated.v_cmss
+    WHERE lgd_district = 'WEST JAINTIA HILLS' AND financial_year_short = '2025-26'
+  note: Rupees; NULL on unpaid rows (rule 4). Drafted 2026-11-11 at onboarding — data team to confirm.
+- id: CS-04
+  scheme: CMSS
+  difficulty: medium
+  ordered: false
+  question: District by district, how many CMSS applications went unpaid in FY 2025-26?
+  gold_sql: |
+    SELECT lgd_district, COUNT(*) FILTER (WHERE NOT is_disbursed) AS applications_not_paid
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26'
+    GROUP BY lgd_district
+  note: is_disbursed is NOT NULL, so NOT is_disbursed is the complement; never "rejected" (rule 5). Drafted 2026-11-11
+    at onboarding — data team to confirm.
+- id: CS-05
+  scheme: CMSS
+  difficulty: medium
+  ordered: true
+  question: Name the three districts with the most CMSS scholarship recipients in FY 2025-26.
+  gold_sql: |
+    SELECT lgd_district, COUNT(*) FILTER (WHERE is_disbursed) AS students_paid
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26'
+    GROUP BY lgd_district
+    ORDER BY students_paid DESC
+    LIMIT 3
+  note: Rank on counts, not amount (flat Rs 6,000 gives the same order, rule 11). Drafted 2026-11-11 at onboarding —
+    data team to confirm.
+- id: CS-06
+  scheme: CMSS
+  difficulty: medium
+  ordered: false
+  question: In FY 2025-26, what percentage of CMSS applications from Ri Bhoi ended up paid?
+  gold_sql: |
+    SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE is_disbursed) / COUNT(*), 2) AS paid_share_pct
+    FROM curated.v_cmss
+    WHERE lgd_district = 'RI BHOI' AND financial_year_short = '2025-26'
+  note: paid_share_pct from aggregation_defaults. Drafted 2026-11-11 at onboarding — data team to confirm.
+- id: CS-07
+  scheme: CMSS
+  difficulty: hard
+  ordered: false
+  question: In FY 2025-26, how many different villages in South West Khasi Hills had at least one student receive CMSS?
+  gold_sql: |
+    SELECT COUNT(DISTINCT village_code) AS villages
+    FROM curated.v_cmss
+    WHERE lgd_district = 'SOUTH WEST KHASI HILLS' AND financial_year_short = '2025-26'
+      AND is_disbursed AND entity_type <> 'Unresolved'
+  note: Villages by village_code, Unresolved rows excluded from village counts (unresolved_rule). Drafted 2026-11-11 at
+    onboarding — data team to confirm.
+- id: CS-08
+  scheme: CMSS
+  difficulty: hard
+  ordered: true
+  question: For FY 2025-26, which five assembly constituencies sent in the largest number of CMSS applications?
+  gold_sql: |
+    SELECT ac_name, COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26' AND entity_type <> 'Unresolved'
+    GROUP BY ac_name
+    ORDER BY applications DESC
+    LIMIT 5
+  note: Constituency figures exclude the Unresolved rows (advisory_localities_note). Drafted 2026-11-11 at onboarding —
+    data team to confirm.
+- id: CS-09
+  scheme: CMSS
+  difficulty: easy
+  ordered: false
+  question: How many CMSS applications in FY 2025-26 came from town wards rather than villages?
+  gold_sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE entity_type = 'Ward' AND financial_year_short = '2025-26'
+  note: Wards take the place of villages in towns (towns_as_blocks_rule). Drafted 2026-11-11 at onboarding — data team
+    to confirm.
+- id: CS-10
+  scheme: CMSS
+  difficulty: medium
+  ordered: false
+  question: Break down FY 2025-26 CMSS applications by region of Meghalaya.
+  gold_sql: |
+    SELECT region, COUNT(*) AS applications
+    FROM curated.v_cmss
+    WHERE financial_year_short = '2025-26'
+    GROUP BY region
+  note: region groups districts (Garo / Khasi / Jaintia), Ri Bhoi in Khasi (LGD master). Drafted 2026-11-11 at
+    onboarding — data team to confirm.
+- id: CS-11
+  scheme: CMSS
+  difficulty: medium
+  ordered: false
+  question: Counting paid and unpaid together, what was the average CMSS amount per application in East Khasi Hills in FY 2025-26?
+  gold_sql: |
+    SELECT ROUND(SUM(amount_disbursed) / COUNT(*), 2) AS average_per_application
+    FROM curated.v_cmss
+    WHERE lgd_district = 'EAST KHASI HILLS' AND financial_year_short = '2025-26'
+  note: average_per_application = SUM / COUNT(*), labelled per application (paid and unpaid); per paid student it is
+    always Rs 6,000 (flat_rate_rule). Drafted 2026-11-11 at onboarding — data team to confirm.
+- id: CS-12
+  scheme: CMSS
+  difficulty: hard
+  ordered: true
+  question: Within West Garo Hills, which block had the fewest students paid under CMSS in FY 2025-26?
+  gold_sql: |
+    SELECT lgd_block, COUNT(*) FILTER (WHERE is_disbursed) AS students_paid
+    FROM curated.v_cmss
+    WHERE lgd_district = 'WEST GARO HILLS' AND financial_year_short = '2025-26'
+    GROUP BY lgd_block
+    ORDER BY students_paid ASC
+    LIMIT 1
+  note: Blocks include municipal boards and town committees (towns_as_blocks_rule). Drafted 2026-11-11 at onboarding —
+    data team to confirm.
+- id: HS-01
+  scheme: Homestay
+  difficulty: easy
+  ordered: false
+  question: How many Homestay applications were sent in by people whose home is in West Jaintia Hills?
+  gold_sql: |
+    SELECT COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE lgd_district = 'WEST JAINTIA HILLS'
+  note: One row = one application (Homestay rule 2); geography is the applicant's home address (rule 7), every year.
+    Drafted 2026-11-12 at onboarding from data/homestay/README.md — data team to confirm.
+- id: HS-02
+  scheme: Homestay
+  difficulty: easy
+  ordered: false
+  question: Counting each person once, how many individuals have applied to the Homestay mission so far?
+  gold_sql: |
+    SELECT COUNT(DISTINCT member_key) AS applicants
+    FROM curated.v_homestay_api
+  note: People = COUNT(DISTINCT member_key); 17 people applied more than once (rule 2). Drafted 2026-11-12 — data team to confirm.
+- id: HS-03
+  scheme: Homestay
+  difficulty: easy
+  ordered: false
+  question: Of the Homestay applications lodged in FY 2025-26, how many ended up approved?
+  gold_sql: |
+    SELECT COUNT(*) FILTER (WHERE file_status = 'Approved') AS approved
+    FROM curated.v_homestay_api
+    WHERE financial_year_short = '2025-26'
+  note: Approved = file_status (rule 4); every approval is in 2025-26. Drafted 2026-11-12 — data team to confirm.
+- id: HS-04
+  scheme: Homestay
+  difficulty: medium
+  ordered: false
+  question: District by district, how many Homestay applications are still awaiting a decision?
+  gold_sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS pending
+    FROM curated.v_homestay_api
+    WHERE file_status = 'Pending'
+    GROUP BY district_lgd_code, lgd_district
+  note: Awaiting a decision = file_status 'Pending' (rule 4). Drafted 2026-11-12 — data team to confirm.
+- id: HS-05
+  scheme: Homestay
+  difficulty: medium
+  ordered: true
+  question: Name the three districts with the most female Homestay applicants, with their counts.
+  gold_sql: |
+    SELECT district_lgd_code, lgd_district, COUNT(*) AS female_applications
+    FROM curated.v_homestay_api
+    WHERE gender = 'Female'
+    GROUP BY district_lgd_code, lgd_district
+    ORDER BY female_applications DESC
+    LIMIT 3
+  note: Female = gender (vocabulary), counted as applications. Drafted 2026-11-12 — data team to confirm.
+- id: HS-06
+  scheme: Homestay
+  difficulty: medium
+  ordered: false
+  question: What percentage of the proposed new homestays include rainwater harvesting under the Homestay scheme?
+  gold_sql: |
+    SELECT ROUND(100.0 * COUNT(*) FILTER (WHERE rainwater_harvesting) / COUNT(*), 1) AS rainwater_pct
+    FROM curated.v_homestay_api
+    WHERE NOT is_upgradation
+  note: Out of new-homestay applications only (rule 5). Drafted 2026-11-12 — data team to confirm.
+- id: HS-07
+  scheme: Homestay
+  difficulty: medium
+  ordered: false
+  question: How do Homestay applications divide between those filed online and those filed through a CM Connect centre?
+  gold_sql: |
+    SELECT application_mode, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    GROUP BY application_mode
+  note: application_mode (vocabulary). Drafted 2026-11-12 — data team to confirm.
+- id: HS-08
+  scheme: Homestay
+  difficulty: hard
+  ordered: false
+  question: Adding up the guest rooms planned in new homestays from East Khasi Hills applicants, what is the total once implausible room counts are left out?
+  gold_sql: |
+    SELECT SUM(homestay_rooms) FILTER (WHERE NOT COALESCE(homestay_rooms > 100, FALSE)) AS proposed_rooms
+    FROM curated.v_homestay_api
+    WHERE lgd_district = 'EAST KHASI HILLS' AND NOT is_upgradation
+  note: Room sums exclude the 3,500-room entry (rule 6); new homestays only (rule 5). Drafted 2026-11-12 — data team to confirm.
+- id: HS-09
+  scheme: Homestay
+  difficulty: hard
+  ordered: false
+  question: In South Garo Hills, from how many separate villages did at least one Homestay application come?
+  gold_sql: |
+    SELECT COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved') AS villages
+    FROM curated.v_homestay_api
+    WHERE lgd_district = 'SOUTH GARO HILLS'
+  note: Villages exclude the Unresolved rows (rule 8). Drafted 2026-11-12 — data team to confirm.
+- id: HS-10
+  scheme: Homestay
+  difficulty: medium
+  ordered: false
+  question: Year by year, how many Homestay applications ask to upgrade a homestay that already exists?
+  gold_sql: |
+    SELECT financial_year_short, COUNT(*) AS upgradation_applications
+    FROM curated.v_homestay_api
+    WHERE is_upgradation
+    GROUP BY financial_year_short
+  note: Upgradation = is_upgradation (rule 5); 2026-27 is partial (rule 9). Drafted 2026-11-12 — data team to confirm.
+- id: HS-11
+  scheme: Homestay
+  difficulty: hard
+  ordered: true
+  question: Which tourism cluster is the proposed location for the largest number of Homestay applications?
+  gold_sql: |
+    SELECT proposed_cluster, COUNT(*) AS applications
+    FROM curated.v_homestay_api
+    WHERE proposed_cluster IS NOT NULL
+    GROUP BY proposed_cluster
+    ORDER BY applications DESC
+    LIMIT 1
+  note: The proposed site, not the home address, because the question names a tourism cluster (rule 7). Drafted 2026-11-12 — data team to confirm.
+- id: HS-12
+  scheme: Homestay
+  difficulty: medium
+  ordered: false
+  question: How many Homestay applications from Ri Bhoi were found Invalid when they were verified?
+  gold_sql: |
+    SELECT COUNT(*) AS invalid_applications
+    FROM curated.v_homestay_api
+    WHERE lgd_district = 'RI BHOI' AND data_verified = 'Invalid'
+  note: Verification = data_verified (rule 4). Drafted 2026-11-12 — data team to confirm.

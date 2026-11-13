@@ -519,3 +519,51 @@ After adding a scheme: restart the service, run the registry guard and a routing
 - The `YEAR_RANGE_GUARD_ENABLED` comment says "both schemes … exactly those four years".
 - The `annotations.py` docstring says "for both schemes".
 - A `_run_pipeline` comment says "only four are loaded".
+
+
+## CMSS (onboarded 2026-11-11 by scheme-onboarder — REVIEW)
+Branch `onboard/cmss-2026-11-11` (commits c75e594 tool, 8bba583 review fixes, 3379836 KI-686). NOT merged.
+
+- **Data (VERIFIED, megh_db read-only 2026-11-11):** one view, `curated.v_cmss`; FY 2025-26 only; money in rupees, a flat
+  Rs 6,000 per paid student. 1,04,827 applications, 98,751 paid, ₹59.25 Cr disbursed (the stats card pins these).
+- **Truth rules (pinned in `data/cmss/scheme.yaml` overrides):** beneficiaries = `COUNT(*) FILTER (WHERE is_disbursed)`
+  (`is_disbursed` is never NULL); the 1,218 "Unresolved" rows are left out of village and constituency figures; the view
+  carries `ac_number` / `ac_name` and `region`; implemented by DHTE.
+- **Resolver:** `data/cmss/cmss_entity_resolver.yaml` "Khasi Hills" includes Ri Bhoi (district_codes 274, 740, 658, 279, 276;
+  52,667 applications / 49,880 paid) — confirm with the SME.
+- **Namesakes:** none with the six schemes; the matchers are `cmss`, `scholarship`, `scholarships`.
+- **KB:** `data/incoming/CMSS/` holds two .md files REBUILT from the `megh_knowledge` chunks (the KB itself is read-only, D-074).
+- **Held-out set:** `tests/nl2sql_eval/questions.yaml` CS-01..CS-12 (gold SQL written in this session; NEEDS data-team confirmation).
+- **Live acceptance:** see CURRENT_STATE (2026-11-11).
+
+
+## Homestay (onboarded 2026-11-12 by scheme-onboarder — REVIEW)
+Branch `onboard/homestay-2026-11-12`, built ON `onboard/cmss-2026-11-11` (merge CMSS first). NOT merged.
+
+- **Data (VERIFIED, megh_db read-only 2026-11-11/12):** one view, `curated.v_homestay_api` (fact
+  `curated.fact_homestay_api_application`); the Chief Minister's Meghalaya Homestay Mission's online
+  applications. 1,297 applications, 1,278 distinct applicants (`member_key`), 80 approved (all FY 2025-26).
+  FY 2025-26 (from 7 Oct 2025) and 2026-27 (PARTIAL, to 19 Oct 2026). **No money column at all.**
+  Two kinds (`component` / `is_upgradation`): 1,273 new homestays, 24 upgradations.
+- **Names differ by system (VERIFIED):** display name "Homestay"; Qdrant tag (megh_knowledge 39 pieces shared
+  with Home Stay Legacy, megh_sql_metadata 43) "Home Stay" — `rag._KB_SCHEME_ALIAS` maps it; glossary
+  subject_area `homestay_api`; `v_data_coverage.scheme` `HOMESTAY_API`.
+- **Truth rules (`schema_context._HOMESTAY_RULES`):** applications = `COUNT(*)`, people =
+  `COUNT(DISTINCT member_key)`; a bare status = `file_status`; verification = `data_verified` (on hold lives
+  there); room sums exclude the one 3,500-room entry (`COALESCE(homestay_rooms > 100, FALSE)`); facility columns
+  are new-homestay only; upgradation rooms are in the `room_details` JSON; geography is the applicant's HOME;
+  the proposed site (`proposed_*`, tourism clusters) only when asked; `entity_type = 'Unresolved'` (64 rows) is
+  excluded from village and constituency figures; any money question is "not recorded".
+- **Measures:** holds applications, approvals, gender (applicant) and constituency; holds NO money — the
+  money measure's holders are now derived from `scheme_registry.DATASETS[s].money_unit` (c01, 2026-11-12) and the
+  constituency picker drops schemes without the asked measure (c03).
+- **SME files:** written for a PLANNED view (`curated.v_homestay`, 17 other column names). Remapped at onboarding
+  to `v_homestay_api` (every one of the 174 SQL statements runs; 136 of 143 match their `expected`, the rest are one
+  application missing from megh_db and tie order) — SME to confirm. Resolver: Ri Bhoi added to "Khasi Hills"
+  (megh_db `region = 'Khasi'`, 703 applications) — SME to confirm.
+- **Namesake:** "Homestay Legacy" (`v_homestay_legacy`, 909 older bank loans) is NOT onboarded; a bare
+  "homestay" is this feed. Onboarding Legacy will need a which-Homestay rule like Focus / CM Elevate, and its own
+  `SERIES_SCHEME` entry before Homestay's (frontend).
+- **KB:** `data/incoming/Homestay/` = the two documents REBUILT from megh_knowledge chunks (read-only KB, D-074).
+- **Held-out set:** `tests/nl2sql_eval/questions.yaml` HS-01..HS-12 (gold SQL drafted 2026-11-12, run live;
+  data team to confirm).

@@ -90,6 +90,8 @@ def _infer_scheme_from_terms(question: str) -> list[str] | None:
             ("CM Elevate", _CMELEVATE_ONLY_TERMS),
             ("Focus Legacy", _FOCUSLEGACY_ONLY_TERMS),
             ("CM Elevate Legacy", _CMELEVATELEGACY_ONLY_TERMS),
+            ("CMSS", _CMSS_ONLY_TERMS),
+            ("Homestay", _HOMESTAY_ONLY_TERMS),
         ) if word_matcher.search(question)
     ]
     # A CM Elevate sub-scheme word ("piggery", "dairy") belongs to BOTH CM
@@ -136,6 +138,8 @@ _SCHEME_PICK_LABELS = (
     ("CM Elevate", "CM Elevate (livelihood / enterprise schemes)"),
     ("Focus Legacy", "Focus Legacy (producer group payments)"),
     ("CM Elevate Legacy", "CM Elevate Legacy (sanctions & disbursements)"),
+    ("CMSS", "CMSS (Chief Minister's Scholarship Scheme)"),
+    ("Homestay", "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"),
 )
 
 
@@ -171,14 +175,23 @@ def _scheme_clarification(question: str, by_measure: bool = False) -> "Clarifica
         return _focus_ambiguity_clarification(question)
     if _MGNREGA_AC_TERM.search(question or ""):
         # only these schemes hold a constituency (KI-148)
+        ac_opts = [{"label": "MGNREGA (rural employment)", "question": _scheme_option_question(stem, "MGNREGA")},
+                   {"label": "Focus Legacy (producer group payments)",
+                    "question": _scheme_option_question(stem, "Focus Legacy")},
+                   {"label": "CM Elevate Legacy (sanctions & disbursements)",
+                    "question": _scheme_option_question(stem, "CM Elevate Legacy")},
+                   {"label": "CMSS (student scholarships)", "question": _scheme_option_question(stem, "CMSS")},
+                   {"label": "Homestay (homestay applications)", "question": _scheme_option_question(stem, "Homestay")}]
+        # ...and of those, only the ones that record the measure asked (Homestay onboarding 2026-11-12:
+        # "total amount disbursed for Baghmara assembly constituency" offered Homestay, which records
+        # no money). A question naming no measure keeps them all.
+        held = _schemes_recording(question)[0]
+        if held:
+            ac_opts = [o for o in ac_opts if o["label"].split(" (")[0] in held] or ac_opts
         return ClarificationNeeded(
-            "Assembly-constituency figures are held for three schemes. Which one is your "
+            f"Assembly-constituency figures are held for {len(ac_opts)} schemes. Which one is your "
             "question about? Pick it below.",
-            options=[{"label": "MGNREGA (rural employment)", "question": _scheme_option_question(stem, "MGNREGA")},
-                     {"label": "Focus Legacy (producer group payments)",
-                      "question": _scheme_option_question(stem, "Focus Legacy")},
-                     {"label": "CM Elevate Legacy (sanctions & disbursements)",
-                      "question": _scheme_option_question(stem, "CM Elevate Legacy")}],
+            options=ac_opts,
             rule="scheme-not-specified")
     held, measures, together = _schemes_recording(question) if by_measure else ([], [], False)
     if held and len(held) < len(_SCHEME_PICK_LABELS):

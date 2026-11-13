@@ -375,10 +375,11 @@ def test_ki148_constituency_alone_does_not_pin_mgnrega(q, expected):
 
 def test_ki148_scheme_question_offers_only_constituency_schemes():
     c = p._scheme_clarification("What is the total amount disbursed for Baghmara assembly constituency?")
-    assert [o["label"].split(" (")[0] for o in c.options] == ["MGNREGA", "Focus Legacy", "CM Elevate Legacy"]
+    assert [o["label"].split(" (")[0] for o in c.options] == ["MGNREGA", "Focus Legacy", "CM Elevate Legacy", "CMSS"]
+    # Homestay records constituencies but no money: an "amount disbursed" question never offers it (2026-11-12)
     # six scheme chips: the seventh ("Compare across schemes") was removed on 2026-10-18 at the
     # user's request (the chat UI renders that button itself); the assertion followed on 2026-10-19
-    assert len(p._scheme_clarification("total amount disbursed in 2024").options) == 6
+    assert len(p._scheme_clarification("total amount disbursed in 2024").options) == 8   # + CMSS 2026-11-11, Homestay 2026-11-12
 
 
 def test_ki146_drilldown_names_the_scheme_data():

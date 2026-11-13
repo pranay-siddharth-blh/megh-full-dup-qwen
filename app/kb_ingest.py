@@ -50,6 +50,8 @@ _INCOMING_SCHEMES = {
     "Focus_Legacy": "Focus Legacy",
     "CM_Elevate": "CM Elevate",
     "CM_Elevate_Legacy": "CM Elevate",
+    "CMSS": "CMSS",
+    "Homestay": "Home Stay",
 }
 # SME documents kept elsewhere under data/ (relative path, scheme). Empty on
 # purpose: data/mgnrega/MGNREGA_Scheme_Document.docx was measured on
@@ -159,6 +161,8 @@ _CANONICAL_SCHEME = {
     "cm elevate legacy": "CM Elevate", "cmelevate legacy": "CM Elevate",
     "cmelevatelegacy": "CM Elevate", "cm-elevate legacy": "CM Elevate",
     "cm elevate disbursement": "CM Elevate",
+    "cmss": "CMSS",
+    "homestay": "Homestay", "home stay": "Homestay",
 }
 
 

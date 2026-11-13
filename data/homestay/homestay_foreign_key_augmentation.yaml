@@ -1,0 +1,798 @@
+# homestay_foreign_key_augmentation.yaml
+#
+# Join edges and the materialised join graph for Homestay - node 5.9.
+#
+#   nodes       what each object is, its grain, and whether it may be aggregated
+#   edges       every join, with the exact ON clause the generator must emit
+#   join_graph  adjacency list, listed from the many side, traversed undirected
+#
+# declared: true      the edge is a real constraint in information_schema
+# declared: expected  the edge will be a real constraint once the loader is built
+# declared: false     the edge exists only here
+# is_prohibited: true the generator must refuse this join and use `use_instead`
+#
+# ===========================================================================
+# v1.0 - 2026-11-06 - FIRST VERSION, WRITTEN AHEAD OF THE DATABASE LOAD
+#
+# curated.v_homestay_api and curated.fact_homestay_application are PLACEHOLDERS -
+# SCHEMA_FOR_DEVELOPERS.md (2026-11-03) has no Homestay API object. The fact is
+# expected to follow the house pattern of every other scheme fact: declared FKs
+# to dim_geography, dim_year, dim_scheme and raw.source_rows, with the view
+# pre-joining dim_geography and dim_year. Every edge to those dimensions is
+# therefore `declared: expected`. Edges to OTHER schemes' views are taken from
+# the live schema of 2026-11-03.
+#
+# The prohibited edges are the point of this file. Homestay is recorded per
+# APPLICATION. Its shared keys are the LGD codes (district_lgd_code,
+# block_lgd_code, village_code) - usable to join AGGREGATES, never rows - and
+# member_key.
+#
+# TWO HAZARDS SPECIFIC TO HOMESTAY:
+#   1. HOMESTAY LEGACY LOOKS LIKE THE SAME SCHEME. curated.v_homestay_legacy is the
+#      disbursed-loan register of the older homestay scheme: one row per loan,
+#      block level only, with money. A generator will want to join 'homestay' to
+#      'homestay'. There is no shared id - the legacy view has no member key and
+#      no application id - so the only link is a block or district AGGREGATE.
+#   2. member_key. If the loader hashes member_id with the same HMAC as CMSS and
+#      Focus+ (the house pattern; CMSS issue CM-18 already notes CMSS member ids
+#      appearing in Homestay applications), "homestay applicants who also got a
+#      CMSS scholarship" is one JOIN away. That join is prohibited.
+# ===========================================================================
+
+foreign_key_augmentation:
+
+  version: '1.0'
+  database: megh_db
+  schema: curated
+  read_role: megh_readonly
+  structure_verified: false
+  view_status: planned_not_loaded
+  primary_query_surface: curated.v_homestay_api
+
+  # =======================================================================
+  nodes:
+
+    curated.v_homestay_api:
+      role: fact_view
+      object_type: view
+      placeholder_name: true
+      over: curated.fact_homestay_application
+      primary_key: homestay_api_fact_id
+      natural_key: none in the view (source_application_id / source_request_id on the fact only)
+      grain: one row per Homestay Mission application (new-build or upgradation), any status
+      column_count: 52
+      aggregate_before_reporting: false
+      unit: none (no money column)
+      row_count: unverified_in_db
+      note: >
+        THE DEFAULT FROM CLAUSE FOR EVERY HOMESTAY QUESTION. Pre-joins dim_geography and
+        dim_year. COUNT(*) is an application count; COUNT(*) FILTER (WHERE (file_status = 'Approved')) is
+        approved applications. No mandatory predicate; village and constituency questions add
+        entity_type <> 'Unresolved'; room measures add NOT COALESCE(homestay_rooms > 100, FALSE).
+
+    curated.fact_homestay_application:
+      role: fact
+      object_type: table
+      placeholder_name: true
+      primary_key: homestay_api_fact_id
+      natural_key: source_application_id
+      grain: one row per Homestay Mission application
+      aggregate_before_reporting: false
+      row_count: unverified_in_db
+      note: >
+        The underlying fact. Reach for it only for lineage columns the view does not expose
+        (source_request_id, entered_district_name, block_name_raw, block_code_raw,
+        village_name_raw, the free-text remarks). Personal columns are dropped at ingest or
+        held outside the read role.
+
+    curated.dim_scheme:
+      role: dimension
+      object_type: table
+      primary_key: scheme_key
+      grain: one row per scheme
+      shared_across_schemes: true
+      safe_to_aggregate: false
+      note: >
+        Expected scheme_code 'HOMESTAY'. Constant within the partition, never a grouping key.
+        HOMESTAY_LEGACY is a DIFFERENT row. Read on its own for data_as_of.
+
+    curated.dim_year:
+      role: dimension
+      object_type: table
+      primary_key: year_key
+      grain: one row per financial year
+      shared_across_schemes: true
+      safe_to_aggregate: false
+      homestay_meaning: financial year of the application date
+      homestay_years_present: ['2025-26', '2026-27']
+      note: >
+        Joined from the fact's year_key (expected NOT NULL). Joining dim_year does NOT create
+        rows for other years - an absent year has no data, not zero.
+
+    curated.dim_geography:
+      role: dimension
+      object_type: table
+      primary_key: geography_key
+      natural_key: village_code
+      grain: one row per LGD village or ward, plus synthetic 'Unresolved' placeholders
+      shared_across_schemes: true
+      safe_to_aggregate: false
+      note: >
+        Conformed geography of the applicant's HOME. The 64 villageless applications point
+        at their block's Unresolved placeholder. Pre-joined into v_homestay. The proposed-site
+        columns (proposed_district, proposed_cluster) are NOT in dim_geography and have no
+        edge to it.
+
+    curated.v_place_names:
+      role: lookup_view
+      object_type: view
+      note: >
+        A NAME LOOKUP, NOT A JOIN TARGET. Read it to decide what level a typed name is, then
+        filter v_homestay by the resolved CODE. It does not know tourism clusters.
+
+    curated.v_data_coverage:
+      role: lookup_view
+      object_type: view
+      note: Read before answering for a year. Never joined to v_homestay.
+
+    semantic.scheme_relationships:
+      role: metadata
+      object_type: table
+      readable_by_read_role: unverified
+      note: >
+        Holds the combine rule for each pair of schemes. A HOMESTAY row does not exist yet.
+        The HOMESTAY / HOMESTAY_LEGACY relationship (expected 'successor' or
+        'separate_schemes') and HOMESTAY / CMSS / FOCUS_PLUS ('shared_people'?) decide the
+        conditional pattern below.
+
+    curated.v_homestay_legacy:
+      role: fact_view
+      object_type: view
+      grain: one row per DISBURSED homestay loan, snapshot
+      geography_level: block (no village)
+      unit: rupees
+      shares_person_key_with_homestay: false
+      note: >
+        THE NEAREST NEIGHBOUR AND THE MOST TEMPTING WRONG JOIN. A different dataset of the
+        same department's homestay programme: loans already disbursed (project_cost,
+        sanctioned_amount, disbursed_amount, outstanding_amount, status). No member key, no
+        application id, no village. It meets Homestay only as district or block AGGREGATES.
+
+    curated.v_cmss:
+      role: fact_view
+      object_type: view
+      grain: one row per CMSS student application
+      shares_person_key_with_homestay: possible (if the same HMAC is used)
+      note: Other scheme. Far end of a prohibited person edge; partner in aggregate_then_combine.
+
+    curated.v_focus_plus:
+      role: fact_view
+      object_type: view
+      grain: one row per beneficiary x tranche disbursement event
+      shares_person_key_with_homestay: possible (if the same HMAC is used)
+      note: Other scheme. Same role as v_cmss.
+
+    curated.v_pmay:
+      role: fact_view
+      object_type: view
+      grain: one row per sanctioned PMAY-G house
+      note: Other scheme. Partner in aggregate_then_combine (with NOT is_placeholder on its side).
+
+    curated.v_nrlm:
+      role: fact_view
+      object_type: view
+      grain: one row per Self Help Group, snapshot
+      note: Other scheme. Same role as v_pmay.
+
+    curated.v_employment:
+      role: fact_view
+      object_type: view
+      aggregate_before_reporting: true
+      note: Other scheme (MGNREGA). Same role as v_pmay.
+
+    curated.v_expenditure:
+      role: fact_view
+      object_type: view
+      aggregate_before_reporting: true
+      unit: lakh_rupees
+      note: Other scheme (MGNREGA), LAKH rupees. Homestay has no money to compare with it.
+
+    curated.v_focus_legacy:
+      role: fact_view
+      object_type: view
+      note: Other scheme. Same role as v_pmay.
+
+    curated.v_cm_elevate:
+      role: fact_view
+      object_type: view
+      grain: one row per CM Elevate application
+      note: >
+        Other scheme. Also an 'application' grain for entrepreneurs - a generator may treat
+        them as siblings. They are not: no shared id, different populations.
+
+    curated.v_cm_elevate_disbursement:
+      role: fact_view
+      object_type: view
+      note: Other scheme. Same role as v_pmay.
+
+    curated.v_cross_scheme_money_district_year:
+      role: cross_scheme_view
+      object_type: view
+      includes_homestay: false
+      note: MGNREGA and PMAY money only, in CRORE. Homestay has no money.
+
+    curated.v_cross_scheme_village_coverage:
+      role: cross_scheme_view
+      object_type: view
+      includes_homestay: false
+      note: PMAY and MGNREGA only. Homestay coverage is built by aggregate_then_combine.
+
+    meta.v_reconciliation_homestay:
+      role: reconciliation
+      object_type: view
+      placeholder_name: true
+      readable_by_read_role: false
+      note: Operator check (raw = curated + quarantined). Not a chatbot surface.
+
+    raw.source_rows:
+      role: lineage
+      object_type: table
+      readable_by_read_role: false
+      note: Expected FK target of the fact's raw_id; outside the megh_readonly boundary.
+
+  # =======================================================================
+  edges:
+
+    # ---- EXPECTED DECLARED FOREIGN KEYS (house pattern) ---------------------
+    # dim_geography and dim_year will be resolved inside curated.v_homestay_api, so
+    # emit them ONLY when querying fact_homestay_application directly.
+
+    - from_table: curated.fact_homestay_application
+      from_column: geography_key
+      to_table: curated.dim_geography
+      to_column: geography_key
+      cardinality: many_to_one
+      declared: expected
+      nullable: false
+      on_clause: "curated.fact_homestay_application.geography_key = curated.dim_geography.geography_key"
+      prefer_instead: curated.v_homestay_api
+      reason: >
+        The conformed home-geography join. v_homestay already carries village_code,
+        lgd_village_name, lgd_block, lgd_district, entity_type, ac_number, ac_name and region.
+
+    - from_table: curated.fact_homestay_application
+      from_column: year_key
+      to_table: curated.dim_year
+      to_column: year_key
+      cardinality: many_to_one
+      declared: expected
+      nullable: false
+      join_type: INNER
+      on_clause: "curated.fact_homestay_application.year_key = curated.dim_year.year_key"
+      prefer_instead: curated.v_homestay_api
+      reason: Financial year of the application date. Two years in use (2025, 2026).
+
+    - from_table: curated.fact_homestay_application
+      from_column: scheme_key
+      to_table: curated.dim_scheme
+      to_column: scheme_key
+      cardinality: many_to_one
+      declared: expected
+      nullable: false
+      on_clause: "curated.fact_homestay_application.scheme_key = curated.dim_scheme.scheme_key"
+      prefer_instead: read dim_scheme on its own
+      reason: Constant within the partition. Read dim_scheme WHERE scheme_code = 'HOMESTAY' for data_as_of.
+
+    - from_table: curated.fact_homestay_application
+      from_column: raw_id
+      to_table: raw.source_rows
+      to_column: raw_id
+      cardinality: many_to_one
+      declared: expected
+      nullable: true
+      traversable_by_read_role: false
+      on_clause: "curated.fact_homestay_application.raw_id = raw.source_rows.raw_id"
+      reason: Lineage. `raw` is outside the read boundary; never emitted.
+
+    - from_table: curated.v_homestay_api
+      from_column: homestay_api_fact_id
+      to_table: curated.fact_homestay_application
+      to_column: homestay_api_fact_id
+      cardinality: one_to_one
+      declared: false
+      on_clause: "curated.v_homestay_api.homestay_api_fact_id = curated.fact_homestay_application.homestay_api_fact_id"
+      reason: >
+        View to its own fact, one to one - only when a question wants a view column AND a
+        lineage column (lgd_district beside entered_district_name). Never select member_key or a
+        personal column through it.
+
+    # ---- SANCTIONED CROSS-SCHEME PATTERNS - aggregates only -------------
+
+    - from_table: "aggregate of curated.v_homestay_api GROUP BY district_lgd_code"
+      from_column: district_lgd_code
+      to_table: "aggregate of curated.v_homestay_legacy GROUP BY district_lgd_code"
+      to_column: district_lgd_code
+      cardinality: one_to_one
+      declared: false
+      is_prohibited: false
+      pattern: aggregate_then_combine
+      join_type: FULL
+      on_clause: "h.district_lgd_code = l.district_lgd_code"
+      reason: >
+        THE ONE WAY TO PUT THE TWO HOMESTAY DATASETS SIDE BY SIDE. Applications (this feed)
+        and disbursed loans (legacy) per district, each counted on its own side, never added.
+        The answer names both: 'applications under the Mission' and 'loans disbursed under
+        the earlier scheme'.
+
+    - from_table: "aggregate of curated.v_homestay_api GROUP BY block_lgd_code"
+      from_column: block_lgd_code
+      to_table: "aggregate of curated.v_homestay_legacy GROUP BY block_lgd_code"
+      to_column: block_lgd_code
+      cardinality: one_to_one
+      declared: false
+      is_prohibited: false
+      pattern: aggregate_then_combine
+      join_type: FULL
+      on_clause: "h.block_lgd_code = l.block_lgd_code"
+      reason: >
+        Block level is the finest the legacy view supports (no village). Both use the LGD
+        1960-series block codes. Homestay counts 11 towns as blocks; a legacy NULL on a town
+        code is a finding, not a defect.
+
+    - from_table: "aggregate of curated.v_homestay_api GROUP BY village_code"
+      from_column: village_code
+      to_table: "aggregate of <other scheme view with village_code> GROUP BY village_code"
+      to_column: village_code
+      cardinality: one_to_one
+      declared: false
+      is_prohibited: false
+      pattern: aggregate_then_combine
+      join_type: FULL
+      on_clause: "h.village_code = o.village_code"
+      reason: >
+        Aggregate each side to village_code in its own CTE, applying each scheme's own
+        predicates (Homestay: entity_type <> 'Unresolved'; PMAY: NOT is_placeholder), THEN
+        join. Not available for Homestay Legacy (no village).
+
+    - from_table: "aggregate of curated.v_homestay_api GROUP BY district_lgd_code"
+      from_column: district_lgd_code
+      to_table: "aggregate of <other scheme view> GROUP BY district_lgd_code"
+      to_column: district_lgd_code
+      cardinality: one_to_one
+      declared: false
+      is_prohibited: false
+      pattern: aggregate_then_combine
+      join_type: FULL
+      on_clause: "h.district_lgd_code = o.district_lgd_code"
+      reason: >
+        District-level version for any other scheme. State what each side counts (homestay
+        applications vs houses / SHGs / students) and never add them. No money comparison -
+        Homestay has none.
+
+    - from_table: "member_key set of curated.v_homestay_api"
+      from_column: member_key
+      to_table: "member_key set of curated.v_cmss / curated.v_focus_plus"
+      to_column: member_key
+      cardinality: none - a UNION, not a join
+      declared: false
+      is_prohibited: false
+      pattern: distinct_people_across_schemes
+      status: CONDITIONAL - disabled until verified
+      enable_when: >
+        (1) the Homestay loader hashes member_id with the same key as CMSS / Focus+, AND
+        (2) semantic.scheme_relationships records the pair as 'shared_people'. Until both are
+        confirmed, refuse and report the counts side by side.
+      on_clause: null
+      sql_shape: |
+        SELECT COUNT(DISTINCT member_key) AS people_in_either
+        FROM (SELECT member_key FROM curated.v_homestay_api
+              UNION
+              SELECT member_key FROM curated.v_cmss) AS u;
+      never: An intersection count, a list of shared people, or any JOIN on member_key.
+
+    # ---- THE JOINS THAT MUST NEVER BE MADE -------------------------------
+
+    - from_table: curated.v_homestay_api
+      from_column: block_lgd_code
+      to_table: curated.v_homestay_legacy
+      to_column: block_lgd_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      critical: true
+      use_instead: aggregate_then_combine on block_lgd_code or district_lgd_code
+      on_clause: null
+      reason: >
+        ROW-LEVEL JOIN OF THE TWO HOMESTAY DATASETS. Every application in a block repeats once
+        per legacy loan in that block, and every loan amount repeats once per application -
+        a SUM(disbursed_amount) over the join is multiplied by the application count. There
+        is no shared applicant id, so no row of one can be matched to a row of the other.
+
+    - from_table: curated.v_homestay_api
+      from_column: district_lgd_code
+      to_table: curated.v_homestay_legacy
+      to_column: district_lgd_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      critical: true
+      use_instead: aggregate_then_combine on district_lgd_code
+      on_clause: null
+      reason: The same fan-out at district level (East Khasi Hills - 342 applications x every legacy loan there).
+
+    - from_table: curated.v_homestay_api
+      from_column: member_key
+      to_table: curated.v_cmss
+      to_column: member_key
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      critical: true
+      use_instead: distinct_people_across_schemes (if enabled), else side-by-side totals
+      on_clause: null
+      reason: >
+        PERSON-LEVEL CROSS-SCHEME LINK. If the hash matches, this join returns real people who
+        applied for a homestay and also hold a scholarship application. That identifies
+        individuals across schemes - prohibited.
+
+    - from_table: curated.v_homestay_api
+      from_column: member_key
+      to_table: curated.v_focus_plus
+      to_column: member_key
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      critical: true
+      use_instead: distinct_people_across_schemes (if enabled), else side-by-side totals
+      on_clause: null
+      reason: The same person-level link to Focus+, and it fans out over every Focus+ tranche.
+
+    - from_table: curated.v_homestay_api
+      from_column: member_key
+      to_table: curated.v_homestay_api
+      to_column: member_key
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: "COUNT(*) - COUNT(DISTINCT member_key), or is_repeat_member"
+      on_clause: null
+      reason: >
+        Self-join on the applicant key traces one person's applications - a person-level
+        lookup. Repeats are measured with COUNT(DISTINCT) and the is_repeat_member flag,
+        never traced.
+
+    - from_table: curated.v_homestay_api
+      from_column: proposed_cluster
+      to_table: curated.dim_geography
+      to_column: lgd_block
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      critical: true
+      use_instead: filter proposed_cluster on its own; filter home blocks on block_lgd_code
+      on_clause: null
+      reason: >
+        A TOURISM CLUSTER IS NOT AN LGD BLOCK. 'Nongstoin Cluster' would match the Nongstoin
+        block by name and silently mix site and home geography; 'Sohra Cluster' has no block
+        of that name at all.
+
+    - from_table: curated.v_homestay_api
+      from_column: proposed_district
+      to_table: curated.v_homestay_api
+      to_column: lgd_district
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: one geography per answer, labelled
+      on_clause: null
+      reason: >
+        Site district and home district are two different facts about an application. A
+        comparison of the two is a single-table predicate
+        (lower(replace(proposed_district,'-',' ')) <> lower(lgd_district)), never a join.
+
+    - from_table: curated.v_homestay_api
+      from_column: village_code
+      to_table: curated.v_pmay
+      to_column: village_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code
+      on_clause: null
+      reason: Application grain against house grain on a shared village - both sides multiply.
+
+    - from_table: curated.v_homestay_api
+      from_column: village_code
+      to_table: curated.v_nrlm
+      to_column: village_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code
+      on_clause: null
+      reason: Application grain against SHG grain. No member-level key in NRLM.
+
+    - from_table: curated.v_homestay_api
+      from_column: village_code
+      to_table: curated.v_cmss
+      to_column: village_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code
+      on_clause: null
+      reason: Application grain against application grain on a shared village - both multiply.
+
+    - from_table: curated.v_homestay_api
+      from_column: village_code
+      to_table: curated.v_cm_elevate
+      to_column: village_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code
+      on_clause: null
+      reason: >
+        Both are entrepreneurship 'application' feeds of a CM scheme, which makes the join look
+        natural. No shared id, different applicants.
+
+    - from_table: curated.v_homestay_api
+      from_column: village_code
+      to_table: curated.v_employment
+      to_column: village_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: aggregate_then_combine on village_code
+      on_clause: null
+      reason: Grain mismatch (application vs MGNREGA village-year source row that may repeat).
+
+    - from_table: curated.v_homestay_api
+      from_column: district_lgd_code
+      to_table: curated.v_cross_scheme_money_district_year
+      to_column: lgd_district
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: none - Homestay has no money
+      on_clause: null
+      reason: The money view excludes Homestay, is in crore and keyed by name; Homestay has nothing to add to it.
+
+    - from_table: curated.v_homestay_api
+      from_column: block_lgd_code
+      to_table: curated.dim_geography
+      to_column: lgd_block_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: curated.v_homestay_api (geography already pre-joined)
+      on_clause: null
+      reason: >
+        dim_geography has one row per VILLAGE; joining on the block code repeats every
+        application once per village in its block.
+
+    - from_table: curated.v_homestay_api
+      from_column: lgd_village_name
+      to_table: curated.v_place_names
+      to_column: place_name
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: read v_place_names to resolve the level, then filter v_homestay by code
+      on_clause: null
+      reason: A name join. 9 Homestay village names repeat and v_place_names lists every level a name exists at.
+
+    - from_table: curated.v_homestay_api
+      from_column: ac_number
+      to_table: curated.v_homestay_api
+      to_column: block_lgd_code
+      cardinality: many_to_many
+      declared: false
+      is_prohibited: true
+      use_instead: filter on one level only
+      on_clause: null
+      reason: >
+        Constituency and block share many names but are different areas (Mawkyrwat block 49
+        applications vs Mawkyrwat constituency 50; Nongstoin block 43 vs constituency 80).
+
+    - from_table: curated.v_homestay_api
+      from_column: any
+      to_table: raw.source_rows
+      to_column: raw_id
+      cardinality: many_to_one
+      declared: false
+      is_prohibited: true
+      use_instead: none
+      on_clause: null
+      reason: The view does not expose raw_id, and `raw` is outside the read boundary. A lineage request is a DBA task.
+
+  # =======================================================================
+  join_graph:
+
+    # v_homestay pre-joins every dimension. Ordinary questions emit WHERE and
+    # GROUP BY only.
+    curated.v_homestay_api:
+    - {to: curated.fact_homestay_application, on: homestay_api_fact_id, join_type: INNER, note: lineage columns only}
+
+    # the raw fact is the only Homestay node with real outbound edges (expected)
+    curated.fact_homestay_application:
+    - {to: curated.dim_geography, on: geography_key, join_type: INNER}
+    - {to: curated.dim_year,      on: year_key,      join_type: INNER}
+    - {to: curated.dim_scheme,    on: scheme_key,    join_type: INNER}
+
+    # dimensions are terminal
+    curated.dim_geography: []
+    curated.dim_year: []
+    curated.dim_scheme: []
+
+    # cross-scheme: aggregates only, via CTEs - never a direct edge
+    aggregate_then_combine:
+      keys: [district_lgd_code, block_lgd_code, village_code]
+      join_type: FULL
+      partners: [curated.v_homestay_legacy, curated.v_cmss, curated.v_pmay, curated.v_nrlm,
+                 curated.v_employment, curated.v_focus_plus, curated.v_focus_legacy,
+                 curated.v_cm_elevate, curated.v_cm_elevate_disbursement]
+      partner_key_limits:
+        curated.v_homestay_legacy: [district_lgd_code, block_lgd_code]   # no village
+
+    # person count across schemes: a UNION, never a join - conditional
+    distinct_people_across_schemes:
+      status: disabled_until_verified
+      partners: [curated.v_cmss, curated.v_focus_plus]
+      key: member_key
+
+    # lookups: read, never joined
+    curated.v_place_names: []
+    curated.v_data_coverage: []
+    semantic.scheme_relationships: []
+
+    # reachable in megh_db but closed to this scheme - see the prohibited edges
+    curated.v_cross_scheme_money_district_year: []
+    curated.v_cross_scheme_village_coverage: []
+    meta.v_reconciliation_homestay: []
+    raw.source_rows: []
+
+    # other schemes' views: terminal here - reached ONLY through the
+    # aggregate_then_combine CTE pattern above, never by a direct edge
+    curated.v_homestay_legacy: []
+    curated.v_cmss: []
+    curated.v_focus_plus: []
+    curated.v_pmay: []
+    curated.v_nrlm: []
+    curated.v_employment: []
+    curated.v_expenditure: []
+    curated.v_focus_legacy: []
+    curated.v_cm_elevate: []
+    curated.v_cm_elevate_disbursement: []
+
+# ===========================================================================
+# WORKED EXAMPLES: which join (if any) a question needs
+#
+# Homestay figures are produced by executing the `sql` against the emulation of
+# curated.v_homestay_api built from the CSV (2026-11-06). Other schemes' figures are
+# not in this folder and are not quoted. `sql_shape` is the full cross-scheme
+# query and is NOT executed (the emulation has only v_homestay).
+# ===========================================================================
+worked_examples:
+
+- question: "How many Homestay applications are in Shella Bholaganj block?"
+  decision: no_join
+  from: curated.v_homestay_api
+  why: v_homestay already carries block_lgd_code. Any join here is wasted work.
+  sql: "SELECT COUNT(*) AS applications FROM curated.v_homestay_api WHERE block_lgd_code = 1994;"
+  expected: 87
+
+- question: "Approved Homestay applications by district for 2025-26"
+  decision: no_join
+  from: curated.v_homestay_api
+  why: The financial year from dim_year is pre-joined as financial_year_short.
+  sql: "SELECT district_lgd_code, lgd_district, COUNT(*) FILTER (WHERE (file_status = 'Approved')) AS approved FROM curated.v_homestay_api WHERE financial_year_short = '2025-26' GROUP BY district_lgd_code, lgd_district ORDER BY approved DESC LIMIT 3;"
+  expected: [{district_lgd_code: 274, lgd_district: "EAST KHASI HILLS", approved: 23}, {district_lgd_code: 658, lgd_district: "SOUTH WEST KHASI HILLS", approved: 11}, {district_lgd_code: 278, lgd_district: "WEST GARO HILLS", approved: 10}]
+
+- question: "How many applicants want a homestay outside their home district?"
+  decision: no_join
+  refused_edge: curated.v_homestay_api.proposed_district -> curated.v_homestay_api.lgd_district
+  why: Two columns of the same row - a predicate, not a join.
+  sql: "SELECT COUNT(*) AS site_outside_home_district FROM curated.v_homestay_api WHERE NOT is_upgradation AND lower(replace(proposed_district, '-', ' ')) <> lower(lgd_district);"
+  expected: 113
+
+- question: "What district did the applicants originally type, before LGD mapping?"
+  decision: view_to_fact_lineage_edge
+  edge: curated.v_homestay_api.homestay_api_fact_id = curated.fact_homestay_application.homestay_api_fact_id
+  why: entered_district_name is only on the fact. The one-to-one lineage edge is allowed; no personal column is selected.
+  sql_shape: |
+    SELECT v.lgd_district, f.entered_district_name, COUNT(*) AS applications
+    FROM curated.v_homestay_api v
+    JOIN curated.fact_homestay_application f ON f.homestay_api_fact_id = v.homestay_api_fact_id
+    WHERE v.has_name_code_conflict
+    GROUP BY v.lgd_district, f.entered_district_name;
+  homestay_side_sql: "SELECT lgd_district, COUNT(*) AS remapped FROM curated.v_homestay_api WHERE has_name_code_conflict GROUP BY lgd_district;"
+  note: Not executed as a join - the emulation has no fact table. The view side gives West Khasi Hills 13, South West Garo Hills 1.
+
+- question: "Compare Homestay applications with Homestay Legacy loans by district"
+  decision: aggregate_then_combine
+  key: district_lgd_code
+  why: >
+    The two homestay datasets share no id. Count applications on one side and loans on the
+    other, each in its own CTE, then FULL JOIN on the district code. Never add the counts;
+    never join the rows.
+  sql_shape: |
+    WITH h AS (SELECT district_lgd_code, lgd_district, COUNT(*) AS applications
+               FROM curated.v_homestay_api GROUP BY district_lgd_code, lgd_district),
+         l AS (SELECT district_lgd_code, COUNT(*) AS legacy_loans
+               FROM curated.v_homestay_legacy GROUP BY district_lgd_code)
+    SELECT COALESCE(h.district_lgd_code, l.district_lgd_code) AS district_lgd_code,
+           h.lgd_district, h.applications, l.legacy_loans
+    FROM h FULL JOIN l ON h.district_lgd_code = l.district_lgd_code
+    ORDER BY h.applications DESC NULLS LAST;
+  sql: "SELECT district_lgd_code, COUNT(*) AS applications FROM curated.v_homestay_api GROUP BY district_lgd_code ORDER BY applications DESC LIMIT 3;"
+  expected: [{district_lgd_code: 274, applications: 342}, {district_lgd_code: 278, applications: 209}, {district_lgd_code: 279, applications: 125}]
+
+- question: "Show each homestay loan next to the new applications in its block"
+  decision: refuse_row_level_and_rewrite
+  refused_edge: curated.v_homestay_api.block_lgd_code -> curated.v_homestay_legacy.block_lgd_code
+  why: >
+    A row-level join repeats every application once per loan in the block. Offer block
+    totals side by side (aggregate_then_combine on block_lgd_code).
+  sql: "SELECT block_lgd_code, lgd_block, COUNT(*) AS applications FROM curated.v_homestay_api GROUP BY block_lgd_code, lgd_block ORDER BY applications DESC LIMIT 3;"
+  expected: [{block_lgd_code: 249806, lgd_block: "TURA MUNICIPAL BOARD-MUNICIPAL BOARD", applications: 94}, {block_lgd_code: 1965, lgd_block: "RONGRAM", applications: 91}, {block_lgd_code: 1994, lgd_block: "SHELLA BHOLAGANJ", applications: 87}]
+
+- question: "Total homestay money - legacy loans plus new subsidy - by district"
+  decision: refuse_combined_figure
+  why: >
+    Homestay (this feed) has no money column, so there is nothing to add to the legacy
+    disbursed amounts. Report the legacy money on its own (from v_homestay_legacy) and the
+    Mission's application and approval counts beside it.
+
+- question: "Villages with both Homestay applicants and PMAY houses"
+  decision: aggregate_then_combine
+  key: village_code
+  why: >
+    Aggregate each side to village_code with its own predicates (Homestay: entity_type <>
+    'Unresolved'; PMAY: NOT is_placeholder), then join the aggregates.
+  sql_shape: |
+    WITH h AS (SELECT village_code, COUNT(*) AS homestay_applications
+               FROM curated.v_homestay_api WHERE entity_type <> 'Unresolved' GROUP BY village_code),
+         p AS (SELECT village_code, COUNT(*) AS pmay_houses
+               FROM curated.v_pmay WHERE NOT is_placeholder GROUP BY village_code)
+    SELECT COUNT(*) AS villages_with_both
+    FROM h JOIN p ON h.village_code = p.village_code;
+  sql: "SELECT COUNT(DISTINCT village_code) AS homestay_villages FROM curated.v_homestay_api WHERE entity_type <> 'Unresolved';"
+  expected: 667
+
+- question: "Which homestay applicants also hold a CMSS scholarship application?"
+  decision: refuse
+  refused_edge: curated.v_homestay_api.member_key -> curated.v_cmss.member_key
+  why: Person-level cross-scheme match. Offer each scheme's count by district side by side.
+  offer: aggregate_then_combine on district_lgd_code
+
+- question: "How many people applied more than once?"
+  decision: no_join
+  refused_edge: curated.v_homestay_api.member_key -> curated.v_homestay_api.member_key
+  why: Repeats are counted, never traced.
+  sql: "SELECT COUNT(DISTINCT member_key) FILTER (WHERE is_repeat_member) AS repeat_applicants, COUNT(*) - COUNT(DISTINCT member_key) AS extra_applications FROM curated.v_homestay_api;"
+  expected: {repeat_applicants: 17, extra_applications: 19}
+
+- question: "Homestay applications in the Nongstoin cluster block"
+  decision: no_join
+  refused_edge: curated.v_homestay_api.proposed_cluster -> curated.dim_geography.lgd_block
+  why: >
+    A cluster is not a block. Answer the cluster from proposed_cluster; if the user means
+    the LGD block, filter block_lgd_code = 1980 instead. Never equate the two.
+  sql: "SELECT COUNT(*) FILTER (WHERE lower(proposed_cluster) = 'nongstoin cluster') AS cluster_site, COUNT(*) FILTER (WHERE block_lgd_code = 1980) AS home_block FROM curated.v_homestay_api;"
+  expected: {cluster_site: 115, home_block: 43}
+
+- question: "Mawkyrwat block vs Mawkyrwat constituency applications"
+  decision: no_join
+  refused_edge: curated.v_homestay_api.ac_number = curated.v_homestay_api.block_lgd_code
+  why: Two different areas with one name. Two filters in one query, never a join.
+  sql: "SELECT COUNT(*) FILTER (WHERE block_lgd_code = 1984) AS block_applications, COUNT(*) FILTER (WHERE ac_number = 36) AS constituency_applications FROM curated.v_homestay_api;"
+  expected: {block_applications: 49, constituency_applications: 50}
+
+- question: "When is the Homestay data current to?"
+  decision: read_dimension_alone
+  from: curated.dim_scheme
+  why: Constant for the partition - no join to the fact is needed.
+  sql_shape: "SELECT data_as_of, data_as_of_basis FROM curated.dim_scheme WHERE scheme_code = 'HOMESTAY';"
+  homestay_side_sql: "SELECT MAX(application_date) AS latest_application FROM curated.v_homestay_api;"
+  note: Until dim_scheme has a HOMESTAY row, use the latest application date (2026-10-19) and the extract date (2026-11-01).

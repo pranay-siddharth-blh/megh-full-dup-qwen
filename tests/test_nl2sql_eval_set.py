@@ -13,7 +13,7 @@ from app.sql_guard import assert_readonly
 from tests.nl2sql_eval import holdout
 
 ITEMS = holdout.load_questions()
-SCHEMES = {"MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CM Elevate Legacy"}
+SCHEMES = {"MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CM Elevate Legacy", "CMSS", "Homestay"}
 
 
 def test_the_set_is_well_formed():

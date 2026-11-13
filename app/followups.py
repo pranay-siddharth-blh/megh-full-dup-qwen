@@ -65,6 +65,8 @@ _SCHEME_MATCH = {
         Seq(_FU_CME, _FU_LEGACY_TAIL),
         W("cmelevatelegacy", "cmelevatedisbursement", "cmelevatedisbursements"),
         Seq("legacy", _FU_CME), Joined("elevate", "legacy"))),
+    "CMSS": Matcher(W("cmss", "scholarship", "scholarships")),
+    "Homestay": Matcher(Alt(W("homestay", "homestays", "cmmhm"), Joined("home", "stay"))),
 }
 
 
@@ -85,7 +87,9 @@ def _primary_schemes(schemes: list[str], question: str) -> list[str]:
         return schemes
     named = [s for s, word_matcher in _SCHEME_MATCH.items() if word_matcher.search(question or "")]
     return named or ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy",
-                     "CM Elevate Legacy"]
+                     "CM Elevate Legacy",
+                     "CMSS",
+                     "Homestay"]
 
 
 # ── answer grain (read off the generated SQL's GROUP BY) ────────────────────
@@ -505,6 +509,70 @@ def _cmelevatelegacy_data(question: str, ents: dict, grain: str | None = None,
     return [{"label": q, "question": q} for q in out]
 
 
+def _cmss_data(question: str, ents: dict, grain: str | None = None,
+               rows: list | None = None) -> list[dict]:
+    scope = _scope_phrase(ents)
+    gsuf = _grain_suffix(ents, grain)
+    out: list[str] = []
+
+    # 1. The complementary CMSS figure to the one just asked. No "average per student": every paid
+    #    student gets a flat Rs 6,000 (data/cmss/cmss_schema_partitions.yaml, flat_rate_rule).
+    if _asked(question, "amount", "disburs", "money", "paid", "spend", "spent", "rupee"):
+        out.append(f"How many CMSS applications were received{scope}{gsuf}?")
+    elif _asked(question, "application", "applicant", "apply", "submitted", "student"):
+        out.append(f"How many CMSS students were paid{scope}{gsuf}?")
+    elif _asked(question, "not paid", "unpaid"):
+        out.append(f"What is the total CMSS amount disbursed{scope}{gsuf}?")
+    else:
+        out.append(f"How many CMSS students were paid{scope}{gsuf}?")
+
+    # 2. Drill one level finer than what the user is looking at.
+    d = _drill_down(ents, grain, rows)
+    if d:
+        out.append(d["question"])
+
+    # 3. Another CMSS figure — keep the whole set metric-driven.
+    _fill_metric(out, question, [
+        f"How many CMSS students were paid{scope}{gsuf}?",
+        f"How many CMSS applications were received{scope}{gsuf}?",
+        f"What is the total CMSS amount disbursed{scope}{gsuf}?",
+        f"How many CMSS applications were not paid{scope}{gsuf}?",
+        f"CMSS students paid by assembly constituency{scope}",
+    ])
+    return [{"label": q, "question": q} for q in out]
+
+
+def _homestay_data(question: str, ents: dict, grain: str | None = None,
+                   rows: list | None = None) -> list[dict]:
+    scope = _scope_phrase(ents)
+    gsuf = _grain_suffix(ents, grain)
+    out: list[str] = []
+
+    # 1. The complementary Homestay figure to the one just asked. No money figure: the application feed
+    #    records none (data/homestay/README.md §4.7).
+    if _asked(question, "approv", "sanction", "status"):
+        out.append(f"How many Homestay applications were received{scope}{gsuf}?")
+    elif _asked(question, "application", "applicant", "apply", "submitted", "request"):
+        out.append(f"How many Homestay applications were approved{scope}{gsuf}?")
+    else:
+        out.append(f"How many Homestay applications were received{scope}{gsuf}?")
+
+    # 2. Drill one level finer than what the user is looking at.
+    d = _drill_down(ents, grain, rows)
+    if d:
+        out.append(d["question"])
+
+    # 3. Another Homestay figure — keep the whole set metric-driven.
+    _fill_metric(out, question, [
+        f"How many Homestay applications were approved{scope}{gsuf}?",
+        f"How many Homestay applications were received{scope}{gsuf}?",
+        f"How many Homestay applications are for upgrading an existing homestay{scope}{gsuf}?",
+        f"Homestay applications by status{scope}",
+        f"Homestay applications by tourism cluster{scope}",
+    ])
+    return [{"label": q, "question": q} for q in out]
+
+
 def _cross_scheme_data(question: str, ents: dict, grain: str | None = None,
                        rows: list | None = None, schemes: list[str] | None = None) -> list[dict]:
     scope = _scope_phrase(ents)
@@ -608,6 +676,22 @@ _KNOWLEDGE_LADDER = {
          "How many individual schemes does CM-ELEVATE cover?"),
         (("apply", "registration", "how do i"), "How does someone apply for CM-ELEVATE?"),
     ],
+    "CMSS": [
+        (("what is", "about cmss", "overview"), "What is CMSS (the Chief Minister's Scholarship Scheme)?"),
+        (("eligib", "who can", "who qualifies"), "Who is eligible for CMSS?"),
+        (("document", "paper", "proof", "domicile"), "What documents are required to apply for CMSS?"),
+        (("apply", "registration", "how do i", "meghalayaone"), "How does a student apply for CMSS?"),
+        (("how much", "amount", "benefit", "6000"), "How much does CMSS pay per student?"),
+        (("implement", "dhte", "who runs"), "Who implements CMSS?"),
+    ],
+    "Homestay": [
+        (("what is", "about homestay", "overview"), "What is the Homestay scheme?"),
+        (("eligib", "who can", "who qualifies"), "Who is eligible for the Homestay scheme?"),
+        (("apply", "registration", "how do i", "meghalayaone"), "How does someone apply for the Homestay scheme?"),
+        (("how many scheme", "sub-scheme", "sectors covered"), "What are the three main components of the Homestay scheme?"),
+        (("how much", "subsidy", "financial support", "project cost"), "How much financial support does the Homestay scheme provide?"),
+        (("implement", "tourism", "who runs"), "Who implements the Homestay scheme?"),
+    ],
 }
 # Knowledge fix 2026-10-29 (KR9): after a "how does it work" answer, the last chip is
 # one of the scheme's figures, so the officer can go from the rule to the numbers.
@@ -620,6 +704,8 @@ _KNOWLEDGE_DATA_NEXT = {
     "CM Elevate": "How many CM Elevate applications are there?",
     "Focus Legacy": "How many producer groups were paid under Focus Legacy?",
     "CM Elevate Legacy": "How much has been sanctioned under CM Elevate Legacy?",
+    "CMSS": "How many CMSS applications are there?",
+    "Homestay": "How many Homestay applications are there?",
 }
 # "What does FOCUS stand for?" was followed by the chip "What is the FOCUS scheme?" —
 # the same answer again. A what-is chip is skipped after any definition question.
@@ -676,6 +762,10 @@ def build_followups(route: str, question: str, schemes: list[str],
             opts = _focuslegacy_data(q, ents, grain, rows)
         elif primary[0] == "CM Elevate Legacy":
             opts = _cmelevatelegacy_data(q, ents, grain, rows)
+        elif primary[0] == "CMSS":
+            opts = _cmss_data(q, ents, grain, rows)
+        elif primary[0] == "Homestay":
+            opts = _homestay_data(q, ents, grain, rows)
         else:
             opts = _mgnrega_data(q, ents, grain, rows)
     else:

@@ -422,7 +422,7 @@ function SchemePicker({ response, onAsk }) {
 // then pills — the first few shown and a "+N more" pill for the rest. An
 // "All …" reply (all years, all of Meghalaya) is the outlined pill at the end;
 // the pill the officer tapped stays filled.
-const SCHEME_NAMES = ['MGNREGA', 'PMAY-G', 'Focus Plus', 'CM Elevate', 'Focus Legacy', 'CM Elevate Legacy']
+const SCHEME_NAMES = ['MGNREGA', 'PMAY-G', 'Focus Plus', 'CM Elevate', 'Focus Legacy', 'CM Elevate Legacy', 'CMSS', 'Homestay']
   // Longest name first, so "CM Elevate Legacy (…)" is not read as "CM Elevate".
   .sort((a, b) => b.length - a.length);
 // F-1 (audit 2026-10-29): "MGNREGA vs PMAY-G" is a pair, not MGNREGA — shown in full

@@ -97,7 +97,9 @@ def test_the_reported_conversation(monkeypatch):
 
 def test_it_keeps_moving_on_and_continuations_follow_a_pick(monkeypatch):
     ask = _conversation(monkeypatch)
-    order = [ask(q)["schemes"][0] for q in
-             ("pick any scheme", "pick another one", "one more", "next one", "another one")]
+    # one ask per pickable programme (was five fixed asks — too few once CMSS / Homestay were onboarded)
+    asks = ["pick any scheme"] + [("pick another one", "one more", "next one", "another one")[i % 4]
+                                  for i in range(len(p._pickable_schemes()) - 1)]
+    order = [ask(q)["schemes"][0] for q in asks]
     assert order == p._pickable_schemes()                    # every programme once, in order
     assert ask("one more")["schemes"] == ["MGNREGA"]         # then cycles

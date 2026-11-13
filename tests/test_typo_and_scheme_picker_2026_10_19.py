@@ -39,28 +39,31 @@ def _picked(q):
 def test_gender_and_applications_offer_only_the_scheme_holding_both():
     for q in ("gender wise breakup the applicxations", "gender wise breakup the applications"):
         head, schemes = _picked(q)
-        assert schemes == ["Focus Plus"]
-        assert head.startswith("Only Focus Plus records")
+        # Homestay (onboarded 2026-11-12) records the applicant's gender on every application
+        assert schemes == ["Focus Plus", "Homestay"]
+        assert head.startswith("Only these schemes record")
 
 
 def test_one_measure_offers_its_holders():
     head, schemes = _picked("district wise applications")
-    assert schemes == ["Focus Plus", "CM Elevate", "CM Elevate Legacy"]
+    assert schemes == ["Focus Plus", "CM Elevate", "CM Elevate Legacy", "CMSS", "Homestay"]   # CMSS / Homestay: one row per application
     assert "Which one" in head
     # CM Elevate records no money
     assert "CM Elevate" not in _picked("total amount disbursed in 2024")[1]
+    # Homestay records no money either (onboarding 2026-11-12)
+    assert "Homestay" not in _picked("total amount disbursed in 2024")[1]
 
 
 def test_measures_no_scheme_holds_together_offer_each_holder():
     head, schemes = _picked("person days and applications by district")
-    assert schemes == ["MGNREGA", "Focus Plus", "CM Elevate", "CM Elevate Legacy"]
+    assert schemes == ["MGNREGA", "Focus Plus", "CM Elevate", "CM Elevate Legacy", "CMSS", "Homestay"]
     assert head.startswith("No single scheme")
 
 
 def test_no_measure_named_keeps_all_six():
-    assert len(_picked("Show beneficiaries")[1]) == 6
+    assert len(_picked("Show beneficiaries")[1]) == 8
     # the KNOWLEDGE path never narrows: "how do I apply?" holds for every scheme
-    assert len(p._scheme_clarification("district wise applications").options) == 6
+    assert len(p._scheme_clarification("district wise applications").options) == 8   # + CMSS 2026-11-11, Homestay 2026-11-12
 
 
 # ── MGNREGA: a short per-area breakdown names every area (harness 2026-10-19) ──

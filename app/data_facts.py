@@ -146,6 +146,30 @@ _QUERIES = {
                  WHERE entity_type <> 'Unresolved' GROUP BY lgd_village_name
                  HAVING COUNT(DISTINCT village_code) > 1) s) AS cl_shared_names
         FROM curated.v_cm_elevate_disbursement""",
+    "cmss": """
+        SELECT COUNT(*) AS cmss_rows,
+               COUNT(*) FILTER (WHERE is_disbursed) AS cmss_paid,
+               SUM(amount_disbursed) AS cmss_amount,
+               COUNT(DISTINCT member_key) AS cmss_students,
+               COUNT(DISTINCT lgd_district) AS cmss_districts,
+               COUNT(DISTINCT lgd_block) AS cmss_blocks,
+               COUNT(DISTINCT village_code) AS cmss_villages,
+               COUNT(DISTINCT ac_name) AS cmss_constituencies,
+               COUNT(DISTINCT entity_type) AS cmss_entity_types,
+               ARRAY_AGG(DISTINCT financial_year_short) FILTER (WHERE financial_year_short IS NOT NULL) AS cmss_years
+        FROM curated.v_cmss
+""",
+    "homestay": """
+        SELECT COUNT(*) AS hs_rows,
+               COUNT(DISTINCT member_key) AS hs_applicants,
+               COUNT(*) FILTER (WHERE file_status = 'Approved') AS hs_approved,
+               COUNT(*) FILTER (WHERE is_upgradation) AS hs_upgradation,
+               COUNT(DISTINCT lgd_district) AS hs_districts,
+               COUNT(DISTINCT lgd_block) AS hs_blocks,
+               COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved') AS hs_villages,
+               COUNT(DISTINCT ac_name) AS hs_constituencies,
+               ARRAY_AGG(DISTINCT financial_year_short) FILTER (WHERE financial_year_short IS NOT NULL) AS hs_years
+        FROM curated.v_homestay_api""",
 }
 
 

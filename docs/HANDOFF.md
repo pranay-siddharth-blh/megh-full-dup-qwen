@@ -3,6 +3,12 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-11-12 (Homestay onboarded by scheme-onboarder): branch `onboard/homestay-2026-11-12` @ c8890d8, built ON the CMSS branch (merge CMSS first), NOT merged, NOT pushed.** Tests green except the pre-existing BLH8; live acceptance 0 regressions, Homestay 9-10/12 (CURRENT_STATE 2026-11-12). Next: (1) KI-690 (number word read as a place; KNOWLEDGE routing for some phrasings) and KI-687 (CMSS); (2) data team / SME: KI-689 (one missing application, Tura block spellings, confirm the column remap and Ri Bhoi) and the HS / CS gold SQL; (3) `tests/live_context_validation.py` on the branch; (4) user decision KI-684; (5) review, merge CMSS then Homestay. Homestay Legacy, if onboarded, needs a which-Homestay rule and its own frontend SERIES_SCHEME entry first.
+
+**2026-11-11 (welcome KPI cards: one colour per scheme): uncommitted, built (`web/app`), frontend tests 115/115.** Each card wears its scheme's chart hue (`WelcomeCard.cardHueStyle` <- `chartTheme.SCHEME_HUES` via `schemeOfSeries`; CSS `.scheme-card.hued`); CMSS hue changed #4a90e2 -> amber #d99a00 / #8a5f00 (the blue was too close to PMAY-G). Text contrast >= 4.5:1 on every card.
+
+**2026-11-11 (CMSS onboarded by scheme-onboarder): branch `onboard/cmss-2026-11-11` @ 3379836, NOT merged, NOT pushed.** Live acceptance ran (CURRENT_STATE 2026-11-11): CMSS 8/12, no regression on the six schemes after KI-686 (FP-11, fixed). Next: (1) KI-687 — report the West Garo Hills code-663 rows to megh-ingestion; CS-10 region rule (prompt + few-shot + guard); CS-09 place reader; CS-12 runners-up vs evaluator; (2) data team confirms CS gold SQL and the Ri Bhoi resolver grouping; (3) run `tests/live_context_validation.py` on the branch; (4) user decision KI-684; (5) review, merge.
+
 **2026-11-06 (scheme onboarding tool, D-102): docs-only in this repo (SCHEMES.md §Adding a scheme, DECISIONS
 D-102, KNOWN_ISSUES KI-683, CURRENT_STATE); uncommitted.** The tool is `C:\Users\dell\Desktop\MEGH-LANG\scheme-onboarder`
 (committed in its own repo; README there).

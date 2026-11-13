@@ -2278,12 +2278,15 @@ region_groupings:
       paid: 31066
       aliases: [Garo, Garo region, Garo Hills region, GH]
     "Khasi Hills":
+      # Ri Bhoi added 2026-11-11 (onboarding): v_cmss stores region 'Khasi' for Ri Bhoi (9,229 applications,
+      # 8,701 paid), the LGD master puts it in the Khasi region (ingestion answer 2, 2026-10-26) and every other
+      # scheme's group includes it. Without it "all of Khasi Hills" under-counted by 9,229. SME: please confirm.
       districts: [East Khasi Hills, Eastern West Khasi Hills, South West Khasi Hills,
-                  West Khasi Hills]
-      district_codes: [274, 740, 658, 279]
+                  West Khasi Hills, Ri Bhoi]
+      district_codes: [274, 740, 658, 279, 276]
       stored_region: Khasi
-      applications: 43438
-      paid: 41179
+      applications: 52667
+      paid: 49880
       aliases: [Khasi, Khasi region, Khasi Hills region, KH]
       note: >
         Ri Bhoi is NOT included. Its region value in the LGD master is unverified; if it is

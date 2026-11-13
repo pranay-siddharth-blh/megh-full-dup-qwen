@@ -131,7 +131,7 @@ _AC_INCAPABLE_METRIC = _tm.Matcher(_tm.Alt(
 # uses; every row has one). Left out, a constituency question was answered by the
 # model with a bare ac_name = 'AMLAREM' — a false 0 for Amlarem, Mawlai, North Tura
 # (PMAY-G sheet re-test 2026-10-30, KI-445).
-_AC_CAPABLE_SCHEMES = ("MGNREGA", "Focus Legacy", "CM Elevate Legacy", "CM Elevate", "PMAY-G")
+_AC_CAPABLE_SCHEMES = ("MGNREGA", "Focus Legacy", "CM Elevate Legacy", "CM Elevate", "PMAY-G", "CMSS", "Homestay")
 _C08_CONSTITUENCY_WORD = Matcher(W("constituency", "constituencies"))
 
 
@@ -383,7 +383,7 @@ async def _resolve_village_for(schemes: "list[str] | None", text: str, **kw) -> 
 # the same shapes — a block total reported for the village, the village name put in
 # the district slot, a neighbour's code (LENMAWTAP vs LENMAWTAP A), a chip that
 # re-asked, "UPPER KAMARI (GARO)" read as the Garo Hills range.
-_VILLAGE_FACT_SCHEMES = ("MGNREGA", "Focus Plus", "PMAY-G", "CM Elevate")
+_VILLAGE_FACT_SCHEMES = ("MGNREGA", "Focus Plus", "PMAY-G", "CM Elevate", "CMSS", "Homestay")
 # the single-scheme members that share the Focus Plus narrowing / pinning guards
 # Focus Legacy joined 2026-10-02 (all-villages run, bare village names): a name
 # typed without the word "village" was never scanned — "producer groups in
@@ -469,7 +469,56 @@ _URBAN_BODY_MATCH = _CharScan(_c08_urban_body_at)
 _URBAN_WORD_MATCH = _CharScan(_c08_urban_word_at)
 
 
+_CMSS_VILLAGE_NAMES = None
+
+
+async def _cmss_village_names() -> "dict[str, list[dict]]":
+    """UPPER(name) -> villages, for every village / ward in v_cmss (the students' HOME villages).
+    Loaded once per process. The Unresolved rows (no village, 1,218 applications) are left out."""
+    global _CMSS_VILLAGE_NAMES
+    if _CMSS_VILLAGE_NAMES is None:
+        rows = await fetch_rows(
+            "SELECT DISTINCT village_code, lgd_village_name, UPPER(lgd_block) AS block, "
+            "UPPER(lgd_district) AS district FROM curated.v_cmss "
+            "WHERE village_code IS NOT NULL AND entity_type <> 'Unresolved'", [])
+        out: dict[str, list[dict]] = {}
+        for r in rows:
+            n = collapse_ws(str(r["lgd_village_name"] or ""))
+            if n:
+                out.setdefault(n.upper(), []).append(
+                    {"village_code": r["village_code"], "name": n, "block": r["block"], "district": r["district"]})
+        _CMSS_VILLAGE_NAMES = out
+    return _CMSS_VILLAGE_NAMES
+
+
+_HOMESTAY_VILLAGE_NAMES = None
+
+
+async def _homestay_village_names() -> "dict[str, list[dict]]":
+    """UPPER(name) -> villages, for every village / ward in v_homestay_api (the applicants' HOME villages,
+    not the proposed homestay site). Loaded once per process. The Unresolved rows (64 applications, no
+    village) are left out."""
+    global _HOMESTAY_VILLAGE_NAMES
+    if _HOMESTAY_VILLAGE_NAMES is None:
+        rows = await fetch_rows(
+            "SELECT DISTINCT village_code, lgd_village_name, UPPER(lgd_block) AS block, "
+            "UPPER(lgd_district) AS district FROM curated.v_homestay_api "
+            "WHERE village_code IS NOT NULL AND entity_type <> 'Unresolved'", [])
+        out: dict[str, list[dict]] = {}
+        for r in rows:
+            n = collapse_ws(str(r["lgd_village_name"] or ""))
+            if n:
+                out.setdefault(n.upper(), []).append(
+                    {"village_code": r["village_code"], "name": n, "block": r["block"], "district": r["district"]})
+        _HOMESTAY_VILLAGE_NAMES = out
+    return _HOMESTAY_VILLAGE_NAMES
+
+
 async def _scheme_village_names(scheme: str) -> "dict[str, list[dict]]":
+    if scheme == "CMSS":
+        return await _cmss_village_names()
+    if scheme == "Homestay":
+        return await _homestay_village_names()
     if scheme == "CM Elevate":
         return await _cm_elevate_village_names()
     if scheme == "Focus Legacy":
@@ -512,7 +561,7 @@ def _ac_dimension_available(question: str, schemes: list[str]) -> bool:
         return bool(_C08_CONSTITUENCY_WORD.search(question or ""))
     if len(_live) != 1 or _live[0] not in _AC_CAPABLE_SCHEMES:
         return False
-    if _live[0] in ("CM Elevate Legacy", "CM Elevate", "PMAY-G"):
+    if _live[0] in ("CM Elevate Legacy", "CM Elevate", "PMAY-G", "CMSS", "Homestay"):
         # Every measure on these views (records, sanctioned, subsidy, loan,
         # disbursement; applications, status; PMAY-G's houses and amounts, on
         # v_pmay.ac_name) hangs off the same geography_key,
@@ -754,7 +803,7 @@ _PLACE_PREP_MATCH = _CharScan(_c08_place_prep_at)
 # these is never a village.
 _NOT_A_PLACE_WORD = {
     "mgnrega", "mnrega", "nrega", "pmay", "pmayg", "awaas", "awas",
-    "focus", "focus plus", "focusplus", "cm", "cm elevate", "cmelevate",
+    "focus", "focus plus", "focusplus", "cm", "cm elevate", "cmelevate", "cmss", "cm scholarship", "cm scholarship scheme", "chief minister scholarship", "chief minister scholarship scheme meghalaya", "cmss meghalaya", "meghalaya cm scholarship", "meghalaya cm scholarship scheme", "cm scholarship scheme 2025", "state scholarship", "post matric state scholarship", "rs 6000 scholarship", "6000 scholarship", "chief minister scholarship scheme 2025", "homestay", "home stay", "homestay scheme", "homestay mission", "cm homestay mission", "cmmhm", "meghalaya tourism homestay scheme", "tourism homestay scheme", "homestay subsidy scheme", "homestay applications", "homestay api", "new homestay scheme", "homestay upgradation scheme",
     "meghalaya", "fy", "financial", "financial year", "all", "each", "every",
     "the", "a", "an", "this", "that", "total", "district", "block", "village",
     "assembly", "constituency", "state", "india", "government", "scheme",

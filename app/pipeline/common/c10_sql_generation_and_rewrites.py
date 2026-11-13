@@ -614,7 +614,7 @@ _VILLAGE_WORD_MATCH = Matcher(W("village", "villages"))
 # rule 5). Its 2026-09-27 QA hit it too (KI-068, CM-ELEVATE-OFF-005): "how many
 # applicants under each CM ELEVATE program" dropped the 51 no-village
 # applications — SEED 3,617 against a true 3,633, 8 of 15 programmes low.
-_UNRESOLVED_PLACEHOLDER_SCHEMES = (["CM Elevate Legacy"], ["Focus Legacy"], ["CM Elevate"])
+_UNRESOLVED_PLACEHOLDER_SCHEMES = (["CM Elevate Legacy"], ["Focus Legacy"], ["CM Elevate"], ["CMSS"], ["Homestay"])
 
 
 # ── CM Elevate SQL shape guards (use-case QA 2026-09-27, KI-069 / 070 / 072) ─

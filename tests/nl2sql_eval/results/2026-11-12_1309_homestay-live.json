@@ -1,0 +1,466 @@
+{
+ "label": "homestay-live",
+ "when": "2026-11-12T13:09:28",
+ "git": {
+  "commit": "da0651e",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b",
+  "sql_examples": "yaml"
+ },
+ "readonly_login": "megh_readonly",
+ "superuser_allowed": false,
+ "holdout_checked": true,
+ "selection": {
+  "scheme": "Homestay",
+  "ids": null
+ },
+ "minutes": 0.5,
+ "summary": {
+  "items": 12,
+  "scored": 12,
+  "outcomes": {
+   "correct": 10,
+   "clarification": 1,
+   "no_sql": 1
+  },
+  "expected_pauses": 0,
+  "accuracy": 83.3,
+  "by": {
+   "Homestay": {
+    "accuracy": 83.3,
+    "correct": 10,
+    "clarification": 1,
+    "no_sql": 1
+   },
+   "difficulty:easy": {
+    "accuracy": 100.0,
+    "correct": 3
+   },
+   "difficulty:hard": {
+    "accuracy": 100.0,
+    "correct": 3
+   },
+   "difficulty:medium": {
+    "accuracy": 66.7,
+    "correct": 4,
+    "clarification": 1,
+    "no_sql": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "HS-01",
+   "scheme": "Homestay",
+   "difficulty": "easy",
+   "question": "How many Homestay applications were sent in by people whose home is in West Jaintia Hills?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Homestay"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "WEST JAINTIA HILLS"
+   },
+   "sql": "SELECT COUNT(*) AS applications \nFROM curated.v_homestay_api \nWHERE lgd_district = 'WEST JAINTIA HILLS'",
+   "seconds": 12.8,
+   "repairs": 1,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Homestay#12",
+    "Homestay#5",
+    "Homestay#21",
+    "Homestay#4",
+    "Homestay#30"
+   ],
+   "answer": "89 Homestay applications were sent in by people whose home is in West Jaintia Hills across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "applications": [
+     "applications",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "HS-02",
+   "scheme": "Homestay",
+   "difficulty": "easy",
+   "question": "Counting each person once, how many individuals have applied to the Homestay mission so far?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Homestay"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT COUNT(DISTINCT member_key) AS distinct_applicants FROM curated.v_homestay_api",
+   "seconds": 7.4,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Homestay#5",
+    "Homestay#1",
+    "Homestay#2",
+    "Homestay#3",
+    "Homestay#4"
+   ],
+   "answer": "1,278 individuals have applied to the Homestay mission across all financial years. This is the statewide figure for all of Meghalaya, across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "applicants": [
+     "distinct_applicants",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "HS-03",
+   "scheme": "Homestay",
+   "difficulty": "easy",
+   "question": "Of the Homestay applications lodged in FY 2025-26, how many ended up approved?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Homestay"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "year_key": 2025
+   },
+   "sql": "SELECT COUNT(*) AS approved FROM curated.v_homestay_api WHERE financial_year_short = '2025-26' AND file_status = 'Approved'",
+   "seconds": 8.5,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Homestay#2",
+    "Homestay#5",
+    "Homestay#7",
+    "Homestay#25",
+    "Homestay#27"
+   ],
+   "answer": "80 Homestay applications were approved in FY 2025-26. This is the statewide figure for all of Meghalaya.",
+   "detail": "same rows",
+   "mapping": {
+    "approved": [
+     "approved",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "HS-04",
+   "scheme": "Homestay",
+   "difficulty": "medium",
+   "question": "District by district, how many Homestay applications are still awaiting a decision?",
+   "gold_rows": 12,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Homestay"
+   ],
+   "rewritten": "How many Homestay applications are still awaiting a decision district by district?",
+   "resolved": {},
+   "sql": "SELECT district_lgd_code, lgd_district, COUNT(*) AS pending_applications FROM curated.v_homestay_api WHERE file_status = 'Pending' GROUP BY district_lgd_code, lgd_district ORDER BY pending_applications DESC NULLS LAST LIMIT 1000",
+   "seconds": 3.0,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Homestay#4",
+    "Homestay#30",
+    "Homestay#82",
+    "Homestay#32",
+    "Homestay#5"
+   ],
+   "answer": "Across the 12 districts, 1,082 Homestay applications are still awaiting a decision. The highest count is 256 in East Khasi Hills, while the lowest is 15 in South West Garo Hills. Pending applications range from 15 to 256 across all districts.",
+   "detail": "same rows",
+   "mapping": {
+    "district_lgd_code": [
+     "district_lgd_code",
+     1.0
+    ],
+    "lgd_district": [
+     "lgd_district",
+     1.0
+    ],
+    "pending": [
+     "pending_applications",
+     1.0
+    ]
+   },
+   "pred_rows": 12
+  },
+  {
+   "id": "HS-05",
+   "scheme": "Homestay",
+   "difficulty": "medium",
+   "question": "Name the three districts with the most female Homestay applicants, with their counts.",
+   "gold_rows": 3,
+   "outcome": "clarification",
+   "detail": "unknown-place: I couldn't find a district called \u201cthree\u201d in Meghalaya. Please pick one of Meghalaya's districts below, or check the spelling.",
+   "seconds": 1.0,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "few_shot_ids": [],
+   "answer": ""
+  },
+  {
+   "id": "HS-06",
+   "scheme": "Homestay",
+   "difficulty": "medium",
+   "question": "What percentage of the proposed new homestays include rainwater harvesting under the Homestay scheme?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Homestay"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT ROUND(CAST(100.0 * COUNT(*) FILTER(WHERE rainwater_harvesting) / NULLIF(COUNT(*), 0) AS DECIMAL), 1) AS pct_with_rainwater_harvesting FROM curated.v_homestay_api WHERE NOT is_upgradation",
+   "seconds": 6.3,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Homestay#68",
+    "Homestay#5",
+    "Homestay#73",
+    "Homestay#74",
+    "Homestay#30"
+   ],
+   "answer": "73.5% of proposed new homestays include rainwater harvesting under the Homestay scheme across all financial years. This is the statewide figure for all of Meghalaya, across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "rainwater_pct": [
+     "pct_with_rainwater_harvesting",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "HS-07",
+   "scheme": "Homestay",
+   "difficulty": "medium",
+   "question": "How do Homestay applications divide between those filed online and those filed through a CM Connect centre?",
+   "gold_rows": 2,
+   "outcome": "no_sql",
+   "route": "knowledge",
+   "schemes": [
+    "Homestay"
+   ],
+   "rewritten": "How are Homestay applications divided between those filed online and those filed through a CM Connect centre?",
+   "resolved": {},
+   "sql": null,
+   "seconds": 2.5,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "few_shot_ids": [],
+   "answer": "The published scheme information does not contain information about applications filed through a CM Connect centre; it states that offline paper forms are not accepted and applications are submitted exclusively online via the Meghalaya Investment Promotion Authority portal or the citizen services portal.\n\n- **Online Submission** \u2014 Applications are filed only through the Meghalaya Investment Promot",
+   "detail": "route=knowledge"
+  },
+  {
+   "id": "HS-08",
+   "scheme": "Homestay",
+   "difficulty": "hard",
+   "question": "Adding up the guest rooms planned in new homestays from East Khasi Hills applicants, what is the total once implausible room counts are left out?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Homestay"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "EAST KHASI HILLS"
+   },
+   "sql": "SELECT SUM(homestay_rooms) AS total_planned_rooms FROM curated.v_homestay_api WHERE lgd_district = 'EAST KHASI HILLS' AND NOT is_upgradation AND NOT COALESCE(homestay_rooms > 100, FALSE)",
+   "seconds": 8.0,
+   "repairs": 2,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Homestay#21",
+    "Homestay#74",
+    "Homestay#30",
+    "Homestay#4",
+    "Homestay#67"
+   ],
+   "answer": "The total planned guest rooms for new homestays from East Khasi Hills applicants across all financial years, excluding implausible counts, is 1,320.",
+   "detail": "same rows",
+   "mapping": {
+    "proposed_rooms": [
+     "total_planned_rooms",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "HS-09",
+   "scheme": "Homestay",
+   "difficulty": "hard",
+   "question": "In South Garo Hills, from how many separate villages did at least one Homestay application come?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Homestay"
+   ],
+   "rewritten": "From how many separate villages in South Garo Hills did at least one Homestay application come?",
+   "resolved": {
+    "district": "SOUTH GARO HILLS"
+   },
+   "sql": "SELECT COUNT(DISTINCT village_code) AS villages FROM curated.v_homestay_api WHERE lgd_district = 'SOUTH GARO HILLS' AND entity_type <> 'Unresolved'",
+   "seconds": 7.8,
+   "repairs": 1,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Homestay#19",
+    "Homestay#4",
+    "Homestay#30",
+    "Homestay#21",
+    "Homestay#82"
+   ],
+   "answer": "At least one Homestay application came from 54 separate villages in South Garo Hills across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "villages": [
+     "villages",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "HS-10",
+   "scheme": "Homestay",
+   "difficulty": "medium",
+   "question": "Year by year, how many Homestay applications ask to upgrade a homestay that already exists?",
+   "gold_rows": 2,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Homestay"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT \n    financial_year_short,\n    COUNT(*) AS upgradation_applications\nFROM \n    curated.v_homestay_api\nWHERE \n    is_upgradation = TRUE\nGROUP BY \n    financial_year_short\nORDER BY \n    financial_year_short\nLIMIT 100",
+   "seconds": 1.4,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Homestay#5",
+    "Homestay#4",
+    "Homestay#30",
+    "Homestay#82",
+    "Homestay#38"
+   ],
+   "answer": "Statewide Homestay upgradation applications across all financial years are compared:\n2026-27 is higher than 2025-26 on upgradation applications: 17 against 7, a difference of 10 (142.9% more).",
+   "detail": "same rows",
+   "mapping": {
+    "financial_year_short": [
+     "financial_year_short",
+     1.0
+    ],
+    "upgradation_applications": [
+     "upgradation_applications",
+     1.0
+    ]
+   },
+   "pred_rows": 2
+  },
+  {
+   "id": "HS-11",
+   "scheme": "Homestay",
+   "difficulty": "hard",
+   "question": "Which tourism cluster is the proposed location for the largest number of Homestay applications?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Homestay"
+   ],
+   "rewritten": null,
+   "resolved": {},
+   "sql": "SELECT proposed_cluster, COUNT(*) AS applications FROM curated.v_homestay_api WHERE proposed_cluster IS NOT NULL GROUP BY proposed_cluster ORDER BY applications DESC NULLS LAST LIMIT 1",
+   "seconds": 5.7,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Homestay#23",
+    "Homestay#4",
+    "Homestay#30",
+    "Homestay#24",
+    "Homestay#82"
+   ],
+   "answer": "The Nongstoin Cluster received 115 Homestay applications across all financial years for Meghalaya.",
+   "detail": "same rows in order",
+   "mapping": {
+    "proposed_cluster": [
+     "proposed_cluster",
+     1.0
+    ],
+    "applications": [
+     "applications",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "HS-12",
+   "scheme": "Homestay",
+   "difficulty": "medium",
+   "question": "How many Homestay applications from Ri Bhoi were found Invalid when they were verified?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Homestay"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "RI BHOI"
+   },
+   "sql": "SELECT COUNT(*) AS invalid_applications FROM curated.v_homestay_api WHERE lgd_district = 'RI BHOI' AND data_verified = 'Invalid'",
+   "seconds": 7.8,
+   "repairs": 1,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Homestay#12",
+    "Homestay#4",
+    "Homestay#30",
+    "Homestay#82",
+    "Homestay#5"
+   ],
+   "answer": "11 Homestay applications from Ri Bhoi were found invalid when verified across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "invalid_applications": [
+     "invalid_applications",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  }
+ ],
+ "compared_with": "2026-11-11_1436_cl12.json",
+ "delta": {
+  "regressions": [],
+  "fixed": []
+ }
+}

@@ -330,7 +330,9 @@ async def _mgnrega_village_not_out_of_area(question: str, hit: "dict | None") ->
     # Focus Legacy / CM Elevate Legacy too since 2026-10-02 (CM Elevate Legacy's village
     # MANIPUR was refused as the state in the all-villages re-run)
     if _sch not in ([], ["MGNREGA"], ["Focus Plus"], ["PMAY-G"], ["CM Elevate"], ["Focus Legacy"],
-                    ["CM Elevate Legacy"]):
+                    ["CM Elevate Legacy"],
+                    ["CMSS"],
+                    ["Homestay"]):
         return False
     ql = (question or "").lower()
     m = edge._OUT_OF_AREA.search(ql) or edge._FOREIGN_PLACE.search(ql)

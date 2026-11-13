@@ -408,6 +408,8 @@ _C01_SWAP_SCHEME = Alt(
     _c01_chain(["pmay", "g"], ["opt1"]), W("pmay"),
     _c01_chain(["focus", "plus"], ["opt1"]),
     _c01_chain(["focus", "legacy"], ["opt1"]), W("focus"),
+    W("cmss"),
+    W("homestay"),
     _c01_chain(["cm", "elevate", "legacy"], ["opt1", "opt1"]),
     _c01_chain(["cm", "elevate"], ["opt1"]))
 _C01_WS0 = _C01Gap(_c01_ws0)
@@ -1608,6 +1610,8 @@ _SCHEME_HEADLINE_OFFERS: "dict[str, list[tuple[str, str]]]" = {
                            "What is the total sanctioned amount under CM Elevate Legacy{scope}?"),
                           ("Total disbursed",
                            "What is the total amount disbursed under CM Elevate Legacy{scope}?")],
+    "CMSS": [("Applications", "How many CMSS applications were received{scope}?"), ("Students paid", "How many students were paid under CMSS{scope}?"), ("Amount disbursed", "How much was disbursed under CMSS{scope}?")],
+    "Homestay": [("Applications", "How many Homestay applications were received{scope}?"), ("Approved", "How many Homestay applications were approved{scope}?"), ("Applicants", "How many people applied under the Homestay scheme{scope}?")],
 }
 # CM Elevate (applications) records no financial year at all (SCHEME_METRICS),
 # so a carried year is left out of its offers rather than paused on again.
@@ -1663,12 +1667,13 @@ _MEASURE_HOLDERS: "list[tuple[str, Matcher, frozenset[str]]]" = [
     ("subsidy", Matcher(W("subsidy", "subsidies")), frozenset({"CM Elevate Legacy"})),
     ("loans", Matcher(W("loan", "loans")), frozenset({"CM Elevate Legacy"})),
     ("applications", Matcher(W("application", "applications", "applicant", "applicants")),
-     frozenset({"CM Elevate", "CM Elevate Legacy", "Focus Plus"})),
+     frozenset({"CM Elevate", "CM Elevate Legacy", "Focus Plus", "CMSS", "Homestay"})),
     # CM Elevate left the holders on 2026-10-16: its gender was only ever the
     # scheme_specific ->> 'gender_id' JSON key, and megh_readonly may not read
     # scheme_specific (ingestion team, CHATBOT_DB_CHANGES_2026-10-16).
     ("gender", Matcher(W("gender", "women", "female", "females", "male", "males", "men")),
-     frozenset({"MGNREGA", "PMAY-G", "Focus Plus"})),
+     # Homestay (2026-11-12): `gender` (the applicant's) on every application, v_homestay_api
+     frozenset({"MGNREGA", "PMAY-G", "Focus Plus", "Homestay"})),
     # CM Elevate's Approved / Rejected decision lived only in scheme_specific ->>
     # 'file_status', now locked from the chatbot's role; current_file_status holds
     # forward / resubmit / sendback to vdv/citizen only, so a filter on it for
@@ -1687,7 +1692,10 @@ _MEASURE_HOLDERS: "list[tuple[str, Matcher, frozenset[str]]]" = [
         W("disburs", "subsid", prefix=True),
         Seq("paid", _C01Gap(_c01_ws), "out"),
         _C01CharIn("₹"))),
-     _ALL_SCHEMES - {"CM Elevate"}),
+     # the schemes whose dataset records money (scheme_registry.DATASETS money_unit), not "all but CM
+     # Elevate": Homestay (onboarded 2026-11-12) records none either, and "total amount disbursed in
+     # 2024" offered it — a new scheme with no money must never inherit the money measure.
+     frozenset(s for s in scheme_registry.NAMES if scheme_registry.DATASETS[s].money_unit)),
 ]
 
 # The place and year a gap question carried, for its offers (" in Mawlwai

@@ -161,6 +161,10 @@ _SCHEME_USER_SUMMARY = {
                          "poultry, dairy, warehouse, tourism vehicles and more) and the "
                          "subsidy and loans actually paid, FY 2024-25 and 2025-26. "
                          "Different from CM Elevate, which holds the applications.",
+    "CMSS": "Chief Minister's Scholarship Scheme — a flat Rs 6,000 a year for eligible "
+            "post-matric students from Meghalaya.",
+    "Homestay": "Chief Minister's Meghalaya Homestay Mission (Tourism Department) — support to build a new "
+            "homestay or upgrade an existing one; the data is its online applications since October 2025.",
 }
 
 # "What schemes are available?" / "what can you help with?" — answered directly
@@ -454,6 +458,12 @@ _SCHEME_FIT = {
         "get support for a venture in one of 15 sectors — piggery, poultry, dairy, goat "
         "farming, warehousing, tourism vehicles and more — or under the \"Any Business "
         "Venture\" category; you apply on the MeghalayaOne portal."),
+    "CMSS": (
+    "a flat Rs 6,000 annual scholarship for eligible students",
+    "domicile of Meghalaya and enrolled in a full-time post-matriculation programme (Class XI/XII, Diploma, UG, PG, M.Phil., or Ph.D.)"),
+    "Homestay": (
+    "building or upgrading a homestay",
+    "Indian citizens and permanent residents of Meghalaya aged 18+ who are functionally literate, have no credit defaults, and are not already receiving assistance for a homestay under this scheme; the scheme supports new construction (up to ₹10 lakh), upgradation of existing operational homestays (up to ₹2 lakh), and boutique facilities (minimum ₹80 lakh investment)."),
 }
 # (profile, what it says about the user, matcher, schemes in order of fit)
 _PROFILE_RULES = (
@@ -890,7 +900,9 @@ _SCHEME_COMPARISON_CUE = Matcher(Alt(
     Seq("how", W("do", "does"), _C04CharGap(40, "?"), _C04_SCHEME_W, _C04CharGap(20, "?"), "differ"),
     Seq("difference", "between", _C04CharGap(60, "\n"),
         Alt(W("mgnrega", "pmay", "focusplus", "cmelevate"), Seq("focus", "plus", sep="space"),
-            Seq("cm", "elevate", sep="space")),
+            Seq("cm", "elevate", sep="space"),
+            W("cmss"),
+            W("homestay")),
         _C04CharGap(20, "\n"), W("and", "vs", "versus")),
 ))
 # "compare Focus Plus and CM Elevate schemes BY BENEFICIARIES" / "... by amount" /
@@ -1158,6 +1170,8 @@ def _unsupported_scheme_clarification(question: str, name: str) -> "Clarificatio
          "question": _scheme_option_question(stem, "Focus Legacy")},
         {"label": "CM Elevate Legacy (sanctions & disbursements)",
          "question": _scheme_option_question(stem, "CM Elevate Legacy")},
+        {"label": "CMSS (Chief Minister's Scholarship Scheme)", "question": _scheme_option_question(stem, "CMSS")},
+        {"label": "Homestay (tourism homestay scheme)", "question": _scheme_option_question(stem, "Homestay")},
     ]
     # Names the scheme asked for, says plainly that it is outside what is
     # loaded, then points somewhere useful. Deliberately about SCHEME COVERAGE

@@ -69,7 +69,7 @@ logger = logging.getLogger(__name__)
 # the four main schemes: what an exclusion leaves ("leaving out MGNREGA, which
 # scheme …" compares the other three, D-066)
 MAIN = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy")
-SUPPORTED = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CM Elevate Legacy")
+SUPPORTED = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CM Elevate Legacy", "CMSS", "Homestay")
 # records no money / no financial year at all (said plainly, never shown as 0)
 NO_MONEY = frozenset({"CM Elevate"})
 NO_YEAR = frozenset({"CM Elevate"})
@@ -77,7 +77,7 @@ NO_YEAR = frozenset({"CM Elevate"})
 # column is per view: MGNREGA employment carries its own assembly_constituency_name
 # (the column its scheme answers use), every other view the geography's ac_name
 _AC_COL = {"MGNREGA": "UPPER(ac_name)", "PMAY-G": "UPPER(ac_name)",
-           "Focus Legacy": "UPPER(ac_name)", "CM Elevate Legacy": "UPPER(ac_name)"}
+           "Focus Legacy": "UPPER(ac_name)", "CM Elevate Legacy": "UPPER(ac_name)", "CMSS": "UPPER(ac_name)", "Homestay": "UPPER(ac_name)"}
 _AC_VIEW_COL = {"curated.v_employment": "UPPER(assembly_constituency_name)"}
 # a combined total / ranking leaves these out (applications are not beneficiaries, I-13)
 _APART_IN_COMBINED = frozenset({"CM Elevate"})
@@ -125,6 +125,18 @@ _QUERIES: dict[str, list[tuple[str, str, str, list[tuple[str, str]]]]] = {
          [("ben", "COUNT(*) FILTER (WHERE sanctioned_amount > 0)"), ("records", "COUNT(*)"),
           ("money", "SUM(total_disbursement) / 1e7"), ("sanctioned", "SUM(sanctioned_amount) / 1e7"),
           ("villages", _FP_VILL),
+          ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
+    ],
+    "CMSS": [
+        ("curated.v_cmss", "UPPER(lgd_district)", "UPPER(lgd_block)",
+         [("ben", "COUNT(*) FILTER (WHERE is_disbursed)"), ("money", "SUM(amount_disbursed) / 1e7"),
+          ("villages", "COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')"),
+          ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
+    ],
+    "Homestay": [
+        ("curated.v_homestay_api", "UPPER(lgd_district)", "UPPER(lgd_block)",
+         [("ben", "COUNT(*)"),
+          ("villages", "COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')"),
           ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
     ],
 }
@@ -755,7 +767,9 @@ def _labels(p: Plan, display: "dict | None") -> None:
 _VILLAGE_SET_FILTER = {"Focus Plus": "village_code > 0 AND entity_type <> 'Unresolved'",
                        "Focus Legacy": "village_code > 0 AND entity_type <> 'Unresolved'",
                        "CM Elevate": "entity_type <> 'Unresolved'",
-                       "CM Elevate Legacy": "village_code > 0 AND entity_type <> 'Unresolved'"}
+                       "CM Elevate Legacy": "village_code > 0 AND entity_type <> 'Unresolved'",
+                       "CMSS": "village_code > 0 AND entity_type <> 'Unresolved'",
+                       "Homestay": "village_code > 0 AND entity_type <> 'Unresolved'"}
 
 
 async def village_sets(p: Plan) -> tuple[dict, list[str]]:
@@ -838,12 +852,13 @@ def rupees_crore(c: float) -> str:
 
 
 SHORT = {"MGNREGA": "MGNREGA", "PMAY-G": "PMAY-G", "Focus Plus": "Focus Plus", "Focus Legacy": "Focus Legacy",
-         "CM Elevate": "CM Elevate", "CM Elevate Legacy": "CM Elevate Legacy"}
+         "CM Elevate": "CM Elevate", "CM Elevate Legacy": "CM Elevate Legacy", "CMSS": "CMSS", "Homestay": "Homestay"}
 _BEN_NOUN = {"MGNREGA": "households given work", "PMAY-G": "houses sanctioned",
              "Focus Plus": "beneficiaries", "Focus Legacy": "members",
-             "CM Elevate": "applications", "CM Elevate Legacy": "applicants sanctioned"}
+             "CM Elevate": "applications", "CM Elevate Legacy": "applicants sanctioned", "CMSS": "students paid", "Homestay": "applications"}
 _MONEY_VERB = {"MGNREGA": "spent", "PMAY-G": "released", "Focus Plus": "disbursed", "Focus Legacy": "disbursed",
-               "CM Elevate Legacy": "disbursed (subsidy and loan)"}
+               "CM Elevate Legacy": "disbursed (subsidy and loan)",
+               "CMSS": "disbursed"}
 
 
 def count_text(s: str, f: dict, short: bool = False, p: "Plan | None" = None) -> str:
@@ -883,7 +898,7 @@ def avg_value(f: dict) -> "float | None":
 
 
 _PER = {"MGNREGA": "per household-year", "PMAY-G": "per house", "Focus Plus": "per beneficiary",
-        "Focus Legacy": "per member", "CM Elevate Legacy": "per applicant sanctioned"}
+        "Focus Legacy": "per member", "CM Elevate Legacy": "per applicant sanctioned", "CMSS": "per student paid"}
 
 
 def primary(p: Plan) -> str:
@@ -1013,10 +1028,14 @@ _COUNT_NOTE = {"MGNREGA": "household-years: households given work, counted once 
                # say what it is): a group paid more than once counts once per payment
                "Focus Legacy": "producer-group members, counted once per payment (a group paid twice counts twice)",
                "CM Elevate": "applications (distinct request ids)",
-               "CM Elevate Legacy": "applicants with a sanctioned amount"}
+               "CM Elevate Legacy": "applicants with a sanctioned amount",
+               "CMSS": "students paid (scholarship applications that were paid)",
+               "Homestay": "applications (a row is one application; no money is recorded)"}
 _MONEY_NOTE = {"MGNREGA": "money spent", "PMAY-G": "money released", "Focus Plus": "money disbursed",
                "Focus Legacy": "money disbursed", "CM Elevate": "no money recorded",
-               "CM Elevate Legacy": "subsidy and loan disbursed"}
+               "CM Elevate Legacy": "subsidy and loan disbursed",
+               "CMSS": "money disbursed",
+               "Homestay": "no money recorded"}
 
 
 def measure_notes(schemes: list) -> dict:

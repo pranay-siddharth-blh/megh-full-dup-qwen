@@ -927,7 +927,7 @@ def _backward(session, mem: dict, question: str) -> "TopicTurn | None":
 _SCHEME_ABOUT = {"MGNREGA": "rural employment, person-days, job cards, wages",
                  "PMAY-G": "rural housing, houses sanctioned / completed",
                  "Focus Plus": "farmer cash benefit", "CM Elevate": "livelihood / enterprise applications",
-                 "Focus Legacy": "producer group payments", "CM Elevate Legacy": "sanctions & disbursements"}
+                 "Focus Legacy": "producer group payments", "CM Elevate Legacy": "sanctions & disbursements", "CMSS": "student scholarships, applications, students paid", "Homestay": "homestay applications, approvals, new homestays and upgradations"}
 
 
 def _reference_prompt(session, question: str, entries: list) -> str:
@@ -1064,8 +1064,7 @@ def _history_answer(mem: dict) -> dict:
         answer = ("Here is what we have covered so far:\n\n" + "\n".join(lines)
                   + "\nTo go back to one, tap it below or say, for example, \"go back to question 1\".")
     else:
-        answer = ("We haven't looked at any scheme yet in this conversation. Ask me about MGNREGA, PMAY-G, "
-                  "Focus Plus, CM Elevate, Focus Legacy or CM Elevate Legacy to get started.")
+        answer = ("We haven't looked at any scheme yet in this conversation. Ask me about MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy, CM Elevate Legacy, CMSS or Homestay (Chief Minister's Scholarship Scheme) to get started.")
     recent = [e for _, e in reversed(_ledger_entries(mem))][:4]
     # confidence "low": the answer caches never store such a reply.
     return {"route": "edge", "intent": "EDGE", "confidence": "low", "answer": answer,

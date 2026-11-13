@@ -620,6 +620,33 @@ def test_focusplus_lgd_only_block_is_filtered_on_lgd_block(monkeypatch, sql, exp
     assert asyncio.run(p._focusplus_lgd_only_block(["Focus Plus"], sql)) == expected
 
 
+# ── Several raw blocks in one IN list (FP-11, KI-686, CMSS onboarding acceptance 2026-11-11) ──
+def test_focusplus_raw_blocks_in_list_move_to_block_name_raw(monkeypatch):
+    monkeypatch.setattr(p, "_FOCUSPLUS_RAW_BLOCKS", {"TIKRIKILLA", "SELSELLA", "SONGSAK"})
+    sql = ("SELECT lgd_block, COUNT(DISTINCT beneficiary_key) AS beneficiaries, SUM(amount_disbursed) AS amt "
+           "FROM curated.v_focus_plus WHERE lgd_block IN ('TIKRIKILLA', 'Selsella') "
+           "GROUP BY lgd_block ORDER BY lgd_block")
+    out = asyncio.run(p._focusplus_lgd_only_block(["Focus Plus"], sql))
+    assert out == ("SELECT UPPER(block_name_raw) AS lgd_block, COUNT(DISTINCT beneficiary_key) AS beneficiaries, "
+                   "SUM(amount_disbursed) AS amt FROM curated.v_focus_plus "
+                   "WHERE UPPER(block_name_raw) IN ('TIKRIKILLA', 'SELSELLA') "
+                   "GROUP BY UPPER(block_name_raw) ORDER BY UPPER(block_name_raw)")
+
+
+def test_focusplus_in_list_with_a_non_raw_block_is_left_alone(monkeypatch):
+    # ADOKGRE is an LGD-only block (no raw rows): the list stays on lgd_block
+    monkeypatch.setattr(p, "_FOCUSPLUS_RAW_BLOCKS", {"TIKRIKILLA", "SELSELLA"})
+    sql = "SELECT lgd_block, COUNT(*) AS n FROM curated.v_focus_plus WHERE lgd_block IN ('TIKRIKILLA', 'ADOKGRE') GROUP BY lgd_block"
+    assert asyncio.run(p._focusplus_lgd_only_block(["Focus Plus"], sql)) == sql
+
+
+def test_focusplus_in_list_inside_a_village_question_is_left_alone(monkeypatch):
+    monkeypatch.setattr(p, "_FOCUSPLUS_RAW_BLOCKS", {"TIKRIKILLA", "SELSELLA"})
+    sql = ("SELECT lgd_village_name, COUNT(*) AS n FROM curated.v_focus_plus "
+           "WHERE lgd_block IN ('TIKRIKILLA', 'SELSELLA') GROUP BY lgd_village_name")
+    assert asyncio.run(p._focusplus_lgd_only_block(["Focus Plus"], sql)) == sql
+
+
 def test_focusplus_block_rewrite_is_focus_plus_only(monkeypatch):
     monkeypatch.setattr(p, "_FOCUSPLUS_RAW_BLOCKS", {"SONGSAK"})
     sql = "SELECT 1 FROM t WHERE UPPER(block_name_raw) = 'ADOKGRE'"

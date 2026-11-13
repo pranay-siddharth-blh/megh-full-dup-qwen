@@ -74,6 +74,14 @@ _BANK_NOT_HELD_TEXT = {
         "Bank details are not held for MGNREGA — only wages, person-days, job "
         "cards and expenditure are. Shall I answer using one of those instead?"
     ),
+    "CMSS": (
+        "Bank details — account numbers, IFSC codes, bank names and transfer status — aren't "
+        "held for CMSS; only whether each scholarship was paid and the amount are. Shall I "
+        "answer with the students paid or the amount disbursed instead?"),
+    "Homestay": (
+        "Bank and money details — loans, subsidies, account numbers or transfers — aren't "
+        "recorded in the Homestay applications; only the applications, their status and the "
+        "proposed homestays are. Shall I answer with the applications or the approvals instead?"),
 }
 _BANK_GENERIC_TEXT = (
     "Bank name is only held for Focus Plus and Focus Legacy — MGNREGA, PMAY-G "

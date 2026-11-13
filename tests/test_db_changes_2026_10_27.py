@@ -15,15 +15,24 @@ from app import pipeline as p
 from app.config import settings
 from app.sql_guard import UnsafeSQLError, prepare_readonly
 
-SIX = ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy"]
+SIX = ["MGNREGA", "PMAY-G", "Focus Plus", "CM Elevate", "Focus Legacy", "CM Elevate Legacy", "CMSS", "Homestay"]
 
 
 # ── KI-428: glossary scope ──────────────────────────────────────────────────
 
-@pytest.mark.parametrize("area", ["cmss", "homestay_legacy", "homestay", "nrlm"])
+@pytest.mark.parametrize("area", ["homestay_legacy", "homestay", "nrlm"])
 def test_other_programmes_glossary_is_scoped_out_of_every_scheme(area):
     for s in SIX:
         assert not si._matches_scheme(area, [s])
+
+
+def test_cmss_terms_reach_cmss_only():
+    # CMSS was an "other programme" (KI-428) until it was onboarded (2026-11-11): its glossary now
+    # reaches the CMSS prompt, and still stays out of the other six schemes' prompts.
+    assert si._matches_scheme("cmss", ["CMSS"])
+    for s in SIX:
+        if s != "CMSS":
+            assert not si._matches_scheme("cmss", [s])
 
 
 def test_own_and_shared_terms_still_reach_the_prompt():
@@ -33,10 +42,18 @@ def test_own_and_shared_terms_still_reach_the_prompt():
     assert si._matches_scheme(None, ["PMAY-G"])
 
 
-@pytest.mark.parametrize("table", ["v_cmss", "fact_cmss_application", "v_homestay_legacy", "v_nrlm_shg"])
+@pytest.mark.parametrize("table", ["v_homestay_legacy", "v_nrlm_shg"])
 def test_other_programmes_column_notes_are_scoped_out(table):
     for s in SIX:
         assert not si._table_matches_scheme(table, [s])
+
+
+@pytest.mark.parametrize("table", ["v_cmss", "fact_cmss_application"])
+def test_cmss_column_notes_reach_cmss_only(table):
+    assert si._table_matches_scheme(table, ["CMSS"])
+    for s in SIX:
+        if s != "CMSS":
+            assert not si._table_matches_scheme(table, [s])
 
 
 def test_own_and_shared_column_notes_still_match():

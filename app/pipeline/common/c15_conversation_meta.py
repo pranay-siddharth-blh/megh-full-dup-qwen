@@ -30,6 +30,8 @@ _C15_SCHEME_MEANING = {
     "CM Elevate": "livelihood and enterprise applications (piggery, dairy, …) and their status",
     "Focus Legacy": "payments to producer groups, one payment per group",
     "CM Elevate Legacy": "sanctions and disbursements under the earlier CM Elevate rounds",
+    "CMSS": "student scholarships: applications, students paid and the amount disbursed (a flat Rs 6,000 each)",
+    "Homestay": "homestay applications: new homestays and upgradations, their status and approvals (no money is recorded)",
 }
 
 # Words that open a message without saying anything ("ok so", "no wait", "sorry but").
@@ -436,7 +438,7 @@ def _c15_recap_answer(prev) -> str:
 _C15_HEADLINE_MEASURE = {
     "MGNREGA": "MGNREGA person-days", "PMAY-G": "PMAY-G houses completed",
     "Focus Plus": "Focus Plus amount disbursed", "CM Elevate": "CM Elevate applications",
-    "Focus Legacy": "Focus Legacy amount paid", "CM Elevate Legacy": "CM Elevate Legacy amount disbursed",
+    "Focus Legacy": "Focus Legacy amount paid", "CM Elevate Legacy": "CM Elevate Legacy amount disbursed", "CMSS": "CMSS students paid", "Homestay": "Homestay applications",
 }
 
 
@@ -544,6 +546,8 @@ _C15_OVERVIEW_TEMPLATES = {
     "CM Elevate": "Number of CM Elevate applications by status in {place}",
     "Focus Legacy": "Total Focus Legacy amount paid and number of producer groups in {place}{year}",
     "CM Elevate Legacy": "Total CM Elevate Legacy amount disbursed and number of beneficiaries in {place}{year}",
+    "CMSS": "CMSS applications and students paid in {place}{year}",
+    "Homestay": "Homestay applications and approvals in {place}{year}",
 }
 
 
@@ -849,7 +853,7 @@ def _is_known_scheme_word(w: str) -> bool:
     """A word that only ever spells a scheme ("pmay", "mgnrega", "elevate", "focus",
     "plus", "legacy", "cm"), so a fuzzy name leaves nothing behind."""
     return w in {"pmay", "pmayg", "pmay-g", "mgnrega", "mnrega", "nrega", "focus", "plus", "legacy", "cm",
-                 "elevate", "cmelevate", "focusplus", "awaas", "awas", "g"}
+                 "elevate", "cmelevate", "focusplus", "awaas", "awas", "cmss", "homestay", "home-stay", "cmmhm", "g"}
 
 
 # ── "pie chart" / "why are you giving a line chart?" / "give me a wide frame" ──
