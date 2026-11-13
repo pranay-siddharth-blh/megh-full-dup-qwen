@@ -1,0 +1,119 @@
+{
+ "label": "fp11-branch",
+ "when": "2026-11-11T14:09:06",
+ "git": {
+  "commit": "8bba583",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b",
+  "sql_examples": "yaml"
+ },
+ "readonly_login": "megh_readonly",
+ "superuser_allowed": false,
+ "holdout_checked": null,
+ "selection": {
+  "scheme": null,
+  "ids": "FP-11"
+ },
+ "minutes": 0.4,
+ "summary": {
+  "items": 1,
+  "scored": 1,
+  "outcomes": {
+   "wrong": 1
+  },
+  "expected_pauses": 0,
+  "accuracy": 0.0,
+  "by": {
+   "Focus Plus": {
+    "accuracy": 0.0,
+    "wrong": 1
+   },
+   "difficulty:hard": {
+    "accuracy": 0.0,
+    "wrong": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "FP-11",
+   "scheme": "Focus Plus",
+   "difficulty": "hard",
+   "question": "Compare Tikrikilla and Selsella blocks on Focus Plus: number of distinct beneficiaries, total amount disbursed, and amount disbursed per beneficiary.",
+   "gold_rows": 2,
+   "outcome": "wrong",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "block_list": [
+     "TIKRIKILLA",
+     "SELSELLA"
+    ],
+    "block_list_districts": {
+     "TIKRIKILLA": "WEST GARO HILLS",
+     "SELSELLA": "WEST GARO HILLS"
+    }
+   },
+   "sql": "SELECT lgd_block, lgd_district, COUNT(DISTINCT beneficiary_key) AS distinct_beneficiaries, SUM(amount_disbursed) AS total_amount_disbursed, CASE WHEN COUNT(DISTINCT beneficiary_key) > 0 THEN SUM(amount_disbursed) / COUNT(DISTINCT beneficiary_key) ELSE 0 END AS amount_per_beneficiary FROM curated.v_focus_plus WHERE lgd_block IN ('TIKRIKILLA', 'SELSELLA') AND NOT lgd_district IS NULL GROUP BY lgd_block, lgd_district ORDER BY lgd_block LIMIT 10",
+   "seconds": 22.3,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Focus Plus#88",
+    "Focus Plus#28",
+    "Focus Plus#45",
+    "Focus Plus#46",
+    "Focus Plus#48"
+   ],
+   "answer": "The lines below compare distinct beneficiaries, total amounts, and per-beneficiary amounts for Focus Plus across all years in Tikrikilla and Selsella block:\nTIKRIKILLA is higher than SELSELLA on distinct beneficiaries: 7,019 against 4,916, a difference of 2,103 (42.8% more).\n- Total amount disbursed: SELSELLA \u20b95,77,30,000 (\u2248 \u20b95.77 crore); TIKRIKILLA \u20b97,12,77,500 (\u2248 \u20b97.13 crore)\n- Amount per benefi",
+   "detail": "no column holds the gold values of 'beneficiaries'",
+   "mapping": {},
+   "pred_rows": 2,
+   "gold_sample": [
+    {
+     "block": "Selsella",
+     "beneficiaries": 7691,
+     "amount_disbursed": "90337500.00",
+     "amount_per_beneficiary": "11745.87"
+    },
+    {
+     "block": "Tikrikilla",
+     "beneficiaries": 8744,
+     "amount_disbursed": "93120000.00",
+     "amount_per_beneficiary": "10649.59"
+    }
+   ],
+   "pred_sample": [
+    {
+     "lgd_block": "SELSELLA",
+     "lgd_district": "WEST GARO HILLS",
+     "distinct_beneficiaries": 4916,
+     "total_amount_disbursed_rs": "57730000.00",
+     "amount_per_beneficiary": "11743.287225386493"
+    },
+    {
+     "lgd_block": "TIKRIKILLA",
+     "lgd_district": "WEST GARO HILLS",
+     "distinct_beneficiaries": 7019,
+     "total_amount_disbursed_rs": "71277500.00",
+     "amount_per_beneficiary": "10154.936600655364"
+    }
+   ]
+  }
+ ],
+ "compared_with": "2026-10-30_0856_pmay-sheet-2026-10-30.json",
+ "delta": {
+  "regressions": [],
+  "fixed": []
+ }
+}

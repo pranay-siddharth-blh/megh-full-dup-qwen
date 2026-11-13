@@ -1,0 +1,76 @@
+{
+ "label": "cl12",
+ "when": "2026-11-11T14:33:45",
+ "git": {
+  "commit": "3379836",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b",
+  "sql_examples": "yaml"
+ },
+ "readonly_login": "megh_readonly",
+ "superuser_allowed": false,
+ "holdout_checked": true,
+ "selection": {
+  "scheme": null,
+  "ids": "CL-12"
+ },
+ "minutes": 0.5,
+ "summary": {
+  "items": 1,
+  "scored": 1,
+  "outcomes": {
+   "no_sql": 1
+  },
+  "expected_pauses": 0,
+  "accuracy": 0.0,
+  "by": {
+   "CM Elevate Legacy": {
+    "accuracy": 0.0,
+    "no_sql": 1
+   },
+   "difficulty:hard": {
+    "accuracy": 0.0,
+    "no_sql": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "CL-12",
+   "scheme": "CM Elevate Legacy",
+   "difficulty": "hard",
+   "question": "In FY 2024-25, which CM Elevate Legacy schemes have disbursed less than half of the amount they sanctioned?",
+   "gold_rows": 4,
+   "outcome": "no_sql",
+   "route": "data",
+   "schemes": [],
+   "rewritten": "Which CM Elevate Legacy schemes have disbursed less than half of the sanctioned amount in FY 2024-25?",
+   "resolved": {},
+   "sql": null,
+   "seconds": 28.7,
+   "repairs": 3,
+   "verifier_rejections": 4,
+   "few_shot_ids": [
+    "Y04",
+    "Y03",
+    "M23",
+    "Y06",
+    "Y05"
+   ],
+   "answer": "I understood the question but couldn't build a working query for it against the current CM Elevate Legacy data. Try rephrasing it, or ask for a simpler breakdown first (e.g. \"PMAY-G sanctions by district for 2023\").",
+   "detail": "route=data"
+  }
+ ],
+ "compared_with": "2026-11-11_1421_fp11-guard.json",
+ "delta": {
+  "regressions": [],
+  "fixed": []
+ }
+}
