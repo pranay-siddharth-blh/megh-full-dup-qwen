@@ -20922,6 +20922,250 @@ cases:
     schemes:
     - Focus Plus
     pause: false
+- id: W5-FU-01
+  cat: chain
+  shape: measure-instead
+  src: follow-up rules (2026-11-14, voice shaper wordings)
+  turns:
+  - q: How many PMAY-G houses were sanctioned in Ri Bhoi?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'RI BHOI'
+      unit: count
+      value: 17565
+    pause: false
+  - q: what about the amount released instead
+    figures:
+    - sql: SELECT SUM(amount_released) FROM curated.v_pmay WHERE lgd_district = 'RI BHOI'
+      unit: rupees
+      value: 2228533500
+    schemes:
+    - PMAY-G
+    pause: false
+    place: RI BHOI
+- id: W5-FU-02
+  cat: chain
+  shape: measure-instead
+  src: follow-up rules (2026-11-14, voice shaper wordings)
+  turns:
+  - q: Focus Legacy amount disbursed in West Garo Hills
+    figures:
+    - sql: SELECT SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS'
+      unit: rupees
+      value: 109335000
+    pause: false
+  - q: what about the members instead
+    figures:
+    - sql: SELECT SUM(no_of_pg_members) FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS'
+      unit: count
+      value: 21867
+    schemes:
+    - Focus Legacy
+    pause: false
+    place: WEST GARO HILLS
+- id: W5-FU-03
+  cat: chain
+  shape: measure-instead
+  src: follow-up rules (2026-11-14, voice shaper wordings)
+  turns:
+  - q: How many MGNREGA person-days were generated in West Garo Hills in 2023-24?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'WEST GARO HILLS' AND year_key = 2023
+      unit: count
+      value: 5489616
+    pause: false
+  - q: what about the households instead
+    figures:
+    - sql: SELECT SUM(households_employed) FROM curated.v_employment WHERE lgd_district = 'WEST GARO HILLS' AND year_key =
+        2023
+      unit: count
+      value: 72541
+    schemes:
+    - MGNREGA
+    pause: false
+    place: WEST GARO HILLS
+    year: 2023
+- id: W5-FU-04
+  cat: chain
+  shape: value-filter
+  src: follow-up rules (2026-11-14, voice shaper wordings)
+  turns:
+  - q: How many PMAY-G houses were sanctioned by district?
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+      value:
+      - - WEST GARO HILLS
+        - 33147
+      - - EAST KHASI HILLS
+        - 23952
+      - - RI BHOI
+        - 17565
+      - - EAST GARO HILLS
+        - 16899
+      - - NORTH GARO HILLS
+        - 16028
+      - - WEST JAINTIA HILLS
+        - 12570
+      - - SOUTH WEST GARO HILLS
+        - 11947
+      - - SOUTH GARO HILLS
+        - 11901
+      - - WEST KHASI HILLS
+        - 8437
+      - - SOUTH WEST KHASI HILLS
+        - 7411
+      - - EAST JAINTIA HILLS
+        - 5756
+      - - EASTERN WEST KHASI HILLS
+        - 5494
+    pause: false
+  - q: only the incomplete ones
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL AND is_in_progress GROUP BY 1
+        ORDER BY 2 DESC
+      unit: count
+      take: 3
+      value:
+      - - WEST GARO HILLS
+        - 6322
+      - - EAST KHASI HILLS
+        - 5767
+      - - SOUTH GARO HILLS
+        - 5574
+      - - RI BHOI
+        - 5469
+      - - EAST JAINTIA HILLS
+        - 4133
+      - - WEST JAINTIA HILLS
+        - 3617
+      - - EAST GARO HILLS
+        - 3115
+      - - NORTH GARO HILLS
+        - 2835
+      - - SOUTH WEST GARO HILLS
+        - 1726
+      - - WEST KHASI HILLS
+        - 1143
+      - - EASTERN WEST KHASI HILLS
+        - 1029
+      - - SOUTH WEST KHASI HILLS
+        - 311
+    schemes:
+    - PMAY-G
+    pause: false
+- id: W5-FU-05
+  cat: chain
+  shape: measure-swap
+  src: follow-up rules (2026-11-14, voice shaper wordings)
+  turns:
+  - q: CM Elevate Legacy loan disbursed in Ri Bhoi
+    figures:
+    - sql: SELECT SUM(total_loan_disbursement) FROM curated.v_cm_elevate_disbursement WHERE lgd_district = 'RI BHOI'
+      unit: rupees
+      value: 24052847
+    pause: false
+  - q: and the subsidy?
+    figures:
+    - sql: SELECT SUM(total_subsidy_disbursement) FROM curated.v_cm_elevate_disbursement WHERE lgd_district = 'RI BHOI'
+      unit: rupees
+      value: 45470766.5
+    schemes:
+    - CM Elevate Legacy
+    pause: false
+    place: RI BHOI
+- id: W5-FU-06
+  cat: chain
+  shape: year-before
+  src: follow-up rules (2026-11-14, voice shaper wordings)
+  turns:
+  - q: How many PMAY-G houses were sanctioned in West Garo Hills in FY 2023-24?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'WEST GARO HILLS' AND year_key = 2023
+      unit: count
+      value: 19058
+    pause: false
+  - q: what about the year before?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'WEST GARO HILLS' AND year_key = 2022
+      unit: count
+      value: 572
+    schemes:
+    - PMAY-G
+    pause: false
+    place: WEST GARO HILLS
+    year: 2022
+- id: W5-FU-07
+  cat: chain
+  shape: rank-lowest
+  src: follow-up rules (2026-11-14, voice shaper wordings)
+  turns:
+  - q: Focus Plus amount disbursed by district
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_plus WHERE lgd_district IS NOT NULL GROUP BY 1
+        ORDER BY 2 DESC
+      unit: rupees
+      take: 3
+      value:
+      - - WEST GARO HILLS
+        - 391287500
+      - - SOUTH WEST GARO HILLS
+        - 166765000
+      - - EAST KHASI HILLS
+        - 156160000
+      - - EAST GARO HILLS
+        - 126197500
+      - - NORTH GARO HILLS
+        - 118447500
+      - - SOUTH GARO HILLS
+        - 102610000
+      - - WEST KHASI HILLS
+        - 84425000
+      - - SOUTH WEST KHASI HILLS
+        - 22400000
+      - - EASTERN WEST KHASI HILLS
+        - 15262500
+      - - RI BHOI
+        - 5237500
+      - - EAST JAINTIA HILLS
+        - 5050000
+      - - WEST JAINTIA HILLS
+        - 3537500
+    pause: false
+  - q: which is the lowest
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_plus WHERE lgd_district IS NOT NULL GROUP BY 1
+        ORDER BY 2 ASC
+      unit: rupees
+      take: 1
+      value:
+      - - WEST JAINTIA HILLS
+        - 3537500
+      - - EAST JAINTIA HILLS
+        - 5050000
+      - - RI BHOI
+        - 5237500
+      - - EASTERN WEST KHASI HILLS
+        - 15262500
+      - - SOUTH WEST KHASI HILLS
+        - 22400000
+      - - WEST KHASI HILLS
+        - 84425000
+      - - SOUTH GARO HILLS
+        - 102610000
+      - - NORTH GARO HILLS
+        - 118447500
+      - - EAST GARO HILLS
+        - 126197500
+      - - EAST KHASI HILLS
+        - 156160000
+      - - SOUTH WEST GARO HILLS
+        - 166765000
+      - - WEST GARO HILLS
+        - 391287500
+    schemes:
+    - Focus Plus
+    pause: false
 - id: W4-RG-MGPD-A
   cat: regroup
   shape: total-then-each-grouping

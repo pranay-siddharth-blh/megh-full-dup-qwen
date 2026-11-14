@@ -1417,6 +1417,49 @@ add(C("W3-CH-08", "chain", "measure-keeps-district-breakdown", W3,
       T("and the amount?",
         rows=R(f"SELECT lgd_district, SUM(amount_disbursed) FROM {FPV} WHERE lgd_district IS NOT NULL GROUP BY 1 "
                f"ORDER BY 2 DESC", "rupees", take=3), schemes=[FP])))
+# ════ 13b. Follow-ups by rule (2026-11-14, the model server down): the voice shaper's canonical wordings ════
+# "what about the {measure} instead", "only the {value} ones", "and the {measure}?", "what about the year before?",
+# "which is the lowest": each the previous question changed in one way (c01 _c01_measure_swap_question,
+# _c01_year_only_question, _c01_rank_question). Truth written here from the views.
+W5 = "follow-up rules (2026-11-14, voice shaper wordings)"
+add(C("W5-FU-01", "chain", "measure-instead", W5,
+      T("How many PMAY-G houses were sanctioned in Ri Bhoi?", F(pm_count(dist("RI BHOI")))),
+      T("what about the amount released instead",
+        F(f"SELECT SUM(amount_released) FROM {PMV} WHERE {dist('RI BHOI')}", "rupees"), schemes=[PM],
+        place="RI BHOI")))
+add(C("W5-FU-02", "chain", "measure-instead", W5,
+      T("Focus Legacy amount disbursed in West Garo Hills", F(fl_amt(dist("WEST GARO HILLS")), "rupees")),
+      T("what about the members instead",
+        F(f"SELECT SUM(no_of_pg_members) FROM {FLV} WHERE {dist('WEST GARO HILLS')}"), schemes=[FL],
+        place="WEST GARO HILLS")))
+add(C("W5-FU-03", "chain", "measure-instead", W5,
+      T("How many MGNREGA person-days were generated in West Garo Hills in 2023-24?",
+        F(emp("person_days", dist("WEST GARO HILLS"), yr(2023)))),
+      T("what about the households instead", F(emp("households_employed", dist("WEST GARO HILLS"), yr(2023))),
+        schemes=[MG], place="WEST GARO HILLS", year=2023)))
+add(C("W5-FU-04", "chain", "value-filter", W5,
+      T("How many PMAY-G houses were sanctioned by district?",
+        rows=R(f"SELECT lgd_district, COUNT(*) FROM {PMV} WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC",
+               take=3)),
+      T("only the incomplete ones",
+        rows=R(f"SELECT lgd_district, COUNT(*) FROM {PMV} WHERE lgd_district IS NOT NULL AND is_in_progress "
+               f"GROUP BY 1 ORDER BY 2 DESC", take=3), schemes=[PM])))
+add(C("W5-FU-05", "chain", "measure-swap", W5,
+      T("CM Elevate Legacy loan disbursed in Ri Bhoi", F(cl("total_loan_disbursement", dist("RI BHOI")), "rupees")),
+      T("and the subsidy?", F(cl("total_subsidy_disbursement", dist("RI BHOI")), "rupees"), schemes=[CL],
+        place="RI BHOI")))
+add(C("W5-FU-06", "chain", "year-before", W5,
+      T("How many PMAY-G houses were sanctioned in West Garo Hills in FY 2023-24?",
+        F(pm_count(dist("WEST GARO HILLS"), yr(2023)))),
+      T("what about the year before?", F(pm_count(dist("WEST GARO HILLS"), yr(2022))), schemes=[PM],
+        place="WEST GARO HILLS", year=2022)))
+add(C("W5-FU-07", "chain", "rank-lowest", W5,
+      T("Focus Plus amount disbursed by district",
+        rows=R(f"SELECT lgd_district, SUM(amount_disbursed) FROM {FPV} WHERE lgd_district IS NOT NULL GROUP BY 1 "
+               f"ORDER BY 2 DESC", "rupees", take=3)),
+      T("which is the lowest",
+        rows=R(f"SELECT lgd_district, SUM(amount_disbursed) FROM {FPV} WHERE lgd_district IS NOT NULL GROUP BY 1 "
+               f"ORDER BY 2 ASC", "rupees", take=1), schemes=[FP])))
 # ════ 14. Wave 4 (2026-11-14): the regroup matrix and the all-scheme matrix ════
 # The report after the merge with the team's Main: "break that down by district / block / financial year / as per
 # scheme" after a data answer was not answered, and all-scheme questions were not answered over all eight schemes.
