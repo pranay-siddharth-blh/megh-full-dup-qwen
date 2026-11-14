@@ -103,3 +103,15 @@ test('a numbered list counts the same way; a short list is read whole', () => {
   assert.ok(t.includes('Tura') && !t.includes('Jowai') && t.endsWith('and 1 more is on your screen.'));
   assert.equal(plainForSpeech('Two:\n- a one\n- b two'), 'Two:\na one\nb two');
 });
+
+
+// 2026-11-14 (guardrail): the synthetic voice is disclosed
+import { AI_DISCLOSURE, AI_VOICE_LABEL, greetingLine as _greetingLine } from '../src/chat/voiceSpeech.js';
+
+test('the greeting says the voice is an AI, once, before the first question', () => {
+  const g = _greetingLine(new Date(2026, 10, 14, 10, 0));
+  assert.ok(g.startsWith('Good morning, Secretary sir. '));
+  assert.ok(g.includes(AI_DISCLOSURE) && g.split(AI_DISCLOSURE).length === 2);
+  assert.ok(AI_DISCLOSURE.includes('AI') && AI_VOICE_LABEL.includes('AI'));
+  assert.ok(g.endsWith('What would you like to look at today?'));
+});

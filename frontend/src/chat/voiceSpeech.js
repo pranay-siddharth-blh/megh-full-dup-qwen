@@ -40,7 +40,12 @@ export function partOfDay(d = new Date()) {
   return h < 12 ? 'morning' : h < 17 ? 'afternoon' : 'evening';
 }
 export const greetingHeading = (d = new Date()) => `Good ${partOfDay(d)}, Secretary sir`;
-export const greetingLine = (d = new Date()) => `${greetingHeading(d)}. What would you like to look at today?`;
+// 2026-11-14 (guardrail): the voice is synthetic, and says so once when the stage opens, before anything else it
+// says (IT Rules amendment Feb 2026: AI-generated audio is labelled; the on-screen label is AI_VOICE_LABEL below)
+export const AI_DISCLOSURE = 'I am Megh One AI, an AI voice assistant';
+export const AI_VOICE_LABEL = 'AI-generated voice';
+export const greetingLine = (d = new Date()) =>
+  `${greetingHeading(d)}. ${AI_DISCLOSURE}. What would you like to look at today?`;
 
 export function plainForSpeech(answer) {
   const lines = String(answer || '').split('\n');

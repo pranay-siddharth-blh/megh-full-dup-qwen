@@ -326,7 +326,10 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
       case 'out': {
         quietModel();
         // two spoken lines meet without a space ("... with 5,494.Hello, sir"): a sentence end and a new word get one
-        S.outTx += (/[.?!]$/.test(S.outTx) && /^[A-Za-z]/.test(e.text || '') ? ' ' : '') + e.text;
+        const _last = S.outTx ? S.outTx[S.outTx.length - 1] : '';
+        const _first = (e.text || '')[0] || '';
+        const _letter = (_first >= 'A' && _first <= 'Z') || (_first >= 'a' && _first <= 'z');
+        S.outTx += ('.?!'.includes(_last) && _last !== '' && _letter ? ' ' : '') + e.text;
         // the transcript runs ahead of the audio (measured 2026-11-02 on the real voice: the whole answer's text in
         // under 5 s, its audio 25 s), so the caption, and the speech-synced reveal that reads it, are held until the
         // audio chunk this text came with is actually playing

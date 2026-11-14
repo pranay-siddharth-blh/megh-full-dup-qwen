@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createOrb } from '../voiceOrb.js';
-import { greetingHeading, spokenForm } from '../voiceSpeech.js';
+import { AI_VOICE_LABEL, greetingHeading, spokenForm } from '../voiceSpeech.js';
 import { deleteConversationApi, fetchNLPResponse, fetchVoiceBoard, peekVoiceBoard } from '../api.js';
 import { explainCard, plan } from '../voice/vizPlan.js';
 import { CHAT_VIEWS, NAV_SPEECH, NO_PICTURE, explainAsk, isRedraw, throwawaySessionId, viewChip, viewSpeech } from '../voice/voiceViews.js';
@@ -612,19 +612,7 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
     wasOn.current = stageOn;
     return () => clearTimeout(t);
   }, [stageOn]);
-  // a dock chip: back to the desk, then that card is brought into view and flashes (Mitra's exitTo / focusCard)
-  const exitTo = (title) => {
-    toDesk();
-    setTimeout(() => {
-      const root = rootRef.current; if (!root) return;
-      const h = [...root.querySelectorAll('.vs-col .sdk-card > h3, .vs-col .vs-anscard > h3')]
-        .find((x) => x.textContent.trim().startsWith(title));
-      const card = h ? h.parentElement : null; if (!card) return;
-      try { card.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); } catch (e) { /* old browser */ }
-      card.classList.add('vs-focus');
-      setTimeout(() => card.classList.remove('vs-focus'), 1700);
-    }, 650);
-  };
+  // (the dock chips and their exitTo went on 2026-11-12: the scheme strip replaced them; Dashboard = toDesk)
 
   // headless tests only (?voicetest=1): the picture on stage and the rows it was drawn from
   useEffect(() => {
@@ -909,7 +897,8 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
         <div className="vs-hdr-right">
           <div className="vs-clock" title="Today">{today()}</div>
           <VoicePicker live={live} />
-          <div className={'vs-status' + (mode === 'live' ? ' ok' : '')}><span className="dot" /><span>Megh One AI · live voice</span></div>
+          <div className={'vs-status' + (mode === 'live' ? ' ok' : '')}><span className="dot" /><span>Megh One AI · live voice</span>
+            <span className="vs-ai-label" title="This voice is computer-generated. Every figure it says comes from the scheme data and is shown on screen.">{AI_VOICE_LABEL}</span></div>
           <button type="button" className="vs-back" onClick={onClose}>Back to chat <kbd>Esc</kbd></button>
         </div>
       </header>
