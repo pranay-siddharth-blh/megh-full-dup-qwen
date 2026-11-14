@@ -1117,6 +1117,57 @@ not recorded.*
   results (a figure for one row of a table), and "define <measure>" when the documents hold no definition.
 - **Status:** Active.
 
+### D-109 — No-model coverage: more questions answered by the catalogue and rules alone (2026-11-14)
+
+- **Context:** with the model gateway down (GPU crash, 14 Nov) the accuracy gold bank was run in "no-model mode"
+  (every model endpoint answers 503 at once; megh_db real; a PASS = rules + database alone). 39% passed at first.
+  Each failure was traced to the stage that still needed a model; the fixes below are the ones that are general.
+- **Decision:**
+  1. Spelling (`data/spelling_aliases.yaml`): the measure and grouping words people mistype most are in `words`
+     (total, remitted, district, village, constituency, percentage, highest, lowest …); the real English words one or
+     two edits from them are in the new `not_typos` list (distinct, vintage, tonal, longest …), never corrected. A
+     word that is another FORM of a vocabulary word ("employs", "sanctions") is never a typo (`_inflection`); a
+     typo a measure family only read by its prefix ("disbursd") is corrected.
+  2. Metric catalogue: an approved wording (`metric_catalog_synonyms.yaml`) keeps its own words (`_APPROVED_NOISE`:
+     "total disbursement" had become an empty phrase); the words of every catalogue spelling of the pinned place
+     ("WGH", "E Khasi Hills") are the place, not something more to compute; "fewest" / "greatest" rank; "went",
+     "gone" are neutral. Two or three measures asked together ("producer groups and memberships") are read in ONE
+     query of scalar subqueries (`metric_catalog.combine_totals`, `_c16_plan_several`), each the verified total of its
+     own measure over the same place and year; anything one of them could not answer alone the same way declines.
+  3. The rule-built answer names what a catalogue column counts ("2,72,64,054 person-days of employment", not
+     "employment generated"; "₹119.74 crore disbursed", not "amount disbursed").
+  4. RAG: the multi-scheme knowledge answer runs the sentence check (`ground_answer`) like the single-scheme one; the
+     DATA path's knowledge fallback searches the scheme the question names; the knowledge bases come from the
+     registry; a start-up check (`rag.check_kb_coverage`) logs a scheme with no documents.
+  5. Follow-ups by rule (rank, only-place, regroup, year / place swap, lead words) — see the follow-up tests of the
+     same day — and a CM Elevate dashboard question with the dataset chip's marker (no D-099 pause from a strip tap).
+- **Measured:** no-model gold bank 154/394 -> 268/394 (nomodel-11), never a newly failing case
+  (`tests/accuracy/results/*_nomodel-*.json`). Full suite unchanged apart from the 4 known failures.
+- **Status:** Active (branch `arch/step1-2026-11-14` of the merge workspace).
+
+### D-108 — Guardrails: personal data masked in every log, unsourced spoken numbers blocked, voice sessions bounded (2026-11-14)
+
+- **Context:** India's AI governance guidelines and the DPDP Act / Rules 2025 (data minimisation, safety). The audit
+  JSONL, the `app.query_audit` table and the log lines held officers' raw words; the voice could speak a figure no
+  answer supported (it was logged, not stopped); a live voice session had no server-side end and `/ws/voice` no rate
+  limit.
+- **Decision:**
+  1. `app/pii_mask.py` (string methods, no regex): phones, Aadhaar, long account numbers, e-mail, IFSC, PAN, EPIC,
+     MGNREGA job cards masked; IP addresses keep their network part; figures, years, dates stay readable. Applied to
+     `auth.audit`, `conversation_store._persist_turn` (`app.query_audit`), the query-plan and meaning shadow files and
+     every log record (`install_log_masking` in `main.py`). `PII_LOG_MODE` masked (default) | full | off. The chat
+     history the officer sees is not masked.
+  2. `app/voice/speech_guard.py` `guard_line` + the relay's `_guard_scan`: a spoken sentence with a number no answer
+     supports is cut (audio and caption) and replaced with "That figure is on your screen."; never an empty reply.
+     `VOICE_BLOCK_UNSOURCED` on (default) | off. All 671 real answers of the gold-bank runs pass unchanged.
+  3. Voice relay: `VOICE_MAX_SESSION_MINUTES` (60) ends a session whatever the browser does; `VOICE_HELLO_PER_MINUTE`
+     (60 per address; an office behind NAT shares one) refuses further connections with `rate` (4429); 64 KB frame
+     cap; the Gemini key is redacted from error text.
+- **Open (owner's decision, not changed):** conversation / audit retention is 0 days (off);
+  `GUARDRAIL_MODEL_FAIL_CLOSED` and `BOOT_GUARD_ENFORCE` are off; seeded users have the default password; raw words
+  stay in the chat history tables and the conversation memory; `ASR_DEBUG_DIR` (off by default) keeps raw audio.
+- **Status:** Active (branches `wt/guard-2026-11-14` + `arch/step1-2026-11-14`).
+
 ### D-107 — Cross-scheme roles are data: one declaration per scheme in `data/cross_scheme.yaml` (2026-11-14)
 
 - **Context:** a cross-scheme answer ("headline figures across all schemes", "money spent in each scheme in Ri Bhoi",
