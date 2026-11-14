@@ -418,6 +418,11 @@ CANON_FL_WGH = _prev("Focus Legacy amount disbursed in West Garo Hills", ["Focus
     ("what about the amount released instead", CANON_PM_RB, "How much PMAY-G amount released in Ri Bhoi"),
     ("what about the households instead", MG_PD_STATE, "Total MGNREGA households statewide in FY 2023-24"),
     ("what about the members instead", CANON_FL_WGH, "Focus Legacy members in West Garo Hills"),
+    # the old measure's own trailing words go with it ("person-days were generated")
+    ("what about the households instead",
+     _prev("How many MGNREGA person-days were generated in West Garo Hills in 2023-24?", ["MGNREGA"],
+           {"district": "WEST GARO HILLS", "year_key": 2023}),
+     "How many MGNREGA households in West Garo Hills in 2023-24"),
     ("only the completed ones", PM_HOUSES_BY_D, "Tell me about PMAY-G houses completed by district"),
     ("only the incomplete ones", PM_HOUSES_BY_D, "Tell me about PMAY-G incomplete houses by district"),
 ])
@@ -460,6 +465,18 @@ PM_BY_BLOCK = _prev("PMAY-G houses by block in East Khasi Hills", ["PMAY-G"], {"
     ("bottom 2 blocks", PM_BY_BLOCK, "Bottom 2 blocks: PMAY-G houses in East Khasi Hills"),
 ])
 def test_canonical_rank_wordings(msg, prev, want):
+    assert p._c01_rank_question(msg, prev) == want
+
+
+@pytest.mark.parametrize("msg,want", [
+    ("top 3", "Top 3 districts: Focus Plus amount disbursed"),
+    ("and the highest?", "Which district has the highest: Focus Plus amount disbursed"),
+    ("bottom 2 blocks", "Bottom 2 blocks: Focus Plus amount disbursed"),
+])
+def test_a_ranking_after_a_ranking_ranks_the_same_stem(msg, want):
+    # found by replaying the canonical wordings with the model down: "top 3" after "which is the lowest" kept the
+    # old ranking's words and went to the model
+    prev = _prev("Which district has the lowest: Focus Plus amount disbursed", ["Focus Plus"])
     assert p._c01_rank_question(msg, prev) == want
 
 

@@ -1698,6 +1698,21 @@ def _c01_rank_request(raw_question: str) -> "tuple[str, str | None, int | None] 
     return ("up" if up else "down"), (dims.pop() if dims else None), (nums[0] if nums else None)
 
 
+def _c01_ranked_stem(question: str) -> "tuple[str, str] | None":
+    """(level, stem) when `question` is one the rank rule wrote ("Which district has the lowest: <stem>",
+    "Top 3 districts: <stem>"), else None."""
+    head, sep, stem = (question or "").partition(": ")
+    if not sep or not stem.strip():
+        return None
+    hw = _c15_words(head)
+    if len(hw) == 5 and hw[0] == "which" and hw[1] in _C01_RANK_DIM and hw[2:4] == ["has", "the"] \
+            and hw[4] in ("highest", "lowest"):
+        return _C01_RANK_DIM[hw[1]], stem.strip()
+    if len(hw) == 3 and hw[0] in ("top", "bottom") and hw[1].isdecimal() and hw[2] in _C01_RANK_DIM:
+        return _C01_RANK_DIM[hw[2]], stem.strip()
+    return None
+
+
 def _c01_rank_question(raw_question: str, prev) -> "str | None":
     """The previous DATA question ranked as the message asks, else None."""
     if getattr(prev, "route", None) != "data" or not getattr(prev, "question", None):
@@ -1710,6 +1725,17 @@ def _c01_rank_question(raw_question: str, prev) -> "str | None":
     if len(schemes) != 1:
         return None                                                 # a cross-scheme ranking is the cross path's
     prev_q = _c01_without_chart_phrase(collapse_ws(prev.question).rstrip(" ?."))
+    ranked = _c01_ranked_stem(prev_q)
+    if ranked is not None:
+        # the previous question is this rule's own ranking ("Which district has the lowest: <stem>"): the new one
+        # ranks the same stem, at the level the message names, else the level it was ranked at (2026-11-14: "top 3"
+        # after "which is the lowest" kept the old ranking words and went to the model)
+        level0, stem0 = ranked
+        level = dim or level0
+        count = n if n is not None else 1
+        if count == 1:
+            return f"Which {level} has the {'highest' if direction == 'up' else 'lowest'}: {stem0}"
+        return f"{'Top' if direction == 'up' else 'Bottom'} {count} {level}s: {stem0}"
     prev_ws = _c15_words(prev_q)
     was_up = [w for w in prev_ws if w in _C01_RANK_UP]
     was_down = [w for w in prev_ws if w in _C01_RANK_DOWN]
@@ -1908,6 +1934,7 @@ _C01_MSWAP_FILLER = frozenset(
     "only just ones one is are was were be been do does did has have had much many to see want need can could "
     "would you i we figure what's whats rather".split())
 _C01_MSWAP_FILTER_LEADS = frozenset({"only", "just"})
+_C01_MSWAP_GLUE = frozenset("in of for on by per with to the a an who yet still be under not from".split())
 _C01_MSWAP_HOW_WORKS = frozenset("is are was were does do did can could should will would".split())
 _C01_MSWAP_RATE_WORDS = frozenset("rate percent percentage pct share ratio proportion".split())
 _C01_MSWAP_THERE = (" are there", " were there", " is there", " was there")
@@ -1976,6 +2003,15 @@ def _c01_measure_swap_question(raw_question: str, prev) -> "str | None":
     lo, hi = min(before.spans), max(before.spans)
     if hi - lo + 1 != len(before.spans):
         return None                                                 # the measure's words are not one phrase
+    # the old measure's own words just after its phrase go with it: "person-days WERE GENERATED" ("employment
+    # generated"); left behind they made "How many MGNREGA households were generated" (2026-11-14)
+    old_vocab = {w for ph in before.metric.phrases for w in ph} - _C01_MSWAP_GLUE
+    k = hi + 1
+    while k < len(prev_toks) and (prev_toks[k].low in metric_catalog._AUX
+                                  or metric_catalog._stem(prev_toks[k].low) in old_vocab):
+        if metric_catalog._stem(prev_toks[k].low) in old_vocab:
+            hi = k
+        k += 1
     prev_span_words = {metric_catalog._stem(t.low) for t in prev_toks[lo:hi + 1]}
     prev_order = [metric_catalog._stem(t.low) for t in prev_toks[lo:hi + 1]
                   if t.low not in metric_catalog._AUX]
