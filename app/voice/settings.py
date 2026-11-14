@@ -17,6 +17,10 @@ Keys:
   VOICE_TOOL_TIMEOUT    seconds the relay waits for the page to return an answer before saying it is still coming
   VOICE_BLOCK_UNSOURCED on (default) | off: a sentence the voice says with a number no answer supports is cut (its
                         audio and caption) and replaced; off = logged only, as before 14 Nov 2026
+  VOICE_MAX_SESSION_MINUTES  the server ends a live session after this long, whatever the browser does (default 60;
+                        0 = no limit). The browser's idle close is the usual end; this bounds a client that never idles
+  VOICE_HELLO_PER_MINUTE     /ws/voice connections (hello + login) accepted per address per minute (default 60; 0 = no
+                        limit; one office behind NAT or a proxy shares one address). The HTTP rate limiter does not see WebSockets
 """
 from __future__ import annotations
 
@@ -55,6 +59,8 @@ class VoiceSettings:
     max_sessions: int
     tool_timeout: float
     block_unsourced: bool = True
+    max_session_minutes: float = 60.0
+    hello_per_minute: int = 60
 
     @property
     def enabled(self) -> bool:
@@ -94,4 +100,6 @@ def load() -> VoiceSettings:
         max_sessions=int(num("VOICE_MAX_SESSIONS", 40)),
         tool_timeout=num("VOICE_TOOL_TIMEOUT", 100.0),
         block_unsourced=get("VOICE_BLOCK_UNSOURCED", "on").strip().lower() not in ("off", "0", "false", "no"),
+        max_session_minutes=max(0.0, num("VOICE_MAX_SESSION_MINUTES", 60.0)),
+        hello_per_minute=max(0, int(num("VOICE_HELLO_PER_MINUTE", 60))),
     )

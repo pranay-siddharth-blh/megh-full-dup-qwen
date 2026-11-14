@@ -89,6 +89,7 @@ def _wiring(monkeypatch, fakes):
     monkeypatch.setattr(voice_settings, "load", load)
     relay._LOCK["until"] = 0.0
     relay._ACTIVE.clear()
+    relay._HELLOS.clear()          # 2026-11-14: VOICE_HELLO_PER_MINUTE counts across tests otherwise
     yield state
     relay._LOCK["until"] = 0.0
 

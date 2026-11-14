@@ -165,10 +165,34 @@ async def _open_upstream(cfg, officer: Officer):
     return None, (120.0 if last and last[0] == "refused" else 15.0)
 
 
+# /ws/voice connections per address in the last minute (VOICE_HELLO_PER_MINUTE): {address: [monotonic times]}
+_HELLOS: dict = {}
+
+
+def _over_hello_limit(address: str, per_minute: int, now: float) -> bool:
+    """True when `address` has already opened `per_minute` connections in the last 60 s; else the attempt is counted.
+    0 = no limit. Addresses with nothing recent are dropped, so the table stays small."""
+    if per_minute <= 0:
+        return False
+    for a in [a for a, ts in _HELLOS.items() if not ts or now - ts[-1] > 60]:
+        del _HELLOS[a]
+    recent = [t for t in _HELLOS.get(address, []) if now - t <= 60]
+    if len(recent) >= per_minute:
+        _HELLOS[address] = recent
+        return True
+    _HELLOS[address] = recent + [now]
+    return False
+
+
 @router.websocket("/ws/voice")
 async def ws_voice(ws: WebSocket):
     await ws.accept()
     cfg = voice_settings.load()
+    address = ws.client.host if ws.client else "?"
+    if _over_hello_limit(address, cfg.hello_per_minute, time.monotonic()):
+        STATS["refused"] += 1
+        await _close(ws, {"type": "error", "reason": "rate"}, 4429)
+        return
     try:
         hello = json.loads(await asyncio.wait_for(ws.receive_text(), 10))
     except Exception:  # noqa: BLE001
@@ -273,8 +297,11 @@ class VoiceSession:
         logger.info("voice: session open (user %s)", self.officer.key)
         a = asyncio.create_task(self.from_page())
         b = asyncio.create_task(self.from_gemini())
+        tasks = {a, b}
+        if self.cfg.max_session_minutes > 0:
+            tasks.add(asyncio.create_task(self._time_limit(self.cfg.max_session_minutes * 60.0)))
         try:
-            done, rest = await asyncio.wait({a, b}, return_when=asyncio.FIRST_COMPLETED)
+            done, rest = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED)
             for t in done:
                 exc = t.exception()
                 if exc and not isinstance(exc, (WebSocketDisconnect, websockets.exceptions.ConnectionClosedOK)):
@@ -304,6 +331,12 @@ class VoiceSession:
                     pass
             logger.info("voice: session closed (user %s, %.0f s, %s)", self.officer.key,
                         time.monotonic() - self.t0, self.closing or "ended")
+
+    async def _time_limit(self, seconds: float) -> None:
+        """VOICE_MAX_SESSION_MINUTES: the session ends here even if the browser never goes idle (cost bound)."""
+        await asyncio.sleep(seconds)
+        logger.info("voice: session time limit reached (user %s, %.0f s)", self.officer.key, seconds)
+        await self.close("session time limit")
 
     # ── page -> Gemini ──────────────────────────────────────────────────────
     async def from_page(self) -> None:
