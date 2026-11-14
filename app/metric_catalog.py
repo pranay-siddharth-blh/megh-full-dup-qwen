@@ -92,6 +92,9 @@ class Match:
     metric: Metric | None
     spans: frozenset[int]
     phrases: frozenset[tuple[str, ...]] = frozenset()
+    # status "several": the measures named, in the order the question names them, when each named span points at
+    # exactly one measure (2026-11-14: a question asking two figures, read by combine_totals)
+    several: tuple = ()
 
 
 # Helper verbs the rephraser adds inside a measure's words ("houses WERE
@@ -391,7 +394,9 @@ def match(question: str, scheme: str) -> Match:
     if any(len(c[2]) > 1 for c in chosen):
         return Match("tied", None, spans)
     if len(keys) != 1:
-        return Match("several", None, spans)
+        ordered = list(dict.fromkeys(next(iter(ks)) for _i, _n, ks in sorted(chosen, key=lambda c: c[0])))
+        return Match("several", None, spans, frozenset(used),
+                     several=tuple(_state["metrics"][k] for k in ordered))
     return Match("one", _state["metrics"][keys.pop()], spans, frozenset(used))
 
 
@@ -487,6 +492,29 @@ def build(m: Metric, filters: dict, group: "str | None" = None, *,
         return f"/* metric:{m.key} {qtype} */ SELECT {select}\nFROM {m.base_object}{wh}{tail}"
 
     return text(where), params, text(shown)
+
+
+def combine_totals(parts: "list[tuple[Metric, tuple[str, list, str]]]") -> "tuple[str, list, str]":
+    """One query reading several one-row totals side by side: SELECT (q1) AS a, (q2) AS b. Each part is the
+    (sql, params, shown) build() wrote for a total; its $n placeholders are renumbered after the parts before it,
+    its own opening comment is dropped and one comment names every measure (`/* metric:a+b total */`)."""
+    def body(text: str) -> str:
+        text = text.lstrip()
+        if text.startswith("/*"):
+            text = text[text.index("*/") + 2:].lstrip()
+        return text
+
+    selects, shown_selects, params = [], [], []
+    for m, (sql, ps, shown) in parts:
+        off = len(params)
+        s = body(sql)
+        for k in range(len(ps), 0, -1):          # highest first: "$12" is renumbered before "$1"
+            s = s.replace(f"${k}", f"${k + off}")
+        params += list(ps)
+        selects.append(f"({s}) AS {m.alias}")
+        shown_selects.append(f"({body(shown)}) AS {m.alias}")
+    head = "/* metric:" + "+".join(m.key for m, _ in parts) + " total */ SELECT "
+    return head + ",\n       ".join(selects), params, head + ",\n       ".join(shown_selects)
 
 
 def is_catalog_sql(sql: "str | None") -> bool:

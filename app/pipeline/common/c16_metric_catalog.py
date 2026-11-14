@@ -216,6 +216,8 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
         return out
     found = metric_catalog.match(question, schemes[0])
     out["status"] = found.status
+    if found.status == "several" and 2 <= len(found.several) <= 3:
+        return _c16_plan_several(question, schemes, entity_result, found, out)
     if found.metric is None:
         out["reason"] = f"measure: {found.status}"
         if found.status == "none":
@@ -279,6 +281,62 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
         return out
     out.update(status="built", query=query,
                verified=metric_catalog.verified(shape["qtype"], m.key, found.phrases) is not None)
+    return out
+
+
+# The words that join two figures asked together ("producer groups AND total", "subsidy PLUS loan").
+_C16_JOIN_WORDS = frozenset("and plus also both as well along with".split())
+
+
+def _c16_plan_several(question: str, schemes: "list[str]", entity_result: dict, found, out: dict) -> dict:
+    """Two or three measures asked together, each as one total over the same place and year (2026-11-14): each is
+    built as its own verified total and read in one query (metric_catalog.combine_totals). Any measure that could
+    not be answered alone the same way declines the whole question (the model path answers it)."""
+    ms = list(found.several)
+    out["metric"] = "+".join(m.key for m in ms)
+    if schemes == ["CM Elevate Legacy"] and _CML_SANCTION_COUNT_Q.search(question or ""):
+        out["reason"] = "a sanctioned count is COUNT(sanctioned_amount), not this measure"
+        return out
+    filters = _c16_filters(entity_result.get("resolved") or {})
+    if filters is None:
+        out["reason"] = "a filter the measure cannot take"
+        return out
+    shape = _c16_shape(question, filters)
+    if shape is None or shape["qtype"] != "total":
+        out["reason"] = "several measures: only totals are read together"
+        return out
+    out["qtype"] = "total"
+    allowed = _C16_JOIN_WORDS
+    for m in ms:
+        allowed = allowed | _c16_measure_vocabulary(m)
+    stated_all = bool(_ALL_YEARS_CUE.search(question or "") or _STATED_ALL_YEARS_CUE.search(question or ""))
+    if stated_all:
+        allowed = allowed | _C16_ALL_YEARS_WORDS
+    extra = _c16_extra_words(question, schemes, entity_result, found.spans, allowed)
+    if extra:
+        out["reason"] = "asks more than the measures: " + " ".join(extra[:6])
+        return out
+    years = filters.get("year_key") or []
+    if len(years) > 1:
+        out["reason"] = "several years"
+        return out
+    parts = []
+    for m in ms:
+        if metric_catalog.single_year(m.key) and len(years) != 1:
+            out["reason"] = f"{m.key} is read one financial year at a time"
+            return out
+        if not years and metric_catalog.YEAR_COLUMN in m.columns and not stated_all:
+            out["reason"] = "no year named"
+            return out
+        q = metric_catalog.build(m, filters, None, qtype="total")
+        if q is None:
+            out["reason"] = f"the view of {m.key} lacks a column the question needs"
+            return out
+        if metric_catalog.verified("total", m.key, found.phrases) is None:
+            out.update(status="built", query=None, verified=False, reason=f"{m.key} not verified for a total")
+            return out
+        parts.append((m, q))
+    out.update(status="built", query=metric_catalog.combine_totals(parts), verified=True)
     return out
 
 

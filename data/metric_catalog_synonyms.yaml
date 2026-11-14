@@ -46,6 +46,7 @@ focus_plus_payments:
 focus_legacy_members_paid_for:
   - pg members
   - members
+  - memberships   # 2026-11-14: CARD-fl-mem truth SUM(no_of_pg_members) = 102,021, the measure's own figure
 pmay_houses_sanctioned:
   - houses
 mgnrega_employment_generated:
