@@ -312,7 +312,14 @@ def kb_scheme(scheme: str | None) -> str | None:
     return _KB_SCHEME_ALIAS.get(scheme, scheme) if scheme else scheme
 
 
-_KB_SCHEMES = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CMSS", "Home Stay")
+def _kb_schemes() -> tuple[str, ...]:
+    """Every knowledge base, from the scheme registry (2026-11-14: this was a typed list, so a
+    newly onboarded scheme was never tried by best_kb_scheme until someone remembered to add it)."""
+    from app.scheme_registry import DATASETS
+    return tuple(dict.fromkeys(kb_scheme(s) for s in DATASETS))
+
+
+_KB_SCHEMES = _kb_schemes()
 
 _STOP = frozenset("""a an the is are was were be what whats what's who whom which how why when where does do
 did of in on for to and or under about tell me explain define meaning describe role please kindly
@@ -394,6 +401,34 @@ async def _kb_texts_by_scheme() -> dict[str, list[str]]:
                 break
         _kb_text_cache[coll] = out
     return _kb_text_cache[coll]
+
+
+async def kb_coverage() -> dict[str, int]:
+    """Pieces in the knowledge base for each scheme of the registry, under the tag it is searched by."""
+    texts = await _kb_texts_by_scheme()
+    return {s: len(texts.get(s, [])) for s in _KB_SCHEMES}
+
+
+# Schemes of the registry whose knowledge base is empty, as of the last check_kb_coverage().
+kb_missing: list[str] = []
+
+
+async def check_kb_coverage() -> list[str]:
+    """Start-up check (2026-11-14): a scheme with data but no documents answers every "what is…",
+    "who is eligible…" question with "not covered", and nothing said why. Homestay was onboarded
+    with its documents under another tag ("Home Stay") and looked exactly like that. Logged loudly;
+    never blocks the start."""
+    _kb_text_cache.pop(settings.QDRANT_COLLECTION, None)   # read after the ingest, not before it
+    cov = await kb_coverage()
+    kb_missing[:] = [s for s, n in cov.items() if n == 0]
+    if kb_missing:
+        logger.error("knowledge base: NO documents for %s — their knowledge questions will be answered "
+                     "'not covered' (ingest the scheme's documents, or map its tag in _KB_SCHEME_ALIAS)",
+                     ", ".join(kb_missing))
+    else:
+        logger.info("knowledge base: documents for every scheme (%s)",
+                    ", ".join(f"{s} {n}" for s, n in cov.items()))
+    return list(kb_missing)
 
 
 async def best_kb_scheme(question: str, exclude: str | None = None) -> str | None:
@@ -1415,6 +1450,15 @@ Answer:"""
         if cleaned and _is_whole_refusal(cleaned):
             cleaned = ""
         if not cleaned:
+            return None
+
+    # 2026-11-14: the same sentence check as the single-scheme answer. This path wrote from up to
+    # four passages per scheme and nothing checked the result, so a figure or rule the composer
+    # added for one scheme went out as it was.
+    if settings.RAG_GROUNDING_CHECK:
+        cleaned = await ground_answer(
+            cleaned, [c["text"] for chunks in per_scheme.values() for c in chunks], question)
+        if not cleaned or _is_whole_refusal(cleaned):
             return None
 
     missing = [s for s in schemes if s not in covered]

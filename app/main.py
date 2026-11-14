@@ -45,6 +45,8 @@ async def _ingest_kb_bg():
     try:
         result = await ingest_kb()
         logger.info("scheme KB: %s", result)
+        from app import rag
+        await rag.check_kb_coverage()     # every registry scheme has documents (2026-11-14)
     except Exception as e:  # noqa: BLE001
         logger.warning("scheme KB ingest failed (RAG path degraded): %s", e)
 

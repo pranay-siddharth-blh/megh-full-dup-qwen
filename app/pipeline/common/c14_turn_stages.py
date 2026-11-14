@@ -3289,7 +3289,18 @@ async def _data_path_kb_fallback(question: str) -> dict:
     # documents: they replied "the published scheme information does not contain
     # figures for Gambegre block…", which reads as if the data did not exist
     # (MGNREGA sheet DATA-005/014/029, run 2026-10-09). Say the query failed.
-    kb = None if _is_data_shaped(question) else await rag.answer_from_kb(question)
+    # 2026-11-14: searched in the scheme the question is about. This fallback searched every
+    # scheme's documents at once, so the closest passage of ANOTHER scheme could answer a question
+    # that names one; two or more named schemes take the per-scheme answer.
+    _fallback_schemes = _named_schemes(question) or _infer_scheme_from_terms(question)
+    if _is_data_shaped(question):
+        kb = None
+    elif _fallback_schemes and len(_fallback_schemes) >= 2:
+        kb = await rag.answer_from_kb_multi(question, list(_fallback_schemes))
+    elif _fallback_schemes:
+        kb = await rag.answer_from_kb(question, scheme=_fallback_schemes[0])
+    else:
+        kb = await rag.answer_from_kb(question)
     if kb:
         return {"route": "knowledge", "intent": "RAG", "confidence": kb["confidence"],
                 "answer": kb["answer"], "sources": kb["sources"], **_empty_data_fields()}
@@ -3297,7 +3308,6 @@ async def _data_path_kb_fallback(question: str) -> dict:
     # to always say "MGNREGA / PMAY-G data" even for a Focus Plus / CM Elevate
     # question, which reads as if the conversation's own context had been dropped
     # (it hadn't — this text just never grew past the original two-scheme build).
-    _fallback_schemes = _named_schemes(question) or _infer_scheme_from_terms(question)
     _schemes_text = " / ".join(_fallback_schemes) if _fallback_schemes else " / ".join(SCHEME_CATALOG)
     return {"route": "data", "intent": "DATA", "confidence": "low",
             "answer": ("I understood the question but couldn't build a working query for it "
