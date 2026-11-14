@@ -4,9 +4,10 @@
    number in what it actually said (its own transcript: digits or English
    words, Indian or international grouping, lakh / crore) is compared with the
    numbers in the answers it was given this session. A number with no source
-   is a deviation: logged and counted, never "corrected" (the screen already
-   shows the checked answer). This is the voice's version of the composer's
-   numeric-faithfulness rule.
+   is a deviation: logged and counted and, since 14 Nov 2026 (VOICE_BLOCK_UNSOURCED,
+   on by default), BLOCKED: the relay stops that sentence's audio and caption
+   and the line is replaced (guard_line). This is the voice's version of the
+   composer's numeric-faithfulness rule.
 2. Engine names. The voice never names the model or the company behind it;
    any such name in a caption is replaced before it reaches the screen.
 """
@@ -168,9 +169,23 @@ def spoken_values(text: str) -> list[tuple]:
     return _digit_values(text) + _word_values(text)
 
 
+def _item_counts(text: str) -> set:
+    """How many items an answer lists (its lines, its ';'-separated parts): a voice saying "these 15 blocks" of a
+    15-line answer names a count the screen shows, not a figure from memory."""
+    t = text or ""
+    out = set()
+    lines = [ln for ln in t.splitlines() if any(ch.isalpha() for ch in ln)]
+    for n in (len(lines), len(lines) - 1, len([p for p in t.split(";") if p.strip()])):
+        if n >= 2:
+            out.add(float(n))
+    return out
+
+
 def facts_from(text: str, acc: set | None = None) -> set:
-    """The numbers in an answer, plus the forms a voice may say them in (rounded, in lakh or crore, a year in halves)."""
+    """The numbers in an answer, plus the forms a voice may say them in (rounded, in lakh or crore, a year in halves),
+    plus how many items it lists."""
     acc = acc if acc is not None else set()
+    acc |= _item_counts(text)
     for alts in spoken_values(text):
         for v in alts:
             for x in (v, round(v), round(v, 1), round(v, 2), round(v / 1e5, 1), round(v / 1e5, 2),
@@ -192,12 +207,59 @@ def _is_year(v: float) -> bool:
     return float(v).is_integer() and 1990 <= v <= 2035
 
 
+_MONTHS = frozenset(("january february march april may june july august september october november december "
+                     "jan feb mar apr jun jul aug sep sept oct nov dec").split())
+_RANK_WORDS = frozenset(("top", "bottom", "first", "last"))
+_ORDINAL_ENDS = ("st", "nd", "rd", "th")
+_EDGE_PUNCT = ".,;:!?()[]\"'"
+
+
+def _is_number_word(w: str) -> bool:
+    return w in _UNITS or w in _TENS
+
+
+def _drop_allowed(said: str) -> str:
+    """The transcript without the numbers that are not figures (14 Nov 2026, the guard now BLOCKS, so a false alarm
+    cuts a correct answer):
+      * ordinals written with digits: "ranks 13th", "the 21st-ranked district" (words such as "thirteenth" are never
+        read as numbers);
+      * the size of a ranking: "top 15", "bottom five", "first 20", "last three";
+      * a day of a date: "31 March 2024", "March 31".
+    Each dropped token becomes a placeholder word, so the numbers either side of it are never joined into one."""
+    toks = (said or "").split()
+    low = [t.lower().strip(_EDGE_PUNCT) for t in toks]
+    keep = list(toks)
+    for i, w in enumerate(low):
+        head = w.split("-", 1)[0]
+        k = 0
+        while k < len(head) and head[k].isdigit():
+            k += 1
+        if 0 < k < len(head) and head[k:] in _ORDINAL_ENDS:
+            keep[i] = "_"
+            continue
+        if w.isdigit() and 1 <= int(w) <= 31 and (
+                (i + 1 < len(low) and low[i + 1] in _MONTHS) or (i > 0 and low[i - 1] in _MONTHS)):
+            keep[i] = "_"
+            continue
+        if i > 0 and low[i - 1] in _RANK_WORDS:
+            if w.isdigit():
+                keep[i] = "_"
+            elif all(_is_number_word(p) for p in w.split("-") if p):
+                keep[i] = "_"
+                j = i + 1
+                while j < len(low) and all(_is_number_word(p) for p in low[j].split("-") if p) and low[j]:
+                    keep[j] = "_"
+                    j += 1
+    return " ".join(keep)
+
+
 def deviations(said: str, facts: set) -> list[str]:
     """Numbers in what the voice said that no answer of this session supports. Years are never a deviation: a voice
     naming the year it was asked about ("in 2024-25", "twenty twenty-four") is not a figure from memory (a spurious
-    "To be exact" re-read came from this on the real voice, 2026-11-02)."""
+    "To be exact" re-read came from this on the real voice, 2026-11-02). Ordinals, the size of a ranking ("top 15")
+    and the day of a date are not figures either (_drop_allowed)."""
     bad: list[str] = []
-    vals = spoken_values(said)
+    vals = spoken_values(_drop_allowed(said))
     yearish = [False] * len(vals)
     for i, alts in enumerate(vals):
         v = alts[-1]
@@ -220,6 +282,42 @@ def deviations(said: str, facts: set) -> list[str]:
         if s not in bad:
             bad.append(s)
     return bad
+
+
+ON_SCREEN_LINE = "That figure is on your screen."
+SAFE_LINE = "The exact figures are on your screen."
+
+
+def sentences(text: str) -> list[str]:
+    """The sentences of a spoken line (text_match.split_sentences: a full stop inside a number never splits)."""
+    from app.text_match import split_sentences
+    return [s.strip() for s in split_sentences(text or "") if s.strip()]
+
+
+def guard_line(text: str, facts: set) -> tuple[str, list[str]]:
+    """(the line as it may be spoken / shown, the unsourced numbers). Every sentence holding a number no answer
+    supports is replaced by ON_SCREEN_LINE (a run of them by one); a line left with no sentence of its own becomes
+    SAFE_LINE, so a reply is never emptied. A line with no unsourced number comes back unchanged."""
+    if not (text or "").strip():
+        return text or "", []
+    parts = sentences(text)
+    out: list[str] = []
+    bad_all: list[str] = []
+    kept = 0
+    for s in parts:
+        bad = deviations(s, facts)
+        if not bad:
+            out.append(s)
+            kept += 1
+            continue
+        bad_all += [b for b in bad if b not in bad_all]
+        if not out or out[-1] != ON_SCREEN_LINE:
+            out.append(ON_SCREEN_LINE)
+    if not bad_all:
+        return text, []
+    if not kept:
+        return SAFE_LINE, bad_all
+    return " ".join(out), bad_all
 
 
 _ENGINE_NAMES = ("google deepmind", "deepmind", "gemini", "google", "openai", "chatgpt", "anthropic", "claude",

@@ -16,7 +16,8 @@ What is carried over from Mitra's relay (D:/Sakala POC/mitra/server/live.py):
   * Gemini ends the tool-call turn before it speaks the answer in the next one; the turn is held open (tool_wait).
   * The same call twice in one turn is answered from the first result (the model sometimes repeats itself).
   * If the model goes quiet 4 s after a result, it is nudged once per turn to read it.
-  * Every number it says is checked against the answers it was given (speech_guard); deviations are logged.
+  * Every number it says is checked against the answers it was given (speech_guard); deviations are logged and,
+    with VOICE_BLOCK_UNSOURCED on (default, 14 Nov 2026), the sentence that holds one is cut and replaced.
   * One immediate retry of connect + setup; a network failure locks the voice out 15 s, a refusal 120 s,
     and the page falls back to the dictation mic meanwhile.
 Logs carry counts and timings only, never the officer's words.
@@ -45,8 +46,12 @@ router.include_router(_board_router)
 
 IN_RATE, OUT_RATE = 16000, 24000
 NUDGE_AFTER_S = 4.0
+# the largest message the page may send (2026-11-14, guardrail): an audio frame is 20-100 ms (0.6-3.2 KB); 2 s of
+# 16 kHz PCM16 is 64 KB. Anything bigger is dropped unread (a runaway or hostile client cannot push megabytes upstream)
+MAX_FRAME_BYTES = 64_000
 STATS = {"non_english_dropped": 0, "coalesced": 0, "repeats_held": 0, "unprompted_dropped": 0, "rereads_dropped": 0, "sessions": 0, "active": 0, "refused": 0, "audio_in_s": 0.0, "audio_out_s": 0.0, "tool_calls": 0,
-         "tool_timeouts": 0, "nudges": 0, "deviations": 0, "errors": 0, "last_error": ""}
+         "tool_timeouts": 0, "nudges": 0, "deviations": 0, "blocked": 0, "oversize_dropped": 0, "errors": 0,
+         "last_error": ""}
 _ACTIVE: dict = {}                 # user key -> VoiceSession (one live session per officer on this worker)
 # the sovereign engine's voices the page may choose (2026-11-12): a = Indian woman (default), b = Indian woman (bright),
 # c = Indian woman (mature), d / e = reserved (Indian man, a second accent). Unknown keys are ignored.
@@ -110,6 +115,23 @@ def _norm(q: str) -> str:
     return " ".join("".join(ch.lower() if ch.isalnum() else " " for ch in (q or "")).split())
 
 
+def _redact(text: str, cfg) -> str:
+    """An error text as it may be logged or kept in STATS: the Gemini key never (the upstream URL carries it as
+    ?key=...; an exception that quotes the URL would put it in the log). No regex."""
+    out = str(text or "")
+    key = getattr(cfg, "api_key", "") or ""
+    if key:
+        out = out.replace(key, "***")
+    k = out.find("key=")
+    while k >= 0:
+        e = k + 4
+        while e < len(out) and out[e] not in "&' \"\n>":
+            e += 1
+        out = out[:k + 4] + "***" + out[e:]
+        k = out.find("key=", k + 7)
+    return out
+
+
 async def _open_upstream(cfg, officer: Officer):
     """Connect and set up; one immediate retry. Returns (socket, None) or (None, lockout seconds)."""
     last = None
@@ -139,7 +161,7 @@ async def _open_upstream(cfg, officer: Officer):
         if last and last[0] == "refused":
             break                                   # a refusal (quota, model, key) will not change on a retry
     STATS["errors"] += 1
-    STATS["last_error"] = last[1] if last else "unknown"
+    STATS["last_error"] = _redact(last[1], cfg) if last else "unknown"
     return None, (120.0 if last and last[0] == "refused" else 15.0)
 
 
@@ -219,7 +241,10 @@ class VoiceSession:
     def _new_turn() -> dict:
         return {"user": "", "said": "", "called": 0, "tool_wait": False, "resp_at": 0.0, "last_out": 0.0,
                 "nudged": False, "cache": {}, "t0": time.monotonic(), "first_audio": 0.0,
-                "asked": "", "fresh": True, "read": False, "probe": "", "reread": False, "probed": False}
+                "asked": "", "fresh": True, "read": False, "probe": "", "reread": False, "probed": False,
+                # the unsourced-number block (VOICE_BLOCK_UNSOURCED): sentences checked and captioned so far, the
+                # numbers that cut the turn (empty = not cut), the sentence it was cut at, the text a read asked for
+                "checked": 0, "blocked": [], "block_at": -1, "read_text": ""}
 
     async def close(self, why: str) -> None:
         self.closing = why
@@ -254,7 +279,7 @@ class VoiceSession:
                 exc = t.exception()
                 if exc and not isinstance(exc, (WebSocketDisconnect, websockets.exceptions.ConnectionClosedOK)):
                     STATS["errors"] += 1
-                    STATS["last_error"] = f"{type(exc).__name__}: {str(exc)[:160]}"
+                    STATS["last_error"] = _redact(f"{type(exc).__name__}: {str(exc)[:160]}", self.cfg)
                     logger.warning("voice: session ended by an error (user %s): %s", self.officer.key, STATS["last_error"])
                     closed = isinstance(exc, websockets.exceptions.ConnectionClosedError)
                     code = exc.rcvd.code if closed and exc.rcvd else 0
@@ -287,6 +312,9 @@ class VoiceSession:
             if msg.get("type") == "websocket.disconnect":
                 self.closing = self.closing or "page went away"
                 return
+            if len(msg.get("bytes") or b"") > MAX_FRAME_BYTES or len(msg.get("text") or "") > MAX_FRAME_BYTES:
+                STATS["oversize_dropped"] += 1
+                continue
             if msg.get("bytes"):
                 b = msg["bytes"]
                 STATS["audio_in_s"] += len(b) / 2 / IN_RATE
@@ -318,6 +346,7 @@ class VoiceSession:
                     self.turn["user"] = ""              # a read is not the officer's turn: its end must not re-ask anything
                     self.turn["fresh"] = True           # ... but it is speech the page asked for: forwarded
                     self.turn["read"] = True
+                    self.turn["read_text"] = text
                     self.last_answer = _letters(text)
                     await self.up_text(prompt.READ_LINE + text)
             elif t == "tool_result":
@@ -377,6 +406,8 @@ class VoiceSession:
                     continue
                 if d and d.get("data") and reread:
                     continue
+                if d and d.get("data") and self.turn["blocked"]:
+                    continue                        # cut at a sentence with an unsourced number: the rest is not played
                 if d and d.get("data"):
                     pcm = base64.b64decode(d["data"])
                     now = time.monotonic()
@@ -413,7 +444,10 @@ class VoiceSession:
             if tx:
                 self.turn["said"] += tx
                 self.turn["last_out"] = time.monotonic()
-                await self.send({"type": "out", "text": speech_guard.scrub(tx)})
+                if self.cfg.block_unsourced:
+                    await self._guard_scan(final=False)     # captions go out a sentence at a time, each one checked
+                else:
+                    await self.send({"type": "out", "text": speech_guard.scrub(tx)})
             if sc.get("interrupted"):
                 if self.turn.get("non_english"):    # the English apology interrupted the dropped turn: start clean
                     self.turn = self._new_turn()
@@ -445,7 +479,7 @@ class VoiceSession:
         tn["probed"] = True
         if probe[:n] == last[:n]:
             tn["reread"] = True
-            tn["said"], tn["first_audio"] = "", 0.0
+            tn["said"], tn["first_audio"], tn["checked"] = "", 0.0, 0
             STATS["rereads_dropped"] += 1
             logger.info("voice: the last answer was being read again; not forwarded (user %s)", self.officer.key)
 
@@ -469,18 +503,58 @@ class VoiceSession:
             return
         if self.waiting:
             return                                  # a question is still being answered by the page
+        if self.cfg.block_unsourced and tn["said"].strip():
+            await self._guard_scan(final=True)      # the last sentence too (its audio may still be queued on the page)
         said = speech_guard.scrub(tn["said"].strip())
         bad = speech_guard.deviations(said, self.facts) if said else []
+        shown = said
+        if tn["blocked"]:
+            bad += [b for b in tn["blocked"] if b not in bad]
+            # what the screen keeps of this turn: the sentences heard, the cut one replaced (never empty)
+            upto = speech_guard.sentences(tn["said"])[:tn["block_at"] + 1]
+            shown = speech_guard.guard_line(speech_guard.scrub(" ".join(upto)), self.facts)[0] or speech_guard.SAFE_LINE
         if bad:
             STATS["deviations"] += 1
             logger.warning("voice: %d number(s) said without a source (user %s): %s", len(bad), self.officer.key,
                            ", ".join(bad[:6]))
-        await self.send({"type": "turn_complete", "user": tn["user"].strip(), "said": said, "called": tn["called"],
-                         "deviations": bad,
+        # `deviations` keeps its meaning for the page: a called turn's checked answer is re-read ("To be exact"), an
+        # uncalled one goes through the pipeline. `blocked` says the relay already cut the unsourced sentence.
+        await self.send({"type": "turn_complete", "user": tn["user"].strip(), "said": shown, "called": tn["called"],
+                         "deviations": bad, "blocked": bool(tn["blocked"]),
                          "first_audio_ms": round((tn["first_audio"] - tn["t0"]) * 1000) if tn["first_audio"] else None})
         self.turn = self._new_turn()
         if tn["asked"] and said and not tn["fresh"]:
             self.turn.update(asked=tn["asked"], fresh=False, spoken=True)
+        if tn["blocked"] and tn["read"] and not tn["called"] and tn["read_text"] != speech_guard.SAFE_LINE:
+            # a read the page asked for (a greeting, a typed answer, a "To be exact" correction) was misread with a
+            # number of the model's own: nothing on the page will follow it, so the relay ends it with the safe line
+            # (once: the safe line itself holds no number)
+            self.turn.update(user="", fresh=True, read=True, read_text=speech_guard.SAFE_LINE)
+            await self.up_text(prompt.READ_LINE + speech_guard.SAFE_LINE)
+
+    async def _guard_scan(self, final: bool) -> None:
+        """VOICE_BLOCK_UNSOURCED: check each finished sentence of what the voice is saying against the answers of this
+        session. A clean sentence goes to the page as a caption; the first sentence with an unsourced number cuts the
+        turn: the page stops the audio it has queued (the transcript runs well ahead of the audio, so this is
+        normally before that sentence is heard), the rest of the turn's audio and captions are dropped, and
+        on_turn_complete replaces it. `final`: the turn is over, the last sentence is finished too."""
+        tn = self.turn
+        if tn["blocked"]:
+            return
+        sents = speech_guard.sentences(tn["said"])
+        done = sents if final else sents[:-1]
+        while tn["checked"] < len(done):
+            s = done[tn["checked"]]
+            bad = speech_guard.deviations(s, self.facts)
+            if bad:
+                tn["blocked"], tn["block_at"] = bad, tn["checked"]
+                STATS["blocked"] += 1
+                logger.warning("voice: a sentence with %d unsourced number(s) was cut (user %s)", len(bad),
+                               self.officer.key)
+                await self.send({"type": "interrupted", "guard": "unsourced"})
+                return
+            await self.send({"type": "out", "text": (" " if tn["checked"] else "") + speech_guard.scrub(s)})
+            tn["checked"] += 1
 
     async def on_tool_call(self, calls: list) -> None:
         tn = self.turn
@@ -514,7 +588,7 @@ class VoiceSession:
             else:
                 tn["asked"], tn["fresh"], tn["spoken"] = key, False, False   # a new question: its answer will be spoken
                 if tn["reread"]:                    # the re-read of the last answer before this call: over, not forwarded
-                    tn["reread"], tn["said"], tn["first_audio"] = False, "", 0.0
+                    tn["reread"], tn["said"], tn["first_audio"], tn["checked"] = False, "", 0.0, 0
             if key in tn["cache"]:                  # the same call again in this turn: the first answer
                 batch["resps"][cid] = {"id": cid, "name": name, "response": tn["cache"][key]}
                 continue

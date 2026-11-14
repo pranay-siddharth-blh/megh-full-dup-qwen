@@ -15,6 +15,8 @@ Keys:
   VOICE_IDLE_SECONDS    the browser closes a session after this much quiet (sent to it in `ready`)
   VOICE_MAX_SESSIONS    live sessions per worker
   VOICE_TOOL_TIMEOUT    seconds the relay waits for the page to return an answer before saying it is still coming
+  VOICE_BLOCK_UNSOURCED on (default) | off: a sentence the voice says with a number no answer supports is cut (its
+                        audio and caption) and replaced; off = logged only, as before 14 Nov 2026
 """
 from __future__ import annotations
 
@@ -52,6 +54,7 @@ class VoiceSettings:
     idle_seconds: int
     max_sessions: int
     tool_timeout: float
+    block_unsourced: bool = True
 
     @property
     def enabled(self) -> bool:
@@ -90,4 +93,5 @@ def load() -> VoiceSettings:
         idle_seconds=int(num("VOICE_IDLE_SECONDS", 120)),
         max_sessions=int(num("VOICE_MAX_SESSIONS", 40)),
         tool_timeout=num("VOICE_TOOL_TIMEOUT", 100.0),
+        block_unsourced=get("VOICE_BLOCK_UNSOURCED", "on").strip().lower() not in ("off", "0", "false", "no"),
     )

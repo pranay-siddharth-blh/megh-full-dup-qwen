@@ -21,6 +21,10 @@ Directives (imitate the real model's bad days):
   !!echo <q>       answers, then reads the same answer again on its own, no call (the relay must not forward it)
   !!reread <q>     on this new question it first reads its PREVIOUS answer again, then calls ask_megh for <q> in the
                    same turn and reads the new answer (the relay must forward only the new answer; real voice 2026-11-03)
+  !!mixed <q>      calls, reads the answer, then adds a sentence with a figure of its own and one more plain sentence
+                   (the relay must cut the turn at that sentence: VOICE_BLOCK_UNSOURCED, 2026-11-14)
+  read "!!garble <text>"   misreads a read the page asked for with a figure of its own (the relay ends it with
+                   the safe line)
 
 Run: python tests/voice/fake_live.py [port] [--fail]      (default 8499)
 """
@@ -98,7 +102,8 @@ async def handler(ws):
     async def user_turn(text: str, spoken: bool):
         await interrupt()
         if text.startswith(READ_PREFIX):
-            say(text.split(") ", 1)[-1].strip())
+            body = text.split(") ", 1)[-1].strip()
+            say("CM Elevate has 7,777 applications. That is the total." if body.startswith("!!garble ") else body)
             return
         if text.startswith(NOT_ENGLISH_PREFIX):
             say("Sorry, I can only speak English.")
@@ -111,7 +116,7 @@ async def handler(ws):
             return
         if spoken:                                   # what was "heard": the words without any test directive
             heard = text
-            for d in ("!!silent ", "!!memory ", "!!quiet ", "!!cancel ", "!!lag ", "!!wrong ", "!!nothing ", "!!again ", "!!echo ", "!!reread "):
+            for d in ("!!silent ", "!!memory ", "!!quiet ", "!!cancel ", "!!lag ", "!!wrong ", "!!nothing ", "!!again ", "!!echo ", "!!reread ", "!!mixed "):
                 if heard.startswith(d):
                     heard = heard[len(d):]
             for d in ("!!repeat ", "!!reword "):
@@ -162,6 +167,9 @@ async def handler(ws):
         wrong = text.startswith("!!wrong ")
         if wrong:
             question = text[len("!!wrong "):]
+        mixed = text.startswith("!!mixed ")
+        if mixed:
+            question = text[len("!!mixed "):]
         if cancel:
             st["n"] += 1
             cid = f"fc{st['n']}"
@@ -179,6 +187,9 @@ async def handler(ws):
         st["last_speak"] = r.get("speak") or "Done."
         if quiet:
             return                                   # until the relay nudges it
+        if mixed:
+            say(st["last_speak"] + " Last year it was 77,77,777 in total. That is all I have.")
+            return
         say("About 99,99,999 of them, roughly." if wrong else st["last_speak"])
         if echo:                                     # after reading, it says the same answer again, unprompted
             try:

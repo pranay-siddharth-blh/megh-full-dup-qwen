@@ -294,10 +294,11 @@ async def meaning_shadow(wording: str, scheme: str) -> "dict | None":
                   "nearest": k1, "nearest_phrase": p1, "score": round(c1, 3), "margin": round(c1 - c2, 3)}
         path = Path(settings.METRIC_MEANING_FILE)
         path = path if path.is_absolute() else Path(__file__).resolve().parent.parent / path
+        from app.pii_mask import mask_record      # the officer's wording: personal data masked (PII_LOG_MODE)
         with _meaning_lock:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False) + "\n")
+                f.write(json.dumps(mask_record(record), ensure_ascii=False) + "\n")
         return record
     except Exception:  # noqa: BLE001 — shadow only: never affects a turn
         logger.debug("metric catalogue: meaning shadow failed", exc_info=True)

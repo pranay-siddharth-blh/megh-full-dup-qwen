@@ -137,6 +137,10 @@ async def _persist_turn(tenant_id, user_id, session_id, result, question,
                  response_payload],
             )
         from app.auth import infer_granularity
+        from app.pii_mask import mask_ip, mask_text
+        # The compliance trail keeps who asked what and what ran, not the personal data inside the words
+        # (settings.PII_LOG_MODE, default masked; 2026-11-14). The officer's own chat history above is not masked.
+        audit_sql = (a.get("sql") or None) and str(a["sql"])[:20000]
         await db.execute(
             """INSERT INTO app.query_audit
                (tenant_id, user_id, username, session_id, question, rewritten_question,
@@ -144,10 +148,10 @@ async def _persist_turn(tenant_id, user_id, session_id, result, question,
                 sql_text, error_text, few_shot_ids, repairs, verifier_rejections, outcome, request_id)
                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,
                        $15,$16,$17::jsonb,$18,$19,$20,$21)""",
-            [tenant_id, user_id, username, session_id, question[:2000], rewritten,
+            [tenant_id, user_id, username, session_id, mask_text(question[:2000]), mask_text(rewritten),
              route, infer_granularity(entities, sql), list(schemes), allowed,
-             denied_by, rows, latency_ms, ip,
-             (a.get("sql") or None) and str(a["sql"])[:20000], a.get("error"),
+             denied_by, rows, latency_ms, mask_ip(ip),
+             mask_text(audit_sql), mask_text(a.get("error")),
              json.dumps(a.get("few_shot_ids") or []), int(a.get("repairs") or 0),
              int(a.get("verifier_rejections") or 0), a.get("outcome"), a.get("request_id")],
         )

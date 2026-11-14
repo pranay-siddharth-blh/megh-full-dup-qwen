@@ -404,9 +404,12 @@ _audit_lock = threading.Lock()
 
 def audit(record: dict) -> None:
     """Append one query record. Best-effort — an audit failure must not fail the
-    request."""
-    record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), **record}
+    request. Free text and the IP pass through app.pii_mask first
+    (settings.PII_LOG_MODE, default masked; DPDP data minimisation)."""
+    from app import pii_mask
     try:
+        # masked inside the try: a masking failure skips the record, it never writes it unmasked
+        record = {"ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"), **pii_mask.mask_record(record)}
         with _audit_lock:
             _audit_path.parent.mkdir(parents=True, exist_ok=True)
             with _audit_path.open("a", encoding="utf-8") as f:
