@@ -1737,8 +1737,8 @@ def _measures_not_held(text: str, schemes: "list[str]") -> "list[tuple[str, froz
             and not _c01_cme_rejection_held(label, text, chosen)]
 
 
-# KI-689 (accuracy round 2026-11-12): CM Elevate's Rejected decision is recorded again — the DB team
-# exposed a plain file_status column on v_cm_elevate (Pending / Send Back / Rejected; KI-676) and the
+# KI-720 (accuracy round 2026-11-12): CM Elevate's Rejected decision is recorded again — the DB team
+# exposed a plain file_status column on v_cm_elevate (Pending / Send Back / Rejected; KI-707) and the
 # pending rule's knowledge base points at it. While that column is readable, a REJECTED question is
 # answered (cme-sector-workflow counts it); "approved" is still no stored state, so it keeps the pause.
 _C01_APPROVAL_WORDS = Matcher(W("approved", "approve", "approval", "approvals"))
@@ -1788,7 +1788,7 @@ def _measure_not_held_gap(question: str, schemes: "list[str]",
             return None
     label, holders = gaps[0]
     if label == "approval or rejection decisions" and _c01_cme_rejection_held(label, "rejected", set(schemes)):
-        label = "approval decisions"            # KI-689: CM Elevate's rejections ARE recorded (file status)
+        label = "approval decisions"            # KI-720: CM Elevate's rejections ARE recorded (file status)
     named = " and ".join(schemes)
     verb = "doesn't" if len(schemes) == 1 else "don't"
     options: list[dict] = []

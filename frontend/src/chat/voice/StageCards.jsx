@@ -1,4 +1,4 @@
-/* The Secretary view's chart cards (D-100): Mitra's card shell (it arcs in with a sheen and a scan line, leans with
+/* The Secretary view's chart cards (D-105): Mitra's card shell (it arcs in with a sheen and a scan line, leans with
    the pointer, a ghost of the previous picture fades as the new one turns in) around the canvas renderers of
    stageCanvas.js, and the speech-synced reveal across every card of a turn (Mitra's Stage.hear / flush). A card is
    memoised on its plan id and kind, so captions and the voice's level never redraw it; it is drawn once per answer. */

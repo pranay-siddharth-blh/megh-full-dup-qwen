@@ -1,4 +1,4 @@
-"""The live voice's question bank (D-100), harnessed and looped like Sakala Mitra's banks.
+"""The live voice's question bank (D-105), harnessed and looped like Sakala Mitra's banks.
 
 Every turn is spoken to the voice in the real chat page (headless Edge, `?voicetest=1`); the answer comes from the real
 pipeline (VPN). The voice is the fake Gemini Live (start `python tests/voice/fake_live.py 8499` and the app with
@@ -88,7 +88,7 @@ BANK = [
     {"id": "B4", "group": "scheme", "turns": [T("MGNREGA person-days by financial year", pic=True)]},
     {"id": "B5", "group": "scheme", "turns": [T("MGNREGA expenditure in crore for the whole state, year by year.", pic=True)]},
     {"id": "B6", "group": "scheme", "turns": [T("How many households completed 100 days of work in South Garo Hills in 2023-24?")]},
-    # the brain reads "MGNREGA" here as a district and asks which district (KI-669): no picture for a clarification
+    # the brain reads "MGNREGA" here as a district and asks which district (KI-700): no picture for a clarification
     {"id": "B7", "group": "scheme", "turns": [T("Women's employment under MGNREGA, district-wise, for FY 2023-24.")]},
     {"id": "B8", "group": "scheme", "turns": [T("How many PMAY-G houses were sanctioned in total, and how many are completed?", must=["1,71,107", "1,29,941"])]},
     {"id": "B9", "group": "scheme", "turns": [T("PMAY-G houses sanctioned by district", pic=True, must=["33,147"])]},
@@ -102,14 +102,14 @@ BANK = [
     {"id": "B16", "group": "scheme", "turns": [T("Focus Legacy payments by district for FY 2024-25.", pic=True)]},
     {"id": "B17", "group": "scheme", "turns": [T("How many CM Elevate applications are there, by scheme?", pic=True)]},
     {"id": "B18", "group": "scheme", "turns": [T("Total sanctioned and disbursed under CM Elevate Legacy in 2024-25.")]},
-    {"id": "B19", "group": "scheme", "turns": [T("CM Elevate Legacy disbursement district-wise")]},   # KI-669
+    {"id": "B19", "group": "scheme", "turns": [T("CM Elevate Legacy disbursement district-wise")]},   # KI-700
     {"id": "B20", "group": "scheme", "turns": [T("Compare MGNREGA expenditure in 2022-23 and 2023-24 by district", pic=True)]},
     # ── C. follow-up chains (one conversation each) ──
     {"id": "C1", "group": "chain1", "turns": [T("MGNREGA person-days in East Khasi Hills in 2023-24."),
                                               T("And for Ri Bhoi?", must=["Ri Bhoi"], any_of=["person", "MGNREGA"]),
                                               T("What about the year before?", any_of=["2022-23", "2022"])]},
     {"id": "C2", "group": "chain2", "turns": [T("Tell me about PMAY-G houses by district.", pic=True),
-                                              T("Only the completed ones."),   # KI-670: the brain routes it to the documents
+                                              T("Only the completed ones."),   # KI-701: the brain routes it to the documents
                                               T("Top 3 districts.", any_of=["West Garo Hills", "WEST GARO HILLS"])]},
     {"id": "C3", "group": "chain3", "turns": [T("Compare the number of beneficiaries in Focus Plus and Focus Legacy."),
                                               T("Same for CM Elevate Legacy.", any_of=["CM Elevate Legacy", "Elevate"])]},
@@ -153,7 +153,7 @@ BANK = [
     # ── H. conversation control ──
     {"id": "H1", "group": "control", "turns": [T("PMAY-G houses sanctioned by district", kind="control:bargein", pic=True)]},
     {"id": "H2", "group": "control", "turns": [T("MGNREGA person-days by district", kind="control:mute", pic=True)]},
-    # the brain says 7,371, the cards 8,921 (KI-668): the bank checks the voice reads the answer, not the brain's count
+    # the brain says 7,371, the cards 8,921 (KI-699): the bank checks the voice reads the answer, not the brain's count
     {"id": "H3", "group": "control", "turns": [T("How many CM Elevate applications are there?", kind="control:typed", must=["CM Elevate"])]},
     {"id": "H4", "group": "control", "turns": [T("Focus Plus beneficiaries by district", kind="control:esc", pic=True)]},
 ]

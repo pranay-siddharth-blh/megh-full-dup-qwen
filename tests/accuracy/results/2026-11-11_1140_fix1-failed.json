@@ -1908,7 +1908,7 @@
    "id": "FU-02",
    "cat": "chain",
    "shape": "only-filter",
-   "src": "follow-up chain (voice bank C2, KI-670)",
+   "src": "follow-up chain (voice bank C2, KI-701)",
    "ok": false,
    "primary": "routing/intent",
    "drift": [],

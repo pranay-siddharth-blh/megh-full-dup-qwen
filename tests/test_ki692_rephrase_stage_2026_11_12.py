@@ -1,4 +1,4 @@
-"""KI-692 (2026-11-12): the rephraser may not add a stage the user never named.
+"""KI-723 (2026-11-12): the rephraser may not add a stage the user never named.
 
 "PMAY-G houses by block in East Khasi Hills" came back "How many PMAY-G houses were built by block in East Khasi
 Hills?"; "built" is a completed-house word, so every block was answered with its completed count. A rephrase that adds

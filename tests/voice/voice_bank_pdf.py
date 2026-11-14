@@ -1,4 +1,4 @@
-"""The client's three test PDFs (30 Oct 2026) spoken through the live voice and the Secretary view (D-100).
+"""The client's three test PDFs (30 Oct 2026) spoken through the live voice and the Secretary view (D-105).
 
 Sources: "Megh One AI · NLP Dashboard — Chart Test Questions", "UAT Passed Questions — MGNREGA and PMAY-G",
 "RAG Testing — Knowledge and Data". Every question is spoken to the voice in the real chat page; the checks are

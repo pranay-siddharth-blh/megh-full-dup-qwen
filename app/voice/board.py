@@ -1,4 +1,4 @@
-"""The Secretary's voice desk: one read-only board of the six schemes, by district and by year (D-100).
+"""The Secretary's voice desk: one read-only board of the six schemes, by district and by year (D-105).
 
 Like `/api/scheme-stats` (routers/stats.py), and next to it, NOT part of the pipeline: fixed, parameter-free SELECTs on
 the curated views, with the same counting rules the chat uses (stats.py's comments), cached for BOARD_TTL_SECONDS so

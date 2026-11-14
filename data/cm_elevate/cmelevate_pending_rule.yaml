@@ -29,7 +29,7 @@ verification_states:
 #    SELECT (KI-624). The DB team has since exposed a plain file_status column on
 #    curated.v_cm_elevate (VERIFIED 2026-11-11, readable by megh_readonly: Pending 8,813 /
 #    Send Back 90 / Rejected 62 distinct request_ids), so the step points at it and the gate is
-#    open (accuracy gold bank, KI-624 / KI-676). Was:
+#    open (accuracy gold bank, KI-624 / KI-707). Was:
 #    - { column: "scheme_specific ->> 'file_status'", label: "file status", values: [Pending, "Send Back"] }
 pending_rule:
 - { column: data_verified, label: "data verified", values: [Valid] }

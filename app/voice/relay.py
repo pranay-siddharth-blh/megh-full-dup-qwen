@@ -40,7 +40,7 @@ from app.voice.board import router as _board_router
 
 logger = logging.getLogger("megh.voice")
 router = APIRouter()
-# the Secretary's voice desk board (D-100): read-only figures beside the voice, never through the pipeline
+# the Secretary's voice desk board (D-105): read-only figures beside the voice, never through the pipeline
 router.include_router(_board_router)
 
 IN_RATE, OUT_RATE = 16000, 24000

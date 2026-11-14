@@ -761,7 +761,7 @@ cases:
     schemes:
     - CM Elevate
     pause: false
-    note: 'KI-668: card 8,9xx (all) vs chat valid-only (D-B1-CME-01); either, each named for what it counts'
+    note: 'KI-699: card 8,9xx (all) vs chat valid-only (D-B1-CME-01); either, each named for what it counts'
 - id: CARD-fl-mem
   cat: focus_legacy
   shape: state-total
@@ -17137,7 +17137,7 @@ cases:
 - id: FU-02
   cat: chain
   shape: only-filter
-  src: follow-up chain (voice bank C2, KI-670)
+  src: follow-up chain (voice bank C2, KI-701)
   turns:
   - q: Tell me about PMAY-G houses by district.
     rows:
@@ -20262,7 +20262,7 @@ cases:
 - id: W2-CE-REJ-01
   cat: cm_elevate
   shape: file-status
-  src: wave 2 (accuracy round 2026-11-12) (KI-689)
+  src: wave 2 (accuracy round 2026-11-12) (KI-720)
   turns:
   - q: How many CM Elevate applications were rejected in Ri Bhoi?
     figures:
@@ -20286,7 +20286,7 @@ cases:
 - id: W2-CE-REJ-02
   cat: cm_elevate
   shape: file-status
-  src: wave 2 (accuracy round 2026-11-12) (KI-689)
+  src: wave 2 (accuracy round 2026-11-12) (KI-720)
   turns:
   - q: How many CM Elevate applications have been rejected?
     figures:
@@ -20332,7 +20332,7 @@ cases:
 - id: W2-CE-PEND-01
   cat: cm_elevate
   shape: pending
-  src: wave 2 (accuracy round 2026-11-12) (D-B1-CME-01, KI-676)
+  src: wave 2 (accuracy round 2026-11-12) (D-B1-CME-01, KI-707)
   turns:
   - q: How many CM Elevate applications are pending in East Khasi Hills?
     figures:
@@ -20347,14 +20347,14 @@ cases:
 - id: W2-CE-APP-01
   cat: cm_elevate
   shape: not-recorded
-  src: wave 2 (accuracy round 2026-11-12) (KI-689)
+  src: wave 2 (accuracy round 2026-11-12) (KI-720)
   turns:
   - q: How many CM Elevate applications were approved?
     pause: true
 - id: W2-CH-13
   cat: chain
   shape: other-scheme-there
-  src: wave 2 (accuracy round 2026-11-12) (KI-691)
+  src: wave 2 (accuracy round 2026-11-12) (KI-722)
   turns:
   - q: PMAY-G houses in Ri Bhoi
     figures:
@@ -20374,7 +20374,7 @@ cases:
 - id: W2-CH-14
   cat: chain
   shape: other-scheme-there
-  src: wave 2 (accuracy round 2026-11-12) (KI-691)
+  src: wave 2 (accuracy round 2026-11-12) (KI-722)
   turns:
   - q: Focus Legacy producer groups in South Garo Hills
     figures:
@@ -20395,7 +20395,7 @@ cases:
 - id: W2-CL-LOAN-01
   cat: cm_elevate_legacy
   shape: district-money
-  src: wave 2 (accuracy round 2026-11-12) (KI-690)
+  src: wave 2 (accuracy round 2026-11-12) (KI-721)
   turns:
   - q: How much CM Elevate Legacy loan was disbursed in West Garo Hills?
     figures:
@@ -20409,7 +20409,7 @@ cases:
 - id: W2-CL-LOAN-02
   cat: cm_elevate_legacy
   shape: lender
-  src: wave 2 (accuracy round 2026-11-12) (KI-690)
+  src: wave 2 (accuracy round 2026-11-12) (KI-721)
   turns:
   - q: How much CM Elevate Legacy loan was given by banks?
     figures:

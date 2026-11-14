@@ -1,4 +1,4 @@
-/* The Secretary's desk (D-100): the home of the voice view. A replica of Sakala Mitra's Chief Secretary side columns
+/* The Secretary's desk (D-105): the home of the voice view. A replica of Sakala Mitra's Chief Secretary side columns
    (D:/Sakala POC/mitra/web/mitra.js UI.board + renderConvo, mitra.css .card / .kpis.k8 / .boardh / .bar / .minirow /
    .pstrip / .convo; read-only source), in Megh's purple.
    Left: card "Command view" = 8 command tiles (Mitra's k8, the hero tile dark), the years each scheme holds (in place of

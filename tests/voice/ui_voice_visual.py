@@ -1,4 +1,4 @@
-"""Visual regression of the Secretary voice view (D-100): every picture right the first time.
+"""Visual regression of the Secretary voice view (D-105): every picture right the first time.
 
 The voice is the fake Gemini Live (start `python tests/voice/fake_live.py 8499` and the app with
 VOICE_LIVE_URL=ws://127.0.0.1:8499), so the pictures are tested without spending live audio and without the shared

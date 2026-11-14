@@ -1260,7 +1260,7 @@ def _cm_legacy_loan_received_filter(question: str, schemes: list[str], sql: str)
     return out
 
 
-# Accuracy gold bank wave 2 (2026-11-12, KI-690): "CM Elevate Legacy subsidy disbursed in West Garo Hills"
+# Accuracy gold bank wave 2 (2026-11-12, KI-721): "CM Elevate Legacy subsidy disbursed in West Garo Hills"
 # then "and the loan?" (rewritten "How much loan was disbursed under CM Elevate Legacy in West Garo Hills?")
 # was written `... AND loan_entity = 'Bank' AND total_loan_disbursement > 0`: ₹2.45 crore, the bank loans
 # only, for the ₹4.84 crore disbursed as loans (Bank + LIFCOM). A lender filter the question never asked for
@@ -1284,7 +1284,7 @@ def _cm_legacy_unasked_lender_filter(question: str, schemes: list[str], sql: str
 
     out = sql_ast.remove_conditions(sql, on_lender)
     if out != sql:
-        logger.info("CM Elevate Legacy: a lender filter the question never named was taken out (KI-690)")
+        logger.info("CM Elevate Legacy: a lender filter the question never named was taken out (KI-721)")
     return out
 
 

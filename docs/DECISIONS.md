@@ -937,7 +937,7 @@ not recorded.*
   100 connections, about 48 of them idle chatbot logins.
 - **Status:** Active.
 
-### D-102 — Accuracy is measured by a live gold bank with independent truth SQL; data-answer fixes are allowed again (2026-11-11/12)
+### D-106 — Accuracy is measured by a live gold bank with independent truth SQL; data-answer fixes are allowed again (2026-11-11/12)
 
 *(D-101 is reserved for the sovereign voice engine + natural re-saying, CLAUDE.md §0.)*
 
@@ -950,12 +950,12 @@ not recorded.*
   offline regression test calling the real function (`tests/test_accuracy_gold_fixes_2026_11_11.py`), then the gold
   bank, pytest, the plain scripts, `live_chat_golden.py` and the held-out NL→SQL set; no faithfulness check or guard
   weakened. A verifier complaint is discarded only when the SQL provably does what the complaint says it does not
-  (KI-686), the existing pattern of `c11`.
-- **Behaviour visible to officers:** a CM Elevate count kept to valid applications says "valid" (KI-671); a chart kind
-  the chat cannot draw is said to be unavailable instead of claimed (KI-677); short refinements after a data answer
-  stay data questions (KI-682); "only <scheme>" after a comparison answers that scheme (KI-683).
-- **Source:** KI-670..KI-686; AI_PIPELINE §2.9i; results `tests/accuracy/results/`.
-### D-100 — The voice opens the Secretary's view: a desk and a picture for every answer, cross-scheme first (2026-11-02)
+  (KI-717), the existing pattern of `c11`.
+- **Behaviour visible to officers:** a CM Elevate count kept to valid applications says "valid" (KI-702); a chart kind
+  the chat cannot draw is said to be unavailable instead of claimed (KI-708); short refinements after a data answer
+  stay data questions (KI-713); "only <scheme>" after a comparison answers that scheme (KI-714).
+- **Source:** KI-701..KI-717; AI_PIPELINE §2.9i; results `tests/accuracy/results/`.
+### D-105 — The voice opens the Secretary's view: a desk and a picture for every answer, cross-scheme first (2026-11-02)
 - **Date:** 2026-11-02 (NEW `frontend/src/chat/voice/` — `vizPlan.js` (the planner), `stageCanvas.js` (Mitra's canvas
   renderers), `StageCards.jsx` (card shell + speech-synced reveal), `SecretaryDesk.jsx`, `meghMap.js` (12 districts);
   NEW `app/voice/board.py` (`GET /api/voice/board`, mounted through the voice router); `components/VoiceStage.jsx`
@@ -1044,11 +1044,11 @@ not recorded.*
     forwarded, then has the voice say "Sorry, I can only speak English." (`STATS["non_english_dropped"]`).
   - **The voice question bank** (`tests/voice/voice_bank.py`, Mitra-style, looped with `--failed`): 82 turns; on the
     fake voice 68/82 → 54/55 → 2/2 → 82/82 after the fixes (traceable columns, a requested donut over 12 districts,
-    the chat's redraw `view` honoured, the harness's own counting); brain answers it found: KI-668..670.
+    the chat's redraw `view` honoured, the harness's own counting); brain answers it found: KI-699..670.
     Guarded by `tests/voice/ui_voice_visual.py` (columns enter once, tiles and map mount once, orb corners empty).
 - **Status:** Active. VERIFIED 2026-11-02 (TESTING.md).
 
-### D-099 — The live voice gets a full-screen stage (Mitra's), mute that only mutes (2026-11-02)
+### D-104 — The live voice gets a full-screen stage (Mitra's), mute that only mutes (2026-11-02)
 - **Date:** 2026-11-02 (NEW `frontend/src/chat/components/VoiceStage.jsx`, `frontend/src/chat/voiceOrb.js`,
   `frontend/src/styles/voice-stage.css`; `useLiveVoice.js` (mute, view, thinking, turn count, mic analyser, hush, idle);
   the voice section of `App.jsx`; `LiveVoiceStrip.jsx` hidden under the stage; tests `tests/voice/ui_voice_stage.py`).
@@ -1074,7 +1074,7 @@ not recorded.*
     session is not idle-closed (up to 10 min); idle counts from the last voice, answer or playback, so an answer heard
     while muted no longer ends the conversation (found on the real voice 2026-11-02).
   - **Flow unchanged:** the stage only shows; the spoken question still goes through `sendQuery`, the checked answer is
-    still read word for word with the deviation guards of D-098. Esc / Back / End close the stage and the voice; every
+    still read word for word with the deviation guards of D-103. Esc / Back / End close the stage and the voice; every
     voice turn is already in the chat. Idle closes only the session (standby: the stage stays, a tap on the orb reopens).
   - The card is keyed by turn: the draft becomes the answer in place (no second entrance); a new turn crossfades.
   - **Found on the real voice the same day, fixed in the relay / hook:** a model that ignores a question (no call, no
@@ -1085,7 +1085,7 @@ not recorded.*
     session ended (codes and text, never the officer's words).
 - **Status:** Active. VERIFIED 2026-11-02 (TESTING.md).
 
-### D-098 — Full-duplex voice: a Gemini Live relay; the answer is always the chat's own (2026-11-02)
+### D-103 — Full-duplex voice: a Gemini Live relay; the answer is always the chat's own (2026-11-02)
 - **Date:** 2026-11-02 (NEW `app/voice/` — `relay.py`, `prompt.py`, `speech_guard.py`, `settings.py`; one mount line in
   `app/main.py`; NEW `frontend/src/chat/useLiveVoice.js`, `voiceSpeech.js`, `voiceWorklet.js`,
   `components/LiveVoiceStrip.jsx`, `styles/voice.css`; the voice section of `App.jsx`; `deploy/nginx/nginx-megh-langgraph.conf`
@@ -1123,7 +1123,7 @@ not recorded.*
   phrase figures in its own words (the composer's faithfulness checks would be bypassed); a wake word (an open microphone
   on shared terminals).
 - **Not decided (user):** Gemini Live sends the officer's audio and the spoken answer text to Google, against the
-  "no audio leaves the government network" intent of D-019 / `useVoice.js` (KI-660). The relay's wire contract is the one
+  "no audio leaves the government network" intent of D-019 / `useVoice.js` (KI-691). The relay's wire contract is the one
   the sovereign duplex core (D:/Full Duplex Architecture) speaks, so the engine can be swapped without touching the page.
 - **Status:** Active. LIVE-VERIFIED 2026-11-02 on real Gemini Live, the real pipeline and megh_db (TESTING.md).
 

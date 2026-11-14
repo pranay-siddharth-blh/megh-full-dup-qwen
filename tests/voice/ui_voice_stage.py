@@ -3,7 +3,7 @@
 Same set-up as ui_voice.py: headless Edge on /megh-chat?voicetest=1, signed in, the real pipeline (VPN), the voice either
 the fake Gemini Live (start the app with VOICE_LIVE_URL=ws://127.0.0.1:8499) or the real one (--real).
 
-Checks (D-099, D-100): the mic opens the Secretary view over the chat (the chat sinks); the greeting by the hour
+Checks (D-104, D-105): the mic opens the Secretary view over the chat (the chat sinks); the greeting by the hour
 ("Good morning, Secretary sir") on screen and spoken; the desk (eight command tiles, the years each scheme holds, the
 district map with scheme chips); the orb draws and moves; mute switches only the microphone track off (the session
 stays, an answer asked while muted still plays, unmute brings the track back); a data answer sinks the desk, parks the

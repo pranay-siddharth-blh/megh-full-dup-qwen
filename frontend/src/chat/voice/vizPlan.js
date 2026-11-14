@@ -1,4 +1,4 @@
-/* The voice desk's picture planner (D-100). Pure and deterministic: an answer from the pipeline (its rows, columns,
+/* The voice desk's picture planner (D-105). Pure and deterministic: an answer from the pipeline (its rows, columns,
    schemes, measure notes and the question) becomes the Secretary view's cards, in Mitra's card grammar (tiles, bars,
    race, line, donut, the Meghalaya map). Nothing is computed here that the rows do not hold: every figure on a card is
    a cell of the answer, every label a value of it. Cross-scheme first (user, 2026-11-02: "the whole point is to handle

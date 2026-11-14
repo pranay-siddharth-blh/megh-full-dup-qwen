@@ -473,7 +473,7 @@ _MEASURE_IN_PLACE = Matcher(Seq(
 
 _C13_COUNT_ASKED = Matcher(Seq("how", W("many", "much"), sep="space"))
 
-# Accuracy gold bank (2026-11-11, KI-684): "PMAY-G completed EKH" — a scheme, a measure and a place, no verb —
+# Accuracy gold bank (2026-11-11, KI-715): "PMAY-G completed EKH" — a scheme, a measure and a place, no verb —
 # went to the reference documents ("EKH (Ek Haveli) component"). A terse question made of a scheme, a
 # measure word and a place the resolver knows asks for a figure.
 _C13_TERSE_MEASURE = Matcher(Alt(
@@ -625,7 +625,7 @@ async def _c13_intent_by_rules(question: str, session: "Session | None" = None) 
         return "KNOWLEDGE"
     if _APPLICANT_PLACE_CUE.search(question) and not _KNOWLEDGE_HINTS.search(question):
         return "DATA"
-    if _c13_terse_figure(question):                                     # KI-684
+    if _c13_terse_figure(question):                                     # KI-715
         return "DATA"
     # E1 stage 2b (D-085): the rules found no cue; the plan built during this turn
     # (only with QUERY_PLAN_IN_TURN, only from these same words) already read the
@@ -3518,7 +3518,7 @@ def _c13_money_units(result: dict) -> None:
         result["rows"] = result["data"][:20]
 
 
-# Chart PDF §2 (30 Oct) / accuracy gold bank (2026-11-11, KI-677): "Show MGNREGA person-days by district
+# Chart PDF §2 (30 Oct) / accuracy gold bank (2026-11-11, KI-708): "Show MGNREGA person-days by district
 # as a radar chart" was drawn as the default chart while the answer said "This radar chart displays …".
 # The chat draws bar / line / pie / donut / stacked / grouped / horizontal bars and nothing else
 # (frontend analytics.js viewPlan). A chart kind it cannot draw is named in the answer as not
@@ -3568,7 +3568,7 @@ def _attach_chart_hint(result: dict, question: str, raw_question: str) -> None:
             hint = _chart_hint(question, raw_question, result["data"])
             if hint:
                 result["chart_type"] = hint
-            _c13_undrawn_chart_note(result, question, raw_question)      # KI-677
+            _c13_undrawn_chart_note(result, question, raw_question)      # KI-708
     except Exception:  # noqa: BLE001 — a chart hint must never break an answer
         logger.warning("chart hint failed (non-fatal)", exc_info=True)
 

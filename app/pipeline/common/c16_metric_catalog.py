@@ -192,7 +192,7 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
         return out
     m = found.metric
     out["metric"] = m.key
-    # Accuracy gold bank (2026-11-11, KI-678): "How many CM Elevate Legacy applicants were sanctioned in
+    # Accuracy gold bank (2026-11-11, KI-709): "How many CM Elevate Legacy applicants were sanctioned in
     # 2024-25?" matched the catalogue's "CM Elevate sanctioned applicants" = COUNT(DISTINCT
     # application_number), which counts the 3 refused records that carry no sanctioned amount (2,291 for
     # 2,288). A count of SANCTIONED records is COUNT(sanctioned_amount) (SCHEMES.md, KI-166, D-097): the

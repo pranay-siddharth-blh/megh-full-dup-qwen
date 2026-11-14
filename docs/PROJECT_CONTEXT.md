@@ -56,7 +56,7 @@ Legacy. Details: [SCHEMES.md](SCHEMES.md).
   ("previous year", "the former").
 - Deterministic answers for: district/block abbreviations, scheme listing/comparison, scheme
   recommendation, and producer-group name lookups.
-- Voice input via ASR (`/api/query/transcribe`), and a full-duplex live voice (`/ws/voice`, Gemini Live, D-098): the
+- Voice input via ASR (`/api/query/transcribe`), and a full-duplex live voice (`/ws/voice`, Gemini Live, D-103): the
   officer talks, hears the chat's own checked answer, and can interrupt; dictation is the fallback.
 - JWT login, multi-tenant users, role/geography/granularity authorization on generated SQL,
   per-user chat history, an admin console, and an audit trail.

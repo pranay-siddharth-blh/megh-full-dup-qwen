@@ -476,7 +476,7 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
             logger.info("village pause answered with another place -> %r", question)
         elif not _bailed and _pending_rule == "ranking-count-not-specified" \
                 and _c14_topn_reply(question) is not None:
-            # KI-685 (accuracy gold bank 2026-11-11): a typed "top 3" to "How many results — the top 3, the
+            # KI-716 (accuracy gold bank 2026-11-11): a typed "top 3" to "How many results — the top 3, the
             # top 5 …?" read as a new message ("I don't have information about that"); it is the chip.
             _n = _c14_topn_reply(question)
             session.turn_context["clarification_reply"] = question
@@ -1324,7 +1324,7 @@ def _c14_topn_reply(reply: str) -> "int | None":
     return None
 
 
-# Accuracy gold bank (2026-11-11, KI-681): "What was MGNREGA expenditure in each financial year?" then "and
+# Accuracy gold bank (2026-11-11, KI-712): "What was MGNREGA expenditure in each financial year?" then "and
 # person-days?" was rewritten "and person-days under MGNREGA?" — one statewide total, the year-by-year
 # breakdown lost. A measure change keeps the previous question's breakdown when it names none of its own.
 _C14_BREAKDOWN_PHRASE = {"year": " by financial year", "district": " by district", "block": " by block"}
@@ -1340,7 +1340,7 @@ def _c14_carried_breakdown(question: str, prev) -> str:
     return _C14_BREAKDOWN_PHRASE.get(next(iter(dims)), "") if len(dims) == 1 else ""
 
 
-# Accuracy gold bank (2026-11-11, KI-683): "Compare MGNREGA and PMAY-G beneficiaries" then "only PMAY-G"
+# Accuracy gold bank (2026-11-11, KI-714): "Compare MGNREGA and PMAY-G beneficiaries" then "only PMAY-G"
 # named a scheme, so it was no follow-up; the rephraser made it "What is the status of PMAY-G?" and the
 # reference documents answered. One scheme OF the comparison just answered is the same question for that
 # scheme alone: the previous question with the other schemes (and the compare words) taken out.
@@ -1383,7 +1383,7 @@ def _c14_one_scheme_of_comparison(raw_question: str, prev) -> "str | None":
     return out[0].upper() + out[1:] + "?"
 
 
-# Accuracy gold bank wave 2 (2026-11-12, KI-691): "PMAY-G houses completed in East Garo Hills" then "and Focus
+# Accuracy gold bank wave 2 (2026-11-12, KI-722): "PMAY-G houses completed in East Garo Hills" then "and Focus
 # Plus beneficiaries there?" was rewritten "How many PMAY-G houses were completed in East Garo Hills for Focus
 # Plus beneficiaries?" and answered for BOTH schemes. Another scheme with "there" / "here" pointing at the one
 # place the previous data answer was about is that scheme's question in that place: "there" becomes
@@ -1429,7 +1429,7 @@ def _c14_other_scheme_there(raw_question: str, prev) -> "str | None":
 
 
 def _c14_only_filter_keeps_breakdown(raw_question: str, rewritten: str, prev) -> str:
-    """KI-670: "Tell me about PMAY-G houses by district." then "Only the completed ones." was rewritten
+    """KI-701: "Tell me about PMAY-G houses by district." then "Only the completed ones." was rewritten
     without the district breakdown. A bare "only …" filter (no place of its own) keeps it."""
     from app.entity_resolver import place_mentions as _c14_pm2
     words = _c01_tm_words(raw_question)
@@ -1530,14 +1530,14 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
             question = _cmp
             _meta_rewrite = True
             context_budget.log_decision("followup", rewrite="compare-with-scheme", question=question)
-    # 0h''-only. "only PMAY-G" after a comparison of PMAY-G with other schemes (KI-683)
+    # 0h''-only. "only PMAY-G" after a comparison of PMAY-G with other schemes (KI-714)
     if not _meta_rewrite and not scope_resumed and prev is not None:
         _one = _c14_one_scheme_of_comparison(raw_question, prev)
         if _one is not None:
             question = _one
             _meta_rewrite = True
             context_budget.log_decision("followup", rewrite="one-scheme-of-comparison", question=question)
-    # 0h''-there. "and Focus Plus beneficiaries there?" after one place's answer (KI-691)
+    # 0h''-there. "and Focus Plus beneficiaries there?" after one place's answer (KI-722)
     if not _meta_rewrite and not scope_resumed and prev is not None:
         _there = _c14_other_scheme_there(raw_question, prev)
         if _there is not None:
@@ -1764,7 +1764,7 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                                                   kind=_plan.kind if _plan else None,
                                                   cleared=_cleared_filters(_plan, prev, _thread_state))
                 question = _c14_keep_block_level(question, prev, _plan)          # KI-037
-                question = _c14_only_filter_keeps_breakdown(raw_question, question, prev)   # KI-670
+                question = _c14_only_filter_keeps_breakdown(raw_question, question, prev)   # KI-701
             # The rewrite can introduce a bare "CM Elevate" ("give me for cm
             # elevate") — the same thread decision as above; outside a CM Elevate
             # thread the data stage asks which dataset.
@@ -2104,7 +2104,7 @@ _FOCUS_ACRONYM_ASK = Matcher(Alt(
 _KF_SIGNAL_EXEMPT = {"funding_pattern": {"compare"}}
 
 
-# Accuracy gold bank (2026-11-11, KI-672; RAG PDF Table 2 #3, FAIL): "How many CM Elevate applications
+# Accuracy gold bank (2026-11-11, KI-703; RAG PDF Table 2 #3, FAIL): "How many CM Elevate applications
 # are there and how many schemes do they cover?" matched the design_count form on its second half ("how
 # many schemes ... cover") and the whole question went to the reference documents ("the number of
 # applications is not published"; the data holds 8,9xx). A count of STORED RECORDS anywhere in the
@@ -2176,7 +2176,7 @@ def _hybrid_split(question: str) -> "tuple[str, str, str] | None":
     return None
 
 
-# Accuracy gold bank (2026-11-11, KI-682): after a DATA answer, a short refinement that asks nothing about
+# Accuracy gold bank (2026-11-11, KI-713): after a DATA answer, a short refinement that asks nothing about
 # how a scheme works ("and in East Khasi Hills?", "Only the completed ones.") was rewritten into a
 # standalone question ("What is the amount under Focus Legacy in East Khasi Hills?") whose "what is" sent
 # it to the reference documents ("no different amount for East Khasi Hills"). The user's own words decide:

@@ -126,7 +126,7 @@ async def main():
         cap = await b.eval("vlog().find(e => e.type === 'capture') || null")
         check("microphone captured by the AudioWorklet (same-origin, CSP intact)", cap and cap.get("worklet"), cap)
         stage = await b.eval("(async () => { await until(() => document.querySelector('.vstage .vs-pill'), 5000); return (document.querySelector('.vstage .vs-pill') || {}).innerText || ''; })()")
-        # the voice greets the Secretary when the stage opens (D-100), so the pill may say Speaking first
+        # the voice greets the Secretary when the stage opens (D-105), so the pill may say Speaking first
         check("the voice stage takes the screen (it replaces the strip)", "Listening" in stage or "Speaking" in stage, stage)
         await b.eval("(async () => { await until(() => vlog().some(e => e.type === 'turn_complete'), 15000); await until(() => !window.__meghVoice.playing(), 15000); })()", timeout=40)
         await b.shot(str(SHOTS / "01_live_open.png"))

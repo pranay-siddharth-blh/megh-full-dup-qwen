@@ -1,4 +1,4 @@
-// The voice desk's picture planner (D-100): real answer shapes from the pipeline (captured 2026-11-02) become the
+// The voice desk's picture planner (D-105): real answer shapes from the pipeline (captured 2026-11-02) become the
 // right cards, every figure a cell of the answer, schemes never added together, gaps never zeros.
 import test from 'node:test';
 import assert from 'node:assert/strict';

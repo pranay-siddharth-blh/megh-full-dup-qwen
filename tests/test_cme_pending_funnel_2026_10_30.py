@@ -8,7 +8,7 @@ steps changes the SQL.
 
 file_status lived inside curated.v_cm_elevate.scheme_specific, which the chatbot's database role
 has not been allowed to read since 2026-10-16 (KI-624). Since 2026-11-11 the DB team exposes a plain
-file_status column (readable; KI-676) and the YAML points at it. Every change is gated on
+file_status column (readable; KI-707) and the YAML points at it. Every change is gated on
 cme_pending_rule.readable(): every column the rule needs is among the live columns the read-only
 role may SELECT. These tests open the gate by patching schema_introspect.live_columns(). With it
 closed, a pending / on-hold question gets "not available" + the rule + the recorded workflow
@@ -57,7 +57,7 @@ def locked(monkeypatch):
 # ── the rule comes from the knowledge base ───────────────────────────────────
 def test_rule_is_read_from_the_yaml_steps():
     steps = rule.steps()
-    # KI-676 (2026-11-11): the knowledge base points at the plain file_status column the DB team exposed
+    # KI-707 (2026-11-11): the knowledge base points at the plain file_status column the DB team exposed
     assert [s["column"] for s in steps] == ["data_verified", "file_status"]
     assert RULE_SQL == "data_verified = 'Valid' AND file_status IN ('Pending', 'Send Back')"
     assert RULE_TEXT == "Pending means: data verified Valid, and file status Pending or Send Back."
@@ -326,7 +326,7 @@ def test_prompt_rule_and_vocabulary_follow_the_gate_and_the_yaml(monkeypatch):
     open_ = sc.build_schema_context(CME)
     assert "the PENDING RULE (user decision 2026-10-30): " + RULE_SQL in open_ and RULE_TEXT in open_
     assert '"on hold" / "held" -> the PENDING RULE' in open_
-    # KI-676: the rule reads the plain file_status column; scheme_specific itself stays locked
+    # KI-707: the rule reads the plain file_status column; scheme_specific itself stays locked
     assert "file_status is a plain column" in open_ and "Never write scheme_specific" in open_
     assert "Level-wise = the rule grouped by LOWER(current_level)" in open_ and "<<CME_" not in open_
     assert "[[cme_pending]]" not in open_ and "7,33" not in open_

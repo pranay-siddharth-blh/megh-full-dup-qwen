@@ -121,8 +121,8 @@ and output, and how it fails.
 | Route | Auth | Purpose |
 |---|---|---|
 | `POST /api/query` | user JWT | `{question, session_id?}` → answer JSON (§4) |
-| `WS /ws/voice` | JWT in the first message | full-duplex voice relay to Gemini Live (D-098); the answers come from `/api/query/stream` via the page |
-| `GET /api/voice/board` | user JWT | the voice desk's figures (D-100): per scheme, its measures statewide, by district and by year; fixed read-only SQL, cached 10 min, the caller's schemes only (`app/voice/board.py`) |
+| `WS /ws/voice` | JWT in the first message | full-duplex voice relay to Gemini Live (D-103); the answers come from `/api/query/stream` via the page |
+| `GET /api/voice/board` | user JWT | the voice desk's figures (D-105): per scheme, its measures statewide, by district and by year; fixed read-only SQL, cached 10 min, the caller's schemes only (`app/voice/board.py`) |
 | `POST /api/query/transcribe` | user JWT | multipart audio (≤10 MB) → `{text}` or `{text:"", no_speech:true}` |
 | `POST /api/auth/login` · `/logout` · `GET /me` · `POST /bootstrap` | – / user | username+password → HS256 JWT; bootstrap first super_admin |
 | `GET /api/history` · `GET/PATCH/DELETE /api/history/{session_id}` · `POST …/pin` · `…/archive` | user | officer-private chat history |
@@ -133,12 +133,12 @@ and output, and how it fails.
 | `GET /metrics` | admin JWT or `X-Metrics-Token` | route counts, latency percentiles, cache stats, guardrail-model failures (D-080), `data_facts` (live prompt figures as_of / errors, broken data-rule claims; D-087) |
 
 **Streaming and the one WebSocket.** Answers stream over SSE (`POST /api/query/stream`, D-039). The only WebSocket
-is `/ws/voice`, the full-duplex voice relay (D-098, `app/voice/relay.py`): the page sends a hello with its JWT, then
+is `/ws/voice`, the full-duplex voice relay (D-103, `app/voice/relay.py`): the page sends a hello with its JWT, then
 16 kHz PCM16 frames; it receives 24 kHz PCM16 audio and JSON events (`ready`, `in`, `out`, `tool_call`, `tool_cancel`,
 `interrupted`, `turn_complete`, `fallback`). The relay never runs the pipeline: the page answers each `tool_call` through
 the same `POST /api/query/stream` a typed question uses and returns the spoken form (`tool_result`). The page shows the
-conversation on a full-screen voice stage (D-099, `components/VoiceStage.jsx`): the chat's own answer components drawn
-large under Mitra's orb, with speech-synced chart reveal; mute switches only the microphone track off. Since D-100 the
+conversation on a full-screen voice stage (D-104, `components/VoiceStage.jsx`): the chat's own answer components drawn
+large under Mitra's orb, with speech-synced chart reveal; mute switches only the microphone track off. Since D-105 the
 stage opens on the Secretary's desk (`voice/SecretaryDesk.jsx`, figures from `GET /api/voice/board`) and draws each
 answer as Mitra's canvas cards planned from its rows (`voice/vizPlan.js`, `voice/stageCanvas.js`, `voice/meghMap.js`).
 

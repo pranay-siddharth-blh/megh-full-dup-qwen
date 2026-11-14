@@ -1662,7 +1662,7 @@ def _cme_rule_9(open_: bool, rule) -> str:
      either — say so and offer the recorded figures (applications; forward / resubmit / sendback).
      NEVER answer pending or on hold from data_verified = 'On Hold' (user decision 2026-10-30).""")
     if not rule.json_keys():
-        # KI-676 (accuracy gold bank 2026-11-11): the DB team exposed a plain file_status column on
+        # KI-707 (accuracy gold bank 2026-11-11): the DB team exposed a plain file_status column on
         # v_cm_elevate and the knowledge base points at it; scheme_specific itself stays locked
         # (permission denied, VERIFIED 2026-11-11), so "may read: none" must not invite it.
         fs = rule.file_status_column() or "file_status"

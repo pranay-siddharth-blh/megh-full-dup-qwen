@@ -1,5 +1,5 @@
 """
-Accuracy gold bank fixes (2026-11-11 / 12; KI-670..KI-686). Every case here was a wrong or missing figure,
+Accuracy gold bank fixes (2026-11-11 / 12; KI-701..KI-717). Every case here was a wrong or missing figure,
 or a wrong route, found by the LIVE gold bank `tests/accuracy/run_gold.py` (212 cases, truth recomputed with
 independent read-only SQL). Each test calls the REAL pipeline function on the exact words / SQL that failed.
 
@@ -28,7 +28,7 @@ def _prev(question, schemes, route="data"):
     return SimpleNamespace(question=question, schemes=list(schemes), route=route)
 
 
-# ── KI-673: "Focus Plus" is one scheme name, not two asks ────────────────────
+# ── KI-704: "Focus Plus" is one scheme name, not two asks ────────────────────
 def test_focus_plus_is_not_cut_into_two_asks():
     q = "Which district received the highest total Focus Plus disbursement?"
     assert len(p._c17_sub_asks(q)) == 1
@@ -40,7 +40,7 @@ def test_a_real_plus_joiner_still_cuts():
     assert len(parts) == 2
 
 
-# ── KI-674: the rephraser's money wording is a figure question, not the list of years ──
+# ── KI-705: the rephraser's money wording is a figure question, not the list of years ──
 @pytest.mark.parametrize("q", [
     "How much money was remitted under Focus Legacy by financial year?",
     "How much was paid under Focus Legacy by financial year?",
@@ -53,7 +53,7 @@ def test_the_plain_years_list_is_still_the_list():
     assert p._is_years_list_question("Which financial years does Focus Legacy have?")
 
 
-# ── KI-675: a village count and another figure are two asks (MGNREGA) ────────
+# ── KI-706: a village count and another figure are two asks (MGNREGA) ────────
 def test_villages_and_person_days_are_two_asks():
     plan = p._c17_ask_plan("How many villages had MGNREGA activity and how many person-days were generated in total?")
     assert plan is not None and len(plan) == 2
@@ -61,7 +61,7 @@ def test_villages_and_person_days_are_two_asks():
     assert "person-days" in plan[1]
 
 
-# ── KI-677: a chart kind the chat cannot draw is named as not available ─────
+# ── KI-708: a chart kind the chat cannot draw is named as not available ─────
 def test_radar_chart_is_named_not_available_and_not_claimed():
     result = {"answer": "This radar chart displays MGNREGA person-days by district."}
     p._c13_undrawn_chart_note(result, "Show MGNREGA person-days by district as a radar chart?",
@@ -77,7 +77,7 @@ def test_a_drawable_chart_gets_no_note():
     assert "not available" not in result["answer"]
 
 
-# ── KI-678: a CM Elevate Legacy SANCTIONED count is not the catalogue's application count ──
+# ── KI-709: a CM Elevate Legacy SANCTIONED count is not the catalogue's application count ──
 def test_cml_sanctioned_count_skips_the_application_measure(monkeypatch):
     from app import metric_catalog
     metric = SimpleNamespace(key="cml_sanctioned_applicants", expression="COUNT(DISTINCT application_number)")
@@ -88,13 +88,13 @@ def test_cml_sanctioned_count_skips_the_application_measure(monkeypatch):
     assert out["query"] is None and "COUNT(sanctioned_amount)" in out["reason"]
 
 
-# ── KI-679: "are done" is completed (PMAY-G) ────────────────────────────────
+# ── KI-710: "are done" is completed (PMAY-G) ────────────────────────────────
 def test_pmay_are_done_reads_completed():
     assert p._PMAY_M["completed"].search("how many pmay houses are done in east khasi hills")
     assert p._PMAY_M["completed"].search("how many houses got done in Ri Bhoi")
 
 
-# ── KI-680: sanction_date IS NOT NULL is the registrations exclusion (D-060) ─
+# ── KI-711: sanction_date IS NOT NULL is the registrations exclusion (D-060) ─
 def test_sanction_date_not_null_is_dropped_like_not_is_placeholder():
     sql = ("SELECT lgd_district, COUNT(*) AS houses FROM curated.v_pmay WHERE sanction_date IS NOT NULL "
            "GROUP BY lgd_district ORDER BY houses DESC")
@@ -107,7 +107,7 @@ def test_other_not_null_filters_are_kept():
     assert p._pmay_count_placeholders(["PMAY-G"], sql) == sql
 
 
-# ── KI-681 / KI-670: a measure change or an "only …" filter keeps the breakdown ─
+# ── KI-712 / KI-701: a measure change or an "only …" filter keeps the breakdown ─
 def test_measure_change_keeps_the_year_breakdown():
     prev = _prev("What was MGNREGA expenditure in each financial year?", ["MGNREGA"])
     assert p._c14_carried_breakdown("and person-days?", prev) == " by financial year"
@@ -130,7 +130,7 @@ def test_only_filter_with_a_place_is_left_alone():
     assert p._c14_only_filter_keeps_breakdown("Only Ri Bhoi.", rw, prev) == rw
 
 
-# ── KI-682: a short refinement after a data answer stays a data question ────
+# ── KI-713: a short refinement after a data answer stays a data question ────
 def test_short_refinement_after_data_stays_data():
     prev = _prev("Focus Legacy producer groups in West Garo Hills", ["Focus Legacy"])
     assert p._c14_data_refinement("and in East Khasi Hills?", prev)
@@ -143,7 +143,7 @@ def test_a_how_does_it_work_question_is_not_a_refinement():
     assert not p._c14_data_refinement("and in East Khasi Hills?", _prev("x", ["Focus Legacy"], route="knowledge"))
 
 
-# ── KI-683: "only <scheme>" after a comparison of schemes ───────────────────
+# ── KI-714: "only <scheme>" after a comparison of schemes ───────────────────
 def test_only_one_scheme_of_a_comparison():
     prev = _prev("Compare MGNREGA and PMAY-G beneficiaries", ["MGNREGA", "PMAY-G"])
     out = p._c14_one_scheme_of_comparison("only PMAY-G", prev)
@@ -157,7 +157,7 @@ def test_only_scheme_not_in_the_comparison_is_not_rewritten():
     assert p._c14_one_scheme_of_comparison("PMAY-G houses in Ri Bhoi", prev) is None
 
 
-# ── KI-684: a terse scheme + measure + place question asks for a figure ────
+# ── KI-715: a terse scheme + measure + place question asks for a figure ────
 def test_terse_figure_question_is_data():
     assert p._c13_terse_figure("PMAY-G completed EKH")
     assert p._c13_terse_figure("MGNREGA person days Ri Bhoi")
@@ -168,14 +168,14 @@ def test_terse_question_without_a_place_or_measure_is_not_forced():
     assert not p._c13_terse_figure("PMAY-G completed")
 
 
-# ── KI-685: a typed reply to the top-N pause ─────────────────────────────────
+# ── KI-716: a typed reply to the top-N pause ─────────────────────────────────
 @pytest.mark.parametrize("reply,n", [("top 3", 3), ("3", 3), ("the top five", 5), ("all of them", 0),
                                      ("show me everything", 0), ("Ri Bhoi", None), ("how many houses", None)])
 def test_topn_reply(reply, n):
     assert p._c14_topn_reply(reply) == n
 
 
-# ── KI-672: "how many schemes" counts scheme_name; the record count makes it a data question ──
+# ── KI-703: "how many schemes" counts scheme_name; the record count makes it a data question ──
 def test_cme_scheme_count_column_counts_scheme_name():
     sql = ("SELECT COUNT(DISTINCT request_id) AS applications, COUNT(DISTINCT request_id) AS schemes "
            "FROM curated.v_cm_elevate WHERE data_verified = 'Valid'")
@@ -188,7 +188,7 @@ def test_record_count_question_is_not_a_design_count():
     assert p._knowledge_form_question(q) is None
 
 
-# ── KI-671: the default (valid-only) count is called valid ───────────────────
+# ── KI-702: the default (valid-only) count is called valid ───────────────────
 def test_valid_applications_are_called_valid():
     q = "How many CM Elevate applications are there in total?"
     sql = "SELECT COUNT(DISTINCT request_id) AS total FROM curated.v_cm_elevate WHERE data_verified = 'Valid'"
@@ -203,7 +203,7 @@ def test_an_all_applications_count_is_not_called_valid():
     assert p._cme_valid_wording(q, sql, a) == a
 
 
-# ── KI-686: a false check-2 complaint about a programme filtered verbatim ──
+# ── KI-717: a false check-2 complaint about a programme filtered verbatim ──
 ISSUE = ("Check 2: The RESOLVED ENTITIES block specifies scheme_name = 'Meghalaya Piggery Development Scheme', but "
          "the SQL uses scheme_name in the WHERE clause. However, the schema shows that "
          "curated.v_cm_elevate_disbursement does not have a scheme_name column.")
@@ -234,7 +234,7 @@ def test_sql_ast_still_parses_the_cases():
     assert sql_ast.is_parseable(PIG_SQL)
 
 
-# ── KI-687: a Focus Plus block BREAKDOWN is on block_name_raw ───────────────
+# ── KI-718: a Focus Plus block BREAKDOWN is on block_name_raw ───────────────
 FP_BLOCKS = ("SELECT lgd_block, SUM(amount_disbursed) AS amount_raw FROM curated.v_focus_plus "
              "WHERE lgd_district = 'NORTH GARO HILLS' GROUP BY lgd_block ORDER BY amount_raw DESC NULLS LAST LIMIT 100")
 
@@ -280,7 +280,7 @@ def test_cme_level_number_without_a_regex(q, n):
     assert p._cme_level_number(q) == n
 
 
-# ── KI-689: CM Elevate "rejected" is the plain file_status column's Rejected (approved is still not recorded) ──
+# ── KI-720: CM Elevate "rejected" is the plain file_status column's Rejected (approved is still not recorded) ──
 _CME_OPEN = {"curated.v_cm_elevate": [{"column": c} for c in ("request_id", "data_verified", "current_file_status",
                                                               "current_level", "file_status")]}
 _CME_LOCKED = {"curated.v_cm_elevate": [{"column": c} for c in ("request_id", "data_verified", "current_file_status")]}
@@ -315,7 +315,7 @@ def test_rejected_count_and_answer(monkeypatch):
     assert a.startswith("17 CM Elevate applications in Ri Bhoi have the file status Rejected (of 2,038 valid applications).")
 
 
-# ── KI-690: an unasked lender filter on a CM Elevate Legacy loan figure ──────
+# ── KI-721: an unasked lender filter on a CM Elevate Legacy loan figure ──────
 LOAN_SQL = ("SELECT ROUND(SUM(total_loan_disbursement) / 1e7, 2) AS loan_cr FROM curated.v_cm_elevate_disbursement "
             "WHERE lgd_district = 'WEST GARO HILLS' AND loan_entity = 'Bank' AND total_loan_disbursement > 0")
 
@@ -332,7 +332,7 @@ def test_a_named_lender_stays(q):
     assert p._cm_legacy_unasked_lender_filter(q, ["CM Elevate Legacy"], LOAN_SQL) == LOAN_SQL
 
 
-# ── KI-691: "and <other scheme> <measure> there?" after one place's answer ──
+# ── KI-722: "and <other scheme> <measure> there?" after one place's answer ──
 def test_other_scheme_there_is_that_place():
     prev = _prev("PMAY-G houses completed in East Garo Hills", ["PMAY-G"])
     assert p._c14_other_scheme_there("and Focus Plus beneficiaries there?", prev) == \

@@ -325,7 +325,7 @@ export async function fetchSchemeStats() {
   }
 }
 
-// The voice desk's board (D-100): GET /api/voice/board -> { schemes: [{ name, measures: [{ key, label, unit,
+// The voice desk's board (D-105): GET /api/voice/board -> { schemes: [{ name, measures: [{ key, label, unit,
 // counts, total, by_district, by_year }] }], districts, regions, as_of }. Read-only figures computed by the backend
 // beside the pipeline (app/voice/board.py), cached there. null on any failure: the desk then shows no tiles.
 // Kept in memory for 10 minutes and fetched ahead (useLiveVoice warms it when the chat loads), so the voice desk

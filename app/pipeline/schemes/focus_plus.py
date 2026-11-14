@@ -422,7 +422,7 @@ async def _focusplus_lgd_only_block(schemes: list[str], sql: str) -> str:
     return sql_ast.transform(sql, _swap)
 
 
-# Held-out NL->SQL FP-05 (accuracy round 2026-11-12, KI-687): "Give me the Focus Plus amount disbursed
+# Held-out NL->SQL FP-05 (accuracy round 2026-11-12, KI-718): "Give me the Focus Plus amount disbursed
 # in each block of North Garo Hills district" was GROUPED BY lgd_block, which is NULL on 15% of the
 # rows: six rows incl. a blank one, Kharkutta ₹4.25 crore for the ₹5.54 crore its block_name_raw holds.
 # A block BREAKDOWN is on block_name_raw (the BLOCK COLUMN rule the prompt states; the filters are
@@ -454,7 +454,7 @@ def _focusplus_block_breakdown_on_raw(schemes: list[str], sql: str) -> str:
         else:
             col.replace(raw(col))
     out = sql_ast.to_sql(tree)
-    logger.info("Focus Plus: a block breakdown on lgd_block is grouped on block_name_raw (KI-687)")
+    logger.info("Focus Plus: a block breakdown on lgd_block is grouped on block_name_raw (KI-718)")
     return out
 
 

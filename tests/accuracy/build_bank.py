@@ -342,7 +342,7 @@ add(C("CARD-fp-amt", "focus_plus", "state-total", CD + " + RAG PDF data #4",
         schemes=[FP], has=["provisional"])))
 add(C("CARD-cme-apps", "cm_elevate", "state-count", CD,
       T("How many CM Elevate applications are there in total?", ce_apps(), schemes=[CE],
-        note="KI-668: card 8,9xx (all) vs chat valid-only (D-B1-CME-01); either, each named for what it counts")))
+        note="KI-699: card 8,9xx (all) vs chat valid-only (D-B1-CME-01); either, each named for what it counts")))
 add(C("CARD-fl-mem", "focus_legacy", "state-total", CD + " + RAG PDF data #5",
       T("How many producer groups and memberships have been paid under Focus Legacy?", F(fl_pg()),
         F(f"SELECT SUM(no_of_pg_members) FROM {FLV}", ref="1,02,021", ref_src="RAG PDF #5"), schemes=[FL])))
@@ -936,7 +936,7 @@ add(C("FU-01", "chain", "and-for-place", FU + " (voice bank C1)",
       T("And for Ri Bhoi?", F(emp("person_days", dist("RI BHOI"), yr(2023))), schemes=[MG], place="RI BHOI", year=2023),
       T("What about the year before?", F(emp("person_days", dist("RI BHOI"), yr(2022))), schemes=[MG], place="RI BHOI",
         year=2022)))
-add(C("FU-02", "chain", "only-filter", FU + " (voice bank C2, KI-670)",
+add(C("FU-02", "chain", "only-filter", FU + " (voice bank C2, KI-701)",
       T("Tell me about PMAY-G houses by district.",
         rows=R(f"SELECT lgd_district, COUNT(*) FROM {PMV} GROUP BY 1 ORDER BY 2 DESC", take=3)),
       T("Only the completed ones.",
@@ -1292,32 +1292,32 @@ def ce_state(cond, *conds, label="applications"):
                why="D-B1-CME-01: valid-only by default (said 'valid'), or every application")
 
 
-add(C("W2-CE-REJ-01", "cm_elevate", "file-status", W2 + " (KI-689)",
+add(C("W2-CE-REJ-01", "cm_elevate", "file-status", W2 + " (KI-720)",
       T("How many CM Elevate applications were rejected in Ri Bhoi?", ce_state("file_status = 'Rejected'", dist("RI BHOI")),
         schemes=[CE], place="RI BHOI")))
-add(C("W2-CE-REJ-02", "cm_elevate", "file-status", W2 + " (KI-689)",
+add(C("W2-CE-REJ-02", "cm_elevate", "file-status", W2 + " (KI-720)",
       T("How many CM Elevate applications have been rejected?", ce_state("file_status = 'Rejected'"), schemes=[CE])))
 add(C("W2-CE-SB-01", "cm_elevate", "file-status", W2,
       T("How many CM Elevate applications were sent back in West Garo Hills?",
         ce_state("file_status = 'Send Back'", dist("WEST GARO HILLS")), schemes=[CE], place="WEST GARO HILLS")))
-add(C("W2-CE-PEND-01", "cm_elevate", "pending", W2 + " (D-B1-CME-01, KI-676)",
+add(C("W2-CE-PEND-01", "cm_elevate", "pending", W2 + " (D-B1-CME-01, KI-707)",
       T("How many CM Elevate applications are pending in East Khasi Hills?",
         F(f"SELECT COUNT(DISTINCT request_id) FROM {CEV} WHERE {dist('EAST KHASI HILLS')} AND data_verified = 'Valid' "
           f"AND file_status IN ('Pending', 'Send Back')"), schemes=[CE], place="EAST KHASI HILLS")))
-add(C("W2-CE-APP-01", "cm_elevate", "not-recorded", W2 + " (KI-689)",
+add(C("W2-CE-APP-01", "cm_elevate", "not-recorded", W2 + " (KI-720)",
       T("How many CM Elevate applications were approved?", pause=True)))
-add(C("W2-CH-13", "chain", "other-scheme-there", W2 + " (KI-691)",
+add(C("W2-CH-13", "chain", "other-scheme-there", W2 + " (KI-722)",
       T("PMAY-G houses in Ri Bhoi", F(pm_count(dist("RI BHOI")))),
       T("what about MGNREGA households employed there?", F(emp("households_employed", dist("RI BHOI"))), schemes=[MG],
         place="RI BHOI")))
-add(C("W2-CH-14", "chain", "other-scheme-there", W2 + " (KI-691)",
+add(C("W2-CH-14", "chain", "other-scheme-there", W2 + " (KI-722)",
       T("Focus Legacy producer groups in South Garo Hills", F(fl_pg(dist("SOUTH GARO HILLS")))),
       T("and CM Elevate Legacy subsidy there?", F(cl("total_subsidy_disbursement", dist("SOUTH GARO HILLS")), "rupees"),
         schemes=[CL], place="SOUTH GARO HILLS")))
-add(C("W2-CL-LOAN-01", "cm_elevate_legacy", "district-money", W2 + " (KI-690)",
+add(C("W2-CL-LOAN-01", "cm_elevate_legacy", "district-money", W2 + " (KI-721)",
       T("How much CM Elevate Legacy loan was disbursed in West Garo Hills?",
         F(cl("total_loan_disbursement", dist("WEST GARO HILLS")), "rupees"), schemes=[CL], place="WEST GARO HILLS")))
-add(C("W2-CL-LOAN-02", "cm_elevate_legacy", "lender", W2 + " (KI-690)",
+add(C("W2-CL-LOAN-02", "cm_elevate_legacy", "lender", W2 + " (KI-721)",
       T("How much CM Elevate Legacy loan was given by banks?",
         F(cl("total_loan_disbursement", "loan_entity = 'Bank'"), "rupees"), schemes=[CL])))
 

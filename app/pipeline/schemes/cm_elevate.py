@@ -1142,7 +1142,7 @@ def _cme_unit(question: str) -> str:
     return f"{_pending_rule.default_text()} applications" if _cme_default_where(question) else "applications"
 
 
-# Accuracy gold bank (2026-11-11, KI-671): "How many CM Elevate applications are there in total?" was
+# Accuracy gold bank (2026-11-11, KI-702): "How many CM Elevate applications are there in total?" was
 # answered "There are 7,375 total CM Elevate applications" — the count of VALID applications (the default,
 # D-B1-CME-01) called the total, while the card says 8,938. The fixed queries say "valid applications"
 # (_cme_unit), but a model-path answer whose SQL carries the default filter did not. When the SQL keeps
@@ -1335,7 +1335,7 @@ def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str]
         if fs:
             pend += f"COUNT(DISTINCT request_id) FILTER (WHERE {fs} = 'Send Back') AS sent_back, "
             if "->>" not in fs:
-                # KI-689: the plain file_status column also holds the department's Rejected decision
+                # KI-720: the plain file_status column also holds the department's Rejected decision
                 pend += f"COUNT(DISTINCT request_id) FILTER (WHERE {fs} = 'Rejected') AS rejected, "
     sql = (f"/* cme-sector-workflow */ SELECT {sel}{pend}"
            "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'forward') AS forward, "
@@ -1490,7 +1490,7 @@ def _cme_pending_answer(question: str, rows: list[dict], word: str, scope: str) 
     if word == "sent back":
         col, label = "sent_back", "Applications with file status Send Back"
     elif word == "rejected" and "rejected" in rows[0]:
-        col, label = "rejected", "Rejected CM Elevate applications (file status Rejected)"   # KI-689
+        col, label = "rejected", "Rejected CM Elevate applications (file status Rejected)"   # KI-720
     elif word in ("pending", "on hold"):
         col, label = "pending", "Pending CM Elevate applications"
     else:
@@ -2156,7 +2156,7 @@ def _cm_elevate_applicants_distinct(question: str, schemes: list[str], sql: str)
     return out
 
 
-# Accuracy gold bank (2026-11-11, KI-672; RAG PDF Table 2 #3): "How many CM Elevate applications are there
+# Accuracy gold bank (2026-11-11, KI-703; RAG PDF Table 2 #3): "How many CM Elevate applications are there
 # and how many schemes do they cover?" was written COUNT(DISTINCT request_id) AS applications,
 # COUNT(DISTINCT request_id) AS schemes — "7,375 applications covering 7,375 schemes". A column NAMED as a
 # count of schemes / programmes that counts request ids counts scheme_name.
@@ -2181,7 +2181,7 @@ def _cm_elevate_scheme_count_column(schemes: list[str], sql: str) -> str:
 
     out = sql_ast.transform(sql, fn)
     if out != sql:
-        logger.info("CM Elevate: a count named for schemes counted request_id; counts scheme_name (KI-672)")
+        logger.info("CM Elevate: a count named for schemes counted request_id; counts scheme_name (KI-703)")
     return out
 
 
@@ -3194,7 +3194,7 @@ async def _cm_elevate_answer_guarantees(question: str, sql: str, rows: list[dict
     answer = _cme_sericulture_split_note(question, sql, answer)
     # KI-074 decided 2026-09-28 (product owner): "pending" = verification On Hold
     # only. The interim second line with the file_status Pending count is gone.
-    return _cme_valid_wording(question, sql, _cme_comparison(question, rows, answer))   # KI-671
+    return _cme_valid_wording(question, sql, _cme_comparison(question, rows, answer))   # KI-702
 
 
 _CME_SERICULTURE = "Meghalaya Sericulture & Weaving Scheme"

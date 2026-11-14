@@ -1440,7 +1440,7 @@ def _verifier_check2_on_empty_entities(issue: str, resolved: dict) -> bool:
     return bool(_VERIFIER_CHECK2.search(issue or "")) and not _VERIFIER_OTHER_CHECK.search(issue or "")
 
 
-# Accuracy gold bank (2026-11-11, KI-686): "CM Elevate Legacy records by scheme" then "only piggery"
+# Accuracy gold bank (2026-11-11, KI-717): "CM Elevate Legacy records by scheme" then "only piggery"
 # (rewritten "How many piggery projects are there under CM Elevate Legacy?") resolved scheme_name =
 # 'Meghalaya Piggery Development Scheme' and the SQL filtered exactly that — the right 1,353 — but the
 # verifier answered on every attempt "Check 2: … v_cm_elevate_disbursement does not have a scheme_name
@@ -1653,7 +1653,7 @@ async def _verify_sql(question: str, schemes: list[str], entity_result: dict, sq
     if _verifier_programme_filter_is_false(issue, schemes, entity_result.get("resolved") or {}, sql):
         logger.warning(
             "SQL verifier raised a check-2 complaint about the programme while the SQL filters exactly "
-            "the resolved scheme_name (KI-686) — discarding: %s", issue)
+            "the resolved scheme_name (KI-717) — discarding: %s", issue)
         return None
     if _verifier_join_complaint_is_false(issue, sql):
         logger.warning(
@@ -1940,7 +1940,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_legacy_keep_unresolved_off_village(question, schemes, sql)
     sql = _cm_legacy_sanctioned_count(question, schemes, sql)
     sql = _cm_legacy_loan_received_filter(question, schemes, sql)
-    sql = _cm_legacy_unasked_lender_filter(question, schemes, sql)   # KI-690: no unasked loan_entity
+    sql = _cm_legacy_unasked_lender_filter(question, schemes, sql)   # KI-721: no unasked loan_entity
     sql = _select_unselected_group_by(question, sql)
     sql = _cm_legacy_unselected_group_by(schemes, sql)
     sql = _cm_legacy_unrequested_limit(question, schemes, sql)
@@ -1951,7 +1951,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _cm_elevate_sector_all_programmes(question, schemes, sql)
     sql = _cm_elevate_unasked_programme_filter(question, schemes, sql)
     sql = _cm_elevate_applicants_distinct(question, schemes, sql)
-    sql = _cm_elevate_scheme_count_column(schemes, sql)             # KI-672: a "schemes" count is scheme_name
+    sql = _cm_elevate_scheme_count_column(schemes, sql)             # KI-703: a "schemes" count is scheme_name
     sql = _cm_elevate_compare_by_district(question, schemes, sql)
     # I-2: a top / bottom N asked per year is ranked inside each year, whatever the
     # model wrote (the prompt asks for it; this makes it certain)
@@ -2001,7 +2001,7 @@ async def _scheme_sql_rewrites(question: str, schemes: list[str], entity_result:
     sql = _focusplus_district_group_not_null(schemes, sql)
     sql = _unasked_having_threshold(question, sql)
     sql = await _focusplus_lgd_only_block(schemes, sql)
-    sql = _focusplus_block_breakdown_on_raw(schemes, sql)             # KI-687: a block breakdown is block_name_raw
+    sql = _focusplus_block_breakdown_on_raw(schemes, sql)             # KI-718: a block breakdown is block_name_raw
     sql = _focusplus_ac_name_case(schemes, sql)                       # Title-case ac_name (2026-10-30)
     sql = _mgnrega_women_years_only(schemes, sql)
     sql = _pmay_count_placeholders(schemes, sql)

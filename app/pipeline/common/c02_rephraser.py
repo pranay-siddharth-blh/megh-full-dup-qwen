@@ -220,7 +220,7 @@ _REPHRASE_COMPARE_WORD = Matcher(Alt(
     Seq("which", Opt("is"), W("higher", "lower", "more", "less", "greater", "bigger"), sep="space")))
 _REPHRASE_SPEND_WORD = Matcher(Alt(W("expenditure", "expenditures", "expense", "expenses", "spent", "cost",
                                      "costs"), W("spend", prefix=True)))
-# KI-692 (2026-11-12): a status / stage word the user never said narrows the answer to that stage: "PMAY-G houses
+# KI-723 (2026-11-12): a status / stage word the user never said narrows the answer to that stage: "PMAY-G houses
 # by block in East Khasi Hills" came back "How many PMAY-G houses were built by block ...", "built" is a completed-house
 # word, and every block was answered with its completed count. A rephrase that ADDS one is rejected (the original
 # question goes on); keeping or dropping one the user said is judged by the measure checks above.
@@ -358,7 +358,7 @@ def _rephrase_violation(original: str, rephrased: str) -> "str | None":
     if _REPHRASE_SPEND_WORD.search(gloss) and not _REPHRASE_SPEND_WORD.search(out):
         return "measure"
     if _stages(out) - _stages(gloss):
-        return "measure"                           # KI-692: a stage the user never named
+        return "measure"                           # KI-723: a stage the user never named
     # "applicants" (distinct people) is not "applications" (rows): "How many
     # applicants … under each CM ELEVATE program?" came back "…applications…" and
     # was counted with COUNT(*) (Piggery 3,032 for 3,010; CM Elevate sheet run

@@ -42,7 +42,7 @@ def _c17_sub_asks(question: str) -> "list[str]":
     for s, e in sorted(cuts):
         if s < last:
             continue
-        # "Focus Plus" is a scheme's name, not two asks (accuracy gold bank 2026-11-11, KI-673): "Which
+        # "Focus Plus" is a scheme's name, not two asks (accuracy gold bank 2026-11-11, KI-704): "Which
         # district received the highest total Focus Plus disbursement?" was cut into "…total Focus" +
         # "disbursement" and answered as two clarifications
         if low[s:e] == " plus " and low[:s].rstrip().endswith("focus"):
@@ -411,7 +411,7 @@ def _c17_cut(text: str, part: str) -> str:
     return out if out.endswith("?") else out.rstrip(".") + "?"
 
 
-# Accuracy gold bank (2026-11-11, KI-675; RAG PDF Table 2 #7, PARTIAL): "How many villages had MGNREGA
+# Accuracy gold bank (2026-11-11, KI-706; RAG PDF Table 2 #7, PARTIAL): "How many villages had MGNREGA
 # activity and how many person-days were generated in total?" was one model query over v_employment:
 # 6,419 villages, not the 6,491 with an employment OR expenditure record (the card; KI-574's fixed query
 # _mgnrega_villages_active_query answers a plain village count, but a second figure in the same
