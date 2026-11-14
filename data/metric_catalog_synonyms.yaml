@@ -76,3 +76,9 @@ focus_plus_amount_disbursed:
   - paid out
   - money disbursed
   - money
+mgnrega_persons_employed:
+  # 2026-11-14: gold bank UAT-M04 "How many persons received employment in Amlarem constituency during 2022-23?",
+  # truth SUM(persons_employed) = the measure's own expression (5,048)
+  - persons received employment
+  - people received employment
+  - persons provided employment
