@@ -31,13 +31,14 @@ _C16_GRAMMAR = frozenset("""
     meghalaya state statewide whole entire all district block village c rd
     fy financial fiscal year years scheme schemes s
     uh um umm hmm ok okay so well just kindly sir madam can could would you i we want need know see about
+    went gone goes
 """.split())   # the last line: fillers and openings (2026-11-14: "Uh, MGNREGA, total expenditure ..." declined on "uh")
 # Words a breakdown / ranking / comparison adds to the question.
 _C16_SHAPE_WORDS = {
     "breakdown": frozenset("by wise each across breakdown break down split up per list every districts blocks"
                            .split()),
     "ranking": frozenset("""by which top bottom highest lowest most least largest smallest biggest maximum
-        minimum best worst leading rank ranked ranking with one two three four five six seven eight
+        minimum best worst leading rank ranked ranking fewest greatest with one two three four five six seven eight
         nine ten first last name list districts blocks""".split()),
     "compare": frozenset("compare comparison between and versus vs with against districts blocks".split()),
 }
@@ -94,6 +95,25 @@ def _c16_measure_vocabulary(m) -> frozenset:
     return frozenset(out)
 
 
+def _c16_alias_words(canonical_words: set) -> set:
+    """The words of every catalogue spelling of a place the resolver pinned (2026-11-14): "MGNREGA persondays WGH
+    2023-24" and "… in E Khasi Hills" were declined as asking more than the measure ("wgh", "e"), because only the
+    canonical name's words counted as the place. A place is pinned when ALL words of its canonical name are in
+    `canonical_words`; its aliases' words are then the place too."""
+    if not canonical_words:
+        return set()
+    from app import entity_resolver as _er
+    out: set = set()
+    for dims in (_er._catalog or {}).values():
+        for level in ("district", "block"):
+            for v in dims.get(level) or []:
+                canon = set(_c01_tm_words(str(v.get("canonical") or "")))
+                if canon and canon <= canonical_words:
+                    for alias in v.get("aliases") or []:
+                        out |= set(_c01_tm_words(str(alias)))
+    return out
+
+
 def _c16_extra_words(question: str, schemes: "list[str]", entity_result: dict, taken: "frozenset[int]",
                      allowed: frozenset) -> "list[str]":
     """The question's words that are not the measure, a scheme name, a resolved
@@ -112,6 +132,7 @@ def _c16_extra_words(question: str, schemes: "list[str]", entity_result: dict, t
               *(resolved.get("district_list") or []), *(resolved.get("block_list") or [])]:
         if isinstance(v, str):
             place_words |= {w for w in _c01_tm_words(v)}
+    place_words |= _c16_alias_words(place_words)
     extra = []
     for k, t in enumerate(toks):
         w = t.low

@@ -108,13 +108,20 @@ def _stem(word: str) -> str:
     return word[:-1] if len(word) > 3 and word.endswith("s") and not word.endswith("ss") else word
 
 
-def _phrase(text: str) -> tuple[str, ...]:
+def _phrase(text: str, noise: frozenset = _NAME_NOISE) -> tuple[str, ...]:
     words = [t.low for t in tokens(text)]
-    while words and words[0] in _NAME_NOISE:
+    while words and words[0] in noise:
         words.pop(0)
     while words and words[-1] in _NAME_TAIL_NOISE:
         words.pop()
-    return tuple(_stem(w) for w in words) if any(w not in _NAME_NOISE for w in words) else ()
+    return tuple(_stem(w) for w in words) if any(w not in noise for w in words) else ()
+
+
+# An APPROVED wording (SYNONYMS_FILE) is an exact phrase a person checked: only articles and "total" come off it.
+# Read with _NAME_NOISE it lost its own words: "total disbursement" (CM Elevate Legacy) became an empty phrase,
+# because "disbursement" is noise in the data team's display names ("CM Elevate Disbursement -- total paid out"),
+# so "CM Elevate Legacy total disbursement" named no measure (no-model gold bank PF-CL-terse, 2026-11-14).
+_APPROVED_NOISE = frozenset("total the of a an".split())
 
 
 def _alias(key: str, prefix: str, unit: str) -> str:
@@ -212,8 +219,8 @@ async def load() -> None:
         if not cols or used is None or not used <= cols:
             skipped.append(r["metric_key"])
             continue
-        phrases = {p for p in (_phrase(t) for t in [r["display_name"] or "", *(r["synonyms"] or []),
-                                                     *approved.get(r["metric_key"], [])]) if p}
+        phrases = {p for p in (_phrase(t) for t in [r["display_name"] or "", *(r["synonyms"] or [])]) if p}
+        phrases |= {p for p in (_phrase(t, _APPROVED_NOISE) for t in approved.get(r["metric_key"], [])) if p}
         metrics[r["metric_key"]] = Metric(
             key=r["metric_key"], scheme=SUBJECT_TO_SCHEME[r["subject_area"]],
             display_name=r["display_name"] or r["metric_key"], expression=str(r["sql_expression"]),

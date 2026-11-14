@@ -2107,8 +2107,8 @@ _C11_GROUP_NOUNS = frozenset("district districts block blocks village villages p
                              "constituency constituencies scheme schemes year years".split())
 # Two directions asked at once ("highest and lowest 3"). "top"/"bottom" only as a
 # pair: "top 5 lowest districts" is ONE list of the 5 lowest.
-_C11_HIGH = frozenset("highest largest biggest best most leading strongest".split())
-_C11_LOW = frozenset("lowest smallest worst least poorest weakest".split())
+_C11_HIGH = frozenset("highest largest biggest best most leading strongest greatest".split())
+_C11_LOW = frozenset("lowest smallest worst least poorest weakest fewest".split())
 
 
 def _requested_rank_count(question: str) -> "int | None":

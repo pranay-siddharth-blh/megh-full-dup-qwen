@@ -327,7 +327,8 @@ def _needs_scheme_clarification(question: str) -> bool:
 _RANKING_CUE = Matcher(Alt(
     NotAfter(W("most", "least"), W("at")),
     W("top", "bottom", "highest", "lowest", "best", "worst", "leading", "leader", "lead",
-      "leads", "rank", "ranked", "ranking", "largest", "smallest", "biggest", "maximum", "minimum")))
+      "leads", "rank", "ranked", "ranking", "largest", "smallest", "biggest", "maximum", "minimum",
+      "fewest", "greatest")))   # 2026-11-14: "which district has the fewest Focus Plus beneficiaries" was a total
 # A plural dimension noun — a ranking only needs a length when it returns rows to
 # cut. "which district spent the most" (singular) already means the single top row.
 _C05_DOT = lambda g: g == "."  # noqa: E731
