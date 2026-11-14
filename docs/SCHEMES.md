@@ -504,7 +504,15 @@ files; the registries that must change (VERIFIED to exist on 2026-10-27):
 7. `app/edge.py` (`_OUT_OF_SCOPE_REPLY`, `STARTERS`, `_DOMAIN_WORDS`), `app/guardrails.py` (`_SCOPE`),
    `app/conversation_replies.py`, `app/topic_memory.py` (`_SCHEME_ABOUT`).
 8. `app/prompt_builder.py`: `_scheme_of` and the exact-name sets; `app/schema_introspect.py`: `_TABLE_NAME_TO_SCHEME`.
-9. `app/cross_scheme.py` (`SPECS`), `app/cross_figures.py`.
+9. **`data/cross_scheme.yaml` (D-107, 2026-11-14): one entry, no code.** Its cross-scheme roles: count (noun, note,
+   per-head word, kept out of combined totals or not), money (verb / note / label, or `null`), years, constituency
+   column, village filters, the welcome card's lead figure (`headline`: card, column, label, view, SQL) and the
+   per-view queries. `app/cross_registry.py` builds `cross_figures` (`_QUERIES`, `_BEN_NOUN`, `NO_MONEY`, `NO_YEAR`,
+   `_AC_COL`, …), `cross_scheme` (`ORDER`, `SPECS`), `conversation_layer._MONEY_LABEL`, c13 `_CROSS_AC_RECORDED`, the
+   voice board's `_NO_YEAR` and the cards' lead column (`routers/stats.py`) from it. `tests/test_cross_registry_2026_11_14.py`
+   fails when an entry is missing or disagrees with `scheme_registry.DATASETS` (money unit, dates, main view). The
+   onboarder's `overrides: app/cross_figures.py::_QUERIES / _BEN_NOUN / _PER …` targets no longer exist: write the
+   YAML entry instead. Still code: the card's other two columns (`stats._SQL`, `_cards`) and `voice/board._MEASURES`.
 10. `app/rag.py`: `_SCHEME_DOC_NAMES` (+ `_KB_SCHEME_ALIAS` if it has no docs).
 11. `app/config.py`: `ASR_PROMPT`.
 12. `frontend/src`: `chat/components/Messages.jsx` `SCHEME_NAMES`, `chat/chartTheme.js` (one hue family per

@@ -14,7 +14,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app import auth
+from app import auth, cross_registry
 from app.db import fetch_rows
 from app.routers.stats import _require_user
 
@@ -67,8 +67,9 @@ _MEASURES = (
     )),
 )
 
-# a view with no date column has no year series
-_NO_YEAR = {"curated.v_cm_elevate"}
+# a view with no date column has no year series: the views of the schemes declared `years: false` in
+# data/cross_scheme.yaml (CM Elevate), not a hand-kept list (2026-11-14)
+_NO_YEAR = frozenset(q.view for e in cross_registry.ENTRIES if not e.years for q in e.queries)
 
 _cache: dict = {"at": 0.0, "body": None}
 _lock = asyncio.Lock()

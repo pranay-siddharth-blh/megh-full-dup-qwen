@@ -1,0 +1,302 @@
+# Cross-scheme roles of every scheme: what a question ACROSS schemes reads from each one.
+#
+# app/cross_registry.py reads this file; app/cross_figures.py and app/cross_scheme.py build their per-scheme
+# tables from it (the queries, the nouns, the money verbs, which schemes hold no money / no year / no constituency,
+# the village filters), and app/routers/stats.py builds the welcome cards' lead figure from `headline`, so the card
+# and the cross-scheme "headline figures" answer are ONE definition.
+#
+# Onboarding a scheme = one more entry here (in the order answers list the schemes). Nothing in the code names it.
+# tests/test_cross_registry_2026_11_14.py checks the file: every scheme of app/scheme_registry.py has an entry,
+# every expression is a fixed SQL fragment, the money / year facts agree with scheme_registry.DATASETS, and the
+# generated tables equal the hand-kept ones they replaced.
+#
+# Per scheme:
+#   name                 the canonical name (app/scheme_registry.py)
+#   main                 one of the four main schemes ("leaving out MGNREGA, which scheme ..." compares the rest)
+#   count.noun           what its count is called in an answer ("households given work")
+#   count.note           what the shared `beneficiaries` column holds for it (the answer's measure notes)
+#   count.per            money per head is "... per <this>" (only for schemes with money)
+#   count.combined       false = its count is applications, not beneficiaries: kept out of a combined total (I-13)
+#   count.summed_over_years  true = yearly tallies added (no person id), said as "counted once per year worked"
+#   money                null = the scheme records no money (said plainly, never 0); else
+#     verb / note / label  "₹x crore <verb>", the money column's note, the per-year question's measure words
+#   years                false = no financial year column (said, never 0)
+#   constituency         the column a constituency filter reads; null = not recorded
+#   village              where its village-level records live (count_view, base_where, village_where) and the
+#                        filter of the villages-in-both / either answer (set_filter; omitted = TRUE)
+#   headline             the welcome card's lead figure (routers/stats.py, card `card`, column `figure`):
+#                        view + expr + label + noun
+#   queries              one entry per view: district / block column, block_fallback (a block its own names never
+#                        use is looked up by this column instead), constituency (this view's own column), and the
+#                        metrics, each a fixed SQL aggregate. Metric names: ben (the count), money (₹ crore),
+#                        villages, districts, blocks, and the scheme's own details (completed, sanctioned, pgs,
+#                        payments, records).
+#
+# Every value the user gives is a bound parameter; these strings are fixed SQL, reviewed like code.
+
+shared:
+  # villages: Focus Plus / Focus Legacy / CM Elevate Legacy store 0 for "no village"
+  - &fp_vill "COUNT(DISTINCT village_code) FILTER (WHERE village_code > 0 AND entity_type <> 'Unresolved')"
+  - &cme_vill "COUNT(DISTINCT village_code) FILTER (WHERE village_code IS NOT NULL AND entity_type <> 'Unresolved')"
+  - &unres_vill "COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')"
+  - &lgd_districts "COUNT(DISTINCT lgd_district)"
+  - &lgd_blocks "COUNT(DISTINCT lgd_block)"
+
+schemes:
+  - name: MGNREGA
+    main: true
+    count:
+      noun: households given work
+      note: "household-years: households given work, counted once per year worked"
+      per: per household-year
+      summed_over_years: true
+    money: {verb: spent, note: money spent, label: expenditure}
+    years: true
+    constituency: UPPER(ac_name)
+    village:
+      count_view: curated.v_employment
+    headline:
+      card: mgnrega
+      figure: person_days
+      label: Person-days
+      noun: person-days
+      view: curated.v_employment
+      expr: SUM(person_days)
+    queries:
+      - view: curated.v_employment
+        district: UPPER(lgd_district)
+        block: UPPER(lgd_block)
+        # the employment view carries its own constituency column (the one its scheme answers use)
+        constituency: UPPER(assembly_constituency_name)
+        metrics:
+          ben: SUM(households_employed)
+          villages: COUNT(DISTINCT village_code)
+          districts: *lgd_districts
+          blocks: *lgd_blocks
+      - view: curated.v_expenditure
+        district: UPPER(lgd_district)
+        block: UPPER(lgd_block)
+        metrics:
+          money: SUM(total_exp) / 100.0
+
+  - name: PMAY-G
+    main: true
+    count:
+      noun: houses sanctioned
+      note: houses sanctioned
+      per: per house
+    money: {verb: released, note: money released, label: amount released}
+    years: true
+    constituency: UPPER(ac_name)
+    village:
+      count_view: curated.v_pmay
+      base_where: NOT is_placeholder
+    headline:
+      card: pmay_g
+      figure: sanctioned
+      label: Houses sanctioned
+      noun: houses sanctioned
+      view: curated.v_pmay
+      expr: COUNT(*)
+    queries:
+      - view: curated.v_pmay
+        district: UPPER(lgd_district)
+        block: UPPER(lgd_block)
+        metrics:
+          ben: COUNT(*)
+          completed: COUNT(*) FILTER (WHERE is_completed)
+          money: SUM(amount_released) / 1e7
+          sanctioned: SUM(sanctioned_amount) / 1e7
+          villages: COUNT(DISTINCT village_code)
+          districts: *lgd_districts
+          blocks: *lgd_blocks
+
+  - name: Focus Plus
+    main: true
+    count:
+      noun: beneficiaries
+      note: distinct beneficiaries
+      per: per beneficiary
+    money: {verb: disbursed, note: money disbursed, label: amount disbursed}
+    years: true
+    constituency: null
+    village:
+      count_view: curated.v_focus_plus
+      village_where: village_code > 0
+      set_filter: village_code > 0 AND entity_type <> 'Unresolved'
+    headline:
+      card: focus_plus
+      figure: payments
+      label: Disbursements
+      noun: disbursements
+      view: curated.v_focus_plus
+      expr: COUNT(*)
+    queries:
+      # the SOURCE district / block names (what its catalogue notes lead with and the source file counts)
+      - view: curated.v_focus_plus
+        district: UPPER(district_name_raw)
+        block: UPPER(block_name_raw)
+        block_fallback: UPPER(lgd_block)
+        metrics:
+          ben: COUNT(DISTINCT beneficiary_key)
+          payments: COUNT(*)
+          money: SUM(amount_disbursed) / 1e7
+          villages: *fp_vill
+          districts: COUNT(DISTINCT UPPER(district_name_raw))
+          blocks: COUNT(DISTINCT UPPER(block_name_raw))
+
+  - name: Focus Legacy
+    main: true
+    count:
+      noun: members
+      # G-10: a group paid more than once counts once per payment
+      note: producer-group members, counted once per payment (a group paid twice counts twice)
+      per: per member
+    money: {verb: disbursed, note: money disbursed, label: amount disbursed}
+    years: true
+    constituency: UPPER(ac_name)
+    village:
+      count_view: curated.v_focus_legacy
+      village_where: village_code > 0 AND entity_type <> 'Unresolved'
+      set_filter: village_code > 0 AND entity_type <> 'Unresolved'
+    headline:
+      card: focus_legacy
+      figure: groups
+      label: Producer Groups
+      noun: producer groups
+      view: curated.v_focus_legacy
+      expr: COUNT(DISTINCT pg_id)
+    queries:
+      - view: curated.v_focus_legacy
+        district: UPPER(lgd_district)
+        block: UPPER(lgd_block)
+        metrics:
+          ben: SUM(no_of_pg_members)
+          pgs: COUNT(DISTINCT pg_id)
+          payments: COUNT(*)
+          money: SUM(amount_disbursed) / 1e7
+          villages: *fp_vill
+          districts: *lgd_districts
+          blocks: *lgd_blocks
+
+  - name: CM Elevate
+    main: false
+    count:
+      noun: applications
+      note: applications (distinct request ids)
+      combined: false
+    money: null
+    years: false
+    constituency: null
+    village:
+      count_view: curated.v_cm_elevate
+      village_where: village_code IS NOT NULL AND entity_type <> 'Unresolved'
+      set_filter: entity_type <> 'Unresolved'
+    headline:
+      card: cm_elevate
+      figure: applications
+      label: Applications
+      noun: applications
+      view: curated.v_cm_elevate
+      expr: COUNT(DISTINCT request_id)
+    queries:
+      - view: curated.v_cm_elevate
+        district: UPPER(lgd_district)
+        block: UPPER(lgd_block)
+        metrics:
+          ben: COUNT(DISTINCT request_id)
+          villages: *cme_vill
+          districts: *lgd_districts
+          blocks: *lgd_blocks
+
+  - name: CM Elevate Legacy
+    main: false
+    count:
+      noun: applicants sanctioned
+      note: applicants with a sanctioned amount
+      per: per applicant sanctioned
+    money: {verb: disbursed (subsidy and loan), note: subsidy and loan disbursed, label: amount disbursed}
+    years: true
+    constituency: UPPER(ac_name)
+    village:
+      count_view: curated.v_cm_elevate_disbursement
+      village_where: village_code > 0 AND entity_type <> 'Unresolved'
+      set_filter: village_code > 0 AND entity_type <> 'Unresolved'
+    headline:
+      card: cm_elevate_legacy
+      figure: records
+      label: Sanction records
+      noun: sanction records
+      view: curated.v_cm_elevate_disbursement
+      expr: COUNT(*)
+    queries:
+      - view: curated.v_cm_elevate_disbursement
+        district: UPPER(lgd_district)
+        block: UPPER(lgd_block)
+        metrics:
+          ben: COUNT(*) FILTER (WHERE sanctioned_amount > 0)
+          records: COUNT(*)
+          money: SUM(total_disbursement) / 1e7
+          sanctioned: SUM(sanctioned_amount) / 1e7
+          villages: *fp_vill
+          districts: *lgd_districts
+          blocks: *lgd_blocks
+
+  - name: CMSS
+    main: false
+    count:
+      noun: students paid
+      note: students paid (scholarship applications that were paid)
+      per: per student paid
+    money: {verb: disbursed, note: money disbursed, label: amount disbursed}
+    years: true
+    constituency: UPPER(ac_name)
+    village:
+      count_view: curated.v_cmss
+      set_filter: village_code > 0 AND entity_type <> 'Unresolved'
+    headline:
+      card: cmss
+      figure: applications
+      label: Applications
+      noun: applications
+      view: curated.v_cmss
+      expr: COUNT(*)
+    queries:
+      - view: curated.v_cmss
+        district: UPPER(lgd_district)
+        block: UPPER(lgd_block)
+        metrics:
+          ben: COUNT(*) FILTER (WHERE is_disbursed)
+          money: SUM(amount_disbursed) / 1e7
+          villages: *unres_vill
+          districts: *lgd_districts
+          blocks: *lgd_blocks
+
+  - name: Homestay
+    main: false
+    count:
+      noun: applications
+      note: applications (a row is one application; no money is recorded)
+      combined: false
+    money: null
+    years: true
+    constituency: UPPER(ac_name)
+    village:
+      count_view: curated.v_homestay_api
+      set_filter: village_code > 0 AND entity_type <> 'Unresolved'
+    headline:
+      card: homestay
+      figure: applications
+      label: Applications
+      noun: applications
+      view: curated.v_homestay_api
+      expr: COUNT(*)
+    queries:
+      - view: curated.v_homestay_api
+        district: UPPER(lgd_district)
+        block: UPPER(lgd_block)
+        metrics:
+          ben: COUNT(*)
+          villages: *unres_vill
+          districts: *lgd_districts
+          blocks: *lgd_blocks

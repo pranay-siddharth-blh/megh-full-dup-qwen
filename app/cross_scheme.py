@@ -25,12 +25,13 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from app import db
+from app import cross_registry, db
 from app.text_match import Alt, Matcher, Node, Opt, Seq, W, fy_spans
 
 logger = logging.getLogger(__name__)
 
-ORDER = ["MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CM Elevate Legacy", "CMSS", "Homestay"]
+# every scheme, in the order answers list them: data/cross_scheme.yaml (app/cross_registry.py, 2026-11-14)
+ORDER = list(cross_registry.ORDER)
 
 
 @dataclass(frozen=True)
@@ -42,21 +43,11 @@ class SchemeSpec:
     village_where: str = "village_code IS NOT NULL"
 
 
+# built from each scheme's `village:` declaration in data/cross_scheme.yaml
 SPECS: dict[str, SchemeSpec] = {
-    "MGNREGA": SchemeSpec("MGNREGA", "curated.v_employment"),
-    "PMAY-G": SchemeSpec("PMAY-G", "curated.v_pmay", base_where="NOT is_placeholder"),
-    "Focus Plus": SchemeSpec("Focus Plus", "curated.v_focus_plus", village_where="village_code > 0"),
-    "Focus Legacy": SchemeSpec(
-        "Focus Legacy", "curated.v_focus_legacy",
-        village_where="village_code > 0 AND entity_type <> 'Unresolved'"),
-    "CM Elevate": SchemeSpec(
-        "CM Elevate", "curated.v_cm_elevate",
-        village_where="village_code IS NOT NULL AND entity_type <> 'Unresolved'"),
-    "CM Elevate Legacy": SchemeSpec(
-        "CM Elevate Legacy", "curated.v_cm_elevate_disbursement",
-        village_where="village_code > 0 AND entity_type <> 'Unresolved'"),
-    "CMSS": SchemeSpec("CMSS", "curated.v_cmss"),
-    "Homestay": SchemeSpec("Homestay", "curated.v_homestay_api"),
+    e.name: SchemeSpec(e.name, e.village.count_view, base_where=e.village.base_where,
+                       village_where=e.village.village_where)
+    for e in cross_registry.ENTRIES
 }
 
 # ── detection ────────────────────────────────────────────────────────────────

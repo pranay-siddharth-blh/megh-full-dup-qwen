@@ -1117,6 +1117,35 @@ not recorded.*
   results (a figure for one row of a table), and "define <measure>" when the documents hold no definition.
 - **Status:** Active.
 
+### D-107 — Cross-scheme roles are data: one declaration per scheme in `data/cross_scheme.yaml` (2026-11-14)
+
+- **Context:** a cross-scheme answer ("headline figures across all schemes", "money spent in each scheme in Ri Bhoi",
+  "compare beneficiaries across all eight schemes") read ~15 hand-kept per-scheme tables in `cross_figures`,
+  `cross_scheme`, `conversation_layer` and c13. Homestay (onboarded 2026-11-12) was missing from four of them, so
+  money / per-year questions over all schemes raised KeyError. The per-scheme queries also ran one after another.
+- **Decision:**
+  1. One YAML file, one entry per scheme (not a `cross:` section in `data/<folder>/scheme.yaml`: that file exists for
+     2 of 8 schemes and is the onboarding tool's review file, whose `overrides:` pin code sites; the one-file form
+     follows `data/spelling_aliases.yaml`, D-093). `app/cross_registry.py` loads and validates it at import (a
+     missing scheme, a money metric without a money entry, a statement separator in a fragment all raise) and builds
+     every table. The generated `_QUERIES` equals the old literal byte for byte (test keeps the old literal).
+  2. `headline` = the welcome card's lead figure: `routers/stats.py` writes its lead column from the same declaration
+     (card SQL unchanged byte for byte), and `cross_figures` op `headline` ("headline figures", "key statistics",
+     "each scheme's figures" with no measure word) answers it per scheme, with the cross count beside it when that is
+     another figure (gold bank W4-XS-01/03 count the beneficiaries). Never added up.
+  3. Fan-out: each scheme's share of a plan is one task (`cross_figures.fan_out`), at most
+     `CROSS_SCHEME_CONCURRENCY` (4) at once, each `CROSS_SCHEME_TIMEOUT_SECONDS` (25); a failed scheme is named in the
+     answer ("X is not in this answer: …") and listed in `schemes_failed`; all failing raises as before; an overlap
+     (villages in both) needs every set and fails whole. Measured on megh_db: 4.7 -> 2.9 s ("which scheme leads in each
+     district"), 2.1 -> 1.3 s, 1.5 -> 0.85 s; identical answers.
+  4. `semantic_cache.scope_signature` carries the grain (district / block / village / constituency / year / month /
+     total), so "X by district" and "X in total" never share an entry.
+  5. "Compare all eight schemes" / "compare every scheme": the comparison stage steps aside when
+     `cross_scheme.detect` claims the question (W4-XS-06); "difference between all the schemes" keeps the side-by-side.
+- **Consequences:** onboarding a scheme = one YAML entry for these roles; the onboarder's code overrides for
+  `cross_figures` tables no longer have targets. Remaining hand-kept lists: TESTING / HANDOFF 2026-11-14.
+- **Status:** Active (branch `wt/cross-2026-11-14`).
+
 ### D-106 — Accuracy is measured by a live gold bank with independent truth SQL; data-answer fixes are allowed again (2026-11-11/12)
 
 *(D-101 is reserved for the sovereign voice engine + natural re-saying, CLAUDE.md §0.)*

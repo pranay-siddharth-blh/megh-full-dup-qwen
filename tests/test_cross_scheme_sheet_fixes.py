@@ -11,6 +11,8 @@ answered by one model-written query per scheme and the composer
 (tests/test_cross_scheme_llm_2026_10_22.py). What stays tested here: detection,
 the place handling and the twin-village chips. Every test calls the real function.
 """
+import pytest
+
 from app import cross_scheme as cs
 from app import pipeline as p
 from app import pipeline_graph as pg
@@ -89,11 +91,22 @@ def test_graph_carries_the_cross_plan_and_the_users_own_words():
     assert d["cross"] is None and d["pre_rephrase_question"] is None
 
 
-def test_compare_all_six_schemes_is_not_asked_back():
-    out = p._scheme_comparison_answer("Compare all six schemes")
-    assert out is not None
-    for s in cs.ORDER:
-        assert f"**{s}**" in out["answer"]
+@pytest.mark.parametrize("q", ["Compare all six schemes", "Compare all eight schemes", "Compare all 8 schemes",
+                               "compare all the schemes", "compare every scheme"])
+def test_compare_all_schemes_is_not_asked_back(q):
+    """Never the pick-a-pair pause; since 2026-11-14 (W4-XS-06) the figures of every scheme: the comparison stage
+    steps aside (None), the cross-scheme detector claims it over every scheme and the intent cues say DATA."""
+    assert p._scheme_comparison_answer(q) is None
+    assert cs.detect(q, []) == list(cs.ORDER)
+    assert p._c13_intent_by_cues(q) == "DATA"
+
+
+def test_a_description_of_every_scheme_keeps_the_side_by_side():
+    for q in ("difference between all the schemes", "Compare all eight schemes' eligibility"):
+        out = p._scheme_comparison_answer(q)
+        assert out is not None, q
+        for s in cs.ORDER:
+            assert f"**{s}**" in out["answer"], (q, s)
 
 
 def test_a_district_wise_comparison_goes_to_data():

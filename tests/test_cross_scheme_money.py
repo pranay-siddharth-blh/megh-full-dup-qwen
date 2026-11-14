@@ -87,7 +87,10 @@ from app import cross_scheme  # noqa: E402
 for q in ("which scheme spent the most money?", "rank the schemes by amount spent"):
     gaps = p._cross_scheme_gaps(cross_scheme.ORDER, {}, {}, q)
     check(f"{q[:46]!r} -> CM Elevate not queried for money", "CM Elevate" in gaps, gaps)
-    check("  and every other scheme is", set(gaps) == {"CM Elevate"}, gaps)
+    # every scheme that records no money (data/cross_scheme.yaml `money: null`: CM Elevate, and Homestay since
+    # 2026-11-12) is said, and every other scheme is queried
+    from app import cross_figures  # noqa: E402
+    check("  and every other scheme is", set(gaps) == set(cross_figures.NO_MONEY), gaps)
 check("a money AND count question still asks CM Elevate for its applications",
       "CM Elevate" not in p._cross_scheme_gaps(
           cross_scheme.ORDER, {}, {}, "compare MGNREGA spending and CM Elevate applications"))

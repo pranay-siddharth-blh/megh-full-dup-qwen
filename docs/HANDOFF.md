@@ -3,6 +3,18 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-11-14 (cross-scheme roles as data, D-107 / KI-724): branch `wt/cross-2026-11-14`, NOT merged, NOT pushed.** A new
+scheme's cross-scheme roles = one entry in `data/cross_scheme.yaml` (format in its header). Pytest green except the 4
+known; scripts 14/14; headline figures checked against the cards on megh_db. Next: (1) the live gold bank on the branch
+(W4-XS-01/03/06 expect the counts, which the headline answer carries beside the card figure); (2) hand-kept lists still
+in code, candidates for the same file: `cross_figures` scheme details (`count_text` / `money_text` / `_rows` PMAY-G
+completed + sanctioned, Focus Legacy PGs, `fmt` "members", `_scheme_line` MGNREGA note with a typed "FY 2022-23 to
+2025-26", the Focus Plus source-names note in `_district_lines`), `cross_scheme._fp_raw_blocks` (Focus Plus view),
+`conversation_layer._YEAR_METRICS` holder tuples, `voice/board._MEASURES`, `stats._SQL` / `_YEARS_SQL` / `_cards` beyond
+the lead column, c13 `_mg_place_settled` (one-scheme list), c15 `_C15_HEADLINE_MEASURE` (chip measure, differs from the
+card on purpose?); (3) teach the scheme-onboarder to write `data/cross_scheme.yaml` (its `overrides:` for
+`cross_figures::_QUERIES/_BEN_NOUN/_PER/_MONEY_VERB/_COUNT_NOTE/_AC_COL/_VILLAGE_SET_FILTER` have no target now).
+
 **2026-11-12 (Homestay onboarded by scheme-onboarder): branch `onboard/homestay-2026-11-12` @ c8890d8, built ON the CMSS branch (merge CMSS first), NOT merged, NOT pushed.** Tests green except the pre-existing BLH8; live acceptance 0 regressions, Homestay 9-10/12 (CURRENT_STATE 2026-11-12). Next: (1) KI-690 (number word read as a place; KNOWLEDGE routing for some phrasings) and KI-687 (CMSS); (2) data team / SME: KI-689 (one missing application, Tura block spellings, confirm the column remap and Ri Bhoi) and the HS / CS gold SQL; (3) `tests/live_context_validation.py` on the branch; (4) user decision KI-684; (5) review, merge CMSS then Homestay. Homestay Legacy, if onboarded, needs a which-Homestay rule and its own frontend SERIES_SCHEME entry first.
 
 **2026-11-11 (welcome KPI cards: one colour per scheme): uncommitted, built (`web/app`), frontend tests 115/115.** Each card wears its scheme's chart hue (`WelcomeCard.cardHueStyle` <- `chartTheme.SCHEME_HUES` via `schemeOfSeries`; CSS `.scheme-card.hued`); CMSS hue changed #4a90e2 -> amber #d99a00 / #8a5f00 (the blue was too close to PMAY-G). Text contrast >= 4.5:1 on every card.
