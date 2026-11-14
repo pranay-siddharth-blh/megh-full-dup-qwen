@@ -80,11 +80,12 @@ def _wiring(monkeypatch, fakes):
     async def ident(token):
         return relay.Officer(key="7", username="wgh-officer", name="Test Officer") if token == GOOD else None
     monkeypatch.setattr(relay, "identify", ident)
-    state = {"url": fakes["good"], "engine": "gemini"}
+    state = {"url": fakes["good"], "engine": "gemini", "block": True}
 
     def load():
         return voice_settings.VoiceSettings(api_key="", engine=state["engine"], model="fake", voice="Kore",
-                                            live_url=state["url"], idle_seconds=25, max_sessions=40, tool_timeout=20)
+                                            live_url=state["url"], idle_seconds=25, max_sessions=40, tool_timeout=20,
+                                            block_unsourced=state["block"])
     monkeypatch.setattr(voice_settings, "load", load)
     relay._LOCK["until"] = 0.0
     relay._ACTIVE.clear()
@@ -487,3 +488,116 @@ def test_the_voice_speaks_only_english(server):
         assert cfg["setup"]["generationConfig"]["speechConfig"]["languageCode"] == "en-IN"
         assert "ONLY English" in cfg["setup"]["systemInstruction"]["parts"][0]["text"]
     run(go())
+
+
+# ── VOICE_BLOCK_UNSOURCED (2026-11-14): an unsourced number is blocked, not only logged ──────────────────────────
+HOUSES = "1,29,941 houses were completed under PMAY-G."
+
+
+def test_an_unsourced_sentence_is_cut_its_audio_stopped_and_never_captioned(server):
+    async def go():
+        before = relay.STATS["blocked"]
+        async with Page(server) as p:
+            await p.until(lambda e: e["type"] == "ready")
+            await p.send({"type": "text", "text": "[voice] !!mixed PMAY-G houses completed in total"})
+            call = await p.until(lambda e: e["type"] == "tool_call")
+            await p.answer(call, HOUSES)
+            cut = await p.until(lambda e: e["type"] == "interrupted" and e.get("guard") == "unsourced")
+            audio_at_cut = p.audio
+            done = await p.until(lambda e: e["type"] == "turn_complete" and e.get("called"))
+            captions = "".join(e.get("text", "") for e in p.events if e["type"] == "out")
+            assert "1,29,941" in captions                          # the sourced sentence was shown
+            assert "77,77,777" not in captions and "That is all" not in captions
+            assert done["blocked"] is True and done["deviations"] == ["7777777"]
+            assert done["said"] == HOUSES + " " + speech_guard.ON_SCREEN_LINE
+            assert p.audio == audio_at_cut                         # nothing of the turn after the cut was played
+            assert cut
+        assert relay.STATS["blocked"] - before == 1
+    run(go())
+
+
+def test_with_the_block_off_the_number_is_only_logged(server, _wiring):
+    async def go():
+        _wiring["block"] = False
+        async with Page(server) as p:
+            await p.until(lambda e: e["type"] == "ready")
+            await p.send({"type": "text", "text": "[voice] !!mixed PMAY-G houses completed in total"})
+            call = await p.until(lambda e: e["type"] == "tool_call")
+            await p.answer(call, HOUSES)
+            done = await p.until(lambda e: e["type"] == "turn_complete" and e.get("called"))
+            captions = "".join(e.get("text", "") for e in p.events if e["type"] == "out")
+            assert "77,77,777" in captions and "That is all" in captions
+            assert done["blocked"] is False and done["deviations"] == ["7777777"]
+            assert not any(e["type"] == "interrupted" for e in p.events)
+        _wiring["block"] = True
+    run(go())
+
+
+def test_a_number_from_memory_is_cut_and_the_screen_keeps_the_safe_line(server):
+    async def go():
+        async with Page(server) as p:
+            await p.until(lambda e: e["type"] == "ready")
+            await p.send({"type": "text", "text": "!!memory person-days in Tura"})
+            done = await p.until(lambda e: e["type"] == "turn_complete")
+            # the page still gets the deviation (it sends the question through the pipeline) and the line is never empty
+            assert done["called"] == 0 and done["deviations"] == ["12345"] and done["blocked"] is True
+            assert done["said"] == speech_guard.SAFE_LINE
+            assert not any("12,345" in e.get("text", "") for e in p.events if e["type"] == "out")
+    run(go())
+
+
+def test_a_misread_read_is_cut_and_ended_with_the_safe_line_once(server):
+    async def go():
+        async with Page(server) as p:
+            await p.until(lambda e: e["type"] == "ready")
+            await p.send({"type": "read", "text": "!!garble CM Elevate has 8,921 applications."})
+            first = await p.until(lambda e: e["type"] == "turn_complete")
+            assert first["blocked"] is True and first["deviations"] == ["7777"]
+            safe = await p.until(lambda e: e["type"] == "turn_complete" and e["said"] == speech_guard.SAFE_LINE
+                                 and not e["blocked"])
+            assert safe["deviations"] == []
+            await asyncio.sleep(1.5)                                  # once: no loop of safe lines
+            assert sum(1 for e in p.events if e["type"] == "turn_complete") == 2
+            captions = "".join(e.get("text", "") for e in p.events if e["type"] == "out")
+            assert "7,777" not in captions and "exact figures are on your screen" in captions
+    run(go())
+
+
+def test_a_correct_answer_is_never_cut(server):
+    async def go():
+        async with Page(server) as p:
+            await p.until(lambda e: e["type"] == "ready")
+            await p.send({"type": "text", "text": "[voice] MGNREGA person-days in West Garo Hills"})
+            call = await p.until(lambda e: e["type"] == "tool_call")
+            two = ANSWER + " That is the 3rd highest of the 12 districts, and the top 5 are on your screen."
+            await p.answer(call, two)
+            done = await p.until(lambda e: e["type"] == "turn_complete" and e.get("called"))
+            assert done["blocked"] is False and done["deviations"] == [] and done["said"] == two
+            assert not any(e["type"] == "interrupted" for e in p.events)
+            captions = "".join(e.get("text", "") for e in p.events if e["type"] == "out")
+            assert captions.strip() == two
+    run(go())
+
+
+def test_an_oversized_frame_is_dropped_unread(server):
+    async def go():
+        before, dropped = relay.STATS["audio_in_s"], relay.STATS["oversize_dropped"]
+        async with Page(server) as p:
+            await p.until(lambda e: e["type"] == "ready")
+            await p.ws.send(b"\x00\x00" * (relay.MAX_FRAME_BYTES // 2 + 1))
+            await p.ws.send(b"\x00\x00" * 1280)                      # a normal frame still goes through
+            await asyncio.sleep(0.5)
+        assert relay.STATS["oversize_dropped"] - dropped == 1
+        assert relay.STATS["audio_in_s"] - before == pytest.approx(0.08, abs=0.01)
+    run(go())
+
+
+def test_the_gemini_key_never_reaches_an_error_text():
+    cfg = voice_settings.VoiceSettings(api_key="AIzaSECRET123", engine="gemini", model="m", voice="v", live_url="",
+                                       idle_seconds=1, max_sessions=1, tool_timeout=1)
+    err = f"InvalidURI: {cfg.url()} isn't a valid URI"
+    out = relay._redact(err, cfg)
+    assert "AIzaSECRET123" not in out and "key=***" in out
+    other = "InvalidStatus: wss://h/x?alt=1&key=OTHERKEY&b=2 refused"
+    assert "OTHERKEY" not in relay._redact(other, cfg) and "&b=2" in relay._redact(other, cfg)
+    assert relay._redact("closed 1011", cfg) == "closed 1011"

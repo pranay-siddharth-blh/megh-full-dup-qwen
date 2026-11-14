@@ -273,10 +273,11 @@ async def shadow(question: str, raw_question: str, result: dict,
             record["plan_question"] = pending["question"]
         path = Path(settings.QUERY_PLAN_FILE)
         path = path if path.is_absolute() else Path(__file__).resolve().parent.parent / path
+        from app.pii_mask import mask_record          # the officer's words: personal data masked (PII_LOG_MODE)
         with _lock:
             path.parent.mkdir(parents=True, exist_ok=True)
             with path.open("a", encoding="utf-8") as f:
-                f.write(json.dumps(record, ensure_ascii=False, default=str) + "\n")
+                f.write(json.dumps(mask_record(record), ensure_ascii=False, default=str) + "\n")
         return record
     except Exception:  # noqa: BLE001 — shadow only
         logger.debug("query plan shadow failed", exc_info=True)

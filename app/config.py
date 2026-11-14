@@ -582,6 +582,18 @@ class Settings(BaseSettings):
     USERS_FILE: str = "app/users.yaml"
     # Mirror of the DB audit trail; keep for grep/offline. DB is source of truth.
     AUDIT_FILE: str = "logs/query_audit.jsonl"
+    # Personal data in what the app keeps (DPDP Act 2023 / Rules 2025, data
+    # minimisation; app/pii_mask.py, 2026-11-14): the question, rewritten
+    # question, SQL, error and IP in the audit JSONL and app.query_audit, the
+    # shadow logs (query plan, metric meaning) and every log line.
+    #   masked (default)  phone / Aadhaar / account numbers, e-mail, IFSC, PAN,
+    #                     EPIC and job-card numbers replaced; figures, years and
+    #                     counts kept; IPs keep their network part
+    #   full              unchanged (local debugging only)
+    #   off               free text withheld (length + short hash only)
+    # Any other value is treated as "masked". The chat history an officer reads
+    # back (app.conversation_turns) is not touched.
+    PII_LOG_MODE: str = "masked"
     # Role when AUTH_ENABLED=false (local dev only — real requests carry a JWT).
     AUTH_DEFAULT_ROLE: str = "analyst"
 

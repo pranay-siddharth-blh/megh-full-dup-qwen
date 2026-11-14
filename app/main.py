@@ -34,6 +34,11 @@ logging.basicConfig(
     format="%(asctime)s | %(levelname)s | %(name)s | %(message)s",
 )
 logger = logging.getLogger("nlp_service")
+# every log line of this process (ours, uvicorn's, the libraries') is masked as it is made:
+# phone / Aadhaar / account numbers, e-mail, IFSC, PAN, EPIC, job cards (settings.PII_LOG_MODE)
+from app.pii_mask import install_log_masking  # noqa: E402
+
+install_log_masking()
 
 # app/main.py -> repo root -> web/
 _FRONTEND = Path(__file__).resolve().parents[1] / "web"
