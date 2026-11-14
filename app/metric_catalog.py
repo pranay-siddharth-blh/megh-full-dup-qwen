@@ -448,6 +448,19 @@ def build(m: Metric, filters: dict, group: "str | None" = None, *,
         select, tail = f"{YEAR_COLUMN}, {fy}{value}", f"\nGROUP BY {YEAR_COLUMN}"
         if order is None:
             tail += f" ORDER BY {YEAR_COLUMN}"
+    elif group == "scheme":
+        # 2026-11-14: the dataset's own sub-schemes ("CM Elevate Legacy amount disbursed by scheme"), read from the
+        # column the registry names (scheme_registry sub_scheme_column); a dataset with none has no such grouping.
+        # Largest first: the order a "by scheme" list is read in.
+        from app import scheme_registry
+        facts = scheme_registry.DATASETS.get(m.scheme)
+        col = facts.sub_scheme_column if facts is not None else None
+        if not col or col not in m.columns:
+            return None
+        where, shown = where + [f"{col} IS NOT NULL"], shown + [f"{col} IS NOT NULL"]
+        select, tail = f"{col} AS scheme, {value}", f"\nGROUP BY {col}"
+        if order is None:
+            tail += f" ORDER BY {m.alias} DESC NULLS LAST"
     else:
         col = PLACE_COLUMNS.get(group)
         if col is None or col not in m.columns:

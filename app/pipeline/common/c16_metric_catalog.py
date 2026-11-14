@@ -168,7 +168,9 @@ def _c16_shape(question: str, filters: dict) -> "dict | None":
         if len(dims) != 1:
             return None
         group = next(iter(dims))
-        if group not in ("district", "block", "year") or filters.get(group) is not None:
+        # "scheme" (2026-11-14): the dataset's own sub-schemes; metric_catalog.build declines it for a dataset
+        # that has none (the view lacks the column), so only CM Elevate / CM Elevate Legacy style data take it
+        if group not in ("district", "block", "year", "scheme") or filters.get(group) is not None:
             return None
         if group == "district" and (filters.get("block") or filters.get("village_code")):
             return None
