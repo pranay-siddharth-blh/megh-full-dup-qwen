@@ -47,3 +47,36 @@ def test_went_is_not_a_measure_word():
     assert "went" not in p._c16_extra_words("How much Focus Legacy money went to Mairang block?", ["Focus Legacy"],
                                             {"resolved": {"block": "MAIRANG"}, "display": {"block": "Mairang"}},
                                             frozenset(), frozenset({"money"}))
+
+
+# ── a constituency filter through the cross-scheme registry's column (same day) ──
+def _m(scheme, base, cols):
+    return mc.Metric(key="k", scheme=scheme, display_name="k", expression="SUM(x)", base_object=base, unit="",
+                     notes="", alias="k", phrases=(), columns=frozenset(cols))
+
+
+def test_constituency_column_comes_from_the_registry():
+    emp = _m("MGNREGA", "curated.v_employment", {"x", "assembly_constituency_name", "ac_name", "year_key"})
+    assert mc.constituency_column(emp) == "UPPER(assembly_constituency_name)"     # the view's own column
+    exp = _m("MGNREGA", "curated.v_expenditure", {"x", "ac_name", "year_key"})
+    assert mc.constituency_column(exp) == "UPPER(ac_name)"                       # the scheme's column
+    fp = _m("Focus Plus", "curated.v_focus_plus", {"x", "ac_name"})
+    assert mc.constituency_column(fp) is None                                    # constituency: null in the registry
+    assert mc.constituency_column(_m("MGNREGA", "curated.v_expenditure", {"x"})) is None   # view lacks the column
+
+
+def test_build_filters_a_constituency(monkeypatch):
+    monkeypatch.setitem(mc._state, "no_block_level", frozenset())
+    emp = _m("MGNREGA", "curated.v_employment", {"x", "assembly_constituency_name", "year_key"})
+    sql, params, shown = mc.build(emp, {"assembly_constituency": "Mawsynram", "year_key": [2024]})
+    assert "UPPER(assembly_constituency_name) = UPPER($" in sql and "MAWSYNRAM" in params and 2024 in params
+    assert "'MAWSYNRAM'" in shown
+    fp = _m("Focus Plus", "curated.v_focus_plus", {"x", "ac_name"})
+    assert mc.build(fp, {"assembly_constituency": "Mawsynram"}) is None
+
+
+def test_constituency_only_with_a_total_or_years():
+    f = {"assembly_constituency": "MAWSYNRAM"}
+    assert p._c16_shape("MGNREGA person-days in Mawsynram constituency", f)["qtype"] == "total"
+    assert p._c16_shape("Which block in Mawsynram constituency has the most person-days", f) is None
+    assert p._c16_shape("MGNREGA person-days in Mawsynram constituency by district", f) is None

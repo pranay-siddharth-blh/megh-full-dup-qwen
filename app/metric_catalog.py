@@ -447,6 +447,21 @@ def build(m: Metric, filters: dict, group: "str | None" = None, *,
             params.append(values[0])
             where.append(f"UPPER({col}) = UPPER(${len(params)})")
             shown.append(f"UPPER({col}) = {quoted}")
+    ac = filters.get("assembly_constituency")
+    if ac not in (None, "", [], ()):
+        col = constituency_column(m)
+        if col is None:
+            return None
+        values = [str(x).upper() for x in (ac if isinstance(ac, (list, tuple, set)) else [ac])]
+        quoted = ", ".join("'" + x.replace("'", "''") + "'" for x in values)
+        if len(values) > 1:
+            params.append(values)
+            where.append(f"{col} = ANY(${len(params)}::text[])")
+            shown.append(f"{col} IN ({quoted})")
+        else:
+            params.append(values[0])
+            where.append(f"{col} = UPPER(${len(params)})")
+            shown.append(f"{col} = {quoted}")
     value = f"{_value_sql(m)} AS {m.alias}"
     if group is None:
         select, tail = value, ""
@@ -516,6 +531,19 @@ def combine_totals(parts: "list[tuple[Metric, tuple[str, list, str]]]") -> "tupl
         shown_selects.append(f"({body(shown)}) AS {m.alias}")
     head = "/* metric:" + "+".join(m.key for m, _ in parts) + " total */ SELECT "
     return head + ",\n       ".join(selects), params, head + ",\n       ".join(shown_selects)
+
+
+def constituency_column(m: Metric) -> "str | None":
+    """The expression a constituency filter reads for this measure's view, from the cross-scheme registry
+    (data/cross_scheme.yaml: the view's own column first, else the scheme's), or None when the scheme records none or
+    the view lacks the column. MGNREGA employment reads assembly_constituency_name, the others ac_name (truth SQL of
+    the gold bank, 2026-11-14)."""
+    from app import cross_registry
+    col = cross_registry.ac_view_col().get(m.base_object) or cross_registry.ac_col().get(m.scheme)
+    if not col:
+        return None
+    bare = col.split("(", 1)[1].split(")", 1)[0] if "(" in col else col
+    return col if bare.strip().lower() in m.columns else None
 
 
 def is_catalog_sql(sql: "str | None") -> bool:

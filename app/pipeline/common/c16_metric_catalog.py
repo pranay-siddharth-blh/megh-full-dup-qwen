@@ -19,7 +19,9 @@ from app.db import fetch_rows_readonly as _c16_fetch_rows_readonly
 # pinned (a status, gender, programme, constituency, region …) is something the
 # measure's expression does not cover: the model path answers.
 _C16_FILTER_KEYS = frozenset({"district", "block", "village_code", "year_key",
-                              "district_list", "block_list", "village_code_list", "year_key_list"})
+                              "district_list", "block_list", "village_code_list", "year_key_list",
+                              # 2026-11-14: read through the registry's constituency column (metric_catalog.build)
+                              "assembly_constituency", "assembly_constituency_list"})
 
 # Question grammar: words that ask for a figure without changing which one.
 # Anything else ("wage", "average", "women", "pending") may change the measure,
@@ -28,7 +30,7 @@ _C16_GRAMMAR = frozenset("""
     what whats what's is are was were the a an of in for during under at to me us give show tell
     please total overall number amount count how many much did does do has have had been be
     there it its so far till until date as on now provide get find figure value data
-    meghalaya state statewide whole entire all district block village c rd
+    meghalaya state statewide whole entire all district block village c rd constituency assembly ac mapped
     fy financial fiscal year years scheme schemes s
     uh um umm hmm ok okay so well just kindly sir madam can could would you i we want need know see about
     went gone goes
@@ -64,7 +66,7 @@ def _c16_filters(resolved: dict) -> "dict | None":
     if any(v not in (None, "", [], (), {}) for k, v in (resolved or {}).items() if k not in _C16_FILTER_KEYS):
         return None
     out = {}
-    for key in ("district", "block", "village_code"):
+    for key in ("district", "block", "village_code", "assembly_constituency"):
         many = resolved.get(f"{key}_list")
         one = resolved.get(key)
         if many and one not in (None, ""):
@@ -128,7 +130,7 @@ def _c16_extra_words(question: str, schemes: "list[str]", entity_result: dict, t
     resolved = entity_result.get("resolved") or {}
     place_words = set()
     for v in [*(entity_result.get("display") or {}).values(),
-              *(resolved.get(k) for k in ("district", "block")),
+              *(resolved.get(k) for k in ("district", "block", "assembly_constituency")),
               *(resolved.get("district_list") or []), *(resolved.get("block_list") or [])]:
         if isinstance(v, str):
             place_words |= {w for w in _c01_tm_words(v)}
@@ -159,6 +161,9 @@ def _c16_shape(question: str, filters: dict) -> "dict | None":
     ranking = bool(_RANKING_CUE.search(q))
     lists = [k for k in ("district", "block", "village_code") if isinstance(filters.get(k), list)]
     years = filters.get("year_key") or []
+    # a constituency crosses district and block lines: with one, only a total or a per-year list is read here
+    if filters.get("assembly_constituency") is not None and (ranking or lists or dims - {"year"}):
+        return None
     if ranking:
         if dims or lists:
             return None
