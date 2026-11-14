@@ -158,6 +158,11 @@ class Settings(BaseSettings):
     DB_POOL_TIMEOUT: int = 30
     # Close a pooled connection idle this long (asyncpg max_inactive_connection_lifetime).
     DB_POOL_IDLE_SECONDS: float = 120.0
+    # A cross-scheme figure (app/cross_figures.py) queries each scheme concurrently, at most this many at once
+    # (the app pool is shared with every other request), each given this long; a scheme that fails or times out
+    # is named in the answer and the others are still answered (2026-11-14).
+    CROSS_SCHEME_CONCURRENCY: int = 4
+    CROSS_SCHEME_TIMEOUT_SECONDS: float = 25.0
     # Model-generated SQL runs on its own pool, logged in as a SELECT-only role
     # (megh_readonly — deploy/sql/03_readonly_role.sql) with every statement in
     # a READ ONLY transaction and search_path = curated, semantic. DATABASE_URL

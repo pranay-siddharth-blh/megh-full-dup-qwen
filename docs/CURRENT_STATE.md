@@ -5,6 +5,18 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: cross-scheme roles are data (2026-11-14, D-107, KI-724), branch `wt/cross-2026-11-14`
+- `data/cross_scheme.yaml` + `app/cross_registry.py` build every per-scheme cross table (`cross_figures`, `cross_scheme`,
+  `conversation_layer._MONEY_LABEL`, c13 `_CROSS_AC_RECORDED` / `_CROSS_RUPEE_SCHEMES`, voice board `_NO_YEAR`) and the
+  welcome cards' lead column. Generated `_QUERIES` == the old literal byte for byte; card SQL unchanged byte for byte.
+- New: op `headline` (the card's lead figure per scheme, count beside it); per-scheme fan-out (4 at once, 25 s each,
+  partial answer names a failed scheme); grain terms in the semantic-cache signature; "Compare all eight schemes" is
+  the all-schemes figures answer (W4-XS-06), not the pick-a-pair pause.
+- VERIFIED offline: pytest-style files 6,101 passed / 4 failed (the known 3 `test_accuracy_gold_fixes` + BLH8) / 27
+  skipped; scripts 14/14 (`test_cross_scheme_money.py` was failing before: fixed).
+- VERIFIED on megh_db (read-only, LLM gateway down): every scheme's cross headline equals its card figure (CMSS 1,04,827
+  applications / 98,751 paid / Rs 59,25,06,000; Homestay 1,297; MGNREGA 9,09,15,181 person-days …); fan-out vs one at a
+  time: 4.7 -> 2.9 s, 2.1 -> 1.3 s, 1.5 -> 0.85 s, identical answers. NOT run: the live gold bank on the branch.
 ## Latest: Homestay onboarded (2026-11-12), branch `onboard/homestay-2026-11-12` ON TOP OF the CMSS branch, NOT merged
 - Commits: da0651e (scheme-onboarder apply: 140 edits in 49 files, 79 reviewed values pinned in `data/homestay/scheme.yaml`),
   c8890d8 (review fixes: `_scheme_of` branch, `rag._KB_SCHEME_ALIAS` "Homestay" -> "Home Stay", KI-688 picker fixes, tests).

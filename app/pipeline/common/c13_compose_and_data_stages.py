@@ -2046,7 +2046,9 @@ def _c13_e12_cross_figures_denial(scope: "auth.UserScope | None", schemes: list[
 # Plus and CM Elevate do not: a model asked for their constituency figure answers
 # the district or the state instead (cross-scheme run 2026-10-13, D-044).
 # PMAY-G since 2026-10-30 (v_pmay.ac_name, KI-445).
-_CROSS_AC_RECORDED = frozenset({"MGNREGA", "Focus Legacy", "CM Elevate Legacy", "PMAY-G", "CMSS", "Homestay"})
+# 2026-11-14: the schemes whose `constituency` is declared in data/cross_scheme.yaml (cross_figures._AC_COL), so
+# the gap said here and the column cross_figures filters on are one fact.
+_CROSS_AC_RECORDED = frozenset(cross_figures._AC_COL)
 
 
 def _cross_scheme_gaps(schemes: list[str], resolved: dict, display: "dict | None" = None,
@@ -3096,7 +3098,8 @@ def _sql_filters_amount(sql: "str | None", amount: int) -> bool:
 
 
 # Schemes whose money columns are in RUPEES (MGNREGA's total_exp is in lakh).
-_CROSS_RUPEE_SCHEMES = ("PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate Legacy", "CMSS")
+# 2026-11-14: read from the dataset facts (scheme_registry.DATASETS money_unit), not a hand-kept list.
+_CROSS_RUPEE_SCHEMES = tuple(n for n in scheme_registry.NAMES if scheme_registry.DATASETS[n].money_unit == "rupees")
 
 
 def _cross_scheme_answer_units(answer: str, per_scheme: list, rows: list[dict]) -> str:

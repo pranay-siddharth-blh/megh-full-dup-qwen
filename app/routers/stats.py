@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
 
-from app import auth, scheme_registry
+from app import auth, cross_registry, scheme_registry
 from app.config import settings
 from app.db import fetch_rows
 from app.deps import current_scope
@@ -33,25 +33,34 @@ STATS_TTL_SECONDS = 600
 # CM Elevate (RAG fix report 2026-10-29, Issue 1): the card said 8,948 (rows) while the chat
 # said 8,921 — 27 request_ids have two identical rows (an ingestion duplicate, schema rule 8),
 # so the card now counts COUNT(DISTINCT request_id), the chat's and the prompt's rule.
+# The LEAD figure of each card (its first stat) is the scheme's `headline` in data/cross_scheme.yaml
+# (app/cross_registry.py, 2026-11-14): the same SQL answers "the headline figures across all schemes", so the card
+# and the chat cannot disagree on it. _lead() writes it into the card's statement; the rest stays here.
+def _lead(card: str) -> str:
+    h = cross_registry.headline_for_card(card)
+    return f"{h.expr} AS {h.figure}"
+
+
+_MG = cross_registry.headline_for_card("mgnrega")
 _SQL = {
-    "mgnrega": """SELECT (SELECT SUM(person_days) FROM curated.v_employment) AS person_days,
+    "mgnrega": f"""SELECT (SELECT {_MG.expr} FROM {_MG.view}) AS {_MG.figure},
                          (SELECT SUM(total_exp) FROM curated.v_expenditure) AS exp_lakh,
                          (SELECT COUNT(*) FROM (SELECT village_code FROM curated.v_employment
                                                 UNION SELECT village_code FROM curated.v_expenditure) v
                           WHERE village_code IS NOT NULL) AS villages""",
-    "pmay_g": """SELECT COUNT(*) AS sanctioned, COUNT(*) FILTER (WHERE is_completed) AS completed,
+    "pmay_g": f"""SELECT {_lead("pmay_g")}, COUNT(*) FILTER (WHERE is_completed) AS completed,
                         SUM(COALESCE(amount_released, 0)) AS released
                  FROM curated.v_pmay""",
-    "focus_plus": """SELECT COUNT(*) AS payments, SUM(amount_disbursed) AS amount,
+    "focus_plus": f"""SELECT {_lead("focus_plus")}, SUM(amount_disbursed) AS amount,
                             COUNT(DISTINCT lgd_district) AS districts FROM curated.v_focus_plus""",
-    "cm_elevate": """SELECT COUNT(DISTINCT request_id) AS applications, COUNT(DISTINCT scheme_name) AS schemes,
+    "cm_elevate": f"""SELECT {_lead("cm_elevate")}, COUNT(DISTINCT scheme_name) AS schemes,
                             COUNT(DISTINCT lgd_district) AS districts FROM curated.v_cm_elevate""",
-    "focus_legacy": """SELECT COUNT(DISTINCT pg_id) AS groups, SUM(no_of_pg_members) AS memberships,
+    "focus_legacy": f"""SELECT {_lead("focus_legacy")}, SUM(no_of_pg_members) AS memberships,
                               SUM(amount_disbursed) AS amount FROM curated.v_focus_legacy""",
-    "cm_elevate_legacy": """SELECT COUNT(*) AS records, COUNT(DISTINCT scheme_name) AS schemes,
+    "cm_elevate_legacy": f"""SELECT {_lead("cm_elevate_legacy")}, COUNT(DISTINCT scheme_name) AS schemes,
                                    SUM(total_disbursement) AS disbursed FROM curated.v_cm_elevate_disbursement""",
-    "cmss": """SELECT COUNT(*) AS applications, COUNT(*) FILTER (WHERE is_disbursed) AS students_paid, SUM(amount_disbursed) AS amount_disbursed FROM curated.v_cmss""",
-    "homestay": """SELECT COUNT(*) AS applications, COUNT(DISTINCT member_key) AS applicants, COUNT(*) FILTER (WHERE file_status = 'Approved') AS approved FROM curated.v_homestay_api""",
+    "cmss": f"""SELECT {_lead("cmss")}, COUNT(*) FILTER (WHERE is_disbursed) AS students_paid, SUM(amount_disbursed) AS amount_disbursed FROM curated.v_cmss""",
+    "homestay": f"""SELECT {_lead("homestay")}, COUNT(DISTINCT member_key) AS applicants, COUNT(*) FILTER (WHERE file_status = 'Approved') AS approved FROM curated.v_homestay_api""",
 }
 
 # The financial years each card covers, read from the same views. The cards' period text
@@ -135,28 +144,32 @@ def _cards(r: dict, years: "dict | None" = None) -> dict:
     def prov(name):
         return scheme_registry.DATASETS[name].provisional
 
+    # the lead stat's label is the headline's (data/cross_scheme.yaml), like its SQL
+    def lead(card):
+        return cross_registry.headline_for_card(card).label
+
     return {
         "mgnrega": [[f"{float(m['person_days']) / 1e7:.2f} Cr" if _has(m["person_days"]) else _NO_FIGURE,
-                     f"Person-days{span}"],
+                     f"{lead('mgnrega')}{span}"],
                     # total_exp is in lakh: / 100 -> crore
                     [f"₹{float(m['exp_lakh']) / 100:,.2f} Cr" if _has(m["exp_lakh"]) else _NO_FIGURE,
                      f"Expenditure{span}"],
                     [ind(m["villages"]), "Villages with activity"]],
-        "pmay_g": [[ind(p["sanctioned"]), "Houses sanctioned"], [ind(p["completed"]), "Houses completed"],
+        "pmay_g": [[ind(p["sanctioned"]), lead("pmay_g")], [ind(p["completed"]), "Houses completed"],
                    [cr(p["released"]), "Funds released"]],
-        "focus_plus": [[ind(f["payments"]), "Disbursements"], [cr(f["amount"], prov("Focus Plus")), "Amount disbursed*"],
+        "focus_plus": [[ind(f["payments"]), lead("focus_plus")], [cr(f["amount"], prov("Focus Plus")), "Amount disbursed*"],
                        [ind(f["districts"]), "Districts covered"]],
-        "cm_elevate": [[ind(c["applications"]), "Applications"], [ind(c["schemes"]), "Schemes"],
+        "cm_elevate": [[ind(c["applications"]), lead("cm_elevate")], [ind(c["schemes"]), "Schemes"],
                        [ind(c["districts"]), "Districts covered"]],
-        "focus_legacy": [[ind(fl["groups"]), "Producer Groups"], [ind(fl["memberships"]), "Memberships paid"],
+        "focus_legacy": [[ind(fl["groups"]), lead("focus_legacy")], [ind(fl["memberships"]), "Memberships paid"],
                          [cr(fl["amount"], prov("Focus Legacy")), "Amount remitted*"]],
-        "cm_elevate_legacy": [[ind(cl["records"]), "Sanction records"], [ind(cl["schemes"]), "Schemes"],
+        "cm_elevate_legacy": [[ind(cl["records"]), lead("cm_elevate_legacy")], [ind(cl["schemes"]), "Schemes"],
                               [cr(cl["disbursed"], prov("CM Elevate Legacy")), "Disbursed (subsidy + loan)*"]],
         # CMSS: applications (paid or not), students paid, rupees paid — a flat Rs 6,000 per paid student
-        "cmss": [[ind(cs["applications"]), "Applications"], [ind(cs["students_paid"]), "Students paid"],
+        "cmss": [[ind(cs["applications"]), lead("cmss")], [ind(cs["students_paid"]), "Students paid"],
                  [cr(cs["amount_disbursed"], prov("CMSS")), "Amount disbursed"]],
         # Homestay: applications, distinct applicants, approved — the feed records no money
-        "homestay": [[ind(hs["applications"]), "Applications"], [ind(hs["applicants"]), "Applicants"],
+        "homestay": [[ind(hs["applications"]), lead("homestay")], [ind(hs["applicants"]), "Applicants"],
                      [ind(hs["approved"]), "Approved"]],
     }
 

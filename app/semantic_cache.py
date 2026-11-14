@@ -35,11 +35,13 @@ def _unit(v: list[float]) -> list[float] | None:
 
 
 def scope_signature(question: str) -> tuple:
-    """(schemes, places, years, contrasts) the question names. WI-6 (forward plan,
-    2026-10-16): a semantic hit must name the same ones — "…in 2023-24" and
+    """(schemes, places, years, contrasts, grain) the question names. WI-6 (forward
+    plan, 2026-10-16): a semantic hit must name the same ones — "…in 2023-24" and
     "…in 2024-25" embed almost identically, and the 2024-25 answer was served
-    for the 2023-24 question. Never raises: an unreadable question gets a
-    signature that matches nothing but itself."""
+    for the 2023-24 question. The grain (2026-11-14): "money spent in each scheme
+    by district" and "… in total" differ by two words and were one entry, so a
+    per-district table could be served for a total and back. Never raises: an
+    unreadable question gets a signature that matches nothing but itself."""
     try:
         from app import context_policy, pipeline
         q = question or ""
@@ -47,9 +49,52 @@ def scope_signature(question: str) -> tuple:
                 tuple(sorted(str(p).upper() for p in context_policy._places(q))),
                 tuple(sorted(context_policy.extract_year_keys(q))),
                 tuple(sorted(_contrast_terms(q) | context_policy.metric_families(q)
-                             | context_policy.category_terms(q))))
+                             | context_policy.category_terms(q))),
+                grain_terms(q))
     except Exception:  # noqa: BLE001
         return ("?", normalize(question or ""))
+
+
+def _grain_matchers() -> dict:
+    from app.text_match import Alt, Matcher, Opt, Seq, W
+    each = W("by", "each", "every", "per", "across", "among")
+
+    def level(*names):
+        # "by district", "each district", "per block", "district-wise", "districtwise", "across the districts"
+        return Matcher(Alt(Seq(each, Opt(W("the", "all")), W(*names), sep="space"),
+                           Seq(W(*names), W("wise", "wide"), sep="any"), W(*(n + "wise" for n in names))))
+    return {
+        "district": level("district", "districts"),
+        "block": level("block", "blocks"),
+        "village": level("village", "villages"),
+        "constituency": level("constituency", "constituencies", "ac"),
+        "year": Matcher(Alt(Seq(each, W("year", "years", "fy"), sep="space"),
+                            Seq(W("year", "fy"), W("wise"), sep="any"), W("yearwise", "yearly", "annual", "annually",
+                                                                           "trend", "trends"),
+                            Seq("year", "on", "year", sep="space"), Seq("over", "the", "years", sep="space"))),
+        "month": Matcher(Alt(Seq(each, W("month", "months", "quarter", "quarters"), sep="space"),
+                             Seq(W("month", "quarter"), W("wise"), sep="any"), W("monthly", "quarterly"))),
+        "total": Matcher(Alt(Seq("in", "total", sep="space"), Seq("grand", "total", sep="space"),
+                             Seq("sum", "of", sep="space"), W("altogether", "combined", "together", "aggregate"))),
+    }
+
+
+_GRAIN_MATCHERS: "dict | None" = None
+
+
+def grain_terms(question: str) -> tuple:
+    """The grain words of a question, as signature terms: "grain:district", "grain:block", "grain:village"
+    (context_policy.asked_levels: "by district", "district-wise", "which block", "top 5 villages"),
+    "grain:constituency", "grain:year", "grain:month" and "grain:total" ("in total", "combined"). No grain word =
+    ()."""
+    global _GRAIN_MATCHERS
+    from app import context_policy
+    if _GRAIN_MATCHERS is None:
+        _GRAIN_MATCHERS = _grain_matchers()
+    q = question or ""
+    out = {f"grain:{lv}" for lv in context_policy.asked_levels(q)}
+    out |= {f"grain:{k}" for k, m in _GRAIN_MATCHERS.items() if m.search(q)}
+    return tuple(sorted(out))
 
 
 # Words that flip the answer but barely move the embedding (measured 2026-10-24,

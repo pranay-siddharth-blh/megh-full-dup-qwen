@@ -58,93 +58,41 @@ applications are not beneficiaries; chat UI audit I-13) and says so.
 """
 from __future__ import annotations
 
+import asyncio
 import logging
 from dataclasses import dataclass, field
 
-from app import cross_scheme, db
+from app import cross_registry, cross_scheme, db
+from app.config import settings
 from app.text_match import ANY, Alt, Gap, Matcher, Opt, Seq, W, tokens
 
 logger = logging.getLogger(__name__)
 
+# Every per-scheme table below is BUILT from data/cross_scheme.yaml (app/cross_registry.py, 2026-11-14): the
+# queries, the nouns and money verbs, which schemes hold no money / no year / no constituency, the village filters.
+# Onboarding a scheme is one entry there; nothing in this module names a scheme for those roles.
+#
 # the four main schemes: what an exclusion leaves ("leaving out MGNREGA, which
 # scheme …" compares the other three, D-066)
-MAIN = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy")
-SUPPORTED = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CM Elevate Legacy", "CMSS", "Homestay")
-# records no money / no financial year at all (said plainly, never shown as 0)
-# NO_MONEY and _APART_IN_COMBINED are DERIVED below from the per-scheme specs (_QUERIES, _BEN_NOUN), so a newly
-# onboarded scheme cannot fall out of step with them (2026-11-14: Homestay records no money and counts applications,
-# but both sets still named only CM Elevate, and an all-schemes money / per-year question raised KeyError).
-NO_YEAR = frozenset({"CM Elevate"})
+MAIN = cross_registry.main()
+SUPPORTED = cross_registry.ORDER
+# records no money / no financial year at all (said plainly, never shown as 0). A scheme with no money declares
+# `money: null` and has no "money" metric (2026-11-14: Homestay records no money and counts applications, but the
+# hand-kept sets still named only CM Elevate, and an all-schemes money / per-year question raised KeyError).
+NO_YEAR = cross_registry.no_year()
 # the schemes a constituency filter can read (the others do not record one); the
 # column is per view: MGNREGA employment carries its own assembly_constituency_name
 # (the column its scheme answers use), every other view the geography's ac_name
-_AC_COL = {"MGNREGA": "UPPER(ac_name)", "PMAY-G": "UPPER(ac_name)",
-           "Focus Legacy": "UPPER(ac_name)", "CM Elevate Legacy": "UPPER(ac_name)", "CMSS": "UPPER(ac_name)", "Homestay": "UPPER(ac_name)"}
-_AC_VIEW_COL = {"curated.v_employment": "UPPER(assembly_constituency_name)"}
-# a combined total / ranking leaves out the schemes that count applications (not beneficiaries, I-13):
-# _APART_IN_COMBINED, derived below from _BEN_NOUN
+_AC_COL = cross_registry.ac_col()
+_AC_VIEW_COL = cross_registry.ac_view_col()
 
 # ── the per-scheme queries ────────────────────────────────────────────────────
 # Each entry: (view, district column, block column, [(metric, SQL expression)]).
 # The expressions are fixed strings; every value the user gave is a bound parameter.
-_FP_VILL = "COUNT(DISTINCT village_code) FILTER (WHERE village_code > 0 AND entity_type <> 'Unresolved')"
-_CME_VILL = "COUNT(DISTINCT village_code) FILTER (WHERE village_code IS NOT NULL AND entity_type <> 'Unresolved')"
-_QUERIES: dict[str, list[tuple[str, str, str, list[tuple[str, str]]]]] = {
-    "MGNREGA": [
-        ("curated.v_employment", "UPPER(lgd_district)", "UPPER(lgd_block)",
-         [("ben", "SUM(households_employed)"), ("villages", "COUNT(DISTINCT village_code)"),
-          ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
-        ("curated.v_expenditure", "UPPER(lgd_district)", "UPPER(lgd_block)",
-         [("money", "SUM(total_exp) / 100.0")]),
-    ],
-    "PMAY-G": [
-        ("curated.v_pmay", "UPPER(lgd_district)", "UPPER(lgd_block)",
-         [("ben", "COUNT(*)"), ("completed", "COUNT(*) FILTER (WHERE is_completed)"),
-          ("money", "SUM(amount_released) / 1e7"), ("sanctioned", "SUM(sanctioned_amount) / 1e7"),
-          ("villages", "COUNT(DISTINCT village_code)"),
-          ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
-    ],
-    "Focus Plus": [
-        ("curated.v_focus_plus", "UPPER(district_name_raw)", "UPPER(block_name_raw)",
-         [("ben", "COUNT(DISTINCT beneficiary_key)"), ("payments", "COUNT(*)"),
-          ("money", "SUM(amount_disbursed) / 1e7"), ("villages", _FP_VILL),
-          ("districts", "COUNT(DISTINCT UPPER(district_name_raw))"),
-          ("blocks", "COUNT(DISTINCT UPPER(block_name_raw))")]),
-    ],
-    "Focus Legacy": [
-        ("curated.v_focus_legacy", "UPPER(lgd_district)", "UPPER(lgd_block)",
-         [("ben", "SUM(no_of_pg_members)"), ("pgs", "COUNT(DISTINCT pg_id)"), ("payments", "COUNT(*)"),
-          ("money", "SUM(amount_disbursed) / 1e7"), ("villages", _FP_VILL),
-          ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
-    ],
-    "CM Elevate": [
-        ("curated.v_cm_elevate", "UPPER(lgd_district)", "UPPER(lgd_block)",
-         [("ben", "COUNT(DISTINCT request_id)"), ("villages", _CME_VILL),
-          ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
-    ],
-    "CM Elevate Legacy": [
-        ("curated.v_cm_elevate_disbursement", "UPPER(lgd_district)", "UPPER(lgd_block)",
-         [("ben", "COUNT(*) FILTER (WHERE sanctioned_amount > 0)"), ("records", "COUNT(*)"),
-          ("money", "SUM(total_disbursement) / 1e7"), ("sanctioned", "SUM(sanctioned_amount) / 1e7"),
-          ("villages", _FP_VILL),
-          ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
-    ],
-    "CMSS": [
-        ("curated.v_cmss", "UPPER(lgd_district)", "UPPER(lgd_block)",
-         [("ben", "COUNT(*) FILTER (WHERE is_disbursed)"), ("money", "SUM(amount_disbursed) / 1e7"),
-          ("villages", "COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')"),
-          ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
-    ],
-    "Homestay": [
-        ("curated.v_homestay_api", "UPPER(lgd_district)", "UPPER(lgd_block)",
-         [("ben", "COUNT(*)"),
-          ("villages", "COUNT(DISTINCT village_code) FILTER (WHERE entity_type <> 'Unresolved')"),
-          ("districts", "COUNT(DISTINCT lgd_district)"), ("blocks", "COUNT(DISTINCT lgd_block)")]),
-    ],
-}
+_QUERIES: dict[str, list[tuple[str, str, str, list[tuple[str, str]]]]] = cross_registry.queries()
 # Focus Plus names a block another way than LGD for new / urban blocks: a block its
-# source names never use is looked up by its LGD block instead.
-_FP_LGD_BLOCK = "UPPER(lgd_block)"
+# source names never use is looked up by its LGD block instead (`block_fallback`)
+_BLOCK_FALLBACK = cross_registry.block_fallback()
 
 STATE = "__state__"
 
@@ -161,8 +109,7 @@ def _block_names(block: str) -> list[str]:
     return [b]
 
 # a scheme whose specs hold no "money" expression records no money (CM Elevate, Homestay)
-NO_MONEY = frozenset(s for s, specs in _QUERIES.items()
-                     if not any(m == "money" for _view, _dist, _block, metrics in specs for m, _expr in metrics))
+NO_MONEY = cross_registry.no_money()
 
 
 def has_measure(scheme: str, measure: str) -> bool:
@@ -194,17 +141,20 @@ async def scheme_figures(scheme: str, *, by_district: bool, districts: "list[str
                          block: "str | None" = None, year: "int | None" = None,
                          by_year: bool = False, years: "list[int] | None" = None,
                          village: "int | None" = None, ac: "str | None" = None,
-                         grain: str = "district") -> tuple[dict, list[str]]:
+                         grain: str = "district", specs: "list | None" = None) -> tuple[dict, list[str]]:
     """{key: {metric: value}} for one scheme (key = STATE, or an upper-case district
     name when by_district), and the SQL run (shown to the user as the query).
     `village` = one LGD village code (each scheme's own village filter applies);
-    `ac` = an assembly constituency name (a scheme that records none gives {})."""
+    `ac` = an assembly constituency name (a scheme that records none gives {});
+    `specs` = other queries in the _QUERIES shape (the headline figure), else the scheme's own."""
     out: dict[str, dict] = {}
     shown: list[str] = []
     if ac and scheme not in _AC_COL:
         return out, shown
-    for view, dcol, bcol, metrics in _QUERIES[scheme]:
-        for attempt_bcol in ([bcol, _FP_LGD_BLOCK] if scheme == "Focus Plus" and block else [bcol]):
+    fallback = _BLOCK_FALLBACK.get(scheme)
+    for view, dcol, bcol, metrics in (_QUERIES[scheme] if specs is None else specs):
+        tries = [bcol, fallback] if fallback and block else [bcol]
+        for attempt, attempt_bcol in enumerate(tries):
             where, params = [], []
             if districts:
                 params.append([d.upper() for d in districts])
@@ -229,7 +179,7 @@ async def scheme_figures(scheme: str, *, by_district: bool, districts: "list[str
             sql = _sql(view, "year_key" if by_year else gcol, metrics, where)
             rows = [dict(r) for r in await db.fetch_rows(sql, params)]
             got = any(any(v for k, v in r.items() if k != "k") for r in rows)
-            if got or attempt_bcol == _FP_LGD_BLOCK or not block or scheme != "Focus Plus":
+            if got or attempt == len(tries) - 1:
                 shown.append(sql)
                 for r in rows:
                     if by_year and r["k"] is None:
@@ -371,6 +321,10 @@ _THAN = Matcher(W("than"))
 _MORE = Matcher(W("more", "higher", "greater", "bigger", "larger", "exceed", "exceeds", "outnumber"))
 _LESS = Matcher(W("less", "fewer", "lower", "smaller"))
 _RANK_MEASURES = Matcher(Alt(W("rank", prefix=True), S("overall", W("performance", "comparison"))))
+# "headline figures", "key statistics", "a snapshot of every scheme" with no measure word: each scheme's own lead
+# figure (op "headline"); "numbers" stays a count (_COUNT), "overview" / "summary" stay count + money (_SUMMARY)
+_HEADLINE = Matcher(W("headline", "headlines", "figure", "figures", "statistics", "stats", "snapshot", "glance",
+                      "kpi", "kpis"))
 
 
 @dataclass
@@ -709,6 +663,11 @@ def plan(text: str, schemes: list, resolved: dict, display: "dict | None",
     better = op == "leader" and bool(_BETTER.search(text)) and not explicit
     if timed:
         op = "by_year"
+    elif not by_district and not explicit and not (perf or summary or avg or ranked) and _HEADLINE.search(text):
+        # "the headline figures across all schemes": each scheme's OWN lead figure, the one its overview card
+        # shows first (data/cross_scheme.yaml `headline`, the same SQL as the card), never added up
+        op, measures, first = "headline", ["headline"], "headline"
+        better = False
     if op == "rank_districts" and avg:
         first = "avg"                    # "per beneficiary money": ranked on money per head (I-21)
     year = r.get("year_key")
@@ -770,33 +729,36 @@ def _labels(p: Plan, display: "dict | None") -> None:
 
 
 # ── villages in both / either / only one scheme (G-8, I-5) ────────────────────
-_VILLAGE_SET_FILTER = {"Focus Plus": "village_code > 0 AND entity_type <> 'Unresolved'",
-                       "Focus Legacy": "village_code > 0 AND entity_type <> 'Unresolved'",
-                       "CM Elevate": "entity_type <> 'Unresolved'",
-                       "CM Elevate Legacy": "village_code > 0 AND entity_type <> 'Unresolved'",
-                       "CMSS": "village_code > 0 AND entity_type <> 'Unresolved'",
-                       "Homestay": "village_code > 0 AND entity_type <> 'Unresolved'"}
+_VILLAGE_SET_FILTER = cross_registry.village_set_filter()
 
 
 async def village_sets(p: Plan) -> tuple[dict, list[str]]:
-    """{scheme: {village_code, ...}} for the plan's place and year, and the SQL run."""
-    out, shown = {}, []
-    for s in p.schemes:
-        view, dcol, bcol, _m = _QUERIES[s][0]
-        where, params = ["village_code IS NOT NULL", _VILLAGE_SET_FILTER.get(s, "TRUE")], []
-        if p.districts:
-            params.append([d.upper() for d in p.districts])
-            where.append(f"{dcol} = ANY(${len(params)}::text[])")
-        if p.block:
-            params.append(p.block.upper())
-            where.append(f"{bcol} = ${len(params)}")
-        if p.year is not None:
-            params.append(int(p.year))
-            where.append(f"year_key = ${len(params)}")
-        sql = f"SELECT DISTINCT village_code AS v FROM {view} WHERE {' AND '.join(where)}"
-        shown.append(sql)
-        out[s] = {int(r["v"]) for r in await db.fetch_rows(sql, params) if r["v"] is not None}
-    return out, shown
+    """{scheme: {village_code, ...}} for the plan's place and year, and the SQL run. The schemes are read
+    concurrently (fan_out); an overlap needs every scheme's set, so any failure fails the answer."""
+    async def one(s: str) -> "tuple[str, set]":
+        sql, params = _village_set_sql(p, s)
+        return sql, {int(r["v"]) for r in await db.fetch_rows(sql, params) if r["v"] is not None}
+
+    got, failed = await fan_out(list(p.schemes), one)
+    if failed:
+        raise next(iter(failed.values()))
+    return {s: got[s][1] for s in p.schemes}, [got[s][0] for s in p.schemes]
+
+
+def _village_set_sql(p: Plan, s: str) -> "tuple[str, list]":
+    """One scheme's villages-in-the-set statement and its bound values."""
+    view, dcol, bcol, _m = _QUERIES[s][0]
+    where, params = ["village_code IS NOT NULL", _VILLAGE_SET_FILTER.get(s, "TRUE")], []
+    if p.districts:
+        params.append([d.upper() for d in p.districts])
+        where.append(f"{dcol} = ANY(${len(params)}::text[])")
+    if p.block:
+        params.append(p.block.upper())
+        where.append(f"{bcol} = ${len(params)}")
+    if p.year is not None:
+        params.append(int(p.year))
+        where.append(f"year_key = ${len(params)}")
+    return f"SELECT DISTINCT village_code AS v FROM {view} WHERE {' AND '.join(where)}", params
 
 
 async def _overlap_answer(p: Plan) -> dict:
@@ -857,16 +819,11 @@ def rupees_crore(c: float) -> str:
     return f"₹{indian(float(whole))}.{frac} crore"
 
 
-SHORT = {"MGNREGA": "MGNREGA", "PMAY-G": "PMAY-G", "Focus Plus": "Focus Plus", "Focus Legacy": "Focus Legacy",
-         "CM Elevate": "CM Elevate", "CM Elevate Legacy": "CM Elevate Legacy", "CMSS": "CMSS", "Homestay": "Homestay"}
-_BEN_NOUN = {"MGNREGA": "households given work", "PMAY-G": "houses sanctioned",
-             "Focus Plus": "beneficiaries", "Focus Legacy": "members",
-             "CM Elevate": "applications", "CM Elevate Legacy": "applicants sanctioned", "CMSS": "students paid", "Homestay": "applications"}
-_MONEY_VERB = {"MGNREGA": "spent", "PMAY-G": "released", "Focus Plus": "disbursed", "Focus Legacy": "disbursed",
-               "CM Elevate Legacy": "disbursed (subsidy and loan)",
-               "CMSS": "disbursed"}
+SHORT = {s: s for s in SUPPORTED}
+_BEN_NOUN = cross_registry.ben_noun()
+_MONEY_VERB = cross_registry.money_verb()
 # schemes whose count is applications, not beneficiaries: kept apart in a combined total / ranking (I-13)
-_APART_IN_COMBINED = frozenset(s for s, noun in _BEN_NOUN.items() if noun == "applications")
+_APART_IN_COMBINED = cross_registry.apart_in_combined()
 
 
 def _money_verb(s: str) -> str:
@@ -914,8 +871,7 @@ def avg_value(f: dict) -> "float | None":
     return f["money"] * 1e7 / f["ben"] if f.get("ben") and f.get("money") is not None else None
 
 
-_PER = {"MGNREGA": "per household-year", "PMAY-G": "per house", "Focus Plus": "per beneficiary",
-        "Focus Legacy": "per member", "CM Elevate Legacy": "per applicant sanctioned", "CMSS": "per student paid"}
+_PER = cross_registry.per()
 
 
 def primary(p: Plan) -> str:
@@ -948,6 +904,99 @@ def fmt(s: str, f: dict, measure: str) -> str:
 
 # ── computing and writing the answer ──────────────────────────────────────────
 
+# ── fan-out: one question's per-scheme queries run concurrently ─────────────────
+# They ran one scheme after another (8 schemes x 1-3 statements each, plus the statewide totals of a per-district
+# answer); now each scheme is one task, at most CROSS_SCHEME_CONCURRENCY at a time (the app pool is shared), each
+# given CROSS_SCHEME_TIMEOUT_SECONDS. A scheme that fails is named in the answer and the others are still answered;
+# only when every scheme fails does the error reach the caller (as before).
+
+async def fan_out(schemes: list, work) -> "tuple[dict, dict]":
+    """({scheme: result of `work(scheme)`}, {scheme: the exception it raised}), in `schemes` order."""
+    sem = asyncio.Semaphore(max(1, int(settings.CROSS_SCHEME_CONCURRENCY)))
+    limit = float(settings.CROSS_SCHEME_TIMEOUT_SECONDS)
+
+    async def one(s):
+        async with sem:                  # waiting for a slot is not the scheme's own time
+            return await asyncio.wait_for(work(s), limit)
+
+    got = await asyncio.gather(*(one(s) for s in schemes), return_exceptions=True)
+    ok, failed = {}, {}
+    for s, r in zip(schemes, got):
+        if isinstance(r, asyncio.CancelledError):
+            raise r
+        if isinstance(r, BaseException):
+            failed[s] = r
+        else:
+            ok[s] = r
+    for s, e in failed.items():
+        logger.warning("cross figures: %s failed (%s: %s)", s, type(e).__name__, e)
+    if failed and not ok:
+        raise next(iter(failed.values()))
+    return ok, failed
+
+
+def failed_text(s: str, e: BaseException) -> str:
+    """The partial answer's line for a scheme whose query failed."""
+    why = "its figures took too long to read" if isinstance(e, (asyncio.TimeoutError, TimeoutError)) \
+        else "its figures could not be read just now"
+    return f"{s} is not in this answer: {why}; ask again to include it"
+
+
+async def _scheme_part(p: Plan, s: str) -> dict:
+    """One scheme's share of a plan: {"gap": why it has no figure (or a partial one), "figs", "total", "sql"}."""
+    out: dict = {"gap": None, "figs": None, "total": None, "sql": []}
+    if p.year is not None:
+        held = await _years_held(s)
+        if s in NO_YEAR:
+            out["gap"] = f"{s} records no financial year, so it has no figure for {p.period_label}"
+            return out
+        if p.year not in held:
+            out["gap"] = (f"{s} has no data for {p.period_label} (its data covers FY "
+                          f"{held[0]}-{(held[0] + 1) % 100:02d} to {held[-1]}-{(held[-1] + 1) % 100:02d})"
+                          if held else f"{s} records no financial year")
+            return out
+    if p.op == "by_year":
+        held = await _years_held(s)
+        if s in NO_YEAR:
+            out["gap"] = f"{s} records no financial year"
+            return out
+        missing = [y for y in (p.years or []) if y not in held]
+        if p.years and len(missing) == len(p.years):
+            out["gap"] = f"{s} has no data for {p.period_label}"
+            return out
+        if missing:
+            out["gap"] = f"{s} has no data for " + ", ".join(f"FY {y}-{(y + 1) % 100:02d}" for y in missing)
+    if p.ac and s not in _AC_COL:
+        out["gap"] = f"{s} does not record assembly constituency, so it has no figure for {p.place_label}"
+        return out
+    head = [cross_registry.headline_query(s)] if p.op == "headline" else None
+    if p.villages:
+        got = {}
+        for code, label in p.villages.items():
+            one, sql = await scheme_figures(s, by_district=False, village=code, year=p.year, specs=head)
+            out["sql"] += sql
+            if one.get(STATE) and any(v for v in one[STATE].values()):
+                got[label] = one[STATE]
+        out["figs"] = got
+        return out
+    if head is not None:
+        got, sql = await scheme_figures(s, by_district=False, districts=p.districts, block=p.block, year=p.year,
+                                        village=p.village, ac=p.ac, specs=head)
+        out["figs"], out["sql"] = got, sql
+        return out
+    got, sql = await scheme_figures(s, by_district=p.by_district, districts=p.districts,
+                                    block=p.block, year=p.year,
+                                    by_year=p.op == "by_year", years=p.years or None,
+                                    village=p.village, ac=p.ac, grain=p.grain)
+    out["figs"], out["sql"] = got, sql
+    if p.by_district and got:
+        # the statewide total, not the sum of the districts: a record with no
+        # district (one Focus Plus beneficiary) still counts
+        tot, _sql_t = await scheme_figures(s, by_district=False, districts=p.districts, year=p.year)
+        out["total"] = tot.get(STATE, {})
+    return out
+
+
 async def answer(p: Plan) -> dict:
     """{'answer', 'rows', 'sql'} for a plan."""
     if p.op == "overlap":
@@ -956,58 +1005,29 @@ async def answer(p: Plan) -> dict:
     totals: dict[str, dict] = {}
     shown: list[str] = []
     gaps: dict[str, str] = dict(p.gaps or {})
-    for s in p.schemes:
-        if s in gaps:
-            continue                     # said by c13 (constituency / year / money not held), never queried
-        if p.year is not None:
-            held = await _years_held(s)
-            if s in NO_YEAR:
-                gaps[s] = f"{s} records no financial year, so it has no figure for {p.period_label}"
-                continue
-            if p.year not in held:
-                gaps[s] = (f"{s} has no data for {p.period_label} (its data covers FY "
-                           f"{held[0]}-{(held[0] + 1) % 100:02d} to {held[-1]}-{(held[-1] + 1) % 100:02d})"
-                           if held else f"{s} records no financial year")
-                continue
-        if p.op == "by_year":
-            held = await _years_held(s)
-            if s in NO_YEAR:
-                gaps[s] = f"{s} records no financial year"
-                continue
-            missing = [y for y in (p.years or []) if y not in held]
-            if p.years and len(missing) == len(p.years):
-                gaps[s] = f"{s} has no data for {p.period_label}"
-                continue
-            if missing:
-                gaps[s] = f"{s} has no data for " + ", ".join(f"FY {y}-{(y + 1) % 100:02d}" for y in missing)
-        if p.ac and s not in _AC_COL:
-            gaps[s] = f"{s} does not record assembly constituency, so it has no figure for {p.place_label}"
+    # said by c13 (constituency / year / money not held): never queried
+    todo = [s for s in p.schemes if s not in gaps]
+    parts, failed = await fan_out(todo, lambda s: _scheme_part(p, s))
+    for s in todo:                       # merged in the plan's order, whatever order they finished in
+        if s in failed:
+            gaps[s] = failed_text(s, failed[s])
             continue
-        if p.villages:
-            got = {}
-            for code, label in p.villages.items():
-                one, sql = await scheme_figures(s, by_district=False, village=code, year=p.year)
-                shown += sql
-                if one.get(STATE) and any(v for v in one[STATE].values()):
-                    got[label] = one[STATE]
-            figs[s] = got
-            continue
-        got, sql = await scheme_figures(s, by_district=p.by_district, districts=p.districts,
-                                        block=p.block, year=p.year,
-                                        by_year=p.op == "by_year", years=p.years or None,
-                                        village=p.village, ac=p.ac, grain=p.grain)
-        figs[s], shown = got, shown + sql
-        if p.by_district and got:
-            # the statewide total, not the sum of the districts: a record with no
-            # district (one Focus Plus beneficiary) still counts
-            tot, sql_t = await scheme_figures(s, by_district=False, districts=p.districts, year=p.year)
-            totals[s] = tot.get(STATE, {})
+        r = parts[s]
+        shown += r["sql"]
+        if r["gap"]:
+            gaps[s] = r["gap"]
+        if r["figs"] is not None:
+            figs[s] = r["figs"]
+        if r["total"] is not None:
+            totals[s] = r["total"]
     have = [s for s in p.schemes if s in figs and figs[s]]
     for s in p.schemes:
         if s in figs and not figs[s]:
             gaps[s] = f"{s} has no records for {p.place_label}"
     lines = [_header(p)]
-    if p.op == "by_year":
+    if p.op == "headline":
+        lines += _headline_lines(p, figs, have)
+    elif p.op == "by_year":
         lines += _year_lines(p, figs, have)
     elif p.by_district:
         lines += _district_lines(p, figs, have, totals)
@@ -1030,7 +1050,8 @@ async def answer(p: Plan) -> dict:
     logger.info("cross figures (D-066): %s %s op=%s measures=%s by_district=%s", p.schemes, p.place_label,
                 p.op, p.measures, p.by_district)
     return {"answer": "\n".join(ln for ln in lines if ln is not None), "rows": rows, "sql": "\n;\n".join(shown),
-            "totals": col_totals, "measure_notes": measure_notes(have), "schemes_with_data": have,
+            "totals": col_totals, "measure_notes": {} if p.op == "headline" else measure_notes(have),
+            "schemes_with_data": have, "schemes_failed": [s for s in todo if s in failed],
             "schemes_apart": {}}
 
 
@@ -1039,20 +1060,8 @@ async def answer(p: Plan) -> dict:
 # said "beneficiaries" for MGNREGA household-years and "amount" for money spent,
 # released and disbursed alike. What each column means for each scheme goes with
 # the answer (the rows keep their shape, user report 2026-10-27).
-_COUNT_NOTE = {"MGNREGA": "household-years: households given work, counted once per year worked",
-               "PMAY-G": "houses sanctioned", "Focus Plus": "distinct beneficiaries",
-               # G-10 (chat UI audit 2026-10-29, user decision: keep the D-066 figure,
-               # say what it is): a group paid more than once counts once per payment
-               "Focus Legacy": "producer-group members, counted once per payment (a group paid twice counts twice)",
-               "CM Elevate": "applications (distinct request ids)",
-               "CM Elevate Legacy": "applicants with a sanctioned amount",
-               "CMSS": "students paid (scholarship applications that were paid)",
-               "Homestay": "applications (a row is one application; no money is recorded)"}
-_MONEY_NOTE = {"MGNREGA": "money spent", "PMAY-G": "money released", "Focus Plus": "money disbursed",
-               "Focus Legacy": "money disbursed", "CM Elevate": "no money recorded",
-               "CM Elevate Legacy": "subsidy and loan disbursed",
-               "CMSS": "money disbursed",
-               "Homestay": "no money recorded"}
+_COUNT_NOTE = cross_registry.count_note()
+_MONEY_NOTE = cross_registry.money_note()
 
 
 def measure_notes(schemes: list) -> dict:
@@ -1469,12 +1478,52 @@ def _district_tables(p: Plan, figs: dict, have: list, keys: list, totals: "dict 
     return out
 
 
+def _headline_count(s: str, f: dict, p: Plan) -> str:
+    """The scheme's count beside its lead figure, when that is another figure (MGNREGA households beside its
+    person-days); '' when the lead figure IS the count (PMAY-G houses sanctioned)."""
+    if "ben" not in f:
+        return ""
+    e = cross_registry.BY_NAME[s]
+    tail = ", counted once per year worked" if e.summed_over_years and p.year is None else ""
+    return f" ({indian(f['ben'])} {e.noun}{tail})"
+
+
+def _headline_lines(p: Plan, figs: dict, have: list) -> list:
+    """Each scheme's own lead figure (data/cross_scheme.yaml `headline`: the figure its overview card shows first,
+    by the same SQL), in its own unit, with its count when that is another figure. They count different things,
+    so they are never added."""
+    out = ["Each scheme's headline figure (the figure its overview card leads with):"]
+    for s in have:
+        h = cross_registry.BY_NAME[s].headline
+        for k, f in figs[s].items():
+            where = "" if k == STATE else f", {k}"
+            out.append(f"- **{SHORT[s]}**{where}: {indian(f.get('headline', 0))} {h.noun}{_headline_count(s, f, p)}")
+    if len(have) >= 2:
+        out.append("Each scheme counts its own thing, so these figures are not added.")
+    return out
+
+
+def _headline_rows(p: Plan, figs: dict, have: list) -> list[dict]:
+    """One row per scheme: its lead figure (`measure`, `value`) and, in the shared `beneficiaries` column, its count."""
+    rows = []
+    for s in have:
+        h = cross_registry.BY_NAME[s].headline
+        for k, f in figs[s].items():
+            r = {} if k == STATE else {"village": k}
+            lead = int(round(f.get("headline", 0.0)))
+            rows.append({**r, "scheme": s, "measure": h.label, "value": lead,
+                         "beneficiaries": int(round(f["ben"])) if "ben" in f else lead})
+    return rows
+
+
 def _rows(p: Plan, figs: dict, have: list) -> list[dict]:
     """The result table: one row per scheme (and district), the asked measures only.
     Every scheme's count is in the one `beneficiaries` column (what each counts is
     in the answer text), so a chart or the two-way card compares the asked measure
     for every scheme — never money in its place, never a missing column read as 0
     (user reports 2026-10-22, 2026-10-27)."""
+    if p.op == "headline":
+        return _headline_rows(p, figs, have)
     rows = []
     if p.op == "by_year":
         # one row shape for every scheme: scheme, financial_year ("2023-24"), the measures

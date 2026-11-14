@@ -926,9 +926,12 @@ _SCHEME_COMPARISON_METRIC_GUARD = Matcher(Alt(
 ))
 # "Compare all six schemes" names every scheme; asking "which schemes?" back is a
 # needless pause (cross-scheme run 2026-10-13).
+# 2026-11-14 (no-model bank W4-XS-06): any count of schemes — "Compare all eight schemes" (eight are onboarded)
+# matched nothing here and drew the pick-a-pair pause.
+_C04_SCHEME_COUNT = W("six", "6", "seven", "7", "eight", "8", "nine", "9", "ten", "10")
 _ALL_SCHEMES_NAMED = Matcher(Alt(
-    Seq("all", Opt("the"), Opt(W("six", "6")), "schemes"), Seq(W("every", "each"), "scheme"),
-    Seq(W("six", "6"), "schemes"),
+    Seq("all", Opt("the"), Opt(_C04_SCHEME_COUNT), "schemes"), Seq(W("every", "each"), "scheme"),
+    Seq(_C04_SCHEME_COUNT, "schemes"),
 ))
 
 
@@ -1065,6 +1068,13 @@ def _scheme_comparison_answer(question: str, prev_schemes: "list[str] | None" = 
         # comparison in cmelevate_few_shot.yaml). Let normal DATA routing handle it.
         return None
     if len(named) < 2 and _ALL_SCHEMES_NAMED.search(question or ""):
+        # "Compare all eight schemes" / "compare every scheme" asks for their FIGURES side by side: the
+        # cross-scheme answer over every scheme (cross_scheme.detect claims it; DATA by the intent cues),
+        # not a pause and not the scheme blurbs. A wording detect leaves alone ("difference between all the
+        # schemes", "… eligibility") keeps the side-by-side description below (2026-11-14, W4-XS-06).
+        from app import cross_scheme
+        if cross_scheme.detect(question or "", list(named)) is not None:
+            return None
         named = list(SCHEME_CATALOG)
     if len(named) < 2:
         raise _scheme_comparison_clarification(question)

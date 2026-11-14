@@ -59,7 +59,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from app import context_budget, scheme_registry, topic_memory
+from app import context_budget, cross_registry, scheme_registry, topic_memory
 from app.config import settings
 from app.context_policy import (_CpEnd, _CpNextChar, _CpSep, _CpStart, _cp_end_punct, _cp_ends, _cp_glued,
                                 _cp_has, _cp_starts, _cp_ws)
@@ -433,12 +433,13 @@ _YEAR_METRICS = [
     ("villages", Matcher(W("village", "villages")), "villages", ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CMSS", "Homestay")),
     ("beneficiaries", Matcher(_cp_has("beneficiar")), "count", None),
 ]
-# what each scheme's money is (the money measure is asked in the scheme's own kind)
-_MONEY_LABEL = {"MGNREGA": "expenditure", "PMAY-G": "amount released", "Focus Plus": "amount disbursed",
-                "Focus Legacy": "amount disbursed", "CM Elevate Legacy": "amount disbursed",
-                "CM Elevate": "amount disbursed",
-                "CMSS": "amount disbursed",
-                "Homestay": "amount disbursed"}
+# what each scheme's money is (the money measure is asked in the scheme's own kind): each scheme's `money.label`
+# in data/cross_scheme.yaml (2026-11-14; a scheme with no money has none and is said so before this is read)
+_MONEY_LABEL = cross_registry.money_label()
+
+
+def _money_label(scheme: str, default: str) -> str:
+    return _MONEY_LABEL.get(scheme, default)
 
 
 def _year_measures(*texts) -> list:
@@ -618,7 +619,7 @@ def per_year_parts(session, question: str) -> "dict | None":
                 notes.append(f"{s} records no money")
                 continue
             if kind == "money":
-                questions.append(f"What was the total {s} {_MONEY_LABEL.get(s, label)} in each financial year{yp}?")
+                questions.append(f"What was the total {s} {_money_label(s, label)} in each financial year{yp}?")
             elif kind == "villages":
                 questions.append(f"How many villages did {s} cover in each financial year{yp}?")
             else:
@@ -720,7 +721,8 @@ def _cl_money_crore(col: str, scheme: str, v) -> float:
         return n / 100
     if any(x in ("rupees", "rs", "inr") for x in parts):
         return n / 1e7
-    return n / 100 if scheme == "MGNREGA" else n / 1e7
+    facts = scheme_registry.DATASETS.get(scheme)     # the unit is the dataset's own fact (MGNREGA: lakh)
+    return n / 100 if facts is not None and facts.money_unit == "lakh" else n / 1e7
 
 
 def _year_row(row: dict, scheme: str, label: str, kind: str) -> "dict | None":
