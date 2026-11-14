@@ -1417,6 +1417,156 @@ add(C("W3-CH-08", "chain", "measure-keeps-district-breakdown", W3,
       T("and the amount?",
         rows=R(f"SELECT lgd_district, SUM(amount_disbursed) FROM {FPV} WHERE lgd_district IS NOT NULL GROUP BY 1 "
                f"ORDER BY 2 DESC", "rupees", take=3), schemes=[FP])))
+# ════ 14. Wave 4 (2026-11-14): the regroup matrix and the all-scheme matrix ════
+# The report after the merge with the team's Main: "break that down by district / block / financial year / as per
+# scheme" after a data answer was not answered, and all-scheme questions were not answered over all eight schemes.
+# This wave is GENERATED: every measure below x every grouping it holds x four previous-answer shapes (a total, an
+# answer already grouped, an answer inside a district, an answer inside a year), each follow-up in the plain words an
+# officer uses. The truth is written here from the views (never from the pipeline's catalogue), so it is independent.
+W4 = "wave 4 (regroup + all-scheme matrix, 2026-11-14)"
+CMV, HSV = "curated.v_cmss", "curated.v_homestay_api"
+CS, HS = "CMSS", "Homestay"
+
+# (id, scheme, opening question, view, aggregate, unit, fixed condition, groupings held, a year it holds, a district)
+_W4_MEASURES = [
+    ("MGPD", MG, "How many MGNREGA person-days were generated", EMP, "SUM(person_days)", "count", "",
+     ("district", "block", "year"), 2023, "WEST GARO HILLS"),
+    ("MGHH", MG, "How many households were employed under MGNREGA", EMP, "SUM(households_employed)", "count", "",
+     ("district", "block", "year"), 2024, "EAST KHASI HILLS"),
+    ("MGEX", MG, "What is the total MGNREGA expenditure", EXP, "ROUND(SUM(total_exp), 2)", "lakh", "",
+     ("district", "block", "year"), 2023, "RI BHOI"),
+    ("PMSA", PM, "How many PMAY-G houses were sanctioned", PMV, "COUNT(*)", "count", "",
+     ("district", "block", "year"), 2022, "WEST GARO HILLS"),
+    ("PMCO", PM, "How many PMAY-G houses were completed", PMV, "COUNT(*)", "count", "is_completed",
+     ("district", "block", "year"), 2020, "EAST GARO HILLS"),
+    ("FPBE", FP, "How many Focus Plus beneficiaries are there", FPV, "COUNT(DISTINCT beneficiary_key)", "count", "",
+     ("district", "year"), 2025, "WEST GARO HILLS"),                     # Focus Plus holds no block level
+    ("FPAM", FP, "What is the total Focus Plus amount disbursed", FPV, "SUM(amount_disbursed)", "rupees", "",
+     ("district", "year"), 2022, "SOUTH WEST GARO HILLS"),
+    ("FLAM", FL, "What is the total Focus Legacy amount disbursed", FLV, "SUM(amount_disbursed)", "rupees", "",
+     ("district", "block", "year"), 2024, "WEST GARO HILLS"),
+    ("FLPG", FL, "How many producer groups were paid under Focus Legacy", FLV, "COUNT(DISTINCT pg_id)", "count", "",
+     ("district", "block", "year"), 2022, "EAST KHASI HILLS"),
+    ("CLDI", CL, "What is the total CM Elevate Legacy amount disbursed", CLV, "SUM(total_disbursement)", "rupees", "",
+     ("district", "block", "year", "scheme"), 2024, "WEST GARO HILLS"),
+    ("CSPA", CS, "How many students were paid under CMSS", CMV, "COUNT(*)", "count", "is_disbursed",
+     ("district", "block"), None, "EAST KHASI HILLS"),
+    ("HSAP", HS, "How many Homestay applications are there", HSV, "COUNT(*)", "count", "",
+     ("district", "block"), None, "EAST KHASI HILLS"),
+]
+_W4_COL = {"district": "lgd_district", "block": "lgd_block", "year": "financial_year_short", "scheme": "scheme_name"}
+_W4_SAY = {"district": "break that down by district", "block": "now break it down by block",
+           "year": "break it down by financial year", "scheme": "break down as per scheme"}
+
+
+def _w4_total(view, agg, *conds):
+    return f"SELECT {agg} FROM {view}{w(*conds)}"
+
+
+def _w4_rows(view, agg, unit, dim, *conds):
+    """The truth of a grouping: every district / year / sub-scheme, the top five blocks."""
+    col = _W4_COL[dim]
+    order = "ORDER BY 1" if dim == "year" else "ORDER BY 2 DESC"
+    sql = f"SELECT {col}, {agg} FROM {view}{w(f'{col} IS NOT NULL', *conds)} GROUP BY 1 {order}"
+    return R(sql, unit, take=5 if dim == "block" else "all")
+
+
+for _id, _s, _q, _v, _agg, _u, _fix, _dims, _yr, _d in _W4_MEASURES:
+    # A. a statewide total, then every grouping it holds, one after another (each replaces the one before)
+    add(C(f"W4-RG-{_id}-A", "regroup", "total-then-each-grouping", W4,
+          T(f"{_q}?", F(_w4_total(_v, _agg, _fix), _u)),
+          *[T(_W4_SAY[g], rows=_w4_rows(_v, _agg, _u, g, _fix), schemes=[_s], route="data") for g in _dims]))
+    # B. an answer that is already grouped: the old grouping goes, the new one comes
+    if "year" in _dims:
+        add(C(f"W4-RG-{_id}-B", "regroup", "grouped-by-year-then-district", W4,
+              T(f"{_q} by financial year?", rows=_w4_rows(_v, _agg, _u, "year", _fix)),
+              T("break it down by district", rows=_w4_rows(_v, _agg, _u, "district", _fix), schemes=[_s], route="data")))
+    # C. inside a district: the district stays, the blocks (and the years) are its own
+    if "block" in _dims:
+        _turns = [T(f"{_q} in {title(_d)}?", F(_w4_total(_v, _agg, _fix, dist(_d)), _u), place=_d),
+                  T("break that down by block", rows=_w4_rows(_v, _agg, _u, "block", _fix, dist(_d)), schemes=[_s],
+                    place=_d, route="data")]
+        if "year" in _dims:
+            _turns.append(T("break it down by financial year", rows=_w4_rows(_v, _agg, _u, "year", _fix, dist(_d)),
+                            schemes=[_s], place=_d, route="data"))
+        add(C(f"W4-RG-{_id}-C", "regroup", "in-district-then-block-then-year", W4, *_turns))
+    # D. inside a year: the year stays
+    if _yr is not None:
+        add(C(f"W4-RG-{_id}-D", "regroup", "in-year-then-district", W4,
+              T(f"{_q} in {fy(_yr)}?", F(_w4_total(_v, _agg, _fix, yr(_yr)), _u), year=_yr),
+              T("district wise", rows=_w4_rows(_v, _agg, _u, "district", _fix, yr(_yr)), schemes=[_s], year=_yr,
+                route="data")))
+
+# CM Elevate: valid applications by default (D-B1-CME-01), its own groupings
+add(C("W4-RG-CEAP-A", "regroup", "total-then-each-grouping", W4,
+      T("How many CM Elevate applications are there?", ce_apps()),
+      T("break that down by district", rows=ce_rows("lgd_district", "lgd_district IS NOT NULL"), schemes=[CE], route="data"),
+      T("break down as per scheme", rows=ce_rows("scheme_name", "scheme_name IS NOT NULL"), schemes=[CE], route="data")))
+add(C("W4-RG-CEAP-C", "regroup", "in-district-then-scheme", W4,
+      T("How many CM Elevate applications are there in Ri Bhoi?", ce_apps(dist("RI BHOI")), place="RI BHOI"),
+      T("scheme wise", rows=ce_rows("scheme_name", "scheme_name IS NOT NULL AND lgd_district = 'RI BHOI'"), schemes=[CE],
+        place="RI BHOI", route="data")))
+
+# a chart asked with the regroup comes along
+add(C("W4-RG-CHART-1", "regroup", "regroup-with-chart", W4,
+      T("How many PMAY-G houses were sanctioned?", F(pm_count())),
+      T("break that down by district as a bar chart", rows=_w4_rows(PMV, "COUNT(*)", "count", "district"),
+        schemes=[PM], chart="bar", route="data"),
+      T("break it down by financial year as a line chart", rows=_w4_rows(PMV, "COUNT(*)", "count", "year"),
+        schemes=[PM], chart="line", route="data")))
+# the wordy spoken forms the voice hears (the shaper reduces them; typed, the rule reads them as they are)
+add(C("W4-RG-WORDY-1", "regroup", "spoken-wording", W4,
+      T("How many MGNREGA person-days were generated?", F(emp("person_days"))),
+      T("can you break that down by district please", rows=_w4_rows(EMP, "SUM(person_days)", "count", "district"),
+        schemes=[MG], route="data"),
+      T("yearwise", rows=_w4_rows(EMP, "SUM(person_days)", "count", "year"), schemes=[MG], route="data")))
+
+# ── the all-scheme matrix: one figure per scheme, every scheme that holds it, never a guess ──
+_W4_COUNT = [F(emp("households_employed"), label="MGNREGA households"), F(pm_count(), label="PMAY-G houses"),
+             F(fp_ben(), label="Focus Plus beneficiaries"),
+             F(f"SELECT SUM(no_of_pg_members) FROM {FLV}", label="Focus Legacy members"),
+             F(f"SELECT COUNT(*) FROM {CMV} WHERE is_disbursed", label="CMSS students paid"),
+             F(f"SELECT COUNT(*) FROM {HSV}", label="Homestay applications")]
+_W4_MONEY = [F(exp_("total_exp"), "lakh", label="MGNREGA expenditure"),
+             F(f"SELECT SUM(amount_released) FROM {PMV}", "rupees", label="PMAY-G released"),
+             F(fp_amt(), "rupees", label="Focus Plus"), F(fl_amt(), "rupees", label="Focus Legacy"),
+             F(cl("total_disbursement"), "rupees", label="CM Elevate Legacy"),
+             F(f"SELECT SUM(amount_disbursed) FROM {CMV}", "rupees", label="CMSS")]
+for _n, (_q, _figs, _extra) in enumerate([
+        ("Give me the headline figure of every scheme", _W4_COUNT, {}),
+        ("Compare beneficiaries across all schemes", _W4_COUNT, {}),
+        ("Give me each scheme's figures", _W4_COUNT, {}),
+        ("How much money has each scheme disbursed?", _W4_MONEY, {"any_of": [["no money"]]}),
+        ("Which scheme has disbursed the most money?", _W4_MONEY[:1], {"any_of": [["MGNREGA"]]}),
+        ("Compare all eight schemes", _W4_COUNT, {}),
+], 1):
+    add(C(f"W4-XS-{_n:02d}", "cross", "all-schemes", W4, T(_q, *_figs, schemes=None, **_extra)))
+# the same words twice in fresh chats must give the same figures (the totals-once, by-year-next report)
+for _n in (1, 2):
+    add(C(f"W4-XS-SAME-{_n}", "cross", "same-words-same-answer", W4,
+          T("Give me the headline figure of every scheme", *_W4_COUNT, schemes=None)))
+# all schemes inside one district
+add(C("W4-XS-RB", "cross", "all-schemes-in-district", W4,
+      T("In Ri Bhoi, give me each scheme's figures",
+        F(emp("households_employed", dist("RI BHOI"))), F(pm_count(dist("RI BHOI"))), F(fp_ben(dist("RI BHOI"))),
+        F(f"SELECT COUNT(*) FROM {CMV} WHERE is_disbursed AND lgd_district = 'RI BHOI'"),
+        F(f"SELECT COUNT(*) FROM {HSV} WHERE lgd_district = 'RI BHOI'"), schemes=None, place="RI BHOI")))
+# each year, every scheme that holds years; the ones that hold none are said so, never shown as 0
+add(C("W4-XS-YEAR", "cross", "all-schemes-by-year", W4,
+      T("Each year, for all schemes, what was disbursed?",
+        F(exp_("total_exp", yr(2023)), "lakh", label="MGNREGA 2023-24"),
+        F(f"SELECT SUM(amount_released) FROM {PMV} WHERE year_key = 2023", "rupees", label="PMAY-G 2023-24"),
+        F(fl_amt(yr(2024)), "rupees", label="Focus Legacy 2024-25"),
+        F(f"SELECT SUM(amount_disbursed) FROM {CMV} WHERE year_key = 2025", "rupees", label="CMSS 2025-26"),
+        schemes=None, any_of=[["no money"]])))
+# a regroup of an all-scheme answer
+add(C("W4-XS-RG", "cross", "all-schemes-then-district", W4,
+      T("Compare beneficiaries across all schemes", *_W4_COUNT, schemes=None),
+      T("break that down by district",
+        F(emp("households_employed", dist("WEST GARO HILLS")), label="MGNREGA WGH"),
+        F(pm_count(dist("WEST GARO HILLS")), label="PMAY-G WGH"), schemes=None, route="data")))
+
+
 def _strs(obj):
     if isinstance(obj, dict):
         return {k: _strs(v) for k, v in obj.items()}
