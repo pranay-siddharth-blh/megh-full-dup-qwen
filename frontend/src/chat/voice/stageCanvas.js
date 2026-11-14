@@ -154,6 +154,20 @@ export function fitSize(ctx, text, maxW, size, weight = 800, minSize = 9) {
 const now_ = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
 // ------------------------------------------------------------------ canvas helpers
+/** A hairline: exactly one device pixel (or the nearest whole number of them) at this pixel ratio, in CSS pixels.
+    A 1 px line at 1.25x / 1.5x covered a pixel and a quarter / a half and was drawn soft (2026-11-14). */
+export function hair(dpr = 1, px = 1) {
+  const d = Math.max(1, Number(dpr) || 1);
+  return Math.max(1, Math.round(px * d)) / d;
+}
+/** The coordinate a line of width `lw` (CSS px) is drawn at so its edges fall on device pixels: an odd number of device
+    pixels is centred on a half pixel, an even number on a whole one. */
+export function crisp(v, dpr = 1, lw = hair(dpr)) {
+  const d = Math.max(1, Number(dpr) || 1);
+  const w = Math.max(1, Math.round(lw * d));
+  const off = (w % 2) / 2;
+  return (Math.round(v * d - off) + off) / d;
+}
 function label(ctx, text, x, y, { size = 12, weight = 600, color = T.mute, align = 'center', base = 'middle' } = {}) {
   ctx.font = font(size, weight); ctx.fillStyle = color; ctx.textAlign = align; ctx.textBaseline = base; ctx.fillText(text, x, y);
 }
@@ -281,7 +295,7 @@ function Bars(card) {
       floorGrid(ctx, W, H, cam, base);
       ticks.forEach((t, g) => {
         const y = base - plotH * g / ax.ticks;
-        ctx.strokeStyle = g ? T.grid : T.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(padL, y + .5); ctx.lineTo(W - padR, y + .5); ctx.stroke();
+        const yc = crisp(y, card.dpr); ctx.strokeStyle = g ? T.grid : T.line; ctx.lineWidth = hair(card.dpr); ctx.beginPath(); ctx.moveTo(padL, yc); ctx.lineTo(W - padR, yc); ctx.stroke();
         label(ctx, t, padL - 9, y, { size: 10, color: T.mute, align: 'right' });
       });
       if (card.unitWord) label(ctx, fitText(ctx, card.unitWord, W - 20, 10, 700), padL - 9, 12, { size: 10, weight: 700, color: T.mute, align: 'left' });
@@ -413,7 +427,8 @@ function Line(card) {
       const Y = (v) => H - padB - (H - padT - padB) * ((v - min) / Math.max(1e-9, max - min));
       floorGrid(ctx, W, H, cam, H - padB);
       ticks.forEach((t, g) => {
-        const y = Y(min + ax.step * g); ctx.strokeStyle = g ? T.grid : T.line; ctx.beginPath(); ctx.moveTo(padL, y + .5); ctx.lineTo(W - padR, y + .5); ctx.stroke();
+        const y = Y(min + ax.step * g); const yc = crisp(y, card.dpr); ctx.strokeStyle = g ? T.grid : T.line; ctx.lineWidth = hair(card.dpr);
+        ctx.beginPath(); ctx.moveTo(padL, yc); ctx.lineTo(W - padR, yc); ctx.stroke();
         label(ctx, t, padL - 9, y, { size: 10, color: T.mute, align: 'right' });
       });
       const lx0 = Math.min(padL - 9, 12);
@@ -797,7 +812,7 @@ function Table(card) {
           label(ctx, t, xs[j] - 8 + shift * .4, cy, { size: fitSize(ctx, t, w - 10, fs, 800, 8), weight: 800, color: dash ? T.mute : (j === 0 ? T.ink : T.ink2), align: 'right' });
         });
         ctx.restore();
-        ctx.fillStyle = T.grid; ctx.fillRect(8, y + rowH - .5, W - 16, 1);
+        ctx.fillStyle = T.grid; ctx.fillRect(8, crisp(y + rowH - .5, card.dpr) - hair(card.dpr) / 2, W - 16, hair(card.dpr));
       });
     },
     tip(ctx) { return card.itemTip(ctx); },

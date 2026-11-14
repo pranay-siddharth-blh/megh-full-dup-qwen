@@ -3,7 +3,7 @@
 // Run: node --test src/chat/voice/stageCanvas.test.js   (the repo has no vitest; node:test is its runner)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GROW, TILE_MAX, createStageCard, fitSize, fitText, grow, nice, niceAxis, rampColor, splitUnit, staggerFor, tileGrid, wrapText } from '../src/chat/voice/stageCanvas.js';
+import { GROW, TILE_MAX, createStageCard, crisp, fitSize, hair, fitText, grow, nice, niceAxis, rampColor, splitUnit, staggerFor, tileGrid, wrapText } from '../src/chat/voice/stageCanvas.js';
 
 // a 2D context that accepts every call; text is 6 px per character at 12 px
 function stubCtx() {
@@ -143,4 +143,24 @@ test('a figure tile shows its own unit (the planner item format), the card forma
     { key: 'b', label: 'Homestay', value: 1297, sub: 'applications' }] });
   assert.deepEqual(h.state().items.map((i) => i.shown), ['₹3628.67 crore', '1297']);
   h.destroy();
+});
+
+test('hairlines are one device pixel at any pixel ratio, and land on device pixels (2026-11-14)', () => {
+  assert.equal(hair(1), 1);
+  assert.equal(hair(2), 1);              // two device pixels at 2x: a 1 CSS px line is already whole
+  assert.equal(hair(1.25), 0.8);         // one device pixel
+  assert.equal(hair(1.5), 2 / 1.5);      // 1.5 rounds to 2 device pixels
+  assert.equal(hair(0), 1);              // a missing ratio counts as 1
+  const onDevice = (v, d, lw) => {      // the line's two edges, in device pixels, are whole numbers
+    const c = crisp(v, d, lw) * d; const w = Math.round(lw * d);
+    return Math.abs((c - w / 2) - Math.round(c - w / 2)) < 1e-9 && Math.abs((c + w / 2) - Math.round(c + w / 2)) < 1e-9;
+  };
+  for (const d of [1, 1.25, 1.5, 2, 3]) {
+    for (const v of [0, 10, 37.3, 120.5, 199.99]) {
+      assert.ok(onDevice(v, d, hair(d)), `edge off the pixel grid at ${d}x, y=${v}`);
+      assert.ok(Math.abs(crisp(v, d) - v) <= 1 / d, 'moved by at most one device pixel');
+    }
+  }
+  assert.equal(crisp(10, 1), 10.5);      // a 1 px line at 1x sits on the half pixel
+  assert.equal(crisp(10, 2), 10);        // a 2 device px line at 2x sits on the whole pixel
 });

@@ -5,6 +5,7 @@
 import { memo, useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { createStageCard } from './stageCanvas.js';
 import { heardItem, norm } from './vizPlan.js';
+import { leanVars } from './stageMotion.js';
 
 // the reveal's clock (2026-11-10, tightened so the picture never trails the voice): the rest glide in this soon after
 // the voice has named the last item it was going to name; a voice that never starts / names nothing on the cards
@@ -38,20 +39,33 @@ export const StageCard = memo(function StageCard({ spec, index, registry, onHove
       try { if (h) h.destroy(); } catch (e) { /* gone */ }
     };
   }, [spec, kind, registry, onHover, still]);
-  // the card leans under the pointer and a glint follows it (Mitra: hover tilt + .glint at --mx / --my)
-  const lean = (e) => {
-    const el = e.currentTarget; const r = el.getBoundingClientRect();
-    el.style.setProperty('--mx', (((e.clientX - r.left) / r.width) * 100).toFixed(1) + '%');
-    el.style.setProperty('--my', (((e.clientY - r.top) / r.height) * 100).toFixed(1) + '%');
-    el.style.setProperty('--rx', (((e.clientY - r.top) / r.height - 0.5) * -6).toFixed(2) + 'deg');
-    el.style.setProperty('--ry', (((e.clientX - r.left) / r.width - 0.5) * 7).toFixed(2) + 'deg');
+  // the card leans under the pointer and a glint follows it (Mitra: hover tilt + .glint at --mx / --my).
+  // 2026-11-14: the card's rect is read once as the pointer comes in (reading it on every move forced a layout after
+  // each write, and the rect of a leaning card moves under the pointer), and the writes are one per frame
+  const leanRef = useRef({ rect: null, x: 0, y: 0, raf: 0, el: null });
+  const flushLean = () => {
+    const L = leanRef.current; L.raf = 0;
+    if (!L.el || !L.rect) return;
+    const v = leanVars(L.x, L.y, L.rect);
+    L.el.style.setProperty('--mx', v.mx); L.el.style.setProperty('--my', v.my);
+    L.el.style.setProperty('--rx', v.rx); L.el.style.setProperty('--ry', v.ry);
   };
-  const rest = (e) => { e.currentTarget.style.setProperty('--rx', '0deg'); e.currentTarget.style.setProperty('--ry', '0deg'); };
+  const lean = (e) => {
+    const L = leanRef.current;
+    if (L.el !== e.currentTarget || !L.rect) { L.el = e.currentTarget; L.rect = e.currentTarget.getBoundingClientRect(); }
+    L.x = e.clientX; L.y = e.clientY;
+    if (!L.raf) L.raf = requestAnimationFrame(flushLean);
+  };
+  const rest = (e) => {
+    const L = leanRef.current; cancelAnimationFrame(L.raf); L.raf = 0; L.rect = null;
+    e.currentTarget.style.setProperty('--rx', '0deg'); e.currentTarget.style.setProperty('--ry', '0deg');
+  };
+  useEffect(() => () => cancelAnimationFrame(leanRef.current.raf), []);
   const ownKinds = !controlled && spec.allowed && spec.allowed.length > 1;
   return (
     <section className={`vc vcard k-${kind} vc-${kind}${spec.wide || kind === 'map' ? ' wide' : ''}${className ? ' ' + className : ''}`}
              style={{ '--i': index }}
-             onPointerMove={lean} onPointerLeave={rest} data-kind={kind} data-card={spec.id}>
+             onPointerEnter={() => { leanRef.current.rect = null; }} onPointerMove={lean} onPointerLeave={rest} data-kind={kind} data-card={spec.id}>
       <header className="vh vc-h">
         <h3 title={spec.title}>{spec.title}{spec.explain && <em className="vc-tag">explains the figure</em>}</h3>
         {spec.unitLabel && <span className="vc-unit">{spec.unitLabel}</span>}

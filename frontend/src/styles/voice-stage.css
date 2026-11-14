@@ -13,6 +13,10 @@
   --m-saf: #ea6a22; --m-bad: #e03b4c; --m-bad2: #ff5c6a;
   --m-said: #6a6480;   /* words the voice has already said: settled, still 5:1 on the canvas */
   --m-ease: cubic-bezier(.16, 1, .3, 1);
+  /* motion tokens (2026-11-14): one family of curves and durations for every control of the view.
+     out = things arriving / settling; in = things leaving; the durations are the three speeds used everywhere */
+  --m-ease-out: cubic-bezier(.2, .8, .2, 1); --m-ease-in: cubic-bezier(.4, 0, 1, 1); --m-ease-io: cubic-bezier(.4, 0, .6, 1);
+  --m-dur-1: .18s; --m-dur-2: .32s; --m-dur-3: .6s;
   --lvl: 0;
   position: fixed; inset: 0; z-index: 400; overflow: hidden; color: var(--m-tx); background: #f8f6fb;
   font-family: 'Inter', 'Noto Sans', -apple-system, 'Segoe UI', sans-serif; letter-spacing: -.011em;
@@ -45,12 +49,17 @@ body.vstage-in .app { transform: scale(.94) translateY(24px); opacity: .25; }
   mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 75%); transform-origin: 50% 100%;
   transition: transform 1.4s cubic-bezier(.2, .8, .2, 1), opacity 1s; }
 .vstage.parked .vs-gridbg { transform: perspective(900px) rotateX(55deg) scale(1.6); opacity: .8; }
-.vs-bg::after { content: ""; position: absolute; inset: 0; opacity: .5; transition: background 1.2s ease;
-  background: radial-gradient(60vw 50vh at 50% 42%, rgba(124, 63, 191, calc(.10 + var(--lvl) * .35)), transparent 70%); }
-.vstage[data-state="listening"] .vs-bg::after { background: radial-gradient(60vw 50vh at 50% 42%, rgba(178, 127, 224, calc(.12 + var(--lvl) * .4)), transparent 70%); }
-.vstage[data-state="thinking"] .vs-bg::after { background: radial-gradient(60vw 50vh at 50% 42%, rgba(255, 154, 60, .16), transparent 70%); }
-.vstage[data-state="speaking"] .vs-bg::after { background: radial-gradient(60vw 50vh at 50% 42%, rgba(124, 63, 191, calc(.14 + var(--lvl) * .45)), transparent 70%); }
-.vstage[data-state="muted"] .vs-bg::after { background: radial-gradient(60vw 50vh at 50% 42%, rgba(120, 124, 136, .07), transparent 70%); }
+/* the state glow. 2026-11-14: the voice's level drives the layer's OPACITY (composited) instead of the gradient's alpha
+   (a full-screen gradient repainted on every level step while the voice spoke). The same picture: a gradient from
+   colour c at alpha a to transparent equals the gradient from c at alpha 1 shown at opacity a (times the .5 it had). */
+.vs-bg::after { content: ""; position: absolute; inset: 0; will-change: opacity; transition: opacity .12s linear;
+  background: radial-gradient(60vw 50vh at 50% 42%, rgb(124, 63, 191), transparent 70%); opacity: calc((.10 + var(--lvl) * .35) * .5); }
+.vstage[data-state="listening"] .vs-bg::after { background: radial-gradient(60vw 50vh at 50% 42%, rgb(178, 127, 224), transparent 70%);
+  opacity: calc((.12 + var(--lvl) * .4) * .5); }
+.vstage[data-state="thinking"] .vs-bg::after { background: radial-gradient(60vw 50vh at 50% 42%, rgb(255, 154, 60), transparent 70%); opacity: .08; }
+.vstage[data-state="speaking"] .vs-bg::after { background: radial-gradient(60vw 50vh at 50% 42%, rgb(124, 63, 191), transparent 70%);
+  opacity: calc((.14 + var(--lvl) * .45) * .5); }
+.vstage[data-state="muted"] .vs-bg::after { background: radial-gradient(60vw 50vh at 50% 42%, rgb(120, 124, 136), transparent 70%); opacity: .035; }
 
 /* ---------------- header (.top) 68 px ---------------- */
 .vs-top { position: absolute; left: 0; right: 0; top: 0; height: 68px; z-index: 3; display: flex; align-items: center; gap: 18px;
@@ -71,7 +80,8 @@ body.vstage-in .app { transform: scale(.94) translateY(24px); opacity: .25; }
 .vs-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--m-saf); box-shadow: 0 0 10px rgba(234, 106, 34, .6); }
 .vs-status.ok .dot { background: var(--m-em1); box-shadow: 0 0 10px rgba(149, 88, 207, .7); }
 .vs-back { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; border: 1px solid rgba(12, 16, 28, .08);
-  background: rgba(255, 255, 255, .8); color: var(--m-mute); font-size: 12px; font-weight: 600; transition: all .2s; }
+  background: rgba(255, 255, 255, .8); color: var(--m-mute); font-size: 12px; font-weight: 600;
+  transition: background var(--m-dur-1), color var(--m-dur-1), box-shadow var(--m-dur-1); }
 .vs-back:hover { background: #fff; color: var(--m-tx); box-shadow: 0 6px 18px rgba(30, 45, 80, .08); }
 .vs-back kbd { font-family: inherit; font-size: 10px; font-weight: 700; color: var(--m-mute2); border: 1px solid var(--m-line); border-radius: 5px; padding: 0 5px; }
 
@@ -145,7 +155,9 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
   transition: opacity .4s; pointer-events: none; z-index: 3; }
 .vstage.live .vs-dmeter { opacity: 1; }
 .vs-dmeter.you { left: 3%; } .vs-dmeter.me { right: 3%; }
-.vs-dmeter i { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--l, 0) * 100%); border-radius: 6px; transition: height .06s linear; }
+/* the level is a scale, not a height (2026-11-14: a height animated per frame was a layout per frame while live) */
+.vs-dmeter i { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; border-radius: 6px; transform-origin: 50% 100%;
+  transform: scaleY(var(--l, 0)); will-change: transform; transition: transform .06s linear; }
 .vs-dmeter.you i { background: linear-gradient(0deg, #d55181, #B27FE0); box-shadow: 0 0 14px rgba(178, 127, 224, .8); }
 .vs-dmeter.me i { background: linear-gradient(0deg, #7C3FBF, #9558CF); box-shadow: 0 0 14px rgba(149, 88, 207, .8); }
 .vs-dmeter span { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: 700;
@@ -168,7 +180,8 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
   overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
   -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 10px), transparent);
   mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 10px), transparent);
-  transition: all .6s cubic-bezier(.2, .8, .2, 1); }
+  /* only what the compositor can move (it was `all`: max-height, padding and width were laid out per frame as it parked) */
+  transition: opacity var(--m-dur-3) var(--m-ease-out), transform var(--m-dur-3) var(--m-ease-out); }
 .vs-captions::-webkit-scrollbar { display: none; }
 .vs-you { font-size: 14px; color: var(--m-mute); transition: opacity .3s; }
 .vs-you::before { content: "you · "; color: var(--m-mute2); }
@@ -205,8 +218,9 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
 /* trace chips: Listen · Hear · Understand · Ask Megh One AI · Speak */
 .vs-trace { flex: none; display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-top: 10px; transition: opacity .3s; }
 .vs-trace span { display: flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--m-line);
-  background: rgba(255, 255, 255, .75); font-size: 11px; color: var(--m-mute2); transition: all .35s; }
-.vs-trace span i { width: 6px; height: 6px; border-radius: 50%; background: var(--m-mute2); transition: all .35s; }
+  background: rgba(255, 255, 255, .75); font-size: 11px; color: var(--m-mute2);
+  transition: color var(--m-dur-2), border-color var(--m-dur-2), background var(--m-dur-2); }
+.vs-trace span i { width: 6px; height: 6px; border-radius: 50%; background: var(--m-mute2); transition: background var(--m-dur-2), box-shadow var(--m-dur-2); }
 .vs-trace span.run { color: var(--m-tx); border-color: rgba(255, 154, 60, .5); background: rgba(234, 106, 34, .1); }
 .vs-trace span.run i { background: var(--m-saf); box-shadow: 0 0 10px var(--m-saf); animation: vsBlink .8s infinite; }
 .vs-trace span.done { color: var(--m-tx); border-color: rgba(124, 63, 191, .4); background: rgba(124, 63, 191, .08); }
@@ -227,10 +241,12 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
 .vs-mute.on::after { transform: translate(-50%, -50%) rotate(-45deg) scaleX(1); }
 .vs-mute::before { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%) translateY(4px);
   white-space: nowrap; font-size: 11px; font-weight: 600; color: var(--m-tx); padding: 6px 10px; border-radius: 10px; background: #fff;
-  border: 1px solid var(--m-line); box-shadow: 0 8px 24px rgba(30, 45, 80, .12); opacity: 0; pointer-events: none; transition: all .2s; }
+  border: 1px solid var(--m-line); box-shadow: 0 8px 24px rgba(30, 45, 80, .12); opacity: 0; pointer-events: none;
+  transition: opacity var(--m-dur-1) var(--m-ease-out), transform var(--m-dur-1) var(--m-ease-out); }
 .vs-mute:hover::before { opacity: 1; transform: translateX(-50%) translateY(0); }
 .vs-stop { flex: none; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; color: var(--m-bad);
-  background: rgba(255, 92, 106, .14); border: 1px solid rgba(255, 92, 106, .5); opacity: .35; transform: scale(.9); transition: all .25s; pointer-events: none; }
+  background: rgba(255, 92, 106, .14); border: 1px solid rgba(255, 92, 106, .5); opacity: .35; transform: scale(.9); pointer-events: none;
+  transition: opacity var(--m-dur-2) var(--m-ease-out), transform var(--m-dur-2) var(--m-ease-out), background var(--m-dur-1); }
 .vs-stop svg { width: 18px; height: 18px; fill: currentColor; }
 .vs-stop.on { opacity: 1; transform: none; pointer-events: auto; }
 .vs-stop:hover { background: rgba(255, 92, 106, .28); }
@@ -245,7 +261,8 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
   overflow: hidden; -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent); mask-image: linear-gradient(180deg, #000 62%, transparent);
   transition: opacity .3s; }
 .vs-hints button { padding: 8px 13px; border-radius: 999px; border: 1px solid rgba(12, 16, 28, .08); background: rgba(255, 255, 255, .85);
-  font-size: 12px; color: var(--m-mute); transition: all .2s; }
+  font-size: 12px; color: var(--m-mute);
+  transition: background var(--m-dur-1), color var(--m-dur-1), box-shadow var(--m-dur-1), transform var(--m-dur-1) var(--m-ease-out); }
 .vs-hints button:hover { background: #fff; color: var(--m-tx); box-shadow: 0 6px 18px rgba(30, 45, 80, .08); transform: translateY(-1px); }
 .vstage.parked .vs-trace, .vstage.parked .vs-hints { opacity: 0; pointer-events: none; }
 /* on the stage the composer floats at the bottom centre; on a board or a map it is a glass pill in the dock row */
@@ -296,7 +313,7 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
 /* the title, top left: a dot, the words, an underline that grows */
 .vs-title { position: absolute; top: 18px; left: 28px; max-width: calc(50% - min(340px, 26vw) - 44px); font-size: 11px; font-weight: 800;
   letter-spacing: .16em; text-transform: uppercase; color: var(--m-em2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-  opacity: 0; transform: translateX(-20px); transition: all .5s .3s; }
+  opacity: 0; transform: translateX(-20px); transition: opacity .5s var(--m-ease-out) .3s, transform .5s var(--m-ease-out) .3s; }
 .vs-title::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--m-em);
   box-shadow: 0 0 12px rgba(124, 63, 191, .8); margin-right: 10px; vertical-align: 1px; }
 .vs-title::after { content: ""; display: block; height: 1px; margin-top: 6px; transform: scaleX(0); transform-origin: 0 50%;
@@ -382,15 +399,20 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
 .vc-more { flex: none; color: var(--m-mute2, #8c93a3); font-style: italic; }
 .vc-sheen { position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit; transform: translateX(-120%);
   background: linear-gradient(100deg, transparent 35%, rgba(255, 255, 255, .1) 50%, transparent 65%);
-  animation: vsSheen 1.4s ease-out calc(var(--i, 0) * 110ms + .35s) forwards; }
-.vc-scan { position: absolute; left: 0; right: 0; top: 0; height: 1px; z-index: 3; pointer-events: none; opacity: 0;
-  background: linear-gradient(90deg, transparent, rgba(124, 63, 191, .55), rgba(178, 127, 224, .4), transparent);
-  animation: vsScan 2.4s cubic-bezier(.4, 0, .6, 1) calc(var(--i, 0) * 110ms + .3s) 1 both; }   /* one sweep as the card lands, never a loop */
+  /* backwards: swept across, it goes back to rest off the left edge (held at the right it widened the card's overflow) */
+  animation: vsSheen 1.4s ease-out calc(var(--i, 0) * 110ms + .35s) backwards; }
+/* one sweep as the card lands, never a loop. 2026-11-14: the line is drawn at the bottom of a full-card layer that moves by
+   transform (it animated `top`, a layout on every frame of every card's entrance) */
+.vc-scan { position: absolute; inset: 0; z-index: 3; pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(124, 63, 191, .55), rgba(178, 127, 224, .4), transparent) bottom / 100% 1px no-repeat;
+  /* backwards, not both: once swept the layer returns to rest, hidden */
+  animation: vsScan 2.4s var(--m-ease-io) calc(var(--i, 0) * 110ms + .3s) 1 backwards; }
 .vc-glint { position: absolute; inset: 0; z-index: 0; pointer-events: none; border-radius: inherit; opacity: 0; transition: opacity .4s;
   background: radial-gradient(280px circle at var(--mx, 50%) var(--my, 50%), rgba(124, 63, 191, .12), transparent 60%); }
 .vc:hover .vc-glint { opacity: 1; }
 @keyframes vsSheen { to { transform: translateX(120%); } }
-@keyframes vsScan { 0% { top: 0; opacity: 0; } 8% { opacity: .7; } 92% { opacity: .7; } 100% { top: 100%; opacity: 0; } }
+/* the line is the layer's bottom edge: the layer rises from above the card (overflow above a box is never scrollable) */
+@keyframes vsScan { 0% { transform: translateY(-100%); opacity: 0; } 8% { opacity: .7; } 92% { opacity: .7; } 100% { transform: translateY(0); opacity: 0; } }
 /* the desk's own card (the map in the right column) never animates on its own */
 .vs-col .vc, .vs-col .vc-sheen, .vs-col .vc-scan { animation: none; }
 .vs-col .vc-sheen, .vs-col .vc-scan { display: none; }
@@ -419,7 +441,8 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
 .vs-kinds.on { opacity: 1; transform: none; visibility: visible; pointer-events: auto; transition: opacity .6s .9s, transform .6s .9s, visibility 0s; }
 .vs-kinds > span { font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--m-mute2); margin: 0 0 2px 2px; }
 .vs-kinds button { padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(12, 16, 28, .08); background: rgba(255, 255, 255, .9);
-  font-size: 12px; font-weight: 700; color: var(--m-mute); text-align: left; transition: all .2s; }
+  font-size: 12px; font-weight: 700; color: var(--m-mute); text-align: left;
+  transition: transform var(--m-dur-1) var(--m-ease-out), color var(--m-dur-1), background var(--m-dur-1), border-color var(--m-dur-1); }
 .vs-kinds button:hover { transform: translateX(-3px); color: var(--m-tx); }
 .vs-kinds button.on { background: rgba(124, 63, 191, .12); border-color: rgba(124, 63, 191, .5); color: var(--m-em2); }
 
@@ -666,15 +689,19 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
 .vs-voice-menu [role="menuitemradio"], .vs-voice-menu button { border-radius: 12px; transition: background .18s, transform .18s; }
 .vs-voice-menu [role="menuitemradio"]:hover, .vs-voice-menu button:hover { transform: translateX(2px); }
 /* while the menu is open the stage dims a little, so the choice is the one clear thing on screen */
-.vstage:has(.vs-voice.open) .vs-host { filter: saturate(.85) blur(1.5px); opacity: .72; transition: filter .25s, opacity .25s; }
-.vs-host { transition: filter .25s, opacity .25s; }
+/* 2026-11-14: dimmed by opacity alone (a blur filter over the whole stage was re-run whenever a card's canvas repainted
+   under the pointer while the menu was open) */
+.vstage:has(.vs-voice.open) .vs-host { opacity: .6; }
+.vs-host { transition: opacity .25s var(--m-ease-out); }
 
 /* the dock keeps only the Dashboard button */
 .vs-dock-chips { display: none; }
 
 /* the footer: the six schemes in their own colours, one tap = that scheme's dashboard */
-.vs-feed { gap: 14px; background: linear-gradient(180deg, rgba(255, 255, 255, .55), rgba(250, 246, 255, .9));
-  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-top: 1px solid rgba(124, 63, 191, .12); }
+.vs-feed { gap: 14px; border-top: 1px solid rgba(124, 63, 191, .12);
+  /* 2026-11-14: no backdrop blur here (a full-width blur over the drifting auroras was re-computed on every frame);
+     the glass is a near-opaque wash of the same colours, which reads the same over the soft background */
+  background: linear-gradient(180deg, rgba(255, 255, 255, .86), rgba(250, 246, 255, .96)); }
 .vs-feed-h { flex: none; }
 .vs-schemes { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; overflow-x: auto; scrollbar-width: none;
   padding: 6px 2px; }
@@ -803,3 +830,55 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
   text-transform: uppercase; color: #5b2a9a; background: rgba(124, 63, 191, .1); border: 1px solid rgba(124, 63, 191, .28);
   white-space: nowrap; }
 @media (max-width: 1100px) { .vs-ai-label { font-size: 9.5px; padding: 2px 6px; } }
+
+/* ---------------- 2026-11-14: the smoothness + polish pass ----------------
+   the chat behind the view is hidden once it has sunk (it was still painted, unseen, under the opaque view whenever the
+   chat re-rendered); it is back at once when the view closes (the rule goes with the body class) */
+body.vstage-in .app { visibility: hidden; transition: transform .8s var(--m-ease-out, cubic-bezier(.2, .8, .2, 1)), opacity .6s ease, visibility 0s linear .8s; }
+
+/* the synthetic voice's label stays on screen at every width (a legal requirement): on a narrow screen the status
+   line steps aside but the label stays, as a compact chip in the header */
+@media (max-width: 1000px) {
+  .vs-status { display: flex; }
+  .vs-status > .dot, .vs-status > span:not(.vs-ai-label) { display: none; }
+  .vs-ai-label { margin-left: 0; }
+}
+@media (max-width: 600px) {
+  .vs-status { display: flex; }
+  .vs-ai-label { font-size: 9px; padding: 2px 6px; letter-spacing: .2px; }
+  .vs-hdr-right { gap: 8px; }
+  .vs-back { white-space: nowrap; }
+  /* the voice menu on a phone: pinned inside the screen under the header (it ran 4 px off the left edge) */
+  .vs-voice-menu { position: fixed; top: 60px; left: 12px; right: 12px; min-width: 0; transform-origin: top center; }
+}
+
+/* a phone: the header holds the mark, the voice, the AI label and Back (the wordmark steps aside under 480 px: with
+   the label it ran under the voice button and "Back to chat" broke over three lines) */
+@media (max-width: 480px) {
+  .vs-brand-t { display: none; }
+  .vs-top { gap: 6px; }
+  .vs-hdr-right { gap: 6px; }
+  .vs-back { padding: 6px 10px; font-size: 11.5px; }
+}
+
+/* the screen reader's log of what the voice says (whole sentences): off screen, never drawn */
+.vs-sr { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
+
+/* keyboard focus on the controls that had none */
+.vs-park:focus-visible, .vs-voice-item:focus-visible, .vs-voice-menu button:focus-visible, .vs-hints button:focus-visible {
+  outline: 2px solid var(--m-em1); outline-offset: 3px; }
+.vs-compose input:focus-visible { outline: none; }
+.vs-compose:focus-within { box-shadow: 0 8px 24px rgba(30, 45, 80, .06), 0 0 0 3px rgba(124, 63, 191, .14); }
+
+/* reduced motion: everything that still moved on its own is still; state changes stay, quick */
+@media (prefers-reduced-motion: reduce) {
+  .vs-mode[data-m="live"] i, .vs-mode[data-m="connecting"] i, .vs-trace span.run i, .vs-park[data-s] i, .vs-mode .lat,
+  .vstage.refine .vs-title::after, .vstage.refine .vs-title::before, .vs-dchip, .vs-anscard, .vs-feed .fi { animation: none !important; }
+  .vs-dmeter i, .vs-bg::after { transition: none; }
+  .vs-gridbg, .vs-title, .vs-title::after, .vs-dock, .vs-kinds, .vs-insight, .vs-park, .vs-col, .vc, .vs-host, .vs-fx, .vs-veil {
+    transition-duration: .2s !important; transition-delay: 0s !important; }
+  .vstage.parked .vs-gridbg { transform: none; }
+  .vs-cards > .vc:hover { --hs: 1; }
+  .vstage.parked .vs-beam { animation: none; opacity: 0; }
+  body.vstage-on .app { transition-duration: .2s; }
+}
