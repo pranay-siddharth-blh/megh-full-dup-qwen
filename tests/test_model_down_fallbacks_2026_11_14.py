@@ -107,3 +107,49 @@ def test_a_failed_composer_gives_one_figure_plainly(model_down):
     out = run(p.compose_response("How many PMAY-G houses were sanctioned?", "SELECT COUNT(*) AS houses FROM curated.v_pmay",
                                  [{"houses": 171107}], schemes=["PMAY-G"]))
     assert "1,71,107" in out or "171,107" in out
+
+
+# ── a follow-up when the rewriter model fails ────────────────────────────────
+
+from app.session_store import Turn  # noqa: E402
+
+EKH = Turn(question="MGNREGA person-days in East Khasi Hills in 2023-24", raw_question="x", route="data",
+           schemes=["MGNREGA"], resolved_entities={"district": "EAST KHASI HILLS", "year_key": 2023}, answer="x")
+NO_YEAR = Turn(question="How many PMAY-G houses were sanctioned in Ri Bhoi?", raw_question="x", route="data",
+               schemes=["PMAY-G"], resolved_entities={"district": "RI BHOI"}, answer="x")
+
+
+@pytest.mark.parametrize("msg,want", [
+    ("and in 2024-25?", "MGNREGA person-days in East Khasi Hills in FY 2024-25"),
+    ("What about the year before?", "MGNREGA person-days in East Khasi Hills in FY 2022-23"),
+    ("same for 2022-23", "MGNREGA person-days in East Khasi Hills in FY 2022-23"),
+    ("and the year after", "MGNREGA person-days in East Khasi Hills in FY 2024-25"),
+])
+def test_a_year_only_follow_up_is_the_previous_question_for_that_year(msg, want):
+    assert p._c01_year_swap_rewrite(EKH, msg) == want
+
+
+def test_a_year_goes_at_the_end_of_a_question_that_named_none():
+    assert p._c01_year_swap_rewrite(NO_YEAR, "and in 2022-23?") == \
+        "How many PMAY-G houses were sanctioned in Ri Bhoi in FY 2022-23"
+
+
+@pytest.mark.parametrize("msg", ["and in 2023-24 for Ri Bhoi", "and person-days?", "which year had the most?"])
+def test_anything_more_than_a_year_is_not_a_year_swap(msg):
+    assert p._c01_year_swap_rewrite(EKH, msg) is None
+
+
+def test_the_year_before_needs_a_year_to_count_from():
+    assert p._c01_year_swap_rewrite(NO_YEAR, "the year before") is None
+
+
+@pytest.mark.parametrize("msg,want", [
+    ("And for Ri Bhoi?", "MGNREGA person-days in Ri Bhoi in 2023-24"),
+    ("and in 2024-25?", "MGNREGA person-days in East Khasi Hills in FY 2024-25"),
+])
+def test_a_failed_rewriter_falls_back_to_the_deterministic_rewrite(msg, want, model_down):
+    assert run(p.rewrite_followup(msg, EKH)) == want
+
+
+def test_a_failed_rewriter_leaves_other_follow_ups_as_typed(model_down):
+    assert run(p.rewrite_followup("and how many of them were women?", EKH)) == "and how many of them were women?"

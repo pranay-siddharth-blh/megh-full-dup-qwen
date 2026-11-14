@@ -68,6 +68,7 @@ from app.text_match import (
 )
 from app.text_match import Node as _C01Node
 from app.text_match import numbers as _c01_tm_numbers, words as _c01_tm_words, tokens as _c01_tm_tokens
+from app.text_match import fy_spans  # noqa: E402  (2026-11-14: the year-only follow-up, _c01_year_swap_rewrite)
 
 logger = logging.getLogger(__name__)
 
@@ -2211,11 +2212,63 @@ async def rewrite_followup(question: str, prev: "object", extra_context: str = "
         guard = "unusable"
     except Exception as e:  # noqa: BLE001
         logger.warning("follow-up rewrite failed (%s) — using original", e)
+        # 2026-11-14 (the model server was down): the deterministic rewrites that back a REJECTED model rewrite
+        # (KI-347, KI-358) also back a FAILED call. A place-only follow-up ("And for Ri Bhoi?") is the previous
+        # question for that place; a year-only one ("and in 2023-24?", "the year before") the same for that year.
+        # Anything else goes on as typed, as before.
+        _forced = _place_swap_rewrite(prev, question, force=True, district=True) or _c01_year_swap_rewrite(prev, question)
+        if _forced:
+            guard = "model-failed:deterministic"
+            logger.warning("follow-up rewrite: the model call failed — deterministic rewrite %r", _forced)
+            return _forced
     finally:
         if sections:
             context_budget.log_prompt_context("rewrite", sections, tiers=tiers, guard=guard,
                                               followup_kind=kind)
     return question
+
+
+_C01_YEAR_ONLY_WORDS = frozenset("and in for what about how the same fy financial year during of only just now then "
+                                 "many much also again please show me give us it that this figure figures one".split())
+_C01_YEAR_BEFORE = (("year", "before"), ("previous", "year"), ("prior", "year"), ("last", "year"), ("year", "earlier"))
+_C01_YEAR_AFTER = (("year", "after"), ("next", "year"), ("following", "year"), ("year", "later"))
+
+
+def _c01_year_swap_rewrite(prev: "object", followup: str) -> "str | None":
+    """The previous DATA question asked again for the ONE financial year `followup` names and nothing else
+    ("and in 2023-24?", "same for FY 2022-23", "how many in 2022-23?"), or for the year before / after the one it
+    asked ("what about the year before?"); else None. The year goes where the previous question's year is; a
+    question that named no year gets it at the end. Two or more years in either are left to the model."""
+    prev_q = collapse_ws(getattr(prev, "question", "") or "").rstrip(" ?.")
+    if not prev_q or getattr(prev, "route", None) != "data":
+        return None
+    text = followup or ""
+    spans = fy_spans(text)
+    rest = text
+    for start, end, _y, _e in sorted(spans, reverse=True):
+        rest = rest[:start] + " " + rest[end:]
+    ws = [w for w in _c15_words(rest)]
+    years = set(context_policy.extract_year_keys(text))
+    prev_spans = fy_spans(prev_q)
+    prev_years = sorted(context_policy.extract_year_keys(prev_q))
+    target = None
+    if len(years) == 1 and all(w in _C01_YEAR_ONLY_WORDS or w.isdecimal() for w in ws):
+        target = next(iter(years))
+    elif not years and len(prev_years) == 1:
+        pairs = set(zip(ws, ws[1:]))
+        step = -1 if pairs & set(_C01_YEAR_BEFORE) else 1 if pairs & set(_C01_YEAR_AFTER) else 0
+        if step and all(w in _C01_YEAR_ONLY_WORDS or w in ("before", "previous", "prior", "last", "earlier", "after",
+                                                             "next", "following", "later") for w in ws):
+            target = prev_years[0] + step
+    if target is None or len(prev_years) > 1 or len(prev_spans) > 1:
+        return None
+    label = f"FY {target}-{(target + 1) % 100:02d}"
+    if len(prev_spans) == 1:
+        start, end, _y, _e = prev_spans[0]
+        return collapse_ws(prev_q[:start] + label + prev_q[end:])
+    if prev_years:
+        return None                                   # a bare year the span reader does not locate: the model's
+    return f"{prev_q} in {label}"
 
 
 _C01_DRIFT_FILLER = frozenset("WHAT WHICH IS WAS ARE WERE THE A AN OF IN FOR UNDER DURING TOTAL SCHEME FY "
