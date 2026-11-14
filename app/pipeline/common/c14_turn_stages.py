@@ -1556,18 +1556,31 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
     if not _meta_rewrite and not scope_resumed and prev is not None and getattr(prev, "route", None) == "data":
         # 2026-11-14: the regroup rule first. It covers CTX-07's statewide case with the same result and also takes
         # the old grouping out ("now by block" after "... by district" was "... by district by block" through CTX-07).
+        # More specific before more general: a regroup with a year before the bare regroup's refusal of it, one
+        # place OF a comparison before a measure or year change.
         for _c14_ctx07_kind, _c14_ctx07_fn in (("regroup", _c01_regroup_question),
+                                               ("regroup-year", _c01_regroup_year_question),  # 2026-11-14
                                                ("rank", _c01_rank_question),                # 2026-11-14
                                                ("only-place", _c01_only_place_question),    # 2026-11-14
+                                               ("one-place-of-comparison", _c01_one_place_of_comparison),
+                                               ("measure-swap", _c01_measure_swap_question),  # 2026-11-14
+                                               ("year-only", _c01_year_only_question),      # 2026-11-14
                                                ("breakdown-statewide", _c01_ctx07_breakdown_question),
                                                ("compare-with-place", _c01_ctx07_compare_place_question)):
+            if _c14_ctx07_kind in ("measure-swap", "year-only") and session is not None and (
+                    getattr(session, "pending_scope_q", None)
+                    or (session.turn_context or {}).get("resumed_question")
+                    or (session.turn_context or {}).get("clarification_reply")):
+                continue        # a bare year / measure that answered a pause ("2022-23" to "which year?") is that
+                #                 pause's chip, already resumed at the turn's start; not a change of the last answer
             _c14_ctx07_q = _c14_ctx07_fn(raw_question, prev)
             if _c14_ctx07_q is not None:
                 question = _c14_ctx07_q
                 _meta_rewrite = True
                 context_budget.log_decision("followup", rewrite=_c14_ctx07_kind, question=question)
-                if _c14_ctx07_kind == "compare-with-place":
-                    # the previous single place must not be inherited beside the two
+                if _c14_ctx07_kind in ("compare-with-place", "one-place-of-comparison"):
+                    # the previous single place must not be inherited beside the two (nor the previous list beside
+                    # the one place a one-place-of-comparison keeps)
                     _rollup_plan = _c01_ctx07_compare_place_plan(raw_question)
                     if _rollup_plan is not None and session is not None:
                         session.turn_context["plan"] = _rollup_plan.to_dict()

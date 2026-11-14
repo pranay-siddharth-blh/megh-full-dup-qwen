@@ -29,7 +29,7 @@ from sqlglot.tokens import TokenType
 
 from app import annotations, auth, context_manager, edge, followups, llm, premise_check, prompt_builder, rag
 from app import context_budget, context_policy, cross_figures, cross_scheme, guardrails, topic_memory
-from app import scheme_registry, sql_ast, sql_examples, turn_trace
+from app import metric_catalog, scheme_registry, sql_ast, sql_examples, turn_trace
 from app.config import settings
 from app.db import UnsafeSQLError, fetch_rows, run_readonly
 from app.db import DatabaseUnavailableError, is_connection_error as db_is_connection_error
@@ -1460,6 +1460,15 @@ def _comparison_swap(prev_question: str, followup: str, target: "str | None", la
         rest = head[len(lead):]
         if rest.lower().startswith("both "):
             rest = rest[len("both "):]
+        # The list's own preposition goes with the list: it is left holding nothing when the list closed the question
+        # ("... beneficiaries in Focus Plus and Focus Legacy." -> "...: the number of beneficiaries in ."), or doubled
+        # by the scope after it ("beneficiaries in MGNREGA and PMAY-G in Ri Bhoi" -> "beneficiaries in in Ri Bhoi")
+        # (2026-11-14, FU-03).
+        _preps = ("in", "of", "for", "under", "between", "across", "among", "from")
+        _after = tail.strip(" ?.!,").split()
+        words_ = rest.rstrip().split()
+        if words_ and words_[-1].lower() in _preps and (not _after or _after[0].lower() in _preps):
+            rest = " ".join(words_[:-1]) + (" " if _after else "")
         return _c01_tidy_space(f"Same comparison for {label}: {rest}{tail.lstrip()}", ",",
                                collapse=False).strip()
     if low.endswith("both "):
@@ -1630,7 +1639,30 @@ def _c01_regroup_question(raw_question: str, prev) -> "str | None":
     return f"{stem} by {dim}{_c01_regroup_chart(raw_question)}"
 
 
-# ── Rank what is shown (2026-11-14) ─────────────────────────────────────────
+def _c01_regroup_year_question(raw_question: str, prev) -> "str | None":
+    """"break that down by district for 2023-24": a regroup and ONE financial year in one message -> the previous
+    question regrouped (_c01_regroup_question), then asked for that year (_c01_year_swap_rewrite: the year goes where
+    the previous question's year was, else at the end). A year or month grouping with a year is no regroup; two
+    years are left to the model."""
+    text = raw_question or ""
+    spans = fy_spans(text)
+    years = set(context_policy.extract_year_keys(text))
+    if len(spans) != 1 or len(years) != 1:
+        return None
+    start, end, _y, _e = spans[0]
+    rest = collapse_ws(text[:start] + " " + text[end:])
+    if _c01_regroup_dimension(rest) in (None, "financial year", "month"):
+        return None
+    regrouped = _c01_regroup_question(rest, prev)
+    if regrouped is None:
+        return None
+    from types import SimpleNamespace
+    year = next(iter(years))
+    return _c01_year_swap_rewrite(SimpleNamespace(question=regrouped, route="data"),
+                                  f"in FY {year}-{(year + 1) % 100:02d}")
+
+
+# ── Rank what is shown (2026-11-14)─────────────────────────────────────────
 # "which district had the most?" / "and the least?" / "top 3" after a data answer went to the model rewrite, which
 # grafted the words onto the previous question ("... in the top 3 blocks" summed the three, the Demdema chat) or lost
 # the measure. A message that ONLY asks to rank is the previous question ranked: over the level it names, else the
@@ -1770,10 +1802,241 @@ def _c01_only_place_question(raw_question: str, prev) -> "str | None":
             if head.lower().endswith(prep):
                 head = head[:len(head) - len(prep)]
         stem = collapse_ws(f"{head} {stem[hit.end():]}")
-    stem = _c05_statewide_stem(stem).rstrip(" ,?.")
+    stem = _c05_statewide_stem(stem)
+    for whole in _C01_STATEWIDE_PHRASES:                            # "Total MGNREGA expenditure statewide ..."
+        stem = _c04_replace_ci(stem, whole, " ")
+    stem = collapse_ws(stem).rstrip(" ,?.")
     if len(_c15_words(stem)) < 2:
         return None
     return f"{stem} in {name.title()}{' block' if dim == 'block' else ''}"
+
+
+# ── One place of a comparison of places (2026-11-14) ────────────────────────
+# "only Ri Bhoi" after "Compare MGNREGA households employed in Ri Bhoi and East Khasi Hills in 2023-24": the
+# only-place rule above leaves a question that names places alone, and the model rewrite took it. It is the
+# previous question for that one place: the other compared places and the compare words taken out, the rest as
+# the previous question words it ("MGNREGA households employed in Ri Bhoi in 2023-24").
+_C01_CMP_LEADS = ("compare the ", "compare ", "comparison of the ", "comparison of ", "comparing the ", "comparing ")
+_C01_CMP_JOINERS = (" and ", " vs. ", " vs ", " versus ", ", ", " with ", " & ")
+
+
+def _c01_one_place_of_comparison(raw_question: str, prev) -> "str | None":
+    from app.entity_resolver import place_only
+    if getattr(prev, "route", None) != "data" or not getattr(prev, "question", None):
+        return None
+    ws = _c15_words(raw_question or "")
+    if not ws or ws[0] not in ("only", "just"):
+        return None
+    only = place_only(raw_question, _C01_ONLY_PLACE_WORDS)
+    if not only or only[1] not in ("district", "block"):
+        return None
+    name, dim, _typed = only
+    resolved = getattr(prev, "resolved_entities", None) or {}
+    listed = [str(x).upper() for x in (resolved.get(f"{dim}_list") or [])]
+    if len(listed) < 2 or name.upper() not in listed:
+        return None                                                 # not one of the places compared
+    out = collapse_ws(prev.question).rstrip(" ?.")
+    for other in listed:
+        if other == name.upper():
+            continue
+        cut = None
+        for form in (other.title(), other):
+            p0 = _ci_find(out, form)
+            if p0 >= 0:
+                cut = (p0, p0 + len(form))
+                break
+        if cut is None:
+            return None                                             # written another way: the model's
+        a, b = cut
+        if b < len(out) and out[b].isalnum():
+            return None
+        for tail in (" blocks", " block"):
+            if out[b:b + len(tail)].lower() == tail:
+                b += len(tail)
+                break
+        for joiner in _C01_CMP_JOINERS:                             # the joiner before it, else the one after it
+            if out[:a].lower().endswith(joiner):
+                a -= len(joiner)
+                break
+            if out[b:].lower().startswith(joiner):
+                b += len(joiner)
+                break
+        else:
+            return None                                             # not a list of places
+        out = out[:a] + out[b:]
+    low = out.lower()
+    lead = next((c for c in _C01_CMP_LEADS if low.startswith(c)), None)
+    if lead is not None:
+        out = out[len(lead):]
+    elif _C15_COMPARE_CUES & set(_c15_words(out)):
+        return None                                                 # a compare word elsewhere: not ours to rewrite
+    out = collapse_ws(out).strip(" ,")
+    if name.upper() not in out.upper() or len(_c15_words(out)) < 3:
+        return None
+    return out[:1].upper() + out[1:]
+
+
+def _c01_year_only_question(raw_question: str, prev) -> "str | None":
+    """The year swap (_c01_year_swap_rewrite) as a rule ahead of the model rewrite: "how many in 2022-23?" after
+    "PMAY-G houses sanctioned in South West Khasi Hills" read "how many" as a question of its own (no rewrite) and
+    went on as "how many in 2022-23 under PMAY-G?". Not after a per-year answer: one year of a by-year list is a
+    filter of it, which the year swap does not write ("... in each financial year in FY 2023-24")."""
+    if getattr(prev, "route", None) != "data" or not getattr(prev, "question", None):
+        return None
+    if "year" in _c02_breakdowns(prev.question):
+        return None
+    return _c01_year_swap_rewrite(prev, raw_question)
+
+
+# ── Another measure of the same question (2026-11-14)───────────────────────
+# "and the loan?" after "CM Elevate Legacy subsidy disbursed by district", "and the amount?" after "Focus Plus
+# beneficiaries by district", "and how much was paid there?" after a Focus Plus beneficiary count in Ri Bhoi, "only
+# the completed ones" after "PMAY-G houses sanctioned in each financial year": the model rewrite took these, and with
+# the model down the bare fragment went on ("and the loan across all financial years" lost the scheme and the
+# grouping). A message that asks ONLY for another measure is the previous question with its measure replaced; its
+# scheme, place, year, grouping and chart stay as the previous question words them.
+# The measures and their words are the data team's catalogue (semantic.metric_definitions + the approved synonyms,
+# app/metric_catalog.py), so a new scheme needs no code here: the new measure is the ONE catalogue measure of the
+# previous scheme the message names, or whose phrases hold every content word of the message ("loan" -> "loan
+# disbursed"; "how much ... paid" -> the one rupee measure with "paid"). Nothing is guessed: two candidates, a word
+# that is no measure word, a scheme / place / year / grouping / ranking of its own, or a how-it-works question, and
+# the rule stays out. "only / just" (a filter on the figure shown) must keep the previous measure's noun ("only the
+# completed ones" after houses -> houses completed; never after an amount).
+_C01_MSWAP_FILLER = frozenset(
+    "and what about how the a an of for in on also same instead then now so please pls show me give us tell get "
+    "it that this those these them there here over its their total number figure figures value data ok okay "
+    "only just ones one is are was were be been do does did has have had much many to see want need can could "
+    "would you i we figure what's whats rather".split())
+_C01_MSWAP_FILTER_LEADS = frozenset({"only", "just"})
+_C01_MSWAP_HOW_WORKS = frozenset("is are was were does do did can could should will would".split())
+_C01_MSWAP_RATE_WORDS = frozenset("rate percent percentage pct share ratio proportion".split())
+_C01_MSWAP_THERE = (" are there", " were there", " is there", " was there")
+
+
+def _c01_mswap_mask(text: str) -> str:
+    """`text` with its grouping phrases ("by district", "in each financial year") blanked, same length: a catalogue
+    phrase may hold one ("application by district"), and the grouping is no part of the measure the rule swaps."""
+    out = text
+    for hit in _C02_BREAKDOWN.finditer(text):
+        out = out[:hit.start()] + " " * (hit.end() - hit.start()) + out[hit.end():]
+    return out
+
+
+def _c01_mswap_money(m) -> bool:
+    return "rupee" in str(getattr(m, "unit", "") or "").lower()
+
+
+def _c01_mswap_rate(m) -> bool:
+    return metric_catalog._is_rate_metric(m)
+
+
+def _c01_mswap_surface(word: str, seen: "list[str]") -> str:
+    """A catalogue word (plural-blind stem) as it was typed in the chat, else as written in the catalogue."""
+    for w in seen:
+        if metric_catalog._stem(w.lower()) == word:
+            return w if not w.isupper() else w.lower()
+    return word + "s" if word.endswith("ie") else word
+
+
+def _c01_measure_swap_question(raw_question: str, prev) -> "str | None":
+    """The previous DATA question with its measure replaced by the one measure the message asks for, else None."""
+    if getattr(prev, "route", None) != "data" or not getattr(prev, "question", None):
+        return None
+    schemes = list(getattr(prev, "schemes", None) or [])
+    if len(schemes) != 1 or metric_catalog.mode() == "off":
+        return None
+    scheme = schemes[0]
+    q = raw_question or ""
+    ws = _c15_words(q)
+    if not ws or len(ws) > 10:
+        return None
+    from app.entity_resolver import place_mentions
+    if _mentions_scheme(q) or _named_schemes(q) or _BARE_FOCUS_WORD.search(q) or _SCHEME_WORD.search(q):
+        return None                                                 # a scheme of its own: a new question / a swap
+    if place_mentions(q) or named_places(q) or context_policy.extract_year_keys(q) or fy_spans(q):
+        return None
+    if _c02_breakdowns(q) or _RANKING_CUE.search(q) or (_C15_COMPARE_CUES & set(ws)):
+        return None
+    aggregate = bool(_METRIC_WHATIS_CUE.search(q)) and not _PROGRAMME_DESIGN_CUE.search(q)
+    if (_KNOWLEDGE_HINTS.search(q) and not aggregate) or _PROCESS_QUESTION_CUE.search(q) \
+            or _PROGRAMME_DESIGN_CUE.search(q):
+        return None                                                 # what a measure IS, how it works
+    if "why" in ws or (len(ws) > 1 and ws[0] == "how" and ws[1] in _C01_MSWAP_HOW_WORKS):
+        return None                                                 # "how is the loan disbursed?": how it works
+    content = [w for w in ws if w not in _C01_MSWAP_FILLER]
+    if not content or any(w.isdecimal() for w in content):
+        return None                                                 # nothing asked, or a value ("above 1000")
+    by_scheme = metric_catalog._state.get("by_scheme", {}).get(scheme, [])
+    prev_q = collapse_ws(prev.question).rstrip(" ?.")
+    masked = _c01_mswap_mask(prev_q)
+    before = metric_catalog.match(masked, scheme)
+    if before.status != "one" or not before.spans:
+        return None
+    prev_toks = _c01_tm_tokens(masked)                              # same offsets as prev_q
+    lo, hi = min(before.spans), max(before.spans)
+    if hi - lo + 1 != len(before.spans):
+        return None                                                 # the measure's words are not one phrase
+    prev_span_words = {metric_catalog._stem(t.low) for t in prev_toks[lo:hi + 1]}
+    prev_order = [metric_catalog._stem(t.low) for t in prev_toks[lo:hi + 1]
+                  if t.low not in metric_catalog._AUX]
+    filtering = ws[0] in _C01_MSWAP_FILTER_LEADS
+    wants_money = ("how" in ws and "much" in ws) or None
+    if wants_money is None and "how" in ws and "many" in ws:
+        wants_money = False
+    wants_rate = bool(_C01_MSWAP_RATE_WORDS & set(ws))
+    stems = [metric_catalog._stem(w) for w in content]
+    found = metric_catalog.match(q, scheme)
+    phrase = None
+    if found.status == "one":
+        target = found.metric
+        f_toks = _c01_tm_tokens(q)
+        taken = {metric_catalog._stem(f_toks[k].low) for k in found.spans}
+        if any(s not in taken for s in stems):
+            return None                                                 # a word that is no part of the measure
+        phrase = max(found.phrases, key=len) if found.phrases else None
+    else:
+        cands = []
+        for m in by_scheme:
+            if _c01_mswap_rate(m) != wants_rate:
+                continue
+            if wants_money is not None and _c01_mswap_money(m) != wants_money:
+                continue
+            fits = [p for p in m.phrases if all(s in p for s in stems)]
+            if fits:
+                cands.append((m, fits))
+        if filtering:
+            cands = [(m, [p for p in fits if set(p) & prev_span_words]) for m, fits in cands]
+            cands = [(m, fits) for m, fits in cands if fits]
+        if len(cands) != 1:
+            return None                                                 # none, or a choice: not ours
+        target, fits = cands[0]
+
+        def score(p):
+            shared = set(p) & prev_span_words
+            same_place = sum(1 for i, w in enumerate(p) if i < len(prev_order) and prev_order[i] == w)
+            return (-len(shared), -same_place, len(p), p)
+        phrase = sorted(fits, key=score)[0]
+    if target is None or phrase is None or target.key == before.metric.key:
+        return None
+    if filtering and not (set(phrase) & prev_span_words):
+        return None                                                 # "only ..." keeps the noun it filters
+    seen = [t.raw for t in prev_toks] + [t.raw for t in _c01_tm_tokens(q)]
+    words = " ".join(_c01_mswap_surface(w, seen) for w in phrase)
+    out = prev_q[:prev_toks[lo].start] + words + prev_q[prev_toks[hi].end:]
+    if _c01_mswap_money(target) != _c01_mswap_money(before.metric):
+        # a count asked as money or the other way: "How many ... are there" -> "How much ..."
+        low = out.lower()
+        if _c01_mswap_money(target) and low.startswith("how many "):
+            out = "How much " + out[len("how many "):]
+            for there in _C01_MSWAP_THERE:
+                out = _c04_replace_ci(out, there, "")
+        elif not _c01_mswap_money(target) and low.startswith("how much "):
+            out = "How many " + out[len("how much "):]
+    out = collapse_ws(out).strip(" ,")
+    check = metric_catalog.match(_c01_mswap_mask(out), scheme)
+    if check.status != "one" or check.metric.key != target.key:
+        return None                                                 # the new question would not read as that measure
+    return out
 
 
 def _c01_ctx07_compare_place_question(raw_question: str, prev) -> "str | None":
@@ -2361,8 +2624,14 @@ async def rewrite_followup(question: str, prev: "object", extra_context: str = "
         # 2026-11-14 (the model server was down): the deterministic rewrites that back a REJECTED model rewrite
         # (KI-347, KI-358) also back a FAILED call. A place-only follow-up ("And for Ri Bhoi?") is the previous
         # question for that place; a year-only one ("and in 2023-24?", "the year before") the same for that year.
-        # Anything else goes on as typed, as before.
-        _forced = _place_swap_rewrite(prev, question, force=True, district=True) or _c01_year_swap_rewrite(prev, question)
+        # Anything else goes on as typed, as before. The ctx07 rules (c14) normally run before any model call; they
+        # are tried here too for a caller that reaches the rewrite without them: another measure, a regroup with a
+        # year, one place of a comparison.
+        _forced = (_place_swap_rewrite(prev, question, force=True, district=True)
+                   or _c01_year_swap_rewrite(prev, question)
+                   or _c01_measure_swap_question(question, prev)
+                   or _c01_regroup_year_question(question, prev)
+                   or _c01_one_place_of_comparison(question, prev))
         if _forced:
             guard = "model-failed:deterministic"
             logger.warning("follow-up rewrite: the model call failed — deterministic rewrite %r", _forced)

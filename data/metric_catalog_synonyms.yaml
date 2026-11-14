@@ -48,13 +48,29 @@ focus_legacy_members_paid_for:
   - members
 pmay_houses_sanctioned:
   - houses
+  # 2026-11-14 (follow-up rules, FU-05 "only PMAY-G" after a beneficiaries comparison): curated.v_pmay is one row per
+  # beneficiary, so COUNT(*) IS the beneficiary count (the SQL prompt's PMAY-G rule; cross_figures counts PMAY-G
+  # beneficiaries the same way). Every PMAY(-G) beneficiaries question in the gold bank has COUNT(*) as its truth.
+  - beneficiaries
+  - beneficiary
 mgnrega_employment_generated:
   - persondays
 mgnrega_households_employed:
+  # 2026-11-14 (follow-up rules; the voice shaper's "what about the households instead"): a bare "households" in
+  # MGNREGA is the households given work, as the bank reads it ("In Dalu block, how many MGNREGA households ... are
+  # there?" -> SUM(households_employed)) and as cross_figures counts MGNREGA beneficiaries. The longer phrases still
+  # win where they are said ("registered households" = job cards, "households completing 100 days").
+  - households
+  - household
   - households received employment
   - households provided employment
   - households got work
   - households employed
+cm_elevate_disb_subsidy_disbursed:
+  # 2026-11-14 (W2-CH-14 "and CM Elevate Legacy subsidy there?"): the view holds one subsidy figure only,
+  # total_subsidy_disbursement (no sanctioned subsidy column); the bank's truth is SUM(total_subsidy_disbursement).
+  # "subsidy sanctioned" still names two measures (subsidy + sanctioned) and is left to the model path.
+  - subsidy
 focus_plus_amount_disbursed:
   - paid out
   - money disbursed
