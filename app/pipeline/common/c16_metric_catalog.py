@@ -33,7 +33,7 @@ _C16_GRAMMAR = frozenset("""
     meghalaya state statewide whole entire all district block village c rd constituency assembly ac mapped
     fy financial fiscal year years scheme schemes s
     uh um umm hmm ok okay so well just kindly sir madam can could would you i we want need know see about
-    went gone goes
+    went gone goes came come comes from
 """.split())   # the last line: fillers and openings (2026-11-14: "Uh, MGNREGA, total expenditure ..." declined on "uh")
 # Words a breakdown / ranking / comparison adds to the question.
 _C16_SHAPE_WORDS = {
@@ -233,7 +233,7 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
             if 0 < len(words) <= 6:
                 out["unmatched_words"] = " ".join(words)
         return out
-    m = found.metric
+    m = _c16_cme_default(found.metric, question, schemes)
     out["metric"] = m.key
     # Accuracy gold bank (2026-11-11, KI-709): "How many CM Elevate Legacy applicants were sanctioned in
     # 2024-25?" matched the catalogue's "CM Elevate sanctioned applicants" = COUNT(DISTINCT
@@ -291,6 +291,22 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
 
 # The words that join two figures asked together ("producer groups AND total", "subsidy PLUS loan").
 _C16_JOIN_WORDS = frozenset("and plus also both as well along with".split())
+
+
+def _c16_cme_default(m, question: str, schemes: "list[str]"):
+    """The CM Elevate default in the catalogue (D-B1-CME-01): the all-applications measure becomes the valid-only one
+    when the knowledge base's default (`applications_default`, cme_pending_rule) is that measure's own filter and the
+    question neither asks for all applications nor names a verification state — the same tests the model path's
+    rewrite uses (_cm_elevate_valid_default). Any other measure is returned as it is."""
+    if schemes != ["CM Elevate"] or m.key != "cm_elevate_applications":
+        return m
+    valid = metric_catalog._state.get("metrics", {}).get("cm_elevate_applications_valid")
+    default = (_pending_rule.default_sql() or "").replace(" ", "").lower()
+    if valid is None or not default or default not in str(valid.expression).replace(" ", "").lower():
+        return m
+    if _cme_asks_all_applications(question) or _cme_names_verification_state(question):
+        return m
+    return valid
 
 
 def _c16_plan_several(question: str, schemes: "list[str]", entity_result: dict, found, out: dict) -> dict:

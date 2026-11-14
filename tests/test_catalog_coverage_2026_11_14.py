@@ -80,3 +80,29 @@ def test_constituency_only_with_a_total_or_years():
     assert p._c16_shape("MGNREGA person-days in Mawsynram constituency", f)["qtype"] == "total"
     assert p._c16_shape("Which block in Mawsynram constituency has the most person-days", f) is None
     assert p._c16_shape("MGNREGA person-days in Mawsynram constituency by district", f) is None
+
+
+# ── the CM Elevate valid-only default in the catalogue (D-B1-CME-01, same day) ──
+def _cme(key, expr):
+    return mc.Metric(key=key, scheme="CM Elevate", display_name=key, expression=expr, base_object="curated.v_cm_elevate",
+                     unit="applications", notes="", alias=key, phrases=(), columns=frozenset({"request_id"}))
+
+
+def test_cme_default_reads_the_valid_measure(monkeypatch):
+    allm = _cme("cm_elevate_applications", "COUNT(DISTINCT request_id)")
+    valid = _cme("cm_elevate_applications_valid", "COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid')")
+    monkeypatch.setitem(mc._state, "metrics", {allm.key: allm, valid.key: valid})
+    monkeypatch.setattr(p._pending_rule, "default_sql", lambda: "data_verified = 'Valid'")
+    assert p._c16_cme_default(allm, "How many CM Elevate applications in West Garo Hills", ["CM Elevate"]) is valid
+    # the two exceptions of the model path's rewrite (_cm_elevate_valid_default)
+    monkeypatch.setattr(p, "_cme_asks_all_applications", lambda q: True)
+    assert p._c16_cme_default(allm, "all CM Elevate applications", ["CM Elevate"]) is allm
+    monkeypatch.setattr(p, "_cme_asks_all_applications", lambda q: False)
+    monkeypatch.setattr(p, "_cme_names_verification_state", lambda q: True)
+    assert p._c16_cme_default(allm, "CM Elevate applications on hold", ["CM Elevate"]) is allm
+    monkeypatch.setattr(p, "_cme_names_verification_state", lambda q: False)
+    # another scheme / another measure / no default configured: unchanged
+    assert p._c16_cme_default(allm, "q", ["CM Elevate Legacy"]) is allm
+    assert p._c16_cme_default(valid, "q", ["CM Elevate"]) is valid
+    monkeypatch.setattr(p._pending_rule, "default_sql", lambda: "")
+    assert p._c16_cme_default(allm, "q", ["CM Elevate"]) is allm

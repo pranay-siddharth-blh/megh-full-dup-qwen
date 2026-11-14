@@ -121,6 +121,8 @@ breakdown:
     evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
   cm_elevate_disb_total_sanctioned:
     evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  cm_elevate_applications_valid:
+    evidence: "2026-11-14: equal to the gold bank truth SQL by district (12 rows) and by block (66 rows); D-B1-CME-01 valid default"
   cm_elevate_applications_on_hold:
     evidence: "run 2026-10-26: 1/1 agreed"
   cm_elevate_disb_beneficiaries:
@@ -182,6 +184,8 @@ ranking:
     evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
   homestay_api_applications:
     evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  cm_elevate_applications_valid:
+    evidence: "2026-11-14: top 3 districts = gold bank SH-C004 truth (RI BHOI 2,038, WEST GARO HILLS 1,625, EAST KHASI HILLS 998)"
   cm_elevate_applications_on_hold:
     evidence: "run 2026-10-26: 1/1 agreed"
   cm_elevate_disb_beneficiaries:
