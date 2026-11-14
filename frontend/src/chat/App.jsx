@@ -7,6 +7,9 @@ import {
 import { GLOSSARY, MAX_QUESTION_CHARS, UI_STRINGS, UNIFIED_SAMPLES } from './constants.js';
 import { nowTime, stampTime, todayLabel } from './format.js';
 import { useVoice } from './useVoice.js';
+import { useLiveVoice } from './useLiveVoice.js';
+import { LiveVoiceStrip } from './components/LiveVoiceStrip.jsx';
+import { VoiceStage } from './components/VoiceStage.jsx';
 import { isContinueText, isStopText } from './stopContinue.js';
 import { speechChunks } from './text.js';
 import { useSidebarResize } from './useSidebarResize.js';
@@ -805,13 +808,46 @@ export default function App() {
     if (voice.phase === 'finishing') sendAfterVoice.current = true;
     // still opening the microphone: nothing recorded yet, nothing to send
   };
+  // ── Live voice (full duplex, 2026-11-02, useLiveVoice.js) ───────────────
+  // The mic opens a live conversation: the officer speaks, is answered aloud
+  // and can interrupt at any time. Each spoken question is sent through the
+  // SAME send path as a typed one (sendQuery), so its answer is the chat's own.
+  // When the live voice is unavailable the mic falls back to dictation above.
+  const live = useLiveVoice({
+    submit: (q) => { setInput(q); sendQueryRef.current(); },
+    stop: () => stopQuery(),
+    isRunning: () => runningRef.current,
+    onNotice: (m) => showUndoRef.current(m),
+  });
+  const liveOnMessages = live.onMessages;
+  useEffect(() => { liveOnMessages(messages); }, [messages, liveOnMessages]);
   const onMic = () => {
+    if (live.view || live.phase !== 'off') { live.closeView(); return; }
+    if (!voice.busy && live.available()) {
+      if (lang && lang !== 'en') showUndo('Voice input is English only. Speak in English, or type your question in Khasi / Garo.');
+      live.open();                    // the voice stage takes the screen (VoiceStage.jsx)
+      return;
+    }
     sendAfterVoice.current = false;   // the mic button only stops: the text stays to check
     if (!voice.busy) dictBase.current = inputRef.current;
     // K-40 (audit 2026-10-29): with Khasi / Garo chosen, speech was recognised as
     // English with no warning; starting the mic now says so on every device
     if (!voice.busy && lang && lang !== 'en') showUndo('Voice input is English only. Speak in English, or type your question in Khasi / Garo.');
     voice.toggleMic();
+  };
+
+  // The voice stage draws the chat's own answer components, big: the same props as the chat list below.
+  const typeOnStage = useCallback((q) => { setInput(q); sendQueryRef.current(); }, []);
+  const closeStage = useCallback(() => live.closeView(), [live]);
+  const renderStageMessage = (m) => {
+    if (m.kind === 'typing') return <TypingMessage key={m.id} steps={m.steps} draft={m.draft} streamKey={m.id} />;
+    if (m.kind === 'rich') {
+      return <BotMessage key={m.id} id={m.id} question={m.question} response={m.response} time={m.time}
+                         animate={m.animate} streamKey={m.streamKey} at={m.at} view={m.view}
+                         onAsk={ask} speakingId={speakingId} onSpeak={onSpeak} onRegenerate={null} sessionId={sessionId} />;
+    }
+    return <TextMessage key={m.id} id={m.id} role="bot" text={m.text || ''} time={m.time} at={m.at}
+                        speakingId={speakingId} onSpeak={onSpeak} />;
   };
 
   // ── Modals ──────────────────────────────────────────────────────────────
@@ -1046,6 +1082,7 @@ export default function App() {
             )}
             <div className="composer-inner">
               <SlashMenu items={slashItems} active={slashActive} onPick={applySlash} onHover={setSlashIdx} />
+              <LiveVoiceStrip live={live} />
               {/* While recording (#307) the text box is kept but hidden, so Enter and
                   the shortcuts still work; the strip takes its place. The live text
                   keeps filling the box and shows when the recording stops. */}
@@ -1079,9 +1116,9 @@ export default function App() {
                       )}
                     </div>
                   )}
-                  <button className={'mic-btn' + (voice.isRecording ? ' recording' : '')} type="button"
+                  <button className={'mic-btn' + (voice.isRecording ? ' recording' : '') + (live.phase !== 'off' ? ' live' : '')} type="button"
                           onClick={onMic} disabled={voice.phase === 'finishing'}
-                          title={(voice.isRecording ? 'Stop recording' : 'Speak your question')
+                          title={(live.phase !== 'off' ? 'End live voice' : voice.isRecording ? 'Stop recording' : 'Talk to Megh One AI (live voice)')
                             // K-40 (audit 2026-10-29): speech is recognised as English whatever the question language
                             + (lang && lang !== 'en' ? ' — voice input is English only' : '') + ` (${keyLabel('mic')})`}
                           aria-label={voice.isRecording ? 'Stop recording' : 'Speak your question'}>
@@ -1108,6 +1145,11 @@ export default function App() {
           </div>
         </main>
       </div>
+
+      {live.view && (
+        <VoiceStage live={live} messages={messages} renderMessage={renderStageMessage}
+                    onType={typeOnStage} onClose={closeStage} />
+      )}
 
       <footer><div>&copy; 2026 Government of Meghalaya — Megh One AI NLP Dashboard</div></footer>
     </>

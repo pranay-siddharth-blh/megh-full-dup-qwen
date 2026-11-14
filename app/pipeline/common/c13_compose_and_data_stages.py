@@ -473,6 +473,26 @@ _MEASURE_IN_PLACE = Matcher(Seq(
 
 _C13_COUNT_ASKED = Matcher(Seq("how", W("many", "much"), sep="space"))
 
+# Accuracy gold bank (2026-11-11, KI-684): "PMAY-G completed EKH" — a scheme, a measure and a place, no verb —
+# went to the reference documents ("EKH (Ek Haveli) component"). A terse question made of a scheme, a
+# measure word and a place the resolver knows asks for a figure.
+_C13_TERSE_MEASURE = Matcher(Alt(
+    W("completed", "sanctioned", "released", "disbursed", "disbursement", "expenditure", "spent", "beneficiaries",
+      "houses", "applications", "applicants", "households", "amount", "members", "memberships", "groups", "pgs",
+      "payments", "records", "women", "persons", "subsidy", "loan", "villages"),
+    Joined("person", ("day", "days")), Seq("job", W("card", "cards"), sep="space")))
+
+
+def _c13_terse_figure(question: str) -> bool:
+    q = question or ""
+    if len(q.split()) > 7 or _KNOWLEDGE_HINTS.search(q) or not _named_schemes(q) or not _C13_TERSE_MEASURE.search(q):
+        return False
+    try:
+        from app.entity_resolver import place_mentions as _c13_pm_t
+        return bool(_c13_pm_t(q))
+    except Exception:  # noqa: BLE001 — no place index: the classifier decides
+        return False
+
 
 async def classify_intent(question: str, session: "Session | None" = None) -> str:
     """DATA (a number from megh_db) vs KNOWLEDGE (how the scheme works, from the
@@ -604,6 +624,8 @@ async def _c13_intent_by_rules(question: str, session: "Session | None" = None) 
     if _KNOWLEDGE_HINTS.search(question) and not _DATA_HINTS.search(question):
         return "KNOWLEDGE"
     if _APPLICANT_PLACE_CUE.search(question) and not _KNOWLEDGE_HINTS.search(question):
+        return "DATA"
+    if _c13_terse_figure(question):                                     # KI-684
         return "DATA"
     # E1 stage 2b (D-085): the rules found no cue; the plan built during this turn
     # (only with QUERY_PLAN_IN_TURN, only from these same words) already read the
@@ -3496,6 +3518,43 @@ def _c13_money_units(result: dict) -> None:
         result["rows"] = result["data"][:20]
 
 
+# Chart PDF §2 (30 Oct) / accuracy gold bank (2026-11-11, KI-677): "Show MGNREGA person-days by district
+# as a radar chart" was drawn as the default chart while the answer said "This radar chart displays …".
+# The chat draws bar / line / pie / donut / stacked / grouped / horizontal bars and nothing else
+# (frontend analytics.js viewPlan). A chart kind it cannot draw is named in the answer as not
+# available, and the composer's claim to have drawn it is taken out.
+_C13_UNDRAWN_CHARTS = frozenset({"radar", "spider", "area", "scatter", "bubble", "heatmap", "funnel", "treemap",
+                                 "gauge", "waterfall", "polar", "sankey"})
+_C13_CHART_NOUNS = frozenset({"chart", "charts", "graph", "graphs", "plot", "plots", "diagram"})
+
+
+def _c13_undrawn_chart_kind(text: str) -> "str | None":
+    toks = tokens(text or "")
+    for a, b in zip(toks, toks[1:]):
+        if a.low in _C13_UNDRAWN_CHARTS and b.low in _C13_CHART_NOUNS:
+            return a.low
+    return None
+
+
+def _c13_undrawn_chart_note(result: dict, question: str, raw_question: str) -> None:
+    kind = _c13_undrawn_chart_kind(raw_question) or _c13_undrawn_chart_kind(question)
+    answer = result.get("answer") or ""
+    if not kind or not answer:
+        return
+    toks = tokens(answer)
+    out, last = [], 0
+    for a, b in zip(toks, toks[1:]):
+        if a.low == kind and b.low in _C13_CHART_NOUNS and answer[a.end:b.start] == " ":
+            out.append(answer[last:a.start])
+            last = b.start                       # "This radar chart displays" -> "This chart displays"
+    answer = "".join(out) + answer[last:]
+    if f"{kind} chart is not available" not in answer:
+        art = "an" if kind[0] in "aeiou" else "a"
+        answer = answer.rstrip() + (f"\n\nNote: {art} {kind} chart is not available here, so the figures are "
+                                    "drawn as a standard chart instead.")
+    result["answer"] = answer
+
+
 def _attach_chart_hint(result: dict, question: str, raw_question: str) -> None:
     """Set `chart_type` on a DATA result that has rows. Best-effort."""
     try:
@@ -3509,6 +3568,7 @@ def _attach_chart_hint(result: dict, question: str, raw_question: str) -> None:
             hint = _chart_hint(question, raw_question, result["data"])
             if hint:
                 result["chart_type"] = hint
+            _c13_undrawn_chart_note(result, question, raw_question)      # KI-677
     except Exception:  # noqa: BLE001 — a chart hint must never break an answer
         logger.warning("chart hint failed (non-fatal)", exc_info=True)
 

@@ -1,0 +1,149 @@
+{
+ "label": "fixround-shx027",
+ "when": "2026-11-11_1556",
+ "seconds": 25,
+ "bank_recorded": "2026-11-11",
+ "summary": "category                   cases       turns\ncm_elevate_legacy            1/1         1/1\nTOTAL                        1/1         1/1   (100.0% cases)\n\nfailure taxonomy (primary tag per failing turn):",
+ "results": [
+  {
+   "id": "SH-X027",
+   "cat": "cm_elevate_legacy",
+   "shape": "breakdown-district",
+   "src": "Test Case Results sheet CM Elevate Legacy TC-27",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 8.9,
+   "turns": [
+    {
+     "q": "What is the total CM Elevate Legacy disbursement amount for each district?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 8.1,
+     "answer": "The table lists total CM Elevate Legacy disbursements across all Meghalaya districts for all financial years:\n₹82.89 crore total disbursed in total across 12 districts.\nEAST KHASI HILLS is the largest with ₹22.60 crore; EAST JAINTIA HILLS is the smallest with ₹2.36 crore.\n- **EAST KHASI HILLS** — ₹22.60 crore\n- **WEST GARO HILLS** — ₹14.72 crore\n- **RI BHOI** — ₹6.95 crore\n- **SOUTH WEST GARO HILLS** — ₹6.12 crore\n- **WEST KHASI HILLS** — ₹5.74 crore\n- **SOUTH GARO HILLS** — ₹4.81 crore\n- **WEST JAINTIA HILLS** — ₹4.62 crore\n- **EAST GARO HILLS** — ₹4.49 crore\n- **EASTERN WEST KHASI HILLS** — ₹3.96 crore\n- **SOUTH WEST KHASI HILLS** — ₹3.92 crore\n- **NORTH GARO HILLS** — ₹2.60 crore\n- **EAST JAINTIA HILLS** — ₹2.36 crore\n\nNote: CM Elevate Legacy amounts are provisional, and the money unit has not been verified by the department.",
+     "schemes": [
+      "CM Elevate Legacy"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT lgd_district, ROUND(SUM(total_disbursement) / 1e7, 2) AS total_disbursed_cr FROM curated.v_cm_elevate_disbursement GROUP BY lgd_district ORDER BY total_disbursed_cr DESC NULLS LAST",
+     "data": [
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "total_disbursed_cr": "22.60"
+      },
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "total_disbursed_cr": "14.72"
+      },
+      {
+       "lgd_district": "RI BHOI",
+       "total_disbursed_cr": "6.95"
+      },
+      {
+       "lgd_district": "SOUTH WEST GARO HILLS",
+       "total_disbursed_cr": "6.12"
+      },
+      {
+       "lgd_district": "WEST KHASI HILLS",
+       "total_disbursed_cr": "5.74"
+      },
+      {
+       "lgd_district": "SOUTH GARO HILLS",
+       "total_disbursed_cr": "4.81"
+      },
+      {
+       "lgd_district": "WEST JAINTIA HILLS",
+       "total_disbursed_cr": "4.62"
+      },
+      {
+       "lgd_district": "EAST GARO HILLS",
+       "total_disbursed_cr": "4.49"
+      },
+      {
+       "lgd_district": "EASTERN WEST KHASI HILLS",
+       "total_disbursed_cr": "3.96"
+      },
+      {
+       "lgd_district": "SOUTH WEST KHASI HILLS",
+       "total_disbursed_cr": "3.92"
+      },
+      {
+       "lgd_district": "NORTH GARO HILLS",
+       "total_disbursed_cr": "2.60"
+      },
+      {
+       "lgd_district": "EAST JAINTIA HILLS",
+       "total_disbursed_cr": "2.36"
+      }
+     ],
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?",
+      "What share of the sanctioned amount has been disbursed under CM Elevate Legacy in Meghalaya, by district?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "EAST KHASI HILLS",
+         225981708.35
+        ],
+        [
+         "WEST GARO HILLS",
+         147197155.65
+        ],
+        [
+         "RI BHOI",
+         69523613.5
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         61238092
+        ],
+        [
+         "WEST KHASI HILLS",
+         57428389
+        ],
+        [
+         "SOUTH GARO HILLS",
+         48099856.3
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         46246688.45
+        ],
+        [
+         "EAST GARO HILLS",
+         44939067.8
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         39593888.85
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         39174752.9
+        ],
+        [
+         "NORTH GARO HILLS",
+         25976432.9
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         23578892.05
+        ]
+       ],
+       "unit": "rupees",
+       "take": 5
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

@@ -475,7 +475,10 @@ _PMAY_M = {
     "incomplete": Matcher(Alt(
         W("incomplete", "unfinished"), Seq("not", Opt("yet"), Opt("been"), _pmay_p("complet")),
         Seq("pending", W("house", "houses")), "not finished")),
-    "completed": Matcher(W("completed", "complete", "completion", "finished", "built")),
+    # "how many pmay houses are done in east khasi hills" was answered with ALL houses (accuracy gold
+    # bank 2026-11-11, KI-679): "are done" is the officers' word for completed
+    "completed": Matcher(Alt(W("completed", "complete", "completion", "finished", "built"),
+                             Seq(W("are", "is", "been", "were", "was", "got", "get", "getting"), "done"))),
     "houses": Matcher(Alt(
         _PmayNear(Alt("how many", "number of", "no of", "count of", "total number", "count"),
                   Alt(_pmay_p("beneficiar"), W("house", "houses", "home", "homes", "household", "households",
@@ -1656,6 +1659,18 @@ def _pmay_is_placeholder_exclusion(node: exp.Expression) -> bool:
         while isinstance(n, exp.Paren):
             n = n.this
         return isinstance(n, exp.Column) and n.name.lower() == "is_placeholder"
+    # `sanction_date IS NOT NULL` / `sanction_no IS NOT NULL` is the same exclusion written another way: those
+    # two are NULL on exactly the 126 registrations (VERIFIED 2026-11-11). "Tell me about PMAY-G houses by
+    # district" came back 33,143 for West Garo Hills, not 33,147 (accuracy gold bank, KI-680).
+    not_null = None
+    if isinstance(node, exp.Not) and isinstance(node.this, exp.Is) and isinstance(node.this.expression, exp.Null):
+        not_null = node.this.this
+    elif isinstance(node, exp.Is) and node.args.get("negate") and isinstance(node.expression, exp.Null):
+        not_null = node.this                     # this sqlglot writes IS NOT NULL as Is(negate=True)
+    if not_null is not None:
+        while isinstance(not_null, exp.Paren):
+            not_null = not_null.this
+        return isinstance(not_null, exp.Column) and not_null.name.lower() in ("sanction_date", "sanction_no")
     if isinstance(node, exp.Not):
         return col(node.this)
     if isinstance(node, (exp.EQ, exp.Is)) and isinstance(node.expression, exp.Boolean):

@@ -474,6 +474,15 @@ async def _turn_context_stage(t: dict, session: "Session | None" = None,
             scope_resumed = True
             context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="other-place")
             logger.info("village pause answered with another place -> %r", question)
+        elif not _bailed and _pending_rule == "ranking-count-not-specified" \
+                and _c14_topn_reply(question) is not None:
+            # KI-685 (accuracy gold bank 2026-11-11): a typed "top 3" to "How many results — the top 3, the
+            # top 5 …?" read as a new message ("I don't have information about that"); it is the chip.
+            _n = _c14_topn_reply(question)
+            session.turn_context["clarification_reply"] = question
+            question = _inject_topn(pending, _n) if _n else f"{pending.rstrip(' ?.')}, return every row with no limit?"
+            scope_resumed = True
+            context_budget.log_decision("pause_reply", rule=_pending_rule, resumed="top-n", n=_n)
         elif not _bailed and _pending_rule == "year-not-specified" and _is_all_years_reply(question):
             # KI-324: a typed "all of them combined" / "all" / "combined" is the
             # "All financial years combined" chip, so it resumes with that chip's
@@ -1291,6 +1300,146 @@ async def _turn_edge_stage(t: dict, session: "Session | None" = None,
     return None
 
 
+_C14_TOPN_NUMBERS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+                     "nine": 9, "ten": 10, "fifteen": 15, "twenty": 20}
+_C14_TOPN_FILLER = frozenset({"top", "the", "only", "show", "me", "give", "first", "please", "just", "of", "them",
+                              "results", "rows", "ones", "districts", "blocks", "villages", "list", "ok", "okay"})
+_C14_TOPN_ALL = frozenset({"all", "every", "everything", "complete", "full", "whole", "entire"})
+
+
+def _c14_topn_reply(reply: str) -> "int | None":
+    """A typed answer to the top-N pause: N, 0 for the complete list, None when it is something else."""
+    words = _c01_tm_words(reply)
+    if not words or len(words) > 5:
+        return None
+    nums = [int(w) for w in words if w.isdigit()] + [_C14_TOPN_NUMBERS[w] for w in words if w in _C14_TOPN_NUMBERS]
+    other = [w for w in words if not w.isdigit() and w not in _C14_TOPN_NUMBERS and w not in _C14_TOPN_FILLER
+             and w not in _C14_TOPN_ALL]
+    if other:
+        return None
+    if len(nums) == 1 and 0 < nums[0] <= 1000:
+        return nums[0]
+    if not nums and set(words) & _C14_TOPN_ALL:
+        return 0
+    return None
+
+
+# Accuracy gold bank (2026-11-11, KI-681): "What was MGNREGA expenditure in each financial year?" then "and
+# person-days?" was rewritten "and person-days under MGNREGA?" — one statewide total, the year-by-year
+# breakdown lost. A measure change keeps the previous question's breakdown when it names none of its own.
+_C14_BREAKDOWN_PHRASE = {"year": " by financial year", "district": " by district", "block": " by block"}
+
+
+def _c14_carried_breakdown(question: str, prev) -> str:
+    try:
+        if _c02_breakdowns(question or "", include_per=False):
+            return ""
+        dims = _c02_breakdowns(getattr(prev, "question", "") or "", include_per=False)
+    except Exception:  # noqa: BLE001 — no breakdown carried, the rewrite stands
+        return ""
+    return _C14_BREAKDOWN_PHRASE.get(next(iter(dims)), "") if len(dims) == 1 else ""
+
+
+# Accuracy gold bank (2026-11-11, KI-683): "Compare MGNREGA and PMAY-G beneficiaries" then "only PMAY-G"
+# named a scheme, so it was no follow-up; the rephraser made it "What is the status of PMAY-G?" and the
+# reference documents answered. One scheme OF the comparison just answered is the same question for that
+# scheme alone: the previous question with the other schemes (and the compare words) taken out.
+_C14_ONLY_WORDS = frozenset({"only", "just", "alone"})
+_C14_ONLY_FILLER = frozenset({"only", "just", "alone", "for", "the", "scheme", "please", "show", "me", "give", "now",
+                              "then", "ok", "okay", "so", "and", "one", "of", "it", "that", "data", "figures"})
+_C14_COMPARE_WORDS = frozenset({"compare", "compared", "comparing", "comparison", "so", "vs", "versus"})
+_C14_JOIN_WORDS = frozenset({"and", "or", "with", "vs", "versus", "&", ","})
+
+
+def _c14_one_scheme_of_comparison(raw_question: str, prev) -> "str | None":
+    if prev is None or getattr(prev, "route", None) != "data":
+        return None
+    before = [s for s in (getattr(prev, "schemes", None) or [])]
+    named = _named_schemes(raw_question or "")
+    if len(before) < 2 or len(named) != 1 or named[0] not in before:
+        return None
+    words = _c01_tm_words(raw_question)
+    rest = _c01_tm_words(_SCHEME_NAME_MATCHER[named[0]].sub(" ", raw_question))
+    if not (set(words) & _C14_ONLY_WORDS) or any(w not in _C14_ONLY_FILLER for w in rest):
+        return None
+    q = getattr(prev, "question", "") or ""
+    for s in before:
+        if s != named[0] and s in _SCHEME_NAME_MATCHER:
+            q = _SCHEME_NAME_MATCHER[s].sub(" ", q)
+    kept: list = []
+    for w in q.replace(",", " , ").split():
+        low = w.lower().strip("?.")
+        if low in _C14_COMPARE_WORDS:
+            continue
+        if low in _C14_JOIN_WORDS and (not kept or kept[-1].lower() in _C14_JOIN_WORDS
+                                       or kept[-1].lower() in ("in", "for", "of", "under", "between", "the")):
+            continue
+        kept.append(w)
+    while kept and kept[-1].lower().strip("?.") in _C14_JOIN_WORDS:
+        kept.pop()
+    out = " ".join(kept).strip(" ,?.")
+    if not out or named[0].lower() not in out.lower():
+        return None
+    return out[0].upper() + out[1:] + "?"
+
+
+# Accuracy gold bank wave 2 (2026-11-12, KI-691): "PMAY-G houses completed in East Garo Hills" then "and Focus
+# Plus beneficiaries there?" was rewritten "How many PMAY-G houses were completed in East Garo Hills for Focus
+# Plus beneficiaries?" and answered for BOTH schemes. Another scheme with "there" / "here" pointing at the one
+# place the previous data answer was about is that scheme's question in that place: "there" becomes
+# "in <place>" and nothing else is carried (a year of one scheme may not exist in another, so a previous
+# question with a year is left to the other paths). "… are there?" is the existential, never a place.
+_C14_THERE_WORDS = frozenset({"there", "here"})
+_C14_BE_WORDS = frozenset({"are", "is", "were", "was", "be", "been"})
+_C14_LEAD_FILLER = frozenset({"and", "also", "so", "ok", "okay", "then", "now"})
+
+
+def _c14_other_scheme_there(raw_question: str, prev) -> "str | None":
+    if prev is None or getattr(prev, "route", None) != "data":
+        return None
+    before = list(getattr(prev, "schemes", None) or [])
+    named = _named_schemes(raw_question or "")
+    if len(before) != 1 or len(named) != 1 or named[0] in before:
+        return None
+    q = raw_question or ""
+    toks = tokens(q)
+    there = [i for i, t in enumerate(toks) if t.low in _C14_THERE_WORDS
+             and not (i > 0 and toks[i - 1].low in _C14_BE_WORDS)]
+    if len(there) != 1 or named_places(q) or context_policy.extract_year_keys(q):
+        return None
+    prev_q = getattr(prev, "question", "") or ""
+    places = named_places(prev_q)
+    if len(places) != 1 or context_policy.extract_year_keys(prev_q):
+        return None
+    rest = _c01_tm_words(_SCHEME_NAME_MATCHER[named[0]].sub(" ", q))
+    if not [w for w in rest if w not in _C14_THERE_WORDS and w not in _C14_LEAD_FILLER and w != "over"]:
+        return None                                           # a scheme and "there" only: no measure asked
+    from app.entity_resolver import _place_title as _c14_place_title
+    t = toks[there[0]]
+    start = toks[there[0] - 1].start if there[0] > 0 and toks[there[0] - 1].low == "over" else t.start
+    out = (q[:start] + "in " + _c14_place_title(next(iter(places))) + q[t.end:]).strip()
+    lead = tokens(out)
+    while lead and (lead[0].low in _C14_LEAD_FILLER
+                    or (len(lead) > 1 and lead[0].low in ("what", "how") and lead[1].low == "about")):
+        cut = lead[1].end if lead[0].low in ("what", "how") and lead[1].low == "about" else lead[0].end
+        out = out[cut:].lstrip(" ,")
+        lead = tokens(out)
+    out = out.strip().rstrip(" ?.")
+    return (out[0].upper() + out[1:] + "?") if out else None
+
+
+def _c14_only_filter_keeps_breakdown(raw_question: str, rewritten: str, prev) -> str:
+    """KI-670: "Tell me about PMAY-G houses by district." then "Only the completed ones." was rewritten
+    without the district breakdown. A bare "only …" filter (no place of its own) keeps it."""
+    from app.entity_resolver import place_mentions as _c14_pm2
+    words = _c01_tm_words(raw_question)
+    if not words or words[0] not in ("only", "just") or named_places(raw_question) or _c14_pm2(raw_question) \
+            or context_policy.extract_year_keys(raw_question):
+        return rewritten
+    carried = _c14_carried_breakdown(rewritten, prev)
+    return rewritten.rstrip(" ?.") + carried + "?" if carried else rewritten
+
+
 async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                                scope: "auth.UserScope | None" = None) -> "dict | None":
     """Reference substitution, the follow-up merge plan and rewrite, and the
@@ -1381,6 +1530,20 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
             question = _cmp
             _meta_rewrite = True
             context_budget.log_decision("followup", rewrite="compare-with-scheme", question=question)
+    # 0h''-only. "only PMAY-G" after a comparison of PMAY-G with other schemes (KI-683)
+    if not _meta_rewrite and not scope_resumed and prev is not None:
+        _one = _c14_one_scheme_of_comparison(raw_question, prev)
+        if _one is not None:
+            question = _one
+            _meta_rewrite = True
+            context_budget.log_decision("followup", rewrite="one-scheme-of-comparison", question=question)
+    # 0h''-there. "and Focus Plus beneficiaries there?" after one place's answer (KI-691)
+    if not _meta_rewrite and not scope_resumed and prev is not None:
+        _there = _c14_other_scheme_there(raw_question, prev)
+        if _there is not None:
+            question = _there
+            _meta_rewrite = True
+            context_budget.log_decision("followup", rewrite="other-scheme-there", question=question)
     # 0h'''. CTX-07 (KI-363, KI-364): "Break it down by district" after a statewide
     #       answer, and "Compare ... with <place>" after another place's answer, run
     #       as the previous question by that dimension / for both places
@@ -1582,7 +1745,8 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                 # under PMAY-G in Rasong village in Mawkynrew block ..." (KI-348).
                 from app.entity_resolver import place_mentions as _c14_pm
                 question = (f"{question.strip().rstrip(' ?.')} under {_sch}"
-                            f"{_swap_scope_phrase(_thread_state, _sch, prev, with_place=not _c14_pm(question))}?")
+                            f"{_swap_scope_phrase(_thread_state, _sch, prev, with_place=not _c14_pm(question))}"
+                            f"{_c14_carried_breakdown(question, prev)}?")
                 context_budget.log_decision("followup", rewrite="deterministic-measure-change", scheme=_sch)
                 logger.info("follow-up measure change -> %r", question)
             elif (_ranked_q := _ranking_followup_question(question, prev, _plan, _thread_state)) and not (
@@ -1600,6 +1764,7 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
                                                   kind=_plan.kind if _plan else None,
                                                   cleared=_cleared_filters(_plan, prev, _thread_state))
                 question = _c14_keep_block_level(question, prev, _plan)          # KI-037
+                question = _c14_only_filter_keeps_breakdown(raw_question, question, prev)   # KI-670
             # The rewrite can introduce a bare "CM Elevate" ("give me for cm
             # elevate") — the same thread decision as above; outside a CM Elevate
             # thread the data stage asks which dataset.
@@ -1939,12 +2104,25 @@ _FOCUS_ACRONYM_ASK = Matcher(Alt(
 _KF_SIGNAL_EXEMPT = {"funding_pattern": {"compare"}}
 
 
+# Accuracy gold bank (2026-11-11, KI-672; RAG PDF Table 2 #3, FAIL): "How many CM Elevate applications
+# are there and how many schemes do they cover?" matched the design_count form on its second half ("how
+# many schemes ... cover") and the whole question went to the reference documents ("the number of
+# applications is not published"; the data holds 8,9xx). A count of STORED RECORDS anywhere in the
+# question makes it a figure question, whatever form another part has.
+_KF_RECORD_COUNT = Matcher(Seq(
+    "how", "many", Gap(3),
+    W("application", "applications", "applicant", "applicants", "beneficiary", "beneficiaries", "household",
+      "households", "houses", "payments", "disbursements", "records", "villages", "persondays")))
+
+
 def _knowledge_form_question(question: str) -> "str | None":
     """The name of the knowledge FORM `question` has (see _KF_FORMS), when it asks how
     a scheme works rather than for a figure; else None."""
     q = question or ""
     forms = [name for name, m in _KF_FORMS.items() if m.search(q)]
     if not forms:
+        return None
+    if "design_count" in forms and _KF_RECORD_COUNT.search(q):
         return None
     exempt = set().union(*(_KF_VETO_EXEMPT.get(f, set()) for f in forms))
     if any(hit.lower() not in exempt for hit in _KF_FIGURE_VETO.findall(q)):
@@ -1996,6 +2174,21 @@ def _hybrid_split(question: str) -> "tuple[str, str, str] | None":
             k_q = f"{k_q[:-1]} under {scheme}?"
         return k_q, d_q + "?", scheme
     return None
+
+
+# Accuracy gold bank (2026-11-11, KI-682): after a DATA answer, a short refinement that asks nothing about
+# how a scheme works ("and in East Khasi Hills?", "Only the completed ones.") was rewritten into a
+# standalone question ("What is the amount under Focus Legacy in East Khasi Hills?") whose "what is" sent
+# it to the reference documents ("no different amount for East Khasi Hills"). The user's own words decide:
+# no knowledge cue, no knowledge form, a few words, right after a data answer -> it stays a data question.
+def _c14_data_refinement(raw_question: str, prev) -> bool:
+    q = raw_question or ""
+    if prev is None or getattr(prev, "route", None) != "data" or len(q.split()) > 8:
+        return False
+    if _KNOWLEDGE_HINTS.search(q) or _knowledge_form_question(q) or _is_entitlement_question(q) \
+            or _WHO_BENEFITS_MATCH.search(q) or _is_scheme_term_question(q):
+        return False
+    return True
 
 
 async def _turn_route_stage(t: dict, session: "Session | None" = None,
@@ -2137,6 +2330,9 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
         # The user's own words are classified instead.
         intent = await classify_intent(raw_question, **_c14_plan_kw)
     intent = intent or await classify_intent(question, **_c14_plan_kw)
+    if intent == "KNOWLEDGE" and is_followup_rewrite and _c14_data_refinement(raw_question, t.get("prev")):
+        context_budget.log_decision("intent", override="data-followup-refinement", was="KNOWLEDGE")
+        intent = "DATA"
     if intent == "DATA" and _is_entitlement_question(raw_question):
         intent = "KNOWLEDGE"
     # KR1 (knowledge fix 2026-10-29): the question's form, not its words — see _KF_FORMS.

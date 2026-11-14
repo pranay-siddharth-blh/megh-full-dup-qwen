@@ -1,0 +1,199 @@
+/* ============== THE SECRETARY'S DESK (voice/SecretaryDesk.jsx), 2026-11-03 ==============
+   A replica of Sakala Mitra's Chief Secretary side columns (D:/Sakala POC/mitra/web/mitra.css, read-only source; the
+   light-theme values that win: .card, .kpis.k8 / .kpi, .boardh, .bar, .minirow, .pstrip, .convo), in Megh's purple:
+   Mitra emerald #16c784 / #0e9f6e / #0a7f58 -> --p-500 / --p-600 / --p-700, cyan #79e3ff -> lavender #B27FE0.
+   Mitra's neutrals (ink #0b0d14, mute #525a6c, mute2 #8c93a3, hairlines rgba(12,16,28,…)) are kept as they are.
+   No animation runs here: the column's own entrance (voice-stage.css vsColIn) is the one entrance; the cells and the
+   sparkline use one-shot transitions keyed on .in, and nothing loops.
+   Every rule is scoped under .sdk so it wins over the older .sd-* rules in voice-stage.css whatever the load order. */
+.sdk {
+  --sd-tx: #0b0d14; --sd-mute: #525a6c; --sd-mute2: #8c93a3;
+  --sd-line: rgba(12, 16, 28, .10); --sd-line2: rgba(12, 16, 28, .2); --sd-s1: rgba(12, 16, 28, .04); --sd-s2: rgba(12, 16, 28, .075);
+  --sd-em: var(--p-600, #7C3FBF); --sd-em2: var(--p-700, #5C2D91); --sd-em1: var(--p-500, #9558CF); --sd-cy: #B27FE0;
+  display: flex; flex-direction: column; gap: 14px; min-width: 0;
+  font-family: 'Inter', -apple-system, 'Segoe UI', sans-serif; letter-spacing: -.011em; color: var(--sd-tx);
+  -webkit-font-smoothing: antialiased;
+}
+.sdk button { font: inherit; letter-spacing: inherit; color: inherit; margin: 0; }
+
+/* ---- glass card (Mitra .card, light) ---- */
+.sdk .sdk-card {
+  position: relative; flex: none; border-radius: 22px; padding: 16px 18px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, .96), rgba(255, 255, 255, .86));
+  border: 1px solid rgba(12, 16, 28, .07);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .9) inset, 0 12px 32px rgba(30, 45, 80, .07);
+  transition: box-shadow .25s;
+  container-type: inline-size; container-name: sdcard;
+}
+.sdk .sdk-card::before {
+  content: ""; position: absolute; left: 18px; right: 18px; top: 0; height: 2px; border-radius: 2px; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(124, 63, 191, .55), rgba(178, 127, 224, .45), transparent); opacity: .7;
+}
+.sdk .sdk-card:hover { box-shadow: 0 1px 0 rgba(255, 255, 255, .9) inset, 0 18px 40px rgba(30, 45, 80, .1); }
+.sdk .sdk-card h3 {
+  margin: 0 0 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; color: var(--sd-mute);
+}
+.sdk .sdk-card h3 small {
+  font-size: 10.5px; text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--sd-mute2);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0;
+}
+
+/* ---- the eight command tiles (Mitra .kpis.k8 .kpi) ---- */
+.sdk .sdk-k8 { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; }
+@container sdcard (max-width: 520px) { .sdk .sdk-k8 { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+.sdk .sd-tile.sdk-kpi {
+  display: block; width: 100%; min-width: 0; min-height: 0; text-align: left; cursor: pointer; overflow: hidden;
+  border: 1px solid rgba(12, 16, 28, .07); border-radius: 16px; padding: 12px 14px;
+  background: rgba(255, 255, 255, .85); box-shadow: none;
+  transition: all .2s; animation: none;
+  container-type: inline-size;
+}
+.sdk .sd-tile.sdk-kpi::before, .sdk .sd-tile.sdk-kpi::after { content: none; display: none; }
+.sdk .sd-tile.sdk-kpi:hover { border-color: var(--sd-line2); transform: translateY(-1px); box-shadow: none; }
+.sdk .sd-tile.sdk-kpi:focus-visible { outline: 2px solid var(--sd-em1); outline-offset: 2px; }
+.sdk .sdk-kpi .v {
+  display: block; white-space: nowrap; line-height: 1; font-weight: 700; letter-spacing: -.03em; color: var(--c, var(--sd-em));
+  font-size: min(22px, calc(100cqw * 1.62 / var(--ch, 6))); font-variant-numeric: tabular-nums;
+}
+.sdk .sdk-kpi .v small { font-size: 10.5px; font-weight: 600; letter-spacing: 0; margin-left: 3px; color: var(--sd-mute); }
+.sdk .sdk-kpi .l {
+  display: block; margin-top: 6px; font-size: 10.5px; line-height: 1.25; color: var(--sd-mute);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+}
+.sdk .sd-tile.sdk-kpi.hero {
+  background: linear-gradient(135deg, #0b0d14, #1b2233); color: #fff; border-color: #0b0d14;
+  box-shadow: 0 12px 30px rgba(11, 13, 20, .25);
+}
+.sdk .sdk-kpi.hero .v { color: #fff; }
+.sdk .sdk-kpi.hero .l, .sdk .sdk-kpi.hero .v small { color: #aab0c0; }
+
+/* ---- section heading (Mitra .boardh) ---- */
+.sdk .sdk-boardh {
+  display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-top: 12px;
+  font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--sd-mute); font-weight: 700;
+}
+.sdk .sdk-boardh span:last-child { text-transform: none; letter-spacing: 0; font-weight: 500; color: var(--sd-mute2); white-space: nowrap; }
+
+/* ---- years held (in place of Mitra's .dclock: the same compact bars, one row per scheme) ---- */
+.sdk .sd-years { margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
+.sdk .sd-yr-grid {
+  display: grid; grid-template-columns: minmax(84px, 1.5fr) repeat(var(--n), minmax(0, 1fr));
+  gap: 4px; align-items: end; margin-top: 10px;
+}
+.sdk .sd-yr-c { font-size: 9px; color: var(--sd-mute); text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.sdk .sd-yr-s {
+  font-size: 10.5px; font-weight: 600; color: var(--sd-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  line-height: 12px; align-self: center;
+}
+.sdk .sd-yr-s::before { content: ""; display: inline-block; width: 6px; height: 6px; border-radius: 2px; background: var(--c); margin-right: 6px; vertical-align: 1px; }
+.sdk .sd-yr-grid i {
+  display: block; height: 3px; min-height: 3px; border: 0; border-radius: 5px 5px 2px 2px; background: var(--sd-s2); box-shadow: none;
+  transition: height .8s cubic-bezier(.16, 1, .3, 1);
+}
+.sdk .sd-yr-grid i.on {
+  height: 12px; border: 0; box-shadow: none;
+  background: linear-gradient(180deg, color-mix(in srgb, var(--c) 70%, #fff), var(--c));
+}
+.sdk .sd-yr-n { font-size: 10.5px; color: var(--sd-mute2); margin: 6px 0 0; }
+
+/* ---- money by scheme (Mitra .bars / .bar) ---- */
+.sdk .sdk-bars { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
+.sdk .sdk-bar {
+  display: grid; grid-template-columns: 110px 1fr 64px; gap: 8px; align-items: center; width: 100%;
+  font-size: 12px; text-align: left; border: 0; background: none; padding: 0; cursor: pointer;
+}
+.sdk .sdk-bar .t { color: var(--sd-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sdk .sdk-bar .b { height: 8px; border-radius: 999px; background: var(--sd-s2); overflow: hidden; }
+.sdk .sdk-bar .b i {
+  display: block; height: 100%; border-radius: 999px;
+  background: linear-gradient(90deg, var(--sd-em2), var(--sd-em1)); transition: width .8s cubic-bezier(.2, .8, .2, 1);
+}
+.sdk .sdk-bar .n { text-align: right; font-weight: 600; font-variant-numeric: tabular-nums; color: var(--sd-tx); }
+.sdk .sdk-bar:hover .t { color: var(--sd-em); }
+
+/* ---- busiest districts (Mitra .minirow) ---- */
+.sdk .sdk-minirow {
+  display: flex; justify-content: space-between; align-items: center; gap: 8px; width: 100%;
+  padding: 5px 0; border: 0; border-bottom: 1px solid var(--sd-line); background: none;
+  font-size: 12px; text-align: left; cursor: pointer; color: var(--sd-tx);
+}
+.sdk .sdk-minirow:hover { color: var(--sd-em); }
+.sdk .sdk-minirow > span:first-child { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.sdk .sdk-minirow > span:last-child { flex: none; color: var(--sd-mute); }
+.sdk .sdk-minirow b { font-variant-numeric: tabular-nums; color: var(--sd-tx); }
+.sdk .sdk-minirow:hover b { color: var(--sd-em); }
+
+/* ---- the pulse strip (Mitra .pstrip), person-days by district + the year sparkline ---- */
+.sdk .sdk-pstrip { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--sd-line); }
+.sdk .sdk-pstrip .ph {
+  display: flex; justify-content: space-between; gap: 10px; margin: 4px 0 6px;
+  font-size: 10px; letter-spacing: .1em; text-transform: uppercase; color: var(--sd-mute2);
+}
+.sdk .sdk-pstrip .ph span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sdk .sdk-pstrip .ph span:last-child { flex: none; text-transform: none; letter-spacing: 0; }
+.sdk .sdk-pstrip .cells { display: grid; grid-template-columns: repeat(var(--n, 12), 1fr); gap: 3px; height: 26px; }
+.sdk .sdk-pstrip .cells button {
+  display: block; padding: 0; border: 0; border-radius: 3px; cursor: pointer; transform-origin: 50% 100%;
+  background: color-mix(in srgb, var(--p-700, #5C2D91) calc(var(--h) * 100%), var(--p-100, #F4EBFC));
+  opacity: 0; transform: scaleY(.1);
+  transition: transform .6s cubic-bezier(.2, .8, .2, 1) calc(var(--i, 0) * 30ms), opacity .6s ease calc(var(--i, 0) * 30ms);
+}
+.sdk.in .sdk-pstrip .cells button { opacity: calc(.35 + var(--h) * .65); transform: none; }
+.sdk.in .sdk-pstrip .cells button:hover { transform: scaleY(1.25); opacity: 1; transition-delay: 0s; transition-duration: .2s; }
+.sdk .sdk-pstrip .cells button.top { box-shadow: 0 0 0 1.5px var(--sd-em), 0 0 10px rgba(124, 63, 191, .6); }
+.sdk .sdk-pstrip .cells button:focus-visible { outline: 2px solid var(--sd-em1); outline-offset: 1px; }
+.sdk .sdk-pstrip .spark { width: 100%; height: 34px; display: block; }
+.sdk .sdk-pstrip .spark .ln {
+  fill: none; stroke: var(--sd-em); stroke-width: 1.6; vector-effect: non-scaling-stroke;
+  stroke-dasharray: 400; stroke-dashoffset: 400; transition: stroke-dashoffset 1.6s ease-out;
+}
+.sdk.in .sdk-pstrip .spark .ln { stroke-dashoffset: 0; }
+.sdk .sdk-pstrip .spark .fill { fill: rgba(124, 63, 191, .14); stroke: none; }
+
+/* ---- on the map: the chips (Mitra's map-panel chips) and the still map card, flat inside the glass card ---- */
+.sdk .sd-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; }
+.sdk .sd-chips button {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 9px; border-radius: 999px; cursor: pointer;
+  border: 1px solid rgba(12, 16, 28, .08); background: rgba(255, 255, 255, .9); box-shadow: none;
+  font-size: 11px; font-weight: 700; color: var(--sd-mute); transition: border-color .2s, background .2s, color .2s;
+}
+.sdk .sd-chips button i { width: 7px; height: 7px; border-radius: 50%; background: var(--c); flex: none; }
+.sdk .sd-chips button:hover { border-color: rgba(124, 63, 191, .35); color: var(--sd-tx); }
+.sdk .sd-chips button.on {
+  background: rgba(124, 63, 191, .1); border-color: var(--sd-em); color: var(--sd-em2); box-shadow: none;
+}
+.sdk .sdk-map .vc {
+  height: clamp(260px, 40vh, 420px); flex: none; padding: 0; border: 0; border-radius: 14px;
+  background: none; box-shadow: none; transform: none; animation: none;
+}
+.sdk .sdk-map .vc:hover { box-shadow: none; }
+.sdk .sdk-map .vc-h, .sdk .sdk-map .vc-f, .sdk .sdk-map .vc-sheen, .sdk .sdk-map .vc-scan, .sdk .sdk-map .vc-glint { display: none; }
+.sdk .sdk-map .vc-body { margin-top: 0; }
+.sdk .sdk-cap { margin: 8px 0 0; font-size: 10.5px; line-height: 1.4; color: var(--sd-mute2); }
+
+/* ---- the conversation strip (Mitra .convo): you on the right in lavender, Megh on the left ---- */
+.sdk .sdk-convo {
+  display: flex; flex-direction: column; gap: 10px; max-height: 300px; overflow: auto; scrollbar-width: thin;
+}
+.sdk .sdk-ex {
+  display: flex; flex-direction: column; gap: 6px; width: 100%; padding: 0; border: 0; background: none; text-align: left; cursor: pointer;
+}
+.sdk .sdk-ex .you, .sdk .sdk-ex .jv { display: flex; align-items: center; gap: 8px; font-size: 12.5px; line-height: 1.35; }
+.sdk .sdk-ex .you { justify-content: flex-end; text-align: right; color: var(--sd-mute); }
+.sdk .sdk-ex .you span {
+  max-width: 80%; padding: 7px 11px; border-radius: 14px 14px 4px 14px; color: var(--sd-tx);
+  background: rgba(178, 127, 224, .1); border: 1px solid rgba(178, 127, 224, .25);
+}
+.sdk .sdk-ex .jv span {
+  max-width: 86%; padding: 7px 11px; border-radius: 14px 14px 14px 4px; color: var(--sd-tx);
+  background: var(--sd-s1); border: 1px solid var(--sd-line); transition: border-color .2s, background .2s;
+}
+.sdk .sdk-ex:hover .jv span { border-color: rgba(124, 63, 191, .3); background: #fff; }
+.sdk .sdk-ex:hover .you span { border-color: rgba(178, 127, 224, .5); }
+.sdk .sdk-ex:focus-visible { outline: 2px solid var(--sd-em1); outline-offset: 2px; border-radius: 14px; }
+.sdk .sdk-empty { margin: 0; font-size: 12px; line-height: 1.45; color: var(--sd-mute2); }
+
+@media (prefers-reduced-motion: reduce) {
+  .sdk .sdk-pstrip .cells button, .sdk .sdk-pstrip .spark .ln, .sdk .sd-yr-grid i, .sdk .sdk-bar .b i { transition: none; }
+}

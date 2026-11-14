@@ -1661,6 +1661,15 @@ def _cme_rule_9(open_: bool, rule) -> str:
      That file status is inside scheme_specific, so a PENDING / ON-HOLD count is NOT AVAILABLE
      either — say so and offer the recorded figures (applications; forward / resubmit / sendback).
      NEVER answer pending or on hold from data_verified = 'On Hold' (user decision 2026-10-30).""")
+    if not rule.json_keys():
+        # KI-676 (accuracy gold bank 2026-11-11): the DB team exposed a plain file_status column on
+        # v_cm_elevate and the knowledge base points at it; scheme_specific itself stays locked
+        # (permission denied, VERIFIED 2026-11-11), so "may read: none" must not invite it.
+        fs = rule.file_status_column() or "file_status"
+        return (f"""{fs} is a plain column (values Pending, Send Back, Rejected): the department's decision on
+     the file. Use it for a pending / on-hold, sent-back or rejected question. scheme_specific (the
+     JSON column with gender_id and occupation_id) is LOCKED from the chatbot's database role:
+     Never write scheme_specific, ->>, ? or @> against it. Gender is NOT AVAILABLE for CM Elevate.""")
     keys = ", ".join(sorted(rule.json_keys())) or "none"
     return (f"""scheme_specific is a JSON column. The ONLY key(s) you may read: {keys} — and only for a
      pending / on-hold, sent-back or rejected question. Never read gender_id, occupation_id or

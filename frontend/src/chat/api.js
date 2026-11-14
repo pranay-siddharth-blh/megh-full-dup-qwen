@@ -325,6 +325,32 @@ export async function fetchSchemeStats() {
   }
 }
 
+// The voice desk's board (D-100): GET /api/voice/board -> { schemes: [{ name, measures: [{ key, label, unit,
+// counts, total, by_district, by_year }] }], districts, regions, as_of }. Read-only figures computed by the backend
+// beside the pipeline (app/voice/board.py), cached there. null on any failure: the desk then shows no tiles.
+// Kept in memory for 10 minutes and fetched ahead (useLiveVoice warms it when the chat loads), so the voice desk
+// opens complete, in one entrance, never in stages (user, 2026-11-02: "it keeps generating at 1 second intervals").
+const BOARD = { data: null, at: 0, pending: null };
+export const peekVoiceBoard = () => (BOARD.data && Date.now() - BOARD.at < 600000 ? BOARD.data : null);
+export function fetchVoiceBoard() {
+  if (peekVoiceBoard()) return Promise.resolve(BOARD.data);
+  if (BOARD.pending) return BOARD.pending;
+  BOARD.pending = (async () => {
+    try {
+      const res = await apiFetch('/api/voice/board', { cache: 'no-store' });
+      if (!res.ok) return BOARD.data;
+      const data = await res.json();
+      if (data && Array.isArray(data.schemes)) { BOARD.data = data; BOARD.at = Date.now(); }
+      return BOARD.data;
+    } catch (e) {
+      return BOARD.data;
+    } finally {
+      BOARD.pending = null;
+    }
+  })();
+  return BOARD.pending;
+}
+
 // Is the service back? GET /health (anonymous: {status}). 'ok' when the app
 // and its database answer; 'degraded' when the app answers but a dependency
 // (megh_db behind the VPN, Qdrant) does not; 'down' when the app can't be

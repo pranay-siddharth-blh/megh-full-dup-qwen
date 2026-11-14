@@ -1,0 +1,714 @@
+{
+ "label": "smoke",
+ "when": "2026-11-11_1123",
+ "seconds": 55,
+ "bank_recorded": "2026-11-11",
+ "summary": "category                   cases       turns\nchain                        1/1         2/2\nchart                        1/1         2/2\ncm_elevate                   0/1         0/1\ncm_elevate_legacy            1/1         1/1\nfocus_plus                   1/1         1/1\nmgnrega                      2/2         2/2\npmay                         1/1         1/1\nTOTAL                        7/8        9/10   (87.5% cases)\n\nfailure taxonomy (primary tag per failing turn):\n  unit/format            1  CARD-cme-apps",
+ "results": [
+  {
+   "id": "G-D1",
+   "cat": "mgnrega",
+   "shape": "state-year",
+   "src": "live_chat_golden.py (brief 2026-10-29) D1",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 9.5,
+   "turns": [
+    {
+     "q": "Total MGNREGA person-days statewide in FY 2023-24?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 8.7,
+     "answer": "The total MGNREGA person-days statewide in FY 2023-24 is 2,72,64,054.",
+     "schemes": [
+      "MGNREGA"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "/* metric:mgnrega_employment_generated total */ SELECT SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE year_key = 2023",
+     "data": [
+      {
+       "employment_generated": 27264054
+      }
+     ],
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by district."
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 27264054
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "G-D3",
+   "cat": "mgnrega",
+   "shape": "ranking",
+   "src": "live_chat_golden.py (brief 2026-10-29) D3",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 8.5,
+   "turns": [
+    {
+     "q": "Which district had the most households completing 100 days in FY 2022-23?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 7.5,
+     "answer": "Highest households 100 days (MGNREGA, Meghalaya, FY 2022-23): East Garo Hills, 22,049. Next: South Garo Hills (9,969), then South West Khasi Hills (7,778).",
+     "schemes": [
+      "MGNREGA"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "/* metric:mgnrega_households_100_days ranking */ SELECT lgd_district AS district, SUM(households_completed_100_days) AS households_100_days\nFROM curated.v_employment\nWHERE year_key = 2022 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY households_100_days DESC NULLS LAST LIMIT 3",
+     "data": [
+      {
+       "district": "EAST GARO HILLS",
+       "households_100_days": 22049
+      },
+      {
+       "district": "SOUTH GARO HILLS",
+       "households_100_days": 9969
+      },
+      {
+       "district": "SOUTH WEST KHASI HILLS",
+       "households_100_days": 7778
+      }
+     ],
+     "chips": [
+      "How many MGNREGA person-days were generated in Meghalaya, by district?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by block within East Garo Hills."
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "EAST GARO HILLS",
+         22049
+        ],
+        [
+         "SOUTH GARO HILLS",
+         9969
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         7778
+        ],
+        [
+         "NORTH GARO HILLS",
+         5133
+        ],
+        [
+         "WEST GARO HILLS",
+         4682
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         4598
+        ],
+        [
+         "EAST KHASI HILLS",
+         4005
+        ],
+        [
+         "RI BHOI",
+         1089
+        ],
+        [
+         "WEST KHASI HILLS",
+         726
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         617
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         503
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         404
+        ]
+       ],
+       "unit": "count",
+       "take": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "G-D10",
+   "cat": "cm_elevate_legacy",
+   "shape": "state-total",
+   "src": "live_chat_golden.py (brief 2026-10-29) D10",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 28.7,
+   "turns": [
+    {
+     "q": "CM Elevate Legacy: number of records, subsidy disbursed, scheme with most records?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 26.0,
+     "answer": "Across all financial years for Meghalaya under CM Elevate Legacy, there are 2,823 records with ₹52.57 crore disbursed as subsidy.\n\nHighest records (CM Elevate Legacy, Meghalaya, across all financial years): Meghalaya Piggery Development Scheme, 1,353. Next: Meghalaya Poultry Farming Scheme (454), then Meghalaya Sericulture & Weaving Scheme (Spinning) (198).\n\nNote: CM Elevate Legacy amounts are provisional, and the money unit has not been verified by the department.",
+     "schemes": [
+      "CM Elevate Legacy"
+     ],
+     "chart_type": "kpi_bar",
+     "rewritten": "How many records are there and how much subsidy was disbursed under CM Elevate Legacy?",
+     "sql": "SELECT COUNT(*) AS records,\n       ROUND(SUM(total_subsidy_disbursement) / 1e7, 2) AS subsidy_cr\nFROM curated.v_cm_elevate_disbursement;\n\nSELECT scheme_name, COUNT(*) AS records FROM curated.v_cm_elevate_disbursement GROUP BY scheme_name ORDER BY records DESC NULLS LAST LIMIT 3",
+     "data": [
+      {
+       "scheme_name": "Meghalaya Piggery Development Scheme",
+       "records": 1353
+      },
+      {
+       "scheme_name": "Meghalaya Poultry Farming Scheme",
+       "records": 454
+      },
+      {
+       "scheme_name": "Meghalaya Sericulture & Weaving Scheme (spinning)",
+       "records": 198
+      }
+     ],
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "Break that down by district.",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 2823
+      },
+      {
+       "label": null,
+       "unit": "rupees",
+       "live": 525658223.25
+      },
+      {
+       "rows": [
+        [
+         "Meghalaya Piggery Development Scheme",
+         1353
+        ],
+        [
+         "Meghalaya Poultry Farming Scheme",
+         454
+        ],
+        [
+         "Meghalaya Sericulture & Weaving Scheme (spinning)",
+         198
+        ],
+        [
+         "Meghalaya Sericulture & Weaving Scheme(weaving)",
+         197
+        ],
+        [
+         "Prime Agriculture Response Vehicle Scheme",
+         192
+        ],
+        [
+         "Meghalaya Dairy Development Scheme",
+         132
+        ],
+        [
+         "Prime Tourism Vehicle Scheme",
+         92
+        ],
+        [
+         "Meghalaya Agriculture Warehouse Scheme",
+         87
+        ],
+        [
+         "Meghalaya Goat Farming Scheme",
+         48
+        ],
+        [
+         "Meghalaya Any Business Venture Scheme",
+         33
+        ],
+        [
+         "Meghalaya Common Facility Center Scheme",
+         27
+        ],
+        [
+         "Meghalaya Sports & Wellness Scheme",
+         9
+        ]
+       ],
+       "unit": "count",
+       "take": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "CARD-cme-apps",
+   "cat": "cm_elevate",
+   "shape": "state-count",
+   "src": "live_chat_golden.py card_cases",
+   "ok": false,
+   "primary": "unit/format",
+   "drift": [],
+   "seconds": 12.3,
+   "turns": [
+    {
+     "q": "How many CM Elevate applications are there in total?",
+     "ok": false,
+     "primary": "unit/format",
+     "fails": [
+      "[unit/format] valid applications/all applications = 7375 | 8938: valid applications found but the answer does not say 'valid'"
+     ],
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 10.5,
+     "answer": "There are 7,375 total CM Elevate applications. This is the statewide figure for all of Meghalaya.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 7375
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by district.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 7375
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 8938
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "UAT-P04",
+   "cat": "pmay",
+   "shape": "breakdown",
+   "src": "UAT Passed Questions PDF (30 Oct 2026) PMAY-OFF-006",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 5.8,
+   "turns": [
+    {
+     "q": "Give me the house status breakdown for GABIL SONGGITCHAM.",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 5.2,
+     "answer": "House status breakdown (345 houses) in Gabil Songgitcham village (Bajengdoba block, North Garo Hills), across all financial years (FY 2017-18 to FY 2023-24): Completed 179, Roof Cast 91, Plinth 73, House Sanctioned 2. This is the PMAY-G figure across all financial years.",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": "kpi_bar",
+     "rewritten": "What is the house status breakdown for GABIL SONGGITCHAM?",
+     "sql": "SELECT\n  village_code AS entity_key,\n  MAX(lgd_village_name) AS name,\n  MAX(lgd_block) AS block,\n  MAX(lgd_district) AS district,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_name IS NULL) AS no_status,\n  COUNT(*) FILTER(WHERE\n    sanctioned_amount > 0 AND COALESCE(amount_released, 0) >= sanctioned_amount) AS full_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) > 0\n    AND COALESCE(amount_released, 0) < sanctioned_amount) AS part_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) = 0) AS no_release,\n  COUNT(*) FILTER(WHERE\n    sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount\n    AND NOT COALESCE(is_completed, FALSE)) AS full_not_done,\n  COUNT(DISTINCT sanction_no) AS sanction_numbers,\n  COUNT(*) FILTER(WHERE\n    is_placeholder) AS placeholders,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed') AS st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast') AS st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth') AS st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned') AS st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)') AS st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site') AS st_proposed_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_proposed_site\nFROM curated.v_pmay\nWHERE\n  village_code = ANY(\n    ARRAY[275189]\n  )\nGROUP BY\n  village_code",
+     "data": [
+      {
+       "village": "Gabil Songgitcham",
+       "Completed": 179,
+       "Roof Cast": 91,
+       "Plinth": 73,
+       "House Sanctioned": 2
+      }
+     ],
+     "chips": [
+      "What is the PMAY-G completion rate in Meghalaya?",
+      "How many PMAY-G houses have been completed in Meghalaya?",
+      "How many PMAY-G houses have been sanctioned in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "Completed",
+         179
+        ],
+        [
+         "Roof Cast",
+         91
+        ],
+        [
+         "Plinth",
+         73
+        ],
+        [
+         "House Sanctioned",
+         2
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "RAG-D10",
+   "cat": "focus_plus",
+   "shape": "count+districts",
+   "src": "RAG Knowledge and Data Test PDF, Table 2 (30 Oct 2026) #10 (PARTIAL: count shown as money)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 14.2,
+   "turns": [
+    {
+     "q": "How many FOCUS+ disbursements have been made and in how many districts?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 12.2,
+     "answer": "In Meghalaya across all financial years, Focus Plus recorded 3,85,671 disbursements across 12 districts.\n- **Disbursements**: 3,85,671\n- **Districts**: 12\n\nNote: there is no Focus Plus data for FY 2023-24 and FY 2024-25 (absent years, not zero).",
+     "schemes": [
+      "Focus Plus"
+     ],
+     "chart_type": "kpi_bar",
+     "rewritten": "How many disbursements have been made under Focus Plus and in how many districts?",
+     "sql": "SELECT COUNT(*) AS payments,\n       COUNT(DISTINCT lgd_district) AS districts\nFROM curated.v_focus_plus",
+     "data": [
+      {
+       "payments": 385671,
+       "districts": 12
+      }
+     ],
+     "chips": [
+      "How many Focus Plus payments were made in Meghalaya?",
+      "Break that down by district.",
+      "How much has been disbursed under Focus Plus in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 385671
+      },
+      {
+       "label": "districts",
+       "unit": "count",
+       "live": 12
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "CH-08",
+   "cat": "chart",
+   "shape": "ranking-topn",
+   "src": "Chart Test Questions PDF (30 Oct 2026) #8-9 (pie, then a bar follow-up)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 22.6,
+   "turns": [
+    {
+     "q": "Top 5 districts by FOCUS+ beneficiaries as a pie chart",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 10.6,
+     "answer": "The statewide Focus Plus scheme beneficiaries across all financial years for the top five districts are:\n1. **WEST GARO HILLS** — 35,039\n2. **SOUTH WEST GARO HILLS** — 15,294\n3. **EAST KHASI HILLS** — 13,608\n4. **EAST GARO HILLS** — 11,379\n5. **NORTH GARO HILLS** — 11,007\n\nNote: there is no Focus Plus data for FY 2023-24 and FY 2024-25 (absent years, not zero).",
+     "schemes": [
+      "Focus Plus"
+     ],
+     "chart_type": "pie",
+     "rewritten": "Which are the top 5 districts by Focus Plus beneficiaries as a pie chart?",
+     "sql": "SELECT lgd_district, COUNT(DISTINCT beneficiary_key) AS beneficiaries FROM curated.v_focus_plus WHERE NOT lgd_district IS NULL GROUP BY lgd_district ORDER BY beneficiaries DESC NULLS LAST LIMIT 5",
+     "data": [
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "beneficiaries": 35039
+      },
+      {
+       "lgd_district": "SOUTH WEST GARO HILLS",
+       "beneficiaries": 15294
+      },
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "beneficiaries": 13608
+      },
+      {
+       "lgd_district": "EAST GARO HILLS",
+       "beneficiaries": 11379
+      },
+      {
+       "lgd_district": "NORTH GARO HILLS",
+       "beneficiaries": 11007
+      }
+     ],
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by block within West Garo Hills.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by district?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         35039
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         15294
+        ],
+        [
+         "EAST KHASI HILLS",
+         13608
+        ],
+        [
+         "EAST GARO HILLS",
+         11379
+        ],
+        [
+         "NORTH GARO HILLS",
+         11007
+        ],
+        [
+         "SOUTH GARO HILLS",
+         8612
+        ],
+        [
+         "WEST KHASI HILLS",
+         6754
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         1792
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         1221
+        ],
+        [
+         "RI BHOI",
+         419
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         404
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         283
+        ]
+       ],
+       "unit": "count",
+       "take": 5
+      }
+     ]
+    },
+    {
+     "q": "now show it as a bar chart",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 7.5,
+     "answer": "This bar chart ranks the top five Meghalaya districts by Focus Plus beneficiaries statewide across all financial years:\n1. **WEST GARO HILLS** — 35,039\n2. **SOUTH WEST GARO HILLS** — 15,294\n3. **EAST KHASI HILLS** — 13,608\n4. **EAST GARO HILLS** — 11,379\n5. **NORTH GARO HILLS** — 11,007\n\nNote: there is no Focus Plus data for FY 2023-24 and FY 2024-25 (absent years, not zero).",
+     "schemes": [
+      "Focus Plus"
+     ],
+     "chart_type": "bar",
+     "rewritten": "Which are the top 5 districts by Focus Plus beneficiaries as a bar chart",
+     "sql": "SELECT lgd_district, COUNT(DISTINCT beneficiary_key) AS beneficiaries FROM curated.v_focus_plus WHERE NOT lgd_district IS NULL GROUP BY lgd_district ORDER BY beneficiaries DESC NULLS LAST LIMIT 5",
+     "data": [
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "beneficiaries": 35039
+      },
+      {
+       "lgd_district": "SOUTH WEST GARO HILLS",
+       "beneficiaries": 15294
+      },
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "beneficiaries": 13608
+      },
+      {
+       "lgd_district": "EAST GARO HILLS",
+       "beneficiaries": 11379
+      },
+      {
+       "lgd_district": "NORTH GARO HILLS",
+       "beneficiaries": 11007
+      }
+     ],
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by block within West Garo Hills.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by district?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         35039
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         15294
+        ],
+        [
+         "EAST KHASI HILLS",
+         13608
+        ],
+        [
+         "EAST GARO HILLS",
+         11379
+        ],
+        [
+         "NORTH GARO HILLS",
+         11007
+        ],
+        [
+         "SOUTH GARO HILLS",
+         8612
+        ],
+        [
+         "WEST KHASI HILLS",
+         6754
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         1792
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         1221
+        ],
+        [
+         "RI BHOI",
+         419
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         404
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         283
+        ]
+       ],
+       "unit": "count",
+       "take": 5
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "FU-06",
+   "cat": "chain",
+   "shape": "clarification",
+   "src": "follow-up chain (voice bank E1)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 9.4,
+   "turns": [
+    {
+     "q": "Beneficiaries under Focus.",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "route": "pause",
+     "pause_rule": "focus-scheme-ambiguous",
+     "seconds": 1.0,
+     "answer": "Two different schemes are called Focus, and they hold different things — Focus Legacy pays PRODUCER GROUPS (one payment per group, Rs 5,000 per member), while Focus Plus pays INDIVIDUAL farmers directly. Which one do you mean?",
+     "schemes": null,
+     "chart_type": null,
+     "rewritten": null,
+     "sql": null,
+     "data": [],
+     "chips": [
+      "Focus Legacy (producer group payments)",
+      "Focus Plus (individual farmer cash benefit)"
+     ],
+     "truth": []
+    },
+    {
+     "q": "Focus Plus",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 5.5,
+     "answer": "There are 1,05,813 beneficiaries under the Focus Plus scheme across all financial years for Meghalaya.\n\nNote: there is no Focus Plus data for FY 2023-24 and FY 2024-25 (absent years, not zero).",
+     "schemes": [
+      "Focus Plus"
+     ],
+     "chart_type": null,
+     "rewritten": "How many beneficiaries are there under Focus Plus",
+     "sql": "SELECT COUNT(DISTINCT beneficiary_key) AS beneficiaries FROM curated.v_focus_plus",
+     "data": [
+      {
+       "beneficiaries": 105813
+      }
+     ],
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by district.",
+      "How much has been disbursed under Focus Plus in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 105813
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

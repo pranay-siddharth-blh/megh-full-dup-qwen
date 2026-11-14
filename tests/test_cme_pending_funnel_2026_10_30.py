@@ -6,8 +6,9 @@ FROM THE KNOWLEDGE BASE (cmelevate_pending_rule.yaml) through app/cme_pending_ru
 typed into code, so these tests read the rule the same way and also prove that changing the YAML
 steps changes the SQL.
 
-file_status lives inside curated.v_cm_elevate.scheme_specific, which the chatbot's database role
-has not been allowed to read since 2026-10-16 (KI-624). Every change is gated on
+file_status lived inside curated.v_cm_elevate.scheme_specific, which the chatbot's database role
+has not been allowed to read since 2026-10-16 (KI-624). Since 2026-11-11 the DB team exposes a plain
+file_status column (readable; KI-676) and the YAML points at it. Every change is gated on
 cme_pending_rule.readable(): every column the rule needs is among the live columns the read-only
 role may SELECT. These tests open the gate by patching schema_introspect.live_columns(). With it
 closed, a pending / on-hold question gets "not available" + the rule + the recorded workflow
@@ -33,7 +34,10 @@ PIG = "Meghalaya Piggery Development Scheme"
 RULE_SQL = rule.sql()                       # from the YAML, not typed here
 RULE_TEXT = rule.text()
 OPEN = {"curated.v_cm_elevate": [{"column": c} for c in ("request_id", "data_verified", "current_file_status",
-                                                         "current_level", "scheme_specific")]}
+                                                         "current_level", "file_status")]}
+# the view before the plain file_status column existed (only the locked JSON column held it)
+NO_FS = {"curated.v_cm_elevate": [{"column": c} for c in ("request_id", "data_verified", "current_file_status",
+                                                          "current_level")]}
 LOCKED = {"curated.v_cm_elevate": [{"column": c} for c in ("request_id", "data_verified", "current_file_status")]}
 WF = "/* cme-sector-workflow */ SELECT 1"
 ONE = {"pending": 7341, "sent_back": 90, "forward": 8942, "resubmit": 3, "sendback": 3, "applications": 8948}
@@ -53,13 +57,14 @@ def locked(monkeypatch):
 # ── the rule comes from the knowledge base ───────────────────────────────────
 def test_rule_is_read_from_the_yaml_steps():
     steps = rule.steps()
-    assert [s["column"] for s in steps] == ["data_verified", "scheme_specific ->> 'file_status'"]
-    assert RULE_SQL == "data_verified = 'Valid' AND scheme_specific ->> 'file_status' IN ('Pending', 'Send Back')"
+    # KI-676 (2026-11-11): the knowledge base points at the plain file_status column the DB team exposed
+    assert [s["column"] for s in steps] == ["data_verified", "file_status"]
+    assert RULE_SQL == "data_verified = 'Valid' AND file_status IN ('Pending', 'Send Back')"
     assert RULE_TEXT == "Pending means: data verified Valid, and file status Pending or Send Back."
-    assert rule.columns() == {"data_verified", "scheme_specific"}
+    assert rule.columns() == {"data_verified", "file_status"}
     assert rule.default_sql() == "data_verified = 'Valid'" and rule.default_text() == "valid"
     assert rule.verification_states() == ("data_verified", ["Valid", "On Hold", "Wrong", "Invalid"])
-    assert rule.json_keys() == {"file_status"} and rule.file_status_column() == "scheme_specific ->> 'file_status'"
+    assert rule.json_keys() == set() and rule.file_status_column() == "file_status"
 
 
 def test_changing_the_yaml_steps_changes_the_sql(monkeypatch, readable):
@@ -70,8 +75,9 @@ def test_changing_the_yaml_steps_changes_the_sql(monkeypatch, readable):
     assert rule.text() == "Pending means: data verified Valid, and file status Pending."
     assert rule.columns() == {"data_verified", "file_status"} and rule.json_keys() == set()
     # the gate follows the rule: a plain file_status column is not in the live columns -> closed
+    monkeypatch.setattr(si, "live_columns", lambda: NO_FS)
     assert not rule.readable()
-    monkeypatch.setattr(si, "live_columns", lambda: {"curated.v_cm_elevate": OPEN["curated.v_cm_elevate"] + [{"column": "file_status"}]})
+    monkeypatch.setattr(si, "live_columns", lambda: {"curated.v_cm_elevate": NO_FS["curated.v_cm_elevate"] + [{"column": "file_status"}]})
     assert rule.readable()
     sql, _, _ = p._cme_workflow_query("How many applications are pending?", {})
     assert "FILTER (WHERE data_verified = 'Valid' AND file_status = 'Pending') AS pending" in sql
@@ -111,7 +117,7 @@ def test_workflow_query_counts_the_rule_first(readable):
     sql, params, _ = p._cme_workflow_query("How many CM Elevate applications are pending?", {})
     assert "cme-sector-workflow" in sql and params == []
     assert f"COUNT(DISTINCT request_id) FILTER (WHERE {RULE_SQL}) AS pending" in sql
-    assert "FILTER (WHERE scheme_specific ->> 'file_status' = 'Send Back') AS sent_back" in sql
+    assert "FILTER (WHERE file_status = 'Send Back') AS sent_back" in sql
     assert sql.index("AS pending") < sql.index("AS forward") and "data_verified = 'On Hold'" not in sql
 
 
@@ -119,7 +125,7 @@ def test_workflow_query_never_reads_data_verified_while_locked(locked):
     for q in ("How many CM Elevate applications are pending?", "How many CM Elevate applications are on hold?"):
         sql, _, _ = p._cme_workflow_query(q, {})
         assert sql is not None and "cme-sector-workflow" in sql
-        assert "scheme_specific" not in sql and "AS pending" not in sql and "'On Hold'" not in sql
+        assert RULE_SQL not in sql and "AS pending" not in sql and "'On Hold'" not in sql
 
 
 def test_on_hold_is_the_same_query_once_readable(readable):
@@ -227,7 +233,7 @@ def test_sector_pending_while_locked_never_reads_data_verified(locked):
 
 
 # ── the model-SQL guards ─────────────────────────────────────────────────────
-TAIL = "->> 'file_status' IN ('Pending', 'Send Back')"
+TAIL = " file_status IN ('Pending', 'Send Back')"
 
 
 def test_on_hold_written_for_pending_becomes_the_rule(readable):
@@ -319,7 +325,9 @@ def test_prompt_rule_and_vocabulary_follow_the_gate_and_the_yaml(monkeypatch):
     monkeypatch.setattr(si, "live_columns", lambda: OPEN)
     open_ = sc.build_schema_context(CME)
     assert "the PENDING RULE (user decision 2026-10-30): " + RULE_SQL in open_ and RULE_TEXT in open_
-    assert '"on hold" / "held" -> the PENDING RULE' in open_ and "The ONLY key(s) you may read: file_status" in open_
+    assert '"on hold" / "held" -> the PENDING RULE' in open_
+    # KI-676: the rule reads the plain file_status column; scheme_specific itself stays locked
+    assert "file_status is a plain column" in open_ and "Never write scheme_specific" in open_
     assert "Level-wise = the rule grouped by LOWER(current_level)" in open_ and "<<CME_" not in open_
     assert "[[cme_pending]]" not in open_ and "7,33" not in open_
     monkeypatch.setattr(si, "live_columns", lambda: LOCKED)

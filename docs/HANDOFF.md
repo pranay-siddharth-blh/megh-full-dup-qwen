@@ -3,6 +3,48 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-11-12 (accuracy round, D-102): uncommitted.** Done: the previous agent's half-finished edits verified and kept
+(both follow-up rewriters were complete); 21 fixes KI-670..KI-691 (AI_PIPELINE §2.9i), regression tests in
+`tests/test_accuracy_gold_fixes_2026_11_11.py`; gold bank 315/315 (`tests/accuracy/results/2026-11-11_1330_wave2-fix1.json`);
+pytest 5,421 / 0 failed; scripts 14/14; live golden 44/45 (CARD-cme-apps, KI-668, failing since 2026-10-30); held-out 64/74 (was 62/74 at the start of the session, 68/74 on 2026-10-30 before D-B1-CME-01; 0 regressions caused by this round). Backups of every file this round touched:
+`D:\Full Duplex Architecture\ops\backups_megh\2026-11-12_accuracy\` (the previous agent's originals) and
+`..\2026-11-12_accuracy_b\` (before this session's first edit). Next: restart the app on 8401; decide KI-668 (card 8,938
+vs valid 7,375); a drafted wave 3 (ratios, shares, constituencies, villages, more chains) was NOT added to the bank —
+add it to `build_bank.py` and run `run_gold.py`. Re-run: `.venv/Scripts/python.exe tests/accuracy/run_gold.py --label <name>`.
+
+**2026-11-03 00:00 (Secretary view polish, D-100): uncommitted; `web/app/` rebuilt.** Where it stopped: waiting for the
+gateway / DB server (down for an AI-ops platform update). Running: the app on 8401 with `VOICE_LIVE_URL` to the fake
+voice (`tests/voice/fake_live.py` on 8499). Next: `python tests/voice/ui_voice_visual.py` once a question answers; fix
+what it finds; restart the app without `VOICE_LIVE_URL`; speak the cross-scheme bank to the real voice (one call, one
+answer, one picture per question). Files this round: `voiceOrb.js` (glow inside the canvas), `voice-stage.css`
+(one entrance, no loops, round mask), `api.js` (`fetchVoiceBoard` cached + `peekVoiceBoard`), `useLiveVoice.js`
+(board warm-up, captions held until their audio plays), `StageCards.jsx` (`still`, script-driven reveal),
+`VoiceStage.jsx` (cards land with the voice), `SecretaryDesk.jsx`; NEW `tests/voice/ui_voice_visual.py`.
+
+**2026-11-02 night (Secretary view, D-100): uncommitted; `web/app/` rebuilt.** Files: NEW `frontend/src/chat/voice/`
+(`vizPlan.js`, `stageCanvas.js`, `StageCards.jsx`, `SecretaryDesk.jsx`, `meghMap.js`), NEW `app/voice/board.py`;
+`components/VoiceStage.jsx` rebuilt; `voice-stage.css`; relay (`on_tool_call` merges re-calls, holds repeats),
+`useLiveVoice.js` (narrow harness, greeting), `speech_guard.deviations` (years). Rules: the planner only draws the
+answer's cells, never sums across schemes, a missing year is a gap; the board endpoint is beside the pipeline.
+Tests: `frontend/tests/voicePlan.test.js`, `tests/voice/ui_voice_stage.py [--real]`.
+
+**2026-11-02 later (voice stage + mute, D-099): uncommitted; `web/app/` rebuilt.** Files: NEW `components/VoiceStage.jsx`,
+`voiceOrb.js`, `styles/voice-stage.css`; `useLiveVoice.js` (mute, view, thinking, turnsDone, mic analyser, hush, idle);
+`App.jsx` voice section (`live.open()`, `renderStageMessage`, `<VoiceStage>` outside `.app`). Rules: the stage only
+shows the chat's own message components; never mutate a chart's data arrays (replace them); D:/Sakala POC is
+read-only, copy from it. Tests: `tests/voice/ui_voice_stage.py [--real]`.
+
+**2026-11-02 (live voice, D-098): uncommitted; :8401 running from the new `.venv` on the real voice.** Start the app the
+documented way; the voice reads `certs/voice.env` (GEMINI_API_KEY, VOICE_ENGINE, VOICE_LIVE_MODEL, VOICE_NAME; or the
+same keys from the environment; NEVER in `.env`, which refuses unknown keys). Files: NEW `app/voice/` (relay, prompt,
+speech_guard, settings), `app/main.py` (+3 lines), NEW `frontend/src/chat/useLiveVoice.js`, `voiceSpeech.js`,
+`voiceWorklet.js`, `components/LiveVoiceStrip.jsx`, `styles/voice.css`, `App.jsx` (voice section), `web/app/` rebuilt,
+`deploy/nginx/nginx-megh-langgraph.conf` (`/ws/voice`), tests `tests/test_voice_relay_2026_11_02.py`, `tests/voice/`,
+`frontend/tests/voice.test.js`. Rules to keep: the relay never runs the pipeline (the page answers `ask_megh` through
+`sendQuery`); the spoken form is built in `voiceSpeech.js`, never by the model; a new guard goes in `speech_guard.py` or
+the hook's turn-end harness, not in a prompt alone. Next: the user's decision on KI-660 (egress); real officers'
+voices for KI-661; add `/ws/voice` to the running vhost (KI-663) when deploying.
+
 **2026-10-30 afternoon (STOPPED by the user mid-run): all villages / blocks / constituencies for Focus Plus and CM Elevate Legacy.**
 Done: Focus Plus every block + constituency (NEW `tests/sheet_runs/fp_places.py`) first run 217/228; the failures
 led to KI-657/658/659, all fixed and unit-tested (`tests/test_fp_cl_sheet_2026_10_30.py` 22/22); Shillong /

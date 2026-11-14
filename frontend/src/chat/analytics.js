@@ -155,6 +155,8 @@ export function chartPreference(question) {
   const typed = (i) => (i >= 0 ? TYPE_WORDS[w[i]] : undefined);
   const joined = w.find((x) => JOINED_TYPES[x]);
   if (joined && (noun < 0 || w.indexOf(joined) < noun)) return JOINED_TYPES[joined];
+  // "a horizontal bar chart" (chart test sheet, 30 Oct: it drew vertical bars): the bars on their side
+  if (noun >= 0 && w.includes('horizontal')) return 'hbar';
   if (noun >= 0) return (w.includes('stacked') ? 'stacked' : null) || typed(noun - 1) || typed(noun - 2) || 'chart';
   if (w.some((x) => x === 'pie')) return 'pie';
   if (w.some((x) => x === 'donut' || x === 'doughnut')) return 'doughnut';
@@ -178,7 +180,7 @@ const VIEW_FILLER = ['i', 'we', 'want', 'wanted', 'need', 'would', 'like', 'plea
 export function viewOnlyRequest(question) {
   const pref = chartPreference(question);
   if (!pref) return bareTypeRequest(question);
-  const rest = words(question).filter((x) => !CHART_NOUNS.includes(x) && !TABLE_NOUNS.includes(x)
+  const rest = words(question).filter((x) => x !== 'horizontal' && !CHART_NOUNS.includes(x) && !TABLE_NOUNS.includes(x)
     && !TYPE_WORDS[x] && !JOINED_TYPES[x] && !LEAD_WORDS.includes(x) && !VIEW_FILLER.includes(x));
   return rest.length ? null : pref;
 }
@@ -189,11 +191,12 @@ export function viewOnlyRequest(question) {
 function bareTypeRequest(question) {
   const w = words(question);
   const typed = w.filter((x) => TYPE_WORDS[x]);
-  if (typed.length !== 1 || w.some((x) => !TYPE_WORDS[x] && !LEAD_WORDS.includes(x) && !VIEW_FILLER.includes(x))) return null;
-  return TYPE_WORDS[typed[0]];
+  if (typed.length !== 1 || w.some((x) => !TYPE_WORDS[x] && !LEAD_WORDS.includes(x) && !VIEW_FILLER.includes(x)
+    && x !== 'horizontal')) return null;
+  return TYPE_WORDS[typed[0]] === 'bar' && w.includes('horizontal') ? 'hbar' : TYPE_WORDS[typed[0]];
 }
 
-export const VIEW_NAMES = { chart: 'a chart', bar: 'a bar chart', pie: 'a pie chart', doughnut: 'a donut chart',
+export const VIEW_NAMES = { chart: 'a chart', bar: 'a bar chart', hbar: 'a horizontal bar chart', pie: 'a pie chart', doughnut: 'a donut chart',
   line: 'a line chart', stacked: 'a stacked bar chart', table: 'a table' };
 
 /** The question without its "as a pie chart" / "in graph" phrase, for the
@@ -345,6 +348,35 @@ const periodAxis = (labels) => Array.isArray(labels) && labels.length > 0
     where each chart is { kind, types, initial } — the type switcher's choices and the
     type it opens as. null when there are no rows. */
 export function viewPlan(question, response, view = null) {
+  const p = viewPlanOne(question, response, view);
+  return view ? p : manyTypes(p, question);
+}
+
+/** The chart types a question names, in its order ("as bar chart, pie chart and line chart" -> bar, pie, line). */
+export function namedTypes(question) {
+  const out = [];
+  for (const x of words(question)) {
+    const t = TYPE_WORDS[x] || JOINED_TYPES[x];
+    if (t && t !== 'line' ? !out.includes(t) : (t === 'line' && !out.includes('line'))) out.push(t);
+  }
+  return out.filter((t) => t !== 'stacked');
+}
+
+// Several chart types named for one chart (chart test sheet, 30 Oct: "as bar chart, pie chart and line chart" drew
+// one bar chart while the answer said "the following charts"): one card per type named, up to three, each the same
+// figures. Only for a single chart; a type the figures do not offer is left out (a line needs periods).
+function manyTypes(p, question) {
+  if (!p || !p.charts || p.charts.length !== 1) return p;
+  const named = namedTypes(question);
+  if (named.length < 2) return p;
+  const c = p.charts[0];
+  const labels = c.labels || (p.a && p.a.charts && p.a.charts[0] && p.a.charts[0].labels) || (p.a && p.a.labels);
+  const usable = named.filter((t) => t !== 'line' || periodAxis(labels));
+  if (usable.length < 2) return p;
+  return { ...p, mode: p.mode + '+types', charts: usable.slice(0, 3).map((t) => ({ ...c, types: [t], initial: t })) };
+}
+
+function viewPlanOne(question, response, view = null) {
   const asked = view || chartPreference(response.rewritten_question) || chartPreference(question);
   const prefer = asked === 'chart' || (asked && asked !== 'table') ? asked : null;
   const a = buildAnalytics(question, response.data, response.chart_type, prefer);
@@ -360,8 +392,9 @@ export function viewPlan(question, response, view = null) {
   const only = named ? prefer : null;
   const typesOr = (all) => (only ? [only] : all);
   const single = (types, initial) => ({ kind: 'single', types, initial: types.includes(initial) ? initial : types[0] });
-  const twoDim = (types, initial, periods) => ({ kind: 'twoDim', types,
-    initial: types.includes(initial) ? initial : (types.length === 1 ? types[0] : (periods ? 'line' : 'bar')) });
+  // two series cannot lie on their side here: a horizontal ask draws them as bars
+  const twoDim = (ts, initial, periods) => { const types = ts.map((t) => (t === 'hbar' ? 'bar' : t)); return { kind: 'twoDim', types,
+    initial: types.includes(initial) ? initial : (types.length === 1 ? types[0] : (periods ? 'line' : 'bar')) }; };
   // "stacked" over several measures (sanctioned and completed by district): the
   // measures are the stack's series
   const stackOf = (title, labels, datasets) => ({ ...twoDim(['stacked'], 'stacked'), title, labels: labels.map(String),
@@ -527,7 +560,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
       const charts = per.map((rs, i) => ({
         scheme: schemes[i],     // browser run: each card wears its own scheme, not "6 schemes"
         title: `${schemes[i]}: ${humanCol(vc)} by ${humanCol(oCol)}${where}`,
-        labels: rs.map((r) => label18(r[oCol])), fullLabels: rs.map((r) => full(r, oCol)),
+        labels: rs.map((r) => label18(placeTitle(r[oCol], oCol))), fullLabels: rs.map((r) => full(r, oCol)),
         values: rs.map((r) => toNumber(r[vc])),
         axes: { x: colTitle(oCol), y: colTitle(vc), unit: unitOf(vc) },
       }));
@@ -665,7 +698,7 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
         note: `${distinct(xKey)} × ${distinct(sKey)} figures are too many for one chart, so they are shown as a table.` };
     }
     // Too many series for one legend: one axis label carrying both dimensions.
-    const joined = data.map((r) => two.map((c) => String(r[c] ?? '')).join(' · '));
+    const joined = data.map((r) => two.map((c) => placeTitle(String(r[c] ?? ''), c)).join(' · '));
     const charts = numCols.slice(0, 3).map((vc) => ({
       title: `${humanCol(vc)} by ${two.map((c) => humanCol(c)).join(' and ')}`,
       labels: joined.map(label18), fullLabels: joined, values: data.map((r) => toNumber(r[vc])),
@@ -706,8 +739,8 @@ function buildAnalyticsCore(question, rawData, hintType, prefer) {
     return {
       kind: 'grouped',
       title: `Grouped comparison by ${humanCol(lc)}`,
-      labels: data.map((r) => label18(r[lc])),
-      fullLabels: data.map((r) => String(r[lc])),
+      labels: data.map((r) => label18(placeTitle(r[lc], lc))),
+      fullLabels: data.map((r) => placeTitle(r[lc], lc)),
       datasets: numCols.map((nc) => ({ label: humanCol(nc), values: data.map((r) => toNumber(r[nc])) })),
       data,
     };

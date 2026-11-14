@@ -199,6 +199,9 @@ app.include_router(history_router)
 app.include_router(admin_router)
 app.include_router(stats_router)
 app.include_router(feedback_router)
+# Full-duplex voice (2026-11-02): /ws/voice only; the pipeline is not touched (app/voice/__init__.py).
+from app.voice.relay import router as voice_router  # noqa: E402
+app.include_router(voice_router)
 
 
 async def _privileged_view(authorization: str | None, x_metrics_token: str | None) -> bool:

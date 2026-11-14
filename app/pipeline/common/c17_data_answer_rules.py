@@ -42,6 +42,11 @@ def _c17_sub_asks(question: str) -> "list[str]":
     for s, e in sorted(cuts):
         if s < last:
             continue
+        # "Focus Plus" is a scheme's name, not two asks (accuracy gold bank 2026-11-11, KI-673): "Which
+        # district received the highest total Focus Plus disbursement?" was cut into "…total Focus" +
+        # "disbursement" and answered as two clarifications
+        if low[s:e] == " plus " and low[:s].rstrip().endswith("focus"):
+            continue
         parts.append(text[last:s])
         last = e
     parts.append(text[last:])
@@ -406,6 +411,27 @@ def _c17_cut(text: str, part: str) -> str:
     return out if out.endswith("?") else out.rstrip(".") + "?"
 
 
+# Accuracy gold bank (2026-11-11, KI-675; RAG PDF Table 2 #7, PARTIAL): "How many villages had MGNREGA
+# activity and how many person-days were generated in total?" was one model query over v_employment:
+# 6,419 villages, not the 6,491 with an employment OR expenditure record (the card; KI-574's fixed query
+# _mgnrega_villages_active_query answers a plain village count, but a second figure in the same
+# question kept it off). The village count and the other figure are two asks, answered in turn.
+def _c17_village_count_plan(question: str, parts: "list[str]") -> "list[str] | None":
+    if _named_or_inferred_schemes(question) != ["MGNREGA"]:
+        return None
+    vill = [p for p in parts if _VILLAGE_COUNT_ASK_MATCH.search(p) and not _MG_VILLAGE_MEASURE_WORDS.search(p)]
+    rest = [p for p in parts if p not in vill and _C17_FIGURE_ASK.search(p)]
+    if len(vill) != 1 or not rest:
+        return None
+    plan = []
+    for p in parts:
+        if p == vill[0]:
+            plan.append(p.rstrip(" ?.") + ("" if "mgnrega" in p.lower() else " under MGNREGA") + "?")
+        elif p in rest:
+            plan.append(p.rstrip(" ?.") + "?")
+    return plan
+
+
 def _c17_ask_plan(question: str) -> "list[str] | None":
     """[the figures question, the "which … most" question] when one question
     carries both, else None. The second is completed with the first answer's
@@ -413,6 +439,9 @@ def _c17_ask_plan(question: str) -> "list[str] | None":
     parts = _c17_sub_asks(question)
     if len(parts) < 2:
         return None
+    vill = _c17_village_count_plan(question, parts)
+    if vill:
+        return vill
     rank = [p for p in parts if _c17_singular_superlative(p)]
     rest = [p for p in parts if p not in rank]
     if len(rank) != 1 or not rest or not any(_C17_FIGURE_ASK.search(p) for p in rest):
