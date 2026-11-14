@@ -191,6 +191,7 @@ def reload() -> dict:
         "rename": frozenset(" ".join(t.low for t in tokens(str(a))) for a in data.get("rename") or []),
         "bare_focus": frozenset(str(w).lower() for w in data.get("bare_focus") or []),
         "words": tuple(dict.fromkeys(str(w).lower() for w in data.get("words") or [])),
+        "not_typos": frozenset(str(w).lower() for w in data.get("not_typos") or []),
         "districts": {str(k): str(v) for k, v in (data.get("districts") or {}).items()},
     }
     _FORMS.clear()
@@ -541,7 +542,8 @@ def _domain_word(word: str) -> "str | None":
     Never a known word, a place or a village name."""
     w = word.lower()
     vocab = _aliases()["words"]
-    if len(w) < 3 or not word.isalpha() or w in vocab or w in _NOT_A_TYPO:
+    if (len(w) < 3 or not word.isalpha() or w in vocab or w in _NOT_A_TYPO
+            or w in _aliases().get("not_typos", ())):
         return None
     hits = []
     for v in vocab:

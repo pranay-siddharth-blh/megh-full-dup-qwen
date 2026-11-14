@@ -180,6 +180,42 @@ words:
   - instalments
   - benefit
   - interest
+  # 2026-11-14 (no-model gold bank PF-FP-misspelt / PF-FL-misspelt: "focus pluss totel amount disbursd",
+  # "focus legasy amount remited"): the measure and grouping words people mistype most
+  - total
+  - remitted
+  - remittance
+  - spent
+  - generated
+  - received
+  - students
+  - district
+  - districts
+  - constituency
+  - constituencies
+  - village
+  - villages
+  - percentage
+  - highest
+  - lowest
+
+# Real English words one or two edits from a word above: never "corrected" (2026-11-14; "distinct values" had
+# become "district values", "vintage" -> "village", "tonal" -> "total"). Add the look-alikes with every new word.
+not_typos:
+  - tonal
+  - refitted
+  - distinct
+  - distract
+  - vintage
+  - villain
+  - visage
+  - highness
+  - longest
+  - loudest
+  - generates
+  - receives
+  - recited
+  - spend
 
 # Extra district aliases the catalogue lacks: typed form -> canonical district.
 districts:
