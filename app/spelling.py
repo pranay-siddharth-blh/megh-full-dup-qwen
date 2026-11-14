@@ -560,9 +560,38 @@ def _domain_word(word: str) -> "str | None":
     hits.sort()
     if len(hits) > 1 and hits[1][0] == hits[0][0]:
         return None                      # two words equally close: leave it
-    if _known_word(word) or _is_place(word):
+    if _is_place(word) or _inflection(w, hits[0][1]):
+        return None                      # "employs" is not a typo of "employed"
+    # A word the pipeline only "knows" because a measure family reads it by its start ("disbursd" is money:
+    # "disburs…") is still a typo one edit from a vocabulary word: left as typed, the metric catalogue
+    # refused it as a word it does not know ("focus pluss totel amount disbursd", no-model bank 2026-11-14).
+    # A real word, or another form of the vocabulary word ("sanctions" / "sanctioned"), stays as typed.
+    if _known_word(word) and not (hits[0][0] == 1 and not _plain_word(w) and not _inflection(w, hits[0][1])):
         return None
     return hits[0][1]
+
+
+# Endings that make another form of the same word, not a typo of it ("sanctions" / "sanctioned").
+_FORM_ENDINGS = frozenset(("", "s", "es", "ed", "ing", "ment", "ments", "er", "ers", "ion", "ions", "al", "ly"))
+
+
+def _inflection(a: str, b: str) -> bool:
+    """Are `a` and `b` two forms of one stem (each ending, after their common start, in a word ending)?"""
+    n = 0
+    while n < min(len(a), len(b)) and a[n] == b[n]:
+        n += 1
+    return n >= 4 and a[n:] in _FORM_ENDINGS and b[n:] in _FORM_ENDINGS
+
+
+def _plain_word(w: str) -> bool:
+    """In one of the pipeline's word lists outright (not read by a measure family's prefix or a fuzzy match)."""
+    try:
+        p = _pipeline()
+        from app.annotations import _FEWSHOT_SYNONYMS
+        return (w in p._REPHRASE_VOCAB or w in p._COMMON_WORDS or w in p._HINGLISH_GLOSS
+                or w in _FEWSHOT_SYNONYMS or w in p._place_words())
+    except Exception:  # noqa: BLE001 — pipeline not importable: treat it as a word (never correct it)
+        return True
 
 
 def _span_text(text: str, toks: list[Tok], i: int, j: int) -> str:

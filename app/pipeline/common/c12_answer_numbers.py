@@ -756,7 +756,12 @@ def _framed_fallback(rows: list[dict], schemes: "list[str] | None", entities: "d
         for k, v in nums:
             unit = _unit_suffix(str(k))
             if unit and _c12_money_unit(str(k)):            # one money formatter (E9)
-                parts.append(f"{_c12_money(v, _c12_money_unit(str(k)))} {unit[0]}")
+                # "₹119.74 crore disbursed", not "… crore amount disbursed" (2026-11-14; "… total expenditure"
+                # stays as D-092 writes it)
+                name = unit[0]
+                if name.startswith("amount ") and len(name) > len("amount "):
+                    name = name[len("amount "):]
+                parts.append(f"{_c12_money(v, _c12_money_unit(str(k)))} {name}")
             elif unit:
                 name, word, rupee = unit
                 sep = "" if word in ("", "%") else " "
