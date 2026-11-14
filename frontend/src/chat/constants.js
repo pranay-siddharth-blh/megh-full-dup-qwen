@@ -21,7 +21,7 @@ export const UNIFIED_SAMPLES = [
 // `language` field on /api/query).
 const EN = {
   heroTitle: 'What would you like to know?',
-  heroSub: "Ask about Meghalaya's MGNREGA, PMAY-G, FOCUS+, CM Elevate, Focus Legacy and CM Elevate Legacy — data questions and how the schemes work.",
+  heroSub: "Ask about Meghalaya's MGNREGA, PMAY-G, FOCUS+, CM Elevate, Focus Legacy, CM Elevate Legacy, CMSS and Homestay — data questions and how the schemes work.",
   promptsTitle: 'Try a question',
   composerPh: 'Ask me something…',
   sendBtn: 'Send',
