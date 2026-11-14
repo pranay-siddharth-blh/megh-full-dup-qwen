@@ -242,3 +242,70 @@ def test_the_previous_questions_own_chart_request_goes_with_its_old_grouping():
     assert p._c01_regroup_question("now by block", prev) == "How many PMAY-G houses were sanctioned by block"
     prev = _prev("Show Focus Plus beneficiaries by district on the map", ["Focus Plus"])
     assert p._c01_regroup_question("year wise", prev) == "Show Focus Plus beneficiaries by financial year"
+
+
+# ── rank what is shown ───────────────────────────────────────────────────────
+
+FL_BY_DISTRICT = _prev("Focus Legacy amount by district", ["Focus Legacy"])
+PM_RANKED = _prev("Which district had the most PMAY-G houses sanctioned in 2020-21?", ["PMAY-G"], {"year_key": 2020})
+PM_BLOCKS = _prev("PMAY-G houses by block in East Khasi Hills", ["PMAY-G"], {"district": "EAST KHASI HILLS"})
+
+
+@pytest.mark.parametrize("msg,prev,want", [
+    ("which district had the least?", FL_BY_DISTRICT, "Which district has the lowest: Focus Legacy amount"),
+    ("which district had the most?", FL_BY_DISTRICT, "Which district has the highest: Focus Legacy amount"),
+    ("and the least?", FL_BY_DISTRICT, "Which district has the lowest: Focus Legacy amount"),
+    ("top 3", FL_BY_DISTRICT, "Top 3 districts: Focus Legacy amount"),
+    ("bottom 5 districts", FL_BY_DISTRICT, "Bottom 5 districts: Focus Legacy amount"),
+    # the previous question is itself a ranking: the same one, the other way
+    ("and the least?", PM_RANKED, "Which district had the least PMAY-G houses sanctioned in 2020-21"),
+    # inside a district, over its blocks: the district stays
+    ("which block has the most?", PM_BLOCKS, "Which block has the highest: PMAY-G houses in East Khasi Hills"),
+    # a level named for an answer that is not grouped yet
+    ("which district had the most?", TOTAL, "Which district has the highest: How many MGNREGA person-days were generated"),
+])
+def test_the_previous_question_ranked(msg, prev, want):
+    assert p._c01_rank_question(msg, prev) == want
+
+
+@pytest.mark.parametrize("msg,prev", [
+    ("which had the most?", TOTAL),                          # nothing says which level
+    ("which district had the most households?", TOTAL),      # it names its own measure: the ranking rule of c14
+    ("which district has the most?", PM_BLOCKS),             # the answer is inside one district already
+    ("which had the most?", CROSS),                          # a cross-scheme ranking is the cross path's
+    ("what about Ri Bhoi?", FL_BY_DISTRICT),
+    ("the most and the least", FL_BY_DISTRICT),              # both ways: not one ranking
+])
+def test_what_the_rank_rule_leaves_alone(msg, prev):
+    assert p._c01_rank_question(msg, prev) is None
+
+
+# ── only one place of a grouped answer ───────────────────────────────────────
+
+@pytest.mark.parametrize("msg,prev,want", [
+    ("only Ri Bhoi", _prev("PMAY-G houses completed by district", ["PMAY-G"]), "PMAY-G houses completed in Ri Bhoi"),
+    ("just West Garo Hills", _prev("PMAY-G houses completed by district", ["PMAY-G"]),
+     "PMAY-G houses completed in West Garo Hills"),
+    ("only Mawphlang", _prev("MGNREGA expenditure by block in 2024-25", ["MGNREGA"], {"year_key": 2024}),
+     "MGNREGA expenditure in 2024-25 in Mawphlang block"),
+])
+def test_only_one_place_of_a_grouped_answer(msg, prev, want):
+    assert p._c01_only_place_question(msg, prev) == want
+
+
+@pytest.mark.parametrize("msg,prev", [
+    ("only the completed ones", _prev("PMAY-G houses by district", ["PMAY-G"])),          # not a place
+    ("Ri Bhoi", _prev("PMAY-G houses completed by district", ["PMAY-G"])),                 # no "only": a pause reply
+    ("only Mawphlang", _prev("PMAY-G houses completed by district", ["PMAY-G"])),          # a block; grouped by district
+    ("only Ri Bhoi", IN_WGH),                                                               # names a place: the swap's
+])
+def test_what_the_only_place_rule_leaves_alone(msg, prev):
+    assert p._c01_only_place_question(msg, prev) is None
+
+
+def test_rank_and_only_through_the_graph(chat):
+    chat("Focus Legacy amount by district", scheme="Focus Legacy")
+    assert chat("which district had the least?", scheme="Focus Legacy") == \
+        "Which district has the lowest: Focus Legacy amount"
+    chat("PMAY-G houses completed by district", scheme="PMAY-G")
+    assert chat("only Ri Bhoi", scheme="PMAY-G", entities={"district": "RI BHOI"}) == "PMAY-G houses completed in Ri Bhoi"

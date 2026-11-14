@@ -1630,6 +1630,152 @@ def _c01_regroup_question(raw_question: str, prev) -> "str | None":
     return f"{stem} by {dim}{_c01_regroup_chart(raw_question)}"
 
 
+# ── Rank what is shown (2026-11-14) ─────────────────────────────────────────
+# "which district had the most?" / "and the least?" / "top 3" after a data answer went to the model rewrite, which
+# grafted the words onto the previous question ("... in the top 3 blocks" summed the three, the Demdema chat) or lost
+# the measure. A message that ONLY asks to rank is the previous question ranked: over the level it names, else the
+# level the previous answer is grouped by. A previous question that is itself a ranking has its direction turned
+# ("Which district had the most ...?" + "and the least?").
+_C01_RANK_UP = frozenset("most highest maximum largest biggest top best leading".split())
+_C01_RANK_DOWN = frozenset("least lowest minimum smallest fewest bottom worst".split())
+_C01_RANK_DIM = {"district": "district", "districts": "district", "block": "block", "blocks": "block"}
+_C01_RANK_FILLER = frozenset(
+    "which what who is are was were has have had the a an and also now then so one ones of in it that this them these "
+    "those number figure value by with for me show give please just only got get gets".split())
+_C01_RANK_SWAP = {"most": "least", "least": "most", "highest": "lowest", "lowest": "highest", "maximum": "minimum",
+                  "minimum": "maximum", "largest": "smallest", "smallest": "largest", "top": "bottom", "bottom": "top",
+                  "biggest": "smallest", "fewest": "most", "best": "worst", "worst": "best"}
+
+
+def _c01_rank_request(raw_question: str) -> "tuple[str, str | None, int | None] | None":
+    """(direction "up" | "down", the level named or None, N or None) when the message only asks to rank."""
+    ws = _c15_words(raw_question or "")
+    if not ws or len(ws) > 9:
+        return None
+    up = [w for w in ws if w in _C01_RANK_UP]
+    down = [w for w in ws if w in _C01_RANK_DOWN]
+    if bool(up) == bool(down):
+        return None
+    dims = {_C01_RANK_DIM[w] for w in ws if w in _C01_RANK_DIM}
+    nums = [int(w) for w in ws if w.isdecimal()]
+    if len(dims) > 1 or len(nums) > 1 or any(n < 1 or n > 50 for n in nums):
+        return None
+    if any(w not in _C01_RANK_UP and w not in _C01_RANK_DOWN and w not in _C01_RANK_DIM and w not in _C01_RANK_FILLER
+           and not w.isdecimal() for w in ws):
+        return None                                                 # it names a measure, a place, a year: not ours
+    return ("up" if up else "down"), (dims.pop() if dims else None), (nums[0] if nums else None)
+
+
+def _c01_rank_question(raw_question: str, prev) -> "str | None":
+    """The previous DATA question ranked as the message asks, else None."""
+    if getattr(prev, "route", None) != "data" or not getattr(prev, "question", None):
+        return None
+    asked = _c01_rank_request(raw_question)
+    if asked is None:
+        return None
+    direction, dim, n = asked
+    schemes = list(getattr(prev, "schemes", None) or [])
+    if len(schemes) != 1:
+        return None                                                 # a cross-scheme ranking is the cross path's
+    prev_q = _c01_without_chart_phrase(collapse_ws(prev.question).rstrip(" ?."))
+    prev_ws = _c15_words(prev_q)
+    was_up = [w for w in prev_ws if w in _C01_RANK_UP]
+    was_down = [w for w in prev_ws if w in _C01_RANK_DOWN]
+    if (was_up or was_down) and n is None and dim is None:
+        # the previous question is a ranking: the same ranking, the other way (or the same way again)
+        was = "up" if was_up else "down"
+        if was == direction:
+            return prev_q
+        out = prev_q
+        for w in (was_up or was_down):
+            if w in _C01_RANK_SWAP:
+                out = _c01_swap_word(out, w, _C01_RANK_SWAP[w])
+        return out if out != prev_q else None
+    grouped = [d for d in ("district", "block") if d in _c02_breakdowns(prev_q)]
+    level = dim or (grouped[0] if len(grouped) == 1 else None)
+    if level is None:
+        return None                                                 # nothing says which level to rank
+    resolved = getattr(prev, "resolved_entities", None) or {}
+    if resolved.get(level) or (level == "district" and resolved.get("block")):
+        return None                                                 # the answer is inside one such place already
+    stem = prev_q
+    for hit in sorted(_C02_BREAKDOWN.finditer(stem), key=lambda h: h.start(), reverse=True):
+        head = stem[:hit.start()].rstrip()
+        for prep in (" in", " for", " across", " and", ","):
+            if head.lower().endswith(prep):
+                head = head[:len(head) - len(prep)]
+        stem = collapse_ws(f"{head} {stem[hit.end():]}")
+    if not any(resolved.get(k) for k in ("district", "block", "village")):
+        stem = _c05_statewide_stem(stem)
+    stem = stem.rstrip(" ,?.")
+    if was_up or was_down or len(_c15_words(stem)) < 2:
+        return None
+    word = "top" if direction == "up" else "bottom"
+    count = n if n is not None else 1
+    plural = level + "s" if count != 1 else level
+    # the ranking words first, then the previous question's own words: "Which district has the lowest: Focus Legacy
+    # amount", "Top 3 districts: Focus Legacy amount"
+    return f"{word.capitalize()} {count} {plural}: {stem}" if count != 1 else \
+        f"Which {level} has the {'highest' if direction == 'up' else 'lowest'}: {stem}"
+
+
+def _c01_swap_word(text: str, old: str, new: str) -> str:
+    """`text` with the whole word `old` (any case) replaced by `new`, keeping an initial capital."""
+    out, i, low, n = [], 0, text.lower(), len(old)
+    while i < len(text):
+        j = low.find(old, i)
+        if j < 0:
+            break
+        before_ok = j == 0 or not low[j - 1].isalnum()
+        after_ok = j + n >= len(low) or not low[j + n].isalnum()
+        if before_ok and after_ok:
+            out.append(text[i:j] + (new.capitalize() if text[j].isupper() else new))
+            i = j + n
+        else:
+            out.append(text[i:j + n])
+            i = j + n
+    out.append(text[i:])
+    return "".join(out)
+
+
+# ── Only one place of a grouped answer (2026-11-14) ─────────────────────────
+# "only Ri Bhoi" after "PMAY-G houses completed by district": the place swap above replaces a place the previous
+# question NAMES; a grouped question names none, so the model rewrite took it. It is the previous question for that
+# one place, its grouping by that level taken out.
+_C01_ONLY_PLACE_WORDS = frozenset("ONLY JUST FOR IN THE AND SHOW ME GIVE NOW THEN PLEASE DISTRICT BLOCK OF".split())
+
+
+def _c01_only_place_question(raw_question: str, prev) -> "str | None":
+    from app.entity_resolver import place_only
+    if getattr(prev, "route", None) != "data" or not getattr(prev, "question", None):
+        return None
+    ws = _c15_words(raw_question or "")
+    if not ws or ws[0] not in ("only", "just"):
+        return None
+    only = place_only(raw_question, _C01_ONLY_PLACE_WORDS)
+    if not only or only[1] not in ("district", "block"):
+        return None
+    name, dim, _typed = only
+    resolved = getattr(prev, "resolved_entities", None) or {}
+    if any(resolved.get(k) for k in ("district", "block", "village", "assembly_constituency",
+                                     "district_list", "block_list", "village_list")):
+        return None                                                 # it names places already: the swap's / the model's
+    prev_q = _c01_without_chart_phrase(collapse_ws(prev.question).rstrip(" ?."))
+    if dim not in _c02_breakdowns(prev_q):
+        return None                                                 # not grouped by that level
+    stem = prev_q
+    for hit in sorted(_C02_BREAKDOWN.finditer(stem), key=lambda h: h.start(), reverse=True):
+        head = stem[:hit.start()].rstrip()
+        for prep in (" in", " for", " across", " and", ","):
+            if head.lower().endswith(prep):
+                head = head[:len(head) - len(prep)]
+        stem = collapse_ws(f"{head} {stem[hit.end():]}")
+    stem = _c05_statewide_stem(stem).rstrip(" ,?.")
+    if len(_c15_words(stem)) < 2:
+        return None
+    return f"{stem} in {name.title()}{' block' if dim == 'block' else ''}"
+
+
 def _c01_ctx07_compare_place_question(raw_question: str, prev) -> "str | None":
     """"Compare ... with Ri Bhoi" right after a data answer for another place at the
     same level -> the previous question for both places, else None."""

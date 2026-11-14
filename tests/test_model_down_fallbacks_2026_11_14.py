@@ -153,3 +153,22 @@ def test_a_failed_rewriter_falls_back_to_the_deterministic_rewrite(msg, want, mo
 
 def test_a_failed_rewriter_leaves_other_follow_ups_as_typed(model_down):
     assert run(p.rewrite_followup("and how many of them were women?", EKH)) == "and how many of them were women?"
+
+
+# ── the catalogue's "asks more than the measure" check ───────────────────────
+
+def _extra(q, scheme="MGNREGA"):
+    return p._c16_extra_words(q, [scheme], {"resolved": {}, "display": {}}, frozenset(), frozenset())
+
+
+def test_the_opening_word_of_a_follow_up_is_not_more_to_compute():
+    # the measure-change rewrite (KI-334) keeps the officer's "and ..."; the catalogue declined it on that word
+    assert "and" not in _extra("and person-days under MGNREGA in FY 2022-23?")
+    assert "also" not in _extra("and also the expenditure under MGNREGA?")
+    # an "and" that joins two things to compute still counts
+    assert "and" in _extra("MGNREGA beneficiaries and amount in FY 2022-23")
+
+
+def test_chart_words_and_fillers_are_not_more_to_compute():
+    left = _extra("Uh, show MGNREGA expenditure by financial year as a bar chart please")
+    assert not ({"uh", "bar", "chart", "please"} & set(left))

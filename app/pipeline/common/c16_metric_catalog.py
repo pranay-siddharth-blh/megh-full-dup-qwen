@@ -42,6 +42,9 @@ _C16_SHAPE_WORDS = {
     "compare": frozenset("compare comparison between and versus vs with against districts blocks".split()),
 }
 _C16_DIM_WORDS = {"district": "district", "districts": "district", "block": "block", "blocks": "block"}
+# 2026-11-14: how a follow-up OPENS ("and person-days ...?"); only at the very start of the question, so an "and"
+# that joins two things to compute ("beneficiaries and amount") still declines
+_C16_FOLLOWUP_LEADS = frozenset("and also but then now so plus next".split())
 _C16_ALL_YEARS_WORDS = frozenset("across over throughout during combined together overall".split())
 # 2026-11-14: how the answer is DRAWN ("as a bar chart", "on the map") is not something more to compute; the chart
 # words declined the catalogue query ("asks more than the measure: bar chart") and the figure went to the model.
@@ -118,6 +121,8 @@ def _c16_extra_words(question: str, schemes: "list[str]", entity_result: dict, t
             continue
         if w in _C16_CHART_WORDS:
             continue
+        if w in _C16_FOLLOWUP_LEADS and not any(u.low not in _C16_FOLLOWUP_LEADS for u in toks[:k]):
+            continue                       # the opening word(s) of a follow-up: "and ...", "and also ..."
         if w.startswith("fy") and w[2:].isdecimal():
             continue
         extra.append(w)
