@@ -1260,6 +1260,34 @@ def _cm_legacy_loan_received_filter(question: str, schemes: list[str], sql: str)
     return out
 
 
+# Accuracy gold bank wave 2 (2026-11-12, KI-721): "CM Elevate Legacy subsidy disbursed in West Garo Hills"
+# then "and the loan?" (rewritten "How much loan was disbursed under CM Elevate Legacy in West Garo Hills?")
+# was written `... AND loan_entity = 'Bank' AND total_loan_disbursement > 0`: ₹2.45 crore, the bank loans
+# only, for the ₹4.84 crore disbursed as loans (Bank + LIFCOM). A lender filter the question never asked for
+# is taken out; one it names ("bank loans", "through LIFCOM", "by lender") stays.
+_CML_LENDER_WORDS = Matcher(Alt(W("bank", "banks", "banking", "lifcom", "lender", "lenders", "lending", "entity",
+                                  "entities", "financier", "financiers", "institution", "institutions"),
+                                Pred(lambda w: w.lower().startswith("lifcom"))))
+
+
+def _cm_legacy_unasked_lender_filter(question: str, schemes: list[str], sql: str) -> str:
+    if schemes != ["CM Elevate Legacy"] or not sql or not sql_ast.references_column(sql, "loan_entity")             or _CML_LENDER_WORDS.search(question or ""):
+        return sql
+
+    def on_lender(node: exp.Expression) -> bool:
+        while isinstance(node, exp.Paren):
+            node = node.this
+        if not isinstance(node, (exp.EQ, exp.In, exp.NEQ, exp.Is, exp.Not)):
+            return False
+        cols = {c.name.lower() for c in node.find_all(exp.Column)}
+        return cols == {"loan_entity"}
+
+    out = sql_ast.remove_conditions(sql, on_lender)
+    if out != sql:
+        logger.info("CM Elevate Legacy: a lender filter the question never named was taken out (KI-721)")
+    return out
+
+
 # CM Elevate Legacy: a ranking over a small dimension cut by a LIMIT the question
 # never asked for. "Which schemes have the highest number of applications?" ran
 # ... ORDER BY records DESC LIMIT 10 in 4 of 5 live runs — 3 of the 13 schemes

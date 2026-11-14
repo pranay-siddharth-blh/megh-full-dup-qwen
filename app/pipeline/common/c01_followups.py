@@ -1749,7 +1749,27 @@ def _measures_not_held(text: str, schemes: "list[str]") -> "list[tuple[str, froz
     if not chosen:
         return []
     return [(label, holders) for label, word_matcher, holders in _MEASURE_HOLDERS
-            if word_matcher.search(text or "") and not (holders & chosen)]
+            if word_matcher.search(text or "") and not (holders & chosen)
+            and not _c01_cme_rejection_held(label, text, chosen)]
+
+
+# KI-720 (accuracy round 2026-11-12): CM Elevate's Rejected decision is recorded again — the DB team
+# exposed a plain file_status column on v_cm_elevate (Pending / Send Back / Rejected; KI-707) and the
+# pending rule's knowledge base points at it. While that column is readable, a REJECTED question is
+# answered (cme-sector-workflow counts it); "approved" is still no stored state, so it keeps the pause.
+_C01_APPROVAL_WORDS = Matcher(W("approved", "approve", "approval", "approvals"))
+
+
+def _c01_cme_rejection_held(label: str, text: str, chosen: set) -> bool:
+    if label != "approval or rejection decisions" or "CM Elevate" not in chosen \
+            or _C01_APPROVAL_WORDS.search(text or ""):
+        return False
+    try:
+        from app import cme_pending_rule as _c01_rule
+        fs = _c01_rule.file_status_column()
+        return bool(fs) and "->>" not in fs and _c01_rule.readable()
+    except Exception:  # noqa: BLE001 — no knowledge base / live schema: the pause stands
+        return False
 
 
 def _swap_scheme_in_question(question: str, target: str) -> str:
@@ -1783,6 +1803,8 @@ def _measure_not_held_gap(question: str, schemes: "list[str]",
         if not gaps:
             return None
     label, holders = gaps[0]
+    if label == "approval or rejection decisions" and _c01_cme_rejection_held(label, "rejected", set(schemes)):
+        label = "approval decisions"            # KI-720: CM Elevate's rejections ARE recorded (file status)
     named = " and ".join(schemes)
     verb = "doesn't" if len(schemes) == 1 else "don't"
     options: list[dict] = []

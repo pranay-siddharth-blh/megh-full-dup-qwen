@@ -169,6 +169,16 @@ The controls above describe what exists. These verified gaps are tracked in
 Also: the JWT is kept in `localStorage` while the CSP allows `'unsafe-inline'` scripts, so any XSS
 could read the token (INFERRED; no XSS was found or tested).
 
+### Live voice (D-103, 2026-11-02)
+- `/ws/voice` requires a valid JWT for an active user in its first message (the same decode as `current_scope`); one
+  session per officer per worker; `VOICE_MAX_SESSIONS` per worker; the nginx location rate-limits the opening request.
+- The Gemini key is read from the environment or `certs/voice.env` (git-ignored), never sent to the browser.
+- Data egress: the officer's audio and the spoken answer text go to Google (KI-691, open decision). Function results are
+  fenced as data in the instruction; engine names are scrubbed from captions; logs hold no officer words.
+- The worklet is a same-origin file (`?url&no-inline`): the CSP's `script-src 'self'` needs no `data:` or `blob:`.
+- `GET /api/voice/board` (D-105): the same login check as `/api/scheme-stats`, statewide aggregates only, filtered to
+  the caller's schemes; fixed SELECTs with no parameters (no injection surface), cached, never the forbidden tables.
+
 ## Deploy checklist (security-relevant)
 
 See `deploy/DEPLOYMENT.md` for the full list. The essentials:

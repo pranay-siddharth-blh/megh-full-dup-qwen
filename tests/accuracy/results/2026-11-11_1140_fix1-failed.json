@@ -1,0 +1,2896 @@
+{
+ "label": "fix1-failed",
+ "when": "2026-11-11_1140",
+ "seconds": 89,
+ "bank_recorded": "2026-11-11",
+ "summary": "category                   cases       turns\nchain                        3/7       12/16\nchart                        2/3         2/3\ncm_elevate                 12/14       12/14\ncm_elevate_legacy            0/1         0/1\nfocus_plus                   1/1         1/1\nmgnrega                      1/1         1/1\npmay                         2/3         2/3\nTOTAL                      21/30       30/39   (70.0% cases)\n\nfailure taxonomy (primary tag per failing turn):\n  clarification          1  SH-C020\n  routing/intent         4  FU-02, FU-05, FU-22, PF-PM-terse\n  sql-wrong              4  CH-04, CV-CL-02, FU-21, RAG-D3",
+ "results": [
+  {
+   "id": "CARD-cme-apps",
+   "cat": "cm_elevate",
+   "shape": "state-count",
+   "src": "live_chat_golden.py card_cases",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 10.0,
+   "turns": [
+    {
+     "q": "How many CM Elevate applications are there in total?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 9.2,
+     "answer": "There are 7,375 valid CM Elevate applications. This is the statewide figure for all of Meghalaya.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 7375
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by district.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 7375
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 8938
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "RAG-D3",
+   "cat": "cm_elevate",
+   "shape": "count+list",
+   "src": "RAG Knowledge and Data Test PDF, Table 2 (30 Oct 2026) #3 (FAIL in PDF: routed to documents)",
+   "ok": false,
+   "primary": "sql-wrong",
+   "drift": [],
+   "seconds": 16.4,
+   "turns": [
+    {
+     "q": "How many CM Elevate applications are there and how many schemes do they cover?",
+     "ok": false,
+     "primary": "sql-wrong",
+     "fails": [
+      "[sql-wrong] schemes = 15 missing"
+     ],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 14.9,
+     "answer": "In Meghalaya CM Elevate recorded 7,375 valid applications covering 7,375 schemes.\n- **Applications**: 7,375\n- **Schemes**: 7,375",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": "kpi_bar",
+     "rewritten": null,
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications, COUNT(DISTINCT request_id) AS schemes FROM curated.v_cm_elevate WHERE data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 7375,
+       "schemes": 7375
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are on hold in Meghalaya?",
+      "Break that down by district.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 7375
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 8938
+      },
+      {
+       "label": "schemes",
+       "unit": "count",
+       "live": 15
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "RAG-D7",
+   "cat": "mgnrega",
+   "shape": "state-villages+total",
+   "src": "RAG Knowledge and Data Test PDF, Table 2 (30 Oct 2026) #7 (PARTIAL: 6,419 not 6,491)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 14.2,
+   "turns": [
+    {
+     "q": "How many villages had MGNREGA activity and how many person-days were generated in total?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 13.4,
+     "answer": "6,491 villages had MGNREGA activity across all financial years for Meghalaya.\n\nTotal person-days generated under MGNREGA across all financial years is 9,09,15,181. This is the statewide figure for all of Meghalaya, across all financial years.",
+     "schemes": [
+      "MGNREGA"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "/* mg-villages-active */ SELECT COUNT(DISTINCT village_code) AS villages_with_activity\nFROM (SELECT village_code FROM curated.v_employment\n      UNION SELECT village_code FROM curated.v_expenditure) AS v;\n\nSELECT SUM(person_days) AS person_days FROM curated.v_employment",
+     "data": [
+      {
+       "villages_with_activity": 6491
+      }
+     ],
+     "chips": [
+      "What was the total MGNREGA expenditure in Meghalaya?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by district."
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 6491
+      },
+      {
+       "label": null,
+       "unit": "count",
+       "live": 90915181
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "CH-04",
+   "cat": "chart",
+   "shape": "breakdown-status",
+   "src": "Chart Test Questions PDF (30 Oct 2026) #4",
+   "ok": false,
+   "primary": "sql-wrong",
+   "drift": [],
+   "seconds": 19.4,
+   "turns": [
+    {
+     "q": "CM Elevate applications by status as a donut chart",
+     "ok": false,
+     "primary": "sql-wrong",
+     "fails": [
+      "[sql-wrong] row forward = 8861 missing; row sendback to vdv/citizen = 74 missing"
+     ],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 18.2,
+     "answer": "The donut chart displays the top 3 valid application statuses for the CM Elevate scheme statewide:\n1. **Forward** — 7,324\n2. **Sent back** — 48\n3. **Resubmit** — 3",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": "doughnut",
+     "rewritten": "How many applications are there under CM Elevate categorized by status as a donut chart?",
+     "sql": "SELECT CASE WHEN LOWER(current_file_status) LIKE 'sendback%' THEN 'Sent back' WHEN current_file_status IS NULL THEN '(not recorded)' ELSE INITCAP(LOWER(current_file_status)) END AS status, COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE data_verified = 'Valid' GROUP BY CASE WHEN LOWER(current_file_status) LIKE 'sendback%' THEN 'Sent back' WHEN current_file_status IS NULL THEN '(not recorded)' ELSE INITCAP(LOWER(current_file_status)) END ORDER BY applications DESC NULLS LAST LIMIT 100",
+     "data": [
+      {
+       "status": "Forward",
+       "applications": 7324
+      },
+      {
+       "status": "Sent back",
+       "applications": 48
+      },
+      {
+       "status": "Resubmit",
+       "applications": 3
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by district.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "forward",
+         7324
+        ],
+        [
+         "sendback to vdv/citizen",
+         48
+        ],
+        [
+         "resubmit",
+         3
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      },
+      {
+       "rows": [
+        [
+         "forward",
+         8861
+        ],
+        [
+         "sendback to vdv/citizen",
+         74
+        ],
+        [
+         "resubmit",
+         3
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": null,
+      "asked": "doughnut",
+      "charts": [
+       {
+        "initial": "doughnut",
+        "types": [
+         "doughnut"
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "CH-14b",
+   "cat": "chart",
+   "shape": "unsupported-view",
+   "src": "Chart Test Questions PDF (30 Oct 2026) §2 (area chart)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 6.8,
+   "turns": [
+    {
+     "q": "Focus Legacy amount remitted by financial year as an area chart",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 6.2,
+     "answer": "The Focus Legacy scheme disbursed funds statewide across all financial years:\nAmount disbursed rose from ₹6,82,35,000 (≈ ₹6.82 crore) in FY 2021-22 to ₹18,50,90,000 (≈ ₹18.51 crore) in FY 2025-26, up 11,68,55,000 (171.3%).\n- FY 2021-22: ₹6,82,35,000 (≈ ₹6.82 crore)\n- FY 2022-23: ₹14,17,90,000 (≈ ₹14.18 crore)\n- FY 2024-25: ₹11,49,90,000 (≈ ₹11.50 crore)\n- FY 2025-26: ₹18,50,90,000 (≈ ₹18.51 crore)\n\nNote: an area chart is not available here, so the figures are drawn as a standard chart instead.\n\nNote: Focus Legacy amounts are provisional, and the money unit has not been verified by the department.\nNote: there is no Focus Legacy data for FY 2023-24 (an absent year, not zero).",
+     "schemes": [
+      "Focus Legacy"
+     ],
+     "chart_type": null,
+     "rewritten": "How much money was remitted under Focus Legacy by financial year as an area chart?",
+     "sql": "SELECT financial_year_short,\n       SUM(amount_disbursed) AS amount_disbursed\nFROM curated.v_focus_legacy\nGROUP BY financial_year_short\nORDER BY financial_year_short\nLIMIT 100",
+     "data": [
+      {
+       "financial_year_short": "2021-22",
+       "amount_disbursed_rs": "68235000.00"
+      },
+      {
+       "financial_year_short": "2022-23",
+       "amount_disbursed_rs": "141790000.00"
+      },
+      {
+       "financial_year_short": "2024-25",
+       "amount_disbursed_rs": "114990000.00"
+      },
+      {
+       "financial_year_short": "2025-26",
+       "amount_disbursed_rs": "185090000.00"
+      }
+     ],
+     "chips": [
+      "How many producer groups were paid in Meghalaya?",
+      "Break that down by district.",
+      "Show Focus Legacy payments by financial year in Meghalaya."
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "2021-22",
+         68235000
+        ],
+        [
+         "2022-23",
+         141790000
+        ],
+        [
+         "2024-25",
+         114990000
+        ],
+        [
+         "2025-26",
+         185090000
+        ]
+       ],
+       "unit": "rupees",
+       "take": "all"
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": null,
+      "asked": "chart",
+      "charts": [
+       {
+        "initial": "line",
+        "types": [
+         "bar",
+         "pie",
+         "doughnut",
+         "line"
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "CH-16",
+   "cat": "chart",
+   "shape": "unsupported-view",
+   "src": "Chart Test Questions PDF (30 Oct 2026) §2 (radar falls back silently)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 5.2,
+   "turns": [
+    {
+     "q": "Show MGNREGA person-days by district as a radar chart",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 5.0,
+     "answer": "This chart displays MGNREGA person-days for all districts in Meghalaya across all financial years:\n1. **WEST GARO HILLS** — 1,75,39,710\n2. **EAST KHASI HILLS** — 1,10,54,100\n3. **NORTH GARO HILLS** — 1,07,24,749\n4. **SOUTH WEST GARO HILLS** — 1,05,16,665\n5. **EAST GARO HILLS** — 89,48,770\n6. **SOUTH GARO HILLS** — 88,20,484\n7. **SOUTH WEST KHASI HILLS** — 53,17,562\n8. **RI BHOI** — 47,61,757\n9. **WEST JAINTIA HILLS** — 44,67,950\n10. **EAST JAINTIA HILLS** — 35,73,771\n11. **WEST KHASI HILLS** — 30,49,071\n12. **EASTERN WEST KHASI HILLS** — 21,40,592\n\nNote: a radar chart is not available here, so the figures are drawn as a standard chart instead.",
+     "schemes": [
+      "MGNREGA"
+     ],
+     "chart_type": null,
+     "rewritten": "Show MGNREGA person-days by district as a radar chart?",
+     "sql": "SELECT lgd_district, SUM(person_days) AS person_days FROM curated.v_employment GROUP BY lgd_district ORDER BY person_days DESC NULLS LAST LIMIT 100",
+     "data": [
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "person_days": 17539710
+      },
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "person_days": 11054100
+      },
+      {
+       "lgd_district": "NORTH GARO HILLS",
+       "person_days": 10724749
+      },
+      {
+       "lgd_district": "SOUTH WEST GARO HILLS",
+       "person_days": 10516665
+      },
+      {
+       "lgd_district": "EAST GARO HILLS",
+       "person_days": 8948770
+      },
+      {
+       "lgd_district": "SOUTH GARO HILLS",
+       "person_days": 8820484
+      },
+      {
+       "lgd_district": "SOUTH WEST KHASI HILLS",
+       "person_days": 5317562
+      },
+      {
+       "lgd_district": "RI BHOI",
+       "person_days": 4761757
+      },
+      {
+       "lgd_district": "WEST JAINTIA HILLS",
+       "person_days": 4467950
+      },
+      {
+       "lgd_district": "EAST JAINTIA HILLS",
+       "person_days": 3573771
+      },
+      {
+       "lgd_district": "WEST KHASI HILLS",
+       "person_days": 3049071
+      },
+      {
+       "lgd_district": "EASTERN WEST KHASI HILLS",
+       "person_days": 2140592
+      }
+     ],
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by district?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by block within West Garo Hills."
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         17539710
+        ],
+        [
+         "EAST KHASI HILLS",
+         11054100
+        ],
+        [
+         "NORTH GARO HILLS",
+         10724749
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         10516665
+        ],
+        [
+         "EAST GARO HILLS",
+         8948770
+        ],
+        [
+         "SOUTH GARO HILLS",
+         8820484
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         5317562
+        ],
+        [
+         "RI BHOI",
+         4761757
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         4467950
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         3573771
+        ],
+        [
+         "WEST KHASI HILLS",
+         3049071
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         2140592
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": null,
+      "asked": "chart",
+      "charts": [
+       {
+        "initial": "bar",
+        "types": [
+         "bar",
+         "pie",
+         "doughnut"
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "SH-P005",
+   "cat": "pmay",
+   "shape": "district",
+   "src": "Test Case Results sheet PMAY-OFF-005",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 2.9,
+   "turns": [
+    {
+     "q": "How many houses are still incomplete in Ri Bhoi?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 2.2,
+     "answer": "Houses not yet completed in Ri Bhoi, across all financial years (FY 2017-18 to FY 2023-24): 5,509. This is the PMAY-G figure across all financial years.",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_name IS NULL) AS no_status,\n  COUNT(*) FILTER(WHERE\n    sanctioned_amount > 0 AND COALESCE(amount_released, 0) >= sanctioned_amount) AS full_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) > 0\n    AND COALESCE(amount_released, 0) < sanctioned_amount) AS part_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) = 0) AS no_release,\n  COUNT(*) FILTER(WHERE\n    sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount\n    AND NOT COALESCE(is_completed, FALSE)) AS full_not_done,\n  COUNT(DISTINCT sanction_no) AS sanction_numbers,\n  COUNT(*) FILTER(WHERE\n    is_placeholder) AS placeholders,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed') AS st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast') AS st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth') AS st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned') AS st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)') AS st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site') AS st_proposed_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_proposed_site\nFROM curated.v_pmay\nWHERE\n  UPPER(lgd_district) = ANY(\n    ARRAY['RI BHOI']\n  )\nGROUP BY\n  UPPER(lgd_district)",
+     "data": [
+      {
+       "district": "Ri Bhoi",
+       "houses not yet completed": 5509
+      }
+     ],
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Ri Bhoi?",
+      "Break that down by block within Ri Bhoi.",
+      "How many PMAY-G houses have been completed in Ri Bhoi?"
+     ],
+     "truth": [
+      {
+       "label": "not completed",
+       "unit": "count",
+       "live": 5509
+      },
+      {
+       "label": "in progress",
+       "unit": "count",
+       "live": 5469
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "SH-C004",
+   "cat": "cm_elevate",
+   "shape": "breakdown-district",
+   "src": "Test Case Results sheet CM-ELEVATE-OFF-004",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 6.2,
+   "turns": [
+    {
+     "q": "How many CM ELEVATE applicants are there in each district?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 5.0,
+     "answer": "The valid CM Elevate applicant distribution across all Meghalaya districts for every financial year is:\nRI BHOI is the largest with 2,038; EAST JAINTIA HILLS is the smallest with 124.\n- **RI BHOI** — 2,038\n- **WEST GARO HILLS** — 1,625\n- **EAST KHASI HILLS** — 998\n- **WEST KHASI HILLS** — 439\n- **EAST GARO HILLS** — 384\n- **SOUTH GARO HILLS** — 368\n- **SOUTH WEST KHASI HILLS** — 350\n- **EASTERN WEST KHASI HILLS** — 289\n- **SOUTH WEST GARO HILLS** — 268\n- **NORTH GARO HILLS** — 261\n- **WEST JAINTIA HILLS** — 231\n- **EAST JAINTIA HILLS** — 124",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT lgd_district, COUNT(DISTINCT request_id) AS applicants FROM curated.v_cm_elevate WHERE data_verified = 'Valid' GROUP BY lgd_district ORDER BY lgd_district LIMIT 1000",
+     "data": [
+      {
+       "lgd_district": "EASTERN WEST KHASI HILLS",
+       "applicants": 289
+      },
+      {
+       "lgd_district": "EAST GARO HILLS",
+       "applicants": 384
+      },
+      {
+       "lgd_district": "EAST JAINTIA HILLS",
+       "applicants": 124
+      },
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "applicants": 998
+      },
+      {
+       "lgd_district": "NORTH GARO HILLS",
+       "applicants": 261
+      },
+      {
+       "lgd_district": "RI BHOI",
+       "applicants": 2038
+      },
+      {
+       "lgd_district": "SOUTH GARO HILLS",
+       "applicants": 368
+      },
+      {
+       "lgd_district": "SOUTH WEST GARO HILLS",
+       "applicants": 268
+      },
+      {
+       "lgd_district": "SOUTH WEST KHASI HILLS",
+       "applicants": 350
+      },
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "applicants": 1625
+      },
+      {
+       "lgd_district": "WEST JAINTIA HILLS",
+       "applicants": 231
+      },
+      {
+       "lgd_district": "WEST KHASI HILLS",
+       "applicants": 439
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by block within Ri Bhoi.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya, by district?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "RI BHOI",
+         2038
+        ],
+        [
+         "WEST GARO HILLS",
+         1625
+        ],
+        [
+         "EAST KHASI HILLS",
+         998
+        ],
+        [
+         "WEST KHASI HILLS",
+         439
+        ],
+        [
+         "EAST GARO HILLS",
+         384
+        ],
+        [
+         "SOUTH GARO HILLS",
+         368
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         350
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         289
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         268
+        ],
+        [
+         "NORTH GARO HILLS",
+         261
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         231
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         124
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      },
+      {
+       "rows": [
+        [
+         "RI BHOI",
+         2626
+        ],
+        [
+         "WEST GARO HILLS",
+         1743
+        ],
+        [
+         "EAST KHASI HILLS",
+         1131
+        ],
+        [
+         "EAST GARO HILLS",
+         625
+        ],
+        [
+         "WEST KHASI HILLS",
+         526
+        ],
+        [
+         "SOUTH GARO HILLS",
+         495
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         432
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         330
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         307
+        ],
+        [
+         "NORTH GARO HILLS",
+         294
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         264
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         165
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "SH-C005",
+   "cat": "cm_elevate",
+   "shape": "breakdown-scheme",
+   "src": "Test Case Results sheet CM-ELEVATE-OFF-005",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 8.5,
+   "turns": [
+    {
+     "q": "How many applicants are there under each CM ELEVATE program?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 8.0,
+     "answer": "The statewide CM Elevate program lists the top 14 schemes by valid applicants:\n1. **PRIME Small Enterprise Empowerment and Development (SEED)** — 3,148\n2. **Meghalaya Piggery Development Scheme** — 2,453\n3. **Meghalaya Poultry Farming Scheme** — 471\n4. **PRIME Tourism Vehicle Scheme** — 363\n5. **PRIME Agriculture Response Vehicle Scheme** — 354\n6. **Meghalaya Dairy Development Scheme** — 259\n7. **Meghalaya Any Business Venture Scheme** — 153\n8. **Meghalaya Goat Farming Scheme** — 95\n9. **Meghalaya Warehouse Scheme** — 39\n10. **Meghalaya Sericulture & Weaving Scheme** — 13\n11. **Meghalaya Sports & Wellness Centre Scheme** — 11\n12. **Chief Minister's Green Taxi Scheme** — 10\n13. **Agro Tourism Villa Scheme** — 4\n14. **Meghalaya Motorcaravan Scheme** — 2",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": "How many applicants are there under each CM Elevate program?",
+     "sql": "SELECT scheme_name, COUNT(DISTINCT request_id) AS applicants FROM curated.v_cm_elevate WHERE data_verified = 'Valid' GROUP BY scheme_name ORDER BY applicants DESC NULLS LAST LIMIT 100",
+     "data": [
+      {
+       "scheme_name": "PRIME Small Enterprise Empowerment and Development (SEED)",
+       "applicants": 3148
+      },
+      {
+       "scheme_name": "Meghalaya Piggery Development Scheme",
+       "applicants": 2453
+      },
+      {
+       "scheme_name": "Meghalaya Poultry Farming Scheme",
+       "applicants": 471
+      },
+      {
+       "scheme_name": "PRIME Tourism Vehicle Scheme",
+       "applicants": 363
+      },
+      {
+       "scheme_name": "PRIME Agriculture Response Vehicle Scheme",
+       "applicants": 354
+      },
+      {
+       "scheme_name": "Meghalaya Dairy Development Scheme",
+       "applicants": 259
+      },
+      {
+       "scheme_name": "Meghalaya Any Business Venture Scheme",
+       "applicants": 153
+      },
+      {
+       "scheme_name": "Meghalaya Goat Farming Scheme",
+       "applicants": 95
+      },
+      {
+       "scheme_name": "Meghalaya Warehouse Scheme",
+       "applicants": 39
+      },
+      {
+       "scheme_name": "Meghalaya Sericulture & Weaving Scheme",
+       "applicants": 13
+      },
+      {
+       "scheme_name": "Meghalaya Sports & Wellness Centre Scheme",
+       "applicants": 11
+      },
+      {
+       "scheme_name": "Chief Minister's Green Taxi Scheme",
+       "applicants": 10
+      },
+      {
+       "scheme_name": "Agro Tourism Villa Scheme",
+       "applicants": 4
+      },
+      {
+       "scheme_name": "Meghalaya Motorcaravan Scheme",
+       "applicants": 2
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by district.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "PRIME Small Enterprise Empowerment and Development (SEED)",
+         3148
+        ],
+        [
+         "Meghalaya Piggery Development Scheme",
+         2453
+        ],
+        [
+         "Meghalaya Poultry Farming Scheme",
+         471
+        ],
+        [
+         "PRIME Tourism Vehicle Scheme",
+         363
+        ],
+        [
+         "PRIME Agriculture Response Vehicle Scheme",
+         354
+        ],
+        [
+         "Meghalaya Dairy Development Scheme",
+         259
+        ],
+        [
+         "Meghalaya Any Business Venture Scheme",
+         153
+        ],
+        [
+         "Meghalaya Goat Farming Scheme",
+         95
+        ],
+        [
+         "Meghalaya Warehouse Scheme",
+         39
+        ],
+        [
+         "Meghalaya Sericulture & Weaving Scheme",
+         13
+        ],
+        [
+         "Meghalaya Sports & Wellness Centre Scheme",
+         11
+        ],
+        [
+         "Chief Minister's Green Taxi Scheme",
+         10
+        ],
+        [
+         "Agro Tourism Villa Scheme",
+         4
+        ],
+        [
+         "Meghalaya Motorcaravan Scheme",
+         2
+        ]
+       ],
+       "unit": "count",
+       "take": 5
+      },
+      {
+       "rows": [
+        [
+         "PRIME Small Enterprise Empowerment and Development (SEED)",
+         3709
+        ],
+        [
+         "Meghalaya Piggery Development Scheme",
+         3070
+        ],
+        [
+         "Meghalaya Poultry Farming Scheme",
+         580
+        ],
+        [
+         "PRIME Tourism Vehicle Scheme",
+         449
+        ],
+        [
+         "PRIME Agriculture Response Vehicle Scheme",
+         421
+        ],
+        [
+         "Meghalaya Dairy Development Scheme",
+         321
+        ],
+        [
+         "Meghalaya Any Business Venture Scheme",
+         184
+        ],
+        [
+         "Meghalaya Goat Farming Scheme",
+         111
+        ],
+        [
+         "Meghalaya Warehouse Scheme",
+         48
+        ],
+        [
+         "Meghalaya Sericulture & Weaving Scheme",
+         14
+        ],
+        [
+         "Meghalaya Sports & Wellness Centre Scheme",
+         13
+        ],
+        [
+         "Chief Minister's Green Taxi Scheme",
+         11
+        ],
+        [
+         "Agro Tourism Villa Scheme",
+         4
+        ],
+        [
+         "Meghalaya Motorcaravan Scheme",
+         2
+        ],
+        [
+         "Meghalaya Cinema Theatre Scheme",
+         1
+        ]
+       ],
+       "unit": "count",
+       "take": 5
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "SH-C006",
+   "cat": "cm_elevate",
+   "shape": "district-program",
+   "src": "Test Case Results sheet CM-ELEVATE-OFF-006",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 10.1,
+   "turns": [
+    {
+     "q": "How many applicants are there under the Piggery scheme in Ri Bhoi?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 9.7,
+     "answer": "There are 1,474 valid applicants under the Meghalaya Piggery Development Scheme in Ri Bhoi. This is the CM Elevate figure.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE (scheme_name = 'Meghalaya Piggery Development Scheme' AND lgd_district = 'RI BHOI') AND data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 1474
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are on hold in Ri Bhoi?",
+      "Break that down by block within Ri Bhoi.",
+      "Show the verification status breakdown for CM Elevate in Ri Bhoi?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 1474
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 1939
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "SH-C018",
+   "cat": "cm_elevate",
+   "shape": "pending",
+   "src": "Test Case Results sheet CM-ELEVATE-OFF-018 (D-B1-CME-01)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 1.1,
+   "turns": [
+    {
+     "q": "How many CM ELEVATE applications are pending?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 0.7,
+     "answer": "7,348 CM Elevate applications are pending across Meghalaya (of 7,375 valid applications). Pending means: data verified Valid, and file status Pending or Send Back. Not counted (available on request): applications whose data verification is On Hold, Invalid or Wrong, those resubmitted, and those rejected.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": "kpi_bar",
+     "rewritten": null,
+     "sql": "/* cme-sector-workflow */ SELECT COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid' AND file_status IN ('Pending', 'Send Back')) AS pending, COUNT(DISTINCT request_id) FILTER (WHERE file_status = 'Send Back') AS sent_back, COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'forward') AS forward, COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'resubmit') AS resubmit, COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'sendback to vdv/citizen') AS sendback, COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE data_verified = 'Valid'",
+     "data": [
+      {
+       "pending": 7348,
+       "sent_back": 57,
+       "forward": 7324,
+       "resubmit": 3,
+       "sendback": 48,
+       "applications": 7375
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by district.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": "pending (Valid + Pending/Send Back)",
+       "unit": "count",
+       "live": 7348
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "SH-C020",
+   "cat": "cm_elevate",
+   "shape": "ranking",
+   "src": "Test Case Results sheet CM-ELEVATE-OFF-020",
+   "ok": false,
+   "primary": "clarification",
+   "drift": [],
+   "seconds": 3.2,
+   "turns": [
+    {
+     "q": "Which districts have the highest number of pending CM ELEVATE applications?",
+     "ok": false,
+     "primary": "clarification",
+     "fails": [
+      "[clarification] paused (ranking-count-not-specified): How many results should be returned — the top 3, the top 5, the top 10, or the complete list?"
+     ],
+     "local_view": null,
+     "route": "pause",
+     "pause_rule": "ranking-count-not-specified",
+     "seconds": 3.0,
+     "answer": "How many results should be returned — the top 3, the top 5, the top 10, or the complete list?",
+     "schemes": null,
+     "chart_type": null,
+     "rewritten": null,
+     "sql": null,
+     "data": [],
+     "chips": [
+      "Top 3",
+      "Top 5",
+      "Top 10",
+      "All of them"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "RI BHOI",
+         2026
+        ],
+        [
+         "WEST GARO HILLS",
+         1619
+        ],
+        [
+         "EAST KHASI HILLS",
+         992
+        ],
+        [
+         "WEST KHASI HILLS",
+         438
+        ],
+        [
+         "EAST GARO HILLS",
+         384
+        ],
+        [
+         "SOUTH GARO HILLS",
+         367
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         350
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         289
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         268
+        ],
+        [
+         "NORTH GARO HILLS",
+         260
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         231
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         124
+        ]
+       ],
+       "unit": "count",
+       "take": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "SH-F023",
+   "cat": "focus_plus",
+   "shape": "ranking",
+   "src": "Test Case Results sheet FOCUS-023",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 5.3,
+   "turns": [
+    {
+     "q": "Which district received the highest total Focus Plus disbursement?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 4.2,
+     "answer": "Highest total disbursement (Focus Plus, Meghalaya, across all financial years): West Garo Hills, ₹39,12,87,500 (≈ ₹39.13 crore). Next: South West Garo Hills (₹16,67,65,000 (≈ ₹16.68 crore)), then East Khasi Hills (₹15,61,60,000 (≈ ₹15.62 crore)).\n\nNote: Focus Plus amounts are provisional, and the money unit has not been verified by the department.\nNote: there is no Focus Plus data for FY 2023-24 and FY 2024-25 (absent years, not zero).",
+     "schemes": [
+      "Focus Plus"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT lgd_district, SUM(amount_disbursed) AS total_disbursement FROM curated.v_focus_plus WHERE NOT lgd_district IS NULL GROUP BY lgd_district ORDER BY total_disbursement DESC NULLS LAST LIMIT 3",
+     "data": [
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "total_disbursement_rs": "391287500.00"
+      },
+      {
+       "lgd_district": "SOUTH WEST GARO HILLS",
+       "total_disbursement_rs": "166765000.00"
+      },
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "total_disbursement_rs": "156160000.00"
+      }
+     ],
+     "chips": [
+      "How many Focus Plus payments were made in Meghalaya, by district?",
+      "How much has been disbursed under Focus Plus in Meghalaya, by district?",
+      "How many Focus Plus payments were made in each batch in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         391287500
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         166765000
+        ],
+        [
+         "EAST KHASI HILLS",
+         156160000
+        ],
+        [
+         "EAST GARO HILLS",
+         126197500
+        ],
+        [
+         "NORTH GARO HILLS",
+         118447500
+        ],
+        [
+         "SOUTH GARO HILLS",
+         102610000
+        ],
+        [
+         "WEST KHASI HILLS",
+         84425000
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         22400000
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         15262500
+        ],
+        [
+         "RI BHOI",
+         5237500
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         5050000
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         3537500
+        ]
+       ],
+       "unit": "rupees",
+       "take": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PF-PM-casual",
+   "cat": "pmay",
+   "shape": "paraphrase-casual",
+   "src": "paraphrase family",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 1.8,
+   "turns": [
+    {
+     "q": "how many pmay houses are done in east khasi hills",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 1.6,
+     "answer": "Completed houses in East Khasi Hills, across all financial years (FY 2017-18 to FY 2023-24): 18,154. This is the PMAY-G figure across all financial years.",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_name IS NULL) AS no_status,\n  COUNT(*) FILTER(WHERE\n    sanctioned_amount > 0 AND COALESCE(amount_released, 0) >= sanctioned_amount) AS full_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) > 0\n    AND COALESCE(amount_released, 0) < sanctioned_amount) AS part_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) = 0) AS no_release,\n  COUNT(*) FILTER(WHERE\n    sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount\n    AND NOT COALESCE(is_completed, FALSE)) AS full_not_done,\n  COUNT(DISTINCT sanction_no) AS sanction_numbers,\n  COUNT(*) FILTER(WHERE\n    is_placeholder) AS placeholders,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed') AS st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast') AS st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth') AS st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned') AS st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)') AS st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site') AS st_proposed_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_proposed_site\nFROM curated.v_pmay\nWHERE\n  UPPER(lgd_district) = ANY(\n    ARRAY['EAST KHASI HILLS']\n  )\nGROUP BY\n  UPPER(lgd_district)",
+     "data": [
+      {
+       "district": "East Khasi Hills",
+       "completed houses": 18154
+      }
+     ],
+     "chips": [
+      "What is the PMAY-G completion rate in East Khasi Hills?",
+      "Break that down by block within East Khasi Hills.",
+      "How many PMAY-G houses have been completed in East Khasi Hills?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 18154
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PF-PM-terse",
+   "cat": "pmay",
+   "shape": "paraphrase-terse",
+   "src": "paraphrase family",
+   "ok": false,
+   "primary": "routing/intent",
+   "drift": [],
+   "seconds": 4.3,
+   "turns": [
+    {
+     "q": "PMAY-G completed EKH",
+     "ok": false,
+     "primary": "routing/intent",
+     "fails": [
+      "[routing/intent] route knowledge: The published scheme information does not contain information regarding the completion status of the EKH (Ek Haveli) component or any specific project named \"EK",
+      "[sql-wrong] count = 18154 missing"
+     ],
+     "local_view": null,
+     "route": "knowledge",
+     "pause_rule": null,
+     "seconds": 3.7,
+     "answer": "The published scheme information does not contain information regarding the completion status of the EKH (Ek Haveli) component or any specific project named \"EKH\" under PMAY-G.\n\nThere is no single published checklist for EKH completion details in the scheme documents; please confirm the specific status with your local Block office or Gram Panchayat.",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": null,
+     "data": [],
+     "chips": [
+      "Who is eligible for PMAY-G?",
+      "What documents are required to apply for PMAY-G?",
+      "How many PMAY-G houses have been completed?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 18154
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PF-CE-formal",
+   "cat": "cm_elevate",
+   "shape": "paraphrase-formal",
+   "src": "paraphrase family",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 7.7,
+   "turns": [
+    {
+     "q": "How many CM Elevate applications have been received from West Garo Hills district?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 7.0,
+     "answer": "1,625 valid CM Elevate applications have been received from West Garo Hills district.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE lgd_district = 'WEST GARO HILLS' AND data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 1625
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in West Garo Hills?",
+      "Break that down by block within West Garo Hills.",
+      "Show the verification status breakdown for CM Elevate in West Garo Hills?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 1625
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 1743
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PF-CE-casual",
+   "cat": "cm_elevate",
+   "shape": "paraphrase-casual",
+   "src": "paraphrase family",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 6.2,
+   "turns": [
+    {
+     "q": "how many cm elevate applications came from west garo hills",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 5.5,
+     "answer": "1,625 valid CM Elevate applications came from West Garo Hills.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": "How many CM Elevate applications came from west garo hills?",
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE lgd_district = 'WEST GARO HILLS' AND data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 1625
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in West Garo Hills?",
+      "Break that down by block within West Garo Hills.",
+      "Show the verification status breakdown for CM Elevate in West Garo Hills?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 1625
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 1743
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PF-CE-terse",
+   "cat": "cm_elevate",
+   "shape": "paraphrase-terse",
+   "src": "paraphrase family",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 6.6,
+   "turns": [
+    {
+     "q": "CM Elevate applications WGH",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 6.3,
+     "answer": "There are 1,625 valid applications under the CM Elevate scheme in West Garo Hills.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": "How many applications are there under CM Elevate in WGH?",
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE lgd_district = 'WEST GARO HILLS' AND data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 1625
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in West Garo Hills?",
+      "Break that down by block within West Garo Hills.",
+      "Show the verification status breakdown for CM Elevate in West Garo Hills?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 1625
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 1743
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PF-CE-misspelt",
+   "cat": "cm_elevate",
+   "shape": "paraphrase-misspelt",
+   "src": "paraphrase family",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 9.1,
+   "turns": [
+    {
+     "q": "cm elevate aplications west garo hils",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 8.8,
+     "answer": "Showing results for **West Garo Hills** (you typed 'west garo hils').\n\nThere are 1,625 valid applications under the CM Elevate scheme in West Garo Hills.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": "How many applications are there under CM Elevate in West Garo Hills?",
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE lgd_district = 'WEST GARO HILLS' AND data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 1625
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in West Garo Hills?",
+      "Break that down by block within West Garo Hills.",
+      "Show the verification status breakdown for CM Elevate in West Garo Hills?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 1625
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 1743
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PF-CE-spoken",
+   "cat": "cm_elevate",
+   "shape": "paraphrase-spoken",
+   "src": "paraphrase family",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 7.5,
+   "turns": [
+    {
+     "q": "Okay, uh, CM Elevate applications in West Garo Hills, how many?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 7.2,
+     "answer": "There are 1,625 valid CM Elevate applications in West Garo Hills.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": "How many CM Elevate applications are there in West Garo Hills?",
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE lgd_district = 'WEST GARO HILLS' AND data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 1625
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in West Garo Hills?",
+      "Break that down by block within West Garo Hills.",
+      "Show the verification status breakdown for CM Elevate in West Garo Hills?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 1625
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 1743
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "CV-CE-01",
+   "cat": "cm_elevate",
+   "shape": "district",
+   "src": "coverage matrix",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 6.6,
+   "turns": [
+    {
+     "q": "How many CM Elevate applications are there in East Khasi Hills?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 6.0,
+     "answer": "There are 998 valid CM Elevate applications in East Khasi Hills.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE lgd_district = 'EAST KHASI HILLS' AND data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 998
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in East Khasi Hills?",
+      "Break that down by block within East Khasi Hills.",
+      "Show the verification status breakdown for CM Elevate in East Khasi Hills?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 998
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 1131
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "CV-CE-02",
+   "cat": "cm_elevate",
+   "shape": "ranking",
+   "src": "coverage matrix",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 3.4,
+   "turns": [
+    {
+     "q": "Which CM Elevate scheme has the most applications?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 2.6,
+     "answer": "Highest valid applications (CM Elevate, Meghalaya): Prime Small Enterprise Empowerment And Development (Seed), 3,148. Next: Meghalaya Piggery Development Scheme (2,453), then Meghalaya Poultry Farming Scheme (471).",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT scheme_name, COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE data_verified = 'Valid' GROUP BY scheme_name ORDER BY applications DESC NULLS LAST LIMIT 3",
+     "data": [
+      {
+       "scheme_name": "PRIME Small Enterprise Empowerment and Development (SEED)",
+       "applications": 3148
+      },
+      {
+       "scheme_name": "Meghalaya Piggery Development Scheme",
+       "applications": 2453
+      },
+      {
+       "scheme_name": "Meghalaya Poultry Farming Scheme",
+       "applications": 471
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are on hold in Meghalaya?",
+      "Break that down by district.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "PRIME Small Enterprise Empowerment and Development (SEED)",
+         3148
+        ],
+        [
+         "Meghalaya Piggery Development Scheme",
+         2453
+        ],
+        [
+         "Meghalaya Poultry Farming Scheme",
+         471
+        ],
+        [
+         "PRIME Tourism Vehicle Scheme",
+         363
+        ],
+        [
+         "PRIME Agriculture Response Vehicle Scheme",
+         354
+        ],
+        [
+         "Meghalaya Dairy Development Scheme",
+         259
+        ],
+        [
+         "Meghalaya Any Business Venture Scheme",
+         153
+        ],
+        [
+         "Meghalaya Goat Farming Scheme",
+         95
+        ],
+        [
+         "Meghalaya Warehouse Scheme",
+         39
+        ],
+        [
+         "Meghalaya Sericulture & Weaving Scheme",
+         13
+        ],
+        [
+         "Meghalaya Sports & Wellness Centre Scheme",
+         11
+        ],
+        [
+         "Chief Minister's Green Taxi Scheme",
+         10
+        ],
+        [
+         "Agro Tourism Villa Scheme",
+         4
+        ],
+        [
+         "Meghalaya Motorcaravan Scheme",
+         2
+        ]
+       ],
+       "unit": "count",
+       "take": 1
+      },
+      {
+       "rows": [
+        [
+         "PRIME Small Enterprise Empowerment and Development (SEED)",
+         3709
+        ],
+        [
+         "Meghalaya Piggery Development Scheme",
+         3070
+        ],
+        [
+         "Meghalaya Poultry Farming Scheme",
+         580
+        ],
+        [
+         "PRIME Tourism Vehicle Scheme",
+         449
+        ],
+        [
+         "PRIME Agriculture Response Vehicle Scheme",
+         421
+        ],
+        [
+         "Meghalaya Dairy Development Scheme",
+         321
+        ],
+        [
+         "Meghalaya Any Business Venture Scheme",
+         184
+        ],
+        [
+         "Meghalaya Goat Farming Scheme",
+         111
+        ],
+        [
+         "Meghalaya Warehouse Scheme",
+         48
+        ],
+        [
+         "Meghalaya Sericulture & Weaving Scheme",
+         14
+        ],
+        [
+         "Meghalaya Sports & Wellness Centre Scheme",
+         13
+        ],
+        [
+         "Chief Minister's Green Taxi Scheme",
+         11
+        ],
+        [
+         "Agro Tourism Villa Scheme",
+         4
+        ],
+        [
+         "Meghalaya Motorcaravan Scheme",
+         2
+        ],
+        [
+         "Meghalaya Cinema Theatre Scheme",
+         1
+        ]
+       ],
+       "unit": "count",
+       "take": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "CV-CL-02",
+   "cat": "cm_elevate_legacy",
+   "shape": "state-year",
+   "src": "coverage matrix",
+   "ok": false,
+   "primary": "sql-wrong",
+   "drift": [],
+   "seconds": 3.3,
+   "turns": [
+    {
+     "q": "How many CM Elevate Legacy applicants were sanctioned in 2024-25?",
+     "ok": false,
+     "primary": "sql-wrong",
+     "fails": [
+      "[sql-wrong] count = 2288 missing"
+     ],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 3.1,
+     "answer": "Under CM Elevate Legacy, in FY 2024-25 in all of Meghalaya (statewide), the recorded total is 2,291 beneficiaries.",
+     "schemes": [
+      "CM Elevate Legacy"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "/* metric:cm_elevate_disb_beneficiaries total */ SELECT COUNT(DISTINCT application_number) AS beneficiaries\nFROM curated.v_cm_elevate_disbursement\nWHERE year_key = 2024",
+     "data": [
+      {
+       "beneficiaries": 2291
+      }
+     ],
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "Break that down by district.",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 2288
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "FU-02",
+   "cat": "chain",
+   "shape": "only-filter",
+   "src": "follow-up chain (voice bank C2, KI-701)",
+   "ok": false,
+   "primary": "routing/intent",
+   "drift": [],
+   "seconds": 20.2,
+   "turns": [
+    {
+     "q": "Tell me about PMAY-G houses by district.",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 6.2,
+     "answer": "This briefing outlines sanctioned PMAY-G houses across all Meghalaya districts for the entire period:\nWEST GARO HILLS is the largest with 33,147; EASTERN WEST KHASI HILLS is the smallest with 5,494.\n- **WEST GARO HILLS** — 33,147; sanctioned ₹4,30,85,90,000 (≈ ₹430.86 crore); released ₹4,25,00,80,500 (≈ ₹425.01 crore); pending ₹5,85,09,500 (≈ ₹5.85 crore)\n- **EAST KHASI HILLS** — 23,952; sanctioned ₹3,10,97,30,000 (≈ ₹310.97 crore); released ₹3,07,12,53,500 (≈ ₹307.13 crore); pending ₹3,84,76,500 (≈ ₹3.85 crore)\n- **RI BHOI** — 17,565; sanctioned ₹2,27,82,50,000 (≈ ₹227.82 crore); released ₹2,22,85,33,500 (≈ ₹222.85 crore); pending ₹4,97,16,500 (≈ ₹4.97 crore)\n- **EAST GARO HILLS** — 16,899; sanctioned ₹2,19,68,70,000 (≈ ₹219.69 crore); released ₹2,16,44,47,000 (≈ ₹216.44 crore); pending ₹3,24,23,000 (≈ ₹3.24 crore)\n- **NORTH GARO HILLS** — 16,028; sanctioned ₹2,08,23,40,000 (≈ ₹208.23 crore); released ₹2,05,38,64,500 (≈ ₹205.39 crore); pending ₹2,84,75,500 (≈ ₹2.85 crore)\n- **WEST JAINTIA HILLS** — 12,570; sanctioned ₹1,63,13,70,000 (≈ ₹163.14 crore); released ₹1,59,11,28,500 (≈ ₹159.11 crore); pending ₹4,02,41,500 (≈ ₹4.02 crore)\n- **SOUTH WEST GARO HILLS** — 11,947; sanctioned ₹1,55,19,40,000 (≈ ₹155.19 crore); released ₹1,53,58,45,000 (≈ ₹153.58 crore); pending ₹1,60,95,000 (≈ ₹1.61 crore)\n- **SOUTH GARO HILLS** — 11,901; sanctioned ₹1,54,57,00,000 (≈ ₹154.57 crore); released ₹1,49,19,70,000 (≈ ₹149.20 crore); pending ₹5,37,30,000 (≈ ₹5.37 crore)\n- **WEST KHASI HILLS** — 8,437; sanctioned ₹1,09,68,10,000 (≈ ₹109.68 crore); released ₹1,06,68,81,000 (≈ ₹106.69 crore); pending ₹2,99,29,000 (≈ ₹2.99 crore)\n- **SOUTH WEST KHASI HILLS** — 7,411; sanctioned ₹96,34,30,000 (≈ ₹96.34 crore); released ₹95,70,50,500 (≈ ₹95.71 crore); pending ₹63,79,500 (≈ ₹63.80 lakh)\n- **EAST JAINTIA HILLS** — 5,756; sanctioned ₹74,82,80,000 (≈ ₹74.83 crore); released ₹73,66,35,500 (≈ ₹73.66 crore); pending ₹1,16,44,500 (≈ ₹1.16 crore)\n- **EASTERN WEST KHASI HILLS** — 5,494; sanctioned ₹71,42,20,000 (≈ ₹71.42 crore); released ₹70,49,09,000 (≈ ₹70.49 crore); pending ₹93,11,000 (≈ ₹93.11 lakh)",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT lgd_district, COUNT(*) AS houses_sanctioned, ROUND(SUM(sanctioned_amount), 2) AS sanctioned_rupees, ROUND(SUM(amount_released), 2) AS released_rupees, ROUND(SUM(sanctioned_amount - COALESCE(amount_released, 0)), 2) AS pending_rupees FROM curated.v_pmay GROUP BY lgd_district ORDER BY lgd_district LIMIT 12",
+     "data": [
+      {
+       "lgd_district": "EASTERN WEST KHASI HILLS",
+       "houses_sanctioned": 5494,
+       "sanctioned_rupees": "714220000.00",
+       "released_rupees": "704909000.00",
+       "pending_rupees": "9311000.00"
+      },
+      {
+       "lgd_district": "EAST GARO HILLS",
+       "houses_sanctioned": 16899,
+       "sanctioned_rupees": "2196870000.00",
+       "released_rupees": "2164447000.00",
+       "pending_rupees": "32423000.00"
+      },
+      {
+       "lgd_district": "EAST JAINTIA HILLS",
+       "houses_sanctioned": 5756,
+       "sanctioned_rupees": "748280000.00",
+       "released_rupees": "736635500.00",
+       "pending_rupees": "11644500.00"
+      },
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "houses_sanctioned": 23952,
+       "sanctioned_rupees": "3109730000.00",
+       "released_rupees": "3071253500.00",
+       "pending_rupees": "38476500.00"
+      },
+      {
+       "lgd_district": "NORTH GARO HILLS",
+       "houses_sanctioned": 16028,
+       "sanctioned_rupees": "2082340000.00",
+       "released_rupees": "2053864500.00",
+       "pending_rupees": "28475500.00"
+      },
+      {
+       "lgd_district": "RI BHOI",
+       "houses_sanctioned": 17565,
+       "sanctioned_rupees": "2278250000.00",
+       "released_rupees": "2228533500.00",
+       "pending_rupees": "49716500.00"
+      },
+      {
+       "lgd_district": "SOUTH GARO HILLS",
+       "houses_sanctioned": 11901,
+       "sanctioned_rupees": "1545700000.00",
+       "released_rupees": "1491970000.00",
+       "pending_rupees": "53730000.00"
+      },
+      {
+       "lgd_district": "SOUTH WEST GARO HILLS",
+       "houses_sanctioned": 11947,
+       "sanctioned_rupees": "1551940000.00",
+       "released_rupees": "1535845000.00",
+       "pending_rupees": "16095000.00"
+      },
+      {
+       "lgd_district": "SOUTH WEST KHASI HILLS",
+       "houses_sanctioned": 7411,
+       "sanctioned_rupees": "963430000.00",
+       "released_rupees": "957050500.00",
+       "pending_rupees": "6379500.00"
+      },
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "houses_sanctioned": 33147,
+       "sanctioned_rupees": "4308590000.00",
+       "released_rupees": "4250080500.00",
+       "pending_rupees": "58509500.00"
+      },
+      {
+       "lgd_district": "WEST JAINTIA HILLS",
+       "houses_sanctioned": 12570,
+       "sanctioned_rupees": "1631370000.00",
+       "released_rupees": "1591128500.00",
+       "pending_rupees": "40241500.00"
+      },
+      {
+       "lgd_district": "WEST KHASI HILLS",
+       "houses_sanctioned": 8437,
+       "sanctioned_rupees": "1096810000.00",
+       "released_rupees": "1066881000.00",
+       "pending_rupees": "29929000.00"
+      }
+     ],
+     "chips": [
+      "What is the PMAY-G completion rate in Meghalaya, by district?",
+      "Break that down by block within West Garo Hills.",
+      "How many PMAY-G houses have been completed in Meghalaya, by district?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         33147
+        ],
+        [
+         "EAST KHASI HILLS",
+         23952
+        ],
+        [
+         "RI BHOI",
+         17565
+        ],
+        [
+         "EAST GARO HILLS",
+         16899
+        ],
+        [
+         "NORTH GARO HILLS",
+         16028
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         12570
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         11947
+        ],
+        [
+         "SOUTH GARO HILLS",
+         11901
+        ],
+        [
+         "WEST KHASI HILLS",
+         8437
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         7411
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         5756
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         5494
+        ]
+       ],
+       "unit": "count",
+       "take": 3
+      }
+     ]
+    },
+    {
+     "q": "Only the completed ones.",
+     "ok": false,
+     "primary": "routing/intent",
+     "fails": [
+      "[routing/intent] route knowledge != data",
+      "[sql-wrong] row WEST GARO HILLS = 26822 missing; row EAST KHASI HILLS = 18154 missing; row EAST GARO HILLS = 13784 missing"
+     ],
+     "local_view": null,
+     "route": "knowledge",
+     "pause_rule": null,
+     "seconds": 4.8,
+     "answer": "The published scheme information does not contain information regarding whether only completed houses are considered under PMAY-G, as the text focuses on defining the completion rate formula and implementation details rather than listing specific inclusion criteria for beneficiaries.\n\nFor confirmation on whether a specific house or application is considered \"completed\" or eligible for benefits, please check the official PMAY-Gramin portal (pmayg.nic.in) or contact your local Block office or Gram Panchayat.",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": "Only the completed ones under PMAY-G?",
+     "sql": null,
+     "data": [],
+     "chips": [
+      "Who is eligible for PMAY-G?",
+      "What documents are required to apply for PMAY-G?",
+      "How many PMAY-G houses have been completed?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         26822
+        ],
+        [
+         "EAST KHASI HILLS",
+         18154
+        ],
+        [
+         "EAST GARO HILLS",
+         13784
+        ],
+        [
+         "NORTH GARO HILLS",
+         13183
+        ],
+        [
+         "RI BHOI",
+         12056
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         10212
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         8932
+        ],
+        [
+         "WEST KHASI HILLS",
+         7294
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         7100
+        ],
+        [
+         "SOUTH GARO HILLS",
+         6316
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         4465
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         1623
+        ]
+       ],
+       "unit": "count",
+       "take": 3
+      }
+     ]
+    },
+    {
+     "q": "Top 3 districts.",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 8.1,
+     "answer": "This list ranks the top three Meghalaya districts by completed PMAY-G houses statewide:\n1. **WEST GARO HILLS** — 26,822\n2. **EAST KHASI HILLS** — 18,154\n3. **EAST GARO HILLS** — 13,784",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": "Which are the top 3 districts for completed houses under the PMAY-G scheme?",
+     "sql": "SELECT lgd_district, COUNT(*) AS completed_houses FROM curated.v_pmay WHERE is_completed GROUP BY lgd_district ORDER BY completed_houses DESC NULLS LAST LIMIT 3",
+     "data": [
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "completed_houses": 26822
+      },
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "completed_houses": 18154
+      },
+      {
+       "lgd_district": "EAST GARO HILLS",
+       "completed_houses": 13784
+      }
+     ],
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by district?",
+      "Break that down by block within West Garo Hills.",
+      "How many PMAY-G houses have been completed in Meghalaya, by district?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         26822
+        ],
+        [
+         "EAST KHASI HILLS",
+         18154
+        ],
+        [
+         "EAST GARO HILLS",
+         13784
+        ],
+        [
+         "NORTH GARO HILLS",
+         13183
+        ],
+        [
+         "RI BHOI",
+         12056
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         10212
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         8932
+        ],
+        [
+         "WEST KHASI HILLS",
+         7294
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         7100
+        ],
+        [
+         "SOUTH GARO HILLS",
+         6316
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         4465
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         1623
+        ]
+       ],
+       "unit": "count",
+       "take": 3
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "FU-05",
+   "cat": "chain",
+   "shape": "one-of-comparison",
+   "src": "follow-up chain",
+   "ok": false,
+   "primary": "routing/intent",
+   "drift": [],
+   "seconds": 10.9,
+   "turns": [
+    {
+     "q": "Compare MGNREGA and PMAY-G beneficiaries",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 1.9,
+     "answer": "**All of Meghalaya, all financial years**\n- **MGNREGA:** 14,94,437 households given work (counted once per financial year, FY 2022-23 to 2025-26)\n- **PMAY-G:** 1,71,107 houses sanctioned\n**MGNREGA** has the most beneficiaries (14,94,437), 13,23,330 more than PMAY-G (1,71,107, 8.73x).",
+     "schemes": [
+      "MGNREGA",
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT NULL::text AS k, (SUM(households_employed))::float8 AS ben, (COUNT(DISTINCT village_code))::float8 AS villages, (COUNT(DISTINCT lgd_district))::float8 AS districts, (COUNT(DISTINCT lgd_block))::float8 AS blocks FROM curated.v_employment WHERE TRUE\n;\nSELECT NULL::text AS k, (SUM(total_exp) / 100.0)::float8 AS money FROM curated.v_expenditure WHERE TRUE\n;\nSELECT NULL::text AS k, (COUNT(*))::float8 AS ben, (COUNT(*) FILTER (WHERE is_completed))::float8 AS completed, (SUM(amount_released) / 1e7)::float8 AS money, (SUM(sanctioned_amount) / 1e7)::float8 AS sanctioned, (COUNT(DISTINCT village_code))::float8 AS villages, (COUNT(DISTINCT lgd_district))::float8 AS districts, (COUNT(DISTINCT lgd_block))::float8 AS blocks FROM curated.v_pmay WHERE TRUE",
+     "data": [
+      {
+       "scheme": "MGNREGA",
+       "beneficiaries": 1494437
+      },
+      {
+       "scheme": "PMAY-G",
+       "beneficiaries": 171107
+      }
+     ],
+     "chips": [
+      "Which villages have both MGNREGA and PMAY-G activity in Meghalaya?",
+      "Break that down by district.",
+      "Compare MGNREGA and PMAY-G spending in Meghalaya."
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 1494437
+      },
+      {
+       "label": null,
+       "unit": "count",
+       "live": 171107
+      }
+     ]
+    },
+    {
+     "q": "only PMAY-G",
+     "ok": false,
+     "primary": "routing/intent",
+     "fails": [
+      "[routing/intent] route knowledge: The published scheme information describes PMAY-G as an active government mission launched on 1 April 2016 that is currently implemented through executive guide",
+      "[sql-wrong] count = 171107 missing"
+     ],
+     "local_view": null,
+     "route": "knowledge",
+     "pause_rule": null,
+     "seconds": 8.1,
+     "answer": "The published scheme information describes PMAY-G as an active government mission launched on 1 April 2016 that is currently implemented through executive guidelines and budgetary allocation for the period FY 2024-25 to FY 2028-29.\n\n- **PMAY-Gramin (PMAY-G)** — An active rural housing mission launched on 1 April 2016 to achieve \"Housing for All\" by providing financial assistance and technical support for constructing or improving permanent homes.\n- **Implementation Status** — Operated by the Ministry of Rural Development in partnership with state governments and Gram Panchayats, with the Union Cabinet approving continuation through FY 2028-29.\n- **Legal Nature** — A scheme implemented via executive guidelines rather than a law passed by Parliament, meaning there is no individual legal entitlement to a house under this mission.\n- **Target Beneficiaries** — Designed for rural households that are houseless or living in kutcha or severely damaged houses, identified through the SECC/Awaas+ list and Gram Sabha approval.\n- **Current Assistance** — Provides unit assistance of ₹1.20 lakh in plain areas and ₹1.30 lakh in North-Eastern, Himalayan, hilly, and IAP districts, with a mandatory toilet component funded through convergence with Swachh Bharat Mission-Gramin.",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": "What is the status of PMAY-G?",
+     "sql": null,
+     "data": [],
+     "chips": [
+      "Who is eligible for PMAY-G?",
+      "What documents are required to apply for PMAY-G?",
+      "How many PMAY-G houses have been completed?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 171107
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "FU-07",
+   "cat": "chain",
+   "shape": "clarification",
+   "src": "follow-up chain (voice bank E2)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 5.5,
+   "turns": [
+    {
+     "q": "CM Elevate records in Ri Bhoi.",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "pause",
+     "pause_rule": "cm-elevate-dataset",
+     "seconds": 1.1,
+     "answer": "CM Elevate has two datasets — applications, and sanctions and disbursements (CM Elevate Legacy). Which one do you mean?",
+     "schemes": null,
+     "chart_type": null,
+     "rewritten": null,
+     "sql": null,
+     "data": [],
+     "chips": [
+      "CM Elevate (applications)",
+      "CM Elevate Legacy (sanctions & disbursements)"
+     ],
+     "truth": []
+    },
+    {
+     "q": "Applications",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 3.5,
+     "answer": "The CM Elevate scheme recorded 2,038 valid applications in the Ri Bhoi district.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": "CM Elevate (applications) records in Ri Bhoi",
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE lgd_district = 'RI BHOI' AND data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 2038
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Ri Bhoi?",
+      "Break that down by block within Ri Bhoi.",
+      "Show the verification status breakdown for CM Elevate in Ri Bhoi?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 2038
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 2626
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "FU-10",
+   "cat": "chain",
+   "shape": "ranking-followup",
+   "src": "follow-up chain",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 10.4,
+   "turns": [
+    {
+     "q": "Focus Legacy amount by financial year",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 5.4,
+     "answer": "The Focus Legacy scheme disbursed funds statewide across all financial years:\nAmount disbursed rose from ₹6,82,35,000 (≈ ₹6.82 crore) in FY 2021-22 to ₹18,50,90,000 (≈ ₹18.51 crore) in FY 2025-26, up 11,68,55,000 (171.3%).\n- FY 2021-22: ₹6,82,35,000 (≈ ₹6.82 crore); memberships paid 13,647\n- FY 2022-23: ₹14,17,90,000 (≈ ₹14.18 crore); memberships paid 28,358\n- FY 2024-25: ₹11,49,90,000 (≈ ₹11.50 crore); memberships paid 22,998\n- FY 2025-26: ₹18,50,90,000 (≈ ₹18.51 crore); memberships paid 37,018 Counted as memberships paid for, not as distinct people — a group paid in more than one year is counted each time.\n\nNote: Focus Legacy amounts are provisional, and the money unit has not been verified by the department.\nNote: there is no Focus Legacy data for FY 2023-24 (an absent year, not zero).",
+     "schemes": [
+      "Focus Legacy"
+     ],
+     "chart_type": null,
+     "rewritten": "How much money was given under Focus Legacy by financial year?",
+     "sql": "SELECT financial_year_short,\n       SUM(amount_disbursed) AS amount_disbursed,\n       SUM(no_of_pg_members) AS memberships\nFROM curated.v_focus_legacy\nGROUP BY financial_year_short\nORDER BY financial_year_short\nLIMIT 100",
+     "data": [
+      {
+       "financial_year_short": "2021-22",
+       "amount_disbursed_rs": "68235000.00",
+       "memberships": 13647
+      },
+      {
+       "financial_year_short": "2022-23",
+       "amount_disbursed_rs": "141790000.00",
+       "memberships": 28358
+      },
+      {
+       "financial_year_short": "2024-25",
+       "amount_disbursed_rs": "114990000.00",
+       "memberships": 22998
+      },
+      {
+       "financial_year_short": "2025-26",
+       "amount_disbursed_rs": "185090000.00",
+       "memberships": 37018
+      }
+     ],
+     "chips": [
+      "How many producer groups were paid in Meghalaya?",
+      "Break that down by district.",
+      "Show Focus Legacy payments by financial year in Meghalaya."
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "2021-22",
+         68235000
+        ],
+        [
+         "2022-23",
+         141790000
+        ],
+        [
+         "2024-25",
+         114990000
+        ],
+        [
+         "2025-26",
+         185090000
+        ]
+       ],
+       "unit": "rupees",
+       "take": "all"
+      }
+     ]
+    },
+    {
+     "q": "which year had the most?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 4.4,
+     "answer": "4 results match in total; the top 3 are shown below.\n\nHighest amount disbursed (Focus Legacy, Meghalaya, across all financial years): 2025-26, ₹18,50,90,000 (≈ ₹18.51 crore). Next: 2022-23 (₹14,17,90,000 (≈ ₹14.18 crore)), then 2024-25 (₹11,49,90,000 (≈ ₹11.50 crore)).\n\nNote: Focus Legacy amounts are provisional, and the money unit has not been verified by the department.\nNote: there is no Focus Legacy data for FY 2023-24 (an absent year, not zero).",
+     "schemes": [
+      "Focus Legacy"
+     ],
+     "chart_type": null,
+     "rewritten": "Which financial year had the most money given under Focus Legacy?",
+     "sql": "SELECT financial_year_short, SUM(amount_disbursed) AS amount_disbursed FROM curated.v_focus_legacy GROUP BY financial_year_short ORDER BY amount_disbursed DESC NULLS LAST LIMIT 3",
+     "data": [
+      {
+       "financial_year_short": "2025-26",
+       "amount_disbursed_rs": "185090000.00"
+      },
+      {
+       "financial_year_short": "2022-23",
+       "amount_disbursed_rs": "141790000.00"
+      },
+      {
+       "financial_year_short": "2024-25",
+       "amount_disbursed_rs": "114990000.00"
+      }
+     ],
+     "chips": [
+      "How many producer groups were paid in Meghalaya?",
+      "Break that down by district.",
+      "Show Focus Legacy payments by financial year in Meghalaya."
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "2025-26",
+         185090000
+        ],
+        [
+         "2022-23",
+         141790000
+        ],
+        [
+         "2024-25",
+         114990000
+        ],
+        [
+         "2021-22",
+         68235000
+        ]
+       ],
+       "unit": "rupees",
+       "take": 1
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "FU-19",
+   "cat": "chain",
+   "shape": "and-for-place",
+   "src": "follow-up chain (voice bank C4)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 13.8,
+   "turns": [
+    {
+     "q": "CM Elevate applications in South Garo Hills.",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 4.9,
+     "answer": "There are 368 valid applications under the CM Elevate scheme in South Garo Hills.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": "How many applications are there under CM Elevate in South Garo Hills?",
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE lgd_district = 'SOUTH GARO HILLS' AND data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 368
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in South Garo Hills?",
+      "Break that down by block within South Garo Hills.",
+      "Show the verification status breakdown for CM Elevate in South Garo Hills?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 368
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 495
+      }
+     ]
+    },
+    {
+     "q": "And in West Khasi Hills?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 8.2,
+     "answer": "There are 439 valid applications under the CM Elevate scheme in West Khasi Hills.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": "How many applications are there under CM Elevate in West Khasi Hills?",
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE lgd_district = 'WEST KHASI HILLS' AND data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 439
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in West Khasi Hills?",
+      "Break that down by block within West Khasi Hills.",
+      "Show the verification status breakdown for CM Elevate in West Khasi Hills?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 439
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 526
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "FU-21",
+   "cat": "chain",
+   "shape": "measure-swap",
+   "src": "follow-up chain",
+   "ok": false,
+   "primary": "sql-wrong",
+   "drift": [],
+   "seconds": 7.4,
+   "turns": [
+    {
+     "q": "What was MGNREGA expenditure in each financial year?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 4.3,
+     "answer": "Statewide MGNREGA expenditure across all financial years in Meghalaya:\nTotal expenditure rose from ₹88,629.40 lakh (≈ ₹886.29 crore) in FY 2022-23 to ₹91,605.96 lakh (≈ ₹916.06 crore) in FY 2025-26, up ₹2,976.56 lakh (≈ ₹29.77 crore) (3.4%).\n- FY 2022-23: ₹88,629.40 lakh (≈ ₹886.29 crore)\n- FY 2023-24: ₹75,961.36 lakh (≈ ₹759.61 crore)\n- FY 2024-25: ₹1,06,669.85 lakh (≈ ₹1,066.70 crore)\n- FY 2025-26: ₹91,605.96 lakh (≈ ₹916.06 crore)",
+     "schemes": [
+      "MGNREGA"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "/* metric:mgnrega_total_expenditure breakdown */ SELECT year_key, MAX(financial_year_short) AS financial_year, ROUND((SUM(total_exp))::numeric, 2) AS total_expenditure_lakh\nFROM curated.v_expenditure\nGROUP BY year_key ORDER BY year_key",
+     "data": [
+      {
+       "year_key": 2022,
+       "financial_year": "2022-23",
+       "total_expenditure_lakh": "88629.40"
+      },
+      {
+       "year_key": 2023,
+       "financial_year": "2023-24",
+       "total_expenditure_lakh": "75961.36"
+      },
+      {
+       "year_key": 2024,
+       "financial_year": "2024-25",
+       "total_expenditure_lakh": "106669.85"
+      },
+      {
+       "year_key": 2025,
+       "financial_year": "2025-26",
+       "total_expenditure_lakh": "91605.96"
+      }
+     ],
+     "chips": [
+      "How many MGNREGA person-days were generated in Meghalaya?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by district."
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "2022-23",
+         88629.4
+        ],
+        [
+         "2023-24",
+         75961.36
+        ],
+        [
+         "2024-25",
+         106669.85
+        ],
+        [
+         "2025-26",
+         91605.96
+        ]
+       ],
+       "unit": "lakh",
+       "take": "all"
+      }
+     ]
+    },
+    {
+     "q": "and person-days?",
+     "ok": false,
+     "primary": "sql-wrong",
+     "fails": [
+      "[sql-wrong] row 2022-23 = 25596237 missing; row 2023-24 = 27264054 missing; row 2024-25 = 14667872 missing; row 2025-26 = 23387018 missing"
+     ],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 2.5,
+     "answer": "The total person-days under MGNREGA for all of Meghalaya across all financial years is 9,09,15,181.",
+     "schemes": [
+      "MGNREGA"
+     ],
+     "chart_type": null,
+     "rewritten": "and person-days under MGNREGA?",
+     "sql": "SELECT SUM(person_days) AS person_days FROM curated.v_employment",
+     "data": [
+      {
+       "person_days": 90915181
+      }
+     ],
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by district."
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "2022-23",
+         25596237
+        ],
+        [
+         "2023-24",
+         27264054
+        ],
+        [
+         "2024-25",
+         14667872
+        ],
+        [
+         "2025-26",
+         23387018
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "FU-22",
+   "cat": "chain",
+   "shape": "place-measure",
+   "src": "follow-up chain",
+   "ok": false,
+   "primary": "routing/intent",
+   "drift": [],
+   "seconds": 19.3,
+   "turns": [
+    {
+     "q": "Focus Legacy producer groups in West Garo Hills",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 7.1,
+     "answer": "There are 2,701 Focus Legacy producer groups in West Garo Hills across all financial years.\n\nNote: there is no Focus Legacy data for FY 2023-24 (an absent year, not zero).",
+     "schemes": [
+      "Focus Legacy"
+     ],
+     "chart_type": null,
+     "rewritten": "How many Focus Legacy producer groups are there in West Garo Hills?",
+     "sql": "SELECT COUNT(DISTINCT pg_id) AS producer_groups FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS'",
+     "data": [
+      {
+       "producer_groups": 2701
+      }
+     ],
+     "chips": [
+      "How many PG members were covered in West Garo Hills?",
+      "Break that down by block within West Garo Hills.",
+      "Show Focus Legacy payments by financial year in West Garo Hills."
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 2701
+      }
+     ]
+    },
+    {
+     "q": "and the amount?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 8.7,
+     "answer": "The amount disbursed under the Focus Legacy scheme in West Garo Hills across all financial years is ₹10,93,35,000 (≈ ₹10.93 crore).\n\nNote: Focus Legacy amounts are provisional, and the money unit has not been verified by the department.\nNote: there is no Focus Legacy data for FY 2023-24 (an absent year, not zero).",
+     "schemes": [
+      "Focus Legacy"
+     ],
+     "chart_type": null,
+     "rewritten": "and the amount under Focus Legacy in West Garo Hills?",
+     "sql": "SELECT SUM(amount_disbursed) AS amount_disbursed FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS'",
+     "data": [
+      {
+       "amount_disbursed_rs": "109335000.00"
+      }
+     ],
+     "chips": [
+      "How many producer groups were paid in West Garo Hills?",
+      "Break that down by block within West Garo Hills.",
+      "Show Focus Legacy payments by financial year in West Garo Hills."
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "rupees",
+       "live": 109335000
+      }
+     ]
+    },
+    {
+     "q": "and in East Khasi Hills?",
+     "ok": false,
+     "primary": "routing/intent",
+     "fails": [
+      "[routing/intent] route knowledge: The published scheme information does not specify a different amount for East Khasi Hills; the scheme provides a uniform benefit across the state.\n\n- **Per-memb",
+      "[sql-wrong] rupees = 54205000 missing"
+     ],
+     "local_view": null,
+     "route": "knowledge",
+     "pause_rule": null,
+     "seconds": 2.8,
+     "answer": "The published scheme information does not specify a different amount for East Khasi Hills; the scheme provides a uniform benefit across the state.\n\n- **Per-member benefit** — ₹5,000 initial mobilisation fund per Producer Group member.\n- **Nature of payment** — It is a grant, not a loan.\n- **Disbursal method** — Delivered via cheques at public events or direct bank transfers.",
+     "schemes": [
+      "Focus Legacy"
+     ],
+     "chart_type": null,
+     "rewritten": "What is the amount under Focus Legacy in East Khasi Hills?",
+     "sql": null,
+     "data": [],
+     "chips": [
+      "Who can benefit under the FOCUS scheme?",
+      "What type of financial assistance is provided under FOCUS?",
+      "How many producer groups were paid under Focus Legacy?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "rupees",
+       "live": 54205000
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

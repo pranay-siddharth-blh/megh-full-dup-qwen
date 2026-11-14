@@ -197,6 +197,10 @@ _YEARS_LIST_FIGURE = Matcher(Alt(
     Seq("number", "of"), _c04Joined("job", ("card", "cards")), _c04Joined("person", ("day", "days")),
     Seq("by", W("district", "block", "village", "scheme")), Seq("per", W("district", "block", "village")),
     NotBefore(Seq("how", "many"), Seq(Opt("financial"), W("year", prefix=True))),
+    # the rephraser's money wording (accuracy gold bank 2026-11-11, KI-705; chart PDF §2): "Focus Legacy
+    # amount by financial year" became "How much money was remitted under Focus Legacy by financial
+    # year?" and was answered with the list of years (SELECT DISTINCT year_key), no amounts
+    Seq("how", "much"), W("money", "paid", "fund", "funds", "spent"), W("remit", "spend", prefix=True),
 ))
 
 

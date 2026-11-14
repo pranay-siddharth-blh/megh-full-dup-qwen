@@ -1,0 +1,2135 @@
+{
+ "label": "fix2",
+ "when": "2026-11-11_1148",
+ "seconds": 54,
+ "bank_recorded": "2026-11-11",
+ "summary": "category                   cases       turns\nchain                        5/5       12/12\nchart                        4/4         9/9\ncm_elevate                   1/2         2/3\ncm_elevate_legacy            1/1         1/1\npmay                         1/1         1/1\nTOTAL                      12/13       25/26   (92.3% cases)\n\nfailure taxonomy (primary tag per failing turn):\n  routing/intent         1  SH-C020",
+ "results": [
+  {
+   "id": "RAG-D3",
+   "cat": "cm_elevate",
+   "shape": "count+list",
+   "src": "RAG Knowledge and Data Test PDF, Table 2 (30 Oct 2026) #3 (FAIL in PDF: routed to documents)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 10.6,
+   "turns": [
+    {
+     "q": "How many CM Elevate applications are there and how many schemes do they cover?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 8.7,
+     "answer": "In Meghalaya CM Elevate recorded 7,375 valid applications covering 14 schemes.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": "kpi_bar",
+     "rewritten": null,
+     "sql": "SELECT COUNT(DISTINCT request_id) AS applications, COUNT(DISTINCT scheme_name) AS schemes FROM curated.v_cm_elevate WHERE data_verified = 'Valid'",
+     "data": [
+      {
+       "applications": 7375,
+       "schemes": 14
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are on hold in Meghalaya?",
+      "Break that down by district.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 7375
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 8938
+      },
+      {
+       "label": "schemes (valid)",
+       "unit": "count",
+       "live": 14
+      },
+      {
+       "label": "schemes",
+       "unit": "count",
+       "live": 15
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "CH-04",
+   "cat": "chart",
+   "shape": "breakdown-status",
+   "src": "Chart Test Questions PDF (30 Oct 2026) #4",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 12.4,
+   "turns": [
+    {
+     "q": "CM Elevate applications by status as a donut chart",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 11.7,
+     "answer": "The donut chart displays the top 3 valid application statuses for the CM Elevate scheme statewide:\n1. **Forward** — 7,324\n2. **Sent back** — 48\n3. **Resubmit** — 3",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": "doughnut",
+     "rewritten": "How many applications are there under CM Elevate categorized by status as a donut chart?",
+     "sql": "SELECT CASE WHEN LOWER(current_file_status) LIKE 'sendback%' THEN 'Sent back' WHEN current_file_status IS NULL THEN '(not recorded)' ELSE INITCAP(LOWER(current_file_status)) END AS status, COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE data_verified = 'Valid' GROUP BY CASE WHEN LOWER(current_file_status) LIKE 'sendback%' THEN 'Sent back' WHEN current_file_status IS NULL THEN '(not recorded)' ELSE INITCAP(LOWER(current_file_status)) END ORDER BY applications DESC NULLS LAST LIMIT 100",
+     "data": [
+      {
+       "status": "Forward",
+       "applications": 7324
+      },
+      {
+       "status": "Sent back",
+       "applications": 48
+      },
+      {
+       "status": "Resubmit",
+       "applications": 3
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by district.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "forward",
+         7324
+        ],
+        [
+         "Sent back",
+         48
+        ],
+        [
+         "resubmit",
+         3
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      },
+      {
+       "rows": [
+        [
+         "forward",
+         8861
+        ],
+        [
+         "Sent back",
+         74
+        ],
+        [
+         "resubmit",
+         3
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": null,
+      "asked": "doughnut",
+      "charts": [
+       {
+        "initial": "doughnut",
+        "types": [
+         "doughnut"
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "CH-08",
+   "cat": "chart",
+   "shape": "ranking-topn",
+   "src": "Chart Test Questions PDF (30 Oct 2026) #8-9 (pie, then a bar follow-up)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 16.6,
+   "turns": [
+    {
+     "q": "Top 5 districts by FOCUS+ beneficiaries as a pie chart",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 12.3,
+     "answer": "The statewide Focus Plus scheme beneficiaries across all financial years for the top five districts are:\n1. **WEST GARO HILLS** — 35,039\n2. **SOUTH WEST GARO HILLS** — 15,294\n3. **EAST KHASI HILLS** — 13,608\n4. **EAST GARO HILLS** — 11,379\n5. **NORTH GARO HILLS** — 11,007\n\nNote: there is no Focus Plus data for FY 2023-24 and FY 2024-25 (absent years, not zero).",
+     "schemes": [
+      "Focus Plus"
+     ],
+     "chart_type": "pie",
+     "rewritten": "Which are the top 5 districts by Focus Plus beneficiaries as a pie chart?",
+     "sql": "SELECT lgd_district, COUNT(DISTINCT beneficiary_key) AS beneficiaries FROM curated.v_focus_plus WHERE NOT lgd_district IS NULL GROUP BY lgd_district ORDER BY beneficiaries DESC NULLS LAST LIMIT 5",
+     "data": [
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "beneficiaries": 35039
+      },
+      {
+       "lgd_district": "SOUTH WEST GARO HILLS",
+       "beneficiaries": 15294
+      },
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "beneficiaries": 13608
+      },
+      {
+       "lgd_district": "EAST GARO HILLS",
+       "beneficiaries": 11379
+      },
+      {
+       "lgd_district": "NORTH GARO HILLS",
+       "beneficiaries": 11007
+      }
+     ],
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by block within West Garo Hills.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by district?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         35039
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         15294
+        ],
+        [
+         "EAST KHASI HILLS",
+         13608
+        ],
+        [
+         "EAST GARO HILLS",
+         11379
+        ],
+        [
+         "NORTH GARO HILLS",
+         11007
+        ],
+        [
+         "SOUTH GARO HILLS",
+         8612
+        ],
+        [
+         "WEST KHASI HILLS",
+         6754
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         1792
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         1221
+        ],
+        [
+         "RI BHOI",
+         419
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         404
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         283
+        ]
+       ],
+       "unit": "count",
+       "take": 5
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": null,
+      "asked": "pie",
+      "charts": [
+       {
+        "initial": "pie",
+        "types": [
+         "pie"
+        ]
+       }
+      ]
+     }
+    },
+    {
+     "q": "now show it as a bar chart",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": "bar",
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 0.0,
+     "answer": "Here is the same data as bar.",
+     "schemes": [
+      "Focus Plus"
+     ],
+     "chart_type": "pie",
+     "rewritten": null,
+     "sql": "SELECT lgd_district, COUNT(DISTINCT beneficiary_key) AS beneficiaries FROM curated.v_focus_plus WHERE NOT lgd_district IS NULL GROUP BY lgd_district ORDER BY beneficiaries DESC NULLS LAST LIMIT 5",
+     "data": [
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "beneficiaries": 35039
+      },
+      {
+       "lgd_district": "SOUTH WEST GARO HILLS",
+       "beneficiaries": 15294
+      },
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "beneficiaries": 13608
+      },
+      {
+       "lgd_district": "EAST GARO HILLS",
+       "beneficiaries": 11379
+      },
+      {
+       "lgd_district": "NORTH GARO HILLS",
+       "beneficiaries": 11007
+      }
+     ],
+     "chips": [],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         35039
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         15294
+        ],
+        [
+         "EAST KHASI HILLS",
+         13608
+        ],
+        [
+         "EAST GARO HILLS",
+         11379
+        ],
+        [
+         "NORTH GARO HILLS",
+         11007
+        ],
+        [
+         "SOUTH GARO HILLS",
+         8612
+        ],
+        [
+         "WEST KHASI HILLS",
+         6754
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         1792
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         1221
+        ],
+        [
+         "RI BHOI",
+         419
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         404
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         283
+        ]
+       ],
+       "unit": "count",
+       "take": 5
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": null,
+      "asked": "bar",
+      "charts": [
+       {
+        "initial": "bar",
+        "types": [
+         "bar"
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "CH-10",
+   "cat": "chart",
+   "shape": "cross-compare",
+   "src": "Chart Test Questions PDF (30 Oct 2026) #10-11 (comparison, then three chart follow-ups)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 9.2,
+   "turns": [
+    {
+     "q": "So compare total beneficiaries in PMAY-G and MGNREGA",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 7.0,
+     "answer": "**All of Meghalaya, all financial years**\n- **MGNREGA:** 14,94,437 households given work (counted once per financial year, FY 2022-23 to 2025-26)\n- **PMAY-G:** 1,71,107 houses sanctioned\n**MGNREGA** has the most beneficiaries (14,94,437), 13,23,330 more than PMAY-G (1,71,107, 8.73x).",
+     "schemes": [
+      "MGNREGA",
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": "Compare the total beneficiaries under PMAY-G and MGNREGA.",
+     "sql": "SELECT NULL::text AS k, (SUM(households_employed))::float8 AS ben, (COUNT(DISTINCT village_code))::float8 AS villages, (COUNT(DISTINCT lgd_district))::float8 AS districts, (COUNT(DISTINCT lgd_block))::float8 AS blocks FROM curated.v_employment WHERE TRUE\n;\nSELECT NULL::text AS k, (SUM(total_exp) / 100.0)::float8 AS money FROM curated.v_expenditure WHERE TRUE\n;\nSELECT NULL::text AS k, (COUNT(*))::float8 AS ben, (COUNT(*) FILTER (WHERE is_completed))::float8 AS completed, (SUM(amount_released) / 1e7)::float8 AS money, (SUM(sanctioned_amount) / 1e7)::float8 AS sanctioned, (COUNT(DISTINCT village_code))::float8 AS villages, (COUNT(DISTINCT lgd_district))::float8 AS districts, (COUNT(DISTINCT lgd_block))::float8 AS blocks FROM curated.v_pmay WHERE TRUE",
+     "data": [
+      {
+       "scheme": "MGNREGA",
+       "beneficiaries": 1494437
+      },
+      {
+       "scheme": "PMAY-G",
+       "beneficiaries": 171107
+      }
+     ],
+     "chips": [
+      "Which villages have both MGNREGA and PMAY-G activity in Meghalaya?",
+      "Break that down by district.",
+      "Compare MGNREGA and PMAY-G spending in Meghalaya."
+     ],
+     "truth": [
+      {
+       "label": "MGNREGA households",
+       "unit": "count",
+       "live": 1494437
+      },
+      {
+       "label": "PMAY-G houses",
+       "unit": "count",
+       "live": 171107
+      }
+     ]
+    },
+    {
+     "q": "for above one give me the bar chart",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": "bar",
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 0.0,
+     "answer": "Here is the same data as bar.",
+     "schemes": [
+      "MGNREGA",
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT NULL::text AS k, (SUM(households_employed))::float8 AS ben, (COUNT(DISTINCT village_code))::float8 AS villages, (COUNT(DISTINCT lgd_district))::float8 AS districts, (COUNT(DISTINCT lgd_block))::float8 AS blocks FROM curated.v_employment WHERE TRUE\n;\nSELECT NULL::text AS k, (SUM(total_exp) / 100.0)::float8 AS money FROM curated.v_expenditure WHERE TRUE\n;\nSELECT NULL::text AS k, (COUNT(*))::float8 AS ben, (COUNT(*) FILTER (WHERE is_completed))::float8 AS completed, (SUM(amount_released) / 1e7)::float8 AS money, (SUM(sanctioned_amount) / 1e7)::float8 AS sanctioned, (COUNT(DISTINCT village_code))::float8 AS villages, (COUNT(DISTINCT lgd_district))::float8 AS districts, (COUNT(DISTINCT lgd_block))::float8 AS blocks FROM curated.v_pmay WHERE TRUE",
+     "data": [
+      {
+       "scheme": "MGNREGA",
+       "beneficiaries": 1494437
+      },
+      {
+       "scheme": "PMAY-G",
+       "beneficiaries": 171107
+      }
+     ],
+     "chips": [],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 1494437
+      },
+      {
+       "label": null,
+       "unit": "count",
+       "live": 171107
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": null,
+      "asked": "bar",
+      "charts": [
+       {
+        "initial": "bar",
+        "types": [
+         "bar"
+        ]
+       }
+      ]
+     }
+    },
+    {
+     "q": "now give me pie chart",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": "pie",
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 0.0,
+     "answer": "Here is the same data as pie.",
+     "schemes": [
+      "MGNREGA",
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT NULL::text AS k, (SUM(households_employed))::float8 AS ben, (COUNT(DISTINCT village_code))::float8 AS villages, (COUNT(DISTINCT lgd_district))::float8 AS districts, (COUNT(DISTINCT lgd_block))::float8 AS blocks FROM curated.v_employment WHERE TRUE\n;\nSELECT NULL::text AS k, (SUM(total_exp) / 100.0)::float8 AS money FROM curated.v_expenditure WHERE TRUE\n;\nSELECT NULL::text AS k, (COUNT(*))::float8 AS ben, (COUNT(*) FILTER (WHERE is_completed))::float8 AS completed, (SUM(amount_released) / 1e7)::float8 AS money, (SUM(sanctioned_amount) / 1e7)::float8 AS sanctioned, (COUNT(DISTINCT village_code))::float8 AS villages, (COUNT(DISTINCT lgd_district))::float8 AS districts, (COUNT(DISTINCT lgd_block))::float8 AS blocks FROM curated.v_pmay WHERE TRUE",
+     "data": [
+      {
+       "scheme": "MGNREGA",
+       "beneficiaries": 1494437
+      },
+      {
+       "scheme": "PMAY-G",
+       "beneficiaries": 171107
+      }
+     ],
+     "chips": [],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 1494437
+      },
+      {
+       "label": null,
+       "unit": "count",
+       "live": 171107
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": "Drawn as a pie chart, as you asked. Read it with care: the schemes count and spend different things, so the total and the shares are not a real whole.",
+      "asked": "pie",
+      "charts": [
+       {
+        "initial": "pie",
+        "types": [
+         "pie"
+        ]
+       }
+      ]
+     }
+    },
+    {
+     "q": "give me donut",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": "doughnut",
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 0.0,
+     "answer": "Here is the same data as doughnut.",
+     "schemes": [
+      "MGNREGA",
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT NULL::text AS k, (SUM(households_employed))::float8 AS ben, (COUNT(DISTINCT village_code))::float8 AS villages, (COUNT(DISTINCT lgd_district))::float8 AS districts, (COUNT(DISTINCT lgd_block))::float8 AS blocks FROM curated.v_employment WHERE TRUE\n;\nSELECT NULL::text AS k, (SUM(total_exp) / 100.0)::float8 AS money FROM curated.v_expenditure WHERE TRUE\n;\nSELECT NULL::text AS k, (COUNT(*))::float8 AS ben, (COUNT(*) FILTER (WHERE is_completed))::float8 AS completed, (SUM(amount_released) / 1e7)::float8 AS money, (SUM(sanctioned_amount) / 1e7)::float8 AS sanctioned, (COUNT(DISTINCT village_code))::float8 AS villages, (COUNT(DISTINCT lgd_district))::float8 AS districts, (COUNT(DISTINCT lgd_block))::float8 AS blocks FROM curated.v_pmay WHERE TRUE",
+     "data": [
+      {
+       "scheme": "MGNREGA",
+       "beneficiaries": 1494437
+      },
+      {
+       "scheme": "PMAY-G",
+       "beneficiaries": 171107
+      }
+     ],
+     "chips": [],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 1494437
+      },
+      {
+       "label": null,
+       "unit": "count",
+       "live": 171107
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": "Drawn as a donut chart, as you asked. Read it with care: the schemes count and spend different things, so the total and the shares are not a real whole.",
+      "asked": "doughnut",
+      "charts": [
+       {
+        "initial": "doughnut",
+        "types": [
+         "doughnut"
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "CH-12",
+   "cat": "chart",
+   "shape": "unsupported-view",
+   "src": "Chart Test Questions PDF (30 Oct 2026) §2 (horizontal bar drawn vertical)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 3.8,
+   "turns": [
+    {
+     "q": "MGNREGA person-days by district in 2023-24",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 2.9,
+     "answer": "This briefing outlines MGNREGA person-days generated across all twelve districts of Meghalaya during FY 2023-24:\nWEST GARO HILLS is the largest with 54,89,616; EASTERN WEST KHASI HILLS is the smallest with 6,77,731.\n- **WEST GARO HILLS** — 54,89,616\n- **SOUTH WEST GARO HILLS** — 32,82,990\n- **NORTH GARO HILLS** — 30,66,633\n- **EAST KHASI HILLS** — 30,61,525\n- **SOUTH GARO HILLS** — 28,23,825\n- **EAST GARO HILLS** — 27,65,439\n- **WEST JAINTIA HILLS** — 15,10,239\n- **RI BHOI** — 14,81,572\n- **SOUTH WEST KHASI HILLS** — 13,15,587\n- **WEST KHASI HILLS** — 8,95,621\n- **EAST JAINTIA HILLS** — 8,93,276\n- **EASTERN WEST KHASI HILLS** — 6,77,731",
+     "schemes": [
+      "MGNREGA"
+     ],
+     "chart_type": null,
+     "rewritten": "How many MGNREGA person-days were generated by district in FY 2023-24?",
+     "sql": "/* metric:mgnrega_employment_generated breakdown */ SELECT lgd_district AS district, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE year_key = 2023 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "data": [
+      {
+       "district": "EASTERN WEST KHASI HILLS",
+       "employment_generated": 677731
+      },
+      {
+       "district": "EAST GARO HILLS",
+       "employment_generated": 2765439
+      },
+      {
+       "district": "EAST JAINTIA HILLS",
+       "employment_generated": 893276
+      },
+      {
+       "district": "EAST KHASI HILLS",
+       "employment_generated": 3061525
+      },
+      {
+       "district": "NORTH GARO HILLS",
+       "employment_generated": 3066633
+      },
+      {
+       "district": "RI BHOI",
+       "employment_generated": 1481572
+      },
+      {
+       "district": "SOUTH GARO HILLS",
+       "employment_generated": 2823825
+      },
+      {
+       "district": "SOUTH WEST GARO HILLS",
+       "employment_generated": 3282990
+      },
+      {
+       "district": "SOUTH WEST KHASI HILLS",
+       "employment_generated": 1315587
+      },
+      {
+       "district": "WEST GARO HILLS",
+       "employment_generated": 5489616
+      },
+      {
+       "district": "WEST JAINTIA HILLS",
+       "employment_generated": 1510239
+      },
+      {
+       "district": "WEST KHASI HILLS",
+       "employment_generated": 895621
+      }
+     ],
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by district?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by block within West Garo Hills."
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         5489616
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         3282990
+        ],
+        [
+         "NORTH GARO HILLS",
+         3066633
+        ],
+        [
+         "EAST KHASI HILLS",
+         3061525
+        ],
+        [
+         "SOUTH GARO HILLS",
+         2823825
+        ],
+        [
+         "EAST GARO HILLS",
+         2765439
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         1510239
+        ],
+        [
+         "RI BHOI",
+         1481572
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         1315587
+        ],
+        [
+         "WEST KHASI HILLS",
+         895621
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         893276
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         677731
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      }
+     ]
+    },
+    {
+     "q": "now show the same as a horizontal bar chart",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": "hbar",
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 0.0,
+     "answer": "Here is the same data as hbar.",
+     "schemes": [
+      "MGNREGA"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "/* metric:mgnrega_employment_generated breakdown */ SELECT lgd_district AS district, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE year_key = 2023 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "data": [
+      {
+       "district": "EASTERN WEST KHASI HILLS",
+       "employment_generated": 677731
+      },
+      {
+       "district": "EAST GARO HILLS",
+       "employment_generated": 2765439
+      },
+      {
+       "district": "EAST JAINTIA HILLS",
+       "employment_generated": 893276
+      },
+      {
+       "district": "EAST KHASI HILLS",
+       "employment_generated": 3061525
+      },
+      {
+       "district": "NORTH GARO HILLS",
+       "employment_generated": 3066633
+      },
+      {
+       "district": "RI BHOI",
+       "employment_generated": 1481572
+      },
+      {
+       "district": "SOUTH GARO HILLS",
+       "employment_generated": 2823825
+      },
+      {
+       "district": "SOUTH WEST GARO HILLS",
+       "employment_generated": 3282990
+      },
+      {
+       "district": "SOUTH WEST KHASI HILLS",
+       "employment_generated": 1315587
+      },
+      {
+       "district": "WEST GARO HILLS",
+       "employment_generated": 5489616
+      },
+      {
+       "district": "WEST JAINTIA HILLS",
+       "employment_generated": 1510239
+      },
+      {
+       "district": "WEST KHASI HILLS",
+       "employment_generated": 895621
+      }
+     ],
+     "chips": [],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         5489616
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         3282990
+        ],
+        [
+         "NORTH GARO HILLS",
+         3066633
+        ],
+        [
+         "EAST KHASI HILLS",
+         3061525
+        ],
+        [
+         "SOUTH GARO HILLS",
+         2823825
+        ],
+        [
+         "EAST GARO HILLS",
+         2765439
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         1510239
+        ],
+        [
+         "RI BHOI",
+         1481572
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         1315587
+        ],
+        [
+         "WEST KHASI HILLS",
+         895621
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         893276
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         677731
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": "Drawn as a horizontal bar chart, as you asked. Read it with care: the same villages, households or beneficiaries can be counted again in each year or scheme, so the total and the shares overstate the whole.",
+      "asked": "hbar",
+      "charts": [
+       {
+        "initial": "hbar",
+        "types": [
+         "hbar"
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "SH-C020",
+   "cat": "cm_elevate",
+   "shape": "ranking",
+   "src": "Test Case Results sheet CM-ELEVATE-OFF-020",
+   "ok": false,
+   "primary": "routing/intent",
+   "drift": [],
+   "seconds": 3.7,
+   "turns": [
+    {
+     "q": "Which districts have the highest number of pending CM ELEVATE applications?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "pause",
+     "pause_rule": "ranking-count-not-specified",
+     "seconds": 3.1,
+     "answer": "How many results should be returned — the top 3, the top 5, the top 10, or the complete list?",
+     "schemes": null,
+     "chart_type": null,
+     "rewritten": null,
+     "sql": null,
+     "data": [],
+     "chips": [
+      "Top 3",
+      "Top 5",
+      "Top 10",
+      "All of them"
+     ],
+     "truth": []
+    },
+    {
+     "q": "top 3",
+     "ok": false,
+     "primary": "routing/intent",
+     "fails": [
+      "[refused-wrongly] route edge: You asked “top 3” — I don't have information about that; I only know Meghalaya's scheme data. Could you ask me something about the schemes? I'm Megh One AI — I ",
+      "[routing/intent] schemes [] != ['CM Elevate']",
+      "[sql-wrong] row RI BHOI = 2026 missing; row WEST GARO HILLS = 1619 missing; row EAST KHASI HILLS = 992 missing"
+     ],
+     "local_view": null,
+     "route": "edge",
+     "pause_rule": null,
+     "seconds": 0.3,
+     "answer": "You asked “top 3” — I don't have information about that; I only know Meghalaya's scheme data. Could you ask me something about the schemes? I'm Megh One AI — I help with Meghalaya's MGNREGA, PMAY-G, Focus Plus, CM Elevate, Focus Legacy and CM Elevate Legacy schemes.",
+     "schemes": [],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": null,
+     "data": [],
+     "chips": [
+      "Total MGNREGA person-days in Meghalaya in 2023-24",
+      "PMAY-G houses completed by district",
+      "Focus Plus payments by batch"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "RI BHOI",
+         2026
+        ],
+        [
+         "WEST GARO HILLS",
+         1619
+        ],
+        [
+         "EAST KHASI HILLS",
+         992
+        ],
+        [
+         "WEST KHASI HILLS",
+         438
+        ],
+        [
+         "EAST GARO HILLS",
+         384
+        ],
+        [
+         "SOUTH GARO HILLS",
+         367
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         350
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         289
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         268
+        ],
+        [
+         "NORTH GARO HILLS",
+         260
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         231
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         124
+        ]
+       ],
+       "unit": "count",
+       "take": 3
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "PF-PM-terse",
+   "cat": "pmay",
+   "shape": "paraphrase-terse",
+   "src": "paraphrase family",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 2.0,
+   "turns": [
+    {
+     "q": "PMAY-G completed EKH",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 1.3,
+     "answer": "Completed houses in East Khasi Hills, across all financial years (FY 2017-18 to FY 2023-24): 18,154. This is the PMAY-G figure across all financial years.",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT\n  UPPER(lgd_district) AS entity_key,\n  MAX(lgd_district) AS name,\n  COUNT(*) AS houses,\n  COALESCE(SUM(sanctioned_amount), 0) AS sanctioned,\n  COALESCE(SUM(COALESCE(amount_released, 0)), 0) AS released,\n  COALESCE(SUM(COALESCE(amount_released, 0)) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS released_on_sanctioned,\n  COALESCE(SUM(sanctioned_amount) FILTER(WHERE\n    sanctioned_amount > 0), 0) AS sanctioned_positive,\n  COUNT(*) FILTER(WHERE\n    is_completed) AS completed,\n  COUNT(*) FILTER(WHERE\n    NOT COALESCE(is_completed, FALSE)) AS incomplete,\n  COUNT(*) FILTER(WHERE\n    status_name IS NULL) AS no_status,\n  COUNT(*) FILTER(WHERE\n    sanctioned_amount > 0 AND COALESCE(amount_released, 0) >= sanctioned_amount) AS full_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) > 0\n    AND COALESCE(amount_released, 0) < sanctioned_amount) AS part_release,\n  COUNT(*) FILTER(WHERE\n    COALESCE(amount_released, 0) = 0) AS no_release,\n  COUNT(*) FILTER(WHERE\n    sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount\n    AND NOT COALESCE(is_completed, FALSE)) AS full_not_done,\n  COUNT(DISTINCT sanction_no) AS sanction_numbers,\n  COUNT(*) FILTER(WHERE\n    is_placeholder) AS placeholders,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed') AS st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Completed'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_completed,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast') AS st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Roof Cast'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_roof_cast,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth') AS st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Plinth'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_plinth,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned') AS st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'House Sanctioned'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_house_sanctioned,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)') AS st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Existing site(Old House)'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_existing_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site') AS st_proposed_site,\n  COUNT(*) FILTER(WHERE\n    status_name = 'Proposed Site'\n    AND sanctioned_amount > 0\n    AND COALESCE(amount_released, 0) >= sanctioned_amount) AS fnd_st_proposed_site\nFROM curated.v_pmay\nWHERE\n  UPPER(lgd_district) = ANY(\n    ARRAY['EAST KHASI HILLS']\n  )\nGROUP BY\n  UPPER(lgd_district)",
+     "data": [
+      {
+       "district": "East Khasi Hills",
+       "completed houses": 18154
+      }
+     ],
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in East Khasi Hills?",
+      "Break that down by block within East Khasi Hills.",
+      "How many PMAY-G houses have been completed in East Khasi Hills?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 18154
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "CV-CL-02",
+   "cat": "cm_elevate_legacy",
+   "shape": "state-year",
+   "src": "coverage matrix",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 4.4,
+   "turns": [
+    {
+     "q": "How many CM Elevate Legacy applicants were sanctioned in 2024-25?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 4.2,
+     "answer": "2,288 applicants were sanctioned under CM Elevate Legacy in FY 2024-25. This is the statewide figure for all of Meghalaya.",
+     "schemes": [
+      "CM Elevate Legacy"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT COUNT(sanctioned_amount) AS sanctioned_records FROM curated.v_cm_elevate_disbursement WHERE financial_year_short = '2024-25' AND sanctioned_amount IS NOT NULL",
+     "data": [
+      {
+       "sanctioned_records_rs": 2288
+      }
+     ],
+     "chips": [
+      "How much of the CM Elevate Legacy loan money went through Bank vs LIFCOM in Meghalaya?",
+      "Break that down by district.",
+      "How many CM Elevate Legacy records are there, by scheme in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 2288
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "FU-02",
+   "cat": "chain",
+   "shape": "only-filter",
+   "src": "follow-up chain (voice bank C2, KI-701)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 21.5,
+   "turns": [
+    {
+     "q": "Tell me about PMAY-G houses by district.",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 6.2,
+     "answer": "This briefing outlines sanctioned PMAY-G houses across all Meghalaya districts for the entire period:\nWEST GARO HILLS is the largest with 33,147; EASTERN WEST KHASI HILLS is the smallest with 5,494.\n- **WEST GARO HILLS** — 33,147; sanctioned ₹4,30,85,90,000 (≈ ₹430.86 crore); released ₹4,25,00,80,500 (≈ ₹425.01 crore); pending ₹5,85,09,500 (≈ ₹5.85 crore)\n- **EAST KHASI HILLS** — 23,952; sanctioned ₹3,10,97,30,000 (≈ ₹310.97 crore); released ₹3,07,12,53,500 (≈ ₹307.13 crore); pending ₹3,84,76,500 (≈ ₹3.85 crore)\n- **RI BHOI** — 17,565; sanctioned ₹2,27,82,50,000 (≈ ₹227.82 crore); released ₹2,22,85,33,500 (≈ ₹222.85 crore); pending ₹4,97,16,500 (≈ ₹4.97 crore)\n- **EAST GARO HILLS** — 16,899; sanctioned ₹2,19,68,70,000 (≈ ₹219.69 crore); released ₹2,16,44,47,000 (≈ ₹216.44 crore); pending ₹3,24,23,000 (≈ ₹3.24 crore)\n- **NORTH GARO HILLS** — 16,028; sanctioned ₹2,08,23,40,000 (≈ ₹208.23 crore); released ₹2,05,38,64,500 (≈ ₹205.39 crore); pending ₹2,84,75,500 (≈ ₹2.85 crore)\n- **WEST JAINTIA HILLS** — 12,570; sanctioned ₹1,63,13,70,000 (≈ ₹163.14 crore); released ₹1,59,11,28,500 (≈ ₹159.11 crore); pending ₹4,02,41,500 (≈ ₹4.02 crore)\n- **SOUTH WEST GARO HILLS** — 11,947; sanctioned ₹1,55,19,40,000 (≈ ₹155.19 crore); released ₹1,53,58,45,000 (≈ ₹153.58 crore); pending ₹1,60,95,000 (≈ ₹1.61 crore)\n- **SOUTH GARO HILLS** — 11,901; sanctioned ₹1,54,57,00,000 (≈ ₹154.57 crore); released ₹1,49,19,70,000 (≈ ₹149.20 crore); pending ₹5,37,30,000 (≈ ₹5.37 crore)\n- **WEST KHASI HILLS** — 8,437; sanctioned ₹1,09,68,10,000 (≈ ₹109.68 crore); released ₹1,06,68,81,000 (≈ ₹106.69 crore); pending ₹2,99,29,000 (≈ ₹2.99 crore)\n- **SOUTH WEST KHASI HILLS** — 7,411; sanctioned ₹96,34,30,000 (≈ ₹96.34 crore); released ₹95,70,50,500 (≈ ₹95.71 crore); pending ₹63,79,500 (≈ ₹63.80 lakh)\n- **EAST JAINTIA HILLS** — 5,756; sanctioned ₹74,82,80,000 (≈ ₹74.83 crore); released ₹73,66,35,500 (≈ ₹73.66 crore); pending ₹1,16,44,500 (≈ ₹1.16 crore)\n- **EASTERN WEST KHASI HILLS** — 5,494; sanctioned ₹71,42,20,000 (≈ ₹71.42 crore); released ₹70,49,09,000 (≈ ₹70.49 crore); pending ₹93,11,000 (≈ ₹93.11 lakh)",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT lgd_district, COUNT(*) AS houses_sanctioned, ROUND(SUM(sanctioned_amount), 2) AS sanctioned_rupees, ROUND(SUM(amount_released), 2) AS released_rupees, ROUND(SUM(sanctioned_amount - COALESCE(amount_released, 0)), 2) AS pending_rupees FROM curated.v_pmay GROUP BY lgd_district ORDER BY lgd_district LIMIT 12",
+     "data": [
+      {
+       "lgd_district": "EASTERN WEST KHASI HILLS",
+       "houses_sanctioned": 5494,
+       "sanctioned_rupees": "714220000.00",
+       "released_rupees": "704909000.00",
+       "pending_rupees": "9311000.00"
+      },
+      {
+       "lgd_district": "EAST GARO HILLS",
+       "houses_sanctioned": 16899,
+       "sanctioned_rupees": "2196870000.00",
+       "released_rupees": "2164447000.00",
+       "pending_rupees": "32423000.00"
+      },
+      {
+       "lgd_district": "EAST JAINTIA HILLS",
+       "houses_sanctioned": 5756,
+       "sanctioned_rupees": "748280000.00",
+       "released_rupees": "736635500.00",
+       "pending_rupees": "11644500.00"
+      },
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "houses_sanctioned": 23952,
+       "sanctioned_rupees": "3109730000.00",
+       "released_rupees": "3071253500.00",
+       "pending_rupees": "38476500.00"
+      },
+      {
+       "lgd_district": "NORTH GARO HILLS",
+       "houses_sanctioned": 16028,
+       "sanctioned_rupees": "2082340000.00",
+       "released_rupees": "2053864500.00",
+       "pending_rupees": "28475500.00"
+      },
+      {
+       "lgd_district": "RI BHOI",
+       "houses_sanctioned": 17565,
+       "sanctioned_rupees": "2278250000.00",
+       "released_rupees": "2228533500.00",
+       "pending_rupees": "49716500.00"
+      },
+      {
+       "lgd_district": "SOUTH GARO HILLS",
+       "houses_sanctioned": 11901,
+       "sanctioned_rupees": "1545700000.00",
+       "released_rupees": "1491970000.00",
+       "pending_rupees": "53730000.00"
+      },
+      {
+       "lgd_district": "SOUTH WEST GARO HILLS",
+       "houses_sanctioned": 11947,
+       "sanctioned_rupees": "1551940000.00",
+       "released_rupees": "1535845000.00",
+       "pending_rupees": "16095000.00"
+      },
+      {
+       "lgd_district": "SOUTH WEST KHASI HILLS",
+       "houses_sanctioned": 7411,
+       "sanctioned_rupees": "963430000.00",
+       "released_rupees": "957050500.00",
+       "pending_rupees": "6379500.00"
+      },
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "houses_sanctioned": 33147,
+       "sanctioned_rupees": "4308590000.00",
+       "released_rupees": "4250080500.00",
+       "pending_rupees": "58509500.00"
+      },
+      {
+       "lgd_district": "WEST JAINTIA HILLS",
+       "houses_sanctioned": 12570,
+       "sanctioned_rupees": "1631370000.00",
+       "released_rupees": "1591128500.00",
+       "pending_rupees": "40241500.00"
+      },
+      {
+       "lgd_district": "WEST KHASI HILLS",
+       "houses_sanctioned": 8437,
+       "sanctioned_rupees": "1096810000.00",
+       "released_rupees": "1066881000.00",
+       "pending_rupees": "29929000.00"
+      }
+     ],
+     "chips": [
+      "What is the PMAY-G completion rate in Meghalaya, by district?",
+      "Break that down by block within West Garo Hills.",
+      "How many PMAY-G houses have been completed in Meghalaya, by district?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         33147
+        ],
+        [
+         "EAST KHASI HILLS",
+         23952
+        ],
+        [
+         "RI BHOI",
+         17565
+        ],
+        [
+         "EAST GARO HILLS",
+         16899
+        ],
+        [
+         "NORTH GARO HILLS",
+         16028
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         12570
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         11947
+        ],
+        [
+         "SOUTH GARO HILLS",
+         11901
+        ],
+        [
+         "WEST KHASI HILLS",
+         8437
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         7411
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         5756
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         5494
+        ]
+       ],
+       "unit": "count",
+       "take": 3
+      }
+     ]
+    },
+    {
+     "q": "Only the completed ones.",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 8.1,
+     "answer": "This briefing outlines completed PMAY-G housing units across Meghalaya's twelve districts for all financial years:\nWEST GARO HILLS is the largest with 26,822; EAST JAINTIA HILLS is the smallest with 1,623.\n- **WEST GARO HILLS** — 26,822\n- **EAST KHASI HILLS** — 18,154\n- **EAST GARO HILLS** — 13,784\n- **NORTH GARO HILLS** — 13,183\n- **RI BHOI** — 12,056\n- **SOUTH WEST GARO HILLS** — 10,212\n- **WEST JAINTIA HILLS** — 8,932\n- **WEST KHASI HILLS** — 7,294\n- **SOUTH WEST KHASI HILLS** — 7,100\n- **SOUTH GARO HILLS** — 6,316\n- **EASTERN WEST KHASI HILLS** — 4,465\n- **EAST JAINTIA HILLS** — 1,623",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": "Only the completed ones under PMAY-G by district?",
+     "sql": "SELECT lgd_district, COUNT(*) AS houses FROM curated.v_pmay WHERE is_completed GROUP BY lgd_district ORDER BY lgd_district LIMIT 12",
+     "data": [
+      {
+       "lgd_district": "EASTERN WEST KHASI HILLS",
+       "houses": 4465
+      },
+      {
+       "lgd_district": "EAST GARO HILLS",
+       "houses": 13784
+      },
+      {
+       "lgd_district": "EAST JAINTIA HILLS",
+       "houses": 1623
+      },
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "houses": 18154
+      },
+      {
+       "lgd_district": "NORTH GARO HILLS",
+       "houses": 13183
+      },
+      {
+       "lgd_district": "RI BHOI",
+       "houses": 12056
+      },
+      {
+       "lgd_district": "SOUTH GARO HILLS",
+       "houses": 6316
+      },
+      {
+       "lgd_district": "SOUTH WEST GARO HILLS",
+       "houses": 10212
+      },
+      {
+       "lgd_district": "SOUTH WEST KHASI HILLS",
+       "houses": 7100
+      },
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "houses": 26822
+      },
+      {
+       "lgd_district": "WEST JAINTIA HILLS",
+       "houses": 8932
+      },
+      {
+       "lgd_district": "WEST KHASI HILLS",
+       "houses": 7294
+      }
+     ],
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by district?",
+      "Break that down by block within West Garo Hills.",
+      "How many PMAY-G houses have been completed in Meghalaya, by district?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         26822
+        ],
+        [
+         "EAST KHASI HILLS",
+         18154
+        ],
+        [
+         "EAST GARO HILLS",
+         13784
+        ],
+        [
+         "NORTH GARO HILLS",
+         13183
+        ],
+        [
+         "RI BHOI",
+         12056
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         10212
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         8932
+        ],
+        [
+         "WEST KHASI HILLS",
+         7294
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         7100
+        ],
+        [
+         "SOUTH GARO HILLS",
+         6316
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         4465
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         1623
+        ]
+       ],
+       "unit": "count",
+       "take": 3
+      }
+     ]
+    },
+    {
+     "q": "Top 3 districts.",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 6.5,
+     "answer": "This list ranks the top three Meghalaya districts by houses completed under PMAY-G statewide:\n1. **WEST GARO HILLS** — 26,822\n2. **EAST KHASI HILLS** — 18,154\n3. **EAST GARO HILLS** — 13,784",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": "Which are the top 3 districts by houses completed under the PMAY-G scheme?",
+     "sql": "SELECT lgd_district, COUNT(*) AS houses_completed FROM curated.v_pmay WHERE is_completed GROUP BY lgd_district ORDER BY houses_completed DESC NULLS LAST LIMIT 3",
+     "data": [
+      {
+       "lgd_district": "WEST GARO HILLS",
+       "houses_completed": 26822
+      },
+      {
+       "lgd_district": "EAST KHASI HILLS",
+       "houses_completed": 18154
+      },
+      {
+       "lgd_district": "EAST GARO HILLS",
+       "houses_completed": 13784
+      }
+     ],
+     "chips": [
+      "How many PMAY-G houses have been sanctioned in Meghalaya, by district?",
+      "Break that down by block within West Garo Hills.",
+      "How many PMAY-G houses have been completed in Meghalaya, by district?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         26822
+        ],
+        [
+         "EAST KHASI HILLS",
+         18154
+        ],
+        [
+         "EAST GARO HILLS",
+         13784
+        ],
+        [
+         "NORTH GARO HILLS",
+         13183
+        ],
+        [
+         "RI BHOI",
+         12056
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         10212
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         8932
+        ],
+        [
+         "WEST KHASI HILLS",
+         7294
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         7100
+        ],
+        [
+         "SOUTH GARO HILLS",
+         6316
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         4465
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         1623
+        ]
+       ],
+       "unit": "count",
+       "take": 3
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "FU-05",
+   "cat": "chain",
+   "shape": "one-of-comparison",
+   "src": "follow-up chain",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 8.0,
+   "turns": [
+    {
+     "q": "Compare MGNREGA and PMAY-G beneficiaries",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 1.7,
+     "answer": "**All of Meghalaya, all financial years**\n- **MGNREGA:** 14,94,437 households given work (counted once per financial year, FY 2022-23 to 2025-26)\n- **PMAY-G:** 1,71,107 houses sanctioned\n**MGNREGA** has the most beneficiaries (14,94,437), 13,23,330 more than PMAY-G (1,71,107, 8.73x).",
+     "schemes": [
+      "MGNREGA",
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT NULL::text AS k, (SUM(households_employed))::float8 AS ben, (COUNT(DISTINCT village_code))::float8 AS villages, (COUNT(DISTINCT lgd_district))::float8 AS districts, (COUNT(DISTINCT lgd_block))::float8 AS blocks FROM curated.v_employment WHERE TRUE\n;\nSELECT NULL::text AS k, (SUM(total_exp) / 100.0)::float8 AS money FROM curated.v_expenditure WHERE TRUE\n;\nSELECT NULL::text AS k, (COUNT(*))::float8 AS ben, (COUNT(*) FILTER (WHERE is_completed))::float8 AS completed, (SUM(amount_released) / 1e7)::float8 AS money, (SUM(sanctioned_amount) / 1e7)::float8 AS sanctioned, (COUNT(DISTINCT village_code))::float8 AS villages, (COUNT(DISTINCT lgd_district))::float8 AS districts, (COUNT(DISTINCT lgd_block))::float8 AS blocks FROM curated.v_pmay WHERE TRUE",
+     "data": [
+      {
+       "scheme": "MGNREGA",
+       "beneficiaries": 1494437
+      },
+      {
+       "scheme": "PMAY-G",
+       "beneficiaries": 171107
+      }
+     ],
+     "chips": [
+      "Which villages have both MGNREGA and PMAY-G activity in Meghalaya?",
+      "Break that down by district.",
+      "Compare MGNREGA and PMAY-G spending in Meghalaya."
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 1494437
+      },
+      {
+       "label": null,
+       "unit": "count",
+       "live": 171107
+      }
+     ]
+    },
+    {
+     "q": "only PMAY-G",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 5.0,
+     "answer": "PMAY-G shows 1,71,107 beneficiaries across all financial years. This is the statewide figure for all of Meghalaya, across all financial years.",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": "PMAY-G beneficiaries?",
+     "sql": "SELECT COUNT(*) AS beneficiaries FROM curated.v_pmay",
+     "data": [
+      {
+       "beneficiaries": 171107
+      }
+     ],
+     "chips": [
+      "What is the PMAY-G completion rate in Meghalaya?",
+      "Break that down by district.",
+      "How many PMAY-G houses have been completed in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 171107
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "FU-18",
+   "cat": "chain",
+   "shape": "chart-switch",
+   "src": "follow-up chain (voice bank D5)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 3.1,
+   "turns": [
+    {
+     "q": "MGNREGA person-days by district in 2023-24.",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 2.8,
+     "answer": "This briefing outlines MGNREGA person-days generated across all twelve districts of Meghalaya during FY 2023-24:\nWEST GARO HILLS is the largest with 54,89,616; EASTERN WEST KHASI HILLS is the smallest with 6,77,731.\n- **WEST GARO HILLS** — 54,89,616\n- **SOUTH WEST GARO HILLS** — 32,82,990\n- **NORTH GARO HILLS** — 30,66,633\n- **EAST KHASI HILLS** — 30,61,525\n- **SOUTH GARO HILLS** — 28,23,825\n- **EAST GARO HILLS** — 27,65,439\n- **WEST JAINTIA HILLS** — 15,10,239\n- **RI BHOI** — 14,81,572\n- **SOUTH WEST KHASI HILLS** — 13,15,587\n- **WEST KHASI HILLS** — 8,95,621\n- **EAST JAINTIA HILLS** — 8,93,276\n- **EASTERN WEST KHASI HILLS** — 6,77,731",
+     "schemes": [
+      "MGNREGA"
+     ],
+     "chart_type": null,
+     "rewritten": "How many MGNREGA person-days were generated by district in FY 2023-24?",
+     "sql": "/* metric:mgnrega_employment_generated breakdown */ SELECT lgd_district AS district, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE year_key = 2023 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "data": [
+      {
+       "district": "EASTERN WEST KHASI HILLS",
+       "employment_generated": 677731
+      },
+      {
+       "district": "EAST GARO HILLS",
+       "employment_generated": 2765439
+      },
+      {
+       "district": "EAST JAINTIA HILLS",
+       "employment_generated": 893276
+      },
+      {
+       "district": "EAST KHASI HILLS",
+       "employment_generated": 3061525
+      },
+      {
+       "district": "NORTH GARO HILLS",
+       "employment_generated": 3066633
+      },
+      {
+       "district": "RI BHOI",
+       "employment_generated": 1481572
+      },
+      {
+       "district": "SOUTH GARO HILLS",
+       "employment_generated": 2823825
+      },
+      {
+       "district": "SOUTH WEST GARO HILLS",
+       "employment_generated": 3282990
+      },
+      {
+       "district": "SOUTH WEST KHASI HILLS",
+       "employment_generated": 1315587
+      },
+      {
+       "district": "WEST GARO HILLS",
+       "employment_generated": 5489616
+      },
+      {
+       "district": "WEST JAINTIA HILLS",
+       "employment_generated": 1510239
+      },
+      {
+       "district": "WEST KHASI HILLS",
+       "employment_generated": 895621
+      }
+     ],
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya, by district?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by block within West Garo Hills."
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         5489616
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         3282990
+        ],
+        [
+         "NORTH GARO HILLS",
+         3066633
+        ],
+        [
+         "EAST KHASI HILLS",
+         3061525
+        ],
+        [
+         "SOUTH GARO HILLS",
+         2823825
+        ],
+        [
+         "EAST GARO HILLS",
+         2765439
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         1510239
+        ],
+        [
+         "RI BHOI",
+         1481572
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         1315587
+        ],
+        [
+         "WEST KHASI HILLS",
+         895621
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         893276
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         677731
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      }
+     ]
+    },
+    {
+     "q": "Show the same as a pie chart.",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": "pie",
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 0.0,
+     "answer": "Here is the same data as pie.",
+     "schemes": [
+      "MGNREGA"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "/* metric:mgnrega_employment_generated breakdown */ SELECT lgd_district AS district, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE year_key = 2023 AND lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "data": [
+      {
+       "district": "EASTERN WEST KHASI HILLS",
+       "employment_generated": 677731
+      },
+      {
+       "district": "EAST GARO HILLS",
+       "employment_generated": 2765439
+      },
+      {
+       "district": "EAST JAINTIA HILLS",
+       "employment_generated": 893276
+      },
+      {
+       "district": "EAST KHASI HILLS",
+       "employment_generated": 3061525
+      },
+      {
+       "district": "NORTH GARO HILLS",
+       "employment_generated": 3066633
+      },
+      {
+       "district": "RI BHOI",
+       "employment_generated": 1481572
+      },
+      {
+       "district": "SOUTH GARO HILLS",
+       "employment_generated": 2823825
+      },
+      {
+       "district": "SOUTH WEST GARO HILLS",
+       "employment_generated": 3282990
+      },
+      {
+       "district": "SOUTH WEST KHASI HILLS",
+       "employment_generated": 1315587
+      },
+      {
+       "district": "WEST GARO HILLS",
+       "employment_generated": 5489616
+      },
+      {
+       "district": "WEST JAINTIA HILLS",
+       "employment_generated": 1510239
+      },
+      {
+       "district": "WEST KHASI HILLS",
+       "employment_generated": 895621
+      }
+     ],
+     "chips": [],
+     "truth": [
+      {
+       "rows": [
+        [
+         "WEST GARO HILLS",
+         5489616
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         3282990
+        ],
+        [
+         "NORTH GARO HILLS",
+         3066633
+        ],
+        [
+         "EAST KHASI HILLS",
+         3061525
+        ],
+        [
+         "SOUTH GARO HILLS",
+         2823825
+        ],
+        [
+         "EAST GARO HILLS",
+         2765439
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         1510239
+        ],
+        [
+         "RI BHOI",
+         1481572
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         1315587
+        ],
+        [
+         "WEST KHASI HILLS",
+         895621
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         893276
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         677731
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": null,
+      "asked": "pie",
+      "charts": [
+       {
+        "initial": "pie",
+        "types": [
+         "pie"
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "FU-21",
+   "cat": "chain",
+   "shape": "measure-swap",
+   "src": "follow-up chain",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 12.4,
+   "turns": [
+    {
+     "q": "What was MGNREGA expenditure in each financial year?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 4.7,
+     "answer": "Statewide MGNREGA expenditure across all financial years in Meghalaya:\nTotal expenditure rose from ₹88,629.40 lakh (≈ ₹886.29 crore) in FY 2022-23 to ₹91,605.96 lakh (≈ ₹916.06 crore) in FY 2025-26, up ₹2,976.56 lakh (≈ ₹29.77 crore) (3.4%).\n- FY 2022-23: ₹88,629.40 lakh (≈ ₹886.29 crore)\n- FY 2023-24: ₹75,961.36 lakh (≈ ₹759.61 crore)\n- FY 2024-25: ₹1,06,669.85 lakh (≈ ₹1,066.70 crore)\n- FY 2025-26: ₹91,605.96 lakh (≈ ₹916.06 crore)",
+     "schemes": [
+      "MGNREGA"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "/* metric:mgnrega_total_expenditure breakdown */ SELECT year_key, MAX(financial_year_short) AS financial_year, ROUND((SUM(total_exp))::numeric, 2) AS total_expenditure_lakh\nFROM curated.v_expenditure\nGROUP BY year_key ORDER BY year_key",
+     "data": [
+      {
+       "year_key": 2022,
+       "financial_year": "2022-23",
+       "total_expenditure_lakh": "88629.40"
+      },
+      {
+       "year_key": 2023,
+       "financial_year": "2023-24",
+       "total_expenditure_lakh": "75961.36"
+      },
+      {
+       "year_key": 2024,
+       "financial_year": "2024-25",
+       "total_expenditure_lakh": "106669.85"
+      },
+      {
+       "year_key": 2025,
+       "financial_year": "2025-26",
+       "total_expenditure_lakh": "91605.96"
+      }
+     ],
+     "chips": [
+      "How many MGNREGA person-days were generated in Meghalaya?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by district."
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "2022-23",
+         88629.4
+        ],
+        [
+         "2023-24",
+         75961.36
+        ],
+        [
+         "2024-25",
+         106669.85
+        ],
+        [
+         "2025-26",
+         91605.96
+        ]
+       ],
+       "unit": "lakh",
+       "take": "all"
+      }
+     ]
+    },
+    {
+     "q": "and person-days?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 7.2,
+     "answer": "Person-days of employment under MGNREGA across Meghalaya for all financial years:\nPerson-days of employment fell from 2,55,96,237 in FY 2022-23 to 2,33,87,018 in FY 2025-26, down 22,09,219 (8.6%).\n- FY 2022-23: 2,55,96,237\n- FY 2023-24: 2,72,64,054\n- FY 2024-25: 1,46,67,872\n- FY 2025-26: 2,33,87,018",
+     "schemes": [
+      "MGNREGA"
+     ],
+     "chart_type": null,
+     "rewritten": "and person-days under MGNREGA by financial year?",
+     "sql": "SELECT year_key, financial_year_short, SUM(person_days) AS person_days FROM curated.v_employment GROUP BY financial_year_short, year_key ORDER BY year_key LIMIT 5",
+     "data": [
+      {
+       "year_key": 2022,
+       "financial_year_short": "2022-23",
+       "person_days": 25596237
+      },
+      {
+       "year_key": 2023,
+       "financial_year_short": "2023-24",
+       "person_days": 27264054
+      },
+      {
+       "year_key": 2024,
+       "financial_year_short": "2024-25",
+       "person_days": 14667872
+      },
+      {
+       "year_key": 2025,
+       "financial_year_short": "2025-26",
+       "person_days": 23387018
+      }
+     ],
+     "chips": [
+      "What was the total MGNREGA wage expenditure in Meghalaya?",
+      "How have MGNREGA person-days changed over the last three years in Meghalaya?",
+      "Break that down by district."
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "2022-23",
+         25596237
+        ],
+        [
+         "2023-24",
+         27264054
+        ],
+        [
+         "2024-25",
+         14667872
+        ],
+        [
+         "2025-26",
+         23387018
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "FU-22",
+   "cat": "chain",
+   "shape": "place-measure",
+   "src": "follow-up chain",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 18.9,
+   "turns": [
+    {
+     "q": "Focus Legacy producer groups in West Garo Hills",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 4.4,
+     "answer": "There are 2,701 Focus Legacy producer groups in West Garo Hills across all financial years.\n\nNote: there is no Focus Legacy data for FY 2023-24 (an absent year, not zero).",
+     "schemes": [
+      "Focus Legacy"
+     ],
+     "chart_type": null,
+     "rewritten": "How many Focus Legacy producer groups are there in West Garo Hills?",
+     "sql": "SELECT COUNT(DISTINCT pg_id) AS producer_groups FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS'",
+     "data": [
+      {
+       "producer_groups": 2701
+      }
+     ],
+     "chips": [
+      "How many PG members were covered in West Garo Hills?",
+      "Break that down by block within West Garo Hills.",
+      "Show Focus Legacy payments by financial year in West Garo Hills."
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 2701
+      }
+     ]
+    },
+    {
+     "q": "and the amount?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 10.7,
+     "answer": "The amount disbursed under the Focus Legacy scheme in West Garo Hills across all financial years is ₹10,93,35,000 (≈ ₹10.93 crore).\n\nNote: Focus Legacy amounts are provisional, and the money unit has not been verified by the department.\nNote: there is no Focus Legacy data for FY 2023-24 (an absent year, not zero).",
+     "schemes": [
+      "Focus Legacy"
+     ],
+     "chart_type": null,
+     "rewritten": "and the amount under Focus Legacy in West Garo Hills?",
+     "sql": "SELECT SUM(amount_disbursed) AS amount_disbursed FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS'",
+     "data": [
+      {
+       "amount_disbursed_rs": "109335000.00"
+      }
+     ],
+     "chips": [
+      "How many producer groups were paid in West Garo Hills?",
+      "Break that down by block within West Garo Hills.",
+      "Show Focus Legacy payments by financial year in West Garo Hills."
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "rupees",
+       "live": 109335000
+      }
+     ]
+    },
+    {
+     "q": "and in East Khasi Hills?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 2.9,
+     "answer": "The amount disbursed under the Focus Legacy scheme in East Khasi Hills across all financial years is ₹5,42,05,000 (≈ ₹5.42 crore).\n\nNote: Focus Legacy amounts are provisional, and the money unit has not been verified by the department.\nNote: there is no Focus Legacy data for FY 2023-24 (an absent year, not zero).",
+     "schemes": [
+      "Focus Legacy"
+     ],
+     "chart_type": null,
+     "rewritten": "What is the amount under Focus Legacy in East Khasi Hills?",
+     "sql": "SELECT SUM(amount_disbursed) AS amount_disbursed FROM curated.v_focus_legacy WHERE lgd_district = 'EAST KHASI HILLS'",
+     "data": [
+      {
+       "amount_disbursed_rs": "54205000.00"
+      }
+     ],
+     "chips": [
+      "How many producer groups were paid in East Khasi Hills?",
+      "Break that down by block within East Khasi Hills.",
+      "Show Focus Legacy payments by financial year in East Khasi Hills."
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "rupees",
+       "live": 54205000
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

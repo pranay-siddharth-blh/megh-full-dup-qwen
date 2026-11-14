@@ -192,6 +192,16 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
         return out
     m = found.metric
     out["metric"] = m.key
+    # Accuracy gold bank (2026-11-11, KI-709): "How many CM Elevate Legacy applicants were sanctioned in
+    # 2024-25?" matched the catalogue's "CM Elevate sanctioned applicants" = COUNT(DISTINCT
+    # application_number), which counts the 3 refused records that carry no sanctioned amount (2,291 for
+    # 2,288). A count of SANCTIONED records is COUNT(sanctioned_amount) (SCHEMES.md, KI-166, D-097): the
+    # model path answers it, with _cm_legacy_sanctioned_count behind it.
+    if schemes == ["CM Elevate Legacy"] and _CML_SANCTION_COUNT_Q.search(question or "") \
+            and not _CML_NOT_SANCTIONED_Q.search(question or "") \
+            and "sanctioned_amount" not in str(m.expression or "").lower():
+        out["reason"] = "a sanctioned count is COUNT(sanctioned_amount), not this measure"
+        return out
     resolved = entity_result.get("resolved") or {}
     filters = _c16_filters(resolved)
     if filters is None:

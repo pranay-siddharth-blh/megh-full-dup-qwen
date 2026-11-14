@@ -1341,6 +1341,65 @@ every district / block / constituency / village). VERIFIED in code:
   KI-640): "RONGARE" in "RONGARE ADING" sounded like the Rongara block and the village guard only knew the two-word name;
   a sound / fuzzy hit whose span is part of an exact village name in the text (up to three tokens either side) stands.
 
+### 2.9i Accuracy gold bank fixes (2026-11-11/12, KI-701..KI-717; LIVE-VERIFIED in-process)
+
+Found by the accuracy gold bank (`tests/accuracy/`, TESTING.md "Accuracy gold bank"): 212 cases from the three client
+PDFs, the UAT sheet, the goldens, the voice bank, paraphrase families and follow-up chains; truth recomputed live with
+independent read-only SQL; every run as `superadmin`. Pipeline fixes approved by the user on 12 Nov 2026 where the DATA
+answer was wrong. Each is a deterministic rule (no regex, D-046/047); regression tests in
+`tests/test_accuracy_gold_fixes_2026_11_11.py` (real functions, no model / DB).
+
+- **Routing / intent**
+  - `c13._c13_terse_figure` (KI-715): ≤ 7 words, a named scheme, a measure word and a place the resolver knows, no
+    knowledge cue → DATA ("PMAY-G completed EKH").
+  - `c14._c14_data_refinement` (KI-713, KI-701): right after a DATA answer, a refinement of ≤ 8 words with no knowledge
+    cue / form / entitlement / who-benefits / scheme-term question stays DATA even when the rewrite reads "What is …".
+  - `c14._KF_RECORD_COUNT` (KI-703): "how many <applications | houses | records | villages …>" anywhere in the question
+    keeps it off the design-count knowledge form.
+- **Follow-up rewrites (deterministic, before the model rewrite)**
+  - `c14._c14_one_scheme_of_comparison` (KI-714, step "0h''-only"): "only PMAY-G" after a comparison of PMAY-G with
+    other schemes = the previous question with the other schemes and the compare words taken out.
+  - `c14._c14_carried_breakdown` (KI-712): a measure change ("and person-days?") that names no breakdown keeps the
+    previous question's single breakdown (by financial year / district / block).
+  - `c14._c14_only_filter_keeps_breakdown` (KI-701): a bare "only …" filter (no place, no year) keeps it too.
+  - `c14._c14_other_scheme_there` (KI-722, step "0h''-there"): "and Focus Plus beneficiaries there?" after one
+    place's answer (no year) = that scheme's question with "in <place>"; "are there" is never a place.
+  - `c14._c14_topn_reply` (KI-716): a typed N / "all" answers the top-N pause like its chip.
+- **Multi-part questions (`c17`)**
+  - `_c17_sub_asks` never cuts the " plus " of "Focus Plus" (KI-704).
+  - `_c17_village_count_plan` (KI-706): an MGNREGA village count beside another figure is its own ask, so it takes
+    the fixed query `_mgnrega_villages_active_query` (6,491 villages with an employment OR expenditure record), not a
+    model query over v_employment alone (6,419).
+- **SQL / catalogue**
+  - `c06._YEARS_LIST_FIGURE` (KI-705): "how much money was remitted … by financial year" is a figure per year, not the
+    list of years.
+  - `c16._metric_catalog_plan` (KI-709): a CM Elevate Legacy SANCTIONED count never takes a catalogue measure without
+    `sanctioned_amount` (COUNT(sanctioned_amount) = 2,288, not COUNT(DISTINCT application_number) = 2,291).
+  - `pmay_g._PMAY_M["completed"]` reads "are / is / got … done" (KI-710); `_pmay_is_placeholder_exclusion` treats
+    `sanction_date / sanction_no IS NOT NULL` as the registrations exclusion D-060 drops (KI-711).
+  - `cm_elevate._cm_elevate_scheme_count_column` (KI-703, called in `c11` with the other CM Elevate rewrites): a count
+    column named for schemes / programmes that counts request_id counts scheme_name.
+  - CM Elevate pending rule (KI-707): `data/cm_elevate/cmelevate_pending_rule.yaml` reads the plain `file_status`
+    column the DB team exposed (scheme_specific stays locked); the gate `cme_pending_rule.readable()` opened by
+    itself; `schema_context._cme_rule_9` says so (no "keys you may read: none").
+  - `focus_plus._focusplus_block_breakdown_on_raw` (KI-718): a Focus Plus block BREAKDOWN grouped on lgd_block (NULL
+    on 15% of rows) is grouped on `UPPER(block_name_raw)`, unless the query reads block_name_raw, a village column or
+    filters lgd_block.
+  - `cm_elevate_legacy._cm_legacy_unasked_lender_filter` (KI-721): a `loan_entity` filter is dropped unless the
+    question names a lender ("and the loan?" counted Bank only: ₹2.45 crore of ₹4.84 crore).
+  - CM Elevate REJECTED (KI-720): while the rule reads a plain readable `file_status`, `c01._c01_cme_rejection_held`
+    lets a rejected question through the measure-not-held pause, `_cme_workflow_query` counts
+    `file_status = 'Rejected' AS rejected` and `_cme_pending_answer` states it (valid-only by default). "Approved"
+    is no stored state and keeps the pause ("doesn't record approval decisions").
+  - `cm_elevate._cme_level_number` replaces the last regex in `app/` (KI-719; D-046/047), guarded by
+    `test_no_regex_module_anywhere_in_app`.
+  - `c11._verifier_programme_filter_is_false` (KI-717): a Check-2 complaint about scheme_name is discarded (CM Elevate
+    / CM Elevate Legacy) when every resolved programme is filtered verbatim and no other programme literal is there.
+- **Answer wording**
+  - `cm_elevate._cme_valid_wording` (KI-702): a count kept to the default valid rows (D-B1-CME-01) is called "valid"
+    ("7,375 valid CM Elevate applications"), never "total".
+  - `c13._c13_undrawn_chart_note` (KI-708): a chart kind the chat cannot draw (radar, area, scatter, heatmap …) is not
+    claimed; a note says it is not available and a standard chart is drawn.
 ### 2.9f Chat UI audit changes (2026-10-29, D-088 / D-089, KI-574; offline-verified)
 - **Cross-scheme reading (`app/cross_figures.py`):** `rank_ask` reads a place level (singular, plural or one letter
   off) beside any rank word (top / bottom / highest / lowest / best / worst / least / poorest / weakest, Hinglish
@@ -1408,6 +1467,19 @@ the full text exactly as before and run unchanged; the strict retry streams agai
 `draft_reset`; the UI replaces the draft with `done`'s answer. A stream failure before completion
 falls back to the plain call (`draft_reset` first); `ModelBusyError` is never swallowed.
 `STREAM_COMPOSER_ENABLED=false` keeps the steps and turns the draft off.
+
+### 3.3a Flow G — live voice (D-103, 2026-11-02)
+The voice is outside the pipeline. Gemini Live (`gemini-3.8-live`, through `app/voice/relay.py`) hears the officer and
+speaks; its one function, `ask_megh`, is answered by the chat page through `sendQuery` -> `POST /api/query/stream`, so a
+spoken question is a typed question: every stage, gate, pause and check above runs unchanged. The page turns the checked
+answer into its spoken form (`frontend/src/chat/voiceSpeech.js`) and the voice reads it. Numbers the voice says are
+checked against that text (`app/voice/speech_guard.py`); a number from its own memory, or a wrong number, makes the page
+run / re-read the pipeline's answer. No new model role inside the pipeline; the voice's model is set in
+`certs/voice.env` (`VOICE_LIVE_MODEL`), not in `app/config.py`.
+One spoken question is one pipeline question (D-105): the relay answers the model's reworded re-calls within a turn
+from its first call and holds a call it makes on its own after the answer was read. The Secretary view draws the
+answer's own rows (`frontend/src/chat/voice/vizPlan.js`); its desk figures come from `GET /api/voice/board`, fixed
+read-only SQL beside the pipeline (like `/api/scheme-stats`), never through it.
 
 ### 3.4 Exception handling around DATA (in `_run_pipeline`)
 

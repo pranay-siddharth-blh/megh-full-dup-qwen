@@ -122,7 +122,7 @@ def test_workflow_query_never_reads_data_verified_while_locked(locked):
     for q in ("How many CM Elevate applications are pending?", "How many CM Elevate applications are on hold?"):
         sql, _, _ = p._cme_workflow_query(q, {})
         assert sql is not None and "cme-sector-workflow" in sql
-        assert "scheme_specific" not in sql and "AS pending" not in sql and "'On Hold'" not in sql
+        assert RULE_SQL not in sql and "AS pending" not in sql and "'On Hold'" not in sql
 
 
 def test_on_hold_is_the_same_query_once_readable(readable):

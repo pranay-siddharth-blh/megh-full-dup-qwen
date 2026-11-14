@@ -1,0 +1,36 @@
+/* ============== LIVE VOICE (full duplex, 2026-11-02, components/LiveVoiceStrip.jsx) ==============
+   A strip above the composer while a live conversation is open; the mic button
+   becomes the live orb (.mic-btn.live). Uses the chat's own colour tokens. */
+.live-strip {
+  display: flex; align-items: center; gap: 10px; min-height: 38px; margin: 0 0 8px; padding: 6px 8px 6px 12px;
+  border: 1px solid var(--p-200); border-radius: 12px; background: var(--surface);
+  box-shadow: 0 4px 16px rgba(62,31,102,.08); font-size: 13px; color: var(--ink-2);
+  animation: liveIn .18s ease-out;
+}
+@keyframes liveIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+.live-pill { display: inline-flex; align-items: center; gap: 7px; flex-shrink: 0; font-weight: 600; color: var(--p-700);
+  padding: 3px 10px 3px 8px; border-radius: 999px; background: var(--p-50); white-space: nowrap; }
+.live-pill i { width: 8px; height: 8px; border-radius: 50%; background: #16A34A; box-shadow: 0 0 0 0 rgba(22,163,74,.5);
+  animation: livePulse 1.6s infinite; }
+.live-strip.connecting .live-pill i { background: var(--p-400); animation: none; opacity: .6; }
+.live-strip.speaking .live-pill i { background: var(--p-600); }
+@keyframes livePulse { 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); } 70% { box-shadow: 0 0 0 7px rgba(22,163,74,0); } 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); } }
+.live-meters { display: inline-flex; gap: 4px; align-items: flex-end; height: 22px; flex-shrink: 0; }
+.live-meter { --l: 0; display: block; width: 5px; height: 22px; border-radius: 3px; background: var(--p-50); overflow: hidden;
+  position: relative; }
+.live-meter b { position: absolute; left: 0; right: 0; bottom: 0; height: 100%; transform-origin: bottom;
+  transform: scaleY(calc(.08 + var(--l) * .92)); transition: transform .06s linear; border-radius: 3px; }
+.live-meter.you b { background: #16A34A; }
+.live-meter.megh b { background: var(--p-600); }
+.live-caption { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.live-caption em { font-style: normal; font-weight: 600; color: var(--ink); margin-right: 4px; }
+.live-latency { flex-shrink: 0; font-family: 'JetBrains Mono', Menlo, monospace; font-size: 11.5px; color: var(--ink-3);
+  font-variant-numeric: tabular-nums; }
+.live-end { flex-shrink: 0; border: 1px solid var(--line); background: var(--surface); color: var(--ink-2); border-radius: 999px;
+  padding: 4px 12px; font-size: 12px; font-weight: 600; cursor: pointer; }
+.live-end:hover { background: #FDECEC; border-color: #E88; color: #B42318; }
+.mic-btn.live { background: #16A34A; border-color: #16A34A; color: #fff; animation: liveMicPulse 1.8s infinite; }
+.mic-btn.live:hover { background: #15803D; border-color: #15803D; color: #fff; }
+@keyframes liveMicPulse { 0% { box-shadow: 0 0 0 0 rgba(22,163,74,.45); } 70% { box-shadow: 0 0 0 9px rgba(22,163,74,0); } 100% { box-shadow: 0 0 0 0 rgba(22,163,74,0); } }
+@media (max-width: 480px) { .live-meters, .live-latency { display: none; } .live-strip { gap: 8px; } }
+@media (prefers-reduced-motion: reduce) { .live-strip, .live-pill i, .mic-btn.live { animation: none; } .live-meter b { transition: none; } }

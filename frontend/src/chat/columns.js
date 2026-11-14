@@ -218,10 +218,16 @@ export const measureName = (c) => humanCol(String(c).split('_')
 
 /** A heading for a table or an axis: humanCol, without "raw", first letter capitalised. */
 export function colTitle(c) {
-  const words = humanCol(c).split(' ').filter((w) => w && w.toLowerCase() !== 'raw');
-  const s = words.join(' ') || String(c);
+  // 2026-11-12 (chart test sheet, 30 Oct: the x-axis read "Financial year short"): storage words that say how a
+  // column is kept, not what it is ("raw", "short", "key"), are left out; a year key reads "Financial year"
+  const words = humanCol(c).split(' ').filter((w) => w && !TITLE_DROP.includes(w.toLowerCase()));
+  let s = words.join(' ') || String(c);
+  // "Total expenditure (₹) (₹ lakh)": the plain rupee mark is dropped when the size names it too
+  if (s.includes('(₹) (₹ ')) s = s.split('(₹) (₹ ').join('(₹ ');
+  if (s.toLowerCase() === 'year') s = 'financial year';
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+const TITLE_DROP = ['raw', 'short', 'key'];
 
 /** 'lakh' | 'crore' | 'rupees' | 'pct' | null — from the parts of the column name
     ('_', spaces, "(%)", "(Rs)": D-2), as the backend's _unit_suffix. A rate, share

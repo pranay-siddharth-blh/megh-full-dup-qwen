@@ -6,8 +6,6 @@
 # Every check or rewrite of SQL here works on the SQLGlot tree (app/sql_ast.py); the
 # user's question and the composed answer are read on WORDS (app/text_match.py) —
 # never as raw character scans (D-047).
-import re
-
 import sqlglot
 from sqlglot import exp
 from sqlglot.errors import SqlglotError
@@ -1300,6 +1298,39 @@ def _cme_unit(question: str) -> str:
     return f"{_pending_rule.default_text()} applications" if _cme_default_where(question) else "applications"
 
 
+# Accuracy gold bank (2026-11-11, KI-702): "How many CM Elevate applications are there in total?" was
+# answered "There are 7,375 total CM Elevate applications" — the count of VALID applications (the default,
+# D-B1-CME-01) called the total, while the card says 8,938. The fixed queries say "valid applications"
+# (_cme_unit), but a model-path answer whose SQL carries the default filter did not. When the SQL keeps
+# exactly the default rows and the answer never says so, the word is put in front of the first
+# "applications" (a "total" right before it becomes the word, since it is not the total).
+_CME_APP_WORDS = frozenset({"application", "applications", "applicant", "applicants"})
+
+
+def _cme_valid_wording(question: str, sql: str, answer: str) -> str:
+    step = _pending_rule.default_step()
+    word = _pending_rule.default_text()
+    if not answer or not sql or not step or not word or _cme_default_where(question) is None:
+        return answer
+    if word.lower() in answer.lower():
+        return answer
+    want = {str(v).strip().lower() for v in step.get("values") or []}
+    got = {str(v).strip().lower() for v in sql_ast.filter_values(sql, _pending_rule.default_column())}
+    if not want or got != want:
+        return answer
+    toks = tokens(answer)
+    k = next((i for i, t in enumerate(toks) if t.low in _CME_APP_WORDS), None)
+    if k is None:
+        return answer
+    at = k
+    if k >= 2 and toks[k - 2].low == "cm" and toks[k - 1].low == "elevate":
+        at = k - 2
+    if at >= 1 and toks[at - 1].low == "total" and answer[toks[at - 1].end:toks[at].start] == " ":
+        t = toks[at - 1]
+        return answer[:t.start] + word + answer[t.end:]
+    return answer[:toks[at].start] + word + " " + answer[toks[at].start:]
+
+
 # A WORKFLOW status the data does not hold (ingestion team, 2026-10-26): "pending",
 # "approved", "rejected" and "sent back" live in an internal API field the chatbot
 # cannot read; data_verified ('On Hold' …) is the data-verification check, a different
@@ -1320,7 +1351,25 @@ _CME_RECORDED_STATUS_WORD_OPEN = Matcher(Alt(
     Pred(lambda w: "verif" in w.lower()),
     W("forward", "forwarded", "resubmit", "resubmitted", "valid", "invalid", "wrong", "vdv", "citizen")))
 _CME_ON_HOLD_Q = Matcher(_CME_ON_HOLD_ANYWHERE)
-_CME_LEVEL_N = re.compile(r"\blevel[\s-]*(\d+)\b", re.I)          # "level 2", "level-2", "level2"
+# "level 2", "level-2", "level2" -> 2 (a regex until 2026-11-12, against D-046/047; words and string methods now)
+def _cme_level_number(text: str) -> "int | None":
+    low = (text or "").lower()
+    i = 0
+    while True:
+        k = low.find("level", i)
+        if k < 0:
+            return None
+        i = k + 1
+        if k > 0 and (low[k - 1].isalnum() or low[k - 1] == "_"):
+            continue
+        j = k + len("level")
+        while j < len(low) and (low[j].isspace() or low[j] == "-"):
+            j += 1
+        e = j
+        while e < len(low) and low[e].isdigit():
+            e += 1
+        if e > j and (e == len(low) or not (low[e].isalnum() or low[e] == "_")):
+            return int(low[j:e])
 
 
 _CME_LEVEL_ASKED = Matcher(Alt(W("level", "levels", "stage", "stages"), _cme_level_digit(one_digit=False)))
@@ -1430,15 +1479,15 @@ def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str]
     if progs:
         params.append([progs] if isinstance(progs, str) else list(progs))
         where.append(f"scheme_name = ANY(${len(params)}::text[])")
-    level = _CME_LEVEL_N.search(q)
-    if level:
-        params.append(f"level{int(level.group(1))}")
+    level = _cme_level_number(q)
+    if level is not None:
+        params.append(f"level{level}")
         where.append(f"LOWER(current_level) = ${len(params)}")
     _d = _cme_default_where(q)
     if _d:
         where.append(_d)
     wh = (" WHERE " + " AND ".join(where)) if where else ""
-    grp = None if level else _cme_workflow_group(q)
+    grp = None if level is not None else _cme_workflow_group(q)
     sel = f"{grp} AS grp, " if grp else ""
     tail = ("" if not grp else
             " GROUP BY 1 ORDER BY 1" if grp == "LOWER(current_level)" else " GROUP BY 1 ORDER BY 2 DESC, 1")
@@ -1448,6 +1497,9 @@ def _cme_workflow_query(question: str, resolved: dict) -> "tuple[str, list, str]
         fs = _pending_rule.file_status_column()
         if fs:
             pend += f"COUNT(DISTINCT request_id) FILTER (WHERE {fs} = 'Send Back') AS sent_back, "
+            if "->>" not in fs:
+                # KI-720: the plain file_status column also holds the department's Rejected decision
+                pend += f"COUNT(DISTINCT request_id) FILTER (WHERE {fs} = 'Rejected') AS rejected, "
     sql = (f"/* cme-sector-workflow */ SELECT {sel}{pend}"
            "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'forward') AS forward, "
            "COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'resubmit') AS resubmit, "
@@ -1600,6 +1652,8 @@ def _cme_pending_answer(question: str, rows: list[dict], word: str, scope: str) 
     rule does not cover (approved / rejected keep their own path)."""
     if word == "sent back":
         col, label = "sent_back", "Applications with file status Send Back"
+    elif word == "rejected" and "rejected" in rows[0]:
+        col, label = "rejected", "Rejected CM Elevate applications (file status Rejected)"   # KI-720
     elif word in ("pending", "on hold"):
         col, label = "pending", "Pending CM Elevate applications"
     else:
@@ -1622,9 +1676,15 @@ def _cme_pending_answer(question: str, rows: list[dict], word: str, scope: str) 
         items = [f"{name(x)} {int(_as_number(x.get(col)) or 0):,}" for x in rows]
         total = sum(int(_as_number(x.get(col)) or 0) for x in rows)
         order = "" if gname == "level" else " (highest first)"
-        return f"{label}{scope}, by {gname}{order}: " + "; ".join(items) + f". Total {total:,}. {rule}"
+        return (f"{label}{scope}, by {gname}{order}: " + "; ".join(items) + f". Total {total:,}."
+                + (f" {rule}" if col != "rejected" else ""))
     r = rows[0]
     n = {k: int(_as_number(r.get(k)) or 0) for k in ("pending", "sent_back", "applications")}
+    if col == "rejected":
+        k = int(_as_number(r.get("rejected")) or 0)
+        return (f"{k:,} CM Elevate application{'s' if k != 1 else ''}{scope} "
+                f"{'have' if k != 1 else 'has'} the file status Rejected (of {n['applications']:,} {_cme_unit(question)}). "
+                "Rejected is the department's decision on the file; approval is not a recorded status.")
     if col == "sent_back":
         return (f"{n['sent_back']:,} CM Elevate application{'s' if n['sent_back'] != 1 else ''}{scope} "
                 f"{'have' if n['sent_back'] != 1 else 'has'} the file status Send Back (of {n['applications']:,} {_cme_unit(question)}); "
@@ -2256,6 +2316,35 @@ def _cm_elevate_applicants_distinct(question: str, schemes: list[str], sql: str)
     out = sql_ast.transform(sql, fn)
     if out != sql:
         logger.info("CM Elevate: COUNT(*) over v_cm_elevate counted as DISTINCT request_id (2026-10-16)")
+    return out
+
+
+# Accuracy gold bank (2026-11-11, KI-703; RAG PDF Table 2 #3): "How many CM Elevate applications are there
+# and how many schemes do they cover?" was written COUNT(DISTINCT request_id) AS applications,
+# COUNT(DISTINCT request_id) AS schemes — "7,375 applications covering 7,375 schemes". A column NAMED as a
+# count of schemes / programmes that counts request ids counts scheme_name.
+_CME_SCHEME_ALIAS_PARTS = frozenset({"scheme", "schemes", "programme", "programmes", "program", "programs",
+                                     "subscheme", "subschemes"})
+
+
+def _cm_elevate_scheme_count_column(schemes: list[str], sql: str) -> str:
+    if schemes != ["CM Elevate"] or not sql or "v_cm_elevate" not in sql_ast.tables(sql):
+        return sql
+
+    def fn(tree: exp.Expression) -> None:
+        for a in list(tree.find_all(exp.Alias)):
+            parts = set(str(a.alias or "").lower().replace("-", "_").split("_"))
+            c = a.this
+            if not (parts & _CME_SCHEME_ALIAS_PARTS) or not isinstance(c, exp.Count) \
+                    or not isinstance(c.this, exp.Distinct) or len(c.this.expressions) != 1:
+                continue
+            col = c.this.expressions[0]
+            if isinstance(col, exp.Column) and col.name.lower() == "request_id":
+                col.set("this", exp.to_identifier("scheme_name"))
+
+    out = sql_ast.transform(sql, fn)
+    if out != sql:
+        logger.info("CM Elevate: a count named for schemes counted request_id; counts scheme_name (KI-703)")
     return out
 
 
@@ -3342,7 +3431,7 @@ async def _cm_elevate_answer_guarantees(question: str, sql: str, rows: list[dict
     answer = _cme_sericulture_split_note(question, sql, answer)
     # KI-074 decided 2026-09-28 (product owner): "pending" = verification On Hold
     # only. The interim second line with the file_status Pending count is gone.
-    return _cme_comparison(question, rows, answer)
+    return _cme_valid_wording(question, sql, _cme_comparison(question, rows, answer))   # KI-702
 
 
 _CME_SERICULTURE = "Meghalaya Sericulture & Weaving Scheme"

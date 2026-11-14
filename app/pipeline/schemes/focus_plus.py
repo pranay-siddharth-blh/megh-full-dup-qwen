@@ -457,6 +457,42 @@ async def _focusplus_lgd_only_block(schemes: list[str], sql: str) -> str:
     return sql_ast.transform(sql, _swap)
 
 
+# Held-out NL->SQL FP-05 (accuracy round 2026-11-12, KI-718): "Give me the Focus Plus amount disbursed
+# in each block of North Garo Hills district" was GROUPED BY lgd_block, which is NULL on 15% of the
+# rows: six rows incl. a blank one, Kharkutta ₹4.25 crore for the ₹5.54 crore its block_name_raw holds.
+# A block BREAKDOWN is on block_name_raw (the BLOCK COLUMN rule the prompt states; the filters are
+# moved by _focusplus_lgd_only_block). Only a single plain SELECT that never reads block_name_raw, a
+# village column or an lgd_block filter: a query that does any of these chose its column on purpose.
+def _focusplus_block_breakdown_on_raw(schemes: list[str], sql: str) -> str:
+    if schemes != ["Focus Plus"] or not sql or not sql_ast.references_column(sql, "lgd_block") \
+            or sql_ast.references_column(sql, "block_name_raw", "village_code", "lgd_village_name"):
+        return sql
+    tree = sql_ast.parse_one(sql)
+    if not isinstance(tree, exp.Select) or len(list(tree.find_all(exp.Select))) != 1:
+        return sql
+    group = tree.args.get("group")
+    if group is None or not any(isinstance(sql_ast._unwrap(g), exp.Column) and sql_ast._unwrap(g).name.lower() == "lgd_block"
+                                for g in group.expressions):
+        return sql
+    where = tree.args.get("where")
+    if where is not None and sql_ast.references_column(where, "lgd_block"):
+        return sql
+
+    def raw(col: exp.Column) -> exp.Expression:
+        return exp.Upper(this=exp.column("block_name_raw", table=col.table or None))
+
+    for col in list(tree.find_all(exp.Column)):
+        if col.name.lower() != "lgd_block":
+            continue
+        if col.parent is tree and col in tree.expressions:          # a bare projection keeps its name
+            col.replace(exp.alias_(raw(col), "lgd_block"))
+        else:
+            col.replace(raw(col))
+    out = sql_ast.to_sql(tree)
+    logger.info("Focus Plus: a block breakdown on lgd_block is grouped on block_name_raw (KI-718)")
+    return out
+
+
 def _focusplus_ac_name_case(schemes: list[str], sql: str) -> str:
     """Focus Plus ac_name is stored Title case ("East Shillong", "Nongkrem"); the generator
     wrote `ac_name = 'EAST SHILLONG'`, matched nothing and answered "0 … not a known

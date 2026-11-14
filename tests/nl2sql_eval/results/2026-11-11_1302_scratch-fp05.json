@@ -1,0 +1,93 @@
+{
+ "label": "scratch-fp05",
+ "when": "2026-11-11T13:02:54",
+ "git": {
+  "commit": "e6cf31e",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b",
+  "sql_examples": "yaml"
+ },
+ "readonly_login": "megh_readonly",
+ "superuser_allowed": false,
+ "holdout_checked": true,
+ "selection": {
+  "scheme": null,
+  "ids": "FP-05"
+ },
+ "minutes": 0.3,
+ "summary": {
+  "items": 1,
+  "scored": 1,
+  "outcomes": {
+   "correct": 1
+  },
+  "expected_pauses": 0,
+  "accuracy": 100.0,
+  "by": {
+   "Focus Plus": {
+    "accuracy": 100.0,
+    "correct": 1
+   },
+   "difficulty:medium": {
+    "accuracy": 100.0,
+    "correct": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "FP-05",
+   "scheme": "Focus Plus",
+   "difficulty": "medium",
+   "question": "Give me the Focus Plus amount disbursed in each block of North Garo Hills district.",
+   "gold_rows": 4,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "NORTH GARO HILLS"
+   },
+   "sql": "SELECT UPPER(block_name_raw) AS lgd_block, SUM(amount_disbursed) AS amount_raw FROM curated.v_focus_plus WHERE lgd_district = 'NORTH GARO HILLS' GROUP BY UPPER(block_name_raw) ORDER BY amount_raw DESC NULLS LAST LIMIT 100",
+   "seconds": 15.8,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Focus Plus#72",
+    "Focus Plus#27",
+    "Focus Plus#75",
+    "Focus Plus#48",
+    "Focus Plus#88"
+   ],
+   "answer": "The lines below list the top four blocks in North Garo Hills district for Focus Plus across all financial years:\n1. **KHARKUTTA** \u2014 \u20b95,56,30,000 (\u2248 \u20b95.56 crore)\n2. **RESUBELPARA** \u2014 \u20b93,56,17,500 (\u2248 \u20b93.56 crore)\n3. **BAJENGDOBA** \u2014 \u20b92,64,55,000 (\u2248 \u20b92.65 crore)\n4. **RESUBELPARA-MUNICIPAL BOARD** \u2014 \u20b97,45,000 (\u2248 \u20b97.45 lakh)\n\nNote: Focus Plus amounts are provisional, and the money unit has not been ver",
+   "detail": "same rows",
+   "mapping": {
+    "block": [
+     "lgd_block",
+     1.0
+    ],
+    "amount_disbursed": [
+     "amount_raw_rs",
+     1.0
+    ]
+   },
+   "pred_rows": 4
+  }
+ ],
+ "compared_with": "2026-11-11_1300_scratch-recheck.json",
+ "delta": {
+  "regressions": [],
+  "fixed": [
+   "FP-05"
+  ]
+ }
+}

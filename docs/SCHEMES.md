@@ -216,9 +216,11 @@ Notes on the table:
     Poultry, have two identical records: 8,840 applications, 8,867 records; D-049);
   - `applicant_category`, not `type_raw`;
   - `LOWER()` levels and statuses;
-  - gender and Approved / Rejected are **not available** (they were only in `scheme_specific`):
-    the measure-not-held pause answers them; "pending" = Valid → file_status Pending /
-    Send Back (user decision 2026-10-30, D-B1-CME-01), gated on the scheme_specific grant (KI-624);
+  - gender and Approved are **not available** (gender only in the locked `scheme_specific`; no Approved
+    state is stored): the measure-not-held pause answers them. Since 2026-11-11 the DB team exposes a plain
+    `file_status` column (Pending / Send Back / Rejected; readable, VERIFIED): "pending" = Valid → file_status
+    Pending / Send Back (user decision 2026-10-30, D-B1-CME-01; the gate is open, KI-624 / KI-707) and
+    "rejected" = file_status Rejected (KI-720, valid-only by default like every count);
   - `current_file_status` holds `forward`, `resubmit`, `sendback to vdv/citizen` only;
   - exclude `'Unresolved'` only for village counts;
   - a multi-sub-scheme ask gets a breakdown.
@@ -242,6 +244,11 @@ Notes on the table:
   MOVEMENT — it reads `forward` for every Rejected application — and answers only a movement question. Pending =
   the 2026-10-30 funnel (D-B1-CME-01); verified = 'Valid'. 27 applications have two records (one Pending, one
   Rejected; ingestion team 2026-11-04), so a per-status breakdown adds up to 27 more than the total.
+
+  - "Pending" (2026-10-30): `data_verified = 'Valid' AND file_status IN ('Pending', 'Send Back')` — 7,348 live
+    (2026-11-11; the knowledge base read `scheme_specific ->> 'file_status'` until the plain column came, KI-707);
+    On Hold is not pending. Every CM Elevate count is valid-only by default and the answer says "valid" (KI-702).
+- **Status = `current_file_status`** (Forward / Sent back / Resubmit; decided 2026-09-28, KI-123). Pending = the 2026-10-30 funnel (D-B1-CME-01); verified = 'Valid'.
 - **All districts / blocks / villages (2026-09-28): 7,364 / 7,364** on the final code (KI-106..120). CM Elevate is a village-grained scheme (`_village_scheme`); urban bodies are stored as blocks ("<TOWN>-MUNICIPAL BOARD" / "-TOWN COMMITTEE") and the block catalogue lags the data (21 of 66 missing) — `_cm_elevate_blocks_to_data` maps to the stored spelling. "Pending" = Valid → file_status Pending / Send Back (2026-10-30; was On Hold, 2026-09-28).
 - **QA (2026-09-27):** the use cases (`CM Elevate.csv`, CM-ELEVATE-OFF-001..030).
   - Round 1: **23 / 30** (47 / 55 questions). Report:

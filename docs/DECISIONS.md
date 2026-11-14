@@ -1117,6 +1117,196 @@ not recorded.*
   results (a figure for one row of a table), and "define <measure>" when the documents hold no definition.
 - **Status:** Active.
 
+### D-106 — Accuracy is measured by a live gold bank with independent truth SQL; data-answer fixes are allowed again (2026-11-11/12)
+
+*(D-101 is reserved for the sovereign voice engine + natural re-saying, CLAUDE.md §0.)*
+
+- **Decision (user, 12 Nov 2026):** the pipeline ("brain") is no longer frozen for accuracy: a fix is approved where
+  the DATA answer is wrong (a figure, a lost breakdown, a wrong route). Every run is as `superadmin`; the database is
+  read-only (independent truth SQL, aggregates only).
+- **Measurement:** `tests/accuracy/` (TESTING.md "Accuracy gold bank"). Truth is never the pipeline's own SQL or
+  answer; it is recomputed live on every run, so a data reload cannot make the bank stale.
+- **How fixes are made:** deterministic rules in the stage that owns the failure (no regex, D-046/047), each with an
+  offline regression test calling the real function (`tests/test_accuracy_gold_fixes_2026_11_11.py`), then the gold
+  bank, pytest, the plain scripts, `live_chat_golden.py` and the held-out NL→SQL set; no faithfulness check or guard
+  weakened. A verifier complaint is discarded only when the SQL provably does what the complaint says it does not
+  (KI-717), the existing pattern of `c11`.
+- **Behaviour visible to officers:** a CM Elevate count kept to valid applications says "valid" (KI-702); a chart kind
+  the chat cannot draw is said to be unavailable instead of claimed (KI-708); short refinements after a data answer
+  stay data questions (KI-713); "only <scheme>" after a comparison answers that scheme (KI-714).
+- **Source:** KI-701..KI-717; AI_PIPELINE §2.9i; results `tests/accuracy/results/`.
+### D-105 — The voice opens the Secretary's view: a desk and a picture for every answer, cross-scheme first (2026-11-02)
+- **Date:** 2026-11-02 (NEW `frontend/src/chat/voice/` — `vizPlan.js` (the planner), `stageCanvas.js` (Mitra's canvas
+  renderers), `StageCards.jsx` (card shell + speech-synced reveal), `SecretaryDesk.jsx`, `meghMap.js` (12 districts);
+  NEW `app/voice/board.py` (`GET /api/voice/board`, mounted through the voice router); `components/VoiceStage.jsx`
+  rebuilt around them; `voice-stage.css`; `api.fetchVoiceBoard`; the relay, hook and guard fixes below).
+- **Decision (user):** the voice mode is Sakala Mitra's Chief Secretary view for Meghalaya, equal or better, "super
+  cross-scheme": the greeting is "Good morning / afternoon / evening, Secretary sir" (no "Chief", no "Madam"); the
+  brain and the NL-to-SQL never change. Mitra's files were copied, never edited (D:/Sakala POC is read-only).
+  - **The desk** (home, before and between answers): eight command tiles (every scheme's headline figures, each in its
+    own unit), the years each scheme holds (a gap is no data, not a zero), the Meghalaya district map with a chip per
+    scheme, this conversation. Every tile asks its question through the pipeline. The figures come from
+    `/api/voice/board`: fixed, parameter-free SELECTs on the curated views with the counting rules of
+    `/api/scheme-stats`, cached 10 min, filtered to the caller's schemes; outside the pipeline, like the welcome cards.
+  - **The picture of an answer** (`vizPlan.plan`): the answer's own rows become Mitra's cards, by their columns —
+    one row per scheme → a tile per scheme figure, never added (money, the one shared unit, also as bars); a scheme's
+    sub-schemes → its own ranking; by district → the map and the ranking; the leader of each district → the map in
+    each district's leading-scheme colour (the answer's own first row per district); over the years → a line, one card
+    per scheme when units differ, a year a scheme does not hold a gap; district × year → the latest year on the map,
+    the ranking, the leading districts over the years; two districts → side-by-side tiles, a bar, the map; one figure
+    → a KPI. A type asked for ("as a donut", "on the map") is honoured where the card allows it; each card can be
+    switched by hand. No picture (a clarification, text only, an unknown shape) → the chat's own answer card, as before.
+  - **Mitra's motion:** the desk columns sink away, the orb glides to the top right, the answer's text sits above the
+    cards, cards arc in 420 ms apart (1.7 s), a sheen and a scan line, the new picture crossfades over the old as a
+    ghost; canvas renderers ported from `stage.js` (3D bars, ranked race, ribbon line with gaps, tilted ring, KPI,
+    tiles, the raised district map) on Megh's light palette; GROW timings as Mitra's.
+  - **Speech-synced reveal across cards:** every item starts hidden; the item the voice names comes in on every card
+    that holds it (the district on the ranking and on the map); a shorter name inside a longer one does not count
+    ("West Khasi" in "Eastern West Khasi Hills", "CM Elevate" in "CM Elevate Legacy"); years said in words count.
+    The cards land when the voice starts reading (Mitra's vizHold; 2.5 s at most). The page knows the script (it built
+    the spoken form), so the items the script names wait for their name, and the rest come in 1.2 s after the last
+    named one; a script that names nothing → everything 3 s after the voice starts; the end of the turn → the rest.
+    *Measured on the real voice:* Gemini's transcript arrives far ahead of its audio (the whole answer's text in under
+    5 s, its audio 25–30 s, Indian figures read in full), so the captions, and the reveal that reads them, are now
+    held until the audio chunk each piece of text came with is playing: a district lights up as it is heard.
+  - **One question, one answer, one picture (the user's two glitches, 2026-11-02):**
+    - *A picture popping 3–4 times:* the model re-called `ask_megh` in other words within one turn, and each call
+      became a chat turn. The relay now treats every call after the first, with no new words from the officer
+      (no voice activity, no transcript after the answer was read, no typed text), as the same question: answered
+      from the first call, one `tool_call` to the page. A second toolCall before the first is answered joins it.
+    - *"Oh, you asked me …" after an answer:* (1) the page's end-of-turn harness re-sent the officer's words when the
+      voice had answered in words without a call; the edge layer then answered a second time. The harness now acts only
+      when the voice said nothing, or said a figure with no source. (2) The model calling again on its own after reading
+      the answer is held by the relay ("already answered", nothing reaches the page). (3) A year the voice says
+      ("2024-25", "twenty twenty-four") is never a deviation, so no spurious "To be exact" re-read.
+    - The picture is planned once per final answer (memoised on the answer), so captions and the voice's level never
+      redraw it, and the draft shows no picture (Mitra's one picture per turn).
+  - **Greeting:** the voice says "Good <part of day>, Secretary sir. What would you like to look at today?" when the
+    stage opens (once, through the read path), and the desk's heading says it; the instruction tells the voice to
+    address the officer as "Secretary sir" / "sir", never "madam".
+  - **Esc:** from an answer to the desk, from the desk to the chat; "The desk" chip in the dock too.
+  - **Seamless opening (user, 2026-11-02, from a screenshot):** (1) the orb showed a square box: its glow gradient ran
+    past the canvas edge; the glow now ends inside the canvas and the canvas has a soft round mask. (2) The desk "kept
+    generating at 1 second intervals": placeholder tiles, then the figures, then the map flying in, a looping scan line.
+    Now the board is fetched ahead when the chat loads (`api.fetchVoiceBoard`, kept 10 min) and the desk opens
+    complete in ONE entrance per column; nothing inside the desk animates on its own (the map is drawn finished); a
+    card's scan line sweeps once as it lands and the insight chip breathes twice, never in a loop.
+    The root cause of the repeated entrance (found by the visual regression, 2026-11-03): the stage's effect that sets
+    the body classes depended on `live`, a new object on every voice state change, so connecting, live and speaking
+    the greeting each removed and re-added the classes and re-ran the entrance; it now runs once per opening (keys read
+    the current values through a ref), and the orb pulses only when its state changes.
+  - **A voice agent says the gist (2026-11-03, measured on the real voice):** answers cut at 560 characters took
+    45–65 s to say (Indian figures read in full). The spoken part is now cut at ~320 characters at a sentence end
+    (~20–25 s), then "The rest of the answer is on your screen"; an exact rupee figure followed by its approximation
+    ("₹22,22,75,30,000 (≈ ₹2,222.75 crore)") is said once, as the approximation, and the exact figure stays on screen
+    (`voiceSpeech.sayApproxOnce`). Still deterministic, still the answer's own figures, still read word for word.
+  - **Found by the bank on the real voice (2026-11-03), fixed:** (1) an answer read a second time after it finished
+    (B10 / D1, heard again in the next question's window): after an answer was read, speech from the model with
+    nothing new from the officer (no voice activity, no words, no typed text) and no read asked for by the page is
+    no longer forwarded (`STATS["unprompted_dropped"]`); a new question clears that state. (2) The session dropped
+    to standby between questions after 25 s of quiet (a Secretary reads the desk; with no wake word a tap was
+    needed): `VOICE_IDLE_SECONDS` now defaults to 120.
+  - **Second round from the real voice (2026-11-03), fixed:** (1) Gemini reads Indian figures in pieces ("2 crore 55
+    lakh 96 thousand 237"); the speech guard took each piece for a figure, called them unsourced, and the page re-read
+    the answer ("To be exact") and asked again — now a descending crore / lakh / thousand run is one figure
+    (`speech_guard._digit_groups`), a wrong figure still flags. (2) The previous answer re-read at the start of the
+    next question's turn: the relay remembers the last answer given to the voice and drops a turn that starts by
+    reading it again before any new call (`_check_reread`, `STATS["rereads_dropped"]`), unless the officer asked
+    for a repeat ("repeat that", "say that again").
+  - **The client's three test PDFs (30 Oct 2026)** as a voice bank (`tests/voice/voice_bank_pdf.py`, 59 turns,
+    sharded by officer): chart tests, the 20 UAT questions, the 20 RAG questions; the brain's figures are reported as
+    information, never as a voice failure. Picture fixes it drove: a financial year a scheme does not hold is on the
+    axis as a gap (Focus Legacy 2023-24); a year line asked as bars carries its values; "horizontal" draws the
+    ranking; a chart asked over a per-scheme comparison is drawn side by side with the "not a split of one total"
+    note.
+  - **English only (user, 2026-11-03):** the voice speaks English whatever the officer speaks: en-IN in the setup,
+    the instruction, and a deterministic relay guard that drops speech in any non-Latin script before its audio is
+    forwarded, then has the voice say "Sorry, I can only speak English." (`STATS["non_english_dropped"]`).
+  - **The voice question bank** (`tests/voice/voice_bank.py`, Mitra-style, looped with `--failed`): 82 turns; on the
+    fake voice 68/82 → 54/55 → 2/2 → 82/82 after the fixes (traceable columns, a requested donut over 12 districts,
+    the chat's redraw `view` honoured, the harness's own counting); brain answers it found: KI-699..670.
+    Guarded by `tests/voice/ui_voice_visual.py` (columns enter once, tiles and map mount once, orb corners empty).
+- **Status:** Active. VERIFIED 2026-11-02 (TESTING.md).
+
+### D-104 — The live voice gets a full-screen stage (Mitra's), mute that only mutes (2026-11-02)
+- **Date:** 2026-11-02 (NEW `frontend/src/chat/components/VoiceStage.jsx`, `frontend/src/chat/voiceOrb.js`,
+  `frontend/src/styles/voice-stage.css`; `useLiveVoice.js` (mute, view, thinking, turn count, mic analyser, hush, idle);
+  the voice section of `App.jsx`; `LiveVoiceStrip.jsx` hidden under the stage; tests `tests/voice/ui_voice_stage.py`).
+- **Decision (user):** the voice mode looks and behaves like Sakala Mitra's voice for the Chief Secretary: the screen is
+  taken over by the voice, the answer appears below it as text, and a comparison or breakdown comes up as its chart.
+  Mitra's UI elements are copied (D:/Sakala POC is read-only, copy-only); the colours, type and surfaces are Megh's.
+  - **Copied from Mitra:** the orb (`orb.js`: particle sphere, frequency halo, touch, states; its light rendering) as a
+    factory in Megh's palette; the stage choreography (`stage.js` / `mitra.css`: the page sinks, the orb glides to its
+    corner, cards arc in with a sheen and a scan line, a new answer crossfades over the old as a ghost, a dock below, the
+    beam and veil, pointer glint); speech-synced reveal (`Stage.hear` / `flush`); mute from Mitra's 27 Oct patch.
+  - **Megh's own on the stage:** the answer card is the chat's message component (`BotMessage` / `TypingMessage` /
+    `TextMessage`, the same props as the chat list), so the text, chart (Chart.js, `viewPlan`), compare tiles, table,
+    clarification chips and sources are exactly what a typed question shows, drawn larger. A one- or two-scheme answer
+    adds that scheme's live figures from `/api/scheme-stats` (the welcome cards' source). No new numbers anywhere.
+  - **Speech-synced reveal on Megh's charts:** each chart is reached through `canvas.__chart` (Charts.jsx); the bars /
+    points / slices of a fresh voice answer start hidden and come in as the voice names their label; the rest when the
+    relay's end-of-turn arrives and the audio has played (not on a pause between audio chunks); 3.5 s with nothing named
+    after the chart is up brings everything in. The data arrays are replaced, never mutated (they are the answer's own,
+    shared with the chat's copy), and the state is kept per label because the chart component rebuilds its Chart.js
+    instance on every re-render.
+  - **Mute:** only the microphone track is switched off (`track.enabled`); the session stays open, the answer keeps
+    playing, typed text still reaches the voice; the pill reads "Muted · the answer still plays"; M toggles it. A muted
+    session is not idle-closed (up to 10 min); idle counts from the last voice, answer or playback, so an answer heard
+    while muted no longer ends the conversation (found on the real voice 2026-11-02).
+  - **Flow unchanged:** the stage only shows; the spoken question still goes through `sendQuery`, the checked answer is
+    still read word for word with the deviation guards of D-103. Esc / Back / End close the stage and the voice; every
+    voice turn is already in the chat. Idle closes only the session (standby: the stage stays, a tap on the orb reopens).
+  - The card is keyed by turn: the draft becomes the answer in place (no second entrance); a new turn crossfades.
+  - **Found on the real voice the same day, fixed in the relay / hook:** a model that ignores a question (no call, no
+    word: "show it as a bar chart") is answered by the page 7 s after the officer finishes (`armSilent`); the same words
+    are never sent to the pipeline twice within 2 minutes (a read-aloud turn carried the stale words and re-asked them);
+    a mid-session Gemini error (1011) or a dropped connection makes the page reconnect at once instead of a 2-minute
+    lockout (only a 1008 policy refusal locks out); a clean upstream close reconnects too; the relay now logs why every
+    session ended (codes and text, never the officer's words).
+- **Status:** Active. VERIFIED 2026-11-02 (TESTING.md).
+
+### D-103 — Full-duplex voice: a Gemini Live relay; the answer is always the chat's own (2026-11-02)
+- **Date:** 2026-11-02 (NEW `app/voice/` — `relay.py`, `prompt.py`, `speech_guard.py`, `settings.py`; one mount line in
+  `app/main.py`; NEW `frontend/src/chat/useLiveVoice.js`, `voiceSpeech.js`, `voiceWorklet.js`,
+  `components/LiveVoiceStrip.jsx`, `styles/voice.css`; the voice section of `App.jsx`; `deploy/nginx/nginx-megh-langgraph.conf`
+  `location = /ws/voice`; tests in TESTING.md).
+- **Decision (user, 2026-11-02):** the voice mode becomes full duplex "at the level of Sakala Mitra's Gemini voice", and
+  nothing else in the project changes. The mic opens a live conversation: the officer talks, is answered aloud, and can
+  talk over the answer at any time.
+  - **Transport:** `/ws/voice` (WebSocket) relays the page <-> Gemini Live (`gemini-3.8-live`, native audio; the key
+    stays on the server). This is the one exception to "No WebSocket" (CLAUDE.md §1); the chat's answers still stream
+    over SSE (D-039).
+  - **The pipeline is not touched.** Gemini has ONE function, `ask_megh`, and the relay does not run it: the page sends the
+    question down the same `sendQuery` -> `POST /api/query/stream` a typed question takes (login, ownership, caches,
+    conversation layer, LangGraph, audit, history, chart, chips, Stop, Regenerate all identical) and hands the checked
+    answer back to be spoken. Clarifications are asked aloud and answered by voice through the same pause logic.
+  - **Numbers:** the page builds the spoken form deterministically (`voiceSpeech.spokenForm`: markdown removed, a table or
+    list read as its first three rows / items and "N more are on your screen", a long answer cut only at a sentence end,
+    a clarification as its question and options). The voice is told to read it word for word. Behind that prose rule,
+    deterministic guards (the project's pattern, CLAUDE.md §5): `speech_guard.deviations` compares every number the
+    voice said with the answers it was given; a number from its own memory makes the page run the question through the
+    pipeline and read that answer; a wrong number in a read answer makes the page re-read the checked answer
+    ("To be exact: …"). Both are logged.
+  - **Which words reach the pipeline:** the function's own argument (the model's reading of the audio; it is told to pass
+    the words exactly), the live transcript only as a fallback. Measured on real speech 2026-11-02: the transcript lagged
+    the call ("and for" vs "and for Ri Bhoi?") and misheard ("2020 3-24" vs 2023-24). The instruction carries the same
+    vocabulary as `ASR_PROMPT` plus spoken forms ("M G N rega", "NREGA").
+  - Carried over from Mitra's relay: the tool-call turn held open; the same call twice answered once; a silence nudge
+    4 s after a result; one retry before a lockout (15 s network, 120 s refusal), during which the mic falls back to the
+    existing dictation (`useVoice.js`, unchanged); one session per officer per worker; 25 s idle close; barge-in (Gemini's
+    `interrupted`, plus a local cut when the officer's speech is detected while audio is still queued); an echo guard.
+  - **Settings outside `.env`:** `Settings` reads `.env` with `extra='forbid'`, so a voice key there would stop the app
+    from starting. `app/voice/settings.py` reads the process environment, then `certs/voice.env` (git-ignored).
+  - Logs carry counts and timings only, never the officer's words.
+- **Alternatives rejected:** running `ask_megh` in the relay by calling the router's `_answer` (couples the voice to
+  private router internals that parallel sessions edit, and the page would not render the turn); letting Gemini answer or
+  phrase figures in its own words (the composer's faithfulness checks would be bypassed); a wake word (an open microphone
+  on shared terminals).
+- **Not decided (user):** Gemini Live sends the officer's audio and the spoken answer text to Google, against the
+  "no audio leaves the government network" intent of D-019 / `useVoice.js` (KI-691). The relay's wire contract is the one
+  the sovereign duplex core (D:/Full Duplex Architecture) speaks, so the engine can be swapped without touching the page.
+- **Status:** Active. LIVE-VERIFIED 2026-11-02 on real Gemini Live, the real pipeline and megh_db (TESTING.md).
+
 ### D-097 — Cross-scheme figures in code for all six schemes, villages and constituencies (2026-10-30)
 - **Date:** 2026-10-30. User: "I want 100% UAT in cross scheme test cases also" (`reference_documents/Cross Scheme
   Test Cases.xlsx`, CROSS-1..20 and the generated 8,649-conversation set, last run 2026-10-13 under D-044).

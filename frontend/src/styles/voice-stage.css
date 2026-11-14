@@ -1,0 +1,701 @@
+/* ============== THE SECRETARY VIEW OF THE LIVE VOICE (components/VoiceStage.jsx), 2026-11-03 ==============
+   An exact replica of Sakala Mitra's Chief Secretary WEB view (D:/Sakala POC/mitra/web/mitra.css + stage.js, read-only
+   source; the light-theme values that win), with ONE difference: Megh's purple instead of Mitra's green.
+     emerald #16c784 / #0e9f6e / #0a7f58  ->  #9558CF / #7C3FBF / #5C2D91  (--p-500 / --p-600 / --p-700)
+     cyan #79e3ff -> lavender #B27FE0;  blue / orange accents in gradients -> lavender / soft magenta #d55181
+     every green glow rgba(22,199,132,x) / rgba(14,159,110,x) -> rgba(124,63,191,x)
+   Mitra's neutrals (ink #0b0d14, mute #525a6c, mute2 #8c93a3, hairlines rgba(12,16,28,…)) and its semantic colours
+   (bad #e03b4c / #ff5c6a, warn #ea6a22) are kept. The desk's cards (left / right columns) are voice-desk.css. */
+.vstage {
+  --m-tx: #0b0d14; --m-mute: #525a6c; --m-mute2: #8c93a3;
+  --m-line: rgba(12, 16, 28, .10); --m-line2: rgba(12, 16, 28, .2); --m-s1: rgba(12, 16, 28, .04); --m-s2: rgba(12, 16, 28, .075);
+  --m-em1: #9558CF; --m-em: #7C3FBF; --m-em2: #5C2D91; --m-cy: #B27FE0; --m-mg: #d55181;
+  --m-saf: #ea6a22; --m-bad: #e03b4c; --m-bad2: #ff5c6a;
+  --m-said: #6a6480;   /* words the voice has already said: settled, still 5:1 on the canvas */
+  --m-ease: cubic-bezier(.16, 1, .3, 1);
+  --lvl: 0;
+  position: fixed; inset: 0; z-index: 400; overflow: hidden; color: var(--m-tx); background: #f8f6fb;
+  font-family: 'Inter', 'Noto Sans', -apple-system, 'Segoe UI', sans-serif; letter-spacing: -.011em;
+  -webkit-font-smoothing: antialiased; opacity: 0; transition: opacity .45s ease;
+}
+body.vstage-in .vstage { opacity: 1; }
+.vstage button { font: inherit; letter-spacing: inherit; cursor: pointer; }
+/* the chat behind sinks */
+body.vstage-on .app { transition: transform .8s cubic-bezier(.2, .8, .2, 1), opacity .6s ease; transform-origin: 50% 100%; }
+body.vstage-in .app { transform: scale(.94) translateY(24px); opacity: .25; }
+
+/* ---------------- background (.bg): gradients, three auroras, the 64 px grid, the state glow ---------------- */
+.vs-bg { position: absolute; inset: 0; z-index: 0; overflow: hidden; pointer-events: none;
+  background: radial-gradient(1100px 700px at 8% -10%, rgba(124, 63, 191, .16), transparent 60%),
+    radial-gradient(900px 640px at 100% 0%, rgba(178, 127, 224, .14), transparent 62%),
+    radial-gradient(1200px 760px at 60% 120%, rgba(213, 81, 129, .10), transparent 60%),
+    linear-gradient(180deg, #fbf9fe, #f4f1f9); }
+.vs-bg .au { position: absolute; border-radius: 50%; opacity: .62; will-change: transform;
+  animation: vsDrift 26s ease-in-out infinite alternate; }
+.vs-bg .a1 { width: 70vw; height: 70vw; left: -20vw; top: -30vw;
+  background: radial-gradient(circle closest-side, rgba(149, 88, 207, .40) 0%, rgba(149, 88, 207, .24) 30%, rgba(149, 88, 207, .09) 58%, rgba(149, 88, 207, 0) 100%); }
+.vs-bg .a2 { width: 60vw; height: 60vw; right: -20vw; top: -20vw; animation-delay: -9s;
+  background: radial-gradient(circle closest-side, rgba(213, 81, 129, .22) 0%, rgba(213, 81, 129, .13) 30%, rgba(213, 81, 129, .05) 58%, rgba(213, 81, 129, 0) 100%); }
+.vs-bg .a3 { width: 50vw; height: 50vw; left: 30vw; bottom: -30vw; animation-delay: -17s;
+  background: radial-gradient(circle closest-side, rgba(178, 127, 224, .30) 0%, rgba(178, 127, 224, .17) 30%, rgba(178, 127, 224, .06) 58%, rgba(178, 127, 224, 0) 100%); }
+.vstage.parked .vs-bg .au { animation-play-state: paused; }
+.vs-gridbg { position: absolute; inset: 0;
+  background-image: linear-gradient(rgba(14, 40, 80, .055) 1px, transparent 1px), linear-gradient(90deg, rgba(14, 40, 80, .055) 1px, transparent 1px);
+  background-size: 64px 64px; -webkit-mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 75%);
+  mask-image: radial-gradient(ellipse at 50% 40%, #000 20%, transparent 75%); transform-origin: 50% 100%;
+  transition: transform 1.4s cubic-bezier(.2, .8, .2, 1), opacity 1s; }
+.vstage.parked .vs-gridbg { transform: perspective(900px) rotateX(55deg) scale(1.6); opacity: .8; }
+.vs-bg::after { content: ""; position: absolute; inset: 0; opacity: .5; transition: background 1.2s ease;
+  background: radial-gradient(60vw 50vh at 50% 42%, rgba(124, 63, 191, calc(.10 + var(--lvl) * .35)), transparent 70%); }
+.vstage[data-state="listening"] .vs-bg::after { background: radial-gradient(60vw 50vh at 50% 42%, rgba(178, 127, 224, calc(.12 + var(--lvl) * .4)), transparent 70%); }
+.vstage[data-state="thinking"] .vs-bg::after { background: radial-gradient(60vw 50vh at 50% 42%, rgba(255, 154, 60, .16), transparent 70%); }
+.vstage[data-state="speaking"] .vs-bg::after { background: radial-gradient(60vw 50vh at 50% 42%, rgba(124, 63, 191, calc(.14 + var(--lvl) * .45)), transparent 70%); }
+.vstage[data-state="muted"] .vs-bg::after { background: radial-gradient(60vw 50vh at 50% 42%, rgba(120, 124, 136, .07), transparent 70%); }
+
+/* ---------------- header (.top) 68 px ---------------- */
+.vs-top { position: absolute; left: 0; right: 0; top: 0; height: 68px; z-index: 3; display: flex; align-items: center; gap: 18px;
+  padding: 0 22px; background: rgba(255, 255, 255, .9); border-bottom: 1px solid rgba(12, 16, 28, .07);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .8), 0 8px 30px rgba(30, 45, 80, .05); }
+.vs-brand { display: flex; align-items: center; gap: 12px; min-width: 300px; }
+.vs-halo { flex: none; width: 42px; height: 42px; border-radius: 50%; padding: 2px;
+  background: conic-gradient(from 180deg, #9558CF, #d55181, #B27FE0, #9558CF); box-shadow: 0 0 24px rgba(124, 63, 191, .25); }
+.vs-mark { width: 100%; height: 100%; border-radius: 50%; display: grid; place-items: center; background: #fff;
+  font-weight: 800; font-size: 18px; letter-spacing: -.03em; color: #7C3FBF; }
+.vs-brand-t { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.vs-brand-t b { font-size: 17px; font-weight: 800; letter-spacing: -.025em; color: #0b0b0c; }
+.vs-brand-t span { font-size: 11px; color: var(--m-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vs-hdr-right { margin-left: auto; display: flex; align-items: center; gap: 12px; }
+.vs-clock { font-size: 12px; padding: 6px 10px; border-radius: 999px; border: 1px solid rgba(12, 16, 28, .08);
+  background: rgba(255, 255, 255, .8); color: var(--m-tx); font-variant-numeric: tabular-nums; white-space: nowrap; }
+.vs-status { display: flex; align-items: center; gap: 8px; font-size: 12px; color: var(--m-mute); white-space: nowrap; }
+.vs-status .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--m-saf); box-shadow: 0 0 10px rgba(234, 106, 34, .6); }
+.vs-status.ok .dot { background: var(--m-em1); box-shadow: 0 0 10px rgba(149, 88, 207, .7); }
+.vs-back { display: inline-flex; align-items: center; gap: 8px; padding: 7px 14px; border-radius: 999px; border: 1px solid rgba(12, 16, 28, .08);
+  background: rgba(255, 255, 255, .8); color: var(--m-mute); font-size: 12px; font-weight: 600; transition: all .2s; }
+.vs-back:hover { background: #fff; color: var(--m-tx); box-shadow: 0 6px 18px rgba(30, 45, 80, .08); }
+.vs-back kbd { font-family: inherit; font-size: 10px; font-weight: 700; color: var(--m-mute2); border: 1px solid var(--m-line); border-radius: 5px; padding: 0 5px; }
+
+/* ---------------- the desk: three columns (main.stage) ---------------- */
+.vs-main { position: absolute; left: 0; right: 0; top: 68px; bottom: 62px; display: grid;
+  grid-template-columns: minmax(300px, 1fr) minmax(420px, 1.15fr) minmax(300px, 1fr); gap: 18px; padding: 18px 22px 0; }
+.vs-col { min-width: 0; min-height: 0; overflow: auto; padding-bottom: 18px; scrollbar-width: thin; scrollbar-color: rgba(124, 63, 191, .25) transparent;
+  transform-origin: 50% 100%;
+  transition: transform 1s cubic-bezier(.16, 1, .3, 1), opacity .7s ease .15s, visibility 0s; }
+.vs-col::-webkit-scrollbar { width: 6px; }
+.vs-col::-webkit-scrollbar-thumb { background: rgba(124, 63, 191, .25); border-radius: 6px; }
+/* one entrance per column, when the board is there (fetched ahead): the desk never builds in stages */
+.vstage:not(.board-ready) .vs-col { opacity: 0; }
+body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col { animation: vsColIn .9s cubic-bezier(.16, 1, .3, 1) both; }
+body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-delay: .08s; }
+@keyframes vsColIn { from { opacity: 0; transform: translateY(26px) scale(.98); } to { opacity: 1; transform: none; } }
+/* the stage: the side columns sink (Mitra: translateY(62vh) scale(.22), 1.2 s) */
+.vstage.parked .vs-col { transform: translateY(62vh) scale(.22); opacity: 0; visibility: hidden; pointer-events: none; animation: none;
+  transition: transform 1.2s cubic-bezier(.2, .8, .2, 1), opacity .9s ease, visibility 0s linear 1.2s; }
+/* back from the stage: the desk's cards come home (cardHome, .07 s apart) */
+.vstage.nav-home .vs-col .sdk-card, .vstage.nav-home .vs-col .vs-anscard { animation: cardHome 1.2s cubic-bezier(.16, 1, .3, 1) both; }
+.vstage.nav-home .vs-col .sdk > :nth-child(2) { animation-delay: .07s; }
+.vstage.nav-home .vs-col .sdk > :nth-child(3) { animation-delay: .14s; }
+.vstage.nav-home .vs-col .sdk > :nth-child(n+4) { animation-delay: .21s; }
+.vs-col .vs-focus { animation: cardFocus 1.6s cubic-bezier(.2, .8, .2, 1); }
+@keyframes cardHome { 0% { opacity: .35; transform: translateY(18px) scale(.97); } 100% { opacity: 1; transform: none; } }
+@keyframes cardFocus { 0% { box-shadow: 0 0 0 0 rgba(124, 63, 191, 0); }
+  18% { box-shadow: 0 0 0 3px rgba(124, 63, 191, .55), 0 0 50px rgba(124, 63, 191, .35); transform: translateY(-3px); }
+  100% { box-shadow: none; transform: none; } }
+
+/* ---------------- centre column: orb, captions, trace, composer, hints ---------------- */
+.vs-center { min-width: 0; min-height: 0; display: flex; flex-direction: column; align-items: center; overflow: hidden; }
+/* the mode pill sits 8 px above the orb's box: let it paint there instead of being cut (same layout as Mitra) */
+@supports (overflow-clip-margin: 12px) { .vs-center { overflow: clip; overflow-clip-margin: 12px; } }
+.vstage.parked .vs-center, .vstage.parked .vs-main { overflow: visible; }
+.vs-orb { position: relative; z-index: 45; flex: none; width: min(42vh, 470px); aspect-ratio: 1; margin-top: -6px;
+  transform-origin: 50% 50%; transition: transform 1.3s cubic-bezier(.2, .8, .2, 1); }
+@media (max-height: 700px) { .vs-orb { width: min(38vh, 400px); } }
+.vs-orb::before { content: ""; position: absolute; inset: 8%; border-radius: 50%; pointer-events: none; filter: blur(2px);
+  background: radial-gradient(circle, rgba(255, 255, 255, .95) 0%, rgba(255, 255, 255, .55) 45%, rgba(255, 255, 255, 0) 70%); }
+.vs-orb-cv { position: relative; z-index: 1; width: 100%; height: 100%; display: block; touch-action: none;
+  -webkit-mask-image: radial-gradient(circle at 50% 50%, #000 58%, transparent 71%); mask-image: radial-gradient(circle at 50% 50%, #000 58%, transparent 71%); }
+/* the live ring (Mitra: body.live .orb-wrap::before takes the place of the white lens) */
+.vstage.live .vs-orb::before { inset: 6%; filter: none; border: 1px solid rgba(124, 63, 191, .4); box-shadow: 0 0 60px rgba(124, 63, 191, .18);
+  background: radial-gradient(circle, rgba(255, 255, 255, .9), rgba(255, 255, 255, 0) 70%); animation: vsLivering 3s ease-in-out infinite; }
+.vstage.parked .vs-orb::before { animation: none; }
+/* the hover hint (Mitra .orb-wrap::after; under the mode pill here so the two never overlap) */
+.vs-orb::after { content: "drag to spin · pull it · tap to talk"; position: absolute; left: 50%; top: 30px; transform: translateX(-50%); z-index: 3;
+  font-size: 10px; letter-spacing: .14em; text-transform: uppercase; color: var(--m-mute2); white-space: nowrap; opacity: 0;
+  transition: opacity .4s; pointer-events: none; }
+.vs-orb:hover::after { opacity: .9; }
+.vstage[data-state="speaking"] .vs-orb::after, .vstage[data-state="thinking"] .vs-orb::after { content: "tap to stop"; }
+.vstage.parked .vs-orb::after { opacity: 0; transition: opacity .3s; }
+@keyframes vsLivering { 50% { transform: scale(1.03); border-color: rgba(178, 127, 224, .45); } }
+/* mode pill above the orb */
+.vs-mode { position: absolute; left: 50%; top: -2px; transform: translateX(-50%); z-index: 4; display: flex; align-items: center; gap: 8px;
+  padding: 5px 12px; border-radius: 999px; font-size: 11px; font-weight: 700; letter-spacing: .06em; white-space: nowrap; color: var(--m-tx);
+  border: 1px solid rgba(12, 16, 28, .08); background: rgba(255, 255, 255, .88); box-shadow: 0 6px 20px rgba(30, 45, 80, .08); transition: opacity .3s; }
+.vs-mode i { width: 8px; height: 8px; border-radius: 50%; background: var(--m-mute2); }
+.vs-mode b { font-weight: 700; }
+.vs-mode .lat { font-weight: 600; color: var(--m-mute2); font-size: 10px; animation: latf 1.2s ease; }
+.vs-mode[data-m="live"] { background: rgba(124, 63, 191, .12); color: var(--m-em2); border-color: rgba(124, 63, 191, .45); }
+.vs-mode[data-m="live"] i { background: var(--m-em); box-shadow: 0 0 10px var(--m-em); animation: vsBlink 1.2s infinite; }
+.vs-mode[data-m="connecting"] i { background: var(--m-saf); animation: vsBlink .5s infinite; }
+.vs-mode[data-m="standby"] i { background: #B27FE0; box-shadow: 0 0 8px #B27FE0; }
+.vs-mode.muted { border-color: rgba(255, 92, 106, .5); }
+.vs-mode.muted i { background: #ff7a86; box-shadow: 0 0 8px rgba(255, 122, 134, .8); animation: none; }
+@keyframes latf { 0% { color: var(--m-em1); } 100% { color: var(--m-mute2); } }
+/* duplex meters (you · Megh) either side of the orb */
+.vs-dmeter { position: absolute; top: 28%; height: 44%; width: 6px; border-radius: 6px; background: rgba(12, 16, 28, .07); opacity: 0;
+  transition: opacity .4s; pointer-events: none; z-index: 3; }
+.vstage.live .vs-dmeter { opacity: 1; }
+.vs-dmeter.you { left: 3%; } .vs-dmeter.me { right: 3%; }
+.vs-dmeter i { position: absolute; left: 0; right: 0; bottom: 0; height: calc(var(--l, 0) * 100%); border-radius: 6px; transition: height .06s linear; }
+.vs-dmeter.you i { background: linear-gradient(0deg, #d55181, #B27FE0); box-shadow: 0 0 14px rgba(178, 127, 224, .8); }
+.vs-dmeter.me i { background: linear-gradient(0deg, #7C3FBF, #9558CF); box-shadow: 0 0 14px rgba(149, 88, 207, .8); }
+.vs-dmeter span { position: absolute; top: calc(100% + 6px); left: 50%; transform: translateX(-50%); font-size: 9px; font-weight: 700;
+  letter-spacing: .14em; text-transform: uppercase; color: var(--m-mute2); }
+/* the state chip under the orb (the voice's state, word for word: Listening, Speaking, Muted · the answer still plays) */
+.vs-orb-state { position: absolute; left: 50%; bottom: -4px; transform: translateX(-50%); z-index: 4; display: flex; gap: 8px; align-items: center;
+  padding: 6px 12px; border-radius: 999px; font-size: 12px; white-space: nowrap; border: 1px solid rgba(12, 16, 28, .08);
+  background: rgba(255, 255, 255, .88); box-shadow: 0 6px 20px rgba(30, 45, 80, .08); transition: opacity .3s; }
+.vs-orb-state .k { font-weight: 700; font-size: 12.5px; letter-spacing: .08em; font-variant-caps: all-small-caps; color: var(--m-em); }
+.vs-orb-state .v { color: var(--m-mute); }
+.vs-orb-state[data-s="listening"] .k { color: #B27FE0; }
+.vs-orb-state[data-s="thinking"] .k, .vs-orb-state[data-s="connecting"] .k { color: var(--m-saf); }
+.vs-orb-state[data-s="standby"] .k { color: var(--m-mute); }
+.vs-orb-state[data-s="muted"] { border-color: rgba(255, 92, 106, .45); }
+.vs-orb-state[data-s="muted"] .k { color: #ff7a86; }
+.vstage.parked .vs-orb .vs-mode, .vstage.parked .vs-orb .vs-dmeter, .vstage.parked .vs-orb .vs-orb-state { opacity: 0; pointer-events: none; }
+
+/* captions (you · and Megh's words, word by word) */
+.vs-captions { width: 100%; max-width: 620px; flex: 1 1 auto; min-height: 64px; margin-top: 14px; padding: 2px 6px 10px; text-align: center;
+  overflow-y: auto; overflow-x: hidden; scrollbar-width: none;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 10px), transparent);
+  mask-image: linear-gradient(180deg, transparent 0, #000 14px, #000 calc(100% - 10px), transparent);
+  transition: all .6s cubic-bezier(.2, .8, .2, 1); }
+.vs-captions::-webkit-scrollbar { display: none; }
+.vs-you { font-size: 14px; color: var(--m-mute); transition: opacity .3s; }
+.vs-you::before { content: "you · "; color: var(--m-mute2); }
+/* Megh's words (2026-11-10): what the voice says, as it says it. The block is centred, its lines are left-aligned, so a
+   line never shifts sideways while words are added to it (centred text jitters by half a word on every word). */
+.vs-captions { scroll-behavior: smooth; }
+.vs-megh { width: fit-content; max-width: 100%; margin: 8px auto 0; text-align: left; text-wrap: pretty;
+  font-size: clamp(17px, 2.45vh, 23px); line-height: 1.5; font-weight: 500; letter-spacing: -.017em; color: var(--m-tx); }
+.vs-captions.streaming .vs-megh { text-wrap: wrap; }
+/* each word fades up as it arrives; only opacity and transform animate (no filters), colour eases as it settles */
+.vs-megh .w { display: inline-block; margin-right: .27em; opacity: 0; transform: translateY(.34em);
+  animation: wordin2 .34s cubic-bezier(.2, .8, .2, 1) forwards; transition: color .8s cubic-bezier(.2, .8, .2, 1), text-shadow .8s ease; }
+.vs-megh .w:last-child { margin-right: 0; }
+@keyframes wordin2 { to { opacity: 1; transform: none; } }
+/* streaming: the sentence being said is bright, what was said settles, the newest word glows and hands the glow on */
+.vs-captions.streaming .w.past { color: var(--m-said); }
+.vs-captions.streaming .w.cur { color: var(--m-tx); }
+.vs-captions.streaming .w.tip { color: var(--m-em2); text-shadow: 0 0 .9em rgba(149, 88, 207, .42); }
+.vs-hello h2 { margin: 6px 0 0; font-size: clamp(17px, 2.45vh, 23px); line-height: 1.4; font-weight: 600; letter-spacing: -.017em; color: var(--m-tx); }
+.vs-hello + .vs-megh { margin-top: 2px; }
+/* on the stage: a subtitle band at the top centre, exactly two lines, the newest in view (the box glides up a line as
+   one is added; the lines said before scroll out under a short fade, nothing half-cut peeks above) */
+.vstage.parked .vs-captions { position: fixed; top: 86px; left: 50%; transform: translateX(-50%); width: fit-content;
+  max-width: min(680px, 52vw); max-height: 54px; min-height: 0; margin: 0; padding: 0 8px; z-index: 46; flex: none;
+  -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 7px, #000 100%); mask-image: linear-gradient(180deg, transparent 0, #000 7px, #000 100%); }
+.vstage.parked .vs-you, .vstage.parked .vs-hello { display: none; }
+.vstage.parked .vs-megh { margin-top: 0; font-size: 17.5px; line-height: 27px; letter-spacing: -.014em; }
+
+/* the live waveform under the captions while the microphone listens (Mitra .wave: 640 x 36, lavender bars) */
+.vs-wave { flex: none; width: min(420px, 70%); height: 36px; margin: 2px auto 0; opacity: 0; transition: opacity .3s; display: block; pointer-events: none; }
+.vs-wave.on { opacity: 1; }
+.vstage.parked .vs-wave { opacity: 0; }
+
+/* trace chips: Listen · Hear · Understand · Ask Megh One AI · Speak */
+.vs-trace { flex: none; display: flex; gap: 6px; justify-content: center; flex-wrap: wrap; margin-top: 10px; transition: opacity .3s; }
+.vs-trace span { display: flex; align-items: center; gap: 6px; padding: 5px 11px; border-radius: 999px; border: 1px solid var(--m-line);
+  background: rgba(255, 255, 255, .75); font-size: 11px; color: var(--m-mute2); transition: all .35s; }
+.vs-trace span i { width: 6px; height: 6px; border-radius: 50%; background: var(--m-mute2); transition: all .35s; }
+.vs-trace span.run { color: var(--m-tx); border-color: rgba(255, 154, 60, .5); background: rgba(234, 106, 34, .1); }
+.vs-trace span.run i { background: var(--m-saf); box-shadow: 0 0 10px var(--m-saf); animation: vsBlink .8s infinite; }
+.vs-trace span.done { color: var(--m-tx); border-color: rgba(124, 63, 191, .4); background: rgba(124, 63, 191, .08); }
+.vs-trace span.done i { background: var(--m-em); box-shadow: 0 0 10px var(--m-em); }
+.vs-trace span b { font-weight: 600; color: var(--m-mute); font-size: 10px; }
+
+/* the composer: mic (mute) · stop · the field */
+.vs-composer { flex: none; display: flex; align-items: center; gap: 10px; width: 100%; max-width: min(640px, 100%); margin-top: 14px;
+  transition: bottom .6s cubic-bezier(.2, .8, .2, 1), max-width .6s cubic-bezier(.2, .8, .2, 1); }
+.vs-mute { position: relative; flex: none; width: 58px; height: 58px; border-radius: 50%; display: grid; place-items: center; border: 0; color: #fff;
+  background: linear-gradient(140deg, #9558CF, #7C3FBF 60%, #5C2D91);
+  box-shadow: 0 12px 30px rgba(124, 63, 191, .35), inset 0 1px 0 rgba(255, 255, 255, .35); transition: transform .15s, box-shadow .3s, background .3s; }
+.vs-mute:hover { transform: scale(1.04); }
+.vs-mute svg { width: 24px; height: 24px; fill: currentColor; }
+.vs-mute::after { content: ""; position: absolute; left: 50%; top: 50%; width: 30px; height: 3px; border-radius: 3px; background: #ff5c6a;
+  box-shadow: 0 0 0 2px #fff; transform: translate(-50%, -50%) rotate(-45deg) scaleX(0); transition: transform .25s; }
+.vs-mute.on { background: #fff; color: var(--m-bad); box-shadow: 0 8px 24px rgba(30, 45, 80, .12), 0 0 0 1px rgba(255, 92, 106, .45); }
+.vs-mute.on::after { transform: translate(-50%, -50%) rotate(-45deg) scaleX(1); }
+.vs-mute::before { content: attr(data-tip); position: absolute; left: 50%; bottom: calc(100% + 10px); transform: translateX(-50%) translateY(4px);
+  white-space: nowrap; font-size: 11px; font-weight: 600; color: var(--m-tx); padding: 6px 10px; border-radius: 10px; background: #fff;
+  border: 1px solid var(--m-line); box-shadow: 0 8px 24px rgba(30, 45, 80, .12); opacity: 0; pointer-events: none; transition: all .2s; }
+.vs-mute:hover::before { opacity: 1; transform: translateX(-50%) translateY(0); }
+.vs-stop { flex: none; width: 46px; height: 46px; border-radius: 50%; display: grid; place-items: center; color: var(--m-bad);
+  background: rgba(255, 92, 106, .14); border: 1px solid rgba(255, 92, 106, .5); opacity: .35; transform: scale(.9); transition: all .25s; pointer-events: none; }
+.vs-stop svg { width: 18px; height: 18px; fill: currentColor; }
+.vs-stop.on { opacity: 1; transform: none; pointer-events: auto; }
+.vs-stop:hover { background: rgba(255, 92, 106, .28); }
+.vs-compose { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 6px; padding: 4px 4px 4px 16px; border-radius: 999px;
+  border: 1px solid rgba(12, 16, 28, .1); background: rgba(255, 255, 255, .9); box-shadow: 0 8px 24px rgba(30, 45, 80, .06); transition: border-color .2s, opacity .3s; }
+.vs-compose:focus-within { border-color: rgba(124, 63, 191, .45); }
+.vs-compose input { flex: 1; min-width: 0; width: 100%; border: 0; outline: 0; background: none; font: inherit; font-size: 14px; color: var(--m-tx); }
+.vs-compose input::placeholder { color: var(--m-mute2); }
+.vs-compose button { flex: none; width: 36px; height: 36px; border-radius: 50%; border: 0; background: #0b0d14; color: #fff; font-weight: 700; font-size: 15px; }
+/* hints: the Secretary's cross-scheme starters */
+.vs-hints { flex: none; display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; margin-top: 10px; max-width: 640px; max-height: 88px;
+  overflow: hidden; -webkit-mask-image: linear-gradient(180deg, #000 62%, transparent); mask-image: linear-gradient(180deg, #000 62%, transparent);
+  transition: opacity .3s; }
+.vs-hints button { padding: 8px 13px; border-radius: 999px; border: 1px solid rgba(12, 16, 28, .08); background: rgba(255, 255, 255, .85);
+  font-size: 12px; color: var(--m-mute); transition: all .2s; }
+.vs-hints button:hover { background: #fff; color: var(--m-tx); box-shadow: 0 6px 18px rgba(30, 45, 80, .08); transform: translateY(-1px); }
+.vstage.parked .vs-trace, .vstage.parked .vs-hints { opacity: 0; pointer-events: none; }
+/* on the stage the composer floats at the bottom centre; on a board or a map it is a glass pill in the dock row */
+.vstage.parked .vs-composer { position: fixed; left: 50%; bottom: 136px; transform: translateX(-50%); width: calc(100% - 64px); max-width: 560px;
+  margin: 0; z-index: 60; }
+.vstage.board-on .vs-composer, .vstage.mapfocus-on .vs-composer { bottom: 74px; max-width: 470px; padding: 6px 8px 6px 6px; border-radius: 999px;
+  background: rgba(255, 255, 255, .8); border: 1px solid rgba(12, 16, 28, .1); box-shadow: 0 18px 50px rgba(12, 16, 28, .12);
+  -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3); }
+.vstage.board-on .vs-mute, .vstage.mapfocus-on .vs-mute { width: 46px; height: 46px; }
+.vstage.board-on .vs-stop, .vstage.mapfocus-on .vs-stop { width: 38px; height: 38px; }
+.vstage.board-on .vs-compose, .vstage.mapfocus-on .vs-compose { box-shadow: none; }
+
+/* ---------------- footer (.feed) 62 px ---------------- */
+.vs-feed { position: absolute; left: 0; right: 0; bottom: 0; height: 62px; z-index: 3; display: flex; align-items: center; gap: 18px; padding: 0 22px;
+  background: rgba(255, 255, 255, .9); border-top: 1px solid rgba(12, 16, 28, .07); }
+.vs-prof { flex: none; display: flex; align-items: center; gap: 10px; padding: 5px 12px 5px 5px; border-radius: 999px; max-width: 300px;
+  border: 1px solid rgba(12, 16, 28, .08); background: rgba(255, 255, 255, .88); box-shadow: 0 8px 24px rgba(30, 45, 80, .07); }
+.vs-prof .av { width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center; font-size: 17px; flex: none;
+  background: radial-gradient(circle at 30% 30%, rgba(149, 88, 207, .45), rgba(213, 81, 129, .22)); box-shadow: inset 0 0 0 1px rgba(255, 255, 255, .5); }
+.vs-prof-t { display: flex; flex-direction: column; line-height: 1.15; min-width: 0; }
+.vs-prof-t b { font-size: 13px; font-weight: 700; letter-spacing: -.01em; }
+.vs-prof-t span { font-size: 11px; color: var(--m-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vs-feed-h { display: flex; align-items: center; gap: 8px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .1em;
+  color: var(--m-mute); white-space: nowrap; }
+.vs-feed .pulse { width: 8px; height: 8px; border-radius: 50%; background: var(--m-em); box-shadow: 0 0 0 0 rgba(124, 63, 191, .6); animation: vsPulse 1.8s infinite; }
+@keyframes vsPulse { 70% { box-shadow: 0 0 0 10px rgba(124, 63, 191, 0); } 100% { box-shadow: 0 0 0 0 rgba(124, 63, 191, 0); } }
+.vs-feed-l { flex: 1; min-width: 0; display: flex; gap: 10px; overflow: hidden;
+  -webkit-mask-image: linear-gradient(90deg, #000 85%, transparent); mask-image: linear-gradient(90deg, #000 85%, transparent); }
+.vs-feed .fi { flex: none; display: flex; align-items: center; gap: 8px; max-width: 340px; padding: 6px 12px; border-radius: 999px;
+  border: 1px solid var(--m-line); background: rgba(255, 255, 255, .85); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  animation: slidein .5s cubic-bezier(.2, .8, .2, 1) both; }
+.vs-feed .fi b { color: var(--m-em); font-size: 8px; }
+@keyframes slidein { from { opacity: 0; transform: translateX(-14px); } to { opacity: 1; transform: none; } }
+.vs-end { flex: none; margin-left: auto; padding: 9px 18px; border-radius: 999px; border: 0; color: #fff; font-weight: 700; font-size: 12px;
+  background: linear-gradient(140deg, #9558CF, #7C3FBF 60%, #5C2D91); box-shadow: 0 10px 26px rgba(124, 63, 191, .28); }
+.vs-end:hover { filter: brightness(1.08); }
+
+/* ---------------- THE STAGE (#stageHost) between the header and the footer ---------------- */
+.vs-host { position: absolute; left: 0; right: 0; top: 68px; bottom: 62px; z-index: 40; pointer-events: none; }
+.vs-fx { position: absolute; inset: 0; width: 100%; height: 100%; opacity: 0; transition: opacity 1.2s; }
+.vs-veil { position: absolute; inset: 0; opacity: 0; transition: opacity 1.2s;
+  background: radial-gradient(ellipse at 50% 45%, transparent 45%, rgba(247, 243, 252, .8) 100%); }
+.vs-beam { position: absolute; top: 0; bottom: 0; left: 0; width: 30vw; opacity: 0; transform: translateX(-40vw) skewX(-14deg);
+  background: linear-gradient(90deg, transparent, rgba(124, 63, 191, .06), rgba(178, 127, 224, .08), rgba(124, 63, 191, .06), transparent); }
+.vstage.parked .vs-fx, .vstage.parked .vs-veil { opacity: 1; }
+.vstage.parked .vs-beam { opacity: 1; animation: beamSweepT 2.2s cubic-bezier(.2, .8, .2, 1) .2s both; }
+@keyframes beamSweepT { from { transform: translateX(-40vw) skewX(-14deg); } to { transform: translateX(130vw) skewX(-14deg); } }
+/* the title, top left: a dot, the words, an underline that grows */
+.vs-title { position: absolute; top: 18px; left: 28px; max-width: calc(50% - min(340px, 26vw) - 44px); font-size: 11px; font-weight: 800;
+  letter-spacing: .16em; text-transform: uppercase; color: var(--m-em2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  opacity: 0; transform: translateX(-20px); transition: all .5s .3s; }
+.vs-title::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--m-em);
+  box-shadow: 0 0 12px rgba(124, 63, 191, .8); margin-right: 10px; vertical-align: 1px; }
+.vs-title::after { content: ""; display: block; height: 1px; margin-top: 6px; transform: scaleX(0); transform-origin: 0 50%;
+  background: linear-gradient(90deg, var(--m-em), rgba(178, 127, 224, .6), transparent); transition: transform 1.2s cubic-bezier(.2, .8, .2, 1) .5s; }
+.vstage.parked .vs-title { opacity: 1; transform: none; }
+.vstage.parked .vs-title::after { transform: scaleX(1); }
+.vstage.refine .vs-title::after { background: linear-gradient(90deg, var(--m-em), #B27FE0, var(--m-em), #B27FE0); background-size: 200% 100%;
+  animation: stageRefine 1.1s linear infinite; }
+.vstage.refine .vs-title::before { animation: refineDot 1.1s ease-in-out infinite; }
+@keyframes stageRefine { from { background-position: 0 0; } to { background-position: 200% 0; } }
+@keyframes refineDot { 50% { transform: scale(1.5); box-shadow: 0 0 18px rgba(124, 63, 191, 1); } }
+
+.vs-stagearea { position: absolute; inset: 0; pointer-events: none; }
+/* the answer's text: read by assistive technology; on screen the captions carry what is said */
+.vs-answer { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
+
+/* the cards (.stage-cards): 1 / 2 / 3 across, a board of six, a map beside its cards */
+.vs-cards { position: absolute; top: 96px; bottom: 206px; left: 28px; right: 200px; display: grid; gap: 18px; align-content: center;
+  justify-content: center; grid-auto-rows: max-content; perspective: 1400px; transform-style: preserve-3d; pointer-events: none; }
+.vs-cards[data-n="1"] { grid-template-columns: min(820px, 100%); }
+.vs-cards[data-n="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.vs-cards[data-n="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.vs-cards.board { grid-template-columns: repeat(3, minmax(0, 1fr)); grid-template-rows: repeat(2, minmax(0, 1fr)); align-content: stretch;
+  top: 96px; bottom: 86px; gap: 14px; }
+.vs-cards.mapfocus { grid-template-columns: minmax(0, 2.3fr) minmax(0, 1fr); grid-template-rows: repeat(var(--rows), minmax(0, 1fr));
+  grid-auto-rows: minmax(0, 1fr); align-content: stretch; top: 96px; bottom: 86px; gap: 14px; }
+.vs-cards.mapfocus > .mf-map { grid-column: 1; grid-row: 1 / span var(--rows); }
+.vs-cards.mapfocus > .vc:not(.mf-map) { grid-column: 2; }
+.vstage.parked .vs-grid > .vc { pointer-events: auto; }
+.vs-ghostlayer { z-index: 0; }
+.vs-grid.vs-cards { z-index: 1; }
+
+/* the card shell (.vcard, light): glass, depth, the arc-in, a sheen, one scan sweep, a glint */
+.vc { position: relative; display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; border-radius: 24px; padding: 18px 20px 16px;
+  transform-style: preserve-3d; will-change: transform;
+  background: linear-gradient(165deg, #ffffff 0%, rgba(252, 250, 254, .98) 55%, rgba(248, 245, 252, .97) 100%); border: 1px solid rgba(92, 45, 145, .11);
+  box-shadow: inset 0 1px 0 #fff, inset 0 0 0 1px rgba(255, 255, 255, .55), 0 2px 6px rgba(40, 26, 80, .05),
+    0 30px 72px -18px rgba(40, 26, 80, .26), 0 0 60px rgba(124, 63, 191, .07);
+  transform: perspective(1400px) rotateX(var(--rx, 0deg)) rotateY(var(--ry, 0deg)) scale(var(--hs, 1));
+  transition: transform .5s cubic-bezier(.2, .8, .2, 1), box-shadow .4s; }
+/* a hairline of light along the top edge (the glass catches it) */
+.vc::before { content: ""; position: absolute; left: 22px; right: 22px; top: 0; height: 1px; z-index: 2; pointer-events: none; opacity: .85;
+  background: linear-gradient(90deg, transparent, rgba(149, 88, 207, .55), rgba(213, 81, 129, .35), transparent); }
+.vs-cards > .vc:hover { --hs: 1.02; }
+/* the card's live dot: it breathes while the voice is reading this picture */
+.vs-cards > .vc .vc-h h3::before { content: ""; display: inline-block; width: 7px; height: 7px; margin-right: 9px; border-radius: 50%; vertical-align: 1px;
+  background: linear-gradient(140deg, #B27FE0, #7C3FBF); box-shadow: 0 0 0 3px rgba(124, 63, 191, .1); }
+.vstage.voicing .vs-cards > .vc .vc-h h3::before { animation: vcLive 1.3s ease-in-out infinite; }
+@keyframes vcLive { 50% { transform: scale(1.35); opacity: .65; } }
+/* `backwards`: the arc-in holds its first frame through the stagger and lets the pointer lean take over after.
+   2026-11-10: the frame lands in under a second (it was 1.7 s + 420 ms a card, so the first names were said while the
+   cards were still flying), and only transform / opacity animate: no blur filter over a canvas, 60 fps */
+.vs-cards > .vc { animation: vcardIn .9s var(--m-ease) calc(var(--i, 0) * 110ms) backwards; }
+.vs-cards > .vc.morphing { animation: vcardMorph .7s var(--m-ease) calc(var(--i, 0) * 90ms) backwards; }
+.vs-ghostlayer > .vc, .vs-ghostlayer > .vc.vc-ghost { animation: vcardGhost .55s cubic-bezier(.4, 0, 1, 1) forwards; pointer-events: none; }
+.vs-ghostlayer .vc-sheen, .vs-ghostlayer .vc-scan { display: none; }
+.vstage.stage-out .vs-grid > .vc { animation: vcardOut .7s cubic-bezier(.4, 0, 1, 1) forwards; }
+@keyframes vcardIn { 0% { opacity: 0; transform: perspective(1400px) translate3d(-4vw, 9vh, 0) rotateX(12deg) rotate(-2.5deg) scale(.88); }
+  45% { opacity: 1; } 100% { opacity: 1; transform: perspective(1400px) translate3d(0, 0, 0) rotateX(0deg) rotate(0deg) scale(1); } }
+@keyframes vcardMorph { 0% { opacity: 0; transform: perspective(1400px) rotateY(-24deg) scale(.94); }
+  55% { opacity: 1; } 100% { transform: perspective(1400px) rotateY(0deg) scale(1); } }
+@keyframes vcardGhost { to { opacity: 0; transform: perspective(1400px) rotateY(18deg) scale(1.04); } }
+@keyframes vcardOut { to { opacity: 0; transform: perspective(1400px) translate3d(-6vw, 12vh, 0) rotate(-3deg) scale(.86); } }
+/* header .vh: title (b 15 px) and the subtitle (10.5 px, uppercase) */
+.vc-h { position: relative; z-index: 2; display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 8px; min-height: 22px; }
+.vc-h h3 { margin: 0; flex: 1 1 auto; min-width: 0; font-size: 15px; font-weight: 700; letter-spacing: -.01em; color: var(--m-tx, #0b0d14);
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vc-unit { flex: none; font-size: 10.5px; letter-spacing: .1em; text-transform: uppercase; color: var(--m-mute2, #8c93a3); white-space: nowrap; }
+.vc-kinds { flex: none; align-self: center; display: flex; gap: 2px; padding: 2px; border-radius: 999px; background: rgba(12, 16, 28, .05); }
+.vc-kinds button { border: 0; background: transparent; border-radius: 999px; padding: 3px 9px; font: inherit; font-size: 11px; font-weight: 650;
+  color: var(--m-mute, #525a6c); cursor: pointer; }
+.vc-kinds button.on { background: #fff; color: var(--m-em2, #5C2D91); box-shadow: 0 2px 8px rgba(30, 45, 80, .12); }
+/* body .vb: the canvas */
+.vc-body { position: relative; z-index: 1; flex: 1 1 auto; min-height: 0; }
+.vc-body canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+.vs-cards > .vc .vc-body { flex: none; height: clamp(230px, 38vh, 360px); }
+.vs-cards[data-n="1"] > .vc[data-kind="map"] .vc-body { height: clamp(280px, calc(100vh - 68px - 96px - 206px - 62px - 86px), 600px); }
+.vs-cards.board > .vc, .vs-cards.mapfocus > .vc { padding: 12px 14px 10px; border-radius: 20px; }
+.vs-cards.board > .vc .vc-h h3, .vs-cards.mapfocus > .vc .vc-h h3 { font-size: 13px; }
+.vs-cards.board > .vc .vc-body, .vs-cards.mapfocus > .vc .vc-body { flex: 1 1 auto; height: auto; min-height: 0; }
+.vc-f { position: relative; z-index: 2; display: flex; gap: 4px 12px; margin-top: 6px; font-size: 11.5px; color: var(--m-mute, #525a6c); min-width: 0; }
+.vc-note { flex: 1 1 auto; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vc-more { flex: none; color: var(--m-mute2, #8c93a3); font-style: italic; }
+.vc-sheen { position: absolute; inset: 0; z-index: 3; pointer-events: none; border-radius: inherit; transform: translateX(-120%);
+  background: linear-gradient(100deg, transparent 35%, rgba(255, 255, 255, .1) 50%, transparent 65%);
+  animation: vsSheen 1.4s ease-out calc(var(--i, 0) * 110ms + .35s) forwards; }
+.vc-scan { position: absolute; left: 0; right: 0; top: 0; height: 1px; z-index: 3; pointer-events: none; opacity: 0;
+  background: linear-gradient(90deg, transparent, rgba(124, 63, 191, .55), rgba(178, 127, 224, .4), transparent);
+  animation: vsScan 2.4s cubic-bezier(.4, 0, .6, 1) calc(var(--i, 0) * 110ms + .3s) 1 both; }   /* one sweep as the card lands, never a loop */
+.vc-glint { position: absolute; inset: 0; z-index: 0; pointer-events: none; border-radius: inherit; opacity: 0; transition: opacity .4s;
+  background: radial-gradient(280px circle at var(--mx, 50%) var(--my, 50%), rgba(124, 63, 191, .12), transparent 60%); }
+.vc:hover .vc-glint { opacity: 1; }
+@keyframes vsSheen { to { transform: translateX(120%); } }
+@keyframes vsScan { 0% { top: 0; opacity: 0; } 8% { opacity: .7; } 92% { opacity: .7; } 100% { top: 100%; opacity: 0; } }
+/* the desk's own card (the map in the right column) never animates on its own */
+.vs-col .vc, .vs-col .vc-sheen, .vs-col .vc-scan { animation: none; }
+.vs-col .vc-sheen, .vs-col .vc-scan { display: none; }
+
+/* the insight chip (Mitra renders <span>✦</span>text: the pill holds the ✦, the sentence sits beside it) */
+.vs-insight { position: absolute; bottom: 142px; left: 28px; right: 200px; display: flex; align-items: center; justify-content: center; gap: 10px;
+  font-size: 13px; font-weight: 600; color: var(--m-tx); opacity: 0; transform: translateY(14px);
+  transition: opacity 1s cubic-bezier(.2, .8, .2, 1), transform 1s cubic-bezier(.2, .8, .2, 1); }
+.vs-insight.on { opacity: 1; transform: none; }
+.vs-insight > span { display: inline-flex; align-items: center; gap: 10px; padding: 10px 18px; border-radius: 999px; font-size: 15px; color: var(--m-em);
+  background: rgba(255, 255, 255, .92); border: 1px solid rgba(124, 63, 191, .45); box-shadow: 0 10px 30px rgba(124, 63, 191, .15); }
+.vs-insight.on > span { animation: insightIn .8s both, insightGlow 2.6s ease-in-out 1s 2 alternate; }
+@keyframes insightIn { from { opacity: 0; transform: translateY(16px) scale(.92); } to { opacity: 1; transform: none; } }
+@keyframes insightGlow { from { box-shadow: 0 0 30px rgba(124, 63, 191, .25); } to { box-shadow: 0 0 44px rgba(124, 63, 191, .5), 0 0 90px rgba(178, 127, 224, .15); } }
+.vstage.board-on .vs-insight, .vstage.mapfocus-on .vs-insight { display: none; }
+@media (max-height: 760px) {
+  .vs-cards:not(.board):not(.mapfocus) { bottom: 150px; }
+  .vs-cards[data-n="1"] > .vc[data-kind="map"] .vc-body { height: clamp(240px, calc(100vh - 68px - 96px - 150px - 62px - 86px), 600px); }
+  .vs-insight { display: none; }
+  .vstage.parked:not(.board-on):not(.mapfocus-on) .vs-composer { bottom: 132px; }
+}
+
+/* "Show as" (.stage-kinds): right 28, top 250, 150 wide */
+.vs-kinds { position: absolute; right: 28px; top: 250px; width: 150px; display: flex; flex-direction: column; gap: 6px;
+  opacity: 0; transform: translateX(16px); visibility: hidden; transition: opacity .6s .9s, transform .6s .9s, visibility 0s .9s; }
+.vs-kinds.on { opacity: 1; transform: none; visibility: visible; pointer-events: auto; transition: opacity .6s .9s, transform .6s .9s, visibility 0s; }
+.vs-kinds > span { font-size: 10px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; color: var(--m-mute2); margin: 0 0 2px 2px; }
+.vs-kinds button { padding: 8px 12px; border-radius: 12px; border: 1px solid rgba(12, 16, 28, .08); background: rgba(255, 255, 255, .9);
+  font-size: 12px; font-weight: 700; color: var(--m-mute); text-align: left; transition: all .2s; }
+.vs-kinds button:hover { transform: translateX(-3px); color: var(--m-tx); }
+.vs-kinds button.on { background: rgba(124, 63, 191, .12); border-color: rgba(124, 63, 191, .5); color: var(--m-em2); }
+
+/* the dock (.stage-dock): the desk's cards, earlier answers, ⌃ Dashboard */
+.vs-dock { position: absolute; left: 0; right: 0; bottom: 0; height: 64px; display: flex; align-items: center; gap: 10px; padding: 0 24px;
+  background: linear-gradient(0deg, rgba(247, 244, 251, .92), transparent); opacity: 0; transform: translateY(80px); visibility: hidden;
+  transition: transform .6s cubic-bezier(.2, .8, .2, 1) .35s, opacity .6s .35s, visibility 0s .95s; }
+.vstage.parked .vs-dock { opacity: 1; transform: none; visibility: visible; transition: transform .6s cubic-bezier(.2, .8, .2, 1) .35s, opacity .6s .35s, visibility 0s; }
+.vstage.parked .vs-dock > * { pointer-events: auto; }
+.vs-dock-chips { flex: 0 1 auto; min-width: 0; max-width: calc(50vw - 270px); display: flex; gap: 10px; overflow-x: auto; scrollbar-width: none; }
+.vs-dock-chips::-webkit-scrollbar { display: none; }
+.vstage.board-on .vs-dock-chips, .vstage.mapfocus-on .vs-dock-chips { max-width: calc(50vw - 270px); }
+/* 2026-11-12 fix round: the chips row was cut hard where the composer begins ("Show me Focus Leg"); it now stops
+   short of the composer and fades out at its clip edge */
+.vs-dock-chips { max-width: calc(50vw - 300px); -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent);
+  mask-image: linear-gradient(to right, #000 calc(100% - 48px), transparent); padding-right: 48px; box-sizing: border-box; }
+.vstage.board-on .vs-dock-chips, .vstage.mapfocus-on .vs-dock-chips { max-width: calc(50vw - 300px); }
+.vs-dchip { position: relative; overflow: hidden; flex: none; display: flex; flex-direction: column; align-items: flex-start; gap: 1px; padding: 7px 12px;
+  border-radius: 12px; border: 1px solid rgba(12, 16, 28, .08); background: rgba(255, 255, 255, .9); text-align: left;
+  animation: vsUp .5s both; transition: transform .2s, border-color .2s, background .2s; }
+.vs-dchip b { font-size: 10px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase; color: var(--m-mute); white-space: nowrap; }
+.vs-dchip span { font-size: 12px; font-weight: 600; color: var(--m-tx); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px; }
+.vs-dchip:hover { transform: translateY(-2px); border-color: rgba(12, 16, 28, .16); }
+.vs-dchip::after { content: ""; position: absolute; inset: 0; pointer-events: none; transform: translateX(-120%); transition: transform .6s;
+  background: linear-gradient(100deg, transparent 30%, rgba(255, 255, 255, .8) 50%, transparent 70%); }
+.vs-dchip:hover::after { transform: translateX(120%); }
+.vs-dchip.last { border-color: rgba(149, 88, 207, .45); }
+.vs-dchip.on { border-color: var(--m-em); background: rgba(124, 63, 191, .08); }
+.vs-dchip.on b { color: var(--m-em2); }
+.vs-dockclose { flex: none; margin-left: auto; display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; border-radius: 999px; border: 0;
+  background: #0b0d14; color: #fff; font-weight: 700; font-size: 12px; box-shadow: 0 10px 30px rgba(124, 63, 191, .25); transition: transform .2s; }
+.vs-dockclose i { font-style: normal; }
+.vs-dockclose:hover { transform: translateY(-1px); }
+@keyframes vsUp { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+
+/* the parked orb's pill (#parkPill): under the 132 px orb, the dot breathing with the voice */
+.vs-park { position: fixed; top: 220px; right: 94px; z-index: 47; display: inline-flex; align-items: center; gap: 7px; padding: 5px 12px 5px 9px;
+  border-radius: 999px; font: 600 11px/1 'Inter', sans-serif; letter-spacing: .04em; color: #0b0b0c; background: rgba(255, 255, 255, .92);
+  border: 1px solid rgba(124, 63, 191, .45); box-shadow: 0 6px 20px rgba(20, 30, 60, .12);
+  opacity: 0; visibility: hidden; transform: translateX(50%) translateY(-6px); transition: opacity .4s, transform .4s, visibility 0s .4s; }
+.vstage.parked .vs-park { opacity: 1; visibility: visible; transform: translateX(50%); transition: opacity .4s .9s, transform .4s .9s, visibility 0s; }
+.vs-park i { width: 8px; height: 8px; border-radius: 50%; background: #9558CF; transform: scale(calc(1 + var(--lvl) * .9));
+  box-shadow: 0 0 calc(4px + var(--lvl) * 26px) calc(var(--lvl) * 6px) rgba(149, 88, 207, .8); }
+.vs-park[data-s="listening"] i { background: #B27FE0; box-shadow: 0 0 calc(4px + var(--lvl) * 26px) calc(var(--lvl) * 6px) rgba(178, 127, 224, .8); }
+.vs-park[data-s="thinking"] i, .vs-park[data-s="connecting"] i { background: #ffd166; box-shadow: 0 0 8px rgba(255, 209, 102, .8); animation: vsBlink 1s infinite; }
+.vs-park[data-s="muted"] i { background: #ff5c6a; box-shadow: 0 0 8px rgba(255, 92, 106, .8); }
+/* speaking: the pill takes the voice's colour and its edge glows with the voice's level */
+.vs-park[data-s="speaking"] { color: var(--m-em2); border-color: rgba(124, 63, 191, .6);
+  box-shadow: 0 6px 20px rgba(20, 30, 60, .12), 0 0 calc(var(--lvl) * 26px) rgba(149, 88, 207, .4); }
+
+/* ---------------- the answer with no picture: an ANSWER card at the top of the right column (UI.answer) ---------------- */
+.vs-ansgrid { display: block; margin-bottom: 14px; }
+.vs-anscard { position: relative; border-radius: 22px; padding: 16px 18px; color: var(--m-tx);
+  background: linear-gradient(180deg, rgba(255, 255, 255, .96), rgba(255, 255, 255, .86)); border: 1px solid rgba(12, 16, 28, .07);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, .9) inset, 0 12px 32px rgba(30, 45, 80, .07); animation: vsUp .45s cubic-bezier(.2, .8, .2, 1) both; }
+.vs-anscard::before { content: ""; position: absolute; left: 18px; right: 18px; top: 0; height: 2px; border-radius: 2px; opacity: .7; pointer-events: none;
+  background: linear-gradient(90deg, transparent, rgba(124, 63, 191, .55), rgba(178, 127, 224, .45), transparent); }
+.vs-anscard > h3 { margin: 0 0 10px; display: flex; align-items: baseline; justify-content: space-between; gap: 10px; font-size: 11px; font-weight: 700;
+  letter-spacing: .12em; text-transform: uppercase; color: var(--m-mute); }
+.vs-anscard > h3 small { font-size: 11px; font-weight: 500; letter-spacing: 0; text-transform: none; color: var(--m-mute2);
+  min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vs-card .msg.bot { display: block; margin: 0; max-width: none; }
+.vs-card .msg.bot > .av { display: none; }
+.vs-card .msg.bot .bubble { background: transparent; border: 0; box-shadow: none; padding: 0; max-width: none; }
+.vs-card .answer-text { font-size: 14px; line-height: 1.55; color: var(--m-tx); }
+/* an answer the voice has read: its words are the captions under the orb; the formal text here steps back to a quiet
+   three-line note (the full text is in the chat), so the card leads with its figures and chart */
+.vs-anscard.spoken .answer-text { font-size: 12.5px; line-height: 1.5; color: var(--m-mute); max-height: 4.5em; overflow: hidden;
+  -webkit-mask-image: linear-gradient(180deg, #000 55%, transparent); mask-image: linear-gradient(180deg, #000 55%, transparent); }
+.vs-anscard.spoken .answer-text strong, .vs-anscard.spoken .answer-text b { color: var(--m-mute); }
+.vs-card .answer-text strong, .vs-card .answer-text b { color: var(--m-em2); }
+.vs-card .dyn-chart-card { box-shadow: 0 10px 30px rgba(30, 45, 80, .06); }
+.vs-card .dyn-chart-card .chw { height: clamp(220px, 32vh, 340px); }
+.vs-card .msg-foot { opacity: .75; }
+.vs-card .sql-disc { display: none; }
+
+@keyframes vsBlink { 50% { opacity: .35; } }
+@keyframes vsDrift { from { transform: translate3d(0, 0, 0) scale(1); } to { transform: translate3d(6vw, 4vw, 0) scale(1.12); } }
+
+/* ---------------- narrower screens (Mitra: two columns, the centre on top, the page scrolls) ---------------- */
+@media (max-width: 1200px) { .vs-cards[data-n="3"]:not(.board) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .vs-cards.board { grid-template-columns: repeat(2, minmax(0, 1fr)); grid-template-rows: none; grid-auto-rows: minmax(260px, 1fr);
+    overflow: auto; pointer-events: auto; } }
+@media (max-width: 1180px) {
+  .vs-main { grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); grid-auto-rows: min-content; overflow: auto; }
+  .vs-center { grid-column: 1 / -1; order: -1; }
+  .vs-col { overflow: visible; }
+  .vs-captions { flex: none; }
+}
+/* ---------------- a phone (max-width 600) ---------------- */
+@media (max-width: 600px) {
+  .vs-top { height: 56px; padding: 0 12px; gap: 8px; }
+  .vs-brand { min-width: 0; gap: 9px; }
+  .vs-halo { width: 32px; height: 32px; }
+  .vs-mark { font-size: 14px; }
+  .vs-brand-t b { font-size: 15px; }
+  .vs-brand-t span, .vs-clock, .vs-status, .vs-back kbd { display: none; }
+  .vs-back { padding: 6px 10px; }
+  .vs-main { top: 56px; bottom: 0; grid-template-columns: minmax(0, 1fr); gap: 14px; padding: 10px 10px 24px; }
+  .vs-orb { width: min(70vw, 36vh); }
+  .vs-dmeter, .vs-orb::after, .vs-wave { display: none; }
+  .vs-composer { flex-wrap: nowrap; }
+  .vs-hints button:nth-child(n+5) { display: none; }
+  .vs-feed { display: none; }
+  .vs-host { top: 56px; bottom: 0; }
+  .vs-title { top: 12px; left: 14px; right: 64px; max-width: none; }
+  /* the subtitle band under the title row: two lines of the voice's words, clear of the title's underline and the
+     orb badge, then the cards */
+  .vstage.parked .vs-captions { top: 102px; left: 14px; right: 14px; width: auto; max-width: none; transform: none; max-height: 44px; padding: 0 2px; }
+  .vstage.parked .vs-megh { width: auto; margin: 0; font-size: 14.5px; line-height: 22px; }
+  .vs-cards, .vs-cards.board, .vs-cards.mapfocus { top: 98px; bottom: 178px; left: 10px; right: 10px; display: flex; flex-direction: column; gap: 12px;
+    overflow-y: auto; overscroll-behavior: contain; padding-top: 2px; align-content: initial; justify-content: flex-start; }
+  .vstage.parked .vs-grid.vs-cards { pointer-events: auto; }
+  .vs-cards > .vc, .vs-cards.board > .vc, .vs-cards.mapfocus > .vc { flex: none; padding: 12px 12px 10px; border-radius: 20px; }
+  .vs-cards > .vc .vc-h { margin-bottom: 6px; }
+  .vs-cards > .vc .vc-h h3 { font-size: 13.5px; }
+  .vs-cards > .vc .vc-body, .vs-cards.board > .vc .vc-body, .vs-cards.mapfocus > .vc .vc-body { flex: none; height: clamp(220px, 38vh, 320px); }
+  .vs-cards > .vc[data-kind="donut"] .vc-body { height: clamp(300px, 46vh, 380px); }
+  .vs-cards > .vc[data-kind="map"] .vc-body, .vs-cards[data-n="1"] > .vc[data-kind="map"] .vc-body { height: max(320px, calc(100dvh - 56px - 96px - 176px - 58px)); }
+  .vs-kinds { top: auto; bottom: 132px; left: 10px; right: 10px; width: auto; flex-direction: row; flex-wrap: wrap; justify-content: center; }
+  .vs-kinds > span { display: none; }
+  .vs-kinds button { padding: 7px 12px; }
+  .vs-insight { display: none; }
+  .vs-dock { height: 60px; padding: 0 10px; }
+  .vs-dock-chips { display: none; }
+  .vstage.parked .vs-composer, .vstage.board-on .vs-composer, .vstage.mapfocus-on .vs-composer { left: auto; right: 12px; bottom: 66px; transform: none;
+    width: auto; max-width: none; padding: 0; background: none; border: 0; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
+  .vstage.parked .vs-compose, .vstage.parked .vs-stop { display: none; }
+  .vs-park { display: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .vs-bg .au, .vs-beam, .vc-sheen, .vc-scan, .vs-insight > span, .vs-feed .pulse, .vstage.live .vs-orb::before { animation: none !important; }
+  .vs-cards > .vc, .vs-anscard, .vs-col { animation-duration: .2s !important; animation-delay: 0s !important; }
+  .vs-orb, .vs-captions, .vs-col, .vs-composer { transition-duration: .2s; }
+  .vs-megh .w { animation-duration: .01s; transform: none; }
+  .vs-captions { scroll-behavior: auto; }
+  .vstage.voicing .vs-cards > .vc .vc-h h3::before { animation: none; }
+}
+
+/* ---------------- 2026-11-11: chart switches by voice, the explaining breakdown, the table ----------------
+   Only transform / opacity animate (no blur filters over canvases): 60 fps. */
+/* the chip under the title after a switch: what is drawn now (and, amber, why not what was asked) */
+.vs-viewchip { position: absolute; top: 48px; left: 28px; z-index: 6; display: inline-flex; align-items: center; gap: 9px; max-width: min(560px, calc(100% - 420px));
+  padding: 7px 14px 7px 10px; border-radius: 999px; background: rgba(255, 255, 255, .94); border: 1px solid rgba(124, 63, 191, .32);
+  box-shadow: 0 10px 28px rgba(74, 35, 128, .14), inset 0 1px 0 #fff; font-size: 12.5px; color: var(--m-tx, #1A1626); pointer-events: none;
+  animation: vsChip 4.2s cubic-bezier(.2, .8, .2, 1) both; }
+.vs-viewchip > i { flex: none; position: relative; width: 16px; height: 16px; border-radius: 50%; background: linear-gradient(140deg, #B27FE0, #7C3FBF);
+  box-shadow: 0 0 0 3px rgba(124, 63, 191, .14); }
+.vs-viewchip > i::after { content: ""; position: absolute; inset: -5px; border-radius: 50%; border: 1.5px solid rgba(124, 63, 191, .5);
+  animation: vsChipRing 1.1s cubic-bezier(.2, .8, .2, 1) .15s both; }
+.vs-viewchip b { font-weight: 800; letter-spacing: -.005em; white-space: nowrap; }
+.vs-viewchip span { min-width: 0; color: var(--m-mute, #534B68); font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.vs-viewchip span::before { content: "·"; margin-right: 8px; color: rgba(83, 75, 104, .5); }
+.vs-viewchip.fell { border-color: rgba(201, 138, 0, .45); }
+.vs-viewchip.fell > i { background: linear-gradient(140deg, #f5c75b, #c98a00); box-shadow: 0 0 0 3px rgba(201, 138, 0, .16); }
+.vs-viewchip.fell > i::after { border-color: rgba(201, 138, 0, .55); }
+@keyframes vsChip { 0% { opacity: 0; transform: translateY(-8px) scale(.96); } 9% { opacity: 1; transform: none; }
+  86% { opacity: 1; transform: none; } 100% { opacity: 0; transform: translateY(-4px); } }
+@keyframes vsChipRing { from { opacity: .9; transform: scale(.6); } to { opacity: 0; transform: scale(1.5); } }
+
+/* the breakdown that explains a single figure: it slides out from the figure, a quiet tag says what it is */
+.vs-cards.explained[data-n="2"] { grid-template-columns: minmax(0, .9fr) minmax(0, 1.1fr); }
+.vs-cards > .vc.vc-explain { border-color: rgba(124, 63, 191, .24); animation: vcardExplain .85s cubic-bezier(.2, .8, .2, 1) backwards; }
+.vs-cards > .vc.vc-explain::after { content: ""; position: absolute; left: 0; top: 18%; bottom: 18%; width: 2px; border-radius: 2px; pointer-events: none;
+  background: linear-gradient(180deg, transparent, rgba(124, 63, 191, .55), rgba(213, 81, 129, .35), transparent);
+  animation: vsExplainEdge 1.2s cubic-bezier(.2, .8, .2, 1) .25s both; }
+@keyframes vcardExplain { 0% { opacity: 0; transform: perspective(1400px) translate3d(-56px, 0, 0) rotateY(-16deg) scale(.95); }
+  55% { opacity: 1; } 100% { opacity: 1; transform: perspective(1400px) translate3d(0, 0, 0) rotateY(0deg) scale(1); } }
+@keyframes vsExplainEdge { from { opacity: 0; transform: scaleY(.2); } to { opacity: 1; transform: none; } }
+.vc-tag { display: inline-block; margin-left: 10px; padding: 2px 8px; border-radius: 999px; vertical-align: 2px; font-style: normal;
+  font-size: 9.5px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--m-em2, #5C2D91);
+  background: rgba(124, 63, 191, .09); border: 1px solid rgba(124, 63, 191, .18); }
+
+/* the answer as a table: room for its rows */
+.vs-cards > .vc[data-kind="table"] .vc-body { height: clamp(260px, 44vh, 470px); }
+.vs-cards[data-n="1"] > .vc[data-kind="table"] { width: 100%; }
+
+@media (max-height: 760px) { .vs-cards > .vc[data-kind="table"] .vc-body { height: clamp(220px, 40vh, 360px); } }
+@media (max-width: 1180px) { .vs-viewchip { max-width: calc(100% - 220px); } }
+@media (max-width: 600px) {
+  /* the caption band sits right under the title on a phone: the chip would cover it (the voice says the same, the
+     "Show as" row lights the view) */
+  .vs-viewchip { display: none; }
+  .vs-cards.explained[data-n="2"] { grid-template-columns: none; }
+  /* the figure stays compact so the breakdown that explains it is in view under it */
+  .vs-cards.explained > .vc[data-kind="kpi"] .vc-body, .vs-cards.explained > .vc[data-kind="tiles"] .vc-body { height: clamp(150px, 22vh, 190px); }
+  .vs-cards > .vc.vc-explain { animation-name: vcardExplainUp; }
+  .vs-cards > .vc[data-kind="table"] .vc-body { height: clamp(260px, 50vh, 420px); }
+  .vc-tag { margin-left: 8px; font-size: 8.5px; padding: 1px 6px; }
+}
+@keyframes vcardExplainUp { 0% { opacity: 0; transform: perspective(1400px) translate3d(0, 34px, 0) rotateX(10deg) scale(.96); }
+  55% { opacity: 1; } 100% { opacity: 1; transform: perspective(1400px) translate3d(0, 0, 0) rotateX(0deg) scale(1); } }
+@media (prefers-reduced-motion: reduce) {
+  .vs-viewchip, .vs-viewchip > i::after, .vs-cards > .vc.vc-explain, .vs-cards > .vc.vc-explain::after { animation-duration: .2s !important; }
+}
+
+/* ---------------- the voice toggle (2026-11-12) ---------------- */
+.vs-voice { position: relative; }
+.vs-voice-btn { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px 6px 10px; border-radius: 999px;
+  border: 1px solid rgba(124, 63, 191, .18); background: rgba(255, 255, 255, .82); color: var(--m-tx); font-size: 12px;
+  font-weight: 600; cursor: pointer; transition: box-shadow .2s, border-color .2s, background .2s; }
+.vs-voice-btn:hover, .vs-voice.open .vs-voice-btn { background: #fff; border-color: rgba(124, 63, 191, .38);
+  box-shadow: 0 6px 18px rgba(124, 63, 191, .14); }
+.vs-voice-btn b { font-weight: 700; }
+.vs-voice-tone { color: var(--m-mute); font-weight: 500; }
+.vs-voice-caret { color: var(--m-mute2); font-size: 10px; transition: transform .2s; }
+.vs-voice.open .vs-voice-caret { transform: rotate(180deg); }
+.vs-voice-wave { display: inline-flex; align-items: flex-end; gap: 2px; height: 12px; }
+.vs-voice-wave i { width: 2px; border-radius: 2px; background: var(--m-em1); opacity: .85; height: 5px; }
+.vs-voice-wave i:nth-child(2) { height: 10px; } .vs-voice-wave i:nth-child(3) { height: 7px; } .vs-voice-wave i:nth-child(4) { height: 12px; }
+.vstage.voicing .vs-voice-wave i { animation: vsVoiceBar .9s ease-in-out infinite; transform-origin: 50% 100%; }
+.vstage.voicing .vs-voice-wave i:nth-child(2) { animation-delay: .15s; } .vstage.voicing .vs-voice-wave i:nth-child(3) { animation-delay: .3s; }
+.vstage.voicing .vs-voice-wave i:nth-child(4) { animation-delay: .45s; }
+@keyframes vsVoiceBar { 0%, 100% { transform: scaleY(.45); } 50% { transform: scaleY(1); } }
+.vs-voice-menu { position: absolute; right: 0; top: calc(100% + 8px); z-index: 80; min-width: 240px; padding: 8px;
+  border-radius: 16px; background: rgba(255, 255, 255, .96); border: 1px solid rgba(12, 16, 28, .08);
+  box-shadow: 0 18px 48px rgba(30, 45, 80, .18), 0 2px 6px rgba(30, 45, 80, .06);
+  backdrop-filter: blur(14px); -webkit-backdrop-filter: blur(14px); animation: vsVoiceIn .18s cubic-bezier(.16, 1, .3, 1); }
+@keyframes vsVoiceIn { from { opacity: 0; transform: translateY(-4px) scale(.98); } to { opacity: 1; transform: none; } }
+.vs-voice-h { font-size: 10px; font-weight: 800; letter-spacing: .12em; text-transform: uppercase; color: var(--m-mute2); padding: 4px 10px 6px; }
+.vs-voice-item { display: flex; align-items: center; gap: 10px; width: 100%; padding: 9px 10px; border: 0; border-radius: 10px;
+  background: transparent; color: var(--m-tx); font-size: 13px; text-align: left; cursor: pointer; transition: background .15s; }
+.vs-voice-item b { font-weight: 650; }
+.vs-voice-item span:last-child { margin-left: auto; color: var(--m-mute); font-size: 12px; }
+.vs-voice-item:hover:not(:disabled) { background: rgba(124, 63, 191, .07); }
+.vs-voice-item.on { background: rgba(124, 63, 191, .1); }
+.vs-voice-item:disabled { opacity: .45; cursor: default; }
+.vs-voice-dot { width: 10px; height: 10px; border-radius: 50%; border: 2px solid rgba(124, 63, 191, .35); flex: 0 0 auto; }
+.vs-voice-item.on .vs-voice-dot { border-color: var(--m-em1); background: var(--m-em1); box-shadow: 0 0 0 3px rgba(124, 63, 191, .15); }
+.vs-voice-note { font-size: 11px; color: var(--m-mute); padding: 8px 10px 4px; border-top: 1px solid var(--m-line); margin-top: 6px; }
+@media (max-width: 760px) { .vs-voice-tone, .vs-voice-btn b { display: none; } .vs-voice-btn { padding: 6px 10px; } }
+@media (prefers-reduced-motion: reduce) { .vstage.voicing .vs-voice-wave i, .vs-voice-menu { animation: none; } }
+
+/* ── 2026-11-12 (the user's screenshot): the voice menu opened UNDER the stage's cards (the header was z 3, the stage
+   host z 40); the footer's conversation feed and the dock chips were clutter. ─────────────────────────────────────── */
+.vs-top:has(.vs-voice.open) { z-index: 120; }
+.vs-voice-menu { z-index: 130; min-width: 268px; padding: 10px; border-radius: 18px;
+  background: linear-gradient(160deg, rgba(255, 255, 255, .92), rgba(246, 240, 255, .86));
+  -webkit-backdrop-filter: blur(22px) saturate(1.4); backdrop-filter: blur(22px) saturate(1.4);
+  border: 1px solid rgba(124, 63, 191, .22);
+  box-shadow: 0 24px 60px -18px rgba(60, 20, 110, .45), 0 0 0 1px rgba(255, 255, 255, .6) inset;
+  transform-origin: top right; animation: vsMenuIn .22s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes vsMenuIn { from { opacity: 0; transform: translateY(-6px) scale(.97); } to { opacity: 1; transform: none; } }
+.vs-voice-menu [role="menuitemradio"], .vs-voice-menu button { border-radius: 12px; transition: background .18s, transform .18s; }
+.vs-voice-menu [role="menuitemradio"]:hover, .vs-voice-menu button:hover { transform: translateX(2px); }
+/* while the menu is open the stage dims a little, so the choice is the one clear thing on screen */
+.vstage:has(.vs-voice.open) .vs-host { filter: saturate(.85) blur(1.5px); opacity: .72; transition: filter .25s, opacity .25s; }
+.vs-host { transition: filter .25s, opacity .25s; }
+
+/* the dock keeps only the Dashboard button */
+.vs-dock-chips { display: none; }
+
+/* the footer: the six schemes in their own colours, one tap = that scheme's dashboard */
+.vs-feed { gap: 14px; background: linear-gradient(180deg, rgba(255, 255, 255, .55), rgba(250, 246, 255, .9));
+  -webkit-backdrop-filter: blur(14px); backdrop-filter: blur(14px); border-top: 1px solid rgba(124, 63, 191, .12); }
+.vs-feed-h { flex: none; }
+.vs-schemes { flex: 1 1 auto; min-width: 0; display: flex; align-items: center; gap: 10px; overflow-x: auto; scrollbar-width: none;
+  padding: 6px 2px; }
+.vs-schemes::-webkit-scrollbar { display: none; }
+.vs-scheme { --h: #7c3fbf; --hd: #4b1f86; flex: 0 0 auto; position: relative; display: inline-flex; align-items: center; gap: 9px;
+  padding: 9px 16px 9px 12px; border-radius: 999px; cursor: pointer; font: inherit; font-size: 13.5px; color: #1d1530;
+  background: linear-gradient(180deg, #fff, color-mix(in srgb, var(--h) 7%, #fff));
+  border: 1px solid color-mix(in srgb, var(--h) 30%, transparent);
+  box-shadow: 0 6px 18px -10px color-mix(in srgb, var(--h) 70%, transparent);
+  transition: transform .2s cubic-bezier(.2, .8, .2, 1), box-shadow .2s, border-color .2s, background .2s; }
+.vs-scheme b { font-weight: 650; letter-spacing: .1px; white-space: nowrap; }
+.vs-scheme i { width: 10px; height: 10px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #fff 0 18%, var(--h) 45%, var(--hd));
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--h) 18%, transparent), 0 0 12px var(--h); }
+.vs-scheme:hover:not(:disabled) { transform: translateY(-2px); border-color: var(--h);
+  box-shadow: 0 12px 26px -12px var(--h), 0 0 0 3px color-mix(in srgb, var(--h) 14%, transparent); }
+.vs-scheme:active:not(:disabled) { transform: translateY(0) scale(.98); }
+.vs-scheme:focus-visible { outline: 2px solid var(--h); outline-offset: 2px; }
+.vs-scheme.on { color: #fff; border-color: transparent; background: linear-gradient(135deg, var(--h), var(--hd));
+  box-shadow: 0 12px 28px -10px var(--hd), 0 0 0 3px color-mix(in srgb, var(--h) 22%, transparent); }
+.vs-scheme.on i { background: #fff; box-shadow: 0 0 10px #fff; animation: vsSchemePulse 1.8s ease-in-out infinite; }
+.vs-scheme:disabled { opacity: .45; cursor: default; }
+@keyframes vsSchemePulse { 50% { box-shadow: 0 0 0 6px rgba(255, 255, 255, .25), 0 0 16px #fff; } }
+@media (max-width: 1280px) { .vs-feed-h { display: none; } .vs-scheme { padding: 8px 13px 8px 10px; font-size: 12.5px; } }
+@media (prefers-reduced-motion: reduce) { .vs-voice-menu, .vs-scheme.on i { animation: none; } .vs-scheme { transition: none; } }

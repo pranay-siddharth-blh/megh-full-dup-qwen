@@ -135,6 +135,12 @@ function foldSlices(labels, values) {
 }
 
 function singleConfig(type, labels, values, theme, expanded = false) {
+  // horizontal bars (2026-11-12): the bars on their side, the largest first, every label shown
+  if (type === 'hbar') {
+    const order = values.map((v, i) => [Number(v) || 0, i]).sort((a, b) => b[0] - a[0]).map(([, i]) => i);
+    const cfg = singleConfig('bar', order.map((i) => labels[i]), order.map((i) => values[i]), theme, true);
+    return { ...cfg, options: horizontal(cfg.options) };
+  }
   if (type === 'bar') {
     const flat = expanded && labels.length > HORIZONTAL_FROM;
     const hi = argMax(values);
@@ -206,7 +212,7 @@ function singleConfig(type, labels, values, theme, expanded = false) {
     data: {
       labels,
       datasets: [{
-        data: values, borderColor: theme.main, borderWidth: 2.5, tension: 0.35, fill: 'origin',
+        data: values, borderColor: theme.main, borderWidth: 2.5, tension: 0.35, cubicInterpolationMode: 'monotone', fill: 'origin',
         backgroundColor: (ctx) => {
           const area = ctx.chart.chartArea;
           if (!area) return alpha(theme.main, 0.12);
@@ -261,7 +267,7 @@ function multiLineConfig(labels, datasets, theme) {
       labels,
       datasets: datasets.map((d, i) => ({
         label: d.label, data: d.data, borderColor: colors[i], backgroundColor: colors[i],
-        borderWidth: 2.5, tension: 0.3, fill: false,
+        borderWidth: 2.5, tension: 0.3, cubicInterpolationMode: 'monotone', fill: false,
         pointRadius: 3, pointHoverRadius: 6, pointBackgroundColor: colors[i], pointBorderColor: INK.surface, pointBorderWidth: 1.5,
       })),
     },
@@ -568,7 +574,7 @@ function ExpandedChart({ build, deps, rows, zoom = false }) {
   return <div className="xv-chart" style={style}><ChartCanvas build={build} deps={deps} zoom={zoom} /></div>;
 }
 
-const TYPE_LABELS = { bar: 'Bar', stacked: 'Stacked', pie: 'Pie', doughnut: 'Donut', line: 'Line' };
+const TYPE_LABELS = { bar: 'Bar', hbar: 'Horizontal', stacked: 'Stacked', pie: 'Pie', doughnut: 'Donut', line: 'Line' };
 
 // No switcher when only one type is offered: a chart TYPE the officer named
 // ("pie chart", "bar graph") is shown alone (user, 2026-10-19).

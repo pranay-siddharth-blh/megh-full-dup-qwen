@@ -1,0 +1,158 @@
+{
+ "label": "scratch-recheck",
+ "when": "2026-11-11T13:00:56",
+ "git": {
+  "commit": "e6cf31e",
+  "dirty": true
+ },
+ "models": {
+  "classifier": "qwen4-deploy",
+  "rewrite": "qwen35-9b",
+  "sql": "qwen-model",
+  "verifier": "qwen-model",
+  "verifier_enabled": true,
+  "composer": "qwen35-9b",
+  "sql_examples": "yaml"
+ },
+ "readonly_login": "megh_readonly",
+ "superuser_allowed": false,
+ "holdout_checked": true,
+ "selection": {
+  "scheme": null,
+  "ids": "PM-04,FP-05"
+ },
+ "minutes": 0.2,
+ "summary": {
+  "items": 2,
+  "scored": 2,
+  "outcomes": {
+   "correct": 1,
+   "wrong": 1
+  },
+  "expected_pauses": 0,
+  "accuracy": 50.0,
+  "by": {
+   "Focus Plus": {
+    "accuracy": 0.0,
+    "wrong": 1
+   },
+   "PMAY-G": {
+    "accuracy": 100.0,
+    "correct": 1
+   },
+   "difficulty:easy": {
+    "accuracy": 100.0,
+    "correct": 1
+   },
+   "difficulty:medium": {
+    "accuracy": 0.0,
+    "wrong": 1
+   }
+  }
+ },
+ "records": [
+  {
+   "id": "PM-04",
+   "scheme": "PMAY-G",
+   "difficulty": "easy",
+   "question": "Counting every financial year, how many PMAY-G houses in East Jaintia Hills have reached the Roof Cast stage?",
+   "gold_rows": 1,
+   "outcome": "correct",
+   "route": "data",
+   "schemes": [
+    "PMAY-G"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "EAST JAINTIA HILLS",
+    "house_status": "Roof Cast"
+   },
+   "sql": "SELECT COUNT(*) AS houses FROM curated.v_pmay WHERE lgd_district = 'EAST JAINTIA HILLS' AND status_name = 'Roof Cast'",
+   "seconds": 12.3,
+   "repairs": 1,
+   "verifier_rejections": 1,
+   "few_shot_ids": [
+    "PMAY-G#37",
+    "PMAY-G#40",
+    "PMAY-G#41",
+    "PMAY-G#39",
+    "PMAY-G#1"
+   ],
+   "answer": "The Roof Cast stage shows 3,541 PMAY-G houses in East Jaintia Hills across all financial years.",
+   "detail": "same rows",
+   "mapping": {
+    "roof_cast_houses": [
+     "houses",
+     1.0
+    ]
+   },
+   "pred_rows": 1
+  },
+  {
+   "id": "FP-05",
+   "scheme": "Focus Plus",
+   "difficulty": "medium",
+   "question": "Give me the Focus Plus amount disbursed in each block of North Garo Hills district.",
+   "gold_rows": 4,
+   "outcome": "wrong",
+   "route": "data",
+   "schemes": [
+    "Focus Plus"
+   ],
+   "rewritten": null,
+   "resolved": {
+    "district": "NORTH GARO HILLS"
+   },
+   "sql": "SELECT lgd_block, SUM(amount_disbursed) AS amount_raw FROM curated.v_focus_plus WHERE lgd_district = 'NORTH GARO HILLS' GROUP BY lgd_block ORDER BY amount_raw DESC NULLS LAST LIMIT 100",
+   "seconds": 9.2,
+   "repairs": 0,
+   "verifier_rejections": 0,
+   "few_shot_ids": [
+    "Focus Plus#72",
+    "Focus Plus#27",
+    "Focus Plus#75",
+    "Focus Plus#48",
+    "Focus Plus#88"
+   ],
+   "answer": "The lines below list the top six blocks in North Garo Hills district by Focus Plus disbursement across all financial years:\n1. **KHARKUTTA** \u2014 \u20b94,24,97,500 (\u2248 \u20b94.25 crore)\n2. **RESUBELPARA** \u2014 \u20b92,52,05,000 (\u2248 \u20b92.52 crore)\n3. **BAJENGDOBA** \u2014 \u20b92,37,27,500 (\u2248 \u20b92.37 crore)\n4. **(row)** \u2014 \u20b91,33,52,500 (\u2248 \u20b91.34 crore)\n5. **ADOKGRE** \u2014 \u20b985,95,000 (\u2248 \u20b985.95 lakh)\n6. **RESUBELPARA-MUNICIPAL BOARD** \u2014 \u20b950,",
+   "detail": "row count: gold 4, got 6",
+   "mapping": {},
+   "pred_rows": 6,
+   "gold_sample": [
+    {
+     "block": "Kharkutta",
+     "amount_disbursed": "55630000.00"
+    },
+    {
+     "block": "Resubelpara",
+     "amount_disbursed": "35617500.00"
+    },
+    {
+     "block": "Bajengdoba",
+     "amount_disbursed": "26455000.00"
+    }
+   ],
+   "pred_sample": [
+    {
+     "lgd_block": "KHARKUTTA",
+     "amount_raw_rs": "42497500.00"
+    },
+    {
+     "lgd_block": "RESUBELPARA",
+     "amount_raw_rs": "25205000.00"
+    },
+    {
+     "lgd_block": "BAJENGDOBA",
+     "amount_raw_rs": "23727500.00"
+    }
+   ]
+  }
+ ],
+ "compared_with": "2026-11-11_1259_accuracy-b-step1.json",
+ "delta": {
+  "regressions": [],
+  "fixed": [
+   "PM-04"
+  ]
+ }
+}

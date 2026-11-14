@@ -213,3 +213,6 @@ placeholders, and whether it is scheduled is UNKNOWN.
 - CM Elevate applications = distinct `request_id` (8,840; 8,867 records). `current_file_status` holds only forward /
 - CM Elevate `file_status` (plain column on `curated.v_cm_elevate` since 2026-11-04, ingestion team; readable by `megh_readonly`): the department's status — Pending 8,813 / Send Back 90 / Rejected 62, exact spelling; it is the column for every "status" and for the pending rule (D-101). `scheme_specific` (JSON) stays locked.
   resubmit / sendback to vdv/citizen; `data_verified` holds Valid / On Hold / Invalid / Wrong.
+  Since 2026-11-11 a plain `file_status` column (Pending / Send Back / Rejected; readable by `megh_readonly`,
+  VERIFIED) carries the department's decision that was only inside the locked `scheme_specific` JSON (KI-707).
+  Live 2026-11-11: 8,938 distinct request_ids, 7,375 of them valid.

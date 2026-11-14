@@ -220,6 +220,25 @@ _REPHRASE_COMPARE_WORD = Matcher(Alt(
     Seq("which", Opt("is"), W("higher", "lower", "more", "less", "greater", "bigger"), sep="space")))
 _REPHRASE_SPEND_WORD = Matcher(Alt(W("expenditure", "expenditures", "expense", "expenses", "spent", "cost",
                                      "costs"), W("spend", prefix=True)))
+# KI-723 (2026-11-12): a status / stage word the user never said narrows the answer to that stage: "PMAY-G houses
+# by block in East Khasi Hills" came back "How many PMAY-G houses were built by block ...", "built" is a completed-house
+# word, and every block was answered with its completed count. A rephrase that ADDS one is rejected (the original
+# question goes on); keeping or dropping one the user said is judged by the measure checks above.
+_REPHRASE_STATUS_WORDS = {   # word -> its stage (inflections and synonyms are one stage: "sanction" = "sanctioned")
+    **dict.fromkeys(("built", "build", "constructed", "construct", "completed", "complete", "completion",
+                     "finished"), "complete"),
+    **dict.fromkeys(("sanctioned", "sanction", "sanctions"), "sanction"),
+    **dict.fromkeys(("released", "release", "releases"), "release"),
+    **dict.fromkeys(("approved", "approve", "approval"), "approve"),
+    **dict.fromkeys(("rejected", "reject", "rejection"), "reject"),
+    **dict.fromkeys(("disbursed", "disburse", "disbursement", "disbursements"), "disburse"),
+    **dict.fromkeys(("forwarded", "forward"), "forward"),
+    **dict.fromkeys(("returned", "return", "sent"), "return"),
+    "pending": "pending", "incomplete": "incomplete", "ongoing": "ongoing", "stalled": "stalled"}
+
+
+def _stages(text: str) -> "set[str]":
+    return {_REPHRASE_STATUS_WORDS[w.lower()] for _, _, w in _word_spans(text) if w.lower() in _REPHRASE_STATUS_WORDS}
 
 
 def _word_spans(text: str) -> "list[tuple[int, int, str]]":
@@ -338,6 +357,8 @@ def _rephrase_violation(original: str, rephrased: str) -> "str | None":
     # sheet DATA-029, run 2026-10-09).
     if _REPHRASE_SPEND_WORD.search(gloss) and not _REPHRASE_SPEND_WORD.search(out):
         return "measure"
+    if _stages(out) - _stages(gloss):
+        return "measure"                           # KI-723: a stage the user never named
     # "applicants" (distinct people) is not "applications" (rows): "How many
     # applicants … under each CM ELEVATE program?" came back "…applications…" and
     # was counted with COUNT(*) (Piggery 3,032 for 3,010; CM Elevate sheet run
