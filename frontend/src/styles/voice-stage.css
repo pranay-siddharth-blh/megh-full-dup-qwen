@@ -699,3 +699,101 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
 @keyframes vsSchemePulse { 50% { box-shadow: 0 0 0 6px rgba(255, 255, 255, .25), 0 0 16px #fff; } }
 @media (max-width: 1280px) { .vs-feed-h { display: none; } .vs-scheme { padding: 8px 13px 8px 10px; font-size: 12.5px; } }
 @media (prefers-reduced-motion: reduce) { .vs-voice-menu, .vs-scheme.on i { animation: none; } .vs-scheme { transition: none; } }
+
+/* ---------------- 2026-11-14: eight schemes, nothing cut, one continuous surface ----------------
+   Only transform / opacity animate; every new motion has a reduced-motion rule below. */
+/* the centre column: the orb takes what the rest leaves (it used to push the starters under the footer at 920 px);
+   the captions take exactly the space left (basis 0), so a longer caption never moves the composer */
+.vs-orb { width: min(42vh, 470px, max(150px, calc(100vh - 470px))); }
+.vs-captions { flex: 1 1 0; }
+/* the starters: whole chips only, exactly two rows (a third row was cut in half under a fade) */
+.vs-hints { max-height: calc(31px * 2 + 8px + 4px); padding: 2px 0; -webkit-mask-image: none; mask-image: none; }
+.vs-hints button { box-sizing: border-box; height: 31px; padding: 0 13px; line-height: 29px; white-space: nowrap; }
+@media (max-height: 760px) {
+  .vs-orb { width: min(38vh, 400px, max(150px, calc(100vh - 431px))); }
+  .vs-hints { max-height: calc(31px + 4px); }
+}
+@media (max-height: 640px) {
+  .vs-orb { width: min(38vh, 400px, max(140px, calc(100vh - 392px))); }
+  .vs-trace { display: none; }
+}
+@media (max-width: 1180px) { .vs-captions { flex: none; } .vs-orb { width: min(42vh, 470px); } }
+@media (max-width: 600px) { .vs-orb { width: min(70vw, 36vh); } }
+
+/* the desk's columns scroll inside themselves when they must; a soft fade at the edge that holds more */
+@media (min-width: 1181px) {
+  .vs-col[data-fade="end"] { -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 72px), transparent calc(100% - 4px));
+    mask-image: linear-gradient(180deg, #000 calc(100% - 72px), transparent calc(100% - 4px)); }
+  .vs-col[data-fade="start"] { -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 36px); mask-image: linear-gradient(180deg, transparent 0, #000 36px); }
+  .vs-col[data-fade="start end"] { -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 36px, #000 calc(100% - 72px), transparent calc(100% - 4px));
+    mask-image: linear-gradient(180deg, transparent 0, #000 36px, #000 calc(100% - 72px), transparent calc(100% - 4px)); }
+}
+.vs-schemes[data-fade="end"] { -webkit-mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent); mask-image: linear-gradient(90deg, #000 calc(100% - 56px), transparent); }
+.vs-schemes[data-fade="start"] { -webkit-mask-image: linear-gradient(90deg, transparent, #000 40px); mask-image: linear-gradient(90deg, transparent, #000 40px); }
+.vs-schemes[data-fade="start end"] { -webkit-mask-image: linear-gradient(90deg, transparent, #000 40px, #000 calc(100% - 56px), transparent);
+  mask-image: linear-gradient(90deg, transparent, #000 40px, #000 calc(100% - 56px), transparent); }
+
+/* the scheme on the stage is the one lit chip: the others step back (hover brings one forward) */
+.vs-scheme { transition: transform .2s cubic-bezier(.2, .8, .2, 1), box-shadow .2s, border-color .2s, background .2s, opacity .35s ease; }
+.vs-schemes.has-on .vs-scheme:not(.on):not(:hover):not(:focus-visible) { opacity: .55; }
+.vs-scheme.on { transform: translateY(-1px); }
+
+/* on the stage the subtitle band keeps one width, so its first line never re-centres word by word */
+.vstage.parked .vs-captions { width: min(680px, 52vw); }
+.vstage.parked .vs-megh { width: auto; margin: 0; }
+@media (max-width: 600px) { .vstage.parked .vs-captions { width: auto; } }
+
+/* a picture that replaces another settles in place while the old one fades (no arc from below, no empty stage) */
+.vs-cards.swap > .vc:not(.morphing):not(.vc-explain) { animation: vcardSwap .75s var(--m-ease) calc(var(--i, 0) * 80ms) backwards; }
+.vs-grid.swap ~ .vs-ghostlayer > .vc { animation: vcardGhostSoft .6s cubic-bezier(.4, 0, .6, 1) forwards; }
+@keyframes vcardSwap { 0% { opacity: 0; transform: perspective(1400px) translate3d(0, 16px, 0) scale(.975); } 55% { opacity: 1; }
+  100% { opacity: 1; transform: perspective(1400px) translate3d(0, 0, 0) scale(1); } }
+@keyframes vcardGhostSoft { to { opacity: 0; transform: perspective(1400px) translate3d(0, -8px, 0) scale(.985); } }
+
+/* a card of figures alone on the stage (one figure per scheme) gets the width for eight tiles in four columns */
+.vs-cards[data-n="1"]:has(> .vc.wide[data-kind="tiles"]) { grid-template-columns: min(1180px, 100%); }
+
+/* crisp keyboard focus on every control of the view */
+.vs-hints button:focus-visible, .vs-kinds button:focus-visible, .vs-dockclose:focus-visible, .vs-back:focus-visible, .vs-end:focus-visible,
+.vs-mute:focus-visible, .vs-stop:focus-visible, .vs-compose button:focus-visible, .vs-voice-btn:focus-visible, .vc-kinds button:focus-visible {
+  outline: 2px solid var(--m-em1); outline-offset: 3px; }
+.vs-kinds button:focus-visible { transform: translateX(-3px); color: var(--m-tx); }
+
+@media (prefers-reduced-motion: reduce) {
+  .vs-cards.swap > .vc, .vs-grid.swap ~ .vs-ghostlayer > .vc { animation-duration: .2s !important; animation-delay: 0s !important; }
+  .vs-scheme.on { transform: none; }
+  .vs-scheme { transition: none; }
+}
+
+/* a short screen (laptops, 700-760 px): the composer drops to the glass pill above the dock and the cards take the
+   height between the subtitle band and it, so a card never runs under the captions or the composer (1366 x 700) */
+@media (max-height: 760px) {
+  .vstage.parked:not(.board-on):not(.mapfocus-on) .vs-composer { bottom: 74px; max-width: 470px; padding: 6px 8px 6px 6px; border-radius: 999px;
+    background: rgba(255, 255, 255, .8); border: 1px solid rgba(12, 16, 28, .1); box-shadow: 0 18px 50px rgba(12, 16, 28, .12);
+    -webkit-backdrop-filter: blur(16px) saturate(1.3); backdrop-filter: blur(16px) saturate(1.3); }
+  .vstage.parked .vs-mute { width: 46px; height: 46px; }
+  .vstage.parked .vs-stop { width: 38px; height: 38px; }
+  .vstage.parked .vs-compose { box-shadow: none; }
+  .vs-cards:not(.board):not(.mapfocus) { top: 84px; bottom: 84px; }
+  .vs-cards:not(.board):not(.mapfocus) > .vc .vc-body { height: clamp(140px, calc(100vh - 130px - 168px - 86px), 360px); }
+  .vs-cards[data-n="1"] > .vc[data-kind="map"] .vc-body { height: clamp(160px, calc(100vh - 130px - 168px - 70px), 600px); }
+}
+/* the "Show as" column sits right under the parked orb's pill on a short screen (it ran under the Dashboard button) */
+@media (max-height: 760px) {
+  .vs-kinds { top: 186px; gap: 5px; }
+  .vs-kinds button { padding: 6px 12px; }
+}
+/* a narrow window (about 820 px): the header keeps "Back to chat" on screen (the date and the status step aside; the
+   voice name never breaks over two lines), and two or three cards stack in one scrollable column */
+.vs-voice-btn b, .vs-voice-tone { white-space: nowrap; }
+@media (max-width: 1000px) {
+  .vs-clock, .vs-status { display: none; }
+  .vs-brand { min-width: 0; }
+}
+@media (min-width: 601px) and (max-width: 900px) {
+  .vs-cards[data-n="2"]:not(.board):not(.mapfocus), .vs-cards[data-n="3"]:not(.board):not(.mapfocus) {
+    grid-template-columns: minmax(0, 1fr); align-content: start; overflow-y: auto; overscroll-behavior: contain; pointer-events: auto;
+    scrollbar-width: thin; padding: 4px 4px 8px; }
+  .vs-cards[data-n="2"]:not(.board):not(.mapfocus) > .vc .vc-body, .vs-cards[data-n="3"]:not(.board):not(.mapfocus) > .vc .vc-body {
+    height: clamp(200px, 34vh, 300px); }
+}

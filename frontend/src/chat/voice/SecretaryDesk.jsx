@@ -10,27 +10,22 @@
    other. The figures are /api/voice/board's (app/voice/board.py), read-only; nothing is ever added across schemes except
    money, the one unit they share, and even that is shown per scheme.
    Motion: the column's own entrance (VoiceStage) is the one entrance; inside it only one-shot transitions (count-up,
-   cells, sparkline) run once, so no CSS animation starts on the desk and nothing loops. */
+   cells, sparkline) run once, so no CSS animation starts on the desk and nothing loops.
+   2026-11-14: every list on the desk is derived from the board (deskModel.js): one command tile per scheme (what it
+   counts), money for every scheme that records money (the others named, never ₹0), a map chip per scheme. */
 import { memo, useEffect, useMemo, useRef, useState } from 'react';
 import { SCHEME_HUES, fmt } from '../chartTheme.js';
 import { fmtFor } from './vizPlan.js';
 import { StageCard } from './StageCards.jsx';
+import { andList, deskModel } from './deskModel.js';
+import VOICE_PACK from './meghVoicePack.js';
 import '../../styles/voice-desk.css';
 
 const titleCase = (s) => String(s).toLowerCase().split(' ').map((w) => (w ? w[0].toUpperCase() + w.slice(1) : w)).join(' ');
 const hue = (s) => (SCHEME_HUES[s] ? SCHEME_HUES[s].main : '#7C3FBF');
 const reduced = () => typeof window !== 'undefined' && window.matchMedia
   && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-
-// the eight command tiles (Mitra's k8): [scheme, measure key, the question the tile asks]; the first is the hero tile
-const COMMAND = [['MGNREGA', 'person_days'], ['MGNREGA', 'expenditure'], ['PMAY-G', 'sanctioned'], ['PMAY-G', 'completed'],
-  ['Focus Plus', 'amount'], ['Focus Legacy', 'groups'], ['CM Elevate', 'applications'], ['CM Elevate Legacy', 'disbursed']];
-// money by scheme: the one unit the schemes share (Mitra's "Departments" bars)
-const MONEY = [['MGNREGA', 'expenditure'], ['PMAY-G', 'released'], ['Focus Plus', 'amount'], ['CM Elevate Legacy', 'disbursed'],
-  ['Focus Legacy', 'amount']];
-// the map's measure per scheme
-const MAP_MEASURE = { MGNREGA: 'person_days', 'PMAY-G': 'completed', 'Focus Plus': 'amount', 'Focus Legacy': 'groups',
-  'CM Elevate': 'applications', 'CM Elevate Legacy': 'disbursed' };
+const PACK_ORDER = VOICE_PACK.schemes || [];
 
 // money keeps one unit while it counts up (crore, else lakh, else rupees), so the figure never jumps unit mid-count
 function moneyUnit(total) {
@@ -64,17 +59,6 @@ function firstSentence(text) {
   return cut.length > 180 ? `${cut.slice(0, 177).trimEnd()}…` : cut;
 }
 
-function years(board) {
-  const all = new Set();
-  const per = {};
-  (board.schemes || []).forEach((s) => {
-    const held = new Set();
-    s.measures.forEach((m) => Object.keys(m.by_year || {}).forEach((y) => { held.add(y); all.add(y); }));
-    per[s.name] = held;
-  });
-  return { cols: [...all].sort((a, b) => a.localeCompare(b)), per };
-}
-
 // Mitra's countUp: 700 ms, ease 1-(1-k)^3, from the value shown before (0 the first time)
 function useCountUp(to) {
   const [v, setV] = useState(() => (reduced() ? to : 0));
@@ -100,23 +84,27 @@ function Tile({ s, m, hero, onAsk }) {
   const v = useCountUp(Number(m.total) || 0);
   const [num, word] = tileParts(m, v);
   const [fin] = tileParts(m, Number(m.total) || 0);
-  const label = m.label.toLowerCase().startsWith(s.toLowerCase()) ? m.label : `${s} · ${m.label}`;
+  // the scheme (in its hue) and, under it, plainly what the figure counts: two short lines, never cut mid-word
+  const what = m.label.toLowerCase().startsWith(s.toLowerCase()) ? m.label.slice(s.length).trim() || m.label : m.label;
   return (
     <button type="button" className={'sd-tile sdk-kpi' + (hero ? ' hero' : '')} style={{ '--c': hue(s), '--ch': fin.length + (word ? 2 : 0) }}
-            onClick={() => onAsk(`${s} ${m.label.toLowerCase()} by district`)} title={`What this counts: ${m.counts}`}>
+            onClick={() => onAsk(`${s} ${m.label.toLowerCase()} by district`)} title={`${s} · ${m.label}: ${m.counts}`}>
       <span className="v">{num}{word && <small>{word}</small>}</span>
-      <span className="l">{label}</span>
+      <span className="l"><i aria-hidden="true" />{s}</span>
+      <span className="c">{what}</span>
     </button>
   );
 }
 
 function LeftDesk({ board, onAsk }) {
-  const find = (s, k) => { const sc = (board?.schemes || []).find((x) => x.name === s); return sc ? sc.measures.find((m) => m.key === k) : null; };
-  const tiles = useMemo(() => COMMAND.map(([s, k]) => ({ s, m: find(s, k) })).filter((x) => x.m), [board]); // eslint-disable-line react-hooks/exhaustive-deps
-  const money = useMemo(() => MONEY.map(([s, k]) => ({ s, m: find(s, k) })).filter((x) => x.m && Number(x.m.total) > 0), [board]); // eslint-disable-line react-hooks/exhaustive-deps
-  const pd = useMemo(() => find('MGNREGA', 'person_days'), [board]); // eslint-disable-line react-hooks/exhaustive-deps
-  const yr = useMemo(() => (board ? years(board) : { cols: [], per: {} }), [board]);
-  const schemes = (board?.schemes || []).map((s) => s.name);
+  const model = useMemo(() => deskModel(board, PACK_ORDER), [board]);
+  const { tiles, noMoney, schemes, noYear } = model;
+  // money reads as a ranking: largest first (the board's own totals, only re-ordered)
+  const money = useMemo(() => [...model.money].sort((a, b) => (Number(b.m.total) || 0) - (Number(a.m.total) || 0)), [model]);
+  const yr = model.years;
+  const lead = model.lead;                      // the first scheme's headline (MGNREGA person-days today)
+  const pd = lead ? lead.m : null;
+  const leadName = lead ? `${lead.s} ${lead.m.label.toLowerCase()}` : '';
   const districts = useMemo(() => (pd ? Object.entries(pd.by_district || {}).map(([d, v]) => ({ d, v: Number(v) || 0 }))
     .sort((a, b) => b.v - a.v) : []), [pd]);
   const dTotal = districts.reduce((a, x) => a + x.v, 0);
@@ -159,7 +147,7 @@ function LeftDesk({ board, onAsk }) {
                                          title={`${s} ${y}: ${yr.per[s] && yr.per[s].has(y) ? 'held' : 'no data'}`} />),
               ])}
             </div>
-            {yr.per['CM Elevate'] && yr.per['CM Elevate'].size === 0 && <p className="sd-yr-n">CM Elevate applications carry no year.</p>}
+            {noYear.length > 0 && <p className="sd-yr-n">{andList(noYear)} {noYear.length === 1 ? 'carries' : 'carry'} no year.</p>}
           </div>
         )}
 
@@ -170,43 +158,51 @@ function LeftDesk({ board, onAsk }) {
               {money.map(({ s, m }) => (
                 <button key={s + m.key} type="button" className="sdk-bar" onClick={() => onAsk(`${s} money by district`)}
                         title={`${s} · ${m.label}: ${fmtFor('rupees')(m.total)}`}>
-                  <span className="t">{s}</span>
+                  <span className="t"><i aria-hidden="true" style={{ '--c': hue(s) }} />{s}</span>
                   <span className="b"><i style={{ width: `${Math.round((Number(m.total) || 0) / mMax * 100)}%` }} /></span>
                   <span className="n">{crore(m.total)}</span>
                 </button>
               ))}
             </div>
+            {noMoney.length > 0 && <p className="sd-yr-n">{andList(noMoney)} {noMoney.length === 1 ? 'records' : 'record'} no money.</p>}
           </>
         )}
 
         {districts.length > 0 && (
           <>
-            <div className="sdk-boardh"><span>Busiest districts</span><span>MGNREGA person-days</span></div>
-            {districts.slice(0, 6).map((x) => (
-              <button key={x.d} type="button" className="sdk-minirow" onClick={() => onAsk(`${titleCase(x.d)} — give me each scheme's figures`)}>
-                <span>{titleCase(x.d)}</span>
-                <span><b>{fmt(x.v)}</b> · {dTotal ? Math.round(x.v / dTotal * 100) : 0}%</span>
-              </button>
-            ))}
+            <div className="sdk-boardh"><span>Busiest districts</span><span>{leadName}</span></div>
+            {/* 2026-11-14: two columns of three (the desk fits the screen; the map's own list shows the same leaders) */}
+            <div className="sdk-minigrid">
+              {districts.slice(0, 6).map((x, i) => (
+                <button key={x.d} type="button" className="sdk-minirow" onClick={() => onAsk(`${titleCase(x.d)} — give me each scheme's figures`)}
+                        title={`${titleCase(x.d)}: each scheme's figures`}>
+                  <span><em>{i + 1}</em>{titleCase(x.d)}</span>
+                  <span><b>{fmt(x.v)}</b> · {dTotal ? Math.round(x.v / dTotal * 100) : 0}%</span>
+                </button>
+              ))}
+            </div>
 
             <div className="sdk-pstrip">
-              <div className="ph"><span>Person-days by district</span><span>{fmtFor(null)(dMin)} → {fmtFor(null)(dMax)}</span></div>
+              <div className="pcol">
+              <div className="ph"><span>{lead.m.label} by district</span><span>{fmtFor(null)(dMin)} → {fmtFor(null)(dMax)}</span></div>
               <div className="cells" style={{ '--n': districts.length }}>
                 {districts.map((x, i) => (
                   <button key={x.d} type="button" className={i === 0 ? 'top' : ''} style={{ '--h': (x.v / dMax).toFixed(2), '--i': i }}
-                          title={`${titleCase(x.d)} · ${fmt(x.v)} person-days · rank ${i + 1}`} aria-label={`${titleCase(x.d)} MGNREGA person-days`}
-                          onClick={() => onAsk(`${titleCase(x.d)} MGNREGA person-days`)} />
+                          title={`${titleCase(x.d)} · ${fmt(x.v)} ${lead.m.label.toLowerCase()} · rank ${i + 1}`} aria-label={`${titleCase(x.d)} ${leadName}`}
+                          onClick={() => onAsk(`${titleCase(x.d)} ${leadName}`)} />
                 ))}
               </div>
+              </div>
               {spark && (
-                <>
-                  <div className="ph"><span>MGNREGA person-days, {series[0][0]} → {series[series.length - 1][0]}</span>
+                <div className="pcol">
+                  <div className="ph"><span>By year, {series[0][0]} → {series[series.length - 1][0]}</span>
                     <span>{fmtFor(null)(series[0][1])} → {fmtFor(null)(series[series.length - 1][1])}</span></div>
-                  <svg className="spark" viewBox="0 0 100 30" preserveAspectRatio="none" aria-hidden="true">
+                  <svg className="spark" viewBox="0 0 100 30" preserveAspectRatio="none" role="img"
+                       aria-label={`${leadName} by year, ${series[0][0]} to ${series[series.length - 1][0]}`}>
                     <polyline className="fill" points={`0,30 ${spark} 100,30`} />
                     <polyline className="ln" points={spark} />
                   </svg>
-                </>
+                </div>
               )}
             </div>
           </>
@@ -217,13 +213,11 @@ function LeftDesk({ board, onAsk }) {
 }
 
 function RightDesk({ board, conversation, onPin }) {
-  const [scheme, setScheme] = useState('MGNREGA');
-  const schemes = (board?.schemes || []).map((s) => s.name).filter((s) => MAP_MEASURE[s]);
+  const maps = useMemo(() => deskModel(board, PACK_ORDER).maps, [board]);
+  const [scheme, setScheme] = useState(null);
+  const schemes = maps.map((x) => x.s);
   const active = schemes.includes(scheme) ? scheme : schemes[0];
-  const measure = useMemo(() => {
-    const sc = (board?.schemes || []).find((x) => x.name === active);
-    return sc ? sc.measures.find((m) => m.key === MAP_MEASURE[active]) : null;
-  }, [board, active]);
+  const measure = useMemo(() => (maps.find((x) => x.s === active) || {}).m || null, [maps, active]);
   const mapSpec = useMemo(() => {
     if (!measure) return null;
     const unit = measure.unit === 'rupees' ? 'rupees' : null;
@@ -244,7 +238,8 @@ function RightDesk({ board, conversation, onPin }) {
         <h3>On the map <small>{measure ? `${active} · ${measure.label}` : 'Meghalaya'}</small></h3>
         <div className="sd-chips" role="group" aria-label="Scheme on the map">
           {schemes.map((s) => (
-            <button key={s} type="button" className={s === active ? 'on' : ''} style={{ '--c': hue(s) }} onClick={() => setScheme(s)}>
+            <button key={s} type="button" className={s === active ? 'on' : ''} style={{ '--c': hue(s) }} onClick={() => setScheme(s)}
+                    aria-pressed={s === active}>
               <i aria-hidden="true" />{s}
             </button>
           ))}

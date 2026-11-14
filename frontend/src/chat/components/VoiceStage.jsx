@@ -194,6 +194,30 @@ function VoiceOrb({ live, parked, rootRef }) {
   return <canvas ref={cvRef} className="vs-orb-cv" aria-label="Megh One AI voice" />;
 }
 
+/* A scroll box that holds more than it shows says so with a soft fade at that edge (2026-11-14: the desk's columns were
+   cut hard at the footer, "Busiest districts" half shown). data-fade = "start" / "end" / "start end"; the CSS masks. */
+function useEdgeFade(ref, axis = 'y', deps = []) {
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    let raf = 0;
+    const check = () => {
+      raf = 0;
+      const pos = axis === 'x' ? el.scrollLeft : el.scrollTop;
+      const room = axis === 'x' ? el.scrollWidth - el.clientWidth : el.scrollHeight - el.clientHeight;
+      const f = [room > 2 && pos > 2 ? 'start' : '', room > 2 && pos < room - 2 ? 'end' : ''].filter(Boolean).join(' ');
+      if ((el.dataset.fade || '') !== f) { if (f) el.dataset.fade = f; else delete el.dataset.fade; }
+    };
+    const soon = () => { if (!raf) raf = requestAnimationFrame(check); };
+    check();
+    el.addEventListener('scroll', soon, { passive: true });
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(soon) : null;
+    if (ro) { ro.observe(el); [...el.children].forEach((c) => ro.observe(c)); }
+    window.addEventListener('resize', soon);
+    return () => { cancelAnimationFrame(raf); el.removeEventListener('scroll', soon); if (ro) ro.disconnect(); window.removeEventListener('resize', soon); };
+  }, deps); // eslint-disable-line react-hooks/exhaustive-deps
+}
+
 /* Mitra's stage-fx: 70 drifting glow sprites over the stage (pre-rendered radial gradients), parallax with the
    pointer, light blending (source-over, alpha x .55). It draws only while the stage is up. */
 const FX_COLS = ['#9558CF', '#B27FE0', '#d55181'];
@@ -292,7 +316,7 @@ const CUR_MAX = 28;          // a very long sentence: only its last words stay b
 
 /* The voice toggle (2026-11-12): the voice the officer hears. Same pipeline, ears and pictures for every voice; a
    change re-opens the live session in the new voice, which says one line. Closes on a choice, an outside click or Esc. */
-// The six schemes in their own colours (2026-11-12, the user: the footer's conversation feed and the dock chips were
+// Every scheme of the voice pack in its own colour (2026-11-12, the user: the footer's conversation feed and the dock chips were
 // clutter): one tap asks the scheme's charted headline question (voice_overlay `dashboard`, via the generated pack).
 const STRIP = (VOICE_PACK.schemes || []).map((name) => ({ name, q: (VOICE_PACK.dashboards || {})[name] || '',
   hue: (SCHEME_HUES[name] || {}).main || '#7c3fbf', deep: (SCHEME_HUES[name] || {}).deep || '#4b1f86' }));
@@ -302,10 +326,21 @@ const schemeIn = (text) => {
 };
 
 function SchemeStrip({ onAsk, active }) {
+  const ref = useRef(null);
+  useEdgeFade(ref, 'x', []);
+  // the scheme on the stage is always in view (a narrow screen scrolls the strip)
+  useEffect(() => {
+    const el = ref.current; if (!el || !active) return;
+    const b = el.querySelector('.vs-scheme.on');
+    if (b && (b.offsetLeft < el.scrollLeft || b.offsetLeft + b.offsetWidth > el.scrollLeft + el.clientWidth)) {
+      el.scrollTo({ left: Math.max(0, b.offsetLeft - 24), behavior: reducedMotion() ? 'auto' : 'smooth' });
+    }
+  }, [active]);
   return (
-    <nav className="vs-schemes" aria-label="Scheme dashboards">
+    <nav className={'vs-schemes' + (active ? ' has-on' : '')} aria-label="Scheme dashboards" ref={ref}>
       {STRIP.map((s) => (
         <button key={s.name} type="button" className={'vs-scheme' + (active === s.name ? ' on' : '')} disabled={!s.q}
+                aria-current={active === s.name ? 'true' : undefined}
                 style={{ '--h': s.hue, '--hd': s.deep }} title={s.q} onClick={() => s.q && onAsk(s.q)}>
           <i aria-hidden="true" /><b>{s.name}</b>
         </button>
@@ -471,6 +506,12 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
 
   // a new picture crossfades over the old one (Mitra's Stage.ghost: the old cards fade as a frozen layer)
   const prevShown = useRef(null);
+  // 2026-11-14: a picture that REPLACES one on the stage settles in place over the fading ghost (one continuous surface)
+  // instead of arcing in from below; decided once per picture, in render, so a card's entrance never changes mid-way
+  const swapRef = useRef({ key: null, on: false });
+  if (swapRef.current.key !== shownKey) {
+    swapRef.current = { key: shownKey, on: !!shown && !!prevShown.current && prevShown.current.key !== shownKey };
+  }
   useEffect(() => {
     const prev = prevShown.current;
     prevShown.current = shown;
@@ -501,6 +542,13 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
   }, [stageOn]);
   useEffect(() => { place(); }, [place]);
   useEffect(() => { window.addEventListener('resize', place); return () => window.removeEventListener('resize', place); }, [place]);
+
+  // the desk's columns scroll inside themselves when they hold more than the screen; a soft fade says so
+  const colLRef = useRef(null);
+  const colRRef = useRef(null);
+  const deskAnswerUp = !!current && !vplan && !working;
+  useEdgeFade(colLRef, 'y', [board]);
+  useEdgeFade(colRRef, 'y', [board, deskAnswerUp, turn.answers.length]);
 
   const toDesk = useCallback(() => { setPinned(null); setHome(lastIdOf(messages)); }, [messages]);
   // Esc: an answer on screen (on the stage, or the answer card) goes back to the desk; the desk goes back to the chat
@@ -816,7 +864,7 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
         )}
         <main className={'vs-stagearea' + (working ? ' working' : '')}>
           {answerText && <div className="vs-answer" aria-hidden={!vplan}>{answerText}</div>}
-          <div className={'vs-grid ' + L.cls + (explained ? ' explained' : '')} data-n={Math.min(3, L.n)} style={L.style}>
+          <div className={'vs-grid ' + L.cls + (explained ? ' explained' : '') + (swapRef.current.on ? ' swap' : '')} data-n={Math.min(3, L.n)} style={L.style}>
             {cards.map((c, i) => {
               const k = kindOf(c);
               const morphed = !!kinds[c.id];
@@ -867,7 +915,7 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
       </header>
 
       <div className="vs-main">
-        <aside className="vs-col vs-col-l" aria-hidden={stageOn}>
+        <aside className="vs-col vs-col-l" aria-hidden={stageOn} ref={colLRef}>
           <SecretaryDesk side="left" board={board} onAsk={onType} conversation={turn.answers} onPin={setPinned} />
         </aside>
 
@@ -924,7 +972,7 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
         </section>
 
         {/* the right column's entrance ends last: then the entrance is dropped, so it never plays again */}
-        <aside className="vs-col vs-col-r" aria-hidden={stageOn}
+        <aside className="vs-col vs-col-r" aria-hidden={stageOn} ref={colRRef}
                onAnimationEnd={(e) => { if (e.target === e.currentTarget && e.animationName === 'vsColIn') setColsDone(true); }}>
           {deskAnswer && (
             <div className="vs-grid vs-ansgrid">

@@ -125,6 +125,23 @@ const noteFor = (notes, scheme, col) => {
   return hit ? n[hit] : '';
 };
 
+/** What a figure counts, plainly (2026-11-14): the measure note without its qualifiers. "household-years: households
+    given work, counted once per year worked" -> "households given work"; "students paid (scholarship applications that
+    were paid)" -> "students paid". The whole note stays in the tile's tooltip. */
+export function plainCount(note) {
+  let s = String(note || '').trim();
+  const colon = s.indexOf(': ');
+  if (colon > 0 && colon <= 32) s = s.slice(colon + 2);
+  for (const stop of [' (', ', ', '; ', ' — ', ' – ', ' - ']) { const at = s.indexOf(stop); if (at > 0) s = s.slice(0, at); }
+  s = s.trim();
+  while (s.endsWith('.')) s = s.slice(0, -1);
+  return s;
+}
+// "Sanctioned" -> "sanctioned" (an acronym such as "PG members" keeps its capitals)
+const lowerFirst = (t) => (t.length > 1 && t[1] === t[1].toLowerCase() ? t[0].toLowerCase() + t.slice(1) : t);
+// the most tiles a figure card draws: every scheme once, up to 12 (stageCanvas.TILE_MAX)
+const TILE_CAP = 12;
+
 // ── the columns of an answer ──────────────────────────────────────────────
 const SCHEME_COLS = ['scheme', 'schemes', 'scheme_label'];
 export function shapeOf(rows) {
@@ -191,8 +208,10 @@ function perScheme(rows, sh, notes) {
   const cards = [];
   const tile = (s, r, m) => {
     const unit = unitFor(m);
+    const note = noteFor(notes, s, m);
+    // the tile says plainly what it counts ("households given work"); the measure and the whole note are its tooltip
     return { key: `${s}|${m}`, label: s, col: m, value: num(r[m]), color: hueOf(s), unit, fmt: fmtFor(unit),
-      sub: `${measureTitle(m)}${noteFor(notes, s, m) ? ' · ' + noteFor(notes, s, m) : ''}`,
+      sub: plainCount(note) || lowerFirst(measureTitle(m)), note: `${measureTitle(m)}${note ? ' · ' + note : ''}`,
       say: SCHEME_SAY[s], notBefore: SAY_NOT_BEFORE[s] };
   };
   const rounds = [[], [], []];
@@ -207,11 +226,13 @@ function perScheme(rows, sh, notes) {
         unitFor(m), { color: hueOf(s), measureCol: m }));
     }
   });
-  rounds.forEach((r) => r.forEach((x) => { if (tiles.length < 8) tiles.push(x); }));
+  // eight tiles as before; more only so that every scheme keeps its first figure (a ninth scheme, 2026-11-14)
+  const cap = Math.min(TILE_CAP, Math.max(8, rounds[0].length));
+  rounds.forEach((r) => r.forEach((x) => { if (tiles.length < cap) tiles.push(x); }));
   const out = [];
   if (tiles.length) {
     out.push(card('tiles', groups.size > 1 ? 'Each scheme, in its own unit' : `${[...groups.keys()][0]}`, null,
-      { items: tiles.slice(0, 8), allowed: ['tiles'], wide: tiles.length > 4,
+      { items: tiles.slice(0, cap), allowed: ['tiles'], wide: tiles.length > 4,
         note: groups.size > 1 ? 'Schemes count and spend different things, so their figures are never added together.' : '' }));
   }
   // money is the one unit schemes share: a bar of the money figures beside the tiles

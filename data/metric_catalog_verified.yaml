@@ -29,6 +29,20 @@ no_block_level:
 
 # One figure for one place (or the state) and one year.
 total:
+  pmay_houses_completed:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  pmay_amount_released:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  cmss_students_paid:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  cmss_applications:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  cmss_amount_disbursed:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  homestay_api_applications:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  homestay_api_approved:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
   cm_elevate_applications_on_hold:
     evidence: "run 2026-10-26: 4/4 agreed"
   cm_elevate_applications_valid:
@@ -93,6 +107,20 @@ total:
 
 # The figure per district, per block or per year.
 breakdown:
+  pmay_houses_completed:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  focus_plus_amount_disbursed:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  cmss_students_paid:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  cmss_applications:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  cmss_amount_disbursed:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  homestay_api_applications:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  cm_elevate_disb_total_sanctioned:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
   cm_elevate_applications_on_hold:
     evidence: "run 2026-10-26: 1/1 agreed"
   cm_elevate_disb_beneficiaries:
@@ -150,6 +178,10 @@ breakdown:
 
 # Top / bottom N districts or blocks.
 ranking:
+  cmss_students_paid:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
+  homestay_api_applications:
+    evidence: "run 2026-11-14 (no-model gold bank, independent truth SQL): agreed"
   cm_elevate_applications_on_hold:
     evidence: "run 2026-10-26: 1/1 agreed"
   cm_elevate_disb_beneficiaries:

@@ -3,7 +3,7 @@
 // Run: node --test src/chat/voice/stageCanvas.test.js   (the repo has no vitest; node:test is its runner)
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GROW, createStageCard, fitSize, fitText, grow, nice, niceAxis, rampColor, staggerFor, tileGrid } from '../src/chat/voice/stageCanvas.js';
+import { GROW, TILE_MAX, createStageCard, fitSize, fitText, grow, nice, niceAxis, rampColor, splitUnit, staggerFor, tileGrid, wrapText } from '../src/chat/voice/stageCanvas.js';
 
 // a 2D context that accepts every call; text is 6 px per character at 12 px
 function stubCtx() {
@@ -102,12 +102,45 @@ test('reduced motion: everything is drawn final', () => {
   h.destroy();
 });
 
-test('kpi keeps one item, tiles at most eight; destroy stops pending reveals', async () => {
-  const many = Array.from({ length: 10 }, (_, i) => ({ key: `t${i}`, label: `T${i}`, value: i }));
+// 2026-11-14: the cap was eight when there were six schemes; it is TILE_MAX (12) so every scheme keeps its tile
+test('kpi keeps one item, tiles at most TILE_MAX (12); destroy stops pending reveals', async () => {
+  const many = Array.from({ length: 14 }, (_, i) => ({ key: `t${i}`, label: `T${i}`, value: i }));
   assert.equal(createStageCard(stubCanvas(), { kind: 'kpi', fmt, items: many }).state().items.length, 1);
   const h = createStageCard(stubCanvas(), { kind: 'tiles', fmt, items: many });
-  assert.equal(h.state().items.length, 8);
+  assert.equal(TILE_MAX, 12);
+  assert.equal(h.state().items.length, TILE_MAX);
   h.revealAll(100); h.destroy();
   await wait(250);
   assert.equal(h.state().items.filter((i) => i.on).length, 1);
+});
+
+// 2026-11-14: a tile says what it counts on up to two lines, broken between words, never inside one
+test('wrapText breaks between words, keeps whole words, ends an overflow on a word and an ellipsis', () => {
+  const ctx = stubCtx();   // 6 px a character at 12 px
+  assert.deepEqual(wrapText(ctx, 'households given work', 200, 12, 600, 2), ['households given work']);
+  const two = wrapText(ctx, 'households given work, counted once per year', 100, 12, 600, 2);
+  assert.equal(two.length, 2);
+  two.forEach((l) => assert.ok(ctx.measureText(l).width <= 100, l));
+  assert.equal(two[0], 'households given');
+  assert.ok(two[1].endsWith('…') && !two[1].includes('once per year'));
+  ['households', 'given', 'work,'].forEach((w) => assert.ok(two.join(' ').includes(w.slice(0, 4))));
+  // every line is made of whole words of the text (the last may carry the ellipsis)
+  const words = 'households given work, counted once per year'.split(' ');
+  two.forEach((l) => l.split(' ').forEach((w) => assert.ok(words.includes(w.replace('…', '')), w)));
+  assert.deepEqual(wrapText(ctx, '', 100), []);
+  assert.equal(wrapText(ctx, 'supercalifragilistic', 60, 12, 600, 2)[0].endsWith('…'), true);
+});
+
+test('splitUnit sets the unit word apart from the number, and leaves a count alone', () => {
+  assert.deepEqual(splitUnit('₹3,628.67 crore'), ['₹3,628.67', 'crore']);
+  assert.deepEqual(splitUnit('₹82.9 lakh'), ['₹82.9', 'lakh']);
+  assert.deepEqual(splitUnit('14,94,437'), ['14,94,437', '']);
+});
+
+test('a figure tile shows its own unit (the planner item format), the card format otherwise', () => {
+  const h = createStageCard(stubCanvas(), { kind: 'tiles', fmt, items: [
+    { key: 'a', label: 'MGNREGA', value: 3628.67, fmt: (v) => `₹${v} crore`, sub: 'money spent' },
+    { key: 'b', label: 'Homestay', value: 1297, sub: 'applications' }] });
+  assert.deepEqual(h.state().items.map((i) => i.shown), ['₹3628.67 crore', '1297']);
+  h.destroy();
 });

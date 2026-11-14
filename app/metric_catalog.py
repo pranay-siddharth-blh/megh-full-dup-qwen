@@ -332,6 +332,14 @@ def single_year(key: str) -> bool:
     return key in _state["single_year"]
 
 
+_RATE_WORDS = frozenset(_w for _w in ("rate", "percent", "percentage", "pct", "share", "ratio", "proportion"))
+
+
+def _is_rate_metric(m: "Metric") -> bool:
+    return str(m.unit or "").lower() in ("percent", "percentage", "pct", "%", "ratio") \
+        or m.key.endswith(("_rate", "_pct", "_share", "_ratio"))
+
+
 def match(question: str, scheme: str) -> Match:
     """The one measure of `scheme` the question names. Every phrase is found;
     the longest phrases win and take their words; what is left must point at
@@ -361,6 +369,18 @@ def match(question: str, scheme: str) -> Match:
     # the measure's words in the question, with any helper verb inside them
     spans = frozenset(k for i, n, _ in chosen for k in range(keep[i], keep[i + n - 1] + 1))
     keys = set().union(*(c[2] for c in chosen))
+    if any(len(c[2]) > 1 for c in chosen):
+        # 2026-11-14: a phrase two measures share ("houses completed": the count AND the completion rate) is the
+        # COUNT unless the question says rate / percent / share; it was "tied" and went to model-written SQL.
+        wants_rate = any(w in _RATE_WORDS for w in all_toks)
+        narrowed = []
+        for i, n, ks in chosen:
+            if len(ks) > 1:
+                pick = {k for k in ks if _is_rate_metric(_state["metrics"][k]) == wants_rate}
+                ks = pick if len(pick) == 1 else ks
+            narrowed.append((i, n, ks))
+        chosen = narrowed
+        keys = set().union(*(c[2] for c in chosen))
     if any(len(c[2]) > 1 for c in chosen):
         return Match("tied", None, spans)
     if len(keys) != 1:
@@ -421,6 +441,10 @@ def build(m: Metric, filters: dict, group: "str | None" = None, *,
         if YEAR_COLUMN not in m.columns:
             return None
         fy = "MAX(financial_year_short) AS financial_year, " if "financial_year_short" in m.columns else ""
+        # 2026-11-14: rows with no year are left out of a per-year list, as rows with no place are left out of a
+        # per-place list below. PMAY-G's 126 undated registrations came back as a last "year" and the trend read
+        # "fell from 15,513 in FY 2017-18 to 126 in (row), down 99.2%"; the chart could not be a line either.
+        where, shown = where + [f"{YEAR_COLUMN} IS NOT NULL"], shown + [f"{YEAR_COLUMN} IS NOT NULL"]
         select, tail = f"{YEAR_COLUMN}, {fy}{value}", f"\nGROUP BY {YEAR_COLUMN}"
         if order is None:
             tail += f" ORDER BY {YEAR_COLUMN}"

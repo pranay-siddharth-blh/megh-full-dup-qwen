@@ -468,6 +468,37 @@ def _c07_places_hint(question: str) -> str:
             "word \"village\". A name the lookup does NOT list as a village is never a \"village\".\n\n")
 
 
+def _c07_mentions_by_rules(question: str) -> dict:
+    """The mention slots read WITHOUT the model: the gazetteer's exact place names in the question, each in the
+    slot of its database level (a name at several levels goes in the coarsest catalogue slot and the level gate of
+    c09 asks, exactly as the gazetteer fallback there does). Two or more districts / blocks go in the plural slot.
+    A misspelt (fuzzy) name is left out: only the model reads those. Years are backfilled by the caller."""
+    from app import entity_resolver as _er
+    # districts, blocks and constituencies come from the resolver YAMLs; villages join once their index is loaded
+    by: dict[str, list[str]] = {}
+    for f in _er.match_places(question, is_ordinary=_is_known_word):
+        if f.get("fuzzy"):
+            continue
+        slot = next((lv for lv in ("district", "block", "assembly_constituency", "village") if lv in f["levels"]), None)
+        typed = str(f.get("typed") or "")
+        if not slot or not typed or not _mention_in_question(typed, question):
+            continue
+        if typed.lower() not in [t.lower() for t in by.setdefault(slot, [])]:
+            by[slot].append(typed)
+    out: dict[str, object] = {}
+    for slot, plural in (("district", "districts"), ("block", "blocks")):
+        names = by.get(slot) or []
+        if len(names) >= 2:
+            out[plural] = names
+        elif names:
+            out[slot] = names[0]
+    for slot in ("assembly_constituency", "village"):
+        names = by.get(slot) or []
+        if len(names) == 1:
+            out[slot] = names[0]
+    return out
+
+
 async def extract_entity_mentions(question: str) -> dict:
     """Which spans of the question name a district, block, village, year or
     assembly constituency? Span-finding only — resolving each span to a
@@ -547,7 +578,15 @@ JSON: {{}}
 
 {_c07_places_hint(question)}Question: "{question}"
 JSON:"""
-    raw = await llm.call_classifier(prompt, guided={"guided_json": _ENTITY_JSON_SCHEMA})
+    try:
+        raw = await llm.call_classifier(prompt, guided={"guided_json": _ENTITY_JSON_SCHEMA})
+    except Exception as e:  # noqa: BLE001
+        # 2026-11-14 (the model server was down for hours): this one call failing ended EVERY data turn with a 502,
+        # also the ones a fixed query answers. The gazetteer's exact names stand in; a misspelt place is then asked
+        # about by the level gate instead of guessed.
+        logger.warning("entity mentions: the model call failed (%s); reading exact place names by rule", type(e).__name__)
+        context_budget.log_decision("mentions", fallback="rules", error=type(e).__name__)
+        return _c07_mentions_by_rules(question)
     payload = _extract_json(raw)
     if not isinstance(payload, dict):
         return {}

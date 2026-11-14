@@ -100,6 +100,8 @@ export function tileGrid(n, W, H, gap = 10) {
 }
 const font = (size, weight = 600) => `${weight} ${size}px ${FONT_FAMILY}`;
 const FT = new Map();
+// the most figure tiles one card draws (2026-11-14: every scheme once; was 8)
+export const TILE_MAX = 12;
 // the label as it fits its slot: whole, or cut with an ellipsis (binary search, cached)
 export function fitText(ctx, text, maxW, size = 12, weight = 600) {
   const s = String(text ?? '');
@@ -116,6 +118,32 @@ export function fitText(ctx, text, maxW, size = 12, weight = 600) {
   ctx.restore();
   if (FT.size > 1500) FT.clear();
   FT.set(key, out); return out;
+}
+/** A label over up to `maxLines` lines (2026-11-14): broken between words, never inside one; what does not fit ends
+    the last line with an ellipsis after a whole word. A single word wider than the slot is cut (fitText). */
+export function wrapText(ctx, text, maxW, size = 12, weight = 600, maxLines = 2) {
+  const ws = String(text ?? '').split(' ').filter(Boolean);
+  if (!ws.length || maxW < 10) return [];
+  ctx.save(); ctx.font = font(size, weight);
+  const fits = (t) => ctx.measureText(t).width <= maxW;
+  const lines = []; let cur = ''; let i = 0;
+  for (; i < ws.length; i++) {
+    const next = cur ? cur + ' ' + ws[i] : ws[i];
+    if (fits(next)) { cur = next; continue; }
+    if (!cur) { cur = ws[i]; i++; }     // one word wider than the slot: it gets the line (cut below)
+    lines.push(cur); cur = '';
+    if (lines.length === maxLines) break;
+    i--;
+  }
+  if (lines.length < maxLines && cur) { lines.push(cur); cur = ''; i = ws.length; }
+  const more = i < ws.length;
+  if (more && lines.length) {           // the rest does not fit: the last line ends on a whole word and an ellipsis
+    let last = lines[lines.length - 1];
+    while (last.includes(' ') && !fits(last + '…')) last = last.slice(0, last.lastIndexOf(' '));
+    lines[lines.length - 1] = last + '…';
+  }
+  ctx.restore();
+  return lines.map((l) => fitText(ctx, l, maxW, size, weight));
 }
 // a figure is never cut: its font shrinks until it fits (down to minSize)
 export function fitSize(ctx, text, maxW, size, weight = 800, minSize = 9) {
@@ -199,7 +227,10 @@ function drawTip(ctx, card, x, y, title, rows, foot) {
 }
 const colorOf = (it, i) => it.color || TONE[it.tone] || CATEGORICAL[i % CATEGORICAL.length];
 const say = (card, v) => { try { return String(card.fmt(v)); } catch (e) { return String(v); } };
-const valueText = (card, it, p) => (isNum(it.value) ? say(card, grow(it.value, p)) : 'no data');
+// 2026-11-14: a figure tile of a cross-scheme card carries its own unit (the planner's item.fmt: rupees in ₹ crore, a
+// count in Indian grouping); the canvas used the card's unitless format, so "3,628.67" lost its "₹ … crore"
+const sayItem = (card, it, v) => { if (typeof it.fmt !== 'function') return say(card, v); try { return String(it.fmt(v)); } catch (e) { return String(v); } };
+const valueText = (card, it, p) => (isNum(it.value) ? sayItem(card, it, grow(it.value, p)) : 'no data');
 
 // ------------------------------------------------------------------ the shared loop and the camera
 const LIVE = new Set();
@@ -253,7 +284,7 @@ function Bars(card) {
         ctx.strokeStyle = g ? T.grid : T.line; ctx.lineWidth = 1; ctx.beginPath(); ctx.moveTo(padL, y + .5); ctx.lineTo(W - padR, y + .5); ctx.stroke();
         label(ctx, t, padL - 9, y, { size: 10, color: T.mute, align: 'right' });
       });
-      if (card.unit) label(ctx, fitText(ctx, card.unit, W - 20, 10, 700), padL - 9, 12, { size: 10, weight: 700, color: T.mute, align: 'left' });
+      if (card.unitWord) label(ctx, fitText(ctx, card.unitWord, W - 20, 10, 700), padL - 9, 12, { size: 10, weight: 700, color: T.mute, align: 'left' });
       const bw = Math.min(72, gw * .56); const depth = Math.min(16, bw * .3); const dx = -depth * (.5 + cam.x * .4); const dy = -depth * .55;
       const ls = tilt ? 10.5 : gw < 90 ? 11 : 12; card.hits = [];
       items.forEach((it, i) => {
@@ -317,12 +348,12 @@ function Race(card) {
     draw(ctx, now, cam) {
       const { W, H, items } = card; const n = items.length;
       const max = Math.max(1e-9, ...items.filter((i) => isNum(i.value)).map((i) => i.value));
-      const padT = card.unit ? 20 : 6; const rowH = Math.min(40, (H - padT - 6) / Math.max(1, n));
+      const padT = card.unitWord ? 20 : 6; const rowH = Math.min(40, (H - padT - 6) / Math.max(1, n));
       const fs = rowH < 22 ? 10.5 : 12;
       const lw = Math.min(W * .32, 180, Math.max(40, ...items.map((i) => textW(ctx, i.label, fs, 700))) + 6);
       const valW = Math.max(44, ...items.map((i) => textW(ctx, isNum(i.value) ? say(card, i.value) : 'no data', fs + .5, 800))) + 12;
       const x0 = lw + 14; const x1 = W - valW - 6; const bh = Math.max(6, Math.min(16, rowH * .46)); const depth = Math.min(6, bh * .45);
-      if (card.unit) label(ctx, fitText(ctx, card.unit, W - 20, 10, 700), x0, 10, { size: 10, weight: 700, color: T.mute, align: 'left' });
+      if (card.unitWord) label(ctx, fitText(ctx, card.unitWord, W - 20, 10, 700), x0, 10, { size: 10, weight: 700, color: T.mute, align: 'left' });
       card.hits = [];
       items.forEach((it, i) => {
         const y = padT + rowH * i + rowH / 2; const col = colorOf(it, i); const p = card.pOf(it, now);
@@ -619,11 +650,36 @@ function Donut(card) {
   };
 }
 
+// a figure's text as [number, unit word]: "₹3,628.67 crore" -> ["₹3,628.67", "crore"], so the word can sit smaller
+export function splitUnit(text) {
+  const t = String(text ?? '');
+  for (const w of [' crore', ' lakh']) if (t.endsWith(w)) return [t.slice(0, -w.length), w.trim()];
+  return [t, ''];
+}
+
+/* The figure tiles (2026-11-14): eight schemes sit in a balanced grid (4 x 2 on a wide card), each in its scheme's hue;
+   every figure is drawn at ONE size (the size the longest final figure fits at), so the largest number never
+   dominates and nothing jumps while they count up; the unit word sits smaller beside the number; under it the tile
+   says plainly what it counts, on up to two lines, broken between words. */
 function Tiles(card) {
+  let sized = { key: '', vfs: 0 };
   return {
     draw(ctx, now) {
       const { W, H, items } = card; const n = items.length; const gap = 10;
       const G = tileGrid(n, W - 4, H - 4, gap); const y0 = Math.max(2, (H - (G.th * G.rows + gap * (G.rows - 1))) / 2);
+      const padX = Math.min(16, G.tw * .09); const inner = G.tw - padX * 2;
+      const vs = Math.max(16, Math.min(34, G.th * .3, G.tw * .19));
+      const subLines = G.th >= 104 ? 2 : G.th >= 78 ? 1 : 0;
+      const key = `${W | 0}x${H | 0}|${typeof document !== 'undefined' && document.fonts ? document.fonts.status : ''}`;   // re-fit once the font has loaded
+      if (sized.key !== key) {
+        const finals = items.map((it) => (isNum(it.value) ? splitUnit(sayItem(card, it, it.value)) : ['no data', '']));
+        const fitOne = ([num, word]) => {
+          const ww = word ? textW(ctx, word, Math.max(10, vs * .42), 700) + 5 : 0;
+          return fitSize(ctx, num, Math.max(20, inner - ww), vs, 800, 10);
+        };
+        sized = { key, vfs: Math.min(vs, ...finals.map(fitOne)) };
+      }
+      const vfs = sized.vfs; const ws = Math.max(10, Math.min(13, vfs * .42));
       card.hits = [];
       items.forEach((it, i) => {
         const r0 = Math.floor(i / G.cols); const inRow = Math.min(G.cols, n - r0 * G.cols);
@@ -636,22 +692,33 @@ function Tiles(card) {
         rrect(ctx, x, y, G.tw, G.th, 14); ctx.fillStyle = '#fff'; ctx.fill(); ctx.restore();
         if (sp > .01) { ctx.save(); rrect(ctx, x - 1.5, y - 1.5, G.tw + 3, G.th + 3, 15.5); ctx.strokeStyle = alpha(col, .4 * sp); ctx.lineWidth = 3; ctx.stroke(); ctx.restore(); }
         ctx.save(); rrect(ctx, x, y, G.tw, G.th, 14); ctx.clip();
-        const wash = ctx.createLinearGradient(x, y, x + G.tw, y + G.th); wash.addColorStop(0, alpha(col, .03 + .05 * p)); wash.addColorStop(1, alpha(col, 0));
+        const wash = ctx.createLinearGradient(x, y, x + G.tw, y + G.th); wash.addColorStop(0, alpha(col, .05 + .06 * p)); wash.addColorStop(1, alpha(col, 0));
         ctx.fillStyle = wash; ctx.fillRect(x, y, G.tw, G.th);
         ctx.fillStyle = alpha(col, .1); ctx.fillRect(x, y + G.th - 4, G.tw, 4);
         ctx.fillStyle = col; ctx.fillRect(x, y + G.th - 4, G.tw * (it.on ? p : 0), 4);
         ctx.restore();
         rrect(ctx, x + .5, y + .5, G.tw - 1, G.th - 1, 14); ctx.strokeStyle = em ? alpha(col, .55) : T.border; ctx.lineWidth = 1; ctx.stroke();
-        const padX = Math.min(16, G.tw * .09); const inner = G.tw - padX * 2;
-        const ls = G.th < 80 ? 10.5 : 11.5; const vs = Math.max(16, Math.min(34, G.th * .33, G.tw * .2));
-        const hasSub = !!it.sub && G.th >= 78;
-        const ly = y + (hasSub ? G.th * .22 : G.th * .28); const vy = y + (hasSub ? G.th * .52 : G.th * .62); const sy = y + G.th * .78;
+        const ls = G.th < 80 ? 10.5 : 11.5;
+        // the rows: the scheme, the figure, then what it counts (one or two lines) — spread over the tile's height
+        const top = y + Math.max(10, G.th * .1); const bot = y + G.th - 4 - Math.max(8, G.th * .08);
+        const ly = top + ls / 2;
+        const ss = G.tw >= 200 && G.th >= 110 ? 11.5 : 10.5; const sl = ss + 3;   // what it counts: larger on a large tile
+        const subH = subLines && it.sub ? sl * subLines : 0;
+        const vy = subH ? ly + ls / 2 + (bot - subH - (ly + ls / 2)) / 2 + 1 : (ly + bot) / 2 + 2;
         ctx.fillStyle = col; ctx.beginPath(); ctx.arc(x + padX + 3, ly, 3, 0, TAU); ctx.fill();
-        label(ctx, fitText(ctx, it.label, inner - 12, ls, 700), x + padX + 12, ly, { size: ls, weight: 700, color: T.ink2, align: 'left' });
-        const vt = it.on ? valueText(card, it, p) : '—';
-        const vfs = fitSize(ctx, vt, inner, isNum(it.value) || !it.on ? vs : Math.min(vs, 18), 800, 10);
-        label(ctx, vt, x + padX, vy, { size: vfs, weight: 800, color: it.on && isNum(it.value) ? T.ink : T.mute, align: 'left' });
-        if (hasSub) label(ctx, fitText(ctx, it.sub, inner, 10.5, 600), x + padX, sy, { size: 10.5, color: T.mute, align: 'left' });
+        // the scheme's name shrinks a little before it is ever cut ("CM Elevate Legacy" on a small tile)
+        const lfs = fitSize(ctx, it.label, inner - 12, ls, 700, 9);
+        label(ctx, fitText(ctx, it.label, inner - 12, lfs, 700), x + padX + 12, ly, { size: lfs, weight: 700, color: T.ink2, align: 'left' });
+        const real = it.on && isNum(it.value);
+        const [num, word] = it.on ? splitUnit(valueText(card, it, p)) : ['—', ''];
+        const nfs = real || !it.on ? vfs : Math.min(vfs, 18);
+        label(ctx, num, x + padX, vy, { size: nfs, weight: 800, color: real ? T.ink : T.mute, align: 'left' });
+        if (word && real) label(ctx, word, x + padX + textW(ctx, num, nfs, 800) + 5, vy + nfs * .18, { size: ws, weight: 700, color: T.mute, align: 'left' });
+        if (subH) {
+          const lines = wrapText(ctx, it.sub, inner, ss, 600, subLines);
+          const sy = bot - lines.length * sl + sl / 2;   // one line sits where the second would end: the tile stays balanced
+          lines.forEach((l, k) => label(ctx, l, x + padX, sy + sl * k, { size: ss, weight: 600, color: T.mute, align: 'left' }));
+        }
       });
     },
     tip(ctx) { return card.itemTip(ctx); },
@@ -979,7 +1046,8 @@ export function createStageCard(canvas, spec, opts = {}) {
   const ctx = canvas.getContext('2d');
   const fmt = typeof spec.fmt === 'function' ? spec.fmt : (v) => String(v);
   const mkItem = (it) => ({ key: String(it.key ?? it.label ?? ''), label: String(it.label ?? it.key ?? ''), value: isNum(it.value) ? it.value : null,
-    color: it.color || '', sub: it.sub || '', tone: it.tone || '', on: reduced, t0: 0,
+    color: it.color || '', sub: it.sub || '', note: it.note || '', tone: it.tone || '', on: reduced, t0: 0,
+    fmt: typeof it.fmt === 'function' ? it.fmt : null,
     cells: Array.isArray(it.cells) ? it.cells.map((c) => String(c ?? '')) : null });
   const card = {
     kind, spec, canvas, ctx, fmt, reduced, unit: spec.unit || '', total: spec.total, highlight: spec.highlight ?? null,
@@ -994,11 +1062,13 @@ export function createStageCard(canvas, spec, opts = {}) {
   } else {
     let items = (spec.items || []).map(mkItem);
     if (kind === 'kpi') items = items.slice(0, 1);
-    if (kind === 'tiles') items = items.slice(0, 8);
+    if (kind === 'tiles') items = items.slice(0, TILE_MAX);
     if (kind === 'table') items = items.slice(0, 12);
     card.items = items;
     card.columns = Array.isArray(spec.columns) ? spec.columns : [];
   }
+  // the unit word over a bar chart / ranking ("crore"): only when the figures do not say it themselves ("₹3,628.67 crore")
+  card.unitWord = card.unit && !(card.items || []).some((it) => isNum(it.value) && say(card, it.value).includes(card.unit)) ? card.unit : '';
   card.pOf = (it, now) => (!it.on ? 0 : reduced ? 1 : ease(((now ?? now_()) - it.t0) / (GROW[kind] || 1500)));
   // the spotlight: 0..1 for the item being named now (see SPOT); the ring's age in ms, or -1
   card.spots = [];
@@ -1028,8 +1098,8 @@ export function createStageCard(canvas, spec, opts = {}) {
         value: (it.cells || [])[j] || '—', muted: (it.cells || [])[j] === '—' })));
       return;
     }
-    const rows = [{ color: kind === 'tiles' || kind === 'kpi' ? (it.color || TONE[it.tone] || T.brand) : colorOf(it, i), label: card.unit || 'Value', value: isNum(it.value) ? say(card, it.value) : 'no data', muted: !isNum(it.value) }];
-    if (it.sub) rows.push({ label: it.sub, value: '' });
+    const rows = [{ color: kind === 'tiles' || kind === 'kpi' ? (it.color || TONE[it.tone] || T.brand) : colorOf(it, i), label: card.unit || 'Value', value: isNum(it.value) ? sayItem(card, it, it.value) : 'no data', muted: !isNum(it.value) }];
+    if (it.note || it.sub) rows.push({ label: it.note || it.sub, value: '' });
     drawTip(c2, card, card.ptr.x, card.ptr.y, it.label, rows);
   };
   card.r = RENDER[kind](card);
@@ -1129,7 +1199,8 @@ export function createStageCard(canvas, spec, opts = {}) {
       return {
         kind,
         items: card.items.map((it, i) => ({ key: it.key, on: it.on,
-          p: +(kind === 'line' ? (it.on ? Math.max(0, Math.min(1, card.line.head - i + 1)) : 0) : card.pOf(it, now)).toFixed(3) })),
+          p: +(kind === 'line' ? (it.on ? Math.max(0, Math.min(1, card.line.head - i + 1)) : 0) : card.pOf(it, now)).toFixed(3),
+          shown: isNum(it.value) ? sayItem(card, it, it.value) : null })),   // the figure as the card draws it, grown
       };
     },
     resize() { measure(); card.dirty = true; kick(); },

@@ -1532,6 +1532,24 @@ _C01_REGROUP_CHART = {"bar": "as a bar chart", "pie": "as a pie chart", "line": 
 _C01_REGROUP_CHART_FILLER = frozenset("chart graph terms form format view plot horizontal".split())
 
 
+# the chart phrases a question may END with ("... by district as a bar chart"): a regroup takes the previous
+# question's own chart request out with its old grouping (2026-11-14: it stayed, and the next regroup read
+# "... as a bar chart by financial year as a line chart", which the chat page drew as bars)
+_C01_OLD_CHART_PHRASES = tuple(sorted(
+    {f"{prep} {art}{horiz}{kind} {noun}".replace("  ", " ")
+     for prep in ("as", "in", "on", "into") for art in ("a ", "the ", "") for horiz in ("", "horizontal ")
+     for kind in ("bar", "pie", "line", "donut", "doughnut", "stacked bar", "grouped bar")
+     for noun in ("chart", "graph")}
+    | {"on the map", "on a map", "as a map", "as a table", "in a table", "as a ranking"}, key=len, reverse=True))
+
+
+def _c01_without_chart_phrase(text: str) -> str:
+    out = text
+    for phrase in _C01_OLD_CHART_PHRASES:
+        out = _c04_replace_ci(out, phrase, " ")
+    return collapse_ws(out).rstrip(" ,?.")
+
+
 def _c01_regroup_chart(raw_question: str) -> str:
     """" as a bar chart" when the regroup message names one chart kind, else ""."""
     ws = _c15_words(raw_question or "")
@@ -1596,7 +1614,7 @@ def _c01_regroup_question(raw_question: str, prev) -> "str | None":
         facts = scheme_registry.DATASETS.get(schemes[0]) if len(schemes) == 1 else None
         if facts is None or not facts.has_dates:
             return None
-    stem = prev_q
+    stem = _c01_without_chart_phrase(prev_q)
     for hit in sorted(_C02_BREAKDOWN.finditer(stem), key=lambda h: h.start(), reverse=True):
         head = stem[:hit.start()].rstrip()
         for prep in (" in", " for", " across", " and", ","):

@@ -30,7 +30,8 @@ _C16_GRAMMAR = frozenset("""
     there it its so far till until date as on now provide get find figure value data
     meghalaya state statewide whole entire all district block village c rd
     fy financial fiscal year years scheme schemes s
-""".split())
+    uh um umm hmm ok okay so well just kindly sir madam can could would you i we want need know see about
+""".split())   # the last line: fillers and openings (2026-11-14: "Uh, MGNREGA, total expenditure ..." declined on "uh")
 # Words a breakdown / ranking / comparison adds to the question.
 _C16_SHAPE_WORDS = {
     "breakdown": frozenset("by wise each across breakdown break down split up per list every districts blocks"
@@ -41,6 +42,11 @@ _C16_SHAPE_WORDS = {
     "compare": frozenset("compare comparison between and versus vs with against districts blocks".split()),
 }
 _C16_DIM_WORDS = {"district": "district", "districts": "district", "block": "block", "blocks": "block"}
+_C16_ALL_YEARS_WORDS = frozenset("across over throughout during combined together overall".split())
+# 2026-11-14: how the answer is DRAWN ("as a bar chart", "on the map") is not something more to compute; the chart
+# words declined the catalogue query ("asks more than the measure: bar chart") and the figure went to the model.
+_C16_CHART_WORDS = frozenset("chart graph bar pie line donut doughnut map table plot plotted draw drawn display "
+                             "displayed view horizontal form format terms visual visualise visualize on".split())
 _C16_PLURAL_DIMS = frozenset({"districts", "blocks"})
 
 
@@ -109,6 +115,8 @@ def _c16_extra_words(question: str, schemes: "list[str]", entity_result: dict, t
         if k in taken or any(a <= t.start < b for a, b in named) or w in place_words:
             continue
         if w in _C16_GRAMMAR or w in allowed or metric_catalog._stem(w) in allowed or w.isdecimal():
+            continue
+        if w in _C16_CHART_WORDS:
             continue
         if w.startswith("fy") and w[2:].isdecimal():
             continue
@@ -213,6 +221,12 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
         return out
     out["qtype"] = shape["qtype"]
     allowed = _C16_SHAPE_WORDS.get(shape["qtype"], frozenset()) | _c16_measure_vocabulary(m)
+    # 2026-11-14 (no-model run of the gold bank: 49 of 394 cases declined on this one word): a question that STATES
+    # all years ("... across all financial years", the words the year-scope step itself adds when no year is named)
+    # carries "across" / "over" as part of that phrase, not as something more to compute. The year rule below already
+    # accepts the phrase; a per-year tally (single_year) is still refused there.
+    if _ALL_YEARS_CUE.search(question or "") or _STATED_ALL_YEARS_CUE.search(question or ""):
+        allowed = allowed | _C16_ALL_YEARS_WORDS
     extra = _c16_extra_words(question, schemes, entity_result, found.spans, allowed)
     if extra:
         out["reason"] = "asks more than the measure: " + " ".join(extra[:6])

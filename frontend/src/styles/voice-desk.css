@@ -57,16 +57,24 @@
   font-size: min(22px, calc(100cqw * 1.62 / var(--ch, 6))); font-variant-numeric: tabular-nums;
 }
 .sdk .sdk-kpi .v small { font-size: 10.5px; font-weight: 600; letter-spacing: 0; margin-left: 3px; color: var(--sd-mute); }
+/* 2026-11-14: the scheme on one line (its hue as a dot), what the figure counts under it; each wraps whole words */
 .sdk .sdk-kpi .l {
-  display: block; margin-top: 6px; font-size: 10.5px; line-height: 1.25; color: var(--sd-mute);
-  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  display: flex; align-items: center; gap: 5px; margin-top: 7px; min-width: 0;
+  font-size: 10.5px; line-height: 1.2; font-weight: 700; color: var(--sd-tx); overflow-wrap: anywhere;
+}
+.sdk .sdk-kpi .l i { flex: none; width: 6px; height: 6px; border-radius: 50%; background: var(--c); }
+.sdk .sdk-kpi .c {
+  display: block; margin-top: 2px; font-size: 10.5px; line-height: 1.25; color: var(--sd-mute);
+  overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow-wrap: break-word;
 }
 .sdk .sd-tile.sdk-kpi.hero {
   background: linear-gradient(135deg, #0b0d14, #1b2233); color: #fff; border-color: #0b0d14;
   box-shadow: 0 12px 30px rgba(11, 13, 20, .25);
 }
 .sdk .sdk-kpi.hero .v { color: #fff; }
-.sdk .sdk-kpi.hero .l, .sdk .sdk-kpi.hero .v small { color: #aab0c0; }
+.sdk .sdk-kpi.hero .c, .sdk .sdk-kpi.hero .v small { color: #aab0c0; }
+.sdk .sdk-kpi.hero .l { color: #fff; }
+.sdk .sdk-kpi.hero .l i { box-shadow: 0 0 0 2px rgba(255, 255, 255, .25); }
 
 /* ---- section heading (Mitra .boardh) ---- */
 .sdk .sdk-boardh {
@@ -78,8 +86,9 @@
 /* ---- years held (in place of Mitra's .dclock: the same compact bars, one row per scheme) ---- */
 .sdk .sd-years { margin: 0; padding: 0; border: 0; border-radius: 0; background: none; box-shadow: none; }
 .sdk .sd-yr-grid {
-  display: grid; grid-template-columns: minmax(84px, 1.5fr) repeat(var(--n), minmax(0, 1fr));
-  gap: 4px; align-items: end; margin-top: 10px;
+  /* the names column takes the longest name ("CM Elevate Legacy" was cut), the years share the rest */
+  display: grid; grid-template-columns: minmax(84px, max-content) repeat(var(--n), minmax(0, 1fr));
+  gap: 3px 4px; align-items: end; margin-top: 8px;
 }
 .sdk .sd-yr-c { font-size: 9px; color: var(--sd-mute); text-align: center; white-space: nowrap; font-variant-numeric: tabular-nums; }
 .sdk .sd-yr-s {
@@ -100,10 +109,14 @@
 /* ---- money by scheme (Mitra .bars / .bar) ---- */
 .sdk .sdk-bars { display: flex; flex-direction: column; gap: 7px; margin-top: 6px; }
 .sdk .sdk-bar {
-  display: grid; grid-template-columns: 110px 1fr 64px; gap: 8px; align-items: center; width: 100%;
+  display: grid; grid-template-columns: 126px 1fr 64px; gap: 8px; align-items: center; width: 100%;
   font-size: 12px; text-align: left; border: 0; background: none; padding: 0; cursor: pointer;
 }
 .sdk .sdk-bar .t { color: var(--sd-mute); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sdk .sdk-bar .t i { display: inline-block; width: 6px; height: 6px; border-radius: 2px; margin-right: 7px; vertical-align: 1px; background: var(--c); }
+.sdk .sdk-bar:focus-visible, .sdk .sdk-minirow:focus-visible, .sdk .sd-chips button:focus-visible {
+  outline: 2px solid var(--sd-em1); outline-offset: 2px; border-radius: 8px;
+}
 .sdk .sdk-bar .b { height: 8px; border-radius: 999px; background: var(--sd-s2); overflow: hidden; }
 .sdk .sdk-bar .b i {
   display: block; height: 100%; border-radius: 999px;
@@ -197,3 +210,22 @@
 @media (prefers-reduced-motion: reduce) {
   .sdk .sdk-pstrip .cells button, .sdk .sdk-pstrip .spark .ln, .sdk .sd-yr-grid i, .sdk .sdk-bar .b i { transition: none; }
 }
+
+/* ---- 2026-11-14: eight schemes on one desk, compact enough to fit a 920 px screen (the column scrolls, with a fade,
+   only when the screen is shorter) ---- */
+.sdk .sd-tile.sdk-kpi { padding: 11px 13px; }
+.sdk .sdk-k8 { gap: 8px; }
+.sdk .sdk-card h3 { margin-bottom: 8px; }
+.sdk .sdk-boardh { margin-top: 10px; }
+.sdk .sd-yr-grid { row-gap: 4px; }
+.sdk .sd-yr-grid i.on { height: 10px; }
+.sdk .sd-yr-s { line-height: 12px; }
+.sdk .sdk-bars { gap: 5px; margin-top: 5px; }
+.sdk .sdk-minigrid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); column-gap: 18px; margin-top: 2px; }
+@container sdcard (max-width: 360px) { .sdk .sdk-minigrid { grid-template-columns: minmax(0, 1fr); } }
+.sdk .sdk-minirow { padding: 4px 0; }
+.sdk .sdk-minirow em { font-style: normal; font-weight: 700; font-size: 10px; color: var(--sd-mute2); margin-right: 7px; font-variant-numeric: tabular-nums; }
+.sdk .sdk-pstrip { display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 6px 18px; margin-top: 10px; padding-top: 8px; }
+.sdk .sdk-pstrip .pcol { min-width: 0; }
+.sdk .sdk-pstrip .ph { flex-wrap: wrap; row-gap: 0; margin: 2px 0 5px; }
+.sdk .sdk-pstrip .spark { height: 26px; }

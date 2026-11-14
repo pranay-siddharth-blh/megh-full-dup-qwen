@@ -593,6 +593,7 @@ async def run_case(case: dict, d, scope, sem) -> dict:
                 if f.get("value") is not None and f.get("live") is not None and abs(float(f["value"]) - float(f["live"])) > 1e-6:
                     drift.append(f"t{i + 1} {f.get('label') or f['unit']}: recorded {f['value']} live {f['live']}")
             t0 = time.perf_counter()
+            dataset_pick = None
             view = VIEW_ONLY.get(turn["q"])
             if view and last_raw is not None:
                 # App.jsx redraws a view-only message ("pie chart", "give me donut") from the last answer's rows
@@ -602,6 +603,13 @@ async def run_case(case: dict, d, scope, sem) -> dict:
             else:
                 try:
                     rec = await asyncio.wait_for(conv.ask(turn["q"]), TURN_TIMEOUT)
+                    # D-099 (the team's rule since 2026-11-03): a new chat asks which CM Elevate dataset. A case that
+                    # expects a figure taps the dataset it is about, as the officer would, and that answer is graded.
+                    if rec.route == "pause" and rec.pause_rule == "cm-elevate-dataset" and turn.get("pause") is False:
+                        legacy = case.get("cat") == "cm_elevate_legacy" or "CM Elevate Legacy" in (turn.get("schemes") or [])
+                        dataset_pick = "CM Elevate Legacy" if legacy else "CM Elevate"
+                        rec = await asyncio.wait_for(conv.ask(dataset_pick), TURN_TIMEOUT)
+                        rec.say = turn["q"]
                 except asyncio.TimeoutError:
                     rec = TurnRecord(say=turn["q"], route="error", answer=f"timeout after {TURN_TIMEOUT:.0f}s",
                                      ms=round((time.perf_counter() - t0) * 1000))
@@ -612,6 +620,7 @@ async def run_case(case: dict, d, scope, sem) -> dict:
                             "sql_query": raw.get("sql_query") or raw.get("sql")}
             out_turns.append({
                 "q": turn["q"], **v, "local_view": raw.get("local_view"), "route": rec.route, "pause_rule": rec.pause_rule, "seconds": round(rec.ms / 1000, 1),
+                "dataset_pick": dataset_pick,
                 "answer": rec.answer, "schemes": raw.get("schemes"), "chart_type": raw.get("chart_type"),
                 "rewritten": raw.get("rewritten_question"), "sql": raw.get("sql_query") or raw.get("sql"),
                 "data": (raw.get("data") or [])[:300], "data_full": raw.get("data") or [], "chips": rec.chips,

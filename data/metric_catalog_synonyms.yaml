@@ -16,4 +16,46 @@
 # Format:
 #   mgnrega_employment_generated:
 #     - labour days
-{}
+# 2026-11-14: wordings the accuracy gold bank asks that named no measure (found in a run with the model server down:
+# each then went to model-written SQL). Each was checked against the bank's independent truth SQL for that measure.
+focus_legacy_pg_count:
+  - pgs
+  - pg
+  - producer groups
+  - producer groups paid
+  - pgs paid
+focus_legacy_total_disbursed:
+  - amount
+  - money
+  - pay out
+  - paid out
+  - amount remitted
+  - total remitted
+cm_elevate_disb_total_disbursed:
+  - disbursement
+  - total disbursement
+  - disbursement amount
+  - total disbursement amount
+  - amount disbursed
+  - total disbursed
+  - total amount disbursed
+  - money disbursed
+focus_plus_payments:
+  - disbursements
+  - disbursements made
+focus_legacy_members_paid_for:
+  - pg members
+  - members
+pmay_houses_sanctioned:
+  - houses
+mgnrega_employment_generated:
+  - persondays
+mgnrega_households_employed:
+  - households received employment
+  - households provided employment
+  - households got work
+  - households employed
+focus_plus_amount_disbursed:
+  - paid out
+  - money disbursed
+  - money

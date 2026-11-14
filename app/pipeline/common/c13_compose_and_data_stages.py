@@ -223,7 +223,16 @@ Answer:"""
         ("premise_notes", notes_block), ("style_examples", style_examples),
         ("question", question), ("result_rows", json.dumps(preview, default=str)),
     ], prompt=prompt, rows=len(rows), rows_shown=len(preview))
-    answer = await llm.call_response_composer(prompt)
+    try:
+        answer = await llm.call_response_composer(prompt)
+    except Exception as e:  # noqa: BLE001
+        # 2026-11-14 (the model server was down): the rows are already fetched and checked; the deterministic
+        # answer built from them (the same one a twice-wrong composer falls back to) is given, never a 502.
+        logger.warning("compose_response: the model call failed (%s); the deterministic answer is given",
+                       type(e).__name__)
+        context_budget.log_decision("compose", fallback="deterministic", error=type(e).__name__)
+        answer = (_shaped_fallback(shape, _shape_rows, schemes, entities, question)
+                  or _framed_fallback(rows if len(rows) > 1 else preview, schemes, entities, sql=sql))
 
     data_nums = _data_numbers(preview) | digest_nums | facts_nums | set(extra_numbers or ())
     # A note may ask the composer to name the figure the question wrongly assumed
@@ -281,8 +290,12 @@ Answer:"""
             "it measures, digit-for-digit (thousands separators allowed). The values are:\n  "
             + allowed + "\nRewrite the answer now.\n\nAnswer:"
         )
-        answer = _fix_digit_grouping(await llm.call_response_composer(strict_prompt), data_nums)
-        still_bad = (bool(data_nums) and not _answer_numbers_faithful(answer, data_nums)) or bool(
+        try:
+            answer = _fix_digit_grouping(await llm.call_response_composer(strict_prompt), data_nums)
+        except Exception as e:  # noqa: BLE001   (2026-11-14: the retry's model call failed: the deterministic answer)
+            logger.warning("compose_response: the strict retry's model call failed (%s)", type(e).__name__)
+            answer = ""
+        still_bad = not answer or (bool(data_nums) and not _answer_numbers_faithful(answer, data_nums)) or bool(
             _c12_label_misbinds(answer, rows, data_nums)) or (
             len(preview) == 1 and len(_row_metrics(preview[0])) >= 2
             and not _answer_covers_metrics(answer, preview[0])) or (
@@ -648,6 +661,12 @@ def _c13_intent_by_cues(question: str) -> "str | None":
         return "DATA"
     if _c13_terse_figure(question):                                     # KI-715
         return "DATA"
+    # 2026-11-14: a figure across the schemes with no scheme named ("the headline figure of every scheme", "each
+    # scheme's figures") is what cross_scheme.detect answers from fixed queries; it has no DATA cue of its own
+    # ("headline", "figures") and went to the classifier, so its route depended on a model call it does not need.
+    if not _KNOWLEDGE_HINTS.search(question) and not _named_schemes(_correct_scheme_spelling(question or "")) \
+            and cross_scheme.detect(question or "", []):
+        return "DATA"
     return None
 
 
@@ -720,7 +739,12 @@ Return ONLY JSON: {{"intent": "DATA"|"KNOWLEDGE"}}
 
 Question: "{question}"
 JSON:"""
-    raw = await llm.call_classifier(prompt, guided={"guided_json": _INTENT_JSON_SCHEMA})
+    try:
+        raw = await llm.call_classifier(prompt, guided={"guided_json": _INTENT_JSON_SCHEMA})
+    except Exception as e:  # noqa: BLE001   (2026-11-14: the model server was down; as an unusable reply below)
+        logger.warning("classify_intent: the model call failed (%s) — defaulting to DATA", type(e).__name__)
+        context_budget.log_decision("intent", fallback="DATA", error=type(e).__name__)
+        return "DATA"
     payload = _extract_json(raw)
     if payload and payload.get("intent") in ("DATA", "KNOWLEDGE"):
         return payload["intent"]
