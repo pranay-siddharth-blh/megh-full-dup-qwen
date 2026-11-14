@@ -412,12 +412,15 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
     && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) && !!getToken(), [S]);
 
   const meters = () => {
+    // written only when the drawn level changes (two decimals): an unchanged value no longer restyles the meters 60
+    // times a second while nobody talks
+    let lastYou = ''; let lastMe = '';
     const tick = () => {
       if (phaseRef.current === 'off') return;
-      const you = Math.min(1, S.micRms * 7);
-      const me = Math.min(1, outLevel() * 5);
-      if (meterYou.current) meterYou.current.style.setProperty('--l', you.toFixed(3));
-      if (meterMegh.current) meterMegh.current.style.setProperty('--l', me.toFixed(3));
+      const you = Math.min(1, S.micRms * 7).toFixed(2);
+      const me = Math.min(1, outLevel() * 5).toFixed(2);
+      if (meterYou.current && you !== lastYou) { lastYou = you; meterYou.current.style.setProperty('--l', you); }
+      if (meterMegh.current && me !== lastMe) { lastMe = me; meterMegh.current.style.setProperty('--l', me); }
       S.raf = requestAnimationFrame(tick);
     };
     S.raf = requestAnimationFrame(tick);

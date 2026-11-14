@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createOrb } from '../voiceOrb.js';
 import { AI_VOICE_LABEL, greetingHeading, spokenForm } from '../voiceSpeech.js';
 import { deleteConversationApi, fetchNLPResponse, fetchVoiceBoard, peekVoiceBoard } from '../api.js';
@@ -9,6 +9,7 @@ import { SecretaryDesk } from '../voice/SecretaryDesk.jsx';
 import { VOICES, voiceOf } from '../voice/voices.js';
 import { SCHEME_HUES } from '../chartTheme.js';
 import VOICE_PACK from '../voice/meghVoicePack.js';
+import { levelText, parkOffset, parkTransform, spokenSentences } from '../voice/stageMotion.js';
 import '../../styles/voice-stage.css';
 import '../../styles/voice-desk.css';
 
@@ -167,8 +168,16 @@ function VoiceOrb({ live, parked, rootRef }) {
   const orbRef = useRef(null);
   const state = live.voiceState;
   useEffect(() => {
+    // 2026-11-14: the level goes to the two elements that read it (the state glow, the parked pill), in visible steps;
+    // written on the stage's root it restyled the whole view up to 60 times a second while the voice spoke
+    let last = '';
     const orb = createOrb(cvRef.current, {
-      onLevel: (v) => { if (rootRef.current) rootRef.current.style.setProperty('--lvl', v.toFixed(3)); },
+      onLevel: (v) => {
+        const t = levelText(v);
+        if (t === last || !rootRef.current) return;
+        last = t;
+        rootRef.current.querySelectorAll('[data-lvl]').forEach((el) => el.style.setProperty('--lvl', t));
+      },
     });
     orbRef.current = orb;
     return () => orb.destroy();
@@ -191,7 +200,7 @@ function VoiceOrb({ live, parked, rootRef }) {
       else if (live.muted) live.setMuted(false);
     };
   }, [live]);
-  return <canvas ref={cvRef} className="vs-orb-cv" aria-label="Megh One AI voice" />;
+  return <canvas ref={cvRef} className="vs-orb-cv" role="img" aria-label="Megh One AI voice" />;
 }
 
 /* A scroll box that holds more than it shows says so with a soft fade at that edge (2026-11-14: the desk's columns were
@@ -237,14 +246,22 @@ function StageFx({ on }) {
       g.fillStyle = gr; g.fillRect(0, 0, 64, 64); return s;
     });
     let W = 0; let H = 0;
-    const size = () => { const r = cv.getBoundingClientRect(); W = r.width; H = r.height; cv.width = Math.max(10, W * dpr); cv.height = Math.max(10, H * dpr); };
+    // sized from its layout box when that changes (a ResizeObserver; never on every resize event)
+    const apply = (w, h) => {
+      if (Math.round(w) === W && Math.round(h) === H) return;
+      W = Math.round(w); H = Math.round(h); cv.width = Math.max(10, Math.round(W * dpr)); cv.height = Math.max(10, Math.round(H * dpr));
+    };
+    const size = () => apply(cv.clientWidth, cv.clientHeight);
     size();
+    const ro = typeof ResizeObserver === 'function'
+      ? new ResizeObserver((es) => { const r = es[0] && es[0].contentRect; if (r) apply(r.width, r.height); }) : null;
+    if (ro) ro.observe(cv);
     const P = Array.from({ length: 70 }, () => ({ x: Math.random(), y: Math.random(), z: 0.3 + Math.random() * 0.7,
       vy: -(0.08 + Math.random() * 0.25), vx: (Math.random() - 0.5) * 0.12, ph: Math.random() * 6.28, s: Math.floor(Math.random() * 3) }));
     const cam = { x: 0, y: 0, tx: 0, ty: 0 };
     const onMove = (e) => { cam.tx = (e.clientX / window.innerWidth) * 2 - 1; cam.ty = (e.clientY / window.innerHeight) * 2 - 1; };
-    window.addEventListener('pointermove', onMove);
-    window.addEventListener('resize', size);
+    window.addEventListener('pointermove', onMove, { passive: true });
+    if (!ro) window.addEventListener('resize', size);
     let raf = 0; let last = performance.now();
     const frame = (now) => {
       const dt = Math.min(64, now - last); last = now;
@@ -264,7 +281,11 @@ function StageFx({ on }) {
       raf = requestAnimationFrame(frame);
     };
     raf = requestAnimationFrame(frame);
-    return () => { cancelAnimationFrame(raf); window.removeEventListener('pointermove', onMove); window.removeEventListener('resize', size); ctx.clearRect(0, 0, cv.width, cv.height); };
+    return () => {
+      cancelAnimationFrame(raf); window.removeEventListener('pointermove', onMove);
+      if (ro) ro.disconnect(); else window.removeEventListener('resize', size);
+      ctx.clearRect(0, 0, cv.width, cv.height);
+    };
   }, [on]);
   return <canvas ref={cvRef} className="vs-fx" aria-hidden="true" />;
 }
@@ -277,36 +298,45 @@ function MicWave({ analysers, on }) {
     const cv = cvRef.current;
     if (!on || !cv) return undefined;
     const ctx = cv.getContext('2d');
+    // 2026-11-14: the buffer follows the drawn size and the screen's density (a fixed 640 x 36 buffer was stretched,
+    // soft on a high-DPI screen), and a frame is drawn only when a new level is taken (24 a second, not every frame)
+    const dpr = Math.min(2, window.devicePixelRatio || 1);
+    const fit = () => {
+      const w = Math.max(10, Math.round((cv.clientWidth || 420) * dpr)); const h = Math.max(10, Math.round((cv.clientHeight || 36) * dpr));
+      if (cv.width !== w || cv.height !== h) { cv.width = w; cv.height = h; }
+    };
+    fit();
+    const ro = typeof ResizeObserver === 'function' ? new ResizeObserver(fit) : null;
+    if (ro) ro.observe(cv);
     const hist = new Float32Array(72);
     let hi = 0; let raf = 0; let buf = null; let lastPush = 0;
     const draw = (now) => {
-      if (now - lastPush >= 42) {
-        lastPush = now;
-        let v = 0;
-        try {
-          const a = analysers ? analysers() : null; const m = a && a.mic;
-          if (m) {
-            if (!buf || buf.length !== m.fftSize) buf = new Float32Array(m.fftSize);
-            m.getFloatTimeDomainData(buf);
-            let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
-            v = Math.sqrt(s / buf.length);
-          }
-        } catch (e) { v = 0; }
-        hist[hi] = v; hi = (hi + 1) % hist.length;
-      }
-      const W = cv.width; const H = cv.height; const n = hist.length; const bw = W / n;
+      if (now - lastPush < 42) { raf = requestAnimationFrame(draw); return; }
+      lastPush = now;
+      let v = 0;
+      try {
+        const a = analysers ? analysers() : null; const m = a && a.mic;
+        if (m) {
+          if (!buf || buf.length !== m.fftSize) buf = new Float32Array(m.fftSize);
+          m.getFloatTimeDomainData(buf);
+          let s = 0; for (let i = 0; i < buf.length; i++) s += buf[i] * buf[i];
+          v = Math.sqrt(s / buf.length);
+        }
+      } catch (e) { v = 0; }
+      hist[hi] = v; hi = (hi + 1) % hist.length;
+      const W = cv.width; const H = cv.height; const n = hist.length; const bw = W / n; const gap = 2 * dpr;
       ctx.clearRect(0, 0, W, H);
       for (let i = 0; i < n; i++) {
-        const val = hist[(hi + i) % n]; const h = Math.max(2, Math.min(H, val * H * 4.5));
+        const val = hist[(hi + i) % n]; const h = Math.round(Math.max(2 * dpr, Math.min(H, val * H * 4.5)));
         ctx.fillStyle = `rgba(178, 127, 224, ${(0.25 + (i / n) * 0.75).toFixed(3)})`;
-        ctx.fillRect(i * bw + 1, (H - h) / 2, bw - 2, h);
+        ctx.fillRect(Math.round(i * bw + gap / 2), Math.round((H - h) / 2), Math.max(1, Math.round(bw - gap)), h);
       }
       raf = requestAnimationFrame(draw);
     };
     raf = requestAnimationFrame(draw);
-    return () => { cancelAnimationFrame(raf); ctx.clearRect(0, 0, cv.width, cv.height); };
+    return () => { cancelAnimationFrame(raf); if (ro) ro.disconnect(); ctx.clearRect(0, 0, cv.width, cv.height); };
   }, [on, analysers]);
-  return <canvas ref={cvRef} className={'vs-wave' + (on ? ' on' : '')} width={640} height={36} aria-hidden="true" />;
+  return <canvas ref={cvRef} className={'vs-wave' + (on ? ' on' : '')} aria-hidden="true" />;
 }
 
 // a word that closes a sentence ("houses." / "district?" / "Hills.”"), so the sentence being said can be told apart
@@ -325,7 +355,8 @@ const schemeIn = (text) => {
   return [...STRIP].sort((a, b) => b.name.length - a.name.length).find((s) => t.includes(s.name.toLowerCase()))?.name || '';
 };
 
-function SchemeStrip({ onAsk, active }) {
+// memoised: it re-renders when the scheme on the stage changes, not on every word of the captions
+const SchemeStrip = memo(function SchemeStrip({ onAsk, active }) {
   const ref = useRef(null);
   useEdgeFade(ref, 'x', []);
   // the scheme on the stage is always in view (a narrow screen scrolls the strip)
@@ -347,7 +378,16 @@ function SchemeStrip({ onAsk, active }) {
       ))}
     </nav>
   );
-}
+});
+
+// the starters (Mitra's hints): static, so a caption word never re-renders them
+const Starters = memo(function Starters({ onAsk }) {
+  return (
+    <div className="vs-hints vs-starters">
+      {STARTERS.map((q) => <button key={q} type="button" onClick={() => onAsk(q)}>{q}</button>)}
+    </div>
+  );
+});
 
 function VoicePicker({ live }) {
   const [open, setOpen] = useState(false);
@@ -365,7 +405,7 @@ function VoicePicker({ live }) {
   return (
     <div className={'vs-voice' + (open ? ' open' : '')} ref={ref}>
       <button type="button" className="vs-voice-btn" aria-haspopup="menu" aria-expanded={open} onClick={() => setOpen((o) => !o)}
-              title="Choose the voice">
+              title="Choose the voice" aria-label={`Voice: ${cur.name}, ${cur.tone}. Choose the voice`}>
         <span className="vs-voice-wave" aria-hidden="true"><i /><i /><i /><i /></span>
         <b>{cur.name}</b><span className="vs-voice-tone">{cur.tone}</span>
         <span className="vs-voice-caret" aria-hidden="true">▾</span>
@@ -416,7 +456,6 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
   const [ghost, setGhost] = useState(null);
   const [kinds, setKinds] = useState({});           // "Show as": card id -> kind (Mitra's Stage.morph)
   const [insightOn, setInsightOn] = useState(false);
-  const [deskChips, setDeskChips] = useState([]);
   const [colsDone, setColsDone] = useState(false);
   const [navHome, setNavHome] = useState(false);
   const [, setExitTick] = useState(0);
@@ -533,15 +572,17 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
     let x = 0; let y = 0; let el = w;
     while (el && el !== root) { x += el.offsetLeft; y += el.offsetTop; el = el.offsetParent; }
     const main = root.querySelector('.vs-main'); if (main) y -= main.scrollTop;
-    const phone = root.clientWidth <= 600;
-    const size = phone ? 40 : 132;
-    const cx = x + w.offsetWidth / 2; const cy = y + w.offsetHeight / 2;
-    const tx = root.clientWidth - (phone ? 12 : 28) - size / 2;
-    const ty = phone ? 56 + 4 + size / 2 : 84 + size / 2;
-    w.style.transform = `translate(${(tx - cx).toFixed(1)}px, ${(ty - cy).toFixed(1)}px) scale(${(size / Math.max(1, w.offsetWidth)).toFixed(3)})`;
+    const t = parkTransform(parkOffset({ cx: x + w.offsetWidth / 2, cy: y + w.offsetHeight / 2, w: w.offsetWidth, rootW: root.clientWidth }));
+    if (w.style.transform !== t) w.style.transform = t;
   }, [stageOn]);
   useEffect(() => { place(); }, [place]);
-  useEffect(() => { window.addEventListener('resize', place); return () => window.removeEventListener('resize', place); }, [place]);
+  // a resize re-places the orb once per frame at most (resize events can come faster than frames while dragging)
+  useEffect(() => {
+    let raf = 0;
+    const soon = () => { if (!raf) raf = requestAnimationFrame(() => { raf = 0; place(); }); };
+    window.addEventListener('resize', soon);
+    return () => { cancelAnimationFrame(raf); window.removeEventListener('resize', soon); };
+  }, [place]);
 
   // the desk's columns scroll inside themselves when they hold more than the screen; a soft fade says so
   const colLRef = useRef(null);
@@ -582,29 +623,9 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
     return () => { on = false; };
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // stage in: the desk's cards become dock chips (Mitra's dockChips: each side card's h3 and its first figure);
-  // stage out: the desk's cards play cardHome (body.nav-home, 1.8 s)
+  // stage out: the desk's cards play cardHome (body.nav-home, 1.8 s). (2026-11-14: the dock chips' DOM walk and state
+  // went: the scheme strip replaced the chips on 2026-11-12 and the hidden row only cost a re-render per picture)
   const wasOn = useRef(false);
-  // the chips are rebuilt on every picture (Mitra's dockChips() in each show), so a board that arrived after the first
-  // question, or a new exchange, is in them
-  useEffect(() => {
-    const root = rootRef.current;
-    if (stageOn) {
-      const out = []; const seen = new Set();
-      if (root) {
-        root.querySelectorAll('.vs-col .sdk-card > h3, .vs-col .vs-anscard > h3').forEach((h3) => {
-          const first = h3.firstChild && h3.firstChild.nodeType === 3 ? h3.firstChild.textContent : h3.textContent;
-          const title = String(first || '').trim().slice(0, 26);
-          if (!title || seen.has(title)) return;
-          seen.add(title);
-          const small = h3.querySelector('small');
-          out.push({ title, num: small ? small.textContent.trim().slice(0, 14) : '' });
-        });
-      }
-      setDeskChips(out.length ? out : [{ title: 'Command view', num: 'Meghalaya' }, { title: 'On the map', num: '' },
-        { title: 'Conversation', num: `${turn.answers.length} exchange${turn.answers.length === 1 ? '' : 's'}` }]);
-    }
-  }, [stageOn, shownKey, board, turn.answers.length]);
   useEffect(() => {
     if (stageOn && !wasOn.current) setColsDone(true);
     let t = 0;
@@ -743,7 +764,9 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
   const capStatic = useRef(false);
   useEffect(() => {
     const c = capRef.current; if (!c) return;
-    c.scrollTop = capStatic.current ? 0 : c.scrollHeight;
+    // only when it moves the box (a smooth scroll started on every word restarted the glide each time)
+    const to = capStatic.current ? 0 : Math.max(0, c.scrollHeight - c.clientHeight);
+    if (Math.abs(c.scrollTop - to) > 1) c.scrollTop = to;
   }, [live.captions.megh, live.captions.you, currentId]);
 
   const send = (e) => {
@@ -819,6 +842,9 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
   else if (fresh && !turnOver) { meghShown = ''; capLive = false; }                  // the voice is about to read it
   else { meghShown = answerText; capLive = false; capOwn = true; }
   capStatic.current = capOwn;
+  // the screen reader's log: the sentences said so far (the one still being said waits for its end)
+  const srSentences = useMemo(() => spokenSentences(meghShown, capLive), [meghShown, capLive]);
+  const srKey = 'm' + (currentId || turn.userId || 0);
 
   // trace chips (Mitra: Listen · Hear · Understand · Act · Speak), driven by the voice state and the pipeline
   const answered = !!turn.answer && turn.answer.kind !== 'typing';
@@ -827,7 +853,6 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
   const lat = live.latencyMs != null ? (live.latencyMs / 1000).toFixed(1) + ' s' : '';
 
   const feed = turn.asked.slice(-8).reverse();
-  const earlierChips = turn.earlier.slice(-6).reverse();
   const stageTitle = shown ? titleOf(shown.plan, shown.q) : '';
   const cls = 'vstage' + (stageOn ? ' parked' : ' desk') + (exiting ? ' stage-out' : '') + (vplan ? ' has-plan' : '')
     + (board || boardMissing ? ' board-ready' : '') + (colsDone ? ' cols-done' : '') + (navHome ? ' nav-home' : '')
@@ -837,7 +862,7 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
 
   return (
     <div className={cls} ref={rootRef} data-state={state} role="dialog" aria-label="Live voice">
-      <div className="vs-bg" aria-hidden="true"><i className="au a1" /><i className="au a2" /><i className="au a3" /><i className="vs-gridbg" /></div>
+      <div className="vs-bg" aria-hidden="true" data-lvl=""><i className="au a1" /><i className="au a2" /><i className="au a3" /><i className="vs-gridbg" /></div>
 
       {/* THE STAGE (Mitra's #stageHost): between the header and the footer */}
       <div className="vs-host">
@@ -884,7 +909,6 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
           ))}
         </div>
         <div className="vs-dock">
-          <div className="vs-dock-chips" data-n={deskChips.length + earlierChips.length} />
           <button type="button" className="vs-chip home vs-dockclose" onClick={toDesk}><i>⌃</i> Dashboard</button>
         </div>
       </div>
@@ -921,10 +945,14 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
             </div>
           </div>
 
-          <div className={'vs-captions' + (capLive ? ' streaming' : '') + (capOwn ? ' own' : '')} ref={capRef} aria-live="polite">
+          {/* the captions change word by word: a screen reader gets whole sentences from the log below instead */}
+          <div className={'vs-captions' + (capLive ? ' streaming' : '') + (capOwn ? ' own' : '')} ref={capRef} aria-live="off">
             {greetingOnly && <div className="vs-hello"><h2>{heading}</h2></div>}
             {you && <div className="vs-you">{you}</div>}
             {meghShown && <div className="vs-megh" key={'m' + (currentId || turn.userId || 0)}><Words text={meghShown} streaming={capLive} /></div>}
+          </div>
+          <div className="vs-sr" role="log" aria-live="polite" aria-relevant="additions" aria-label="What Megh One AI says">
+            {srSentences.map((s, i) => <span key={srKey + ':' + i}>{s} </span>)}
           </div>
 
           <MicWave analysers={live.analysers} on={state === 'listening' && !live.muted && !stageOn} />
@@ -955,9 +983,7 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
             </form>
           </div>
 
-          <div className="vs-hints vs-starters">
-            {STARTERS.map((q) => <button key={q} type="button" onClick={() => onType(q)}>{q}</button>)}
-          </div>
+          <Starters onAsk={onType} />
         </section>
 
         {/* the right column's entrance ends last: then the entrance is dropped, so it never plays again */}
@@ -977,7 +1003,8 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
 
       <button type="button" className="vs-park" onClick={() => {
         if (live.phase === 'off') live.start(); else if (live.speaking) live.hush(); else if (live.muted) live.setMuted(false);
-      }} data-s={state} aria-label="Voice state">
+      }} data-s={state} data-lvl=""
+              aria-label={`Voice: ${live.muted ? 'muted' : (PARK_LABEL[state] || 'listening').toLowerCase()}. ${live.phase === 'off' ? 'Tap to talk' : live.speaking ? 'Tap to stop' : live.muted ? 'Tap to unmute' : ''}`.trim()}>
         <i />{live.muted ? 'Muted' : PARK_LABEL[state] || 'Listening'}
       </button>
 

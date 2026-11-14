@@ -38,9 +38,16 @@ export function createOrb(cv, { onLevel } = {}) {
   const sparks = Array.from({ length: 60 }, () => ({ a: Math.random() * 6.28, r: 1.25 + Math.random() * 0.9, v: 0.1 + Math.random() * 0.4, y: (Math.random() - 0.5) * 0.8, s: Math.random() }));
   const bursts = [];
 
-  // the canvas is sized from its layout box, once per change (never measured per frame)
-  const size = () => { const r = cv.getBoundingClientRect(); cv.width = Math.max(10, r.width * dpr); cv.height = Math.max(10, r.height * dpr); };
-  const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(size) : null;
+  // the canvas is sized from its layout box, once per change (never measured per frame). 2026-11-14: the LAYOUT size
+  // (clientWidth / the observer's contentRect), not getBoundingClientRect: the parked orb is scaled down by a transform,
+  // and a resize while parked sized the buffer to the small box, so the orb came back soft; whole device pixels
+  const apply = (w, h) => {
+    const W = Math.max(10, Math.round(w * dpr)); const H = Math.max(10, Math.round(h * dpr));
+    if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+  };
+  const size = () => apply(cv.clientWidth, cv.clientHeight);
+  const ro = typeof ResizeObserver !== 'undefined'
+    ? new ResizeObserver((es) => { const r = es[0] && es[0].contentRect; if (r) apply(r.width, r.height); else size(); }) : null;
   if (ro) ro.observe(cv); else window.addEventListener('resize', size);
   size();
 
@@ -53,7 +60,13 @@ export function createOrb(cv, { onLevel } = {}) {
   const P = { over: false, down: false, drag: false, x: 0, y: 0, lx: 0, ly: 0, dx: 0, dy: 0, vy: 0, vx: 0, t: 0,
     pullX: 0, pullY: 0, pvx: 0, pvy: 0, tx: 0, ty: 0, squash: 0, grab: 0 };
   let onTap = null;
-  const pos = (e) => { const r = cv.getBoundingClientRect(); P.x = (e.clientX - r.left) * dpr; P.y = (e.clientY - r.top) * dpr; };
+  // the pointer in the canvas's own (untransformed) pixels: offsetX / offsetY need no layout read and stay right while
+  // the orb is parked under a scale transform
+  const pos = (e) => {
+    if (typeof e.offsetX === 'number' && e.target === cv) { P.x = e.offsetX * dpr; P.y = e.offsetY * dpr; return; }
+    const r = cv.getBoundingClientRect(); const sx = cv.clientWidth ? r.width / cv.clientWidth : 1; const sy = cv.clientHeight ? r.height / cv.clientHeight : 1;
+    P.x = ((e.clientX - r.left) / (sx || 1)) * dpr; P.y = ((e.clientY - r.top) / (sy || 1)) * dpr;
+  };
   const onEnter = (e) => { P.over = true; pos(e); };
   const onLeave = () => { P.over = false; if (!P.down) { P.tx = 0; P.ty = 0; } };
   const onDown = (e) => {
@@ -83,7 +96,7 @@ export function createOrb(cv, { onLevel } = {}) {
   cv.addEventListener('pointerdown', onDown); cv.addEventListener('pointermove', onMove);
   cv.addEventListener('pointerup', release); cv.addEventListener('pointercancel', release);
 
-  let lastLvl = -1;
+  let lastLvl = -1; let cursor = '';
   function frame() {
     if (!alive) return;
     if (document.hidden || (half && !P.down && (skip ^= 1))) { requestAnimationFrame(frame); return; }   // parked: 30 fps
@@ -199,7 +212,8 @@ export function createOrb(cv, { onLevel } = {}) {
     if (wake > 0.02) { ctx.strokeStyle = rgba(deep(col[0]), wake * 0.7); ctx.lineWidth = 3 * dpr; ctx.beginPath(); ctx.arc(cx, cy, R * (1.1 + (1 - wake) * 1.3), 0, 6.29); ctx.stroke(); }
 
     if (onLevel && Math.abs(smooth - lastLvl) > 0.006) { lastLvl = smooth; onLevel(smooth); }   // only a visible change
-    cv.style.cursor = P.down ? 'grabbing' : hov > 0.05 ? 'grab' : 'pointer';
+    const cur = P.down ? 'grabbing' : hov > 0.05 ? 'grab' : 'pointer';
+    if (cur !== cursor) { cursor = cur; cv.style.cursor = cur; }      // a style write only when it changes
     if (!an) level *= 0.92;
     requestAnimationFrame(frame);
   }

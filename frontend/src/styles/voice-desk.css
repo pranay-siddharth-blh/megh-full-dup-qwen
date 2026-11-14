@@ -46,7 +46,7 @@
   display: block; width: 100%; min-width: 0; min-height: 0; text-align: left; cursor: pointer; overflow: hidden;
   border: 1px solid rgba(12, 16, 28, .07); border-radius: 16px; padding: 12px 14px;
   background: rgba(255, 255, 255, .85); box-shadow: none;
-  transition: all .2s; animation: none;
+  transition: border-color .18s, transform .18s cubic-bezier(.2, .8, .2, 1); animation: none;
   container-type: inline-size;
 }
 .sdk .sd-tile.sdk-kpi::before, .sdk .sd-tile.sdk-kpi::after { content: none; display: none; }
