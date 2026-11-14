@@ -1554,7 +1554,10 @@ async def _turn_followup_stage(t: dict, session: "Session | None" = None,
     #       as the previous question by that dimension / for both places
     #       (c01 _c01_ctx07_*); the model rewrite lost the breakdown and the place.
     if not _meta_rewrite and not scope_resumed and prev is not None and getattr(prev, "route", None) == "data":
-        for _c14_ctx07_kind, _c14_ctx07_fn in (("breakdown-statewide", _c01_ctx07_breakdown_question),
+        # 2026-11-14: the regroup rule first. It covers CTX-07's statewide case with the same result and also takes
+        # the old grouping out ("now by block" after "... by district" was "... by district by block" through CTX-07).
+        for _c14_ctx07_kind, _c14_ctx07_fn in (("regroup", _c01_regroup_question),
+                                               ("breakdown-statewide", _c01_ctx07_breakdown_question),
                                                ("compare-with-place", _c01_ctx07_compare_place_question)):
             _c14_ctx07_q = _c14_ctx07_fn(raw_question, prev)
             if _c14_ctx07_q is not None:

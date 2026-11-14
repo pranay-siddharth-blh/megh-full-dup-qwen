@@ -1179,7 +1179,8 @@ async def _data_scheme_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     _own_subschemes = len(_named) == 1 and bool(
         (scheme_registry.DATASETS.get(_named[0]) or None) and scheme_registry.DATASETS[_named[0]].sub_scheme_column)
     if _wants_cross_scheme_money_ranking(question) and not _own_subschemes:
-        _money = [s for s in cross_scheme.ORDER if s != "CM Elevate" and s not in _excluded]
+        # 2026-11-14: every scheme that records money (was: all but CM Elevate, so Homestay was asked for money)
+        _money = [s for s in cross_scheme.ORDER if cross_figures.has_measure(s, "money") and s not in _excluded]
         logger.info("cross-scheme money ranking %r -> %s", _cross_text, _money)
         d["schemes"], d["cross"] = _money, {"schemes": _money, "text": _cross_text}
         return None
@@ -2036,8 +2037,8 @@ def _cross_scheme_gaps(schemes: list[str], resolved: dict, display: "dict | None
     asked = (display or {}).get("year") or "FY " + ", ".join(f"{int(y)}-{(int(y) + 1) % 100:02d}" for y in years)
     money_only = cross_scheme.asks_money_only(question)
     for s in schemes:
-        if money_only and s == "CM Elevate":
-            gaps[s] = "CM Elevate records applications only, no money, so it has no amount to compare"
+        if money_only and not cross_figures.has_measure(s, "money"):
+            gaps[s] = f"{s} records applications only, no money, so it has no amount to compare"
             continue
         if ac and s not in _CROSS_AC_RECORDED:
             gaps[s] = f"{s} does not record assembly constituency, so it has no figure for {str(ac).title()}"

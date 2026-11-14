@@ -581,7 +581,13 @@ _KNOWLEDGE_HINTS = Matcher(Alt(
 # split / distribution" noun names a computed grouping over real records by
 # construction — there is no scheme-mechanics reading of it — so it can force
 # DATA outright, the same way _CROSS_SCHEME_SET_QUESTION does below.
-_BREAKDOWN_CUE = Matcher(Cap(W("split", "breakdown", "distribution")))
+# 2026-11-14: "break that down by district" (two words, an object between them) was not a cue, so a spoken or typed
+# "break it down ..." had no forced DATA intent; "breakdown" (one word) had.
+_BREAKDOWN_CUE = Matcher(Alt(
+    Cap(W("split", "breakdown", "distribution")),
+    Seq(W("break", "breaking", "broken"), Opt(W("it", "that", "this", "them", "these", "those")),
+        Opt(W("all", "further")), "down"),
+))
 
 # Same shape of bug as _BREAKDOWN_CUE above, different trigger word: "What is
 # the average amount disbursed per beneficiary?" / "What is the total
@@ -1493,6 +1499,116 @@ def _c01_ctx07_breakdown_question(raw_question: str, prev) -> "str | None":
         return None
     stem = _c05_statewide_stem(prev.question)
     return f"{stem} by {dim}" if stem else None
+
+
+# ── Regroup (2026-11-14): "break that down by block / by financial year / as per scheme" ──
+# CTX-07 above answers a breakdown ONLY of a statewide, ungrouped answer and only by a place level. Everything else
+# went to the model rewrite, whose checks then rejected the change of grouping (context_frames "lost-breakdown") or
+# lost the scheme and the measure, so "break it down by district" after "... by financial year", "now by block" after
+# a district's figure and "break down as per scheme" after a CM Elevate total were asked with the bare words. A message
+# that asks ONLY for a grouping is the previous question regrouped: its old grouping phrase is taken out and the new
+# one added; its scheme, measure, place and year stay as the previous question words them. Left to the other paths: a
+# grouping at or above the level the previous answer is filtered to (a roll-up, c15), a year grouping of a question
+# that names a year, "by scheme" where the dataset has no sub-schemes (a cross-scheme question), anything with a word
+# that is not a grouping word.
+_C01_REGROUP_DIM = {
+    "district": "district", "districts": "district", "block": "block", "blocks": "block",
+    "village": "village", "villages": "village", "constituency": "constituency", "constituencies": "constituency",
+    "year": "financial year", "years": "financial year", "fy": "financial year", "yearly": "financial year",
+    "annual": "financial year", "annually": "financial year",
+    "month": "month", "months": "month", "monthly": "month",
+    "scheme": "scheme", "schemes": "scheme", "programme": "scheme", "programmes": "scheme", "program": "scheme",
+    "programs": "scheme"}
+_C01_REGROUP_TRIGGER = frozenset("break breaking broken breakdown split by per each every wise".split())
+_C01_REGROUP_FILLER = frozenset(
+    "down up as on of in into the a an it that this them these those same figure figures number numbers data answer "
+    "result results now then also instead please pls can could would you show give me us i want need to see and ok "
+    "okay so level basis financial fiscal further again its their for all".split())
+_C01_REGROUP_C02 = {"financial year": "year"}                       # this rule's name -> c02's dimension name
+# a chart asked with the regroup ("... by district as a bar graph") comes along as the question's own chart phrase
+_C01_REGROUP_CHART = {"bar": "as a bar chart", "pie": "as a pie chart", "line": "as a line chart",
+                      "donut": "as a donut chart", "doughnut": "as a donut chart", "map": "on the map",
+                      "table": "as a table"}
+_C01_REGROUP_CHART_FILLER = frozenset("chart graph terms form format view plot horizontal".split())
+
+
+def _c01_regroup_chart(raw_question: str) -> str:
+    """" as a bar chart" when the regroup message names one chart kind, else ""."""
+    ws = _c15_words(raw_question or "")
+    kinds = [w for w in ws if w in _C01_REGROUP_CHART]
+    if len(set(kinds)) != 1:
+        return ""
+    phrase = _C01_REGROUP_CHART[kinds[0]]
+    if kinds[0] == "bar" and "horizontal" in ws:
+        phrase = "as a horizontal bar chart"
+    return " " + phrase
+_C01_PLACE_ORDER = ("district", "block", "village")
+
+
+def _c01_regroup_dimension(raw_question: str) -> "str | None":
+    """The one grouping a message asks for when it asks for nothing else, else None."""
+    ws = _c15_words(raw_question or "")
+    if not ws or len(ws) > 14:
+        return None
+    dims, trigger = set(), False
+    for w in ws:
+        base = w[:-4] if len(w) > 4 and w.endswith("wise") else ""
+        if w in _C01_REGROUP_DIM:
+            dims.add(_C01_REGROUP_DIM[w])
+        elif base in _C01_REGROUP_DIM:                              # "districtwise", "yearwise"
+            dims.add(_C01_REGROUP_DIM[base])
+            trigger = True
+        elif w in _C01_REGROUP_TRIGGER:
+            trigger = True
+        elif w not in _C01_REGROUP_FILLER and w not in _C01_REGROUP_CHART and w not in _C01_REGROUP_CHART_FILLER:
+            return None                                             # it asks for something else too
+    return dims.pop() if len(dims) == 1 and trigger else None
+
+
+def _c01_regroup_question(raw_question: str, prev) -> "str | None":
+    """The previous DATA question regrouped by the one dimension the message asks for, else None."""
+    if getattr(prev, "route", None) != "data" or not getattr(prev, "question", None):
+        return None
+    dim = _c01_regroup_dimension(raw_question)
+    if not dim:
+        return None
+    resolved = getattr(prev, "resolved_entities", None) or {}
+    if any(resolved.get(k) for k in ("district_list", "block_list", "village_list")):
+        return None                                                 # several places: a comparison, left alone
+    held = [k for k in _C01_PLACE_ORDER if resolved.get(k)]
+    if dim == "constituency" and (held or resolved.get("assembly_constituency")):
+        return None
+    if dim in _C01_PLACE_ORDER:
+        if resolved.get("assembly_constituency"):
+            return None
+        if any(_C01_PLACE_ORDER.index(k) >= _C01_PLACE_ORDER.index(dim) for k in held):
+            return None                                             # at / above its own filter: a roll-up (c15)
+    prev_q = collapse_ws(prev.question).rstrip(" ?.")
+    if dim == "financial year" and (context_policy.extract_year_keys(prev_q) or resolved.get("year_key")
+                                    or resolved.get("year_key_list")):
+        return None                                                 # it names a year: which years is a model call
+    schemes = list(getattr(prev, "schemes", None) or [])
+    if dim == "scheme":
+        facts = scheme_registry.DATASETS.get(schemes[0]) if len(schemes) == 1 else None
+        if facts is None or not facts.sub_scheme_column:
+            return None                                             # no sub-schemes: a cross-scheme question
+    if dim == "month":
+        facts = scheme_registry.DATASETS.get(schemes[0]) if len(schemes) == 1 else None
+        if facts is None or not facts.has_dates:
+            return None
+    stem = prev_q
+    for hit in sorted(_C02_BREAKDOWN.finditer(stem), key=lambda h: h.start(), reverse=True):
+        head = stem[:hit.start()].rstrip()
+        for prep in (" in", " for", " across", " and", ","):
+            if head.lower().endswith(prep):
+                head = head[:len(head) - len(prep)]
+        stem = collapse_ws(f"{head} {stem[hit.end():]}")
+    if not held:
+        stem = _c05_statewide_stem(stem)
+    stem = stem.rstrip(" ,?.")
+    if len(_c15_words(stem)) < 2:
+        return None
+    return f"{stem} by {dim}{_c01_regroup_chart(raw_question)}"
 
 
 def _c01_ctx07_compare_place_question(raw_question: str, prev) -> "str | None":

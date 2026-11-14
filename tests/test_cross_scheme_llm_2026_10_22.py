@@ -110,7 +110,10 @@ def test_gaps_year_lists_the_years_held():
 
 
 def test_gaps_money_only_skips_cm_elevate():
-    assert set(p._cross_scheme_gaps(cs.ORDER, {}, {}, "which scheme spent the most money?")) == {"CM Elevate"}
+    # 2026-11-14: every scheme that records no money (CM Elevate, and Homestay since it was onboarded), from the
+    # per-scheme specs; this pinned {"CM Elevate"} and Homestay was asked for money it does not hold
+    assert set(p._cross_scheme_gaps(cs.ORDER, {}, {}, "which scheme spent the most money?")) == set(p.cross_figures.NO_MONEY)
+    assert {"CM Elevate", "Homestay"} <= set(p.cross_figures.NO_MONEY)
     assert p._cross_scheme_gaps(cs.ORDER, {}, {}, "which scheme has the most beneficiaries?") == {}
 
 

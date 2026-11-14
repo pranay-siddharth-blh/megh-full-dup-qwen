@@ -71,7 +71,9 @@ logger = logging.getLogger(__name__)
 MAIN = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy")
 SUPPORTED = ("MGNREGA", "PMAY-G", "Focus Plus", "Focus Legacy", "CM Elevate", "CM Elevate Legacy", "CMSS", "Homestay")
 # records no money / no financial year at all (said plainly, never shown as 0)
-NO_MONEY = frozenset({"CM Elevate"})
+# NO_MONEY and _APART_IN_COMBINED are DERIVED below from the per-scheme specs (_QUERIES, _BEN_NOUN), so a newly
+# onboarded scheme cannot fall out of step with them (2026-11-14: Homestay records no money and counts applications,
+# but both sets still named only CM Elevate, and an all-schemes money / per-year question raised KeyError).
 NO_YEAR = frozenset({"CM Elevate"})
 # the schemes a constituency filter can read (the others do not record one); the
 # column is per view: MGNREGA employment carries its own assembly_constituency_name
@@ -79,8 +81,8 @@ NO_YEAR = frozenset({"CM Elevate"})
 _AC_COL = {"MGNREGA": "UPPER(ac_name)", "PMAY-G": "UPPER(ac_name)",
            "Focus Legacy": "UPPER(ac_name)", "CM Elevate Legacy": "UPPER(ac_name)", "CMSS": "UPPER(ac_name)", "Homestay": "UPPER(ac_name)"}
 _AC_VIEW_COL = {"curated.v_employment": "UPPER(assembly_constituency_name)"}
-# a combined total / ranking leaves these out (applications are not beneficiaries, I-13)
-_APART_IN_COMBINED = frozenset({"CM Elevate"})
+# a combined total / ranking leaves out the schemes that count applications (not beneficiaries, I-13):
+# _APART_IN_COMBINED, derived below from _BEN_NOUN
 
 # ── the per-scheme queries ────────────────────────────────────────────────────
 # Each entry: (view, district column, block column, [(metric, SQL expression)]).
@@ -157,6 +159,10 @@ def _block_names(block: str) -> list[str]:
     if base == "TURA MUNICIPAL BOARD":
         return [base, base + "-MUNICIPAL BOARD"]
     return [b]
+
+# a scheme whose specs hold no "money" expression records no money (CM Elevate, Homestay)
+NO_MONEY = frozenset(s for s, specs in _QUERIES.items()
+                     if not any(m == "money" for _view, _dist, _block, metrics in specs for m, _expr in metrics))
 
 
 def has_measure(scheme: str, measure: str) -> bool:
@@ -859,6 +865,17 @@ _BEN_NOUN = {"MGNREGA": "households given work", "PMAY-G": "houses sanctioned",
 _MONEY_VERB = {"MGNREGA": "spent", "PMAY-G": "released", "Focus Plus": "disbursed", "Focus Legacy": "disbursed",
                "CM Elevate Legacy": "disbursed (subsidy and loan)",
                "CMSS": "disbursed"}
+# schemes whose count is applications, not beneficiaries: kept apart in a combined total / ranking (I-13)
+_APART_IN_COMBINED = frozenset(s for s, noun in _BEN_NOUN.items() if noun == "applications")
+
+
+def _money_verb(s: str) -> str:
+    """The scheme's money verb; a scheme with no money entry never raises (it is answered "no money recorded")."""
+    return _MONEY_VERB.get(s, "recorded")
+
+
+def _per(s: str) -> str:
+    return _PER.get(s, "per beneficiary")
 
 
 def count_text(s: str, f: dict, short: bool = False, p: "Plan | None" = None) -> str:
@@ -883,7 +900,7 @@ def money_text(s: str, f: dict, short: bool = False) -> str:
         return m
     if s == "PMAY-G":
         return f"{m} released (sanctioned {rupees_crore(f.get('sanctioned', 0))})"
-    return f"{m} {_MONEY_VERB[s]}"
+    return f"{m} {_money_verb(s)}"
 
 
 def villages_text(f: dict, state: bool) -> str:
@@ -921,7 +938,7 @@ def measure_noun(measure: str) -> str:
 
 def fmt(s: str, f: dict, measure: str) -> str:
     if measure == "avg":
-        return f"₹{indian(avg_value(f) or 0)} {_PER[s]}"
+        return f"₹{indian(avg_value(f) or 0)} {_per(s)}"
     if measure == "money":
         return rupees_crore(f.get("money", 0))
     if measure == "villages":
@@ -1068,7 +1085,7 @@ def _year_lines(p: Plan, figs: dict, have: list) -> list:
             if not has_measure(s, m):
                 out.append(f"- **{SHORT[s]}**: no money recorded")
                 continue
-            noun = {"count": _BEN_NOUN[s], "money": f"money {_MONEY_VERB[s]}", "villages": "villages covered"}[m]
+            noun = {"count": _BEN_NOUN[s], "money": f"money {_money_verb(s)}", "villages": "villages covered"}[m]
             out.append(f"- **{SHORT[s]}** ({noun}): " + "; ".join(
                 f"FY {_fy(k)} {fmt(s, figs[s][k], m)}" for k in sorted(figs[s], key=int)))
     if len(have) >= 2 and "count" in p.measures:
@@ -1095,7 +1112,7 @@ def _scheme_line(s: str, f: dict, p: Plan, state: bool) -> str:
     if "villages" in p.measures:
         parts.append(villages_text(f, state and not (p.block or p.districts or p.village or p.ac)))
     if p.avg and has_measure(s, "avg") and avg_value(f):
-        parts.append(f"₹{indian(avg_value(f))} {_PER[s]}")
+        parts.append(f"₹{indian(avg_value(f))} {_per(s)}")
     return f"- **{SHORT[s]}:** " + ", ".join(parts)
 
 
@@ -1119,7 +1136,7 @@ def _state_lines(p: Plan, f: dict, have: list) -> list:
         avgs = {s: avg_value(f[s]) for s in have if has_measure(s, "avg") and avg_value(f[s])}
         if avgs:
             top = max(avgs, key=avgs.get) if not p.low else min(avgs, key=avgs.get)
-            out.append(f"Most money per beneficiary: **{top}** (₹{indian(avgs[top])} {_PER[top]}). Order: "
+            out.append(f"Most money per beneficiary: **{top}** (₹{indian(avgs[top])} {_per(top)}). Order: "
                        + " > ".join(f"{s} ₹{indian(avgs[s])}" for s in sorted(avgs, key=avgs.get, reverse=True)) + ".")
     if p.better:
         out.append("The schemes measure different things (" + ", ".join(f"{s} {_BEN_NOUN[s]}" for s in have)
@@ -1305,7 +1322,7 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
         if m == "money":
             # G-11: the money kinds differ as the counts do
             out.append("The combined figure adds different kinds of money (" + ", ".join(
-                f"{s} {_MONEY_VERB[s]}" for s in have) + "), added because the question asks for the total.")
+                f"{s} {_money_verb(s)}" for s in have if has_measure(s, "money")) + "), added because the question asks for the total.")
         for s in apart:
             out.append(f"{s} is not in the combined figure: it records "
                        + ("applications only, no money." if m in ("money", "avg") else "applications, not beneficiaries."))

@@ -171,7 +171,10 @@ def check(question: str, message: str, base: dict) -> "str | None":
     if (not msg_schemes or compares) and set(base.get("schemes") or []) - q_schemes:
         return "lost-scheme"
     if not context_policy.asked_levels(message) and not place_mentions(message):
-        if set(base.get("by") or []) - set(context_policy.asked_levels(question)):
+        # 2026-11-14: "now by financial year" after a by-district answer names its own grouping (c02's dimensions,
+        # not only the place levels asked_levels reads); the new grouping replaces the old one, nothing is lost
+        if not p._c02_breakdowns(message) \
+                and set(base.get("by") or []) - set(context_policy.asked_levels(question)):
             return "lost-breakdown"
         if set(context_policy._places(base["q"])) - set(context_policy._places(question)):
             return "lost-place"

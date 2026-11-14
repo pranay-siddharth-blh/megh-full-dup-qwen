@@ -59,7 +59,7 @@ import logging
 import time
 from dataclasses import dataclass
 
-from app import context_budget, topic_memory
+from app import context_budget, scheme_registry, topic_memory
 from app.config import settings
 from app.context_policy import (_CpEnd, _CpNextChar, _CpSep, _CpStart, _cp_end_punct, _cp_ends, _cp_glued,
                                 _cp_has, _cp_starts, _cp_ws)
@@ -612,6 +612,11 @@ def per_year_parts(session, question: str) -> "dict | None":
             continue
         yp = _cl_year_phrase(q, s)
         for label, kind, _held in held:
+            if kind == "money" and scheme_registry.DATASETS.get(s) is not None \
+                    and scheme_registry.DATASETS[s].money_unit is None:
+                # 2026-11-14: a scheme that records no money (CM Elevate, Homestay) is said so, never asked for it
+                notes.append(f"{s} records no money")
+                continue
             if kind == "money":
                 questions.append(f"What was the total {s} {_MONEY_LABEL.get(s, label)} in each financial year{yp}?")
             elif kind == "villages":

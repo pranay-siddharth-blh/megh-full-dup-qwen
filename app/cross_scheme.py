@@ -166,7 +166,7 @@ _ALL_SCHEMES_CUE = Matcher(Alt(
     S(W("each", "every", "per"), "scheme"),
     S(W("across", "among", "between", "over"),
         Opt(Alt("the", _XS_ALL_THE, "different", "various")), "schemes"),
-    S("all", Opt("the"), Opt(W("six", "6")), "schemes"),
+    S("all", Opt("the"), Opt(W("six", "6", "seven", "7", "eight", "8", "nine", "9", "ten", "10")), "schemes"),
     G(("scheme",), "?", ("wise",)),
     S("by", "scheme"),
     S(W("six", "6", "different", "various", "other"), "schemes"),
@@ -230,6 +230,11 @@ _RANK = Matcher(Alt(
 ))
 # "compare …", "summary …", "performance", "district-wise": a comparison is asked
 _XS_COMPARISON = Matcher(Alt(W("compar", "summar", prefix=True), W("performance", "wise")))
+# 2026-11-14: a figure asked with no measure word ("the headline figure of every scheme", "each scheme's
+# figures / numbers / statistics") is still a figure across the schemes; without this it was not detected, each
+# scheme got its own model-written query and the same words came back as totals once and by year the next time
+_XS_HEADLINE = Matcher(W("headline", "headlines", "figure", "figures", "number", "numbers", "statistics", "stats",
+                         "snapshot", "overview", "totals"))
 _SAME_COMPARISON = Matcher(S("same", W("comparison", "comparisons")))
 # "all / other / six / each …": the question reaches past the one scheme it names
 _XS_BEYOND_ONE = Matcher(W("all", "other", "six", "6", "every", "each", "different", "various"))
@@ -276,7 +281,7 @@ def detect(question: str, named: list[str], measure_text: str | None = None) -> 
     # "What schemes are available?" lists the schemes; only a figure, a ranking
     # or a comparison across them is ours
     if not (_MONEY.search(q) or _COUNT.search(q) or _COVERAGE.search(q) or _RANK.search(q)
-            or _XS_COMPARISON.search(q)):
+            or _XS_COMPARISON.search(q) or _XS_HEADLINE.search(q)):
         return None
     if len(named) == 1 and named[0] in ("CM Elevate", "CM Elevate Legacy"):
         # "which scheme" inside CM Elevate means one of its 15 programmes

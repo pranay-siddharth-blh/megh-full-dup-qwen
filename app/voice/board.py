@@ -1,4 +1,4 @@
-"""The Secretary's voice desk: one read-only board of the six schemes, by district and by year (D-105).
+"""The Secretary's voice desk: one read-only board of every onboarded scheme, by district and by year (D-105).
 
 Like `/api/scheme-stats` (routers/stats.py), and next to it, NOT part of the pipeline: fixed, parameter-free SELECTs on
 the curated views, with the same counting rules the chat uses (stats.py's comments), cached for BOARD_TTL_SECONDS so
@@ -52,6 +52,18 @@ _MEASURES = (
     ("CM Elevate Legacy", "curated.v_cm_elevate_disbursement", (
         ("disbursed", "SUM(total_disbursement)", "Disbursed", "rupees", "subsidy + loan disbursed (provisional)"),
         ("records", "COUNT(*)", "Sanction records", "count", "sanction records"),
+    )),
+    # 2026-11-14: the two schemes onboarded on 11-12 Nov, with the welcome cards' own counting rules
+    # (routers/stats.py _SQL "cmss" / "homestay"): a CMSS row is one student application, paid or not;
+    # a Homestay row is one application and the scheme records no money
+    ("CMSS", "curated.v_cmss", (
+        ("students_paid", "COUNT(*) FILTER (WHERE is_disbursed)", "Students paid", "count", "scholarship applications that were paid"),
+        ("applications", "COUNT(*)", "Applications", "count", "scholarship applications received"),
+        ("amount", "SUM(amount_disbursed)", "Amount disbursed", "rupees", "scholarship money paid out"),
+    )),
+    ("Homestay", "curated.v_homestay_api", (
+        ("applications", "COUNT(*)", "Applications", "count", "homestay applications received (no amounts held)"),
+        ("approved", "COUNT(*) FILTER (WHERE file_status = 'Approved')", "Approved", "count", "applications approved"),
     )),
 )
 
