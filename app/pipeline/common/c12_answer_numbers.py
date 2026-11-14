@@ -679,6 +679,15 @@ _HUMAN_METRIC = {
     "producer_groups": "producer groups", "members": "members", "memberships": "memberships paid",
     "financial_years": "financial years covered", "years": "financial years covered",
     "villages": "villages", "blocks": "blocks", "districts": "districts",
+    # the metric catalogue's own column names (2026-11-14: the no-model answer read "the recorded total is
+    # 2,72,64,054 employment generated", "… 412 pg count"); only names no other measure uses
+    "employment_generated": "person-days of employment",
+    "pg_count": "producer groups paid",
+    "households_100_days": "households that completed 100 days of work",
+    "upgradations": "upgradation applications",
+    "applications_valid": "applications verified valid",
+    "distinct_students": "students",
+    "members_paid_for": "member payments",
 }
 _METRIC_CAVEAT = {
     "household_years": ("A household is counted once for each financial year it worked, so this is not a "

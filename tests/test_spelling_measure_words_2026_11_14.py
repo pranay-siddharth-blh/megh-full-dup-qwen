@@ -40,3 +40,12 @@ def test_real_words_are_never_corrected(q):
 def test_every_not_typo_is_a_word_not_in_the_vocabulary():
     a = sp._aliases()
     assert a["not_typos"] and not (a["not_typos"] & set(a["words"]))
+
+
+# ── the no-model answer names what a catalogue measure counts (same day) ──
+def test_catalogue_columns_read_as_english():
+    from app import pipeline as p
+    a = p._framed_fallback([{"employment_generated": 27264054}], ["MGNREGA"], {"year": "2023-24"})
+    assert "person-days of employment" in a and "employment generated" not in a
+    assert "producer groups paid" in p._framed_fallback([{"pg_count": 412}], ["Focus Legacy"], {})
+    assert p._human_metric("households_100_days") == "households that completed 100 days of work"
