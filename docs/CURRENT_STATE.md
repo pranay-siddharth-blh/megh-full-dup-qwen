@@ -5,6 +5,22 @@
 **Branch / commit:** `main` @ `f38ea1b` (2026-10-02 session start). Uncommitted at session start: `docs/HANDOFF.md`, `docs/KNOWN_ISSUES.md` (KI-182) and untracked QA files; the LangGraph session added the changes listed below on top, all uncommitted.
 
 **Port: 8401 only, everywhere (user rule 2026-10-19). Start from the repo venv.**
+## Latest: Bitbucket merge + architecture round (2026-11-14, D-107 / D-108 / D-109), branch `arch/step1-2026-11-14`
+- This checkout = the team's Main 5c1deb1 (13 Nov) merged with the voice / accuracy work of 11-14 Nov; the five branches
+  of the day (`wt/followups`, `wt/cross`, `wt/guard`, `wt/ui` + the voice shaper in the Full Duplex project) are MERGED
+  here. Pull-only: nothing pushed. Ids renumbered (`docs/ID_RENUMBER_2026-11-14.md`).
+- Follow-ups by rule (regroup, regroup + year, rank, only one place, one place of a comparison, measure swap, value
+  filter, year / place swap); cross-scheme roles as data (D-107, below); guardrails (D-108: PII masking in every log,
+  unsourced spoken numbers blocked, voice session / connection limits, AI-voice disclosure); no-model coverage (D-109:
+  spelling vocabulary, catalogue synonyms / place aliases / constituency / several measures / CM Elevate valid-only
+  default, answer wording; RAG grounding on every path, knowledge-base coverage check); voice stage smoothness pass.
+- VERIFIED offline: pytest 6,343 passed / 4 failed (the known 3 `test_accuracy_gold_fixes` + BLH8) / 3 skipped; scripts
+  14/14; frontend 180/180, lint clean, `web/app` rebuilt. No-model gold bank (model endpoints 503, megh_db real):
+  154/394 -> 308/401 (nomodel-14), never a newly failing case.
+- NOT run: the gold bank with the model ON, the probe matrix, the voice bank, a live mic test (megh_db and TTS were down
+  at the end of the day). Check first: the CM Elevate dataset pause answered with a typed "CM Elevate" (nomodel-15
+  answered statewide while megh_db was failing; reproduce with the DB up).
+
 ## Latest: cross-scheme roles are data (2026-11-14, D-107, KI-724), branch `wt/cross-2026-11-14`
 - `data/cross_scheme.yaml` + `app/cross_registry.py` build every per-scheme cross table (`cross_figures`, `cross_scheme`,
   `conversation_layer._MONEY_LABEL`, c13 `_CROSS_AC_RECORDED` / `_CROSS_RUPEE_SCHEMES`, voice board `_NO_YEAR`) and the

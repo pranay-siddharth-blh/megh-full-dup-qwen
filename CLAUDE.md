@@ -1,10 +1,51 @@
 # CLAUDE.md — Megh One AI (Meghalaya Conversational Analytics Chatbot)
 
 Read this first, every session. It is short on purpose; details live in `docs/`.
-Last reconciled with the code: **3 Nov 2026**; §0a'' added **12 Nov 2026 (night)** (the live voice and its Secretary view D-103..D-105, test counts, the
+Last reconciled with the code: **3 Nov 2026**; §0a''' added **14 Nov 2026 (evening)** (Bitbucket merge + architecture round); §0a'' added **12 Nov 2026 (night)** (the live voice and its Secretary view D-103..D-105, test counts, the
 gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `docs/` not yet reconciled with it.**
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
+
+### 0a'''. 14 Nov 2026 — THIS checkout is where work continues: Bitbucket merge + architecture round (read first)
+- **What this folder is:** `D:\meg one clone\meghoneai` = the team's Bitbucket Main (`blh2026/meghoneai`, 5c1deb1, 13 Nov:
+  CMSS + Homestay = 8 schemes, D-099..D-102) merged with our voice / accuracy work. **We only pull; push is disabled on
+  every remote.** Branch **`arch/step1-2026-11-14`**. `D:\meg one clone\main_pristine` = the team's untouched Main (to
+  tell their failures from ours). `D:\MEGH-LANG\MEGH-LANG\meghoneai` = the OLD pre-merge copy (branch
+  `local/fullduplex-voice-2026-11-14`), still runnable, not developed any more. Our ids were renumbered (KI-660..692 ->
+  KI-691..723, D-098..102 -> D-103..106; `docs/ID_RENUMBER_2026-11-14.md`). New today: D-107, D-108, D-109 (DECISIONS.md).
+- **Run things:** Python = `D:\MEGH-LANG\MEGH-LANG\meghoneai\.venv`; `frontend/node_modules` is a junction to
+  MEGH-LANG's; `npm test / lint / build` only from a path without spaces (`subst M: "D:\meg one clone"`, then
+  `M:\meghoneai\frontend`). Full test run = pytest over the real test files + the 14 script-style `tests/test_*.py` run
+  on their own (bare `pytest tests` dies on them, KI-018; docs/TESTING.md). `.env`, `certs/voice.env`,
+  `gateway_models.env` are git-ignored copies. Everything runs as `superadmin` (`MEGH_VOICE_USER=superadmin`).
+- **Built 14 Nov (the GPU crashed ~11:50; done offline, five Opus agents in worktrees `D:\megwt\<name>`, all merged):**
+  - Follow-ups by rule (c01 + the ctx07 loop in c14): regroup ("break that down by block"), regroup + year, rank ("which
+    is lowest", "top 3", rank after rank), only one place ("only Ri Bhoi"), one place of a comparison, measure swap
+    ("what about the households instead"), value filter ("only the completed ones"), year-only / year / place swap;
+    also on the model-failed path. Tests `test_regroup_followups_2026_11_14.py`, `test_followup_rules_2026_11_14.py`.
+  - Cross-scheme = data (D-107): `data/cross_scheme.yaml` + `app/cross_registry.py` build every cross table; headline =
+    the welcome card's figure; parallel fan-out; grain in `semantic_cache.scope_signature`; "compare all eight schemes".
+  - Guardrails (D-108): `app/pii_mask.py` (`PII_LOG_MODE`), unsourced spoken numbers blocked (`VOICE_BLOCK_UNSOURCED`),
+    `VOICE_MAX_SESSION_MINUTES` 60 / `VOICE_HELLO_PER_MINUTE` 60, AI-voice disclosure + "AI-generated voice" label.
+  - No-model coverage (D-109): spelling vocabulary + `not_typos`; catalogue: approved synonyms keep their words, place
+    aliases (WGH), fewest / greatest, constituency filter via `cross_registry`, two-or-three-measure totals in one
+    query, the CM Elevate valid-only default (`_c16_cme_default`); answers read "person-days of employment", "₹X crore
+    disbursed". RAG: every knowledge path grounded and scheme-scoped, `rag.check_kb_coverage()` at start-up.
+  - UI: voice stage smoothness (style recalc ~5x less, no layout while charts are up), AI label at every width.
+- **Measured:** pytest **6,343 passed + the 4 known failures** (3 `test_accuracy_gold_fixes` CM Elevate rejected vs the
+  team's D-101; BLH8 `test_cacheable_shapes`, fails on pristine Main too); scripts 14/14; frontend 180/180, lint clean.
+  **No-model gold bank** (every model endpoint 503, megh_db real; a pass = rules + DB alone): 154/394 -> **308/401
+  (76.8%, nomodel-14)**, never a newly failing case. Results in `tests/accuracy/results/*_nomodel-*.json`.
+- **NOT verified yet (needs the model + megh_db):** the gold bank with the model ON (`tests/accuracy/run_gold.py --label
+  merged-1`), the probe matrix, the voice bank (needs TTS), a live mic test. **Check first:** nomodel-15 (run while
+  megh_db was failing) answered "CM Elevate applications WGH" -> pause -> typed "CM Elevate" STATEWIDE (7,375, not
+  1,625): the resumed question was just "CM Elevate (applications)". The resume functions are right offline;
+  reproduce with the DB up before trusting the CM Elevate pause path.
+- **Owner / team decisions open:** synonyms PMAY-G "beneficiaries" = houses sanctioned, CM Elevate Legacy "subsidy" =
+  subsidy disbursed, MGNREGA "households" = households employed; MGNREGA households across all years (bank sums years,
+  catalogue refuses: single_year); retention 0 days, `GUARDRAIL_MODEL_FAIL_CLOSED` / `BOOT_GUARD_ENFORCE` off, seeded
+  password `changeme123`; the onboarding tool still writes `cross_figures` overrides into `scheme.yaml`.
+- Cross-project handoff (voice engine, ports, backups, history): `D:\Full Duplex Architecture\CLAUDE.md` §0.
 
 ### 0a''. 12 Nov 2026 (night) — FINAL: fix round done, the user's live test PASSED, everything STOPPED
 - **Stopped:** no server running (8401 app, the sovereign voice 8144 / engine 8170 in `D:\Full Duplex Architecture`,

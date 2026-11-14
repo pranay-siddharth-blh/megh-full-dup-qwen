@@ -3,6 +3,15 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-11-14 (evening): everything of the day is MERGED into `arch/step1-2026-11-14` (this checkout), NOT pushed.**
+Follow-ups by rule, cross-scheme roles as data (D-107, the entry below, now merged), guardrails (D-108), no-model
+coverage (D-109), UI smoothness. pytest 6,343 + the 4 known; scripts 14/14; frontend 180/180; no-model gold bank
+308/401. Next, in order, when megh_db and the model are up: reproduce the CM Elevate typed-pick pause ("CM Elevate
+applications WGH" -> "CM Elevate" must answer 1,625, not 7,375), `tests/accuracy/run_gold.py --label merged-1` (model
+ON), the probe matrix, the voice bank (needs TTS); only then move the live copy over. Owner decisions open: three new
+catalogue synonyms (PMAY-G "beneficiaries", CM Elevate Legacy "subsidy", MGNREGA "households"), MGNREGA households
+across years, retention / fail-closed / seeded password, the onboarder's `cross_figures` overrides.
+
 **2026-11-14 (cross-scheme roles as data, D-107 / KI-724): branch `wt/cross-2026-11-14`, NOT merged, NOT pushed.** A new
 scheme's cross-scheme roles = one entry in `data/cross_scheme.yaml` (format in its header). Pytest green except the 4
 known; scripts 14/14; headline figures checked against the cards on megh_db. Next: (1) the live gold bank on the branch
