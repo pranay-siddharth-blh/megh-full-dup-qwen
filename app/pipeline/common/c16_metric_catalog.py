@@ -52,7 +52,9 @@ _C16_ALL_YEARS_WORDS = frozenset("across over throughout during combined togethe
 # 2026-11-14: how the answer is DRAWN ("as a bar chart", "on the map") is not something more to compute; the chart
 # words declined the catalogue query ("asks more than the measure: bar chart") and the figure went to the model.
 _C16_CHART_WORDS = frozenset("chart graph bar pie line donut doughnut map table plot plotted draw drawn display "
-                             "displayed view horizontal form format terms visual visualise visualize on".split())
+                             "displayed view horizontal form format terms visual visualise visualize on "
+                             # 2026-11-15: the bar's arrangement ("in a grouped bar chart", "as a stacked bar chart")
+                             "grouped stacked clustered column".split())
 _C16_PLURAL_DIMS = frozenset({"districts", "blocks"})
 
 
@@ -220,6 +222,13 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
         out.update(status="skip", reason="not one scheme")
         return out
     found = metric_catalog.match(question, schemes[0])
+    if found.status != "several":
+        # 2026-11-15: "houses sanctioned vs completed" — the shared noun written out names the second measure
+        spelt = metric_catalog.expand_elision(question, schemes[0])
+        again = metric_catalog.match(spelt, schemes[0]) if spelt else None
+        if again is not None and again.status == "several" and 2 <= len(again.several) <= 3:
+            question, found = spelt, again
+            out["elided"] = spelt
     out["status"] = found.status
     if found.status == "several" and 2 <= len(found.several) <= 3:
         return _c16_plan_several(question, schemes, entity_result, found, out)
@@ -372,6 +381,9 @@ def _c16_plan_ratio(question, schemes, entity_result, found, out, money, count, 
 
 # The words that join two figures asked together ("producer groups AND total", "subsidy PLUS loan").
 _C16_JOIN_WORDS = frozenset("and plus also both as well along with".split())
+# 2026-11-15: how two figures are set SIDE BY SIDE ("compare houses sanctioned VS completed") — with several measures
+# these ask for both figures, nothing more to compute (with one measure "compare" still needs named places / years).
+_C16_SIDE_BY_SIDE_WORDS = frozenset("compare comparison compared vs versus against side".split())
 
 
 def _c16_cme_default(m, question: str, schemes: "list[str]"):
@@ -407,11 +419,13 @@ def _c16_plan_several(question: str, schemes: "list[str]", entity_result: dict, 
         out["reason"] = "a filter the measure cannot take"
         return out
     shape = _c16_shape(question, filters)
-    if shape is None or shape["qtype"] != "total":
-        out["reason"] = "several measures: only totals are read together"
+    if shape is None or shape["qtype"] not in ("total", "breakdown"):
+        out["reason"] = "several measures: only totals or one breakdown are read together"
         return out
-    out["qtype"] = "total"
-    allowed = _C16_JOIN_WORDS
+    out["qtype"] = shape["qtype"]
+    allowed = _C16_JOIN_WORDS | _C16_SIDE_BY_SIDE_WORDS
+    if shape["qtype"] == "breakdown":
+        allowed = allowed | _C16_SHAPE_WORDS["breakdown"]
     for m in ms:
         allowed = allowed | _c16_measure_vocabulary(m)
     stated_all = bool(_ALL_YEARS_CUE.search(question or "") or _STATED_ALL_YEARS_CUE.search(question or ""))
@@ -425,6 +439,8 @@ def _c16_plan_several(question: str, schemes: "list[str]", entity_result: dict, 
     if len(years) > 1:
         out["reason"] = "several years"
         return out
+    if shape["qtype"] == "breakdown":
+        return _c16_plan_several_grouped(ms, filters, shape["group"], years, stated_all, found, out)
     parts = []
     for m in ms:
         if metric_catalog.single_year(m.key) and len(years) != 1:
@@ -442,6 +458,34 @@ def _c16_plan_several(question: str, schemes: "list[str]", entity_result: dict, 
             return out
         parts.append((m, q))
     out.update(status="built", query=metric_catalog.combine_totals(parts), verified=True)
+    return out
+
+
+def _c16_plan_several_grouped(ms: list, filters: dict, group: str, years: "list[int]", stated_all: bool, found,
+                              out: dict) -> dict:
+    """Two or three measures BY one grouping (2026-11-15: "PMAY-G houses sanctioned vs completed by district",
+    "CM Elevate Legacy subsidy and loan disbursed by scheme"): ONE grouped query, one value column per measure
+    (metric_catalog.build_several). Each measure must pass alone exactly what its own breakdown would (the year
+    rules, verified for a breakdown); the measures must share one view; otherwise the whole question declines."""
+    if len({m.base_object for m in ms}) != 1:
+        out["reason"] = "several measures by a grouping: not one view (" + ", ".join(m.base_object for m in ms) + ")"
+        return out
+    for m in ms:
+        if group != "year":
+            if metric_catalog.single_year(m.key) and len(years) != 1:
+                out["reason"] = f"{m.key} is read one financial year at a time"
+                return out
+            if not years and metric_catalog.YEAR_COLUMN in m.columns and not stated_all:
+                out["reason"] = "no year named"
+                return out
+        if metric_catalog.verified("breakdown", m.key, found.phrases) is None:
+            out.update(status="built", query=None, verified=False, reason=f"{m.key} not verified for a breakdown")
+            return out
+    q = metric_catalog.build_several(ms, filters, group, qtype="breakdown")
+    if q is None:
+        out["reason"] = "several measures by a grouping: the view lacks the column"
+        return out
+    out.update(status="built", query=q, verified=True)
     return out
 
 

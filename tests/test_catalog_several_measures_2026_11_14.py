@@ -75,7 +75,7 @@ def test_combine_renumbers_without_touching_longer_numbers(catalogue):
 
 
 @pytest.mark.parametrize("q,er,why", [
-    ("MGNREGA expenditure and person days by district in 2023-24", {"year_key": 2023}, "only totals"),
+    ("MGNREGA expenditure and person days by district in 2023-24", {"year_key": 2023}, "not one view"),
     ("MGNREGA expenditure and average person days in 2023-24", {"year_key": 2023}, "asks more"),
     ("MGNREGA expenditure and person days", {}, "no year named"),
     ("MGNREGA expenditure and job cards across all financial years", {}, "one financial year at a time"),

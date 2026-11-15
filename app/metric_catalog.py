@@ -405,10 +405,67 @@ def match(question: str, scheme: str) -> Match:
     return Match("one", _state["metrics"][keys.pop()], spans, frozenset(used))
 
 
+# The words that set two measures side by side, between a measure and a word that shares its noun.
+_ELISION_JOINS = frozenset("and vs versus or against plus".split())
+
+
+def expand_elision(question: str, scheme: str) -> "str | None":
+    """The question with a SHARED word written out (2026-11-15): "houses sanctioned vs completed" -> "houses
+    sanctioned vs houses completed", "loan and subsidy disbursed" style questions the other way round. A catalogue
+    phrase of two or more words, a join word right next to it, and on the other side ONE word no phrase took: when
+    that word put in place of the phrase's first / last word makes another catalogue phrase of this scheme, the
+    shared words are written out. None when nothing was written out. The caller keeps the result only when it then
+    names two or three measures (match status "several")."""
+    toks = list(tokens(question or ""))
+    low = [_stem(t.low) for t in toks]
+    phrases = {p for m in _state["by_scheme"].get(scheme, []) for p in m.phrases}
+    found = [(i, len(p), p) for p in phrases if len(p) >= 2
+             for i in range(len(low) - len(p) + 1) if tuple(low[i:i + len(p)]) == p]
+    covered = {k for i, n, _p in found for k in range(i, i + n)}
+    inserts: dict[int, str] = {}                  # character offset -> text to insert there
+    for i, n, p in found:
+        j = i + n                                 # "<phrase> vs <word>": the word takes the phrase's last place
+        if j + 1 < len(low) and low[j] in _ELISION_JOINS and j + 1 not in covered \
+                and p[:-1] + (low[j + 1],) in phrases:
+            inserts[toks[j + 1].start] = " ".join(t.raw for t in toks[i:i + n - 1]) + " "
+        j = i - 1                                 # "<word> and <phrase>": the word takes the phrase's first place
+        if j - 1 >= 0 and low[j] in _ELISION_JOINS and j - 1 not in covered \
+                and (low[j - 1],) + p[1:] in phrases:
+            inserts[toks[j - 1].end] = " " + " ".join(t.raw for t in toks[i + 1:i + n])
+    if not inserts:
+        return None
+    out = question
+    for at in sorted(inserts, reverse=True):
+        out = out[:at] + inserts[at] + out[at:]
+    return out
+
+
 def build(m: Metric, filters: dict, group: "str | None" = None, *,
           order: "str | None" = None, limit: "int | None" = None, qtype: str = "total"
           ) -> "tuple[str, list, str] | None":
-    """(parameterised SQL, params, display SQL) for metric `m`.
+    """(parameterised SQL, params, display SQL) for metric `m`; see _build."""
+    return _build([m], filters, group, order=order, limit=limit, qtype=qtype)
+
+
+def build_several(ms: "list[Metric]", filters: dict, group: str, *, qtype: str = "breakdown"
+                  ) -> "tuple[str, list, str] | None":
+    """(sql, params, shown) reading two or three measures BY one grouping in ONE query: one value column per measure
+    ("houses sanctioned and completed by district", 2026-11-15). Only measures of the same base view, with distinct
+    result-column names: the rows then share one WHERE and one GROUP BY, so each column is exactly the figure the
+    measure's own breakdown gives. Measures on different views (MGNREGA expenditure on v_expenditure, person-days on
+    v_employment) are None: their groupings would have to be joined, which this query does not do."""
+    if not 2 <= len(ms) <= 3 or group is None:
+        return None
+    if len({m.base_object for m in ms}) != 1 or len({m.scheme for m in ms}) != 1 \
+            or len({m.alias for m in ms}) != len(ms):
+        return None
+    return _build(list(ms), filters, group, qtype=qtype)
+
+
+def _build(ms: "list[Metric]", filters: dict, group: "str | None" = None, *,
+           order: "str | None" = None, limit: "int | None" = None, qtype: str = "total"
+           ) -> "tuple[str, list, str] | None":
+    """(parameterised SQL, params, display SQL) for the measures `ms`: one, or several of one view (build_several).
 
     filters: {"district" | "block" | "village_code": value or list,
               "year_key": [years]} — a list becomes "= ANY".
@@ -418,6 +475,7 @@ def build(m: Metric, filters: dict, group: "str | None" = None, *,
     for a block filter / grouping on a scheme whose blocks are not on lgd_block
     (Focus Plus maps its blocks on block_name_raw: lgd_block is NULL on 15% of
     its rows, tests/test_focusplus_block_columns.py)."""
+    m = ms[0]                  # view, scheme, place and year columns: the same for every measure (build_several)
     if m.scheme in _state.get("no_block_level", ()) and (filters.get("block") or group == "block"):
         return None
     where, params, shown = [], [], []
@@ -466,7 +524,7 @@ def build(m: Metric, filters: dict, group: "str | None" = None, *,
             params.append(values[0])
             where.append(f"{col} = UPPER(${len(params)})")
             shown.append(f"{col} = {quoted}")
-    value = f"{_value_sql(m)} AS {m.alias}"
+    value = ", ".join(f"{_value_sql(x)} AS {x.alias}" for x in ms)
     if group is None:
         select, tail = value, ""
     elif group == "year":
@@ -509,7 +567,8 @@ def build(m: Metric, filters: dict, group: "str | None" = None, *,
 
     def text(w: list[str]) -> str:
         wh = ("\nWHERE " + " AND ".join(w)) if w else ""
-        return f"/* metric:{m.key} {qtype} */ SELECT {select}\nFROM {m.base_object}{wh}{tail}"
+        key = "+".join(x.key for x in ms)
+        return f"/* metric:{key} {qtype} */ SELECT {select}\nFROM {m.base_object}{wh}{tail}"
 
     return text(where), params, text(shown)
 
