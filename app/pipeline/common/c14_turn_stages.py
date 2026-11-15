@@ -2388,6 +2388,14 @@ async def _turn_route_stage(t: dict, session: "Session | None" = None,
                 _vns["rewritten_question"] = question
             return _vns
 
+    # 1g'. "How many blocks are there in Meghalaya?" — the places master, no scheme (2026-11-16)
+    if _c15_geography_count(question) is not None:
+        _geo = await _geography_count_answer(question)
+        if _geo:
+            if question != raw_question:
+                _geo["rewritten_question"] = question
+            return _geo
+
     # 1h. "Which financial years does PMAY-G have?" — the scheme's own data
     #     years (_scheme_years_answer). Checked before routing: "which years of
     #     data are available for PMAY-G?" was classified KNOWLEDGE and RAG said

@@ -272,6 +272,10 @@ class Settings(BaseSettings):
     # `spoken` form for the live voice (rounded figures, marked "about", checked against the rows;
     # c19_natural_answers.py). false = the E9 answer and the page's own spoken form, as before.
     ANSWER_NATURAL_ENABLED: bool = True
+    # Money of one crore or more in a written answer reads "₹916.06 crore", not "₹91,605.96 lakh (≈ ₹916.06
+    # crore)" (user's live log 2026-11-16: "heavy"); the exact amount stays in the table. Only with
+    # ANSWER_NATURAL_ENABLED; false = the exact-plus-size form as before (c12 _c12_money).
+    ANSWER_MONEY_CRORE_LEAD: bool = True
 
     # ── SQL semantic verifier — qwen3-coder-30b (qwen-model), not the 4B ──
     # Execution checks first, then this (2026-10-15): it runs after the free code

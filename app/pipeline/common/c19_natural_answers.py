@@ -572,12 +572,13 @@ def _c19_lead_trend(shape, pairs, question, schemes, entities) -> str:
     change = f"{gap}" + (f" ({pct}%)" if pct is not None else "")
     rising = all(b > a for a, b in zip(vals, vals[1:]))
     falling = all(b < a for a, b in zip(vals, vals[1:]))
+    step = "month" if _c12s_monthly(shape, [r for r, _v in cp]) else "year"
     if v1 == v0:
         s1 = f"{subject} was the same at both ends, {f0} in {p0} and in {p1}."
     elif rising and len(cp) >= 3:
-        s1 = f"{subject} has risen every year, from {f0} in {p0} to {f1} in {p1} — up {change}."
+        s1 = f"{subject} has risen every {step}, from {f0} in {p0} to {f1} in {p1} — up {change}."
     elif falling and len(cp) >= 3:
-        s1 = f"{subject} has fallen every year, from {f0} in {p0} to {f1} in {p1} — down {change}."
+        s1 = f"{subject} has fallen every {step}, from {f0} in {p0} to {f1} in {p1} — down {change}."
     else:
         up = v1 > v0
         size = (pct if pct is not None else None)
@@ -733,7 +734,9 @@ def _c19_spoken_shape(shape, rows: list, question: str, schemes, entities) -> "s
                 s2 = f" It peaked in {lab(hi_r)}, at {said[id(hi_r)]}."
             elif id(lo_r) in inner and lo_v < min(v0, v1):
                 s2 = f" It dipped in {lab(lo_r)}, to {said[id(lo_r)]}."
-        return _c19_fit([s1, s2, " Each year's figure is on your screen."])
+        every = " Each month's figure is on your screen." if _c12s_monthly(shape, [r for r, _v in cp]) \
+            else " Each year's figure is on your screen."
+        return _c19_fit([s1, s2, every])
     # compare
     ordered = sorted(pairs, key=lambda p: p[1], reverse=True)
     (hr, hv), (lr, lv) = ordered[0], ordered[-1]

@@ -210,9 +210,47 @@ def _c12s_label(row: dict, shape: _AnswerShape) -> str:
     # FY 2022-23 vs FY 2023-24 (data-accuracy brief §3.1 probe, 2026-10-29)
     parts = [(f"FY {int(row[c])}-{(int(row[c]) + 1) % 100:02d}"
               if str(c).lower() in ("year_key", "year", "fy_start") and str(row[c]).isdecimal()
-              and 1990 <= int(row[c]) <= 2100 else str(row[c]))
+              and 1990 <= int(row[c]) <= 2100 else _c12s_date_words(c, row[c]))
              for c in cols if row.get(c) is not None]
     return " / ".join(parts) if parts else "(row)"
+
+
+_C12S_MONTHS = ("January", "February", "March", "April", "May", "June", "July", "August", "September", "October",
+                "November", "December")
+
+
+def _c12s_iso_date(v) -> "tuple[int, int, int] | None":
+    """(year, month, day) of a date cell — a date / datetime, or its ISO text '2021-12-01' (with an optional time
+    part) — else None."""
+    s = str(v).strip()[:10]
+    if len(s) != 10 or s[4] != "-" or s[7] != "-" or not (s[:4] + s[5:7] + s[8:]).isdecimal():
+        return None
+    y, m, d = int(s[:4]), int(s[5:7]), int(s[8:])
+    return (y, m, d) if 1900 <= y <= 2199 and 1 <= m <= 12 and 1 <= d <= 31 else None
+
+
+def _c12s_date_words(col, v) -> str:
+    """A date cell as the officer says it (user's live log 2026-11-16: "36 in 2021-12-01 against 3,572 in
+    2021-01-01"): a month column ("sanction_month") reads "December 2021"; any other date "5 March 2024".
+    Anything that is not a date is its own text."""
+    ymd = _c12s_iso_date(v)
+    if ymd is None:
+        return str(v)
+    y, m, d = ymd
+    if "month" in _c12s_parts(str(col)):
+        return f"{_C12S_MONTHS[m - 1]} {y}"
+    return f"{d} {_C12S_MONTHS[m - 1]} {y}"
+
+
+def _c12s_monthly(shape: "_AnswerShape", rows: list) -> bool:
+    """A time series by month (its time column holds the first of each month, or is named for months)."""
+    tcol = next((c for c in shape.labels if _c12s_is_time_col(c)), None)
+    if tcol is None:
+        return False
+    if "month" in _c12s_parts(str(tcol)):
+        return True
+    cells = [r.get(tcol) for r in rows[:24] if isinstance(r, dict) and r.get(tcol) is not None]
+    return bool(cells) and all((_c12s_iso_date(c) or (0, 0, 0))[2] == 1 for c in cells)
 
 
 def _c12s_allow(allowed: set, v: "int | float") -> None:

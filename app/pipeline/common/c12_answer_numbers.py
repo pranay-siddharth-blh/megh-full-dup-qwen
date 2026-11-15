@@ -345,6 +345,13 @@ def _c12_money_unit(col: str) -> "str | None":
     return {"lakh": "lakh", "crore": "crore", "": "rupees"}.get(unit[1])
 
 
+def _c12_crore_lead() -> bool:
+    """Money of one crore or more is written as its crore figure alone (ANSWER_MONEY_CRORE_LEAD, with the natural
+    answers on; D-114 extension 2026-11-16)."""
+    return bool(getattr(settings, "ANSWER_NATURAL_ENABLED", False)) \
+        and bool(getattr(settings, "ANSWER_MONEY_CRORE_LEAD", False))
+
+
 def _c12_money(v: "int | float", unit: str = "rupees") -> str:
     """One money figure as the officer reads it (data-accuracy brief 2026-10-29, RC6;
     settles KI-449): ₹, Indian grouping, the exact amount, then its crore / lakh size
@@ -355,6 +362,10 @@ def _c12_money(v: "int | float", unit: str = "rupees") -> str:
     rupees to show: "₹3,628.67 crore". A true zero is '₹0'."""
     rupees = float(v) * _C12_MONEY_SCALE[unit]
     sign, a = ("-" if rupees < 0 else ""), abs(rupees)
+    if a >= 1e7 and _c12_crore_lead():
+        # 2026-11-16 (user's live log): "₹91,605.96 lakh (≈ ₹916.06 crore)" in leads and lists is heavy; one crore
+        # or more reads as its crore figure, 2 decimals (the exact amount is the table's cell, unchanged).
+        return f"{sign}₹{_c12_indian(a / 1e7, 2)} crore"
     if unit == "crore" and a >= 1e6:
         return f"{sign}₹{_c12_indian(a / 1e7, 2)} crore"
     if unit == "lakh" and a >= 1e4:

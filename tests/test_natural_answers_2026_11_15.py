@@ -216,9 +216,9 @@ def test_runners_up_answer_is_natural_and_exact(natural_on):
     out = p._c17_runners_up_answer(RUNNERS_Q, RUNNERS_SQL, RUNNERS_ROWS, ["MGNREGA"],
                                    {"district": "WEST GARO HILLS", "year": "2023-24"})
     assert out.startswith("Tikrikilla has the most MGNREGA unskilled wage expenditure in West Garo Hills district "
-                          "in FY 2023-24: ₹2,412.73 lakh (≈ ₹24.13 crore)")
-    assert "well ahead of Dalu, at ₹1,402.93 lakh (≈ ₹14.03 crore)" in out
-    assert out.endswith("Demdema comes next, at ₹1,321.20 lakh (≈ ₹13.21 crore).")
+                          "in FY 2023-24: ₹24.13 crore")          # one crore or more = the crore figure (2026-11-16)
+    assert "well ahead of Dalu (₹14.03 crore)" in out
+    assert out.endswith("Demdema comes next, at ₹13.21 crore.")
     assert "Next:" not in out and "TIKRIKILLA" not in out
 
 
