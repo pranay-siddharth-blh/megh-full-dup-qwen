@@ -307,6 +307,23 @@ def _c18_origin(result: dict, *, mg_det: bool = False, per_scheme: bool = False,
     return None
 
 
+def _c18_grouped_by_its_own_filter(group: "str | None", filters: dict) -> bool:
+    """A grouping at (or above) a level the query is filtered to ONE value of: its rows are that one place / year."""
+    if group is None:
+        return False
+    if group == "year":
+        return filters.get("year_key") is not None and not filters.get("year_key_list")
+    if group == "constituency":
+        return bool(filters.get("assembly_constituency")) and not filters.get("assembly_constituency_list")
+    if group not in _C18_PLACE_LEVELS:
+        return False
+    for lvl in _c18_at_or_below(group):
+        one = filters.get("village_code") if lvl == "village" else filters.get(lvl)
+        if one not in (None, "") and not filters.get(f"{lvl}_list" if lvl != "village" else "village_code_list"):
+            return True
+    return False
+
+
 def _c18_fill_frame(question: str, result: dict, origin: "str | None" = None) -> dict:
     """The answer frame of a finished turn (a plain dict, empty for anything but a data answer). Deterministic: the
     catalogue's own query when it answered, else the final SQL, else None fields."""
@@ -319,6 +336,10 @@ def _c18_fill_frame(question: str, result: dict, origin: "str | None" = None) ->
         reading = _c18_sql_reading(result.get("sql") or result.get("sql_query") or "")
         q = collapse_ws(result.get("rewritten_question") or question or "").strip()
         qtype, group = reading["qtype"], reading["group"]
+        if _c18_grouped_by_its_own_filter(group, filters):
+            # GROUP BY the very place / year the query is filtered to (the PMAY-G facts query: one row per entity
+            # named): one figure for that place, not a breakdown
+            qtype, group = ("total" if qtype in ("breakdown", "ranking", "compare", "total") else qtype), None
         if qtype in ("breakdown", "total") and group is not None:
             lst = filters.get(f"{group}_list") if group in ("district", "block") else (
                 filters.get("year_key_list") if group == "year" else None)

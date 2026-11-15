@@ -103,6 +103,24 @@ def test_the_frame_of_model_and_fixed_sql_is_read_from_the_tree(sql, want):
     assert (f.qtype, f.group, f.order, f.limit) == want
 
 
+@pytest.mark.parametrize("resolved,want", [
+    ({"district": "WEST GARO HILLS", "year_key": 2023}, ("total", None)),
+    ({"block": "DALU"}, ("total", None)),                                       # a district grouping of one block
+    ({"district_list": ["RI BHOI", "EAST KHASI HILLS"]}, ("compare", "district")),
+    ({}, ("breakdown", "district")),
+])
+def test_a_grouping_by_the_filtered_place_itself_is_one_figure(resolved, want):
+    # the PMAY-G facts query groups by the very district it is filtered to (one row per named entity); read as a
+    # district breakdown, "what about the year before?" became "... by district in FY 2022-23" (no-model gold
+    # W5-FU-06, FU-09, W5-FU-01 on the first run of D-110)
+    sql = ("SELECT UPPER(lgd_district) AS entity_key, MAX(lgd_district) AS name, COUNT(*) AS houses, "
+           "COALESCE(SUM(sanctioned_amount), 0) AS sanctioned FROM curated.v_pmay "
+           "WHERE UPPER(lgd_district) = 'WEST GARO HILLS' GROUP BY UPPER(lgd_district)")
+    f = af.from_turn(_turn("How many PMAY-G houses were sanctioned in West Garo Hills in FY 2023-24?", ["PMAY-G"],
+                           resolved, sql))
+    assert (f.qtype, f.group) == want
+
+
 @pytest.mark.parametrize("sql", ["SELECT 1", "", "not sql at all ((", "SELECT 1 UNION SELECT 2"])
 def test_nothing_is_guessed_when_the_sql_says_nothing(sql):
     f = af.from_turn(_turn("PMAY-G houses by district", ["PMAY-G"], {}, sql))
