@@ -778,6 +778,66 @@ def _spaced_fy(question: str, toks: list[Tok], i: int) -> "str | None":
     return f"{a}-{b[-2:]}"
 
 
+# 2026-11-16 (voice audit): "MGNREGA person-days in East and West Khasi Hills" was answered for West Khasi Hills
+# alone, typed and spoken alike (the scan read the one full name; "East" was dropped without a word). Two or more
+# directions that share one district stem name EACH of those districts: "East and West Khasi Hills" = East Khasi Hills
+# and West Khasi Hills, "South West, West and East Garo Hills" likewise. Written out in full (and shown in the
+# "Showing results for …" line) only when every one is a real district; otherwise the words stay as typed.
+_ELIDED_DIRS = (("south", "west"), ("eastern", "west"), ("east",), ("west",), ("north",), ("south",))
+_ELIDED_STEMS = ("khasi", "garo", "jaintia")
+
+
+def _elided_dir_at(toks: list[Tok], i: int) -> "tuple[str, int] | None":
+    for words in _ELIDED_DIRS:
+        if i + len(words) <= len(toks) and tuple(t.low for t in toks[i:i + len(words)]) == words:
+            return " ".join(w.title() for w in words), i + len(words)
+    return None
+
+
+def _is_district_name(name: str) -> bool:
+    try:
+        from app.entity_resolver import named_places
+        return named_places(name).get(name.upper()) == "district"
+    except Exception:  # noqa: BLE001 — no catalogue: not expanded
+        return False
+
+
+def _elided_districts(question: str, toks: list[Tok], i: int) -> "tuple[int, str] | None":
+    """(the token index after the phrase, the districts written out) for "East and West Khasi Hills" at token i."""
+    dirs: list[str] = []
+    j = i
+    while True:
+        hit = _elided_dir_at(toks, j)
+        if hit is None:
+            return None
+        dirs.append(hit[0])
+        j = hit[1]
+        if j >= len(toks):
+            return None
+        if toks[j].low in _ELIDED_STEMS:
+            break
+        gap = question[toks[j - 1].end:toks[j].start]
+        if toks[j].low == "and":
+            gap2 = question[toks[j].end:toks[j + 1].start] if j + 1 < len(toks) else "x"
+            if (gap.strip() not in ("", ",")) or gap2.strip():
+                return None
+            j += 1
+        elif gap.strip() == "," and _elided_dir_at(toks, j) is not None:
+            pass                                            # "East, West and …"
+        else:
+            return None
+    if len(dirs) < 2:
+        return None
+    stem = toks[j].low
+    end = j + 1
+    if end < len(toks) and toks[end].low in ("hills", "hill"):
+        end += 1
+    names = [f"{d} {stem.title()} Hills" for d in dirs]
+    if len(set(names)) != len(names) or not all(_is_district_name(n) for n in names):
+        return None
+    return end, ", ".join(names[:-1]) + " and " + names[-1]
+
+
 def _normalise(question: str) -> Normalised:
     toks = tokens(question)
     out: list[str] = []
@@ -788,6 +848,14 @@ def _normalise(question: str) -> Normalised:
     while i < len(toks):
         t = toks[i]
         prev = toks[i - 1].low if i > 0 else ""
+        el = _elided_districts(question, toks, i) if t.low in ("east", "west", "north", "south", "eastern") else None
+        if el is not None:
+            end, written = el
+            out += [question[last:t.start], written]
+            last = toks[end - 1].end
+            corrections.append(Correction(_span_text(question, toks, i, end), written, "district", "elided"))
+            i = end
+            continue
         fy = _spaced_fy(question, toks, i)
         if fy is not None:
             # 2026-11-15: "2023 24" (the dash dropped, gold bank PF-MG-misspelt) is FY 2023-24 when the two numbers

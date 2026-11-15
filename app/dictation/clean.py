@@ -242,8 +242,11 @@ def spelling_pass(text: str) -> "tuple[str, list]":
         n = spelling.normalise(text)
     finally:
         _QUIET.reset(token)
-    keep = [c for c in n.corrections if c.kind in SPELLING_KINDS and letters(c.typed) != letters(c.canonical)]
-    if all(c.kind in SPELLING_KINDS for c in n.corrections):
+    # 2026-11-16: "East and West Khasi Hills" written out in full is the PIPELINE's reading (spelling, how "elided");
+    # dictation types what was said, so it never takes that one
+    keep = [c for c in n.corrections if c.kind in SPELLING_KINDS and c.how != "elided"
+            and letters(c.typed) != letters(c.canonical)]
+    if all(c.kind in SPELLING_KINDS and c.how != "elided" for c in n.corrections):
         out = n.text
     else:
         out = text

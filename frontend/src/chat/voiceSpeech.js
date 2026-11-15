@@ -176,7 +176,10 @@ export function spokenForm(response) {
   const own = typeof r.spoken === 'string' ? r.spoken.trim() : '';
   if (own) {
     const { text: t, cut: c } = cutAtSentence(plainForSpeech(own));
-    return { speak: c ? `${t} The rest is on your screen.` : t, kind: route || 'answer', read_exactly: true, on_screen: true };
+    // spoken_form (2026-11-16): the words were written for speech on the server; a voice engine that re-says answers
+    // in its own words (the sovereign engine's natural.py) reads these as they are
+    return { speak: c ? `${t} The rest is on your screen.` : t, kind: route || 'answer', read_exactly: true, on_screen: true,
+      spoken_form: true };
   }
   const plain = plainForSpeech(dropRedrawNote(r.answer || ''));
   if (!plain) {
@@ -195,4 +198,30 @@ export function spokenForm(response) {
 export function spokenNote(text) {
   const { text: t, cut } = cutAtSentence(plainForSpeech(dropRedrawNote(text)));
   return { speak: cut ? `${t} The rest is on your screen.` : (t || 'Done.'), kind: 'note', read_exactly: true, on_screen: true };
+}
+
+/* What the pipeline understood a question as (2026-11-16, voice audit item 2): its standalone `rewritten_question`
+   and a short summary of the answer frame (D-110), sent with the spoken answer so the voice engine's own memory of
+   the conversation is the pipeline's, not only what the engine sent. Small plain data; nothing here is spoken. */
+const FRAME_KEYS = ['schemes', 'qtype', 'group', 'order', 'limit', 'all_years', 'measure_text', 'split'];
+const FILTER_KEYS = ['district', 'block', 'assembly_constituency', 'year_key', 'district_list', 'block_list', 'year_key_list'];
+export function askedOf(response, question) {
+  const r = response || {};
+  const out = {};
+  const rq = typeof r.rewritten_question === 'string' ? r.rewritten_question.trim() : '';
+  const tq = typeof r.translated_question === 'string' ? r.translated_question.trim() : '';
+  const q = String(question || '').trim();
+  const asked = rq || tq || q;
+  if (asked) out.asked_as = asked.slice(0, 400);
+  const f = r.answer_frame;
+  if (f && typeof f === 'object' && !Array.isArray(f)) {
+    const frame = {};
+    for (const k of FRAME_KEYS) if (f[k] !== undefined && f[k] !== null && f[k] !== '') frame[k] = f[k];
+    const filters = {};
+    const src = (f.filters && typeof f.filters === 'object') ? f.filters : {};
+    for (const k of FILTER_KEYS) if (src[k] !== undefined && src[k] !== null && src[k] !== '') filters[k] = src[k];
+    if (Object.keys(filters).length) frame.filters = filters;
+    if (Object.keys(frame).length) out.frame = frame;
+  }
+  return out;
 }

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE, fetchVoiceBoard, getToken } from './api.js';
 import { isStopText } from './stopContinue.js';
-import { AI_DISCLOSURE, greetingHeading, greetingLine, spokenForm, spokenNote } from './voiceSpeech.js';
+import { AI_DISCLOSURE, askedOf, greetingHeading, greetingLine, spokenForm, spokenNote } from './voiceSpeech.js';
 import { plan } from './voice/vizPlan.js';
 import { canonicalNav, canonicalView, CHAT_VIEWS, isRedraw, NAV_SPEECH, NO_PICTURE, viewSpeech } from './voice/voiceViews.js';
 import { readVoice, saveVoice, SWITCH_LINE, VOICES } from './voice/voices.js';
@@ -215,7 +215,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
     setThinking(false);
     log({ type: 'reply', id, kind: result.kind, speak: result.speak });
     if (id) send({ type: 'tool_result', id, result });
-    else send({ type: 'read', text: result.speak });
+    else send({ type: 'read', text: result.speak, kind: result.kind, asked_as: result.asked_as, frame: result.frame });
   };
   // a call that will never be answered (a newer question took its place): the relay needs a result for every call
   const supersede = (id) => {
@@ -269,7 +269,22 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
       try { p = plan(m.response, m.question, m.view); } catch (e) { p = null; }
       return { speak: viewSpeech(m.view, p ? p.applied : null), kind: 'view', read_exactly: true, on_screen: true };
     }
-    return m.kind === 'rich' ? spokenForm(m.response) : spokenNote(m.text);
+    // 2026-11-16 (voice audit item 2): the pipeline's own reading of the question goes with the words to read, so
+    // the voice engine remembers the conversation as the pipeline understood it (a typed or chip turn included)
+    return m.kind === 'rich' ? { ...spokenForm(m.response), ...askedOf(m.response, m.question) } : spokenNote(m.text);
+  };
+  // the chat's last answers (at most 3), sent to the voice engine when the voice opens: a voice session that starts
+  // after typed turns, or reopens, continues the same conversation (the sovereign engine; Gemini never gets them)
+  const contextItems = () => {
+    const out = [];
+    for (let i = S.msgs.length - 1; i >= 0 && out.length < 3; i--) {
+      const m = S.msgs[i];
+      if (m && m.kind === 'rich' && !isRedraw(m)) {
+        const sp = spokenForm(m.response);
+        out.unshift({ ...askedOf(m.response, m.question), kind: sp.kind, speak: sp.speak });
+      }
+    }
+    return out.filter((x) => x.asked_as || x.frame);
   };
   const ask = (q, id, key = '') => {
     const question = String(q || '').trim();
@@ -355,6 +370,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
         S.idleMs = Math.max(8000, (e.idle_seconds || 25) * 1000);
         setPh('live'); S.lastVoice = performance.now(); armIdle();
         for (const x of S.readQueue.splice(0)) send(x);
+        { const items = contextItems(); if (items.length) send({ type: 'context', items }); }
         if (S.greet) {                                                                   // once per opening of the stage
           S.greet = false;
           // a question waits (open(question)): the hello is just the greeting and the disclosure, then the question

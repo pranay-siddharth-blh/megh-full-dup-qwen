@@ -147,7 +147,9 @@ async def main():
             check("the voice said the checked answer word for word", bool(sp) and sp.split(".")[0].strip() in said, said)
         else:
             said = done.get("said") or ""
-            check("the voice said the figure (digits or words)", "54,89,616" in said or "5,489,616" in said or "fifty" in said.lower(), said)
+            # D-114: the real voice too says the answer's spoken form, so its honest marked rounding ("about 55 lakh")
+            check("the voice said the figure (digits, words or the honest rounding)",
+                  "54,89,616" in said or "5,489,616" in said or "fifty" in said.lower() or "55 lakh" in said.lower(), said)
         typed = http_answer(token, q1)
         same = figures(typed.get("spoken") or typed.get("answer"))[:1] == figures(sp)[:1]
         check("same answer as the typed path (POST /api/query)", same and "54,89,616" in (typed.get("answer") or ""),
