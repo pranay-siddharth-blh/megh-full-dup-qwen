@@ -543,9 +543,74 @@ def voice_cases(blk: list[dict]) -> list[dict]:
     return C
 
 
+HEADLINE = {   # each scheme's headline figure (what its overview card leads with), own SQL
+    "MGNREGA": ("SELECT SUM(person_days) FROM curated.v_employment WHERE {w}", None),
+    "PMAY-G": ("SELECT COUNT(*) FROM curated.v_pmay WHERE {w}", None),
+    "Focus Legacy": ("SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE {w}", None),
+    "Focus Plus": ("SELECT COUNT(*) FROM curated.v_focus_plus WHERE {w}",
+                   "SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE {w}"),
+    "CMSS": ("SELECT COUNT(*) FROM curated.v_cmss WHERE {w}", None),
+}
+
+
+def headline_cases() -> list[dict]:
+    """(f) KIND 2 permutations: a scheme + a place and NO measure ("the figure / numbers / overview of X for P")
+    must give the scheme's headline figure for that place, never the knowledge route."""
+    C = []
+    places = [("West Garo Hills", "lgd_district = 'WEST GARO HILLS'"), ("Ri Bhoi", "lgd_district = 'RI BHOI'"),
+              ("East Khasi Hills", "lgd_district = 'EAST KHASI HILLS'"), ("Tikrikilla block", "lgd_block = 'TIKRIKILLA'"),
+              ("Mawphlang block", "lgd_block = 'MAWPHLANG'")]
+    phr = ["Give me the figure of {s} for {p}?", "What are the {s} numbers in {p}?", "{s} in {p}.",
+           "Show me {s} for {p}", "How is {s} doing in {p}?", "Give me an overview of {s} in {p}",
+           "What's the {s} figure for {p}?", "Okay, so what about {s} in {p}?"]
+    k = 0
+    for i, (s, (sql, alt)) in enumerate(HEADLINE.items()):
+        for j, (p, w) in enumerate(places):
+            if s == "Focus Plus" and "block" in p:
+                w = w.replace("lgd_block", "UPPER(block_name_raw)")
+            if s == "CMSS" and j > 2:
+                continue
+            f = fig(sql.format(w=w), "count")
+            if alt:
+                f = {"any": [fig(sql.format(w=w), "count"), fig(alt.format(w=w), "count")]}
+            q0 = phr[k % len(phr)].format(s=s, p=p)
+            k += 1
+            C.append(case(f"HEAD-{i}{j}", "headline-no-measure", f"{s}/{p}", [
+                turn(q0, figures=[f], pause=False, not_route="knowledge", max_s=25)]))
+    return C
+
+
+def grouping_cases() -> list[dict]:
+    """(g) the grouping words the user says ("per financial year across all districts", "for every financial year",
+    "district wise" ...) must group by that dimension."""
+    C = []
+    meas = [("MGNREGA expenditure", f"ROUND(SUM(total_exp), 2) FROM {EXP}", "lakh"),
+            ("PMAY-G houses sanctioned", f"COUNT(*) FROM {PM}", "count"),
+            ("MGNREGA person-days", f"SUM(person_days) FROM {EMP}", "count"),
+            ("Focus Legacy amount disbursed", f"SUM(amount_disbursed) FROM {FL}", "rupees")]
+    fy = ["Show me the {m} for every financial year", "{m} per financial year across all districts",
+          "{m} year wise", "Give me the {m} for each year", "How did the {m} move year by year?",
+          "Okay, can you show me {m} financial year wise for the whole state"]
+    dist = ["{m} district wise", "Show me the {m} for every district", "{m} per district",
+            "What is the {m} in each district?", "Show me {m} across all the districts"]
+    k = 0
+    for i, (m, expr, unit) in enumerate(meas):
+        for j in range(3):
+            q0 = fy[k % len(fy)].format(m=m)
+            C.append(case(f"GRP-FY-{i}{j}", "grouping-words", "by financial year", [
+                turn(q0, rows=[rows(f"SELECT financial_year_short, {expr} WHERE year_key IS NOT NULL GROUP BY 1 "
+                                    "ORDER BY 1", unit)], pause=False, max_s=25)]))
+            q1 = dist[k % len(dist)].format(m=m)
+            C.append(case(f"GRP-D-{i}{j}", "grouping-words", "by district", [
+                turn(q1, rows=[rows(f"SELECT lgd_district, {expr} WHERE lgd_district IS NOT NULL GROUP BY 1 "
+                                    "ORDER BY 2 DESC", unit)], pause=False, max_s=25)]))
+            k += 1
+    return C
+
+
 async def main():
     blk = await block_cases()
-    cases = log_cases() + blk + vague_cases() + chain_cases() + voice_cases(blk)
+    cases = log_cases() + blk + vague_cases() + chain_cases() + voice_cases(blk) + headline_cases() + grouping_cases()
     bank = {"bank": "Megh One AI LOG BANK (the user's own questions, every block, vague starts, spoken follow-ups)",
             "built_by": "tests/accuracy/build_log_bank.py", "truth_recorded": "2026-11-16", "cases": cases}
     with open(OUT, "w", encoding="utf-8") as fh:

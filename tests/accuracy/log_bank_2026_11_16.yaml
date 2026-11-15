@@ -3917,3 +3917,576 @@ cases:
     place: ZIKZAK
     year: 2025
     max_s: 25
+- id: HEAD-00
+  cat: headline-no-measure
+  shape: MGNREGA/West Garo Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me the figure of MGNREGA for West Garo Hills?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'WEST GARO HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-01
+  cat: headline-no-measure
+  shape: MGNREGA/Ri Bhoi
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What are the MGNREGA numbers in Ri Bhoi?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'RI BHOI'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-02
+  cat: headline-no-measure
+  shape: MGNREGA/East Khasi Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA in East Khasi Hills.
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'EAST KHASI HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-03
+  cat: headline-no-measure
+  shape: MGNREGA/Tikrikilla block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me MGNREGA for Tikrikilla block
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'TIKRIKILLA'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-04
+  cat: headline-no-measure
+  shape: MGNREGA/Mawphlang block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How is MGNREGA doing in Mawphlang block?
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_block = 'MAWPHLANG'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-10
+  cat: headline-no-measure
+  shape: PMAY-G/West Garo Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me an overview of PMAY-G in West Garo Hills
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'WEST GARO HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-11
+  cat: headline-no-measure
+  shape: PMAY-G/Ri Bhoi
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What's the PMAY-G figure for Ri Bhoi?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'RI BHOI'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-12
+  cat: headline-no-measure
+  shape: PMAY-G/East Khasi Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, so what about PMAY-G in East Khasi Hills?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'EAST KHASI HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-13
+  cat: headline-no-measure
+  shape: PMAY-G/Tikrikilla block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me the figure of PMAY-G for Tikrikilla block?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'TIKRIKILLA'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-14
+  cat: headline-no-measure
+  shape: PMAY-G/Mawphlang block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What are the PMAY-G numbers in Mawphlang block?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_block = 'MAWPHLANG'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-20
+  cat: headline-no-measure
+  shape: Focus Legacy/West Garo Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy in West Garo Hills.
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'WEST GARO HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-21
+  cat: headline-no-measure
+  shape: Focus Legacy/Ri Bhoi
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me Focus Legacy for Ri Bhoi
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'RI BHOI'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-22
+  cat: headline-no-measure
+  shape: Focus Legacy/East Khasi Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How is Focus Legacy doing in East Khasi Hills?
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'EAST KHASI HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-23
+  cat: headline-no-measure
+  shape: Focus Legacy/Tikrikilla block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me an overview of Focus Legacy in Tikrikilla block
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'TIKRIKILLA'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-24
+  cat: headline-no-measure
+  shape: Focus Legacy/Mawphlang block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What's the Focus Legacy figure for Mawphlang block?
+    figures:
+    - sql: SELECT COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_block = 'MAWPHLANG'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-30
+  cat: headline-no-measure
+  shape: Focus Plus/West Garo Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, so what about Focus Plus in West Garo Hills?
+    figures:
+    - any:
+      - sql: SELECT COUNT(*) FROM curated.v_focus_plus WHERE lgd_district = 'WEST GARO HILLS'
+        unit: count
+      - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district = 'WEST GARO HILLS'
+        unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-31
+  cat: headline-no-measure
+  shape: Focus Plus/Ri Bhoi
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me the figure of Focus Plus for Ri Bhoi?
+    figures:
+    - any:
+      - sql: SELECT COUNT(*) FROM curated.v_focus_plus WHERE lgd_district = 'RI BHOI'
+        unit: count
+      - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district = 'RI BHOI'
+        unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-32
+  cat: headline-no-measure
+  shape: Focus Plus/East Khasi Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What are the Focus Plus numbers in East Khasi Hills?
+    figures:
+    - any:
+      - sql: SELECT COUNT(*) FROM curated.v_focus_plus WHERE lgd_district = 'EAST KHASI HILLS'
+        unit: count
+      - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district = 'EAST KHASI HILLS'
+        unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-33
+  cat: headline-no-measure
+  shape: Focus Plus/Tikrikilla block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Plus in Tikrikilla block.
+    figures:
+    - any:
+      - sql: SELECT COUNT(*) FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'TIKRIKILLA'
+        unit: count
+      - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'TIKRIKILLA'
+        unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-34
+  cat: headline-no-measure
+  shape: Focus Plus/Mawphlang block
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me Focus Plus for Mawphlang block
+    figures:
+    - any:
+      - sql: SELECT COUNT(*) FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'MAWPHLANG'
+        unit: count
+      - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE UPPER(block_name_raw) = 'MAWPHLANG'
+        unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-40
+  cat: headline-no-measure
+  shape: CMSS/West Garo Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How is CMSS doing in West Garo Hills?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE lgd_district = 'WEST GARO HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-41
+  cat: headline-no-measure
+  shape: CMSS/Ri Bhoi
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me an overview of CMSS in Ri Bhoi
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE lgd_district = 'RI BHOI'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: HEAD-42
+  cat: headline-no-measure
+  shape: CMSS/East Khasi Hills
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What's the CMSS figure for East Khasi Hills?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE lgd_district = 'EAST KHASI HILLS'
+      unit: count
+    pause: false
+    not_route: knowledge
+    max_s: 25
+- id: GRP-FY-00
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me the MGNREGA expenditure for every financial year
+    rows:
+    - sql: SELECT financial_year_short, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: lakh
+    pause: false
+    max_s: 25
+- id: GRP-D-00
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure district wise
+    rows:
+    - sql: SELECT lgd_district, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    max_s: 25
+- id: GRP-FY-01
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure per financial year across all districts
+    rows:
+    - sql: SELECT financial_year_short, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: lakh
+    pause: false
+    max_s: 25
+- id: GRP-D-01
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me the MGNREGA expenditure for every district
+    rows:
+    - sql: SELECT lgd_district, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    max_s: 25
+- id: GRP-FY-02
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure year wise
+    rows:
+    - sql: SELECT financial_year_short, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: lakh
+    pause: false
+    max_s: 25
+- id: GRP-D-02
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure per district
+    rows:
+    - sql: SELECT lgd_district, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: lakh
+    pause: false
+    max_s: 25
+- id: GRP-FY-10
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me the PMAY-G houses sanctioned for each year
+    rows:
+    - sql: SELECT financial_year_short, COUNT(*) FROM curated.v_pmay WHERE year_key IS NOT NULL GROUP BY 1 ORDER BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-D-10
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What is the PMAY-G houses sanctioned in each district?
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-FY-11
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How did the PMAY-G houses sanctioned move year by year?
+    rows:
+    - sql: SELECT financial_year_short, COUNT(*) FROM curated.v_pmay WHERE year_key IS NOT NULL GROUP BY 1 ORDER BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-D-11
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me PMAY-G houses sanctioned across all the districts
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-FY-12
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you show me PMAY-G houses sanctioned financial year wise for the whole state
+    rows:
+    - sql: SELECT financial_year_short, COUNT(*) FROM curated.v_pmay WHERE year_key IS NOT NULL GROUP BY 1 ORDER BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-D-12
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses sanctioned district wise
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-FY-20
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me the MGNREGA person-days for every financial year
+    rows:
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment WHERE year_key IS NOT NULL GROUP BY 1 ORDER
+        BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-D-20
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me the MGNREGA person-days for every district
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-FY-21
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days per financial year across all districts
+    rows:
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment WHERE year_key IS NOT NULL GROUP BY 1 ORDER
+        BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-D-21
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days per district
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-FY-22
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days year wise
+    rows:
+    - sql: SELECT financial_year_short, SUM(person_days) FROM curated.v_employment WHERE year_key IS NOT NULL GROUP BY 1 ORDER
+        BY 1
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-D-22
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: What is the MGNREGA person-days in each district?
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-FY-30
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Give me the Focus Legacy amount disbursed for each year
+    rows:
+    - sql: SELECT financial_year_short, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: rupees
+    pause: false
+    max_s: 25
+- id: GRP-D-30
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me Focus Legacy amount disbursed across all the districts
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: rupees
+    pause: false
+    max_s: 25
+- id: GRP-FY-31
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: How did the Focus Legacy amount disbursed move year by year?
+    rows:
+    - sql: SELECT financial_year_short, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: rupees
+    pause: false
+    max_s: 25
+- id: GRP-D-31
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy amount disbursed district wise
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: rupees
+    pause: false
+    max_s: 25
+- id: GRP-FY-32
+  cat: grouping-words
+  shape: by financial year
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Okay, can you show me Focus Legacy amount disbursed financial year wise for the whole state
+    rows:
+    - sql: SELECT financial_year_short, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE year_key IS NOT NULL GROUP
+        BY 1 ORDER BY 1
+      unit: rupees
+    pause: false
+    max_s: 25
+- id: GRP-D-32
+  cat: grouping-words
+  shape: by district
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me the Focus Legacy amount disbursed for every district
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: rupees
+    pause: false
+    max_s: 25

@@ -61,6 +61,8 @@ KINDS = {
     "spoken follow-up chains": ["chain"],
     "voice-shaped chains through the pipeline": ["voice"],
     "block-wise wordings after a breakdown": ["blockwise"],
+    "scheme + place, no measure (headline)": ["headline-no-measure"],
+    "grouping words (per FY / district wise)": ["grouping-words"],
 }
 
 
