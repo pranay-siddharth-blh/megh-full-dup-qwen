@@ -143,7 +143,8 @@ def test_no_block_level_query_for_a_scheme_whose_blocks_are_elsewhere(catalogue)
 def test_ranking_query_orders_and_limits(catalogue):
     m = catalogue["metrics"]["mgnrega_total_expenditure"]
     sql, _, _ = mc.build(m, {"year_key": [2023]}, "district", order="desc", limit=3, qtype="ranking")
-    assert "GROUP BY lgd_district ORDER BY total_expenditure_lakh DESC NULLS LAST LIMIT 3" in sql
+    # 2026-11-15: ranked on the raw value, not the rounded column (a tie in the rounded figure took the wrong place)
+    assert "GROUP BY lgd_district ORDER BY (SUM(total_exp)) DESC NULLS LAST LIMIT 3" in sql
     assert "lgd_district IS NOT NULL" in sql
 
 

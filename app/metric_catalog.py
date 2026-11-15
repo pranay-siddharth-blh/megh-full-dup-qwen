@@ -238,8 +238,18 @@ async def load() -> None:
     for m in metrics.values():
         by_scheme.setdefault(m.scheme, []).append(m)
     verified_types, single, no_block = _load_verified()
+    # 2026-11-15: the block names each no_block_level view's source column holds (a block filter there is read on
+    # that column only for a block it names; source_block_column)
+    source_blocks: dict[str, frozenset] = {}
+    for m in metrics.values():
+        if m.scheme in no_block and m.base_object not in source_blocks:
+            col = source_block_column(m)
+            if col is not None:
+                got = await db.fetch_rows_readonly(
+                    f"SELECT DISTINCT {col} AS b FROM {m.base_object} WHERE {col} IS NOT NULL", [])
+                source_blocks[m.base_object] = frozenset(str(r["b"]).upper() for r in got)
     _state.update(metrics=metrics, by_scheme=by_scheme, verified=verified_types, single_year=single,
-                  no_block_level=no_block, loaded=True)
+                  no_block_level=no_block, source_blocks=source_blocks, loaded=True)
     logger.info("metric catalogue (%s): %d metrics for %d schemes; %d not usable here (%s); verified: %s",
                 settings.METRIC_CATALOG_MODE, len(metrics), len(by_scheme), len(skipped),
                 ", ".join(skipped) or "-",
@@ -335,7 +345,9 @@ def verified(qtype: str, key: str, phrases: "frozenset[tuple[str, ...]]" = froze
     entry = _state["verified"].get(qtype, {}).get(key)
     if entry is None:
         return None
-    excluded = {_phrase(str(w)) for w in (entry.get("except_words") or [])}
+    # read like an approved wording (2026-11-15): with the display-name noise "disbursement" became an empty phrase
+    # and excluded nothing (Focus Plus payments ranking, gold bank SH-F023)
+    excluded = {_phrase(str(w), _APPROVED_NOISE) for w in (entry.get("except_words") or [])}
     if phrases and phrases <= excluded:
         return None
     return entry
@@ -405,10 +417,67 @@ def match(question: str, scheme: str) -> Match:
     return Match("one", _state["metrics"][keys.pop()], spans, frozenset(used))
 
 
+# The words that set two measures side by side, between a measure and a word that shares its noun.
+_ELISION_JOINS = frozenset("and vs versus or against plus".split())
+
+
+def expand_elision(question: str, scheme: str) -> "str | None":
+    """The question with a SHARED word written out (2026-11-15): "houses sanctioned vs completed" -> "houses
+    sanctioned vs houses completed", "loan and subsidy disbursed" style questions the other way round. A catalogue
+    phrase of two or more words, a join word right next to it, and on the other side ONE word no phrase took: when
+    that word put in place of the phrase's first / last word makes another catalogue phrase of this scheme, the
+    shared words are written out. None when nothing was written out. The caller keeps the result only when it then
+    names two or three measures (match status "several")."""
+    toks = list(tokens(question or ""))
+    low = [_stem(t.low) for t in toks]
+    phrases = {p for m in _state["by_scheme"].get(scheme, []) for p in m.phrases}
+    found = [(i, len(p), p) for p in phrases if len(p) >= 2
+             for i in range(len(low) - len(p) + 1) if tuple(low[i:i + len(p)]) == p]
+    covered = {k for i, n, _p in found for k in range(i, i + n)}
+    inserts: dict[int, str] = {}                  # character offset -> text to insert there
+    for i, n, p in found:
+        j = i + n                                 # "<phrase> vs <word>": the word takes the phrase's last place
+        if j + 1 < len(low) and low[j] in _ELISION_JOINS and j + 1 not in covered \
+                and p[:-1] + (low[j + 1],) in phrases:
+            inserts[toks[j + 1].start] = " ".join(t.raw for t in toks[i:i + n - 1]) + " "
+        j = i - 1                                 # "<word> and <phrase>": the word takes the phrase's first place
+        if j - 1 >= 0 and low[j] in _ELISION_JOINS and j - 1 not in covered \
+                and (low[j - 1],) + p[1:] in phrases:
+            inserts[toks[j - 1].end] = " " + " ".join(t.raw for t in toks[i + 1:i + n])
+    if not inserts:
+        return None
+    out = question
+    for at in sorted(inserts, reverse=True):
+        out = out[:at] + inserts[at] + out[at:]
+    return out
+
+
 def build(m: Metric, filters: dict, group: "str | None" = None, *,
           order: "str | None" = None, limit: "int | None" = None, qtype: str = "total"
           ) -> "tuple[str, list, str] | None":
-    """(parameterised SQL, params, display SQL) for metric `m`.
+    """(parameterised SQL, params, display SQL) for metric `m`; see _build."""
+    return _build([m], filters, group, order=order, limit=limit, qtype=qtype)
+
+
+def build_several(ms: "list[Metric]", filters: dict, group: str, *, qtype: str = "breakdown"
+                  ) -> "tuple[str, list, str] | None":
+    """(sql, params, shown) reading two or three measures BY one grouping in ONE query: one value column per measure
+    ("houses sanctioned and completed by district", 2026-11-15). Only measures of the same base view, with distinct
+    result-column names: the rows then share one WHERE and one GROUP BY, so each column is exactly the figure the
+    measure's own breakdown gives. Measures on different views (MGNREGA expenditure on v_expenditure, person-days on
+    v_employment) are None: their groupings would have to be joined, which this query does not do."""
+    if not 2 <= len(ms) <= 3 or group is None:
+        return None
+    if len({m.base_object for m in ms}) != 1 or len({m.scheme for m in ms}) != 1 \
+            or len({m.alias for m in ms}) != len(ms):
+        return None
+    return _build(list(ms), filters, group, qtype=qtype)
+
+
+def _build(ms: "list[Metric]", filters: dict, group: "str | None" = None, *,
+           order: "str | None" = None, limit: "int | None" = None, qtype: str = "total"
+           ) -> "tuple[str, list, str] | None":
+    """(parameterised SQL, params, display SQL) for the measures `ms`: one, or several of one view (build_several).
 
     filters: {"district" | "block" | "village_code": value or list,
               "year_key": [years]} — a list becomes "= ANY".
@@ -418,12 +487,33 @@ def build(m: Metric, filters: dict, group: "str | None" = None, *,
     for a block filter / grouping on a scheme whose blocks are not on lgd_block
     (Focus Plus maps its blocks on block_name_raw: lgd_block is NULL on 15% of
     its rows, tests/test_focusplus_block_columns.py)."""
+    m = ms[0]                  # view, scheme, place and year columns: the same for every measure (build_several)
+    src_block = None
     if m.scheme in _state.get("no_block_level", ()) and (filters.get("block") or group == "block"):
-        return None
+        # 2026-11-15: a block FILTER reads the column the scheme's blocks are kept on (Focus Plus:
+        # UPPER(block_name_raw), the column the model path's resolved-entity line pins); a grouping by block is
+        # still not built (its block names are the source's own spellings)
+        src_block = source_block_column(m) if group != "block" else None
+        if src_block is None:
+            return None
     where, params, shown = [], [], []
     for key, col in (*PLACE_COLUMNS.items(), ("year_key", YEAR_COLUMN)):
         v = filters.get(key)
         if v in (None, "", [], ()):
+            continue
+        if key == "block" and src_block is not None:
+            values = [str(x).upper() for x in (v if isinstance(v, (list, tuple, set)) else [v])]
+            known = (_state.get("source_blocks") or {}).get(m.base_object) or frozenset()
+            if any(x not in known for x in values):
+                return None    # a block the source never names (Focus Plus: Siju, Batabari … are on lgd_block only)
+            quoted = ", ".join("'" + x.replace("'", "''") + "'" for x in values)
+            params.append(values if len(values) > 1 else values[0])
+            if len(values) > 1:
+                where.append(f"{src_block} = ANY(${len(params)}::text[])")
+                shown.append(f"{src_block} IN ({quoted})")
+            else:
+                where.append(f"{src_block} = UPPER(${len(params)})")
+                shown.append(f"{src_block} = {quoted}")
             continue
         if col not in m.columns:
             return None
@@ -466,7 +556,11 @@ def build(m: Metric, filters: dict, group: "str | None" = None, *,
             params.append(values[0])
             where.append(f"{col} = UPPER(${len(params)})")
             shown.append(f"{col} = {quoted}")
-    value = f"{_value_sql(m)} AS {m.alias}"
+    value = ", ".join(f"{_value_sql(x)} AS {x.alias}" for x in ms)
+    # 2026-11-15: a list is ranked on the measure's own value, not on its rounded column: two CM Elevate Legacy schemes
+    # both read ₹6.77 crore (67,724,601.10 and 67,670,375.90) and the third place went to the smaller one (gold bank
+    # W2-RK-04). A column selected as computed (a count) is still ordered by its name.
+    rank_key = m.alias if _value_sql(m) == m.expression else f"({m.expression})"
     if group is None:
         select, tail = value, ""
     elif group == "year":
@@ -492,7 +586,7 @@ def build(m: Metric, filters: dict, group: "str | None" = None, *,
         where, shown = where + [f"{col} IS NOT NULL"], shown + [f"{col} IS NOT NULL"]
         select, tail = f"{col} AS scheme, {value}", f"\nGROUP BY {col}"
         if order is None:
-            tail += f" ORDER BY {m.alias} DESC NULLS LAST"
+            tail += f" ORDER BY {rank_key} DESC NULLS LAST"
     else:
         col = PLACE_COLUMNS.get(group)
         if col is None or col not in m.columns:
@@ -503,13 +597,14 @@ def build(m: Metric, filters: dict, group: "str | None" = None, *,
         if order is None:
             tail += f" ORDER BY {col}"
     if order in ("desc", "asc"):
-        tail += f" ORDER BY {m.alias} {order.upper()} NULLS LAST"
+        tail += f" ORDER BY {rank_key} {order.upper()} NULLS LAST"
         if limit:
             tail += f" LIMIT {int(limit)}"
 
     def text(w: list[str]) -> str:
         wh = ("\nWHERE " + " AND ".join(w)) if w else ""
-        return f"/* metric:{m.key} {qtype} */ SELECT {select}\nFROM {m.base_object}{wh}{tail}"
+        key = "+".join(x.key for x in ms)
+        return f"/* metric:{key} {qtype} */ SELECT {select}\nFROM {m.base_object}{wh}{tail}"
 
     return text(where), params, text(shown)
 
@@ -535,6 +630,20 @@ def combine_totals(parts: "list[tuple[Metric, tuple[str, list, str]]]") -> "tupl
         shown_selects.append(f"({body(shown)}) AS {m.alias}")
     head = "/* metric:" + "+".join(m.key for m, _ in parts) + " total */ SELECT "
     return head + ",\n       ".join(selects), params, head + ",\n       ".join(shown_selects)
+
+
+def source_block_column(m: Metric) -> "str | None":
+    """The expression a block filter reads for a scheme whose blocks are not on lgd_block (no_block_level), from the
+    cross-scheme registry (data/cross_scheme.yaml: Focus Plus = UPPER(block_name_raw)); None when the registry names
+    none for the view, names lgd_block, or the view lacks the column."""
+    from app import cross_registry
+    col = cross_registry.view_block_col().get(m.base_object)
+    if not col:
+        return None
+    bare = (col.split("(", 1)[1].split(")", 1)[0] if "(" in col else col).strip().lower()
+    if bare == PLACE_COLUMNS["block"] or bare not in m.columns:
+        return None
+    return col
 
 
 def constituency_column(m: Metric) -> "str | None":
@@ -569,7 +678,11 @@ def ratio_query(num: Metric, den: Metric, filters: dict, alias: str) -> "tuple[s
     over the same filters, in one statement of two scalar subqueries; None if either cannot be built."""
     scale = money_scale(num)
     if scale is None:
-        return None
+        # 2026-11-15: a count per a count (person-days per household): no unit to convert; a rate or money below the
+        # line is never divided into a count
+        if money_scale(den) is not None or _is_rate_metric(num) or _is_rate_metric(den):
+            return None
+        scale = 1.0
     raw_num = dataclasses.replace(num, alias="num_raw")        # the raw expression, not crore-rounded
     raw_den = dataclasses.replace(den, alias="den_raw")
     qn, qd = build(raw_num, filters, None, qtype="total"), build(raw_den, filters, None, qtype="total")

@@ -209,7 +209,8 @@ ranking:
   focus_plus_beneficiaries:
     evidence: "run 2026-10-26: 1/1 agreed"
   focus_plus_payments:
-    evidence: "run 2026-10-26: 1/1 agreed"
+    evidence: "run 2026-10-26: 1/1 agreed; 2026-11-15: 'which district received the highest total Focus Plus disbursement' (gold bank SH-F023) is the AMOUNT by its truth SQL, so a ranking named only by 'disbursement(s)' is left to the model path"
+    except_words: [disbursement]
   mgnrega_cost_per_person_day:
     evidence: "run 2026-10-26: 1/1 agreed"
   mgnrega_employment_generated:

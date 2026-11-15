@@ -34,7 +34,10 @@ _C16_GRAMMAR = frozenset("""
     fy financial fiscal year years scheme schemes s
     uh um umm hmm ok okay so well just kindly sir madam can could would you i we want need know see about
     went gone goes came come comes from
-""".split())   # the last line: fillers and openings (2026-11-14: "Uh, MGNREGA, total expenditure ..." declined on "uh")
+    received receive receives got gets getting
+""".split())   # fillers and openings (2026-11-14: "Uh, MGNREGA, total expenditure ..." declined on "uh"); 2026-11-15:
+# the verbs of having a figure ("which district RECEIVED the highest Focus Legacy amount", "which schemes GOT the most
+# subsidy") — a measure phrase that holds one of them ("households received employment") still matches whole.
 # Words a breakdown / ranking / comparison adds to the question.
 _C16_SHAPE_WORDS = {
     "breakdown": frozenset("by wise each across breakdown break down split up per list every districts blocks"
@@ -52,8 +55,87 @@ _C16_ALL_YEARS_WORDS = frozenset("across over throughout during combined togethe
 # 2026-11-14: how the answer is DRAWN ("as a bar chart", "on the map") is not something more to compute; the chart
 # words declined the catalogue query ("asks more than the measure: bar chart") and the figure went to the model.
 _C16_CHART_WORDS = frozenset("chart graph bar pie line donut doughnut map table plot plotted draw drawn display "
-                             "displayed view horizontal form format terms visual visualise visualize on".split())
+                             "displayed view horizontal form format terms visual visualise visualize on "
+                             # 2026-11-15: the bar's arrangement ("in a grouped bar chart", "as a stacked bar chart")
+                             "grouped stacked clustered column".split())
 _C16_PLURAL_DIMS = frozenset({"districts", "blocks"})
+# The chart kinds an "and" / "or" may join ("bar chart, pie chart and line chart"): only another chart, never a
+# figure, follows such a join.
+_C16_CHART_KIND_WORDS = frozenset("bar pie line donut doughnut table map graph chart column stacked grouped "
+                                  "horizontal".split())
+# 2026-11-15: the words of a per-year list ("trend over the years", "year by year", "year-wise"): with the grouping
+# by year they only say how the figures are laid out.
+_C16_YEAR_SERIES_WORDS = frozenset("trend trends over time year years wise by each per annual annually yearly "
+                                   "series".split())
+# 2026-11-15: a ranking BY year or BY sub-scheme is read only from "which / what (N) [financial] year" and "which /
+# what (N) [<scheme name>] scheme(s)" — the grouping must be the thing asked for, never a word elsewhere in the
+# question ("... across all financial years" is the year scope, not a ranking of years).
+_C16_WHICH = frozenset({"which", "what"})
+_C16_YEAR_LEAD = frozenset({"financial", "fiscal", "fy"})
+_C16_SCHEME_NOUNS = frozenset({"scheme", "schemes", "programme", "programmes", "program", "programs"})
+_C16_NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+                     "nine": 9, "ten": 10}
+_C16_EACH_WORDS = frozenset({"each", "every"})
+
+
+def _c16_scheme_name_words() -> frozenset:
+    """The words of every scheme name ("cm", "elevate", "legacy", "pmay", "g" …), as written between "which" /
+    "each" and "scheme" ("which 3 CM Elevate Legacy schemes", "under each CM Elevate Legacy scheme")."""
+    out = {"the", "meghalaya"}
+    for s in _SCHEME_NAME_MATCHER:
+        out |= set(_c01_tm_words(s))
+    return frozenset(out)
+
+
+def _c16_which_group(question: str) -> "tuple[str, int | None, bool] | None":
+    """("year" | "scheme", N or None, the noun is plural) when the question ranks years or sub-schemes ("in which
+    financial year was X the highest", "which 3 CM Elevate Legacy schemes got the most subsidy"), else None."""
+    low = _c01_tm_words(question or "")
+    names = _c16_scheme_name_words()
+    for i, w in enumerate(low):
+        if w not in _C16_WHICH:
+            continue
+        j, n = i + 1, None
+        if j < len(low) and (low[j].isdecimal() or low[j] in _C16_NUMBER_WORDS):
+            n = int(low[j]) if low[j].isdecimal() else _C16_NUMBER_WORDS[low[j]]
+            j += 1
+        k = j
+        while k < len(low) and low[k] in _C16_YEAR_LEAD:
+            k += 1
+        if k < len(low) and low[k] in ("year", "years"):
+            return "year", n, low[k] == "years"
+        k = j
+        while k < len(low) and low[k] in names:
+            k += 1
+        if k < len(low) and low[k] in _C16_SCHEME_NOUNS:
+            return "scheme", n, low[k].endswith("s")
+    return None
+
+
+def _c16_each_scheme(question: str) -> bool:
+    """"under each CM Elevate Legacy scheme": "each" / "every", only scheme-name words, then "scheme(s)"."""
+    low = _c01_tm_words(question or "")
+    names = _c16_scheme_name_words()
+    for i, w in enumerate(low):
+        if w not in _C16_EACH_WORDS:
+            continue
+        k = i + 1
+        while k < len(low) and low[k] in names:
+            k += 1
+        if k < len(low) and low[k] in _C16_SCHEME_NOUNS:
+            return True
+    return False
+
+
+def _c16_years_joined(question: str) -> bool:
+    """Two financial years written side by side with "and" / "vs" / a comma between them ("expenditure in 2022-23
+    and 2023-24"): each year's figure is asked, as with "compare"."""
+    q = question or ""
+    spans = fy_spans(q)
+    for (_a1, b1, _y1, _e1), (a2, _b2, _y2, _e2) in zip(spans, spans[1:]):
+        if q[b1:a2].strip().lower() in ("and", "&", ",", "vs", "vs.", "versus"):
+            return True
+    return False
 
 
 def _c16_years(resolved: dict) -> "list[int]":
@@ -63,7 +145,11 @@ def _c16_years(resolved: dict) -> "list[int]":
 def _c16_filters(resolved: dict) -> "dict | None":
     """{district|block|village_code: value or list, year_key: [years]} from the
     resolver's output, or None when it pinned a filter the measure cannot take."""
-    if any(v not in (None, "", [], (), {}) for k, v in (resolved or {}).items() if k not in _C16_FILTER_KEYS):
+    if any(v not in (None, "", [], (), {}) for k, v in (resolved or {}).items()
+           if k not in _C16_FILTER_KEYS and not (k == "block_list_districts" and resolved.get("block_list"))):
+        # 2026-11-15: block_list_districts only says which district each listed block sits in (for the model's
+        # prompt); no block name spans two districts in any curated view (checked on megh_db that day), so the
+        # blocks alone pin the same rows (gold bank W3-MP-02, Zikzak and Betasing)
         return None
     out = {}
     for key in ("district", "block", "village_code", "assembly_constituency"):
@@ -140,10 +226,17 @@ def _c16_extra_words(question: str, schemes: "list[str]", entity_result: dict, t
         w = t.low
         if k in taken or any(a <= t.start < b for a, b in named) or w in place_words:
             continue
+        if w == "work" and k > 0 and any(a <= toks[k - 1].start < b for a, b in named):
+            continue                       # 2026-11-15: "MGNREGA work" is the scheme ("100 days of MGNREGA work")
         if w in _C16_GRAMMAR or w in allowed or metric_catalog._stem(w) in allowed or w.isdecimal():
             continue
         if w in _C16_CHART_WORDS:
             continue
+        nxt = [u.low for u in toks[k + 1:k + 3] if u.low not in ("a", "an", "the")][:1]
+        if w in _C13_UNDRAWN_CHARTS and nxt and nxt[0] in _C13_CHART_NOUNS:
+            continue                       # 2026-11-15: "as a radar chart" (c13 notes it is not drawn)
+        if w in ("and", "or") and nxt and nxt[0] in _C16_CHART_KIND_WORDS:
+            continue                       # 2026-11-15: "as bar chart, pie chart AND line chart"
         if w in _C16_FOLLOWUP_LEADS and not any(u.low not in _C16_FOLLOWUP_LEADS for u in toks[:k]):
             continue                       # the opening word(s) of a follow-up: "and ...", "and also ..."
         if w.startswith("fy") and w[2:].isdecimal():
@@ -168,6 +261,11 @@ def _c16_shape(question: str, filters: dict) -> "dict | None":
         if dims or lists:
             return None
         named = [_C16_DIM_WORDS[w] for w in low if w in _C16_DIM_WORDS]
+        which = _c16_which_group(q) if not named else None
+        n_which, plural_which = None, False
+        if which is not None and not (which[0] == "year" and len(years) == 1):
+            # 2026-11-15: "which year …" (among the named years, when two or more are pinned), "which 3 … schemes"
+            named, n_which, plural_which = [which[0]], which[1], which[2]
         group = None
         if set(named) == {"block", "district"} and filters.get("district") and not filters.get("block"):
             group = "block"                                   # "which block in <district> …"
@@ -179,22 +277,27 @@ def _c16_shape(question: str, filters: dict) -> "dict | None":
         up, down = any(w in high for w in low), any(w in lower for w in low)
         if up == down:
             return None
-        n = _requested_rank_count(q)
+        n = _requested_rank_count(q) or n_which
         if n is None:
-            if any(w in _C16_PLURAL_DIMS for w in low):
+            if any(w in _C16_PLURAL_DIMS for w in low) or plural_which:
                 return None                                   # "top districts": how many is not said
             # "which district had the most": the winner plus the next two as context
-            # (data-accuracy brief D3, 2026-10-29); _c17_runners_up_answer words it
-            n = _C17_RUNNERS_UP
+            # (data-accuracy brief D3, 2026-10-29); _c17_runners_up_answer words it. "Which year": every year,
+            # largest first (a few rows; three of four years read as a trend with a year missing)
+            n = None if group == "year" else _C17_RUNNERS_UP
         return {"qtype": "ranking", "group": group, "order": "desc" if up else "asc", "limit": n}
     if lists:
         if len(lists) != 1 or lists[0] == "village_code" or dims - {lists[0]} or len(years) > 1:
             return None
         return {"qtype": "compare", "group": lists[0], "order": None, "limit": None}
     if len(years) > 1:
-        if dims - {"year"} or not (_COMPARES_YEARS.search(q) or "year" in dims):
+        if dims - {"year"} or not (_COMPARES_YEARS.search(q) or "year" in dims or _c16_years_joined(q)):
             return None
         return {"qtype": "compare", "group": "year", "order": None, "limit": None}
+    if not dims and not years and any(w in ("trend", "trends") for w in low):
+        dims = {"year"}                  # 2026-11-15: "person-days trend over the years" is the figure per year
+    elif not dims and _c16_each_scheme(q):
+        dims = {"scheme"}                # 2026-11-15: "the amount disbursed under each CM Elevate Legacy scheme"
     if dims:
         if len(dims) != 1:
             return None
@@ -220,6 +323,25 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
         out.update(status="skip", reason="not one scheme")
         return out
     found = metric_catalog.match(question, schemes[0])
+    resolved0 = entity_result.get("resolved") or {}
+    if found.status == "several" and resolved0.get("village_code") not in (None, "", [], ()) \
+            and not resolved0.get("village_code_list") and not isinstance(resolved0.get("village_code"), list):
+        # 2026-11-15: "person-days in UMRNONG VILLAGE in 2022-23": with ONE village pinned, "village" names the
+        # place, not the villages-covered count (a count of villages inside one village is no question)
+        plain = question
+        for t in reversed(_c01_tm_tokens(question)):
+            if t.low in ("village", "villages"):
+                plain = plain[:t.start] + plain[t.end:]
+        again = metric_catalog.match(plain, schemes[0])
+        if again.status == "one":
+            question, found = plain, again
+    if found.status != "several":
+        # 2026-11-15: "houses sanctioned vs completed" — the shared noun written out names the second measure
+        spelt = metric_catalog.expand_elision(question, schemes[0])
+        again = metric_catalog.match(spelt, schemes[0]) if spelt else None
+        if again is not None and again.status == "several" and 2 <= len(again.several) <= 3:
+            question, found = spelt, again
+            out["elided"] = spelt
     out["status"] = found.status
     if found.status == "several" and 2 <= len(found.several) <= 3:
         return _c16_plan_several(question, schemes, entity_result, found, out)
@@ -262,6 +384,10 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
     # accepts the phrase; a per-year tally (single_year) is still refused there.
     if _ALL_YEARS_CUE.search(question or "") or _STATED_ALL_YEARS_CUE.search(question or ""):
         allowed = allowed | _C16_ALL_YEARS_WORDS
+    if shape["group"] == "year":
+        allowed = allowed | _C16_YEAR_SERIES_WORDS
+        if _c16_years_joined(question):
+            allowed = allowed | {"and", "vs", "versus"}      # "... in FY 2022-23 and FY 2023-24"
     extra = _c16_extra_words(question, schemes, entity_result, found.spans, allowed)
     if extra:
         out["reason"] = "asks more than the measure: " + " ".join(extra[:6])
@@ -312,8 +438,6 @@ def _c16_ratio_pair(question: str, ms: list) -> "tuple | None":
         return None
     money = [m for m in ms if metric_catalog.money_scale(m) is not None]
     counts = [m for m in ms if metric_catalog.money_scale(m) is None]
-    if len(money) != 1 or len(counts) != 1:
-        return None
     toks = [metric_catalog._stem(t.low) for t in _c01_tm_tokens(question or "")]
     # 2026-11-15 (review): exactly ONE "per", and no time or place rate asked beside it. "per household per year"
     # divided the all-years total by households and called it per year; "per household per block" came back as one
@@ -321,6 +445,19 @@ def _c16_ratio_pair(question: str, ms: list) -> "tuple | None":
     if toks.count("per") != 1 or any(w in _C16_RATIO_REFUSE for w in toks):
         return None
     per = toks.index("per")
+    if len(money) == 0 and len(counts) == 2 and not any(metric_catalog._is_rate_metric(m) for m in counts):
+        # 2026-11-15: one count PER another count ("the average number of person-days per employment household",
+        # gold bank UAT-M08, truth SUM(person_days) / SUM(households_employed)): the measure named before "per"
+        # over the one named after it
+        at = [(_c16_measure_at(toks, m), m) for m in counts]
+        if any(a is None for a, _m in at):
+            return None
+        at.sort(key=lambda x: x[0])
+        if not (at[0][0] < per < at[1][0]):
+            return None
+        money, counts = [at[0][1]], [at[1][1]]
+    elif len(money) != 1 or len(counts) != 1:
+        return None
     at_m, at_c = _c16_measure_at(toks, money[0]), _c16_measure_at(toks, counts[0])
     if at_m is None or at_c is None or not (at_m < per < at_c):
         return None
@@ -331,6 +468,12 @@ def _c16_ratio_pair(question: str, ms: list) -> "tuple | None":
         noun.append(w)
     noun = [w for w in noun if w not in ("a", "an", "the", "each", "one")][:3] or ["unit"]
     return money[0], counts[0], "_".join(noun)
+
+
+def _c16_unit_noun(m) -> str:
+    """The counted thing a measure's unit names, as a column word ("person-days" -> "person_days"), else its alias."""
+    words = _c01_tm_words(str(m.unit or ""))
+    return "_".join(words) if words and all(w.isalpha() for w in words) else m.alias
 
 
 def _c16_plan_ratio(question, schemes, entity_result, found, out, money, count, noun) -> dict:
@@ -367,7 +510,9 @@ def _c16_plan_ratio(question, schemes, entity_result, found, out, money, count, 
         if metric_catalog.verified("total", m.key, found.phrases) is None:
             out.update(status="built", query=None, verified=False, reason=f"{m.key} not verified for a total")
             return out
-    q = metric_catalog.ratio_query(money, count, filters, f"amount_per_{noun}_rupees")
+    alias = (f"amount_per_{noun}_rupees" if metric_catalog.money_scale(money) is not None
+             else f"{_c16_unit_noun(money)}_per_{noun}")   # a count per a count: "person_days_per_household"
+    q = metric_catalog.ratio_query(money, count, filters, alias)
     if q is None:
         out["reason"] = "the view lacks a column the question needs"
         return out
@@ -377,6 +522,9 @@ def _c16_plan_ratio(question, schemes, entity_result, found, out, money, count, 
 
 # The words that join two figures asked together ("producer groups AND total", "subsidy PLUS loan").
 _C16_JOIN_WORDS = frozenset("and plus also both as well along with".split())
+# 2026-11-15: how two figures are set SIDE BY SIDE ("compare houses sanctioned VS completed") — with several measures
+# these ask for both figures, nothing more to compute (with one measure "compare" still needs named places / years).
+_C16_SIDE_BY_SIDE_WORDS = frozenset("compare comparison compared vs versus against side".split())
 
 
 def _c16_cme_default(m, question: str, schemes: "list[str]"):
@@ -412,11 +560,15 @@ def _c16_plan_several(question: str, schemes: "list[str]", entity_result: dict, 
         out["reason"] = "a filter the measure cannot take"
         return out
     shape = _c16_shape(question, filters)
-    if shape is None or shape["qtype"] != "total":
-        out["reason"] = "several measures: only totals are read together"
+    if shape is None or shape["qtype"] not in ("total", "breakdown"):
+        out["reason"] = "several measures: only totals or one breakdown are read together"
         return out
-    out["qtype"] = "total"
-    allowed = _C16_JOIN_WORDS
+    out["qtype"] = shape["qtype"]
+    allowed = _C16_JOIN_WORDS | _C16_SIDE_BY_SIDE_WORDS
+    if shape["qtype"] == "breakdown":
+        allowed = allowed | _C16_SHAPE_WORDS["breakdown"]
+    if shape["group"] == "year":
+        allowed = allowed | _C16_YEAR_SERIES_WORDS
     for m in ms:
         allowed = allowed | _c16_measure_vocabulary(m)
     stated_all = bool(_ALL_YEARS_CUE.search(question or "") or _STATED_ALL_YEARS_CUE.search(question or ""))
@@ -430,6 +582,8 @@ def _c16_plan_several(question: str, schemes: "list[str]", entity_result: dict, 
     if len(years) > 1:
         out["reason"] = "several years"
         return out
+    if shape["qtype"] == "breakdown":
+        return _c16_plan_several_grouped(ms, filters, shape["group"], years, stated_all, found, out)
     parts = []
     for m in ms:
         if metric_catalog.single_year(m.key) and len(years) != 1:
@@ -447,6 +601,34 @@ def _c16_plan_several(question: str, schemes: "list[str]", entity_result: dict, 
             return out
         parts.append((m, q))
     out.update(status="built", query=metric_catalog.combine_totals(parts), verified=True)
+    return out
+
+
+def _c16_plan_several_grouped(ms: list, filters: dict, group: str, years: "list[int]", stated_all: bool, found,
+                              out: dict) -> dict:
+    """Two or three measures BY one grouping (2026-11-15: "PMAY-G houses sanctioned vs completed by district",
+    "CM Elevate Legacy subsidy and loan disbursed by scheme"): ONE grouped query, one value column per measure
+    (metric_catalog.build_several). Each measure must pass alone exactly what its own breakdown would (the year
+    rules, verified for a breakdown); the measures must share one view; otherwise the whole question declines."""
+    if len({m.base_object for m in ms}) != 1:
+        out["reason"] = "several measures by a grouping: not one view (" + ", ".join(m.base_object for m in ms) + ")"
+        return out
+    for m in ms:
+        if group != "year":
+            if metric_catalog.single_year(m.key) and len(years) != 1:
+                out["reason"] = f"{m.key} is read one financial year at a time"
+                return out
+            if not years and metric_catalog.YEAR_COLUMN in m.columns and not stated_all:
+                out["reason"] = "no year named"
+                return out
+        if metric_catalog.verified("breakdown", m.key, found.phrases) is None:
+            out.update(status="built", query=None, verified=False, reason=f"{m.key} not verified for a breakdown")
+            return out
+    q = metric_catalog.build_several(ms, filters, group, qtype="breakdown")
+    if q is None:
+        out["reason"] = "several measures by a grouping: the view lacks the column"
+        return out
+    out.update(status="built", query=q, verified=True)
     return out
 
 
