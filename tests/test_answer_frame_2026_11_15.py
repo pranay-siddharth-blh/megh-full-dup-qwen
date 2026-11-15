@@ -311,6 +311,18 @@ def _fake_sql(question):
 def chat(monkeypatch):
     for flag in ("CONTEXT_LAYER_ENABLED", "CONTEXT_STATE_ENABLED"):
         monkeypatch.setattr(settings, flag, True)
+    # offline, and nothing left behind: a graph turn would load the village gazetteer from megh_db when it is
+    # reachable, and a later test file (test_mgnrega_usecase_fixes) reads villages differently with it loaded
+    for name in ("_village_names", "_village_places", "_village_scheme_codes", "_village_code_names",
+                 "_village_names_failed_at"):
+        monkeypatch.setattr(entity_resolver, name, getattr(entity_resolver, name))
+    for name in ("_MGNREGA_VILLAGE_NAMES", "_PMAY_VILLAGE_NAMES", "_FOCUSPLUS_VILLAGE_NAMES", "_PLACE_WORDS_CACHE"):
+        if hasattr(p, name):
+            monkeypatch.setattr(p, name, getattr(p, name))
+
+    async def no_gazetteer(*a, **k):
+        return 0
+    monkeypatch.setattr(entity_resolver, "load_village_names", no_gazetteer)
     seen = []
 
     async def data(question, scope=None, prior_resolved=None, **kw):
