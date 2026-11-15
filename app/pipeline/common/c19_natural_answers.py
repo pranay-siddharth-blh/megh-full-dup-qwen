@@ -954,13 +954,139 @@ def _c19_spoken_for_result(result: dict) -> "str | None":
         logger.warning("natural answer: spoken form from the rows failed", exc_info=True)
         spoken = None
     if spoken:
-        return spoken                                        # the dataset notes stay on the screen
+        return _c19_with_caveats(spoken, answer, rows, result)
     try:
         single = shape is not None and shape.kind in ("single_value", "profile")
         spoken = _c19_spoken_from_text(answer, rows, single)
         if spoken and not _c19_spoken_numbers_ok(spoken, _c19_text_allowed(answer, rows)):
             return None
-        return spoken
+        return _c19_with_caveats(spoken, answer, rows, result) if spoken else spoken
     except Exception:  # noqa: BLE001
         logger.warning("natural answer: spoken form from the text failed", exc_info=True)
         return None
+
+
+# ── caveats the voice must say (2026-11-16, voice audit item 3) ─────────────
+# The short spoken form said the headline and left every note on the screen, so a listener never heard that the year
+# asked holds no data and another year was answered, that a CM Elevate count is valid applications only, or that a
+# scheme of a cross-scheme answer records no money / no data for the period. Those notes change what the figures
+# MEAN; each one is said as one short sentence (from the answer's own words, every figure checked like the rest).
+# Ordinary context notes ("Focus Plus data covers FY 2022-23 and FY 2025-26") are said only when they fit.
+_C19_CAVEAT_ROOM = 318                # the page cuts a spoken answer at 320 characters (voiceSpeech.MAX_SPOKEN)
+
+
+def _c19_plain_sentence(text: str) -> str:
+    """A note sentence as spoken: no 'Note:' opener, no bold, no bracket or dash aside, one full stop."""
+    t = (text or "").replace("**", "").strip()
+    if t.lower().startswith("note:"):
+        t = t[5:].strip()
+    t = _c19_drop_brackets(t)
+    for dash in (" — ", " – "):
+        a = t.find(dash)
+        if a >= 0:
+            b = t.find(dash, a + len(dash))
+            t = (t[:a] + (" " + t[b + len(dash):] if b >= 0 else "")).strip()
+    t = " ".join(t.split()).replace(" ,", ",").rstrip(" ,;:.")
+    return (t[:1].upper() + t[1:] + ".") if t else ""
+
+
+def _c19_answer_sentences(answer: str) -> list:
+    out = []
+    for raw in (answer or "").split("\n"):
+        line = raw.strip()
+        if line.startswith(("- ", "* ", "• ")):
+            line = line[2:]
+        out += _c19_sg.sentences(line)
+    return out
+
+
+def _c19_caveats(answer: str, result: dict) -> "list[tuple[int, str]]":
+    """(priority, sentence) of every meaning-changing note of the answer, most important first: 0 = a year asked
+    that holds no data (said FIRST: the figures are for another year), 1 = a count that is not what it may sound
+    like (valid applications only) or a scheme with no money / no data in a cross answer, 2 = the years a scheme's
+    data covers (said only when it fits)."""
+    out: list = []
+    seen: set = set()
+    low_answer = (answer or "").lower()
+
+    def add(prio: int, sentence: str) -> None:
+        s = _c19_plain_sentence(sentence)
+        if s and s.lower() not in seen:
+            seen.add(s.lower())
+            out.append((prio, s))
+
+    for s in _c19_answer_sentences(answer):
+        low = s.lower()
+        if "holds no data" in low:
+            add(0, s)
+        elif "has no data for" in low:
+            add(1, s)
+        elif "applications only" in low and "count" in low:
+            add(1, s)
+        elif "data covers" in low and low.startswith("note"):
+            add(2, s)
+    # a cross-scheme answer's "- **Homestay**: no money recorded" rows, said as one sentence
+    no_money = []
+    for raw in (answer or "").split("\n"):
+        line = raw.strip().lstrip("-*• ").replace("**", "").strip()
+        if line.lower().endswith("no money recorded") and ":" in line:
+            name = line.split(":", 1)[0].strip()
+            if name and name not in no_money:
+                no_money.append(name)
+    if no_money:
+        verb = "records" if len(no_money) == 1 else "record"
+        add(1, f"{_c19_join(no_money)} {verb} no money")
+    # a CM Elevate count of valid applications only, when the answer says so in its own words
+    if (result.get("schemes") or []) == ["CM Elevate"] and " valid applications" in f" {low_answer}" \
+            and not any(p == 1 and "valid" in s.lower() for p, s in out):
+        add(1, "These count valid applications only")
+    return sorted(out, key=lambda x: x[0])
+
+
+def _c19_with_caveats(spoken: str, answer: str, rows: list, result: dict) -> str:
+    """The spoken form with the answer's meaning-changing notes said in it (each checked against the answer's
+    figures; never cut by the page's 320-character limit: middle sentences give way first)."""
+    try:
+        caveats = _c19_caveats(answer, result)
+    except Exception:  # noqa: BLE001 — a caveat we cannot read stays on the screen
+        logger.warning("natural answer: caveats failed", exc_info=True)
+        return spoken
+    if not caveats:
+        return spoken
+    allowed = _c19_text_allowed(answer, rows)
+    said_low = (spoken or "").lower()
+    parts = _c19_sg.sentences(spoken)
+    if not parts:
+        return spoken
+    pointer = parts[-1] if "on your screen" in parts[-1].lower() and len(parts) > 1 else ""
+    body = parts[:-1] if pointer else list(parts)
+    first, rest = [], []
+    for prio, c in caveats:
+        key = c.lower().rstrip(".")
+        if key in said_low or not _c19_spoken_numbers_ok(c, allowed):
+            continue
+        if prio == 0 and "holds no data" in said_low:
+            continue
+        if prio == 1 and (("valid" in key and "valid" in said_low) or ("no money" in key and "no money" in said_low)):
+            continue
+        (first if prio == 0 else rest).append((prio, c))
+    if not first and not rest:
+        return spoken
+
+    def build(body_parts, extra):
+        # a year swap is said FIRST (the figures are for another year); the others after the figures they qualify
+        # (never between a headline and its "That is …" sentence), before the screen pointer
+        seq = [c for _p, c in first] + body_parts + [c for _p, c in extra] + ([pointer] if pointer else [])
+        return " ".join(x.strip() for x in seq if x.strip())
+
+    extra = list(rest)
+    text = build(body, extra)
+    while len(text) > _C19_CAVEAT_ROOM and len(body) > 1:
+        body = body[:-1]                                 # a middle sentence gives way first; the headline stays
+        text = build(body, extra)
+    while len(text) > _C19_CAVEAT_ROOM and extra and extra[-1][0] == 2:
+        extra = extra[:-1]                               # an ordinary context note is said only when it fits
+        text = build(body, extra)
+    if not pointer and (len(body) < len(parts)):
+        text += " The rest is on your screen."
+    return text

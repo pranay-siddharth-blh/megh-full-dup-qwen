@@ -221,6 +221,9 @@ async def handler(ws):
                 st["tool"].set_result(msg["toolResponse"])
         elif "clientContent" in msg:
             text = "".join(p.get("text", "") for t in msg["clientContent"]["turns"] for p in t["parts"])
+            if text.startswith("(Conversation context for the voice engine"):
+                st.setdefault("context", []).append(text)    # 2026-11-16: data for a sovereign engine, never spoken
+                continue
             spoken = text.startswith("[voice] ")
             asyncio.create_task(user_turn(text[8:] if spoken else text, spoken))
         elif "realtimeInput" in msg:

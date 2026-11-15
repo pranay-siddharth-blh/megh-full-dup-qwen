@@ -87,6 +87,32 @@ def not_english(text: str) -> bool:
     return any(ch.isalpha() and ord(ch) > 0x24F for ch in text or "")
 
 
+def _context_fields(src: dict) -> dict:
+    """The pipeline's reading of a question, as the sovereign engine takes it (bounded plain data): asked_as (the
+    rewritten question), frame (the answer frame summary), kind, speak. {} when there is neither asked_as nor frame."""
+    out: dict = {}
+    asked = src.get("asked_as")
+    if isinstance(asked, str) and asked.strip():
+        out["asked_as"] = asked.strip()[:400]
+    frame = src.get("frame")
+    if isinstance(frame, dict) and frame:
+        try:
+            raw = json.dumps(frame, ensure_ascii=False, default=str)
+        except (TypeError, ValueError):
+            raw = ""
+        if raw and len(raw) <= 1500:
+            out["frame"] = json.loads(raw)
+    if not out:
+        return {}
+    kind = str(src.get("kind") or "")[:20]
+    if kind:
+        out["kind"] = kind
+    speak = src.get("speak")
+    if isinstance(speak, str) and speak.strip():
+        out["speak"] = speech_guard.scrub(speak)[:600]
+    return out
+
+
 def setup_msg(cfg, officer: Officer) -> dict:
     return {"setup": {
         "model": f"models/{cfg.model}",
@@ -375,8 +401,19 @@ class VoiceSession:
                 self.turn["user"] = text
                 self.turn["fresh"] = True
                 await self.up_text(text)
+            elif t == "context":                    # 2026-11-16: the chat's last answers, when the voice opens
+                if self.cfg.live_url:
+                    items = [_context_fields(x) for x in (m.get("items") or [])[:3] if isinstance(x, dict)]
+                    items = [x for x in items if x]
+                    if items:
+                        await self.up_text(prompt.CONTEXT_LINE + json.dumps({"items": items}, ensure_ascii=False))
             elif t == "read":                       # an answer the page got another way (a typed question, a chip)
                 text = speech_guard.scrub(str(m.get("text") or ""))[:2500]
+                if text and self.cfg.live_url:
+                    ctx = _context_fields(m)
+                    if ctx:                         # a typed / chip answer: the engine's memory takes it too
+                        ctx["speak"] = text
+                        await self.up_text(prompt.CONTEXT_LINE + json.dumps({"items": [ctx]}, ensure_ascii=False))
                 if text:
                     speech_guard.facts_from(text, self.facts)
                     self.turn["user"] = ""              # a read is not the officer's turn: its end must not re-ask anything
@@ -656,6 +693,12 @@ class VoiceSession:
                     "kind": str(result.get("kind") or "answer")[:20],
                     "read_exactly": bool(result.get("read_exactly", True)),
                     "on_screen": bool(result.get("on_screen", True))}
+        if self.cfg.live_url:
+            # 2026-11-16 (voice audit items 2, 3): the sovereign engine also gets what the pipeline understood the
+            # question as and whether `speak` is the server's own spoken form (said as given, not re-worded)
+            response.update({k: v for k, v in _context_fields(result).items() if k not in ("speak", "kind")})
+            if result.get("spoken_form"):
+                response["spoken_form"] = True
         speech_guard.facts_from(speak, self.facts)
         if speak:
             self.last_answer = _letters(speak)
