@@ -293,6 +293,12 @@ def _c16_shape(question: str, filters: dict) -> "dict | None":
     series = _c16_year_series(q)
     if series is not None:
         dims = series
+    elif not dims:
+        # 2026-11-16 (log bank): "MGNREGA person-days per district" fell to the model, which once summed the state.
+        # "per / each / every <district|block>" (no average asked) is that grouping.
+        if not set(low) & _C16_AVERAGE:
+            lv = {"district": "district", "districts": "district", "block": "block", "blocks": "block"}
+            dims = {lv[b] for a, b in zip(low, low[1:]) if a in _C16_EVERY and b in lv}
     ranking = bool(_RANKING_CUE.search(q))
     lists = [k for k in ("district", "block", "village_code") if isinstance(filters.get(k), list)]
     years = filters.get("year_key") or []
@@ -384,9 +390,16 @@ def _c16_default_measure_question(question: str, scheme: str) -> "str | None":
     if not phrase:
         return None
     low = {t.low for t in _c01_tm_tokens(question)}
+    if low & _C16_FIGURE_WORDS and len(low) <= 14:
+        # 2026-11-16 (the user's log): "Give me the MGNREGA figure for Ri Bhoi?", "What's the Focus Legacy figure for
+        # Mawphlang block?": the figure of a scheme with no measure is its headline measure, as a grouping is
+        return f"{scheme} {phrase} " + question
     if not (low & _C16_GROUPING_WORDS) or not ({"by", "breakdown", "wise", "split", "each", "every", "per"} & low):
         return None
     return f"{scheme} {phrase} " + question
+
+
+_C16_FIGURE_WORDS = frozenset("figure figures numbers headline".split())
 
 
 def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dict) -> dict:

@@ -40,3 +40,17 @@ def test_money_below_a_crore_keeps_its_rupees():
                               unit="rupees", notes="", alias="total_disbursed_cr", phrases=(), columns=frozenset())
     sql = metric_catalog._value_sql(m)
     assert "/ 10000000" in sql and "THEN 2 ELSE 7 END" in sql
+
+
+def test_per_district_is_the_district_grouping():
+    s = P._c16_shape("MGNREGA person-days per district", {})
+    assert s and s["qtype"] == "breakdown" and s["group"] == "district"
+    s = P._c16_shape("PMAY-G houses completed in each block", {})
+    assert s and s["group"] == "block"
+    assert P._c16_shape("MGNREGA average person-days per district", {})["qtype"] != "breakdown"
+
+
+def test_the_figure_of_a_scheme_is_its_headline_measure():
+    assert P._c16_default_measure_question("Give me the MGNREGA figure for Ri Bhoi?", "MGNREGA") == \
+        "MGNREGA person-days Give me the MGNREGA figure for Ri Bhoi?"
+    assert P._c16_default_measure_question("MGNREGA in Ri Bhoi", "MGNREGA") is None
