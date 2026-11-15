@@ -39,7 +39,8 @@ def test_money_below_a_crore_keeps_its_rupees():
                               expression="SUM(amount_disbursed)", base_object="curated.v_focus_legacy",
                               unit="rupees", notes="", alias="total_disbursed_cr", phrases=(), columns=frozenset())
     sql = metric_catalog._value_sql(m)
-    assert "/ 10000000" in sql and "THEN 2 ELSE 7 END" in sql
+    assert "ROUND((SUM(amount_disbursed))::numeric / 10000000, 2)" in sql
+    assert "TRIM_SCALE(ROUND((SUM(amount_disbursed))::numeric / 10000000, 7))" in sql
 
 
 def test_per_district_is_the_district_grouping():

@@ -155,8 +155,10 @@ def _value_sql(m: Metric) -> str:
         # block in one year: Rs 6,30,000) came out as "Rs 6,00,000", said as exact rupees. Below a crore the crore
         # value keeps 7 places (exact to the rupee); a crore and above stays at 2 places (as the writers and the gold
         # bank read it).
-        return (f"ROUND(({m.expression})::numeric / 10000000, "
-                f"CASE WHEN ABS(({m.expression})::numeric) >= 10000000 THEN 2 ELSE 7 END)")
+        # (TRIM_SCALE: a zero at 7 places reached the page as "0E-7" and the chart fell back to a table)
+        e = f"({m.expression})::numeric"
+        return (f"CASE WHEN ABS({e}) >= 10000000 THEN ROUND({e} / 10000000, 2) "
+                f"ELSE TRIM_SCALE(ROUND({e} / 10000000, 7)) END")
     if m.alias.endswith(("_lakh", "_rupees")):
         return f"ROUND(({m.expression})::numeric, 2)"
     return m.expression
