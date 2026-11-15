@@ -97,7 +97,9 @@ async def lifespan(app: FastAPI):
     await _try("qdrant", init_qdrant())
     load_annotations()                    # local YAML, no network
     load_entity_resolver()                # local YAML, no network
+    from app import entity_resolver as _er
     from app.entity_resolver import load_village_names, load_geography_constituencies
+    _er.EXACT_VILLAGE_PROCESS_CACHE = True   # D-112: exact village-name reads kept 30 min (the catalogue period)
     await _try("village_names", load_village_names())  # bare village names -> a place (2026-10-21)
     await _try("ac_names", load_geography_constituencies())  # urban constituencies no catalogue has (2026-10-30)
     from app import spelling
@@ -133,6 +135,8 @@ async def lifespan(app: FastAPI):
             await _try("scheme_years", pipeline.refresh_scheme_years())
             await _try("schema_catalog", schema_introspect.load())
             await _try("metric_catalog", metric_catalog.load())
+            from app.entity_resolver import clear_exact_village_cache
+            clear_exact_village_cache()       # D-112: exact village-name answers are read afresh
     _catalogs = asyncio.create_task(_catalog_refresh_loop())
     logger.info("nlp-service startup complete (see /health for component status)")
     yield

@@ -13,6 +13,7 @@ that lives in curated.dim_geography / curated.dim_geography_alias, so village
 resolution is a live DB query (using the GIN trigram index already built
 there), not a YAML lookup.
 """
+import contextvars
 import logging
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -1723,6 +1724,7 @@ async def load_village_names(force: bool = False) -> int:
     import time
     if _village_names is not None and not force:
         return len(_village_names)
+    clear_exact_village_cache()           # a (re)load: the exact-name answers are read afresh too (D-112)
     if not force and time.monotonic() - _village_names_failed_at < 60:
         return 0
     try:
@@ -2292,10 +2294,85 @@ async def village_names_exact(names: list[str]) -> dict[str, list[dict]]:
     filter for almost any question. An exact hit on a name the user actually
     typed is a different and much stronger signal.
 
-    One round trip for all candidates rather than one per candidate."""
+    One round trip for all candidates rather than one per candidate.
+
+    D-112 (streaming, 2026-11-15): the same list asked twice at once shares one
+    round trip, and the answer is kept for the rest of the turn (exact_village_turn)
+    and, in the running app, for EXACT_VILLAGE_TTL_S (EXACT_VILLAGE_PROCESS_CACHE,
+    switched on by the app's start-up; dim_geography changes only with a data
+    load, and the catalogue reload clears it). The guardrail's place masking asks
+    this for every scheme, usually with the same names (one ~160 ms query each on
+    the VPN). The kept value is the result of the very same query: no figure
+    changes. A failed read is never kept."""
     wanted = [str(n).strip() for n in (names or []) if str(n).strip()]
     if not wanted:
         return {}
+    import asyncio
+    import time
+    key = (tuple(wanted), fetch_rows)        # the reader itself: a swapped reader has its own answers
+    store = _EXACT_VILLAGE_CACHE if EXACT_VILLAGE_PROCESS_CACHE else _EXACT_TURN.get()
+    hit = store.get(key) if store is not None else None
+    if hit is not None and time.monotonic() - hit[0] < EXACT_VILLAGE_TTL_S:
+        return _copy_exact(hit[1])
+    loop = asyncio.get_running_loop()
+    slot = (key, loop)
+    flight = _EXACT_VILLAGE_INFLIGHT.get(slot)
+    if flight is not None and not flight.done():
+        got = await asyncio.shield(flight)
+        if got is None:              # the shared read failed or was cancelled: read for ourselves
+            got = await _village_names_exact_read(wanted)
+        return _copy_exact(got) if got is not None else {}
+    fut = loop.create_future()
+    _EXACT_VILLAGE_INFLIGHT[slot] = fut
+    out = None
+    try:
+        out = await _village_names_exact_read(wanted)
+        if out is not None and store is not None:
+            if len(store) >= 512:
+                store.pop(next(iter(store)))
+            store[key] = (time.monotonic(), out)
+    finally:
+        if not fut.done():
+            fut.set_result(out)
+        if _EXACT_VILLAGE_INFLIGHT.get(slot) is fut:
+            del _EXACT_VILLAGE_INFLIGHT[slot]
+    return _copy_exact(out) if out is not None else {}
+
+
+EXACT_VILLAGE_TTL_S = 1800.0          # the catalogue refresh period (main._catalog_refresh_loop)
+# Off by default: on only in the running app (main.lifespan). A test process swaps
+# the database under the same reader, so answers kept across tests could leak.
+EXACT_VILLAGE_PROCESS_CACHE = False
+_EXACT_VILLAGE_CACHE: "dict[tuple, tuple[float, dict]]" = {}
+_EXACT_VILLAGE_INFLIGHT: dict = {}
+_EXACT_TURN: "contextvars.ContextVar[dict | None]" = contextvars.ContextVar("exact_village_turn", default=None)
+
+
+def exact_village_turn() -> "contextvars.Token":
+    """Keep village_names_exact answers for one turn (pipeline_graph binds it per
+    question; reset with the token it returns)."""
+    return _EXACT_TURN.set({})
+
+
+def exact_village_turn_end(token: "contextvars.Token") -> None:
+    try:
+        _EXACT_TURN.reset(token)
+    except ValueError:                   # another context: just drop the reference
+        _EXACT_TURN.set(None)
+
+
+def clear_exact_village_cache() -> None:
+    """Forget every kept village_names_exact answer (a catalogue reload)."""
+    _EXACT_VILLAGE_CACHE.clear()
+
+
+def _copy_exact(found: dict) -> "dict[str, list[dict]]":
+    """A fresh copy for each caller: callers may edit what they get."""
+    return {k: [dict(v) for v in vs] for k, vs in found.items()}
+
+
+async def _village_names_exact_read(wanted: "list[str]") -> "dict[str, list[dict]] | None":
+    """The database read behind village_names_exact; None when it failed."""
     try:
         rows = await fetch_rows(
             """
@@ -2319,7 +2396,7 @@ async def village_names_exact(names: list[str]) -> dict[str, list[dict]]:
         )
     except Exception as e:  # noqa: BLE001 — a backstop must never break a query
         logger.warning("village_names_exact failed: %s", e)
-        return {}
+        return None
     out: dict[str, list[dict]] = {}
     for r in rows:
         out.setdefault(str(r["matched"]).upper(), []).append({

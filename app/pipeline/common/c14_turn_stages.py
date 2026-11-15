@@ -695,6 +695,10 @@ def _village_name_keys(names: dict) -> frozenset:
     return _VILLAGE_KEY_CACHE[k]
 
 
+_C14_MASK_SCHEMES = ("MGNREGA", "Focus Legacy", "PMAY-G", "Focus Plus", "CM Elevate", "CM Elevate Legacy",
+                     "CMSS", "Homestay")
+
+
 async def _mask_village_names(text: str) -> str:
     """`text` with an exact village name (the longest one found) replaced by
     "the village", for the guardrail checks only."""
@@ -702,11 +706,15 @@ async def _mask_village_names(text: str) -> str:
     found = None
     # Every scheme's villages, not MGNREGA's only: the Focus Legacy village "CHOKCHAKIA"
     # was refused as violence ("chok…") — Focus Legacy all-villages run 2026-10-12.
-    for _vs in ("MGNREGA", "Focus Legacy", "PMAY-G", "Focus Plus", "CM Elevate", "CM Elevate Legacy", "CMSS", "Homestay"):
+    # D-112 (2026-11-15): the eight scans run at once (they were one DB round trip
+    # each, one after another: ~1.3 s on the VPN when no scheme names a village);
+    # the first scheme in this order that finds one still wins.
+    async def _c14_scan(_vs: str):
         try:
-            found = await _scan_village_in_question(out, _vs)
+            return await _scan_village_in_question(out, _vs)
         except Exception:  # noqa: BLE001 — no catalogue: check the text as typed
-            found = None
+            return None
+    for found in await asyncio.gather(*(_c14_scan(_vs) for _vs in _C14_MASK_SCHEMES)):
         if found and found[0]:
             break
     if not (found and found[0]):
@@ -767,8 +775,13 @@ async def _guardrail_check(raw_question: str, question: str, scope_resumed: bool
     # 2026-10-09). An exact village name is masked for the checks; any harmful
     # wording around it is still judged.
     _names_place = _names_place_only(raw_question)
-    raw_question = await _mask_village_names(raw_question)
-    question = await _mask_village_names(question)
+    # D-112: the rewritten question is usually the raw one: the same text is masked
+    # once; two different texts are masked at the same time
+    if question == raw_question:
+        raw_question = question = await _mask_village_names(raw_question)
+    else:
+        raw_question, question = await asyncio.gather(_mask_village_names(raw_question),
+                                                      _mask_village_names(question))
     harm = edge.detect_harmful(raw_question) or edge.detect_harmful(question)
     if harm:
         return harm, "rules"
