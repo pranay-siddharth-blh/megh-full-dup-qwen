@@ -916,7 +916,8 @@ _VERIFIER_MISSING_GEO_COMPLAINT = Matcher(Alt(
     # does not EXPLICITLY filter on this resolved entity in the WHERE clause. Instead, it uses a FILTER clause" was
     # not read as this complaint, the repair moved the district into the WHERE clause and the share became 100.0%
     # (truth 19.4%). An adverb between "does not" and the verb is the same complaint.
-    Seq(_c11_lit("does not"), _C1xGapIs(W("explicitly", "directly", "actually", "properly", "correctly"), _c11_sp1),
+    # (not "properly" / "correctly": those say the filter is MISPLACED, a real error — review 2026-11-15)
+    Seq(_c11_lit("does not"), _C1xGapIs(W("explicitly", "directly", "actually"), _c11_sp1),
         _C1xGapIs(W("include", "filter", "contain", "restrict", "apply"), _c11_sp1)),
 ))
 

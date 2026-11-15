@@ -5,6 +5,31 @@
 
 
 import numbers as _c12_numbers   # own alias: a file may bind `numbers` to text_match.numbers
+from contextvars import ContextVar as _C12ContextVar
+
+# The output columns of the answer being finished whose expression is a COUNT(...) aggregate (2026-11-15): a count,
+# never money, whatever its alias. Set by _finish_data_result for the length of its pass; None elsewhere.
+_C12_COUNT_COLS: "_C12ContextVar[frozenset | None]" = _C12ContextVar("_C12_COUNT_COLS", default=None)
+
+
+def _c12_count_columns(sql: "str | None") -> frozenset:
+    """Output columns of the outer SELECT that are a COUNT(...) and nothing but a count (no SUM / division by money)."""
+    if not sql:
+        return frozenset()
+    try:
+        from sqlglot import exp as _x
+        from app import sql_ast as _sa
+        tree = _sa.parse_one(sql)
+        if not isinstance(tree, _x.Select):
+            return frozenset()
+        out = set()
+        for e in tree.expressions:
+            node = e.this if isinstance(e, _x.Alias) else e
+            if isinstance(node, _x.Count) or (isinstance(node, _x.Filter) and isinstance(node.this, _x.Count)):
+                out.add(e.alias_or_name)
+        return frozenset(out)
+    except Exception:  # noqa: BLE001 — unreadable SQL: no column is known to be a count
+        return frozenset()
 
 # ── Numeric faithfulness guard for the composed answer ──────────────────────
 # The composer is an LLM and will occasionally transcribe a number wrong
@@ -863,23 +888,19 @@ def _c12_bracket_end(answer: str, at: int) -> int:
 
 
 def _c12_is_count_cell(rows: list[dict], val: float, money: list) -> bool:
-    """`val` equals a result cell whose NAME says it counts things ("disbursements", "beneficiaries",
-    "applications_count"), and no money cell: a count written with a ₹ by mistake. A cell named like money, or with
-    no telling name ("released", "amount_raw"), is never taken for a count."""
-    if any(abs(m[0] - val) < 0.005 for m in money):
+    """`val` equals a result cell that the answer's SQL COUNTED (_C12_COUNT_COLS, set by the finalize pass), and no
+    money cell: a count written with a ₹ by mistake. Without the SQL nothing is taken for a count (review
+    2026-11-15: a name-only rule took a rupee SUM aliased 'disbursements' for a count)."""
+    counted = _C12_COUNT_COLS.get() or frozenset()
+    if not counted or any(abs(m[0] - val) < 0.005 for m in money):
         return False
     for r in rows or []:
         if not isinstance(r, dict):
             continue
         for k, v in r.items():
-            if isinstance(v, bool) or not isinstance(v, (int, float, Decimal)) or abs(float(v) - val) >= 0.005:
+            if k not in counted or isinstance(v, bool) or not isinstance(v, (int, float, Decimal)):
                 continue
-            low = str(k).lower()
-            parts = low.split("_")
-            if any(m in low for m in _C17_MONEY_PARTS) and not (parts[-1] in _C17_EVENT_PLURALS
-                                                                and not any(w in parts for w in _C17_AMOUNT_WORDS)):
-                continue
-            if any(c in low for c in _C17_COUNT_PARTS) or parts[-1] in _C17_EVENT_PLURALS:
+            if abs(float(v) - val) < 0.005:
                 return True
     return False
 
@@ -1154,8 +1175,12 @@ def _finish_data_result(result: dict) -> None:
             _c12_missing_twins_note(result, rows, display)
             _c17_attach_caveats(result)
             return
-        result["answer"] = _finish_answer(result.get("answer") or "", rows, result.get("schemes") or [],
-                                          display)
+        _cc = _C12_COUNT_COLS.set(_c12_count_columns(result.get("sql") or result.get("sql_query")))
+        try:
+            result["answer"] = _finish_answer(result.get("answer") or "", rows, result.get("schemes") or [],
+                                              display)
+        finally:
+            _C12_COUNT_COLS.reset(_cc)
         if (result.get("schemes") or []) == ["Focus Plus"]:          # RAG fix report Issue 12
             result["answer"] = _focusplus_per_beneficiary_caveat(result["answer"], result.get("sql"))
         _c12_missing_twins_note(result, rows, display)

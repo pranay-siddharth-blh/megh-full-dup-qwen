@@ -1,0 +1,268 @@
+{
+ "label": "sh-c020",
+ "when": "2026-11-15_1517",
+ "seconds": 21,
+ "bank_recorded": "2026-11-14",
+ "summary": "category                   cases       turns\ncm_elevate                   1/1         3/3\nTOTAL                        1/1         3/3   (100.0% cases)\n\nfailure taxonomy (primary tag per failing turn):",
+ "results": [
+  {
+   "id": "SH-C020",
+   "cat": "cm_elevate",
+   "shape": "ranking",
+   "src": "Test Case Results sheet CM-ELEVATE-OFF-020",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 4.3,
+   "turns": [
+    {
+     "q": "Which districts have the highest number of pending CM ELEVATE applications?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "pause",
+     "pause_rule": "cm-elevate-dataset",
+     "seconds": 2.7,
+     "dataset_pick": null,
+     "answer": "CM Elevate has two datasets — CM Elevate (applications) and CM Elevate Legacy (sanctions and disbursements). Which one do you mean?",
+     "schemes": null,
+     "chart_type": null,
+     "rewritten": null,
+     "sql": null,
+     "data": [],
+     "chips": [
+      "CM Elevate",
+      "CM Elevate Legacy"
+     ],
+     "truth": []
+    },
+    {
+     "q": "CM Elevate",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "pause",
+     "pause_rule": "ranking-count-not-specified",
+     "seconds": 0.2,
+     "dataset_pick": null,
+     "answer": "How many results should be returned — the top 3, the top 5, the top 10, or the complete list?",
+     "schemes": null,
+     "chart_type": null,
+     "rewritten": null,
+     "sql": null,
+     "data": [],
+     "chips": [
+      "Top 3",
+      "Top 5",
+      "Top 10",
+      "All of them"
+     ],
+     "truth": []
+    },
+    {
+     "q": "top 3",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 0.4,
+     "dataset_pick": null,
+     "answer": "Pending CM Elevate applications across Meghalaya, by district (highest first): Ri Bhoi 2,026; West Garo Hills 1,619; East Khasi Hills 992; West Khasi Hills 438; East Garo Hills 384; South Garo Hills 367; South West Khasi Hills 350; Eastern West Khasi Hills 289; South West Garo Hills 268; North Garo Hills 260; West Jaintia Hills 231; East Jaintia Hills 124. Total 7,348. Pending means: data verified Valid, and file status Pending or Send Back.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": "Which districts have the highest number of pending CM Elevate (applications) applications, showing only the top 3?",
+     "sql": "/* cme-sector-workflow */ SELECT lgd_district AS grp, COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid' AND file_status IN ('Pending', 'Send Back')) AS pending, COUNT(DISTINCT request_id) FILTER (WHERE file_status = 'Send Back') AS sent_back, COUNT(DISTINCT request_id) FILTER (WHERE file_status = 'Rejected') AS rejected, COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'forward') AS forward, COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'resubmit') AS resubmit, COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'sendback to vdv/citizen') AS sendback, COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE data_verified = 'Valid' GROUP BY 1 ORDER BY 2 DESC, 1",
+     "data": [
+      {
+       "grp": "RI BHOI",
+       "pending": 2026,
+       "sent_back": 2,
+       "rejected": 17,
+       "forward": 2035,
+       "resubmit": 1,
+       "sendback": 2,
+       "applications": 2038
+      },
+      {
+       "grp": "WEST GARO HILLS",
+       "pending": 1619,
+       "sent_back": 11,
+       "rejected": 7,
+       "forward": 1617,
+       "resubmit": 0,
+       "sendback": 8,
+       "applications": 1625
+      },
+      {
+       "grp": "EAST KHASI HILLS",
+       "pending": 992,
+       "sent_back": 27,
+       "rejected": 8,
+       "forward": 972,
+       "resubmit": 1,
+       "sendback": 25,
+       "applications": 998
+      },
+      {
+       "grp": "WEST KHASI HILLS",
+       "pending": 438,
+       "sent_back": 1,
+       "rejected": 10,
+       "forward": 438,
+       "resubmit": 0,
+       "sendback": 1,
+       "applications": 439
+      },
+      {
+       "grp": "EAST GARO HILLS",
+       "pending": 384,
+       "sent_back": 2,
+       "rejected": 0,
+       "forward": 383,
+       "resubmit": 0,
+       "sendback": 1,
+       "applications": 384
+      },
+      {
+       "grp": "SOUTH GARO HILLS",
+       "pending": 367,
+       "sent_back": 3,
+       "rejected": 2,
+       "forward": 365,
+       "resubmit": 0,
+       "sendback": 3,
+       "applications": 368
+      },
+      {
+       "grp": "SOUTH WEST KHASI HILLS",
+       "pending": 350,
+       "sent_back": 3,
+       "rejected": 0,
+       "forward": 347,
+       "resubmit": 0,
+       "sendback": 3,
+       "applications": 350
+      },
+      {
+       "grp": "EASTERN WEST KHASI HILLS",
+       "pending": 289,
+       "sent_back": 3,
+       "rejected": 0,
+       "forward": 286,
+       "resubmit": 0,
+       "sendback": 3,
+       "applications": 289
+      },
+      {
+       "grp": "SOUTH WEST GARO HILLS",
+       "pending": 268,
+       "sent_back": 0,
+       "rejected": 0,
+       "forward": 268,
+       "resubmit": 0,
+       "sendback": 0,
+       "applications": 268
+      },
+      {
+       "grp": "NORTH GARO HILLS",
+       "pending": 260,
+       "sent_back": 4,
+       "rejected": 1,
+       "forward": 259,
+       "resubmit": 1,
+       "sendback": 1,
+       "applications": 261
+      },
+      {
+       "grp": "WEST JAINTIA HILLS",
+       "pending": 231,
+       "sent_back": 1,
+       "rejected": 3,
+       "forward": 230,
+       "resubmit": 0,
+       "sendback": 1,
+       "applications": 231
+      },
+      {
+       "grp": "EAST JAINTIA HILLS",
+       "pending": 124,
+       "sent_back": 0,
+       "rejected": 0,
+       "forward": 124,
+       "resubmit": 0,
+       "sendback": 0,
+       "applications": 124
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Show the verification status breakdown for CM Elevate in Meghalaya, by district?",
+      "What is the gender split of CM Elevate applicants in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "RI BHOI",
+         2026
+        ],
+        [
+         "WEST GARO HILLS",
+         1619
+        ],
+        [
+         "EAST KHASI HILLS",
+         992
+        ],
+        [
+         "WEST KHASI HILLS",
+         438
+        ],
+        [
+         "EAST GARO HILLS",
+         384
+        ],
+        [
+         "SOUTH GARO HILLS",
+         367
+        ],
+        [
+         "SOUTH WEST KHASI HILLS",
+         350
+        ],
+        [
+         "EASTERN WEST KHASI HILLS",
+         289
+        ],
+        [
+         "SOUTH WEST GARO HILLS",
+         268
+        ],
+        [
+         "NORTH GARO HILLS",
+         260
+        ],
+        [
+         "WEST JAINTIA HILLS",
+         231
+        ],
+        [
+         "EAST JAINTIA HILLS",
+         124
+        ]
+       ],
+       "unit": "count",
+       "take": 3
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

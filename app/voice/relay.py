@@ -188,7 +188,10 @@ def _over_hello_limit(address: str, per_minute: int, now: float) -> bool:
 async def ws_voice(ws: WebSocket):
     await ws.accept()
     cfg = voice_settings.load()
-    address = ws.client.host if ws.client else "?"
+    # review 2026-11-15: the real client behind the trusted proxy (X-Forwarded-For), not nginx's own address,
+    # which made the per-address limit one limit for the whole site
+    from app.net import client_ip as _client_ip
+    address = _client_ip(ws)
     if _over_hello_limit(address, cfg.hello_per_minute, time.monotonic()):
         STATS["refused"] += 1
         await _close(ws, {"type": "error", "reason": "rate"}, 4429)

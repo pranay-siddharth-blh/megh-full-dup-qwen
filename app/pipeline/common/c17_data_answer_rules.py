@@ -282,10 +282,9 @@ def _c17_unit_by_name(col: str, scheme: "str | None") -> "str | None":
         return None
     if any(p in low for p in _C17_COUNT_PARTS):
         return None
-    # 2026-11-15 (model-on gold bank RAG-D10): COUNT(*) AS disbursements was read as money by its name and written
-    # "₹3,85,671 (≈ ₹3.86 lakh)". A plural event noun counts events unless the name also says it is an amount.
-    parts = low.split("_")
-    if parts and parts[-1] in _C17_EVENT_PLURALS and not any(w in parts for w in _C17_AMOUNT_WORDS):
+    # (2026-11-15: a COUNT(...) column is never money, decided from the answer's SQL by the finalize pass —
+    # _c12_count_columns / _C12_COUNT_COLS — not from its name: "disbursements" may be a count or a rupee sum)
+    if str(col) in (_C12_COUNT_COLS.get() or ()):
         return None
     facts = scheme_registry.DATASETS.get(scheme or "")
     if facts is None or facts.money_unit is None:

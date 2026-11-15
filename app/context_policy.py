@@ -271,6 +271,7 @@ GROUPING_DIM_WORDS = frozenset(w.rstrip("s") for w in (
 # scope the pipeline itself writes, "all schemes" a cross-scheme question.
 _GROUPING_PLACE_PLURAL = W("districts", "blocks", "villages", "panchayats", "gps", "constituencies")
 _GROUPING_PLACE_ONE = W("district", "block", "village", "panchayat", "gp", "constituency")
+_GROUPING_TOTAL_WORDS = frozenset("total totals combined altogether overall sum aggregate cumulative together".split())
 GROUPING_MATCH = Matcher(Alt(
     Seq(W("each"), Opt(W("financial", "fiscal", "calendar", "individual", "single")), Cap(GROUPING_DIM, "dim")),
     Seq(Cap(GROUPING_DIM, "dim"), "wise"),
@@ -295,7 +296,13 @@ def grouping_dims(text: str, include_per: bool = True) -> "set[str]":
     hits = list(GROUPING_MATCH.finditer(text or ""))
     if include_per:
         hits += list(GROUPING_PER_MATCH.finditer(text or ""))
+    # review 2026-11-15: "all / every <place>" with a TOTAL word is the sum over those places, one figure ("total PMAY-G
+    # houses completed in all districts combined", "total job cards issued in every district"); it had become a
+    # district list, and the SQL guard rejected the right one-row total
+    totalled = bool(_GROUPING_TOTAL_WORDS & {w.lower() for w in (text or "").replace("-", " ").split()})
     for hit in hits:
+        if totalled and hit.group(0).lower().split()[0] in ("all", "every"):
+            continue
         word = (hit.group("dim") or hit.group(0)).lower()
         if word.endswith("wise"):
             word = word[:-4]

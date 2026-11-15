@@ -27,7 +27,8 @@ SCALE_INSIDE = {"hundred": 100, "thousand": 1000}
 UNIT_AFTER = {"lakh", "lakhs", "crore", "crores", "percent", "%"}
 LEAD_BEFORE = {"top", "bottom"}
 YEAR_CUES = {"in", "for", "fy", "year", "during", "of", "from", "since", "between", "till", "until", "and"}
-CONNECT = {"to", "-", "and", "till", "until", "through"}
+# 2026-11-15 (review): "and" / "till" / "until" / "through" join two years, never one financial year
+CONNECT = {"to", "-"}
 RUPEE = {"rupees", "rupee", "rs", "inr"}
 
 
@@ -146,6 +147,11 @@ def years(chunks: list[Chunk]) -> list[Chunk]:
             if not chunks[k - 1].ends_sentence():
                 m = k + 1 if k < len(ws) and ws[k] in CONNECT else k
                 tn = _tail(ws, m, y + 1) if (m == k or not chunks[k].ends_sentence()) else 0
+                # review 2026-11-15: two FULL years said back to back ("the years 2018 2019 and 2020") are a list, not one
+                # financial year; "2023 to 2024" (the way an FY is named aloud) and a short tail ("twenty twenty two
+                # twenty three") still are. "and" / "till" no longer connect at all (CONNECT).
+                if tn and m == k and _year_at(ws, m) is not None:
+                    tn = 0
                 if tn and (cue or not bare or m == k):
                     last = chunks[m + tn - 1]
                     out.append(Chunk(c.lead, f"{y}-{(y + 1) % 100:02d}", last.trail))
@@ -239,6 +245,17 @@ def amounts(chunks: list[Chunk]) -> list[Chunk]:
             written, value, n = r2
         nxt = ws[i + n] if i + n < len(ws) and not chunks[i + n - 1].ends_sentence() else ""
         nxt2 = ws[i + n + 1] if i + n + 1 < len(ws) else ""
+        # review 2026-11-15: "five lakh twenty thousand (rupees)" is ONE amount, 5,20,000; it was written
+        # "5 lakh ₹20,000". A lakh / crore run followed by a smaller run joins it.
+        scale = {"lakh": 10 ** 5, "lakhs": 10 ** 5, "crore": 10 ** 7, "crores": 10 ** 7}.get(nxt)
+        if scale and "." not in written and i + n + 1 < len(ws) and not chunks[i + n].ends_sentence():
+            r2 = _run(ws, i + n + 1)
+            if r2 is not None and "." not in r2[0] and 0 < r2[1] < scale and ws[i + n + 1] != "and":
+                total = int(value) * scale + int(r2[1])
+                last = chunks[i + n + r2[2]]
+                out.append(Chunk(c.lead, indian(total), last.trail))
+                i += n + 1 + r2[2]
+                continue
         prev = out[-1].key if out and not out[-1].ends_sentence() else ""
         unit = nxt in UNIT_AFTER or (nxt == "per" and nxt2 == "cent")
         if not (value >= 10 or "." in written or unit or prev in LEAD_BEFORE or prev in RUPEE):

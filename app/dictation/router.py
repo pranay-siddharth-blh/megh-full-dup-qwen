@@ -86,7 +86,10 @@ async def _close(ws: WebSocket, msg: dict, code: int) -> None:
 @router.websocket("/ws/dictate")
 async def ws_dictate(ws: WebSocket):
     await ws.accept()
-    address = ws.client.host if ws.client else "?"
+    # review 2026-11-15: the real client behind the trusted proxy (X-Forwarded-For), not nginx's own address,
+    # which made the per-address limit one limit for the whole site
+    from app.net import client_ip as _client_ip
+    address = _client_ip(ws)
     if over_hello_limit(address, settings.DICTATE_HELLO_PER_MINUTE, time.monotonic()):
         STATS["refused"] += 1
         await _close(ws, {"type": "error", "reason": "rate"}, 4429)
@@ -108,12 +111,13 @@ async def ws_dictate(ws: WebSocket):
         await _close(ws, {"type": "error", "reason": "off"}, 1000)
         return
     old = _ACTIVE.get(user.key)
-    if old is not None:
-        STATS["replaced"] += 1
-        old.end("replaced")                     # a second tab / a quick restart: the newest dictation wins
+    # capacity first (review 2026-11-15): a refused start must not end the user's own running dictation
     if len(_ACTIVE) - (1 if old is not None else 0) >= max(1, settings.DICTATE_MAX_SESSIONS):
         await _close(ws, {"type": "error", "reason": "busy"}, 1013)
         return
+    if old is not None:
+        STATS["replaced"] += 1
+        old.end("replaced")                     # a second tab / a quick restart: the newest dictation wins
     live = _Live(ws)
     _ACTIVE[user.key] = live
     STATS["sessions"] += 1

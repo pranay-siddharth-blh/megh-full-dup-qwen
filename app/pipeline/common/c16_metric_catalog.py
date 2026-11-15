@@ -292,6 +292,8 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
 # "average / per": the words of a ratio question that are not a measure.
 _C16_RATIO_WORDS = frozenset("average avg mean per each one every typical".split())
 _C16_RATIO_STOP = frozenset("in for during across under of at by from statewide".split())
+# A ratio beside a time / place dimension, or a yearly rate, is not one money-per-thing figure.
+_C16_RATIO_REFUSE = frozenset("annual annually yearly monthly year-wise district-wise block-wise wise each every".split())
 
 
 def _c16_measure_at(toks: "list[str]", m) -> "int | None":
@@ -313,7 +315,10 @@ def _c16_ratio_pair(question: str, ms: list) -> "tuple | None":
     if len(money) != 1 or len(counts) != 1:
         return None
     toks = [metric_catalog._stem(t.low) for t in _c01_tm_tokens(question or "")]
-    if "per" not in toks:
+    # 2026-11-15 (review): exactly ONE "per", and no time or place rate asked beside it. "per household per year"
+    # divided the all-years total by households and called it per year; "per household per block" came back as one
+    # district figure. Either needs a grouping, not one ratio: the model path answers them.
+    if toks.count("per") != 1 or any(w in _C16_RATIO_REFUSE for w in toks):
         return None
     per = toks.index("per")
     at_m, at_c = _c16_measure_at(toks, money[0]), _c16_measure_at(toks, counts[0])

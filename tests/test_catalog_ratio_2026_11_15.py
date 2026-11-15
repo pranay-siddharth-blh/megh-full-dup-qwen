@@ -57,3 +57,21 @@ def test_ratio_answer_reads_as_an_average():
     a = p._framed_fallback([{"amount_per_producer_group_rupees": 36238.02}], ["Focus Legacy"],
                            {"district": "EAST JAINTIA HILLS"})
     assert "the average is ₹36,238.02 per producer group" in a
+
+
+# ── review 2026-11-15: shapes that are NOT one money-per-thing figure ──
+@pytest.mark.parametrize("q", [
+    "Average Focus Legacy amount per producer group per year in Ri Bhoi across all financial years",
+    "Focus Legacy amount per producer group per block in Ri Bhoi in FY 2023-24",
+    "Focus Legacy amount per producer group in each district",
+    "Yearly Focus Legacy amount per producer group",
+])
+def test_not_a_single_ratio(catalogue, q):
+    assert p._c16_ratio_pair(q, list(catalogue["metrics"].values())) is None, q
+
+
+def test_a_rate_is_never_the_money_numerator():
+    rate = mc.Metric(key="mgnrega_cost_per_person_day", scheme="MGNREGA", display_name="x", expression="SUM(a)/SUM(b)",
+                     base_object="v", unit="rupees per person-day", notes="", alias="cost_per_person_day_rupees",
+                     phrases=(), columns=frozenset())
+    assert mc.money_scale(rate) is None

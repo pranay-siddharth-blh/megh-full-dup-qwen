@@ -1,0 +1,606 @@
+{
+ "label": "merged-1-fixes",
+ "when": "2026-11-15_1407",
+ "seconds": 37,
+ "bank_recorded": "2026-11-14",
+ "summary": "category                   cases       turns\nchain                        1/1         2/2\nchart                        2/2         2/2\ncm_elevate                   1/1         1/1\nfocus_legacy                 1/1         1/1\nfocus_plus                   3/3         3/3\npmay                         1/1         1/1\nTOTAL                        9/9       10/10   (100.0% cases)\n\nfailure taxonomy (primary tag per failing turn):",
+ "results": [
+  {
+   "id": "G-D8",
+   "cat": "focus_plus",
+   "shape": "state-year",
+   "src": "live_chat_golden.py (brief 2026-10-29) D8",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 10.2,
+   "turns": [
+    {
+     "q": "Focus Plus beneficiaries FY 2022-23 and amount paid?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 8.9,
+     "dataset_pick": null,
+     "answer": "In FY 2022-23, Focus Plus recorded 93,286 beneficiaries with an amount paid of ₹46,64,30,000 (≈ ₹46.64 crore). This is the statewide figure for all of Meghalaya.",
+     "schemes": [
+      "Focus Plus"
+     ],
+     "chart_type": "kpi_bar",
+     "rewritten": "How many beneficiaries were there under Focus Plus in FY 2022-23 and how much amount was paid?",
+     "sql": "SELECT COUNT(DISTINCT beneficiary_key) AS beneficiaries, SUM(amount_disbursed) AS amount_raw FROM curated.v_focus_plus WHERE financial_year_short = '2022-23'",
+     "data": [
+      {
+       "beneficiaries": 93286,
+       "amount_raw_rs": "466430000.00"
+      }
+     ],
+     "chips": [
+      "How many Focus Plus payments were made in Meghalaya?",
+      "Break that down by district.",
+      "How much has been disbursed under Focus Plus in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 93286
+      },
+      {
+       "label": null,
+       "unit": "rupees",
+       "live": 466430000
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "G-D9",
+   "cat": "focus_legacy",
+   "shape": "state-total",
+   "src": "live_chat_golden.py (brief 2026-10-29) D9",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 8.0,
+   "turns": [
+    {
+     "q": "Focus Legacy producer groups and total, all years?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 7.3,
+     "dataset_pick": null,
+     "answer": "Across all financial years for Meghalaya, the Focus Legacy scheme recorded 11,906 producer groups, 1,02,021 memberships, and ₹51,01,05,000 (≈ ₹51.01 crore) amount disbursed. Counted as memberships paid for, not as distinct people — a group paid in more than one year is counted each time.\n\nNote: Focus Legacy data covers FY 2021-22, FY 2022-23, FY 2024-25 and FY 2025-26.",
+     "schemes": [
+      "Focus Legacy"
+     ],
+     "chart_type": "kpi_bar",
+     "rewritten": "How many Focus Legacy producer groups and the total are there across all financial years?",
+     "sql": "SELECT COUNT(DISTINCT pg_id) AS producer_groups, SUM(amount_disbursed) AS amount_disbursed, SUM(no_of_pg_members) AS memberships FROM curated.v_focus_legacy",
+     "data": [
+      {
+       "producer_groups": 11906,
+       "amount_disbursed_rs": "510105000.00",
+       "memberships": 102021
+      }
+     ],
+     "chips": [
+      "How many PG members were covered in Meghalaya?",
+      "Break that down by district.",
+      "Show Focus Legacy payments by financial year in Meghalaya."
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 11906
+      },
+      {
+       "label": null,
+       "unit": "rupees",
+       "live": 510105000
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "CARD-fp-amt",
+   "cat": "focus_plus",
+   "shape": "state-total",
+   "src": "live_chat_golden.py card_cases + RAG PDF data #4",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 9.0,
+   "turns": [
+    {
+     "q": "Total amount disbursed under Focus Plus across all years?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 8.3,
+     "dataset_pick": null,
+     "answer": "The total amount disbursed under Focus Plus across all financial years is ₹119.74 crore. This is the statewide figure for all of Meghalaya, across all financial years.\n\nNote: Focus Plus data covers FY 2022-23 and FY 2025-26.",
+     "schemes": [
+      "Focus Plus"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "/* metric:focus_plus_amount_disbursed total */ SELECT ROUND((SUM(amount_disbursed))::numeric / 10000000, 2) AS amount_disbursed_cr\nFROM curated.v_focus_plus",
+     "data": [
+      {
+       "amount_disbursed_cr": "119.74"
+      }
+     ],
+     "chips": [
+      "How many Focus Plus payments were made in Meghalaya?",
+      "Break that down by district."
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "rupees",
+       "live": 1197392500
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "RAG-D10",
+   "cat": "focus_plus",
+   "shape": "count+districts",
+   "src": "RAG Knowledge and Data Test PDF, Table 2 (30 Oct 2026) #10 (PARTIAL: count shown as money)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 10.4,
+   "turns": [
+    {
+     "q": "How many FOCUS+ disbursements have been made and in how many districts?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 9.2,
+     "dataset_pick": null,
+     "answer": "Across all financial years, Focus Plus recorded 3,85,671 disbursements in 12 districts for Meghalaya.\n- **Disbursements**: 3,85,671\n- **Districts**: 12\n\nNote: Focus Plus data covers FY 2022-23 and FY 2025-26.",
+     "schemes": [
+      "Focus Plus"
+     ],
+     "chart_type": "kpi_bar",
+     "rewritten": "How many disbursements have been made under Focus Plus and in how many districts?",
+     "sql": "SELECT COUNT(*) AS disbursements, COUNT(DISTINCT lgd_district) AS districts FROM curated.v_focus_plus",
+     "data": [
+      {
+       "disbursements": 385671,
+       "districts": 12
+      }
+     ],
+     "chips": [
+      "How many Focus Plus payments were made in Meghalaya?",
+      "Break that down by district.",
+      "How much has been disbursed under Focus Plus in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "count",
+       "live": 385671
+      },
+      {
+       "label": "districts",
+       "unit": "count",
+       "live": 12
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "CH-03",
+   "cat": "chart",
+   "shape": "year-series",
+   "src": "Chart Test Questions PDF (30 Oct 2026) #3",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 4.6,
+   "turns": [
+    {
+     "q": "Show total Focus Legacy amount remitted in each financial year as a line chart",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 4.4,
+     "dataset_pick": null,
+     "answer": "The statewide Focus Legacy scheme total disbursed across all financial years:\nTotal disbursed rose from ₹6.82 crore in FY 2021-22 to ₹18.51 crore in FY 2025-26, up ₹11.69 crore (171.4%).\n- FY 2021-22: ₹6.82 crore\n- FY 2022-23: ₹14.18 crore\n- FY 2024-25: ₹11.50 crore\n- FY 2025-26: ₹18.51 crore\n\nNote: Focus Legacy data covers FY 2021-22, FY 2022-23, FY 2024-25 and FY 2025-26.",
+     "schemes": [
+      "Focus Legacy"
+     ],
+     "chart_type": "line",
+     "rewritten": "Show the total Focus Legacy amount remitted in each financial year as a line chart.",
+     "sql": "/* metric:focus_legacy_total_disbursed breakdown */ SELECT year_key, MAX(financial_year_short) AS financial_year, ROUND((SUM(amount_disbursed))::numeric / 10000000, 2) AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE year_key IS NOT NULL\nGROUP BY year_key ORDER BY year_key",
+     "data": [
+      {
+       "year_key": 2021,
+       "financial_year": "2021-22",
+       "total_disbursed_cr": "6.82"
+      },
+      {
+       "year_key": 2022,
+       "financial_year": "2022-23",
+       "total_disbursed_cr": "14.18"
+      },
+      {
+       "year_key": 2024,
+       "financial_year": "2024-25",
+       "total_disbursed_cr": "11.50"
+      },
+      {
+       "year_key": 2025,
+       "financial_year": "2025-26",
+       "total_disbursed_cr": "18.51"
+      }
+     ],
+     "chips": [
+      "How many producer groups were paid in Meghalaya?",
+      "Break that down by district.",
+      "Show Focus Legacy payments by financial year in Meghalaya."
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "2021-22",
+         68235000
+        ],
+        [
+         "2022-23",
+         141790000
+        ],
+        [
+         "2024-25",
+         114990000
+        ],
+        [
+         "2025-26",
+         185090000
+        ]
+       ],
+       "unit": "rupees",
+       "take": "all"
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": null,
+      "asked": "line",
+      "charts": [
+       {
+        "initial": "line",
+        "types": [
+         "line"
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "CH-04",
+   "cat": "chart",
+   "shape": "breakdown-status",
+   "src": "Chart Test Questions PDF (30 Oct 2026) #4",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 5.0,
+   "turns": [
+    {
+     "q": "CM Elevate applications by status as a donut chart",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 3.0,
+     "dataset_pick": "CM Elevate",
+     "answer": "The donut chart displays the top three valid application statuses for the CM Elevate scheme statewide:\n1. **Pending** — 7,291\n2. **Send Back** — 57\n3. **Rejected** — 48",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": "doughnut",
+     "rewritten": "CM Elevate (applications) applications by status as a donut chart",
+     "sql": "SELECT COALESCE(file_status, '(not recorded)') AS status, COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE data_verified = 'Valid' GROUP BY 1 ORDER BY applications DESC NULLS LAST LIMIT 100",
+     "data": [
+      {
+       "status": "Pending",
+       "applications": 7291
+      },
+      {
+       "status": "Send Back",
+       "applications": 57
+      },
+      {
+       "status": "Rejected",
+       "applications": 48
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in Meghalaya?",
+      "Break that down by district.",
+      "Show the verification status breakdown for CM Elevate in Meghalaya?"
+     ],
+     "truth": [
+      {
+       "rows": [
+        [
+         "Pending",
+         7291
+        ],
+        [
+         "Send Back",
+         57
+        ],
+        [
+         "Rejected",
+         48
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      },
+      {
+       "rows": [
+        [
+         "Pending",
+         8813
+        ],
+        [
+         "Send Back",
+         90
+        ],
+        [
+         "Rejected",
+         62
+        ]
+       ],
+       "unit": "count",
+       "take": "all"
+      }
+     ],
+     "drawn": {
+      "mode": "multi",
+      "note": null,
+      "asked": "doughnut",
+      "charts": [
+       {
+        "initial": "doughnut",
+        "types": [
+         "doughnut"
+        ]
+       }
+      ]
+     }
+    }
+   ]
+  },
+  {
+   "id": "FU-19",
+   "cat": "chain",
+   "shape": "and-for-place",
+   "src": "follow-up chain (voice bank C4)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 6.2,
+   "turns": [
+    {
+     "q": "CM Elevate applications in South Garo Hills.",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 2.0,
+     "dataset_pick": "CM Elevate",
+     "answer": "The CM Elevate scheme recorded 368 valid applications in South Garo Hills.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": "CM Elevate (applications) applications in South Garo Hills",
+     "sql": "/* metric:cm_elevate_applications_valid total */ SELECT COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS applications_valid\nFROM curated.v_cm_elevate\nWHERE UPPER(lgd_district) = 'SOUTH GARO HILLS'",
+     "data": [
+      {
+       "applications_valid": 368
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in South Garo Hills?",
+      "Break that down by block within South Garo Hills.",
+      "Show the verification status breakdown for CM Elevate in South Garo Hills?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 368
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 495
+      }
+     ]
+    },
+    {
+     "q": "And in West Khasi Hills?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 1.0,
+     "dataset_pick": null,
+     "answer": "The CM Elevate scheme recorded 439 valid applications in West Khasi Hills.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": null,
+     "rewritten": "CM Elevate (applications) applications in West Khasi Hills",
+     "sql": "/* metric:cm_elevate_applications_valid total */ SELECT COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS applications_valid\nFROM curated.v_cm_elevate\nWHERE UPPER(lgd_district) = 'WEST KHASI HILLS'",
+     "data": [
+      {
+       "applications_valid": 439
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in West Khasi Hills?",
+      "Break that down by block within West Khasi Hills.",
+      "Show the verification status breakdown for CM Elevate in West Khasi Hills?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 439
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 526
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W2-CE-SB-01",
+   "cat": "cm_elevate",
+   "shape": "file-status",
+   "src": "wave 2 (accuracy round 2026-11-12)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 3.1,
+   "turns": [
+    {
+     "q": "How many CM Elevate applications were sent back in West Garo Hills?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 0.9,
+     "dataset_pick": "CM Elevate",
+     "answer": "11 CM Elevate applications in West Garo Hills have the file status Send Back (of 1,625 valid applications); those that also meet the rest of the rule are counted among the 1,619 pending. Pending means: data verified Valid, and file status Pending or Send Back.",
+     "schemes": [
+      "CM Elevate"
+     ],
+     "chart_type": "kpi_bar",
+     "rewritten": "How many CM Elevate (applications) applications were sent back in West Garo Hills",
+     "sql": "/* cme-sector-workflow */ SELECT COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid' AND file_status IN ('Pending', 'Send Back')) AS pending, COUNT(DISTINCT request_id) FILTER (WHERE file_status = 'Send Back') AS sent_back, COUNT(DISTINCT request_id) FILTER (WHERE file_status = 'Rejected') AS rejected, COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'forward') AS forward, COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'resubmit') AS resubmit, COUNT(DISTINCT request_id) FILTER (WHERE current_file_status = 'sendback to vdv/citizen') AS sendback, COUNT(DISTINCT request_id) AS applications FROM curated.v_cm_elevate WHERE lgd_district = $1 AND data_verified = 'Valid'",
+     "data": [
+      {
+       "pending": 1619,
+       "sent_back": 11,
+       "rejected": 7,
+       "forward": 1617,
+       "resubmit": 0,
+       "sendback": 8,
+       "applications": 1625
+      }
+     ],
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in West Garo Hills?",
+      "Break that down by block within West Garo Hills.",
+      "Show the verification status breakdown for CM Elevate in West Garo Hills?"
+     ],
+     "truth": [
+      {
+       "label": "valid applications",
+       "unit": "count",
+       "live": 11
+      },
+      {
+       "label": "all applications",
+       "unit": "count",
+       "live": 21
+      }
+     ]
+    }
+   ]
+  },
+  {
+   "id": "W3-RT-03",
+   "cat": "pmay",
+   "shape": "share",
+   "src": "wave 3 (accuracy round 2026-11-12)",
+   "ok": true,
+   "primary": null,
+   "drift": [],
+   "seconds": 4.8,
+   "turns": [
+    {
+     "q": "What share of all PMAY-G houses are in West Garo Hills?",
+     "ok": true,
+     "primary": null,
+     "fails": [],
+     "local_view": null,
+     "route": "data",
+     "pause_rule": null,
+     "seconds": 4.6,
+     "dataset_pick": null,
+     "answer": "West Garo Hills accounts for 19.4% of all PMAY-G houses across all financial years.",
+     "schemes": [
+      "PMAY-G"
+     ],
+     "chart_type": null,
+     "rewritten": null,
+     "sql": "SELECT ROUND(CAST(100.0 * COUNT(*) FILTER(WHERE lgd_district = 'WEST GARO HILLS') / NULLIF(COUNT(*), 0) AS DECIMAL), 1) AS pct_in_west_garo_hills FROM curated.v_pmay",
+     "data": [
+      {
+       "pct_in_west_garo_hills": "19.4"
+      }
+     ],
+     "chips": [
+      "What is the PMAY-G completion rate in West Garo Hills?",
+      "Break that down by block within West Garo Hills.",
+      "How many PMAY-G houses have been completed in West Garo Hills?"
+     ],
+     "truth": [
+      {
+       "label": null,
+       "unit": "pct",
+       "live": 19.372088809925952
+      }
+     ]
+    }
+   ]
+  }
+ ]
+}

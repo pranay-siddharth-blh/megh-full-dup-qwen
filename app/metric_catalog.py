@@ -553,6 +553,10 @@ def constituency_column(m: Metric) -> "str | None":
 def money_scale(m: Metric) -> "float | None":
     """Rupees per unit of the measure's RAW expression (`m.expression`), or None when it is not money. A crore
     alias ("_cr") is a rupee expression divided only when selected (_value_sql); a lakh alias is already lakh."""
+    # a RATE is never a money total (review 2026-11-15): "cost_per_person_day_rupees" (unit "rupees per person-day")
+    # divided by a count gave about ₹0
+    if "_per_" in m.alias or " per " in f" {str(m.unit).lower()} ":
+        return None
     if m.alias.endswith("_lakh"):
         return 1e5
     if m.alias.endswith(("_cr", "_rupees")) or str(m.unit).lower() in ("rupees", "rupee"):

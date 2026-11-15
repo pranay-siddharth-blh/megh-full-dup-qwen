@@ -269,3 +269,17 @@ def test_twelve_seconds_without_a_pause_is_cut_at_the_quietest_point():
 def test_silence_only_is_not_cut_at_pauses():
     s = Segmenter()
     assert s.feed(_pcm(np.zeros(16000 * 5))) == []
+
+
+# ── review 2026-11-15: dictation never merges two years into one, and joins a lakh amount ──
+@pytest.mark.parametrize("said,want", [
+    ("MGNREGA expenditure in 2022 and 2023", "MGNREGA expenditure in 2022 and 2023"),
+    ("between 2019 and 2020", "between 2019 and 2020"),
+    ("since 2019 till 2020", "since 2019 till 2020"),
+    ("data for the years 2018 2019 and 2020", "data for the years 2018 2019 and 2020"),
+    ("five lakh twenty thousand rupees", "₹5,20,000"),
+    ("MGNREGA person days in twenty twenty two twenty three", "MGNREGA person-days in 2022-23"),
+])
+def test_review_years_and_amounts(said, want):
+    r = C.clean(said)
+    assert (r.text if hasattr(r, "text") else r) == want

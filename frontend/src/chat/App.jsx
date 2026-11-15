@@ -441,6 +441,10 @@ export default function App() {
         pending = '';
         shown = ev.result;
         shownId = nextId();
+        // review 2026-11-15: once the final answer is shown, Stop no longer cuts the stream. The turn stays
+        // running until `done`, so the next question waits for this turn's save (another worker would otherwise
+        // read the conversation before it); the shown answer is final either way.
+        if (stopRef.current === stop) stopRef.current = null;
         setMessagesHere((m) => [...dropTyping(m), richMessage(ev.result, shownId)]);
       }
     };
