@@ -40,6 +40,8 @@ def _take_arg(name: str):
 # its app/ and its run_gold.py are imported (run_gold chdirs to that root, so its .env is used); the bank
 # file is always the one beside this runner.
 ROOT_ARG = _take_arg("--root")
+if "--concurrency" not in sys.argv:          # 02:24: megh_db "too many connections for role megh_readonly"
+    sys.argv += ["--concurrency", "2"]
 POST_ARG = _take_arg("--post")
 TARGET_TESTS = os.path.join(os.path.abspath(ROOT_ARG), "tests", "accuracy") if ROOT_ARG else HERE
 sys.path.insert(0, TARGET_TESTS)
@@ -70,6 +72,7 @@ KINDS = {
     "one-breath combos (two blocks / years, chart, villages)": ["one-breath-combos"],
     "polite 'Can you / Could you' versions of passing questions": ["polite-can-you"],
     "measure names the scheme (no scheme said)": ["measure-implies-scheme"],
+    "rank the same measure inside a district": ["rank-in-place"],
 }
 
 

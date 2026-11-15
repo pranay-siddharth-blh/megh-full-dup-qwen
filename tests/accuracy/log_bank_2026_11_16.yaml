@@ -5751,3 +5751,87 @@ cases:
   - q: How many beneficiaries are there in East Garo Hills in 2025-26?
     pause: true
     max_s: 20
+- id: RNK-0
+  cat: rank-in-place
+  shape: same measure ranked
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me PMAY-G houses sanctioned by district
+    pause: false
+    max_s: 25
+  - q: which block is the highest in West Garo Hills
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'WEST GARO HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 1
+    pause: false
+    place: WEST GARO HILLS
+    max_s: 25
+- id: RNK-1
+  cat: rank-in-place
+  shape: same measure ranked
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Show me PMAY-G houses completed by district
+    pause: false
+    max_s: 25
+  - q: and which block is the lowest in East Khasi Hills?
+    rows:
+    - sql: SELECT lgd_block, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'EAST KHASI HILLS' GROUP BY
+        1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    place: EAST KHASI HILLS
+    max_s: 25
+- id: RNK-2
+  cat: rank-in-place
+  shape: same measure ranked
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA person-days by district
+    pause: false
+    max_s: 25
+  - q: what is the top block in Ri Bhoi
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'RI BHOI' GROUP BY 1 ORDER BY
+        2 DESC
+      unit: count
+      take: 1
+    pause: false
+    place: RI BHOI
+    max_s: 25
+- id: RNK-3
+  cat: rank-in-place
+  shape: same measure ranked
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy producer groups by district
+    pause: false
+    max_s: 25
+  - q: the weakest block in North Garo Hills?
+    rows:
+    - sql: SELECT lgd_block, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district = 'NORTH GARO HILLS' GROUP
+        BY 1 ORDER BY 2 ASC
+      unit: count
+      take: 1
+    pause: false
+    place: NORTH GARO HILLS
+    max_s: 25
+- id: RNK-4
+  cat: rank-in-place
+  shape: same measure ranked
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: MGNREGA expenditure by district
+    pause: false
+    max_s: 25
+  - q: which block in West Jaintia Hills has the most
+    rows:
+    - sql: SELECT lgd_block, ROUND(SUM(total_exp), 2) FROM curated.v_expenditure WHERE lgd_district = 'WEST JAINTIA HILLS'
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: lakh
+      take: 1
+    pause: false
+    place: WEST JAINTIA HILLS
+    max_s: 25

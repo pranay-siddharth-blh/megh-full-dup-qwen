@@ -109,6 +109,12 @@ LOG_CASES = [
     ([PD_D], None, "Okay, could you break down North Garo Hills by the blocks?", ["North Garo Hills", "block"], []),
     ([PD_D], None, "and which block is the lowest in North Garo Hills", ["North Garo Hills", "lowest"], []),
     ([PD_D], None, "can you give me the top three blocks in West Garo Hills", ["West Garo Hills", "top"], []),
+    # 02:35: rank / trend inside a district after a district breakdown
+    ([PD_D], None, "what is the top block in Ri Bhoi", ["Ri Bhoi", "top"], []),
+    ([PD_D], None, "Okay, um, which block is doing the best in Ri Bhoi?", ["Ri Bhoi", "best"], []),
+    ([PD_D], None, "How did it change in the last three years in West Garo Hills?",
+     ["West Garo Hills", "three years"], []),
+    ([PD_D], None, "and how has it moved year by year in Ri Bhoi", ["Ri Bhoi", "year"], []),
 ]
 
 
