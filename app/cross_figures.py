@@ -366,6 +366,7 @@ class Plan:
     # a name shared by 2-3 villages (c09 village_twins, D-096 / KI-630): {code: label};
     # one row per village and scheme, never summed (grain "village")
     villages: dict = field(default_factory=dict)
+    one_each: bool = False               # "which district leads in EACH scheme": the one leader per scheme (A10)
 
 
 # ── rank words at a place level (audit 2026-10-29, I-1 / I-3 / I-4 / I-14 / I-16 / I-18) ──
@@ -474,11 +475,11 @@ def rank_ask(text: str) -> "RankAsk | None":
 
 
 def _one_place_asked(text: str, level: str) -> bool:
-    """The ranked level is said in the SINGULAR with no number: "which district leads in each scheme", "top district
+    """The ranked level is said in the SINGULAR, with no number, per scheme ("each / every / per"): "which district leads in each scheme", "top district
     for every scheme" ask for the one leader per scheme, not every district in order (question bank A10, 2026-11-15).
     "Which districts …", "rank the districts …" and "top 5 districts" stay full / N rankings."""
     w = [t.low for t in tokens(text)]
-    return level in w and (level + "s") not in w and _top_n(text) is None
+    return level in w and (level + "s") not in w and _top_n(text) is None and any(x in w for x in ("each", "every", "per"))
 
 
 def _top_n(text: str) -> "int | None":
@@ -680,14 +681,14 @@ def plan(text: str, schemes: list, resolved: dict, display: "dict | None",
         first = "avg"                    # "per beneficiary money": ranked on money per head (I-21)
     year = r.get("year_key")
     combined = bool(_COMBINED.search(text))
+    one_each = bool(drank and ask.high and not ask.low and not ask.nth and _one_place_asked(text, ask.level))
     p = Plan(schemes=schemes, by_district=by_district, districts=districts, block=block,
              year=int(year) if year else None, measures=measures, op=op, cond=cond, first=first,
              # a district ranking adds the schemes only when the question says so
              # ("combined", "together", "in total"); otherwise one list per scheme (I-6)
              combined=combined and (op == "rank_districts" or (op in ("list", "leader") and not ranked)),
              avg=avg, low=(ask.low and not ask.high) if drank else bool(_LOW.search(text)),
-             top_n=_top_n(text) or (1 if drank and not ask.nth and not (ask.high and ask.low)
-                                     and _one_place_asked(text, ask.level) else None),
+             top_n=_top_n(text) or (1 if one_each else None), one_each=one_each,
              rank_measures=bool(_RANK_MEASURES.search(text)) and not by_district,
              lead_all=perf or (count and money),
              both=bool(drank and ask.high and ask.low), nth=ask.nth if drank else None,
@@ -1323,7 +1324,7 @@ def _district_lines(p: Plan, figs: dict, have: list, totals: "dict | None" = Non
                 order = _rank_order(p, keys, lambda k, s=s: value(figs[s].get(k, {}), m))
                 noun = _BEN_NOUN[s] if m == "count" else what
                 for label, part in _rank_parts(p, order):
-                    if len(part) == 1 and not p.nth:
+                    if p.one_each and len(part) == 1:
                         # the one leader per scheme ("which district leads in each scheme"): no "Top 1 … 1."
                         _i, k = part[0]
                         val = fmt(s, figs[s].get(k, {}), m)
