@@ -6,6 +6,22 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
 
+### 0c. 16 Nov 2026 (night, demo eve) — voice stage visual audit + captions exactly as said, branch `wt/visual-2026-11-16`
+- **Captions (user's live test on the sovereign engine: "a 'the' in front of 'One moment, sir.'"):** reproduced with
+  the fake Live's new `!!realtime` (holding line, then the answer, word by word in real time). Three causes: the relay's
+  word-by-word guard held a line's last word ("sir.") until the next line began; after an engine `interrupted` the
+  next line's first word was glued to a word held at the cut ("ThatOne"); the stage cut an answer's caption out of the
+  SHOWN text (which runs behind the words received). Fixed in `app/voice/relay.py` (`_guard_partial`, the
+  `interrupted` branch), `voice/captionPacer.js` (reading breaks, `segmentStart` / `readingStart`), `VoiceStage.jsx`
+  (segments by words received; the holding line shows on its own while the answer is worked out). Test:
+  `tests/voice/ui_voice_transcript.py` + `tests/test_voice_caption_lines_2026_11_16.py`.
+- **Pictures:** a promoted card no longer drops another scheme's card over the same places (`sameItems` compares
+  figures too); no second tile of the same figure for a scheme; a row's own measure name on a tile (never "value");
+  two-district side-by-side capped at 3 measures; ranking names not cut; map panel short names; no "no data" words on
+  a 3+ series line; single cards start under the subtitle band (insight chip hidden at 761-800 px tall). Audit test:
+  `tests/voice/ui_voice_audit.py` (every shape and switch at 1366 / 1536 / 1920).
+- `tests/voice/cdp.py`: `CDP_PORT_OFFSET` env so two checkouts can run the browser tests side by side.
+
 ### 0b. 15 Nov 2026 (night) — the user's live-test round, ALL MERGED on `arch/step1-2026-11-14` (read first)
 - From the user's live test (log + `app.conversation_turns` read first, standing rule): four builds merged —
   98a434f drill-down follow-ups (KI-728; D-110 (b) REVISED and **confirmed by the user**: "by block" after a ranking =

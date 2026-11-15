@@ -906,3 +906,12 @@ body.vstage-in .app { visibility: hidden; transition: transform .8s var(--m-ease
 .vs-voice-opt:hover { color: var(--m-tx); }
 .vs-voice-opt.on { background: var(--m-em1); color: #fff; box-shadow: 0 4px 12px rgba(124, 63, 191, .25); }
 .vs-voice-opt:focus-visible { outline: 2px solid var(--m-em1); outline-offset: 2px; }
+
+/* 2026-11-16 visual audit: on a laptop screen (1366 x 768) a single card taller than its room (a table of eight rows,
+   a ranking of twelve) was centred with the overflow on BOTH sides, so it ran up under the subtitle band's second line
+   and down onto the insight chip. Now it overflows downward only (the band above stays clear), and up to 800 px of
+   height the insight chip (it repeats the leader the card already lights) steps aside */
+.vs-cards:not(.board):not(.mapfocus) { align-content: safe center; }
+@media (min-height: 761px) and (max-height: 800px) {
+  .vs-insight { display: none; }
+}
