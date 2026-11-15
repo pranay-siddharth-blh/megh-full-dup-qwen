@@ -326,6 +326,21 @@ body.vstage-in .vstage.board-ready.desk:not(.cols-done) .vs-col-r { animation-de
 @keyframes stageRefine { from { background-position: 0 0; } to { background-position: 200% 0; } }
 @keyframes refineDot { 50% { transform: scale(1.5); box-shadow: 0 0 18px rgba(124, 63, 191, 1); } }
 
+/* D-112: the next answer's step, under the title while it is worked out ("Querying the database", "Writing the
+   answer"): one calm line, a breathing dot, each new step fading in over the last */
+.vs-step { position: absolute; top: 44px; left: 28px; z-index: 5; display: inline-flex; align-items: center; gap: 9px;
+  max-width: calc(50% - min(340px, 26vw) - 44px); font-size: 12.5px; font-weight: 600; letter-spacing: .01em;
+  color: var(--m-mute, #534B68); pointer-events: none; }
+.vstage:not(.parked) .vs-step { display: none; }
+.vs-step > i { flex: none; width: 7px; height: 7px; border-radius: 50%; background: var(--m-cy);
+  box-shadow: 0 0 0 0 rgba(178, 127, 224, .55); animation: vsStepDot 1.6s ease-in-out infinite; }
+.vs-step > span { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; animation: vsStepIn .35s cubic-bezier(.2, .8, .2, 1) both; }
+.vs-orb-state .v { animation: vsStepIn .3s cubic-bezier(.2, .8, .2, 1) both; }
+@keyframes vsStepIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes vsStepDot { 50% { transform: scale(1.35); box-shadow: 0 0 0 6px rgba(178, 127, 224, 0); } }
+@media (prefers-reduced-motion: reduce) { .vs-step > i, .vs-step > span, .vs-orb-state .v { animation: none; } }
+@media (max-width: 760px) { .vs-step { top: 36px; left: 14px; max-width: calc(100% - 80px); } }
+
 .vs-stagearea { position: absolute; inset: 0; pointer-events: none; }
 /* the answer's text: read by assistive technology; on screen the captions carry what is said */
 .vs-answer { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

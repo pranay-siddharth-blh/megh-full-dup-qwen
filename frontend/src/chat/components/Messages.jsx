@@ -841,6 +841,16 @@ export function stepTrail(nodes) {
   return out;
 }
 
+/** What an in-flight answer is doing now, in words (the typing message's pill, the
+    voice stage's step line; D-112): its live state from liveTurn.js. */
+export function liveLabel(live) {
+  if (!live) return 'Thinking';
+  if (live.stale) return 'Checking the answer';
+  if (live.draft) return 'Writing the answer';
+  const trail = stepTrail(live.steps);
+  return trail[trail.length - 1] || 'Thinking';
+}
+
 // The status pill (#073): names the activity ("Thinking…", "Searching the scheme
 // documents…") instead of showing dots, because a specific status is more
 // reassuring than an anonymous wait. Before the first pipeline step it says
@@ -866,9 +876,8 @@ export const TypingMessage = memo(function TypingMessage({ steps: givenSteps, dr
   const live = useLiveTurn(streamKey);
   const steps = givenSteps || live.steps;
   const draft = givenDraft != null ? givenDraft : live.draft;
-  const trail = stepTrail(steps);
   const [shownDraft] = useReveal(draft, streamKey);
-  const current = live.stale ? 'Checking the answer' : draft ? 'Writing the answer' : (trail[trail.length - 1] || 'Thinking');
+  const current = liveLabel({ steps, draft, stale: live.stale });
   return (
     <div className="msg bot">
       <div className="av">M</div>

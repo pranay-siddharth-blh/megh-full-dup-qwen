@@ -10,6 +10,8 @@ import { VOICES, voiceOf } from '../voice/voices.js';
 import { SCHEME_HUES } from '../chartTheme.js';
 import VOICE_PACK from '../voice/meghVoicePack.js';
 import { levelText, parkOffset, parkTransform, spokenSentences } from '../voice/stageMotion.js';
+import { useLiveTurn } from '../liveTurn.js';
+import { liveLabel } from './Messages.jsx';
 import '../../styles/voice-stage.css';
 import '../../styles/voice-desk.css';
 
@@ -514,16 +516,13 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
   const baseRef = useRef({ id: null, n: 0 });
   if (baseRef.current.id !== currentId) baseRef.current = { id: currentId, n: live.turnsDone };
   const turnOver = live.turnsDone > baseRef.current.n && !live.speaking;
-  // one picture per turn, landing with the voice (Mitra's vizHold): the cards come in when the voice starts reading the
-  // answer, or 2.5 s after it arrived if the voice is slow; an answer seen another way shows at once
-  const [heldKey, setHeldKey] = useState(null);
-  useEffect(() => {
-    if (!planKey) return undefined;
-    if (!fresh || live.speaking || instant) { setHeldKey(planKey); return undefined; }
-    const t = setTimeout(() => setHeldKey(planKey), 2500);
-    return () => clearTimeout(t);
-  }, [planKey, fresh, live.speaking, instant]);
-  const cardsUp = !!vplan && heldKey === planKey;
+  // one picture per turn. D-112 (2026-11-15): its frame (the titles, the axes, the map's outline) comes up the moment
+  // the answer is there, instead of being held until the voice started or 2.5 s had passed (Mitra's vizHold); its items
+  // still come in as the voice names them (useCardReveal), so the picture still lands with the voice
+  const cardsUp = !!vplan;
+  // what the pipeline is doing while the answer is worked out (the chat's own step events, liveTurn.js)
+  const liveNow = useLiveTurn(working ? current.id : null);
+  const stepNow = working ? liveLabel(liveNow) : '';
 
   // what the stage shows: the last picture that came up stays while the next question is worked out (Mitra keeps the
   // stage up and crossfades the next picture over it), and for its exit (vcardOut, 750 ms) when the desk comes back
@@ -870,6 +869,10 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
         <div className="vs-veil" aria-hidden="true" />
         <div className="vs-beam" aria-hidden="true" />
         <div className="vs-title">{stageTitle}</div>
+        {/* D-112: the next answer being worked out, step by step, under the picture's title */}
+        {working && stepNow && (
+          <div className="vs-step" role="status" aria-live="polite"><i aria-hidden="true" /><span key={stepNow}>{stepNow}</span></div>
+        )}
         {viewNote && stageOn && (
           <div className={'vs-viewchip' + (viewNote.sub ? ' fell' : '')} key={viewNote.n} role="status">
             <i aria-hidden="true" /><b>{viewNote.title}</b>{viewNote.sub && <span>{viewNote.sub}</span>}
@@ -941,7 +944,9 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
             <div className="vs-dmeter you" ref={live.meterYou} aria-hidden="true"><i /><span>you</span></div>
             <div className="vs-dmeter me" ref={live.meterMegh} aria-hidden="true"><i /><span>Megh</span></div>
             <div className="vs-orb-state vs-pill" data-s={state}>
-              <span className="k">{STATE_LABEL[state] || 'Listening'}</span><span className="v">{STATE_HINT[state] || ''}</span>
+              <span className="k">{STATE_LABEL[state] || 'Listening'}</span>
+              <span className="v" key={stepNow && (state === 'thinking' || state === 'listening') ? stepNow : state}>
+                {(stepNow && (state === 'thinking' || state === 'listening') ? stepNow : STATE_HINT[state]) || ''}</span>
             </div>
           </div>
 
