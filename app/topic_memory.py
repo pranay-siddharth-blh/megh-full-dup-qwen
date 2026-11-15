@@ -331,7 +331,8 @@ def _turn_dict(turn) -> dict:
     return {"question": turn.question, "raw_question": turn.raw_question, "route": turn.route,
             "schemes": list(turn.schemes or []), "resolved_entities": dict(turn.resolved_entities or {}),
             "answer": (turn.answer or "")[:_ANSWER_CHARS], "result_summary": turn.result_summary or "",
-            "subsets": list(getattr(turn, "subsets", None) or [])}
+            "subsets": list(getattr(turn, "subsets", None) or []),
+            "answer_frame": dict(getattr(turn, "answer_frame", None) or {})}     # D-110
 
 
 def _turn_from(d: dict):
@@ -340,7 +341,7 @@ def _turn_from(d: dict):
                 route=d.get("route") or "data", schemes=list(d.get("schemes") or []),
                 resolved_entities=dict(d.get("resolved_entities") or {}),
                 answer=d.get("answer") or "", result_summary=d.get("result_summary") or "",
-                subsets=list(d.get("subsets") or []))
+                subsets=list(d.get("subsets") or []), answer_frame=dict(d.get("answer_frame") or {}))
 
 
 def _fingerprint(turn) -> str:

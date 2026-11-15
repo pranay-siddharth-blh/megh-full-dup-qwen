@@ -69,8 +69,15 @@ def record(session, raw_question: str, result: dict) -> None:
             return
         frames = list(getattr(session, "frames", None) or [])
         fid = (frames[-1].get("id", 0) + 1) if frames else 1
-        frames.append({"id": fid, "q": q, **_frame_scope(q, route, list(result.get("schemes") or []),
-                                                         result.get("resolved_entities") or {})})
+        frame = {"id": fid, "q": q, **_frame_scope(q, route, list(result.get("schemes") or []),
+                                                   result.get("resolved_entities") or {})}
+        af = result.get("answer_frame") if route == "data" else None
+        if isinstance(af, dict) and af:
+            # D-110: what the answer was (app/answer_frame.py): its measure, grouping, order, limit and chart, and
+            # the whole answer frame, so a follow-up after an aside finds it on any worker
+            frame.update(measure=af.get("metric_key") or af.get("measure_text"), group=af.get("group"),
+                         order=af.get("order"), limit=af.get("limit"), chart=af.get("chart"), af=dict(af))
+        frames.append(frame)
         session.frames = frames[-max(1, settings.SESSION_MAX_TURNS):]
     except Exception:  # noqa: BLE001 — frames must never break an answer
         logger.debug("context frame not recorded", exc_info=True)

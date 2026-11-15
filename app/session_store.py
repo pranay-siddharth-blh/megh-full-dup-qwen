@@ -41,6 +41,10 @@ class Turn:
     # "placeholders", "condition": "is_placeholder"}], context_manager.result_subsets).
     # "where are these 126?" is resolved against them. Empty when none.
     subsets: list = field(default_factory=list)
+    # D-110: the structured record of what this answer was (app/answer_frame.py, plain data): schemes, measure,
+    # query type, grouping, filters, order, limit, chart. Filled deterministically after the answer is assembled
+    # (pipeline c18 _c18_fill_frame); empty for knowledge / edge turns and for turns written before frames existed.
+    answer_frame: dict = field(default_factory=dict)
 
 
 @dataclass
@@ -235,6 +239,7 @@ class Session:
     def to_snapshot(self) -> dict:
         last = self.last_turn
         snap = self.state.to_dict()
+        before = self.turns[-2] if len(self.turns) >= 2 else None
         snap["_session"] = {
             "last_turn": None if last is None else {
                 "question": last.question, "raw_question": last.raw_question,
@@ -243,6 +248,16 @@ class Session:
                 "answer": (last.answer or "")[: self._SNAPSHOT_ANSWER_CHARS],
                 "result_summary": last.result_summary,
                 "subsets": list(last.subsets or []),
+                "answer_frame": dict(last.answer_frame or {}) or None,
+            },
+            # D-110: the turn before the last, without its answer text (route, schemes, entities, answer frame), so a
+            # follow-up after a knowledge aside finds the data answer it continues on any worker
+            "turn_before": None if before is None or before.route == "history" else {
+                "question": before.question, "raw_question": before.raw_question,
+                "route": before.route, "schemes": list(before.schemes),
+                "resolved_entities": dict(before.resolved_entities),
+                "result_summary": before.result_summary,
+                "answer_frame": dict(before.answer_frame or {}) or None,
             },
             "pending": None if not self.pending_scope_q else {
                 "question": self.pending_scope_q,
@@ -272,6 +287,16 @@ class Session:
         extra = snap.get("_session") or {}
         turns: list[Turn] = [Turn(question=q, raw_question=q, route="history")
                              for q in (extra.get("recent_questions") or [])[:-1]]
+        before = extra.get("turn_before")
+        if before and turns and turns[-1].question == (before.get("question") or ""):
+            # D-110: the turn before the last is held in full (bar its answer text), not as a question-only stub.
+            # A snapshot written before D-110 has no "turn_before": the stub stays, as before.
+            turns[-1] = Turn(
+                question=before.get("question") or "", raw_question=before.get("raw_question") or "",
+                route=before.get("route") or "data", schemes=list(before.get("schemes") or []),
+                resolved_entities=dict(before.get("resolved_entities") or {}),
+                result_summary=before.get("result_summary") or "",
+                answer_frame=dict(before.get("answer_frame") or {}))
         last = extra.get("last_turn")
         if last:
             turns.append(Turn(
@@ -279,7 +304,8 @@ class Session:
                 route=last.get("route") or "data", schemes=list(last.get("schemes") or []),
                 resolved_entities=dict(last.get("resolved_entities") or {}),
                 answer=last.get("answer") or "", result_summary=last.get("result_summary") or "",
-                subsets=list(last.get("subsets") or [])))
+                subsets=list(last.get("subsets") or []),
+                answer_frame=dict(last.get("answer_frame") or {})))
         self.turns = turns
         pending = extra.get("pending") or {}
         self.pending_scope_q = pending.get("question")
