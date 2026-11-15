@@ -55,3 +55,19 @@ def test_api_threads_are_not_in_the_users_history_list_or_search(monkeypatch):
     asyncio.run(conversation_store.list_my_conversations(7))
     asyncio.run(conversation_store.search_my_conversations(user_id=7, q="houses"))
     assert all("left(" in s and "'api-'" in s for s in seen), seen
+
+
+def test_voice_throwaway_sessions_are_not_in_the_history_list_or_search(monkeypatch):
+    """2026-11-15: the voice stage's explaining breakdown runs in a voice_explain_* session that the page deletes 4 s
+    later; when the page closed first (or the request was cancelled while the server still saved it) the thread was
+    left in the officer's history. The list and search never show that prefix."""
+    seen = []
+
+    async def fetch_rows(sql, params=None):
+        seen.append(sql)
+        return []
+
+    monkeypatch.setattr(conversation_store.db, "fetch_rows", fetch_rows)
+    asyncio.run(conversation_store.list_my_conversations(7))
+    asyncio.run(conversation_store.search_my_conversations(user_id=7, q="houses"))
+    assert len(seen) == 2 and all("'voice_explain_'" in s and "left(" in s for s in seen), seen

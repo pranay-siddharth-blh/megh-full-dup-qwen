@@ -136,17 +136,22 @@ async def main():
         r = await turn(b, q1)
         sp = ((r or {}).get("reply") or {}).get("speak", "")
         check("spoken question: the officer's words are the question in the chat", r and r["user"].strip() == q1, r and r["user"])
-        check("spoken question: answered through the pipeline and read back", "54,89,616" in sp, sp)
+        # D-114 (2026-11-15): the voice reads the answer's short SPOKEN form — the exact figure 54,89,616 or its
+        # honest marked rounding ("about 55 lakh"); the screen keeps the exact figure
+        honest = "54,89,616" in sp or "55 lakh" in sp.lower()
+        check("spoken question: answered through the pipeline and read back", honest, sp)
         done = (r or {}).get("done") or {}
         check("read back with no unsourced number", done.get("deviations") == [], done)
         if not REAL:
-            check("the voice said the checked answer word for word", "54,89,616" in (done.get("said") or ""), done.get("said"))
+            said = done.get("said") or ""
+            check("the voice said the checked answer word for word", bool(sp) and sp.split(".")[0].strip() in said, said)
         else:
             said = done.get("said") or ""
             check("the voice said the figure (digits or words)", "54,89,616" in said or "5,489,616" in said or "fifty" in said.lower(), said)
         typed = http_answer(token, q1)
-        check("same answer as the typed path (POST /api/query)", figures(typed.get("answer"))[:1] == figures(sp)[:1],
-              f"typed {figures(typed.get('answer'))} voice {figures(sp)}")
+        same = figures(typed.get("spoken") or typed.get("answer"))[:1] == figures(sp)[:1]
+        check("same answer as the typed path (POST /api/query)", same and "54,89,616" in (typed.get("answer") or ""),
+              f"typed spoken {typed.get('spoken')!r} / voice {sp!r}")
         print(f"    latency shown: {(r or {}).get('latency')}", flush=True)
         await b.shot(str(SHOTS / "02_answered.png"))
 
