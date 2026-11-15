@@ -309,9 +309,10 @@ function byDistrict(rows, sh, notes, q) {
   // two districts: a comparison, measure by measure
   if (ds.length === 2) {
     const tiles = [];
-    // three measures at most (2026-11-16): eight tiles in the side card were too short to say what each figure counts,
-    // so the two districts' names repeated with bare numbers; every measure stays in the chat and in the table switch
-    sh.measures.slice(0, 3).forEach((m) => {
+    // two measures at most (2026-11-16): eight tiles in the side card were too short to say what each figure counts,
+    // so the two districts' names repeated with bare numbers, and six sat district against district in three columns;
+    // four make a 2 x 2 (a district a column), each tile with its measure; every measure stays in the chat and the table
+    sh.measures.slice(0, 2).forEach((m) => {
       const unit = unitFor(m);
       ds.forEach((r, i) => {
         const d = districtKey(r[sh.district]);
