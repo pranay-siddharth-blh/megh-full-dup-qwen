@@ -2623,7 +2623,64 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
     # Execution checks first, then the model (2026-10-15): the free guards
     # above, then the database itself — a query that errors goes to repair
     # with the real Postgres error — then the result checks below. Only a
-    # query that has cleared all of them reaches the paid 30B verifier.
+    # query that has cleared all of them gets the paid 30B verifier's verdict
+    # (the free guards still run before it starts).
+    # D-112 (2026-11-15): the model check starts now, beside the database's plan
+    # check, the query and the row checks (it judges the SQL as the question asked
+    # it, never the rows, and every input it reads is fixed here). Its verdict is
+    # read only once they have all passed, exactly where it was read before; a
+    # check that fails first cancels it. Same verdicts, its wait off the path.
+    # The runners-up LIMIT 3 of a "which … most" (_c17_widen_top1) is ours, not the
+    # model's: the 4B verifier read it as "a list, not the one asked for" and rejected
+    # every repair (P3, 2026-10-29). It judges the query as the question asked it.
+    async def _c11_verdict():
+        return await _verify_sql(question, schemes, entity_result, _c17_as_asked(question, sql))
+    _clock = asyncio.get_running_loop().time
+    _c11_t0 = _clock()
+    _c11_verify = asyncio.ensure_future(_c11_verdict())
+    _c11_verify.add_done_callback(_c11_settle)
+    try:
+        rows = await _c11_checked_rows(question, schemes, entity_result, sql)
+        _c11_t1 = _clock()
+        verify_issue = await _c11_verify
+        logger.info("sql verify beside the query: rows after %d ms, verdict after %d ms, waited %d ms for it",
+                    round((_c11_t1 - _c11_t0) * 1000), round((_clock() - _c11_t0) * 1000),
+                    round((_clock() - _c11_t1) * 1000))
+    finally:
+        if not _c11_verify.done():
+            _c11_verify.cancel()
+    # The latest-year pin on job cards (a stock) is deliberate, even for "all
+    # financial years": the verifier rejected it on every repair round and the
+    # question ended in "couldn't build a working query" (matrix run 2026-10-14).
+    if verify_issue and _vr_has_job_card_pin(sql) and _C11_YEAR_WORD.search(verify_issue):
+        logger.info("verifier complaint about the job-card latest-year pin discarded: %s", verify_issue[:160])
+        verify_issue = None
+    # A measure computed exactly as a business definition prescribes (D-048: men =
+    # persons - women; household_years / person_years) — the verifier rejected the
+    # men query on every attempt (live 2026-10-16, errors.md case 1).
+    if verify_issue and _mgnrega_definition_complaint_is_false(schemes, sql, verify_issue):
+        logger.info("verifier complaint about a D-048 defined measure discarded: %s", verify_issue[:160])
+        verify_issue = None
+    if verify_issue:
+        turn_trace.note_verifier_rejection()
+        raise ValueError(
+            f"semantic verifier flagged this query: {verify_issue}. Fix the SQL to "
+            "address that specific problem and keep every other clause (filters, "
+            "year_key, geography, aggregation) that is not implicated."
+        )
+    return await _c11_zero_ties(question, sql, rows, entity_result)
+
+
+def _c11_settle(task) -> None:
+    """Read a finished verifier task's outcome, so one cancelled or left behind by
+    a failed check is never reported as an unretrieved exception."""
+    if not task.cancelled():
+        task.exception()
+
+
+async def _c11_checked_rows(question: str, schemes: list[str], entity_result: dict, sql: str) -> list:
+    """One attempt's database plan check, query and row checks (each raises
+    ValueError for the repair loop, as before); the rows."""
     # The database's own plan check (semantic.check_query, DB team 2026-10-27)
     # sees row joins through views and CTEs that the v_join_rules guard reads
     # only from the SQL text. Fail-open: None when it can't run.
@@ -2661,30 +2718,7 @@ async def _execute_one_attempt(question: str, schemes: list[str], entity_result:
     if _fig_issue:
         context_budget.log_decision("sql_guard", guard="figure_reference_total", verdict="reject")
         raise ValueError(_fig_issue)
-    # The runners-up LIMIT 3 of a "which … most" (_c17_widen_top1) is ours, not the
-    # model's: the 4B verifier read it as "a list, not the one asked for" and rejected
-    # every repair (P3, 2026-10-29). It judges the query as the question asked it.
-    verify_issue = await _verify_sql(question, schemes, entity_result, _c17_as_asked(question, sql))
-    # The latest-year pin on job cards (a stock) is deliberate, even for "all
-    # financial years": the verifier rejected it on every repair round and the
-    # question ended in "couldn't build a working query" (matrix run 2026-10-14).
-    if verify_issue and _vr_has_job_card_pin(sql) and _C11_YEAR_WORD.search(verify_issue):
-        logger.info("verifier complaint about the job-card latest-year pin discarded: %s", verify_issue[:160])
-        verify_issue = None
-    # A measure computed exactly as a business definition prescribes (D-048: men =
-    # persons - women; household_years / person_years) — the verifier rejected the
-    # men query on every attempt (live 2026-10-16, errors.md case 1).
-    if verify_issue and _mgnrega_definition_complaint_is_false(schemes, sql, verify_issue):
-        logger.info("verifier complaint about a D-048 defined measure discarded: %s", verify_issue[:160])
-        verify_issue = None
-    if verify_issue:
-        turn_trace.note_verifier_rejection()
-        raise ValueError(
-            f"semantic verifier flagged this query: {verify_issue}. Fix the SQL to "
-            "address that specific problem and keep every other clause (filters, "
-            "year_key, geography, aggregation) that is not implicated."
-        )
-    return await _c11_zero_ties(question, sql, rows, entity_result)
+    return rows
 
 
 async def _c11_tie_note(sql: str, rows: list, measure: str, places: str, entity_result: dict) -> None:
