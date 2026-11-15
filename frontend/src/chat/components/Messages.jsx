@@ -914,15 +914,58 @@ function RegenerateAction({ onRegenerate, label = 'Regenerate answer' }) {
   );
 }
 
-export const BotMessage = memo(function BotMessage({ id, question, response, time, at, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey, sessionId, view }) {
-  // A fresh answer is revealed word by word (reveal.js); the charts, SQL and
-  // chips follow once the text is all there. A replayed one shows at once.
-  const [shown, revealed] = useReveal(response.answer, streamKey, !!animate);
+// Parsing an answer's Markdown once per text: a re-render with the same visible
+// text (a parent's state change, a token frame) reuses the elements (D-112).
+const MemoMarkdown = memo(Markdown);
+// The charts and tables of an answer re-render only when the answer itself changes:
+// a reveal tick, a "Regenerate" prop or the footer's state never rebuilds a chart
+// (a rebuilt Chart.js instance replays its entrance).
+const MemoAnalytics = memo(Analytics);
+
+const prefersReducedMotion = () => {
+  try { return window.matchMedia('(prefers-reduced-motion: reduce)').matches; } catch (e) { return false; }
+};
+
+/* The answer's text, revealed word by word (reveal.js). Its own component, so a
+   reveal tick re-renders this text only, never the charts beside it; the parent
+   hears when the text is all there (onRevealed).
+   `stack` (the chat list, D-112): while the words are revealed, the WHOLE text is
+   already laid out underneath, invisible, so the bubble has its final height from
+   the first frame and nothing below it (the chart) moves as the words appear. */
+function AnswerText({ text, streamKey, animate, stack, onRevealed }) {
+  const [shown, revealed] = useReveal(text, streamKey, animate);
+  useEffect(() => { onRevealed(revealed); }, [revealed, onRevealed]);
+  if (!stack || revealed) {
+    return (
+      <div className="answer-text md">
+        <MemoMarkdown text={shown} />{!revealed && <span className="draft-cursor" aria-hidden="true" />}
+      </div>
+    );
+  }
+  return (
+    <div className="answer-text md md-stack">
+      <div className="md-layer md-ghost" aria-hidden="true"><MemoMarkdown text={String(text || '')} /></div>
+      <div className="md-layer md-live"><MemoMarkdown text={shown} /><span className="draft-cursor" aria-hidden="true" /></div>
+    </div>
+  );
+}
+
+/* `eager` (the chat list, D-112): the charts, tables and the rest of the answer's
+   blocks are laid out the moment the answer arrives, at their final size; the
+   charts draw at once while the words are revealed above them, and the other
+   blocks (sources, SQL, follow-ups) fade in where their space already is once the
+   text is all there. Without it (the voice stage's answer card) the blocks follow
+   the text as before: the stage reveals each chart item as the voice names it
+   (VoiceStage useSpeechReveal). */
+export const BotMessage = memo(function BotMessage({ id, question, response, time, at, onAsk, speakingId, onSpeak, onRegenerate, animate, streamKey, sessionId, view, eager = false }) {
+  // A fresh answer is revealed word by word (reveal.js); a replayed one shows at once.
+  const [revealed, setRevealed] = useState(() => !animate || prefersReducedMotion());
   const wantsAnalytics = response.intent !== 'EDGE'
     && Array.isArray(response.data) && response.data.length >= 1;
   // A CLARIFY pause fetched nothing, so a "0 results" meta line would mislead.
   const showMeta = response.intent && response.intent !== 'EDGE' && response.intent !== 'CLARIFY';
   const answer = plainAnswer(response.answer);
+  const extras = revealed || eager;
   return (
     <div className="msg bot">
       <div className="av">M</div>
@@ -936,25 +979,25 @@ export const BotMessage = memo(function BotMessage({ id, question, response, tim
           )}
           <ScopeBanner response={response} />
           {response.answer && (
-            <div className="answer-text md">
-              <Markdown text={shown} />{!revealed && <span className="draft-cursor" aria-hidden="true" />}
-            </div>
+            <AnswerText text={response.answer} streamKey={streamKey} animate={!!animate} stack={eager} onRevealed={setRevealed} />
           )}
-          {revealed && (
-            <div className="answer-extras">
-              <Citations response={response} />
+          {extras && (
+            <div className={'answer-extras' + (eager && animate ? ' eager' : '') + (revealed ? ' revealed' : '')}>
+              <div className="extras-rest" aria-hidden={revealed ? undefined : true}><Citations response={response} /></div>
               {wantsAnalytics && (
                 // "give me a wide frame": the backend sets chart_wide, the charts are drawn taller
-                <div className={response.chart_wide ? 'chart-wide' : undefined}>
+                <div className={'extras-charts' + (response.chart_wide ? ' chart-wide' : '')}>
                   <RowTotal.Provider value={response.total_row_count ?? null}>
-                    <Analytics question={question} response={response} view={view} onAsk={onAsk} />
+                    <MemoAnalytics question={question} response={response} view={view} onAsk={onAsk} />
                   </RowTotal.Provider>
                 </div>
               )}
-              <AnswerState response={response} question={question} onAsk={onAsk} />
-              <SqlDisclosure response={response} />
-              <FollowUp response={response} onAsk={onAsk} />
-              <ContinueOffer response={response} onAsk={onAsk} />
+              <div className="extras-rest" aria-hidden={revealed ? undefined : true}>
+                <AnswerState response={response} question={question} onAsk={onAsk} />
+                <SqlDisclosure response={response} />
+                <FollowUp response={response} onAsk={onAsk} />
+                <ContinueOffer response={response} onAsk={onAsk} />
+              </div>
             </div>
           )}
         </div>

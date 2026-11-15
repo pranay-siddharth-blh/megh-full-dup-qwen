@@ -213,14 +213,17 @@ export function verdictText(v, unit = null) {
 }
 
 /** Entry animation: bars and points grow in one after another (a short
-    stagger); none at all for readers who ask for reduced motion. */
+    stagger); none at all for readers who ask for reduced motion. D-112: quicker
+    (was 700 ms + up to 450 ms of stagger), so the whole chart is in within ~0.8 s
+    of the answer arriving. */
+export const CHART_ENTRY = { duration: 520, step: 30, maxDelay: 260 };
 export function chartAnimation() {
   try {
     if (window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return false;
   } catch (e) { /* no matchMedia */ }
   return {
-    duration: 700, easing: 'easeOutQuart',
-    delay: (c) => (c.type === 'data' && c.mode === 'default' ? Math.min(c.dataIndex * 45, 450) : 0),
+    duration: CHART_ENTRY.duration, easing: 'easeOutQuart',
+    delay: (c) => (c.type === 'data' && c.mode === 'default' ? Math.min(c.dataIndex * CHART_ENTRY.step, CHART_ENTRY.maxDelay) : 0),
   };
 }
 

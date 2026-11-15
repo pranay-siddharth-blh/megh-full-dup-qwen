@@ -676,7 +676,27 @@ export default function App() {
   }, []);
   useEffect(() => {
     if (!messages.length) { setNewBelow(null); return; }
-    if (followRef.current) { scrollToEnd(false); setNewBelow(null); return; }
+    if (followRef.current) {
+      // D-112: a fresh answer arrives whole (its chart and table laid out at once). When
+      // the question and its answer are taller than the view, the view starts at the
+      // question, so the words are read as they appear, instead of jumping to the end
+      // of the table; the follow stops there (the arrow brings the end).
+      const last = messages[messages.length - 1];
+      const el = chatAreaRef.current;
+      const inner = chatInnerRef.current;
+      if (last.kind === 'rich' && last.animate && el && inner) {
+        const asked = inner.querySelectorAll('.msg.user');
+        const q = asked.length ? asked[asked.length - 1] : null;
+        const top = q ? el.scrollTop + q.getBoundingClientRect().top - el.getBoundingClientRect().top - 12 : 0;
+        if (q && el.scrollHeight - top > el.clientHeight) {
+          followRef.current = false;
+          el.scrollTop = Math.max(0, top);
+          setNewBelow(null);
+          return;
+        }
+      }
+      scrollToEnd(false); setNewBelow(null); return;
+    }
     const last = messages[messages.length - 1];
     setNewBelow(last.kind === 'typing' ? 'writing' : 'answer');
   }, [messages, scrollToEnd]);
@@ -1049,7 +1069,7 @@ export default function App() {
                                        animate={m.animate} streamKey={m.streamKey} at={m.at} view={m.view}
                                        onAsk={ask} speakingId={speakingId} onSpeak={onSpeak}
                                        onRegenerate={isLast && m.question && !m.local ? () => rerun(m.id, m.question) : null}
-                                       sessionId={sessionId} />;
+                                       sessionId={sessionId} eager />;
                   }
                   if (m.kind === 'user') {
                     return <TextMessage key={m.id} id={m.id} role="user" text={m.text} time={m.time}

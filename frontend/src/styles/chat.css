@@ -641,6 +641,34 @@
   /* Answer formatting (components/Markdown.jsx): headings, lists, tables */
   .answer-text.md > :first-child { margin-top: 0; }
   .answer-text.md > :last-child { margin-bottom: 0; }
+  /* D-112 (streaming): the chat list lays the whole answer out at once. While its
+     words are revealed, the full text sits underneath, invisible (.md-ghost), so the
+     bubble already has its final height; the revealed words (.md-live) are drawn
+     over it. The chart below therefore never moves. */
+  .md-stack { position: relative; overflow: hidden; }
+  .md-stack > .md-layer > :first-child { margin-top: 0; }
+  .md-stack > .md-layer > :last-child { margin-bottom: 0; }
+  .md-stack > .md-ghost { visibility: hidden; }
+  .md-stack > .md-live { position: absolute; inset: 0; }
+  .md-stack > .md-live > .md-p:nth-last-child(2) { display: inline; }   /* the cursor follows the last word */
+  /* The charts / tables of a fresh answer arrive with it: a short rise, no wait for
+     the text. The other blocks (sources, SQL, follow-ups) keep their place, hidden,
+     and fade in once the text is all there. */
+  .answer-extras.eager .extras-charts { animation: extrasIn .32s cubic-bezier(.2,.7,.2,1) both; }
+  .answer-extras.eager:not(.revealed) .extras-rest { visibility: hidden; opacity: 0; }
+  .answer-extras.eager .extras-rest { transition: opacity .28s ease-out; }
+  @keyframes extrasIn { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+  /* Until its chart is drawn, a chart's frame shows faint axes in the theme
+     (Charts.jsx ChartCanvas marks the frame .drawn on its first draw). */
+  .chw:not(.round):not(.drawn) { background:
+      linear-gradient(var(--line), var(--line)) 36px calc(100% - 22px) / calc(100% - 44px) 1px no-repeat,
+      linear-gradient(var(--line), var(--line)) 36px 8px / 1px calc(100% - 30px) no-repeat,
+      linear-gradient(var(--p-50), var(--p-50)) 36px 30% / calc(100% - 44px) 1px no-repeat,
+      linear-gradient(var(--p-50), var(--p-50)) 36px 55% / calc(100% - 44px) 1px no-repeat; }
+  @media (prefers-reduced-motion: reduce) {
+    .answer-extras.eager .extras-charts { animation: none; }
+    .answer-extras.eager .extras-rest { transition: none; }
+  }
   .md-p { margin: 0 0 8px; }
   .md-h { font-weight: 700; color: var(--p-800); font-size: 14px; margin: 14px 0 6px; }
   .md-h.md-h1 { font-size: 15px; }
