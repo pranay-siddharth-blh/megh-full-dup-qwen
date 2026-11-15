@@ -5,7 +5,7 @@ import { AI_DISCLOSURE, askedOf, greetingHeading, greetingLine, spokenForm, spok
 import { plan } from './voice/vizPlan.js';
 import { canonicalNav, canonicalView, CHAT_VIEWS, isRedraw, NAV_SPEECH, NO_PICTURE, viewSpeech } from './voice/voiceViews.js';
 import { readVoice, saveVoice, SWITCH_LINE, VOICES } from './voice/voices.js';
-import { addAudio, addText, cut as cutCaptions, finish as finishCaptions, newPacer, pending as captionsPending, shownText, step as stepCaptions } from './voice/captionPacer.js';
+import { addAudio, addText, cut as cutCaptions, finish as finishCaptions, markBreak, newPacer, pending as captionsPending, shownText, step as stepCaptions } from './voice/captionPacer.js';
 import workletUrl from './voiceWorklet.js?url&no-inline';   // a same-origin file: the CSP refuses data: scripts
 
 /* Full-duplex voice (2026-11-02), the browser half. Ported from Mitra's live
@@ -420,6 +420,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
         break;
       case 'interrupted':
         cutAudio(); S.cut = false; S.bargeAt = performance.now();
+        markBreak(S.cap);                             // what comes next is a new reading (never glued to the cut one)
         break;
       case 'turn_complete': {
         quietModel();
@@ -443,7 +444,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
         }
         if (e.called) S.corrected = false;
         setTurnsDone((n) => n + 1);
-        finishCaptions(S.cap, performance.now()); capKick();
+        finishCaptions(S.cap, performance.now()); markBreak(S.cap); capKick();   // the next reading starts after this
         S.inTx = ''; S.firstAudio = 0;
         armIdle();
         if (S.firstAsk) askFirst();                  // the hello has been said: now the question tapped on the panel
@@ -655,5 +656,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
   return { phase, captions, speaking, latencyMs, meterYou, meterMegh, start, end, available, onMessages,
     muted, setMuted, view, open, closeView, hush, analysers, thinking, voiceState, turnsDone, openedAt: () => S.openedAt,
     resting,
-    registerStage, voiceKey, setVoice };
+    registerStage, voiceKey, setVoice,
+    // the captions' pacer as it is now (read in render, after a captions update): where each reading starts (2026-11-16)
+    capPacer: () => S.cap };
 }

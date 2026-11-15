@@ -10,6 +10,7 @@ import { VOICES, voiceOf } from '../voice/voices.js';
 import { SCHEME_HUES } from '../chartTheme.js';
 import VOICE_PACK from '../voice/meghVoicePack.js';
 import { levelText, parkOffset, parkTransform, spokenSentences } from '../voice/stageMotion.js';
+import { readingStart, segmentStart } from '../voice/captionPacer.js';
 import { useLiveSelect } from '../liveTurn.js';
 import { liveLabel } from './Messages.jsx';
 import '../../styles/voice-stage.css';
@@ -489,11 +490,26 @@ export function VoiceStage({ live, messages, renderMessage, onType, onClose }) {
   // question has no "you said" to reset it), so what it held when this answer took the stage is set aside; the rest
   // is the voice reading this answer, in its own natural words. It is kept per answer, so the answer still shows what
   // was said once the voice has finished (or gone to standby), and an earlier answer brought back shows its own words.
+  // 2026-11-16 (the user's live test on the sovereign engine: "for 'One moment, sir.' a 'the' is there in front of the
+  // 'One'"): the reading is cut out of the transcript by WORDS RECEIVED, not by the text shown when the answer came (the
+  // shown text runs behind the words received, so the rest of the holding line, or the end of the answer before,
+  // leaked into the new answer's caption). An answer's words start after the sentence that was coming in when it
+  // took the stage; the answer being worked out shows the reading under way (the holding line, on its own).
   const rawMegh = live.captions.megh || '';
-  const segRef = useRef({ id: undefined, base: '' });
-  if (segRef.current.id !== currentId) segRef.current = { id: currentId, base: currentId == null ? '' : rawMegh };
-  else if (segRef.current.base && !rawMegh.startsWith(segRef.current.base)) segRef.current.base = '';   // the transcript was reset
-  const spokenLive = segRef.current.base ? rawMegh.slice(segRef.current.base.length).trim() : rawMegh;
+  const pacer = live.capPacer ? live.capPacer() : null;
+  const segRef = useRef({ id: undefined, gen: 0, at: 0 });
+  if (pacer && (segRef.current.id !== currentId || segRef.current.gen !== pacer.gen)) {
+    const sameAnswer = segRef.current.id === currentId;
+    // a new pacer for the same answer (a cut keeps what was heard: the place stays; a fresh one starts at nothing)
+    const at = currentId == null ? 0 : sameAnswer ? Math.min(segRef.current.at, pacer.complete) : pacer.complete;
+    segRef.current = { id: currentId, gen: pacer.gen, at };
+  }
+  let spokenLive = rawMegh;
+  if (pacer && currentId != null) {
+    const shownWords = pacer.words.slice(0, pacer.shown);
+    const from = current && current.kind === 'typing' ? readingStart(pacer, segRef.current.at) : segmentStart(pacer, segRef.current.at);
+    spokenLive = from === null ? '' : shownWords.slice(from).join(' ');
+  }
   const spokenMap = useRef(new Map());
   if (fresh && currentId != null && spokenLive) spokenMap.current.set(currentId, spokenLive);
   const ownSpoken = currentId != null ? spokenMap.current.get(currentId) || '' : '';

@@ -26,6 +26,10 @@ Directives (imitate the real model's bad days):
   !!burst <q>      calls, then reads the answer the way the real Gemini Live does: the transcript and the audio arrive in
                    a burst well ahead of real time (~6x), the audio at a natural pace (~2.8 words a second), so the
                    page must pace the captions and the reveal by what is actually PLAYING (2026-11-15)
+  !!realtime <q>   the sovereign engine's way (2026-11-16): a holding line ("One moment, sir.") said word by word in
+                   REAL time (each word's transcript with its audio, one word at a time, the next word only when its
+                   audio has played), then the call, then the answer the same way, its first word with a leading space
+                   (the adapter starts a following line with one). `!!realtime2 <q>`: the lead line is "Sure, sir."
   read "!!garble <text>"   misreads a read the page asked for with a figure of its own (the relay ends it with
                    the safe line)
 
@@ -79,6 +83,21 @@ async def handler(ws):
         except asyncio.CancelledError:
             pass
 
+    async def speak_rt(text: str, first_space: bool = False, end: bool = True):
+        """Word by word in real time: each word's transcript, then its audio, then the time that audio takes."""
+        try:
+            for i, w in enumerate(text.split()):
+                piece = (" " if (i or first_space) else "") + w
+                await send({"serverContent": {"outputTranscription": {"text": piece}}})
+                dur = max(0.18, len(w) / 14)
+                await send({"serverContent": {"modelTurn": {"parts": [{"inlineData": {
+                    "mimeType": "audio/pcm;rate=24000", "data": base64.b64encode(pcm(dur)).decode()}}]}}})
+                await asyncio.sleep(dur)
+            if end:
+                await send({"serverContent": {"turnComplete": True}})
+        except asyncio.CancelledError:
+            pass
+
     def say(text: str, burst: bool = False):
         st["speaking"] = asyncio.create_task(speak(text, burst=burst))
 
@@ -121,7 +140,7 @@ async def handler(ws):
             return
         if spoken:                                   # what was "heard": the words without any test directive
             heard = text
-            for d in ("!!silent ", "!!memory ", "!!quiet ", "!!cancel ", "!!lag ", "!!wrong ", "!!nothing ", "!!again ", "!!echo ", "!!reread ", "!!mixed ", "!!burst "):
+            for d in ("!!silent ", "!!memory ", "!!quiet ", "!!cancel ", "!!lag ", "!!wrong ", "!!nothing ", "!!again ", "!!echo ", "!!reread ", "!!mixed ", "!!burst ", "!!realtime ", "!!realtime2 "):
                 if heard.startswith(d):
                     heard = heard[len(d):]
             for d in ("!!repeat ", "!!reword "):
@@ -133,6 +152,21 @@ async def handler(ws):
         low = text.lower().strip(" .?!")
         if text.startswith("!!nothing "):
             return                                   # no call, no word, no turn end
+        if text.startswith("!!realtime ") or text.startswith("!!realtime2 "):
+            rt_q = text.split(" ", 1)[1]
+            lead = "Sure, sir." if text.startswith("!!realtime2 ") else "One moment, sir."
+            st["speaking"] = asyncio.create_task(speak_rt(lead, end=False))   # the holding line, then the call
+            try:
+                await st["speaking"]
+            except asyncio.CancelledError:
+                return
+            try:
+                r = await call(rt_q)
+            except asyncio.TimeoutError:
+                return
+            st["last_speak"] = r.get("speak") or "Done."
+            st["speaking"] = asyncio.create_task(speak_rt(st["last_speak"], first_space=True))
+            return
         if text.startswith("!!silent "):
             say("Okay.")
             return
