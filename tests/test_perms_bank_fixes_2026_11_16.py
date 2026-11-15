@@ -27,6 +27,8 @@ def test_every_financial_year_is_the_year_grouping():
     assert ys("I want you to show me the MGNREGA expenditure for every financial year.") == {"year"}
     assert ys("Show me the MGNREGA expenditure per financial across all districts?") == {"year"}
     assert ys("MGNREGA person-days each financial year") == {"year"}
+    assert ys("Show me the MGNREGA expenditure by financial year across all districts") == {"year"}
+    assert ys("MGNREGA expenditure by district by financial year") == {"year", "district"}
     assert ys("MGNREGA expenditure by district for every financial year") == {"year", "district"}
     assert ys("MGNREGA average expenditure per financial year") is None           # one figure
     assert ys("MGNREGA expenditure by district") is None                          # no year phrase: unchanged

@@ -247,7 +247,7 @@ def _c16_extra_words(question: str, schemes: "list[str]", entity_result: dict, t
     return extra
 
 
-_C16_EVERY = frozenset("per every each".split())
+_C16_EVERY = frozenset("per every each by".split())   # "by financial year across all districts" (the voice wording)
 _C16_FY = frozenset("financial fiscal".split())
 _C16_ALL_PLACES_LEADS = frozenset("across in over for throughout".split())
 _C16_AVERAGE = frozenset("average avg mean typical".split())
