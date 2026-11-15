@@ -118,9 +118,9 @@ async def main():
     async with Browser(mic_wav=silent_wav(), init_js=init) as b:
         await b.goto(BASE + "/megh-chat?voicetest=1", wait=4)
         await b.eval(JS)
-        ok = await b.eval("(async () => !!(await until(() => document.querySelector('.mic-btn') && document.querySelector('.composer-input'), 20000)))()")
+        ok = await b.eval("(async () => !!(await until(() => document.querySelector('[data-testid=agent-orb]') && document.querySelector('.composer-input'), 20000)))()")
         check("chat page signed in, mic button present", ok)
-        await b.eval("document.querySelector('.mic-btn').click()")
+        await b.eval("document.querySelector('[data-testid=agent-orb]').click()")
         live = await b.eval("(async () => await until(() => window.__meghVoice && window.__meghVoice.phase() === 'live', 20000))()")
         check("mic opens a live session", live, await b.eval("window.__meghVoice ? window.__meghVoice.log() : 'no hook'"))
         cap = await b.eval("vlog().find(e => e.type === 'capture') || null")

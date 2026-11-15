@@ -63,8 +63,8 @@ async def main():
     async with Browser(port=9373, mic_wav=silent_wav(), init_js=init, size=(1600, 940)) as b:
         await b.goto(BASE + "/megh-chat?voicetest=1", wait=4)
         await b.eval(STAGE_JS)
-        await b.eval("(async () => !!(await until(() => document.querySelector('.mic-btn'), 20000)))()")
-        await b.eval("document.querySelector('.mic-btn').click()")
+        await b.eval("(async () => !!(await until(() => document.querySelector('[data-testid=agent-orb]'), 20000)))()")
+        await b.eval("document.querySelector('[data-testid=agent-orb]').click()")
         ok = await b.eval("(async () => !!(await until(() => window.__meghVoice && window.__meghVoice.phase() === 'live', 20000)))()")
         check("the mic opens the live voice", ok)
         st = await b.eval("""(async () => { await sleep(1200); const s = stage(); const app = document.querySelector('.app');
@@ -230,7 +230,7 @@ async def main():
         # phone
         await b.cmd("Emulation.setDeviceMetricsOverride", width=390, height=844, deviceScaleFactor=2, mobile=True)
         await b.eval("sleep(500)")
-        await b.eval("document.querySelector('.mic-btn').click()")
+        await b.eval("document.querySelector('[data-testid=agent-orb]').click()")
         await b.eval("(async () => await until(() => window.__meghVoice.phase() === 'live', 20000))()")
         t0, r = await ask(b, "How many PMAY-G houses were completed?")
         ph = await b.eval("""(async () => { await sleep(1200); const c = card(); const o = document.querySelector('.vs-orb').getBoundingClientRect();

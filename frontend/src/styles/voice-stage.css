@@ -13,10 +13,7 @@
   --m-saf: #ea6a22; --m-bad: #e03b4c; --m-bad2: #ff5c6a;
   --m-said: #6a6480;   /* words the voice has already said: settled, still 5:1 on the canvas */
   --m-ease: cubic-bezier(.16, 1, .3, 1);
-  /* motion tokens (2026-11-14): one family of curves and durations for every control of the view.
-     out = things arriving / settling; in = things leaving; the durations are the three speeds used everywhere */
-  --m-ease-out: cubic-bezier(.2, .8, .2, 1); --m-ease-in: cubic-bezier(.4, 0, 1, 1); --m-ease-io: cubic-bezier(.4, 0, .6, 1);
-  --m-dur-1: .18s; --m-dur-2: .32s; --m-dur-3: .6s;
+  /* motion tokens --m-ease-out / -in / -io and --m-dur-1..3: hoisted to :root in chat.css (2026-11-15, D-113) */
   --lvl: 0;
   position: fixed; inset: 0; z-index: 400; overflow: hidden; color: var(--m-tx); background: #f8f6fb;
   font-family: 'Inter', 'Noto Sans', -apple-system, 'Segoe UI', sans-serif; letter-spacing: -.011em;

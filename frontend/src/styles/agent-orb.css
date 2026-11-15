@@ -1,0 +1,208 @@
+/* ============== THE AGENT ORB AND THE VOICE PANEL (D-113, 2026-11-15) ==============
+   components/AgentOrb.jsx, components/VoicePanel.jsx. The chat's own tokens (chat.css :root) and the shared motion
+   family (--m-ease-* / --m-dur-*, hoisted to :root from voice-stage.css). Light only, like the rest of the app.
+   Motion: transforms and opacity on their own layers; no layout, no canvas, nothing loops but two slow spins and
+   one breath per orb, and those pause while the voice view is up and stop under reduced motion. */
+
+/* the panel follows the MAIN area's width (the sidebar can be dragged), never the viewport's */
+.main { position: relative; container: main / inline-size; }
+
+/* ---------------- the orb ---------------- */
+.agent-orb {
+  --ao: 40px; --ao-s: 30px;
+  position: relative; flex-shrink: 0; width: var(--ao); height: var(--ao); padding: 0; margin: 0;
+  border: 0; border-radius: 50%; background: transparent; cursor: pointer; color: inherit;
+  display: inline-flex; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent;
+}
+/* the halo: a soft lavender light behind the sphere that breathes (~4.2 s) */
+.agent-orb::before {
+  content: ''; position: absolute; inset: 0; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(149, 88, 207, .30) 0%, rgba(178, 127, 224, .16) 52%, rgba(178, 127, 224, 0) 71%);
+  animation: aoBreath 4.2s var(--m-ease-io) infinite; will-change: transform, opacity;
+}
+.ao-sphere {
+  position: relative; display: block; width: var(--ao-s); height: var(--ao-s); border-radius: 50%; overflow: hidden;
+  isolation: isolate;
+  box-shadow: 0 3px 10px -2px rgba(92, 45, 145, .55), 0 1px 2px rgba(36, 16, 56, .18), 0 0 0 .5px rgba(62, 31, 102, .14);
+  transition: transform var(--m-dur-2) var(--m-ease-out), filter var(--m-dur-2) var(--m-ease-out), opacity var(--m-dur-2) var(--m-ease-out);
+}
+.ao-svg { position: absolute; inset: 0; width: 100%; height: 100%; display: block; overflow: visible; }
+.ao-s0 { stop-color: #fff; }
+.ao-s1 { stop-color: var(--p-200); }
+.ao-s2 { stop-color: var(--p-400); }
+.ao-s3 { stop-color: var(--p-600); }
+.ao-s4 { stop-color: var(--p-800); }
+.ao-rim { stop-color: var(--p-200); stop-opacity: .95; }
+/* the two halves of the dots turn in opposite directions: read as one ball turning */
+.ao-layer { transform-origin: 50% 50%; will-change: transform; }
+.ao-front { animation: aoSpin 18s linear infinite; }
+.ao-back { animation: aoSpin 26s linear infinite reverse; }
+/* hover / focus: the sphere lifts, the halo quickens */
+.agent-orb:not(.is-resting):hover .ao-sphere,
+.agent-orb:not(.is-resting):focus-visible .ao-sphere { transform: scale(1.08); filter: saturate(1.15) brightness(1.05); }
+.agent-orb:not(.is-resting):hover::before,
+.agent-orb:not(.is-resting):focus-visible::before { animation-duration: 1.6s; }
+.agent-orb:not(.is-resting):active .ao-sphere { transform: scale(.94); transition-duration: var(--m-dur-1); }
+.agent-orb:focus-visible { outline: 2px solid var(--p-500); outline-offset: 3px; }
+/* press: the wake ring leaves the sphere once */
+.ao-wake { position: absolute; inset: 4px; border-radius: 50%; border: 2px solid var(--p-500); pointer-events: none;
+  animation: aoWake .7s var(--m-ease-out) forwards; }
+/* dictating: dimmed and still (a tap still stops the dictation and opens the voice) */
+.agent-orb.is-dictating .ao-sphere { opacity: .38; filter: grayscale(.35); }
+.agent-orb.is-dictating::before { animation-play-state: paused; opacity: .2; }
+.agent-orb.is-dictating .ao-layer { animation-play-state: paused; }
+/* resting: grey, still, explains itself */
+.agent-orb.is-resting { cursor: default; }
+.agent-orb.is-resting::before { animation: none; opacity: 0; }
+.agent-orb.is-resting .ao-layer { animation: none; }
+.agent-orb.is-resting .ao-s1 { stop-color: #E9E6EF; }
+.agent-orb.is-resting .ao-s2 { stop-color: #B9B3C6; }
+.agent-orb.is-resting .ao-s3 { stop-color: var(--ink-3); }
+.agent-orb.is-resting .ao-s4 { stop-color: var(--ink-2); }
+.agent-orb.is-resting .ao-rim { stop-color: #fff; stop-opacity: .5; }
+.agent-orb.is-resting .ao-sphere { box-shadow: 0 2px 6px -2px rgba(83, 75, 104, .5), 0 0 0 .5px rgba(83, 75, 104, .2); }
+/* the voice view is up: nothing behind it moves */
+body.vstage-on .agent-orb::before, body.vstage-on .ao-layer, body.vstage-on .vpanel { animation-play-state: paused; }
+@keyframes aoBreath { 0%, 100% { transform: scale(.86); opacity: .55; } 50% { transform: scale(1.12); opacity: 1; } }
+@keyframes aoSpin { to { transform: rotate(360deg); } }
+@keyframes aoWake { from { transform: scale(.8); opacity: 1; } to { transform: scale(1.9); opacity: 0; } }
+
+/* the description for screen readers */
+.ao-sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* the composer orb's tooltip (pointer devices only) */
+.ao-tip {
+  position: absolute; bottom: calc(100% + 10px); right: -8px; z-index: 90; white-space: nowrap; pointer-events: none;
+  display: inline-flex; align-items: center; gap: 6px; padding: 6px 10px; border-radius: 8px;
+  background: var(--p-900); color: #fff; font-size: 12px; font-weight: 500; line-height: 1.3;
+  box-shadow: 0 6px 18px rgba(36, 16, 56, .25);
+  opacity: 0; transform: translateY(4px);
+  transition: opacity var(--m-dur-1) var(--m-ease-out), transform var(--m-dur-1) var(--m-ease-out);
+}
+.ao-tip kbd { min-width: 0; height: auto; padding: 1px 5px; border: 0; border-radius: 4px; background: rgba(255, 255, 255, .14);
+  color: #fff; font: 600 11px/1.4 'JetBrains Mono', ui-monospace, Consolas, monospace; }
+.agent-orb:hover .ao-tip, .agent-orb:focus-visible .ao-tip { opacity: 1; transform: none; transition-delay: .35s; }
+.agent-orb.is-resting .ao-tip, .agent-orb.is-dictating .ao-tip { white-space: normal; width: max-content; max-width: 280px; }
+@media (hover: none) { .ao-tip { display: none; } }
+
+/* ---------------- in the composer: [ text ] [ mic 40 ] [ orb 40 ] [ send 40 ], 6 px apart ---------------- */
+@media (max-width: 480px) {
+  .composer-bar .agent-orb { --ao: 38px; --ao-s: 28px; }
+  .composer-bar { gap: 4px; }
+}
+
+/* ---------------- the voice panel ---------------- */
+.vpanel { display: none; position: absolute; top: 78px; right: 24px; z-index: 15;
+  animation: vpIn var(--m-dur-3) var(--m-ease-out) both; }
+.main:has(> .conn-banner) .vpanel { top: 126px; }
+@keyframes vpIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
+
+/* the full card */
+.vp-card {
+  display: none; position: relative; overflow: hidden; width: 248px; padding: 16px 18px 14px; border-radius: 20px;
+  color: var(--ink); border: 1px solid var(--line);
+  background: linear-gradient(160deg, #fff 0%, var(--p-50) 55%, var(--p-100) 100%);
+  box-shadow: 0 18px 40px -24px rgba(62, 31, 102, .45), 0 1px 2px rgba(62, 31, 102, .06);
+}
+.vp-card::before { /* the soft lavender glow in the corner */
+  content: ''; position: absolute; width: 240px; height: 240px; right: -110px; top: -120px; border-radius: 50%; pointer-events: none;
+  background: radial-gradient(circle, rgba(178, 127, 224, .28), rgba(178, 127, 224, 0) 65%);
+}
+.vp-card > * { position: relative; }
+.vp-top { display: flex; align-items: center; justify-content: space-between; min-height: 24px; }
+.vp-eyebrow { display: inline-flex; align-items: center; gap: 7px; font-size: 10.5px; font-weight: 700; letter-spacing: 1px;
+  text-transform: uppercase; color: var(--p-700); }
+.vp-eyebrow i { width: 7px; height: 7px; border-radius: 50%; background: var(--p-500); box-shadow: 0 0 0 3px var(--p-100); }
+.vp-x { width: 24px; height: 24px; margin-right: -6px; padding: 0; border: 0; border-radius: 50%; background: transparent;
+  color: var(--ink-3); cursor: pointer; display: inline-flex; align-items: center; justify-content: center;
+  transition: background var(--m-dur-1) var(--m-ease-out), color var(--m-dur-1) var(--m-ease-out); }
+.vp-x svg { width: 13px; height: 13px; }
+.vp-x:hover { background: rgba(124, 63, 191, .08); color: var(--p-700); }
+.vp-x:focus-visible, .vp-q:focus-visible, .vp-start:focus-visible, .vp-rail:focus-visible, .vp-unfold:focus-visible,
+.talk-hint:focus-visible { outline: 2px solid var(--p-500); outline-offset: 2px; }
+.vp-head { display: flex; align-items: center; gap: 10px; margin: 8px 0 8px -8px; }
+.vp-title { font-size: 16px; font-weight: 700; line-height: 1.25; letter-spacing: -.01em; color: var(--ink); }
+.vp-sub { font-size: 12.5px; line-height: 1.5; color: var(--ink-2); margin: 0 0 12px; }
+.vp-try { font-size: 10.5px; font-weight: 600; letter-spacing: 1px; text-transform: uppercase; color: var(--ink-3); margin: 0 0 6px; }
+.vp-q { display: flex; align-items: flex-start; gap: 8px; width: 100%; margin: 0 0 6px; padding: 8px 10px; text-align: left;
+  font: inherit; font-size: 12.5px; line-height: 1.45; color: var(--ink); cursor: pointer;
+  background: rgba(255, 255, 255, .78); border: 1px solid var(--line); border-radius: 10px;
+  transition: border-color var(--m-dur-1) var(--m-ease-out), background var(--m-dur-1) var(--m-ease-out), transform var(--m-dur-1) var(--m-ease-out); }
+.vp-q:hover { border-color: var(--p-300); background: var(--surface); transform: translateX(-2px); }
+.vp-qd { flex: none; width: 7px; height: 7px; margin-top: 6px; border-radius: 50%; }
+.vp-start { display: flex; align-items: center; justify-content: center; gap: 8px; width: 100%; margin-top: 10px; padding: 10px 14px;
+  border: 0; border-radius: 999px; font: 600 13px/1.2 inherit; font-family: inherit; color: #fff; cursor: pointer;
+  background: linear-gradient(135deg, var(--p-600), var(--p-700)); box-shadow: 0 6px 16px -6px rgba(124, 63, 191, .6);
+  transition: filter var(--m-dur-1) var(--m-ease-out), box-shadow var(--m-dur-2) var(--m-ease-out); }
+.vp-start:hover { filter: brightness(1.08); box-shadow: 0 8px 20px -6px rgba(124, 63, 191, .7); }
+.vp-start kbd { min-width: 0; height: auto; padding: 1px 6px; border: 0; border-radius: 4px; background: rgba(255, 255, 255, .18);
+  color: #fff; font: 600 10.5px/1.5 'JetBrains Mono', ui-monospace, Consolas, monospace; }
+.vp-foot { margin-top: 10px; font-size: 11px; color: var(--ink-3); text-align: center; }
+.vp-foot b { color: var(--p-700); font-weight: 600; }
+/* a conversation is on screen: orb, one line, the footer */
+.vpanel.is-conv .vp-card { padding: 14px 16px 12px; }
+.vpanel.is-conv .vp-head { margin: 6px 0 6px -6px; }
+.vpanel.is-conv .vp-sub { margin-bottom: 0; }
+/* resting: the card says why; its buttons explain again on a tap */
+.vpanel.is-resting .vp-start { background: linear-gradient(135deg, #9A93AB, var(--ink-2)); box-shadow: none; cursor: default; }
+.vpanel.is-resting .vp-q { cursor: default; color: var(--ink-2); }
+.vpanel.is-resting .vp-q:hover { transform: none; border-color: var(--line); }
+
+/* the slim rail */
+.vp-slim { display: none; flex-direction: column; align-items: center; gap: 8px; }
+.vp-rail { width: 60px; padding: 10px 0 14px; border-radius: 30px; display: flex; flex-direction: column; align-items: center; gap: 10px;
+  font: inherit; color: var(--p-700); cursor: pointer; border: 1px solid var(--line);
+  background: linear-gradient(180deg, #fff, var(--p-50));
+  box-shadow: 0 14px 32px -22px rgba(62, 31, 102, .45), 0 1px 2px rgba(62, 31, 102, .06);
+  transition: border-color var(--m-dur-1) var(--m-ease-out), box-shadow var(--m-dur-2) var(--m-ease-out); }
+.vp-rail:hover { border-color: var(--p-300); box-shadow: 0 16px 36px -20px rgba(62, 31, 102, .55), 0 1px 2px rgba(62, 31, 102, .06); }
+.vp-rail:not([aria-disabled]):hover .ao-sphere, .vp-rail:not([aria-disabled]):focus-visible .ao-sphere { transform: scale(1.08); filter: saturate(1.15) brightness(1.05); }
+.vp-rail:not([aria-disabled]):hover .agent-orb::before { animation-duration: 1.6s; }
+.vp-rail[aria-disabled] { cursor: default; color: var(--ink-3); }
+.vp-vtext { writing-mode: vertical-rl; transform: rotate(180deg); font-size: 12px; font-weight: 600; letter-spacing: .3px; white-space: nowrap; }
+.vp-ai { font-size: 9px; font-weight: 700; color: #5b2a9a; background: rgba(124, 63, 191, .1); border: 1px solid rgba(124, 63, 191, .28);
+  border-radius: 999px; padding: 1px 6px; letter-spacing: .3px; }
+.vp-unfold { display: none; width: 28px; height: 28px; padding: 0; border-radius: 50%; border: 1px solid var(--line); background: var(--surface);
+  color: var(--ink-3); cursor: pointer; align-items: center; justify-content: center;
+  box-shadow: 0 4px 12px -8px rgba(62, 31, 102, .5); }
+.vp-unfold svg { width: 14px; height: 14px; }
+.vp-unfold:hover { color: var(--p-700); border-color: var(--p-300); }
+
+/* the tiers: by the main area's width */
+@container main (min-width: 1580px) {
+  .vpanel { display: block; }
+  .vpanel:not(.is-collapsed) .vp-card { display: block; }
+  .vpanel.is-collapsed { right: 16px; }
+  .vpanel.is-collapsed .vp-slim { display: flex; }
+  .vpanel.is-collapsed .vp-unfold { display: inline-flex; }
+}
+@container main (min-width: 1140px) and (max-width: 1579.98px) {
+  .vpanel { display: block; right: 14px; }
+  .vpanel .vp-slim { display: flex; }
+}
+/* a short window: the card keeps its head and button, the examples go */
+@media (max-height: 700px) {
+  .vpanel .vp-try, .vpanel .vp-q { display: none; }
+}
+
+/* ---------------- the welcome hint (main narrower than 1,140 px, phones) ---------------- */
+.talk-hint { display: none; width: fit-content; max-width: 100%; margin: 12px auto 0; align-items: center; gap: 8px;
+  padding: 5px 14px 5px 5px; border-radius: 999px; font: inherit; font-size: 12.5px; line-height: 1.35; color: var(--ink-2);
+  text-align: left; cursor: pointer; background: var(--surface); border: 1px solid var(--line);
+  box-shadow: 0 4px 14px -10px rgba(62, 31, 102, .4);
+  transition: border-color var(--m-dur-1) var(--m-ease-out), color var(--m-dur-1) var(--m-ease-out); }
+.talk-hint .agent-orb::before { display: none; }
+.talk-hint:hover { border-color: var(--p-300); color: var(--p-700); }
+.talk-hint:not([aria-disabled]):hover .ao-sphere { transform: scale(1.08); }
+.talk-hint[aria-disabled] { cursor: default; }
+@container main (max-width: 1139.98px) {
+  .talk-hint { display: flex; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-orb::before, .ao-layer, .ao-wake, .vpanel { animation: none; }
+  .ao-sphere, .ao-tip, .vp-q, .vp-start, .vp-rail { transition: none; }
+  .vp-q:hover { transform: none; }
+}
+@media print {
+  .vpanel, .talk-hint, .agent-orb { display: none !important; }
+}

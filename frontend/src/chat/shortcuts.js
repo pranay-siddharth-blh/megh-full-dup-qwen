@@ -31,10 +31,21 @@ export const SHORTCUTS = [
   { id: 'regenerate', mod: true, shift: true, key: 'g', label: 'Regenerate the last answer', whileTyping: true },
   { id: 'download', mod: true, shift: true, key: 'd', label: 'Download chat (PDF / Excel)', whileTyping: true },
   { id: 'mic', mod: true, macCtrl: true, key: 'm', label: 'Dictate (speak to type)', whileTyping: true },
+  // D-113 (2026-11-15): the agent orb. Alt + V, not Ctrl + Shift + Space (Windows switches the keyboard layout with
+  // it); on a Mac, where Option + V types a character, it is matched by e.code
+  { id: 'talk', alt: true, key: 'v', label: 'Talk to Megh One AI (live voice)', whileTyping: true },
   // Works in the question box too: a plain text box has no bold, and the cursor
   // lives there nearly all the time.
   { id: 'sidebar', mod: true, key: 'b', label: 'Show / hide the sidebar', whileTyping: true },
   { id: 'help', mod: true, key: '/', label: 'Show keyboard shortcuts', whileTyping: true },
+];
+// Keys the browser or the OS keeps (never to be taken by SHORTCUTS; tests/shortcuts.test.js checks it): new window /
+// tab, close, reload, address bar, the browser's Alt menus, history back / forward, Windows' layout switch.
+export const RESERVED_KEYS = [
+  { mod: true, key: 'n' }, { mod: true, key: 't' }, { mod: true, key: 'w' }, { mod: true, key: 'r' }, { mod: true, key: 'l' },
+  { mod: true, shift: true, key: 'r' }, { mod: true, shift: true, key: 'n' }, { mod: true, shift: true, key: 't' },
+  { mod: true, shift: true, key: ' ' }, { alt: true, key: 'f' }, { alt: true, key: 'e' }, { alt: true, key: 'd' },
+  { alt: true, key: 'ArrowLeft' }, { alt: true, key: 'ArrowRight' }, { alt: true, key: 'Home' },
 ];
 // Shown in the help window but handled by the question box itself.
 export const TYPING_KEYS = [

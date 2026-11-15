@@ -326,8 +326,8 @@ async def open_conversation(b):
     await b.eval("try{sessionStorage.removeItem('focusSessionId');}catch(e){}")
     await b.goto(BASE + "/megh-chat?voicetest=1", wait=3)
     await b.eval(PAGE_JS)
-    await b.eval("(async () => !!(await until(() => document.querySelector('.mic-btn'), 20000)))()")
-    await b.eval("document.querySelector('.mic-btn').click()")
+    await b.eval("(async () => !!(await until(() => document.querySelector('[data-testid=agent-orb]'), 20000)))()")
+    await b.eval("document.querySelector('[data-testid=agent-orb]').click()")
     await b.eval("""(async () => { await until(() => window.__meghVoice && window.__meghVoice.phase() === 'live', 25000);
         await until(() => vlog().some(e => e.type === 'turn_complete' && e.said), 25000);
         await until(() => !window.__meghVoice.playing(), 20000); await sleep(500); watchGrid(); })()""", timeout=80)

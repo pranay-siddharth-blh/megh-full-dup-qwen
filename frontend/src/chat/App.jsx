@@ -10,7 +10,10 @@ import { useVoice } from './useVoice.js';
 import { useLiveVoice } from './useLiveVoice.js';
 import { useDictation } from './useDictation.js';
 import { DictationBar, DictationMirror } from './components/DictationBar.jsx';
-import { LiveVoiceStrip } from './components/LiveVoiceStrip.jsx';
+import * as micLock from './dictation/micLock.js';
+import { AgentOrb } from './components/AgentOrb.jsx';
+import { TalkHint, VoicePanel } from './components/VoicePanel.jsx';
+import { RESTING_TIP, noteMicTypes, orbState } from './agentOrb.js';
 import { VoiceStage } from './components/VoiceStage.jsx';
 import { isContinueText, isStopText } from './stopContinue.js';
 import { speechChunks } from './text.js';
@@ -864,6 +867,7 @@ export default function App() {
   // The composer mic = DICTATION (D-111, 2026-11-15): tap to start, tap again (or ✓) to insert.
   const onMic = () => {
     if (live.view || live.phase !== 'off') return false;   // the live voice holds the mic (its own M mutes)
+    noteMicTypes(showUndo);           // D-113: once per browser, "the mic now types your words; for the voice, tap the orb"
     if (dict.active) { sendAfterVoice.current = false; dict.stop(); return true; }
     sendAfterVoice.current = false;   // the mic button only stops: the text stays to check
     if (voice.busy) { voice.toggleMic(); return true; }   // the batch recorder (the fallback) is running
@@ -872,6 +876,19 @@ export default function App() {
     if (lang && lang !== 'en') showUndo('Voice input is English only. Speak in English, or type your question in Khasi / Garo.');
     dict.start();
     return true;
+  };
+  // ── The agent orb (D-113, 2026-11-15): the way into the live voice; the mic dictates ──
+  // A tap while dictating stops the dictation (its words stay in the box), then the voice opens. `stopDictation` is
+  // the dictation side's stop; the dictation work may point it at its own.
+  // the orb while dictating: dictation inserts its words and lets go of the mic (micLock, D-111), the batch
+  // fallback recorder stops; then the voice opens
+  const stopDictation = () => { if (!micLock.stopDictation() && voice.recordingRef.current) voice.stopMic(); };
+  const onTalk = (question) => {
+    if (live.view || live.phase !== 'off') return;
+    if (!live.available()) { showUndo(RESTING_TIP); return; }
+    if (dict.active || voice.busy) stopDictation();
+    if (lang && lang !== 'en') showUndo('Voice input is English only. Speak in English, or type your question in Khasi / Garo.');
+    live.open(typeof question === 'string' ? question : undefined);   // the voice stage takes the screen (VoiceStage.jsx)
   };
 
   // The voice stage draws the chat's own answer components, big: the same props as the chat list below.
@@ -967,6 +984,7 @@ export default function App() {
       setExportSignal((n) => n + 1);
     },
     mic: () => onMic(),             // false while the live voice is open: Ctrl+M is then the stage's own
+    talk: () => { if (modal || live.view) return false; onTalk(); },
     sidebar: () => toggleRail(),
     help: () => openShortcuts(),
   };
@@ -1017,6 +1035,8 @@ export default function App() {
   const slashActive = Math.min(slashIdx, Math.max(0, slashItems.length - 1));
 
   const signedIn = auth === 'unlocked' && !!getToken();
+  const orbFace = orbState({ signedIn, resting: live.resting, dictating: dict.active || voice.busy,
+    hasMic: typeof navigator !== 'undefined' && !!(navigator.mediaDevices && navigator.mediaDevices.getUserMedia) });
 
   return (
     <>
@@ -1078,7 +1098,7 @@ export default function App() {
           <div className="chat-area" ref={chatAreaRef} onScroll={onChatScroll}>
             <div className={'chat-inner' + (messages.length ? '' : ' is-welcome')} ref={chatInnerRef}>
               <WelcomeCard strings={strings} prompts={prompts} setPrompts={setPrompts} onAsk={ask}
-                signedIn={auth === 'unlocked'} />
+                signedIn={auth === 'unlocked'} heroExtra={<TalkHint state={orbFace} onTalk={() => onTalk()} />} />
               <div>
                 {messages.map((m, i) => {
                   // Regenerate / Try again sit on the latest answer only: an
@@ -1110,6 +1130,8 @@ export default function App() {
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5"><path d="M18 15l-6-6-6 6" /></svg>
           </button>
 
+          {signedIn && !live.view && !modal && <VoicePanel state={orbFace} welcome={!messages.length} onTalk={onTalk} />}
+
           <div className="composer-wrap">
             {newBelow && (
               <button type="button" className="new-below" onClick={() => {
@@ -1123,7 +1145,6 @@ export default function App() {
             )}
             <div className="composer-inner">
               <SlashMenu items={slashItems} active={slashActive} onPick={applySlash} onHover={setSlashIdx} />
-              <LiveVoiceStrip live={live} />
               {/* While recording (#307) the text box is kept but hidden, so Enter and
                   the shortcuts still work; the strip takes its place. The live text
                   keeps filling the box and shows when the recording stops. */}
@@ -1172,6 +1193,7 @@ export default function App() {
                       ? <svg className="orb-stop" viewBox="0 0 24 24" fill="currentColor"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
                       : <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z" /><path d="M19 10v2a7 7 0 0 1-14 0v-2" /><line x1="12" y1="19" x2="12" y2="23" /><line x1="8" y1="23" x2="16" y2="23" /></svg>}
                   </button>
+                  <AgentOrb size={40} state={orbFace} onTalk={() => onTalk()} tip testId="agent-orb" />
                   {running ? (
                     <button className="send-btn stop" type="button" onClick={stopQuery}
                             title="Stop this answer (Esc)" aria-label="Stop this answer">

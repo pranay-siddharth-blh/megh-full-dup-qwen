@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { API_BASE, fetchVoiceBoard, getToken } from './api.js';
 import { isStopText } from './stopContinue.js';
-import { greetingLine, spokenForm, spokenNote } from './voiceSpeech.js';
+import { AI_DISCLOSURE, greetingHeading, greetingLine, spokenForm, spokenNote } from './voiceSpeech.js';
 import { plan } from './voice/vizPlan.js';
 import { canonicalNav, canonicalView, CHAT_VIEWS, isRedraw, NAV_SPEECH, NO_PICTURE, viewSpeech } from './voice/voiceViews.js';
 import { readVoice, saveVoice, SWITCH_LINE, VOICES } from './voice/voices.js';
@@ -34,6 +34,7 @@ const SILENT_MODEL_MS = 7000;           // the officer finished and the model sa
 const ANSWER_TIMEOUT_MS = 95000;
 const QUEUE_MAX_MS = 100000;            // a question waiting behind a running answer gives up after this
 const BARGE_MS = 8000;                  // a question this soon after the officer talked over the voice: the running answer is dropped
+const FIRST_ASK_MS = 9000;              // open(question): asked after the hello's turn ends, or after this at the latest
 const GREETING_WORDS = ['hello', 'hi', 'hey', 'thanks', 'thank you', 'ok', 'okay', 'bye', 'goodbye'];
 
 const wsUrl = () => {
@@ -57,6 +58,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
   const [view, setView] = useState(false);            // the voice stage is up (it stays up in standby)
   const [thinking, setThinking] = useState(false);    // a question is with the pipeline
   const [turnsDone, setTurnsDone] = useState(0);      // the relay's end-of-turn count (the voice finished an answer)
+  const [resting, setResting] = useState(false);     // after a fallback the voice rests (the agent orb turns grey, D-113)
   const meterYou = useRef(null);
   const meterMegh = useRef(null);
   const S = useRef({
@@ -71,6 +73,22 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
   const testLog = useRef([]);
 
   const send = (obj) => { if (S.ws && S.ws.readyState === 1) S.ws.send(JSON.stringify(obj)); };
+  // typed into the live session ({type:'text'}: the model hears it as the officer's words and calls ask_megh); the
+  // silent-model harness is armed as for speech. Used by open(question) and the headless test hook.
+  const sendText = (t, prefix = '') => {
+    if (!S.ws || S.ws.readyState !== 1) return false;
+    S.typedTx = t; S.lastVoice = performance.now();
+    S.ws.send(JSON.stringify({ type: 'text', text: prefix + t }));
+    armSilent();
+    return true;
+  };
+  // open(question) (D-113, a question tapped on the voice panel): asked once the hello (with the AI disclosure, D-108)
+  // has been said, so the disclosure is never talked over
+  const askFirst = () => {
+    clearTimeout(S.firstT);
+    const q = S.firstAsk; S.firstAsk = '';
+    if (q && phaseRef.current === 'live') { log({ type: 'first_ask', question: q }); sendText(q); }
+  };
   const log = (e) => { if (window.__meghVoice) testLog.current.push({ ...e, t: Math.round(performance.now()) }); };
 
   // ── playback: 24 kHz PCM on a queue, cut at once ──────────────────────
@@ -306,8 +324,13 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
         S.idleMs = Math.max(8000, (e.idle_seconds || 25) * 1000);
         setPh('live'); S.lastVoice = performance.now(); armIdle();
         for (const x of S.readQueue.splice(0)) send(x);
-        if (S.greet) { S.greet = false; send({ type: 'read', text: greetingLine() }); }   // once per opening of the stage
-        else if (S.switchLine) send({ type: 'read', text: SWITCH_LINE });                    // a new voice says hello
+        if (S.greet) {                                                                   // once per opening of the stage
+          S.greet = false;
+          // a question waits (open(question)): the hello is just the greeting and the disclosure, then the question
+          send({ type: 'read', text: S.firstAsk ? `${greetingHeading()}. ${AI_DISCLOSURE}.` : greetingLine() });
+          if (S.firstAsk) { clearTimeout(S.firstT); S.firstT = setTimeout(askFirst, FIRST_ASK_MS); }
+        } else if (S.firstAsk) askFirst();
+        if (S.switchLine) send({ type: 'read', text: SWITCH_LINE });                         // a new voice says hello
         S.switchLine = false;
         break;
       case 'vad':
@@ -318,6 +341,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
         break;
       case 'in':
         if (S.playing) cutAudio();                    // the officer is talking: barge-in, whatever turn it is
+        if (S.firstAsk) { clearTimeout(S.firstT); S.firstAsk = ''; log({ type: 'first_ask_dropped' }); }   // they asked their own
         (S.capT || []).forEach(clearTimeout); S.capT = [];
         if (!S.inTx) { S.cut = false; S.firstAudio = 0; }
         S.inTx += e.text; S.userEnd = performance.now(); S.lastVoice = performance.now();
@@ -381,6 +405,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
         setTurnsDone((n) => n + 1);
         S.inTx = ''; S.firstAudio = 0;
         armIdle();
+        if (S.firstAsk) askFirst();                  // the hello has been said: now the question tapped on the panel
         break;
       }
       case 'goaway':
@@ -398,6 +423,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
         break;
       case 'fallback':
         S.fallbackUntil = Date.now() + FALLBACK_MS;
+        setResting(true); clearTimeout(S.restT); S.restT = setTimeout(() => setResting(false), FALLBACK_MS + 50);
         end('fallback', true); setView(false);
         cb.current.onNotice(e.reason === 'voice off' ? 'Live voice is switched off here. The mic types your words instead.'
           : 'Live voice is unavailable right now. The mic types your words instead.');
@@ -514,7 +540,8 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
   const end = useCallback((why = 'end', quiet = false) => {
     const ws = S.ws; S.ws = null;
     if (ws) { try { if (ws.readyState === 1) ws.send(JSON.stringify({ type: 'bye' })); ws.close(); } catch (e) { /* closed */ } }
-    clearTimeout(S.idleT); clearTimeout(S.silentT); cancelAnimationFrame(S.raf);
+    clearTimeout(S.idleT); clearTimeout(S.silentT); clearTimeout(S.firstT); cancelAnimationFrame(S.raf);
+    S.firstAsk = '';
     if (S.pending) { clearTimeout(S.pending.timer); S.pending = null; }
     clearTimeout(S.qT); S.queued = null; S.skipStop = false;
     cutAudio();
@@ -529,7 +556,7 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
     log({ type: 'end', why, quiet });
   }, [S, cutAudio]);
 
-  useEffect(() => () => end('unmount', true), [end]);
+  useEffect(() => () => { end('unmount', true); clearTimeout(S.restT); }, [end, S]);
   // the Secretary desk's board is fetched ahead, so the voice view opens complete (one entrance, no stages)
   useEffect(() => {
     const t = setTimeout(() => { if (getToken()) fetchVoiceBoard(); }, 1200);
@@ -546,9 +573,11 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
     log({ type: 'mute', on: S.muted });
   }, [S]);
   // the stage: open it (and the session); close it (and the session). Idle leaves it up, in standby.
-  const open = useCallback(() => {
+  // open(question): the voice opens and, after its hello, is asked that question (a tap on the voice panel, D-113)
+  const open = useCallback((question) => {
     S.openedAt = lastId(S.msgs);
     S.greet = true;
+    S.firstAsk = typeof question === 'string' ? question.trim() : '';
     setView(true);
     return start();
   }, [S, start]);
@@ -566,8 +595,8 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
   useEffect(() => {
     if (new URLSearchParams(window.location.search).get('voicetest') !== '1') return undefined;
     window.__meghVoice = {
-      say: (t) => { if (S.ws && S.ws.readyState === 1) { S.typedTx = t; S.lastVoice = performance.now(); S.ws.send(JSON.stringify({ type: 'text', text: '[voice] ' + t })); armSilent(); } },
-      type: (t) => { if (S.ws && S.ws.readyState === 1) { S.typedTx = t; S.lastVoice = performance.now(); S.ws.send(JSON.stringify({ type: 'text', text: t })); armSilent(); } },
+      say: (t) => { sendText(t, '[voice] '); },
+      type: (t) => { sendText(t); },
       log: () => testLog.current.slice(),
       phase: () => phaseRef.current,
       playing: () => S.playing,
@@ -584,5 +613,6 @@ export function useLiveVoice({ submit, stop, isRunning, onNotice }) {
 
   return { phase, captions, speaking, latencyMs, meterYou, meterMegh, start, end, available, onMessages,
     muted, setMuted, view, open, closeView, hush, analysers, thinking, voiceState, turnsDone, openedAt: () => S.openedAt,
+    resting,
     registerStage, voiceKey, setVoice };
 }

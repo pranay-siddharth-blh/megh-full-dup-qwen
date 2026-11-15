@@ -92,7 +92,8 @@ export function promptsForKeys(keys) {
   return { title: 'Try a question', items };
 }
 
-export function WelcomeCard({ strings, prompts, setPrompts, onAsk, signedIn = true }) {
+// heroExtra: drawn under the title's line (the voice hint chip on narrow screens, D-113)
+export function WelcomeCard({ strings, prompts, setPrompts, onAsk, signedIn = true, heroExtra = null }) {
   const trackRef = useRef(null);
   const [perPage, setPerPage] = useState(4);
   const [arrows, setArrows] = useState({ show: true, prevDisabled: true, nextDisabled: false });
@@ -206,6 +207,7 @@ export function WelcomeCard({ strings, prompts, setPrompts, onAsk, signedIn = tr
       <div className="hero">
         <h1>{strings.heroTitle}</h1>
         <p>{strings.heroSub}</p>
+        {heroExtra}
       </div>
 
       <div className="scheme-carousel">
