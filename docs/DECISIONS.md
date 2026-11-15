@@ -1304,6 +1304,17 @@ not recorded.*
   blocks"), not a full block list. (c) "by district" after a district / block figure is a roll-up (the filter at that
   level and below is cleared, the year kept). (d) "what about <district>?" is resolved by the frame, no longer left to
   the model rewrite while it answers (D-056's swap note): the frame keeps everything else exactly.
+- **(b) REVISED 2026-11-15 (the user's live report, KI-728): a regroup after an answer about a SET of places keeps
+  those places.** "Show me the top five districts by Focus Plus beneficiaries" then "Can you break this down by block?"
+  = every block of those five districts, each with its district, the districts in the ranking's order, each district's
+  blocks largest first ("Focus Plus beneficiaries in West Garo Hills, …, North Garo Hills by block"); "by year" = each
+  of those districts by financial year ("… by district and by financial year": a place x year table). The places are
+  the ranking's own rows (`AnswerFrame.items`, as many as it ASKED for: "which district has the most" = the winner,
+  not the two runners-up shown as context) or the comparison's list; a comparison of named districts "by year" no
+  longer sums them. The statewide top N blocks stay one message away ("top 5 blocks"). A frame stored before this
+  (no items) keeps the old reading (nothing guessed). `_c18_drill`; catalogue: `metric_catalog._build` labels blocks of
+  several districts with their district (ORDER BY array_position over the listed districts) and builds the place x
+  year table (`split`); Focus Plus blocks are grouped on UPPER(block_name_raw), as the model path's (KI-718).
 - **Rejected:** a model call to read the follow-up (prose rules fail under sampling; the gateway is shared); keeping
   the string rules first (their outputs are the shapes weakness 2 could not read back); filling the frame from the
   question's words alone (two readers again).

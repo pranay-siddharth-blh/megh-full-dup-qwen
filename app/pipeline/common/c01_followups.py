@@ -1612,6 +1612,11 @@ def _c01_regroup_question(raw_question: str, prev) -> "str | None":
         if any(_C01_PLACE_ORDER.index(k) >= _C01_PLACE_ORDER.index(dim) for k in held):
             return None                                             # at / above its own filter: a roll-up (c15)
     prev_q = collapse_ws(prev.question).rstrip(" ?.")
+    if _c18_strip_rank_head(_c01_without_chart_phrase(prev_q))[1]:
+        # 2026-11-15 (user report): a RANKING regrouped by string surgery kept its ranking head ("Show me the top 5
+        # districts by Focus Plus beneficiaries by block": the same five districts again). Regrouping a ranking is
+        # the answer frame's edit (c18 _c18_drill: the blocks behind the ranked districts); here: no rewrite
+        return None
     if dim == "financial year" and (context_policy.extract_year_keys(prev_q) or resolved.get("year_key")
                                     or resolved.get("year_key_list")):
         return None                                                 # it names a year: which years is a model call

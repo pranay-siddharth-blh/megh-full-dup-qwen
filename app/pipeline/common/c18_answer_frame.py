@@ -54,7 +54,7 @@ def _c18_sql_reading(sql: str) -> dict:
     Only what the query states; unparseable text, a query reading no table, a set operation, a grouping by a column
     that is no known dimension: the fields stay None."""
     out = {"qtype": None, "group": None, "order": None, "limit": None, "metric_key": None, "catalogue": False,
-           "shape": None}
+           "shape": None, "dims": []}
     text = (sql or "").strip()
     if not text:
         return out
@@ -81,6 +81,7 @@ def _c18_sql_reading(sql: str) -> dict:
         # grouped inside a CTE / subquery and read out as is: the outer columns name the grouping
         gcols = [n for n in sql_ast.output_names(tree) if _c18_dim_of_column(n)]
     dims = [_c18_dim_of_column(c) for c in gcols]
+    out["dims"] = list(dims)
     has_agg = bool(sql_ast.aggregates(tree))
     limit = sql_ast.outer_limit(tree)
     if limit is not None and (limit < 1 or limit >= _C18_LIST_LIMIT):
@@ -91,6 +92,11 @@ def _c18_sql_reading(sql: str) -> dict:
         first = onode.expressions[0]
         key = first.this if isinstance(first, exp.Ordered) else first
         by_label = isinstance(key, exp.Column) and _c18_dim_of_column(key.name) is not None
+        if not by_label and not isinstance(key, exp.Column) and not key.find(exp.AggFunc):
+            # "ORDER BY array_position(<the named districts>, UPPER(lgd_district)), …" (a drill-down keeps the
+            # order of the answer it drills into): an order by place, not by the measure
+            kcols = list(key.find_all(exp.Column))
+            by_label = bool(kcols) and all(_c18_dim_of_column(c.name) is not None for c in kcols)
         if not by_label:
             order = "desc" if (isinstance(first, exp.Ordered) and first.args.get("desc")) else "asc"
     group, qtype = None, None
@@ -112,8 +118,8 @@ def _c18_sql_reading(sql: str) -> dict:
             qtype = "breakdown"
         else:
             qtype = "total"
-    if out["qtype"] is None or not out["catalogue"]:
-        out["qtype"] = qtype
+    if out["qtype"] is None or not out["catalogue"] or qtype == "other":
+        out["qtype"] = qtype                              # a two-way catalogue table (place x year) is "other" too
     out.update(group=group, order=order, limit=limit)
     aggs = sorted({a.key for a in sql_ast.aggregates(tree)})
     out["shape"] = (f"{'+'.join(sorted(read))}|g={','.join(sorted(c.lower() for c in gcols))}"
@@ -128,6 +134,11 @@ _C18_SUPERLATIVES = frozenset("most least highest lowest maximum minimum max min
                               "greatest fewest top bottom".split())
 _C18_LEVEL_WORDS = {"district": "district", "districts": "district", "block": "block", "blocks": "block",
                     "village": "village", "villages": "village"}
+# The words a request opens with before a ranking ("Show me the top 5 ...", "Can you tell me which district ...").
+_C18_RANK_OPENERS = frozenset("show me us give list tell display get find can could would you please kindly the "
+                              "what which are were is was name i want need to see know".split())
+_C18_NUMBER_WORDS = {"one": 1, "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7, "eight": 8,
+                     "nine": 9, "ten": 10, "fifteen": 15, "twenty": 20}
 _C18_CUT_PREPS = frozenset("in for at of within across and vs versus with between during over from".split())
 _C18_LEVEL_TAILS = frozenset("block blocks district districts village villages constituency constituencies ac".split())
 _C18_COMPARE_WORDS = frozenset("compare compared comparing comparison vs versus against between".split())
@@ -172,6 +183,17 @@ def _c18_strip_rank_head(q: str) -> "tuple[str, bool]":
         return ranked[1], True
     toks = _c01_tm_tokens(q)
     ws = [t.low for t in toks]
+    # 2026-11-15 (user report): "Show me the top 5 districts by Focus Plus beneficiaries" — a request opening
+    # ("show me the", "give me", "can you list the", "what are the") before the ranking left the measure unread, so
+    # the frame could not be re-rendered and "break this down by block" fell to the old rule ("Show me the top 5
+    # districts by ... by block": the same five districts again)
+    lead = 0
+    while lead < len(ws) and ws[lead] in _C18_RANK_OPENERS:
+        if ws[lead] in ("which", "what") and lead + 1 < len(ws) and ws[lead + 1] in _C18_LEVEL_WORDS:
+            break                                         # "... which district has the most": the head itself
+        lead += 1
+    if lead and lead < len(ws) and ws[lead] in ("top", "bottom", "which", "what"):
+        toks, ws = toks[lead:], ws[lead:]
     i = 0
     if len(ws) >= 3 and ws[0] in ("which", "what") and ws[1] in _C18_LEVEL_WORDS:
         i = 2
@@ -184,7 +206,7 @@ def _c18_strip_rank_head(q: str) -> "tuple[str, bool]":
         i += 1
     elif len(ws) >= 3 and ws[0] in ("top", "bottom"):
         i = 1
-        if i < len(ws) and ws[i].isdecimal():
+        if i < len(ws) and (ws[i].isdecimal() or ws[i] in _C18_NUMBER_WORDS):
             i += 1
         if i >= len(ws) or ws[i] not in _C18_LEVEL_WORDS:
             return q, False
@@ -244,15 +266,25 @@ def _c18_measure_text(question: str, schemes: "list[str]", filters: dict) -> "st
     names = dict(typed)
     for canon in named_places(q):
         names.setdefault(canon, canon)
-    pspans = []
+    # every occurrence of every name, the longest names first, never overlapping (2026-11-15: "West Garo Hills" was
+    # cut out of "South West Garo Hills" when that came first, and the real West Garo Hills stayed in the words)
+    found = []
+    low_q = q.lower()
     for canon, form in names.items():
-        for f in (form, canon, canon.title()):
-            p0 = _ci_find(q, f)
-            if p0 >= 0:
-                e = p0 + len(f)
-                if (p0 == 0 or not q[p0 - 1].isalnum()) and (e == len(q) or not q[e].isalnum()):
-                    pspans.append((p0, e))
+        for f in {form, canon, canon.title()}:
+            fl, at = f.lower(), 0
+            while fl:
+                p0 = low_q.find(fl, at)
+                if p0 < 0:
                     break
+                e = p0 + len(fl)
+                if (p0 == 0 or not q[p0 - 1].isalnum()) and (e == len(q) or not q[e].isalnum()):
+                    found.append((p0, e))
+                at = p0 + 1
+    pspans = []
+    for a, b in sorted(set(found), key=lambda sp: (-(sp[1] - sp[0]), sp[0])):
+        if not any(a < y and x < b for x, y in pspans):
+            pspans.append((a, b))
     if pspans:
         q = _c18_cut(q, pspans, right=_C18_LEVEL_TAILS)
     q = collapse_ws(q).strip(" ,;:-")
@@ -324,6 +356,55 @@ def _c18_grouped_by_its_own_filter(group: "str | None", filters: dict) -> bool:
     return False
 
 
+_C18_ITEMS_MAX = 25
+
+
+def _c18_in_question_order(names: list, q: str) -> list:
+    """`names` in the order the question names them (the resolver may list them otherwise; a drill-down keeps the
+    ranking's order). Longest names claim their words first, so West Garo Hills is never found inside South West
+    Garo Hills. A name not found keeps its place after the found ones."""
+    low = (q or "").lower()
+    claimed, pos = [], {}
+    for name in sorted({str(n) for n in names}, key=len, reverse=True):
+        at, nl = 0, name.lower()
+        while nl:
+            p0 = low.find(nl, at)
+            if p0 < 0:
+                break
+            e = p0 + len(nl)
+            ok = (p0 == 0 or not low[p0 - 1].isalnum()) and (e == len(low) or not low[e].isalnum())
+            if ok and not any(p0 < y and x < e for x, y in claimed):
+                claimed.append((p0, e))
+                pos[name] = p0
+                break
+            at = p0 + 1
+    big = len(low) + 1
+    return sorted(list(names), key=lambda n: pos.get(str(n), big))
+
+
+def _c18_items(result: dict, qtype: "str | None", group: "str | None") -> list:
+    """The places a ranking / comparison answer named, in its rows' order (upper case), read from the result's own
+    rows: the one output column that stands for the frame's grouping. [] for any other answer, a grouping that is no
+    district / block, more than _C18_ITEMS_MAX rows, or rows that do not say it."""
+    if qtype not in ("ranking", "compare") or group not in ("district", "block"):
+        return []
+    rows = result.get("data") or result.get("rows") or []
+    if not rows or len(rows) > _C18_ITEMS_MAX or not isinstance(rows[0], dict):
+        return []
+    cols = [c for c in rows[0] if _c18_dim_of_column(str(c)) == group]
+    if len(cols) != 1:
+        return []
+    out = []
+    for r in rows:
+        v = r.get(cols[0])
+        if v in (None, ""):
+            return []                                 # a row with no place: the list is not the answer's places
+        name = str(v).strip().upper()
+        if name not in out:
+            out.append(name)
+    return out
+
+
 def _c18_fill_frame(question: str, result: dict, origin: "str | None" = None) -> dict:
     """The answer frame of a finished turn (a plain dict, empty for anything but a data answer). Deterministic: the
     catalogue's own query when it answered, else the final SQL, else None fields."""
@@ -335,12 +416,23 @@ def _c18_fill_frame(question: str, result: dict, origin: "str | None" = None) ->
         filters = {k: resolved[k] for k in _c18_af.FILTER_KEYS if resolved.get(k) not in (None, "", [], ())}
         reading = _c18_sql_reading(result.get("sql") or result.get("sql_query") or "")
         q = collapse_ws(result.get("rewritten_question") or question or "").strip()
+        for key in ("district_list", "block_list"):
+            if isinstance(filters.get(key), list):
+                filters[key] = _c18_in_question_order(filters[key], q)
         qtype, group = reading["qtype"], reading["group"]
         if _c18_grouped_by_its_own_filter(group, filters):
             # GROUP BY the very place / year the query is filtered to (the PMAY-G facts query: one row per entity
             # named): one figure for that place, not a breakdown
             qtype, group = ("total" if qtype in ("breakdown", "ranking", "compare", "total") else qtype), None
-        if qtype in ("breakdown", "total") and group is not None:
+        split = None
+        dims = set(reading.get("dims") or [])
+        if qtype == "other" and reading["catalogue"] and len(dims) == 2 and "year" in dims:
+            # 2026-11-15: the catalogue's place x year table (each listed place by year, metric_catalog._build
+            # split): a per-year breakdown that keeps the listed places apart
+            lvl = next(iter(dims - {"year"}))
+            if lvl in ("district", "block") and len(filters.get(f"{lvl}_list") or []) > 1:
+                qtype, group, split = "breakdown", "year", lvl
+        if qtype in ("breakdown", "total") and group is not None and split is None:
             lst = filters.get(f"{group}_list") if group in ("district", "block") else (
                 filters.get("year_key_list") if group == "year" else None)
             if lst and len(lst) > 1:
@@ -353,7 +445,8 @@ def _c18_fill_frame(question: str, result: dict, origin: "str | None" = None) ->
             order=reading["order"], limit=reading["limit"] if qtype == "ranking" else None,
             chart=result.get("chart_type") or _c18_chart_asked(q),
             source="catalogue" if reading["catalogue"] else (origin or ("cross" if len(schemes) > 1 else None)),
-            sql_shape=reading["shape"], question=q)
+            sql_shape=reading["shape"], question=q, split=split)
+        frame.items = _c18_items(result, qtype, group)
         d = frame.to_dict()
         d["chart_asked"] = _c18_chart_asked(q)
         return d
@@ -429,7 +522,10 @@ def _c18_render(frame: "_c18_af.AnswerFrame", chart: "str | None" = None) -> "st
     tail = place
     if frame.qtype in ("breakdown", "compare") and frame.group and not (
             frame.qtype == "compare" and frame.group in ("district", "block")):
-        tail += f" by {_C18_GROUP_WORDS.get(frame.group, frame.group)}"
+        # "by district and BY financial year": both groupings for every reader (context_policy.grouping_dims reads
+        # "by district and financial year" as the district alone)
+        split = f"{frame.split} and by " if frame.split in ("district", "block") and frame.group == "year" else ""
+        tail += f" by {split}{_C18_GROUP_WORDS.get(frame.group, frame.group)}"
     years = frame.filters.get("year_key_list") or (
         [frame.filters["year_key"]] if frame.filters.get("year_key") is not None else [])
     if years:
@@ -505,7 +601,8 @@ def _c18_followup_base(prev, session) -> "tuple[_c18_af.AnswerFrame, object] | N
 
 # ── Reading a follow-up as an edit ───────────────────────────────────────────
 
-_C18_REGROUP_EXTRA = frozenset("what about how more detail details detailed split wise breakdown view".split())
+_C18_REGROUP_EXTRA = frozenset("what about how more detail details detailed split wise breakdown view drill into "
+                               "deeper go inside within level".split())
 _C18_ONLY_LEADS = frozenset("only just".split())
 _C18_PLACE_LEADS = frozenset("only just what how and for in same now show".split())
 _C18_PLACE_FILLER = frozenset(
@@ -637,7 +734,7 @@ def _c18_regroup_dim(text: str) -> "str | None":
         elif base in _C01_REGROUP_DIM:
             dims.add(_C01_REGROUP_DIM[base])
             trigger = True
-        elif w in _C01_REGROUP_TRIGGER or w in ("breakdown", "split", "wise"):
+        elif w in _C01_REGROUP_TRIGGER or w in ("breakdown", "split", "wise", "drill", "drilldown"):
             trigger = True
         elif not (w in _C01_REGROUP_FILLER or w in _C18_REGROUP_EXTRA or w in _C01_REGROUP_CHART
                   or w in _C01_REGROUP_CHART_FILLER):
@@ -654,8 +751,9 @@ _C18_YEAR_RANK_DOWN = frozenset("least lowest minimum smallest fewest bottom wor
 
 
 def _c18_edit_rank_year(raw: str, frame):
-    if frame.group != "year" or frame.qtype not in ("breakdown", "compare", "ranking") or len(frame.schemes) != 1:
-        return None
+    if frame.group != "year" or frame.qtype not in ("breakdown", "compare", "ranking") or len(frame.schemes) != 1 \
+            or frame.split:
+        return None                                       # each place by year: which place's year is not said
     ws = _c01_tm_words(raw or "")
     if "year" not in ws and "years" not in ws:
         return None
@@ -671,7 +769,7 @@ def _c18_edit_rank_year(raw: str, frame):
 
 def _c18_edit_rank(raw: str, frame):
     asked = _c01_rank_request(raw)
-    if asked is None or len(frame.schemes) != 1:
+    if asked is None or len(frame.schemes) != 1 or frame.split:
         return None
     direction, dim, n = asked
     order = "desc" if direction == "up" else "asc"
@@ -705,6 +803,10 @@ def _c18_edit_regroup(raw: str, frame):
         return None
     if _c18_village_locked(new):
         return None                                       # the village's name is not in the frame: not re-rendered
+    if place is None:
+        drilled = _c18_drill(frame, new, group, year)
+        if drilled is not None:
+            return drilled
     f = new.filters
     if group in _C18_PLACE_LEVELS:
         if place is not None and plevel in _C18_PLACE_LEVELS and \
@@ -739,7 +841,7 @@ def _c18_edit_regroup(raw: str, frame):
         f.pop("year_key_list", None)
         f["year_key"] = year
         new.all_years = False
-    new.group = group
+    new.group, new.split = group, None
     if frame.qtype == "ranking" and group in ("district", "block"):
         new.qtype = "ranking"                             # "now by block" after "Top 3 districts": the top 3 blocks
     else:
@@ -747,6 +849,84 @@ def _c18_edit_regroup(raw: str, frame):
     if new.qtype == "breakdown" and f.get(f"{group}_list"):
         new.qtype = "compare"
     return "regroup", new
+
+
+def _c18_asked_count(frame) -> "int | None":
+    """How many places the ranking ASKED for: 1 for "Which district has the most ..." (the catalogue also shows the
+    next two as context, so the frame's LIMIT is 3), the N it states ("Top 5 ..."), else the frame's limit."""
+    q = frame.question or ""
+    ranked = _c01_ranked_stem(q)
+    if ranked is not None:
+        hw = _c15_words(q.partition(": ")[0])
+        if hw and hw[0] == "which":
+            return 1
+        return int(hw[1]) if len(hw) > 1 and hw[1].isdecimal() else frame.limit
+    ws = _c15_words(q)
+    lead = 0
+    while lead < len(ws) and ws[lead] in _C18_RANK_OPENERS and ws[lead] not in ("which", "what"):
+        lead += 1
+    ws = ws[lead:]
+    if len(ws) >= 2 and ws[0] in ("which", "what") and ws[1] in ("district", "block", "village"):
+        return 1                                          # one place asked: the runners-up are context
+    for k, w in enumerate(ws[:-1]):
+        if w in ("top", "bottom"):
+            nxt = ws[k + 1]
+            if nxt.isdecimal():
+                return int(nxt)
+            if nxt in _C18_NUMBER_WORDS:
+                return _C18_NUMBER_WORDS[nxt]
+    n = _requested_rank_count(q)
+    return n if n is not None else frame.limit
+
+
+def _c18_drill(frame, new, group: str, year: "int | None"):
+    """D-110 default (b) REVISED 2026-11-15 (user report: "Can you break this down by block?" after "the top five
+    districts by Focus Plus beneficiaries" gave the same five districts again). A regroup after an answer about a
+    SET of places — a ranking (the places it named, frame.items, as many as it asked for) or a comparison of named
+    places — keeps those places and shows the figures behind them:
+      * a finer place level ("by block" after a district ranking / comparison): every block of those districts,
+        labelled by its district, in the answer's order (the catalogue adds the district label, c16 / metric_catalog);
+      * "by year": each of those places by financial year (a place x year table, split=<their level>).
+    The top N blocks statewide (the old default b) is still one message away ("top 5 blocks"). None when the answer
+    named no set (a total, a breakdown, a single place) or the names are not known (an older frame): the caller then
+    edits the frame as before."""
+    level, names = None, []
+    f0 = frame.filters or {}
+    if frame.qtype == "ranking" and frame.group in ("district", "block") and frame.items:
+        n = _c18_asked_count(frame)
+        level, names = frame.group, list(frame.items[:n] if n else frame.items)
+    elif frame.qtype == "compare" and frame.group in ("district", "block") and f0.get(f"{frame.group}_list"):
+        level, names = frame.group, [str(x).upper() for x in f0[f"{frame.group}_list"]]
+    elif group == "year" and frame.qtype in ("breakdown", "total") and not f0.get("block_list") \
+            and len(f0.get("district_list") or []) > 1:
+        # an answer about a list of districts (the blocks of the ranked districts): each of them by year, never
+        # their sum
+        level, names = "district", [str(x).upper() for x in f0["district_list"]]
+    if level is None or not names:
+        return None
+    finer = group in _C18_PLACE_LEVELS and _C18_PLACE_LEVELS.index(group) > _C18_PLACE_LEVELS.index(level)
+    if not finer and group != "year":
+        return None                                       # the same level or coarser: re-ranked / rolled up as before
+    if group == "year" and (year is not None or f0.get("year_key_list")):
+        return None
+    f = new.filters
+    _c18_drop(f, *_c18_at_or_below(level), "constituency")
+    if len(names) == 1:
+        if not _c18_set_place(new, names[0], level):
+            return None
+        f = new.filters
+    else:
+        f[f"{level}_list"] = list(names)
+    if group == "year":
+        f.pop("year_key", None)
+        new.all_years = False
+        new.split = level if len(names) > 1 else None
+    elif year is not None:
+        f.pop("year_key_list", None)
+        f["year_key"] = year
+        new.all_years = False
+    new.group, new.qtype, new.order, new.limit, new.items = group, "breakdown", None, None, []
+    return "drill", new
 
 
 def _c18_edit_place(raw: str, frame):
@@ -771,6 +951,7 @@ def _c18_edit_place(raw: str, frame):
         return None
     if not _c18_set_place(new, name, level):
         return None
+    new.split = None                                      # one place: nothing left to keep apart
     if year is not None:
         f.pop("year_key_list", None)
         f["year_key"] = year
@@ -826,7 +1007,10 @@ def _c18_edit_year(raw: str, frame):
     new = _c18_copy(frame)
     new.filters["year_key"] = target
     new.all_years = False
-    if new.group == "year":                               # one year of a per-year list: that year's figure
+    if new.group == "year" and new.split:
+        # one year of each listed place's years: those places compared in that year
+        new.group, new.qtype, new.order, new.limit, new.split = new.split, "compare", None, None, None
+    elif new.group == "year":                             # one year of a per-year list: that year's figure
         new.group, new.qtype, new.order, new.limit = None, "total", None, None
     return "year", new
 
@@ -926,7 +1110,7 @@ def _c18_frame_followup(raw_question: str, prev, session=None) -> "tuple[str, st
             return None
         kind, new = edit
         chart = None
-        if kind == "regroup":
+        if kind in ("regroup", "drill"):
             chart = _c01_regroup_chart(raw_question).strip() or None
         elif kind in ("measure", "year", "place", "one-place-of-comparison"):
             chart = _c18_frame_chart_asked(_turn, frame)      # the chart the previous question asked stays
@@ -1011,16 +1195,99 @@ def _c18_catalogue_from_frame(frame: "dict | None", question: str, schemes: "lis
     if group != "year":
         if metric_catalog.single_year(m.key) and len(years) != 1:
             return None
-        if not years and metric_catalog.YEAR_COLUMN in m.columns and not f.all_years:
-            return None
+        if not years and metric_catalog.YEAR_COLUMN in m.columns and not (
+                f.all_years or _ALL_YEARS_CUE.search(question or "") or _STATED_ALL_YEARS_CUE.search(question or "")):
+            return None                                   # no year, and the question does not state all of them
     if f.qtype == "total" and len(years) > 1:
         return None
     order = f.order if f.qtype == "ranking" else None
     limit = (f.limit or _C17_RUNNERS_UP) if f.qtype == "ranking" else None
     if metric_catalog.verified(f.qtype, m.key) is None:
         return None
-    query = metric_catalog.build(m, filters, group, order=order, limit=limit, qtype=f.qtype)
+    for key in ("district", "block"):
+        # the places in the FRAME's order (the ranking a drill-down keeps), not the order the resolver read them
+        lst = f.filters.get(f"{key}_list")
+        if lst and isinstance(filters.get(key), list):
+            filters[key] = [str(x) for x in lst]
+    split = f.split if f.split in ("district", "block") and group == "year" else None
+    if split is not None and not (isinstance(filters.get(split), list) and len(filters[split]) > 1):
+        return None
+    query = metric_catalog.build(m, filters, group, order=order, limit=limit, qtype=f.qtype, split=split)
     if query is not None:
-        logger.info("metric catalogue (answers, from the answer frame): metric=%s type=%s group=%s", m.key, f.qtype,
-                    group)
+        logger.info("metric catalogue (answers, from the answer frame): metric=%s type=%s group=%s%s", m.key,
+                    f.qtype, group, f" split={split}" if split else "")
     return query
+
+
+# ── The answer to a drill-down: each listed place with what is under it (2026-11-15) ─
+
+_C18_GROUPED_CHILDREN_MAX = 12
+
+
+def _c18_fy_label(row: dict) -> "str | None":
+    fy = row.get("financial_year") or row.get("financial_year_short")
+    if fy not in (None, ""):
+        fy = str(fy)
+        return fy if fy.lower().startswith("fy") else f"FY {fy}"
+    y = row.get("year_key")
+    try:
+        y = int(y)
+    except (TypeError, ValueError):
+        return None
+    return f"FY {y}-{(y + 1) % 100:02d}"
+
+
+def _c18_grouped_body(shape, rows: list, sql: str, schemes: "list[str] | None", entities: "dict | None"
+                      ) -> "str | None":
+    """The whole answer for a catalogue drill-down (metric_catalog._build: the blocks of several districts, or each
+    listed place by year): one line per listed place, in the order the query gave (the ranking's / the comparison's),
+    with its blocks largest first (or its years in order) and their figures. Code writes every figure (the E9 rule);
+    no model call. None for any other table (the composer path stays as it was)."""
+    if shape is None or shape.kind != "cross_tab" or not shape.metric or not metric_catalog.is_catalog_sql(sql):
+        return None
+    labels, seen_year = [], False
+    for c in shape.labels or []:
+        if _c18_dim_of_column(str(c)) == "year":
+            if seen_year:
+                continue                                  # year_key beside financial_year: one period
+            seen_year = True
+        labels.append(c)
+    dims = {c: _c18_dim_of_column(str(c)) for c in labels}
+    parent = next((c for c in labels if dims[c] in ("district", "block")), None)
+    child_dim = next((dims[c] for c in labels if c != parent), None)
+    if parent is None or len(labels) != 2 or child_dim not in ("block", "year") or \
+            (dims[parent], child_dim) not in (("district", "block"), ("district", "year"), ("block", "year")):
+        return None
+    child = next(c for c in labels if c != parent)
+    m = str(shape.metric)
+    groups: dict = {}
+    for r in rows:
+        v = _as_number(r.get(m))
+        p = r.get(parent)
+        if v is None or p in (None, ""):
+            continue
+        if child_dim == "year":
+            lab = _c18_fy_label(r)
+        else:
+            lab = _c18_title(r.get(child)) if r.get(child) not in (None, "") else None
+        if not lab:
+            continue
+        groups.setdefault(str(p), []).append((lab, v))
+    if len(groups) < 2:
+        return None
+    scheme, _place, period = _scope_words(schemes, entities)
+    what = _c12s_e9_what(m)
+    noun = "districts" if dims[parent] == "district" else "blocks"
+    if child_dim == "block":
+        head = f"{_c12s_e9_cap(what)} by block in {len(groups)} {noun} ({', '.join(x for x in (scheme, period) if x)}):"
+    else:
+        head = f"{_c12s_e9_cap(what)} by financial year in {len(groups)} {noun}{f' ({scheme})' if scheme else ''}:"
+    lines = [head]
+    for p, kids in groups.items():
+        if child_dim == "block":
+            kids = sorted(kids, key=lambda kv: kv[1], reverse=True)
+        shown = "; ".join(f"{lab} {_c12_fmt_value(m, v)}" for lab, v in kids[:_C18_GROUPED_CHILDREN_MAX])
+        more = (f"; …and {len(kids) - _C18_GROUPED_CHILDREN_MAX} more in the table"
+                if len(kids) > _C18_GROUPED_CHILDREN_MAX else "")
+        lines.append(f"- **{_c18_title(p)}** — {shown}{more}")
+    return "\n".join(lines)
