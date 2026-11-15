@@ -40,11 +40,18 @@ def test_over_the_limit_is_refused_with_rate(server, _wiring, monkeypatch):
     monkeypatch.setattr(voice_settings, "load", load)
 
     async def go():
+        import websockets
         reasons = []
         for _ in range(3):
-            async with Page(server) as pg:
-                e = await pg.until(lambda e: e.get("type") in ("ready", "error"))
-                reasons.append(e.get("reason") or e["type"])
+            try:
+                async with Page(server) as pg:
+                    e = await pg.until(lambda e: e.get("type") in ("ready", "error"))
+                    reasons.append(e.get("reason") or e["type"])
+            except websockets.exceptions.ConnectionClosed as exc:
+                # the relay refuses BEFORE reading the hello, so the close can beat the page's own hello (a race,
+                # 2026-11-15: failed only when run after the dictation tests); the close code says why
+                code = exc.rcvd.code if exc.rcvd else None
+                reasons.append("rate" if code == 4429 else f"closed {code}")
         return reasons
     assert asyncio.run(go()) == ["ready", "ready", "rate"]
     relay._HELLOS.clear()

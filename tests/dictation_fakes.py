@@ -141,7 +141,11 @@ async def dictate(url: str, pcm: "np.ndarray | None", *, token: str = GOOD, end:
     code = None
     t_stop = None
     async with websockets.connect(url, max_size=None) as ws:
-        await ws.send(json.dumps(hello if hello is not None else {"type": "hello", "token": token, "lang": "en"}))
+        try:
+            await ws.send(json.dumps(hello if hello is not None else {"type": "hello", "token": token, "lang": "en"}))
+        except websockets.exceptions.ConnectionClosed:
+            # a refusal BEFORE the hello is read (rate 4429) can close the socket first: a race, not a failure
+            return {"msgs": [], "code": ws.close_code, "t_stop": None}
 
         async def reader():
             nonlocal code
