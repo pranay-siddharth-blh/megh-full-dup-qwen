@@ -764,11 +764,45 @@ def polite_cases(base: list[dict]) -> list[dict]:
     return C
 
 
+def implied_cases() -> list[dict]:
+    """(k) the measure names the scheme (no scheme said), as the user and the coordinator's live runs ask it."""
+    C = []
+    specs = [
+        ("person-days in East Khasi Hills in 2023-24",
+         f"SELECT SUM(person_days) FROM {EMP} WHERE lgd_district = 'EAST KHASI HILLS' AND year_key = 2023"),
+        ("how many job cards were issued in Ri Bhoi in 2023-24",
+         f"SELECT SUM(job_cards_issued_total) FROM {EMP} WHERE lgd_district = 'RI BHOI' AND year_key = 2023"),
+        ("houses sanctioned in Mawphlang block", f"SELECT COUNT(*) FROM {PM} WHERE lgd_block = 'MAWPHLANG'"),
+        ("How many houses were completed in Tikrikilla block in 2023-24?",
+         f"SELECT COUNT(*) FROM {PM} WHERE is_completed AND lgd_block = 'TIKRIKILLA' AND year_key = 2023"),
+        ("producer groups in South West Khasi Hills", f"SELECT COUNT(DISTINCT pg_id) FROM {FL} WHERE "
+                                                      "lgd_district = 'SOUTH WEST KHASI HILLS'"),
+        ("How many scholarship applications are there in Ri Bhoi?",
+         "SELECT COUNT(*) FROM curated.v_cmss WHERE lgd_district = 'RI BHOI'"),
+        ("wage expenditure in West Garo Hills in 2024-25",
+         f"SELECT ROUND(SUM(unskilled_wage_exp), 2) FROM {EXP} WHERE lgd_district = 'WEST GARO HILLS' AND year_key = 2024"),
+        ("households that completed 100 days in East Garo Hills in 2022-23",
+         f"SELECT SUM(households_completed_100_days) FROM {EMP} WHERE lgd_district = 'EAST GARO HILLS' AND year_key = 2022"),
+    ]
+    for i, (qq, sql) in enumerate(specs):
+        unit = "lakh" if "wage expenditure" in qq else "count"
+        f = fig(sql, unit)
+        if "unskilled_wage_exp" in sql:   # the app's documented wages = unskilled + semi-skilled (schema_context.py)
+            f = {"any": [fig(sql.replace("SUM(unskilled_wage_exp)", "SUM(unskilled_wage_exp + semi_skilled_wage_exp)"),
+                             unit), fig(sql, unit)]}
+        C.append(case(f"IMP-{i}", "measure-implies-scheme", "no scheme said", [
+            turn(qq, figures=[f], pause=False, max_s=25)]))
+    C.append(case("IMP-8", "measure-implies-scheme", "ambiguous measure -> ask", [
+        turn("How many beneficiaries are there in East Garo Hills in 2025-26?", pause=True, max_s=20)]))
+    return C
+
+
 async def main():
     blk = await block_cases()
     cases = log_cases() + blk + vague_cases() + chain_cases() + voice_cases(blk) + headline_cases() + grouping_cases()
     cases += await drill_cases() + combo_cases()
     cases += polite_cases(cases)
+    cases += implied_cases()
     bank = {"bank": "Megh One AI LOG BANK (the user's own questions, every block, vague starts, spoken follow-ups)",
             "built_by": "tests/accuracy/build_log_bank.py", "truth_recorded": "2026-11-16", "cases": cases}
     with open(OUT, "w", encoding="utf-8") as fh:
