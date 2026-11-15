@@ -361,10 +361,21 @@ def _c16_plan_several(question: str, schemes: "list[str]", entity_result: dict, 
     return out
 
 
-def _metric_catalog_query(question: str, schemes: "list[str]", entity_result: dict
+def _metric_catalog_query(question: str, schemes: "list[str]", entity_result: dict, frame: "dict | None" = None
                           ) -> "tuple[str, list, str] | None":
     """The catalogue query for the fixed-query chain, or None (model path).
-    Shadow mode, and a measure not verified for this query type, log only."""
+    Shadow mode, and a measure not verified for this query type, log only.
+    `frame` (D-110): the edited answer frame of a follow-up the frame resolved; when the previous answer was the
+    catalogue's and the measure is verified for the frame's query type, the query is built from the frame (metric,
+    query type, grouping, order, limit) instead of matching the words again (c18 _c18_catalogue_from_frame)."""
+    if frame:
+        try:
+            framed = _c18_catalogue_from_frame(frame, question, schemes, entity_result)
+        except Exception as e:  # noqa: BLE001 — never let the catalogue break a turn
+            logger.warning("metric catalogue: frame query failed (%s) — words", e)
+            framed = None
+        if framed is not None:
+            return framed
     try:
         plan = _metric_catalog_plan(question, schemes, entity_result)
     except Exception as e:  # noqa: BLE001 — never let the catalogue break a turn
