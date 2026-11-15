@@ -1,5 +1,9 @@
 # LangGraph migration and rollout
 
+> **History.** The rollout finished with D-036: LangGraph is the only orchestrator and the
+> `PIPELINE_GRAPH_ENABLED` / `PIPELINE_GRAPH_CANARY_PERCENT` flags no longer exist (the code does not read them;
+> drop them from any `.env`). The checkpointer flags in §1 are still read.
+
 ## 1. Flags (`app/config.py`, all in `.env`)
 
 | Flag | Default | Effect |

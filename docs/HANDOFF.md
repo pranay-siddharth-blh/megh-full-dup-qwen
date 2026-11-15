@@ -3,6 +3,13 @@
 *For the next Claude session or account. Keep this short and overwrite it at the end of every
 significant session.*
 
+**2026-11-15 (answer frame, D-110 / KI-725): worktree `D:\megwt\frame`, branch `wt/frame-2026-11-15`, NOT merged,
+NOT pushed.** Follow-ups are edits of the last answer's frame (c18). Offline green (pytest + the 4 known, scripts 14/14,
+189 new tests); no-model gold subset 80/93 = base, 0 newly failing. Next: merge into `arch/step1-2026-11-14`, then with
+the model ON `tests/accuracy/run_gold.py` (all) and the harness against a server; confirm D-110's choices (a)-(d) with
+the owner ("across all districts" = by district; "now by block" after a top 3 keeps the ranking; "by district" after
+one district rolls up; "what about <district>?" no longer goes to the model).
+
 **2026-11-14 (evening): everything of the day is MERGED into `arch/step1-2026-11-14` (this checkout), NOT pushed.**
 Follow-ups by rule, cross-scheme roles as data (D-107, the entry below, now merged), guardrails (D-108), no-model
 coverage (D-109), UI smoothness. pytest 6,343 + the 4 known; scripts 14/14; frontend 180/180; no-model gold bank

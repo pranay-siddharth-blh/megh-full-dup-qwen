@@ -6,6 +6,12 @@ gateway outage of 2–3 Nov). **Voice layer updated 10–11 Nov 2026 (§0); `doc
 
 ## 0. Current state of the live voice (10–11 Nov 2026) — read before touching anything voice
 
+### 0a''''. 15 Nov 2026 — the answer frame (D-110), worktree branch `wt/frame-2026-11-15` (not merged yet)
+- Follow-ups ("by block", "only Ri Bhoi", "which is the lowest", "top 3", "what about 2023-24", "and the households
+  instead") are read as ONE edit of the last data answer's frame (`app/answer_frame.py`, pipeline `c18`), rendered as
+  one canonical question, inheriting exactly the frame's filters. Details: docs/CONTEXT_AND_LANGGRAPH.md §3a, DECISIONS
+  D-110, KNOWN_ISSUES KI-725 (what it leaves to the older rules). Offline green; nothing run with the model ON yet.
+
 ### 0a'''. 14 Nov 2026 — THIS checkout is where work continues: Bitbucket merge + architecture round (read first)
 - **What this folder is:** `D:\meg one clone\meghoneai` = the team's Bitbucket Main (`blh2026/meghoneai`, 5c1deb1, 13 Nov:
   CMSS + Homestay = 8 schemes, D-099..D-102) merged with our voice / accuracy work. **We only pull; push is disabled on
