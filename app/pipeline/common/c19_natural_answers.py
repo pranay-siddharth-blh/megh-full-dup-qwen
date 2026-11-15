@@ -521,6 +521,9 @@ def _c19_lead_ranking(shape, pairs, question, schemes, entities) -> str:
         word = _c19_more_word(m, low=True)
         s1 = (f"{top} has the {word} {noun}{where}{when}, at {_c12_fmt_value(m, v1)}, followed by {second} "
               f"{_c19_paren(_c12_fmt_value(m, v2))}.")
+        if v1 == 0 and v2 > 0 and _c12s_additive(m):
+            s1 = (f"No {noun} are recorded for {top}{where}{when} in the source data; among the rest, {second} has "
+                  f"the {word}, at {_c12_fmt_value(m, v2)}.")
         if _C12S_E9_GAP_ASK.search(question or ""):
             s1 = s1[:-1] + f", a gap of {_c12s_e9_gap(m, abs(v1 - v2))}."
     rest = pairs[2:]
@@ -539,6 +542,9 @@ def _c19_lead_ranking(shape, pairs, question, schemes, entities) -> str:
         joiner = "and" if close else "down to" if shape.desc else "up to"
         return s1 + f" {_c19_join(names)} {how} {a} {joiner} {b}."
     rl, vl = pairs[-1]
+    if vl == 0 and _c12s_additive(m):
+        # 2026-11-16 (log bank): Demdema's person-days are missing from the source, not a real zero
+        return s1 + f" No {noun} are recorded for {_c12s_label(rl, shape)} in the source data."
     return s1 + f" At the other end of this list, {_c12s_label(rl, shape)} has {_c12_fmt_value(m, vl)}."
 
 
@@ -584,6 +590,8 @@ def _c19_lead_breakdown(shape, pairs, question, schemes, entities) -> str:
     ratio = hv / lv if lv > 0 else None
     times = _c19_times(ratio) if ratio and ratio >= 2.95 else None
     s3 = f" {bottom} has the {_c19_more_word(m, low=True)}, at {_c12_fmt_value(m, lv)}"
+    if lv == 0:
+        s3 = f" No {noun} are recorded for {bottom} in the source data"
     if times and place_dim and one:
         s3 += f" — {top} has {times} as {'much' if _c19_is_money(m) else 'many'}"
     s3 += "."

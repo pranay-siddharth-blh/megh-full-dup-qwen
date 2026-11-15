@@ -367,6 +367,9 @@ def _c12_money(v: "int | float", unit: str = "rupees") -> str:
         # or more reads as its crore figure, 2 decimals (the exact amount is the table's cell, unchanged).
         return f"{sign}₹{_c12_indian(a / 1e7, 2)} crore"
     if unit == "crore" and a >= 1e6:
+        if a < 1e7 and _c12_crore_lead():
+            # "₹0.28 crore" (log bank 2026-11-16) -> "₹28 lakh": the crore column's 2 decimals are whole lakh
+            return f"{sign}₹{_c12_indian(round(a / 1e5), 0)} lakh"
         return f"{sign}₹{_c12_indian(a / 1e7, 2)} crore"
     if unit == "lakh" and a >= 1e4:
         lakh = f"{sign}₹{_c12_indian(a / 1e5, 2)} lakh"
@@ -376,6 +379,8 @@ def _c12_money(v: "int | float", unit: str = "rupees") -> str:
     if a >= 1e7:
         return f"{out} (≈ {sign}₹{_c12_indian(a / 1e7, 2)} crore)"
     if a >= 1e5:
+        if _c12_crore_lead():
+            return f"{sign}₹{_c12_indian(a / 1e5, 2)} lakh"         # one form, not "₹6,30,000 (≈ ₹6.30 lakh)"
         return f"{out} (≈ {sign}₹{_c12_indian(a / 1e5, 2)} lakh)"
     return out
 

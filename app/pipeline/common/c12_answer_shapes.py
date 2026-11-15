@@ -244,6 +244,9 @@ def _c12s_date_words(col, v) -> str:
     Anything that is not a date is its own text."""
     ymd = _c12s_iso_date(v)
     if ymd is None:
+        s = str(v).strip()
+        if len(s) == 9 and s[4] == "-" and (s[:4] + s[5:]).isdecimal() and int(s[5:]) == int(s[:4]) + 1:
+            return f"{s[:4]}-{s[7:]}"                       # "2024-2025" -> "2024-25" (read as FY 2024-25)
         return str(v)
     y, m, d = ymd
     if "month" in _c12s_parts(str(col)):

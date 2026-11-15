@@ -1324,6 +1324,7 @@ async def _data_entity_stage(d: dict, scope: "auth.UserScope | None" = None) -> 
     _rel_note = None
     if not d.get("cross"):
         question, _rel_note = _c06_relative_year_rewrite(question, schemes)
+        question = _c13_change_over_span(question)
     # A district acronym typed with its letters in another order — "Compare …
     # in WHK and EKH" (reported 2026-09-29). WHK is in no SME catalogue, so it
     # was not_found and silently left out: the comparison ran for EKH alone.
@@ -1656,8 +1657,11 @@ _C13_EXTREMES = frozenset(("lowest", "highest", "most", "least", "fewest", "larg
 def _c13_which_one(question: str) -> bool:
     """"Which district has the lowest …": ONE place asked for (its runners-up are not a cut-off list)."""
     ws = [t.low for t in tokens(question or "")]
-    return any(w == "which" and i + 1 < len(ws) and ws[i + 1] in _C13_ONE_DIMS for i, w in enumerate(ws)) \
-        and bool(set(ws) & _C13_EXTREMES)
+    if not set(ws) & _C13_EXTREMES or set(ws) & {"districts", "blocks", "villages", "constituencies"}:
+        return False
+    # "which district has the lowest …", and the follow-up "which is the lowest?" / "and the highest one?"
+    return "which" in ws or any(ws[i:i + 2] in (["the", "lowest"], ["the", "highest"], ["the", "least"],
+                                                 ["the", "most"]) for i in range(len(ws)))
 
 
 def _c13_unresolved_named_place(question: str, resolved: dict) -> "tuple[str, str] | None":
@@ -3746,3 +3750,23 @@ def _c13_drop_polite_yes(answer: str, question: str) -> str:
             rest = answer[len(lead):].lstrip()
             return rest[:1].upper() + rest[1:] if rest else answer
     return answer
+
+
+# 2026-11-16 (user's live log + log bank, ~1 in 4): "How have MGNREGA person-days changed over the last three years in
+# West Garo Hills?" was answered with two of the three years, or one total across them. A change over a span of years
+# is a per-year series: the question says so in the words the year breakdown reads ("year by year"), so every year is
+# its own row whichever path writes the SQL.
+_C13_CHANGE_WORDS = frozenset(("changed", "change", "changes", "trend", "trends", "grown", "grew", "risen", "rose",
+                               "fallen", "fell", "declined", "decline", "increased", "decreased", "varied", "moved",
+                               "evolved", "progressed"))
+
+
+def _c13_change_over_span(question: str) -> str:
+    q = question or ""
+    words = [t.low for t in tokens(q)]
+    if not (set(words) & _C13_CHANGE_WORDS) or len(context_policy.extract_year_keys(q)) < 2 \
+            or "from" not in words or context_policy.grouping_dims(q) or _TIME_SERIES_CUE.search(q):
+        return question
+    out = q.rstrip(" ?.") + ", year by year" + ("?" if q.rstrip().endswith("?") else "")
+    logger.info("change over a span -> per-year series: %r", out)
+    return out
