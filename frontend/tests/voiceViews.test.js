@@ -78,7 +78,7 @@ test('the answer as a table: its own rows and every column, money with its unit'
   const c = p.cards[0];
   assert.equal(c.kind, 'table');
   assert.deepEqual(c.columns.map((x) => x.title), ['District', 'Beneficiaries', 'Amount']);
-  assert.equal(c.columns[2].unit, '₹ crore');
+  assert.equal(c.columns[2].unit, '₹');
   assert.deepEqual(c.items.map((x) => x.label), ['West Garo Hills', 'Ri Bhoi']);   // the answer's order, not re-sorted
   assert.deepEqual(c.items[0].cells, ['120', '₹3.5 crore']);
   assert.equal(c.items[0].value, 120);
