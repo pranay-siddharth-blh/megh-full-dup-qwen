@@ -323,6 +323,30 @@ def _c16_shape(question: str, filters: dict) -> "dict | None":
     return {"qtype": "total", "group": None, "order": None, "limit": None}
 
 
+# 2026-11-16 (the user's live test, a new chat): "Show me the breakdown by blocks of West Garo Hills" -> "which
+# scheme?" -> "MGNREGA": no measure named, so no catalogue query, and the model's SQL used a column the view does not
+# have (lgd_block, 3 repairs) -> "couldn't build a working query". A GROUPING of one scheme with no measure named reads
+# as that scheme's headline measure (the one its overview card leads with; data/cross_scheme.yaml `headline`), and
+# the answer's lead names the measure. CM Elevate Legacy has two counts (sanction records / applicants): left out.
+_C16_DEFAULT_MEASURE = {"MGNREGA": "person-days", "PMAY-G": "houses sanctioned", "Focus Plus": "beneficiaries",
+                        "Focus Legacy": "producer groups", "CM Elevate": "applications", "CMSS": "applications",
+                        "Homestay": "applications"}
+_C16_GROUPING_WORDS = frozenset("breakdown break split wise district districts block blocks village villages "
+                                "constituency constituencies year years".split())
+
+
+def _c16_default_measure_question(question: str, scheme: str) -> "str | None":
+    """The question with the scheme's headline measure named, when it asks a grouping of the scheme and names no
+    measure at all; None otherwise."""
+    phrase = _C16_DEFAULT_MEASURE.get(scheme)
+    if not phrase:
+        return None
+    low = {t.low for t in _c01_tm_tokens(question)}
+    if not (low & _C16_GROUPING_WORDS) or not ({"by", "breakdown", "wise", "split", "each", "every", "per"} & low):
+        return None
+    return f"{scheme} {phrase} " + question
+
+
 def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dict) -> dict:
     """What the catalogue would do with this question — for the fixed-query
     chain, the shadow log and the measurement script. Keys: status, metric,
@@ -353,6 +377,12 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
         if again is not None and again.status == "several" and 2 <= len(again.several) <= 3:
             question, found = spelt, again
             out["elided"] = spelt
+    if found.status == "none":
+        named = _c16_default_measure_question(question, schemes[0])
+        again = metric_catalog.match(named, schemes[0]) if named else None
+        if again is not None and again.status == "one":
+            question, found = named, again
+            out["default_measure"] = _C16_DEFAULT_MEASURE[schemes[0]]
     out["status"] = found.status
     if found.status == "several" and 2 <= len(found.several) <= 3:
         return _c16_plan_several(question, schemes, entity_result, found, out)
