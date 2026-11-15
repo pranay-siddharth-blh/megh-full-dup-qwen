@@ -1,0 +1,1912 @@
+{
+ "label": "perms-5b",
+ "seconds": 29,
+ "nomodel": false,
+ "matrix": "kind  MGNREGA      | PMAY-G       | Focus Plus   | Focus Legacy | CM Elevate   | CM Elevate L | CMSS         | Homestay    \nK8    Vok Tok      | Vok Tok      | Vok Tok      | Vok Tok      | Vok Tok      | -            | Vok Tok      | Vok Tok     \nK14   Vok Tok      | Vok Tok      | Vok Tok      | Vok Tok      | Vok Tok      | -            | Vok Tok      | Vok Tok     \nK15   -            | -            | Vok Tok      | Vok Tok      | -            | -            | -            | -           \nvoice: 16/16 chains\ntyped: 16/16 chains",
+ "results": [
+  {
+   "id": "K8-MGNREGA-SOUTHGAROH",
+   "kind": "K8",
+   "scheme": "MGNREGA",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of South Garo Hills",
+     "sent": "breakdown by blocks of South Garo Hills",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "MGNREGA",
+     "sent": "MGNREGA",
+     "how": "pick",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Chokpot has the most MGNREGA person-days of employment across all financial years: 26,30,619, well ahead of Gasuapara (19,58,277). That is 29.8% of the 88,20,484 across all five blocks in South Garo Hills district. Baghmara has the fewest, at 12,75,981.\n- **Chokpot** — 26,30,619\n- **Gasuapara** — 19,58,277\n- **Siju** — 15,93,537\n- **Rongara** — 13,62,070\n- **Baghmara** — 12,75,981",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in South Garo Hills, by block?",
+      "How have MGNREGA person-days changed over the last three years in South Garo Hills?",
+      "Break that down by village within Chokpot block."
+     ],
+     "rewritten": "MGNREGA person-days Provide a breakdown by blocks for South Garo Hills",
+     "sql": "/* metric:mgnrega_employment_generated breakdown */ SELECT lgd_block AS block, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) = 'SOUTH GARO HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "CHOKPOT",
+        2630619
+       ],
+       [
+        "GASUAPARA",
+        1958277
+       ],
+       [
+        "SIJU",
+        1593537
+       ],
+       [
+        "RONGARA",
+        1362070
+       ],
+       [
+        "BAGHMARA",
+        1275981
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-MGNREGA-SOUTHGAROH",
+   "kind": "K8",
+   "scheme": "MGNREGA",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of South Garo Hills",
+     "sent": "breakdown by blocks of South Garo Hills",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "MGNREGA",
+     "sent": "MGNREGA",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Chokpot has the most MGNREGA person-days of employment across all financial years: 26,30,619, well ahead of Gasuapara (19,58,277). That is 29.8% of the 88,20,484 across all five blocks in South Garo Hills district. Baghmara has the fewest, at 12,75,981.\n- **Chokpot** — 26,30,619\n- **Gasuapara** — 19,58,277\n- **Siju** — 15,93,537\n- **Rongara** — 13,62,070\n- **Baghmara** — 12,75,981",
+     "chips": [
+      "What was the total MGNREGA wage expenditure in South Garo Hills, by block?",
+      "How have MGNREGA person-days changed over the last three years in South Garo Hills?",
+      "Break that down by village within Chokpot block."
+     ],
+     "rewritten": "MGNREGA person-days Provide a breakdown by blocks for South Garo Hills",
+     "sql": "/* metric:mgnrega_employment_generated breakdown */ SELECT lgd_block AS block, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) = 'SOUTH GARO HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "CHOKPOT",
+        2630619
+       ],
+       [
+        "GASUAPARA",
+        1958277
+       ],
+       [
+        "SIJU",
+        1593537
+       ],
+       [
+        "RONGARA",
+        1362070
+       ],
+       [
+        "BAGHMARA",
+        1275981
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-PMAY-G-EASTJAINTI",
+   "kind": "K8",
+   "scheme": "PMAY-G",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of East Jaintia Hills",
+     "sent": "breakdown by blocks of East Jaintia Hills",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "PMAY-G",
+     "sent": "PMAY-G",
+     "how": "pick",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Wapung has the most PMAY-G houses sanctioned across all financial years: 3,146, well ahead of Saipung (2,027). That is 54.7% of the 5,756 across all three blocks in East Jaintia Hills district. Lumshnong has the fewest, at 583 — Wapung has about five times as many.\n- **Wapung** — 3,146\n- **Saipung** — 2,027\n- **Lumshnong** — 583",
+     "chips": [
+      "How many PMAY-G houses have been completed in East Jaintia Hills, by block?",
+      "Break that down by village within Wapung block.",
+      "How many PMAY-G houses have been sanctioned in East Jaintia Hills, by block?"
+     ],
+     "rewritten": "PMAY-G houses sanctioned Provide a breakdown by blocks for East Jaintia Hills",
+     "sql": "/* metric:pmay_houses_sanctioned breakdown */ SELECT lgd_block AS block, COUNT(*) AS houses_sanctioned\nFROM curated.v_pmay\nWHERE UPPER(lgd_district) = 'EAST JAINTIA HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "WAPUNG",
+        3146
+       ],
+       [
+        "SAIPUNG",
+        2027
+       ],
+       [
+        "LUMSHNONG",
+        583
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-PMAY-G-EASTJAINTI",
+   "kind": "K8",
+   "scheme": "PMAY-G",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of East Jaintia Hills",
+     "sent": "breakdown by blocks of East Jaintia Hills",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "PMAY-G",
+     "sent": "PMAY-G",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Wapung has the most PMAY-G houses sanctioned across all financial years: 3,146, well ahead of Saipung (2,027). That is 54.7% of the 5,756 across all three blocks in East Jaintia Hills district. Lumshnong has the fewest, at 583 — Wapung has about five times as many.\n- **Wapung** — 3,146\n- **Saipung** — 2,027\n- **Lumshnong** — 583",
+     "chips": [
+      "How many PMAY-G houses have been completed in East Jaintia Hills, by block?",
+      "Break that down by village within Wapung block.",
+      "How many PMAY-G houses have been sanctioned in East Jaintia Hills, by block?"
+     ],
+     "rewritten": "PMAY-G houses sanctioned Provide a breakdown by blocks for East Jaintia Hills",
+     "sql": "/* metric:pmay_houses_sanctioned breakdown */ SELECT lgd_block AS block, COUNT(*) AS houses_sanctioned\nFROM curated.v_pmay\nWHERE UPPER(lgd_district) = 'EAST JAINTIA HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "WAPUNG",
+        3146
+       ],
+       [
+        "SAIPUNG",
+        2027
+       ],
+       [
+        "LUMSHNONG",
+        583
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-FocusPlus-SOUTHWESTK",
+   "kind": "K8",
+   "scheme": "Focus Plus",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of South West Khasi Hills",
+     "sent": "breakdown by blocks of South West Khasi Hills",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "Focus Plus",
+     "sent": "Focus Plus",
+     "how": "pick",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Ranikor is clearly higher than Mawkyrwat on Focus Plus beneficiaries in South West Khasi Hills district across all financial years: 1,358 against 434, a difference of 924 (212.9% more).\n\nNote: Focus Plus data covers FY 2022-23 and FY 2025-26.",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in South West Khasi Hills?",
+      "Break that down by village within Ranikor block.",
+      "How much has been disbursed under Focus Plus in South West Khasi Hills, by block?"
+     ],
+     "rewritten": "Focus Plus beneficiaries Provide a breakdown by blocks for South West Khasi Hills",
+     "sql": "/* metric:focus_plus_beneficiaries breakdown */ SELECT UPPER(block_name_raw) AS block, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE UPPER(lgd_district) = 'SOUTH WEST KHASI HILLS' AND UPPER(block_name_raw) IS NOT NULL\nGROUP BY UPPER(block_name_raw) ORDER BY UPPER(block_name_raw)",
+     "truth": [
+      [
+       [
+        "RANIKOR",
+        1358
+       ],
+       [
+        "MAWKYRWAT",
+        434
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-FocusPlus-SOUTHWESTK",
+   "kind": "K8",
+   "scheme": "Focus Plus",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of South West Khasi Hills",
+     "sent": "breakdown by blocks of South West Khasi Hills",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "Focus Plus",
+     "sent": "Focus Plus",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Ranikor is clearly higher than Mawkyrwat on Focus Plus beneficiaries in South West Khasi Hills district across all financial years: 1,358 against 434, a difference of 924 (212.9% more).\n\nNote: Focus Plus data covers FY 2022-23 and FY 2025-26.",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in South West Khasi Hills?",
+      "Break that down by village within Ranikor block.",
+      "How much has been disbursed under Focus Plus in South West Khasi Hills, by block?"
+     ],
+     "rewritten": "Focus Plus beneficiaries Provide a breakdown by blocks for South West Khasi Hills",
+     "sql": "/* metric:focus_plus_beneficiaries breakdown */ SELECT UPPER(block_name_raw) AS block, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE UPPER(lgd_district) = 'SOUTH WEST KHASI HILLS' AND UPPER(block_name_raw) IS NOT NULL\nGROUP BY UPPER(block_name_raw) ORDER BY UPPER(block_name_raw)",
+     "truth": [
+      [
+       [
+        "RANIKOR",
+        1358
+       ],
+       [
+        "MAWKYRWAT",
+        434
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-FocusLegacy-EASTERNWES",
+   "kind": "K8",
+   "scheme": "Focus Legacy",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of Eastern West Khasi Hills",
+     "sent": "breakdown by blocks of Eastern West Khasi Hills",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "Focus Legacy",
+     "sent": "Focus Legacy",
+     "how": "pick",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Focus Legacy pg count by block in Eastern West Khasi Hills — 2 blocks:\n\n- Mairang: 566 pg count\n- Mawthadraishan: 226 pg count\n\nTogether, the 2 blocks above account for 792 pg count.\n\nNote: Focus Legacy data covers FY 2021-22, FY 2022-23, FY 2024-25 and FY 2025-26.",
+     "chips": [
+      "How many PG members were covered in Eastern West Khasi Hills, by block?",
+      "Break that down by village within Mairang block.",
+      "Show Focus Legacy payments by financial year in Eastern West Khasi Hills."
+     ],
+     "rewritten": "Focus Legacy producer groups Provide a breakdown by blocks for Eastern West Khasi Hills",
+     "sql": "/* metric:focus_legacy_pg_count breakdown */ SELECT lgd_block AS block, COUNT(DISTINCT pg_id) AS pg_count\nFROM curated.v_focus_legacy\nWHERE UPPER(lgd_district) = 'EASTERN WEST KHASI HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "MAIRANG",
+        566
+       ],
+       [
+        "MAWTHADRAISHAN",
+        226
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-FocusLegacy-EASTERNWES",
+   "kind": "K8",
+   "scheme": "Focus Legacy",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of Eastern West Khasi Hills",
+     "sent": "breakdown by blocks of Eastern West Khasi Hills",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "Focus Legacy",
+     "sent": "Focus Legacy",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Focus Legacy pg count by block in Eastern West Khasi Hills — 2 blocks:\n\n- Mairang: 566 pg count\n- Mawthadraishan: 226 pg count\n\nTogether, the 2 blocks above account for 792 pg count.\n\nNote: Focus Legacy data covers FY 2021-22, FY 2022-23, FY 2024-25 and FY 2025-26.",
+     "chips": [
+      "How many PG members were covered in Eastern West Khasi Hills, by block?",
+      "Break that down by village within Mairang block.",
+      "Show Focus Legacy payments by financial year in Eastern West Khasi Hills."
+     ],
+     "rewritten": "Focus Legacy producer groups Provide a breakdown by blocks for Eastern West Khasi Hills",
+     "sql": "/* metric:focus_legacy_pg_count breakdown */ SELECT lgd_block AS block, COUNT(DISTINCT pg_id) AS pg_count\nFROM curated.v_focus_legacy\nWHERE UPPER(lgd_district) = 'EASTERN WEST KHASI HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "MAIRANG",
+        566
+       ],
+       [
+        "MAWTHADRAISHAN",
+        226
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-CMElevate-EASTKHASIH",
+   "kind": "K8",
+   "scheme": "CM Elevate",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of East Khasi Hills",
+     "sent": "breakdown by blocks of East Khasi Hills",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "CM Elevate",
+     "sent": "CM Elevate",
+     "how": "pick",
+     "dataset_pick": "CM Elevate",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Mawphlang has the most CM Elevate applications verified valid: 168, well ahead of Sohiong (117). That is about a sixth (16.8%) of the 998 across all twelve blocks in East Khasi Hills district. Shella Bholaganj has the fewest, at 34 — Mawphlang has about five times as many.\n- **Mawphlang** — 168\n- **Sohiong** — 117\n- **Pynursla** — 104\n- **Mawpat** — 96\n- **Mylliem** — 92\n- **Khatarshnong Laitkroh** — 91\n- **Mawryngkneng** — 68\n- **Mawlai** — 66\n- **Mawsynram** — 62\n- **Shillong-Municipal Board** — 61\n- **Mawkynrew** — 39\n- **Shella Bholaganj** — 34",
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in East Khasi Hills?",
+      "Break that down by village within Mawphlang block.",
+      "Show the verification status breakdown for CM Elevate in East Khasi Hills, by block?"
+     ],
+     "rewritten": "CM Elevate (applications) applications Provide a breakdown by blocks for East Khasi Hills",
+     "sql": "/* metric:cm_elevate_applications_valid breakdown */ SELECT lgd_block AS block, COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS applications_valid\nFROM curated.v_cm_elevate\nWHERE UPPER(lgd_district) = 'EAST KHASI HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "MAWPHLANG",
+        168
+       ],
+       [
+        "SOHIONG",
+        117
+       ],
+       [
+        "PYNURSLA",
+        104
+       ],
+       [
+        "MAWPAT",
+        96
+       ],
+       [
+        "MYLLIEM",
+        92
+       ],
+       [
+        "KHATARSHNONG LAITKROH",
+        91
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-CMElevate-EASTKHASIH",
+   "kind": "K8",
+   "scheme": "CM Elevate",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of East Khasi Hills",
+     "sent": "breakdown by blocks of East Khasi Hills",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "CM Elevate",
+     "sent": "CM Elevate",
+     "how": "typed",
+     "dataset_pick": "CM Elevate",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Mawphlang has the most CM Elevate applications verified valid: 168, well ahead of Sohiong (117). That is about a sixth (16.8%) of the 998 across all twelve blocks in East Khasi Hills district. Shella Bholaganj has the fewest, at 34 — Mawphlang has about five times as many.\n- **Mawphlang** — 168\n- **Sohiong** — 117\n- **Pynursla** — 104\n- **Mawpat** — 96\n- **Mylliem** — 92\n- **Khatarshnong Laitkroh** — 91\n- **Mawryngkneng** — 68\n- **Mawlai** — 66\n- **Mawsynram** — 62\n- **Shillong-Municipal Board** — 61\n- **Mawkynrew** — 39\n- **Shella Bholaganj** — 34",
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in East Khasi Hills?",
+      "Break that down by village within Mawphlang block.",
+      "Show the verification status breakdown for CM Elevate in East Khasi Hills, by block?"
+     ],
+     "rewritten": "CM Elevate (applications) applications Provide a breakdown by blocks for East Khasi Hills",
+     "sql": "/* metric:cm_elevate_applications_valid breakdown */ SELECT lgd_block AS block, COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS applications_valid\nFROM curated.v_cm_elevate\nWHERE UPPER(lgd_district) = 'EAST KHASI HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "MAWPHLANG",
+        168
+       ],
+       [
+        "SOHIONG",
+        117
+       ],
+       [
+        "PYNURSLA",
+        104
+       ],
+       [
+        "MAWPAT",
+        96
+       ],
+       [
+        "MYLLIEM",
+        92
+       ],
+       [
+        "KHATARSHNONG LAITKROH",
+        91
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-CMSS-RIBHOI",
+   "kind": "K8",
+   "scheme": "CMSS",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of Ri Bhoi",
+     "sent": "breakdown by blocks of Ri Bhoi",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "CMSS",
+     "sent": "CMSS",
+     "how": "pick",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Umling has the most CMSS applications across all financial years: 3,071, well ahead of Umsning (2,190). That is about a third (33.3%) of the 9,229 across all six blocks in Ri Bhoi district. Nongpoh-Town Committee has the fewest, at 593 — Umling has about five times as many.\n- **Umling** — 3,071\n- **Umsning** — 2,190\n- **Bhoirymbong** — 1,880\n- **Mawhati** — 775\n- **Jirang** — 720\n- **Nongpoh-Town Committee** — 593",
+     "chips": [
+      "How many CMSS students were paid in Ri Bhoi, by block?",
+      "Break that down by village within Umling block.",
+      "How many CMSS applications were received in Ri Bhoi, by block?"
+     ],
+     "rewritten": "CMSS applications Provide a breakdown by blocks of Ri Bhoi",
+     "sql": "/* metric:cmss_applications breakdown */ SELECT lgd_block AS block, COUNT(*) AS applications\nFROM curated.v_cmss\nWHERE UPPER(lgd_district) = 'RI BHOI' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "UMLING",
+        3071
+       ],
+       [
+        "UMSNING",
+        2190
+       ],
+       [
+        "BHOIRYMBONG",
+        1880
+       ],
+       [
+        "MAWHATI",
+        775
+       ],
+       [
+        "JIRANG",
+        720
+       ],
+       [
+        "NONGPOH-TOWN COMMITTEE",
+        593
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-CMSS-RIBHOI",
+   "kind": "K8",
+   "scheme": "CMSS",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of Ri Bhoi",
+     "sent": "breakdown by blocks of Ri Bhoi",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "CMSS",
+     "sent": "CMSS",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Umling has the most CMSS applications across all financial years: 3,071, well ahead of Umsning (2,190). That is about a third (33.3%) of the 9,229 across all six blocks in Ri Bhoi district. Nongpoh-Town Committee has the fewest, at 593 — Umling has about five times as many.\n- **Umling** — 3,071\n- **Umsning** — 2,190\n- **Bhoirymbong** — 1,880\n- **Mawhati** — 775\n- **Jirang** — 720\n- **Nongpoh-Town Committee** — 593",
+     "chips": [
+      "How many CMSS students were paid in Ri Bhoi, by block?",
+      "Break that down by village within Umling block.",
+      "How many CMSS applications were received in Ri Bhoi, by block?"
+     ],
+     "rewritten": "CMSS applications Provide a breakdown by blocks of Ri Bhoi",
+     "sql": "/* metric:cmss_applications breakdown */ SELECT lgd_block AS block, COUNT(*) AS applications\nFROM curated.v_cmss\nWHERE UPPER(lgd_district) = 'RI BHOI' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "UMLING",
+        3071
+       ],
+       [
+        "UMSNING",
+        2190
+       ],
+       [
+        "BHOIRYMBONG",
+        1880
+       ],
+       [
+        "MAWHATI",
+        775
+       ],
+       [
+        "JIRANG",
+        720
+       ],
+       [
+        "NONGPOH-TOWN COMMITTEE",
+        593
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-Homestay-NORTHGAROH",
+   "kind": "K8",
+   "scheme": "Homestay",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of North Garo Hills",
+     "sent": "breakdown by blocks of North Garo Hills",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "Homestay",
+     "sent": "Homestay",
+     "how": "pick",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Resubelpara-Municipal Board has the most Homestay applications across all financial years: 39, more than twice the figure for Resubelpara (17). That is about half (47.6%) of the 82 across all 5 blocks in North Garo Hills district. Bajengdoba has the fewest, at 5 — Resubelpara-Municipal Board has about eight times as many.\n- **Resubelpara-Municipal Board** — 39\n- **Resubelpara** — 17\n- **Kharkutta** — 14\n- **Adokgre** — 7\n- **Bajengdoba** — 5",
+     "chips": [
+      "How many Homestay applications were approved in North Garo Hills, by block?",
+      "Break that down by village within Resubelpara-Municipal Board block.",
+      "How many Homestay applications were received in North Garo Hills, by block?"
+     ],
+     "rewritten": "Homestay applications Provide a breakdown by blocks for North Garo Hills",
+     "sql": "/* metric:homestay_api_applications breakdown */ SELECT lgd_block AS block, COUNT(*) AS applications\nFROM curated.v_homestay_api\nWHERE UPPER(lgd_district) = 'NORTH GARO HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "RESUBELPARA-MUNICIPAL BOARD",
+        39
+       ],
+       [
+        "RESUBELPARA",
+        17
+       ],
+       [
+        "KHARKUTTA",
+        14
+       ],
+       [
+        "ADOKGRE",
+        7
+       ],
+       [
+        "BAJENGDOBA",
+        5
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K8-Homestay-NORTHGAROH",
+   "kind": "K8",
+   "scheme": "Homestay",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "breakdown by blocks of North Garo Hills",
+     "sent": "breakdown by blocks of North Garo Hills",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Which scheme is your question about? Pick one below.",
+     "chips": [
+      "MGNREGA (rural employment)",
+      "PMAY-G (rural housing)",
+      "Focus Plus (farmer cash benefit)",
+      "CM Elevate (livelihood / enterprise schemes)",
+      "Focus Legacy (producer group payments)",
+      "CM Elevate Legacy (sanctions & disbursements)",
+      "CMSS (Chief Minister's Scholarship Scheme)",
+      "Homestay (Chief Minister's Meghalaya Homestay Mission applications)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "Homestay",
+     "sent": "Homestay",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Resubelpara-Municipal Board has the most Homestay applications across all financial years: 39, more than twice the figure for Resubelpara (17). That is about half (47.6%) of the 82 across all 5 blocks in North Garo Hills district. Bajengdoba has the fewest, at 5 — Resubelpara-Municipal Board has about eight times as many.\n- **Resubelpara-Municipal Board** — 39\n- **Resubelpara** — 17\n- **Kharkutta** — 14\n- **Adokgre** — 7\n- **Bajengdoba** — 5",
+     "chips": [
+      "How many Homestay applications were approved in North Garo Hills, by block?",
+      "Break that down by village within Resubelpara-Municipal Board block.",
+      "How many Homestay applications were received in North Garo Hills, by block?"
+     ],
+     "rewritten": "Homestay applications Provide a breakdown by blocks for North Garo Hills",
+     "sql": "/* metric:homestay_api_applications breakdown */ SELECT lgd_block AS block, COUNT(*) AS applications\nFROM curated.v_homestay_api\nWHERE UPPER(lgd_district) = 'NORTH GARO HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "RESUBELPARA-MUNICIPAL BOARD",
+        39
+       ],
+       [
+        "RESUBELPARA",
+        17
+       ],
+       [
+        "KHARKUTTA",
+        14
+       ],
+       [
+        "ADOKGRE",
+        7
+       ],
+       [
+        "BAJENGDOBA",
+        5
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-MGNREGA",
+   "kind": "K14",
+   "scheme": "MGNREGA",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "MGNREGA in East Khasi Hills block-wise",
+     "sent": "MGNREGA in East Khasi Hills block-wise",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Pynursla stands out with 18,91,117 MGNREGA person-days of employment across all financial years, ahead of Mawphlang (15,63,980). That is about a sixth (17.1%) of the 1,10,54,100 across all eleven blocks in East Khasi Hills district. Mawpat has the fewest, at 1,84,993 — Pynursla has about ten times as many.\n- **Pynursla** — 18,91,117\n- **Mawphlang** — 15,63,980\n- **Sohiong** — 14,88,603\n- **Mawsynram** — 11,62,677\n- **Mylliem** — 11,54,186\n- **Mawryngkneng** — 9,15,921\n- **Mawkynrew** — 8,64,696\n- **Shella Bholaganj** — 8,06,697\n- **Khatarshnong Laitkroh** — 7,68,267\n- **Mawlai** — 2,52,963\n- *",
+     "chips": [
+      "What was the total MGNREGA expenditure in East Khasi Hills, by block?",
+      "How have MGNREGA person-days changed over the last three years in East Khasi Hills?",
+      "Break that down by village within Pynursla block."
+     ],
+     "rewritten": null,
+     "sql": "/* metric:mgnrega_employment_generated breakdown */ SELECT lgd_block AS block, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) = 'EAST KHASI HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "PYNURSLA",
+        1891117
+       ],
+       [
+        "MAWPHLANG",
+        1563980
+       ],
+       [
+        "SOHIONG",
+        1488603
+       ],
+       [
+        "MAWSYNRAM",
+        1162677
+       ],
+       [
+        "MYLLIEM",
+        1154186
+       ],
+       [
+        "MAWRYNGKNENG",
+        915921
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-MGNREGA",
+   "kind": "K14",
+   "scheme": "MGNREGA",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "MGNREGA in East Khasi Hills block-wise",
+     "sent": "MGNREGA in East Khasi Hills block-wise",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Pynursla stands out with 18,91,117 MGNREGA person-days of employment across all financial years, ahead of Mawphlang (15,63,980). That is about a sixth (17.1%) of the 1,10,54,100 across all eleven blocks in East Khasi Hills district. Mawpat has the fewest, at 1,84,993 — Pynursla has about ten times as many.\n- **Pynursla** — 18,91,117\n- **Mawphlang** — 15,63,980\n- **Sohiong** — 14,88,603\n- **Mawsynram** — 11,62,677\n- **Mylliem** — 11,54,186\n- **Mawryngkneng** — 9,15,921\n- **Mawkynrew** — 8,64,696\n- **Shella Bholaganj** — 8,06,697\n- **Khatarshnong Laitkroh** — 7,68,267\n- **Mawlai** — 2,52,963\n- *",
+     "chips": [
+      "What was the total MGNREGA expenditure in East Khasi Hills, by block?",
+      "How have MGNREGA person-days changed over the last three years in East Khasi Hills?",
+      "Break that down by village within Pynursla block."
+     ],
+     "rewritten": null,
+     "sql": "/* metric:mgnrega_employment_generated breakdown */ SELECT lgd_block AS block, SUM(person_days) AS employment_generated\nFROM curated.v_employment\nWHERE UPPER(lgd_district) = 'EAST KHASI HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "PYNURSLA",
+        1891117
+       ],
+       [
+        "MAWPHLANG",
+        1563980
+       ],
+       [
+        "SOHIONG",
+        1488603
+       ],
+       [
+        "MAWSYNRAM",
+        1162677
+       ],
+       [
+        "MYLLIEM",
+        1154186
+       ],
+       [
+        "MAWRYNGKNENG",
+        915921
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-PMAY-G",
+   "kind": "K14",
+   "scheme": "PMAY-G",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "PMAY-G in West Garo Hills block-wise",
+     "sent": "PMAY-G in West Garo Hills block-wise",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Demdema stands out with 6,125 PMAY-G houses sanctioned across all financial years, ahead of Tikrikilla (5,529). That is about a fifth (18.5%) of the 33,147 across all eight blocks in West Garo Hills district. Gambegre has the fewest, at 1,828 — Demdema has about three times as many.\n- **Demdema** — 6,125\n- **Tikrikilla** — 5,529\n- **Selsella** — 5,028\n- **Batabari** — 3,838\n- **Dalu** — 3,724\n- **Rongram** — 3,662\n- **Dadenggiri** — 3,413\n- **Gambegre** — 1,828",
+     "chips": [
+      "What is the PMAY-G completion rate in West Garo Hills, by block?",
+      "Break that down by village within Demdema block.",
+      "How many PMAY-G houses have been completed in West Garo Hills, by block?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:pmay_houses_sanctioned breakdown */ SELECT lgd_block AS block, COUNT(*) AS houses_sanctioned\nFROM curated.v_pmay\nWHERE UPPER(lgd_district) = 'WEST GARO HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "DEMDEMA",
+        6125
+       ],
+       [
+        "TIKRIKILLA",
+        5529
+       ],
+       [
+        "SELSELLA",
+        5028
+       ],
+       [
+        "BATABARI",
+        3838
+       ],
+       [
+        "DALU",
+        3724
+       ],
+       [
+        "RONGRAM",
+        3662
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-PMAY-G",
+   "kind": "K14",
+   "scheme": "PMAY-G",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "PMAY-G in West Garo Hills block-wise",
+     "sent": "PMAY-G in West Garo Hills block-wise",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Demdema stands out with 6,125 PMAY-G houses sanctioned across all financial years, ahead of Tikrikilla (5,529). That is about a fifth (18.5%) of the 33,147 across all eight blocks in West Garo Hills district. Gambegre has the fewest, at 1,828 — Demdema has about three times as many.\n- **Demdema** — 6,125\n- **Tikrikilla** — 5,529\n- **Selsella** — 5,028\n- **Batabari** — 3,838\n- **Dalu** — 3,724\n- **Rongram** — 3,662\n- **Dadenggiri** — 3,413\n- **Gambegre** — 1,828",
+     "chips": [
+      "What is the PMAY-G completion rate in West Garo Hills, by block?",
+      "Break that down by village within Demdema block.",
+      "How many PMAY-G houses have been completed in West Garo Hills, by block?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:pmay_houses_sanctioned breakdown */ SELECT lgd_block AS block, COUNT(*) AS houses_sanctioned\nFROM curated.v_pmay\nWHERE UPPER(lgd_district) = 'WEST GARO HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "DEMDEMA",
+        6125
+       ],
+       [
+        "TIKRIKILLA",
+        5529
+       ],
+       [
+        "SELSELLA",
+        5028
+       ],
+       [
+        "BATABARI",
+        3838
+       ],
+       [
+        "DALU",
+        3724
+       ],
+       [
+        "RONGRAM",
+        3662
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-FocusPlus",
+   "kind": "K14",
+   "scheme": "Focus Plus",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Focus Plus in Ri Bhoi block-wise",
+     "sent": "Focus Plus in Ri Bhoi block-wise",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Jirang has the most Focus Plus beneficiaries across all financial years: 415, more than ten times the figure for Umling (2). That is 99.0% of the 419 across all three blocks in Ri Bhoi district. Umsning has the fewest, at 2 — Jirang has more than ten times as many.\n- **Jirang** — 415\n- **Umling** — 2\n- **Umsning** — 2\n\nNote: Focus Plus data covers FY 2022-23 and FY 2025-26.",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Ri Bhoi?",
+      "Break that down by village within Jirang block.",
+      "How much has been disbursed under Focus Plus in Ri Bhoi, by block?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:focus_plus_beneficiaries breakdown */ SELECT UPPER(block_name_raw) AS block, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE UPPER(lgd_district) = 'RI BHOI' AND UPPER(block_name_raw) IS NOT NULL\nGROUP BY UPPER(block_name_raw) ORDER BY UPPER(block_name_raw)",
+     "truth": [
+      [
+       [
+        "JIRANG",
+        415
+       ],
+       [
+        "UMLING",
+        2
+       ],
+       [
+        "UMSNING",
+        2
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-FocusPlus",
+   "kind": "K14",
+   "scheme": "Focus Plus",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Focus Plus in Ri Bhoi block-wise",
+     "sent": "Focus Plus in Ri Bhoi block-wise",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Jirang has the most Focus Plus beneficiaries across all financial years: 415, more than ten times the figure for Umling (2). That is 99.0% of the 419 across all three blocks in Ri Bhoi district. Umsning has the fewest, at 2 — Jirang has more than ten times as many.\n- **Jirang** — 415\n- **Umling** — 2\n- **Umsning** — 2\n\nNote: Focus Plus data covers FY 2022-23 and FY 2025-26.",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Ri Bhoi?",
+      "Break that down by village within Jirang block.",
+      "How much has been disbursed under Focus Plus in Ri Bhoi, by block?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:focus_plus_beneficiaries breakdown */ SELECT UPPER(block_name_raw) AS block, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE UPPER(lgd_district) = 'RI BHOI' AND UPPER(block_name_raw) IS NOT NULL\nGROUP BY UPPER(block_name_raw) ORDER BY UPPER(block_name_raw)",
+     "truth": [
+      [
+       [
+        "JIRANG",
+        415
+       ],
+       [
+        "UMLING",
+        2
+       ],
+       [
+        "UMSNING",
+        2
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-FocusLegacy",
+   "kind": "K14",
+   "scheme": "Focus Legacy",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Focus Legacy in North Garo Hills block-wise",
+     "sent": "Focus Legacy in North Garo Hills block-wise",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Focus Legacy pg count by block in North Garo Hills — 4 blocks:\n\n- Adokgre: 67 pg count\n- Bajengdoba: 358 pg count\n- Kharkutta: 299 pg count\n- Resubelpara: 449 pg count\n\nTogether, the 4 blocks above account for 1,173 pg count.\n\nNote: Focus Legacy data covers FY 2021-22, FY 2022-23, FY 2024-25 and FY 2025-26.",
+     "chips": [
+      "How much was disbursed to producer groups in North Garo Hills, by block?",
+      "Break that down by village within Resubelpara block.",
+      "How many producer groups were paid in North Garo Hills, by block?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:focus_legacy_pg_count breakdown */ SELECT lgd_block AS block, COUNT(DISTINCT pg_id) AS pg_count\nFROM curated.v_focus_legacy\nWHERE UPPER(lgd_district) = 'NORTH GARO HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "RESUBELPARA",
+        449
+       ],
+       [
+        "BAJENGDOBA",
+        358
+       ],
+       [
+        "KHARKUTTA",
+        299
+       ],
+       [
+        "ADOKGRE",
+        67
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-FocusLegacy",
+   "kind": "K14",
+   "scheme": "Focus Legacy",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Focus Legacy in North Garo Hills block-wise",
+     "sent": "Focus Legacy in North Garo Hills block-wise",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Focus Legacy pg count by block in North Garo Hills — 4 blocks:\n\n- Adokgre: 67 pg count\n- Bajengdoba: 358 pg count\n- Kharkutta: 299 pg count\n- Resubelpara: 449 pg count\n\nTogether, the 4 blocks above account for 1,173 pg count.\n\nNote: Focus Legacy data covers FY 2021-22, FY 2022-23, FY 2024-25 and FY 2025-26.",
+     "chips": [
+      "How much was disbursed to producer groups in North Garo Hills, by block?",
+      "Break that down by village within Resubelpara block.",
+      "How many producer groups were paid in North Garo Hills, by block?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:focus_legacy_pg_count breakdown */ SELECT lgd_block AS block, COUNT(DISTINCT pg_id) AS pg_count\nFROM curated.v_focus_legacy\nWHERE UPPER(lgd_district) = 'NORTH GARO HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "RESUBELPARA",
+        449
+       ],
+       [
+        "BAJENGDOBA",
+        358
+       ],
+       [
+        "KHARKUTTA",
+        299
+       ],
+       [
+        "ADOKGRE",
+        67
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-CMElevate",
+   "kind": "K14",
+   "scheme": "CM Elevate",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "CM Elevate in West Jaintia Hills block-wise",
+     "sent": "CM Elevate in West Jaintia Hills block-wise",
+     "how": "rules",
+     "dataset_pick": "CM Elevate",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Thadlaskein stands out with 95 CM Elevate applications verified valid, well ahead of Laskein (71). That is about two-fifths (41.1%) of the 231 across all five blocks in West Jaintia Hills district. Jowai-Municipal Board has the fewest, at 11 — Thadlaskein has about nine times as many.\n- **Thadlaskein** — 95\n- **Laskein** — 71\n- **Amlarem** — 34\n- **Namdong** — 20\n- **Jowai-Municipal Board** — 11",
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in West Jaintia Hills?",
+      "Break that down by village within Thadlaskein block.",
+      "Show the verification status breakdown for CM Elevate in West Jaintia Hills, by block?"
+     ],
+     "rewritten": "CM Elevate (applications) in West Jaintia Hills block-wise",
+     "sql": "/* metric:cm_elevate_applications_valid breakdown */ SELECT lgd_block AS block, COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS applications_valid\nFROM curated.v_cm_elevate\nWHERE UPPER(lgd_district) = 'WEST JAINTIA HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "THADLASKEIN",
+        95
+       ],
+       [
+        "LASKEIN",
+        71
+       ],
+       [
+        "AMLAREM",
+        34
+       ],
+       [
+        "NAMDONG",
+        20
+       ],
+       [
+        "JOWAI-MUNICIPAL BOARD",
+        11
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-CMElevate",
+   "kind": "K14",
+   "scheme": "CM Elevate",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "CM Elevate in West Jaintia Hills block-wise",
+     "sent": "CM Elevate in West Jaintia Hills block-wise",
+     "how": "typed",
+     "dataset_pick": "CM Elevate",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Thadlaskein stands out with 95 CM Elevate applications verified valid, well ahead of Laskein (71). That is about two-fifths (41.1%) of the 231 across all five blocks in West Jaintia Hills district. Jowai-Municipal Board has the fewest, at 11 — Thadlaskein has about nine times as many.\n- **Thadlaskein** — 95\n- **Laskein** — 71\n- **Amlarem** — 34\n- **Namdong** — 20\n- **Jowai-Municipal Board** — 11",
+     "chips": [
+      "How many CM Elevate applications are there, by scheme in West Jaintia Hills?",
+      "Break that down by village within Thadlaskein block.",
+      "Show the verification status breakdown for CM Elevate in West Jaintia Hills, by block?"
+     ],
+     "rewritten": "CM Elevate (applications) in West Jaintia Hills block-wise",
+     "sql": "/* metric:cm_elevate_applications_valid breakdown */ SELECT lgd_block AS block, COUNT(DISTINCT request_id) FILTER (WHERE data_verified = 'Valid') AS applications_valid\nFROM curated.v_cm_elevate\nWHERE UPPER(lgd_district) = 'WEST JAINTIA HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "THADLASKEIN",
+        95
+       ],
+       [
+        "LASKEIN",
+        71
+       ],
+       [
+        "AMLAREM",
+        34
+       ],
+       [
+        "NAMDONG",
+        20
+       ],
+       [
+        "JOWAI-MUNICIPAL BOARD",
+        11
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-CMSS",
+   "kind": "K14",
+   "scheme": "CMSS",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "CMSS in East Garo Hills block-wise",
+     "sent": "CMSS in East Garo Hills block-wise",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Dambo Rongjeng stands out with 1,887 CMSS applications across all financial years, only just ahead of Samanda (1,750). That is about two-fifths (37.1%) of the 5,082 across all four blocks in East Garo Hills district. William Nagar-Municipal Board has the fewest, at 636 — Dambo Rongjeng has about three times as many.\n- **Dambo Rongjeng** — 1,887\n- **Samanda** — 1,750\n- **Songsak** — 809\n- **William Nagar-Municipal Board** — 636",
+     "chips": [
+      "How many CMSS students were paid in East Garo Hills, by block?",
+      "Break that down by village within Dambo Rongjeng block.",
+      "How many CMSS applications were received in East Garo Hills, by block?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:cmss_applications breakdown */ SELECT lgd_block AS block, COUNT(*) AS applications\nFROM curated.v_cmss\nWHERE UPPER(lgd_district) = 'EAST GARO HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "DAMBO RONGJENG",
+        1887
+       ],
+       [
+        "SAMANDA",
+        1750
+       ],
+       [
+        "SONGSAK",
+        809
+       ],
+       [
+        "WILLIAM NAGAR-MUNICIPAL BOARD",
+        636
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-CMSS",
+   "kind": "K14",
+   "scheme": "CMSS",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "CMSS in East Garo Hills block-wise",
+     "sent": "CMSS in East Garo Hills block-wise",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Dambo Rongjeng stands out with 1,887 CMSS applications across all financial years, only just ahead of Samanda (1,750). That is about two-fifths (37.1%) of the 5,082 across all four blocks in East Garo Hills district. William Nagar-Municipal Board has the fewest, at 636 — Dambo Rongjeng has about three times as many.\n- **Dambo Rongjeng** — 1,887\n- **Samanda** — 1,750\n- **Songsak** — 809\n- **William Nagar-Municipal Board** — 636",
+     "chips": [
+      "How many CMSS students were paid in East Garo Hills, by block?",
+      "Break that down by village within Dambo Rongjeng block.",
+      "How many CMSS applications were received in East Garo Hills, by block?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:cmss_applications breakdown */ SELECT lgd_block AS block, COUNT(*) AS applications\nFROM curated.v_cmss\nWHERE UPPER(lgd_district) = 'EAST GARO HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "DAMBO RONGJENG",
+        1887
+       ],
+       [
+        "SAMANDA",
+        1750
+       ],
+       [
+        "SONGSAK",
+        809
+       ],
+       [
+        "WILLIAM NAGAR-MUNICIPAL BOARD",
+        636
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-Homestay",
+   "kind": "K14",
+   "scheme": "Homestay",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Homestay in West Khasi Hills block-wise",
+     "sent": "Homestay in West Khasi Hills block-wise",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Nongstoin stands out with 43 Homestay applications across all financial years, only just ahead of Nongstoin-Town Committee (41). That is about a third (34.4%) of the 125 across all 6 blocks in West Khasi Hills district. Shallang has the fewest, at 2 — Nongstoin has more than ten times as many.\n- **Nongstoin** — 43\n- **Nongstoin-Town Committee** — 41\n- **Rambrai** — 23\n- **Mawshynrut** — 10\n- **Ri Muliang** — 6\n- **Shallang** — 2",
+     "chips": [
+      "How many Homestay applications were received in West Khasi Hills, by block?",
+      "Break that down by village within Nongstoin block.",
+      "How many Homestay applications were approved in West Khasi Hills, by block?"
+     ],
+     "rewritten": "How many Homestays are there in West Khasi Hills block-wise?",
+     "sql": "/* metric:homestay_api_applications breakdown */ SELECT lgd_block AS block, COUNT(*) AS applications\nFROM curated.v_homestay_api\nWHERE UPPER(lgd_district) = 'WEST KHASI HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "NONGSTOIN",
+        43
+       ],
+       [
+        "NONGSTOIN-TOWN COMMITTEE",
+        41
+       ],
+       [
+        "RAMBRAI",
+        23
+       ],
+       [
+        "MAWSHYNRUT",
+        10
+       ],
+       [
+        "RI MULIANG",
+        6
+       ],
+       [
+        "SHALLANG",
+        2
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K14-Homestay",
+   "kind": "K14",
+   "scheme": "Homestay",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Homestay in West Khasi Hills block-wise",
+     "sent": "Homestay in West Khasi Hills block-wise",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Nongstoin stands out with 43 Homestay applications across all financial years, only just ahead of Nongstoin-Town Committee (41). That is about a third (34.4%) of the 125 across all 6 blocks in West Khasi Hills district. Shallang has the fewest, at 2 — Nongstoin has more than ten times as many.\n- **Nongstoin** — 43\n- **Nongstoin-Town Committee** — 41\n- **Rambrai** — 23\n- **Mawshynrut** — 10\n- **Ri Muliang** — 6\n- **Shallang** — 2",
+     "chips": [
+      "How many Homestay applications were received in West Khasi Hills, by block?",
+      "Break that down by village within Nongstoin block.",
+      "How many Homestay applications were approved in West Khasi Hills, by block?"
+     ],
+     "rewritten": "How many Homestays are there in West Khasi Hills block-wise?",
+     "sql": "/* metric:homestay_api_applications breakdown */ SELECT lgd_block AS block, COUNT(*) AS applications\nFROM curated.v_homestay_api\nWHERE UPPER(lgd_district) = 'WEST KHASI HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "NONGSTOIN",
+        43
+       ],
+       [
+        "NONGSTOIN-TOWN COMMITTEE",
+        41
+       ],
+       [
+        "RAMBRAI",
+        23
+       ],
+       [
+        "MAWSHYNRUT",
+        10
+       ],
+       [
+        "RI MULIANG",
+        6
+       ],
+       [
+        "SHALLANG",
+        2
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K15-FocusPlus",
+   "kind": "K15",
+   "scheme": "Focus Plus",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Focus beneficiaries by district",
+     "sent": "Focus beneficiaries by district",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Two different schemes are called Focus, and they hold different things — Focus Legacy pays PRODUCER GROUPS (one payment per group, Rs 5,000 per member), while Focus Plus pays INDIVIDUAL farmers directly. Which one do you mean?",
+     "chips": [
+      "Focus Legacy (producer group payments)",
+      "Focus Plus (individual farmer cash benefit)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "Focus Plus",
+     "sent": "Focus Plus",
+     "how": "pick",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "West Garo Hills has the most Focus Plus beneficiaries across all financial years: 35,039, more than twice the figure for South West Garo Hills (15,294). That is about a third (33.1%) of the 1,05,812 across Meghalaya's twelve districts. West Jaintia Hills has the fewest, at 283 — West Garo Hills has more than ten times as many.\n- **West Garo Hills** — 35,039\n- **South West Garo Hills** — 15,294\n- **East Khasi Hills** — 13,608\n- **East Garo Hills** — 11,379\n- **North Garo Hills** — 11,007\n- **South Garo Hills** — 8,612\n- **West Khasi Hills** — 6,754\n- **South West Khasi Hills** — 1,792\n- **Easte",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by block within West Garo Hills.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by district?"
+     ],
+     "rewritten": "How many Focus Plus beneficiaries are there by district",
+     "sql": "/* metric:focus_plus_beneficiaries breakdown */ SELECT lgd_district AS district, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        35039
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        15294
+       ],
+       [
+        "EAST KHASI HILLS",
+        13608
+       ],
+       [
+        "EAST GARO HILLS",
+        11379
+       ],
+       [
+        "NORTH GARO HILLS",
+        11007
+       ],
+       [
+        "SOUTH GARO HILLS",
+        8612
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K15-FocusPlus",
+   "kind": "K15",
+   "scheme": "Focus Plus",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Focus beneficiaries by district",
+     "sent": "Focus beneficiaries by district",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Two different schemes are called Focus, and they hold different things — Focus Legacy pays PRODUCER GROUPS (one payment per group, Rs 5,000 per member), while Focus Plus pays INDIVIDUAL farmers directly. Which one do you mean?",
+     "chips": [
+      "Focus Legacy (producer group payments)",
+      "Focus Plus (individual farmer cash benefit)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "How many Focus Plus beneficiaries are there by district",
+     "sent": "How many Focus Plus beneficiaries are there by district",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "West Garo Hills has the most Focus Plus beneficiaries across all financial years: 35,039, more than twice the figure for South West Garo Hills (15,294). That is about a third (33.1%) of the 1,05,812 across Meghalaya's twelve districts. West Jaintia Hills has the fewest, at 283 — West Garo Hills has more than ten times as many.\n- **West Garo Hills** — 35,039\n- **South West Garo Hills** — 15,294\n- **East Khasi Hills** — 13,608\n- **East Garo Hills** — 11,379\n- **North Garo Hills** — 11,007\n- **South Garo Hills** — 8,612\n- **West Khasi Hills** — 6,754\n- **South West Khasi Hills** — 1,792\n- **Easte",
+     "chips": [
+      "How many Focus Plus payments were made in each batch in Meghalaya?",
+      "Break that down by block within West Garo Hills.",
+      "How much has been disbursed under Focus Plus in Meghalaya, by district?"
+     ],
+     "rewritten": null,
+     "sql": "/* metric:focus_plus_beneficiaries breakdown */ SELECT lgd_district AS district, COUNT(DISTINCT beneficiary_key) AS beneficiaries\nFROM curated.v_focus_plus\nWHERE lgd_district IS NOT NULL\nGROUP BY lgd_district ORDER BY lgd_district",
+     "truth": [
+      [
+       [
+        "WEST GARO HILLS",
+        35039
+       ],
+       [
+        "SOUTH WEST GARO HILLS",
+        15294
+       ],
+       [
+        "EAST KHASI HILLS",
+        13608
+       ],
+       [
+        "EAST GARO HILLS",
+        11379
+       ],
+       [
+        "NORTH GARO HILLS",
+        11007
+       ],
+       [
+        "SOUTH GARO HILLS",
+        8612
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K15-FocusLegacy",
+   "kind": "K15",
+   "scheme": "Focus Legacy",
+   "path": "voice",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Focus amount disbursed in West Garo Hills by block",
+     "sent": "Focus amount disbursed in West Garo Hills by block",
+     "how": "rules",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Two different schemes are called Focus, and they hold different things — Focus Legacy pays PRODUCER GROUPS (one payment per group, Rs 5,000 per member), while Focus Plus pays INDIVIDUAL farmers directly. Which one do you mean?",
+     "chips": [
+      "Focus Legacy (producer group payments)",
+      "Focus Plus (individual farmer cash benefit)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "Focus Legacy",
+     "sent": "Focus Legacy",
+     "how": "pick",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Focus Legacy total disbursed by block in West Garo Hills — 8 blocks:\n\n- Batabari: ₹0.66 crore total disbursed\n- Dadenggiri: ₹0.91 crore total disbursed\n- Dalu: ₹1.34 crore total disbursed\n- Demdema: ₹2.01 crore total disbursed\n- Gambegre: ₹1.22 crore total disbursed\n- Rongram: ₹1.96 crore total disbursed\n- Selsella: ₹1.66 crore total disbursed\n- Tikrikilla: ₹1.10 crore total disbursed\n\nTogether, the 8 blocks above account for ₹10.86 crore total disbursed.\nIn addition, 0.08 total disbursed cr have no block recorded in the source data, so they are not counted under any block above. Including the",
+     "chips": [
+      "How many producer groups were paid in West Garo Hills, by block?",
+      "Show Focus Legacy payments by financial year in West Garo Hills.",
+      "Which products do Focus Legacy groups work on in West Garo Hills?"
+     ],
+     "rewritten": "Focus Legacy amount disbursed in West Garo Hills by block",
+     "sql": "/* metric:focus_legacy_total_disbursed breakdown */ SELECT lgd_block AS block, ROUND((SUM(amount_disbursed))::numeric / 10000000, CASE WHEN ABS((SUM(amount_disbursed))::numeric) >= 10000000 THEN 2 ELSE 7 END) AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE UPPER(lgd_district) = 'WEST GARO HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "DEMDEMA",
+        20070000
+       ],
+       [
+        "RONGRAM",
+        19645000
+       ],
+       [
+        "SELSELLA",
+        16555000
+       ],
+       [
+        "DALU",
+        13390000
+       ],
+       [
+        "GAMBEGRE",
+        12185000
+       ],
+       [
+        "TIKRIKILLA",
+        10970000
+       ]
+      ]
+     ]
+    }
+   ]
+  },
+  {
+   "id": "K15-FocusLegacy",
+   "kind": "K15",
+   "scheme": "Focus Legacy",
+   "path": "typed",
+   "ok": true,
+   "turns": [
+    {
+     "q": "Focus amount disbursed in West Garo Hills by block",
+     "sent": "Focus amount disbursed in West Garo Hills by block",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "pause",
+     "answer": "Two different schemes are called Focus, and they hold different things — Focus Legacy pays PRODUCER GROUPS (one payment per group, Rs 5,000 per member), while Focus Plus pays INDIVIDUAL farmers directly. Which one do you mean?",
+     "chips": [
+      "Focus Legacy (producer group payments)",
+      "Focus Plus (individual farmer cash benefit)"
+     ],
+     "rewritten": null,
+     "sql": "",
+     "truth": []
+    },
+    {
+     "q": "Focus Legacy amount disbursed in West Garo Hills by block",
+     "sent": "Focus Legacy amount disbursed in West Garo Hills by block",
+     "how": "typed",
+     "ok": true,
+     "fails": [],
+     "route": "data",
+     "answer": "Focus Legacy total disbursed by block in West Garo Hills — 8 blocks:\n\n- Batabari: ₹0.66 crore total disbursed\n- Dadenggiri: ₹0.91 crore total disbursed\n- Dalu: ₹1.34 crore total disbursed\n- Demdema: ₹2.01 crore total disbursed\n- Gambegre: ₹1.22 crore total disbursed\n- Rongram: ₹1.96 crore total disbursed\n- Selsella: ₹1.66 crore total disbursed\n- Tikrikilla: ₹1.10 crore total disbursed\n\nTogether, the 8 blocks above account for ₹10.86 crore total disbursed.\nIn addition, 0.08 total disbursed cr have no block recorded in the source data, so they are not counted under any block above. Including the",
+     "chips": [
+      "How many producer groups were paid in West Garo Hills, by block?",
+      "Show Focus Legacy payments by financial year in West Garo Hills.",
+      "Which products do Focus Legacy groups work on in West Garo Hills?"
+     ],
+     "rewritten": "How much money was disbursed under Focus Legacy in West Garo Hills by block?",
+     "sql": "/* metric:focus_legacy_total_disbursed breakdown */ SELECT lgd_block AS block, ROUND((SUM(amount_disbursed))::numeric / 10000000, CASE WHEN ABS((SUM(amount_disbursed))::numeric) >= 10000000 THEN 2 ELSE 7 END) AS total_disbursed_cr\nFROM curated.v_focus_legacy\nWHERE UPPER(lgd_district) = 'WEST GARO HILLS' AND lgd_block IS NOT NULL\nGROUP BY lgd_block ORDER BY lgd_block",
+     "truth": [
+      [
+       [
+        "DEMDEMA",
+        20070000
+       ],
+       [
+        "RONGRAM",
+        19645000
+       ],
+       [
+        "SELSELLA",
+        16555000
+       ],
+       [
+        "DALU",
+        13390000
+       ],
+       [
+        "GAMBEGRE",
+        12185000
+       ],
+       [
+        "TIKRIKILLA",
+        10970000
+       ]
+      ]
+     ]
+    }
+   ]
+  }
+ ]
+}

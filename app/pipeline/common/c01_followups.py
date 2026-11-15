@@ -1678,7 +1678,9 @@ _C01_RANK_DOWN = frozenset("least lowest minimum smallest fewest bottom worst".s
 _C01_RANK_DIM = {"district": "district", "districts": "district", "block": "block", "blocks": "block"}
 _C01_RANK_FILLER = frozenset(
     "which what who is are was were has have had the a an and also now then so one ones of in it that this them these "
-    "those number figure value by with for me show give please just only got get gets".split())
+    "those number figure value by with for me show give please just only got get gets "
+    # 2026-11-16 (permutation bank): spoken / dictated forms ("um which block is having the lowest")
+    "um umm uh uhh er erm hmm okay ok having".split())
 _C01_RANK_SWAP = {"most": "least", "least": "most", "highest": "lowest", "lowest": "highest", "maximum": "minimum",
                   "minimum": "maximum", "largest": "smallest", "smallest": "largest", "top": "bottom", "bottom": "top",
                   "biggest": "smallest", "fewest": "most", "best": "worst", "worst": "best"}
@@ -2006,8 +2008,11 @@ def _c01_measure_swap_question(raw_question: str, prev) -> "str | None":
         return None
     prev_toks = _c01_tm_tokens(masked)                              # same offsets as prev_q
     lo, hi = min(before.spans), max(before.spans)
-    if hi - lo + 1 != len(before.spans):
-        return None                                                 # the measure's words are not one phrase
+    gap = [prev_toks[k].low for k in range(lo, hi + 1) if k not in before.spans]
+    if any(w not in metric_catalog._AUX for w in gap):
+        # the measure's words are not one phrase. 2026-11-16 (permutation bank): only helper words between them
+        # ("How much money WAS disbursed") still make one phrase: "the producer groups instead" after it was refused
+        return None
     # the old measure's own words just after its phrase go with it: "person-days WERE GENERATED" ("employment
     # generated"); left behind they made "How many MGNREGA households were generated" (2026-11-14)
     old_vocab = {w for ph in before.metric.phrases for w in ph} - _C01_MSWAP_GLUE

@@ -650,9 +650,12 @@ def _c18_one_year(text: str) -> "tuple[int | None, str]":
     return next(iter(years)), rest
 
 
-def _c18_one_place(text: str) -> "tuple[str, str, str] | None":
+def _c18_one_place(text: str, prefer: "str | None" = None) -> "tuple[str, str, str] | None":
     """(NAME, level, the text without it) when `text` names exactly one district / block / constituency, else None
-    (a village, two places, none). The catalogue scan: no database needed."""
+    (a village, two places, none). The catalogue scan: no database needed. `prefer` (2026-11-16, permutation bank):
+    the level of the answer on screen ("block" after a by-block answer): a name that is that level AND another one
+    ("only Resubelpara": block and constituency; "only Laskein": block and village) is read at that level, as the
+    officer pointing at a row of the list means it, instead of asking which."""
     from app.entity_resolver import place_mentions
     try:
         found = place_mentions(text)
@@ -664,6 +667,16 @@ def _c18_one_place(text: str) -> "tuple[str, str, str] | None":
     if len(found) != 1:
         return None
     name, dim = next(iter(found.items()))
+    preferred = False
+    if prefer and dim != prefer:
+        try:
+            from app.entity_resolver import place_levels
+            if prefer in place_levels(name):
+                dim, preferred = prefer, True
+        except Exception:  # noqa: BLE001 — no index: the catalogue level stands
+            pass
+    elif prefer and dim == prefer:
+        preferred = True
     if dim == "village":
         return None
     p0, form = -1, name
@@ -688,7 +701,7 @@ def _c18_one_place(text: str) -> "tuple[str, str, str] | None":
         levels = place_levels(name)
     except Exception:  # noqa: BLE001 — no index: the catalogue level stands
         levels = set()
-    if len(levels) > 1:
+    if len(levels) > 1 and not preferred:
         # "Mawlai" is a block AND a constituency, "Rajabala" a constituency AND a village: the resolver asks which,
         # unless the message says the level itself ("Umsning block")
         after = _c15_words(text[p0 + len(form):])[:1]
@@ -936,7 +949,7 @@ def _c18_edit_place(raw: str, frame):
     if not ws or len(ws) > 12 or not (set(ws) & _C18_PLACE_LEADS):
         return None                                       # a bare place name is a pause reply / the swap path's
     year, text = _c18_one_year(raw or "")
-    place = _c18_one_place(text)
+    place = _c18_one_place(text, prefer="block" if frame.group == "block" else None)
     if place is None:
         return None
     name, level, rest = place

@@ -125,6 +125,17 @@ _GENERIC_SCHEME_WORD = Matcher(W("scheme", "schemes"))
 def _scheme_option_question(stem: str, scheme: str) -> str:
     if _GENERIC_SCHEME_WORD.search(stem):
         return _GENERIC_SCHEME_WORD.sub(scheme, stem, count=1)
+    # 2026-11-16 (permutation bank): "breakdown by blocks of Ri Bhoi" -> "CMSS" resumed as "... for CMSS", which the
+    # rephrase turned into "What is the breakdown ... for CMSS?" and the knowledge base answered. A grouping that names
+    # no measure resumes with the scheme's headline measure named (c16, the same rule as a typed question).
+    try:
+        from app import metric_catalog as _c03_mc
+        if _c03_mc.mode() != "off" and _c03_mc.match(stem, scheme).status == "none":
+            named = _c16_default_measure_question(stem, scheme)
+            if named:
+                return named
+    except Exception:  # noqa: BLE001 — no catalogue: the plain wording, as before
+        pass
     return f"{stem} for {scheme}"
 
 

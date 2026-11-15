@@ -151,7 +151,12 @@ def _value_sql(m: Metric) -> str:
     """The measure as selected: rupees as crore (the SQL prompt's convention for
     PMAY / Focus / CM Elevate money), lakh and percent rounded to 2 places."""
     if m.alias.endswith("_cr"):
-        return f"ROUND(({m.expression})::numeric / 10000000, 2)"
+        # 2026-11-16 (permutation bank + the live log): 2 places of a crore = the nearest lakh, so a small figure (one
+        # block in one year: Rs 6,30,000) came out as "Rs 6,00,000", said as exact rupees. Below a crore the crore
+        # value keeps 7 places (exact to the rupee); a crore and above stays at 2 places (as the writers and the gold
+        # bank read it).
+        return (f"ROUND(({m.expression})::numeric / 10000000, "
+                f"CASE WHEN ABS(({m.expression})::numeric) >= 10000000 THEN 2 ELSE 7 END)")
     if m.alias.endswith(("_lakh", "_rupees")):
         return f"ROUND(({m.expression})::numeric, 2)"
     return m.expression
