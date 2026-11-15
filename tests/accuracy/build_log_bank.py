@@ -617,6 +617,19 @@ def grouping_cases() -> list[dict]:
           "Okay, can you show me {m} financial year wise for the whole state"]
     dist = ["{m} district wise", "Show me the {m} for every district", "{m} per district",
             "What is the {m} in each district?", "Show me {m} across all the districts"]
+    # "<scheme measure> district wise / block wise" for every scheme (01:12: "Focus Legacy ... district wise" was read
+    # as a district called "Focus Legacy")
+    dw = [("Focus Legacy producer groups", f"COUNT(DISTINCT pg_id) FROM {FL}", "count"),
+          ("Focus Plus beneficiaries", f"COUNT(DISTINCT beneficiary_key) FROM {FP}", "count"),
+          ("PMAY-G houses completed", f"COUNT(*) FROM {PM} WHERE is_completed AND TRUE", "count"),
+          ("CMSS applications", "COUNT(*) FROM curated.v_cmss", "count"),
+          ("Focus Legacy amount", f"SUM(amount_disbursed) FROM {FL}", "rupees")]
+    for i, (m, expr, unit) in enumerate(dw):
+        where = (expr.replace(" AND TRUE", " AND lgd_district IS NOT NULL") if " WHERE " in expr
+                 else f"{expr} WHERE lgd_district IS NOT NULL")
+        C.append(case(f"GRP-DW-{i}", "grouping-words", "X district wise", [
+            turn(f"{m} district wise", rows=[rows(f"SELECT lgd_district, {where} GROUP BY 1 ORDER BY 2 DESC", unit)],
+                 pause=False, max_s=25)]))
     k = 0
     for i, (m, expr, unit) in enumerate(meas):
         for j in range(3):

@@ -4273,6 +4273,65 @@ cases:
     pause: false
     not_route: knowledge
     max_s: 25
+- id: GRP-DW-0
+  cat: grouping-words
+  shape: X district wise
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy producer groups district wise
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT pg_id) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-DW-1
+  cat: grouping-words
+  shape: X district wise
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Plus beneficiaries district wise
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district IS NOT NULL GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-DW-2
+  cat: grouping-words
+  shape: X district wise
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: PMAY-G houses completed district wise
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-DW-3
+  cat: grouping-words
+  shape: X district wise
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: CMSS applications district wise
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_cmss WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+    pause: false
+    max_s: 25
+- id: GRP-DW-4
+  cat: grouping-words
+  shape: X district wise
+  src: user live session 15-16 Nov 2026 (conversation_turns / megh.log)
+  turns:
+  - q: Focus Legacy amount district wise
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: rupees
+    pause: false
+    max_s: 25
 - id: GRP-FY-00
   cat: grouping-words
   shape: by financial year
