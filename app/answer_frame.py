@@ -44,11 +44,18 @@ class AnswerFrame:
     source: "str | None" = None              # one of SOURCES, None when unknown
     sql_shape: "str | None" = None           # a short fingerprint of the final SQL's shape
     question: str = ""                       # the standalone question the frame describes
+    # 2026-11-15 (drill-down): the places a ranking / comparison answer NAMED, in the answer's order (upper case, at
+    # most 25), read from its rows; "break this down by block" after a top 5 is the blocks of exactly these
+    items: list = field(default_factory=list)
+    # 2026-11-15: a coarser place kept as a label beside the grouping ("district": each named district by year). Set
+    # only by a follow-up edit (rendered "by district and financial year"); a filled frame never carries it
+    split: "str | None" = None
 
     def to_dict(self) -> dict:
         d = asdict(self)
         d["schemes"] = list(self.schemes or [])
         d["filters"] = dict(self.filters or {})
+        d["items"] = list(self.items or [])
         return d
 
     @classmethod
@@ -63,7 +70,8 @@ class AnswerFrame:
                    measure_text=d.get("measure_text"), qtype=d.get("qtype"), group=d.get("group"),
                    filters=dict(d.get("filters") or {}), all_years=bool(d.get("all_years")),
                    order=d.get("order"), limit=limit, chart=d.get("chart"), source=d.get("source"),
-                   sql_shape=d.get("sql_shape"), question=str(d.get("question") or ""))
+                   sql_shape=d.get("sql_shape"), question=str(d.get("question") or ""),
+                   items=[str(x) for x in (d.get("items") or [])], split=d.get("split"))
 
     def is_empty(self) -> bool:
         return not self.schemes and self.qtype is None and not self.question

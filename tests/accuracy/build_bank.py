@@ -1614,6 +1614,116 @@ add(C("W4-XS-RG", "cross", "all-schemes-then-district", W4,
         F(emp("households_employed", dist("WEST GARO HILLS")), label="MGNREGA WGH"),
         F(pm_count(dist("WEST GARO HILLS")), label="PMAY-G WGH"), schemes=None, route="data")))
 
+# ════ 15. Drill-down behind an answer (2026-11-15, the user's live report) ════
+# "Show me the top five districts by Focus Plus beneficiaries." then "Can you break this down by block?" answered the
+# same five districts again. A regroup after an answer about a SET of places keeps those places: "by block" after a
+# top N = every block of those districts (each with its district), "by year" = each of them by year. The truth finds
+# the ranked districts itself (a CTE over the view), so it never copies the pipeline's list. Rows are written
+# (block, district, value) / (district, year, value): run_gold reads the first column as the label, the last as value.
+BD = "drill-down behind an answer (user report 2026-11-15)"
+
+
+def _bd_top(view, agg, n, *conds):
+    """The n districts with the largest `agg` (ties broken by name), as a subquery."""
+    return (f"(SELECT lgd_district FROM {view}{w('lgd_district IS NOT NULL', *conds)} GROUP BY lgd_district "
+            f"ORDER BY {agg} DESC, lgd_district LIMIT {n})")
+
+
+def _bd_blocks(view, agg, unit, n, *conds, block="lgd_block"):
+    """Every block of the top n districts, with its own figure."""
+    return R(f"SELECT {block}, lgd_district, {agg} FROM {view}"
+             f"{w(f'lgd_district IN {_bd_top(view, agg, n, *conds)}', f'{block} IS NOT NULL', *conds)} "
+             f"GROUP BY 1, 2 ORDER BY 2, 3 DESC", unit)
+
+
+def _bd_years(view, agg, unit, places_sql, *conds):
+    """Each listed district by financial year."""
+    return R(f"SELECT lgd_district, financial_year_short, {agg} FROM {view}"
+             f"{w(f'lgd_district IN {places_sql}', 'year_key IS NOT NULL', *conds)} GROUP BY 1, 2 ORDER BY 1, 2", unit)
+
+
+_FP_BEN = "COUNT(DISTINCT beneficiary_key)"
+_FP_RAW = "UPPER(block_name_raw)"
+add(C("BD-01", "drilldown", "top5-then-by-block", BD + " — the exact two turns",
+      T("Show me the top five districts by Focus Plus beneficiaries.",
+        rows=R(f"SELECT lgd_district, {_FP_BEN} FROM {FPV} WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC",
+               take=5)),
+      T("Can you break this down by block?", rows=_bd_blocks(FPV, _FP_BEN, "count", 5, block=_FP_RAW),
+        schemes=[FP], route="data")))
+add(C("BD-02", "drilldown", "top5-then-by-year", BD,
+      T("Show me the top five districts by Focus Plus beneficiaries.",
+        rows=R(f"SELECT lgd_district, {_FP_BEN} FROM {FPV} WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC",
+               take=5)),
+      T("break it down by year", rows=_bd_years(FPV, _FP_BEN, "count", _bd_top(FPV, _FP_BEN, 5)), schemes=[FP],
+        route="data")))
+add(C("BD-03", "drilldown", "top3-in-a-year-then-drill", BD,
+      T("Top 3 districts by MGNREGA person-days in FY 2023-24",
+        rows=R(f"SELECT lgd_district, SUM(person_days) FROM {EMP} WHERE year_key = 2023 GROUP BY 1 ORDER BY 2 DESC",
+               take=3)),
+      T("drill down into blocks", rows=_bd_blocks(EMP, "SUM(person_days)", "count", 3, yr(2023)), schemes=[MG],
+        year=2023, route="data")))
+add(C("BD-04", "drilldown", "which-most-then-blocks", BD,
+      T("Which district has the most PMAY-G houses sanctioned?",
+        rows=R(f"SELECT lgd_district, COUNT(*) FROM {PMV} WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC",
+               take=1)),
+      T("break this down by block", rows=_bd_blocks(PMV, "COUNT(*)", "count", 1), schemes=[PM], route="data")))
+add(C("BD-05", "drilldown", "top3-then-split-by-block", BD,
+      T("Top 3 districts by Focus Legacy amount disbursed",
+        rows=R(f"SELECT lgd_district, SUM(amount_disbursed) FROM {FLV} WHERE lgd_district IS NOT NULL GROUP BY 1 "
+               f"ORDER BY 2 DESC", "rupees", take=3)),
+      T("split this by block", rows=_bd_blocks(FLV, "SUM(amount_disbursed)", "rupees", 3), schemes=[FL],
+        route="data")))
+add(C("BD-06", "drilldown", "top3-then-block-wise", BD,
+      T("Top 3 districts by CM Elevate Legacy total disbursement",
+        rows=R(f"SELECT lgd_district, SUM(total_disbursement) FROM {CLV} WHERE lgd_district IS NOT NULL GROUP BY 1 "
+               f"ORDER BY 2 DESC", "rupees", take=3)),
+      T("block-wise please", rows=_bd_blocks(CLV, "SUM(total_disbursement)", "rupees", 3), schemes=[CL],
+        route="data")))
+add(C("BD-07", "drilldown", "top3-then-and-by-block", BD,
+      T("Top 3 districts by students paid under CMSS",
+        rows=R(f"SELECT lgd_district, COUNT(*) FROM {CMV} WHERE is_disbursed AND lgd_district IS NOT NULL GROUP BY 1 "
+               f"ORDER BY 2 DESC", take=3)),
+      T("and by block?", rows=_bd_blocks(CMV, "COUNT(*)", "count", 3, "is_disbursed"), schemes=[CS], route="data")))
+add(C("BD-08", "drilldown", "top3-then-by-block", BD,
+      T("Top 3 districts by Homestay applications",
+        rows=R(f"SELECT lgd_district, COUNT(*) FROM {HSV} WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC",
+               take=3)),
+      T("break this down by block", rows=_bd_blocks(HSV, "COUNT(*)", "count", 3), schemes=[HS], route="data")))
+_BD_PAIR = "('RI BHOI', 'WEST GARO HILLS')"
+add(C("BD-09", "drilldown", "compare-then-by-year", BD,
+      T("Compare PMAY-G houses completed in Ri Bhoi and West Garo Hills",
+        F(pm_count(dist("RI BHOI"), "is_completed")), F(pm_count(dist("WEST GARO HILLS"), "is_completed"))),
+      T("break it down by year", rows=_bd_years(PMV, "COUNT(*)", "count", _BD_PAIR, "is_completed"), schemes=[PM],
+        route="data"),
+      T("only Ri Bhoi",
+        rows=R(f"SELECT financial_year_short, COUNT(*) FROM {PMV} WHERE is_completed AND lgd_district = 'RI BHOI' "
+               f"AND year_key IS NOT NULL GROUP BY 1 ORDER BY 1"), schemes=[PM], place="RI BHOI", route="data")))
+add(C("BD-10", "drilldown", "compare-then-blocks-then-rank", BD,
+      T("Compare MGNREGA person-days in Ri Bhoi and East Khasi Hills in FY 2023-24",
+        F(emp("person_days", dist("RI BHOI"), yr(2023))), F(emp("person_days", dist("EAST KHASI HILLS"), yr(2023)))),
+      T("break it down by block",
+        rows=R(f"SELECT lgd_block, lgd_district, SUM(person_days) FROM {EMP} WHERE lgd_district IN "
+               f"('RI BHOI', 'EAST KHASI HILLS') AND year_key = 2023 GROUP BY 1, 2 ORDER BY 3 DESC"),
+        schemes=[MG], year=2023, route="data"),
+      T("which block has the most?",
+        rows=R(f"SELECT lgd_block, SUM(person_days) FROM {EMP} WHERE lgd_district IN ('RI BHOI', 'EAST KHASI HILLS') "
+               f"AND year_key = 2023 GROUP BY 1 ORDER BY 2 DESC", take=1), schemes=[MG], year=2023, route="data")))
+add(C("BD-11", "drilldown", "one-district-then-blocks", BD + " (Focus Plus blocks on block_name_raw, KI-718)",
+      T("Focus Plus beneficiaries in West Garo Hills", F(fp_ben(dist("WEST GARO HILLS"))), place="WEST GARO HILLS"),
+      T("break it down by block",
+        rows=R(f"SELECT {_FP_RAW}, {_FP_BEN} FROM {FPV} WHERE lgd_district = 'WEST GARO HILLS' GROUP BY 1 "
+               f"ORDER BY 2 DESC"), schemes=[FP], place="WEST GARO HILLS", route="data")))
+add(C("BD-12", "drilldown", "total-then-district-then-block", BD,
+      T("How many students were paid under CMSS?", F(f"SELECT COUNT(*) FROM {CMV} WHERE is_disbursed")),
+      T("break this down by district",
+        rows=R(f"SELECT lgd_district, COUNT(*) FROM {CMV} WHERE is_disbursed AND lgd_district IS NOT NULL GROUP BY 1 "
+               f"ORDER BY 2 DESC"), schemes=[CS], route="data"),
+      T("which district has the most?",
+        rows=R(f"SELECT lgd_district, COUNT(*) FROM {CMV} WHERE is_disbursed AND lgd_district IS NOT NULL GROUP BY 1 "
+               f"ORDER BY 2 DESC", take=1), schemes=[CS], route="data"),
+      T("break it down by block", rows=_bd_blocks(CMV, "COUNT(*)", "count", 1, "is_disbursed"), schemes=[CS],
+        route="data")))
+
 
 def _strs(obj):
     if isinstance(obj, dict):

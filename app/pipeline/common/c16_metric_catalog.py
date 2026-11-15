@@ -287,7 +287,18 @@ def _c16_shape(question: str, filters: dict) -> "dict | None":
             n = None if group == "year" else _C17_RUNNERS_UP
         return {"qtype": "ranking", "group": group, "order": "desc" if up else "asc", "limit": n}
     if lists:
-        if len(lists) != 1 or lists[0] == "village_code" or dims - {lists[0]} or len(years) > 1:
+        if len(lists) != 1 or lists[0] == "village_code" or len(years) > 1:
+            return None
+        rest = dims - {lists[0]}
+        if rest == {"block"} and lists[0] == "district" and filters.get("block") is None:
+            # 2026-11-15: "X in A, B and C by block" (the drill-down behind a district ranking / comparison, c18
+            # _c18_drill): every block of the listed districts, each with its district (metric_catalog._build)
+            return {"qtype": "breakdown", "group": "block", "order": None, "limit": None, "listed": True}
+        if rest == {"year"} and lists[0] in dims:
+            # 2026-11-15: "X in A and B by district and financial year": each listed place by year
+            return {"qtype": "breakdown", "group": "year", "order": None, "limit": None, "listed": True,
+                    "split": lists[0]}
+        if rest:
             return None
         return {"qtype": "compare", "group": lists[0], "order": None, "limit": None}
     if len(years) > 1:
@@ -384,6 +395,8 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
     # accepts the phrase; a per-year tally (single_year) is still refused there.
     if _ALL_YEARS_CUE.search(question or "") or _STATED_ALL_YEARS_CUE.search(question or ""):
         allowed = allowed | _C16_ALL_YEARS_WORDS
+    if shape.get("listed"):
+        allowed = allowed | {"and"}                           # "in A, B AND C by block": the places' own joiner
     if shape["group"] == "year":
         allowed = allowed | _C16_YEAR_SERIES_WORDS
         if _c16_years_joined(question):
@@ -406,7 +419,7 @@ def _metric_catalog_plan(question: str, schemes: "list[str]", entity_result: dic
         out["reason"] = "several years"
         return out
     query = metric_catalog.build(m, filters, shape["group"], order=shape["order"], limit=shape["limit"],
-                                 qtype=shape["qtype"])
+                                 qtype=shape["qtype"], split=shape.get("split"))
     if query is None:
         out["reason"] = "the view lacks a column the question needs"
         return out
@@ -567,6 +580,8 @@ def _c16_plan_several(question: str, schemes: "list[str]", entity_result: dict, 
     allowed = _C16_JOIN_WORDS | _C16_SIDE_BY_SIDE_WORDS
     if shape["qtype"] == "breakdown":
         allowed = allowed | _C16_SHAPE_WORDS["breakdown"]
+    if shape.get("listed"):
+        allowed = allowed | {"and"}                           # "in A, B AND C by block": the places' own joiner
     if shape["group"] == "year":
         allowed = allowed | _C16_YEAR_SERIES_WORDS
     for m in ms:

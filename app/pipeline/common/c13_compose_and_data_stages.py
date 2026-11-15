@@ -179,6 +179,12 @@ async def compose_response(question: str, sql: str, rows: list[dict],
     # split misquoted twice on the composer path, same check).
     _premise_notes = [n for n in (notes or []) if str(n).startswith('The question treats "')]
     if settings.ANSWER_TEMPLATES_ENABLED and not (_premise_notes or extra_numbers or no_usable_value or _total_rows):
+        # 2026-11-15: a catalogue drill-down (the blocks of the ranked / compared districts, each place by year):
+        # one line per place, every figure from code (c18 _c18_grouped_body); nothing else changes here
+        _grouped = _c18_grouped_body(shape, _shape_rows, sql, schemes, entities)
+        if _grouped:
+            logger.info("compose_response: templated drill-down answer (metric %s)", shape.metric)
+            return _finish_answer(_grouped, rows, schemes, entities)
         _body = _c12s_e9_body(shape, _shape_rows, question)
         if _body:
             logger.info("compose_response: templated %s answer (metric %s)", shape.kind, shape.metric)

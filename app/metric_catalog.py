@@ -453,10 +453,10 @@ def expand_elision(question: str, scheme: str) -> "str | None":
 
 
 def build(m: Metric, filters: dict, group: "str | None" = None, *,
-          order: "str | None" = None, limit: "int | None" = None, qtype: str = "total"
-          ) -> "tuple[str, list, str] | None":
+          order: "str | None" = None, limit: "int | None" = None, qtype: str = "total",
+          split: "str | None" = None) -> "tuple[str, list, str] | None":
     """(parameterised SQL, params, display SQL) for metric `m`; see _build."""
-    return _build([m], filters, group, order=order, limit=limit, qtype=qtype)
+    return _build([m], filters, group, order=order, limit=limit, qtype=qtype, split=split)
 
 
 def build_several(ms: "list[Metric]", filters: dict, group: str, *, qtype: str = "breakdown"
@@ -475,27 +475,36 @@ def build_several(ms: "list[Metric]", filters: dict, group: str, *, qtype: str =
 
 
 def _build(ms: "list[Metric]", filters: dict, group: "str | None" = None, *,
-           order: "str | None" = None, limit: "int | None" = None, qtype: str = "total"
-           ) -> "tuple[str, list, str] | None":
+           order: "str | None" = None, limit: "int | None" = None, qtype: str = "total",
+           split: "str | None" = None) -> "tuple[str, list, str] | None":
     """(parameterised SQL, params, display SQL) for the measures `ms`: one, or several of one view (build_several).
 
     filters: {"district" | "block" | "village_code": value or list,
               "year_key": [years]} — a list becomes "= ANY".
     group:   None (one total), "district", "block" or "year".
     order:   "desc" / "asc" with `limit` for a top / bottom list.
+    split:   "district" / "block" with group "year" and a LIST of those places: each place by year (a place x year
+             table, the places in the order listed). A block grouping inside a list of districts carries each block's
+             district the same way (2026-11-15, the drill-down behind a ranking: c18 _c18_drill).
     None when the base object lacks a column the filters or grouping need, or
     for a block filter / grouping on a scheme whose blocks are not on lgd_block
     (Focus Plus maps its blocks on block_name_raw: lgd_block is NULL on 15% of
     its rows, tests/test_focusplus_block_columns.py)."""
     m = ms[0]                  # view, scheme, place and year columns: the same for every measure (build_several)
     src_block = None
-    if m.scheme in _state.get("no_block_level", ()) and (filters.get("block") or group == "block"):
+    if m.scheme in _state.get("no_block_level", ()) and (filters.get("block") or group == "block"
+                                                         or split == "block"):
         # 2026-11-15: a block FILTER reads the column the scheme's blocks are kept on (Focus Plus:
-        # UPPER(block_name_raw), the column the model path's resolved-entity line pins); a grouping by block is
-        # still not built (its block names are the source's own spellings)
-        src_block = source_block_column(m) if group != "block" else None
+        # UPPER(block_name_raw), the column the model path's resolved-entity line pins). A GROUPING by block reads it
+        # too (2026-11-15, the drill-down behind a ranking): the model path's block breakdowns are grouped on it
+        # (c11 _focusplus_block_breakdown_on_raw, KI-718), so both paths give the same rows; lgd_block is NULL on 15%
+        # of Focus Plus rows
+        src_block = source_block_column(m)
         if src_block is None:
             return None
+    if split is not None and (group != "year" or split not in ("district", "block")
+                              or not isinstance(filters.get(split), (list, tuple)) or len(filters[split]) < 2):
+        return None
     where, params, shown = [], [], []
     for key, col in (*PLACE_COLUMNS.items(), ("year_key", YEAR_COLUMN)):
         v = filters.get(key)
@@ -556,6 +565,7 @@ def _build(ms: "list[Metric]", filters: dict, group: "str | None" = None, *,
             params.append(values[0])
             where.append(f"{col} = UPPER(${len(params)})")
             shown.append(f"{col} = {quoted}")
+    tail_shown = None          # the display SQL's tail, when it differs from the bound one (a listed order)
     value = ", ".join(f"{_value_sql(x)} AS {x.alias}" for x in ms)
     # 2026-11-15: a list is ranked on the measure's own value, not on its rounded column: two CM Elevate Legacy schemes
     # both read ₹6.77 crore (67,724,601.10 and 67,670,375.90) and the third place went to the smaller one (gold bank
@@ -563,6 +573,19 @@ def _build(ms: "list[Metric]", filters: dict, group: "str | None" = None, *,
     rank_key = m.alias if _value_sql(m) == m.expression else f"({m.expression})"
     if group is None:
         select, tail = value, ""
+    elif group == "year" and split is not None:
+        # each listed place by financial year, the places in the order listed (the answer the follow-up drills into)
+        if YEAR_COLUMN not in m.columns:
+            return None
+        pcol = src_block if (split == "block" and src_block) else PLACE_COLUMNS[split]
+        if pcol == PLACE_COLUMNS[split] and pcol not in m.columns:
+            return None
+        fy = "MAX(financial_year_short) AS financial_year, " if "financial_year_short" in m.columns else ""
+        where, shown = where + [f"{YEAR_COLUMN} IS NOT NULL"], shown + [f"{YEAR_COLUMN} IS NOT NULL"]
+        pos, pos_shown = _list_position(pcol, filters[split], params, split == "block" and bool(src_block))
+        select = f"{pcol} AS {split}, {YEAR_COLUMN}, {fy}{value}"
+        tail = f"\nGROUP BY {pcol}, {YEAR_COLUMN} ORDER BY {pos}, {YEAR_COLUMN}"
+        tail_shown = f"\nGROUP BY {pcol}, {YEAR_COLUMN} ORDER BY {pos_shown}, {YEAR_COLUMN}"
     elif group == "year":
         if YEAR_COLUMN not in m.columns:
             return None
@@ -589,24 +612,52 @@ def _build(ms: "list[Metric]", filters: dict, group: "str | None" = None, *,
             tail += f" ORDER BY {rank_key} DESC NULLS LAST"
     else:
         col = PLACE_COLUMNS.get(group)
-        if col is None or col not in m.columns:
+        if group == "block" and src_block:
+            col = src_block
+        elif col is None or col not in m.columns:
             return None
         # rows with no place are left out, as the model path's breakdowns do
         where, shown = where + [f"{col} IS NOT NULL"], shown + [f"{col} IS NOT NULL"]
-        select, tail = f"{col} AS {group}, {value}", f"\nGROUP BY {col}"
-        if order is None:
-            tail += f" ORDER BY {col}"
+        dists = filters.get("district")
+        if group == "block" and order is None and isinstance(dists, (list, tuple)) and len(dists) > 1 \
+                and PLACE_COLUMNS["district"] in m.columns:
+            # 2026-11-15: the blocks of several districts (the drill-down behind a district ranking / comparison):
+            # each block with its district, the districts in the order listed, each district's blocks largest first
+            dcol = PLACE_COLUMNS["district"]
+            pos, pos_shown = _list_position(dcol, dists, params, False)
+            select = f"{dcol} AS district, {col} AS block, {value}"
+            tail = f"\nGROUP BY {dcol}, {col} ORDER BY {pos}, {rank_key} DESC NULLS LAST"
+            tail_shown = f"\nGROUP BY {dcol}, {col} ORDER BY {pos_shown}, {rank_key} DESC NULLS LAST"
+        else:
+            select, tail = f"{col} AS {group}, {value}", f"\nGROUP BY {col}"
+            if order is None:
+                tail += f" ORDER BY {col}"
     if order in ("desc", "asc"):
         tail += f" ORDER BY {rank_key} {order.upper()} NULLS LAST"
         if limit:
             tail += f" LIMIT {int(limit)}"
 
-    def text(w: list[str]) -> str:
+    def text(w: list[str], t: str) -> str:
         wh = ("\nWHERE " + " AND ".join(w)) if w else ""
         key = "+".join(x.key for x in ms)
-        return f"/* metric:{key} {qtype} */ SELECT {select}\nFROM {m.base_object}{wh}{tail}"
+        return f"/* metric:{key} {qtype} */ SELECT {select}\nFROM {m.base_object}{wh}{t}"
 
-    return text(where), params, text(shown)
+    return text(where, tail), params, text(shown, tail_shown if tail_shown is not None else tail)
+
+
+def _list_position(col: str, values, params: list, upper_done: bool) -> "tuple[str, str]":
+    """(SQL, display SQL) of each row's place in the listed order: array_position over the list parameter the WHERE
+    already bound for this column (the same values, upper case), so the rows come in the order the places were
+    named / ranked. `upper_done`: the column expression is already upper case (Focus Plus UPPER(block_name_raw))."""
+    want = [str(x).upper() for x in values]
+    k = next((i for i, p in enumerate(params, 1) if isinstance(p, list) and [str(x).upper() for x in p] == want), None)
+    expr = col if upper_done else f"UPPER({col})"
+    quoted = ", ".join("'" + x.replace("'", "''") + "'" for x in want)
+    shown = f"array_position(ARRAY[{quoted}]::text[], {expr})"
+    if k is None:
+        params.append(want)
+        k = len(params)
+    return f"array_position(${k}::text[], {expr})", shown
 
 
 def combine_totals(parts: "list[tuple[Metric, tuple[str, list, str]]]") -> "tuple[str, list, str]":

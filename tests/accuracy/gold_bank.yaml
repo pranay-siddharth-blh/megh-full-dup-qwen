@@ -1,6 +1,6 @@
 bank: Megh One AI accuracy gold bank
 built_by: tests/accuracy/build_bank.py
-truth_recorded: '2026-11-14'
+truth_recorded: '2026-11-15'
 cases:
 - id: G-D1
   cat: mgnrega
@@ -25562,5 +25562,1293 @@ cases:
       unit: count
       label: PMAY-G WGH
       value: 33147
+    pause: false
+    route: data
+- id: BD-01
+  cat: drilldown
+  shape: top5-then-by-block
+  src: drill-down behind an answer (user report 2026-11-15) — the exact two turns
+  turns:
+  - q: Show me the top five districts by Focus Plus beneficiaries.
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district IS NOT NULL GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 5
+      value:
+      - - WEST GARO HILLS
+        - 35039
+      - - SOUTH WEST GARO HILLS
+        - 15294
+      - - EAST KHASI HILLS
+        - 13608
+      - - EAST GARO HILLS
+        - 11379
+      - - NORTH GARO HILLS
+        - 11007
+      - - SOUTH GARO HILLS
+        - 8612
+      - - WEST KHASI HILLS
+        - 6754
+      - - SOUTH WEST KHASI HILLS
+        - 1792
+      - - EASTERN WEST KHASI HILLS
+        - 1221
+      - - RI BHOI
+        - 419
+      - - EAST JAINTIA HILLS
+        - 404
+      - - WEST JAINTIA HILLS
+        - 283
+    pause: false
+  - q: Can you break this down by block?
+    rows:
+    - sql: SELECT UPPER(block_name_raw), lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district
+        IN (SELECT lgd_district FROM curated.v_focus_plus WHERE lgd_district IS NOT NULL GROUP BY lgd_district ORDER BY COUNT(DISTINCT
+        beneficiary_key) DESC, lgd_district LIMIT 5) AND UPPER(block_name_raw) IS NOT NULL GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: count
+      take: all
+      value:
+      - - DAMBO RONGJENG
+        - EAST GARO HILLS
+        - 4624
+      - - SONGSAK
+        - EAST GARO HILLS
+        - 3471
+      - - SAMANDA
+        - EAST GARO HILLS
+        - 3218
+      - - WILLIAMNAGAR-MUNICIPAL BOARD
+        - EAST GARO HILLS
+        - 66
+      - - MYLLIEM
+        - EAST KHASI HILLS
+        - 4429
+      - - LAWSOHTUN
+        - EAST KHASI HILLS
+        - 2173
+      - - MAWRYNGKNENG
+        - EAST KHASI HILLS
+        - 2093
+      - - PYNURSLA
+        - EAST KHASI HILLS
+        - 1840
+      - - MAWKYNREW
+        - EAST KHASI HILLS
+        - 1333
+      - - MAWPAT
+        - EAST KHASI HILLS
+        - 1035
+      - - MAWSYNRAM
+        - EAST KHASI HILLS
+        - 561
+      - - MAWPHLANG
+        - EAST KHASI HILLS
+        - 67
+      - - SHILLONG-MUNICIPAL BOARD
+        - EAST KHASI HILLS
+        - 34
+      - - SOHIONG
+        - EAST KHASI HILLS
+        - 16
+      - - KHATARSHNONG LAITKROH
+        - EAST KHASI HILLS
+        - 15
+      - - SHELLA BHOLAGANJ
+        - EAST KHASI HILLS
+        - 12
+      - - KHARKUTTA
+        - NORTH GARO HILLS
+        - 4928
+      - - RESUBELPARA
+        - NORTH GARO HILLS
+        - 3167
+      - - BAJENGDOBA
+        - NORTH GARO HILLS
+        - 2614
+      - - RESUBELPARA-MUNICIPAL BOARD
+        - NORTH GARO HILLS
+        - 298
+      - - ZIKZAK
+        - SOUTH WEST GARO HILLS
+        - 6656
+      - - RERAPARA
+        - SOUTH WEST GARO HILLS
+        - 4320
+      - - BETASING
+        - SOUTH WEST GARO HILLS
+        - 3568
+      - - DAMALGRE
+        - SOUTH WEST GARO HILLS
+        - 699
+      - - DALU
+        - SOUTH WEST GARO HILLS
+        - 51
+      - - TIKRIKILLA
+        - WEST GARO HILLS
+        - 8744
+      - - SELSELLA
+        - WEST GARO HILLS
+        - 7691
+      - - RONGRAM
+        - WEST GARO HILLS
+        - 5331
+      - - DALU
+        - WEST GARO HILLS
+        - 5138
+      - - DADENGGIRI
+        - WEST GARO HILLS
+        - 4755
+      - - GAMBEGRE
+        - WEST GARO HILLS
+        - 1835
+      - - DEMDEMA
+        - WEST GARO HILLS
+        - 1304
+      - - TURA MUNICIPAL BOARD-MUNICIPAL BOARD
+        - WEST GARO HILLS
+        - 210
+      - - ZIKZAK
+        - WEST GARO HILLS
+        - 25
+      - - DAMALGRE
+        - WEST GARO HILLS
+        - 5
+      - - BETASING
+        - WEST GARO HILLS
+        - 1
+    schemes:
+    - Focus Plus
+    pause: false
+    route: data
+- id: BD-02
+  cat: drilldown
+  shape: top5-then-by-year
+  src: drill-down behind an answer (user report 2026-11-15)
+  turns:
+  - q: Show me the top five districts by Focus Plus beneficiaries.
+    rows:
+    - sql: SELECT lgd_district, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district IS NOT NULL GROUP
+        BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 5
+      value:
+      - - WEST GARO HILLS
+        - 35039
+      - - SOUTH WEST GARO HILLS
+        - 15294
+      - - EAST KHASI HILLS
+        - 13608
+      - - EAST GARO HILLS
+        - 11379
+      - - NORTH GARO HILLS
+        - 11007
+      - - SOUTH GARO HILLS
+        - 8612
+      - - WEST KHASI HILLS
+        - 6754
+      - - SOUTH WEST KHASI HILLS
+        - 1792
+      - - EASTERN WEST KHASI HILLS
+        - 1221
+      - - RI BHOI
+        - 419
+      - - EAST JAINTIA HILLS
+        - 404
+      - - WEST JAINTIA HILLS
+        - 283
+    pause: false
+  - q: break it down by year
+    rows:
+    - sql: SELECT lgd_district, financial_year_short, COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district
+        IN (SELECT lgd_district FROM curated.v_focus_plus WHERE lgd_district IS NOT NULL GROUP BY lgd_district ORDER BY COUNT(DISTINCT
+        beneficiary_key) DESC, lgd_district LIMIT 5) AND year_key IS NOT NULL GROUP BY 1, 2 ORDER BY 1, 2
+      unit: count
+      take: all
+      value:
+      - - EAST GARO HILLS
+        - 2022-23
+        - 9775
+      - - EAST GARO HILLS
+        - 2025-26
+        - 11379
+      - - EAST KHASI HILLS
+        - 2022-23
+        - 12214
+      - - EAST KHASI HILLS
+        - 2025-26
+        - 13608
+      - - NORTH GARO HILLS
+        - 2022-23
+        - 9093
+      - - NORTH GARO HILLS
+        - 2025-26
+        - 11007
+      - - SOUTH WEST GARO HILLS
+        - 2022-23
+        - 12853
+      - - SOUTH WEST GARO HILLS
+        - 2025-26
+        - 15294
+      - - WEST GARO HILLS
+        - 2022-23
+        - 30369
+      - - WEST GARO HILLS
+        - 2025-26
+        - 35039
+    schemes:
+    - Focus Plus
+    pause: false
+    route: data
+- id: BD-03
+  cat: drilldown
+  shape: top3-in-a-year-then-drill
+  src: drill-down behind an answer (user report 2026-11-15)
+  turns:
+  - q: Top 3 districts by MGNREGA person-days in FY 2023-24
+    rows:
+    - sql: SELECT lgd_district, SUM(person_days) FROM curated.v_employment WHERE year_key = 2023 GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 3
+      value:
+      - - WEST GARO HILLS
+        - 5489616
+      - - SOUTH WEST GARO HILLS
+        - 3282990
+      - - NORTH GARO HILLS
+        - 3066633
+      - - EAST KHASI HILLS
+        - 3061525
+      - - SOUTH GARO HILLS
+        - 2823825
+      - - EAST GARO HILLS
+        - 2765439
+      - - WEST JAINTIA HILLS
+        - 1510239
+      - - RI BHOI
+        - 1481572
+      - - SOUTH WEST KHASI HILLS
+        - 1315587
+      - - WEST KHASI HILLS
+        - 895621
+      - - EAST JAINTIA HILLS
+        - 893276
+      - - EASTERN WEST KHASI HILLS
+        - 677731
+    pause: false
+  - q: drill down into blocks
+    rows:
+    - sql: SELECT lgd_block, lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IN (SELECT lgd_district
+        FROM curated.v_employment WHERE lgd_district IS NOT NULL AND year_key = 2023 GROUP BY lgd_district ORDER BY SUM(person_days)
+        DESC, lgd_district LIMIT 3) AND lgd_block IS NOT NULL AND year_key = 2023 GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: count
+      take: all
+      value:
+      - - RESUBELPARA
+        - NORTH GARO HILLS
+        - 1267349
+      - - BAJENGDOBA
+        - NORTH GARO HILLS
+        - 1053505
+      - - KHARKUTTA
+        - NORTH GARO HILLS
+        - 631347
+      - - ADOKGRE
+        - NORTH GARO HILLS
+        - 114432
+      - - ZIKZAK
+        - SOUTH WEST GARO HILLS
+        - 1440124
+      - - RERAPARA
+        - SOUTH WEST GARO HILLS
+        - 986020
+      - - BETASING
+        - SOUTH WEST GARO HILLS
+        - 707546
+      - - PURAKHASIA
+        - SOUTH WEST GARO HILLS
+        - 149300
+      - - TIKRIKILLA
+        - WEST GARO HILLS
+        - 1423794
+      - - RONGRAM
+        - WEST GARO HILLS
+        - 1039129
+      - - DALU
+        - WEST GARO HILLS
+        - 881476
+      - - SELSELLA
+        - WEST GARO HILLS
+        - 766141
+      - - DADENGGIRI
+        - WEST GARO HILLS
+        - 664720
+      - - GAMBEGRE
+        - WEST GARO HILLS
+        - 521636
+      - - BATABARI
+        - WEST GARO HILLS
+        - 192720
+      - - DEMDEMA
+        - WEST GARO HILLS
+        - 0
+    schemes:
+    - MGNREGA
+    pause: false
+    year: 2023
+    route: data
+- id: BD-04
+  cat: drilldown
+  shape: which-most-then-blocks
+  src: drill-down behind an answer (user report 2026-11-15)
+  turns:
+  - q: Which district has the most PMAY-G houses sanctioned?
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 1
+      value:
+      - - WEST GARO HILLS
+        - 33147
+      - - EAST KHASI HILLS
+        - 23952
+      - - RI BHOI
+        - 17565
+      - - EAST GARO HILLS
+        - 16899
+      - - NORTH GARO HILLS
+        - 16028
+      - - WEST JAINTIA HILLS
+        - 12570
+      - - SOUTH WEST GARO HILLS
+        - 11947
+      - - SOUTH GARO HILLS
+        - 11901
+      - - WEST KHASI HILLS
+        - 8437
+      - - SOUTH WEST KHASI HILLS
+        - 7411
+      - - EAST JAINTIA HILLS
+        - 5756
+      - - EASTERN WEST KHASI HILLS
+        - 5494
+    pause: false
+  - q: break this down by block
+    rows:
+    - sql: SELECT lgd_block, lgd_district, COUNT(*) FROM curated.v_pmay WHERE lgd_district IN (SELECT lgd_district FROM curated.v_pmay
+        WHERE lgd_district IS NOT NULL GROUP BY lgd_district ORDER BY COUNT(*) DESC, lgd_district LIMIT 1) AND lgd_block IS
+        NOT NULL GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: count
+      take: all
+      value:
+      - - DEMDEMA
+        - WEST GARO HILLS
+        - 6125
+      - - TIKRIKILLA
+        - WEST GARO HILLS
+        - 5529
+      - - SELSELLA
+        - WEST GARO HILLS
+        - 5028
+      - - BATABARI
+        - WEST GARO HILLS
+        - 3838
+      - - DALU
+        - WEST GARO HILLS
+        - 3724
+      - - RONGRAM
+        - WEST GARO HILLS
+        - 3662
+      - - DADENGGIRI
+        - WEST GARO HILLS
+        - 3413
+      - - GAMBEGRE
+        - WEST GARO HILLS
+        - 1828
+    schemes:
+    - PMAY-G
+    pause: false
+    route: data
+- id: BD-05
+  cat: drilldown
+  shape: top3-then-split-by-block
+  src: drill-down behind an answer (user report 2026-11-15)
+  turns:
+  - q: Top 3 districts by Focus Legacy amount disbursed
+    rows:
+    - sql: SELECT lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY
+        1 ORDER BY 2 DESC
+      unit: rupees
+      take: 3
+      value:
+      - - WEST GARO HILLS
+        - 109335000
+      - - EAST KHASI HILLS
+        - 54205000
+      - - NORTH GARO HILLS
+        - 51735000
+      - - RI BHOI
+        - 49290000
+      - - WEST KHASI HILLS
+        - 46120000
+      - - WEST JAINTIA HILLS
+        - 41715000
+      - - EASTERN WEST KHASI HILLS
+        - 36220000
+      - - SOUTH WEST GARO HILLS
+        - 32790000
+      - - EAST GARO HILLS
+        - 27505000
+      - - EAST JAINTIA HILLS
+        - 22685000
+      - - SOUTH GARO HILLS
+        - 21025000
+      - - SOUTH WEST KHASI HILLS
+        - 17480000
+    pause: false
+  - q: split this by block
+    rows:
+    - sql: SELECT lgd_block, lgd_district, SUM(amount_disbursed) FROM curated.v_focus_legacy WHERE lgd_district IN (SELECT
+        lgd_district FROM curated.v_focus_legacy WHERE lgd_district IS NOT NULL GROUP BY lgd_district ORDER BY SUM(amount_disbursed)
+        DESC, lgd_district LIMIT 3) AND lgd_block IS NOT NULL GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: rupees
+      take: all
+      value:
+      - - MYLLIEM
+        - EAST KHASI HILLS
+        - 9235000
+      - - MAWKYNREW
+        - EAST KHASI HILLS
+        - 8655000
+      - - MAWSYNRAM
+        - EAST KHASI HILLS
+        - 8365000
+      - - SOHIONG
+        - EAST KHASI HILLS
+        - 7550000
+      - - MAWRYNGKNENG
+        - EAST KHASI HILLS
+        - 6200000
+      - - PYNURSLA
+        - EAST KHASI HILLS
+        - 5335000
+      - - MAWPHLANG
+        - EAST KHASI HILLS
+        - 2970000
+      - - MAWLAI
+        - EAST KHASI HILLS
+        - 1930000
+      - - MAWPAT
+        - EAST KHASI HILLS
+        - 1800000
+      - - SHELLA BHOLAGANJ
+        - EAST KHASI HILLS
+        - 1155000
+      - - KHATARSHNONG LAITKROH
+        - EAST KHASI HILLS
+        - 1010000
+      - - RESUBELPARA
+        - NORTH GARO HILLS
+        - 21585000
+      - - BAJENGDOBA
+        - NORTH GARO HILLS
+        - 18150000
+      - - KHARKUTTA
+        - NORTH GARO HILLS
+        - 9735000
+      - - ADOKGRE
+        - NORTH GARO HILLS
+        - 2265000
+      - - DEMDEMA
+        - WEST GARO HILLS
+        - 20070000
+      - - RONGRAM
+        - WEST GARO HILLS
+        - 19645000
+      - - SELSELLA
+        - WEST GARO HILLS
+        - 16555000
+      - - DALU
+        - WEST GARO HILLS
+        - 13390000
+      - - GAMBEGRE
+        - WEST GARO HILLS
+        - 12185000
+      - - TIKRIKILLA
+        - WEST GARO HILLS
+        - 10970000
+      - - DADENGGIRI
+        - WEST GARO HILLS
+        - 9080000
+      - - BATABARI
+        - WEST GARO HILLS
+        - 6620000
+    schemes:
+    - Focus Legacy
+    pause: false
+    route: data
+- id: BD-06
+  cat: drilldown
+  shape: top3-then-block-wise
+  src: drill-down behind an answer (user report 2026-11-15)
+  turns:
+  - q: Top 3 districts by CM Elevate Legacy total disbursement
+    rows:
+    - sql: SELECT lgd_district, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE lgd_district IS NOT NULL
+        GROUP BY 1 ORDER BY 2 DESC
+      unit: rupees
+      take: 3
+      value:
+      - - EAST KHASI HILLS
+        - 225981708.35
+      - - WEST GARO HILLS
+        - 147197155.65
+      - - RI BHOI
+        - 69523613.5
+      - - SOUTH WEST GARO HILLS
+        - 61238092
+      - - WEST KHASI HILLS
+        - 57428389
+      - - SOUTH GARO HILLS
+        - 48099856.3
+      - - WEST JAINTIA HILLS
+        - 46246688.45
+      - - EAST GARO HILLS
+        - 44939067.8
+      - - EASTERN WEST KHASI HILLS
+        - 39593888.85
+      - - SOUTH WEST KHASI HILLS
+        - 39174752.9
+      - - NORTH GARO HILLS
+        - 25976432.9
+      - - EAST JAINTIA HILLS
+        - 23578892.05
+    pause: false
+  - q: block-wise please
+    rows:
+    - sql: SELECT lgd_block, lgd_district, SUM(total_disbursement) FROM curated.v_cm_elevate_disbursement WHERE lgd_district
+        IN (SELECT lgd_district FROM curated.v_cm_elevate_disbursement WHERE lgd_district IS NOT NULL GROUP BY lgd_district
+        ORDER BY SUM(total_disbursement) DESC, lgd_district LIMIT 3) AND lgd_block IS NOT NULL GROUP BY 1, 2 ORDER BY 2, 3
+        DESC
+      unit: rupees
+      take: all
+      value:
+      - - MYLLIEM
+        - EAST KHASI HILLS
+        - 66726926.2
+      - - MAWPAT
+        - EAST KHASI HILLS
+        - 38348012.9
+      - - MAWPHLANG
+        - EAST KHASI HILLS
+        - 28620306.75
+      - - SHELLA BHOLAGANJ
+        - EAST KHASI HILLS
+        - 21804515
+      - - MAWLAI
+        - EAST KHASI HILLS
+        - 17232975.5
+      - - KHATARSHNONG LAITKROH
+        - EAST KHASI HILLS
+        - 14345585.05
+      - - PYNURSLA
+        - EAST KHASI HILLS
+        - 12497762.5
+      - - MAWSYNRAM
+        - EAST KHASI HILLS
+        - 8451295
+      - - MAWRYNGKNENG
+        - EAST KHASI HILLS
+        - 6796200
+      - - SOHIONG
+        - EAST KHASI HILLS
+        - 6490944.95
+      - - MAWKYNREW
+        - EAST KHASI HILLS
+        - 4667184.5
+      - - BHOIRYMBONG
+        - RI BHOI
+        - 23574500
+      - - UMSNING
+        - RI BHOI
+        - 21544252
+      - - UMLING
+        - RI BHOI
+        - 17956511.5
+      - - JIRANG
+        - RI BHOI
+        - 6448350
+      - - MAWHATI
+        - RI BHOI
+        - 0
+      - - RONGRAM
+        - WEST GARO HILLS
+        - 40261328.65
+      - - DADENGGIRI
+        - WEST GARO HILLS
+        - 36705381
+      - - TIKRIKILLA
+        - WEST GARO HILLS
+        - 28046547
+      - - SELSELLA
+        - WEST GARO HILLS
+        - 15042977.5
+      - - DEMDEMA
+        - WEST GARO HILLS
+        - 12449474.5
+      - - DALU
+        - WEST GARO HILLS
+        - 8487770
+      - - GAMBEGRE
+        - WEST GARO HILLS
+        - 4662061
+      - - BATABARI
+        - WEST GARO HILLS
+        - 960036
+      - - TURA MUNICIPAL BOARD-MUNICIPAL BOARD
+        - WEST GARO HILLS
+        - 581580
+    schemes:
+    - CM Elevate Legacy
+    pause: false
+    route: data
+- id: BD-07
+  cat: drilldown
+  shape: top3-then-and-by-block
+  src: drill-down behind an answer (user report 2026-11-15)
+  turns:
+  - q: Top 3 districts by students paid under CMSS
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+      take: 3
+      value:
+      - - EAST KHASI HILLS
+        - 24932
+      - - WEST JAINTIA HILLS
+        - 12288
+      - - WEST GARO HILLS
+        - 11966
+      - - RI BHOI
+        - 8701
+      - - WEST KHASI HILLS
+        - 6968
+      - - EAST JAINTIA HILLS
+        - 5517
+      - - SOUTH WEST GARO HILLS
+        - 5442
+      - - EASTERN WEST KHASI HILLS
+        - 4724
+      - - NORTH GARO HILLS
+        - 4584
+      - - SOUTH WEST KHASI HILLS
+        - 4555
+      - - EAST GARO HILLS
+        - 4554
+      - - SOUTH GARO HILLS
+        - 4520
+    pause: false
+  - q: and by block?
+    rows:
+    - sql: SELECT lgd_block, lgd_district, COUNT(*) FROM curated.v_cmss WHERE lgd_district IN (SELECT lgd_district FROM curated.v_cmss
+        WHERE lgd_district IS NOT NULL AND is_disbursed GROUP BY lgd_district ORDER BY COUNT(*) DESC, lgd_district LIMIT 3)
+        AND lgd_block IS NOT NULL AND is_disbursed GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: count
+      take: all
+      value:
+      - - MAWLAI
+        - EAST KHASI HILLS
+        - 3008
+      - - MYLLIEM
+        - EAST KHASI HILLS
+        - 2761
+      - - MAWPAT
+        - EAST KHASI HILLS
+        - 2377
+      - - SHILLONG-MUNICIPAL BOARD
+        - EAST KHASI HILLS
+        - 2321
+      - - PYNURSLA
+        - EAST KHASI HILLS
+        - 2268
+      - - MAWRYNGKNENG
+        - EAST KHASI HILLS
+        - 2031
+      - - MAWPHLANG
+        - EAST KHASI HILLS
+        - 1997
+      - - SOHIONG
+        - EAST KHASI HILLS
+        - 1928
+      - - MAWSYNRAM
+        - EAST KHASI HILLS
+        - 1881
+      - - SHELLA BHOLAGANJ
+        - EAST KHASI HILLS
+        - 1857
+      - - MAWKYNREW
+        - EAST KHASI HILLS
+        - 1258
+      - - KHATARSHNONG LAITKROH
+        - EAST KHASI HILLS
+        - 1245
+      - - RONGRAM
+        - WEST GARO HILLS
+        - 3468
+      - - TIKRIKILLA
+        - WEST GARO HILLS
+        - 1331
+      - - SELSELLA
+        - WEST GARO HILLS
+        - 1299
+      - - DALU
+        - WEST GARO HILLS
+        - 1257
+      - - GAMBEGRE
+        - WEST GARO HILLS
+        - 1168
+      - - DADENGGIRI
+        - WEST GARO HILLS
+        - 1002
+      - - TURA MUNICIPAL BOARD-MUNICIPAL BOARD
+        - WEST GARO HILLS
+        - 950
+      - - DEMDEMA
+        - WEST GARO HILLS
+        - 928
+      - - BATABARI
+        - WEST GARO HILLS
+        - 563
+      - - LASKEIN
+        - WEST JAINTIA HILLS
+        - 4303
+      - - THADLASKEIN
+        - WEST JAINTIA HILLS
+        - 3888
+      - - AMLAREM
+        - WEST JAINTIA HILLS
+        - 2062
+      - - JOWAI-MUNICIPAL BOARD
+        - WEST JAINTIA HILLS
+        - 1441
+      - - NAMDONG
+        - WEST JAINTIA HILLS
+        - 594
+    schemes:
+    - CMSS
+    pause: false
+    route: data
+- id: BD-08
+  cat: drilldown
+  shape: top3-then-by-block
+  src: drill-down behind an answer (user report 2026-11-15)
+  turns:
+  - q: Top 3 districts by Homestay applications
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_homestay_api WHERE lgd_district IS NOT NULL GROUP BY 1 ORDER BY 2
+        DESC
+      unit: count
+      take: 3
+      value:
+      - - EAST KHASI HILLS
+        - 341
+      - - WEST GARO HILLS
+        - 209
+      - - WEST KHASI HILLS
+        - 125
+      - - RI BHOI
+        - 103
+      - - SOUTH GARO HILLS
+        - 96
+      - - WEST JAINTIA HILLS
+        - 89
+      - - NORTH GARO HILLS
+        - 82
+      - - SOUTH WEST KHASI HILLS
+        - 70
+      - - EASTERN WEST KHASI HILLS
+        - 64
+      - - EAST JAINTIA HILLS
+        - 62
+      - - EAST GARO HILLS
+        - 39
+      - - SOUTH WEST GARO HILLS
+        - 17
+    pause: false
+  - q: break this down by block
+    rows:
+    - sql: SELECT lgd_block, lgd_district, COUNT(*) FROM curated.v_homestay_api WHERE lgd_district IN (SELECT lgd_district
+        FROM curated.v_homestay_api WHERE lgd_district IS NOT NULL GROUP BY lgd_district ORDER BY COUNT(*) DESC, lgd_district
+        LIMIT 3) AND lgd_block IS NOT NULL GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: count
+      take: all
+      value:
+      - - SHELLA BHOLAGANJ
+        - EAST KHASI HILLS
+        - 87
+      - - PYNURSLA
+        - EAST KHASI HILLS
+        - 42
+      - - SHILLONG-MUNICIPAL BOARD
+        - EAST KHASI HILLS
+        - 38
+      - - MAWPAT
+        - EAST KHASI HILLS
+        - 38
+      - - MAWLAI
+        - EAST KHASI HILLS
+        - 31
+      - - MAWSYNRAM
+        - EAST KHASI HILLS
+        - 24
+      - - KHATARSHNONG LAITKROH
+        - EAST KHASI HILLS
+        - 20
+      - - MYLLIEM
+        - EAST KHASI HILLS
+        - 16
+      - - MAWPHLANG
+        - EAST KHASI HILLS
+        - 16
+      - - MAWKYNREW
+        - EAST KHASI HILLS
+        - 14
+      - - MAWRYNGKNENG
+        - EAST KHASI HILLS
+        - 9
+      - - SOHIONG
+        - EAST KHASI HILLS
+        - 6
+      - - TURA MUNICIPAL BOARD-MUNICIPAL BOARD
+        - WEST GARO HILLS
+        - 94
+      - - RONGRAM
+        - WEST GARO HILLS
+        - 91
+      - - GAMBEGRE
+        - WEST GARO HILLS
+        - 7
+      - - TIKRIKILLA
+        - WEST GARO HILLS
+        - 6
+      - - SELSELLA
+        - WEST GARO HILLS
+        - 5
+      - - DALU
+        - WEST GARO HILLS
+        - 4
+      - - DADENGGIRI
+        - WEST GARO HILLS
+        - 1
+      - - BATABARI
+        - WEST GARO HILLS
+        - 1
+      - - NONGSTOIN
+        - WEST KHASI HILLS
+        - 43
+      - - NONGSTOIN-TOWN COMMITTEE
+        - WEST KHASI HILLS
+        - 41
+      - - RAMBRAI
+        - WEST KHASI HILLS
+        - 23
+      - - MAWSHYNRUT
+        - WEST KHASI HILLS
+        - 10
+      - - RI MULIANG
+        - WEST KHASI HILLS
+        - 6
+      - - SHALLANG
+        - WEST KHASI HILLS
+        - 2
+    schemes:
+    - Homestay
+    pause: false
+    route: data
+- id: BD-09
+  cat: drilldown
+  shape: compare-then-by-year
+  src: drill-down behind an answer (user report 2026-11-15)
+  turns:
+  - q: Compare PMAY-G houses completed in Ri Bhoi and West Garo Hills
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'RI BHOI' AND is_completed
+      unit: count
+      value: 12056
+    - sql: SELECT COUNT(*) FROM curated.v_pmay WHERE lgd_district = 'WEST GARO HILLS' AND is_completed
+      unit: count
+      value: 26822
+    pause: false
+  - q: break it down by year
+    rows:
+    - sql: SELECT lgd_district, financial_year_short, COUNT(*) FROM curated.v_pmay WHERE lgd_district IN ('RI BHOI', 'WEST
+        GARO HILLS') AND year_key IS NOT NULL AND is_completed GROUP BY 1, 2 ORDER BY 1, 2
+      unit: count
+      take: all
+      value:
+      - - RI BHOI
+        - 2017-18
+        - 1681
+      - - RI BHOI
+        - 2018-19
+        - 314
+      - - RI BHOI
+        - 2019-20
+        - 1044
+      - - RI BHOI
+        - 2020-21
+        - 1708
+      - - RI BHOI
+        - 2021-22
+        - 87
+      - - RI BHOI
+        - 2022-23
+        - 375
+      - - RI BHOI
+        - 2023-24
+        - 6847
+      - - WEST GARO HILLS
+        - 2017-18
+        - 3590
+      - - WEST GARO HILLS
+        - 2018-19
+        - 848
+      - - WEST GARO HILLS
+        - 2019-20
+        - 2040
+      - - WEST GARO HILLS
+        - 2020-21
+        - 5111
+      - - WEST GARO HILLS
+        - 2021-22
+        - 815
+      - - WEST GARO HILLS
+        - 2022-23
+        - 454
+      - - WEST GARO HILLS
+        - 2023-24
+        - 13964
+    schemes:
+    - PMAY-G
+    pause: false
+    route: data
+  - q: only Ri Bhoi
+    rows:
+    - sql: SELECT financial_year_short, COUNT(*) FROM curated.v_pmay WHERE is_completed AND lgd_district = 'RI BHOI' AND year_key
+        IS NOT NULL GROUP BY 1 ORDER BY 1
+      unit: count
+      take: all
+      value:
+      - - 2017-18
+        - 1681
+      - - 2018-19
+        - 314
+      - - 2019-20
+        - 1044
+      - - 2020-21
+        - 1708
+      - - 2021-22
+        - 87
+      - - 2022-23
+        - 375
+      - - 2023-24
+        - 6847
+    schemes:
+    - PMAY-G
+    pause: false
+    place: RI BHOI
+    route: data
+- id: BD-10
+  cat: drilldown
+  shape: compare-then-blocks-then-rank
+  src: drill-down behind an answer (user report 2026-11-15)
+  turns:
+  - q: Compare MGNREGA person-days in Ri Bhoi and East Khasi Hills in FY 2023-24
+    figures:
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'RI BHOI' AND year_key = 2023
+      unit: count
+      value: 1481572
+    - sql: SELECT SUM(person_days) FROM curated.v_employment WHERE lgd_district = 'EAST KHASI HILLS' AND year_key = 2023
+      unit: count
+      value: 3061525
+    pause: false
+  - q: break it down by block
+    rows:
+    - sql: SELECT lgd_block, lgd_district, SUM(person_days) FROM curated.v_employment WHERE lgd_district IN ('RI BHOI', 'EAST
+        KHASI HILLS') AND year_key = 2023 GROUP BY 1, 2 ORDER BY 3 DESC
+      unit: count
+      take: all
+      value:
+      - - UMLING
+        - RI BHOI
+        - 535875
+      - - MAWPHLANG
+        - EAST KHASI HILLS
+        - 504199
+      - - SOHIONG
+        - EAST KHASI HILLS
+        - 459649
+      - - PYNURSLA
+        - EAST KHASI HILLS
+        - 448203
+      - - BHOIRYMBONG
+        - RI BHOI
+        - 408820
+      - - MYLLIEM
+        - EAST KHASI HILLS
+        - 385081
+      - - MAWSYNRAM
+        - EAST KHASI HILLS
+        - 296717
+      - - JIRANG
+        - RI BHOI
+        - 292876
+      - - MAWRYNGKNENG
+        - EAST KHASI HILLS
+        - 259198
+      - - SHELLA BHOLAGANJ
+        - EAST KHASI HILLS
+        - 237208
+      - - UMSNING
+        - RI BHOI
+        - 230150
+      - - KHATARSHNONG LAITKROH
+        - EAST KHASI HILLS
+        - 209038
+      - - MAWKYNREW
+        - EAST KHASI HILLS
+        - 175199
+      - - MAWLAI
+        - EAST KHASI HILLS
+        - 59439
+      - - MAWPAT
+        - EAST KHASI HILLS
+        - 27594
+      - - MAWHATI
+        - RI BHOI
+        - 13851
+    schemes:
+    - MGNREGA
+    pause: false
+    year: 2023
+    route: data
+  - q: which block has the most?
+    rows:
+    - sql: SELECT lgd_block, SUM(person_days) FROM curated.v_employment WHERE lgd_district IN ('RI BHOI', 'EAST KHASI HILLS')
+        AND year_key = 2023 GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: 1
+      value:
+      - - UMLING
+        - 535875
+      - - MAWPHLANG
+        - 504199
+      - - SOHIONG
+        - 459649
+      - - PYNURSLA
+        - 448203
+      - - BHOIRYMBONG
+        - 408820
+      - - MYLLIEM
+        - 385081
+      - - MAWSYNRAM
+        - 296717
+      - - JIRANG
+        - 292876
+      - - MAWRYNGKNENG
+        - 259198
+      - - SHELLA BHOLAGANJ
+        - 237208
+      - - UMSNING
+        - 230150
+      - - KHATARSHNONG LAITKROH
+        - 209038
+      - - MAWKYNREW
+        - 175199
+      - - MAWLAI
+        - 59439
+      - - MAWPAT
+        - 27594
+      - - MAWHATI
+        - 13851
+    schemes:
+    - MGNREGA
+    pause: false
+    year: 2023
+    route: data
+- id: BD-11
+  cat: drilldown
+  shape: one-district-then-blocks
+  src: drill-down behind an answer (user report 2026-11-15) (Focus Plus blocks on block_name_raw, KI-718)
+  turns:
+  - q: Focus Plus beneficiaries in West Garo Hills
+    figures:
+    - sql: SELECT COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district = 'WEST GARO HILLS'
+      unit: count
+      value: 35039
+    pause: false
+    place: WEST GARO HILLS
+  - q: break it down by block
+    rows:
+    - sql: SELECT UPPER(block_name_raw), COUNT(DISTINCT beneficiary_key) FROM curated.v_focus_plus WHERE lgd_district = 'WEST
+        GARO HILLS' GROUP BY 1 ORDER BY 2 DESC
+      unit: count
+      take: all
+      value:
+      - - TIKRIKILLA
+        - 8744
+      - - SELSELLA
+        - 7691
+      - - RONGRAM
+        - 5331
+      - - DALU
+        - 5138
+      - - DADENGGIRI
+        - 4755
+      - - GAMBEGRE
+        - 1835
+      - - DEMDEMA
+        - 1304
+      - - TURA MUNICIPAL BOARD-MUNICIPAL BOARD
+        - 210
+      - - ZIKZAK
+        - 25
+      - - DAMALGRE
+        - 5
+      - - BETASING
+        - 1
+    schemes:
+    - Focus Plus
+    pause: false
+    place: WEST GARO HILLS
+    route: data
+- id: BD-12
+  cat: drilldown
+  shape: total-then-district-then-block
+  src: drill-down behind an answer (user report 2026-11-15)
+  turns:
+  - q: How many students were paid under CMSS?
+    figures:
+    - sql: SELECT COUNT(*) FROM curated.v_cmss WHERE is_disbursed
+      unit: count
+      value: 98751
+    pause: false
+  - q: break this down by district
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+      take: all
+      value:
+      - - EAST KHASI HILLS
+        - 24932
+      - - WEST JAINTIA HILLS
+        - 12288
+      - - WEST GARO HILLS
+        - 11966
+      - - RI BHOI
+        - 8701
+      - - WEST KHASI HILLS
+        - 6968
+      - - EAST JAINTIA HILLS
+        - 5517
+      - - SOUTH WEST GARO HILLS
+        - 5442
+      - - EASTERN WEST KHASI HILLS
+        - 4724
+      - - NORTH GARO HILLS
+        - 4584
+      - - SOUTH WEST KHASI HILLS
+        - 4555
+      - - EAST GARO HILLS
+        - 4554
+      - - SOUTH GARO HILLS
+        - 4520
+    schemes:
+    - CMSS
+    pause: false
+    route: data
+  - q: which district has the most?
+    rows:
+    - sql: SELECT lgd_district, COUNT(*) FROM curated.v_cmss WHERE is_disbursed AND lgd_district IS NOT NULL GROUP BY 1 ORDER
+        BY 2 DESC
+      unit: count
+      take: 1
+      value:
+      - - EAST KHASI HILLS
+        - 24932
+      - - WEST JAINTIA HILLS
+        - 12288
+      - - WEST GARO HILLS
+        - 11966
+      - - RI BHOI
+        - 8701
+      - - WEST KHASI HILLS
+        - 6968
+      - - EAST JAINTIA HILLS
+        - 5517
+      - - SOUTH WEST GARO HILLS
+        - 5442
+      - - EASTERN WEST KHASI HILLS
+        - 4724
+      - - NORTH GARO HILLS
+        - 4584
+      - - SOUTH WEST KHASI HILLS
+        - 4555
+      - - EAST GARO HILLS
+        - 4554
+      - - SOUTH GARO HILLS
+        - 4520
+    schemes:
+    - CMSS
+    pause: false
+    route: data
+  - q: break it down by block
+    rows:
+    - sql: SELECT lgd_block, lgd_district, COUNT(*) FROM curated.v_cmss WHERE lgd_district IN (SELECT lgd_district FROM curated.v_cmss
+        WHERE lgd_district IS NOT NULL AND is_disbursed GROUP BY lgd_district ORDER BY COUNT(*) DESC, lgd_district LIMIT 1)
+        AND lgd_block IS NOT NULL AND is_disbursed GROUP BY 1, 2 ORDER BY 2, 3 DESC
+      unit: count
+      take: all
+      value:
+      - - MAWLAI
+        - EAST KHASI HILLS
+        - 3008
+      - - MYLLIEM
+        - EAST KHASI HILLS
+        - 2761
+      - - MAWPAT
+        - EAST KHASI HILLS
+        - 2377
+      - - SHILLONG-MUNICIPAL BOARD
+        - EAST KHASI HILLS
+        - 2321
+      - - PYNURSLA
+        - EAST KHASI HILLS
+        - 2268
+      - - MAWRYNGKNENG
+        - EAST KHASI HILLS
+        - 2031
+      - - MAWPHLANG
+        - EAST KHASI HILLS
+        - 1997
+      - - SOHIONG
+        - EAST KHASI HILLS
+        - 1928
+      - - MAWSYNRAM
+        - EAST KHASI HILLS
+        - 1881
+      - - SHELLA BHOLAGANJ
+        - EAST KHASI HILLS
+        - 1857
+      - - MAWKYNREW
+        - EAST KHASI HILLS
+        - 1258
+      - - KHATARSHNONG LAITKROH
+        - EAST KHASI HILLS
+        - 1245
+    schemes:
+    - CMSS
     pause: false
     route: data

@@ -103,6 +103,16 @@ from the two frames) and the inherited filters (`_c18_prior_from_frame`: every p
 frame's; tranche / CM sub-scheme kept) go to the later stages through `session.turn_context` (`plan`, `frame_prior`,
 `frame_edit`).
 
+**The drill-down behind an answer** (`_c18_drill`, 2026-11-15, KI-728; D-110 (b) revised): a regroup after an
+answer about a SET of places keeps them. The set is the ranking's own rows (`items`, recorded from the result's rows
+in `_c18_fill_frame`; as many as the ranking asked for: "Which district has the most" = 1 although the catalogue shows
+3) or a comparison's place list (or, for "by year", a breakdown filtered to a list of districts). A finer place level
+= every block of those districts ("… in A, B and C by block"; the catalogue labels each block with its district and
+keeps the listed order); "by year" = each of them by year ("… by district and by financial year", `split`); the frame
+of that table is group year + `split`, and "only A" / "what about 2023-24" / another measure edit it (a ranking of its
+years is not guessed). Same level or coarser ("by district" after a district ranking) and older frames without
+`items`: as before.
+
 **The catalogue takes the frame** (`_c18_catalogue_from_frame`, called first in `_metric_catalog_query` with
 `d["frame_edit"]`): only when the previous answer was the catalogue's (a `metric_key`), the measure is verified for the
 frame's query type (`data/metric_catalog_verified.yaml`), and the resolver's filters agree with the frame's; else the
